@@ -41,8 +41,11 @@ rules.ninja
 # =============================================================================
 # 3. Linux, Sanitizers & Real-Time Profiling Artifacts
 # =============================================================================
-core
-core.*
+# Якорим дампы в корень репозитория (/core, /core.*), иначе голый паттерн "core"
+# рекурсивно игнорирует любые директории с именем core: include/nexigen/core/,
+# src/core/, tests/core/, openspec/specs/core/ и т.д.
+/core
+/core.*
 vgcore.*
 perf.data
 perf.data.old
