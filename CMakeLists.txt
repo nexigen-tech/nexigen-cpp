@@ -29,4 +29,33 @@ target_include_directories(nexigen_options INTERFACE
     $<INSTALL_INTERFACE:include>
 )
 
+# =============================================================================
+# nexigen::core — header-only библиотека.
+# Публичные заголовки лежат в include/, компиляции нет: флаги и стандарт
+# наследуются от nexigen_options (единственный источник настроек компилятора).
+# =============================================================================
+add_library(nexigen_core INTERFACE)
+add_library(nexigen::core ALIAS nexigen_core)
+
+target_include_directories(nexigen_core INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_compile_features(nexigen_core INTERFACE cxx_std_23)
+target_link_libraries(nexigen_core INTERFACE nexigen_options)
+
+# clock_gettime()/CLOCK_MONOTONIC_RAW на Linux: явно запрашиваем POSIX-объявления,
+# чтобы строгий -std=c++23 (без _GNU_SOURCE) их не скрывал. См. design.md D2.
+target_compile_definitions(nexigen_core INTERFACE $<$<PLATFORM_ID:Linux>:_POSIX_C_SOURCE=200809L>)
+
+# =============================================================================
+# Юнит-тесты (по умолчанию включены; отключаются -DNEXIGEN_BUILD_TESTS=OFF)
+# =============================================================================
+option(NEXIGEN_BUILD_TESTS "Build nexigen unit tests" ON)
+
+if(NEXIGEN_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
 message(STATUS "⚡ nexigen-cpp configured [Build type: ${CMAKE_BUILD_TYPE}]")

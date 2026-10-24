@@ -71,7 +71,7 @@ public:
     [[nodiscard]] constexpr auto operator<=>(const Timestamp&) const = default;
 
     [[nodiscard]] constexpr Timestamp operator+(std::uint64_t offset) const noexcept;  // deadline arithmetic
-    [[nodiscard]] constexpr Timestamp operator-(std::uint64_t offset) const noexcept;
+    [[nodiscard]] constexpr Timestamp operator-(std::uint64_t offset) const noexcept;  // deadline arithmetic, saturating at 0
     [[nodiscard]] constexpr Timestamp operator-(const Timestamp& earlier) const noexcept; // elapsed, saturating at 0
 
 private:
@@ -83,7 +83,7 @@ private:
 - Field is private with an accessor rather than a public aggregate member, to honour the `snake_case_` private-field mandate and to keep the invariant (a nanosecond count, not a unit-free integer) from being silently reinterpreted. Still trivially copyable, still 8 bytes, still passed in a register.
 - `now()` returns `Result<Timestamp>` so a `clock_gettime` failure surfaces as `ErrorCode::SystemError` instead of a silent zero - the zero-Timestamp sentinel was rejected because it is indistinguishable from a legitimate clock value at the epoch of the monotonic domain and would let failures propagate silently into deadline math. Cost: one branch, no allocation.
 - Defaulted `operator<=>` (C++23) provides `==` and total ordering from the single `ns_` member; used for deadline comparisons with no floating point anywhere.
-- The delta of `a - b` is a `Timestamp` (a nanosecond count) and **saturates at 0** when `b > a`, because unsigned wrap-around would otherwise hand the caller a ~584-year interval. Documented at the declaration.
+- Both subtraction forms **saturate at 0** rather than wrapping: `Timestamp - Timestamp` (an elapsed `Timestamp`-valued delta) when `b > a`, and `Timestamp - offset` when `offset > ns_`. Unsigned wrap-around would otherwise hand the caller a ~584-year interval from a clock-ordering bug instead of a detectable zero, and `Timestamp{0} - large_offset` must not yield `UINT64_MAX`. Both are documented at the declarations and pinned by the timestamp test suite (`core_test.cpp:199` for the offset form).
 - Conversion math, written to survive `-Wsign-conversion`/`-Wconversion`/`-Wold-style-cast`:
 
 ```cpp
