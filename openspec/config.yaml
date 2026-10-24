@@ -1,0 +1,29 @@
+schema: spec-driven
+
+context: |
+  Project: nexigen-cpp — Ultra-high-performance, cross-platform C++23 core library for real-time systems and HIL simulator platforms.
+  Target Environment: Ubuntu 26.04 LTS (GCC 15.2+ / Clang 18+, CMake 3.25+, Ninja).
+
+  Namespace & Directory Mapping:
+  - nexigen::core    -> include/nexigen/core/, src/core/, tests/core/
+  - nexigen::logging -> include/nexigen/logging/, src/logging/, tests/logging/
+  - nexigen::metrics -> include/nexigen/metrics/, src/metrics/, tests/metrics/
+
+  Strict Real-Time Architectural Mandates (Hot Path):
+  1. Language Standard: C++23 (-std=c++23), no compiler extensions.
+  2. No Exceptions & No RTTI: Global -fno-exceptions and -fno-rtti flags are enforced in CMake. Never use try/catch/throw, dynamic_cast, or typeid.
+  3. Error Handling: Use C++23 std::expected<T, E> (aliased as nexigen::core::Result<T, E>). Never call .value() (triggers std::abort under -fno-exceptions); always check .has_value() and dereference via *res or res->.
+  4. Zero Heap Allocations on Hot Paths: No new, delete, malloc, or dynamic container resizing in runtime loops. Pre-allocate all memory during initialization.
+  5. Lock-Free & Wait-Free Concurrency: No std::mutex or blocking primitives on hot paths. Use std::atomic with explicit std::memory_order (relaxed, acquire, release). Prevent False Sharing by aligning shared atomic indices to cache lines: alignas(64).
+  6. Linux High-Res Timers: Use clock_gettime(CLOCK_MONOTONIC_RAW) for nanosecond timestamps.
+  7. Naming Style: PascalCase for types/enums/concepts; snake_case for functions/variables; trailing underscore snake_case_ for private fields. Aggressively use noexcept, constexpr, and [[nodiscard]].
+
+rules:
+  proposal:
+    - Explicitly state the performance and memory-allocation impact of the change.
+  specs:
+    - Every requirement MUST include testable scenarios using WHEN/THEN steps.
+  design:
+    - Specify exact memory layout (alignas(64)) and std::memory_order choices for any concurrent/atomic component.
+  tasks:
+    - Always include a task to compile and pass unit tests under Release (-O3 -flto) and ThreadSanitizer (-DNEXIGEN_ENABLE_TSAN=ON).
