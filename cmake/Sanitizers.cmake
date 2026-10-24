@@ -1,0 +1,22 @@
+option(NEXIGEN_ENABLE_ASAN "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(NEXIGEN_ENABLE_TSAN "Enable ThreadSanitizer (for lock-free concurrency tests)" OFF)
+
+function(nexigen_set_sanitizers target_name)
+    if(NEXIGEN_ENABLE_ASAN AND NEXIGEN_ENABLE_TSAN)
+        message(FATAL_ERROR "❌ Cannot enable both ASan and TSan at the same time! Choose one.")
+    endif()
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        if(NEXIGEN_ENABLE_ASAN)
+            message(STATUS "🛡️ Building with AddressSanitizer (ASan) + UBSan")
+            target_compile_options(${target_name} INTERFACE -fsanitize=address,undefined -fno-omit-frame-pointer -g)
+            target_link_options(${target_name} INTERFACE -fsanitize=address,undefined)
+        endif()
+
+        if(NEXIGEN_ENABLE_TSAN)
+            message(STATUS "🧵 Building with ThreadSanitizer (TSan)")
+            target_compile_options(${target_name} INTERFACE -fsanitize=thread -g)
+            target_link_options(${target_name} INTERFACE -fsanitize=thread)
+        endif()
+    endif()
+endfunction()

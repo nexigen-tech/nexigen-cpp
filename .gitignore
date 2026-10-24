@@ -1,19 +1,75 @@
-CMakeLists.txt.user
+# =============================================================================
+# 1. CMake & Ninja Build Artifacts
+# =============================================================================
+build/
+out/
+cmake-build-*/
+CMakeFiles/
 CMakeCache.txt
-CMakeFiles
-CMakeScripts
-Testing
-Makefile
 cmake_install.cmake
-install_manifest.txt
-compile_commands.json
 CTestTestfile.cmake
-_deps
-CMakeUserPresets.json
+compile_commands.json
+install_manifest.txt
+*.cmake.in
+.ninja_deps
+.ninja_log
+build.ninja
+rules.ninja
 
-# CLion
-#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#  and can be added to the global gitignore or merged into this file.  For a more nuclear
-#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#cmake-build-*
+# =============================================================================
+# 2. Compiled C++ Binaries & Object Files
+# =============================================================================
+*.o
+*.obj
+*.lo
+*.slo
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+*.dwo
+*.dwp
+*.gcno
+*.gcda
+*.gcov
+
+# =============================================================================
+# 3. Linux, Sanitizers & Real-Time Profiling Artifacts
+# =============================================================================
+core
+core.*
+vgcore.*
+perf.data
+perf.data.old
+*.profraw
+*.profdata
+asan.log*
+tsan.log*
+ubsan.log*
+
+# =============================================================================
+# 4. IDE, Editors & AI Caches (VS Code, CLion, Cursor, Vim)
+# =============================================================================
+.vscode/
+.idea/
+.cursor/
+.cache/
+.clangd/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# =============================================================================
+# 5. Package Managers (if used later)
+# =============================================================================
+vcpkg_installed/
+conanbuildinfo.*
+conaninfo.txt
+CMakeUserPresets.json

@@ -14,3 +14,17 @@ The backbone of the **nexigen** ecosystem — an ultra-high performance C++20 co
 
 ## 📄 License
 Distributed under the **MIT License**. Created by Vasily Kovrigin.
+
+
+У вас появилось 3 режима сборки для разных задач:
+1. Боевая сборка для Real-Time (Максимальная скорость):bash
+cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/release
+Используйте код с осторожностью.
+2. Проверка lock-free очередей и атомиков на гонки (ThreadSanitizer):bash
+cmake -B build/tsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DNEXIGEN_ENABLE_TSAN=ON
+cmake --build build/tsan
+Используйте код с осторожностью.
+3. Проверка утечек памяти и выхода за границы массивов (AddressSanitizer):bash
+cmake -B build/asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_ASAN=ON
+cmake --build build/asan
