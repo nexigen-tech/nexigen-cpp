@@ -119,13 +119,23 @@ target_compile_definitions(nexigen_logging PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SO
 target_link_libraries(nexigen_logging PUBLIC nexigen_core nexigen_chrono PRIVATE Threads::Threads)
 
 # =============================================================================
-# Юнит-тесты (по умолчанию включены; отключаются -DNEXIGEN_BUILD_TESTS=OFF)
+# Опции сборки: юнит-тесты и runnable-примеры (включены по умолчанию).
+# enable_testing() поднимаем на уровень обеих веток: ctest должен видеть
+# примеры даже при -DNEXIGEN_BUILD_TESTS=OFF.
 # =============================================================================
 option(NEXIGEN_BUILD_TESTS "Build nexigen unit tests" ON)
+option(NEXIGEN_BUILD_EXAMPLES "Build nexigen runnable examples" ON)
+
+if(NEXIGEN_BUILD_TESTS OR NEXIGEN_BUILD_EXAMPLES)
+    enable_testing()
+endif()
 
 if(NEXIGEN_BUILD_TESTS)
-    enable_testing()
     add_subdirectory(tests)
+endif()
+
+if(NEXIGEN_BUILD_EXAMPLES)
+    add_subdirectory(examples)
 endif()
 
 message(STATUS "⚡ nexigen-cpp configured [Build type: ${CMAKE_BUILD_TYPE}]")

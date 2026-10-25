@@ -303,19 +303,47 @@ cmake --build build/asan
 ctest --test-dir build/asan --output-on-failure
 ```
 
+## 🧪 Runnable Examples
+
+Self-contained executables demonstrating the public API end to end. They build by
+default (`NEXIGEN_BUILD_EXAMPLES=ON`); pass `-DNEXIGEN_BUILD_EXAMPLES=OFF` at configure
+time to exclude them entirely.
+
+```bash
+cmake -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/debug
+```
+
+Run them directly from the build tree (the logging examples write to
+`/tmp/nexigen-examples-logs/`):
+
+```bash
+./build/debug/examples/core/ex_spsc_ring_buffer
+./build/debug/examples/logging/ex_console_logger
+./build/debug/examples/logging/ex_file_logger
+./build/debug/examples/logging/ex_composite_logger
+```
+
+* **`ex_spsc_ring_buffer`** — a two-thread telemetry pipeline over
+  `SpscRingBuffer<TelemetryPacket, 1024>`: wait-free `try_push`/`try_pop` with classified
+  `BufferFull`/`BufferEmpty` outcomes (`has_value()` / `.error()`, never `.value()`),
+  direct `std::format` output of `ErrorCode`, and a final `to_string()` queue summary.
+* **`ex_console_logger`** — `ConsoleLogger<>` with several `std::jthread` producers across
+  all six severities, runtime `set_level()` filtering, direct `LogLevel` formatting,
+  `flush()`, and `dropped()` / `to_string()` diagnostics.
+* **`ex_file_logger`** — `FileLogger<>` writing JSON lines with hourly rotation, CPU core
+  pinning, a throttle budget, and a UTF-8 Cyrillic message; the example then reads the
+  generated JSONL file back and verifies it.
+* **`ex_composite_logger`** — `CompositeLogger<ConsoleLogger<>, FileLogger<>, NullLogger>`
+  with global `set_level()` fan-out, per-sink configuration through `get<Type>()` /
+  `get<Index>()`, multi-threaded logging, and one unified `flush()`.
+
+Every example is also registered as a CTest smoke test (label `examples`): each must run
+to completion and exit with status 0.
+
+```bash
+ctest --test-dir build/debug -L examples --output-on-failure
+```
+
 ## 📄 License
 Distributed under the **MIT License**. Created by Vasily Kovrigin.
-
-
-У вас появилось 3 режима сборки для разных задач:
-1. Боевая сборка для Real-Time (Максимальная скорость):bash
-cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build/release
-Используйте код с осторожностью.
-2. Проверка lock-free очередей и атомиков на гонки (ThreadSanitizer):bash
-cmake -B build/tsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DNEXIGEN_ENABLE_TSAN=ON
-cmake --build build/tsan
-Используйте код с осторожностью.
-3. Проверка утечек памяти и выхода за границы массивов (AddressSanitizer):bash
-cmake -B build/asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_ASAN=ON
-cmake --build build/asan
