@@ -112,6 +112,134 @@ int main() {
 }
 ```
 
+## 📡 `nexigen::logging` API
+
+Zero-virtual logging built on the `concepts::Logger` structural contract (`set_level`/`level`,
+`log(LogLevel, std::source_location, std::string_view) noexcept -> Status`, the six
+conveniences with the defaulted `std::source_location::current()`, and `flush()`).
+Link `nexigen::logging` (alias of `nexigen_logging`) and include what you use:
+
+* **`<nexigen/logging/log_level.hpp>`** — `LogLevel` (`Verbose..Fatal, Off`, declared in
+  severity order so relational `<` *is* the ordering) and constexpr lowercase `to_string`.
+  The runtime threshold is one relaxed-atomic cell per logger: `level()` is a snapshot, and
+  a filtered call ends in ≈ 1 ns without touching the ring.
+* **`<nexigen/logging/log_record.hpp>`** — `LogRecord<Message_capacity = 128>`: the fixed
+  192-byte `alignas(64)` trivially-copyable payload crossing the SPSC boundary — calibrated
+  monotonic-ns stamp, cached `SYS_gettid` thread id, extracted source-location fields, and
+  an inline message buffer (truncation flagged, never spilled to the heap).
+* **`<nexigen/logging/null_logger.hpp>`** — `NullLogger`: the zero-cost stub; at `-O1+`
+  nothing survives into the emitted code (objdump-pinned by the tests).
+* **`<nexigen/logging/console_logger.hpp>`** — `ConsoleLogger<Capacity = 4096, Message_capacity = 128>`:
+  asynchronous wait-free plain-text sink; Verbose/Debug/Info → stdout, Warning and above →
+  stderr, via raw `::write` (never `std::cout`/`printf`, which allocate).
+* **`<nexigen/logging/file_logger.hpp>`** — `FileLogger<Ring_capacity = 8192, Message_capacity = 128>`:
+  asynchronous wait-free JSON-lines writer with a CPU-pinned worker (`core_mask`), lock-free
+  windowed throttling with per-cause drop counters and automatic drop-summary records, and
+  hitch-free Hourly/Daily/Custom directory rotation. Wall time is UTC ISO-8601 with
+  nanoseconds, `CLOCK_REALTIME`↔`CLOCK_MONOTONIC_RAW` calibrated at init and re-sampled on
+  rotation/flush.
+* **`<nexigen/logging/composite_logger.hpp>`** — `CompositeLogger<Loggers...>`: variadic
+  fan-out over a `std::tuple` with fold expressions, `get<Index>()`/`get<LoggerType>()`
+  sub-logger access, no virtual dispatch; composites nest and the empty pack is valid.
+
+**Hot-path rules:** exactly **one producer thread per logger instance** (the SPSC contract
+of `core::SpscRingBuffer` — a second producer is undefined use, not a degraded mode; deploy
+one logger per producer thread and join sinks with `CompositeLogger`). An accepted enqueue
+measures ≤ 20 ns median (Release-gated); a filtered call ≈ 1 ns. Neither ever blocks,
+spins, locks, or allocates, and neither notices the consumer: a full ring answers
+`BufferFull` immediately. Cross-thread `set_level`/`level`/`dropped`/`pending`/`writer_*`
+are relaxed **snapshots** — diagnostics and configuration, never synchronization.
+`flush()` is a control-plane barrier **outside** the never-block guarantee: it waits until
+every record accepted before the call is written (and `fsync`-ed for the file sink).
+
+Drop semantics (the `Status` returned by `log()` and the conveniences):
+
+| Result | Meaning |
+|---|---|
+| `OK` (`{}`) | record accepted into the ring — **or** filtered below the active level (filtering is normal operation, never a loss) |
+| `BufferFull` | ring full: the record was not enqueued; counted in `dropped().buffer_full` |
+| `RateLimited` | throttle budget spent for the window; counted in `dropped().rate_limited`; the next window opens with a drop-summary record reporting exact per-cause counts |
+
+Usage example (console + file in a composite, pinned writer, level changes):
+
+```cpp
+#include <nexigen/logging/composite_logger.hpp>
+#include <nexigen/logging/console_logger.hpp>
+#include <nexigen/logging/file_logger.hpp>
+#include <nexigen/logging/log_level.hpp>
+
+int main() {
+    using namespace nexigen::logging;
+
+    // One static composite owns both sinks (static storage: the rings are
+    // non-movable). initialize() is the pre-real-time phase: it calibrates
+    // clocks and starts each logger's background writer thread.
+    static CompositeLogger<ConsoleLogger<>, FileLogger<>> app{};
+
+    FileLogger_config file_cfg{};
+    file_cfg.app_name = "hil-demo";
+    file_cfg.base_dir = "/tmp/hil-logs";
+    file_cfg.file_name = "sim.jsonl";
+    file_cfg.initial_level = LogLevel::Info;
+    file_cfg.rotation.kind = Rotation_schedule::Hourly;
+    file_cfg.core_mask = 0x1ULL; // pin the JSON writer thread to core 0
+
+    if (!app.get<ConsoleLogger<>>().initialize({}).has_value()) { return 1; }
+    if (!app.get<FileLogger<>>().initialize(file_cfg).has_value()) { return 1; }
+
+    // One set_level call re-thresholds the whole tree...
+    app.set_level(LogLevel::Info);
+    // ...and per-sink policy stays available through the typed accessor:
+    app.get<FileLogger<>>().set_level(LogLevel::Warning); // file keeps Warning+
+
+    // Single producer thread = the simulation loop calling through `app`:
+    static_cast<void>(app.info("1 kHz loop heartbeat"));     // console only
+    static_cast<void>(app.error("actuator position drift")); // console + file
+
+    // Control plane: wait until everything accepted so far is durable
+    // (never call this from the real-time producer path).
+    if (!app.flush().has_value()) { return 1; }
+    return 0;
+}
+```
+
+### Running the `nexigen::logging` unit tests
+
+All four build modes must report `100% tests passed` (the numeric ≤ 20 ns latency gate is
+Release-only; correctness runs everywhere).
+
+Debug (development: `-g`, assertions, no numeric gates):
+
+```bash
+cmake -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/debug
+ctest --test-dir build/debug --output-on-failure
+```
+
+Release (production flags: `-O3 -march=native` + LTO; enables the latency gates):
+
+```bash
+cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/release
+ctest --test-dir build/release --output-on-failure
+```
+
+ThreadSanitizer (data-race check for the relaxed level/throttle/flush patterns):
+
+```bash
+cmake -B build/tsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DNEXIGEN_ENABLE_TSAN=ON
+cmake --build build/tsan
+ctest --test-dir build/tsan --output-on-failure
+```
+
+AddressSanitizer/UBSan (zero-allocation and fixed-buffer safety proof):
+
+```bash
+cmake -B build/asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_ASAN=ON
+cmake --build build/asan
+ctest --test-dir build/asan --output-on-failure
+```
+
 ## 📄 License
 Distributed under the **MIT License**. Created by Vasily Kovrigin.
 

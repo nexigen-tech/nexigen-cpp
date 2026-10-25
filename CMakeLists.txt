@@ -49,6 +49,29 @@ target_link_libraries(nexigen_core INTERFACE nexigen_options)
 target_compile_definitions(nexigen_core INTERFACE $<$<PLATFORM_ID:Linux>:_POSIX_C_SOURCE=200809L>)
 
 # =============================================================================
+# nexigen::logging — компилируемая библиотека: публичные заголовки в include/,
+# холодные потребительские юниты (форматирование, калибровка, аффинность,
+# ротация) в src/logging/. Горячий путь остаётся inline в заголовках (design D1).
+# _GNU_SOURCE нужен cpu_set_t/pthread_setaffinity_np/syscall(SYS_gettid) в
+# строгом -std=c++23; он расширяет (не сужает) _POSIX_C_SOURCE от nexigen_core.
+# =============================================================================
+find_package(Threads REQUIRED)
+
+file(GLOB NEXIGEN_LOGGING_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/logging/*.cpp")
+
+add_library(nexigen_logging STATIC ${NEXIGEN_LOGGING_SOURCES})
+add_library(nexigen::logging ALIAS nexigen_logging)
+
+target_include_directories(nexigen_logging PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_compile_definitions(nexigen_logging PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+# Флаги/-Werror/санитайзеры и cxx_std_23 приходят транзитивно от nexigen_core
+# (её INTERFACE -> nexigen_options); потоки нужны только для холодных юнитов.
+target_link_libraries(nexigen_logging PUBLIC nexigen_core PRIVATE Threads::Threads)
+
+# =============================================================================
 # Юнит-тесты (по умолчанию включены; отключаются -DNEXIGEN_BUILD_TESTS=OFF)
 # =============================================================================
 option(NEXIGEN_BUILD_TESTS "Build nexigen unit tests" ON)
