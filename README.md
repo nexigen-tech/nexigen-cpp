@@ -53,10 +53,6 @@ Header-only, C++23, no exceptions/RTTI, no heap allocation on hot paths. Link th
   `BufferEmpty`, `InvalidArgument`, `SystemError`, `NotInitialized`), `constexpr to_string`,
   and `Result<T, E = ErrorCode>` / `Status` over `std::expected`. Branch on `has_value()`
   and read via `*res` / `.error()` — never `value()` (it aborts under `-fno-exceptions`).
-* **`<nexigen/core/timestamp.hpp>`** — `Timestamp`, a trivially copyable 8-byte
-  nanosecond instant from `clock_gettime(CLOCK_MONOTONIC_RAW)`. Total ordering,
-  saturating subtraction, deadline arithmetic. `Timestamp::now()` returns
-  `Result<Timestamp>` — a failed clock read is `SystemError`, never a silent zero.
 * **`<nexigen/core/spsc_ring_buffer.hpp>`** — `SpscRingBuffer<T, Capacity>`, a
   wait-free bounded SPSC queue. **Contract:** exactly one producer thread calling
   `try_push` and exactly one consumer thread calling `try_pop`; any other topology
@@ -111,6 +107,32 @@ int main() {
     return (sent == k_count && received == k_count && order_violations == 0) ? 0 : 1;
 }
 ```
+
+## 📡 `nexigen::chrono` API
+
+Shared time primitives for the whole ecosystem (`include/nexigen/chrono/`, `src/chrono/`,
+`tests/chrono/`). Link `nexigen::chrono` (alias of `nexigen_chrono`; it links `nexigen::core`
+transitively — the error model stays in core). Hot paths remain inline, allocation-free and
+lock-free; the compiled units are cold-path only.
+
+* **`<nexigen/chrono/timestamp.hpp>`** — `Timestamp`, a trivially copyable 8-byte
+  nanosecond instant from `clock_gettime(CLOCK_MONOTONIC_RAW)`. Total ordering,
+  saturating subtraction, deadline arithmetic. `Timestamp::now()` returns
+  `core::Result<Timestamp>` — a failed clock read is `SystemError`, never a silent zero.
+* **`<nexigen/chrono/stamp_source.hpp>`** — `Stamp_source`: a producer-owned,
+  single-cache-line monotonic nanosecond clock. `calibrate()` (cold, sleeps ~2 ms) samples
+  the TSC↔nanosecond scale once on x86-64; the inline `sample()` hot path then costs a
+  multiply-shift — no syscall — with a per-source clamp that never lets stamps regress and
+  a `Timestamp::now()` fallback on other targets. `sample_utc_offset()` snapshots the
+  `CLOCK_REALTIME − CLOCK_MONOTONIC_RAW` offset on cold paths; `utc_from_mono_ns()`
+  converts a record stamp to UTC ns on the consumer thread (never `CLOCK_REALTIME` on
+  the hot path).
+* **`<nexigen/chrono/time_format.hpp>`** — allocation-free UTC civil math: `Civil_time`,
+  `days_from_utc_ns`, `civil_from_utc_ns` (Howard Hinnant's civil_from_days, correct for
+  the pre-epoch negative domain), and `format_utc_iso8601_ns` rendering exactly
+  `YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ` (30 chars + NUL into a caller-owned `char (&)[31]`,
+  years clamped so the buffer can never overflow). No `gmtime_r`, no timezone or locale
+  state.
 
 ## 📡 `nexigen::logging` API
 

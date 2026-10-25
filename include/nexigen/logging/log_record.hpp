@@ -13,7 +13,7 @@
 // process lifetime.
 //
 // Pinned layout for MessageCapacity = 128 (sizeof == 192 == 3 cache lines):
-//   0   stamp          core::Timestamp   monotonic ns domain (design D6)
+//   0   stamp          chrono::Timestamp monotonic ns domain (design D6)
 //   8   thread_id      uint32            cached SYS_gettid (design D5)
 //   12  level          LogLevel (u8)     severity
 //   13  flags          uint8             bit0 = message truncated
@@ -45,7 +45,7 @@
 #include <string_view>
 #include <type_traits>
 
-#include <nexigen/core/timestamp.hpp>
+#include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/logging/log_level.hpp>
 
 namespace nexigen::logging {
@@ -84,7 +84,7 @@ struct alignas(64) LogRecord {
         return (flags & flag_truncated) != 0U;
     }
 
-    core::Timestamp stamp{};                          ///< monotonic nanoseconds
+    chrono::Timestamp stamp{};                        ///< monotonic nanoseconds
     std::uint32_t thread_id{};                        ///< cached SYS_gettid
     LogLevel level{LogLevel::Info};                   ///< severity
     std::uint8_t flags{};                             ///< bit0: truncated

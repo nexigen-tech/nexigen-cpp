@@ -1,4 +1,6 @@
-// nexigen::logging — civil-time + ISO-8601 formatting (design.md D10/D11).
+// nexigen::chrono — civil-time + ISO-8601 formatting (logging design.md
+// D10/D11, relocated out of nexigen::logging::detail by the
+// extract-chrono-module change).
 //
 // The background consumer renders record timestamps WITHOUT libc time
 // helpers: gmtime_r touches process-wide timezone state and timegm() is
@@ -12,7 +14,7 @@
 
 #include <cstdint>
 
-namespace nexigen::logging::detail {
+namespace nexigen::chrono {
 
 /// Broken-down UTC time.
 struct Civil_time {
@@ -36,4 +38,4 @@ struct Civil_time {
 /// the buffer — see test fixtures).
 void format_utc_iso8601_ns(std::int64_t utc_ns, char (&buf)[31]) noexcept;
 
-} // namespace nexigen::logging::detail
+} // namespace nexigen::chrono

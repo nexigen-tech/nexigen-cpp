@@ -111,7 +111,7 @@ with the timestamp formatted as `YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ` (e.g. `2026-07-
 
 ### Requirement: Nanosecond UTC timestamps via calibrated clocks
 
-`FileLogger` SHALL calibrate the offset between `CLOCK_REALTIME` and `CLOCK_MONOTONIC_RAW` at initialization; the writer thread SHALL convert each record's monotonic timestamp through that calibration to produce the UTC ISO-8601 value with nanosecond digits, without calling `CLOCK_REALTIME` on the hot path.
+`FileLogger` SHALL calibrate the offset between `CLOCK_REALTIME` and `CLOCK_MONOTONIC_RAW` at initialization through `nexigen::chrono`'s UTC-offset calibration, and the writer thread SHALL convert each record's monotonic timestamp through that calibration to produce the UTC ISO-8601 value with nanosecond digits using `nexigen::chrono`'s time formatting, without calling `CLOCK_REALTIME` on the hot path.
 
 #### Scenario: File timestamps track wall time
 

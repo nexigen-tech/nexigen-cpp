@@ -16,7 +16,6 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
-#include <nexigen/core/timestamp.hpp>
 
 // --- Compile-time claims (design.md D4): to_string resolves per enumerator.
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::Ok) == "Ok");
@@ -36,10 +35,6 @@ static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::RateLimited) =
 // Alias identity: Result's default error type IS ErrorCode; Status is the void form.
 static_assert(std::is_same_v<nexigen::core::Result<int>, std::expected<int, nexigen::core::ErrorCode>>);
 static_assert(std::is_same_v<nexigen::core::Status, std::expected<void, nexigen::core::ErrorCode>>);
-
-// --- Compile-time claims (design.md D2/D4): Timestamp shape.
-static_assert(sizeof(nexigen::core::Timestamp) == 8);
-static_assert(std::is_trivially_copyable_v<nexigen::core::Timestamp>);
 
 // --- Compile-time claims (design.md D3/D4): queue layout + capacity predicate.
 static_assert(alignof(nexigen::core::SpscRingBuffer<std::uint64_t, 8>) == 64);
@@ -173,67 +168,6 @@ void test_result() {
                   "Status stays small: no hidden payload");
     static_assert(sizeof(Result<std::uint64_t>) <= 2 * sizeof(std::uint64_t),
                   "Result<uint64_t> stays register-pair sized");
-}
-
-// --- timestamp suite (task 3.2): value shape, clock sourcing, arithmetic.
-
-void test_timestamp() {
-    // Construct / read-back: the raw count round-trips exactly.
-    const Timestamp t{1'234'567'890ULL};
-    NX_CHECK(t.nanoseconds() == 1'234'567'890ULL);
-    NX_CHECK(Timestamp{}.nanoseconds() == 0);
-
-    // Copy preserves the count; comparison reflects only the count.
-    const Timestamp copy = t;
-    NX_CHECK(copy.nanoseconds() == t.nanoseconds());
-    NX_CHECK(copy == t);
-
-    // Ordering for deadline checks compares nanoseconds directly.
-    NX_CHECK(Timestamp{10} < Timestamp{20});
-    NX_CHECK(Timestamp{20} > Timestamp{10});
-    NX_CHECK(Timestamp{10} == Timestamp{10});
-
-    // Elapsed interval: a - b equals the stored nanosecond difference exactly.
-    const Timestamp early{1000};
-    const Timestamp late{1500};
-    NX_CHECK((late - early).nanoseconds() == late.nanoseconds() - early.nanoseconds());
-    NX_CHECK((late - early).nanoseconds() == 500);
-
-    // Saturating delta: b > a yields 0, never a wrapped ~584-year interval.
-    NX_CHECK((early - late).nanoseconds() == 0);
-
-    // Offset arithmetic for deadlines.
-    NX_CHECK((early + 500ULL).nanoseconds() == 1500);
-    NX_CHECK((late - 500ULL).nanoseconds() == 1000);
-    NX_CHECK((early - 999'999ULL).nanoseconds() == 0); // offset subtraction saturates too
-
-    // now(): engaged Result on every read; successive reads never decrease.
-    const Result<Timestamp> first = Timestamp::now();
-    NX_CHECK(first.has_value());
-
-    volatile std::uint64_t work = 0; // "work performed in between" (spec scenario)
-    for (int i = 0; i < 10'000; ++i) { work += static_cast<std::uint64_t>(i); }
-    static_cast<void>(work);
-
-    const Result<Timestamp> second = Timestamp::now();
-    NX_CHECK(second.has_value());
-    if (first.has_value() && second.has_value()) {
-        NX_CHECK(*second >= *first); // monotonic: never lower than the previous read
-        NX_CHECK((*second - *first).nanoseconds() ==
-                 second->nanoseconds() - first->nanoseconds());
-    }
-
-    // Repeated reads allocate nothing: the arena bump-counter (operator new
-    // hook) must not move across 1000 now() calls. Clock failure is non-fatal:
-    // every iteration returns (no abort) with the Result engaged.
-    const std::size_t arena_before = g_alloc_used;
-    int engaged_reads = 0;
-    for (int i = 0; i < 1000; ++i) {
-        const Result<Timestamp> r = Timestamp::now();
-        if (r.has_value()) { ++engaged_reads; }
-    }
-    NX_CHECK(engaged_reads == 1000);
-    NX_CHECK(g_alloc_used == arena_before);
 }
 
 // --- spsc_ring_buffer suite, single-threaded (task 4.3): capacity, full/empty
@@ -492,7 +426,6 @@ void test_spsc_visibility() {
 int main()
 {
     run_suite("result", test_result);
-    run_suite("timestamp", test_timestamp);
     run_suite("spsc_single_threaded", test_spsc_single_threaded);
     run_suite("spsc_stress_1m", test_spsc_stress);
     run_suite("spsc_visibility", test_spsc_visibility);

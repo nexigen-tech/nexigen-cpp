@@ -1,4 +1,5 @@
-// nexigen::logging — hot-path monotonic stamp source (design.md D6).
+// nexigen::chrono — hot-path monotonic stamp source (logging design.md D6,
+// relocated out of nexigen::logging::detail by the extract-chrono-module change).
 //
 // Requirement 6 allows "monotonic Timestamp (or calibrated TSC)". A fresh
 // clock_gettime per record is not an option: the vDSO call alone measures
@@ -18,9 +19,9 @@
 // microsecond lag between the anchor pair's reads.
 //
 // On non-x86 targets `calibrated` stays false and every sample pays one
-// core::Timestamp::now(); correctness first, the ns budget there is the
-// platform's (design R3). A clock failure returns the previous stamp — the
-// hot path never surfaces a stale-zero or a terminating call.
+// Timestamp::now(); correctness first, the ns budget there is the platform's
+// (logging design R3). A clock failure returns the previous stamp — the hot
+// path never surfaces a stale-zero or a terminating call.
 //
 // The object is written exclusively by the producer thread (single-producer
 // contract); alignment keeps it off neighbouring hot cells.
@@ -31,13 +32,13 @@
 #include <expected>
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/core/timestamp.hpp>
+#include <nexigen/chrono/timestamp.hpp>
 
 #if defined(__x86_64__)
 #include <x86intrin.h> // __rdtsc — an intrinsic, not a language extension
 #endif
 
-namespace nexigen::logging::detail {
+namespace nexigen::chrono {
 
 /// Producer-owned monotonic nanosecond clock. class (not struct): the fields
 /// are implementation state; sample()/calibrate() are the whole interface.
@@ -52,11 +53,11 @@ public:
     /// Cold path (initialize time): sample the tick↔nanosecond scale.
     /// Returns SystemError if either clock read fails. Non-x86: verifies the
     /// clock once and leaves the fast path disarmed. Defined in
-    /// src/logging/clock_calibration.cpp because it sleeps.
+    /// src/chrono/clock_calibration.cpp because it sleeps.
     [[nodiscard]] core::Status calibrate() noexcept;
 
     /// Hot path: next monotonic timestamp, non-decreasing per source object.
-    [[nodiscard]] core::Timestamp sample() noexcept {
+    [[nodiscard]] Timestamp sample() noexcept {
 #if defined(__x86_64__)
         if (calibrated_) {
             const std::uint64_t ticks = __rdtsc();
@@ -68,14 +69,14 @@ public:
             std::uint64_t ns = mono_anchor_ns_ + ((delta * scale_) >> 20);
             if (ns < last_ns_) { ns = last_ns_; }
             last_ns_ = ns;
-            return core::Timestamp{ns};
+            return Timestamp{ns};
         }
 #endif
-        const core::Result<core::Timestamp> now = core::Timestamp::now();
+        const core::Result<Timestamp> now = Timestamp::now();
         std::uint64_t ns = now ? now->nanoseconds() : last_ns_;
         if (ns < last_ns_) { ns = last_ns_; }
         last_ns_ = ns;
-        return core::Timestamp{ns};
+        return Timestamp{ns};
     }
 
 private:
@@ -111,10 +112,11 @@ private:
 
 static_assert(sizeof(Stamp_source) <= 64, "stamp source must own one cache line");
 
-/// Snapshot the offset such that utc_ns ≈ monotonic_ns + offset (design D10).
-/// Cold path (initialize / rotation boundary / flush hook): two clock reads,
-/// no allocation. The producer never calls CLOCK_REALTIME — conversion to
-/// UTC happens on the consumer thread through this offset snapshot.
+/// Snapshot the offset such that utc_ns ≈ monotonic_ns + offset (logging
+/// design D10). Cold path (initialize / rotation boundary / flush hook): two
+/// clock reads, no allocation. The producer never calls CLOCK_REALTIME —
+/// conversion to UTC happens on the consumer thread through this offset
+/// snapshot.
 [[nodiscard]] core::Status sample_utc_offset(std::int64_t& offset_ns_out) noexcept;
 
 /// Apply an offset snapshot: the consumer-side UTC time of a record stamp.
@@ -123,4 +125,4 @@ static_assert(sizeof(Stamp_source) <= 64, "stamp source must own one cache line"
     return static_cast<std::int64_t>(mono_ns) + offset_ns;
 }
 
-} // namespace nexigen::logging::detail
+} // namespace nexigen::chrono

@@ -6,6 +6,14 @@ add_test(NAME nexigen_core_tests COMMAND nexigen_core_tests)
 # Поднять таймаут: 1M-элементный стресс-тест медленно работает под TSan.
 set_tests_properties(nexigen_core_tests PROPERTIES TIMEOUT 600)
 
+# Юнит-тесты nexigen::chrono: один TU (тот же харнес D4): timestamp/stamp/
+# utc_offset/time_format; calibrate() спит ~2 мс — потоки линкуем.
+add_executable(nexigen_chrono_tests chrono/chrono_test.cpp)
+target_link_libraries(nexigen_chrono_tests PRIVATE nexigen_chrono Threads::Threads)
+
+add_test(NAME nexigen_chrono_tests COMMAND nexigen_chrono_tests)
+set_tests_properties(nexigen_chrono_tests PROPERTIES TIMEOUT 600)
+
 # Юнит-тесты nexigen::logging: один TU (design.md D18/D4), потоки и аффинность
 # требуют полного времени; тот же увеличенный таймаут под TSan.
 add_executable(nexigen_logging_tests logging/logging_test.cpp)

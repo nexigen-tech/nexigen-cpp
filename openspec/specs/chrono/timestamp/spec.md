@@ -1,14 +1,14 @@
-# core/timestamp Specification
+# chrono/timestamp Specification
 
 ## Purpose
 
-Provides a monotonic, nanosecond-resolution point-in-time value sourced from the operating system's raw monotonic clock, for deadlines, interval measurement, and event ordering on real-time paths.
+Provides the shared point-in-time value type for the ecosystem: a monotonic, nanosecond-resolution instant sourced from the operating system's raw monotonic clock, for deadlines, interval measurement, and event ordering on real-time paths.
 
 ## Requirements
 
 ### Requirement: Nanosecond timestamp value type
 
-The system SHALL expose a `Timestamp` value type in `nexigen::core` that represents an instant as a count of nanoseconds held in a 64-bit unsigned integer, copyable by value with no ownership semantics, and SHALL provide access to the raw nanosecond count.
+The system SHALL expose a `Timestamp` value type in `nexigen::chrono` that represents an instant as a count of nanoseconds held in a 64-bit unsigned integer, copyable by value with no ownership semantics, and SHALL provide access to the raw nanosecond count.
 
 #### Scenario: Wrapping a raw count
 
@@ -48,6 +48,11 @@ The system SHALL support measuring the elapsed nanoseconds between two timestamp
 - **WHEN** the difference is taken between a later timestamp and an earlier one
 - **THEN** the result equals the nanoseconds between them exactly as stored
 
+#### Scenario: Saturating backwards difference
+
+- **WHEN** a timestamp is subtracted by an earlier operand whose count is greater, or by an offset larger than its own count
+- **THEN** the result is zero, never a wrapped-around interval
+
 #### Scenario: Ordering for deadline checks
 
 - **WHEN** a timestamp is compared against a deadline timestamp
@@ -61,3 +66,8 @@ Reading and manipulating timestamps SHALL perform no heap allocation, acquire no
 
 - **WHEN** the current timestamp is read many times in a loop on a hot path
 - **THEN** no allocation, deallocation, or blocking call occurs during the loop
+
+#### Scenario: Register-sized value
+
+- **WHEN** the `Timestamp` type is inspected at compile time
+- **THEN** it is exactly 8 bytes and trivially copyable

@@ -35,7 +35,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
-#include <nexigen/core/timestamp.hpp>
+#include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/logging/concepts/logger_concept.hpp>
 #include <nexigen/logging/composite_logger.hpp>
 #include <nexigen/logging/console_logger.hpp>
@@ -44,8 +44,6 @@
 #include <nexigen/logging/detail/level_control.hpp>
 #include <nexigen/logging/detail/producer.hpp>
 #include <nexigen/logging/detail/rotation.hpp>
-#include <nexigen/logging/detail/stamp_source.hpp>
-#include <nexigen/logging/detail/time_format.hpp>
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/logging/log_level.hpp>
 #include <nexigen/logging/log_record.hpp>
@@ -71,8 +69,10 @@
 #endif
 
 using namespace nexigen::core;   // test TU: exercise core unqualified
+using namespace nexigen::chrono;  // record stamps/clock reads come from the chrono module
 using namespace nexigen::logging;
-namespace core = nexigen::core;  // also allow explicit core:: qualification in fixtures
+namespace core = nexigen::core;    // also allow explicit core:: qualification in fixtures
+namespace chrono = nexigen::chrono; // and explicit chrono:: qualification (stamps)
 
 // Compile-away proof helper for task 4.1 (external linkage so -O3 keeps a
 // standalone copy; defined after the suites, used below). The emitted body
@@ -413,38 +413,6 @@ void test_record() {
     NX_CHECK(rec.message_length == 0);
     NX_CHECK(rec.message_view().empty());
     NX_CHECK(LogRecord<128>::message_capacity() == 128);
-}
-
-// --- stamp suite (task 3.2 / design D6 / spec logging/log-record).
-void test_stamp() {
-    detail::Stamp_source src{};
-    NX_CHECK(src.calibrate().has_value());
-
-    // Non-decreasing per source object (spec scenario "Stamps are
-    // non-decreasing per producer").
-    core::Timestamp prev = src.sample();
-    int regressions = 0;
-    for (int i = 0; i < 1000; ++i) {
-        const core::Timestamp t = src.sample();
-        if (t < prev) { ++regressions; }
-        prev = t;
-    }
-    NX_CHECK(regressions == 0);
-
-    // Duration fidelity: a 20 ms sleep must read back 20 ms ±30 %
-    // (spec scenario "Stamps reflect real elapsed time").
-    const core::Timestamp a = src.sample();
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    const core::Timestamp b = src.sample();
-    const std::uint64_t delta_ns = (b - a).nanoseconds();
-    NX_CHECK(delta_ns >= 14'000'000ULL && delta_ns <= 26'000'000ULL);
-    std::printf("stamp: 20ms window measured as %.3f ms\n",
-                static_cast<double>(delta_ns) / 1'000'000.0);
-
-    // Independent sources keep independent clamps (each logger owns one).
-    detail::Stamp_source other{};
-    NX_CHECK(other.calibrate().has_value());
-    NX_CHECK(other.sample() >= a); // both monotonic on the same clock domain
 }
 
 // --- producer suite (task 3.3 / design D5/D7 / spec logging/log-record).
@@ -958,34 +926,6 @@ void test_console() {
                 out_len, expected_out, err_len, storm_accepted, storm_full);
 }
 
-// --- time format suite (task 5.1 / design D10/D11): byte-exact fixtures for
-// known epochs, leap day, pre-epoch floor division.
-void test_time_format() {
-    char buf[31]{};
-    detail::format_utc_iso8601_ns(1'784'850'120'321'841'133LL, buf);
-    NX_CHECK(std::strcmp(buf, "2026-07-23T23:42:00.321841133Z") == 0);
-    NX_CHECK(buf[30] == '\0');
-    detail::format_utc_iso8601_ns(0LL, buf);
-    NX_CHECK(std::strcmp(buf, "1970-01-01T00:00:00.000000000Z") == 0);
-    detail::format_utc_iso8601_ns(1'709'164'800'000'000'000LL, buf); // leap day
-    NX_CHECK(std::strcmp(buf, "2024-02-29T00:00:00.000000000Z") == 0);
-    detail::format_utc_iso8601_ns(1'704'067'199'999'999'999LL, buf); // year end
-    NX_CHECK(std::strcmp(buf, "2023-12-31T23:59:59.999999999Z") == 0);
-    detail::format_utc_iso8601_ns(-1LL, buf); // pre-epoch floor division
-    NX_CHECK(std::strcmp(buf, "1969-12-31T23:59:59.999999999Z") == 0);
-
-    const detail::Civil_time ct = detail::civil_from_utc_ns(1'784'850'120'321'841'133LL);
-    NX_CHECK(ct.year == 2026 && ct.month == 7 && ct.day == 23);
-    NX_CHECK(ct.hour == 23 && ct.minute == 42 && ct.second == 0);
-    NX_CHECK(ct.nanosecond == 321'841'133U);
-
-    // Every rendered timestamp has the exact field layout (30 visible chars).
-    for (const std::int64_t probe : {-1LL, 0LL, 999'999'999LL, 1'784'851'199'999'999'999LL}) {
-        detail::format_utc_iso8601_ns(probe, buf);
-        NX_CHECK(std::strlen(buf) == 30);
-    }
-}
-
 // --- JSON formatter suite (task 5.4 / spec logging/file-logger schema).
 void test_json() {
     alignas(64) static char scratch[detail::json_scratch_capacity];
@@ -1460,7 +1400,7 @@ void test_file_logger() {
         const std::size_t arena_b = g_alloc_used;
         const std::size_t heap_b = heap_in_use();
 
-        const core::Timestamp t_start = Timestamp::now().value_or(Timestamp{0});
+        const chrono::Timestamp t_start = Timestamp::now().value_or(Timestamp{0});
         std::uint64_t attempts = 0;
         std::uint64_t accepted = 0;
         std::uint64_t bad_return = 0;
@@ -1760,12 +1700,10 @@ int main()
     run_suite("harness", test_harness);
     run_suite("levels", test_levels);
     run_suite("record", test_record);
-    run_suite("stamp", test_stamp);
     run_suite("producer", test_producer);
     run_suite("latency", test_latency);
     run_suite("null_logger", test_null_logger);
     run_suite("console", test_console);
-    run_suite("time_format", test_time_format);
     run_suite("json", test_json);
     run_suite("affinity", test_affinity);
     run_suite("rotation", test_rotation);

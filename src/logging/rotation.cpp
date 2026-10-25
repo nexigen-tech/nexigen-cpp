@@ -14,8 +14,8 @@
 #include <unistd.h>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/chrono/time_format.hpp>
 #include <nexigen/logging/detail/rotation.hpp>
-#include <nexigen/logging/detail/time_format.hpp>
 
 namespace nexigen::logging::detail {
 
@@ -71,11 +71,11 @@ std::int64_t period_key(Rotation_kind kind, std::uint64_t custom_ns,
         case Rotation_kind::Hourly: {
             // Same civil decomposition the labels use, so key changes and
             // visible boundaries cannot disagree.
-            const Civil_time ct = civil_from_utc_ns(utc_ns);
-            return days_from_utc_ns(utc_ns) * 24 + static_cast<std::int64_t>(ct.hour);
+            const chrono::Civil_time ct = chrono::civil_from_utc_ns(utc_ns);
+            return chrono::days_from_utc_ns(utc_ns) * 24 + static_cast<std::int64_t>(ct.hour);
         }
         case Rotation_kind::Daily:
-            return days_from_utc_ns(utc_ns);
+            return chrono::days_from_utc_ns(utc_ns);
         case Rotation_kind::Custom: {
             if (custom_ns == 0ULL) {
                 return 0; // config error is surfaced at initialize(); stay monotone
@@ -96,7 +96,7 @@ std::size_t period_label(Rotation_kind kind, std::uint64_t custom_ns,
         case Rotation_kind::Hourly:
         case Rotation_kind::Daily: {
             char iso[31];
-            format_utc_iso8601_ns(utc_ns, iso);
+            chrono::format_utc_iso8601_ns(utc_ns, iso);
             // Hourly: "YYYY-MM-DDTHH" (13 chars); Daily: "YYYY-MM-DD" (10).
             const std::size_t len = (kind == Rotation_kind::Hourly) ? 13U : 10U;
             std::memcpy(buf, iso, len);

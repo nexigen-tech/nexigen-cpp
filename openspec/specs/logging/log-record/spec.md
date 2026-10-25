@@ -41,7 +41,7 @@ Each thread's Linux OS thread id (`syscall(SYS_gettid)`) SHALL be resolved once 
 
 ### Requirement: Monotonic nanosecond stamping
 
-Each accepted record SHALL carry a timestamp from `nexigen::core`'s monotonic nanosecond clock domain (CLOCK_MONOTONIC_RAW; a calibrated cycle-counter fast path is permitted where it is provably equivalent), and successive stamps observed on one producer SHALL never go backwards.
+Each accepted record SHALL carry a timestamp from `nexigen::chrono`'s monotonic nanosecond clock domain (CLOCK_MONOTONIC_RAW; a calibrated cycle-counter fast path is permitted where it is provably equivalent), and successive stamps observed on one producer SHALL never go backwards.
 
 #### Scenario: Stamps are non-decreasing per producer
 

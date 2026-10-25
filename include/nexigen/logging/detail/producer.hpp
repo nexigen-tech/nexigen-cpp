@@ -50,9 +50,8 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
-#include <nexigen/core/timestamp.hpp>
+#include <nexigen/chrono/stamp_source.hpp>
 #include <nexigen/logging/detail/level_control.hpp>
-#include <nexigen/logging/detail/stamp_source.hpp>
 #include <nexigen/logging/log_level.hpp>
 #include <nexigen/logging/log_record.hpp>
 
@@ -100,7 +99,7 @@ class Producer {
 
     core::SpscRingBuffer<Record, Capacity> ring_{};
     Level_control level_{};
-    Stamp_source stamp_{};
+    chrono::Stamp_source stamp_{};
 
     /// Drop counters: their own cache line, written with relaxed fetch_add
     /// ONLY on drop paths (accepted calls never touch this line).
@@ -148,7 +147,7 @@ class Producer {
     /// (O(windows), never O(drops)); counters reset only on push success, so
     /// a BufferFull summary re-arms and retries next transition. The summary
     /// consumes no token allowance (spec logging/file-logger).
-    void emit_summary_if_needed(core::Timestamp stamp) noexcept {
+    void emit_summary_if_needed(chrono::Timestamp stamp) noexcept {
         const std::uint64_t rl = dropped_.rate_limited.load(std::memory_order_relaxed);
         const std::uint64_t bf = dropped_.buffer_full.load(std::memory_order_relaxed);
         if ((rl | bf) == 0ULL) {
@@ -237,7 +236,7 @@ public:
         }
 #endif
 
-        const core::Timestamp stamp = stamp_.sample();
+        const chrono::Timestamp stamp = stamp_.sample();
 
         if (throttle_.enabled) {
             // Windowed budget (design D9): plain producer-owned state, one

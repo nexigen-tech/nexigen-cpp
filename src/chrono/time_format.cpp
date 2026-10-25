@@ -1,11 +1,12 @@
-// nexigen::logging — civil-time implementation (design.md D10/D11): see
-// detail/time_format.hpp for the contract. Pure integer arithmetic; no
+// nexigen::chrono — civil-time implementation (logging design.md D10/D11,
+// relocated out of src/logging/ by the extract-chrono-module change): see
+// chrono/time_format.hpp for the contract. Pure integer arithmetic; no
 // locale, no timezone state, no allocation.
 #include <cstdint>
 
-#include <nexigen/logging/detail/time_format.hpp>
+#include <nexigen/chrono/time_format.hpp>
 
-namespace nexigen::logging::detail {
+namespace nexigen::chrono {
 namespace {
 
 constexpr std::int64_t ns_per_day = 86'400'000'000'000LL;
@@ -91,4 +92,4 @@ void format_utc_iso8601_ns(std::int64_t utc_ns, char (&buf)[31]) noexcept {
     buf[pos] = '\0';
 }
 
-} // namespace nexigen::logging::detail
+} // namespace nexigen::chrono

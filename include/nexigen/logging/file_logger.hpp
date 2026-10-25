@@ -46,13 +46,13 @@
 #include <unistd.h>
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/core/timestamp.hpp>
+#include <nexigen/chrono/stamp_source.hpp>
+#include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/logging/concepts/logger_concept.hpp>
 #include <nexigen/logging/detail/async_logger.hpp>
 #include <nexigen/logging/detail/json_writer.hpp>
 #include <nexigen/logging/detail/producer.hpp>
 #include <nexigen/logging/detail/rotation.hpp>
-#include <nexigen/logging/detail/stamp_source.hpp>
 #include <nexigen/logging/log_level.hpp>
 
 namespace nexigen::logging::detail {
@@ -84,13 +84,13 @@ public:
     /// to status surfaces, never to a dead logger without explanation).
     [[nodiscard]] core::Status start() noexcept {
         std::int64_t offset = 0;
-        const core::Status sampled = sample_utc_offset(offset);
+        const core::Status sampled = chrono::sample_utc_offset(offset);
         if (!sampled) {
             return sampled;
         }
         utc_offset_ns_ = offset;
 
-        const core::Result<core::Timestamp> now = core::Timestamp::now();
+        const core::Result<chrono::Timestamp> now = chrono::Timestamp::now();
         if (!now) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -105,7 +105,8 @@ public:
 
     template <class Record>
     void handle(const Record& rec) noexcept {
-        const std::int64_t utc = utc_from_mono_ns(rec.stamp.nanoseconds(), utc_offset_ns_);
+        const std::int64_t utc =
+            chrono::utc_from_mono_ns(rec.stamp.nanoseconds(), utc_offset_ns_);
         if (settings_.kind != Rotation_kind::None) {
             const std::int64_t key = period_key(settings_.kind, settings_.custom_ns, utc);
             if (key != active_key_) {
@@ -139,7 +140,7 @@ public:
     /// active descriptor, and surface any accumulated write/fsync failure.
     [[nodiscard]] core::Status synchronize() noexcept {
         std::int64_t offset = 0;
-        if (sample_utc_offset(offset)) {
+        if (chrono::sample_utc_offset(offset)) {
             utc_offset_ns_ = offset;
         }
         bool failed = pending_write_error_ != 0U;

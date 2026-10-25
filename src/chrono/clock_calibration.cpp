@@ -1,4 +1,5 @@
-// nexigen::logging — cold-path clock calibration (design.md D6).
+// nexigen::chrono — cold-path clock calibration (logging design.md D6/D10,
+// relocated out of src/logging/ by the extract-chrono-module change).
 //
 // Stamp_source::calibrate(): sample the tick<->nanosecond scale once at
 // logger initialization. Sleeps ~2 ms, so it lives in the compiled library
@@ -17,21 +18,21 @@
 #include <thread>
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/core/timestamp.hpp>
-#include <nexigen/logging/detail/stamp_source.hpp>
+#include <nexigen/chrono/stamp_source.hpp>
+#include <nexigen/chrono/timestamp.hpp>
 
-namespace nexigen::logging::detail {
+namespace nexigen::chrono {
 
 core::Status Stamp_source::calibrate() noexcept {
 #if defined(__x86_64__)    // Anchor pair: ticks first, then the clock — the constant sub-microsecond
     // lag this introduces is absorbed by the per-source monotonic clamp.
     const std::uint64_t t1 = __rdtsc();
-    const core::Result<core::Timestamp> m1 = core::Timestamp::now();
+    const core::Result<Timestamp> m1 = Timestamp::now();
     if (!m1) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    const core::Result<core::Timestamp> m2 = core::Timestamp::now();
+    const core::Result<Timestamp> m2 = Timestamp::now();
     const std::uint64_t t2 = __rdtsc();
     if (!m2) {
         return std::unexpected(core::ErrorCode::SystemError);
@@ -52,7 +53,7 @@ core::Status Stamp_source::calibrate() noexcept {
 #else
     // Non-x86: no cycle fast path; just prove the clock works once and leave
     // sample() on the Timestamp::now() branch.
-    const core::Result<core::Timestamp> now = core::Timestamp::now();
+    const core::Result<Timestamp> now = Timestamp::now();
     if (!now) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
@@ -80,4 +81,4 @@ core::Status sample_utc_offset(std::int64_t& offset_ns_out) noexcept {
     return {};
 }
 
-} // namespace nexigen::logging::detail
+} // namespace nexigen::chrono

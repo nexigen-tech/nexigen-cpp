@@ -5,8 +5,8 @@
 #include <string_view>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/chrono/time_format.hpp>
 #include <nexigen/logging/detail/json_writer.hpp>
-#include <nexigen/logging/detail/time_format.hpp>
 #include <nexigen/logging/log_level.hpp>
 
 namespace nexigen::logging::detail {
@@ -99,7 +99,7 @@ std::size_t format_json_line(std::int64_t utc_ns, LogLevel level, std::string_vi
                              std::string_view message,
                              char (&scratch)[json_scratch_capacity]) noexcept {
     char ts[31];
-    format_utc_iso8601_ns(utc_ns, ts);
+    chrono::format_utc_iso8601_ns(utc_ns, ts);
 
     Fixed_writer w{scratch, json_scratch_capacity};
     static_cast<void>(w.append_sv("{\"timestamp\":\""sv));

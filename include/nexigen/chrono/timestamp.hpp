@@ -1,4 +1,5 @@
-// nexigen::core — monotonic nanosecond time source (design.md D2).
+// nexigen::chrono — monotonic nanosecond time source (logging design.md D2,
+// relocated by the extract-chrono-module change).
 //
 // Timestamp is an 8-byte, trivially copyable value type wrapping a nanosecond
 // count from CLOCK_MONOTONIC_RAW (the raw monotonic clock: unaffected by
@@ -7,11 +8,11 @@
 //
 // HOT PATH: now() costs one clock_gettime call (vDSO on Linux/x86-64, no
 // syscall trap), allocates nothing, locks nothing. A clock failure surfaces
-// as Result<Timestamp>'s error arm (ErrorCode::SystemError) — never a silent
-// zero and never a terminating call.
+// as Result<Timestamp>'s error arm (core::ErrorCode::SystemError) — never a
+// silent zero and never a terminating call.
 //
-// Usage rule (see result.hpp): never call value() on the Result; branch on
-// has_value() and use *res.
+// Usage rule (see core/result.hpp): never call value() on the Result; branch
+// on has_value() and use *res.
 #pragma once
 
 #include <compare>
@@ -22,7 +23,7 @@
 
 #include <nexigen/core/result.hpp>
 
-namespace nexigen::core {
+namespace nexigen::chrono {
 
 /// A point in time: nanoseconds in the raw monotonic clock domain.
 class Timestamp {
@@ -34,10 +35,10 @@ public:
 
     /// Current instant from CLOCK_MONOTONIC_RAW; SystemError if the read fails.
     /// Successive calls on the same thread never decrease.
-    [[nodiscard]] static Result<Timestamp> now() noexcept {
+    [[nodiscard]] static core::Result<Timestamp> now() noexcept {
         ::timespec ts{};
         if (::clock_gettime(CLOCK_MONOTONIC_RAW, &ts) != 0) {
-            return std::unexpected(ErrorCode::SystemError);
+            return std::unexpected(core::ErrorCode::SystemError);
         }
         // tv_sec is signed time_t; the casts keep the math in uint64_t (no
         // -Wsign-conversion, no double promotion via the ULL literal).
@@ -75,4 +76,4 @@ private:
 static_assert(sizeof(Timestamp) == 8, "Timestamp must stay a register-sized value type");
 static_assert(std::is_trivially_copyable_v<Timestamp>, "Timestamp must be trivially copyable");
 
-} // namespace nexigen::core
+} // namespace nexigen::chrono
