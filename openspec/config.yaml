@@ -6,6 +6,7 @@ context: |
 
   Namespace & Directory Mapping:
   - nexigen::core    -> include/nexigen/core/, src/core/, tests/core/
+  - nexigen::chrono  -> include/nexigen/chrono/, src/chrono/, tests/chrono/
   - nexigen::logging -> include/nexigen/logging/, src/logging/, tests/logging/
   - nexigen::metrics -> include/nexigen/metrics/, src/metrics/, tests/metrics/
 
