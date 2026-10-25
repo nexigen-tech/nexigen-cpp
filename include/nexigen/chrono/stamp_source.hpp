@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <ctime>
 #include <expected>
+#include <string>
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/chrono/timestamp.hpp>
@@ -79,6 +80,21 @@ public:
         return Timestamp{ns};
     }
 
+    /// Cold-path diagnostic (mandate 9): calibration state of this producer-
+    /// owned source — fast-path arm, anchor pair, scale, last emitted ns.
+    /// Reads producer-owned plain state: call from the owning thread or during
+    /// quiescent diagnostics only, never between sample() calls of another
+    /// thread, and never on the sampling hot path (allocates a std::string).
+    [[nodiscard]] std::string to_string() const {
+        std::string out = calibrated_ ? "Stamp_source(calibrated=true, "
+                                      : "Stamp_source(calibrated=false, ";
+        out += "tsc_anchor=" + std::to_string(tsc_anchor_);
+        out += ", mono_anchor_ns=" + std::to_string(mono_anchor_ns_);
+        out += ", scale_ns_x2^20=" + std::to_string(scale_);
+        out += ", last_ns=" + std::to_string(last_ns_) + ")";
+        return out;
+    }
+
 private:
 #if defined(__x86_64__)
     /// Re-anchor the (ticks, monotonic-ns) pair around `ticks` (already read).
@@ -123,6 +139,11 @@ static_assert(sizeof(Stamp_source) <= 64, "stamp source must own one cache line"
 [[nodiscard]] inline std::int64_t utc_from_mono_ns(std::uint64_t mono_ns,
                                                    std::int64_t offset_ns) noexcept {
     return static_cast<std::int64_t>(mono_ns) + offset_ns;
+}
+
+/// Free helper (mandate 9): mirrors Stamp_source::to_string for generic call sites.
+[[nodiscard]] inline std::string to_string(const Stamp_source& source) {
+    return source.to_string();
 }
 
 } // namespace nexigen::chrono

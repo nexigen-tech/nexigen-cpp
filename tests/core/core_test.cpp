@@ -9,13 +9,26 @@
 #include <cstdio>
 #include <cstdlib>
 #include <expected>
+#include <format>
 #include <new>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <type_traits>
 #include <utility>
 
+#include <nlohmann/json.hpp>
+
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
+
+// Build wiring proof (task 1.1): every consumer TU must see JSON_NOEXCEPTION=1
+// before <nlohmann/json.hpp> (it is already included above via the nexigen::core
+// INTERFACE definitions) — otherwise the headers would generate try/catch paths
+// that cannot exist under the project-wide -fno-exceptions.
+#ifndef JSON_NOEXCEPTION
+#error "JSON_NOEXCEPTION=1 must propagate to every nexigen consumer TU"
+#endif
 
 // --- Compile-time claims (design.md D4): to_string resolves per enumerator.
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::Ok) == "Ok");
@@ -415,10 +428,122 @@ void run_visibility_variant(const bool consumer_first) {
     NX_CHECK(r.field_mismatches == 0);
 }
 
+// --- serialization suite (change add-serialization-and-wait-free-logging):
+// json smoke (task 1.2), ErrorCode from_string / to_json / from_json /
+// std::formatter (task 2.1). All cold-path surface; arena allocations are
+// expected here (the bump arena simply bounds them).
+
+constexpr ErrorCode k_all_codes[] = {
+    ErrorCode::Ok, ErrorCode::BufferFull, ErrorCode::BufferEmpty,
+    ErrorCode::InvalidArgument, ErrorCode::SystemError, ErrorCode::NotInitialized,
+    ErrorCode::RateLimited,
+};
+
+void test_json_smoke() {
+    // Task 1.2: a TU that includes <nlohmann/json.hpp> under -fno-exceptions
+    // (JSON_NOEXCEPTION=1 proven by the #error above) builds one value.
+    nlohmann::json j = {{"answer", 42}};
+    NX_CHECK(j.is_object());
+    NX_CHECK(j.contains("answer"));
+    NX_CHECK(j["answer"] == 42);
+    NX_CHECK(j["answer"].is_number_integer());
+    NX_CHECK(j["answer"].get<int>() == 42);
+    NX_CHECK(j["answer"].get_ptr<const std::string*>() == nullptr); // wrong type: nullptr, no abort
+}
+
+void test_error_code_vocabulary() {
+    // from_string: every canonical name parses; everything else leaves the
+    // out-parameter untouched and returns false (including "Unknown").
+    for (const ErrorCode code : k_all_codes) {
+        ErrorCode parsed = ErrorCode::SystemError; // sentinel
+        NX_CHECK(from_string(to_string(code), parsed));
+        NX_CHECK(parsed == code);
+    }
+    for (std::string_view bad : {"Nope", "", "unknown", "Unknown", "bufferfull"}) {
+        ErrorCode keep = ErrorCode::NotInitialized;
+        NX_CHECK(!from_string(bad, keep));
+        NX_CHECK(keep == ErrorCode::NotInitialized);
+    }
+
+    // to_json/from_json round-trip: the JSON value is exactly to_string(code).
+    for (const ErrorCode code : k_all_codes) {
+        nlohmann::json j;
+        to_json(j, code);
+        NX_CHECK(j.is_string());
+        NX_CHECK(j == std::string(to_string(code)));
+        ErrorCode back = ErrorCode::InvalidArgument; // fallback pre-set
+        from_json(j, back);
+        NX_CHECK(back == code);
+    }
+
+    // from_json hostile inputs (spec core/serialization): never terminate,
+    // leave the fallback. JSON_NOEXCEPTION would abort on .get<> mistakes —
+    // get_ptr is the mandated non-throwing inspection.
+    for (const nlohmann::json& hostile : {nlohmann::json(7),
+                                          nlohmann::json::array(),
+                                          nlohmann::json::object(),
+                                          nlohmann::json(),           // null
+                                          nlohmann::json("Bogus")}) {
+        ErrorCode keep = ErrorCode::Ok;
+        from_json(hostile, keep);
+        NX_CHECK(keep == ErrorCode::Ok);
+    }
+
+    // std::formatter<ErrorCode>: name via "{}", fill/align via string_view rules.
+    NX_CHECK(std::format("{}", ErrorCode::BufferFull) == "BufferFull");
+    NX_CHECK(std::format("[{:*>8}]", ErrorCode::Ok) == "[******Ok]");
+    static_assert(std::formattable<const ErrorCode&, char>);
+}
+
 void test_spsc_visibility() {
     run_visibility_variant(false); // producer starts first
     run_visibility_variant(true);  // consumer idles first (empty-retry + refresh paths)
     std::printf("visibility: 2 x 50000 payloads, 0 field mismatches\n");
+}
+
+// Ring diagnostic snapshot (task 3.1): capacity/occupancy/state render; a
+// third thread may call it while both endpoints are active (relaxed loads,
+// snapshot caveat identical to size()).
+void test_ring_to_string() {
+    SpscRingBuffer<std::uint64_t, 8> ring{};
+    const std::string empty_dump = ring.to_string();
+    NX_CHECK(empty_dump.find("capacity=8") != std::string::npos);
+    NX_CHECK(empty_dump.find("size=0") != std::string::npos);
+    NX_CHECK(empty_dump.find("empty") != std::string::npos);
+    NX_CHECK(to_string(ring) == empty_dump); // free == member
+
+    for (int i = 0; i < 3; ++i) {
+        static_cast<void>(ring.try_push(static_cast<std::uint64_t>(i)));
+    }
+    const std::string partial = ring.to_string();
+    NX_CHECK(partial.find("size=3") != std::string::npos);
+    NX_CHECK(partial.find("partial") != std::string::npos);
+
+    for (int i = 3; i < 8; ++i) {
+        static_cast<void>(ring.try_push(static_cast<std::uint64_t>(i)));
+    }
+    NX_CHECK(ring.to_string().find("full") != std::string::npos);
+
+    // Third-thread call concurrent with active producer + consumer.
+    std::uint64_t sink = 0;
+    std::atomic<bool> done{false};
+    std::jthread consumer([&] {
+        while (!done.load(std::memory_order_relaxed)) {
+            std::uint64_t out = 0;
+            if (ring.try_pop(out)) { sink += out; }
+        }
+    });
+    std::jthread producer([&] {
+        for (std::uint64_t v = 0; v < 200'000; ++v) {
+            static_cast<void>(ring.try_push(v));
+        }
+    });
+    const std::string concurrent = ring.to_string(); // main thread: third observer
+    done.store(true, std::memory_order_relaxed);
+    producer.join();
+    consumer.join(); // jthread: stop-request + join (idempotent at scope exit)
+    NX_CHECK(!concurrent.empty());
+    NX_CHECK(sink < (1ULL << 63U)); // drained value observed post-join
 }
 
 } // namespace
@@ -426,6 +551,9 @@ void test_spsc_visibility() {
 int main()
 {
     run_suite("result", test_result);
+    run_suite("json_smoke", test_json_smoke);
+    run_suite("ec_vocab", test_error_code_vocabulary);
+    run_suite("ring_to_string", test_ring_to_string);
     run_suite("spsc_single_threaded", test_spsc_single_threaded);
     run_suite("spsc_stress_1m", test_spsc_stress);
     run_suite("spsc_visibility", test_spsc_visibility);

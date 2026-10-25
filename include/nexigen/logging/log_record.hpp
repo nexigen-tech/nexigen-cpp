@@ -1,99 +1,137 @@
 // nexigen::logging — the payload that crosses the producer/consumer boundary
-// (design.md D4).
+// (change add-serialization-and-wait-free-logging, design D4/D5; spec
+// logging/log-record).
 //
 // LogRecord is the fixed-size, cache-line-aligned, trivially copyable value
-// type stored in nexigen::core::SpscRingBuffer<LogRecord, Capacity>. Everything
-// the consumer needs lives inline: NO indirection into producer-owned or heap
-// memory. The std::source_location is decomposed into its (file_name, line,
-// function_name) parts at production time: libstdc++'s internal impl pointer
-// would otherwise be dereferenced on the consumer, and a source_location value
-// itself is not a stable trivially-copyable layout across TUs. The extracted
-// pointers reference program-static storage (string literals / the compiler's
-// static location table): never freed, allocation-proof, valid for the whole
-// process lifetime.
+// type stored in the per-thread SPSC shards. The record carries a DEFERRED
+// format: the raw (compile-time-checked) format-string pointer, a type-erased
+// render callback specialized for the argument pack, and the serialized
+// argument bytes in an inline blob. The producer never renders (no
+// std::format machinery, no float-to-string); the consumer invokes the
+// callback into pre-allocated scratch when writing console lines or JSON
+// records.
+//
+// All pointers reference program-static or record-owned storage: format
+// literals live in the image, the location strings come from
+// std::source_location's static table, and argument bytes were copied into
+// the blob at emit time. Nothing here aliases caller memory that could die
+// before the record drains (string_view arguments are inlined by the packer).
 //
 // Pinned layout for MessageCapacity = 128 (sizeof == 192 == 3 cache lines):
-//   0   stamp          chrono::Timestamp monotonic ns domain (design D6)
-//   8   thread_id      uint32            cached SYS_gettid (design D5)
+//   0   stamp          chrono::Timestamp monotonic ns domain
+//   8   thread_id      uint32            cached SYS_gettid
 //   12  level          LogLevel (u8)     severity
-//   13  flags          uint8             bit0 = message truncated
-//   14  message_length uint16            bytes of message in use
+//   13  flags          uint8             bit0 args truncated, bit1 render truncated
+//   14  arg_length     uint16            bytes of args_ used (fixed per pack)
 //   16  file_name      const char*       static storage
 //   24  function_name  const char*       static storage
 //   32  line           uint32            source line
 //   36  (padding)
-//   40  message        array<char, N>    inline payload
+//   40  fmt            const char*       std::format_string literal (static)
+//   48  render         fn ptr            type-erased pack renderer
+//   56  args           array<char, N>    inline argument blob (8-aligned)
 //  192  (tail padding to alignas(64))
 //
-// Long messages truncate into `message` (flagged, never spilled); a record is
-// copied twice at most (staging -> slot) and both copies are bounded memcpys.
-//
-// SPSC CONTRACT (mirrors core::SpscRingBuffer's header): a LogRecord exists in
-// exactly one ring shared by ONE producer thread and ONE consumer thread;
-// slots are handed over exclusively through try_push/try_pop, never aliased
-// after the pop beyond the pop's own frame. The Status semantics of the
-// enqueue pipeline are the drop table: {} accepted-or-filtered, BufferFull
-// when the ring rejected the push, RateLimited when the throttle spent the
-// window — see concepts/logger_concept.hpp for the shared wording.
+// MULTI-PRODUCER CONTRACT: a record exists in exactly one shard owned by ONE
+// producer thread and drained by the logger's ONE consumer thread (the
+// per-thread SPSC sharding of spec logging/multi-producer); slots are handed
+// over exclusively through try_push/try_pop. The Status vocabulary of the
+// enqueue pipeline (accepted / BufferFull drop / RateLimited drop /
+// slot-exhausted drop) is reported through the logger's dropped() snapshot —
+// record methods return void (spec logging/logger-concept).
 #pragma once
 
-#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
 #include <string_view>
 #include <type_traits>
 
 #include <nexigen/chrono/timestamp.hpp>
+#include <nexigen/logging/detail/arg_pack.hpp>
 #include <nexigen/logging/log_level.hpp>
 
 namespace nexigen::logging {
 
-/// Fixed-capacity log record: template over the inline message buffer size.
+/// Type-erased render callback: reads the record's format pointer + argument
+/// blob, writes at most `cap` bytes into `out`, returns bytes written.
+/// noexcept; matched exactly by detail::render_impl<MessageCapacity, Args...>.
+using record_render_fn = std::size_t (*)(const char* fmt, const char* blob,
+                                         std::uint16_t blob_length, char* out,
+                                         std::size_t cap) noexcept;
+
+/// Fixed-capacity log record: template over the inline argument blob size.
 template <std::size_t MessageCapacity>
 struct alignas(64) LogRecord {
     static_assert(MessageCapacity >= 16 && MessageCapacity <= 0xFFFF,
-                  "message buffer must be positive and addressable by uint16 length");
-
-    static constexpr std::uint8_t flag_truncated = 1U; ///< bit0 of `flags`
+                  "argument blob must be positive and addressable by uint16 length");
 
     [[nodiscard]] static constexpr std::size_t message_capacity() noexcept {
         return MessageCapacity;
     }
 
-    /// Copy the payload into the inline buffer, truncating (and flagging) when
-    /// it does not fit. Bounded memcpy, no allocation, no exception path.
-    void assign_message(std::string_view text) noexcept {
-        const std::size_t copied = std::min(text.size(), MessageCapacity);
-        if (copied > 0) {
-            std::memcpy(message.data(), text.data(), copied);
+    /// Render the deferred format into caller scratch (consumer thread).
+    /// Returns bytes written; sets the render-truncation flag when the output
+    /// consumed the whole buffer (the text is complete-or-bounded, never
+    /// half-emitted downstream because sinks cap at the returned length).
+    /// A default record (no render callback) produces an empty message.
+    /// Non-const by design: the flag write documents the truncation in the
+    /// consumer's own popped copy, never in a producer-visible slot.
+    std::size_t render_into(char* out, std::size_t cap) noexcept {
+        if (render == nullptr || cap == 0U) {
+            return 0U;
         }
-        message_length = static_cast<std::uint16_t>(copied);
-        if (text.size() > MessageCapacity) {
-            flags |= flag_truncated;
+        const std::size_t written = render(fmt, args_.data(), arg_length, out, cap);
+        if (written >= cap) {
+            flags |= detail::flag_render_truncated;
         }
+        return written;
     }
 
-    /// Current payload as a view into the inline buffer (no copy, no heap).
-    [[nodiscard]] std::string_view message_view() const noexcept {
-        return std::string_view(message.data(), message_length);
+    [[nodiscard]] bool args_truncated() const noexcept {
+        return (flags & detail::flag_args_truncated) != 0U;
+    }
+    [[nodiscard]] bool render_truncated() const noexcept {
+        return (flags & detail::flag_render_truncated) != 0U;
     }
 
-    [[nodiscard]] bool truncated() const noexcept {
-        return (flags & flag_truncated) != 0U;
+    /// Cold-path diagnostic (mandate 9; spec logging/log-record): raw record
+    /// dump — stamps/level/location/format text/argument accounting. For a
+    /// rendered view, format into scratch first and inspect the buffer.
+    [[nodiscard]] std::string to_string() const {
+        std::string out = "LogRecord(";
+        out += "stamp=" + chrono::to_string(stamp);
+        out += ", level=" + std::string(logging::to_string(level));
+        out += ", thread_id=" + std::to_string(thread_id);
+        out += ", file=" + std::string(file_name != nullptr ? file_name : "");
+        out += ':' + std::to_string(line);
+        out += ", function=" + std::string(function_name != nullptr ? function_name : "");
+        out += ", fmt=" + std::string(fmt != nullptr ? fmt : "");
+        out += ", arg_bytes=" + std::to_string(arg_length);
+        out += ", flags=" + std::to_string(flags) + ")";
+        return out;
     }
 
     chrono::Timestamp stamp{};                        ///< monotonic nanoseconds
     std::uint32_t thread_id{};                        ///< cached SYS_gettid
     LogLevel level{LogLevel::Info};                   ///< severity
-    std::uint8_t flags{};                             ///< bit0: truncated
-    std::uint16_t message_length{};                   ///< bytes used of message
+    std::uint8_t flags{};                             ///< bit0 args, bit1 render
+    std::uint16_t arg_length{};                       ///< bytes of args_ in use
     const char* file_name{};                          ///< source_location::file_name
     const char* function_name{};                      ///< source_location::function_name
     std::uint32_t line{};                             ///< source_location::line
-    /// 8-aligned so the payload starts at offset 40 (design D4 layout table).
-    alignas(std::uint64_t) std::array<char, MessageCapacity> message{}; ///< inline payload
+    const char* fmt{};                                ///< checked format literal
+    record_render_fn render{};                        ///< type-erased pack renderer
+    /// 8-aligned so the payload starts at offset 56 (design D4 layout table).
+    alignas(std::uint64_t) std::array<char, MessageCapacity> args_{}; ///< inline pack blob
 };
+
+/// Free helper (mandate 9): mirrors the member.
+template <std::size_t MessageCapacity>
+[[nodiscard]] std::string to_string(const LogRecord<MessageCapacity>& rec) {
+    return rec.to_string();
+}
 
 } // namespace nexigen::logging

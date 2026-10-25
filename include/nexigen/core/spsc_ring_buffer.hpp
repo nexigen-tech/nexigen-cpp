@@ -34,6 +34,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -161,6 +162,28 @@ public:
 
     /// Snapshot fullness check (diagnostics only).
     [[nodiscard]] bool is_full() const noexcept { return size() == Capacity; }
+
+    /// Cold-path diagnostic snapshot (mandate 9): capacity, occupancy, and
+    /// empty/full state. Reads the same relaxed counters as size(), so a third
+    /// thread may call it; the returned std::string allocates, which is exactly
+    /// why it is a diagnostics helper and never a hot-path primitive.
+    [[nodiscard]] std::string to_string() const {
+        const std::size_t n = size();
+        std::string out = "SpscRingBuffer(capacity=";
+        out += std::to_string(Capacity);
+        out += ", size=";
+        out += std::to_string(n);
+        out += ", ";
+        out += (n == 0U ? "empty" : (n == Capacity ? "full" : "partial"));
+        out += ")";
+        return out;
+    }
 };
+
+/// Free helper (mandate 9): to_string(const T&) mirrors the member.
+template <class T, std::size_t Capacity>
+[[nodiscard]] std::string to_string(const SpscRingBuffer<T, Capacity>& ring) {
+    return ring.to_string();
+}
 
 } // namespace nexigen::core

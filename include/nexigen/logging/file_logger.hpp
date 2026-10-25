@@ -2,18 +2,20 @@
 // D8-D15, spec logging/file-logger).
 //
 // Shape: the producer hot path is the shared detail::Producer (level filter →
-// stamp → throttle window → cached tid → staging → try_push — never blocking,
-// never allocating, bounded steps). Everything expensive and OS-touching —
-// UTC calibration, JSON formatting, escaping, directory rotation, fsync, and
-// CPU affinity — lives on one background std::jthread (detail::Async_worker)
-// that pins itself first thing (core_mask != 0) and then drains the ring in
-// batches into "<base_dir>/<period-label>/<file_name>".
+// shard slot → stamp → throttle window → cached tid → pack → try_push on the
+// thread's OWN shard — never blocking, never allocating, bounded steps).
+// Everything expensive and OS-touching — UTC calibration, DEFERRED FORMAT
+// RENDERING, JSON escaping, directory rotation, fsync, and CPU affinity —
+// lives on one background std::jthread (detail::Async_worker) that pins
+// itself first thing (core_mask != 0) and then round-robin drains ALL
+// producer shards in batches into "<base_dir>/<period-label>/<file_name>".
 //
-// Drop story (spec): over-throttle -> RateLimited + rate-limited counter;
-// ring full -> BufferFull + buffer-full counter; on the next window transition
-// with pending drops the producer synthesizes a Warning record reporting the
-// exact per-cause counts (design D9) — it costs one bounded push per window
-// at most, and never re-tries in a loop.
+// Drop story (spec): over-throttle -> rate-limited counter; ring-full ->
+// buffer-full counter; no shard slot -> slot-exhausted counter (all counted,
+// none returned). On the next window transition with pending drops the
+// producer synthesizes a Warning record reporting the exact per-cause counts
+// (design D9) — it costs one bounded push per window at most, and never
+// re-tries in a loop.
 //
 // Rotation story (spec "hitch-free"): the consumer alone compares each
 // record's period key, mkdirat/openat-switches via pre-allocated path buffers
@@ -21,17 +23,19 @@
 // one opens. Producers keep enqueuing through it all — the pipeline never
 // notices anything but an empty/full ring.
 //
-// CONTRACT: exactly one producer thread per instance (SPSC, design R1); the
-// internal worker is the sole consumer. level()/dropped()/pending()/
-// writer_*() are third-thread safe — relaxed SNAPSHOTS, diagnostics only.
-// flush() is the control-plane barrier (drain + offset re-sample + fsync),
+// CONTRACT (spec logging/multi-producer): up to MaxThreads distinct producer
+// threads per instance (per-thread SPSC shards; the internal worker is the
+// sole consumer of all of them). level()/dropped()/pending()/writer_*() are
+// third-thread safe — relaxed SNAPSHOTS, diagnostics only. flush() is the
+// control-plane barrier (drain ALL shards + offset re-sample + fsync),
 // outside the never-block guarantee that binds the record methods.
 //
-// DROP SEMANTICS (returned Status of log()/conveniences):
-//   {}              record accepted into the ring, OR filtered below the
-//                   active level (filtering is normal operation, not a loss)
-//   BufferFull      ring full: nothing enqueued, counted in dropped()
-//   RateLimited     throttle budget spent for the window, counted in dropped()
+// DROP SEMANTICS (record methods return void; causes counted per shard):
+//   accepted        record packed into the calling thread's shard
+//   filtered        below the active level: silent, not counted
+//   buffer-full     shard ring full: counted in dropped().buffer_full
+//   rate-limited    throttle budget spent: counted in dropped().rate_limited
+//   slot-exhausted  beyond MaxThreads producers: counted in the third total
 //
 // Result usage rule: branch on has_value(), never call .value().
 #pragma once
@@ -40,6 +44,7 @@
 #include <cstdint>
 #include <cstring>
 #include <source_location>
+#include <string>
 #include <string_view>
 
 #include <cerrno>
@@ -104,7 +109,7 @@ public:
     }
 
     template <class Record>
-    void handle(const Record& rec) noexcept {
+    void handle(Record& rec) noexcept {
         const std::int64_t utc =
             chrono::utc_from_mono_ns(rec.stamp.nanoseconds(), utc_offset_ns_);
         if (settings_.kind != Rotation_kind::None) {
@@ -123,10 +128,15 @@ public:
             }
         }
 
+        // Deferred formatting executes HERE (spec logging/log-record): the
+        // pack renders into pre-allocated scratch, allocation-free; the JSON
+        // line then escapes the RENDERED text (schema unchanged).
+        const std::size_t msg_len = rec.render_into(msg_, msg_capacity);
+
         std::size_t len = format_json_line(
             utc, rec.level, std::string_view(settings_.app, settings_.app_len),
             rec.thread_id, std::string_view(rec.file_name), rec.line,
-            std::string_view(rec.function_name), rec.message_view(), line_);
+            std::string_view(rec.function_name), std::string_view(msg_, msg_len), line_);
         if (len == 0U) {
             ++malformed_; // overflowing/unrepresentable line skipped atomically
             return;       // (never a half-written line in the file)
@@ -200,6 +210,8 @@ private:
     std::uint64_t malformed_ = 0;        ///< formatter overflow skips (diagnostic)
     std::uint8_t pending_write_error_ = 0;
     Rotation_scratch paths_{};           ///< pre-allocated path buffers (D11)
+    static constexpr std::size_t msg_capacity = 512;
+    char msg_[msg_capacity]{};           ///< pre-allocated render scratch (design D7)
     alignas(64) char line_[json_scratch_capacity]{}; ///< JSON staging scratch (D12)
 };
 
@@ -216,7 +228,18 @@ using Rotation_schedule = detail::Rotation_kind;
 struct Rotation_config {
     Rotation_schedule kind{Rotation_schedule::Hourly};
     std::uint64_t custom_ns{0}; ///< required when kind == Custom
+
+    /// Cold-path diagnostic (mandate 9): schedule + custom period.
+    [[nodiscard]] std::string to_string() const {
+        return "Rotation_config(kind=" + std::string(detail::to_string(kind)) +
+               ", custom_ns=" + std::to_string(custom_ns) + ")";
+    }
 };
+
+/// Free helper (mandate 9): mirrors the member.
+[[nodiscard]] inline std::string to_string(const Rotation_config& cfg) {
+    return cfg.to_string();
+}
 
 /// Construction-time configuration. All views are copied into fixed buffers
 /// during initialize(); lengths beyond the buffers are rejected.
@@ -228,12 +251,32 @@ struct FileLogger_config {
     Throttle_config throttle{};
     Rotation_config rotation{};
     std::uint64_t core_mask{0};                 ///< 0 == leave OS placement
+
+    /// Cold-path diagnostic (mandate 9): every policy field, sub-structs inlined.
+    [[nodiscard]] std::string to_string() const {
+        std::string out = "FileLogger_config(app=";
+        out += std::string(app_name);
+        out += ", base_dir=" + std::string(base_dir);
+        out += ", file_name=" + std::string(file_name);
+        out += ", level=" + std::string(logging::to_string(initial_level));
+        out += ", throttle=" + throttle.to_string();
+        out += ", rotation=" + rotation.to_string();
+        out += ", core_mask=" + std::to_string(core_mask) + ")";
+        return out;
+    }
 };
 
-/// Asynchronous wait-free JSON-lines file logger.
-template <std::size_t Capacity = 8192, std::size_t MessageCapacity = 128>
+/// Free helper (mandate 9): mirrors the member.
+[[nodiscard]] inline std::string to_string(const FileLogger_config& cfg) {
+    return cfg.to_string();
+}
+
+/// Asynchronous wait-free JSON-lines file logger supporting multiple
+/// producer threads via per-thread SPSC shards (spec logging/multi-producer).
+template <std::size_t ShardCapacity = 128, std::size_t MessageCapacity = 128,
+          std::size_t MaxThreads = 32>
 class FileLogger {
-    using Producer = detail::Producer<Capacity, MessageCapacity>;
+    using Producer = detail::Producer<ShardCapacity, MessageCapacity, MaxThreads>;
 
     Producer producer_{};
     detail::Async_worker<Producer, detail::File_sink> worker_{};
@@ -245,7 +288,9 @@ public:
     FileLogger(FileLogger&&) = delete;
     FileLogger& operator=(FileLogger&&) = delete;
 
-    [[nodiscard]] static constexpr std::size_t capacity() noexcept { return Capacity; }
+    /// Per-shard capacity; aggregate pool capacity is capacity()*max_threads().
+    [[nodiscard]] static constexpr std::size_t capacity() noexcept { return ShardCapacity; }
+    [[nodiscard]] static constexpr std::size_t max_threads() noexcept { return MaxThreads; }
 
     /// Initialization phase (pre real-time): validate config, copy it into
     /// fixed storage, calibrate clocks, start the pinned writer. Invalid
@@ -272,7 +317,7 @@ public:
 
         producer_.set_level(cfg.initial_level);
         producer_.configure_throttle(cfg.throttle);
-        const core::Status calibrated = producer_.initialize(); // sleep ~2 ms (cold)
+        const core::Status calibrated = producer_.initialize(); // per-slot calibrate, cold
         if (!calibrated) {
             return calibrated;
         }
@@ -282,32 +327,40 @@ public:
     void set_level(LogLevel new_level) noexcept { producer_.set_level(new_level); }
     [[nodiscard]] LogLevel level() const noexcept { return producer_.level(); }
 
-    [[nodiscard]] core::Status log(LogLevel level, std::source_location loc,
-                                   std::string_view message) noexcept {
-        return producer_.emit(level, loc, message);
+    /// Variadic surface (spec logging/logger-concept): pack + shard enqueue,
+    /// never blocks, never formats, returns void; drops count per cause.
+    template <class... Args>
+    void log(LogLevel level, detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(level, fmt, std::forward<Args>(args)...);
     }
 
-    [[nodiscard]] core::Status verbose(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Verbose, loc, msg);
+    template <class... Args>
+    void verbose(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(LogLevel::Verbose, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status debug(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Debug, loc, msg);
+    template <class... Args>
+    void debug(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(LogLevel::Debug, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status info(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Info, loc, msg);
+    template <class... Args>
+    void info(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(LogLevel::Info, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status warning(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Warning, loc, msg);
+    template <class... Args>
+    void warning(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(LogLevel::Warning, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status error(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Error, loc, msg);
+    template <class... Args>
+    void error(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(LogLevel::Error, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status fatal(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Fatal, loc, msg);
+    template <class... Args>
+    void fatal(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(LogLevel::Fatal, fmt, std::forward<Args>(args)...);
     }
 
-    /// Control-plane: drain ring, re-sample the UTC offset, fsync, surface
-    /// accumulated write/fsync failures (spec: SystemError).
+    /// Control-plane: drain all shards, re-sample the UTC offset, fsync,
+    /// surface accumulated write/fsync failures (spec: SystemError).
     [[nodiscard]] core::Status flush() noexcept { return worker_.flush(); }
 
     /// Drop accounting snapshot (third-thread safe).
@@ -321,6 +374,18 @@ public:
     [[nodiscard]] core::ErrorCode writer_start_code() const noexcept { return worker_.writer_start_code(); }
     [[nodiscard]] std::uint64_t writer_mask() const noexcept { return worker_.writer_mask(); }
 
+    /// Cold-path diagnostic (mandate 9): threshold + shard-pool snapshot
+    /// (capacity, pool size, pending, per-cause drops, writer state).
+    [[nodiscard]] std::string to_string() const {
+        return "FileLogger(level=" + std::string(logging::to_string(producer_.level())) +
+               ", shard_capacity=" + std::to_string(ShardCapacity) +
+               ", shards=" + std::to_string(MaxThreads) +
+               ", message_capacity=" + std::to_string(MessageCapacity) +
+               ", pending=" + std::to_string(producer_.ring_size()) +
+               ", dropped=" + producer_.dropped().to_string() +
+               ", writer_started=" + std::string(worker_.writer_started() ? "true" : "false") + ")";
+    }
+
 private:
     template <std::size_t N>
     static void copy_into(std::string_view src, char (&dst)[N], std::size_t& len_out) noexcept {
@@ -332,6 +397,12 @@ private:
         len_out = take;
     }
 };
+
+/// Free helper (mandate 9): mirrors the member.
+template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t MaxThreads>
+[[nodiscard]] std::string to_string(const FileLogger<ShardCapacity, MessageCapacity, MaxThreads>& logger) {
+    return logger.to_string();
+}
 
 static_assert(concepts::Logger<FileLogger<>>,
               "FileLogger must satisfy the Logger contract (pinned at header level)");

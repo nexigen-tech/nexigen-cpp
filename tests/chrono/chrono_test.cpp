@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <string>
 #include <chrono>
 #include <thread>
 #include <type_traits>
@@ -270,6 +271,46 @@ void test_time_format() {
     }
 }
 
+// --- diagnostics suite (change add-serialization-and-wait-free-logging, task
+// 3.2): universal to_string() const + free helper for Timestamp, Stamp_source,
+// Civil_time. Cold-path strings land in the bump arena; member==free always.
+
+void test_diag_strings() {
+    // Timestamp: ns count rendered (sec.ns9) and exact.
+    const Timestamp ts{1'000'000'001ULL};
+    const std::string ts_dump = ts.to_string();
+    NX_CHECK(ts_dump.find("1.000000001") != std::string::npos);
+    NX_CHECK(ts_dump.find("monotonic") != std::string::npos);
+    NX_CHECK(to_string(ts) == ts_dump); // free == member
+    NX_CHECK(Timestamp{0}.to_string().find("0.000000000") != std::string::npos);
+
+    // Stamp_source: uncalibrated state is identifiable before calibrate().
+    Stamp_source src{};
+    const std::string pre = src.to_string();
+    NX_CHECK(pre.find("calibrated=false") != std::string::npos);
+    NX_CHECK(to_string(src) == pre);
+    const Status calibrated = src.calibrate(); // cold sleep ~2 ms
+    NX_CHECK(calibrated.has_value());
+    static_cast<void>(src.sample());
+    static_cast<void>(src.sample());
+    const std::string post = src.to_string();
+    NX_CHECK(post.find("calibrated=true") != std::string::npos);
+    NX_CHECK(post.find("last_ns=") != std::string::npos);
+    NX_CHECK(post.find("mono_anchor_ns=") != std::string::npos);
+    NX_CHECK(to_string(src) == post);
+
+    // Civil_time: full field decomposition renders.
+    const Civil_time ct = civil_from_utc_ns(1'784'850'120'321'841'133LL);
+    const std::string ct_dump = ct.to_string();
+    NX_CHECK(ct_dump.find("2026-07-23") != std::string::npos);
+    NX_CHECK(ct_dump.find("23:42:00") != std::string::npos);
+    NX_CHECK(ct_dump.find("321841133") != std::string::npos);
+    NX_CHECK(ct_dump.find("UTC") != std::string::npos);
+    NX_CHECK(to_string(ct) == ct_dump);
+
+    std::printf("diag_strings: Timestamp/Stamp_source/Civil_time dumps verified\n");
+}
+
 } // namespace
 
 int main()
@@ -278,6 +319,7 @@ int main()
     run_suite("stamp", test_stamp);
     run_suite("utc_offset", test_utc_offset);
     run_suite("time_format", test_time_format);
+    run_suite("diag_strings", test_diag_strings);
 
     const int failures = g_failures;
     std::printf("total: %d checks, %d failed\n", g_checks, failures);

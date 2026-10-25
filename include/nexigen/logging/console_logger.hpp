@@ -1,11 +1,14 @@
-// nexigen::logging — asynchronous console sink (design.md D13, spec
-// logging/console-logger).
+// nexigen::logging — asynchronous console sink (design D13; multi-producer +
+// deferred-format rework: change add-serialization-and-wait-free-logging,
+// design D6/D7; spec logging/console-logger).
 //
-// Pipeline: detail::Producer (wait-free enqueue, single producer thread) +
-// detail::Async_worker (std::jthread drain loop). Records are formatted on
-// the consumer thread into a fixed line buffer and written with raw
-// ::write() to fd 1 / fd 2 — deliberately NOT std::cout/printf, whose lazy
-// initialization, stream buffering, and locale state allocate and can block.
+// Pipeline: detail::Producer (per-thread wait-free shard writes) +
+// detail::Async_worker (std::jthread drain loop). Records carry a DEFERRED
+// format: the consumer renders each pack into the sink's pre-allocated line
+// scratch (std::vformat_to via the record's type-erased callback), formats
+// the plain line, and writes it with raw ::write() to fd 1 / fd 2 —
+// deliberately NOT std::cout/printf, whose lazy initialization, stream
+// buffering, and locale state allocate and can block.
 //
 // Routing (spec "Stream routing by severity"): Verbose/Debug/Info -> stdout;
 // Warning/Error/Fatal -> stderr.
@@ -13,28 +16,30 @@
 // Line shape (self-descriptive, fixed format, allocation-free):
 //   "<monotonic-sec>.<ns9> <level> <file basename>:<line> (<function>) <message>\n"
 // The timestamp is the record's monotonic-domain stamp (CLOCK_MONOTONIC_RAW
-// ns). Wall-clock ISO-8601 belongs to the file sink's calibrated formatter;
-// the console line only promises "includes the timestamp" (spec scenario).
+// ns); <message> is the rendered deferred format. Wall-clock ISO-8601 belongs
+// to the file sink's calibrated formatter; the console line only promises
+// "includes the timestamp" (spec scenario).
 //
-// CONTRACT (mirrors core::SpscRingBuffer's header): exactly one producer
-// thread calls log()/conveniences on a given instance; the internal worker
-// thread is the sole consumer. set_level()/level()/dropped()/ring_size() are
-// safe from any thread (relaxed snapshots — diagnostics only). flush() is a
-// control-plane barrier (drain + publish) and sits outside the never-block
+// MULTI-PRODUCER CONTRACT (spec logging/multi-producer): up to MaxThreads
+// (32 default) distinct producer threads may log to one instance; each thread
+// owns one SPSC shard and the internal worker is the sole consumer of all of
+// them. set_level()/level()/dropped()/pending()/ring_size() are safe from any
+// thread (relaxed snapshots — diagnostics only). flush() is a control-plane
+// barrier (drain all shards + publish) and sits outside the never-block
 // guarantee that binds the record methods.
 //
-// DROP SEMANTICS (returned Status of log()/conveniences):
-//   {}              record accepted into the ring, OR filtered below the
-//                   active level (filtering is normal operation, not a loss)
-//   BufferFull      ring full: nothing enqueued, counted in dropped()
-//   RateLimited     never — the console sink configures no throttle
+// DROP SEMANTICS (record methods return void; causes counted per shard and
+// aggregated by dropped()): buffer-full when the calling thread's shard is
+// full, rate-limited never (console configures no throttle), slot-exhausted
+// beyond MaxThreads producers. The console sink renders nothing until
+// drained, so drops never surface late in the output stream.
 //
 // Usage rule (see core/result.hpp): never call .value() on a returned Status.
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
-#include <source_location>
+#include <string>
 #include <string_view>
 #include <sys/types.h>
 #include <unistd.h>
@@ -45,17 +50,21 @@
 #include <nexigen/logging/concepts/logger_concept.hpp>
 #include <nexigen/logging/detail/async_logger.hpp>
 #include <nexigen/logging/detail/producer.hpp>
+#include <nexigen/logging/format_with_location.hpp>
 #include <nexigen/logging/log_level.hpp>
 #include <nexigen/logging/log_record.hpp>
 
 namespace nexigen::logging::detail {
 
-/// Consumer-thread writer for the console: formats a plain line into fixed
-/// storage, writes it to the routed fd, tolerates partial writes/EINTR.
+/// Consumer-thread writer for the console: renders each record's deferred
+/// format into fixed scratch, formats a plain line, writes it to the routed
+/// fd, tolerates partial writes/EINTR.
 class Console_sink {
     static constexpr std::size_t line_capacity = 512;
+    static constexpr std::size_t msg_capacity = 256;
 
     char line_[line_capacity]{}; ///< pre-allocated line scratch (consumer-only)
+    char msg_[msg_capacity]{};   ///< pre-allocated render scratch (consumer-only)
     std::size_t len_ = 0;        ///< bytes currently staged in line_
 
     /// Bounded appenders: write only if space remains; never reallocate.
@@ -106,7 +115,12 @@ public:
     [[nodiscard]] core::Status synchronize() noexcept { return {}; }
 
     template <class Record>
-    void handle(const Record& rec) noexcept {
+    void handle(Record& rec) noexcept {
+        // Deferred formatting executes HERE (spec logging/log-record):
+        // render_into writes the pack through the record's callback into
+        // msg_ scratch, allocation-free and bounded, flagging truncation.
+        const std::size_t msg_len = rec.render_into(msg_, msg_capacity);
+
         len_ = 0;
         const std::uint64_t ns_total = rec.stamp.nanoseconds();
         append_u64(ns_total / 1'000'000'000ULL, 1U);
@@ -123,7 +137,7 @@ public:
         append_sv(std::string_view(rec.function_name != nullptr ? rec.function_name : ""));
         append_char(')');
         append_char(' ');
-        append_sv(rec.message_view());
+        append_sv(std::string_view(msg_, msg_len));
         append_char('\n');
         const int fd = (rec.level >= LogLevel::Warning) ? STDERR_FILENO : STDOUT_FILENO;
         write_all(fd, len_);
@@ -134,12 +148,14 @@ public:
 
 namespace nexigen::logging {
 
-/// Asynchronous wait-free console logger. Template parameters fix the ring
-/// capacity and inline message size at compile time (SPSC power-of-two
+/// Asynchronous wait-free console logger supporting multiple producer threads
+/// via per-thread SPSC shards. Template parameters fix the per-shard capacity,
+/// inline message size, and producer pool at compile time (SPSC power-of-two
 /// contract enforced by the queue itself).
-template <std::size_t Capacity = 4096, std::size_t MessageCapacity = 128>
+template <std::size_t ShardCapacity = 128, std::size_t MessageCapacity = 128,
+          std::size_t MaxThreads = 32>
 class ConsoleLogger {
-    using Producer = detail::Producer<Capacity, MessageCapacity>;
+    using Producer = detail::Producer<ShardCapacity, MessageCapacity, MaxThreads>;
 
     Producer producer_{};
     detail::Async_worker<Producer, detail::Console_sink> worker_{};
@@ -147,6 +163,15 @@ class ConsoleLogger {
 public:
     struct Config {
         LogLevel initial_level{LogLevel::Info};
+
+        /// Cold-path diagnostic (mandate 9): the configured initial threshold.
+        [[nodiscard]] std::string to_string() const {
+            return "ConsoleLogger::Config(level=" + std::string(logging::to_string(initial_level)) + ")";
+        }
+
+        /// Free form via ADL (nested types are non-deducible for template
+        /// helpers; a class-scope friend is the standard discovery route).
+        [[nodiscard]] friend std::string to_string(const Config& cfg) { return cfg.to_string(); }
     };
 
     ConsoleLogger() noexcept = default;
@@ -155,7 +180,9 @@ public:
     ConsoleLogger(ConsoleLogger&&) = delete;
     ConsoleLogger& operator=(ConsoleLogger&&) = delete;
 
-    [[nodiscard]] static constexpr std::size_t capacity() noexcept { return Capacity; }
+    /// Per-shard capacity; aggregate pool capacity is capacity()*max_threads().
+    [[nodiscard]] static constexpr std::size_t capacity() noexcept { return ShardCapacity; }
+    [[nodiscard]] static constexpr std::size_t max_threads() noexcept { return MaxThreads; }
 
     /// Initialization phase (pre real-time): calibrate stamps + start the
     /// background writer. No allocations beyond jthread creation internals.
@@ -171,39 +198,67 @@ public:
     void set_level(LogLevel new_level) noexcept { producer_.set_level(new_level); }
     [[nodiscard]] LogLevel level() const noexcept { return producer_.level(); }
 
-    [[nodiscard]] core::Status log(LogLevel level, std::source_location loc,
-                                   std::string_view message) noexcept {
-        return producer_.emit(level, loc, message);
+    /// Variadic surface (spec logging/logger-concept): pack + shard enqueue,
+    /// never blocks, never formats, returns void.
+    template <class... Args>
+    void log(LogLevel level, detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(level, fmt, std::forward<Args>(args)...);
     }
 
-    [[nodiscard]] core::Status verbose(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Verbose, loc, msg);
+    template <class... Args>
+    void verbose(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(LogLevel::Verbose, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status debug(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Debug, loc, msg);
+    template <class... Args>
+    void debug(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(LogLevel::Debug, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status info(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Info, loc, msg);
+    template <class... Args>
+    void info(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(LogLevel::Info, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status warning(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Warning, loc, msg);
+    template <class... Args>
+    void warning(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(LogLevel::Warning, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status error(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Error, loc, msg);
+    template <class... Args>
+    void error(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(LogLevel::Error, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status fatal(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Fatal, loc, msg);
+    template <class... Args>
+    void fatal(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        producer_.emit(LogLevel::Fatal, fmt, std::forward<Args>(args)...);
     }
 
     /// Control-plane barrier: returns once every record accepted before the
-    /// call has been written to its stream (console writes are unbuffered
-    /// syscalls, so synchronize() is trivially complete at write time).
+    /// call has been written to its stream across ALL shards (console writes
+    /// are unbuffered syscalls, so synchronize() is trivially complete).
     [[nodiscard]] core::Status flush() noexcept { return worker_.flush(); }
 
     /// Third-thread diagnostics (snapshots, not hot-path synchronization).
     [[nodiscard]] Dropped_stats dropped() const noexcept { return producer_.dropped(); }
     [[nodiscard]] std::size_t pending() const noexcept { return producer_.ring_size(); }
     [[nodiscard]] bool writer_started() const noexcept { return worker_.writer_started(); }
+
+    /// Cold-path diagnostic (mandate 9): threshold + shard-pool snapshot
+    /// (capacity, registered producers, pending, per-cause drops).
+    [[nodiscard]] std::string to_string() const {
+        return "ConsoleLogger(level=" + std::string(logging::to_string(producer_.level())) +
+               ", shard_capacity=" + std::to_string(ShardCapacity) +
+               ", shards=" + std::to_string(MaxThreads) +
+               ", message_capacity=" + std::to_string(MessageCapacity) +
+               ", pending=" + std::to_string(producer_.ring_size()) +
+               ", dropped=" + producer_.dropped().to_string() + ")";
+    }
 };
+
+/// Free helper (mandate 9): mirrors the member.
+template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t MaxThreads>
+[[nodiscard]] std::string to_string(const ConsoleLogger<ShardCapacity, MessageCapacity, MaxThreads>& logger) {
+    return logger.to_string();
+}
+
+static_assert(concepts::Logger<ConsoleLogger<>>,
+              "ConsoleLogger must satisfy the Logger contract (pinned at header level)");
 
 } // namespace nexigen::logging

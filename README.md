@@ -50,8 +50,10 @@ Header-only, C++23, no exceptions/RTTI, no heap allocation on hot paths. Link th
 `nexigen::core` (alias of `nexigen_core`) INTERFACE target and include what you use:
 
 * **`<nexigen/core/result.hpp>`** — the error model. `ErrorCode` (`Ok`, `BufferFull`,
-  `BufferEmpty`, `InvalidArgument`, `SystemError`, `NotInitialized`), `constexpr to_string`,
-  and `Result<T, E = ErrorCode>` / `Status` over `std::expected`. Branch on `has_value()`
+  `BufferEmpty`, `InvalidArgument`, `SystemError`, `NotInitialized`, `RateLimited`),
+  `constexpr to_string`/`from_string`, `to_json`/`from_json` (nlohmann::json, non-throwing
+  under `JSON_NOEXCEPTION=1`) and `std::formatter<ErrorCode>`, plus
+  `Result<T, E = ErrorCode>` / `Status` over `std::expected`. Branch on `has_value()`
   and read via `*res` / `.error()` — never `value()` (it aborts under `-fno-exceptions`).
 * **`<nexigen/core/spsc_ring_buffer.hpp>`** — `SpscRingBuffer<T, Capacity>`, a
   wait-free bounded SPSC queue. **Contract:** exactly one producer thread calling
@@ -60,8 +62,16 @@ Header-only, C++23, no exceptions/RTTI, no heap allocation on hot paths. Link th
   (rejected otherwise). `try_push`/`try_pop` each complete in a bounded number of
   steps (1–2 loads + 1 store, no CAS loops) — neither end can stall the other.
   `size()`/`is_empty()`/`is_full()` are *snapshots* for diagnostics, not
-  synchronization. The queue is non-copyable and non-movable: give it static or
-  long-lived object storage.
+  synchronization, and `to_string()` renders a cold-path capacity/occupancy dump. The
+  queue is non-copyable and non-movable: give it static or long-lived object storage.
+
+**Serialization contract (all modules):** every public type exposes a cold-path
+`std::string to_string() const` + free `to_string(const T&)`; every enum class exposes
+constexpr `to_string`/`from_string`, ADL `to_json`/`from_json` and a `std::formatter`
+specialization. The build resolves nlohmann::json via `find_package(nlohmann_json QUIET)`
+with a FetchContent fallback (pinned v3.11.3) and propagates `JSON_NOEXCEPTION=1` publicly,
+so the JSON vocabulary compiles everywhere under `-fno-exceptions`. `std::string` and
+nlohmann::json remain strictly cold-path tools — never on a producer or worker hot path.
 
 Usage example (the same setup as the 1M-element stress test in `tests/core/core_test.cpp`):
 
@@ -137,52 +147,73 @@ lock-free; the compiled units are cold-path only.
 ## 📡 `nexigen::logging` API
 
 Zero-virtual logging built on the `concepts::Logger` structural contract (`set_level`/`level`,
-`log(LogLevel, std::source_location, std::string_view) noexcept -> Status`, the six
-conveniences with the defaulted `std::source_location::current()`, and `flush()`).
-Link `nexigen::logging` (alias of `nexigen_logging`) and include what you use:
+the variadic `log(LogLevel, FormatWithLocation<Args...>, Args&&...) noexcept -> void` entry
+point, the six convenience methods (`verbose`/`debug`/`info`/`warning`/`error`/`fatal`) with
+implicit source-location capture, and `flush() -> Status`). Link `nexigen::logging`
+(alias of `nexigen_logging`) and include what you use:
 
+* **`<nexigen/logging/format_with_location.hpp>`** — `FormatWithLocation<Args...>`: the
+  `consteval` wrapper pairing a compile-time-checked `std::format_string<Args...>` literal
+  with the `std::source_location` of the *caller's* statement. Passing a bare literal is the
+  normal shape; format/argument mismatches are build errors, not runtime paths.
 * **`<nexigen/logging/log_level.hpp>`** — `LogLevel` (`Verbose..Fatal, Off`, declared in
-  severity order so relational `<` *is* the ordering) and constexpr lowercase `to_string`.
+  severity order so relational `<` *is* the ordering), constexpr lowercase `to_string`,
+  `from_string`, `to_json`/`from_json` (non-throwing under `JSON_NOEXCEPTION=1`) and a
+  `std::formatter<LogLevel>` so `std::format("{}", LogLevel::Warning)` → `"warning"`.
   The runtime threshold is one relaxed-atomic cell per logger: `level()` is a snapshot, and
   a filtered call ends in ≈ 1 ns without touching the ring.
 * **`<nexigen/logging/log_record.hpp>`** — `LogRecord<Message_capacity = 128>`: the fixed
-  192-byte `alignas(64)` trivially-copyable payload crossing the SPSC boundary — calibrated
-  monotonic-ns stamp, cached `SYS_gettid` thread id, extracted source-location fields, and
-  an inline message buffer (truncation flagged, never spilled to the heap).
+  192-byte `alignas(64)` trivially-copyable payload crossing the producer/consumer boundary —
+  calibrated monotonic-ns stamp, cached `SYS_gettid` thread id, extracted source-location
+  fields, and a **deferred format pack**: the raw literal pointer, a type-erased render
+  callback, and serialized arguments in an inline blob (oversized string copies truncate,
+  flagged; rendering happens on the consumer thread, never the producer).
 * **`<nexigen/logging/null_logger.hpp>`** — `NullLogger`: the zero-cost stub; at `-O1+`
   nothing survives into the emitted code (objdump-pinned by the tests).
-* **`<nexigen/logging/console_logger.hpp>`** — `ConsoleLogger<Capacity = 4096, Message_capacity = 128>`:
+* **`<nexigen/logging/console_logger.hpp>`** — `ConsoleLogger<Shard_capacity = 128, Message_capacity = 128, Max_threads = 32>`:
   asynchronous wait-free plain-text sink; Verbose/Debug/Info → stdout, Warning and above →
-  stderr, via raw `::write` (never `std::cout`/`printf`, which allocate).
-* **`<nexigen/logging/file_logger.hpp>`** — `FileLogger<Ring_capacity = 8192, Message_capacity = 128>`:
+  stderr, via raw `::write` (never `std::cout`/`printf`, which allocate). The consumer renders
+  each deferred pack into a pre-allocated line scratch.
+* **`<nexigen/logging/file_logger.hpp>`** — `FileLogger<Shard_capacity = 128, Message_capacity = 128, Max_threads = 32>`:
   asynchronous wait-free JSON-lines writer with a CPU-pinned worker (`core_mask`), lock-free
   windowed throttling with per-cause drop counters and automatic drop-summary records, and
-  hitch-free Hourly/Daily/Custom directory rotation. Wall time is UTC ISO-8601 with
-  nanoseconds, `CLOCK_REALTIME`↔`CLOCK_MONOTONIC_RAW` calibrated at init and re-sampled on
+  hitch-free Hourly/Daily/Custom directory rotation (`Rotation_schedule` carries the full
+  enum vocabulary: `to_string`/`from_string`/JSON/`std::formatter`). Wall time is UTC ISO-8601
+  with nanoseconds, `CLOCK_REALTIME`↔`CLOCK_MONOTONIC_RAW` calibrated at init and re-sampled on
   rotation/flush.
 * **`<nexigen/logging/composite_logger.hpp>`** — `CompositeLogger<Loggers...>`: variadic
   fan-out over a `std::tuple` with fold expressions, `get<Index>()`/`get<LoggerType>()`
   sub-logger access, no virtual dispatch; composites nest and the empty pack is valid.
 
-**Hot-path rules:** exactly **one producer thread per logger instance** (the SPSC contract
-of `core::SpscRingBuffer` — a second producer is undefined use, not a degraded mode; deploy
-one logger per producer thread and join sinks with `CompositeLogger`). An accepted enqueue
-measures ≤ 20 ns median (Release-gated); a filtered call ≈ 1 ns. Neither ever blocks,
-spins, locks, or allocates, and neither notices the consumer: a full ring answers
-`BufferFull` immediately. Cross-thread `set_level`/`level`/`dropped`/`pending`/`writer_*`
+**Hot-path rules:** each asynchronous logger pre-allocates a pool of `Max_threads` (default 32)
+per-thread SPSC shards; **up to 32 distinct producer threads** may log to one instance, and the
+first call on a thread registers its shard once (thread-local slot; steady state never touches
+a shared write index). An accepted enqueue — filter, stamp, argument pack, shard `try_push` —
+measures ≤ 20 ns median with zero allocations (Release-gated; the bench carries float +
+`string_view` arguments); a filtered call ≈ 1 ns. Producers never block, spin, lock, or
+format, and never notice the consumer or another thread's stall. Threads past the pool capacity
+are dropped and counted. Cross-thread `set_level`/`level`/`dropped`/`pending`/`writer_*`
 are relaxed **snapshots** — diagnostics and configuration, never synchronization.
 `flush()` is a control-plane barrier **outside** the never-block guarantee: it waits until
-every record accepted before the call is written (and `fsync`-ed for the file sink).
+every record accepted before the call is written across all shards (and `fsync`-ed for the
+file sink).
 
-Drop semantics (the `Status` returned by `log()` and the conveniences):
+Drop semantics — record methods return `void`; losses surface through the `dropped()`
+snapshot and the in-stream drop summary:
 
-| Result | Meaning |
+| Counter | Meaning |
 |---|---|
-| `OK` (`{}`) | record accepted into the ring — **or** filtered below the active level (filtering is normal operation, never a loss) |
-| `BufferFull` | ring full: the record was not enqueued; counted in `dropped().buffer_full` |
-| `RateLimited` | throttle budget spent for the window; counted in `dropped().rate_limited`; the next window opens with a drop-summary record reporting exact per-cause counts |
+| `dropped().buffer_full` | the calling thread's shard ring was full; the record was not enqueued |
+| `dropped().rate_limited` | throttle budget spent for the window (file sink); the next window opens with a drop-summary record reporting exact per-cause counts |
+| `dropped().slot_exhausted` | more distinct producer threads than `Max_threads`; extra threads' records are dropped (never blocking, never corrupting a registered shard) |
 
-Usage example (console + file in a composite, pinned writer, level changes):
+Every public type carries the project serialization contract too: cold-path
+`std::string to_string() const` + free `to_string(const T&)` for diagnostics (`Timestamp`,
+`Stamp_source`, `Civil_time`, `LogRecord`, `Dropped_stats`, the config structs, every logger,
+and the ring itself).
+
+Usage example (console + file in a composite, pinned writer, deferred-format calls from two
+threads):
 
 ```cpp
 #include <nexigen/logging/composite_logger.hpp>
@@ -190,10 +221,12 @@ Usage example (console + file in a composite, pinned writer, level changes):
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/logging/log_level.hpp>
 
+#include <thread>
+
 int main() {
     using namespace nexigen::logging;
 
-    // One static composite owns both sinks (static storage: the rings are
+    // One static composite owns both sinks (static storage: the shard pools are
     // non-movable). initialize() is the pre-real-time phase: it calibrates
     // clocks and starts each logger's background writer thread.
     static CompositeLogger<ConsoleLogger<>, FileLogger<>> app{};
@@ -214,9 +247,17 @@ int main() {
     // ...and per-sink policy stays available through the typed accessor:
     app.get<FileLogger<>>().set_level(LogLevel::Warning); // file keeps Warning+
 
-    // Single producer thread = the simulation loop calling through `app`:
-    static_cast<void>(app.info("1 kHz loop heartbeat"));     // console only
-    static_cast<void>(app.error("actuator position drift")); // console + file
+    // Formats are checked at compile time; args pack into the record here and
+    // render on the writer thread — never on this one:
+    std::thread sim {[]{
+        for (int tick = 0; tick < 1000; ++tick) {
+            app.debug("Прямой вызов метода debug. Давление: {:.4f}", 0.0025);
+            app.info("Level is {}", LogLevel::Warning); // enums format directly
+        }
+    }};
+    app.error("actuator position drift"); // console + file
+
+    sim.join();
 
     // Control plane: wait until everything accepted so far is durable
     // (never call this from the real-time producer path).

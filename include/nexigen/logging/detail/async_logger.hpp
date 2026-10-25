@@ -1,16 +1,26 @@
-// nexigen::logging — background consumer machinery (design.md D8).
+// nexigen::logging — background consumer machinery (design D8; multi-producer
+// rework: change add-serialization-and-wait-free-logging design D7).
 //
-// One std::jthread per async logger. Responsibilities, all OFF the producer's
-// hot path: batch-drain the ring (up to 64 records per batch), hand each
-// record to the Sink (console write / JSON file write), answer flush()
-// requests, and drain + synchronize + publish on shutdown.
+// One std::jthread per async logger. Responsibilities, all OFF the producers'
+// hot paths: batch-drain ALL producer shards (detail::Producer::pop
+// round-robins across registered shards, ≤ 16 records per shard per sweep,
+// up to 64 records per batch), render each record's deferred format into the
+// sink's pre-allocated scratch, hand the line to the Sink (console write /
+// JSON file write), answer flush() requests, and drain + synchronize +
+// publish on shutdown.
 //
-// IDLE BACKOFF: a consumer that busy-polls an empty ring re-reads the
-// producer's tail cache line every iteration and slows the producer down
-// through false sharing — the never-block guarantee is the producer's, and
-// burning a pinned core to poll is not free. The loop therefore does ≤ 64
-// failed pops before switching to 200 us sleeps (bounded control-plane
-// latency on the first record after idle; the producers never wait).
+// MULTI-PRODUCER CONTRACT: producers never wait on this thread; the sweep
+// fairness bound in pop() prevents one flooded shard from starving others.
+// flush()'s re-sweep runs until EVERY registered shard is momentarily empty
+// before publishing the drained sequence, so "all records accepted before
+// the request are durable" holds across the whole pool.
+//
+// IDLE BACKOFF: a consumer that busy-polls empty rings re-reads producers'
+// tail cache lines every iteration and slows them down through false sharing
+// — the never-block guarantee is the producers', and burning a pinned core
+// to poll is not free. The loop therefore does ≤ 64 failed sweeps before
+// switching to 200 us sleeps (bounded control-plane latency on the first
+// record after idle; the producers never wait).
 //
 // FLUSH HANDSHAKE (two atomics in one padded cell, relaxed/acquire/release
 // as noted; the wait loop is control plane, so sleeping is allowed):

@@ -13,7 +13,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <format>
+#include <string>
 #include <string_view>
+
+#include <nlohmann/json.hpp>
 
 namespace nexigen::core {
 
@@ -48,6 +52,38 @@ enum class ErrorCode : std::uint8_t {
     }
 }
 
+/// Parse a canonical enumerator name (the exact to_string spelling). Returns
+/// false leaving the out-parameter UNCHANGED on any other spelling — including
+/// "Unknown", which is a rendering, not an enumerator. constexpr in C++23.
+[[nodiscard]] constexpr bool from_string(std::string_view name, ErrorCode& out) noexcept {
+    if (name == "Ok") { out = ErrorCode::Ok; return true; }
+    if (name == "BufferFull") { out = ErrorCode::BufferFull; return true; }
+    if (name == "BufferEmpty") { out = ErrorCode::BufferEmpty; return true; }
+    if (name == "InvalidArgument") { out = ErrorCode::InvalidArgument; return true; }
+    if (name == "SystemError") { out = ErrorCode::SystemError; return true; }
+    if (name == "NotInitialized") { out = ErrorCode::NotInitialized; return true; }
+    if (name == "RateLimited") { out = ErrorCode::RateLimited; return true; }
+    return false;
+}
+
+/// ADL JSON writer (cold path only — nlohmann::json is banned on hot paths):
+/// the JSON value is exactly to_string(code). Allocation happens here; never
+/// call from a producer/worker loop.
+inline void to_json(nlohmann::json& j, const ErrorCode code) {
+    j = std::string(to_string(code));
+}
+
+/// ADL JSON reader, strictly non-throwing under JSON_NOEXCEPTION=1: get_ptr
+/// yields nullptr for any non-string value (numbers/objects/arrays/null), an
+/// unknown name leaves `out` unchanged (caller pre-sets the fallback). Never
+/// aborts regardless of input.
+inline void from_json(const nlohmann::json& j, ErrorCode& out) noexcept {
+    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
+    if (name != nullptr) {
+        static_cast<void>(from_string(std::string_view(*name), out));
+    }
+}
+
 /// Value-or-error return type: holds a T or an ErrorCode (custom E allowed).
 /// Never call value(); use has_value(), *res, res->, res.error().
 template <class T, class E = ErrorCode>
@@ -58,3 +94,15 @@ using Result = std::expected<T, E>;
 using Status = std::expected<void, ErrorCode>;
 
 } // namespace nexigen::core
+
+/// ErrorCode formats as its canonical name (mandate 11): delegates parse and
+/// fill/align handling to the string_view formatter, formats over to_string.
+/// The context is templated: libstdc++ 15 evaluates formattability against a
+/// substituted context, and a hard-coded std::format_context& would not bind.
+template <>
+struct std::formatter<nexigen::core::ErrorCode> : std::formatter<std::string_view> {
+    template <class Ctx>
+    constexpr auto format(const nexigen::core::ErrorCode code, Ctx& ctx) const {
+        return std::formatter<std::string_view>::format(nexigen::core::to_string(code), ctx);
+    }
+};

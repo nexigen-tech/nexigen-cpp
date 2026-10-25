@@ -19,6 +19,8 @@
 #include <cstdint>
 #include <ctime>
 #include <expected>
+#include <format>
+#include <string>
 #include <utility>
 
 #include <nexigen/core/result.hpp>
@@ -69,11 +71,38 @@ public:
         return ns_ >= earlier.ns_ ? Timestamp{ns_ - earlier.ns_} : Timestamp{0};
     }
 
+    /// Cold-path diagnostic (mandate 9): renders the monotonic nanosecond count
+    /// as whole seconds with a 9-digit nanosecond remainder. Allocates a
+    /// std::string, so it is a diagnostics/config utility, never a hot-path call.
+    [[nodiscard]] std::string to_string() const {
+        std::string frac = std::to_string(ns_ % 1'000'000'000ULL);
+        const std::size_t digits = frac.size();
+        if (digits < 9U) {
+            frac.insert(0, 9U - digits, '0');
+        }
+        return "Timestamp(" + std::to_string(ns_ / 1'000'000'000ULL) + '.' + frac +
+               "s monotonic)";
+    }
+
 private:
     std::uint64_t ns_{};
 };
+
+/// Free helper (mandate 9): mirrors the member for generic/ADL call sites.
+[[nodiscard]] inline std::string to_string(const Timestamp& ts) { return ts.to_string(); }
 
 static_assert(sizeof(Timestamp) == 8, "Timestamp must stay a register-sized value type");
 static_assert(std::is_trivially_copyable_v<Timestamp>, "Timestamp must be trivially copyable");
 
 } // namespace nexigen::chrono
+
+/// Timestamp formats as its raw nanosecond count (integer fill/align rules).
+/// Required because logging's Packable surface accepts Timestamps and
+/// std::format_string<Timestamp> checks formattability at the call site.
+template <>
+struct std::formatter<nexigen::chrono::Timestamp> : std::formatter<std::uint64_t> {
+    template <class Ctx>
+    constexpr auto format(const nexigen::chrono::Timestamp& ts, Ctx& ctx) const {
+        return std::formatter<std::uint64_t>::format(ts.nanoseconds(), ctx);
+    }
+};

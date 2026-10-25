@@ -30,6 +30,25 @@ target_include_directories(nexigen_options INTERFACE
 )
 
 # =============================================================================
+# nlohmann::json — vocabularies to_json/from_json для enum-контрактов
+# (design D1 change add-serialization-and-wait-free-logging). Предпочитаем
+# системный пакет; иначе FetchContent (header-only, тег закреплён).
+# JSON_NOEXCEPTION=1 определяется PUBLIC (INTERFACE): каждый consumer-TU
+# обязан инклудить <nlohmann/json.hpp> при -fno-exceptions, иначе заголовки
+# генерируют try/catch и падают на строгом флаге.
+# =============================================================================
+find_package(nlohmann_json QUIET)
+if(NOT nlohmann_json_FOUND)
+    include(FetchContent)
+    set(JSON_BuildTests OFF CACHE INTERNAL "")
+    set(JSON_Install OFF CACHE INTERNAL "")
+    FetchContent_Declare(nlohmann_json
+        SYSTEM
+        URL https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz)
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
+
+# =============================================================================
 # nexigen::core — header-only библиотека.
 # Публичные заголовки лежат в include/, компиляции нет: флаги и стандарт
 # наследуются от nexigen_options (единственный источник настроек компилятора).
@@ -42,7 +61,11 @@ target_include_directories(nexigen_core INTERFACE
     $<INSTALL_INTERFACE:include>
 )
 target_compile_features(nexigen_core INTERFACE cxx_std_23)
-target_link_libraries(nexigen_core INTERFACE nexigen_options)
+# nlohmann_json + JSON_NOEXCEPTION — INTERFACE: транзитивно на chrono/logging/
+# tests/downstream, чтобы enum-заголовки (result.hpp и др.) компилировались
+# везде под общим -fno-exceptions (design D1).
+target_link_libraries(nexigen_core INTERFACE nexigen_options nlohmann_json::nlohmann_json)
+target_compile_definitions(nexigen_core INTERFACE JSON_NOEXCEPTION=1)
 
 # clock_gettime()/CLOCK_MONOTONIC_RAW на Linux: явно запрашиваем POSIX-объявления,
 # чтобы строгий -std=c++23 (без _GNU_SOURCE) их не скрывал. См. design.md D2

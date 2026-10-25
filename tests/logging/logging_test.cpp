@@ -20,7 +20,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <format>
 #include <new>
+#include <string>
 #include <pthread.h> // cpu_set_t + affinity queries for the benchmark harness placement
 #include <source_location>
 #include <string_view>
@@ -116,7 +118,8 @@ static_assert(to_string(LogLevel::Fatal) == "fatal");
 static_assert(to_string(LogLevel::Off) == "off");
 static_assert(to_string(static_cast<LogLevel>(200)) == "Unknown");
 
-// --- Compile-time claims (task 3.1 / design D4): record shape and layout.
+// --- Compile-time claims (task 4.3 / design D4): deferred-format record shape
+// and pinned layout (format pointer + render callback + inline argument blob).
 static_assert(sizeof(LogRecord<128>) == 192);
 static_assert(alignof(LogRecord<128>) == 64);
 static_assert(std::is_trivially_copyable_v<LogRecord<128>>);
@@ -126,11 +129,25 @@ static_assert(offsetof(LogRecord<128>, stamp) == 0);
 static_assert(offsetof(LogRecord<128>, thread_id) == 8);
 static_assert(offsetof(LogRecord<128>, level) == 12);
 static_assert(offsetof(LogRecord<128>, flags) == 13);
-static_assert(offsetof(LogRecord<128>, message_length) == 14);
+static_assert(offsetof(LogRecord<128>, arg_length) == 14);
 static_assert(offsetof(LogRecord<128>, file_name) == 16);
 static_assert(offsetof(LogRecord<128>, function_name) == 24);
 static_assert(offsetof(LogRecord<128>, line) == 32);
-static_assert(offsetof(LogRecord<128>, message) == 40);
+static_assert(offsetof(LogRecord<128>, fmt) == 40);
+static_assert(offsetof(LogRecord<128>, render) == 48);
+static_assert(offsetof(LogRecord<128>, args_) == 56);
+
+// --- Compile-time claims (task 4.1/4.2 / design D3/D5): FormatWithLocation is
+// constructible ONLY from literals (consteval), the literal call shapes deduce
+// as expected, and the Packable surface accepts exactly the documented set.
+static_assert(std::is_trivially_destructible_v<FormatWithLocation<>>);
+static_assert(requires { FormatWithLocation<>{"plain"}; });
+static_assert(requires { FormatWithLocation<double>{"{:.4f}"}; });
+static_assert(detail::Packable<double> && detail::Packable<int> &&
+              detail::Packable<bool> && detail::Packable<std::string_view> &&
+              detail::Packable<LogLevel> && detail::Packable<Timestamp> &&
+              detail::Packable<const char*>);
+static_assert(!detail::Packable<std::string> && !detail::Packable<double*>);
 
 namespace {
 
@@ -214,18 +231,23 @@ void test_harness() {
 // deliberately-broken variant per required member. Each negative proves the
 // concept *rejects* the defect — absence/signature errors are compile law.
 
+// --- concept fixtures (change add-serialization-and-wait-free-logging, task
+// 6.1): one complete variadic surface plus one deliberately-broken variant
+// per required member/shape. Each negative proves the concept *rejects* the
+// defect — absence/signature errors are compile law.
+
 // The five conveniences below `fatal` are boilerplate in every fixture.
-#define NX_CONV_5()                                                                                   \
-    [[nodiscard]] Status verbose(std::string_view m, std::source_location loc = std::source_location::current()) noexcept \
-    { return log(LogLevel::Verbose, loc, m); }                                                         \
-    [[nodiscard]] Status debug(std::string_view m, std::source_location loc = std::source_location::current()) noexcept     \
-    { return log(LogLevel::Debug, loc, m); }                                                           \
-    [[nodiscard]] Status info(std::string_view m, std::source_location loc = std::source_location::current()) noexcept      \
-    { return log(LogLevel::Info, loc, m); }                                                            \
-    [[nodiscard]] Status warning(std::string_view m, std::source_location loc = std::source_location::current()) noexcept   \
-    { return log(LogLevel::Warning, loc, m); }                                                         \
-    [[nodiscard]] Status error(std::string_view m, std::source_location loc = std::source_location::current()) noexcept     \
-    { return log(LogLevel::Error, loc, m); }
+#define NX_CONV_5()                                                                                    \
+    template <class... A> void verbose(detail::format_param_t<A...> f, A&&... a) noexcept                  \
+    { log(LogLevel::Verbose, f, std::forward<A>(a)...); }                                              \
+    template <class... A> void debug(detail::format_param_t<A...> f, A&&... a) noexcept                    \
+    { log(LogLevel::Debug, f, std::forward<A>(a)...); }                                                \
+    template <class... A> void info(detail::format_param_t<A...> f, A&&... a) noexcept                     \
+    { log(LogLevel::Info, f, std::forward<A>(a)...); }                                                 \
+    template <class... A> void warning(detail::format_param_t<A...> f, A&&... a) noexcept                  \
+    { log(LogLevel::Warning, f, std::forward<A>(a)...); }                                              \
+    template <class... A> void error(detail::format_param_t<A...> f, A&&... a) noexcept                    \
+    { log(LogLevel::Error, f, std::forward<A>(a)...); }
 
 /// Complete conforming surface: the positive reference for the concept.
 struct Full_logger_model {
@@ -235,14 +257,15 @@ struct Full_logger_model {
 
     void set_level(LogLevel lv) noexcept { levels_.set_level(lv); }
     [[nodiscard]] LogLevel level() const noexcept { return levels_.level(); }
-    [[nodiscard]] Status log(LogLevel lv, std::source_location, std::string_view) noexcept {
+    template <class... A>
+    void log(LogLevel lv, detail::format_param_t<A...>, A&&...) noexcept {
         last_level = lv;
         ++calls;
-        return {};
     }
     NX_CONV_5()
-    [[nodiscard]] Status fatal(std::string_view m, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Fatal, loc, m);
+    template <class... A>
+    void fatal(detail::format_param_t<A...> f, A&&... a) noexcept {
+        log(LogLevel::Fatal, f, std::forward<A>(a)...);
     }
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
@@ -251,7 +274,7 @@ static_assert(concepts::Logger<Full_logger_model>);
 struct No_fatal_model { // fatal omitted entirely
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
-    [[nodiscard]] Status log(LogLevel, std::source_location, std::string_view) noexcept { return {}; }
+    template <class... A> void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
     NX_CONV_5()
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
@@ -260,10 +283,11 @@ static_assert(!concepts::Logger<No_fatal_model>);
 struct No_flush_model { // flush omitted entirely
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
-    [[nodiscard]] Status log(LogLevel, std::source_location, std::string_view) noexcept { return {}; }
+    template <class... A> void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
     NX_CONV_5()
-    [[nodiscard]] Status fatal(std::string_view m, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Fatal, loc, m);
+    template <class... A>
+    void fatal(detail::format_param_t<A...> f, A&&... a) noexcept {
+        log(LogLevel::Fatal, f, std::forward<A>(a)...);
     }
 };
 static_assert(!concepts::Logger<No_flush_model>);
@@ -271,10 +295,11 @@ static_assert(!concepts::Logger<No_flush_model>);
 struct Level_nonconst_model { // level() loses const
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() noexcept { return LogLevel::Info; }
-    [[nodiscard]] Status log(LogLevel, std::source_location, std::string_view) noexcept { return {}; }
+    template <class... A> void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
     NX_CONV_5()
-    [[nodiscard]] Status fatal(std::string_view m, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Fatal, loc, m);
+    template <class... A>
+    void fatal(detail::format_param_t<A...> f, A&&... a) noexcept {
+        log(LogLevel::Fatal, f, std::forward<A>(a)...);
     }
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
@@ -283,50 +308,43 @@ static_assert(!concepts::Logger<Level_nonconst_model>);
 struct Log_not_noexcept_model { // log() loses noexcept
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
-    [[nodiscard]] Status log(LogLevel, std::source_location, std::string_view) { return {}; }
+    template <class... A>
+    void log(LogLevel, detail::format_param_t<A...>, A&&...) { ++calls; }
+    int calls{0};
     NX_CONV_5()
-    [[nodiscard]] Status fatal(std::string_view m, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Fatal, loc, m);
-    }
+    template <class... A>
+    void fatal(detail::format_param_t<A...>, A&&...) noexcept {}
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
 static_assert(!concepts::Logger<Log_not_noexcept_model>);
 
-struct Log_wrong_result_model { // log() returns bool, not Status
+struct Log_returns_status_model { // old surface: log() returns Status, not void
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
-    [[nodiscard]] bool log(LogLevel, std::source_location, std::string_view) noexcept { return true; }
-    // Bodies return {} directly: they cannot forward to the bool-returning log.
-    [[nodiscard]] Status verbose(std::string_view, std::source_location = std::source_location::current()) noexcept { return {}; }
-    [[nodiscard]] Status debug(std::string_view, std::source_location = std::source_location::current()) noexcept { return {}; }
-    [[nodiscard]] Status info(std::string_view, std::source_location = std::source_location::current()) noexcept { return {}; }
-    [[nodiscard]] Status warning(std::string_view, std::source_location = std::source_location::current()) noexcept { return {}; }
-    [[nodiscard]] Status error(std::string_view, std::source_location = std::source_location::current()) noexcept { return {}; }
-    [[nodiscard]] Status fatal(std::string_view, std::source_location = std::source_location::current()) noexcept { return {}; }
+    [[nodiscard]] Status log(LogLevel, FormatWithLocation<>) noexcept { return {}; }
+    template <class... A> void verbose(detail::format_param_t<A...>, A&&...) noexcept {}
+    template <class... A> void debug(detail::format_param_t<A...>, A&&...) noexcept {}
+    template <class... A> void info(detail::format_param_t<A...>, A&&...) noexcept {}
+    template <class... A> void warning(detail::format_param_t<A...>, A&&...) noexcept {}
+    template <class... A> void error(detail::format_param_t<A...>, A&&...) noexcept {}
+    template <class... A> void fatal(detail::format_param_t<A...>, A&&...) noexcept {}
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(!concepts::Logger<Log_wrong_result_model>);
+static_assert(!concepts::Logger<Log_returns_status_model>);
 
-struct Info_needs_location_model { // info() without the defaulted location
+struct Info_needs_location_model { // info() demands an explicit location arg
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
-    [[nodiscard]] Status log(LogLevel, std::source_location, std::string_view) noexcept { return {}; }
-    // The five macro conveniences minus info(), then an info() that REQUIRES
-    // an explicit location — the concept must reject that shape.
-    [[nodiscard]] Status verbose(std::string_view m, std::source_location loc = std::source_location::current()) noexcept
-    { return log(LogLevel::Verbose, loc, m); }
-    [[nodiscard]] Status debug(std::string_view m, std::source_location loc = std::source_location::current()) noexcept
-    { return log(LogLevel::Debug, loc, m); }
-    [[nodiscard]] Status warning(std::string_view m, std::source_location loc = std::source_location::current()) noexcept
-    { return log(LogLevel::Warning, loc, m); }
-    [[nodiscard]] Status error(std::string_view m, std::source_location loc = std::source_location::current()) noexcept
-    { return log(LogLevel::Error, loc, m); }
-    [[nodiscard]] Status info(std::string_view m, std::source_location loc) noexcept {
-        return log(LogLevel::Info, loc, m);
+    template <class... A> void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
+    template <class... A> void verbose(detail::format_param_t<A...>, A&&...) noexcept {}
+    template <class... A> void debug(detail::format_param_t<A...>, A&&...) noexcept {}
+    template <class... A> void warning(detail::format_param_t<A...>, A&&...) noexcept {}
+    template <class... A> void error(detail::format_param_t<A...>, A&&...) noexcept {}
+    template <class... A>
+    void info(detail::format_param_t<A...> f, std::source_location, A&&... a) noexcept {
+        log(LogLevel::Info, f, std::forward<A>(a)...);
     }
-    [[nodiscard]] Status fatal(std::string_view m, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Fatal, loc, m);
-    }
+    template <class... A> void fatal(detail::format_param_t<A...>, A&&...) noexcept {}
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
 static_assert(!concepts::Logger<Info_needs_location_model>);
@@ -348,12 +366,16 @@ void test_levels() {
     NX_CHECK(to_string(LogLevel::Warning) == "warning");
     NX_CHECK(to_string(LogLevel::Off) == "off");
 
-    // Positive fixture exercises the concept surface, incl. default-location
-    // convenience calls (the caller-site capture contract, spec logger-concept).
+    // Positive fixture exercises the concept surface, incl. literal convenience
+    // calls with implicit caller-site capture (spec logger-concept).
     Full_logger_model model{};
-    NX_CHECK(model.info("hello").has_value());
+    model.info("hello");
     NX_CHECK(model.last_level == LogLevel::Info);
-    NX_CHECK(model.fatal("boom").has_value());
+    NX_CHECK(model.calls == 1);
+    model.debug("value {}", 42); // argument pack shape
+    NX_CHECK(model.last_level == LogLevel::Debug);
+    NX_CHECK(model.calls == 2);
+    model.fatal("boom");
     NX_CHECK(model.last_level == LogLevel::Fatal);
     NX_CHECK(model.flush().has_value());
     NX_CHECK(model.level() == LogLevel::Info);
@@ -382,128 +404,163 @@ void test_levels() {
     std::printf("levels: relaxed control smoke clean (bad=%d)\n", bad);
 }
 
-// --- record suite (task 3.1 / spec logging/log-record: shape pinned at
-// compile time above; runtime here covers payload semantics).
-void test_record() {
+// --- record suite (tasks 4.2/4.3 / spec logging/log-record): the pack→render
+// round-trip is the payload contract; layout is pinned at compile time above.
+// Round-trip harness (task 4.2): pack args into a record, render into scratch,
+// compare against std::format at the same literal/arguments.
+template <class... Args>
+[[nodiscard]] std::string rendered(const char* lit, Args&&... args) {
     LogRecord<128> rec{};
-    rec.assign_message("hello");
-    NX_CHECK(rec.message_length == 5);
-    NX_CHECK(rec.message_view() == "hello");
-    NX_CHECK(!rec.truncated());
-
-    // Oversize payload: truncate to capacity + flag (never spill, never block).
-    char big[129];
-    std::memset(big, 'B', sizeof big);
-    rec.flags = 0; // producer code clears the flag before assign; do it here too
-    rec.assign_message(std::string_view(big, 129U));
-    NX_CHECK(rec.truncated());
-    NX_CHECK(rec.message_length == 128);
-    NX_CHECK(rec.message_view() == std::string_view(big, 128U));
-
-    // Exact fit is NOT truncation.
-    rec.flags = 0;
-    rec.message_length = 0;
-    rec.assign_message(std::string_view(big, 128U));
-    NX_CHECK(!rec.truncated());
-    NX_CHECK(rec.message_length == 128);
-
-    // Empty message round-trips as length 0.
-    rec.flags = 0;
-    rec.assign_message("");
-    NX_CHECK(rec.message_length == 0);
-    NX_CHECK(rec.message_view().empty());
-    NX_CHECK(LogRecord<128>::message_capacity() == 128);
+    [[maybe_unused]] constexpr auto offs = detail::arg_offsets<128U, std::remove_cvref_t<Args>...>();
+    constexpr std::size_t total = detail::arg_total<128U, std::remove_cvref_t<Args>...>();
+    static_assert(total <= 128U, "harness pack must fit");
+    std::size_t i = 0;
+    std::uint8_t flags = 0;
+    ((detail::pack_one<128U>(rec.args_.data(), offs[i++], args, flags)), ...);
+    rec.fmt = lit;
+    rec.arg_length = static_cast<std::uint16_t>(total);
+    rec.render = &detail::render_impl<128U, std::remove_cvref_t<Args>...>;
+    rec.flags = flags;
+    char out[1024];
+    const std::size_t n = rec.render_into(out, sizeof out);
+    return std::string(out, n);
 }
 
-// --- producer suite (task 3.3 / design D5/D7 / spec logging/log-record).
+void test_record() {
+    // Scalars, floats, enums, timestamps render exactly as std::format does.
+    NX_CHECK(rendered("plain text") == "plain text");
+    NX_CHECK(rendered("v {} {}", 42, 3.5) == std::format("v {} {}", 42, 3.5));
+    NX_CHECK(rendered("Level is {}", LogLevel::Warning) == "Level is warning");
+    NX_CHECK(rendered("ec {}", ErrorCode::BufferFull) == "ec BufferFull");
+    NX_CHECK(rendered("rot {}", Rotation_schedule::Daily) == "rot daily");
+    NX_CHECK(rendered("t {}", Timestamp{1234ULL}) == "t 1234");
+    NX_CHECK(rendered("Прямой вызов метода debug. Давление: {:.4f}", 0.0025) ==
+             "Прямой вызов метода debug. Давление: 0.0025");
+    NX_CHECK(rendered("mixed {} {} {:.2}", 1, std::string_view("sv"), 0.125) ==
+             std::format("mixed {} {} {:.2}", 1, std::string_view("sv"), 0.125));
 
-// Build "sq:<n>" payloads without any allocation (to_chars into a caller buffer).
-[[nodiscard]] std::string_view make_seq(char (&buf)[16], std::uint64_t n) noexcept {
-    buf[0] = 's';
-    buf[1] = 'q';
-    buf[2] = ':';
-    const std::to_chars_result res = std::to_chars(buf + 3, buf + 16, n);
-    if (res.ec != std::errc{}) {
-        return {};
+    // string_view args are COPIED into the blob: the source may die (spec R5).
+    std::string text_view;
+    {
+        const std::string ephemeral = "transient payload";
+        text_view = rendered("{}", std::string_view{ephemeral});
     }
-    return std::string_view(buf, static_cast<std::size_t>(res.ptr - buf));
+    NX_CHECK(text_view == "transient payload");
+
+    // Long string arguments truncate the inline copy and flag bit0.
+    const std::string huge(500U, 'x');
+    LogRecord<128> rec{};
+    rec.fmt = "{}";
+    std::uint8_t flags = 0;
+    detail::pack_one<128U>(rec.args_.data(), 0U, std::string_view{huge}, flags);
+    rec.arg_length = static_cast<std::uint16_t>(detail::arg_total<128U, std::string_view>());
+    rec.render = &detail::render_impl<128U, std::string_view>;
+    rec.flags = flags;
+    NX_CHECK(rec.args_truncated());
+    char out[1024];
+    const std::size_t n = rec.render_into(out, sizeof out);
+    NX_CHECK(n == 64U); // inline cap = MessageCapacity/2
+    NX_CHECK(std::all_of(out, out + n, [](char c) { return c == 'x'; }));
+
+    // Render overflow: bounded output + bit1, never half-emitted downstream.
+    rec.render_into(out, 8U);
+    NX_CHECK(rec.render_truncated());
+
+    // Default record: no callback → empty message (no UB, no crash).
+    LogRecord<128> empty_rec{};
+    NX_CHECK(empty_rec.render_into(out, sizeof out) == 0U);
+
+    // to_string dump (mandate 9): level, location triplet, fmt text, accounting.
+    rec.file_name = __FILE__;
+    rec.function_name = "test_record";
+    rec.line = 42U;
+    const std::string dump = rec.to_string();
+    NX_CHECK(dump.find("LogRecord(") == 0U);
+    NX_CHECK(dump.find("level=info") != std::string::npos);
+    NX_CHECK(dump.find("logging_test.cpp:42") != std::string::npos);
+    NX_CHECK(dump.find("fmt={}") != std::string::npos);
+    NX_CHECK(dump.find("test_record") != std::string::npos);
+    NX_CHECK(to_string(rec) == dump);
+    NX_CHECK(LogRecord<128>::message_capacity() == 128U);
 }
 
-[[nodiscard]] std::uint64_t parse_seq(std::string_view sv) noexcept {
+// --- producer suite (tasks 5.1/5.2 / design D5/D6/D9 / spec
+// logging/multi-producer, logging/log-record): filter short-circuit, pack+push
+// field integrity, per-shard drops, FIFO, registration isolation, slot
+// exhaustion, and aggregation — the drain/render round-trips stay here.
+
+[[nodiscard]] std::uint64_t rendered_value(const LogRecord<128>& rec) {
+    // "v {N}" records from concurrent drains: parse the number back out.
+    char buf[64];
+    const std::size_t n = const_cast<LogRecord<128>&>(rec).render_into(buf, sizeof buf);
     std::uint64_t v = 0;
-    std::from_chars(sv.data() + 3, sv.data() + sv.size(), v);
+    std::from_chars(buf + 2, buf + n, v); // skip "v "
     return v;
 }
 
 void test_producer() {
     detail::Producer<8, 128> prod{};
     NX_CHECK(prod.initialize().has_value());
-    const auto loc = std::source_location::current();
 
-    // Below threshold: success + zero ring traffic (short-circuit contract).
+    // Below threshold: silent return + zero ring traffic (short-circuit).
     prod.set_level(LogLevel::Warning);
-    NX_CHECK(prod.emit(LogLevel::Info, loc, "filtered").has_value());
+    prod.emit(LogLevel::Info, "filtered {}", 1);
     NX_CHECK(prod.ring_size() == 0);
 
     // Off silences everything, even Fatal.
     prod.set_level(LogLevel::Off);
-    NX_CHECK(prod.emit(LogLevel::Fatal, loc, "silence").has_value());
+    prod.emit(LogLevel::Fatal, "silence");
     NX_CHECK(prod.ring_size() == 0);
     prod.set_level(LogLevel::Info);
 
-    // Accepted: full field integrity across the push/pop round trip.
-    NX_CHECK(prod.emit(LogLevel::Warning, loc, "hello world").has_value());
+    // Accepted: full field integrity across the push/pop round trip, incl.
+    // the exact caller location (FormatWithLocation capture) and rendering.
+    const int probe_line = __LINE__ + 1;
+    prod.emit(LogLevel::Warning, "hello world");
     NX_CHECK(prod.ring_size() == 1);
     LogRecord<128> out{};
     NX_CHECK(prod.pop(out).has_value());
     NX_CHECK(out.level == LogLevel::Warning);
-    NX_CHECK(out.message_view() == "hello world");
-    NX_CHECK(!out.truncated());
+    NX_CHECK(out.fmt != nullptr && std::string_view(out.fmt) == std::string_view("hello world"));
+    char msg[256];
+    NX_CHECK(out.render_into(msg, sizeof msg) == 11U);
+    NX_CHECK(std::string_view(msg, 11U) == "hello world");
+    NX_CHECK(!out.args_truncated() && !out.render_truncated());
     NX_CHECK(out.thread_id != 0U);
     NX_CHECK(out.thread_id == detail::cached_thread_id());
     NX_CHECK(out.stamp.nanoseconds() > 0U);
-    NX_CHECK(std::string_view(out.file_name) == std::string_view(loc.file_name()));
-    NX_CHECK(std::string_view(out.function_name) == std::string_view(loc.function_name()));
-    NX_CHECK(out.line == loc.line());
+    NX_CHECK(std::string_view(out.file_name) == std::string_view(__FILE__));
+    NX_CHECK(std::string_view(out.function_name).find("test_producer") != std::string_view::npos);
+    NX_CHECK(out.line == static_cast<std::uint32_t>(probe_line));
 
-    // Truncation rides the same pipeline: flag set, capacity bytes stored.
-    char big[129];
-    std::memset(big, 'T', sizeof big);
-    NX_CHECK(prod.emit(LogLevel::Info, loc, std::string_view(big, 129U)).has_value());
+    // Float/string pack round-trip through the real pipeline (Debug needs the
+    // threshold lowered first: filtering is silent and correct).
+    prod.set_level(LogLevel::Debug);
+    prod.emit(LogLevel::Debug, "Прямой вызов метода debug. Давление: {:.4f}", 0.0025);
+    prod.set_level(LogLevel::Info);
     NX_CHECK(prod.pop(out).has_value());
-    NX_CHECK(out.truncated());
-    NX_CHECK(out.message_length == 128);
-    NX_CHECK(out.message_view() == std::string_view(big, 128U));
+    const std::size_t ru_len = out.render_into(msg, sizeof msg);
+    NX_CHECK(std::string_view(msg, ru_len) == "Прямой вызов метода debug. Давление: 0.0025");
 
-    // Fill to capacity (8), then: next push = BufferFull + counter, stored
-    // elements intact; a FILTERED call still succeeds without touching the
-    // full ring (spec: "Filtered call performs no logging work").
-    int accepted = 0;
-    char seq[16];
+    // Fill to capacity (8): next push drops + counts; stored elements intact;
+    // a FILTERED call never probes the full ring (spec log-level scenario).
     for (int i = 0; i < 8; ++i) {
-        if (prod.emit(LogLevel::Info, loc, make_seq(seq, static_cast<std::uint64_t>(i)))) {
-            ++accepted;
-        }
+        prod.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
     }
-    NX_CHECK(accepted == 8);
     NX_CHECK(prod.ring_size() == 8);
-    const auto full_res = prod.emit(LogLevel::Info, loc, "overflow");
-    NX_CHECK(!full_res.has_value());
-    NX_CHECK(full_res.error() == ErrorCode::BufferFull);
+    prod.emit(LogLevel::Info, "overflow");
     NX_CHECK(prod.dropped().buffer_full == 1);
     NX_CHECK(prod.ring_size() == 8);
     prod.set_level(LogLevel::Fatal);
-    NX_CHECK(prod.emit(LogLevel::Error, loc, "while-full").has_value()); // filtered path
+    prod.emit(LogLevel::Error, "while-full"); // filtered path
     NX_CHECK(prod.ring_size() == 8); // untouched by the filtered call
     prod.set_level(LogLevel::Info);
 
-    // Drain preserves FIFO order (m0..m7 as written).
+    // Drain preserves FIFO order (v0..v7 as written).
     int order_bad = 0;
     for (int i = 0; i < 8; ++i) {
         if (prod.pop(out)) {
-            if (out.message_view() != make_seq(seq, static_cast<std::uint64_t>(i))) {
-                ++order_bad;
-            }
+            if (rendered_value(out) != static_cast<std::uint64_t>(i)) { ++order_bad; }
         } else {
             ++order_bad;
         }
@@ -511,17 +568,14 @@ void test_producer() {
     NX_CHECK(order_bad == 0);
     NX_CHECK(prod.ring_empty());
 
-    // Zero-allocation window: 5000 accepted emits + full drain, both counters
+    // Zero-allocation window: 4000 accepted emits + full drain, both counters
     // flat across the whole sequence (heap allocator sees nothing).
-    static detail::Producer<8192, 128> bulk{};
+    static detail::Producer<4096, 128> bulk{};
     NX_CHECK(bulk.initialize().has_value());
     const std::size_t arena_before = g_alloc_used;
     const std::size_t heap_before = heap_in_use();
-    int bulk_accepted = 0;
-    for (int i = 0; i < 5000; ++i) {
-        if (bulk.emit(LogLevel::Info, loc, make_seq(seq, static_cast<std::uint64_t>(i)))) {
-            ++bulk_accepted;
-        }
+    for (int i = 0; i < 4000; ++i) {
+        bulk.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
     }
     int drained = 0;
     while (bulk.pop(out)) {
@@ -529,7 +583,7 @@ void test_producer() {
     }
     NX_CHECK(g_alloc_used == arena_before);
     NX_CHECK(heap_in_use() == heap_before);
-    NX_CHECK(bulk_accepted == 5000 && drained == 5000); // ring big enough: no drops
+    NX_CHECK(drained == 4000); // ring big enough: no drops
     NX_CHECK(bulk.dropped().total() == 0);
 
     // Concurrent wrap: 50k emits while the consumer drains; values strictly
@@ -539,13 +593,13 @@ void test_producer() {
     std::atomic<bool> stop{false};
     std::uint64_t popped = 0;
     int seq_bad = 0;
-    std::jthread consumer([&stop, &popped, &seq_bad] { // wrap is static: referenced, not captured
+    std::jthread consumer([&stop, &popped, &seq_bad] { // wrap is static: referenced
         LogRecord<128> rec{};
         std::uint64_t last = 0;
         bool first = true;
         while (!stop.load(std::memory_order_relaxed) || !wrap.ring_empty()) {
             if (wrap.pop(rec)) {
-                const std::uint64_t v = parse_seq(rec.message_view());
+                const std::uint64_t v = rendered_value(rec);
                 if (!first && v <= last) { ++seq_bad; }
                 last = v;
                 first = false;
@@ -555,36 +609,92 @@ void test_producer() {
             }
         }
     });
-    int accept_count = 0;
     for (int i = 0; i < 50'000; ++i) {
-        if (wrap.emit(LogLevel::Info, loc, make_seq(seq, static_cast<std::uint64_t>(i)))) {
-            ++accept_count;
-        }
+        wrap.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
     }
+    const std::uint64_t wrap_drops = wrap.dropped().buffer_full;
     stop.store(true, std::memory_order_relaxed);
     consumer.join();
+    const std::uint64_t accept_count = static_cast<std::uint64_t>(50'000) - wrap_drops;
     NX_CHECK(seq_bad == 0);
-    NX_CHECK(popped == static_cast<std::uint64_t>(accept_count));
-    NX_CHECK(static_cast<std::uint64_t>(accept_count) + wrap.dropped().buffer_full == 50'000U);
-    std::printf("producer: 50k concurrent wrap, accepted=%d dropped=%llu seq_bad=%d\n",
-                accept_count,
+    NX_CHECK(popped == accept_count);
+    NX_CHECK(accept_count + wrap.dropped().buffer_full == 50'000U);
+    std::printf("producer: 50k concurrent wrap, accepted=%llu dropped=%llu seq_bad=%d\n",
+                static_cast<unsigned long long>(accept_count),
                 static_cast<unsigned long long>(wrap.dropped().buffer_full), seq_bad);
 
-#ifdef NEXIGEN_LOGGING_BIND_PRODUCER
-    // Risk R1 debug guard: foreign producers rejected without ring contact.
-    static detail::Producer<64, 128> bind_prod{};
-    NX_CHECK(bind_prod.initialize().has_value());
-    NX_CHECK(bind_prod.emit(LogLevel::Info, loc, "main").has_value()); // binds main
-    Status foreign_status{};
-    std::jthread foreign([&foreign_status, loc] { // bind_prod is static: referenced, not captured
-        foreign_status = bind_prod.emit(LogLevel::Info, loc, "foreign");
+    // --- multi-producer isolation (spec logging/multi-producer): thread A
+    // emits values 0..4, thread B emits 100..104. Records draining from the
+    // pool must split by distinct thread ids with each value range landing on
+    // exactly one tid (shard exclusivity) — and per-thread FIFO holds inside
+    // each range because a shard is SPSC.
+    static detail::Producer<8, 128> mp{};
+    NX_CHECK(mp.initialize().has_value());
+    std::atomic<bool> go{false};
+    std::jthread a([&] { while (!go.load(std::memory_order_relaxed)) {} for (int i = 0; i < 5; ++i) mp.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i)); });
+    std::jthread b([&] { while (!go.load(std::memory_order_relaxed)) {} for (int i = 100; i < 105; ++i) mp.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i)); });
+    go.store(true, std::memory_order_relaxed);
+    a.join();
+    b.join();
+    std::uint32_t tid_low = 0, tid_high = 0;
+    std::size_t cnt_low = 0, cnt_high = 0;
+    std::uint64_t last_low = 0, last_high = 0;
+    bool order_ok = true;
+    std::size_t total_popped = 0;
+    while (mp.pop(out)) {
+        const std::uint64_t v = rendered_value(out);
+        ++total_popped;
+        if (v < 50U) { // thread A range
+            if (tid_low == 0U) { tid_low = out.thread_id; }
+            if (out.thread_id != tid_low || v < last_low) { order_ok = false; }
+            last_low = v;
+            ++cnt_low;
+        } else { // thread B range
+            if (tid_high == 0U) { tid_high = out.thread_id; }
+            if (out.thread_id != tid_high || v < last_high) { order_ok = false; }
+            last_high = v;
+            ++cnt_high;
+        }
+    }
+    NX_CHECK(total_popped == 10U);
+    NX_CHECK(cnt_low == 5U && cnt_high == 5U);
+    NX_CHECK(tid_low != tid_high && tid_low != 0U && tid_high != 0U);
+    NX_CHECK(order_ok);
+    NX_CHECK(mp.dropped().total() == 0); // nobody starved another thread
+
+    // Full shard drops ONLY its own producer (spec scenario): main fills slot,
+    // a fresh thread's own shard still accepts.
+    static detail::Producer<4, 128> isolation{};
+    NX_CHECK(isolation.initialize().has_value());
+    for (int i = 0; i < 6; ++i) { isolation.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i)); }
+    NX_CHECK(isolation.dropped().buffer_full == 2U); // main thread: 4 accepted, 2 dropped
+    std::uint64_t other_accepted = 0;
+    std::thread helper([&] {
+        const std::uint64_t before = isolation.dropped().buffer_full;
+        static_cast<void>(before);
+        for (int i = 0; i < 3; ++i) { isolation.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(200 + i)); }
+        other_accepted = isolation.ring_size();
     });
-    foreign.join();
-    NX_CHECK(!foreign_status.has_value());
-    NX_CHECK(foreign_status.error() == ErrorCode::InvalidArgument);
-    NX_CHECK(bind_prod.ring_size() == 1); // foreign call never pushed
-    std::printf("producer: NEXIGEN_LOGGING_BIND_PRODUCER guard verified\n");
-#endif
+    helper.join();
+    NX_CHECK(other_accepted == 7U); // 4 (main) + 3 (helper shard)
+    NX_CHECK(isolation.dropped().buffer_full == 2U); // helper dropped nothing
+    LogRecord<128> tmp{};
+    while (isolation.pop(tmp)) {}
+
+    // Slot exhaustion beyond MaxThreads (spec scenario): 33rd-style thread on
+    // a 2-slot pool is dropped-and-counted, never blocks, never corrupts.
+    static detail::Producer<4, 128, 2> tiny{};
+    NX_CHECK(tiny.initialize().has_value());
+    tiny.emit(LogLevel::Info, "slot0");
+    std::jthread t2([&] { tiny.emit(LogLevel::Info, "slot1"); });
+    t2.join();
+    std::jthread t3([&] { tiny.emit(LogLevel::Info, "overflow-thread"); });
+    t3.join();
+    NX_CHECK(tiny.dropped().slot_exhausted == 1U);
+    std::size_t tiny_popped = 0;
+    while (tiny.pop(tmp)) { ++tiny_popped; }
+    NX_CHECK(tiny_popped == 2U); // both registered producers' records intact
+    std::printf("producer: multi-thread isolation + exhaustion counting verified\n");
 }
 
 // --- latency suite (task 3.4 / design D18): Release-x86-64 gates the
@@ -596,15 +706,16 @@ void test_producer() {
 // enqueue median.
 void test_latency() {
 #if defined(__x86_64__)
-    static detail::Producer<8192, 128> bench{};
+    // MaxThreads=1 keeps the bench pool a single ring (design D6 sizing): the
+    // gate measures the pack+push path of ONE producer exactly like the old
+    // SPSC contract, same footprint, same drain geometry.
+    static detail::Producer<8192, 128, 1> bench{};
     NX_CHECK(bench.initialize().has_value());
     constexpr int WARMUP = 2'000;
     constexpr int N = 10'000;
     alignas(64) static std::uint64_t raw[N];
     alignas(64) static std::uint64_t ovr[N];
     alignas(64) static std::uint64_t flt[N];
-
-    const auto loc = std::source_location::current();
 
     std::size_t lo = CPU_SETSIZE; // sentinel: "no permitted core found"
     std::size_t hi = CPU_SETSIZE;
@@ -626,10 +737,12 @@ void test_latency() {
 
     // Warmup accepted enqueues BEFORE the measured window (branch predictors,
     // caches, first-use paths). No consumer yet: ring holds the warmup tail.
-    std::uint64_t accepted_warm = 0;
+    const std::uint64_t warm_drops = bench.dropped().buffer_full;
     for (int i = 0; i < WARMUP; ++i) {
-        if (bench.emit(LogLevel::Info, loc, "latency bench payload")) { ++accepted_warm; }
+        bench.emit(LogLevel::Info, "latency {} {}", 0.0025, std::string_view("payload"));
     }
+    const std::uint64_t accepted_warm =
+        static_cast<std::uint64_t>(WARMUP) - (bench.dropped().buffer_full - warm_drops);
 
     std::atomic<bool> stop{false};
     std::uint64_t popped = 0;
@@ -675,7 +788,6 @@ void test_latency() {
     const std::size_t arena_before = g_alloc_used;
     const std::size_t heap_before = heap_in_use();
 
-    std::uint64_t accepted = 0;
     double best_accepted_ns = -1.0;
     double best_filtered_ns = -1.0;
     double ovh_ns = 0.0;
@@ -684,20 +796,20 @@ void test_latency() {
 #else
     constexpr int passes = 1;
 #endif
+    const std::uint64_t drops0 = bench.dropped().buffer_full;
     for (int pass = 0; pass < passes; ++pass) {
         // (a) accepted enqueue latency, consumer draining concurrently.
         for (int i = 0; i < N; ++i) {
             const std::uint64_t r0 = __rdtsc();
-            const Status s = bench.emit(LogLevel::Info, loc, "latency bench payload");
+            bench.emit(LogLevel::Info, "latency {} {}", 0.0025, std::string_view("payload"));
             const std::uint64_t r1 = __rdtsc();
             raw[i] = r1 - r0;
-            if (s) { ++accepted; }
         }
         // (b) filtered latency (short-circuit path, ring untouched).
         bench.set_level(LogLevel::Off);
         for (int i = 0; i < N; ++i) {
             const std::uint64_t r0 = __rdtsc();
-            static_cast<void>(bench.emit(LogLevel::Info, loc, "latency bench payload"));
+            bench.emit(LogLevel::Info, "latency {} {}", 0.0025, std::string_view("payload"));
             const std::uint64_t r1 = __rdtsc();
             flt[i] = r1 - r0;
         }
@@ -717,6 +829,10 @@ void test_latency() {
         if (best_accepted_ns < 0.0 || acc_ns < best_accepted_ns) { best_accepted_ns = acc_ns; }
         if (best_filtered_ns < 0.0 || flt_ns < best_filtered_ns) { best_filtered_ns = flt_ns; }
     }
+
+    const std::uint64_t accepted =
+        static_cast<std::uint64_t>(passes) * static_cast<std::uint64_t>(N) -
+        (bench.dropped().buffer_full - drops0);
 
     // Zero-allocation across every measured traffic window.
     NX_CHECK(g_alloc_used == arena_before);
@@ -745,13 +861,13 @@ void test_latency() {
 #endif
 #else
     // Non-x86: accounting-only run (no rdtsc), bounded-time correctness.
-    static detail::Producer<8192, 128> bench{};
+    static detail::Producer<8192, 128, 1> bench{};
     NX_CHECK(bench.initialize().has_value());
-    const auto loc = std::source_location::current();
-    std::uint64_t accepted = 0;
+    const std::uint64_t drops0 = bench.dropped().buffer_full;
     for (int i = 0; i < 10'000; ++i) {
-        if (bench.emit(LogLevel::Info, loc, "latency bench payload")) { ++accepted; }
+        bench.emit(LogLevel::Info, "latency {} {}", 0.0025, std::string_view("payload"));
     }
+    const std::uint64_t accepted = 10'000ULL - (bench.dropped().buffer_full - drops0);
     LogRecord<128> rec{};
     std::uint64_t drained = 0;
     while (bench.pop(rec)) { ++drained; }
@@ -761,15 +877,26 @@ void test_latency() {
 #endif
 }
 
-// --- concept pins (task 4.1/4.3 / spec logging/logger-concept: published
-// loggers are compile-time conformant).
+// --- concept pins (task 6.1/6.2 / spec logging/logger-concept: published
+// loggers are compile-time conformant on the variadic void surface).
 static_assert(concepts::Logger<NullLogger>);
 static_assert(concepts::Logger<ConsoleLogger<>>);
 static_assert(concepts::Logger<ConsoleLogger<32, 128>>);
 static_assert(concepts::Logger<FileLogger<>>);
 static_assert(concepts::Logger<FileLogger<64, 128>>);
-static_assert(ConsoleLogger<>::capacity() == 4096);
-static_assert(FileLogger<>::capacity() == 8192);
+static_assert(ConsoleLogger<>::capacity() == 128); // per-shard default (design D6)
+static_assert(FileLogger<>::capacity() == 128);
+static_assert(ConsoleLogger<>::max_threads() == 32);
+static_assert(FileLogger<64, 128, 4>::max_threads() == 4);
+
+// Literal call shapes compile on real loggers too (spec format-api): the
+// requires-expression proves conversion from a literal via the consteval
+// constructor WITHOUT evaluating the call itself.
+static_assert(requires (ConsoleLogger<32, 64> cl) {
+    { cl.info("plain") } noexcept -> std::same_as<void>;
+    { cl.debug("Прямой вызов метода debug. Давление: {:.4f}", 0.0025) } noexcept -> std::same_as<void>;
+    { cl.log(LogLevel::Error, "Level is {}", LogLevel::Warning) } noexcept -> std::same_as<void>;
+});
 
 // --- composite pins (task 7.1 / spec logging/composite-logger): the fan-out
 // satisfies the contract — including the empty pack and nested composites.
@@ -779,18 +906,19 @@ static_assert(concepts::Logger<CompositeLogger<ConsoleLogger<>, FileLogger<>>>);
 static_assert(concepts::Logger<
     CompositeLogger<CompositeLogger<NullLogger, ConsoleLogger<64, 128>>, FileLogger<64, 128>>>);
 
-// --- null logger suite (task 4.1 / spec logging/null-logger).
+// --- null logger suite (task 6.2 / spec logging/null-logger).
 void test_null_logger() {
     NullLogger logger{};
-    // Every call succeeds silently at every level, including Fatal, and flush
-    // is trivially complete.
-    NX_CHECK(logger.verbose("v").has_value());
-    NX_CHECK(logger.debug("d").has_value());
-    NX_CHECK(logger.info("i").has_value());
-    NX_CHECK(logger.warning("w").has_value());
-    NX_CHECK(logger.error("e").has_value());
-    NX_CHECK(logger.fatal("f").has_value());
-    NX_CHECK(logger.log(LogLevel::Fatal, std::source_location::current(), "explicit").has_value());
+    // Every call completes silently at every level, including Fatal with
+    // argument packs, and flush is trivially complete.
+    logger.verbose("v");
+    logger.debug("d");
+    logger.info("i");
+    logger.warning("w");
+    logger.error("e");
+    logger.fatal("f");
+    logger.info("packed {}", 42);
+    logger.log(LogLevel::Fatal, "explicit");
     NX_CHECK(logger.flush().has_value());
 
     // Level control still honored (stored/reported; behavior is uniform no-op).
@@ -799,7 +927,12 @@ void test_null_logger() {
     NX_CHECK(logger.level() == LogLevel::Warning);
     logger.set_level(LogLevel::Off);
     NX_CHECK(logger.level() == LogLevel::Off);
-    NX_CHECK(logger.info("no output anywhere either way").has_value());
+    logger.info("no output anywhere either way");
+
+    // Diagnostic dump names the stored threshold (spec null-logger to_string).
+    NX_CHECK(logger.to_string().find("off") != std::string::npos);
+    NX_CHECK(to_string(logger) == logger.to_string());
+    logger.set_level(LogLevel::Info);
 
     // Arithmetic identity for the objdump check (loop ran, nothing else).
     NX_CHECK(null_loop(1000) == 499'500);
@@ -854,23 +987,31 @@ void test_console() {
         NX_CHECK(logger.writer_started());
 
         // Routing + content: debug/info -> stdout, warning/fatal -> stderr.
-        NX_CHECK(logger.debug("stdout dbg").has_value());
-        NX_CHECK(logger.info("hello out").has_value());
-        NX_CHECK(logger.warning("hello err").has_value());
-        NX_CHECK(logger.fatal("fatal err").has_value());
+        logger.debug("stdout dbg");
+        logger.info("hello out");
+        logger.warning("hello err");
+        logger.fatal("fatal err");
+        // Deferred render (spec console-logger scenarios): float pack and enum.
+        logger.debug("Прямой вызов метода debug. Давление: {:.4f}", 0.0025);
+        logger.info("Level is {}", LogLevel::Warning);
         NX_CHECK(logger.flush().has_value());
 
-        // Fill the tiny ring: calls return OK/BufferFull immediately (the
-        // producer never waits on console backpressure).
+        // Fill the tiny shard: calls return immediately, drops are counted
+        // (the producer never waits on console backpressure).
+        const std::uint64_t drops_before = logger.dropped().buffer_full;
         for (int i = 0; i < 64; ++i) {
-            const Status s = logger.info("storm");
-            if (s) { ++storm_accepted; }
-            else if (s.error() == ErrorCode::BufferFull) { ++storm_full; }
-            else { NX_CHECK(false); } // no third outcome allowed
+            logger.info("storm");
         }
+        storm_full = static_cast<int>(logger.dropped().buffer_full - drops_before);
+        storm_accepted = 64 - storm_full;
         NX_CHECK(storm_accepted + storm_full == 64);
         NX_CHECK(logger.flush().has_value());
-        NX_CHECK(logger.dropped().buffer_full == static_cast<std::uint64_t>(storm_full));
+
+        // Logger dump (mandate 9): level + pool shape + counters.
+        const std::string dump = logger.to_string();
+        NX_CHECK(dump.find("ConsoleLogger(level=verbose") != std::string::npos);
+        NX_CHECK(dump.find("shard_capacity=32") != std::string::npos);
+        NX_CHECK(dump.find("shards=32") != std::string::npos);
 
         // Destruction without flush still drains everything accepted.
         {
@@ -878,8 +1019,8 @@ void test_console() {
             ConsoleLogger<16, 128>::Config tcfg{};
             tcfg.initial_level = LogLevel::Verbose;
             NX_CHECK(transient.initialize(tcfg).has_value());
-            NX_CHECK(transient.info("destr a").has_value());
-            NX_CHECK(transient.info("destr b").has_value());
+            transient.info("destr a");
+            transient.info("destr b");
         } // joins here; both lines must be in the pipe
     }
 
@@ -900,7 +1041,7 @@ void test_console() {
 
     // Exactly one line per accepted record (incl. the destructor-drained pair),
     // in FIFO order, with self-descriptive content.
-    const std::size_t expected_out = 4 + static_cast<std::size_t>(storm_accepted);
+    const std::size_t expected_out = 6 + static_cast<std::size_t>(storm_accepted);
     NX_CHECK(count_char(out_buf, out_len, '\n') == expected_out);
     NX_CHECK(count_char(err_buf, err_len, '\n') == 2);
     NX_CHECK(std::strstr(out_buf, "stdout dbg") != nullptr);
@@ -908,6 +1049,9 @@ void test_console() {
     NX_CHECK(std::strstr(out_buf, "hello err") == nullptr);
     NX_CHECK(std::strstr(out_buf, "destr a") != nullptr);
     NX_CHECK(std::strstr(out_buf, "destr b") != nullptr);
+    // rendered deferred formats reached the console exactly (spec scenarios)
+    NX_CHECK(std::strstr(out_buf, "Прямой вызов метода debug. Давление: 0.0025") != nullptr);
+    NX_CHECK(std::strstr(out_buf, "Level is warning") != nullptr);
     NX_CHECK(std::strstr(err_buf, "hello err") != nullptr);
     NX_CHECK(std::strstr(err_buf, "fatal err") != nullptr);
     NX_CHECK(std::strstr(err_buf, "storm") == nullptr);
@@ -1207,8 +1351,9 @@ void test_file_logger() {
         wait_writer(flh);
         NX_CHECK(flh.writer_start_code() == ErrorCode::Ok);
 
-        NX_CHECK(flh.info("file hello").has_value());
-        NX_CHECK(flh.warning("second line").has_value());
+        flh.info("file hello");
+        flh.warning("second line");
+        flh.info("rendered {} {}", 3.5, LogLevel::Info);
         NX_CHECK(flh.flush().has_value());
 
         char path[560];
@@ -1241,7 +1386,13 @@ void test_file_logger() {
         NX_CHECK(sv.find("file hello\"}\n") != std::string_view::npos);
         NX_CHECK(sv.find("test_file_logger") != std::string_view::npos);
         NX_CHECK(sv.find("second line") != std::string_view::npos);
-        NX_CHECK(file_line_count(path) == 2);
+        NX_CHECK(sv.find("rendered 3.5 info") != std::string_view::npos); // deferred render (spec)
+        NX_CHECK(file_line_count(path) == 3);
+        const std::string fl_dump = flh.to_string();
+        NX_CHECK(fl_dump.find("FileLogger(level=info") != std::string::npos);
+        NX_CHECK(fl_dump.find("shard_capacity=256") != std::string::npos);
+        NX_CHECK(fl_dump.find("dropped=") != std::string::npos);
+        NX_CHECK(to_string(flh) == fl_dump);
     }
 
     // --- (c) flush surfaces a real write failure: /dev/full answers ENOSPC.
@@ -1254,7 +1405,7 @@ void test_file_logger() {
         cfg.rotation.kind = Rotation_schedule::None;
         NX_CHECK(fld.initialize(cfg).has_value());
         wait_writer(fld);
-        NX_CHECK(fld.info("into the void").has_value()); // accepted wait-free anyway
+        fld.info("into the void"); // accepted wait-free regardless of the eventual write failure
         const Status f = fld.flush();
         NX_CHECK(!f.has_value());
         NX_CHECK(f.error() == ErrorCode::SystemError); // spec: "Flush surfaces write failure"
@@ -1274,25 +1425,21 @@ void test_file_logger() {
         NX_CHECK(flt.initialize(cfg).has_value());
         wait_writer(flt);
 
-        int ok = 0;
-        int rl = 0;
-        int other = 0;
+        const Dropped_stats thr_before = flt.dropped();
         for (int i = 0; i < 10; ++i) {
-            const Status s = flt.info("thr user");
-            if (s) { ++ok; }
-            else if (s.error() == ErrorCode::RateLimited) { ++rl; }
-            else { ++other; }
+            flt.info("thr user");
         }
+        const Dropped_stats thr_after = flt.dropped();
+        const std::uint64_t rl = thr_after.rate_limited - thr_before.rate_limited;
+        const int ok = 10 - static_cast<int>(rl);
         NX_CHECK(ok == 3);
         NX_CHECK(rl == 7);
-        NX_CHECK(other == 0);
-        NX_CHECK(flt.dropped().rate_limited == 7ULL);
-        NX_CHECK(flt.dropped().buffer_full == 0ULL);
+        NX_CHECK(thr_after.buffer_full == 0ULL);
 
         // Resume in the next window: exactly one user record, and the summary
         // must land in the file reporting the exact per-cause counts.
         std::this_thread::sleep_for(std::chrono::milliseconds(220));
-        NX_CHECK(flt.info("thr resumed").has_value());
+        flt.info("thr resumed");
         NX_CHECK(flt.flush().has_value());
         NX_CHECK(flt.dropped().total() == 0ULL); // counters cleared by the summary
 
@@ -1317,7 +1464,8 @@ void test_file_logger() {
         const std::size_t sum_line_begin = sv.rfind('\n', p_sum) + 1;
         NX_CHECK(sv.substr(sum_line_begin, p_sum - sum_line_begin).find("\"level\":\"warning\"")
                  != std::string_view::npos);
-        std::printf("file_logger: throttle ok=%d rl=%d summary line verified\n", ok, rl);
+        std::printf("file_logger: throttle ok=%d rl=%llu summary line verified\n", ok,
+                    static_cast<unsigned long long>(rl));
     }
 
     // --- (e) rotation + affinity during a live stream (6.3).
@@ -1351,11 +1499,13 @@ void test_file_logger() {
         // ~600 ms of 10 ms-paced records spans >= 3 period windows.
         std::uint64_t accepted = 0;
         for (int i = 0; i < 60; ++i) {
-            if (flr.info("rot stream")) { ++accepted; }
+            const std::uint64_t drops_b = flr.dropped().total();
+            flr.info("rot stream");
+            if (flr.dropped().total() == drops_b) { ++accepted; }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         NX_CHECK(flr.flush().has_value());
-        NX_CHECK(accepted == 60); // 256-ring with a 10 ms cadence drains easily
+        NX_CHECK(accepted == 60); // 256-shard with a 10 ms cadence drains easily
 
         int period_dirs = 0;
         std::uint64_t lines_total = 0;
@@ -1402,21 +1552,16 @@ void test_file_logger() {
 
         const chrono::Timestamp t_start = Timestamp::now().value_or(Timestamp{0});
         std::uint64_t attempts = 0;
-        std::uint64_t accepted = 0;
-        std::uint64_t bad_return = 0;
         for (;;) {
-            const Status s = fls.info("soak payload line");
-            ++attempts;
-            if (s) { ++accepted; }
-            else if (s.error() == ErrorCode::BufferFull) { /* expected under saturation */ }
-            else { ++bad_return; }
+            fls.info("soak payload line");
+            ++attempts; // every call completed immediately, accepted or dropped-counted
             const core::Result<Timestamp> t_now = Timestamp::now();
             if (!t_now || (t_now->nanoseconds() - t_start.nanoseconds()) > 120'000'000ULL) {
                 break; // ~120 ms window
             }
         }
+        const std::uint64_t accepted = attempts - fls.dropped().buffer_full;
         // Both threads were active the entire window; nothing allocated.
-        NX_CHECK(bad_return == 0); // every call returned OK or BufferFull, immediately
         NX_CHECK(g_alloc_used == arena_b);
         NX_CHECK(heap_in_use() == heap_b);
         NX_CHECK(fls.dropped().buffer_full == attempts - accepted);
@@ -1453,11 +1598,11 @@ void test_composite() {
         quiet.set_level(LogLevel::Verbose); // would open every member to everything
         NX_CHECK(quiet.level() == LogLevel::Verbose);
         NX_CHECK(quiet.size == 0U);
-        NX_CHECK(quiet.verbose("v").has_value());
-        NX_CHECK(quiet.info("i").has_value());
-        NX_CHECK(quiet.warning("w").has_value());
-        NX_CHECK(quiet.fatal("f").has_value());
-        NX_CHECK(quiet.log(LogLevel::Error, std::source_location::current(), "e").has_value());
+        quiet.verbose("v");
+        quiet.info("i");
+        quiet.warning("w {}", 1);
+        quiet.fatal("f");
+        quiet.log(LogLevel::Error, "e");
         NX_CHECK(quiet.flush().has_value());
     }
 
@@ -1469,10 +1614,10 @@ void test_composite() {
         NX_CHECK(pair.level() == LogLevel::Error);
         NX_CHECK(pair.get<0>().level() == LogLevel::Error);
         NX_CHECK(pair.get<1>().level() == LogLevel::Error);
-        NX_CHECK(pair.info("below the whole tree").has_value()); // filtered short-circuit
+        pair.info("below the whole tree"); // filtered short-circuit
         pair.set_level(LogLevel::Warning);
         NX_CHECK(pair.get<1>().level() == LogLevel::Warning);
-        NX_CHECK(pair.warning("passes").has_value());
+        pair.warning("passes");
     }
 
     // --- (c) console + file fan-out through captured pipes.
@@ -1511,22 +1656,22 @@ void test_composite() {
         NX_CHECK(comp.get<1>().level() == LogLevel::Info);
 
         // Fan-out: both sinks receive the identical record (spec scenario).
-        NX_CHECK(comp.warning("composite fan-out").has_value());
+        comp.warning("composite fan-out");
 
         // Sub-logger-specific reconfiguration: file drops to Fatal while the
         // composite and console stay at Info (spec "Type-based reconfiguration").
         comp.get<CompFile>().set_level(LogLevel::Fatal);
         NX_CHECK(comp.level() == LogLevel::Info); // composite's own threshold unchanged
-        NX_CHECK(comp.info("console only").has_value());
-        NX_CHECK(comp.fatal("both again").has_value());
+        comp.info("console only");
+        comp.fatal("both again");
 
         // Composite short-circuit: own threshold Warning with BOTH members at
         // Verbose — the Info call returns OK without reaching any member.
         comp.set_level(LogLevel::Warning);
         comp.get<0>().set_level(LogLevel::Verbose);
         comp.get<CompFile>().set_level(LogLevel::Verbose);
-        NX_CHECK(comp.info("shortcircuit info").has_value());
-        NX_CHECK(comp.warning("shortcircuit warn").has_value());
+        comp.info("shortcircuit info");
+        comp.warning("shortcircuit warn");
 
         NX_CHECK(comp.flush().has_value());
     }
@@ -1601,7 +1746,7 @@ void test_composite() {
         NX_CHECK(outer.get<0>().get<NestFile>().writer_started());
         NX_CHECK(outer.get<1>().writer_started());
 
-        NX_CHECK(outer.warning("nested leaf").has_value());
+        outer.warning("nested leaf");
         NX_CHECK(outer.flush().has_value());
 
         alignas(64) static char fa[592];
@@ -1647,12 +1792,22 @@ void test_composite() {
         }
         NX_CHECK(mixed.get<0>().writer_started());
 
-        NX_CHECK(mixed.info("throttle first").has_value());
-        const Status s = mixed.info("throttle second");
-        NX_CHECK(!s.has_value());
-        NX_CHECK(s.error() == ErrorCode::RateLimited); // null's OK after it did not mask
+        mixed.info("throttle first");
+        mixed.info("throttle second"); // over the 1-per-window budget
+        // Record methods return void: the drop is surfaced ONLY through the
+        // member's own snapshot (spec logging/logger-concept drop semantics).
         NX_CHECK(mixed.get<MixFile>().dropped().rate_limited == 1ULL);
+        NX_CHECK(mixed.get<MixFile>().dropped().slot_exhausted == 0ULL);
         NX_CHECK(mixed.flush().has_value());
+        // tree dump nests the member dumps (spec composite-logger). Taken
+        // AFTER the flush barrier: pending/dropped counters are quiescent,
+        // so the free/member comparison is not racing the writer drain.
+        const std::string comp_dump = mixed.to_string();
+        NX_CHECK(comp_dump.find("CompositeLogger(level=") == 0U);
+        NX_CHECK(comp_dump.find("members=2") != std::string::npos);
+        NX_CHECK(comp_dump.find("FileLogger(level=") != std::string::npos);
+        NX_CHECK(comp_dump.find("NullLogger(level=") != std::string::npos);
+        NX_CHECK(to_string(mixed) == comp_dump);
     }
 
     // --- (f) flush-fold failure surfacing: a member whose flush fails
@@ -1671,7 +1826,7 @@ void test_composite() {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         NX_CHECK(void_comp.get<0>().writer_started());
-        NX_CHECK(void_comp.info("into the void").has_value()); // enqueue is wait-free OK
+        void_comp.info("into the void"); // enqueue is wait-free regardless
         const Status f = void_comp.flush();
         NX_CHECK(!f.has_value());
         NX_CHECK(f.error() == ErrorCode::SystemError);
@@ -1681,16 +1836,291 @@ void test_composite() {
                 "empty pack, last-failure surfacing all verified\n");
 }
 
+// --- enum vocabulary suites (change add-serialization-and-wait-free-logging,
+// tasks 2.2/2.3): LogLevel + Rotation_schedule from_string / to_json /
+// from_json / std::formatter. Cold-path JSON allocations live within the arena.
+
+void test_enum_vocab() {
+    // to_string <-> from_string round-trips (all enumerators).
+    const LogLevel levels[] = {LogLevel::Verbose, LogLevel::Debug, LogLevel::Info,
+                               LogLevel::Warning, LogLevel::Error, LogLevel::Fatal,
+                               LogLevel::Off};
+    for (const LogLevel lv : levels) {
+        LogLevel parsed = LogLevel::Off;
+        NX_CHECK(from_string(to_string(lv), parsed));
+        NX_CHECK(parsed == lv);
+        nlohmann::json j;
+        to_json(j, lv);
+        NX_CHECK(j.is_string());
+        NX_CHECK(j == std::string(to_string(lv)));
+        LogLevel back = LogLevel::Verbose;
+        from_json(j, back);
+        NX_CHECK(back == lv);
+    }
+    static_assert(to_string(LogLevel::Warning) == "warning"); // pinned spellings
+    static_assert([] { LogLevel l{}; return from_string("info", l) && l == LogLevel::Info; }());
+
+    // Hostile level inputs: non-string JSON types and unknown names leave the
+    // fallback (no throw, no terminate under JSON_NOEXCEPTION).
+    for (const nlohmann::json& hostile : {nlohmann::json(3),
+                                          nlohmann::json::array(),
+                                          nlohmann::json(),
+                                          nlohmann::json("WARN"),
+                                          nlohmann::json("Unknown")}) {
+        LogLevel keep = LogLevel::Info;
+        from_json(hostile, keep);
+        NX_CHECK(keep == LogLevel::Info);
+    }
+    LogLevel untouched = LogLevel::Error;
+    NX_CHECK(!from_string("warning ", untouched)); // exact spelling only
+    NX_CHECK(untouched == LogLevel::Error);
+
+    // std::formatter<LogLevel>: name via "{}", fill/align via string_view rules.
+    NX_CHECK(std::format("{}", LogLevel::Warning) == "warning");
+    NX_CHECK(std::format("[{:*>8}]", LogLevel::Info) == "[****info]");
+    static_assert(std::formattable<const LogLevel&, char>);
+
+    // Rotation_schedule vocabulary (task 2.3) — detail::Rotation_kind alias.
+    const Rotation_schedule kinds[] = {Rotation_schedule::None, Rotation_schedule::Hourly,
+                                       Rotation_schedule::Daily, Rotation_schedule::Custom};
+    for (const Rotation_schedule k : kinds) {
+        Rotation_schedule parsed = Rotation_schedule::None;
+        NX_CHECK(detail::from_string(detail::to_string(k), parsed));
+        NX_CHECK(parsed == k);
+        nlohmann::json j;
+        detail::to_json(j, k);
+        NX_CHECK(j.is_string());
+        Rotation_schedule back = Rotation_schedule::Custom;
+        detail::from_json(j, back);
+        NX_CHECK(back == k);
+    }
+    NX_CHECK(std::format("rotate={}", Rotation_schedule::Daily) == "rotate=daily");
+    NX_CHECK(std::format("[{:*>8}]", Rotation_schedule::Hourly) == "[**hourly]");
+    Rotation_schedule keep = Rotation_schedule::Hourly;
+    detail::from_json(nlohmann::json("weekly"), keep);
+    NX_CHECK(keep == Rotation_schedule::Hourly);
+    detail::from_json(nlohmann::json(7), keep);
+    NX_CHECK(keep == Rotation_schedule::Hourly);
+
+    std::printf("enum_vocab: levels x7 + schedules x4 round-tripped, hostile inputs "
+                "silent, formatters verified\n");
+}
+
+// --- config vocabulary suite (task 3.3): Dropped_stats / Throttle_config /
+// Rotation_config / FileLogger_config / ConsoleLogger::Config to_string.
+void test_config_strings() {
+    const Throttle_config throttle{.enabled = true, .max_records_per_window = 1000,
+                                   .window_ns = 1'000'000'000ULL};
+    std::string s = throttle.to_string();
+    NX_CHECK(s.find("enabled=true") != std::string::npos);
+    NX_CHECK(s.find("max_records_per_window=1000") != std::string::npos);
+    NX_CHECK(s.find("window_ns=1000000000") != std::string::npos);
+    NX_CHECK(to_string(throttle) == s);
+
+    const Rotation_config rotation{.kind = Rotation_schedule::Custom, .custom_ns = 42ULL};
+    s = rotation.to_string();
+    NX_CHECK(s.find("custom") != std::string::npos);
+    NX_CHECK(s.find("custom_ns=42") != std::string::npos);
+    NX_CHECK(to_string(rotation) == s);
+
+    // Populated FileLogger_config renders every field (Cyrillic app included).
+    const FileLogger_config cfg{
+        .app_name = "ХилСимулятор",
+        .base_dir = "/var/log/nexigen",
+        .file_name = "sim.jsonl",
+        .initial_level = LogLevel::Debug,
+        .throttle = throttle,
+        .rotation = rotation,
+        .core_mask = 3ULL,
+    };
+    s = cfg.to_string();
+    NX_CHECK(s.find("ХилСимулятор") != std::string::npos);
+    NX_CHECK(s.find("/var/log/nexigen") != std::string::npos);
+    NX_CHECK(s.find("sim.jsonl") != std::string::npos);
+    NX_CHECK(s.find("debug") != std::string::npos);
+    NX_CHECK(s.find("max_records_per_window=1000") != std::string::npos);
+    NX_CHECK(s.find("custom_ns=42") != std::string::npos);
+    NX_CHECK(s.find("core_mask=3") != std::string::npos);
+    NX_CHECK(to_string(cfg) == s);
+
+    const Dropped_stats stats{.rate_limited = 7, .buffer_full = 9};
+    s = stats.to_string();
+    NX_CHECK(s.find("rate_limited=7") != std::string::npos);
+    NX_CHECK(s.find("buffer_full=9") != std::string::npos);
+    NX_CHECK(s.find("total=16") != std::string::npos);
+    NX_CHECK(to_string(stats) == s);
+
+    const ConsoleLogger<>::Config console_cfg{.initial_level = LogLevel::Warning};
+    s = console_cfg.to_string();
+    NX_CHECK(s.find("warning") != std::string::npos);
+    NX_CHECK(to_string(console_cfg) == s); // ADL friend form
+
+    std::printf("config_strings: throttle/rotation/filelogger/dropped/console-config "
+                "dumps render every field\n");
+}
+
+// --- multi-thread producer stress (task 7.1 / spec logging/multi-producer):
+// 6 distinct threads log known distinct payloads to ONE ConsoleLogger, ONE
+// FileLogger, and a CompositeLogger simultaneously; every record must reach
+// the sink exactly once, per-thread order must be FIFO, flush must complete
+// across all shards, and no thread may be starved by another's flooding.
+void test_stress() {
+    constexpr int k_threads = 6;
+    constexpr int k_per_thread = 400;
+
+    alignas(64) static char stress_base[512];
+    std::snprintf(stress_base, sizeof stress_base, "/tmp/opencode/nexigen-stress-%d", ::getpid());
+
+    // --- (a) FileLogger: verify exact per-thread content in the JSONL file.
+    // Shard capacity 1024 > per-thread burst (400): under drained conditions
+    // NOTHING drops (spec 7.1 acceptance), the flush barrier drains the pool.
+    static FileLogger<1024, 128> fl{};
+    {
+        FileLogger_config cfg{};
+        cfg.app_name = "stress";
+        cfg.base_dir = stress_base;
+        cfg.file_name = "stress.jsonl";
+        cfg.initial_level = LogLevel::Verbose;
+        cfg.rotation.kind = Rotation_schedule::None;
+        NX_CHECK(fl.initialize(cfg).has_value());
+        for (int i = 0; i < 5000 && !fl.writer_started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        NX_CHECK(fl.writer_started());
+    }
+    std::jthread workers[k_threads];
+    for (int t = 0; t < k_threads; ++t) {
+        workers[t] = std::jthread([t] { // fl is static: referenced, not captured
+            for (int i = 0; i < k_per_thread; ++i) {
+                fl.info("stress t{} #{}", t, i);
+            }
+        });
+    }
+    for (auto& w : workers) {
+        w.join();
+    }
+    NX_CHECK(fl.flush().has_value());
+    char fpath[560];
+    std::snprintf(fpath, sizeof fpath, "%s/stress.jsonl", stress_base);
+    alignas(64) static char fcontent[1 << 20];
+    const int ffd = ::open(fpath, O_RDONLY);
+    NX_CHECK(ffd >= 0);
+    const std::size_t flen = ffd >= 0 ? read_all(ffd, fcontent, sizeof fcontent) : 0U;
+    if (ffd >= 0) { ::close(ffd); }
+    NX_CHECK(flen != 0U);
+    const std::string_view fsv(fcontent, flen);
+    bool all_present = true;
+    for (int t = 0; t < k_threads; ++t) {
+        for (int i = 0; i < k_per_thread; ++i) {
+            char needle[48];
+            // The trailing `"}` anchors at the message-field terminator so
+            // "#1" cannot be matched inside "#10" (exactly-once verification).
+            const int nn = std::snprintf(needle, sizeof needle, "stress t%d #%d\"}", t, i);
+            if (fsv.find(std::string_view(needle, static_cast<std::size_t>(nn)))
+                == std::string_view::npos) {
+                all_present = false;
+            }
+        }
+    }
+    NX_CHECK(all_present);
+    NX_CHECK(file_line_count(fpath) == static_cast<std::size_t>(k_threads * k_per_thread));
+    NX_CHECK(fl.dropped().total() == 0ULL); // flush drained every shard
+    std::printf("stress: %d threads x %d records -> file sink, all present once, 0 dropped\n",
+                k_threads, k_per_thread);
+
+    // --- (b) ConsoleLogger: count distinct lines through a captured pipe.
+    int out_pipe[2]{};
+    NX_CHECK(::pipe(out_pipe) == 0);
+    const int saved_out = ::dup(STDOUT_FILENO);
+    NX_CHECK(::dup2(out_pipe[1], STDOUT_FILENO) == STDOUT_FILENO);
+    {
+        static ConsoleLogger<32, 128> cl{};
+        ConsoleLogger<32, 128>::Config cfg{};
+        cfg.initial_level = LogLevel::Verbose;
+        NX_CHECK(cl.initialize(cfg).has_value());
+        for (int i = 0; i < 5000 && !cl.writer_started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        std::jthread cw[k_threads];
+        for (int t = 0; t < k_threads; ++t) {
+            cw[t] = std::jthread([t] { // cl is static: referenced, not captured
+                for (int i = 0; i < 16; ++i) {
+                    cl.info("cstress t{} #{}", t, i);
+                }
+            });
+        }
+        for (auto& w : cw) {
+            w.join();
+        }
+        NX_CHECK(cl.flush().has_value());
+    }
+    NX_CHECK(::dup2(saved_out, STDOUT_FILENO) == STDOUT_FILENO);
+    ::close(saved_out);
+    ::close(out_pipe[1]);
+    alignas(64) static char cbuf[1 << 18];
+    const std::size_t clen = read_all(out_pipe[0], cbuf, sizeof cbuf);
+    ::close(out_pipe[0]);
+    NX_CHECK(count_char(cbuf, clen, '\n') == static_cast<std::size_t>(k_threads * 16));
+    std::printf("stress: console sink delivered %d lines from %d producers\n",
+                k_threads * 16, k_threads);
+
+    // --- (c) Composite fan-out under concurrency: both leaves see everything.
+    alignas(64) static char comp_stress[512];
+    std::snprintf(comp_stress, sizeof comp_stress, "%.400s/comp", stress_base);
+    static_cast<void>(::mkdir(comp_stress, 0755));
+    {
+        static CompositeLogger<NullLogger, FileLogger<64, 128>> comp{};
+        FileLogger_config cfg{};
+        cfg.app_name = "cstress";
+        cfg.base_dir = comp_stress;
+        cfg.file_name = "c.jsonl";
+        cfg.initial_level = LogLevel::Verbose;
+        cfg.rotation.kind = Rotation_schedule::None;
+        NX_CHECK(comp.get<1>().initialize(cfg).has_value());
+        for (int i = 0; i < 5000 && !comp.get<1>().writer_started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        std::jthread cw[k_threads];
+        for (int t = 0; t < k_threads; ++t) {
+            cw[t] = std::jthread([t] { // comp is static: referenced, not captured
+                for (int i = 0; i < 50; ++i) {
+                    comp.warning("fanout t{} #{}", t, i);
+                }
+            });
+        }
+        for (auto& w : cw) {
+            w.join();
+        }
+        NX_CHECK(comp.flush().has_value());
+        char cpath[560];
+        std::snprintf(cpath, sizeof cpath, "%s/c.jsonl", comp_stress);
+        NX_CHECK(file_line_count(cpath) == static_cast<std::size_t>(k_threads * 50));
+        { // pack arguments survived the composite fold verbatim to the leaf
+            alignas(64) static char cc[1 << 17];
+            const int cfd = ::open(cpath, O_RDONLY);
+            NX_CHECK(cfd >= 0);
+            const std::size_t cn = cfd >= 0 ? read_all(cfd, cc, sizeof cc) : 0U;
+            if (cfd >= 0) { ::close(cfd); }
+            const std::string_view csv(cc, cn);
+            NX_CHECK(csv.find("fanout t0 #0\"}") != std::string_view::npos);
+            NX_CHECK(csv.find("fanout t5 #49\"}") != std::string_view::npos);
+        }
+        NX_CHECK(comp.get<1>().dropped().total() == 0ULL);
+    }
+    std::printf("stress: composite fan-out reached every leaf from %d producers\n", k_threads);
+}
+
 } // namespace
 
 // Compile-away proof helper (declared above): plain sum-of-ints loop plus
-// NullLogger::info calls — at -O3 only the accumulation survives.
+// NullLogger::info calls WITH an argument pack — at -O3 only the accumulation
+// survives (spec logging/null-logger "Optimized loop leaves no logging residue").
 int null_loop(int iterations) noexcept {
     NullLogger n{};
     int acc = 0;
     for (int i = 0; i < iterations; ++i) {
         acc += i;
-        static_cast<void>(n.info("gone"));
+        n.info("tick {}", i);
     }
     return acc;
 }
@@ -1709,6 +2139,9 @@ int main()
     run_suite("rotation", test_rotation);
     run_suite("file_logger", test_file_logger);
     run_suite("composite", test_composite);
+    run_suite("enum_vocab", test_enum_vocab);
+    run_suite("config_strings", test_config_strings);
+    run_suite("stress", test_stress);
     // Suites register here as groups 2..8 land (design D18).
     const int failures = g_failures;
     std::printf("total: %d checks, %d failed\n", g_checks, failures);

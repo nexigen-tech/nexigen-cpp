@@ -1,11 +1,15 @@
-// nexigen::logging — variadic, virtual-free fan-out logger (design.md D16,
-// spec logging/composite-logger).
+// nexigen::logging — variadic, virtual-free fan-out logger (design D16;
+// format/multi-producer rework: change add-serialization-and-wait-free-
+// logging, design D3/D10; spec logging/composite-logger).
 //
 // CompositeLogger<Loggers...> stores its members in a std::tuple and forwards
 // every operation through C++23 fold expressions: no base class, no virtual
 // table — each member call is statically resolved and inlined. The composite
 // itself satisfies concepts::Logger (static_assert pinned at the bottom of
-// this file), so composites nest freely.
+// this file), so composites nest freely. Variadic packs forward VERBATIM:
+// the wrapper and argument pack are passed to every member, each member
+// packs into its own shards (spec: "Every sink receives every accepted
+// record").
 //
 // Level policy (spec "Level control propagation"):
 //   - set_level() stores the composite's own threshold AND folds it through
@@ -21,28 +25,25 @@
 // out-of-range indices and absent/duplicated types fail at compile time via
 // static_assert (spec "Invalid access rejected at compile time").
 //
-// Empty pack (CompositeLogger<>) is a valid silent logger: every call returns
-// OK and emits nothing (spec "Empty composite is valid").
+// Empty pack (CompositeLogger<>) is a valid silent logger: every record call
+// returns normally and emits nothing (spec "Empty composite is valid").
 //
-// SPSC note: one thread calling log() on the composite is the single producer
-// for EACH async member — fan-out preserves the per-instance contract (and
-// the members' rings are non-movable, so the composite is non-movable too).
+// MULTI-PRODUCER CONTRACT (spec logging/multi-producer): any number of
+// threads (bounded by each member's MaxThreads) may call log()/conveniences
+// on the composite — fan-out preserves each async member's per-thread shard
+// contract (and member rings are non-movable, so the composite is too).
 // level() and every get<>()-accessor read relaxed SNAPSHOTS (diagnostics and
 // configuration, not synchronization); flush() is the control-plane barrier
-// across all members, outside the never-block guarantee of log()/conveniences.
+// across all members, outside the never-block guarantee of record methods.
 //
-// DROP SEMANTICS (returned Status of log()/conveniences):
-//   {}              the composite short-circuited on its own level, OR every
-//                   member accepted/filtered the record (members filter at
-//                   their own thresholds)
-//   BufferFull      some member's ring rejected the push (counted there)
-//   RateLimited     some member's throttle spent its window (counted there)
-// A rejected record is surfaced as the LAST failure across the member fold.
+// DROP SEMANTICS (record methods return void): each member counts its own
+// drops in its own dropped() snapshot (reachable via get<>()); the composite
+// adds no per-call reporting surface of its own — the old last-failure
+// fold disappears together with the Status return type.
 #pragma once
 
 #include <cstddef>
-#include <source_location>
-#include <string_view>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -50,6 +51,7 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/concepts/logger_concept.hpp>
 #include <nexigen/logging/detail/level_control.hpp>
+#include <nexigen/logging/format_with_location.hpp>
 #include <nexigen/logging/log_level.hpp>
 
 namespace nexigen::logging {
@@ -84,6 +86,14 @@ class CompositeLogger final {
     template <typename Fn>
     void for_each(Fn&& fn) noexcept {
         std::apply([&fn](Loggers&... lg) {
+            static_cast<void>(fn);
+            (fn(lg), ...);
+        }, members_);
+    }
+
+    template <typename Fn>
+    void for_each(Fn&& fn) const noexcept {
+        std::apply([&fn](const Loggers&... lg) {
             static_cast<void>(fn);
             (fn(lg), ...);
         }, members_);
@@ -136,46 +146,45 @@ public:
     [[nodiscard]] LogLevel level() const noexcept { return level_.level(); }
 
     /// Composite short-circuit on the OWN threshold, then static fan-out.
-    /// Every member is invoked exactly once with the same record; if any sink
-    /// rejected the record its status is surfaced — the LAST failure wins (a
-    /// later OK never masks it). Drop accounting per sink remains available
-    /// on the members themselves.
-    [[nodiscard]] core::Status log(LogLevel record_level, std::source_location loc,
-                                   std::string_view message) noexcept {
+    /// Every member is invoked exactly once with the same wrapper and pack;
+    /// record methods return void (spec logging/logger-concept).
+    template <class... Args>
+    void log(LogLevel record_level, detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
         const LogLevel active = level_.level();
         if (active == LogLevel::Off || record_level < active) {
-            return {}; // bounded short-circuit: folds never run (spec)
+            return; // bounded short-circuit: folds never run (spec)
         }
-        core::Status last{};
         for_each([&](auto& lg) noexcept {
-            const core::Status s = lg.log(record_level, loc, message);
-            if (!s) {
-                last = s;
-            }
+            lg.log(record_level, fmt, std::forward<Args>(args)...);
         });
-        return last;
     }
 
-    [[nodiscard]] core::Status verbose(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Verbose, loc, msg);
+    template <class... Args>
+    void verbose(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        log(LogLevel::Verbose, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status debug(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Debug, loc, msg);
+    template <class... Args>
+    void debug(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        log(LogLevel::Debug, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status info(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Info, loc, msg);
+    template <class... Args>
+    void info(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        log(LogLevel::Info, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status warning(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Warning, loc, msg);
+    template <class... Args>
+    void warning(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        log(LogLevel::Warning, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status error(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Error, loc, msg);
+    template <class... Args>
+    void error(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        log(LogLevel::Error, fmt, std::forward<Args>(args)...);
     }
-    [[nodiscard]] core::Status fatal(std::string_view msg, std::source_location loc = std::source_location::current()) noexcept {
-        return log(LogLevel::Fatal, loc, msg);
+    template <class... Args>
+    void fatal(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        log(LogLevel::Fatal, fmt, std::forward<Args>(args)...);
     }
 
-    /// Control-plane barrier across all members; the last failure surfaced
+    /// Control-plane barrier across all members; the last failure surfaces
     /// (an OK from a later member never masks an earlier rejection).
     [[nodiscard]] core::Status flush() noexcept {
         core::Status last{};
@@ -187,7 +196,32 @@ public:
         });
         return last;
     }
+
+    /// Cold-path diagnostic (mandate 9): own level + member count, embedding
+    /// each member's own to_string() via the fold (nested composites recurse).
+    [[nodiscard]] std::string to_string() const {
+        std::string out = "CompositeLogger(level=" +
+                          std::string(logging::to_string(level_.level())) +
+                          ", members=" + std::to_string(sizeof...(Loggers));
+        std::apply(
+            [&](const Loggers&... lg) {
+                static_cast<void>(out);
+                // Member call: public to_string() const is part of the
+                // logger-type contract (namespaces of member types need not
+                // be visible at this header's point of definition).
+                ((out += ", [" + lg.to_string() + "]"), ...);
+            },
+            members_);
+        out += ")";
+        return out;
+    }
 };
+
+/// Free helper (mandate 9): mirrors the member.
+template <class... Loggers>
+[[nodiscard]] std::string to_string(const CompositeLogger<Loggers...>& logger) {
+    return logger.to_string();
+}
 
 static_assert(concepts::Logger<CompositeLogger<>>,
               "empty composite must satisfy the Logger contract (spec scenario)");

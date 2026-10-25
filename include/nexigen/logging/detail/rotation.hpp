@@ -16,7 +16,11 @@
 #pragma once
 
 #include <cstdint>
+#include <format>
+#include <string>
 #include <string_view>
+
+#include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
 
@@ -24,6 +28,40 @@ namespace nexigen::logging::detail {
 
 /// Schedule selector (mirrors the public FileLogger config vocabulary).
 enum class Rotation_kind : std::uint8_t { None, Hourly, Daily, Custom };
+
+/// Compile-time lowercase name — the spelling used by from_string/JSON
+/// (mandates 9–11; public alias: nexigen::logging::Rotation_schedule).
+[[nodiscard]] constexpr std::string_view to_string(Rotation_kind kind) noexcept {
+    switch (kind) {
+        case Rotation_kind::None:   return "none";
+        case Rotation_kind::Hourly: return "hourly";
+        case Rotation_kind::Daily:  return "daily";
+        case Rotation_kind::Custom: return "custom";
+        default:                    return "Unknown";
+    }
+}
+
+/// Parse a canonical lowercase schedule name; false leaves `out` unchanged.
+[[nodiscard]] constexpr bool from_string(std::string_view name, Rotation_kind& out) noexcept {
+    if (name == "none")   { out = Rotation_kind::None; return true; }
+    if (name == "hourly") { out = Rotation_kind::Hourly; return true; }
+    if (name == "daily")  { out = Rotation_kind::Daily; return true; }
+    if (name == "custom") { out = Rotation_kind::Custom; return true; }
+    return false;
+}
+
+/// ADL JSON writer (cold path only): the JSON value is exactly to_string(kind).
+inline void to_json(nlohmann::json& j, const Rotation_kind kind) {
+    j = std::string(to_string(kind));
+}
+
+/// ADL JSON reader, strictly non-throwing under JSON_NOEXCEPTION=1.
+inline void from_json(const nlohmann::json& j, Rotation_kind& out) noexcept {
+    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
+    if (name != nullptr) {
+        static_cast<void>(from_string(std::string_view(*name), out));
+    }
+}
 
 /// Period identity for an UTC timestamp (monotonic in utc_ns).
 [[nodiscard]] std::int64_t period_key(Rotation_kind kind, std::uint64_t custom_ns,
@@ -54,3 +92,16 @@ struct Rotation_scratch {
                                        Rotation_scratch& scratch, int& fd_out) noexcept;
 
 } // namespace nexigen::logging::detail
+
+/// Rotation_schedule formats as its canonical lowercase name (mandate 11):
+/// parse/fill/align via the string_view formatter; templated context for
+/// libstdc++ 15's substituted-formattability evaluation.
+template <>
+struct std::formatter<nexigen::logging::detail::Rotation_kind>
+    : std::formatter<std::string_view> {
+    template <class Ctx>
+    constexpr auto format(const nexigen::logging::detail::Rotation_kind kind, Ctx& ctx) const {
+        return std::formatter<std::string_view>::format(
+            nexigen::logging::detail::to_string(kind), ctx);
+    }
+};
