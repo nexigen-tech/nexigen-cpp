@@ -90,7 +90,7 @@ Each file line SHALL be a single JSON object with exactly this schema and field 
 
 `{"timestamp":"<ISO-8601 UTC, nanoseconds>","level":"<lowercase level>","app":"<configured app name>","thread_id":<int>,"message":"[<file basename>:<line>] (<function_name>) <rendered message>"}`
 
-with the timestamp formatted as `YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ`, the `<rendered message>` produced by invoking the record's deferred formatting callback on the writer thread into a pre-allocated buffer, all generated without heap allocation.
+timestamp format `YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ`; `<rendered message>` produced by the record's deferred formatting callback on the writer thread into a pre-allocated buffer, without heap allocation.
 
 #### Scenario: Field order and shape are exact
 

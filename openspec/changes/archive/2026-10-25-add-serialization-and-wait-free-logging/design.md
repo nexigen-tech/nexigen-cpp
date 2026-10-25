@@ -56,13 +56,23 @@ template <typename... Args>
 struct FormatWithLocation {
     std::format_string<Args...> fmt;
     std::source_location loc;
-    consteval FormatWithLocation(std::format_string<Args...> f,
+    template <std::size_t N>
+    consteval FormatWithLocation(const char (&literal)[N],
                                  std::source_location l = std::source_location::current()) noexcept
-        : fmt(f), loc(l) {}
+        : fmt(literal), loc(l) {}
 };
 ```
 
-Public logger methods take it **by value** first, followed by `Args&&...`: deduction comes only from the trailing arguments (a string literal is not a `FormatWithLocation`, so the format parameter is a non-deduced context that succeeds via implicit `consteval` conversion after pack deduction; an empty pack leaves `Args = {}`). Risk R1 pins this with tests for both `info("lit")` and `info("lit {}", x)`.
+Applied amendment (compile-driven, semantics unchanged): the consteval constructor takes the
+**character array literal directly**, not a `std::format_string<Args...>` — a
+char*→format_string→wrapper chain would be two user-defined conversions, which implicit
+conversion sequences reject. Public signatures route the member type through the non-deduced
+identity alias `detail::format_param_t<Args...>`: bare `FormatWithLocation<Args...>` as the
+first parameter is a deduced context where `const char[N]` mismatches the class-template head
+and fails template-argument deduction outright (both findings pinned in the
+`format_with_location.hpp` comments).
+
+Public logger methods take it **by value** first, followed by `Args&&...`: deduction comes only from the trailing arguments (the non-deduced format parameter contributes no candidates and succeeds via implicit `consteval` conversion after pack deduction; an empty pack leaves `Args = {}`). Risk R1 pins this with tests for both `info("lit")` and `info("lit {}", x)`.
 API shape (uniform across Null/Console/File/Composite and the concept):
 
 ```cpp
@@ -98,7 +108,7 @@ Trivially copyable maintained (the callback is a plain function pointer to a tem
 ### D5. Argument packing: fixed-offset trivially-copyable serialization
 
 `detail::Arg_pack<Args...>` computes a compile-time offset table (8-byte alignment per slot). Packable set (concept `detail::Packable<T>`): integral/floating point, enum classes, `bool`, `char`, pointers, `std::string_view`, `Timestamp` — i.e. trivially copyable scalars/enums plus string-like views. `std::string_view` slots serialize as `{u16 len; inline bytes}` with per-string inline cap `MessageCapacity/2` (64 B): overflow truncates the *copy* and sets bit0 — producers never spill to heap. `static_assert`s reject non-packable argument types at the call site (compile error, no runtime path).
-The type-erased callback is `&detail::render_impl<Args...>`: reconstructs the `std::tuple<Args...>` from the blob and calls `std::format_to_n(out, cap, fmt, ...)` returning written length; overflow sets bit1 and truncates (never half-emitted: sinks cap at the returned length). `noexcept` is total under checked `std::format_string` (R2 documents the terminate-only residual).
+The type-erased callback is `&detail::render_impl<MessageCapacity, Args...>`: reconstructs the `std::tuple<Args...>` from the blob and renders via `std::vformat_to` through a `Bounded_sink` output adapter (applied amendment: libstdc++ 15 restricts the bounded checked `format_to_n`/`vformat_to` overloads to compile-time `format_string`s and its unchecked runtime overload takes only `(out, string_view, args)` — the sink restores the `cap` bound while still never allocating), returning the written length; overflow sets bit1 and truncates (never half-emitted: sinks cap at the returned length). `noexcept` is total under checked `std::format_string` (R2 documents the terminate-only residual).
 
 ### D6. `detail::Producer` becomes a shard array (`MaxThreads = 32` default, template parameter)
 
@@ -107,7 +117,9 @@ template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t Ma
 class Producer {
     struct alignas(64) Registration_cell {
         std::atomic<std::uint32_t> next_slot{};   // relaxed fetch_add, ONE TIME per (thread, producer)
-        std::atomic<std::uint32_t> active{};      // release fetch_max(slot+1) after slot claim
+        std::atomic<std::uint32_t> active{};      // release CAS-max of (slot+1) after slot
+                                                  // claim (atomic::fetch_max is C++26; the
+                                                  // bounded release CAS loop is the C++23 route)
         std::uint8_t pad_[56]{};
     } registration_{};
 
@@ -125,8 +137,10 @@ class Producer {
 };
 ```
 
-Shard routing (hot path): a `thread_local` per-thread map `[{Producer*, slot} × 4]` (few loggers per thread; linear scan ≤ 4) resolves the slot — after first registration the steady path is: TLS read → `shards_[slot]` → that ring's own wait-free `try_push` (release store of the *private* tail). Registration (first call per thread per producer): `next_slot.fetch_add(1, relaxed)`; `>= MaxThreads` → drop + `slot_exhausted.fetch_add(1, relaxed)`; else publish `active.fetch_max(slot+1, release)` so the consumer's acquire-load sees the fully constructed slot.
-Per-shard throttle/staging (already `thread_local`) keep single-writer plain state. Drop counters use **store-then-load relaxed** (not `fetch_add`) so no producer ever performs a contended RMW. `dropped()` sums `2 × MaxThreads` relaxed loads; `pending()` sums ring sizes.
+Shard routing (hot path): a `thread_local` per-thread map `[{Producer*, slot} × 4]` (few loggers per thread; linear scan ≤ 4) resolves the slot — after first registration the steady path is: TLS read → `shards_[slot]` → that ring's own wait-free `try_push` (release store of the *private* tail). Registration (first call per thread per producer): `next_slot.fetch_add(1, relaxed)`; `>= MaxThreads` → drop + `slot_exhausted.fetch_add(1, relaxed)`; else publish `active` (release CAS-max to `slot+1`; D6 cell comment) so the consumer's acquire-load sees the fully constructed slot.
+Per-shard throttle windows keep single-writer plain state; the staging record is a stack-local
+`Record` (applied amendment: trivially constructible, bounded copies — equivalent
+zero-allocation story, one fewer TLS object than the original thread_local staging reuse). Drop counters use **store-then-load relaxed** (not `fetch_add`) so no producer ever performs a contended RMW. `dropped()` sums `2 × MaxThreads` relaxed loads; `pending()` sums ring sizes.
 `NEXIGEN_LOGGING_BIND_PRODUCER` is retired — multi-producer is now the contract; the alias compiles to nothing (kept defined-out to avoid churn elsewhere).
 Sizing math: `ShardCapacity` defaults **128 for ConsoleLogger/FileLogger** — 32 × 128 records × 192 B = 786 KiB ring storage per async logger (Console's old default 4096 × 192 = 786 KiB; File's 8192 × 192 = 1.5 MiB shrinks). Aggregate capacity stays power-of-two-shaped; total footprint remains the same order and is compile-time tunable per instance.
 Alternatives: one MPMC queue (rejected: CAS contention violates mandate 5); sharded queues with a *shared* index (rejected: same contention at the publish edge).

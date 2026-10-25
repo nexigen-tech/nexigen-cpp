@@ -38,7 +38,7 @@ The consumer thread SHALL invoke the packed callback to render the final message
 
 ### Requirement: Fixed-size trivially-copyable record
 
-The system SHALL define `LogRecord` as a trivially copyable, cache-line-aligned (`alignas(64)`) value type carrying: a monotonic nanosecond `Timestamp`, a `LogLevel`, the producing thread's cached Linux thread id, the source location's file name, line number, and function name, the format-string pointer, the type-erased formatting callback pointer, and an inline fixed-size buffer holding the serialized argument payload with its used length. The record's size SHALL be a compile-time constant with no indirection to heap memory.
+The system SHALL define `LogRecord` as a trivially copyable, cache-line-aligned (`alignas(64)`) value type carrying: a monotonic nanosecond `Timestamp`, a `LogLevel`, the producing thread's cached Linux thread id, the source location's file/line/function, the format-string pointer, the type-erased formatting callback pointer, and an inline fixed-size argument buffer with its used length. The record's size SHALL be a compile-time constant with no indirection to heap memory.
 
 #### Scenario: Record type properties hold at compile time
 
