@@ -5,10 +5,11 @@ context: |
   Target Environment: Ubuntu 26.04 LTS (GCC 15.2+ / Clang 18+, CMake 3.25+, Ninja).
 
   Namespace & Directory Mapping:
-  - nexigen::core    -> include/nexigen/core/, src/core/, tests/core/
-  - nexigen::chrono  -> include/nexigen/chrono/, src/chrono/, tests/chrono/
-  - nexigen::logging -> include/nexigen/logging/, src/logging/, tests/logging/
-  - nexigen::metrics -> include/nexigen/metrics/, src/metrics/, tests/metrics/
+  - nexigen::core    -> include/nexigen/core/, src/core/, tests/core/, examples/core/
+  - nexigen::chrono  -> include/nexigen/chrono/, src/chrono/, tests/chrono/, examples/chrono/
+  - nexigen::logging -> include/nexigen/logging/, src/logging/, tests/logging/, examples/logging/
+  - nexigen::metrics -> include/nexigen/metrics/, src/metrics/, tests/metrics/, examples/metrics/
+
 
   Strict Real-Time Architectural Mandates (Hot Path):
   1. Language Standard: C++23 (-std=c++23), no compiler extensions.
