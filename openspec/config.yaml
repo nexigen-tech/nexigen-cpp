@@ -12,19 +12,33 @@ context: |
 
   Strict Real-Time Architectural Mandates (Hot Path):
   1. Language Standard: C++23 (-std=c++23), no compiler extensions.
-  2. No Exceptions & No RTTI: Global -fno-exceptions and -fno-rtti flags are enforced in CMake. Never use try/catch/throw, dynamic_cast, or typeid.
-  3. Error Handling: Use C++23 std::expected<T, E> (aliased as nexigen::core::Result<T, E>). Never call .value() (triggers std::abort under -fno-exceptions); always check .has_value() and dereference via *res or res->.
-  4. Zero Heap Allocations on Hot Paths: No new, delete, malloc, or dynamic container resizing in runtime loops. Pre-allocate all memory during initialization.
-  5. Lock-Free & Wait-Free Concurrency: No std::mutex or blocking primitives on hot paths. Use std::atomic with explicit std::memory_order (relaxed, acquire, release). Prevent False Sharing by aligning shared atomic indices to cache lines: alignas(64).
-  6. Linux High-Res Timers: Use clock_gettime(CLOCK_MONOTONIC_RAW) for nanosecond timestamps.
-  7. Naming Style: PascalCase for types/enums/concepts; snake_case for functions/variables; trailing underscore snake_case_ for private fields. Aggressively use noexcept, constexpr, and [[nodiscard]].
+  2. No Exceptions & No RTTI: Global -fno-exceptions and -fno-rtti flags are enforced in CMake. Never use try/catch/throw, dynamic_cast, or typeid. Define JSON_NOEXCEPTION=1 when using nlohmann::json.
+  3. Error Handling: Use C++23 std::expected<T, E> (aliased as nexigen::core::Result<T, E> and nexigen::core::Status). Never call .value() (triggers std::abort under -fno-exceptions); always check .has_value() and dereference via *res or res->.
+  4. Zero Heap Allocations on Hot Paths: No new, delete, malloc, free, or dynamic container resizing in runtime loops (both producer hot paths and background workers). Pre-allocate all memory during initialization. Note: nlohmann::json and std::string are strictly cold-path / configuration / diagnostics utilities and must NEVER be invoked on real-time hot paths.
+  5. Lock-Free & Wait-Free Concurrency: No std::mutex, spinlocks, or blocking primitives on hot paths. Multi-producer structures must use per-thread SPSC ring-buffer sharding (thread_local slot registration) to avoid cross-thread atomic CAS contention. Use std::atomic with explicit std::memory_order (relaxed, acquire, release). Prevent False Sharing by aligning shared atomic indices and shards to cache lines: alignas(64).
+  6. Linux High-Res Timers & Affinity: Use clock_gettime(CLOCK_MONOTONIC_RAW) and calibrated TSC / UTC offsets in nexigen::chrono for nanosecond timestamps. Support CPU core pinning via pthread_setaffinity_np for background workers.
+  7. Variadic Deferred Formatting (Logging ...> (wrapping std::format_string<Args...> and default std::source_location::current()) plus Args&&.... Never execute std::format_to_n on the producer hot path; pack raw arguments into the fixed-size LogRecord and format on the background consumer thread.
+  8. Naming Style: PascalCase for types/enums/concepts; snake_case for functions/variables; trailing underscore snake_case_ for private fields. Aggressively use noexcept, constexpr, and [[nodiscard]].
+
+  Project-Wide Type Serialization & Formatting Mandates (ALL Modules):
+  9. Universal to_string:
+     - Every public class and struct MUST implement a member method `std::string to_string() const` (cold-path diagnostic representation) and a free function `to_string(const T&)`.
+     - Every enum class MUST provide `[[nodiscard]] constexpr std::string_view to_string(EnumType) noexcept` and a corresponding `from_string(std::string_view, EnumType&) noexcept -> bool` helper in its namespace.
+  10. Universal Enum JSON Serialization (nlohmann::json):
+      - Every enum class MUST define ADL-discoverable functions in its own namespace:
+        `void to_json(nlohmann::json& j, const EnumType& v)`
+        `void from_json(const nlohmann::json& j, EnumType& v) noexcept`
+      - Must operate cleanly under `-fno-exceptions` (`JSON_NOEXCEPTION=1`), inspecting `j.is_string()` and using `j.get_ptr<const nlohmann::json::string_t*>()` without throwing.
+  11. Universal Enum std::formatter Specialization:
+      - Every enum class MUST specialize `template <> struct std::formatter<EnumType>` in `namespace std` (inheriting or delegating to `std::formatter<std::string_view>` via `to_string(e)`) so all enums work directly in `std::format` and `nexigen::logging` format calls.
 
 rules:
   proposal:
-    - Explicitly state the performance and memory-allocation impact of the change.
+    - Explicitly state the performance, latency (ns), and memory-allocation impact of the change.
   specs:
     - Every requirement MUST include testable scenarios using WHEN/THEN steps.
+    - Every new or modified enum, struct, and class MUST include scenarios verifying `to_string() const`, `std::formatter<Enum>`, and `nlohmann::json` (`to_json` / `from_json` under `-fno-exceptions`).
   design:
-    - Specify exact memory layout (alignas(64)) and std::memory_order choices for any concurrent/atomic component.
+    - Specify exact memory layout (`alignas(64)`), per-thread shard sizing, and `std::memory_order` choices for any concurrent/atomic component.
   tasks:
-    - Always include a task to compile and pass unit tests under Release (-O3 -flto) and ThreadSanitizer (-DNEXIGEN_ENABLE_TSAN=ON).
+    - Always include a task to compile and pass 100% of unit tests under Debug, Release (`-O3 -march=native -flto` with latency gates), ThreadSanitizer (`-DNEXIGEN_ENABLE_TSAN=ON`), and AddressSanitizer (`-DNEXIGEN_ENABLE_ASAN=ON`).
