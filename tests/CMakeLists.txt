@@ -26,3 +26,16 @@ target_compile_definitions(nexigen_logging_tests PRIVATE
 
 add_test(NAME nexigen_logging_tests COMMAND nexigen_logging_tests)
 set_tests_properties(nexigen_logging_tests PROPERTIES TIMEOUT 600)
+
+# Юнит-тесты nexigen::metrics: один TU (design.md D16), потоки и аффинность
+# требуют полного времени; тот же увеличенный таймаут под TSan.
+add_executable(nexigen_metrics_tests metrics/metrics_test.cpp)
+target_link_libraries(nexigen_metrics_tests PRIVATE nexigen_metrics Threads::Threads)
+# Ворота латентности включаются только в Release/RelWithDebInfo (design D16):
+# числа под Debug/санитайзерами нерепрезентативны, тест тогда проверяет только
+# корректность (bounded-time, non-blocking), но не наносекунды.
+target_compile_definitions(nexigen_metrics_tests PRIVATE
+    $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:NEXIGEN_METRICS_STRICT_LATENCY>)
+
+add_test(NAME nexigen_metrics_tests COMMAND nexigen_metrics_tests)
+set_tests_properties(nexigen_metrics_tests PROPERTIES TIMEOUT 600)

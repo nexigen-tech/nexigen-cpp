@@ -315,13 +315,18 @@ cmake --build build/debug
 ```
 
 Run them directly from the build tree (the logging examples write to
-`/tmp/nexigen-examples-logs/`):
+`/tmp/nexigen-examples-logs/`; the metrics pipeline example writes to
+`/tmp/nexigen-examples-metrics/`):
 
 ```bash
 ./build/debug/examples/core/ex_spsc_ring_buffer
 ./build/debug/examples/logging/ex_console_logger
 ./build/debug/examples/logging/ex_file_logger
 ./build/debug/examples/logging/ex_composite_logger
+./build/debug/examples/metrics/ex_counters_and_gauges
+./build/debug/examples/metrics/ex_descriptive_statistics
+./build/debug/examples/metrics/ex_histograms
+./build/debug/examples/metrics/ex_metric_provider_and_sinks
 ```
 
 * **`ex_spsc_ring_buffer`** — a two-thread telemetry pipeline over
@@ -337,6 +342,26 @@ Run them directly from the build tree (the logging examples write to
 * **`ex_composite_logger`** — `CompositeLogger<ConsoleLogger<>, FileLogger<>, NullLogger>`
   with global `set_level()` fan-out, per-sink configuration through `get<Type>()` /
   `get<Index>()`, multi-threaded logging, and one unified `flush()`.
+* **`ex_counters_and_gauges`** — `MetricProvider`/`Meter` factory hierarchy with
+  `SingleThreaded` vs `MultiThreaded` `Counter` and `Gauge` (`std::int64_t` + `double`),
+  `Readable` `read()`/`snapshot()` vs `WriteOnly` worker-updated instruments harvested by
+  the provider, `Cumulative` vs `ResetOnRead` delta windows, and `to_string()` diagnostics.
+* **`ex_descriptive_statistics`** — a sensor/control loop recording measurements into
+  `DescriptiveStatistics`: the Welford fixture pinned exactly (count/min/max/mean/std),
+  visible non-finite rejection, `Cumulative` all-time vs `ResetOnRead` windowed statistics
+  polled between ticks with multiple producers (exactly-once windows), and `to_string()` /
+  `std::format` output with policy enums.
+* **`ex_histograms`** — simulated task durations measured per-producer with
+  `nexigen::chrono::Stamp_source` and recorded into both families: an
+  `ExplicitBucketHistogram` with latency bounds `{10, 25, 50, 100, 250, 500, 1000}` ns and
+  an `ExponentialHistogram` with automatic base-2 mapping across wide dynamic ranges;
+  reports `count`/`sum`/`min`/`max` and `p50`/`p90`/`p99`/`p99.9` for both.
+* **`ex_metric_provider_and_sinks`** — an end-to-end HIL telemetry pipeline: a
+  `MetricProvider` with a 50 ms `collect_interval` and a CPU `core_mask` pinning the
+  background harvester, a `CompositeMetricSink<ConsoleMetricSink, JsonFileMetricSink,
+  NullMetricSink>` over configured members, concurrent producers across every instrument
+  kind, and cold-path read-back verification of the JSONL batches written to
+  `/tmp/nexigen-examples-metrics/telemetry_<pid>.jsonl`.
 
 Every example is also registered as a CTest smoke test (label `examples`): each must run
 to completion and exit with status 0.

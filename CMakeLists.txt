@@ -119,6 +119,29 @@ target_compile_definitions(nexigen_logging PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SO
 target_link_libraries(nexigen_logging PUBLIC nexigen_core nexigen_chrono PRIVATE Threads::Threads)
 
 # =============================================================================
+# nexigen::metrics — измерительный слой: инструменты нулевых аллокаций и
+# wait-free обновлений, фоновый сбор с привязкой к CPU. Публичные заголовки
+# в include/, холодные юниты (провайдер, сенки, сериализация) в src/metrics/;
+# горячие пути остаются inline в заголовках (design D1).
+# _GNU_SOURCE нужен cpu_set_t/pthread_setaffinity_np в строгом -std=c++23.
+# =============================================================================
+file(GLOB NEXIGEN_METRICS_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/metrics/*.cpp")
+
+add_library(nexigen_metrics STATIC ${NEXIGEN_METRICS_SOURCES})
+add_library(nexigen::metrics ALIAS nexigen_metrics)
+
+target_include_directories(nexigen_metrics PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_compile_definitions(nexigen_metrics PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+# Флаги/-Werror/санитайзеры и cxx_std_23 приходят транзитивно от nexigen_core
+# (её INTERFACE -> nexigen_options); nexigen_chrono — PUBLIC: снапшоты и
+# JSON-сенк несут chrono::Timestamp в публичных заголовках. Потоки нужны для
+# фонового сборщика (std::jthread).
+target_link_libraries(nexigen_metrics PUBLIC nexigen_core nexigen_chrono PRIVATE Threads::Threads)
+
+# =============================================================================
 # Опции сборки: юнит-тесты и runnable-примеры (включены по умолчанию).
 # enable_testing() поднимаем на уровень обеих веток: ctest должен видеть
 # примеры даже при -DNEXIGEN_BUILD_TESTS=OFF.
