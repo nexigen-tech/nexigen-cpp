@@ -39,3 +39,16 @@ target_compile_definitions(nexigen_metrics_tests PRIVATE
 
 add_test(NAME nexigen_metrics_tests COMMAND nexigen_metrics_tests)
 set_tests_properties(nexigen_metrics_tests PROPERTIES TIMEOUT 600)
+
+# Юнит-тесты nexigen::tracing: один TU (design D14), потоки и аффинность
+# требуют полного времени; тот же увеличенный таймаут под TSan.
+add_executable(nexigen_tracing_tests tracing/tracing_test.cpp)
+target_link_libraries(nexigen_tracing_tests PRIVATE nexigen_tracing Threads::Threads)
+# Ворота латентности (≤20 ns lifecycle / ≤2 ns short-circuit) включаются
+# только в Release/RelWithDebInfo (design D14): числа под Debug/санитайзерами
+# нерепрезентативны, тест тогда проверяет только корректность.
+target_compile_definitions(nexigen_tracing_tests PRIVATE
+    $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:NEXIGEN_TRACING_STRICT_LATENCY>)
+
+add_test(NAME nexigen_tracing_tests COMMAND nexigen_tracing_tests)
+set_tests_properties(nexigen_tracing_tests PROPERTIES TIMEOUT 600)

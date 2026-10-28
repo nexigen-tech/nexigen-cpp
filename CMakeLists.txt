@@ -142,6 +142,45 @@ target_compile_definitions(nexigen_metrics PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SO
 target_link_libraries(nexigen_metrics PUBLIC nexigen_core nexigen_chrono PRIVATE Threads::Threads)
 
 # =============================================================================
+# nexigen::tracing — подсистема причинно-следственной телеметрии: SPAN-записи
+# с автоматической/сквозной родительской связью, wait-free шардирование по
+# потокам и фоновый потребитель с привязкой к CPU. Публичные заголовки в
+# include/, холодные юниты (провайдер, сенки, сериализация) в src/tracing/;
+# горячие пути (start_span/finish_span) остаются inline в заголовках (design D2).
+# _GNU_SOURCE нужен cpu_set_t/pthread_setaffinity_np/SYS_gettid в строгом
+# -std=c++23; он расширяет (не сужает) _POSIX_C_SOURCE от nexigen_core.
+# =============================================================================
+file(GLOB NEXIGEN_TRACING_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/tracing/*.cpp")
+
+# Скаффолдинг: на первом шаге (пустое дерево src/tracing/) CMake 4 не даёт
+# создать STATIC-цель без источников. Генерируем нейтральный placeholder-TU
+# в бинарнике; первый настоящий src/tracing/*.cpp забирает glob, и условие
+# исчезает само (CONFIGURE_DEPENDS перезапускает конфигурацию).
+if(NOT NEXIGEN_TRACING_SOURCES)
+    set(NEXIGEN_TRACING_PLACEHOLDER "${CMAKE_CURRENT_BINARY_DIR}/tracing_scaffold.cpp")
+    file(WRITE "${NEXIGEN_TRACING_PLACEHOLDER}"
+"// nexigen::tracing scaffolding placeholder: exists only while src/tracing/\n"
+"// holds no real cold-path units; removed from the build automatically once\n"
+"// the first src/tracing/*.cpp lands (glob is CONFIGURE_DEPENDS).\n"
+"namespace nexigen::tracing { extern const bool scaffolded = true; }\n")
+    list(APPEND NEXIGEN_TRACING_SOURCES "${NEXIGEN_TRACING_PLACEHOLDER}")
+endif()
+
+add_library(nexigen_tracing STATIC ${NEXIGEN_TRACING_SOURCES})
+add_library(nexigen::tracing ALIAS nexigen_tracing)
+
+target_include_directories(nexigen_tracing PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_compile_definitions(nexigen_tracing PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+# Флаги/-Werror/санитайзеры и cxx_std_23 приходят транзитивно от nexigen_core
+# (её INTERFACE -> nexigen_options); nexigen_chrono — PUBLIC: SpanRecord несёт
+# chrono::Timestamp в публичных заголовках, а провайдер калибрует Stamp_source.
+# Потоки нужны для холодного потребителя (std::jthread) и аффинности.
+target_link_libraries(nexigen_tracing PUBLIC nexigen_core nexigen_chrono PRIVATE Threads::Threads)
+
+# =============================================================================
 # Опции сборки: юнит-тесты и runnable-примеры (включены по умолчанию).
 # enable_testing() поднимаем на уровень обеих веток: ctest должен видеть
 # примеры даже при -DNEXIGEN_BUILD_TESTS=OFF.

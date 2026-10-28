@@ -428,7 +428,8 @@ cmake --build build/debug
 
 Run them directly from the build tree (the logging examples write to
 `/tmp/nexigen-examples-logs/`; the metrics pipeline example writes to
-`/tmp/nexigen-examples-metrics/`):
+`/tmp/nexigen-examples-metrics/`; the Perfetto tracing example writes to
+`/tmp/nexigen-examples-tracing/`):
 
 ```bash
 ./build/debug/examples/core/ex_spsc_ring_buffer
@@ -439,6 +440,8 @@ Run them directly from the build tree (the logging examples write to
 ./build/debug/examples/metrics/ex_descriptive_statistics
 ./build/debug/examples/metrics/ex_histograms
 ./build/debug/examples/metrics/ex_metric_provider_and_sinks
+./build/debug/examples/tracing/ex_nested_and_cross_thread_spans
+./build/debug/examples/tracing/ex_perfetto_chrome_trace
 ```
 
 * **`ex_spsc_ring_buffer`** — a two-thread telemetry pipeline over
@@ -474,6 +477,17 @@ Run them directly from the build tree (the logging examples write to
   NullMetricSink>` over configured members, concurrent producers across every instrument
   kind, and cold-path read-back verification of the JSONL batches written to
   `/tmp/nexigen-examples-metrics/telemetry_<pid>.jsonl`.
+* **`ex_nested_and_cross_thread_spans`** — a `TracerProvider` with a console trace
+  sink recording nested same-thread spans, a live span's context handed to a
+  `std::jthread` worker whose explicit-parent child (and its own local grandchild)
+  link across the thread boundary, the drained timeline printed to the console, and
+  self-verification of every parent-child edge before exit (a deliberately broken
+  check path is available via `--fail-demo`).
+* **`ex_perfetto_chrome_trace`** — a `TracerProvider` with a `ChromeTraceSink`
+  recording a nested and concurrent span workload, flush plus shutdown drain, and a
+  sanity-checked Perfetto-loadable trace file at
+  `/tmp/nexigen-examples-tracing/trace_<pid>.json` — open it at
+  [ui.perfetto.dev](https://ui.perfetto.dev) to visualize the execution timeline.
 
 Every example is also registered as a CTest smoke test (label `examples`): each must run
 to completion and exit with status 0.
