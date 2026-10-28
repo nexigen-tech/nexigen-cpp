@@ -303,6 +303,118 @@ cmake --build build/asan
 ctest --test-dir build/asan --output-on-failure
 ```
 
+## 📡 `nexigen::metrics` API
+
+Header-only hot paths + compiled cold paths, C++23, no exceptions/RTTI, zero heap
+allocation on recording and harvest paths. Link the `nexigen::metrics` (alias of
+`nexigen_metrics`) STATIC target — it brings `nexigen_core` and `nexigen_chrono`
+transitively — and include what you use. Deep dive with copy-paste recipes:
+[`docs/metrics-guide.md`](docs/metrics-guide.md); design context:
+[`docs/architecture.md`](docs/architecture.md).
+
+* **`<nexigen/metrics/policy_enums.hpp>`** — the policy vocabulary every instrument
+  is templated on: `ConcurrencyPolicy` (`SingleThreaded` / `MultiThreaded`),
+  `AccessPolicy` (`Readable` / `WriteOnly`), `ResetPolicy` (`Cumulative` /
+  `ResetOnRead`) and `MetricKind`; `std::uint8_t`-backed with the standard enum
+  trio (constexpr `to_string`/`from_string`, non-throwing `to_json`/`from_json`,
+  `std::formatter`).
+* **`<nexigen/metrics/concepts/metric_concept.hpp>`** — `concepts::Metric`
+  (`static constexpr kind/concurrency/access/reset` + cold-path `to_string()`) and
+  `concepts::ReadableMetric`. Read access is a compile-time member constraint
+  (`requires (Access == AccessPolicy::Readable)`): a `WriteOnly` instrument has no
+  `read()`/`snapshot()` — only the provider's harvester can observe it.
+* **`<nexigen/metrics/counter.hpp>`, `<nexigen/metrics/gauge.hpp>`** — `inc()/add()`
+  and `set()/add()/sub()` for `std::int64_t`/`double`. **Contract:** `SingleThreaded`
+  uses plain storage and exactly one recording thread; `MultiThreaded` uses 33
+  `alignas(64)` cells (32 exclusive `thread_local`-registered shards + one shared
+  fallback) with relaxed `fetch_add` — wait-free, exact at any thread count.
+* **`<nexigen/metrics/descriptive_statistics.hpp>`** — O(1), allocation-free online
+  Welford moments (`count/min/max/mean/std`). `ResetOnRead` windows swap
+  double-buffered banks per shard under a seq handshake: every `record()` lands in
+  exactly one window. Past 32 recording threads the shared-fallback records are
+  dropped and counted in `dropped_samples` — visible, never silent.
+* **`<nexigen/metrics/explicit_histogram.hpp>`, `<nexigen/metrics/exponential_histogram.hpp>`** —
+  `ExplicitBucketHistogram` (≤ 64 caller bounds, binary-search buckets) and
+  `ExponentialHistogram` (scale 0–20, geometric base `2^(2^-scale)`, O(1) bitwise
+  bucket mapping, loss-free coarsening for wide ranges). Both report
+  `count/sum/min/max` and interpolated `p50/p90/p99/p99.9` snapshots.
+* **`<nexigen/metrics/meter.hpp>`, `<nexigen/metrics/metric_provider.hpp>`** — the only
+  creation path: `MetricProvider(config, sink)` → `get_meter(name, version)` →
+  `create_counter/create_gauge/create_statistics/create_explicit_histogram/create_exponential_histogram`,
+  each returning `core::Result<T*>` valid until the provider is destroyed. All
+  storage is pre-allocated at construction (one aligned block; zero allocation
+  during creation and harvesting). `MetricProvider_config` carries
+  `collect_interval` (ns; `0` disables the background thread), `core_mask`
+  (0 = inherit; the harvester pins itself with `pthread_setaffinity_np`) and the
+  per-kind capacities. Control plane: `collect_now()`, `flush()`,
+  `startup_status()`.
+* **`<nexigen/metrics/null_metric_sink.hpp>`, `console_metric_sink.hpp`,
+  `json_file_metric_sink.hpp`, `composite_metric_sink.hpp>`** — the sink contract
+  (`concepts::MetricSink`: `on_batch(const MetricBatchSnapshot&) noexcept` +
+  `flush() noexcept`, both returning `core::Status`, no virtuals). `NullMetricSink`,
+  `ConsoleMetricSink` (raw `::write` to a fd), `JsonFileMetricSink` (JSONL + UTC
+  ISO-8601 stamps) and `CompositeMetricSink<Sinks...>` (tuple fan-out without
+  short-circuit; construct with configured members, access via `get<Index>()` /
+  `get<SinkType>()`).
+* **`<nexigen/metrics/metric_snapshot.hpp>`** — fixed-size, trivially copyable
+  snapshot values (`MetricIdentity`, `ScalarValue`, `StatisticsSnapshot`,
+  `HistogramSnapshot`, `MetricRecord`, `MetricBatchSnapshot`) with inline
+  `char[64]` names — the provider hands these to sinks by pointer, never
+  allocating.
+
+Usage example (provider → meter → instruments → windows → snapshot):
+
+```cpp
+#include <chrono>
+#include <cstdio>
+#include <nexigen/metrics/metric_provider.hpp>
+#include <nexigen/metrics/null_metric_sink.hpp>   // or any sink
+
+namespace metrics = nexigen::metrics;
+
+int main() {
+    metrics::NullMetricSink sink;                  // cold path, may allocate
+    metrics::MetricProvider_config config{};
+    config.collect_interval = std::chrono::nanoseconds{50'000'000}; // 50 ms
+    metrics::MetricProvider provider{config, sink};
+
+    const auto meter = provider.get_meter("engine", "1.2.0");
+    if (!meter) { return 1; }
+
+    using metrics::ConcurrencyPolicy::MultiThreaded;
+    using metrics::AccessPolicy::Readable;         // WriteOnly: no read()/snapshot()
+    using metrics::ResetPolicy::ResetOnRead;
+
+    const auto latency = (*meter)->create_statistics<MultiThreaded, Readable>(
+        "latency");
+    const auto ticks = (*meter)
+        ->create_counter<MultiThreaded, Readable, ResetOnRead>("ticks");
+    if (!latency || !ticks) { return 1; }
+
+    // Wait-free, allocation-free hot path.
+    for (int i = 0; i < 1000; ++i) {
+        (*latency)->record(12.5 + (i % 100));
+        (*ticks)->inc();
+    }
+
+    // Cold path: deterministic snapshots of the current window.
+    const metrics::StatisticsSnapshot summary = (*latency)->read();
+    const std::uint64_t delta = (*ticks)->read();   // window delta, resets
+    std::printf("count=%llu mean=%.3f window_delta=%llu\n",
+                static_cast<unsigned long long>(summary.count), summary.mean,
+                static_cast<unsigned long long>(delta));
+}
+```
+
+**Hot-path rules:** never call `to_string()`, `std::string`, `nlohmann::json` or
+`std::format` from a recording path or a sink callback — they are diagnostics and
+may allocate; branch on `Result` with `has_value()` / `*res` / `.error()`, never
+`.value()`. Single-threaded instruments must not be harvested concurrently with
+recording: use `collect_now()` on the recording thread or `MultiThreaded` (the
+safe default when a background harvester runs). The Release build enables the
+`NEXIGEN_METRICS_STRICT_LATENCY` median gates for the benchmark suites; Debug and
+sanitizer builds are correctness-only.
+
 ## 🧪 Runnable Examples
 
 Self-contained executables demonstrating the public API end to end. They build by
