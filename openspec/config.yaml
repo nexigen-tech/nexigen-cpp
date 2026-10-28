@@ -9,6 +9,7 @@ context: |
   - nexigen::chrono  -> include/nexigen/chrono/, src/chrono/, tests/chrono/, examples/chrono/
   - nexigen::logging -> include/nexigen/logging/, src/logging/, tests/logging/, examples/logging/
   - nexigen::metrics -> include/nexigen/metrics/, src/metrics/, tests/metrics/, examples/metrics/
+  - nexigen::tracing -> include/nexigen/tracing/, src/tracing/, tests/tracing/, examples/tracing/
 
 
   Strict Real-Time Architectural Mandates (Hot Path):
