@@ -34,7 +34,7 @@ Hard constraints unchanged: C++23 without extensions, `-fno-exceptions`/`-fno-rt
 
 Public headers under `include/nexigen/metrics/`: `policy_enums.hpp`; `concepts/metric_concept.hpp` (`Metric`, `ReadableMetric`) and `concepts/metric_sink_concept.hpp` (`MetricSink`); `metric_snapshot.hpp` (`MetricIdentity`, `ScalarValue`, `StatisticsSnapshot`, `HistogramSnapshot`, `MetricRecord`, `MetricBatchSnapshot`); `meter.hpp` (`MeterPasskey`, `Meter`); `metric_provider.hpp` (`MetricProvider_config`, `MetricProvider`); `counter.hpp`, `gauge.hpp`, `descriptive_statistics.hpp`, `explicit_histogram.hpp`, `exponential_histogram.hpp`; `null_metric_sink.hpp`, `console_metric_sink.hpp`, `json_file_metric_sink.hpp` (+ its config), `composite_metric_sink.hpp`. Internal: `detail/thread_slot.hpp`, `detail/affinity.hpp`, `detail/json_writer.hpp`, `detail/welford.hpp`.
 
-Sources: `src/metrics/affinity.cpp`, `src/metrics/json_writer.cpp`, `src/metrics/console_metric_sink.cpp`, `src/metrics/json_file_metric_sink.cpp`, `src/metrics/provider.cpp` (lifecycle, harvest loop, control plane), `src/metrics/snapshot_format.cpp` (record/batch/config `to_string`/`to_json`). All instrument classes and `Meter` creation methods are templates and stay inline in headers.
+Sources: `src/metrics/affinity.cpp`, `src/metrics/json_writer.cpp`, `src/metrics/provider.cpp` (lifecycle, harvest loop, control plane), `src/metrics/snapshot_format.cpp` (record/batch/config `to_string`/`to_json`). All instrument classes and `Meter` creation methods are templates and stay inline in headers; the non-template sink bodies are small and stay header-inline with them (a later split into `console_metric_sink.cpp` / `json_file_metric_sink.cpp` is a compile-time optimization, not behavior).
 
 `detail/affinity.hpp` duplicates logging's 60-line `pin_self`/`self_affinity` wrapper instead of reaching into `nexigen::logging::detail` — the chrono change established that modules do not consume another module's `detail/`, and linking `nexigen_logging` from metrics would invert the dependency direction. *Alternative considered:* promote affinity to `nexigen::core`; rejected — core is INTERFACE-only and affinity is a compiled concern (a later consolidation change can revisit).
 
@@ -65,7 +65,7 @@ At construction the provider performs exactly **one** `::operator new(bytes, std
 - Per kind: a contiguous typed arena with a fixed slot stride (max size over that kind's policy instantiations) and a parallel `SlotMeta` table `{ char meter_name[64]; char meter_version[64]; char metric_name[64]; uint8 kind, concurrency, access, reset; void* obj; harvest/destroy thunk pointers }`, traversed contiguously at harvest.
 - `alignas(64)` alignment of each arena base and each slot stride keeps hot instruments on their own cache lines.
 
-Default budget (x86-64, ResetOnRead-sized strides): counters ≈ 135 KiB, gauges ≈ 135 KiB, statistics ≈ 210 KiB (33 slots × ~6.4 KiB), explicit histograms ≈ 660 KiB (33 slots × ~2 × 65 buckets), exponential histograms ≈ 1.2 MiB (33 slots × ~2 × 256 buckets), `MetricBatchSnapshot` scratch (one batch buffer sized to total instrument capacity ≈ 200 records × ~4.5 KiB ≈ 900 KiB), meta tables ≈ 40 KiB. **Total ≈ 3.3 MiB pre-allocated with defaults**; capacities scale this linearly and are configurable.
+Default budget (x86-64, ResetOnRead-sized strides): counters ≈ 135 KiB, gauges ≈ 135 KiB, statistics ≈ 210 KiB (33 slots × ~6.4 KiB), explicit histograms ≈ 660 KiB (33 slots × ~2 × 65 buckets), exponential histograms ≈ 1.2 MiB (33 slots × ~2 × 256 buckets), `MetricBatchSnapshot` scratch (one batch buffer sized to total instrument capacity ≈ 200 records × ~4.5 KiB ≈ 900 KiB), meta tables ≈ 40 KiB. **Total ≈ 3.3 MiB pre-allocated with defaults**; capacities scale this linearly and are configurable. (One shared 2^20-entry boundary table — 8 MiB of virtual, demand-paged static storage generated on first use — serves every scale (D11); a scale-10 workload touches 8 KiB of physical memory.)
 
 Creation = pop a free slot (bump index + occupancy check), placement-`new` the instrument, fill `SlotMeta`. Errors: `InvalidArgument` (empty/over-long/duplicate name, bad histogram parameters), `BufferFull` (kind arena exhausted), `NotInitialized` (provider liveness flag cleared). Repeated `get_meter` with the same name returns the existing handle; the same name with a different version returns `InvalidArgument`.
 
@@ -103,15 +103,47 @@ Instrument-level immutable `double bounds_[64]` + `bound_count_` (creation-valid
 
 ### D11 — ExponentialHistogram: exact O(1) mapping without `std::log`
 
-`index(v) = floor(scale * log2(v))` for positive finite `v`, so bucket `i` covers `[base^i, base^(i+1))` with `base = 2^(2^-scale)`. Implementation per `record()`:
+`index(v) = floor(2^scale · log2(v))` for positive finite `v`, so bucket `i`
+covers `[B(i), B(i+1))` with `B(i) = 2^(i / 2^scale)` and
+`base = 2^(2^-scale)` — 2^scale buckets per octave (the spec's
+`metrics/exponential-histogram` geometry). Implementation per `record()`:
 
-1. `bits = std::bit_cast<std::uint64_t>(v)`; `e = ((bits >> 52) & 0x7FF) - 1023`; mantissa fraction `m = (bits & ((1ULL << 52) - 1)) / 2^52`.
-2. Candidate `k = scale*e + (scale * log2_1p_q24(m)) >> 24` — a fixed-point linear approximation of `log2(1+m)` guaranteed within ±(0.086·scale + 1) ≤ ±3 of the true index at `scale ≤ 20`.
-3. Bounded correction (≤ 4 steps): compare `v` against exact boundary doubles `B(k) = 2^(k/scale) = ldexp(factor[k mod scale], floor_div(k, scale))`, where `factor[r] = 2^(r/scale)` is a per-instrument table built at creation with `std::pow` (cold path — allowed at initialization) — `ldexp` is integer exponent manipulation. Walk `k` until `B(k) <= v < B(k+1)`.
+1. Normalize subnormals exactly (`v · 2^64` is normal) and work in the scaled
+   domain; compensate the index by `64 · 2^scale` at the end. This keeps the
+   boundary comparisons decisive — in the subnormal band boundary doubles
+   collapse onto the subnormal grid.
+2. Candidate `t` for `floor(2^scale · log2(1 + m))`: a 256-entry `log2(1 + i/256)`
+   lookup on the top 8 fraction bits plus a quadratic fit on the residual
+   (`z = (m - hi)/(1 + hi)`, error ≈ z³/3/ln2), scaled by `2^scale`. The
+   candidate lands within one index unit of the true floor.
+3. Bounded correction (≤ 4 steps): compare `probe` against exact boundary
+   doubles `B(k)` and walk `k` until `B(k) <= probe < B(k+1)`.
+4. `B(k) = ldexp(factor[k mod 2^scale], k >> scale)` where
+   `factor[r] = 2^(r / 2^scale)` — served from **one shared 2^20-entry master
+   table** (`master[k] = std::pow(2.0, k / 2^20)`), generated once on the first
+   exponential-histogram creation: static storage, zero heap allocation,
+   demand-paged (a scale-10 instrument touches 8 KiB of it). The table is the
+   boundary definition: `factor_s[r] = master[r << (20 - s)]` equals
+   `std::pow(2.0, r / 2^s)` bit-for-bit, so tests render reference boundaries
+   independently and agree exactly. (`std::pow` runs only in that one-time
+   cold generation; no `std::log`/`std::log2`/`std::pow` per record.)
 
-No `std::log`/`std::log2`/`std::pow` on the hot path, no allocation, deterministic, exact per the spec containment rule (pinned by boundary-sweep tests including ±1 ULP around every candidate boundary). Zeros go to a `zero_count` (ranks below all positive buckets); negative and non-finite values go to `ignored_samples`.
-
-Bucket storage per shard bank: `uint64 buckets[256]` + `base_index` + `effective_scale` + `count/sum/min/max`, same D9 slot handshake. When an index falls outside `[base_index, base_index + 256)` the shard **coarsens**: `effective_scale` decreases by one (indices halve, buckets collapse pairwise) until the range fits — at most `scale` rebases per shard lifetime, each O(256); samples are never lost. At `effective_scale == 0` (base 2, 256 octaves) extreme-range values fold into the edge bucket — counts/sum/min/max stay exact, only percentile precision degrades (documented). Merging shards at harvest collapses to the minimum effective scale. Percentiles use bucket representative values (`B(i)` midpoints), within one bucket width of the true quantile.
+Zeros go to a `zero_count` (ranks below all positive buckets); negative and
+non-finite values go to `ignored_samples`. The shared fallback cell (threads
+beyond the exclusive pool) buckets at a **fixed scale-0 window**
+(octaves `[fallback_window_base, +256)`, extreme octaves fold into the edge
+buckets) and is rebased into the merged frame at harvest; its fixed frame only
+anchors the merged window when no recorded slot provides a base. Bucket storage
+per shard bank: `uint64 buckets[256]` + `base_index` + `effective_scale` +
+`count/sum/min/max`, same D9 slot handshake. When an index falls outside
+`[base_index, base_index + 256)` the shard coarsens: `effective_scale`
+decreases by one (indices halve, buckets collapse pairwise, out-of-window
+buckets fold into the edge buckets — samples are never lost) until the range
+fits — at most `scale` rebases per shard lifetime, each O(256). Merging shards
+at harvest reprojects every bank onto the minimum effective scale (finer banks
+shift down, coarser up), folding out-of-window buckets into edge buckets.
+Percentiles use bucket midpoint representatives, within one bucket width of the
+true quantile.
 
 ### D12 — Snapshot and record shapes
 
@@ -137,7 +169,7 @@ The provider binds a sink at construction through type-erased thunks (`Sink_bind
 |---|---|---|---|
 | Counter/Gauge shard | `fetch_add` (record) | `relaxed` | values publish nothing else |
 | Counter/Gauge shard | `load` / `exchange(0)` (harvest/reset) | `relaxed` | per-RMW exactly-once, no ordering needed |
-| Stats/hist slot `seq` | announce (producer) | `relaxed` store | paired with exit |
+| Stats/hist slot `seq` | announce (producer) | `seq_cst` store | full barrier (xchg): the bank update must not become visible before the announcement |
 | Stats/hist slot `seq` | exit (producer) | `release` store | publishes the completed bank update |
 | Stats/hist slot `seq` | handshake (harvester) | `acquire` load | observes completed updates before merging |
 | Stats/hist bank fields | producer & harvester access | `relaxed` (load/store only) | single writer per slot; TSan-clean at `mov` cost |
@@ -152,11 +184,11 @@ The provider binds a sink at construction through type-erased thunks (`Sink_bind
 
 Single TU `tests/metrics/metrics_test.cpp` on the project harness (copy `NX_CHECK`/`run_suite` + arena `operator new/delete` counter + `mallinfo2` delta from `tests/core/core_test.cpp`/`tests/logging/logging_test.cpp`; same `NX_SANITIZER_BUILD` detection). Suites: `policy_enums` (trio round-trips), `concepts` (positive `static_assert`s plus negative `requires`-expression detection for passkey construction and `WriteOnly::read()`), `registry` (capacity/BufferFull/InvalidArgument, zero-allocation windows), `counter`, `gauge`, `statistics`, `explicit_histogram`, `exponential_histogram` (boundary sweep: every exponent, ±1 ULP around candidate boundaries, pseudorandom doubles; coarsening invariants), `sinks` (pipe/temp-file fixtures, escaping, error paths), `provider` (interval spacing, `pthread_getaffinity_np` round-trip on the worker, `collect_now`/`flush`/shutdown drain), `serialization` (member/free `to_string`, JSON round-trips, `std::format`).
 
-Release-only latency gates via `NEXIGEN_METRICS_STRICT_LATENCY` (same config gating as `NEXIGEN_LOGGING_STRICT_LATENCY`): median per-op over warm batched loops — `Counter` ST `inc()` ≤ 2 ns, `Counter` MT `inc()` ≤ 6 ns, `Gauge` `set`/`add` ≤ 6 ns, `DescriptiveStatistics::record` ≤ 25 ns, `ExplicitBucketHistogram::record` ≤ 15 ns, `ExponentialHistogram::record` ≤ 15 ns (headroom over the proposal targets; Debug/sanitizer builds run correctness only). Single-threaded instruments are exercised with `collect_now()` on the recording thread or with explicit release/acquire barrier protocols around harvest phases — that establishes the happens-before their plain storage requires and keeps TSan clean.
+Release-only latency gates via `NEXIGEN_METRICS_STRICT_LATENCY` (same config gating as `NEXIGEN_LOGGING_STRICT_LATENCY`): median per-op over warm batched loops — `Counter` ST `inc()` ≤ 2 ns, `Counter` MT `inc()` ≤ 6 ns, `Gauge` `add` ≤ 6 ns, `Gauge` `set` ≤ 8 ns (the observed-aggregate op passes over all 33 shards — D8), `DescriptiveStatistics::record` ≤ 25 ns, `ExplicitBucketHistogram::record` ≤ 15 ns, `ExponentialHistogram::record` ≤ 15 ns (headroom over the proposal targets; Debug/sanitizer builds run correctness only). Single-threaded instruments are exercised with `collect_now()` on the recording thread or with explicit release/acquire barrier protocols around harvest phases — that establishes the happens-before their plain storage requires and keeps TSan clean.
 
-### D17 — Examples and documentation
+### D17 — Examples and documentation (retired)
 
-`examples/metrics/ex_counters_and_stats.cpp`: provider + meter, ST/MT counter, both gauge types, statistics, `collect_now` + `ConsoleMetricSink`, `read()`/`snapshot()`/`to_string` output, threaded stress. `examples/metrics/ex_histograms_and_provider.cpp`: explicit + exponential histograms, `JsonFileMetricSink` + `CompositeMetricSink`, background harvesting with a `core_mask`, `ResetOnRead` windows, clean shutdown. Both wired with `nexigen_add_example` in `examples/metrics/CMakeLists.txt` (added to `examples/CMakeLists.txt`), and the README Runnable Examples section names all six executables.
+The examples plan that previously lived here (two `examples/metrics/` executables plus README work) is superseded by the `add-metrics-examples` change, which delivers four executables (`ex_counters_and_gauges`, `ex_descriptive_statistics`, `ex_histograms`, `ex_metric_provider_and_sinks`) and owns the `examples` catalogue and README text. This change delivers no examples, CMake wiring, or README work.
 
 ## Risks / Trade-offs
 

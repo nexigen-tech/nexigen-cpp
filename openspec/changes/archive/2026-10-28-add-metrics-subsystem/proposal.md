@@ -16,7 +16,7 @@
 - Add `ExplicitBucketHistogram` with caller-supplied inline bucket bounds and `ExponentialHistogram` with base-2 exponential mapping computed by bitwise IEEE-754 extraction (`std::bit_cast`), both reporting bucket counts, `count`, `sum`, `min`, `max`, and `p50`/`p90`/`p99`/`p99.9`.
 - Add the `concepts::MetricSink` contract and the `NullMetricSink`, `ConsoleMetricSink` (raw `::write`), `JsonFileMetricSink` (JSON-lines with `nexigen::chrono` UTC ISO-8601 timestamps), and variadic `CompositeMetricSink<Sinks...>` fan-out implementations.
 - Add background harvesting in `MetricProvider`: a `std::jthread` harvester configured by `MetricProvider_config` (`collect_interval`, `core_mask`), self-pinned with `pthread_setaffinity_np`, plus `collect_now()` and `flush()` control-plane entry points for deterministic testing and clean shutdown.
-- Add `tests/metrics/metrics_test.cpp`, two runnable examples (`examples/metrics/ex_counters_and_stats.cpp`, `examples/metrics/ex_histograms_and_provider.cpp`), CMake/CTest wiring, and expand the `examples` catalogue from four executables to six.
+- Add `tests/metrics/metrics_test.cpp` and its CTest registration. The runnable `examples/metrics/` executables and the `examples` catalogue expansion are owned by the `add-metrics-examples` change and are not part of this change.
 
 ## Capabilities
 
@@ -33,15 +33,15 @@
 
 ### Modified Capabilities
 
-- `examples`: the runnable example catalogue expands from four executables to six, adding `ex_counters_and_stats` and `ex_histograms_and_provider` under `examples/metrics/`, and the README invocation guide names all six.
+<!-- intentionally empty: the examples catalogue change moved to add-metrics-examples -->
 
 ## Impact
 
 - **New public headers**: `include/nexigen/metrics/` — `policy_enums.hpp`, `concepts/metric_concept.hpp`, `concepts/metric_sink_concept.hpp`, `metric_snapshot.hpp`, `meter.hpp`, `metric_provider.hpp`, `counter.hpp`, `gauge.hpp`, `descriptive_statistics.hpp`, `explicit_histogram.hpp`, `exponential_histogram.hpp`, and the four sink headers, plus `detail/` helpers (affinity, thread slots, fixed JSON writer).
 - **New sources**: `src/metrics/` for cold paths — provider lifecycle/harvest loop, affinity, sink I/O, and snapshot/record serialization. All templated hot paths stay inline in headers.
 - **New build target**: `nexigen_metrics` (`nexigen::metrics`) linking `nexigen_core` and `nexigen_chrono` publicly, `Threads::Threads` privately, with `_GNU_SOURCE` for affinity APIs.
-- **New tests/examples**: `tests/metrics/metrics_test.cpp` registered as `nexigen_metrics_tests` with Release-only latency gates; `examples/metrics/` added to `examples/CMakeLists.txt` and the README.
+- **New tests**: `tests/metrics/metrics_test.cpp` registered as `nexigen_metrics_tests` with Release-only latency gates.
 - **Performance**: single-threaded `Counter::inc()` targets ~0.5 ns; multi-threaded sharded updates target 1–3 ns and are wait-free; gauge and histogram recording target low single-digit nanoseconds; `DescriptiveStatistics::record()` is O(1); exponential bucket mapping is O(1) bit manipulation with no `std::log`. Release builds pin these with median latency gates (leaving headroom over the targets); Debug and sanitizer builds run correctness only.
 - **Memory allocations**: zero heap allocations during instrument creation, hot-path recording, harvesting, and shutdown. All instrument storage, per-thread shards, and batch buffers are pre-allocated once during `MetricProvider` initialization (one-time allocation at startup is allowed by mandate 4 and is sized by configuration). `std::string`/`nlohmann::json` stay cold-path only (snapshots, sink flush, diagnostics).
 - **Dependencies**: no new third-party dependency; reuses `nlohmann::json` provided transitively by `nexigen_core` and the `pthread`/`sched` surface already used by `nexigen::logging`.
-- **Compatibility**: additive; no existing public API or spec requirement is removed. The `examples` catalogue text changes only to include the two new executables.
+- **Compatibility**: additive; no existing public API or spec requirement is removed. The `examples` capability is not touched by this change.

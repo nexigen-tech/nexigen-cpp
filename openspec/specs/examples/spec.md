@@ -22,12 +22,12 @@ The build SHALL expose a `NEXIGEN_BUILD_EXAMPLES` option that defaults to `ON`, 
 
 ### Requirement: Runnable example catalogue
 
-The project SHALL provide self-contained executables named `ex_spsc_ring_buffer`, `ex_console_logger`, `ex_file_logger`, and `ex_composite_logger`, located under `examples/core/` and `examples/logging/` respectively, each with its own `main` and no dependency on test harness code.
+The project SHALL provide self-contained executables named `ex_spsc_ring_buffer`, `ex_console_logger`, `ex_file_logger`, `ex_composite_logger`, `ex_counters_and_gauges`, `ex_descriptive_statistics`, `ex_histograms`, and `ex_metric_provider_and_sinks`, located under `examples/core/`, `examples/logging/`, and `examples/metrics/` respectively, each with its own `main` and no dependency on test harness code.
 
 #### Scenario: Example executables exist after a default build
 
 - **WHEN** a default build completes
-- **THEN** all four example executables exist in the build tree and can be launched directly without arguments
+- **THEN** all eight example executables exist in the build tree and can be launched directly without arguments
 
 #### Scenario: Examples are self-contained
 
@@ -73,7 +73,7 @@ Every catalogue example SHALL build and exit 0 under the project's Debug, Releas
 
 ### Requirement: Documented example invocation
 
-`README.md` SHALL contain a Runnable Examples section that names all four executables, shows how to configure/build with examples enabled, shows how to run each executable, and documents the `NEXIGEN_BUILD_EXAMPLES=OFF` opt-out.
+`README.md` SHALL contain a Runnable Examples section that names all eight executables, shows how to configure/build with examples enabled, shows how to run each executable, and documents the `NEXIGEN_BUILD_EXAMPLES=OFF` opt-out.
 
 #### Scenario: Reader can build and run an example from the README
 
