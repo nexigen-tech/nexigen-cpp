@@ -186,6 +186,9 @@ public:
         if (!start_.launched.load(std::memory_order_acquire)) {
             return std::unexpected(core::ErrorCode::NotInitialized); // not started yet
         }
+        // Flush-time drop summary (spec: "Flush-time drop summary is emitted"):
+        // push summaries for any shards with pending drops before the barrier.
+        producer_->flush_drop_summaries();
         const std::uint64_t seq =
             flush_.requested.fetch_add(1U, std::memory_order_release) + 1U;
         for (std::uint64_t spins = 0;

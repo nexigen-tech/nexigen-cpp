@@ -1454,7 +1454,7 @@ void test_file_logger() {
         const std::string_view sv(content, n);
         NX_CHECK(file_line_count(path) == 5); // 3 + summary + 1
         const std::size_t p_user3 = sv.find("thr user\"}", sv.find("thr user", sv.find("thr user") + 1) + 1);
-        const std::size_t p_sum = sv.find("Dropped 7 record(s) in the last window (rate-limited: 7, buffer-full: 0).");
+        const std::size_t p_sum = sv.find("Dropped 7 record(s) in the last window (rate-limited: 7, buffer-full: 0, slot-exhausted: 0, throttled: 0).");
         const std::size_t p_res = sv.find("thr resumed");
         NX_CHECK(p_user3 != std::string_view::npos);
         NX_CHECK(p_sum != std::string_view::npos);
@@ -1572,7 +1572,8 @@ void test_file_logger() {
         NX_CHECK(fls.flush().has_value());
         char path[560];
         std::snprintf(path, sizeof path, "%s/soak.jsonl", soak_base);
-        NX_CHECK(file_line_count(path) == static_cast<std::size_t>(accepted));
+        // flush() pushes a drop summary record; line count = accepted + 1 summary.
+        NX_CHECK(file_line_count(path) == static_cast<std::size_t>(accepted) + 1U);
         std::printf("file_logger: soak attempts=%llu accepted=%llu dropped=%llu lines=%llu\n",
                     static_cast<unsigned long long>(attempts),
                     static_cast<unsigned long long>(accepted),

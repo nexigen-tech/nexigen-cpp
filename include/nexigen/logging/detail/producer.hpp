@@ -250,26 +250,30 @@ class Producer {
         return static_cast<std::int32_t>(claimed);
     }
 
-    /// D9 drop summary: on a window transition with pending drops, push a
-    /// synthesized Warning record describing exact per-cause counts BEFORE the
-    /// triggering record lands. Costs one extra bounded push on a rare path
-    /// (O(windows), never O(drops)); counters reset only on push success, so
-    /// a BufferFull summary re-arms and retries next transition. The summary
-    /// consumes no token allowance (spec logging/file-logger).
+    /// D9 drop summary: push a synthesized Warning record describing exact
+    /// per-cause counts. Called on window transitions, before try_push when
+    /// drops are pending, and at flush. Counters reset only on push success
+    /// (retry safety — spec logging/multi-producer "Failed summary push
+    /// preserves counters"). Includes all four causes.
     void emit_summary_if_needed(std::size_t slot, const chrono::Timestamp stamp) noexcept {
         Shard_state& st = state_[slot];
         const std::uint64_t rl = st.rate_limited.load(std::memory_order_relaxed);
         const std::uint64_t bf = st.buffer_full.load(std::memory_order_relaxed);
-        if ((rl | bf) == 0ULL) {
+        const std::uint64_t se = exhausted_.slot_exhausted.load(std::memory_order_relaxed);
+        const std::uint64_t th = spam_state_[slot].throttled_count.load(std::memory_order_relaxed);
+        if ((rl | bf | se | th) == 0ULL) {
             return;
         }
-        char buf[192];
+        char buf[256];
         const int n = std::snprintf(buf, sizeof buf,
                                     "Dropped %llu record(s) in the last window "
-                                    "(rate-limited: %llu, buffer-full: %llu).",
-                                    static_cast<unsigned long long>(rl + bf),
+                                    "(rate-limited: %llu, buffer-full: %llu, "
+                                    "slot-exhausted: %llu, throttled: %llu).",
+                                    static_cast<unsigned long long>(rl + bf + se + th),
                                     static_cast<unsigned long long>(rl),
-                                    static_cast<unsigned long long>(bf));
+                                    static_cast<unsigned long long>(bf),
+                                    static_cast<unsigned long long>(se),
+                                    static_cast<unsigned long long>(th));
         if (n <= 0) {
             return;
         }
@@ -290,9 +294,12 @@ class Producer {
         rec.flags = static_cast<std::uint8_t>(
             n > static_cast<int>(MessageCapacity) ? flag_args_truncated : 0U);
         if (shards_[slot].try_push(rec)) {
+            // Reset only on success (retry safety).
             st.rate_limited.store(0, std::memory_order_relaxed);
             st.buffer_full.store(0, std::memory_order_relaxed);
+            spam_state_[slot].throttled_count.store(0, std::memory_order_relaxed);
         }
+        // On failure: counters preserved; summary retried at next opportunity.
     }
 
     /// One relaxed store bump on a shard's own line (owner thread only).
@@ -301,6 +308,20 @@ class Producer {
     }
 
 public:
+    /// Flush-time drop summary (spec: "Flush-time drop summary is emitted"):
+    /// iterate all shards and push a summary for any with pending drops.
+    /// Called from the flush/destruction path before the drain barrier.
+    void flush_drop_summaries() noexcept {
+        for (std::size_t i = 0; i < MaxThreads; ++i) {
+            const std::uint64_t rl = state_[i].rate_limited.load(std::memory_order_relaxed);
+            const std::uint64_t bf = state_[i].buffer_full.load(std::memory_order_relaxed);
+            const std::uint64_t th = spam_state_[i].throttled_count.load(std::memory_order_relaxed);
+            if ((rl | bf | th) != 0ULL) {
+                const chrono::Timestamp stamp = stamps_[i].sample();
+                emit_summary_if_needed(i, stamp);
+            }
+        }
+    }
     using record_type = Record; ///< consumed by detail::Async_worker/Sink APIs
 
     Producer() noexcept = default;
