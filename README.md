@@ -1,6 +1,6 @@
 # nexigen-cpp ⚡
 
-The backbone of the **nexigen** ecosystem — an ultra-high performance C++20 core library designed for hard real-time systems and hardware simulator platforms. Purpose-built for minimum latency execution under **Ubuntu 26.04 LTS** (and modern Linux environments).
+The backbone of the **nexigen** ecosystem — an ultra-high performance C++23 core library designed for hard real-time systems and hardware simulator platforms. Purpose-built for minimum latency execution under **Ubuntu 26.04 LTS** (and modern Linux environments).
 
 ## 🚀 Key Architectural Features
 * **Real-Time Ready:** Strictly zero-lock (lock-free / wait-free primitives) implementation within critical execution data paths (hot paths).
@@ -490,6 +490,7 @@ Run them directly from the build tree (the logging examples write to
 ./build/debug/examples/tracing/ex_nested_and_cross_thread_spans
 ./build/debug/examples/tracing/ex_perfetto_chrome_trace
 ./build/debug/examples/diagnostics/ex_stopwatch
+./build/debug/examples/diagnostics/ex_stopwatch_histogram
 ```
 
 * **`ex_spsc_ring_buffer`** — a two-thread telemetry pipeline over
@@ -543,6 +544,16 @@ Run them directly from the build tree (the logging examples write to
   plus the total vs the sum of stage laps, a `restart()` round closing a measured
   interval into a fresh one, and an out-argument guard writing a scope's elapsed
   into a caller's `std::uint64_t&`.
+* **`ex_stopwatch_histogram`** — the cross-module pipeline from measurement to
+  telemetry: a calibrated `Stamp_source` clocks two `ScopedStopwatch` probes whose
+  light/heavy envelope derives strictly increasing geometric bucket bounds, then
+  every measured tick runs inside a `ScopedStopwatch` whose sink records the elapsed
+  nanoseconds straight into an `ExplicitBucketHistogram` created through the
+  `MetricProvider`/`Meter` factory (a whole-run `Stopwatch` covers the phase). The
+  console report prints count/sum/min/max, `p50`/`p90`/`p99`/`p99.9`, a per-bucket
+  table with ASCII bars, and the cold-path `HistogramSnapshot::to_string()`
+  diagnostic; the example self-verifies one sample per tick, bucket counts summing
+  to the total, ordered percentiles and samples inside the whole-run measurement.
 
 Every example is also registered as a CTest smoke test (label `examples`): each must run
 to completion and exit with status 0.
