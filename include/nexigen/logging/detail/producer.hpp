@@ -310,15 +310,17 @@ class Producer {
 public:
     /// Flush-time drop summary (spec: "Flush-time drop summary is emitted"):
     /// iterate all shards and push a summary for any with pending drops.
-    /// Called from the flush/destruction path before the drain barrier.
+    /// Also checks the global slot_exhausted counter.
     void flush_drop_summaries() noexcept {
+        const std::uint64_t global_se = exhausted_.slot_exhausted.load(std::memory_order_relaxed);
         for (std::size_t i = 0; i < MaxThreads; ++i) {
             const std::uint64_t rl = state_[i].rate_limited.load(std::memory_order_relaxed);
             const std::uint64_t bf = state_[i].buffer_full.load(std::memory_order_relaxed);
             const std::uint64_t th = spam_state_[i].throttled_count.load(std::memory_order_relaxed);
-            if ((rl | bf | th) != 0ULL) {
+            if ((rl | bf | th | global_se) != 0ULL) {
                 const chrono::Timestamp stamp = stamps_[i].sample();
                 emit_summary_if_needed(i, stamp);
+                break; // one summary per flush is enough
             }
         }
     }

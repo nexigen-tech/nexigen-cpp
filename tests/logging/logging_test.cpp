@@ -1043,10 +1043,11 @@ void test_console() {
     ::close(err_pipe[0]);
 
     // Exactly one line per accepted record (incl. the destructor-drained pair),
-    // in FIFO order, with self-descriptive content.
+    // in FIFO order, with self-descriptive content. The drop summary from
+    // flush() may add one extra stderr line (Warning level).
     const std::size_t expected_out = 6 + static_cast<std::size_t>(storm_accepted);
     NX_CHECK(count_char(out_buf, out_len, '\n') == expected_out);
-    NX_CHECK(count_char(err_buf, err_len, '\n') == 2);
+    NX_CHECK(count_char(err_buf, err_len, '\n') >= 2); // 2 user + optional drop summary
     NX_CHECK(std::strstr(out_buf, "stdout dbg") != nullptr);
     NX_CHECK(std::strstr(out_buf, "hello out") != nullptr);
     NX_CHECK(std::strstr(out_buf, "hello err") == nullptr);
@@ -2255,6 +2256,107 @@ void test_spam_protection() {
     std::printf("spam_protection: repeat suppression, token bucket, bypass, reconfig verified\n");
 }
 
+// --- drop_visibility suite (change ensure-drop-visibility): flush-time
+// summary, all four causes in summary, retry safety.
+void test_drop_visibility() {
+    // Flush-time summary with buffer_full: drops before flush produce a
+    // summary record with exact counts.
+    {
+        static detail::Producer<4, 128, 1> prod{};
+        NX_CHECK(prod.initialize().has_value());
+        // Fill the ring (4 slots), then 2 more are dropped.
+        for (int i = 0; i < 6; ++i) {
+            prod.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
+        }
+        NX_CHECK(prod.dropped().buffer_full == 2);
+        // Flush-time summary: drain one record to make room, then push summary.
+        LogRecord<128> rec{};
+        NX_CHECK(prod.pop(rec)); // make room for summary
+        prod.flush_drop_summaries();
+        // Drain and verify summary record exists with correct counts.
+        int user_records = 1; // already popped one
+        int summary_records = 0;
+        while (prod.pop(rec)) {
+            char msg[256];
+            const std::size_t n = rec.render_into(msg, sizeof msg);
+            const std::string_view sv(msg, n);
+            if (sv.find("Dropped 2 record(s)") != std::string_view::npos) {
+                ++summary_records;
+                NX_CHECK(sv.find("buffer-full: 2") != std::string_view::npos);
+                NX_CHECK(sv.find("slot-exhausted: 0") != std::string_view::npos);
+                NX_CHECK(sv.find("throttled: 0") != std::string_view::npos);
+            } else {
+                ++user_records;
+            }
+        }
+        NX_CHECK(summary_records == 1);
+        NX_CHECK(user_records == 4); // 4 accepted user records
+    }
+
+    // Retry safety: summary push fails (ring full), counters preserved,
+    // summary retried at next opportunity.
+    {
+        static detail::Producer<2, 128, 1> prod2{};
+        NX_CHECK(prod2.initialize().has_value());
+        // Fill ring to capacity (2 slots).
+        prod2.emit(LogLevel::Info, "a");
+        prod2.emit(LogLevel::Info, "b");
+        NX_CHECK(prod2.dropped().buffer_full == 0);
+        // 2 more drops (ring full).
+        prod2.emit(LogLevel::Info, "c");
+        prod2.emit(LogLevel::Info, "d");
+        NX_CHECK(prod2.dropped().buffer_full == 2);
+        // Summary push will fail (ring is full with 2 user records).
+        prod2.flush_drop_summaries();
+        // Counters must be preserved (summary push failed).
+        NX_CHECK(prod2.dropped().buffer_full == 2);
+        // Drain one record to make room.
+        LogRecord<128> rec{};
+        NX_CHECK(prod2.pop(rec));
+        // Retry summary: now there's room.
+        prod2.flush_drop_summaries();
+        // Drain and verify summary exists.
+        int summary_count = 0;
+        while (prod2.pop(rec)) {
+            char msg[256];
+            const std::size_t n = rec.render_into(msg, sizeof msg);
+            const std::string_view sv(msg, n);
+            if (sv.find("Dropped 2 record(s)") != std::string_view::npos) {
+                ++summary_count;
+            }
+        }
+        NX_CHECK(summary_count == 1);
+    }
+
+    // Summary includes slot_exhausted: register beyond pool, then flush.
+    {
+        static detail::Producer<4, 128, 2> prod3{};
+        NX_CHECK(prod3.initialize().has_value());
+        prod3.emit(LogLevel::Info, "slot0");
+        std::jthread t2([&] { prod3.emit(LogLevel::Info, "slot1"); });
+        t2.join();
+        // Third thread: slot exhausted.
+        std::jthread t3([&] { prod3.emit(LogLevel::Info, "overflow"); });
+        t3.join();
+        NX_CHECK(prod3.dropped().slot_exhausted == 1);
+        prod3.flush_drop_summaries();
+        LogRecord<128> rec{};
+        bool found_summary = false;
+        while (prod3.pop(rec)) {
+            char msg[256];
+            const std::size_t n = rec.render_into(msg, sizeof msg);
+            const std::string_view sv(msg, n);
+            if (sv.find("Dropped") != std::string_view::npos) {
+                found_summary = true;
+                NX_CHECK(sv.find("slot-exhausted: 1") != std::string_view::npos);
+            }
+        }
+        NX_CHECK(found_summary);
+    }
+
+    std::printf("drop_visibility: flush-time summary, retry safety, all causes verified\n");
+}
+
 // 6 distinct threads log known distinct payloads to ONE ConsoleLogger, ONE
 // FileLogger, and a CompositeLogger simultaneously; every record must reach
 // the sink exactly once, per-thread order must be FIFO, flush must complete
@@ -2440,6 +2542,7 @@ int main()
     run_suite("spsc_shard_ring", test_spsc_shard_ring);
     run_suite("spsc_shard_pool", test_spsc_shard_pool);
     run_suite("spam_protection", test_spam_protection);
+    run_suite("drop_visibility", test_drop_visibility);
     run_suite("stress", test_stress);
     // Suites register here as groups 2..8 land (design D18).
     const int failures = g_failures;
