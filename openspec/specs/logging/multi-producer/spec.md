@@ -7,12 +7,12 @@ Defines the wait-free multi-producer transport shared by all asynchronous nexige
 
 ### Requirement: Pre-allocated per-thread shard array
 
-Each asynchronous logger SHALL own a fixed compile-time-sized array of `SpscRingBuffer` shards (`MaxThreads`, default 32, overridable per instance), each shard carrying `LogRecord`s with its own power-of-two `ShardCapacity`. All shard storage SHALL exist before the first log call on any thread; steady-state operation SHALL allocate nothing.
+Each asynchronous logger SHALL own a pre-allocated array of `SpscShardRing` shards (sized at initialization from `LoggerOptions::max_producer_threads`, default 64), each shard carrying `LogRecord`s with its own power-of-two `ShardCapacity` (from `LoggerOptions::spsc_ring_buffer_capacity`, rounded up via `std::bit_ceil`). All shard storage SHALL exist before the first log call on any thread; steady-state operation SHALL allocate nothing.
 
 #### Scenario: Shards are static storage
 
 - **WHEN** a logger is constructed and initialized
-- **THEN** all `MaxThreads` ring arrays are resident (verified by a steady-state allocation counter showing zero growth across multi-thread logging)
+- **THEN** all `max_producer_threads` ring arrays are resident (verified by a steady-state allocation counter showing zero growth across multi-thread logging)
 
 #### Scenario: Each shard keeps SPSC wait-free layout
 
@@ -68,9 +68,19 @@ The background worker SHALL continuously round-robin all registered shards, popp
 
 ### Requirement: Slot exhaustion drops instead of blocking
 
-When a `MaxThreads`-th distinct producer thread is followed by additional threads, calls from the extra threads SHALL be dropped and counted in a dedicated slot-exhausted total exposed through `dropped()`, never routed into another thread's shard, never blocking, and never corrupting an existing shard's SPSC contract.
+When `max_producer_threads` distinct producer threads are registered and additional threads log, calls from the extra threads SHALL be dropped and counted in `unregistered_thread_drops_`, never routed into another thread's shard, never blocking, never allocating, and never aborting. When a registered producer thread exits, its `thread_local` registration destructor SHALL transition the shard to `Draining`; after the consumer drains the shard, it SHALL return to the free pool for reuse.
 
 #### Scenario: Thread beyond capacity loses records safely
 
 - **WHEN** `MaxThreads + 1` distinct threads each log once to the same logger
 - **THEN** all registrations up to `MaxThreads` proceed normally, the final thread's call returns immediately having enqueued nothing, and its record is reflected in the slot-exhausted count
+
+#### Scenario: Pool exhaustion counts drops instead of aborting
+
+- **WHEN** `max_producer_threads + 1` distinct threads each log once to the same logger
+- **THEN** the first `max_producer_threads` threads register normally, the final thread's call returns immediately having enqueued nothing, `unregistered_thread_drops_` is incremented, and no `std::abort` occurs
+
+#### Scenario: Freed shard is reusable
+
+- **WHEN** a producer thread exits after logging, and a new thread subsequently logs
+- **THEN** the new thread may be assigned the exited thread's former shard slot, and no record is lost or duplicated
