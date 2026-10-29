@@ -181,6 +181,44 @@ target_compile_definitions(nexigen_tracing PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SO
 target_link_libraries(nexigen_tracing PUBLIC nexigen_core nexigen_chrono PRIVATE Threads::Threads)
 
 # =============================================================================
+# nexigen::diagnostics — измерительный слой времени: фиксированный в памяти
+# интервальный таймер Stopwatch (такты из nexigen::chrono — Timestamp::now()
+# или откалиброванный Stamp_source за ~3-5 ns) и RAII-страж ScopedStopwatch.
+# Публичные заголовки в include/, холодный юнит рендеринга диагностики в
+# src/diagnostics/; горячие пути (старты/стопы/редо/круги/запросы) остаются
+# inline в заголовках. Потоки и аффинность не нужны: домен измерения — один
+# поток, без фонового потребителя (design D1).
+# =============================================================================
+file(GLOB NEXIGEN_DIAGNOSTICS_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/diagnostics/*.cpp")
+
+# Тот же скеффолдинг, что у tracing: пока src/diagnostics/ пуст, CMake 4 не
+# даёт создать STATIC-цель без источников. Первый настоящий src/diagnostics/
+# *.cpp забирается glob-ом, и условие исчезает само (CONFIGURE_DEPENDS
+# перезапускает конфигурацию).
+if(NOT NEXIGEN_DIAGNOSTICS_SOURCES)
+    set(NEXIGEN_DIAGNOSTICS_PLACEHOLDER "${CMAKE_CURRENT_BINARY_DIR}/diagnostics_scaffold.cpp")
+    file(WRITE "${NEXIGEN_DIAGNOSTICS_PLACEHOLDER}"
+"// nexigen::diagnostics scaffolding placeholder: exists only while src/diagnostics/\n"
+"// holds no real cold-path units; removed from the build automatically once\n"
+"// the first src/diagnostics/*.cpp lands (glob is CONFIGURE_DEPENDS).\n"
+"namespace nexigen::diagnostics { extern const bool scaffolded = true; }\n")
+    list(APPEND NEXIGEN_DIAGNOSTICS_SOURCES "${NEXIGEN_DIAGNOSTICS_PLACEHOLDER}")
+endif()
+
+add_library(nexigen_diagnostics STATIC ${NEXIGEN_DIAGNOSTICS_SOURCES})
+add_library(nexigen::diagnostics ALIAS nexigen_diagnostics)
+
+target_include_directories(nexigen_diagnostics PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+# Флаги/-Werror/санитайзеры и cxx_std_23 приходят транзитивно от nexigen_core
+# (её INTERFACE -> nexigen_options); nexigen_chrono — PUBLIC: Stopwatch несёт
+# chrono::Stamp_source* в публичных заголовках, downstream компилирует и
+# линкует chrono транзитивно. Потоки не нужны (см. комментарий к модулю).
+target_link_libraries(nexigen_diagnostics PUBLIC nexigen_core nexigen_chrono)
+
+# =============================================================================
 # Опции сборки: юнит-тесты и runnable-примеры (включены по умолчанию).
 # enable_testing() поднимаем на уровень обеих веток: ctest должен видеть
 # примеры даже при -DNEXIGEN_BUILD_TESTS=OFF.

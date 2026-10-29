@@ -415,6 +415,53 @@ safe default when a background harvester runs). The Release build enables the
 `NEXIGEN_METRICS_STRICT_LATENCY` median gates for the benchmark suites; Debug and
 sanitizer builds are correctness-only.
 
+## 📡 `nexigen::diagnostics` API
+
+Interval timing for real-time loops: the cache-line-aligned `Stopwatch` (O(1)
+lap/split tracking, zero-gap `restart()`, multi-unit elapsed queries) and the RAII
+`ScopedStopwatch` scope guard with budget-overrun checks. Hot paths are `noexcept`,
+zero-allocation, lock-free and atomic-free; only `to_string()` diagnostics compile
+cold. Link the `nexigen::diagnostics` (alias of `nexigen_diagnostics`) STATIC
+target — it brings `nexigen_core` and `nexigen_chrono` transitively — and include
+what you use.
+
+```cpp
+#include <nexigen/diagnostics/scoped_stopwatch.hpp>
+#include <nexigen/diagnostics/stopwatch.hpp>
+#include <cstdio>
+
+int main() {
+    using namespace nexigen::diagnostics;
+
+    // Split timing: lap() measures one stage without stopping the run,
+    // the total keeps counting the whole loop.
+    Stopwatch stages{};
+    stages.start();
+    // ... stage work ...
+    const std::uint64_t stage_ns = stages.lap();
+
+    // Scope budget: the guard reports the scope's elapsed exactly once at
+    // destruction, has_exceeded_budget() checks mid-scope without reporting.
+    std::uint64_t tick_ns = 0;
+    {
+        ScopedStopwatch guard{tick_ns, /*budget_ns=*/40'000};
+        // ... bounded tick body ...
+        if (guard.has_exceeded_budget()) { /* overrun: take corrective action */ }
+    }
+    std::printf("stage=%llu ns tick=%llu ns\n",
+                static_cast<unsigned long long>(stage_ns),
+                static_cast<unsigned long long>(tick_ns));
+}
+```
+
+Both types take an optional `nexigen::chrono::Stamp_source*` for calibrated-TSC
+sampling (~3–5 ns per sample vs ~20–25 ns for the default `Timestamp::now()`)
+and render cold-path diagnostics through `to_string()` / `std::format`. The
+Release build enables the `NEXIGEN_DIAGNOSTICS_STRICT_LATENCY` median gates
+(`start()` + `stop()` ≤ 100 ns default clock, ≤ 20 ns calibrated; guard
+construct + destruct ≤ 20 ns calibrated); Debug and sanitizer builds are
+correctness-only.
+
 ## 🧪 Runnable Examples
 
 Self-contained executables demonstrating the public API end to end. They build by
@@ -442,6 +489,7 @@ Run them directly from the build tree (the logging examples write to
 ./build/debug/examples/metrics/ex_metric_provider_and_sinks
 ./build/debug/examples/tracing/ex_nested_and_cross_thread_spans
 ./build/debug/examples/tracing/ex_perfetto_chrome_trace
+./build/debug/examples/diagnostics/ex_stopwatch
 ```
 
 * **`ex_spsc_ring_buffer`** — a two-thread telemetry pipeline over
@@ -488,6 +536,13 @@ Run them directly from the build tree (the logging examples write to
   sanity-checked Perfetto-loadable trace file at
   `/tmp/nexigen-examples-tracing/trace_<pid>.json` — open it at
   [ui.perfetto.dev](https://ui.perfetto.dev) to visualize the execution timeline.
+* **`ex_stopwatch`** — the diagnostic stopwatch end to end: per-tick budget checks
+  with `ScopedStopwatch` and `has_exceeded_budget()` against a calibrated budget
+  (with an over-budget run summary), multi-stage `lap()` profiling printing each
+  stage's duration with `lap_count()` / `last_lap_ns()` and the min/max endpoints
+  plus the total vs the sum of stage laps, a `restart()` round closing a measured
+  interval into a fresh one, and an out-argument guard writing a scope's elapsed
+  into a caller's `std::uint64_t&`.
 
 Every example is also registered as a CTest smoke test (label `examples`): each must run
 to completion and exit with status 0.

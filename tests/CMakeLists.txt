@@ -52,3 +52,16 @@ target_compile_definitions(nexigen_tracing_tests PRIVATE
 
 add_test(NAME nexigen_tracing_tests COMMAND nexigen_tracing_tests)
 set_tests_properties(nexigen_tracing_tests PROPERTIES TIMEOUT 600)
+
+# Юнит-тесты nexigen::diagnostics: один TU (тот же харнес D4): enum-контракт
+# сериализации, Stopwatch, ScopedStopwatch.
+add_executable(nexigen_diagnostics_tests diagnostics/diagnostics_test.cpp)
+target_link_libraries(nexigen_diagnostics_tests PRIVATE nexigen_diagnostics)
+# Ворота латентности включаются только в Release/RelWithDebInfo (design D10):
+# числа под Debug/санитайзерами нерепрезентативны, тест тогда проверяет только
+# корректность (bounded-time, non-blocking), но не наносекунды.
+target_compile_definitions(nexigen_diagnostics_tests PRIVATE
+    $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:NEXIGEN_DIAGNOSTICS_STRICT_LATENCY>)
+
+add_test(NAME nexigen_diagnostics_tests COMMAND nexigen_diagnostics_tests)
+set_tests_properties(nexigen_diagnostics_tests PROPERTIES TIMEOUT 600)
