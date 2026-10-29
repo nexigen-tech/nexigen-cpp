@@ -10,6 +10,7 @@ context: |
   - nexigen::logging -> include/nexigen/logging/, src/logging/, tests/logging/, examples/logging/
   - nexigen::metrics -> include/nexigen/metrics/, src/metrics/, tests/metrics/, examples/metrics/
   - nexigen::tracing -> include/nexigen/tracing/, src/tracing/, tests/tracing/, examples/tracing/
+  - nexigen::diagnostics -> include/nexigen/diagnostics/, src/diagnostics/, tests/diagnostics/, examples/diagnostics/
 
 
   Strict Real-Time Architectural Mandates (Hot Path):
