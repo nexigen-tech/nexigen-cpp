@@ -17,20 +17,20 @@
 // the blob at emit time. Nothing here aliases caller memory that could die
 // before the record drains (string_view arguments are inlined by the packer).
 //
-// Pinned layout for MessageCapacity = 128 (sizeof == 192 == 3 cache lines):
+// Pinned layout for MessageCapacity = 200 (sizeof == 256 == 4 cache lines):
 //   0   stamp          chrono::Timestamp monotonic ns domain
 //   8   thread_id      uint32            cached SYS_gettid
 //   12  level          LogLevel (u8)     severity
 //   13  flags          uint8             bit0 args truncated, bit1 render truncated
-//   14  arg_length     uint16            bytes of args_ used (fixed per pack)
+//   14  arg_length     uint16            bytes of arg_payload_ used (fixed per pack)
 //   16  file_name      const char*       static storage
 //   24  function_name  const char*       static storage
 //   32  line           uint32            source line
 //   36  (padding)
 //   40  fmt            const char*       std::format_string literal (static)
 //   48  render         fn ptr            type-erased pack renderer
-//   56  args           array<char, N>    inline argument blob (8-aligned)
-//  192  (tail padding to alignas(64))
+//   56  arg_payload_   array<char, N>    inline argument blob (8-aligned)
+//  256  (tail padding to alignas(64))
 //
 // MULTI-PRODUCER CONTRACT: a record exists in exactly one shard owned by ONE
 // producer thread and drained by the logger's ONE consumer thread (the
@@ -83,7 +83,7 @@ struct alignas(64) LogRecord {
         if (render == nullptr || cap == 0U) {
             return 0U;
         }
-        const std::size_t written = render(fmt, args_.data(), arg_length, out, cap);
+        const std::size_t written = render(fmt, arg_payload_.data(), arg_length, out, cap);
         if (written >= cap) {
             flags |= detail::flag_render_truncated;
         }
@@ -118,14 +118,14 @@ struct alignas(64) LogRecord {
     std::uint32_t thread_id{};                        ///< cached SYS_gettid
     LogLevel level{LogLevel::Info};                   ///< severity
     std::uint8_t flags{};                             ///< bit0 args, bit1 render
-    std::uint16_t arg_length{};                       ///< bytes of args_ in use
+    std::uint16_t arg_length{};                       ///< bytes of arg_payload_ in use
     const char* file_name{};                          ///< source_location::file_name
     const char* function_name{};                      ///< source_location::function_name
     std::uint32_t line{};                             ///< source_location::line
     const char* fmt{};                                ///< checked format literal
     record_render_fn render{};                        ///< type-erased pack renderer
     /// 8-aligned so the payload starts at offset 56 (design D4 layout table).
-    alignas(std::uint64_t) std::array<char, MessageCapacity> args_{}; ///< inline pack blob
+    alignas(std::uint64_t) std::array<char, MessageCapacity> arg_payload_{}; ///< inline pack blob
 };
 
 /// Free helper (mandate 9): mirrors the member.

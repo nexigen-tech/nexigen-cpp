@@ -49,6 +49,9 @@
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/logging/log_level.hpp>
 #include <nexigen/logging/log_record.hpp>
+#include <nexigen/logging/logger_options.hpp>
+#include <nexigen/logging/detail/spsc_shard_ring.hpp>
+#include <nexigen/logging/detail/spsc_shard_pool.hpp>
 #include <nexigen/logging/null_logger.hpp>
 
 // --- Compile-time claims (design.md D18): the harness itself is allocation-
@@ -135,7 +138,7 @@ static_assert(offsetof(LogRecord<128>, function_name) == 24);
 static_assert(offsetof(LogRecord<128>, line) == 32);
 static_assert(offsetof(LogRecord<128>, fmt) == 40);
 static_assert(offsetof(LogRecord<128>, render) == 48);
-static_assert(offsetof(LogRecord<128>, args_) == 56);
+static_assert(offsetof(LogRecord<128>, arg_payload_) == 56);
 
 // --- Compile-time claims (task 4.1/4.2 / design D3/D5): FormatWithLocation is
 // constructible ONLY from literals (consteval), the literal call shapes deduce
@@ -416,7 +419,7 @@ template <class... Args>
     static_assert(total <= 128U, "harness pack must fit");
     std::size_t i = 0;
     std::uint8_t flags = 0;
-    ((detail::pack_one<128U>(rec.args_.data(), offs[i++], args, flags)), ...);
+    ((detail::pack_one<128U>(rec.arg_payload_.data(), offs[i++], args, flags)), ...);
     rec.fmt = lit;
     rec.arg_length = static_cast<std::uint16_t>(total);
     rec.render = &detail::render_impl<128U, std::remove_cvref_t<Args>...>;
@@ -452,7 +455,7 @@ void test_record() {
     LogRecord<128> rec{};
     rec.fmt = "{}";
     std::uint8_t flags = 0;
-    detail::pack_one<128U>(rec.args_.data(), 0U, std::string_view{huge}, flags);
+    detail::pack_one<128U>(rec.arg_payload_.data(), 0U, std::string_view{huge}, flags);
     rec.arg_length = static_cast<std::uint16_t>(detail::arg_total<128U, std::string_view>());
     rec.render = &detail::render_impl<128U, std::string_view>;
     rec.flags = flags;
@@ -1959,7 +1962,298 @@ void test_config_strings() {
                 "dumps render every field\n");
 }
 
-// --- multi-thread producer stress (task 7.1 / spec logging/multi-producer):
+// --- logger-options suite (change rework-logging-hot-path-engine, task 1.3 /
+// spec logging/logger-options): defaults, bit_ceil rounding, serialization
+// round-trips under JSON_NOEXCEPTION=1.
+void test_logger_options() {
+    // Defaults: every field carries its documented value.
+    const LoggerOptions o{};
+    NX_CHECK(o.log_root_directory == "./logs");
+    NX_CHECK(o.app_name == "nexigen_app");
+    NX_CHECK(o.initial_log_level == LogLevel::Info);
+    NX_CHECK(o.max_file_size_bytes == 104857600ULL);
+    NX_CHECK(o.spsc_ring_buffer_capacity == 65536U);
+    NX_CHECK(o.max_producer_threads == 64U);
+    NX_CHECK(o.overflow_policy == OverflowPolicy::DropNewest);
+    NX_CHECK(o.flush_cpu_affinity.empty());
+    NX_CHECK(o.worker_poll_interval_us == 1000U);
+    NX_CHECK(o.sync_flush_on_critical == true);
+    NX_CHECK(o.spam_protection.enable_repeat_suppression == true);
+    NX_CHECK(o.spam_protection.repeat_suppression_window_ms == 1000U);
+    NX_CHECK(o.spam_protection.repeat_suppression_max_count == 100000U);
+    NX_CHECK(o.spam_protection.max_messages_per_sec_per_shard == 100000U);
+    NX_CHECK(o.spam_protection.max_bytes_per_sec_per_shard == 52428800ULL);
+    NX_CHECK(o.spam_protection.max_total_bytes_per_sec == 209715200ULL);
+    NX_CHECK(o.spam_protection.bypass_min_level == LogLevel::Fatal);
+
+    // bit_ceil rounding: non-power-of-two capacity rounds up.
+    LoggerOptions custom{};
+    custom.spsc_ring_buffer_capacity = 1000U;
+    NX_CHECK(std::bit_ceil(custom.spsc_ring_buffer_capacity) == 1024U);
+
+    // to_string renders every field.
+    const std::string s = o.to_string();
+    NX_CHECK(s.find("log_root_directory") != std::string::npos);
+    NX_CHECK(s.find("app_name") != std::string::npos);
+    NX_CHECK(s.find("overflow_policy") != std::string::npos);
+    NX_CHECK(s.find("spam_protection") != std::string::npos);
+    NX_CHECK(to_string(o) == s);
+
+    // OverflowPolicy round-trip.
+    NX_CHECK(to_string(OverflowPolicy::DropNewest) == "drop_newest");
+    NX_CHECK(to_string(OverflowPolicy::OverwriteOldest) == "overwrite_oldest");
+    OverflowPolicy op = OverflowPolicy::OverwriteOldest;
+    NX_CHECK(from_string("drop_newest", op));
+    NX_CHECK(op == OverflowPolicy::DropNewest);
+    NX_CHECK(!from_string("bogus", op));
+    NX_CHECK(op == OverflowPolicy::DropNewest); // unchanged on failure
+
+    // JSON round-trip (strictly non-throwing under JSON_NOEXCEPTION=1).
+    nlohmann::json j;
+    to_json(j, o);
+    NX_CHECK(j.is_object());
+    NX_CHECK(j["app_name"] == "nexigen_app");
+    NX_CHECK(j["overflow_policy"] == "drop_newest");
+    NX_CHECK(j["spam_protection"]["bypass_min_level"] == "fatal");
+    LoggerOptions back{};
+    back.log_root_directory = "/tmp/x";
+    back.app_name = "old";
+    back.initial_log_level = LogLevel::Fatal;
+    from_json(j, back);
+    NX_CHECK(back.log_root_directory == "./logs");
+    NX_CHECK(back.app_name == "nexigen_app");
+    NX_CHECK(back.initial_log_level == LogLevel::Info);
+    NX_CHECK(back.spsc_ring_buffer_capacity == 65536U);
+    NX_CHECK(back.max_producer_threads == 64U);
+    NX_CHECK(back.overflow_policy == OverflowPolicy::DropNewest);
+    NX_CHECK(back.spam_protection.bypass_min_level == LogLevel::Fatal);
+    NX_CHECK(back.spam_protection.max_messages_per_sec_per_shard == 100000U);
+
+    // Hostile JSON leaves target untouched (no throw).
+    LoggerOptions keep = o;
+    keep.log_root_directory = "/keep";
+    from_json(nlohmann::json(42), keep);
+    NX_CHECK(keep.log_root_directory == "/keep");
+    from_json(nlohmann::json::array(), keep);
+    NX_CHECK(keep.log_root_directory == "/keep");
+
+    // std::formatter<LoggerOptions>.
+    NX_CHECK(std::format("{}", o).find("nexigen_app") != std::string::npos);
+    NX_CHECK(std::format("[{:*>20}]", OverflowPolicy::OverwriteOldest).find("overwrite_oldest") != std::string::npos);
+
+    std::printf("logger_options: defaults, bit_ceil, JSON round-trip, formatter verified\n");
+}
+
+// --- spsc_shard_ring suite (change rework-logging-hot-path-engine, task 2.3 /
+// spec logging/spsc-shard-ring): DropNewest, OverwriteOldest, FIFO, TSan-clean.
+void test_spsc_shard_ring() {
+    // DropNewest: full ring drops incoming, counted; producer never blocks.
+    {
+        detail::SpscShardRing<std::uint64_t, 8> ring{OverflowPolicy::DropNewest};
+        for (std::uint64_t i = 0; i < 8; ++i) {
+            NX_CHECK(ring.try_push(i));
+        }
+        NX_CHECK(ring.is_full());
+        NX_CHECK(!ring.try_push(99)); // dropped
+        NX_CHECK(ring.dropped_count() == 1);
+        std::uint64_t out = 0;
+        for (std::uint64_t i = 0; i < 8; ++i) {
+            NX_CHECK(ring.try_pop(out));
+            NX_CHECK(out == i); // FIFO
+        }
+        NX_CHECK(ring.is_empty());
+        NX_CHECK(!ring.try_pop(out)); // empty
+    }
+
+    // OverwriteOldest: full ring overwrites oldest; counted.
+    {
+        detail::SpscShardRing<std::uint64_t, 4> ring{OverflowPolicy::OverwriteOldest};
+        for (std::uint64_t i = 0; i < 4; ++i) {
+            NX_CHECK(ring.try_push(i));
+        }
+        NX_CHECK(ring.is_full());
+        NX_CHECK(ring.try_push(100)); // overwrites slot 0
+        NX_CHECK(ring.dropped_count() == 1);
+        std::uint64_t out = 0;
+        NX_CHECK(ring.try_pop(out));
+        NX_CHECK(out == 1); // oldest (0) was overwritten
+    }
+
+    // Concurrent producer/consumer: values strictly increasing, no loss.
+    {
+        detail::SpscShardRing<std::uint64_t, 64> ring{OverflowPolicy::DropNewest};
+        constexpr std::uint64_t total = 10'000;
+        std::atomic<std::uint64_t> accepted{0};
+        std::atomic<std::uint64_t> popped{0};
+        std::uint64_t last = 0;
+        bool order_ok = true;
+
+        std::jthread producer([&] {
+            for (std::uint64_t i = 0; i < total; ++i) {
+                if (ring.try_push(i)) { accepted.fetch_add(1, std::memory_order_relaxed); }
+            }
+        });
+        std::jthread consumer([&] {
+            std::uint64_t v = 0;
+            while (popped.load(std::memory_order_relaxed) < accepted.load(std::memory_order_relaxed)) {
+                if (ring.try_pop(v)) {
+                    if (popped.load(std::memory_order_relaxed) > 0 && v <= last) { order_ok = false; }
+                    last = v;
+                    popped.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+        producer.join();
+        // Wait for consumer to drain all accepted records.
+        while (popped.load(std::memory_order_relaxed) < accepted.load(std::memory_order_relaxed)) {
+            std::uint64_t v = 0;
+            if (ring.try_pop(v)) {
+                if (popped.load(std::memory_order_relaxed) > 0 && v <= last) { order_ok = false; }
+                last = v;
+                popped.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+        consumer.join();
+        NX_CHECK(order_ok);
+        NX_CHECK(popped.load() == accepted.load());
+        NX_CHECK(accepted.load() + ring.dropped_count() == total);
+        std::printf("spsc_shard_ring: 10k concurrent, accepted=%llu dropped=%llu\n",
+                    static_cast<unsigned long long>(accepted.load()),
+                    static_cast<unsigned long long>(ring.dropped_count()));
+    }
+
+    // to_string diagnostic.
+    {
+        detail::SpscShardRing<int, 4> ring{OverflowPolicy::DropNewest};
+        const std::string s = ring.to_string();
+        NX_CHECK(s.find("SpscShardRing") != std::string::npos);
+        NX_CHECK(s.find("capacity=4") != std::string::npos);
+        NX_CHECK(to_string(ring) == s);
+    }
+
+    std::printf("spsc_shard_ring: DropNewest, OverwriteOldest, FIFO, concurrent verified\n");
+}
+
+// --- spsc_shard_pool suite (change rework-logging-hot-path-engine, task 3.2 /
+// spec logging/spsc-shard-pool): registration, exhaustion, Draining, pool return.
+void test_spsc_shard_pool() {
+    // Registration: max_threads threads register; extra threads are dropped.
+    {
+        detail::SpscShardPool pool{3};
+        std::int32_t s0 = pool.register_thread();
+        std::int32_t s1 = pool.register_thread();
+        std::int32_t s2 = pool.register_thread();
+        std::int32_t s3 = pool.register_thread(); // exhaustion
+        NX_CHECK(s0 == 0);
+        NX_CHECK(s1 == 1);
+        NX_CHECK(s2 == 2);
+        NX_CHECK(s3 == -1);
+        NX_CHECK(pool.active_count() == 3);
+        NX_CHECK(pool.unregistered_thread_drops() == 1);
+    }
+
+    // Thread exit → Draining → pool return → reusable.
+    {
+        detail::SpscShardPool pool{2};
+        std::int32_t s0 = pool.register_thread();
+        NX_CHECK(s0 == 0);
+        NX_CHECK(pool.shard(0).state.load() == detail::ShardState::Active);
+
+        // Simulate thread exit.
+        pool.mark_draining(0);
+        NX_CHECK(pool.shard(0).state.load() == detail::ShardState::Draining);
+
+        // Consumer drains and releases.
+        pool.release_shard(0);
+        NX_CHECK(pool.shard(0).state.load() == detail::ShardState::Free);
+        NX_CHECK(pool.active_count() == 0);
+    }
+
+    // to_string diagnostic.
+    {
+        detail::SpscShardPool pool{4};
+        const std::string s = pool.to_string();
+        NX_CHECK(s.find("SpscShardPool") != std::string::npos);
+        NX_CHECK(s.find("max_threads=4") != std::string::npos);
+        NX_CHECK(to_string(pool) == s);
+    }
+
+    std::printf("spsc_shard_pool: registration, exhaustion, Draining, pool return verified\n");
+}
+
+// --- spam_protection suite (change rework-logging-hot-path-engine, task 5.3 /
+// spec logging/spam-protection): repeat suppression, token bucket, bypass.
+void test_spam_protection() {
+    // Repeat suppression: identical messages collapsed.
+    {
+        detail::SpamProtection sp{SpamProtectionConfig{.enable_repeat_suppression = true}};
+        detail::SpamShardState st{};
+        const std::uint64_t h1 = detail::message_hash("f.cpp", 1, "msg", nullptr, 0);
+        const std::uint64_t h2 = detail::message_hash("f.cpp", 2, "other", nullptr, 0);
+        NX_CHECK(sp.check_repeat(st, h1, 1000)); // first: pass
+        NX_CHECK(!sp.check_repeat(st, h1, 2000)); // duplicate: suppress
+        NX_CHECK(!sp.check_repeat(st, h1, 3000)); // duplicate: suppress
+        NX_CHECK(sp.check_repeat(st, h2, 4000)); // different: pass
+    }
+
+    // Repeat suppression disabled: all pass.
+    {
+        detail::SpamProtection sp{SpamProtectionConfig{.enable_repeat_suppression = false}};
+        detail::SpamShardState st{};
+        const std::uint64_t h = detail::message_hash("f.cpp", 1, "msg", nullptr, 0);
+        for (int i = 0; i < 10; ++i) {
+            NX_CHECK(sp.check_repeat(st, h, static_cast<std::uint64_t>(i)));
+        }
+    }
+
+    // Token bucket: messages below bypass_min_level throttled at quota.
+    {
+        SpamProtectionConfig cfg{};
+        cfg.max_messages_per_sec_per_shard = 3;
+        cfg.bypass_min_level = LogLevel::Fatal;
+        detail::SpamProtection sp{cfg};
+        detail::SpamShardState st{};
+        // 3 messages pass (Info < Critical).
+        for (int i = 0; i < 3; ++i) {
+            NX_CHECK(sp.check_rate_limit(st, LogLevel::Info, 1000));
+        }
+        // 4th is throttled.
+        NX_CHECK(!sp.check_rate_limit(st, LogLevel::Info, 1000));
+        NX_CHECK(st.throttled_count.load() == 1);
+        // bypass_min_level always passes.
+        NX_CHECK(sp.check_rate_limit(st, LogLevel::Fatal, 1000));
+    }
+
+    // No limit (0): all pass.
+    {
+        SpamProtectionConfig cfg{};
+        cfg.max_messages_per_sec_per_shard = 0;
+        detail::SpamProtection sp{cfg};
+        detail::SpamShardState st{};
+        for (int i = 0; i < 100; ++i) {
+            NX_CHECK(sp.check_rate_limit(st, LogLevel::Info, 1000));
+        }
+    }
+
+    // Runtime reconfiguration: set_config changes quotas.
+    {
+        SpamProtectionConfig cfg{};
+        cfg.max_messages_per_sec_per_shard = 100000;
+        detail::SpamProtection sp{cfg};
+        detail::SpamShardState st{};
+        NX_CHECK(sp.check_rate_limit(st, LogLevel::Info, 1000)); // 1 token used
+        // Tighten quota to 1: tokens_used is already 1, so next call throttles.
+        cfg.max_messages_per_sec_per_shard = 1;
+        sp.set_config(cfg);
+        NX_CHECK(!sp.check_rate_limit(st, LogLevel::Info, 1000)); // throttled (tokens_used >= 1)
+        // Reset window: new second, tokens reset.
+        NX_CHECK(sp.check_rate_limit(st, LogLevel::Info, 2'000'000'000ULL)); // 1st in new window
+        NX_CHECK(!sp.check_rate_limit(st, LogLevel::Info, 2'000'000'000ULL)); // 2nd throttled
+    }
+
+    std::printf("spam_protection: repeat suppression, token bucket, bypass, reconfig verified\n");
+}
+
 // 6 distinct threads log known distinct payloads to ONE ConsoleLogger, ONE
 // FileLogger, and a CompositeLogger simultaneously; every record must reach
 // the sink exactly once, per-thread order must be FIFO, flush must complete
@@ -2141,6 +2435,10 @@ int main()
     run_suite("composite", test_composite);
     run_suite("enum_vocab", test_enum_vocab);
     run_suite("config_strings", test_config_strings);
+    run_suite("logger_options", test_logger_options);
+    run_suite("spsc_shard_ring", test_spsc_shard_ring);
+    run_suite("spsc_shard_pool", test_spsc_shard_pool);
+    run_suite("spam_protection", test_spam_protection);
     run_suite("stress", test_stress);
     // Suites register here as groups 2..8 land (design D18).
     const int failures = g_failures;

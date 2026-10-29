@@ -146,6 +146,8 @@ lock-free; the compiled units are cold-path only.
 
 ## 📡 `nexigen::logging` API
 
+Unified runtime configuration (`LoggerOptions` + `SpamProtectionConfig`) and wait-free anti-spam live in `<nexigen/logging/logger_options.hpp>`; see the API section below for per-sink usage. Hot-path anti-spam (repeat suppression + per-shard token-bucket rate limiting) is opt-in via `set_spam_protection_config()`.
+
 Zero-virtual logging built on the `concepts::Logger` structural contract (`set_level`/`level`,
 the variadic `log(LogLevel, FormatWithLocation<Args...>, Args&&...) noexcept -> void` entry
 point, the six convenience methods (`verbose`/`debug`/`info`/`warning`/`error`/`fatal`) with
@@ -302,6 +304,29 @@ cmake -B build/asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_ASAN=ON
 cmake --build build/asan
 ctest --test-dir build/asan --output-on-failure
 ```
+
+### `LoggerOptions` and anti-spam configuration
+
+`LoggerOptions` replaces compile-time template parameters with a single runtime configuration structure. Anti-spam is opt-in:
+
+```cpp
+#include <nexigen/logging/logger_options.hpp>
+
+nexigen::logging::LoggerOptions opts{};
+opts.app_name = "hil-demo";
+opts.log_root_directory = "/var/log/hil";
+opts.max_producer_threads = 64;
+opts.spsc_ring_buffer_capacity = 65536; // rounded up via std::bit_ceil
+opts.overflow_policy = nexigen::logging::OverflowPolicy::DropNewest;
+opts.spam_protection.enable_repeat_suppression = true;
+opts.spam_protection.max_messages_per_sec_per_shard = 100000;
+opts.spam_protection.bypass_min_level = nexigen::logging::LogLevel::Fatal;
+
+// to_string / to_json / from_json / std::formatter for all types (mandates 9-11):
+std::string diag = opts.to_string();
+```
+
+Wait-free runtime reconfiguration: `set_log_level(LogLevel)` and `set_spam_protection_config(SpamProtectionConfig)` publish new thresholds/quotas through relaxed atomics without blocking producers.
 
 ## 📡 `nexigen::metrics` API
 

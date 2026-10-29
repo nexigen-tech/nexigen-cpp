@@ -66,6 +66,7 @@
 #include <nexigen/chrono/stamp_source.hpp>
 #include <nexigen/logging/detail/arg_pack.hpp>
 #include <nexigen/logging/detail/level_control.hpp>
+#include <nexigen/logging/detail/spam_protection.hpp>
 #include <nexigen/logging/format_with_location.hpp>
 #include <nexigen/logging/log_level.hpp>
 #include <nexigen/logging/log_record.hpp>
@@ -196,6 +197,14 @@ class Producer {
         bool enabled{false};
     } policy_{};
 
+    /// Anti-spam: repeat suppression + token-bucket rate limiting.
+    /// Default: both OFF (opt-in via set_spam_protection_config).
+    SpamProtection spam_{SpamProtectionConfig{
+        .enable_repeat_suppression = false,
+        .max_messages_per_sec_per_shard = 0,
+    }};
+    SpamShardState spam_state_[MaxThreads];
+
     /// Consumer-only round-robin cursor (the worker is the sole pop() caller).
     std::uint32_t drain_shard_{};
     std::uint32_t drain_shard_pops_{};
@@ -276,7 +285,7 @@ class Producer {
         const std::size_t take = static_cast<std::size_t>(n) < MessageCapacity
                                     ? static_cast<std::size_t>(n)
                                     : MessageCapacity;
-        std::memcpy(rec.args_.data(), buf, take);
+        std::memcpy(rec.arg_payload_.data(), buf, take);
         rec.arg_length = static_cast<std::uint16_t>(take);
         rec.flags = static_cast<std::uint8_t>(
             n > static_cast<int>(MessageCapacity) ? flag_args_truncated : 0U);
@@ -326,6 +335,11 @@ public:
                           cfg.window_ns != 0ULL;
         policy_.max_records_per_window = cfg.max_records_per_window;
         policy_.window_ns = cfg.window_ns;
+    }
+
+    /// Wait-free runtime reconfiguration of anti-spam quotas.
+    void set_spam_protection_config(const SpamProtectionConfig& cfg) noexcept {
+        spam_.set_config(cfg);
     }
 
     /// Level control forwards to the shared relaxed cell (design D2).
@@ -392,9 +406,23 @@ public:
         rec.render = &render_impl<MessageCapacity, std::remove_cvref_t<Args>...>;
         std::size_t index = 0;
         std::uint8_t flags = 0;
-        ((pack_one<MessageCapacity>(rec.args_.data(), offsets[index++], args, flags)), ...);
+        ((pack_one<MessageCapacity>(rec.arg_payload_.data(), offsets[index++], args, flags)), ...);
         rec.arg_length = static_cast<std::uint16_t>(total);
         rec.flags = flags;
+
+        // Anti-spam Level 2: token-bucket rate limiter (wait-free).
+        SpamShardState& spam_st = spam_state_[static_cast<std::size_t>(slot)];
+        if (!spam_.check_rate_limit(spam_st, level, stamp.nanoseconds())) {
+            return; // throttled
+        }
+
+        // Anti-spam Level 1: repeat suppression (hash includes packed args).
+        const std::uint64_t msg_hash = message_hash(
+            rec.file_name, rec.line, rec.fmt,
+            rec.arg_payload_.data(), rec.arg_length);
+        if (!spam_.check_repeat(spam_st, msg_hash, stamp.nanoseconds())) {
+            return; // suppressed duplicate
+        }
 
         const core::Status pushed = shards_[static_cast<std::size_t>(slot)].try_push(rec);
         if (!pushed) {
