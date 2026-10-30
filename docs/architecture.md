@@ -13,6 +13,7 @@ in the OpenSpec capabilities under [`openspec/specs/`](../openspec/specs).
 | `nexigen::chrono` | `include/nexigen/chrono/`, `src/chrono/` | `nexigen_chrono` | STATIC |
 | `nexigen::logging` | `include/nexigen/logging/`, `src/logging/` | `nexigen_logging` | STATIC |
 | `nexigen::metrics` | `include/nexigen/metrics/`, `src/metrics/` | `nexigen_metrics` (alias `nexigen::metrics`) | STATIC |
+| `nexigen::app` | `include/nexigen/app/`, `src/app/` | `nexigen_app` (alias `nexigen::app`) | STATIC |
 | examples | `examples/<module>/` | `NEXIGEN_BUILD_EXAMPLES` option | executables |
 | tests | `tests/<module>/` | `NEXIGEN_BUILD_TESTS` option | CTest suites |
 
@@ -32,6 +33,14 @@ size-based segments (`app.jsonl` → `app.1.jsonl` → …) on top of the existi
 period-directory rotation. Both are initialization-time features: producers never
 observe the loader, and the writer performs a segment switch only at an already
 cold rotation point.
+
+`nexigen::app` is the application layer above them: `App<Derived, ...>` owns the
+logger, metric/tracing sinks and providers in a lifetime-safe order, loads
+per-subsystem settings pairs, blocks `SIGINT`/`SIGTERM` before any worker starts,
+runs a `signalfd` watcher, and shuts down through one flush path that logs the stop
+reason. The hot path is unchanged: `run()` performs one acquire load per tick, and
+the watcher only records a reason. Dependency arrows stay one-way:
+`app → logging, metrics, tracing, chrono, core`.
 
 ## The hard mandates
 

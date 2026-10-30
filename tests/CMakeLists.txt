@@ -65,3 +65,11 @@ target_compile_definitions(nexigen_diagnostics_tests PRIVATE
 
 add_test(NAME nexigen_diagnostics_tests COMMAND nexigen_diagnostics_tests)
 set_tests_properties(nexigen_diagnostics_tests PROPERTIES TIMEOUT 600)
+
+# Юнит-тесты nexigen::app: settings loaders, lifecycle, signalfd watcher.
+# Потоки и реальные сигналы требуют полного времени.
+add_executable(nexigen_app_tests app/app_test.cpp)
+target_link_libraries(nexigen_app_tests PRIVATE nexigen_app Threads::Threads)
+
+add_test(NAME nexigen_app_tests COMMAND nexigen_app_tests)
+set_tests_properties(nexigen_app_tests PROPERTIES TIMEOUT 600)

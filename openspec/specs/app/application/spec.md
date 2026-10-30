@@ -1,14 +1,14 @@
-# Spec Delta
+# app/application Specification
 
 ## Purpose
 
 Defines the reusable application lifecycle: ownership and initialization order of the logging, metrics, and tracing infrastructure, graceful SIGINT/SIGTERM handling with a logged stop reason, and an idempotent shutdown path for real-time applications.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: App owns infrastructure through a CRTP contract
 
-The system SHALL provide `App<Derived, Tracer_capacity, Tracer_threads>` that owns the logger, the metric/tracing sinks, the metric and tracing providers, and the signal watcher. The derived application SHALL declare `Logger`, `Metrics_sink`, and `Trace_sink` types and provide emplacement hooks that construct the logger and sinks from loaded settings; the base SHALL enforce at compile time that they satisfy `concepts::Logger`, `concepts::MetricSink`, and `concepts::TraceSink`.
+The system SHALL provide `App<Derived, Logger, Metrics_sink, Trace_sink, Tracer_capacity, Tracer_threads>` owning the logger, both sinks, both providers, and the signal watcher. The derived application SHALL provide the three component types and emplacement hooks; the base SHALL enforce the logger/sink concepts at compile time.
 
 #### Scenario: Derived components are validated at compile time
 

@@ -219,6 +219,26 @@ target_include_directories(nexigen_diagnostics PUBLIC
 target_link_libraries(nexigen_diagnostics PUBLIC nexigen_core nexigen_chrono)
 
 # =============================================================================
+# nexigen::app — прикладной слой: базовый lifecycle приложения, владение
+# логгером/метриками/трассировкой, загрузка global/local настроек подсистем и
+# обработка SIGINT/SIGTERM через signalfd. Публичные заголовки в include/,
+# холодные юниты (загрузчики настроек) в src/app/; горячих путей нет — App
+# вызывает пользовательский tick и только читает atomic stop-флаг.
+# =============================================================================
+file(GLOB NEXIGEN_APP_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.cpp")
+
+add_library(nexigen_app STATIC ${NEXIGEN_APP_SOURCES})
+add_library(nexigen::app ALIAS nexigen_app)
+
+target_include_directories(nexigen_app PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_compile_definitions(nexigen_app PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+target_link_libraries(nexigen_app PUBLIC nexigen_core nexigen_chrono nexigen_logging
+    nexigen_metrics nexigen_tracing PRIVATE Threads::Threads)
+
+# =============================================================================
 # Опции сборки: юнит-тесты и runnable-примеры (включены по умолчанию).
 # enable_testing() поднимаем на уровень обеих веток: ctest должен видеть
 # примеры даже при -DNEXIGEN_BUILD_TESTS=OFF.

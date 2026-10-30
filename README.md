@@ -10,7 +10,7 @@ The backbone of the **nexigen** ecosystem — an ultra-high performance C++23 co
 ## 🛠️ Core Components
 * Asynchronous lock-free ring-buffer Logger.
 * Atomic-based Metrics collection and high-resolution Tracer.
-* Base `AppClass` framework handling OS signal intercepts and predictable application lifecycles.
+* Base `AppClass` framework (`nexigen::app::App`) handling infrastructure bootstrap, OS signal intercepts and predictable application lifecycles.
 
 ### Running the `nexigen::core` unit tests
 
@@ -489,6 +489,60 @@ safe default when a background harvester runs). The Release build enables the
 `NEXIGEN_METRICS_STRICT_LATENCY` median gates for the benchmark suites; Debug and
 sanitizer builds are correctness-only.
 
+## 📡 `nexigen::app` API
+
+Application lifecycle base for real-time programs: one class owns the logger, the metric/tracing
+sinks and providers, loads per-subsystem settings, watches `SIGINT`/`SIGTERM`, and flushes
+everything on the way out. Link `nexigen::app` (alias of `nexigen_app`) — it brings logging,
+metrics, tracing and chrono transitively.
+
+`App<Derived, Logger, Metrics_sink, Trace_sink, Tracer_capacity = 1024, Tracer_threads = 32>`
+is a CRTP base. The derived app supplies the three component types and three in-place
+emplacement hooks; the base owns them in a lifetime-safe order (providers are destroyed
+before the sinks they reference):
+
+```cpp
+class My_app : public nexigen::app::App<My_app, My_logger, My_metrics_sink, My_trace_sink> {
+public:
+    nexigen::core::Status emplace_logger(std::optional<My_logger>& out,
+                                         const nexigen::logging::Logging_settings& s) noexcept;
+    nexigen::core::Status emplace_metrics_sink(std::optional<My_metrics_sink>& out,
+                                               const nexigen::app::Metrics_settings& s) noexcept;
+    nexigen::core::Status emplace_trace_sink(std::optional<My_trace_sink>& out,
+                                             const nexigen::app::Tracing_settings& s) noexcept;
+};
+```
+
+Lifecycle and accessors:
+
+```cpp
+nexigen::app::App_settings_paths paths{};   // logging / metrics / tracing: global + local files
+nexigen::app::App_settings settings{};
+if (!nexigen::app::load_app_settings(paths, settings).has_value()) { return 1; }
+
+static My_app app;
+if (!app.initialize(settings).has_value()) { return 1; }
+
+app.logger().info("started");                       // configured logger
+const auto meter = app.meter("sim", "1.0");         // MetricProvider::get_meter
+const auto tracer = app.tracer_for("sim.loop");     // TracerProvider::get_tracer
+
+const auto reason = app.run([] { /* one tick */ });
+static_cast<void>(app.shutdown());                  // logs reason, flushes all three
+```
+
+* `initialize(settings)` blocks `SIGINT`/`SIGTERM` before any worker starts, configures the
+  logger, constructs the providers, starts the `signalfd` watcher, and publishes `current()`.
+* `run(tick)` loops until `stop_requested()`; a `bool` tick returning `false` requests
+  `App_stop_reason::Requested`.
+* SIGINT/SIGTERM become `App_stop_reason::Sigint`/`Sigterm`; shutdown logs exactly one
+  `"shutdown reason: ..."` record.
+* `shutdown()` is idempotent, flushes tracer → metrics → logger, restores the signal mask
+  and clears `current()`. The destructor calls it.
+* `App::current()` is a non-owning pointer for deep-code convenience; it is cleared on shutdown.
+* Settings are explicit per-subsystem global/local pairs (`App_settings_paths`), merged
+  defaults → global → local → environment with the same best-effort diagnostics as logging.
+
 ## 📡 `nexigen::diagnostics` API
 
 Interval timing for real-time loops: the cache-line-aligned `Stopwatch` (O(1)
@@ -551,8 +605,9 @@ Run them directly from the build tree (the logging examples write to
 `/tmp/nexigen-examples-logs/`, the settings loader examples to
 `/tmp/nexigen-examples-logging-settings/` and
 `/tmp/nexigen-examples-logging-settings-simple/`; the metrics pipeline example writes to
-`/tmp/nexigen-examples-metrics/`; the Perfetto tracing example writes to
-`/tmp/nexigen-examples-tracing/`):
+`/tmp/nexigen-examples-metrics/`; the tracing example writes to
+`/tmp/nexigen-examples-tracing/`; the app lifecycle example writes to
+`/tmp/nexigen-examples-app/`):
 
 ```bash
 ./build/debug/examples/core/ex_spsc_ring_buffer
@@ -569,6 +624,7 @@ Run them directly from the build tree (the logging examples write to
 ./build/debug/examples/tracing/ex_perfetto_chrome_trace
 ./build/debug/examples/diagnostics/ex_stopwatch
 ./build/debug/examples/diagnostics/ex_stopwatch_histogram
+./build/debug/examples/app/ex_app_lifecycle
 ```
 
 * **`ex_spsc_ring_buffer`** — a two-thread telemetry pipeline over
@@ -642,6 +698,12 @@ Run them directly from the build tree (the logging examples write to
   table with ASCII bars, and the cold-path `HistogramSnapshot::to_string()`
   diagnostic; the example self-verifies one sample per tick, bucket counts summing
   to the total, ordered percentiles and samples inside the whole-run measurement.
+* **`ex_app_lifecycle`** — the base application class end to end: loads separate
+  logging/metrics/tracing global+local JSON pairs, initializes `App`, logs through
+  `app.logger()`, creates and increments a counter through `app.meter()`, opens and
+  closes a span through `app.tracer_for()`, raises `SIGINT` from a helper thread,
+  shuts down with `shutdown()`, and verifies the shutdown-reason log record, the
+  metric batch and the trace file under `/tmp/nexigen-examples-app/`.
 
 Every example is also registered as a CTest smoke test (label `examples`): each must run
 to completion and exit with status 0.

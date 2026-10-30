@@ -48,14 +48,14 @@ Dependencies are one-way: `app → logging, metrics, tracing, chrono, core`. The
 ### D2 — CRTP contract and member order
 
 ```cpp
-template <class Derived,
+template <class Derived, class Logger_type, class Metrics_sink_type, class Trace_sink_type,
           std::size_t Tracer_capacity = 1024,
           std::size_t Tracer_threads = 32>
 class App {
 public:
-    using Logger = typename Derived::Logger;
-    using Metrics_sink = typename Derived::Metrics_sink;
-    using Trace_sink = typename Derived::Trace_sink;
+    using Logger = Logger_type;
+    using Metrics_sink = Metrics_sink_type;
+    using Trace_sink = Trace_sink_type;
     using Tracer_provider = tracing::TracerProvider<Tracer_capacity, Tracer_threads>;
     using Tracer_type = tracing::Tracer<Tracer_capacity, Tracer_threads>;
 
@@ -85,7 +85,7 @@ protected:
 };
 ```
 
-The derived application declares three type aliases and three emplacement hooks:
+The derived application provides three component types as template arguments and three emplacement hooks:
 
 ```cpp
 using Logger = logging::CompositeLogger<logging::ConsoleLogger<>, logging::FileLogger<>>;
