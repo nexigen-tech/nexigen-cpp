@@ -338,6 +338,19 @@ public:
         return MessageCapacity;
     }
 
+    /// Cold-path diagnostic/testing accessor for one shard slot. The engine's
+    /// overflow policy is fixed (DropNewest); per-shard OverwriteOldest lands
+    /// with the SpscShardRing wiring in the follow-up change. Out-of-range
+    /// indices fall back to slot 0 so tests cannot read out of bounds.
+    [[nodiscard]] core::SpscRingBuffer<Record, ShardCapacity>& shard(
+        std::size_t index) noexcept {
+        return shards_[index < MaxThreads ? index : 0U];
+    }
+    [[nodiscard]] const core::SpscRingBuffer<Record, ShardCapacity>& shard(
+        std::size_t index) const noexcept {
+        return shards_[index < MaxThreads ? index : 0U];
+    }
+
     /// Cold path (logger initialize): calibrate the per-slot stamp sources.
     /// Any clock failure aborts initialization (SystemError) exactly like the
     /// old single-source contract; uncalibrated slots would still work via

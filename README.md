@@ -170,6 +170,12 @@ implicit source-location capture, and `flush() -> Status`). Link `nexigen::loggi
   fields, and a **deferred format pack**: the raw literal pointer, a type-erased render
   callback, and serialized arguments in an inline blob (oversized string copies truncate,
   flagged; rendering happens on the consumer thread, never the producer).
+* **`<nexigen/logging/logging_settings.hpp>`** — cold-path global/local settings loader:
+  `Settings_paths` (explicit file paths; empty disables a source), merged
+  `Logging_settings` (`LoggerOptions` + load flags + explicit-capacity flags +
+  `Settings_diagnostic` list), `load_logging_settings`, `apply_to(...)` for
+  `FileLogger_config`/`ConsoleLogger_config`, and `check_capacity<...>`. The loader
+  never runs on a producer path; diagnostics are data, not log calls.
 * **`<nexigen/logging/null_logger.hpp>`** — `NullLogger`: the zero-cost stub; at `-O1+`
   nothing survives into the emitted code (objdump-pinned by the tests).
 * **`<nexigen/logging/console_logger.hpp>`** — `ConsoleLogger<Shard_capacity = 128, Message_capacity = 128, Max_threads = 32>`:
@@ -180,9 +186,12 @@ implicit source-location capture, and `flush() -> Status`). Link `nexigen::loggi
   asynchronous wait-free JSON-lines writer with a CPU-pinned worker (`core_mask`), lock-free
   windowed throttling with per-cause drop counters and automatic drop-summary records, and
   hitch-free Hourly/Daily/Custom directory rotation (`Rotation_schedule` carries the full
-  enum vocabulary: `to_string`/`from_string`/JSON/`std::formatter`). Wall time is UTC ISO-8601
-  with nanoseconds, `CLOCK_REALTIME`↔`CLOCK_MONOTONIC_RAW` calibrated at init and re-sampled on
-  rotation/flush.
+  enum vocabulary: `to_string`/`from_string`/JSON/`std::formatter`). `max_file_size_bytes`
+  adds optional size-based rotation: once the active file would exceed the limit, the
+  writer continues in a numbered segment in the same period directory (`app.jsonl` →
+  `app.1.jsonl` → `app.2.jsonl`); `0` keeps the previous single-file behaviour. Wall time
+  is UTC ISO-8601 with nanoseconds, `CLOCK_REALTIME`↔`CLOCK_MONOTONIC_RAW` calibrated at
+  init and re-sampled on rotation/flush.
 * **`<nexigen/logging/composite_logger.hpp>`** — `CompositeLogger<Loggers...>`: variadic
   fan-out over a `std::tuple` with fold expressions, `get<Index>()`/`get<LoggerType>()`
   sub-logger access, no virtual dispatch; composites nest and the empty pack is valid.
@@ -327,6 +336,46 @@ std::string diag = opts.to_string();
 ```
 
 Wait-free runtime reconfiguration: `set_log_level(LogLevel)` and `set_spam_protection_config(SpamProtectionConfig)` publish new thresholds/quotas through relaxed atomics without blocking producers.
+
+### Global and local settings
+
+`<nexigen/logging/logging_settings.hpp>` adds a cold-path loader that turns explicitly
+supplied deployment files into `LoggerOptions`. Precedence is deterministic:
+built-in defaults → global JSON → local JSON → environment. A field absent from a
+higher-priority source inherits the lower-priority value; `app_name` is read only from
+the local source (the global file's `app_name` is ignored).
+
+```cpp
+#include <nexigen/logging/logging_settings.hpp>
+
+nexigen::logging::Settings_paths paths{
+    .global_file = "/etc/nexigen/logging.json",   // optional; empty disables
+    .local_file = "hil-runner.json"};              // optional; empty disables
+
+nexigen::logging::Logging_settings settings{};
+const nexigen::core::Status loaded =
+    nexigen::logging::load_logging_settings(paths, settings);
+
+// Best effort: `settings` is always populated; diagnostics name every problem.
+for (const auto& diagnostic : settings.diagnostics) {
+    std::fputs(diagnostic.to_string().c_str(), stderr);
+}
+if (!loaded.has_value()) { /* decide whether to continue */ }
+
+// Apply at initialization (also available: initialize(settings) overloads).
+if (!logger.initialize(settings).has_value()) { return 1; }
+```
+
+Environment overrides: `NEXIGEN_LOG_LEVEL`, `NEXIGEN_LOG_DIR`, `NEXIGEN_LOG_APP_NAME`,
+`NEXIGEN_LOG_MAX_FILE_SIZE_BYTES`, `NEXIGEN_LOG_CPU_AFFINITY` (`0,2-3`),
+`NEXIGEN_LOG_RING_CAPACITY`, `NEXIGEN_LOG_MAX_PRODUCER_THREADS`,
+`NEXIGEN_LOG_OVERFLOW_POLICY`. Invalid values become diagnostics and leave the previous
+value intact; missing files are not errors. Explicitly configured
+`spsc_ring_buffer_capacity`/`max_producer_threads` are checked against the logger's
+compile-time limits; defaults are never checked. `worker_poll_interval_us`,
+`sync_flush_on_critical`, `overflow_policy`, and the repeat-suppression/byte-budget part
+of `SpamProtectionConfig` are parsed and merged but not yet enforced by the current
+engine — they land with the runtime-sized `Producer` follow-up.
 
 ## 📡 `nexigen::metrics` API
 
@@ -499,7 +548,8 @@ cmake --build build/debug
 ```
 
 Run them directly from the build tree (the logging examples write to
-`/tmp/nexigen-examples-logs/`; the metrics pipeline example writes to
+`/tmp/nexigen-examples-logs/`, the settings loader example to
+`/tmp/nexigen-examples-logging-settings/`; the metrics pipeline example writes to
 `/tmp/nexigen-examples-metrics/`; the Perfetto tracing example writes to
 `/tmp/nexigen-examples-tracing/`):
 
@@ -508,6 +558,7 @@ Run them directly from the build tree (the logging examples write to
 ./build/debug/examples/logging/ex_console_logger
 ./build/debug/examples/logging/ex_file_logger
 ./build/debug/examples/logging/ex_composite_logger
+./build/debug/examples/logging/ex_logging_settings
 ./build/debug/examples/metrics/ex_counters_and_gauges
 ./build/debug/examples/metrics/ex_descriptive_statistics
 ./build/debug/examples/metrics/ex_histograms
@@ -531,6 +582,11 @@ Run them directly from the build tree (the logging examples write to
 * **`ex_composite_logger`** — `CompositeLogger<ConsoleLogger<>, FileLogger<>, NullLogger>`
   with global `set_level()` fan-out, per-sink configuration through `get<Type>()` /
   `get<Index>()`, multi-threaded logging, and one unified `flush()`.
+* **`ex_logging_settings`** — the global/local settings pipeline: writes a temporary
+  global/local JSON pair, applies `NEXIGEN_LOG_LEVEL`/`NEXIGEN_LOG_CPU_AFFINITY`
+  overrides, loads the merged `Logging_settings`, initializes a `FileLogger` through
+  `initialize(settings)`, flushes, and verifies the produced JSONL (level, app name,
+  record count) on the cold path.
 * **`ex_counters_and_gauges`** — `MetricProvider`/`Meter` factory hierarchy with
   `SingleThreaded` vs `MultiThreaded` `Counter` and `Gauge` (`std::int64_t` + `double`),
   `Readable` `read()`/`snapshot()` vs `WriteOnly` worker-updated instruments harvested by

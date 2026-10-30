@@ -21,8 +21,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <format>
+#include <fstream>
 #include <new>
 #include <string>
+#include <vector>
 #include <pthread.h> // cpu_set_t + affinity queries for the benchmark harness placement
 #include <source_location>
 #include <string_view>
@@ -50,6 +52,7 @@
 #include <nexigen/logging/log_level.hpp>
 #include <nexigen/logging/log_record.hpp>
 #include <nexigen/logging/logger_options.hpp>
+#include <nexigen/logging/logging_settings.hpp>
 #include <nexigen/logging/detail/spsc_shard_ring.hpp>
 #include <nexigen/logging/detail/spsc_shard_pool.hpp>
 #include <nexigen/logging/null_logger.hpp>
@@ -1205,8 +1208,8 @@ void test_rotation() {
     NX_CHECK(epos > 0);
     NX_CHECK(std::strcmp(label, expect_label) == 0 && std::strlen(label) == llen);
     // None: key 0, no label.
-    NX_CHECK(detail::period_key(Rotation_kind::None, 0, t) == 0);
-    NX_CHECK(detail::period_label(Rotation_kind::None, 0, t, label) == 0);
+    NX_CHECK(detail::period_key(detail::Rotation_kind::None, 0, t) == 0);
+    NX_CHECK(detail::period_label(detail::Rotation_kind::None, 0, t, label) == 0);
 
     // Filesystem switch: two 1 ms custom windows land in distinct directories,
     // sentinel lines round-trip, and the whole sequence allocates nothing.
@@ -1937,6 +1940,7 @@ void test_config_strings() {
         .throttle = throttle,
         .rotation = rotation,
         .core_mask = 3ULL,
+        .max_file_size_bytes = 8192ULL,
     };
     s = cfg.to_string();
     NX_CHECK(s.find("ХилСимулятор") != std::string::npos);
@@ -1944,6 +1948,7 @@ void test_config_strings() {
     NX_CHECK(s.find("sim.jsonl") != std::string::npos);
     NX_CHECK(s.find("debug") != std::string::npos);
     NX_CHECK(s.find("max_records_per_window=1000") != std::string::npos);
+    NX_CHECK(s.find("max_file_size_bytes=8192") != std::string::npos);
     NX_CHECK(s.find("custom_ns=42") != std::string::npos);
     NX_CHECK(s.find("core_mask=3") != std::string::npos);
     NX_CHECK(to_string(cfg) == s);
@@ -2357,6 +2362,136 @@ void test_drop_visibility() {
     std::printf("drop_visibility: flush-time summary, retry safety, all causes verified\n");
 }
 
+// --- producer_edge_cases suite (coverage gaps in producer.hpp):
+// summary cause combinations, OverwriteOldest in emit, TLS map full,
+// flush with no drops, double flush.
+void test_producer_edge_cases() {
+    // Summary with rate_limited only (throttle, no buffer_full).
+    {
+        static detail::Producer<64, 127, 1> prod{};
+        NX_CHECK(prod.initialize().has_value());
+        prod.configure_throttle(Throttle_config{true, 2ULL, 1'000'000'000ULL}); // 2 per second
+        for (int i = 0; i < 5; ++i) {
+            prod.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
+        }
+        NX_CHECK(prod.dropped().rate_limited == 3);
+        prod.flush_drop_summaries();
+        LogRecord<127> rec{};
+        bool found = false;
+        while (prod.pop(rec)) {
+            char msg[256];
+            const std::size_t n = rec.render_into(msg, sizeof msg);
+            const std::string_view sv(msg, n);
+            if (sv.find("Dropped 3 record(s)") != std::string_view::npos) {
+                found = true;
+                NX_CHECK(sv.find("rate-limited: 3") != std::string_view::npos);
+                NX_CHECK(sv.find("buffer-full: 0") != std::string_view::npos);
+            }
+        }
+        NX_CHECK(found);
+        prod.configure_throttle(Throttle_config{}); // reset
+    }
+
+    // Summary with both rate_limited and buffer_full.
+    {
+        static detail::Producer<4, 128, 1> prod2{};
+        NX_CHECK(prod2.initialize().has_value());
+        prod2.configure_throttle(Throttle_config{true, 2ULL, 1'000'000'000ULL});
+        // 2 accepted (throttle budget), the remaining 4 are rate_limited
+        // before the ring push (the throttle owns the excess, so buffer_full
+        // stays zero for this producer).
+        for (int i = 0; i < 6; ++i) {
+            prod2.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
+        }
+        NX_CHECK(prod2.dropped().rate_limited == 4);
+        NX_CHECK(prod2.dropped().buffer_full == 0);
+        prod2.flush_drop_summaries();
+        LogRecord<128> rec{};
+        bool found = false;
+        while (prod2.pop(rec)) {
+            char msg[256];
+            const std::size_t n = rec.render_into(msg, sizeof msg);
+            const std::string_view sv(msg, n);
+            if (sv.find("Dropped 4 record(s)") != std::string_view::npos) {
+                found = true;
+                NX_CHECK(sv.find("rate-limited: 4") != std::string_view::npos);
+                NX_CHECK(sv.find("buffer-full: 0") != std::string_view::npos);
+            }
+        }
+        NX_CHECK(found);
+        prod2.configure_throttle(Throttle_config{});
+    }
+
+    // Flush with no drops: no summary emitted.
+    {
+        static detail::Producer<16, 128, 1> prod3{};
+        NX_CHECK(prod3.initialize().has_value());
+        prod3.emit(LogLevel::Info, "clean");
+        prod3.flush_drop_summaries();
+        LogRecord<128> rec{};
+        int count = 0;
+        while (prod3.pop(rec)) { ++count; }
+        NX_CHECK(count == 1); // only the user record, no summary
+    }
+
+    // Double flush: both complete without deadlock or data loss.
+    {
+        static detail::Producer<16, 128, 1> prod4{};
+        NX_CHECK(prod4.initialize().has_value());
+        prod4.emit(LogLevel::Info, "before flush 1");
+        prod4.flush_drop_summaries();
+        prod4.flush_drop_summaries(); // second call is a no-op (no pending drops)
+        LogRecord<128> rec{};
+        int count = 0;
+        while (prod4.pop(rec)) { ++count; }
+        NX_CHECK(count == 1);
+    }
+
+    // Overflow in emit: the engine's fixed policy is DropNewest; ring-full
+    // records are counted in buffer_full. Per-shard OverwriteOldest lands with
+    // the SpscShardRing wiring in the follow-up change.
+    {
+        static detail::Producer<4, 128, 1> prod5{};
+        NX_CHECK(prod5.initialize().has_value());
+        // Fill to capacity.
+        for (int i = 0; i < 4; ++i) {
+            prod5.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
+        }
+        NX_CHECK(prod5.shard(0).is_full());
+        // 2 more emits are dropped by the full ring.
+        prod5.emit(LogLevel::Info, "new0");
+        prod5.emit(LogLevel::Info, "new1");
+        NX_CHECK(prod5.dropped().buffer_full == 2); // dropped newest counted
+        // Drain: the four original records remain.
+        LogRecord<128> rec{};
+        int count = 0;
+        while (prod5.pop(rec)) { ++count; }
+        NX_CHECK(count == 4);
+    }
+
+    // TLS map full: 5+ loggers on one thread — documented misconfiguration,
+    // still wait-free, drops counted.
+    {
+        static detail::Producer<8, 128, 2> p1{}, p2{}, p3{}, p4{}, p5{};
+        NX_CHECK(p1.initialize().has_value());
+        NX_CHECK(p2.initialize().has_value());
+        NX_CHECK(p3.initialize().has_value());
+        NX_CHECK(p4.initialize().has_value());
+        NX_CHECK(p5.initialize().has_value());
+        // All 5 on main thread: TLS map has 4 entries, 5th re-registers per call.
+        p1.emit(LogLevel::Info, "a");
+        p2.emit(LogLevel::Info, "b");
+        p3.emit(LogLevel::Info, "c");
+        p4.emit(LogLevel::Info, "d");
+        p5.emit(LogLevel::Info, "e"); // TLS map full → re-registers
+        NX_CHECK(p1.ring_size() == 1);
+        NX_CHECK(p5.ring_size() == 1);
+    }
+
+    std::printf("producer_edge_cases: summary combinations, OverwriteOldest, "
+                "TLS map full, double flush verified\n");
+}
+
 // 6 distinct threads log known distinct payloads to ONE ConsoleLogger, ONE
 // FileLogger, and a CompositeLogger simultaneously; every record must reach
 // the sink exactly once, per-thread order must be FIFO, flush must complete
@@ -2509,6 +2644,559 @@ void test_stress() {
 
 } // namespace
 
+// --- logging_settings suite helpers (change add-logging-settings-loader)
+namespace {
+
+template <class T, class = void>
+struct has_from_json : std::false_type {};
+template <class T>
+struct has_from_json<
+    T, std::void_t<decltype(from_json(std::declval<const nlohmann::json&>(),
+                                      std::declval<T&>()))>> : std::true_type {};
+
+static_assert(!has_from_json<Logging_settings>::value,
+              "Logging_settings is factory/IO-bound: to_json only");
+static_assert(has_from_json<Settings_diagnostic>::value,
+              "Settings_diagnostic must round-trip through JSON");
+static_assert(has_from_json<Settings_paths>::value,
+              "Settings_paths must round-trip through JSON");
+
+struct Env_guard {
+    std::string name;
+    bool had{false};
+    std::string saved;
+
+    explicit Env_guard(const char* variable_name) : name(variable_name) {
+        const char* const value = std::getenv(variable_name);
+        had = value != nullptr;
+        if (had) {
+            saved = value;
+        }
+    }
+    ~Env_guard() {
+        if (had) {
+            static_cast<void>(::setenv(name.c_str(), saved.c_str(), 1));
+        } else {
+            static_cast<void>(::unsetenv(name.c_str()));
+        }
+    }
+    void set(const char* value) { static_cast<void>(::setenv(name.c_str(), value, 1)); }
+    void clear() { static_cast<void>(::unsetenv(name.c_str())); }
+};
+
+std::string unique_path(std::string_view prefix) {
+    return "/tmp/opencode/" + std::string(prefix) + "_" +
+           std::to_string(static_cast<long long>(::getpid()));
+}
+
+void write_text(const std::string& path, std::string_view text) {
+    std::ofstream out{path, std::ios::binary | std::ios::trunc};
+    NX_CHECK(out.is_open());
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    out.close();
+    NX_CHECK(out.good());
+}
+
+std::string basename_of(const std::string& path) {
+    const std::size_t slash = path.rfind('/');
+    return slash == std::string::npos ? path : path.substr(slash + 1U);
+}
+
+std::vector<std::string> list_regular_files(const std::string& dir) {
+    std::vector<std::string> files;
+    DIR* const handle = ::opendir(dir.c_str());
+    if (handle == nullptr) {
+        return files;
+    }
+    while (dirent* const entry = ::readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") {
+            continue;
+        }
+        const std::string full = dir + "/" + name;
+        struct stat st {};
+        if (::stat(full.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+            files.push_back(full);
+        }
+    }
+    static_cast<void>(::closedir(handle));
+    return files;
+}
+
+std::size_t line_count(const std::string& path) {
+    std::ifstream in{path};
+    std::size_t lines = 0;
+    std::string line;
+    while (std::getline(in, line)) {
+        ++lines;
+    }
+    return lines;
+}
+
+bool has_basename(const std::vector<std::string>& files, std::string_view name) {
+    for (const std::string& file : files) {
+        if (basename_of(file) == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::size_t total_lines(const std::vector<std::string>& files) {
+    std::size_t total = 0;
+    for (const std::string& file : files) {
+        total += line_count(file);
+    }
+    return total;
+}
+
+} // namespace
+
+// --- settings vocabulary (spec logging/logging-settings "Settings diagnostics
+// are serializable"): enum trio, JSON round-trips, formatters, no from_json.
+void test_settings_vocabulary() {
+    NX_CHECK(to_string(Settings_source::Global) == "global");
+    NX_CHECK(to_string(Settings_source::Local) == "local");
+    NX_CHECK(to_string(Settings_source::Environment) == "environment");
+    NX_CHECK(to_string(Settings_source::Computed) == "computed");
+    Settings_source source = Settings_source::Computed;
+    NX_CHECK(from_string("local", source));
+    NX_CHECK(source == Settings_source::Local);
+    NX_CHECK(!from_string("bogus", source));
+    NX_CHECK(source == Settings_source::Local);
+    nlohmann::json source_json;
+    to_json(source_json, Settings_source::Environment);
+    NX_CHECK(source_json == "environment");
+    from_json(nlohmann::json("global"), source);
+    NX_CHECK(source == Settings_source::Global);
+    from_json(nlohmann::json(7), source);
+    NX_CHECK(source == Settings_source::Global);
+    NX_CHECK(std::format("{}", Settings_source::Computed) == "computed");
+
+    const Settings_paths paths{"/tmp/global.json", "/tmp/local.json"};
+    const std::string paths_text = paths.to_string();
+    NX_CHECK(paths_text.find("/tmp/global.json") != std::string::npos);
+    NX_CHECK(paths_text.find("/tmp/local.json") != std::string::npos);
+    NX_CHECK(to_string(paths) == paths_text);
+    nlohmann::json paths_json;
+    to_json(paths_json, paths);
+    Settings_paths paths_back{};
+    from_json(paths_json, paths_back);
+    NX_CHECK(paths_back.global_file == paths.global_file);
+    NX_CHECK(paths_back.local_file == paths.local_file);
+    NX_CHECK(std::format("{}", paths) == paths_text);
+
+    const Settings_diagnostic diag{Settings_source::Local, "app_name",
+                                   "expected at most 63 bytes"};
+    const std::string diag_text = diag.to_string();
+    NX_CHECK(diag_text.find("local") != std::string::npos);
+    NX_CHECK(diag_text.find("app_name") != std::string::npos);
+    NX_CHECK(to_string(diag) == diag_text);
+    nlohmann::json diag_json;
+    to_json(diag_json, diag);
+    Settings_diagnostic diag_back{};
+    from_json(diag_json, diag_back);
+    NX_CHECK(diag_back.source == Settings_source::Local);
+    NX_CHECK(diag_back.field == "app_name");
+    NX_CHECK(diag_back.message == "expected at most 63 bytes");
+    NX_CHECK(std::format("{}", diag) == diag_text);
+
+    Logging_settings settings{};
+    settings.global_loaded = true;
+    settings.ring_capacity_set = true;
+    settings.diagnostics.push_back(diag);
+    const std::string settings_text = settings.to_string();
+    NX_CHECK(settings_text.find("global_loaded=true") != std::string::npos);
+    NX_CHECK(settings_text.find("ring_capacity_set=true") != std::string::npos);
+    NX_CHECK(settings_text.find("nexigen_app") != std::string::npos);
+    NX_CHECK(to_string(settings) == settings_text);
+    nlohmann::json settings_json;
+    to_json(settings_json, settings);
+    NX_CHECK(settings_json["global_loaded"] == true);
+    NX_CHECK(settings_json["options"]["app_name"] == "nexigen_app");
+    NX_CHECK(settings_json["diagnostics"].size() == 1U);
+    NX_CHECK(std::format("{}", settings) == settings_text);
+
+    std::printf("settings_vocabulary: enum/JSON/formatter/no-from_json verified\n");
+}
+
+// --- loader (spec: explicit paths, precedence, local-only app_name, env,
+// best-effort diagnostics, explicit presence flags).
+void test_logging_settings_loader() {
+    Env_guard level_env{"NEXIGEN_LOG_LEVEL"};
+    Env_guard dir_env{"NEXIGEN_LOG_DIR"};
+    Env_guard app_env{"NEXIGEN_LOG_APP_NAME"};
+    Env_guard size_env{"NEXIGEN_LOG_MAX_FILE_SIZE_BYTES"};
+    Env_guard affinity_env{"NEXIGEN_LOG_CPU_AFFINITY"};
+    Env_guard ring_env{"NEXIGEN_LOG_RING_CAPACITY"};
+    Env_guard threads_env{"NEXIGEN_LOG_MAX_PRODUCER_THREADS"};
+    Env_guard overflow_env{"NEXIGEN_LOG_OVERFLOW_POLICY"};
+    level_env.clear();
+    dir_env.clear();
+    app_env.clear();
+    size_env.clear();
+    affinity_env.clear();
+    ring_env.clear();
+    threads_env.clear();
+    overflow_env.clear();
+
+    // Explicit paths only: both empty -> defaults, no diagnostics.
+    {
+        Logging_settings out{};
+        NX_CHECK(load_logging_settings(Settings_paths{}, out).has_value());
+        NX_CHECK(!out.global_loaded && !out.local_loaded);
+        NX_CHECK(!out.ring_capacity_set && !out.max_threads_set);
+        NX_CHECK(out.diagnostics.empty());
+        NX_CHECK(out.options.log_root_directory == "./logs");
+        NX_CHECK(out.options.app_name == "nexigen_app");
+    }
+
+    const std::string global_path = unique_path("settings_global");
+    const std::string local_path = unique_path("settings_local");
+    write_text(global_path,
+               R"({"log_root_directory":"/tmp/opencode/global-logs",)"
+               R"("app_name":"global-app",)"
+               R"("initial_log_level":"warning",)"
+               R"("max_file_size_bytes":1234,)"
+               R"("flush_cpu_affinity":[1,3]})");
+    write_text(local_path,
+               R"({"initial_log_level":"debug",)"
+               R"("app_name":"hil-runner",)"
+               R"("spsc_ring_buffer_capacity":16})");
+
+    {
+        Logging_settings out{};
+        NX_CHECK(load_logging_settings(Settings_paths{global_path, local_path}, out)
+                     .has_value());
+        NX_CHECK(out.global_loaded && out.local_loaded);
+        NX_CHECK(out.options.log_root_directory == "/tmp/opencode/global-logs");
+        NX_CHECK(out.options.app_name == "hil-runner"); // local wins
+        NX_CHECK(out.options.initial_log_level == LogLevel::Debug);
+        NX_CHECK(out.options.max_file_size_bytes == 1234ULL);
+        NX_CHECK(out.options.flush_cpu_affinity ==
+                 std::vector<std::uint64_t>({1U, 3U}));
+        NX_CHECK(out.ring_capacity_set);
+        NX_CHECK(!out.max_threads_set);
+        NX_CHECK(out.diagnostics.empty());
+    }
+
+    // Environment overrides: highest priority; app name and affinity grammar.
+    level_env.set("error");
+    app_env.set("env-app");
+    affinity_env.set("0,2-3");
+    {
+        Logging_settings out{};
+        NX_CHECK(load_logging_settings(Settings_paths{global_path, local_path}, out)
+                     .has_value());
+        NX_CHECK(out.options.initial_log_level == LogLevel::Error);
+        NX_CHECK(out.options.app_name == "env-app");
+        NX_CHECK(out.options.flush_cpu_affinity ==
+                 std::vector<std::uint64_t>({0U, 2U, 3U}));
+    }
+    level_env.clear();
+    app_env.clear();
+    affinity_env.clear();
+
+    // Missing local file: no diagnostic, global still applies.
+    {
+        Logging_settings out{};
+        NX_CHECK(load_logging_settings(
+                     Settings_paths{global_path, "/tmp/opencode/does-not-exist.json"},
+                     out)
+                     .has_value());
+        NX_CHECK(out.global_loaded && !out.local_loaded);
+        NX_CHECK(out.diagnostics.empty());
+        NX_CHECK(out.options.initial_log_level == LogLevel::Warning);
+    }
+
+    // Malformed local JSON: diagnostic, global values retained, InvalidArgument.
+    write_text(local_path, R"({"initial_log_level":)");
+    {
+        Logging_settings out{};
+        const Status status =
+            load_logging_settings(Settings_paths{global_path, local_path}, out);
+        NX_CHECK(!status.has_value());
+        NX_CHECK(status.error() == ErrorCode::InvalidArgument);
+        NX_CHECK(out.options.initial_log_level == LogLevel::Warning);
+        NX_CHECK(out.local_loaded);
+        bool malformed_seen = false;
+        for (const Settings_diagnostic& diag : out.diagnostics) {
+            if (diag.source == Settings_source::Local &&
+                diag.message.find("malformed") != std::string::npos) {
+                malformed_seen = true;
+            }
+        }
+        NX_CHECK(malformed_seen);
+    }
+
+    // Wrong type: diagnostic names the field, previous value survives.
+    write_text(local_path, R"({"max_file_size_bytes":"huge"})");
+    {
+        Logging_settings out{};
+        const Status status =
+            load_logging_settings(Settings_paths{global_path, local_path}, out);
+        NX_CHECK(!status.has_value());
+        NX_CHECK(out.options.max_file_size_bytes == 1234ULL);
+        bool field_seen = false;
+        for (const Settings_diagnostic& diag : out.diagnostics) {
+            if (diag.field == "max_file_size_bytes" &&
+                diag.source == Settings_source::Local) {
+                field_seen = true;
+            }
+        }
+        NX_CHECK(field_seen);
+    }
+
+    // Invalid enum keeps the previous valid value.
+    write_text(local_path, R"({"initial_log_level":"chatty"})");
+    {
+        Logging_settings out{};
+        NX_CHECK(!load_logging_settings(Settings_paths{global_path, local_path}, out)
+                      .has_value());
+        NX_CHECK(out.options.initial_log_level == LogLevel::Warning);
+    }
+
+    // Global app_name is ignored; local-only rule.
+    {
+        Logging_settings out{};
+        NX_CHECK(load_logging_settings(Settings_paths{global_path, ""}, out).has_value());
+        NX_CHECK(out.options.app_name == "nexigen_app");
+    }
+
+    // Explicit capacity flags are set even when validation fails.
+    {
+        write_text(local_path, R"({"spsc_ring_buffer_capacity":0,)"
+                               R"("max_producer_threads":"many"})");
+        Logging_settings out{};
+        NX_CHECK(!load_logging_settings(Settings_paths{"", local_path}, out).has_value());
+        NX_CHECK(out.ring_capacity_set);
+        NX_CHECK(out.max_threads_set);
+    }
+
+    // Unreadable supplied path (a directory) -> SystemError.
+    {
+        Logging_settings out{};
+        const Status status =
+            load_logging_settings(Settings_paths{"/tmp/opencode", ""}, out);
+        NX_CHECK(!status.has_value());
+        NX_CHECK(status.error() == ErrorCode::SystemError);
+        NX_CHECK(!out.diagnostics.empty());
+    }
+
+    // Invalid environment affinity is a diagnostic, not a crash.
+    affinity_env.set("3-1");
+    {
+        Logging_settings out{};
+        NX_CHECK(!load_logging_settings(Settings_paths{}, out).has_value());
+        NX_CHECK(out.diagnostics.back().source == Settings_source::Environment);
+    }
+    affinity_env.clear();
+
+    static_cast<void>(std::remove(global_path.c_str()));
+    static_cast<void>(std::remove(local_path.c_str()));
+
+    std::printf("logging_settings_loader: explicit paths, merge, env, diagnostics verified\n");
+}
+
+// --- apply/capacity (spec: merged settings apply, explicit limits only).
+void test_logging_settings_apply() {
+    Logging_settings settings{};
+    settings.options.initial_log_level = LogLevel::Warning;
+    settings.options.app_name = "hil";
+    settings.options.log_root_directory = "/var/log/hil";
+    settings.options.max_file_size_bytes = 4096ULL;
+    settings.options.flush_cpu_affinity = {1ULL, 3ULL};
+    settings.options.spam_protection.max_messages_per_sec_per_shard = 500U;
+
+    FileLogger_config cfg{};
+    NX_CHECK(apply_to(settings, cfg).has_value());
+    NX_CHECK(cfg.app_name == "hil");
+    NX_CHECK(cfg.base_dir == "/var/log/hil");
+    NX_CHECK(cfg.initial_level == LogLevel::Warning);
+    NX_CHECK(cfg.max_file_size_bytes == 4096ULL);
+    NX_CHECK(cfg.core_mask == ((1ULL << 1U) | (1ULL << 3U)));
+    NX_CHECK(cfg.throttle.enabled);
+    NX_CHECK(cfg.throttle.max_records_per_window == 500ULL);
+    NX_CHECK(cfg.throttle.window_ns == 1'000'000'000ULL);
+
+    settings.options.flush_cpu_affinity.clear();
+    NX_CHECK(apply_to(settings, cfg).has_value());
+    NX_CHECK(cfg.core_mask == 0ULL);
+
+    settings.options.app_name = std::string(64, 'a');
+    NX_CHECK(!apply_to(settings, cfg).has_value());
+    settings.options.app_name = "hil";
+
+    ConsoleLogger<>::Config console_cfg{};
+    NX_CHECK(apply_to(settings, console_cfg).has_value());
+    NX_CHECK(console_cfg.initial_level == LogLevel::Warning);
+
+    // Capacity check: explicit overflow rejected, defaults ignored.
+    settings.ring_capacity_set = true;
+    settings.options.spsc_ring_buffer_capacity = 1024U;
+    std::vector<Settings_diagnostic> diagnostics;
+    const Status too_big = check_capacity<128, 32>(settings, &diagnostics);
+    NX_CHECK(!too_big.has_value());
+    NX_CHECK(too_big.error() == ErrorCode::InvalidArgument);
+    NX_CHECK(diagnostics.size() == 1U);
+    NX_CHECK(diagnostics.front().source == Settings_source::Computed);
+    NX_CHECK(diagnostics.front().message.find("1024") != std::string::npos);
+    NX_CHECK(diagnostics.front().message.find("128") != std::string::npos);
+
+    settings.ring_capacity_set = false;
+    NX_CHECK((check_capacity<128, 32>(settings, &diagnostics).has_value()));
+    settings.ring_capacity_set = true;
+    settings.options.spsc_ring_buffer_capacity = 128U;
+    settings.max_threads_set = true;
+    settings.options.max_producer_threads = 32U;
+    NX_CHECK((check_capacity<128, 32>(settings, &diagnostics).has_value()));
+
+    // initialize(Logging_settings) runs the check before touching the worker.
+    {
+        static FileLogger<64, 128, 1> too_small{};
+        Logging_settings oversized{};
+        oversized.ring_capacity_set = true;
+        oversized.options.spsc_ring_buffer_capacity = 128U;
+        const Status status = too_small.initialize(oversized);
+        NX_CHECK(!status.has_value());
+        NX_CHECK(status.error() == ErrorCode::InvalidArgument);
+    }
+
+    // Integration: initialize from merged settings, log and flush.
+    {
+        static FileLogger<64, 128, 1> from_settings{};
+        const std::string dir = unique_path("settings_apply");
+        static_cast<void>(::mkdir(dir.c_str(), 0755));
+        Logging_settings loaded{};
+        loaded.options.app_name = "from-settings";
+        loaded.options.log_root_directory = dir;
+        loaded.options.initial_log_level = LogLevel::Info;
+        loaded.options.max_file_size_bytes = 0ULL;
+        NX_CHECK(from_settings.initialize(loaded).has_value());
+        from_settings.info("initialized from merged settings");
+        NX_CHECK(from_settings.flush().has_value());
+        NX_CHECK(from_settings.level() == LogLevel::Info);
+    }
+
+    std::printf("logging_settings_apply: field mapping, capacity, initialize verified\n");
+}
+
+// --- size-based rotation (spec logging/file-logger "Size-based file rotation").
+void test_file_size_rotation() {
+    const std::string base = unique_path("settings_size_split");
+    static_cast<void>(::mkdir(base.c_str(), 0755));
+    {
+        static FileLogger<64, 128, 1> logger{};
+        FileLogger_config cfg{};
+        cfg.app_name = "size";
+        cfg.base_dir = base;
+        cfg.file_name = "sz.jsonl";
+        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.max_file_size_bytes = 300ULL;
+        NX_CHECK(logger.initialize(cfg).has_value());
+        for (int i = 0; i < 10; ++i) {
+            logger.info("record {} padding padding padding padding padding padding padding",
+                        static_cast<std::uint64_t>(i));
+        }
+        NX_CHECK(logger.flush().has_value());
+        const std::vector<std::string> files = list_regular_files(base);
+        NX_CHECK(files.size() > 1U);
+        NX_CHECK(has_basename(files, "sz.jsonl"));
+        NX_CHECK(has_basename(files, "sz.1.jsonl"));
+        NX_CHECK(total_lines(files) == 10U);
+    }
+
+    // Zero disables segmentation: one file, all records.
+    {
+        const std::string zero_dir = unique_path("settings_size_zero");
+        static_cast<void>(::mkdir(zero_dir.c_str(), 0755));
+        static FileLogger<64, 128, 1> logger{};
+        FileLogger_config cfg{};
+        cfg.app_name = "size";
+        cfg.base_dir = zero_dir;
+        cfg.file_name = "sz.jsonl";
+        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.max_file_size_bytes = 0ULL;
+        NX_CHECK(logger.initialize(cfg).has_value());
+        for (int i = 0; i < 10; ++i) {
+            logger.info("record {}", static_cast<std::uint64_t>(i));
+        }
+        NX_CHECK(logger.flush().has_value());
+        const std::vector<std::string> files = list_regular_files(zero_dir);
+        NX_CHECK(files.size() == 1U);
+        NX_CHECK(has_basename(files, "sz.jsonl"));
+        NX_CHECK(!has_basename(files, "sz.1.jsonl"));
+        NX_CHECK(total_lines(files) == 10U);
+    }
+
+    // A single line larger than the limit still lands exactly once.
+    {
+        const std::string tiny_dir = unique_path("settings_size_tiny");
+        static_cast<void>(::mkdir(tiny_dir.c_str(), 0755));
+        static FileLogger<64, 128, 1> logger{};
+        FileLogger_config cfg{};
+        cfg.app_name = "size";
+        cfg.base_dir = tiny_dir;
+        cfg.file_name = "sz.jsonl";
+        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.max_file_size_bytes = 1ULL;
+        NX_CHECK(logger.initialize(cfg).has_value());
+        logger.info("one line larger than the limit");
+        NX_CHECK(logger.flush().has_value());
+        const std::vector<std::string> files = list_regular_files(tiny_dir);
+        NX_CHECK(files.size() == 1U);
+        NX_CHECK(total_lines(files) == 1U);
+    }
+
+    // Pre-existing content counts toward the limit and triggers a switch.
+    {
+        const std::string old_dir = unique_path("settings_size_existing");
+        static_cast<void>(::mkdir(old_dir.c_str(), 0755));
+        write_text(old_dir + "/sz.jsonl", std::string(1000, 'x'));
+        static FileLogger<64, 128, 1> logger{};
+        FileLogger_config cfg{};
+        cfg.app_name = "size";
+        cfg.base_dir = old_dir;
+        cfg.file_name = "sz.jsonl";
+        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.max_file_size_bytes = 300ULL;
+        NX_CHECK(logger.initialize(cfg).has_value());
+        logger.info("next segment please");
+        NX_CHECK(logger.flush().has_value());
+        const std::vector<std::string> files = list_regular_files(old_dir);
+        NX_CHECK(has_basename(files, "sz.1.jsonl"));
+        NX_CHECK(line_count(old_dir + "/sz.1.jsonl") == 1U);
+    }
+
+    // Segment path builder: naming rules (unit-level).
+    {
+        detail::Rotation_scratch scratch{};
+        int fd = -1;
+        const std::string dir = unique_path("settings_segment_paths");
+        static_cast<void>(::mkdir(dir.c_str(), 0755));
+        NX_CHECK(detail::open_segment(detail::Rotation_kind::None, 0, 0, dir, "app.jsonl", 2U,
+                                      scratch, fd)
+                     .has_value());
+        NX_CHECK(fd >= 0);
+        if (fd >= 0) {
+            static_cast<void>(::close(fd));
+        }
+        NX_CHECK(std::string(scratch.file).find("app.2.jsonl") != std::string::npos);
+        NX_CHECK(detail::open_segment(detail::Rotation_kind::None, 0, 0, dir, "noext", 3U,
+                                      scratch, fd)
+                     .has_value());
+        if (fd >= 0) {
+            static_cast<void>(::close(fd));
+        }
+        NX_CHECK(std::string(scratch.file).find("noext.3") != std::string::npos);
+        NX_CHECK(!detail::open_segment(detail::Rotation_kind::None, 0, 0, "", "app.jsonl", 1U,
+                                       scratch, fd)
+                      .has_value());
+    }
+
+    std::printf("file_size_rotation: split, naming, zero, oversized, existing verified\n");
+}
+
 // Compile-away proof helper (declared above): plain sum-of-ints loop plus
 // NullLogger::info calls WITH an argument pack — at -O3 only the accumulation
 // survives (spec logging/null-logger "Optimized loop leaves no logging residue").
@@ -2539,10 +3227,15 @@ int main()
     run_suite("enum_vocab", test_enum_vocab);
     run_suite("config_strings", test_config_strings);
     run_suite("logger_options", test_logger_options);
+    run_suite("settings_vocabulary", test_settings_vocabulary);
+    run_suite("logging_settings_loader", test_logging_settings_loader);
+    run_suite("logging_settings_apply", test_logging_settings_apply);
+    run_suite("file_size_rotation", test_file_size_rotation);
     run_suite("spsc_shard_ring", test_spsc_shard_ring);
     run_suite("spsc_shard_pool", test_spsc_shard_pool);
     run_suite("spam_protection", test_spam_protection);
     run_suite("drop_visibility", test_drop_visibility);
+    run_suite("producer_edge_cases", test_producer_edge_cases);
     run_suite("stress", test_stress);
     // Suites register here as groups 2..8 land (design D18).
     const int failures = g_failures;

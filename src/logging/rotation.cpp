@@ -3,6 +3,7 @@
 // from the caller's pre-allocated scratch, and the path building never
 // touches the heap.
 #include <cerrno>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -63,6 +64,47 @@ std::size_t put_epoch_label(std::int64_t value, char (&buf)[64]) noexcept {
     return out;
 }
 
+/// Render `file_name` with an optional ".<segment>" suffix before its last
+/// extension into `out` (max 255 bytes by config validation). Returns the
+/// resulting length, or 0 when it would not fit (never truncates).
+[[nodiscard]] std::size_t segment_name(std::string_view file_name, std::uint64_t segment,
+                                       char (&out)[288]) noexcept {
+    if (segment == 0U) {
+        if (file_name.size() > sizeof out) {
+            return 0;
+        }
+        std::memcpy(out, file_name.data(), file_name.size());
+        out[file_name.size()] = '\0';
+        return file_name.size();
+    }
+    char digits[24];
+    const auto converted = std::to_chars(digits, digits + sizeof digits, segment);
+    if (converted.ec != std::errc{}) {
+        return 0;
+    }
+    const std::size_t digit_len = static_cast<std::size_t>(converted.ptr - digits);
+    const std::size_t dot = file_name.rfind('.');
+    const bool has_extension = dot != std::string_view::npos && dot != 0U;
+    const std::size_t stem_len = has_extension ? dot : file_name.size();
+    const std::size_t ext_len = has_extension ? file_name.size() - dot : 0U;
+    const std::size_t need = stem_len + 1U + digit_len + ext_len;
+    if (need >= sizeof out) {
+        return 0;
+    }
+    std::size_t pos = 0;
+    std::memcpy(out + pos, file_name.data(), stem_len);
+    pos += stem_len;
+    out[pos++] = '.';
+    std::memcpy(out + pos, digits, digit_len);
+    pos += digit_len;
+    if (has_extension) {
+        std::memcpy(out + pos, file_name.data() + dot, ext_len);
+        pos += ext_len;
+    }
+    out[pos] = '\0';
+    return pos;
+}
+
 } // namespace
 
 std::int64_t period_key(Rotation_kind kind, std::uint64_t custom_ns,
@@ -114,11 +156,24 @@ std::size_t period_label(Rotation_kind kind, std::uint64_t custom_ns,
 core::Status open_period(Rotation_kind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
                          std::string_view base_dir, std::string_view file_name,
                          Rotation_scratch& scratch, int& fd_out) noexcept {
+    return open_segment(kind, custom_ns, utc_ns, base_dir, file_name, 0U, scratch, fd_out);
+}
+
+core::Status open_segment(Rotation_kind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
+                          std::string_view base_dir, std::string_view file_name,
+                          std::uint64_t segment, Rotation_scratch& scratch,
+                          int& fd_out) noexcept {
     fd_out = -1;
     if (base_dir.empty() || file_name.empty() || base_dir.size() > 511 ||
         file_name.size() > 255 ||
         base_dir.find('\0') != std::string_view::npos ||
         file_name.find('\0') != std::string_view::npos) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+
+    char effective_name[288];
+    const std::size_t effective_len = segment_name(file_name, segment, effective_name);
+    if (effective_len == 0U) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 
@@ -151,10 +206,11 @@ core::Status open_period(Rotation_kind kind, std::uint64_t custom_ns, std::int64
         return std::unexpected(core::ErrorCode::SystemError);
     }
 
-    // File: <dir>/<file_name>, staged in the second fixed buffer.
+    // File: <dir>/<effective_name>, staged in the second fixed buffer.
     std::size_t fpos = 0;
     if (!put(std::string_view(scratch.dir), scratch.file, fpos) ||
-        !put("/"sv, scratch.file, fpos) || !put(file_name, scratch.file, fpos)) {
+        !put("/"sv, scratch.file, fpos) ||
+        !put(std::string_view(effective_name, effective_len), scratch.file, fpos)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 

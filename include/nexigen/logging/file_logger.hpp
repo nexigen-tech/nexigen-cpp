@@ -48,6 +48,7 @@
 #include <string_view>
 
 #include <cerrno>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <nexigen/core/result.hpp>
@@ -59,6 +60,7 @@
 #include <nexigen/logging/detail/producer.hpp>
 #include <nexigen/logging/detail/rotation.hpp>
 #include <nexigen/logging/log_level.hpp>
+#include <nexigen/logging/logging_settings.hpp>
 
 namespace nexigen::logging::detail {
 
@@ -76,6 +78,7 @@ public:
         std::size_t file_name_len = 0;
         Rotation_kind kind = Rotation_kind::Hourly;
         std::uint64_t custom_ns = 0;
+        std::uint64_t max_file_size_bytes = 0;
     };
 
     explicit File_sink(Settings settings) noexcept : settings_{settings} {}
@@ -101,9 +104,11 @@ public:
         }
         last_utc_ns_ = static_cast<std::int64_t>(now->nanoseconds()) + offset;
         active_key_ = period_key(settings_.kind, settings_.custom_ns, last_utc_ns_);
+        segment_ = 0;
         const core::Status opened = open_current();
         if (opened) {
             fd_ = new_fd_; // promote the staged descriptor to active
+            bytes_written_ = file_size(fd_);
         }
         return opened;
     }
@@ -116,6 +121,7 @@ public:
             const std::int64_t key = period_key(settings_.kind, settings_.custom_ns, utc);
             if (key != active_key_) {
                 last_utc_ns_ = utc;
+                segment_ = 0;
                 const core::Status opened = open_current();
                 if (opened) { // spec: never lose the old fd before the new one is live
                     if (fd_ >= 0) {
@@ -124,6 +130,7 @@ public:
                     }
                     fd_ = new_fd_;
                     active_key_ = key;
+                    bytes_written_ = file_size(fd_);
                 }
             }
         }
@@ -141,8 +148,14 @@ public:
             ++malformed_; // overflowing/unrepresentable line skipped atomically
             return;       // (never a half-written line in the file)
         }
+        if (settings_.max_file_size_bytes != 0ULL && bytes_written_ > 0ULL &&
+            bytes_written_ + len > settings_.max_file_size_bytes) {
+            rotate_segment(); // open-before-close; on failure the old fd stays live
+        }
         if (!write_all(len)) {
             pending_write_error_ = 1U;
+        } else {
+            bytes_written_ += len;
         }
     }
 
@@ -175,15 +188,43 @@ public:
 private:
     [[nodiscard]] core::Status open_current() noexcept {
         int fd = -1;
-        const core::Status opened = open_period(
+        const core::Status opened = open_segment(
             settings_.kind, settings_.custom_ns, last_utc_ns_,
             std::string_view(settings_.base_dir, settings_.base_len),
-            std::string_view(settings_.file_name, settings_.file_name_len), paths_, fd);
+            std::string_view(settings_.file_name, settings_.file_name_len), segment_,
+            paths_, fd);
         if (!opened) {
             return opened;
         }
         new_fd_ = fd;
         return {};
+    }
+
+    /// Size-based segment switch: open the next numbered file BEFORE closing
+    /// the current one (same never-lose-a-line order as directory rotation).
+    /// On failure the previous descriptor stays live and `segment_` rolls back,
+    /// so the next size check retries instead of writing to a dead fd.
+    void rotate_segment() noexcept {
+        ++segment_;
+        const core::Status opened = open_current();
+        if (!opened) {
+            --segment_;
+            return;
+        }
+        if (fd_ >= 0) {
+            static_cast<void>(::fsync(fd_));
+            ::close(fd_);
+        }
+        fd_ = new_fd_;
+        bytes_written_ = file_size(fd_);
+    }
+
+    [[nodiscard]] static std::uint64_t file_size(int fd) noexcept {
+        struct stat st {};
+        if (fd < 0 || ::fstat(fd, &st) != 0 || st.st_size < 0) {
+            return 0;
+        }
+        return static_cast<std::uint64_t>(st.st_size);
     }
 
     bool write_all(std::size_t bytes) noexcept {
@@ -207,6 +248,8 @@ private:
     std::int64_t active_key_ = 0;        ///< period identity of fd_
     std::int64_t utc_offset_ns_ = 0;     ///< monotonic -> UTC conversion snapshot
     std::int64_t last_utc_ns_ = 0;       ///< utc at the current boundary
+    std::uint64_t segment_ = 0;          ///< size-based segment index (writer-only)
+    std::uint64_t bytes_written_ = 0;    ///< active segment size (writer-only)
     std::uint64_t malformed_ = 0;        ///< formatter overflow skips (diagnostic)
     std::uint8_t pending_write_error_ = 0;
     Rotation_scratch paths_{};           ///< pre-allocated path buffers (D11)
@@ -251,6 +294,7 @@ struct FileLogger_config {
     Throttle_config throttle{};
     Rotation_config rotation{};
     std::uint64_t core_mask{0};                 ///< 0 == leave OS placement
+    std::uint64_t max_file_size_bytes{0};       ///< 0 == no size-based rotation
 
     /// Cold-path diagnostic (mandate 9): every policy field, sub-structs inlined.
     [[nodiscard]] std::string to_string() const {
@@ -259,6 +303,7 @@ struct FileLogger_config {
         out += ", base_dir=" + std::string(base_dir);
         out += ", file_name=" + std::string(file_name);
         out += ", level=" + std::string(logging::to_string(initial_level));
+        out += ", max_file_size_bytes=" + std::to_string(max_file_size_bytes);
         out += ", throttle=" + throttle.to_string();
         out += ", rotation=" + rotation.to_string();
         out += ", core_mask=" + std::to_string(core_mask) + ")";
@@ -314,6 +359,7 @@ public:
         copy_into(cfg.file_name, settings.file_name, settings.file_name_len);
         settings.kind = cfg.rotation.kind;
         settings.custom_ns = cfg.rotation.custom_ns;
+        settings.max_file_size_bytes = cfg.max_file_size_bytes;
 
         producer_.set_level(cfg.initial_level);
         producer_.configure_throttle(cfg.throttle);
@@ -322,6 +368,23 @@ public:
             return calibrated;
         }
         return worker_.start(producer_, cfg.core_mask, settings);
+    }
+
+    /// Initialize from merged global/local settings (spec logging/logging-settings
+    /// "Merged settings apply to logger configuration"). Runs the explicit
+    /// capacity check and maps every supported option; string views inside the
+    /// temporary config alias `settings` for the duration of this call only.
+    [[nodiscard]] core::Status initialize(const Logging_settings& settings) noexcept {
+        const core::Status capacity = check_capacity<ShardCapacity, MaxThreads>(settings);
+        if (!capacity) {
+            return capacity;
+        }
+        FileLogger_config cfg{};
+        const core::Status applied = apply_to(settings, cfg);
+        if (!applied) {
+            return applied;
+        }
+        return initialize(cfg);
     }
 
     void set_level(LogLevel new_level) noexcept { producer_.set_level(new_level); }

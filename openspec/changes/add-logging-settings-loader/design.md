@@ -40,8 +40,8 @@ New header `include/nexigen/logging/logging_settings.hpp` (compiled unit `src/lo
 enum class Settings_source : std::uint8_t { Global, Local, Environment, Computed };
 
 struct Settings_paths {
-    std::string_view global_file{};  // empty = source disabled
-    std::string_view local_file{};   // empty = source disabled
+    std::string global_file{};  // empty = source disabled
+    std::string local_file{};   // empty = source disabled
     std::string to_string() const;
 };
 
@@ -118,10 +118,8 @@ Apply helpers in the same header:
 ```cpp
 [[nodiscard]] core::Status apply_to(const Logging_settings& settings,
                                     FileLogger_config& out) noexcept;
-
-template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t MaxThreads>
 [[nodiscard]] core::Status apply_to(const Logging_settings& settings,
-                                    typename ConsoleLogger<ShardCapacity, MessageCapacity, MaxThreads>::Config& out) noexcept;
+                                    ConsoleLogger_config& out) noexcept;
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
 [[nodiscard]] core::Status check_capacity(const Logging_settings& settings,

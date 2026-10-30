@@ -91,6 +91,16 @@ struct Rotation_scratch {
                                        std::string_view file_name,
                                        Rotation_scratch& scratch, int& fd_out) noexcept;
 
+/// Same as open_period, but selects a numbered size-based segment inside the
+/// period directory: segment 0 keeps `file_name`; segment N inserts `.<N>`
+/// before the last extension (`app.jsonl` -> `app.1.jsonl`) or appends it when
+/// the name has no usable extension. A rendered name that would overflow the
+/// pre-allocated scratch maps to InvalidArgument (never truncation).
+[[nodiscard]] core::Status open_segment(Rotation_kind kind, std::uint64_t custom_ns,
+                                        std::int64_t utc_ns, std::string_view base_dir,
+                                        std::string_view file_name, std::uint64_t segment,
+                                        Rotation_scratch& scratch, int& fd_out) noexcept;
+
 } // namespace nexigen::logging::detail
 
 /// Rotation_schedule formats as its canonical lowercase name (mandate 11):

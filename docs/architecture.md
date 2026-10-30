@@ -24,6 +24,15 @@ established that rule (a module needing shared machinery promotes it or
 duplicates it, keeping dependency arrows one-way: `metrics → chrono/core`,
 `logging → chrono/core`).
 
+`nexigen::logging` also owns the cold-path deployment surface:
+`logging_settings.hpp` reads an explicitly supplied global JSON file, then a local
+JSON file, then `NEXIGEN_LOG_*` environment overrides, merging field by field into
+`LoggerOptions` with best-effort diagnostics. `FileLogger` adds optional
+size-based segments (`app.jsonl` → `app.1.jsonl` → …) on top of the existing
+period-directory rotation. Both are initialization-time features: producers never
+observe the loader, and the writer performs a segment switch only at an already
+cold rotation point.
+
 ## The hard mandates
 
 1. **C++23, no compiler extensions** (`-std=c++23`).
