@@ -548,8 +548,9 @@ cmake --build build/debug
 ```
 
 Run them directly from the build tree (the logging examples write to
-`/tmp/nexigen-examples-logs/`, the settings loader example to
-`/tmp/nexigen-examples-logging-settings/`; the metrics pipeline example writes to
+`/tmp/nexigen-examples-logs/`, the settings loader examples to
+`/tmp/nexigen-examples-logging-settings/` and
+`/tmp/nexigen-examples-logging-settings-simple/`; the metrics pipeline example writes to
 `/tmp/nexigen-examples-metrics/`; the Perfetto tracing example writes to
 `/tmp/nexigen-examples-tracing/`):
 
@@ -559,6 +560,7 @@ Run them directly from the build tree (the logging examples write to
 ./build/debug/examples/logging/ex_file_logger
 ./build/debug/examples/logging/ex_composite_logger
 ./build/debug/examples/logging/ex_logging_settings
+./build/debug/examples/logging/ex_logging_settings_simple
 ./build/debug/examples/metrics/ex_counters_and_gauges
 ./build/debug/examples/metrics/ex_descriptive_statistics
 ./build/debug/examples/metrics/ex_histograms
@@ -587,6 +589,11 @@ Run them directly from the build tree (the logging examples write to
   overrides, loads the merged `Logging_settings`, initializes a `FileLogger` through
   `initialize(settings)`, flushes, and verifies the produced JSONL (level, app name,
   record count) on the cold path.
+* **`ex_logging_settings_simple`** — the minimal version of the same flow: writes one
+  small global JSON and one small local JSON, loads them through explicit
+  `Settings_paths` (no environment overrides), initializes a `FileLogger` from the
+  merged settings, logs a couple of records, flushes, and exits 0. Failures print
+  the loader diagnostics and return a non-zero status.
 * **`ex_counters_and_gauges`** — `MetricProvider`/`Meter` factory hierarchy with
   `SingleThreaded` vs `MultiThreaded` `Counter` and `Gauge` (`std::int64_t` + `double`),
   `Readable` `read()`/`snapshot()` vs `WriteOnly` worker-updated instruments harvested by
