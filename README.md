@@ -58,6 +58,11 @@ The target cleans old `.gcda` counters, runs the seven `nexigen_*_tests` binarie
 prints line coverage per module. Add `-DNEXIGEN_COVERAGE_FAIL_UNDER=85` to fail the
 target below the requested percentage. Coverage cannot be combined with ASan/TSan.
 
+Current unit-test line coverage is **96.1%** (6 139 / 6 387): core and diagnostics
+100%, app 96.7%, logging 96.2%, metrics 96.2%, tracing 95.5%, chrono 91.6%. The
+project expectation is **≥95%**, enforced by passing
+`-DNEXIGEN_COVERAGE_FAIL_UNDER=95` in CI.
+
 ## 📡 `nexigen::core` API
 
 Header-only, C++23, no exceptions/RTTI, no heap allocation on hot paths. Link the

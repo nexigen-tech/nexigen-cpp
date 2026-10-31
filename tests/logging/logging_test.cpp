@@ -10,6 +10,7 @@
 //     санитайзера, поэтому там mallinfo2 читается ~константой — чек остаётся
 //     безопасной no-op проверкой, а реальную защиту даёт сам ASan.
 
+#include <array>
 #include <atomic>
 #include <algorithm>
 #include <atomic>
@@ -20,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <format>
 #include <fstream>
 #include <new>
@@ -1223,7 +1225,7 @@ void test_rotation() {
     detail::Rotation_scratch sc{};
     int fd = -1;
     // warm-up open first so any lazy libc setup happens outside the measured window
-    NX_CHECK(detail::open_period(Rotation_kind::Custom, fast_period, t, base_dir,
+    NX_CHECK(detail::open_period(detail::Rotation_kind::Custom, fast_period, t, base_dir,
                                  "warm.jsonl", sc, fd).has_value());
     NX_CHECK(fd >= 0);
     ::close(fd);
@@ -1232,7 +1234,7 @@ void test_rotation() {
     const std::size_t heap_b = heap_in_use();
 
     int fd1 = -1;
-    NX_CHECK(detail::open_period(Rotation_kind::Custom, fast_period, t, base_dir,
+    NX_CHECK(detail::open_period(detail::Rotation_kind::Custom, fast_period, t, base_dir,
                                  "app.jsonl", sc, fd1).has_value());
     NX_CHECK(fd1 >= 0);
     char path1[560];
@@ -1242,7 +1244,7 @@ void test_rotation() {
     ::close(fd1);
 
     int fd2 = -1;
-    NX_CHECK(detail::open_period(Rotation_kind::Custom, fast_period, t + 2'000'000,
+    NX_CHECK(detail::open_period(detail::Rotation_kind::Custom, fast_period, t + 2'000'000,
                                  base_dir, "app.jsonl", sc, fd2).has_value());
     NX_CHECK(fd2 >= 0);
     char path2[560];
@@ -1269,8 +1271,8 @@ void test_rotation() {
     NX_CHECK(read_first_line(path2, got) == 2 && std::strcmp(got, "b\n") == 0);
 
     // Error paths: empty base rejected; a non-directory component maps to SystemError.
-    NX_CHECK(!detail::open_period(Rotation_kind::Hourly, 0, t, "", "app.jsonl", sc, fd).has_value());
-    const Status bad = detail::open_period(Rotation_kind::Hourly, 0, t, "/etc/hostname",
+    NX_CHECK(!detail::open_period(detail::Rotation_kind::Hourly, 0, t, "", "app.jsonl", sc, fd).has_value());
+    const Status bad = detail::open_period(detail::Rotation_kind::Hourly, 0, t, "/etc/hostname",
                                            "app.jsonl", sc, fd);
     NX_CHECK(!bad.has_value());
     NX_CHECK(bad.error() == ErrorCode::SystemError);
@@ -2992,6 +2994,58 @@ void test_logging_settings_loader() {
     }
     affinity_env.clear();
 
+    // Valid values for the remaining environment overrides.
+    dir_env.set("/tmp/env-valid");
+    size_env.set("123");
+    ring_env.set("32");
+    threads_env.set("4");
+    overflow_env.set("overwrite_oldest");
+    {
+        Logging_settings out{};
+        NX_CHECK(load_logging_settings({global_path, ""}, out).has_value());
+        NX_CHECK(out.options.log_root_directory == "/tmp/env-valid");
+        NX_CHECK(out.options.max_file_size_bytes == 123ULL);
+        NX_CHECK(out.options.spsc_ring_buffer_capacity == 32U);
+        NX_CHECK(out.options.max_producer_threads == 4U);
+        NX_CHECK(out.options.overflow_policy == OverflowPolicy::OverwriteOldest);
+    }
+    dir_env.clear(); size_env.clear(); ring_env.clear(); threads_env.clear();
+    overflow_env.clear();
+
+    // Diagnostics rendering with multiple entries (separator branch).
+    {
+        Logging_settings out{};
+        out.diagnostics.push_back(
+            {Settings_source::Local, "a", "first"});
+        out.diagnostics.push_back(
+            {Settings_source::Local, "b", "second"});
+        NX_CHECK(out.to_string().find("; ") != std::string::npos);
+        nlohmann::json json;
+        to_json(json, out);
+        NX_CHECK(json["diagnostics"].size() == 2U);
+    }
+
+    // Hostile readers for paths/diagnostics.
+    {
+        Settings_paths keep{"g", "l"};
+        from_json(nlohmann::json(42), keep);
+        NX_CHECK(keep.global_file == "g");
+        from_json(nlohmann::json{{"global_file", 7}}, keep);
+        NX_CHECK(keep.global_file == "g");
+        Settings_diagnostic diag_keep{Settings_source::Local, "f", "m"};
+        from_json(nlohmann::json{{"source", 7}, {"field", 7}, {"message", 7}},
+                  diag_keep);
+        NX_CHECK(diag_keep.field == "f");
+    }
+
+    // apply_to rejects an oversized root directory.
+    {
+        Logging_settings oversized{};
+        oversized.options.log_root_directory = std::string(512, 'x');
+        FileLogger_config config{};
+        NX_CHECK(!apply_to(oversized, config).has_value());
+    }
+
     static_cast<void>(std::remove(global_path.c_str()));
     static_cast<void>(std::remove(local_path.c_str()));
 
@@ -3210,6 +3264,187 @@ int null_loop(int iterations) noexcept {
     return acc;
 }
 
+// --- extended settings coverage (change improve-test-coverage):
+// every valid/invalid field branch, affinity grammar, env failures,
+// unreadable files and serialization.
+void test_logging_settings_full_coverage() {
+    Env_guard level_env{"NEXIGEN_LOG_LEVEL"};
+    Env_guard dir_env{"NEXIGEN_LOG_DIR"};
+    Env_guard app_env{"NEXIGEN_LOG_APP_NAME"};
+    Env_guard size_env{"NEXIGEN_LOG_MAX_FILE_SIZE_BYTES"};
+    Env_guard affinity_env{"NEXIGEN_LOG_CPU_AFFINITY"};
+    Env_guard ring_env{"NEXIGEN_LOG_RING_CAPACITY"};
+    Env_guard threads_env{"NEXIGEN_LOG_MAX_PRODUCER_THREADS"};
+    Env_guard overflow_env{"NEXIGEN_LOG_OVERFLOW_POLICY"};
+    level_env.clear(); dir_env.clear(); app_env.clear(); size_env.clear();
+    affinity_env.clear(); ring_env.clear(); threads_env.clear(); overflow_env.clear();
+
+    const std::string global_path = unique_path("full_settings_global");
+    const std::string local_path = unique_path("full_settings_local");
+
+    // All fields valid, including the nested spam config.
+    write_text(local_path,
+               R"({"log_root_directory":"/tmp/full","app_name":"full-local",)"
+               R"("initial_log_level":"warning","max_file_size_bytes":42,)"
+               R"("spsc_ring_buffer_capacity":64,"max_producer_threads":8,)"
+               R"("overflow_policy":"overwrite_oldest","flush_cpu_affinity":[0,63],)"
+               R"("worker_poll_interval_us":250,"sync_flush_on_critical":false,)"
+               R"("spam_protection":{"enable_repeat_suppression":false,)"
+               R"("repeat_suppression_window_ms":10,"repeat_suppression_max_count":20,)"
+               R"("max_messages_per_sec_per_shard":30,"max_bytes_per_sec_per_shard":40,)"
+               R"("max_total_bytes_per_sec":50,"bypass_min_level":"error"}})");
+    {
+        Logging_settings out{};
+        NX_CHECK(load_logging_settings({global_path, local_path}, out).has_value());
+        NX_CHECK(out.options.log_root_directory == "/tmp/full");
+        NX_CHECK(out.options.app_name == "full-local");
+        NX_CHECK(out.options.initial_log_level == LogLevel::Warning);
+        NX_CHECK(out.options.max_file_size_bytes == 42ULL);
+        NX_CHECK(out.options.spsc_ring_buffer_capacity == 64U);
+        NX_CHECK(out.options.max_producer_threads == 8U);
+        NX_CHECK(out.options.overflow_policy == OverflowPolicy::OverwriteOldest);
+        NX_CHECK(out.options.flush_cpu_affinity == std::vector<std::uint64_t>({0U, 63U}));
+        NX_CHECK(out.options.worker_poll_interval_us == 250U);
+        NX_CHECK(out.options.sync_flush_on_critical == false);
+        NX_CHECK(out.options.spam_protection.enable_repeat_suppression == false);
+        NX_CHECK(out.options.spam_protection.repeat_suppression_window_ms == 10U);
+        NX_CHECK(out.options.spam_protection.bypass_min_level == LogLevel::Error);
+        nlohmann::json json;
+        to_json(json, out);
+        NX_CHECK(json["options"]["app_name"] == "full-local");
+        NX_CHECK(json["diagnostics"].is_array());
+        NX_CHECK(std::format("{}", out).find("full-local") != std::string::npos);
+    }
+
+    // Every field invalid: one diagnostic per field, values retained.
+    write_text(local_path,
+               R"({"log_root_directory":5,"app_name":"",)"
+               R"("initial_log_level":7,"max_file_size_bytes":"x",)"
+               R"("spsc_ring_buffer_capacity":0,"max_producer_threads":4294967296,)"
+               R"("overflow_policy":7,"flush_cpu_affinity":"x",)"
+               R"("worker_poll_interval_us":"x","sync_flush_on_critical":1,)"
+               R"("spam_protection":7})");
+    {
+        Logging_settings out{};
+        NX_CHECK(!load_logging_settings({"", local_path}, out).has_value());
+        NX_CHECK(out.diagnostics.size() >= 9U);
+        NX_CHECK(out.ring_capacity_set);
+        NX_CHECK(out.max_threads_set);
+    }
+
+    // Nested spam fields invalid + affinity id out of range.
+    write_text(local_path,
+               R"({"flush_cpu_affinity":[1,64],"spam_protection":{)"
+               R"("enable_repeat_suppression":1,"repeat_suppression_window_ms":"x",)"
+               R"("repeat_suppression_max_count":"x",)"
+               R"("max_messages_per_sec_per_shard":"x",)"
+               R"("max_bytes_per_sec_per_shard":"x",)"
+               R"("max_total_bytes_per_sec":"x","bypass_min_level":"chatty"}})");
+    {
+        Logging_settings out{};
+        NX_CHECK(!load_logging_settings({"", local_path}, out).has_value());
+        NX_CHECK(out.diagnostics.size() >= 8U);
+    }
+
+    // Non-object document and malformed JSON (global and local).
+    write_text(global_path, R"([])");
+    {
+        Logging_settings out{};
+        NX_CHECK(!load_logging_settings({global_path, ""}, out).has_value());
+        NX_CHECK(!out.diagnostics.empty());
+    }
+    write_text(global_path, "{");
+    {
+        Logging_settings out{};
+        NX_CHECK(!load_logging_settings({global_path, ""}, out).has_value());
+    }
+
+    // A directory path is unreadable on both sources.
+    {
+        Logging_settings out{};
+        const Status global_status = load_logging_settings({"/tmp/opencode", ""}, out);
+        NX_CHECK(!global_status.has_value());
+        NX_CHECK(global_status.error() == ErrorCode::SystemError);
+        const Status local_status = load_logging_settings({"", "/tmp/opencode"}, out);
+        NX_CHECK(!local_status.has_value());
+        NX_CHECK(local_status.error() == ErrorCode::SystemError);
+    }
+
+    // Environment failures for every variable.
+    write_text(global_path,
+               R"({"log_root_directory":"/tmp/env","app_name":"env-name",)"
+               R"("initial_log_level":"info"})");
+    level_env.set("chatty");
+    dir_env.set(std::string(512, 'd').c_str());
+    app_env.set(std::string(64, 'a').c_str());
+    size_env.set("x");
+    ring_env.set("0");
+    threads_env.set("0");
+    overflow_env.set("x");
+    {
+        Logging_settings out{};
+        NX_CHECK(!load_logging_settings({global_path, ""}, out).has_value());
+        NX_CHECK(out.diagnostics.size() >= 6U);
+    }
+    level_env.clear(); dir_env.clear(); app_env.clear(); size_env.clear();
+    ring_env.clear(); threads_env.clear(); overflow_env.clear();
+
+    // Affinity grammar: invalid tokens fail, valid list expands.
+    const std::array<std::string_view, 8> invalid_affinity{
+        "", ",", "1-", "-2", "3-1", "64", "1,,2", " 1"};
+    for (const std::string_view token : invalid_affinity) {
+        affinity_env.set(std::string(token).c_str());
+        Logging_settings out{};
+        const Status status = load_logging_settings({global_path, ""}, out);
+        if (token.empty()) {
+            NX_CHECK(status.has_value()); // empty env is ignored
+        } else {
+            NX_CHECK(!status.has_value());
+        }
+    }
+    affinity_env.set("0-63");
+    {
+        Logging_settings out{};
+        NX_CHECK(load_logging_settings({global_path, ""}, out).has_value());
+        NX_CHECK(out.options.flush_cpu_affinity.size() == 64U);
+        NX_CHECK(out.options.flush_cpu_affinity.front() == 0U);
+        NX_CHECK(out.options.flush_cpu_affinity.back() == 63U);
+    }
+    affinity_env.clear();
+
+    static_cast<void>(std::remove(global_path.c_str()));
+    static_cast<void>(std::remove(local_path.c_str()));
+}
+
+void test_spam_window_and_rotation_errors() {
+    {
+        SpamProtectionConfig cfg{};
+        cfg.enable_repeat_suppression = true;
+        cfg.repeat_suppression_window_ms = 1;
+        detail::SpamProtection sp{cfg};
+        detail::SpamShardState st{};
+        const std::uint64_t hash = detail::message_hash("f.cpp", 1, "msg", nullptr, 0);
+        NX_CHECK(sp.check_repeat(st, hash, 0));
+        NX_CHECK(!sp.check_repeat(st, hash, 500'000)); // inside the window
+        NX_CHECK(sp.check_repeat(st, hash, 2'000'000)); // window expired → pass
+        NX_CHECK(st.repeat_count == 1);
+    }
+    {
+        detail::Rotation_scratch scratch{};
+        int fd = -1;
+        NX_CHECK(!detail::open_period(detail::Rotation_kind::None, 0, 0, "", "f",
+                                      scratch, fd).has_value());
+        NX_CHECK(!detail::open_period(detail::Rotation_kind::None, 0, 0, "/tmp",
+                                      std::string(256, 'x'), scratch, fd).has_value());
+        NX_CHECK(!detail::open_period(detail::Rotation_kind::None, 0, 0,
+                                      std::string(512, 'b'), "f", scratch, fd)
+                      .has_value());
+        NX_CHECK(!detail::open_period(detail::Rotation_kind::None, 0, 0,
+                                      "/proc/nexigen-nope", "f", scratch, fd)
+                      .has_value());
+    }
+}
+
 int main()
 {
     run_suite("harness", test_harness);
@@ -3231,9 +3466,11 @@ int main()
     run_suite("logging_settings_loader", test_logging_settings_loader);
     run_suite("logging_settings_apply", test_logging_settings_apply);
     run_suite("file_size_rotation", test_file_size_rotation);
+    run_suite("settings_full_coverage", test_logging_settings_full_coverage);
     run_suite("spsc_shard_ring", test_spsc_shard_ring);
     run_suite("spsc_shard_pool", test_spsc_shard_pool);
     run_suite("spam_protection", test_spam_protection);
+    run_suite("spam_window_rotation_errors", test_spam_window_and_rotation_errors);
     run_suite("drop_visibility", test_drop_visibility);
     run_suite("producer_edge_cases", test_producer_edge_cases);
     run_suite("stress", test_stress);

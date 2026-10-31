@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <signal.h>
+#include <pthread.h>
 #include <unistd.h>
 #include <malloc.h>
 
@@ -108,6 +109,15 @@ private:
 
 static_assert(logging::concepts::Logger<Capture_logger>);
 
+class Flush_fail_logger : public Capture_logger {
+public:
+    [[nodiscard]] core::Status flush() noexcept {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+};
+
+static_assert(logging::concepts::Logger<Flush_fail_logger>);
+
 class Test_app;
 using Test_app_base =
     app::App<Test_app, Capture_logger, metrics::NullMetricSink,
@@ -158,6 +168,76 @@ public:
         const app::Tracing_settings&) noexcept {
         out.emplace();
         return {};
+    }
+};
+
+class Fail_logger_app final
+    : public app::App<Fail_logger_app, Capture_logger, metrics::NullMetricSink,
+                      tracing::NullTraceSink, 64, 4> {
+public:
+    [[nodiscard]] core::Status emplace_logger(
+        std::optional<Capture_logger>&,
+        const logging::Logging_settings&) noexcept {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    [[nodiscard]] core::Status emplace_metrics_sink(
+        std::optional<metrics::NullMetricSink>& out,
+        const app::Metrics_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+    [[nodiscard]] core::Status emplace_trace_sink(
+        std::optional<tracing::NullTraceSink>& out,
+        const app::Tracing_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+};
+
+class Fail_flush_app final
+    : public app::App<Fail_flush_app, Flush_fail_logger, metrics::NullMetricSink,
+                      tracing::NullTraceSink, 64, 4> {
+public:
+    [[nodiscard]] core::Status emplace_logger(
+        std::optional<Flush_fail_logger>& out,
+        const logging::Logging_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+    [[nodiscard]] core::Status emplace_metrics_sink(
+        std::optional<metrics::NullMetricSink>& out,
+        const app::Metrics_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+    [[nodiscard]] core::Status emplace_trace_sink(
+        std::optional<tracing::NullTraceSink>& out,
+        const app::Tracing_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+};
+
+class Fail_trace_sink_app final
+    : public app::App<Fail_trace_sink_app, Capture_logger, metrics::NullMetricSink,
+                      tracing::NullTraceSink, 64, 4> {
+public:
+    [[nodiscard]] core::Status emplace_logger(
+        std::optional<Capture_logger>& out,
+        const logging::Logging_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+    [[nodiscard]] core::Status emplace_metrics_sink(
+        std::optional<metrics::NullMetricSink>& out,
+        const app::Metrics_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+    [[nodiscard]] core::Status emplace_trace_sink(
+        std::optional<tracing::NullTraceSink>&,
+        const app::Tracing_settings&) noexcept {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 };
 
@@ -322,6 +402,72 @@ void test_settings_loaders() {
     NX_CHECK(json["core_mask"] == 1U);
     NX_CHECK(app_settings.tracing.to_string().find("max_tracers") != std::string::npos);
 
+    // Malformed JSON and non-object documents on both subsystems.
+    write_text(metrics_global, "{");
+    {
+        app::Metrics_settings metrics_invalid{};
+        NX_CHECK(!app::load_metrics_settings({metrics_global, ""}, metrics_invalid).has_value());
+    }
+    write_text(tracing_global, "[]");
+    {
+        app::Tracing_settings tracing_invalid{};
+        NX_CHECK(!app::load_tracing_settings({tracing_global, ""}, tracing_invalid).has_value());
+        NX_CHECK(!tracing_invalid.diagnostics.empty());
+    }
+    write_text(tracing_global, "{");
+    {
+        app::Tracing_settings tracing_invalid{};
+        NX_CHECK(!app::load_tracing_settings({tracing_global, ""}, tracing_invalid).has_value());
+    }
+
+    // Serialization with non-empty diagnostics (loop branches).
+    {
+        app::Metrics_settings metrics_serialized{};
+        metrics_serialized.global_loaded = true;
+        metrics_serialized.diagnostics.push_back(
+            {logging::Settings_source::Local, "core_mask", "bad"});
+        NX_CHECK(metrics_serialized.to_string().find("bad") != std::string::npos);
+        nlohmann::json serialized_json;
+        app::to_json(serialized_json, metrics_serialized);
+        NX_CHECK(serialized_json["diagnostics"].size() == 1U);
+        app::Tracing_settings tracing_serialized{};
+        tracing_serialized.local_loaded = true;
+        tracing_serialized.diagnostics.push_back(
+            {logging::Settings_source::Global, "max_tracers", "bad"});
+        NX_CHECK(tracing_serialized.to_string().find("bad") != std::string::npos);
+        app::to_json(serialized_json, tracing_serialized);
+        NX_CHECK(serialized_json["diagnostics"].size() == 1U);
+    }
+
+    // Malformed local documents on both subsystems.
+    {
+        write_text(metrics_global, R"({"core_mask":5})");
+        write_text(metrics_local, "{");
+        app::Metrics_settings metrics_local_bad{};
+        NX_CHECK(!app::load_metrics_settings({metrics_global, metrics_local},
+                                             metrics_local_bad)
+                      .has_value());
+        write_text(tracing_global, R"({"max_tracers":2})");
+        write_text(tracing_local, "{");
+        app::Tracing_settings tracing_local_bad{};
+        NX_CHECK(!app::load_tracing_settings({tracing_global, tracing_local},
+                                             tracing_local_bad)
+                      .has_value());
+    }
+
+    // Aggregate InvalidArgument when subsystems load but contain diagnostics.
+    {
+        write_text(metrics_local, R"({"core_mask":"x"})");
+        write_text(tracing_local, R"({"max_tracers":0})");
+        app::App_settings_paths aggregate_paths{};
+        aggregate_paths.metrics = {metrics_global, metrics_local};
+        aggregate_paths.tracing = {tracing_global, tracing_local};
+        app::App_settings out{};
+        const core::Status status = app::load_app_settings(aggregate_paths, out);
+        NX_CHECK(!status.has_value());
+        NX_CHECK(status.error() == core::ErrorCode::InvalidArgument);
+    }
+
     static_cast<void>(std::remove(metrics_global.c_str()));
     static_cast<void>(std::remove(metrics_local.c_str()));
     static_cast<void>(std::remove(tracing_global.c_str()));
@@ -401,11 +547,15 @@ void test_app_signals() {
     static Test_app int_app;
     NX_CHECK(int_app.initialize(app::App_settings{}).has_value());
     g_log_lines.clear();
-    std::jthread raiser{[] {
-        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    std::atomic<bool> int_running{false};
+    std::jthread raiser{[&int_running] {
+        while (!int_running.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        }
         static_cast<void>(::kill(::getpid(), SIGINT));
     }};
-    const app::App_stop_reason reason = int_app.run([] {
+    const app::App_stop_reason reason = int_app.run([&int_running] {
+        int_running.store(true, std::memory_order_release);
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
     });
     NX_CHECK(reason == app::App_stop_reason::Sigint);
@@ -420,11 +570,15 @@ void test_app_signals() {
 
     static Test_app term_app;
     NX_CHECK(term_app.initialize(app::App_settings{}).has_value());
-    std::jthread term_raiser{[] {
-        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    std::atomic<bool> term_running{false};
+    std::jthread term_raiser{[&term_running] {
+        while (!term_running.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        }
         static_cast<void>(::kill(::getpid(), SIGTERM));
     }};
-    const app::App_stop_reason term_reason = term_app.run([] {
+    const app::App_stop_reason term_reason = term_app.run([&term_running] {
+        term_running.store(true, std::memory_order_release);
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
     });
     NX_CHECK(term_reason == app::App_stop_reason::Sigterm);
@@ -450,11 +604,259 @@ void test_app_tick_allocation() {
     NX_CHECK(app.shutdown().has_value());
 }
 
+void test_app_settings_full_coverage() {
+    Env_guard interval_env{"NEXIGEN_METRICS_COLLECT_INTERVAL_NS"};
+    Env_guard metrics_mask_env{"NEXIGEN_METRICS_CORE_MASK"};
+    Env_guard trace_mask_env{"NEXIGEN_TRACING_CORE_MASK"};
+    Env_guard tracers_env{"NEXIGEN_TRACING_MAX_TRACERS"};
+    Env_guard spans_env{"NEXIGEN_TRACING_MAX_SPANS_PER_WINDOW"};
+    Env_guard window_env{"NEXIGEN_TRACING_WINDOW_NS"};
+    interval_env.clear(); metrics_mask_env.clear(); trace_mask_env.clear();
+    tracers_env.clear(); spans_env.clear(); window_env.clear();
+
+    const std::string base = unique_path("app_settings_full");
+    const std::string metrics_global = base + "_mg.json";
+    const std::string metrics_local = base + "_ml.json";
+    const std::string tracing_global = base + "_tg.json";
+    const std::string tracing_local = base + "_tl.json";
+
+    write_text(metrics_global,
+               R"({"collect_interval_ns":123456,"core_mask":3,)"
+               R"("max_meters":1,"max_counters":2,"max_gauges":3,)"
+               R"("max_statistics":4,"max_explicit_histograms":5,)"
+               R"("max_exponential_histograms":6})");
+    write_text(tracing_global,
+               R"({"core_mask":7,"max_tracers":64,)"
+               R"("max_spans_per_window":77,"window_ns":88})");
+    {
+        app::Metrics_settings metrics{};
+        NX_CHECK(app::load_metrics_settings({metrics_global, ""}, metrics).has_value());
+        NX_CHECK(metrics.options.collect_interval == std::chrono::nanoseconds{123456});
+        NX_CHECK(metrics.options.core_mask == 3ULL);
+        NX_CHECK(metrics.options.max_meters == 1U);
+        NX_CHECK(metrics.options.max_counters == 2U);
+        NX_CHECK(metrics.options.max_gauges == 3U);
+        NX_CHECK(metrics.options.max_statistics == 4U);
+        NX_CHECK(metrics.options.max_explicit_histograms == 5U);
+        NX_CHECK(metrics.options.max_exponential_histograms == 6U);
+        app::Tracing_settings tracing{};
+        NX_CHECK(app::load_tracing_settings({tracing_global, ""}, tracing).has_value());
+        NX_CHECK(tracing.options.core_mask == 7ULL);
+        NX_CHECK(tracing.options.max_tracers == 64U);
+        NX_CHECK(tracing.options.max_spans_per_window == 77ULL);
+        NX_CHECK(tracing.options.window_ns == 88ULL);
+    }
+
+    // Every metrics key wrong type -> diagnostics, values retained.
+    write_text(metrics_local,
+               R"({"collect_interval_ns":"x","core_mask":"x","max_meters":"x",)"
+               R"("max_counters":"x","max_gauges":"x","max_statistics":"x",)"
+               R"("max_explicit_histograms":"x","max_exponential_histograms":"x"})");
+    {
+        app::Metrics_settings metrics{};
+        NX_CHECK(!app::load_metrics_settings({metrics_global, metrics_local}, metrics)
+                      .has_value());
+        NX_CHECK(metrics.diagnostics.size() >= 8U);
+        NX_CHECK(metrics.options.collect_interval == std::chrono::nanoseconds{123456});
+    }
+
+    // Tracing invalid values: type errors, max_tracers 0/65, overflow.
+    write_text(tracing_local,
+               R"({"core_mask":"x","max_tracers":65,)"
+               R"("max_spans_per_window":"x","window_ns":"x"})");
+    {
+        app::Tracing_settings tracing{};
+        NX_CHECK(!app::load_tracing_settings({tracing_global, tracing_local}, tracing)
+                      .has_value());
+        NX_CHECK(tracing.diagnostics.size() >= 4U);
+    }
+    write_text(tracing_local, R"({"max_tracers":0})");
+    {
+        app::Tracing_settings tracing{};
+        NX_CHECK(!app::load_tracing_settings({tracing_global, tracing_local}, tracing)
+                      .has_value());
+    }
+    write_text(metrics_local,
+               R"({"collect_interval_ns":18446744073709551615})");
+    {
+        app::Metrics_settings metrics{};
+        NX_CHECK(!app::load_metrics_settings({metrics_global, metrics_local}, metrics)
+                      .has_value());
+    }
+
+    // Unreadable paths on both subsystems.
+    {
+        app::Metrics_settings metrics{};
+        const core::Status status = app::load_metrics_settings({"/tmp/opencode", ""}, metrics);
+        NX_CHECK(!status.has_value());
+        NX_CHECK(status.error() == core::ErrorCode::SystemError);
+        const core::Status local_metrics =
+            app::load_metrics_settings({metrics_global, "/tmp/opencode"}, metrics);
+        NX_CHECK(!local_metrics.has_value());
+        NX_CHECK(local_metrics.error() == core::ErrorCode::SystemError);
+        app::Tracing_settings tracing{};
+        const core::Status tracing_status =
+            app::load_tracing_settings({"", "/tmp/opencode"}, tracing);
+        NX_CHECK(!tracing_status.has_value());
+        NX_CHECK(tracing_status.error() == core::ErrorCode::SystemError);
+        const core::Status local_tracing =
+            app::load_tracing_settings({tracing_global, "/tmp/opencode"}, tracing);
+        NX_CHECK(!local_tracing.has_value());
+        NX_CHECK(local_tracing.error() == core::ErrorCode::SystemError);
+    }
+
+    // Environment: every variable, valid and invalid.
+    interval_env.set("50000000");
+    metrics_mask_env.set("9");
+    trace_mask_env.set("10");
+    tracers_env.set("32");
+    spans_env.set("100");
+    window_env.set("200");
+    {
+        app::Metrics_settings metrics{};
+        app::Tracing_settings tracing{};
+        NX_CHECK(app::load_metrics_settings({"", ""}, metrics).has_value());
+        NX_CHECK(app::load_tracing_settings({"", ""}, tracing).has_value());
+        NX_CHECK(metrics.options.collect_interval == std::chrono::nanoseconds{50'000'000});
+        NX_CHECK(metrics.options.core_mask == 9ULL);
+        NX_CHECK(tracing.options.core_mask == 10ULL);
+        NX_CHECK(tracing.options.max_tracers == 32U);
+        NX_CHECK(tracing.options.max_spans_per_window == 100ULL);
+        NX_CHECK(tracing.options.window_ns == 200ULL);
+    }
+    interval_env.set("x");
+    metrics_mask_env.set("x");
+    trace_mask_env.set("x");
+    tracers_env.set("65");
+    spans_env.set("x");
+    window_env.set("x");
+    {
+        app::Metrics_settings metrics{};
+        app::Tracing_settings tracing{};
+        NX_CHECK(!app::load_metrics_settings({"", ""}, metrics).has_value());
+        NX_CHECK(!app::load_tracing_settings({"", ""}, tracing).has_value());
+        NX_CHECK(metrics.diagnostics.size() >= 2U);
+        NX_CHECK(tracing.diagnostics.size() >= 4U);
+    }
+    interval_env.clear(); metrics_mask_env.clear(); trace_mask_env.clear();
+    tracers_env.clear(); spans_env.clear(); window_env.clear();
+
+    // Serialization of all four aggregate types.
+    app::App_settings aggregate{};
+    aggregate.metrics = app::Metrics_settings{};
+    aggregate.tracing = app::Tracing_settings{};
+    aggregate.logging = logging::Logging_settings{};
+    const std::string metrics_text = aggregate.metrics.to_string();
+    NX_CHECK(metrics_text.find("Metrics_settings") != std::string::npos);
+    NX_CHECK(std::format("{}", aggregate.metrics) == metrics_text);
+    const std::string tracing_text = aggregate.tracing.to_string();
+    NX_CHECK(tracing_text.find("Tracing_settings") != std::string::npos);
+    NX_CHECK(std::format("{}", aggregate.tracing) == tracing_text);
+    const app::App_settings_paths path_texts{
+        {"g-log", "l-log"}, {"g-met", "l-met"}, {"g-tra", "l-tra"}};
+    NX_CHECK(path_texts.to_string().find("g-met") != std::string::npos);
+    NX_CHECK(std::format("{}", path_texts).find("g-tra") != std::string::npos);
+    NX_CHECK(aggregate.to_string().find("App_settings") != std::string::npos);
+    NX_CHECK(std::format("{}", aggregate).find("Logging_settings") != std::string::npos);
+    nlohmann::json json;
+    app::to_json(json, aggregate);
+    NX_CHECK(json.contains("logging") && json.contains("metrics") && json.contains("tracing"));
+    app::to_json(json, path_texts);
+    NX_CHECK(json["metrics"]["global_file"] == "g-met");
+
+    // Aggregate worst status: clean logging + unreadable metrics.
+    app::App_settings_paths worst{};
+    worst.metrics.global_file = "/tmp/opencode";
+    app::App_settings loaded{};
+    const core::Status worst_status = app::load_app_settings(worst, loaded);
+    NX_CHECK(!worst_status.has_value());
+    NX_CHECK(worst_status.error() == core::ErrorCode::SystemError);
+
+    static_cast<void>(std::remove(metrics_global.c_str()));
+    static_cast<void>(std::remove(metrics_local.c_str()));
+    static_cast<void>(std::remove(tracing_global.c_str()));
+    static_cast<void>(std::remove(tracing_local.c_str()));
+}
+
+void test_app_failure_variants() {
+    static Fail_logger_app logger_fail;
+    NX_CHECK(!logger_fail.initialize(app::App_settings{}).has_value());
+    NX_CHECK(Fail_logger_app::current() == nullptr);
+    NX_CHECK(logger_fail.shutdown().has_value());
+
+    static Fail_trace_sink_app trace_fail;
+    NX_CHECK(!trace_fail.initialize(app::App_settings{}).has_value());
+    NX_CHECK(Fail_trace_sink_app::current() == nullptr);
+    NX_CHECK(trace_fail.shutdown().has_value());
+
+    static Fail_flush_app flush_fail;
+    NX_CHECK(flush_fail.initialize(app::App_settings{}).has_value());
+    const core::Status shutdown_status = flush_fail.shutdown();
+    NX_CHECK(!shutdown_status.has_value());
+    NX_CHECK(shutdown_status.error() == core::ErrorCode::SystemError);
+    NX_CHECK(Fail_flush_app::current() == nullptr);
+}
+
+void test_app_stop_and_mask() {
+    {
+        static Test_app first;
+        NX_CHECK(first.initialize(app::App_settings{}).has_value());
+        first.request_stop(app::App_stop_reason::None);
+        NX_CHECK(!first.stop_requested());
+        first.request_stop(app::App_stop_reason::Requested);
+        first.request_stop(app::App_stop_reason::Sigint);
+        NX_CHECK(first.stop_reason() == app::App_stop_reason::Requested);
+        NX_CHECK(first.shutdown().has_value());
+    }
+    {
+        static Test_app second;
+        NX_CHECK(second.initialize(app::App_settings{}).has_value());
+        second.request_stop(app::App_stop_reason::Sigint);
+        second.request_stop(app::App_stop_reason::Requested);
+        NX_CHECK(second.stop_reason() == app::App_stop_reason::Sigint);
+        NX_CHECK(second.shutdown().has_value());
+    }
+
+    static Test_app masked;
+    NX_CHECK(masked.initialize(app::App_settings{}).has_value());
+    std::atomic<bool> both_blocked{false};
+    std::jthread probe{[&] {
+        sigset_t current;
+        sigemptyset(&current);
+        if (::pthread_sigmask(SIG_BLOCK, nullptr, &current) == 0) {
+            both_blocked.store(::sigismember(&current, SIGINT) == 1 &&
+                                   ::sigismember(&current, SIGTERM) == 1,
+                               std::memory_order_release);
+        }
+    }};
+    probe.join();
+    NX_CHECK(both_blocked.load(std::memory_order_acquire));
+    NX_CHECK(masked.shutdown().has_value());
+}
+
+void test_app_sequential_current() {
+    static Test_app first;
+    static Test_app second;
+    NX_CHECK(first.initialize(app::App_settings{}).has_value());
+    NX_CHECK(Test_app::current() == &first);
+    NX_CHECK(first.shutdown().has_value());
+    NX_CHECK(Test_app::current() == nullptr);
+    NX_CHECK(second.initialize(app::App_settings{}).has_value());
+    NX_CHECK(Test_app::current() == &second);
+    NX_CHECK(second.shutdown().has_value());
+    NX_CHECK(Test_app::current() == nullptr);
+    NX_CHECK(!second.initialize(app::App_settings{}).has_value());
+}
+
 int main() {
     run_suite("stop_reason", test_stop_reason);
     run_suite("settings", test_settings_loaders);
+    run_suite("settings_full", test_app_settings_full_coverage);
     run_suite("lifecycle", test_app_lifecycle);
     run_suite("bool_tick_failure", test_app_bool_tick_and_failure);
+    run_suite("failure_variants", test_app_failure_variants);
+    run_suite("stop_and_mask", test_app_stop_and_mask);
+    run_suite("sequential_current", test_app_sequential_current);
     run_suite("signals", test_app_signals);
     run_suite("tick_allocation", test_app_tick_allocation);
     std::printf("total: %d checks, %d failed\n", g_checks, g_failures);

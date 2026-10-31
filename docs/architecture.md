@@ -121,6 +121,11 @@ cmake --build build/coverage --target coverage
 module via `cmake/coverage_report.py` (stdlib only). It is mutually exclusive with
 ASan/TSan.
 
+Current unit-test line coverage is **96.1%** (6 139 / 6 387 lines); the project
+expectation is **≥95%** (`-DNEXIGEN_COVERAGE_FAIL_UNDER=95` in CI). Remaining
+uncovered lines are concentrated in platform-specific calibration branches, sink
+open/read failure paths and `std::to_chars` error arms that no valid input reaches.
+
 All four modes must report `100% tests passed` with no sanitizer diagnostics.
 TSan and ASan are mutually exclusive. Tests are zero-dependency harnesses
 (`NX_CHECK` / `run_suite`, arena `operator new` counter + `mallinfo2` delta for

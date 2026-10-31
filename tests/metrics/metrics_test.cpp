@@ -56,6 +56,7 @@
 #include <nexigen/metrics/json_file_metric_sink.hpp>
 #include <nexigen/metrics/meter.hpp>
 #include <nexigen/metrics/metric_provider.hpp>
+#include <nexigen/metrics/detail/json_writer.hpp>
 #include <nexigen/metrics/metric_snapshot.hpp>
 #include <nexigen/metrics/null_metric_sink.hpp>
 #include <nexigen/metrics/policy_enums.hpp>
@@ -2493,6 +2494,355 @@ void test_registration_race() {
     NX_CHECK((*exponential_hist)->read().count == 1U);
 }
 
+// --- extended sink/writer coverage (change improve-test-coverage):
+// every MetricKind, escaping classes, numeric boundaries, batch edge cases.
+void test_writer_bounds_full() {
+    char small[3]{};
+    metrics::detail::Fixed_writer writer{small, sizeof small};
+    NX_CHECK(writer.append_char('a'));
+    NX_CHECK(writer.append_sv("bc"));
+    NX_CHECK(!writer.append_char('d')); // full
+    NX_CHECK(!writer.ok());
+    NX_CHECK(!writer.append_sv("x"));   // already overflowed
+    NX_CHECK(!writer.append_u64(1));
+    NX_CHECK(!writer.append_i64(-1));
+    NX_CHECK(!writer.append_double(1.0));
+    NX_CHECK(!writer.append_escaped("x"));
+
+    char buffer[128]{};
+    metrics::detail::Fixed_writer all{buffer, sizeof buffer};
+    NX_CHECK(all.append_u64(std::numeric_limits<std::uint64_t>::max()));
+    NX_CHECK(all.append_i64(std::numeric_limits<std::int64_t>::min()));
+    NX_CHECK(all.append_double(-0.0));
+    NX_CHECK(all.append_escaped("q\"\\\b\f\n\r\t\x02 and UTF-8"));
+    NX_CHECK(all.ok());
+
+    char tiny[4]{};
+    metrics::detail::Fixed_writer escaped{tiny, sizeof tiny};
+    NX_CHECK(!escaped.append_escaped("\x01")); // escape expansion overflows
+    NX_CHECK(!escaped.ok());
+}
+
+void test_sink_kind_matrix() {
+    auto make_batch = [](metrics::MetricRecord* records, std::uint32_t count) {
+        metrics::MetricBatchSnapshot batch{};
+        batch.records = records;
+        batch.record_count = count;
+        batch.record_capacity = count;
+        return batch;
+    };
+
+    metrics::MetricRecord records[6]{};
+    for (auto& record : records) {
+        std::snprintf(record.identity.meter_name, sizeof(record.identity.meter_name), "meter");
+        std::snprintf(record.identity.meter_version, sizeof(record.identity.meter_version), "1.0");
+        std::snprintf(record.identity.metric_name, sizeof(record.identity.metric_name), "metric");
+    }
+    records[0].kind = metrics::MetricKind::Counter;
+    records[0].scalar.counter = std::numeric_limits<std::uint64_t>::max();
+    records[1].kind = metrics::MetricKind::Gauge;
+    records[1].scalar.gauge_int = std::numeric_limits<std::int64_t>::min();
+    records[1].scalar.is_double = false;
+    records[2].kind = metrics::MetricKind::Gauge;
+    records[2].scalar.gauge_double = 1.25;
+    records[2].scalar.is_double = true;
+    records[3].kind = metrics::MetricKind::DescriptiveStatistics;
+    records[3].statistics = metrics::StatisticsSnapshot{5, -1.0, 2.0, 0.5, 1.5, 0, 0};
+    records[4].kind = metrics::MetricKind::ExplicitHistogram;
+    records[4].histogram.count = 4;
+    records[4].histogram.sum = 10.0;
+    records[4].histogram.min = 1.0;
+    records[4].histogram.max = 4.0;
+    records[4].histogram.p50 = 2.0;
+    records[4].histogram.p90 = 3.0;
+    records[4].histogram.p99 = 4.0;
+    records[4].histogram.p999 = 4.0;
+    records[5].kind = metrics::MetricKind::ExponentialHistogram;
+    records[5].histogram = records[4].histogram;
+    const metrics::MetricBatchSnapshot batch = make_batch(records, 6);
+
+    char path[] = "/tmp/nexigen_metrics_kinds_XXXXXX";
+    const int made = ::mkstemp(path);
+    NX_CHECK(made >= 0);
+    ::close(made);
+    {
+        metrics::JsonFileMetricSink sink{
+            metrics::JsonFileMetricSink_config{std::string(path), false}};
+        NX_CHECK(sink.is_open());
+        NX_CHECK(sink.on_batch(batch).has_value());
+        NX_CHECK(sink.flush().has_value());
+        std::ifstream input(path);
+        std::string line;
+        NX_CHECK(static_cast<bool>(std::getline(input, line)));
+        const nlohmann::json parsed = nlohmann::json::parse(line, nullptr, false);
+        NX_CHECK(!parsed.is_discarded());
+        NX_CHECK(parsed["records"].size() == 6U);
+        NX_CHECK(parsed["records"][0]["value"] == std::numeric_limits<std::uint64_t>::max());
+        NX_CHECK(parsed["records"][3].contains("std"));
+        NX_CHECK(parsed["records"][4].contains("p999"));
+    }
+
+    // Escaping classes in every escaped field.
+    metrics::MetricRecord escaped[1]{};
+    std::snprintf(escaped[0].identity.meter_name, sizeof(escaped[0].identity.meter_name),
+                  "m\"\\\b\f\n\r\t\x02\x1f");
+    std::snprintf(escaped[0].identity.meter_version, sizeof(escaped[0].identity.meter_version),
+                  "v-Cyr");
+    std::snprintf(escaped[0].identity.metric_name, sizeof(escaped[0].identity.metric_name),
+                  "Кириллица");
+    escaped[0].kind = metrics::MetricKind::Counter;
+    escaped[0].scalar.counter = 1;
+    {
+        metrics::JsonFileMetricSink sink{
+            metrics::JsonFileMetricSink_config{std::string(path), false}};
+        NX_CHECK(sink.on_batch(make_batch(escaped, 1)).has_value());
+        NX_CHECK(sink.flush().has_value());
+        std::ifstream input(path);
+        std::string line;
+        NX_CHECK(static_cast<bool>(std::getline(input, line)));
+        const nlohmann::json parsed = nlohmann::json::parse(line, nullptr, false);
+        NX_CHECK(!parsed.is_discarded());
+        NX_CHECK(parsed["records"][0]["metric"] == "Кириллица");
+    }
+
+    // Batch edge cases: null records, empty batch, overflow (BufferFull).
+    {
+        metrics::JsonFileMetricSink sink{
+            metrics::JsonFileMetricSink_config{std::string(path), false}};
+        metrics::MetricBatchSnapshot null_batch{};
+        null_batch.records = nullptr;
+        null_batch.record_count = 1;
+        NX_CHECK(sink.on_batch(null_batch).has_value());
+        NX_CHECK(sink.on_batch(make_batch(records, 0)).has_value());
+
+        metrics::MetricRecord many[120]{};
+        for (auto& record : many) {
+            record.kind = metrics::MetricKind::Counter;
+            std::memset(record.identity.meter_name, 'a', sizeof(record.identity.meter_name) - 1U);
+            record.identity.meter_name[sizeof(record.identity.meter_name) - 1U] = '\0';
+            record.scalar.counter = 1;
+        }
+        const Status overflow = sink.on_batch(make_batch(many, 120));
+        NX_CHECK(!overflow.has_value());
+        NX_CHECK(overflow.error() == ErrorCode::BufferFull);
+    }
+
+    // Console sink covers the statistics/histogram branches and errors.
+    int fds[2]{-1, -1};
+    NX_CHECK(::pipe(fds) == 0);
+    {
+        metrics::ConsoleMetricSink console{fds[1]};
+        NX_CHECK(console.on_batch(batch).has_value());
+        metrics::ConsoleMetricSink broken{-1};
+        NX_CHECK(!broken.on_batch(batch).has_value());
+        NX_CHECK(broken.flush().has_value()); // console flushes are no-ops
+        ::close(fds[1]);
+        char buffer[8192];
+        const ssize_t bytes = ::read(fds[0], buffer, sizeof(buffer) - 1U);
+        NX_CHECK(bytes > 0);
+        if (bytes > 0) {
+            buffer[bytes] = '\0';
+            const std::string_view text(buffer, static_cast<std::size_t>(bytes));
+            NX_CHECK(text.find("DescriptiveStatistics") != std::string_view::npos);
+            NX_CHECK(text.find("ExplicitHistogram") != std::string_view::npos);
+            NX_CHECK(text.find("p999") != std::string_view::npos);
+        }
+        ::close(fds[0]);
+    }
+
+    // Failed open: on_batch and flush both report SystemError.
+    {
+        metrics::JsonFileMetricSink broken{
+            metrics::JsonFileMetricSink_config{"/nonexistent-nexigen/x.jsonl", false}};
+        NX_CHECK(!broken.is_open());
+        NX_CHECK(!broken.on_batch(batch).has_value());
+        NX_CHECK(!broken.flush().has_value());
+    }
+    ::unlink(path);
+}
+
+// --- snapshot serialization matrix (change improve-test-coverage):
+// every value type round-trips through to_json/from_json and to_string.
+void test_snapshot_serialization_full() {
+    metrics::MetricIdentity identity{};
+    std::snprintf(identity.meter_name, sizeof(identity.meter_name), "meter");
+    std::snprintf(identity.meter_version, sizeof(identity.meter_version), "1.0");
+    std::snprintf(identity.metric_name, sizeof(identity.metric_name), "metric");
+    {
+        nlohmann::json json;
+        metrics::to_json(json, identity);
+        metrics::MetricIdentity back{};
+        metrics::from_json(json, back);
+        NX_CHECK(std::string_view(back.meter_name) == "meter");
+        NX_CHECK(identity.to_string().find("meter") != std::string::npos);
+        NX_CHECK(metrics::to_string(identity) == identity.to_string());
+    }
+    {
+        metrics::ScalarValue value{};
+        value.counter = 7;
+        value.gauge_int = -3;
+        value.gauge_double = 1.5;
+        value.is_double = true;
+        nlohmann::json json;
+        metrics::to_json(json, value);
+        metrics::ScalarValue back{};
+        metrics::from_json(json, back);
+        NX_CHECK(back.is_double == true);
+        NX_CHECK(back.gauge_double == 1.5);
+        NX_CHECK(value.to_string().find("double=") != std::string::npos);
+        value.is_double = false;
+        NX_CHECK(value.to_string().find("int64=") != std::string::npos);
+    }
+    {
+        metrics::StatisticsSnapshot stats{5, -1.0, 2.0, 0.5, 1.5, 2, 3};
+        nlohmann::json json;
+        metrics::to_json(json, stats);
+        metrics::StatisticsSnapshot back{};
+        metrics::from_json(json, back);
+        NX_CHECK(back.count == 5U && back.ignored_samples == 2U);
+        NX_CHECK(stats.to_string().find("ignored=2") != std::string::npos);
+    }
+    {
+        metrics::HistogramSnapshot histogram{};
+        histogram.count = 4;
+        histogram.sum = 10.0;
+        histogram.min = 1.0;
+        histogram.max = 4.0;
+        histogram.zero_count = 1;
+        histogram.effective_scale = 2;
+        histogram.p50 = 2.0;
+        histogram.p90 = 3.0;
+        histogram.p99 = 4.0;
+        histogram.p999 = 4.0;
+        histogram.bucket_count = 2;
+        histogram.buckets_lower[0] = 0.0;
+        histogram.buckets_lower[1] = 2.0;
+        histogram.buckets_count[0] = 2;
+        histogram.buckets_count[1] = 2;
+        nlohmann::json json;
+        metrics::to_json(json, histogram);
+        metrics::HistogramSnapshot back{};
+        metrics::from_json(json, back);
+        NX_CHECK(back.bucket_count == 2U);
+        NX_CHECK(histogram.to_string().find("p999=4") != std::string::npos);
+    }
+    {
+        metrics::MetricRecord record{};
+        record.identity = identity;
+        record.kind = metrics::MetricKind::Counter;
+        record.scalar.counter = 9;
+        nlohmann::json json;
+        metrics::to_json(json, record);
+        metrics::MetricRecord back{};
+        metrics::from_json(json, back);
+        NX_CHECK(back.kind == metrics::MetricKind::Counter);
+        NX_CHECK(record.to_string().find("Counter") != std::string::npos);
+        record.kind = metrics::MetricKind::DescriptiveStatistics;
+        record.statistics.count = 1;
+        NX_CHECK(record.to_string().find("StatisticsSnapshot") != std::string::npos);
+        record.kind = metrics::MetricKind::ExplicitHistogram;
+        NX_CHECK(record.to_string().find("HistogramSnapshot") != std::string::npos);
+    }
+    {
+        metrics::MetricRecord records[1]{};
+        records[0].identity = identity;
+        metrics::MetricBatchSnapshot batch{};
+        batch.records = records;
+        batch.record_count = 1;
+        batch.record_capacity = 1;
+        batch.utc_ns = 42;
+        nlohmann::json json;
+        metrics::to_json(json, batch);
+        metrics::MetricBatchSnapshot back{};
+        back.records = records;
+        back.record_capacity = 1;
+        metrics::from_json(json, back);
+        NX_CHECK(back.record_count == 1U);
+        NX_CHECK(batch.to_string().find("record_count") == std::string::npos);
+        NX_CHECK(batch.to_string().find("records=1") != std::string::npos);
+    }
+    {
+        metrics::MetricProvider_config config{};
+        config.max_counters = 12;
+        nlohmann::json json;
+        metrics::to_json(json, config);
+        metrics::MetricProvider_config back{};
+        metrics::from_json(json, back);
+        NX_CHECK(back.max_counters == 12U);
+        NX_CHECK(config.to_string().find("max_counters=12") != std::string::npos);
+    }
+    // Hostile shapes leave targets untouched.
+    {
+        metrics::MetricIdentity keep{};
+        std::snprintf(keep.meter_name, sizeof(keep.meter_name), "keep");
+        metrics::from_json(nlohmann::json(42), keep);
+        NX_CHECK(std::string_view(keep.meter_name) == "keep");
+        metrics::MetricProvider_config config_keep{};
+        config_keep.max_counters = 1;
+        metrics::from_json(nlohmann::json::array(), config_keep);
+        NX_CHECK(config_keep.max_counters == 1U);
+    }
+    // Wrong-typed fields on every value type (readers are non-throwing).
+    {
+        metrics::MetricIdentity identity_keep{};
+        std::snprintf(identity_keep.meter_name, sizeof(identity_keep.meter_name), "keep");
+        metrics::from_json(nlohmann::json{{"meter_name", 1},
+                                          {"meter_version", "v"},
+                                          {"metric_name", "m"}},
+                           identity_keep);
+        NX_CHECK(std::string_view(identity_keep.meter_name) == "keep");
+        metrics::ScalarValue scalar_keep{};
+        scalar_keep.counter = 3;
+        metrics::from_json(nlohmann::json{{"counter", "x"}, {"gauge_int", "x"}},
+                           scalar_keep);
+        NX_CHECK(scalar_keep.counter == 3U);
+        metrics::StatisticsSnapshot stats_keep{};
+        stats_keep.count = 2;
+        metrics::from_json(nlohmann::json{{"count", "x"}, {"min", "x"}}, stats_keep);
+        NX_CHECK(stats_keep.count == 2U);
+        metrics::HistogramSnapshot hist_keep{};
+        hist_keep.count = 2;
+        metrics::from_json(nlohmann::json{{"count", "x"}, {"buckets", "x"}}, hist_keep);
+        NX_CHECK(hist_keep.count == 2U);
+        metrics::MetricRecord record_keep{};
+        record_keep.kind = metrics::MetricKind::Counter;
+        metrics::from_json(nlohmann::json{{"kind", "Counter"},
+                                          {"scalar", "x"}},
+                           record_keep);
+        NX_CHECK(record_keep.kind == metrics::MetricKind::Counter);
+        metrics::MetricBatchSnapshot batch_keep{};
+        batch_keep.record_count = 1;
+        metrics::from_json(nlohmann::json{{"record_count", "x"}}, batch_keep);
+        NX_CHECK(batch_keep.record_count == 1U);
+        metrics::MetricProvider_config config_keep2{};
+        config_keep2.max_gauges = 4;
+        metrics::from_json(nlohmann::json{{"max_gauges", "x"}}, config_keep2);
+        NX_CHECK(config_keep2.max_gauges == 4U);
+    }
+    // to_json for the remaining record kinds and free to_string helpers.
+    {
+        metrics::MetricRecord record{};
+        record.identity = identity;
+        record.kind = metrics::MetricKind::Gauge;
+        record.scalar.is_double = true;
+        record.scalar.gauge_double = 2.0;
+        nlohmann::json json;
+        metrics::to_json(json, record);
+        NX_CHECK(json["kind"] == "Gauge");
+        record.kind = metrics::MetricKind::DescriptiveStatistics;
+        record.statistics.count = 1;
+        metrics::to_json(json, record);
+        NX_CHECK(json["kind"] == "DescriptiveStatistics");
+        record.kind = metrics::MetricKind::ExponentialHistogram;
+        metrics::to_json(json, record);
+        NX_CHECK(json["kind"] == "ExponentialHistogram");
+        metrics::MetricBatchSnapshot batch{};
+        NX_CHECK(!metrics::to_string(batch).empty());
+        NX_CHECK(metrics::to_string(record) == record.to_string());
+        NX_CHECK(metrics::to_string(identity) == identity.to_string());
+    }
+}
+
 } // namespace
 
 int main()
@@ -2519,6 +2869,9 @@ int main()
     run_suite("registry_zero_alloc", test_registry_zero_alloc);
     run_suite("sinks_null_console", test_sinks_null_console);
     run_suite("sinks_json", test_sinks_json);
+    run_suite("writer_bounds_full", test_writer_bounds_full);
+    run_suite("sink_kind_matrix", test_sink_kind_matrix);
+    run_suite("snapshot_serialization_full", test_snapshot_serialization_full);
     run_suite("provider_harvester", test_provider_harvester);
     run_suite("registration_race", test_registration_race);
     run_suite("reset_window_race", test_reset_window_race);
