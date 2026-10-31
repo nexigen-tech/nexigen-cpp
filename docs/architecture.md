@@ -109,6 +109,18 @@ cmake -B build/asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_ASAN=ON
 cmake --build <dir> && ctest --test-dir <dir> --output-on-failure
 ```
 
+Coverage instrumentation and the aggregated report target:
+
+```bash
+cmake -B build/coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_COVERAGE=ON
+cmake --build build/coverage --target coverage
+# optional gate: -DNEXIGEN_COVERAGE_FAIL_UNDER=85
+```
+
+`coverage` cleans `.gcda`, runs the unit-test binaries, and prints line coverage per
+module via `cmake/coverage_report.py` (stdlib only). It is mutually exclusive with
+ASan/TSan.
+
 All four modes must report `100% tests passed` with no sanitizer diagnostics.
 TSan and ASan are mutually exclusive. Tests are zero-dependency harnesses
 (`NX_CHECK` / `run_suite`, arena `operator new` counter + `mallinfo2` delta for

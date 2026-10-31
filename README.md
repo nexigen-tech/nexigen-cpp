@@ -44,6 +44,20 @@ ctest --test-dir build/asan --output-on-failure
 All three modes must report `100% tests passed`. TSan and ASan are mutually exclusive —
 enabling both at once is a configure-time error.
 
+### Coverage target
+
+`NEXIGEN_ENABLE_COVERAGE=ON` instruments every target with `--coverage` and adds a
+`coverage` custom target (GCC/Clang, unit tests only, no gcovr/lcov required):
+
+```bash
+cmake -B build/coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_COVERAGE=ON
+cmake --build build/coverage --target coverage
+```
+
+The target cleans old `.gcda` counters, runs the seven `nexigen_*_tests` binaries and
+prints line coverage per module. Add `-DNEXIGEN_COVERAGE_FAIL_UNDER=85` to fail the
+target below the requested percentage. Coverage cannot be combined with ASan/TSan.
+
 ## 📡 `nexigen::core` API
 
 Header-only, C++23, no exceptions/RTTI, no heap allocation on hot paths. Link the

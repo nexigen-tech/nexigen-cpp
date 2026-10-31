@@ -15,6 +15,15 @@ include(CompilerWarnings)
 include(Optimizations)
 include(Sanitizers)
 
+# Опция покрытия: инструментирует ВСЕ цели и добавляет target `coverage`.
+option(NEXIGEN_ENABLE_COVERAGE "Instrument the build with GCC/Clang --coverage" OFF)
+set(NEXIGEN_COVERAGE_FAIL_UNDER "0" CACHE STRING
+    "Fail the coverage target below this line-coverage percentage (0 = no gate)")
+
+if(NEXIGEN_ENABLE_COVERAGE AND (NEXIGEN_ENABLE_ASAN OR NEXIGEN_ENABLE_TSAN))
+    message(FATAL_ERROR "❌ Coverage cannot be combined with ASan/TSan in one build.")
+endif()
+
 # Создаем единую интерфейсную цель с правилами компиляции
 add_library(nexigen_options INTERFACE)
 
@@ -22,6 +31,15 @@ add_library(nexigen_options INTERFACE)
 nexigen_set_warnings(nexigen_options)
 nexigen_set_optimizations(nexigen_options)
 nexigen_set_sanitizers(nexigen_options)
+
+if(NEXIGEN_ENABLE_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "❌ NEXIGEN_ENABLE_COVERAGE requires GCC or Clang.")
+    endif()
+    message(STATUS "📊 Coverage instrumentation enabled (--coverage)")
+    target_compile_options(nexigen_options INTERFACE --coverage)
+    target_link_options(nexigen_options INTERFACE --coverage)
+endif()
 
 # Настраиваем пути к заголовочным файлам
 target_include_directories(nexigen_options INTERFACE
@@ -256,6 +274,42 @@ endif()
 
 if(NEXIGEN_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+# =============================================================================
+# Target `coverage`: очищает счётчики, прогоняет unit-тесты и печатает
+# line-coverage по модулям через gcov JSON. Требует NEXIGEN_ENABLE_COVERAGE=ON
+# и NEXIGEN_BUILD_TESTS=ON; внешние gcovr/lcov не нужны.
+# =============================================================================
+if(NEXIGEN_ENABLE_COVERAGE)
+    if(NOT NEXIGEN_BUILD_TESTS)
+        message(FATAL_ERROR "❌ NEXIGEN_ENABLE_COVERAGE requires NEXIGEN_BUILD_TESTS=ON.")
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    find_program(GCOV_EXECUTABLE gcov REQUIRED)
+
+    add_custom_target(coverage
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/coverage_report.py
+                --clean-only --build-dir ${CMAKE_BINARY_DIR}
+        COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR}
+                --output-on-failure -R "^nexigen_.*_tests$"
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/coverage_report.py
+                --build-dir ${CMAKE_BINARY_DIR}
+                --source-dir ${CMAKE_CURRENT_SOURCE_DIR}
+                --gcov ${GCOV_EXECUTABLE}
+                --fail-under ${NEXIGEN_COVERAGE_FAIL_UNDER}
+        DEPENDS
+            nexigen_core_tests
+            nexigen_chrono_tests
+            nexigen_logging_tests
+            nexigen_metrics_tests
+            nexigen_tracing_tests
+            nexigen_diagnostics_tests
+            nexigen_app_tests
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        USES_TERMINAL
+        VERBATIM
+        COMMENT "Running unit tests under coverage and aggregating gcov data")
 endif()
 
 message(STATUS "⚡ nexigen-cpp configured [Build type: ${CMAKE_BUILD_TYPE}]")
