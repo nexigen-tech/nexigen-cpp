@@ -13,6 +13,7 @@ function(nexigen_add_example name source target)
 endfunction()
 
 add_subdirectory(core)
+add_subdirectory(chrono)
 add_subdirectory(logging)
 add_subdirectory(metrics)
 add_subdirectory(tracing)

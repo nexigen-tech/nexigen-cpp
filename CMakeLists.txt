@@ -92,10 +92,15 @@ target_compile_definitions(nexigen_core INTERFACE $<$<PLATFORM_ID:Linux>:_POSIX_
 
 # =============================================================================
 # nexigen::chrono — time primitives экосистемы: монотонный Timestamp, калиб-
-# рованный stamp source, UTC-форматирование. Публичные заголовки в include/,
-# холодные юниты (калибровка со сном, civil-time форматирование) компилируются
-# в src/chrono/. Горячий путь остаётся inline в заголовках.
+# рованный stamp source, UTC-форматирование и служба времени (ChronoProvider +
+#  сенки + настройки). Публичные заголовки в include/, холодные юниты
+#  (калибровка, сенки, сериализация, провайдер, загрузчик настроек) в
+#  src/chrono/. Горячий путь остаётся inline в заголовках.
+# _GNU_SOURCE нужен cpu_set_t/pthread_setaffinity_np; потоки — для фонового
+# воркера службы (std::jthread).
 # =============================================================================
+find_package(Threads REQUIRED)
+
 file(GLOB NEXIGEN_CHRONO_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/chrono/*.cpp")
 
 add_library(nexigen_chrono STATIC ${NEXIGEN_CHRONO_SOURCES})
@@ -107,8 +112,10 @@ target_include_directories(nexigen_chrono PUBLIC
 )
 # Флаги/-Werror/санитайзеры, cxx_std_23 и _POSIX_C_SOURCE приходят транзитивно
 # от nexigen_core (INTERFACE -> nexigen_options): chrono живёт на error-модели
-# core (Result/Status), своих компиляторных настроек у него нет.
-target_link_libraries(nexigen_chrono PUBLIC nexigen_core)
+# core (Result/Status). _GNU_SOURCE — для аффинности воркера; Threads — для
+# фонового std::jthread службы.
+target_compile_definitions(nexigen_chrono PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+target_link_libraries(nexigen_chrono PUBLIC nexigen_core PRIVATE Threads::Threads)
 
 # =============================================================================
 # nexigen::logging — компилируемая библиотека: публичные заголовки в include/,
