@@ -2,7 +2,7 @@
 //
 // Demonstrates the full base-class surface:
 //   1. Three per-subsystem settings pairs loaded through load_app_settings.
-//   2. App::initialize() wiring logger + metric/tracing providers.
+//   2. Infrastructure::initialize() wiring logger + metric/tracing providers.
 //   3. app.logger(), app.meter() and app.tracer_for() in application code.
 //   4. A graceful SIGINT stop (raised from a helper thread).
 //   5. shutdown() flushing everything and logging the stop reason once.
@@ -20,7 +20,7 @@
 #include <signal.h>
 #include <unistd.h>
 
-#include <nexigen/app/app.hpp>
+#include <nexigen/app/infrastructure.hpp>
 #include <nexigen/app/app_settings.hpp>
 #include <nexigen/logging/composite_logger.hpp>
 #include <nexigen/logging/console_logger.hpp>
@@ -53,15 +53,13 @@ using Demo_metrics_sink =
 using Demo_trace_sink =
     tracing::CompositeTraceSink<tracing::ConsoleTraceSink, tracing::JsonFileTraceSink>;
 
-class Demo_app;
+struct Demo_policy {
+    using Logger = Demo_logger;
+    using Metrics_sink = Demo_metrics_sink;
+    using Trace_sink = Demo_trace_sink;
 
-using Demo_base =
-    app::App<Demo_app, Demo_logger, Demo_metrics_sink, Demo_trace_sink, 256, 8>;
-
-class Demo_app final : public Demo_base {
-public:
-    [[nodiscard]] core::Status emplace_logger(
-        std::optional<Demo_logger>& out,
+    static core::Status emplace_logger(
+        std::optional<Logger>& out,
         const logging::Logging_settings& settings) noexcept {
         out.emplace();
         core::Status status =
@@ -84,8 +82,8 @@ public:
         return {};
     }
 
-    [[nodiscard]] core::Status emplace_metrics_sink(
-        std::optional<Demo_metrics_sink>& out,
+    static core::Status emplace_metrics_sink(
+        std::optional<Metrics_sink>& out,
         const app::Metrics_settings&) noexcept {
         out.emplace(metrics::ConsoleMetricSink{},
                     metrics::JsonFileMetricSink{metrics::JsonFileMetricSink_config{
@@ -93,8 +91,8 @@ public:
         return {};
     }
 
-    [[nodiscard]] core::Status emplace_trace_sink(
-        std::optional<Demo_trace_sink>& out,
+    static core::Status emplace_trace_sink(
+        std::optional<Trace_sink>& out,
         const app::Tracing_settings&) noexcept {
         out.emplace(tracing::ConsoleTraceSink{1},
                     tracing::JsonFileTraceSink{tracing::JsonFileTraceSink_config{
@@ -188,17 +186,20 @@ int main() {
         return fail("failed to load app settings");
     }
 
-    // App owns multi-megabyte providers: static storage, never the stack.
-    static Demo_app application;
-    if (!application.initialize(settings).has_value()) {
-        return fail("App::initialize failed");
+    auto created = app::make_infrastructure<Demo_policy, 256, 8>();
+    if (!created.has_value()) {
+        return fail("make_infrastructure failed");
+    }
+    auto infra = std::move(*created);
+    if (!infra->initialize(settings).has_value()) {
+        return fail("Infrastructure::initialize failed");
     }
 
     // --- logger access ----------------------------------------------------
-    application.logger().info("application started from file settings");
+    infra->logger().info("application started from file settings");
 
     // --- metric factory ---------------------------------------------------
-    const auto meter = application.meter("demo", "1.0");
+    const auto meter = infra->meter("demo", "1.0");
     if (!meter.has_value()) {
         return fail("app.meter failed");
     }
@@ -209,7 +210,7 @@ int main() {
     }
 
     // --- tracer factory ---------------------------------------------------
-    const auto tracer = application.tracer_for("demo.loop");
+    const auto tracer = infra->tracer_for("demo.loop");
     if (!tracer.has_value()) {
         return fail("app.tracer_for failed");
     }
@@ -221,20 +222,20 @@ int main() {
     }};
 
     std::uint64_t tick_count = 0;
-    const app::App_stop_reason reason = application.run([&] {
+    const app::Infrastructure_stop_reason reason = infra->run([&] {
         (*ticks)->inc();
         ++tick_count;
-        application.logger().debug("tick {}", tick_count);
+        infra->logger().debug("tick {}", tick_count);
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
     });
     static_cast<void>(loop_span.set_attribute("ticks", static_cast<std::int64_t>(tick_count)));
     static_cast<void>(loop_span.end());
     signal_thread.join();
 
-    if (reason != app::App_stop_reason::Sigint) {
+    if (reason != app::Infrastructure_stop_reason::Sigint) {
         return fail("run() did not return Sigint");
     }
-    if (!application.shutdown().has_value()) {
+    if (!infra->shutdown().has_value()) {
         return fail("shutdown reported a flush failure");
     }
     if (tick_count == 0U) {

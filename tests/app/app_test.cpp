@@ -1,7 +1,7 @@
 // nexigen::app tests — zero-dependency harness (same NX_CHECK/run_suite
 // style as the other modules), change add-app-class.
 //
-// Covers the stop-reason contract, per-subsystem settings loaders, the App
+// Covers the stop-reason contract, per-subsystem settings loaders, the Infrastructure
 // lifecycle (initialize/run/shutdown/current), the metric and tracer factory
 // accessors, rollback on a failing hook, and real SIGINT/SIGTERM delivery.
 #include <atomic>
@@ -24,9 +24,9 @@
 #include <unistd.h>
 #include <malloc.h>
 
-#include <nexigen/app/app.hpp>
+#include <nexigen/app/infrastructure.hpp>
 #include <nexigen/app/app_settings.hpp>
-#include <nexigen/app/app_stop_reason.hpp>
+#include <nexigen/app/infrastructure_stop_reason.hpp>
 #include <nexigen/metrics/null_metric_sink.hpp>
 #include <nexigen/tracing/null_trace_sink.hpp>
 
@@ -118,128 +118,122 @@ public:
 
 static_assert(logging::concepts::Logger<Flush_fail_logger>);
 
-class Test_app;
-using Test_app_base =
-    app::App<Test_app, Capture_logger, metrics::NullMetricSink,
-             tracing::NullTraceSink, 64, 4>;
+struct Test_policy {
+    using Logger = Capture_logger;
+    using Metrics_sink = metrics::NullMetricSink;
+    using Trace_sink = tracing::NullTraceSink;
 
-class Test_app final : public Test_app_base {
-public:
-    [[nodiscard]] core::Status emplace_logger(
-        std::optional<Capture_logger>& out,
-        const logging::Logging_settings&) noexcept {
+    static core::Status emplace_logger(std::optional<Logger>& out,
+                                       const logging::Logging_settings&) noexcept {
         out.emplace();
         return {};
     }
-    [[nodiscard]] core::Status emplace_metrics_sink(
-        std::optional<metrics::NullMetricSink>& out,
-        const app::Metrics_settings&) noexcept {
+    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
+                                             const app::Metrics_settings&) noexcept {
         out.emplace();
         return {};
     }
-    [[nodiscard]] core::Status emplace_trace_sink(
-        std::optional<tracing::NullTraceSink>& out,
-        const app::Tracing_settings&) noexcept {
+    static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
+                                           const app::Tracing_settings&) noexcept {
         out.emplace();
         return {};
     }
 };
 
-class Failing_app;
-using Failing_app_base =
-    app::App<Failing_app, Capture_logger, metrics::NullMetricSink,
-             tracing::NullTraceSink, 64, 4>;
+struct Fail_logger_policy {
+    using Logger = Capture_logger;
+    using Metrics_sink = metrics::NullMetricSink;
+    using Trace_sink = tracing::NullTraceSink;
 
-class Failing_app final : public Failing_app_base {
-public:
-    [[nodiscard]] core::Status emplace_logger(
-        std::optional<Capture_logger>& out,
-        const logging::Logging_settings&) noexcept {
-        out.emplace();
-        return {};
-    }
-    [[nodiscard]] core::Status emplace_metrics_sink(
-        std::optional<metrics::NullMetricSink>&,
-        const app::Metrics_settings&) noexcept {
+    static core::Status emplace_logger(std::optional<Logger>&,
+                                       const logging::Logging_settings&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    [[nodiscard]] core::Status emplace_trace_sink(
-        std::optional<tracing::NullTraceSink>& out,
-        const app::Tracing_settings&) noexcept {
+    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
+                                             const app::Metrics_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
+                                           const app::Tracing_settings&) noexcept {
         out.emplace();
         return {};
     }
 };
 
-class Fail_logger_app final
-    : public app::App<Fail_logger_app, Capture_logger, metrics::NullMetricSink,
-                      tracing::NullTraceSink, 64, 4> {
-public:
-    [[nodiscard]] core::Status emplace_logger(
-        std::optional<Capture_logger>&,
-        const logging::Logging_settings&) noexcept {
+struct Fail_metrics_policy {
+    using Logger = Capture_logger;
+    using Metrics_sink = metrics::NullMetricSink;
+    using Trace_sink = tracing::NullTraceSink;
+
+    static core::Status emplace_logger(std::optional<Logger>& out,
+                                       const logging::Logging_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>&,
+                                             const app::Metrics_settings&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    [[nodiscard]] core::Status emplace_metrics_sink(
-        std::optional<metrics::NullMetricSink>& out,
-        const app::Metrics_settings&) noexcept {
-        out.emplace();
-        return {};
-    }
-    [[nodiscard]] core::Status emplace_trace_sink(
-        std::optional<tracing::NullTraceSink>& out,
-        const app::Tracing_settings&) noexcept {
+    static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
+                                           const app::Tracing_settings&) noexcept {
         out.emplace();
         return {};
     }
 };
 
-class Fail_flush_app final
-    : public app::App<Fail_flush_app, Flush_fail_logger, metrics::NullMetricSink,
-                      tracing::NullTraceSink, 64, 4> {
-public:
-    [[nodiscard]] core::Status emplace_logger(
-        std::optional<Flush_fail_logger>& out,
-        const logging::Logging_settings&) noexcept {
-        out.emplace();
-        return {};
-    }
-    [[nodiscard]] core::Status emplace_metrics_sink(
-        std::optional<metrics::NullMetricSink>& out,
-        const app::Metrics_settings&) noexcept {
-        out.emplace();
-        return {};
-    }
-    [[nodiscard]] core::Status emplace_trace_sink(
-        std::optional<tracing::NullTraceSink>& out,
-        const app::Tracing_settings&) noexcept {
-        out.emplace();
-        return {};
-    }
-};
+struct Fail_trace_policy {
+    using Logger = Capture_logger;
+    using Metrics_sink = metrics::NullMetricSink;
+    using Trace_sink = tracing::NullTraceSink;
 
-class Fail_trace_sink_app final
-    : public app::App<Fail_trace_sink_app, Capture_logger, metrics::NullMetricSink,
-                      tracing::NullTraceSink, 64, 4> {
-public:
-    [[nodiscard]] core::Status emplace_logger(
-        std::optional<Capture_logger>& out,
-        const logging::Logging_settings&) noexcept {
+    static core::Status emplace_logger(std::optional<Logger>& out,
+                                       const logging::Logging_settings&) noexcept {
         out.emplace();
         return {};
     }
-    [[nodiscard]] core::Status emplace_metrics_sink(
-        std::optional<metrics::NullMetricSink>& out,
-        const app::Metrics_settings&) noexcept {
+    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
+                                             const app::Metrics_settings&) noexcept {
         out.emplace();
         return {};
     }
-    [[nodiscard]] core::Status emplace_trace_sink(
-        std::optional<tracing::NullTraceSink>&,
-        const app::Tracing_settings&) noexcept {
+    static core::Status emplace_trace_sink(std::optional<Trace_sink>&,
+                                           const app::Tracing_settings&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 };
+
+struct Flush_fail_policy {
+    using Logger = Flush_fail_logger;
+    using Metrics_sink = metrics::NullMetricSink;
+    using Trace_sink = tracing::NullTraceSink;
+
+    static core::Status emplace_logger(std::optional<Logger>& out,
+                                       const logging::Logging_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
+                                             const app::Metrics_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
+                                           const app::Tracing_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+};
+
+template <class Policy>
+using Test_infra = app::Infrastructure<Policy, 64, 4>;
+
+template <class Policy>
+[[nodiscard]] std::unique_ptr<Test_infra<Policy>> make_test_infra() {
+    auto created = app::make_infrastructure<Policy, 64, 4>();
+    NX_CHECK(created.has_value());
+    return created.has_value() ? std::move(*created) : nullptr;
+}
 
 template <class T, class = void>
 struct has_from_json : std::false_type {};
@@ -291,25 +285,25 @@ void write_text(const std::string& path, std::string_view text) {
 } // namespace
 
 void test_stop_reason() {
-    NX_CHECK(app::to_string(app::App_stop_reason::None) == "none");
-    NX_CHECK(app::to_string(app::App_stop_reason::Requested) == "requested");
-    NX_CHECK(app::to_string(app::App_stop_reason::Sigint) == "sigint");
-    NX_CHECK(app::to_string(app::App_stop_reason::Sigterm) == "sigterm");
+    NX_CHECK(app::to_string(app::Infrastructure_stop_reason::None) == "none");
+    NX_CHECK(app::to_string(app::Infrastructure_stop_reason::Requested) == "requested");
+    NX_CHECK(app::to_string(app::Infrastructure_stop_reason::Sigint) == "sigint");
+    NX_CHECK(app::to_string(app::Infrastructure_stop_reason::Sigterm) == "sigterm");
 
-    app::App_stop_reason reason = app::App_stop_reason::None;
+    app::Infrastructure_stop_reason reason = app::Infrastructure_stop_reason::None;
     NX_CHECK(app::from_string("sigterm", reason));
-    NX_CHECK(reason == app::App_stop_reason::Sigterm);
+    NX_CHECK(reason == app::Infrastructure_stop_reason::Sigterm);
     NX_CHECK(!app::from_string("bogus", reason));
-    NX_CHECK(reason == app::App_stop_reason::Sigterm);
+    NX_CHECK(reason == app::Infrastructure_stop_reason::Sigterm);
 
     nlohmann::json json;
-    app::to_json(json, app::App_stop_reason::Sigint);
+    app::to_json(json, app::Infrastructure_stop_reason::Sigint);
     NX_CHECK(json == "sigint");
     app::from_json(nlohmann::json("requested"), reason);
-    NX_CHECK(reason == app::App_stop_reason::Requested);
+    NX_CHECK(reason == app::Infrastructure_stop_reason::Requested);
     app::from_json(nlohmann::json(7), reason);
-    NX_CHECK(reason == app::App_stop_reason::Requested);
-    NX_CHECK(std::format("{}", app::App_stop_reason::Sigterm) == "sigterm");
+    NX_CHECK(reason == app::Infrastructure_stop_reason::Requested);
+    NX_CHECK(std::format("{}", app::Infrastructure_stop_reason::Sigterm) == "sigterm");
 }
 
 void test_settings_loaders() {
@@ -474,24 +468,26 @@ void test_settings_loaders() {
     static_cast<void>(std::remove(tracing_local.c_str()));
 }
 
-void test_app_lifecycle() {
-    static Test_app app;
-    const app::App_settings settings{};
+void test_infrastructure_lifecycle() {
+    auto app = make_test_infra<Test_policy>();
+    NX_CHECK(app != nullptr);
+    if (!app) {
+        return;
+    }
 
-    NX_CHECK(!app.meter("sim", "1.0").has_value());
-    NX_CHECK(app.meter("sim", "1.0").error() == core::ErrorCode::NotInitialized);
-    NX_CHECK(!app.tracer_for("sim").has_value());
-    NX_CHECK(app.tracer_for("sim").error() == core::ErrorCode::NotInitialized);
+    NX_CHECK(!app->meter("sim", "1.0").has_value());
+    NX_CHECK(app->meter("sim", "1.0").error() == core::ErrorCode::NotInitialized);
+    NX_CHECK(!app->tracer_for("sim").has_value());
+    NX_CHECK(app->tracer_for("sim").error() == core::ErrorCode::NotInitialized);
 
-    NX_CHECK(app.initialize(settings).has_value());
-    NX_CHECK(app.initialize(settings).has_value()); // idempotent
-    NX_CHECK(Test_app::current() == &app);
+    NX_CHECK(app->initialize(app::App_settings{}).has_value());
+    NX_CHECK(app->initialize(app::App_settings{}).has_value()); // idempotent
 
     g_log_lines.clear();
-    app.logger().info("lifecycle record");
+    app->logger().info("lifecycle record");
     NX_CHECK(g_log_lines.size() == 1U);
 
-    const auto meter = app.meter("sim", "1.0");
+    const auto meter = app->meter("sim", "1.0");
     NX_CHECK(meter.has_value());
     const auto counter = (*meter)->create_counter<metrics::ConcurrencyPolicy::SingleThreaded,
                                                   metrics::AccessPolicy::Readable>("ticks");
@@ -500,7 +496,7 @@ void test_app_lifecycle() {
     (*counter)->inc();
     NX_CHECK((*counter)->read() == 2ULL);
 
-    const auto tracer = app.tracer_for("sim.control");
+    const auto tracer = app->tracer_for("sim.control");
     NX_CHECK(tracer.has_value());
     {
         auto span = (*tracer)->start_span("tick", tracing::SpanKind::Internal);
@@ -508,58 +504,87 @@ void test_app_lifecycle() {
     }
 
     int ticks = 0;
-    const app::App_stop_reason reason = app.run([&] {
+    const app::Infrastructure_stop_reason reason = app->run([&] {
         ++ticks;
         if (ticks == 3) {
-            app.request_stop(app::App_stop_reason::Requested);
+            app->request_stop(app::Infrastructure_stop_reason::Requested);
         }
     });
-    NX_CHECK(reason == app::App_stop_reason::Requested);
+    NX_CHECK(reason == app::Infrastructure_stop_reason::Requested);
     NX_CHECK(ticks == 3);
 
-    NX_CHECK(app.shutdown().has_value());
-    NX_CHECK(Test_app::current() == nullptr);
-    NX_CHECK(app.shutdown().has_value()); // idempotent
-    bool reason_logged = false;
+    NX_CHECK(app->shutdown().has_value());
+    NX_CHECK(app->shutdown().has_value()); // idempotent
+    int logged = 0;
     for (const std::string& line : g_log_lines) {
         if (line.find("shutdown reason: requested") != std::string::npos) {
-            reason_logged = true;
+            ++logged;
         }
     }
-    NX_CHECK(reason_logged);
-    NX_CHECK(!app.meter("x", "1").has_value());
+    NX_CHECK(logged == 1);
+    NX_CHECK(!app->meter("x", "1").has_value());
 }
 
-void test_app_bool_tick_and_failure() {
-    static Test_app bool_app;
-    NX_CHECK(bool_app.initialize(app::App_settings{}).has_value());
-    const app::App_stop_reason reason = bool_app.run([] { return false; });
-    NX_CHECK(reason == app::App_stop_reason::Requested);
-    NX_CHECK(bool_app.shutdown().has_value());
+void test_infrastructure_failures() {
+    auto bool_app = make_test_infra<Test_policy>();
+    NX_CHECK(bool_app != nullptr);
+    if (bool_app) {
+        NX_CHECK(bool_app->initialize(app::App_settings{}).has_value());
+        NX_CHECK(bool_app->run([] { return false; }) ==
+                 app::Infrastructure_stop_reason::Requested);
+        NX_CHECK(bool_app->shutdown().has_value());
+    }
 
-    static Failing_app failing;
-    NX_CHECK(!failing.initialize(app::App_settings{}).has_value());
-    NX_CHECK(Failing_app::current() == nullptr);
-    NX_CHECK(failing.shutdown().has_value());
+    auto fail_logger = make_test_infra<Fail_logger_policy>();
+    NX_CHECK(fail_logger != nullptr);
+    if (fail_logger) {
+        NX_CHECK(!fail_logger->initialize(app::App_settings{}).has_value());
+        NX_CHECK(fail_logger->shutdown().has_value());
+    }
+    auto fail_metrics = make_test_infra<Fail_metrics_policy>();
+    NX_CHECK(fail_metrics != nullptr);
+    if (fail_metrics) {
+        NX_CHECK(!fail_metrics->initialize(app::App_settings{}).has_value());
+        NX_CHECK(fail_metrics->shutdown().has_value());
+    }
+    auto fail_trace = make_test_infra<Fail_trace_policy>();
+    NX_CHECK(fail_trace != nullptr);
+    if (fail_trace) {
+        NX_CHECK(!fail_trace->initialize(app::App_settings{}).has_value());
+        NX_CHECK(fail_trace->shutdown().has_value());
+    }
+    auto flush_fail = make_test_infra<Flush_fail_policy>();
+    NX_CHECK(flush_fail != nullptr);
+    if (flush_fail) {
+        NX_CHECK(flush_fail->initialize(app::App_settings{}).has_value());
+        const core::Status status = flush_fail->shutdown();
+        NX_CHECK(!status.has_value());
+        NX_CHECK(status.error() == core::ErrorCode::SystemError);
+    }
 }
 
-void test_app_signals() {
-    static Test_app int_app;
-    NX_CHECK(int_app.initialize(app::App_settings{}).has_value());
+void test_infrastructure_signals() {
+    auto int_app = make_test_infra<Test_policy>();
+    NX_CHECK(int_app != nullptr);
+    if (!int_app) {
+        return;
+    }
+    NX_CHECK(int_app->initialize(app::App_settings{}).has_value());
     g_log_lines.clear();
-    std::atomic<bool> int_running{false};
-    std::jthread raiser{[&int_running] {
-        while (!int_running.load(std::memory_order_acquire)) {
+    std::atomic<bool> running{false};
+    std::jthread raiser{[&running] {
+        while (!running.load(std::memory_order_acquire)) {
             std::this_thread::sleep_for(std::chrono::milliseconds{1});
         }
         static_cast<void>(::kill(::getpid(), SIGINT));
     }};
-    const app::App_stop_reason reason = int_app.run([&int_running] {
-        int_running.store(true, std::memory_order_release);
+    const app::Infrastructure_stop_reason reason = int_app->run([&running] {
+        running.store(true, std::memory_order_release);
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
     });
-    NX_CHECK(reason == app::App_stop_reason::Sigint);
-    NX_CHECK(int_app.shutdown().has_value());
+    NX_CHECK(reason == app::Infrastructure_stop_reason::Sigint);
+    NX_CHECK(int_app->shutdown().has_value());
+    raiser.join();
     int logged = 0;
     for (const std::string& line : g_log_lines) {
         if (line.find("shutdown reason: sigint (2)") != std::string::npos) {
@@ -568,8 +593,12 @@ void test_app_signals() {
     }
     NX_CHECK(logged == 1);
 
-    static Test_app term_app;
-    NX_CHECK(term_app.initialize(app::App_settings{}).has_value());
+    auto term_app = make_test_infra<Test_policy>();
+    NX_CHECK(term_app != nullptr);
+    if (!term_app) {
+        return;
+    }
+    NX_CHECK(term_app->initialize(app::App_settings{}).has_value());
     std::atomic<bool> term_running{false};
     std::jthread term_raiser{[&term_running] {
         while (!term_running.load(std::memory_order_acquire)) {
@@ -577,31 +606,36 @@ void test_app_signals() {
         }
         static_cast<void>(::kill(::getpid(), SIGTERM));
     }};
-    const app::App_stop_reason term_reason = term_app.run([&term_running] {
+    const app::Infrastructure_stop_reason term_reason = term_app->run([&term_running] {
         term_running.store(true, std::memory_order_release);
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
     });
-    NX_CHECK(term_reason == app::App_stop_reason::Sigterm);
-    NX_CHECK(term_app.shutdown().has_value());
+    NX_CHECK(term_reason == app::Infrastructure_stop_reason::Sigterm);
+    NX_CHECK(term_app->shutdown().has_value());
+    term_raiser.join();
 }
 
-void test_app_tick_allocation() {
-    static Test_app app;
-    NX_CHECK(app.initialize(app::App_settings{}).has_value());
+void test_infrastructure_tick_allocation() {
+    auto infra = make_test_infra<Test_policy>();
+    NX_CHECK(infra != nullptr);
+    if (!infra) {
+        return;
+    }
+    NX_CHECK(infra->initialize(app::App_settings{}).has_value());
     int ticks = 0;
     [[maybe_unused]] const std::size_t before = ::mallinfo2().uordblks;
-    const app::App_stop_reason reason = app.run([&] {
+    const app::Infrastructure_stop_reason reason = infra->run([&] {
         ++ticks;
         if (ticks == 1000) {
-            app.request_stop(app::App_stop_reason::Requested);
+            infra->request_stop(app::Infrastructure_stop_reason::Requested);
         }
     });
     [[maybe_unused]] const std::size_t after = ::mallinfo2().uordblks;
-    NX_CHECK(reason == app::App_stop_reason::Requested);
+    NX_CHECK(reason == app::Infrastructure_stop_reason::Requested);
 #ifndef NX_SANITIZER_BUILD
     NX_CHECK(after == before);
 #endif
-    NX_CHECK(app.shutdown().has_value());
+    NX_CHECK(infra->shutdown().has_value());
 }
 
 void test_app_settings_full_coverage() {
@@ -778,47 +812,80 @@ void test_app_settings_full_coverage() {
     static_cast<void>(std::remove(tracing_local.c_str()));
 }
 
-void test_app_failure_variants() {
-    static Fail_logger_app logger_fail;
-    NX_CHECK(!logger_fail.initialize(app::App_settings{}).has_value());
-    NX_CHECK(Fail_logger_app::current() == nullptr);
-    NX_CHECK(logger_fail.shutdown().has_value());
+void test_infrastructure_conflict() {
+    auto first = make_test_infra<Test_policy>();
+    auto second = make_test_infra<Test_policy>();
+    NX_CHECK(first != nullptr && second != nullptr);
+    if (!first || !second) {
+        return;
+    }
+    NX_CHECK(first->initialize(app::App_settings{}).has_value());
+    const core::Status conflict = second->initialize(app::App_settings{});
+    NX_CHECK(!conflict.has_value());
+    NX_CHECK(conflict.error() == core::ErrorCode::Conflict);
+    NX_CHECK(first->shutdown().has_value());
+    NX_CHECK(second->initialize(app::App_settings{}).has_value());
+    NX_CHECK(second->shutdown().has_value());
 
-    static Fail_trace_sink_app trace_fail;
-    NX_CHECK(!trace_fail.initialize(app::App_settings{}).has_value());
-    NX_CHECK(Fail_trace_sink_app::current() == nullptr);
-    NX_CHECK(trace_fail.shutdown().has_value());
+    // A failed initialization releases ownership for the next infrastructure.
+    auto failing = make_test_infra<Fail_logger_policy>();
+    NX_CHECK(failing != nullptr);
+    if (failing) {
+        NX_CHECK(!failing->initialize(app::App_settings{}).has_value());
+        auto after_failure = make_test_infra<Test_policy>();
+        NX_CHECK(after_failure != nullptr);
+        if (after_failure) {
+            NX_CHECK(after_failure->initialize(app::App_settings{}).has_value());
+            NX_CHECK(after_failure->shutdown().has_value());
+        }
+    }
 
-    static Fail_flush_app flush_fail;
-    NX_CHECK(flush_fail.initialize(app::App_settings{}).has_value());
-    const core::Status shutdown_status = flush_fail.shutdown();
-    NX_CHECK(!shutdown_status.has_value());
-    NX_CHECK(shutdown_status.error() == core::ErrorCode::SystemError);
-    NX_CHECK(Fail_flush_app::current() == nullptr);
+    // Different policies still conflict on the process-global guard.
+    auto trace_first = make_test_infra<Test_policy>();
+    auto trace_second = make_test_infra<Fail_trace_policy>();
+    NX_CHECK(trace_first != nullptr && trace_second != nullptr);
+    if (trace_first && trace_second) {
+        NX_CHECK(trace_first->initialize(app::App_settings{}).has_value());
+        const core::Status policy_conflict = trace_second->initialize(app::App_settings{});
+        NX_CHECK(!policy_conflict.has_value());
+        NX_CHECK(policy_conflict.error() == core::ErrorCode::Conflict);
+        NX_CHECK(trace_first->shutdown().has_value());
+        NX_CHECK(trace_second->shutdown().has_value());
+    }
 }
 
-void test_app_stop_and_mask() {
+void test_infrastructure_stop_and_mask() {
     {
-        static Test_app first;
-        NX_CHECK(first.initialize(app::App_settings{}).has_value());
-        first.request_stop(app::App_stop_reason::None);
-        NX_CHECK(!first.stop_requested());
-        first.request_stop(app::App_stop_reason::Requested);
-        first.request_stop(app::App_stop_reason::Sigint);
-        NX_CHECK(first.stop_reason() == app::App_stop_reason::Requested);
-        NX_CHECK(first.shutdown().has_value());
+        auto first = make_test_infra<Test_policy>();
+        NX_CHECK(first != nullptr);
+        if (first) {
+            NX_CHECK(first->initialize(app::App_settings{}).has_value());
+            first->request_stop(app::Infrastructure_stop_reason::None);
+            NX_CHECK(!first->stop_requested());
+            first->request_stop(app::Infrastructure_stop_reason::Requested);
+            first->request_stop(app::Infrastructure_stop_reason::Sigint);
+            NX_CHECK(first->stop_reason() == app::Infrastructure_stop_reason::Requested);
+            NX_CHECK(first->shutdown().has_value());
+        }
     }
     {
-        static Test_app second;
-        NX_CHECK(second.initialize(app::App_settings{}).has_value());
-        second.request_stop(app::App_stop_reason::Sigint);
-        second.request_stop(app::App_stop_reason::Requested);
-        NX_CHECK(second.stop_reason() == app::App_stop_reason::Sigint);
-        NX_CHECK(second.shutdown().has_value());
+        auto second = make_test_infra<Test_policy>();
+        NX_CHECK(second != nullptr);
+        if (second) {
+            NX_CHECK(second->initialize(app::App_settings{}).has_value());
+            second->request_stop(app::Infrastructure_stop_reason::Sigint);
+            second->request_stop(app::Infrastructure_stop_reason::Requested);
+            NX_CHECK(second->stop_reason() == app::Infrastructure_stop_reason::Sigint);
+            NX_CHECK(second->shutdown().has_value());
+        }
     }
 
-    static Test_app masked;
-    NX_CHECK(masked.initialize(app::App_settings{}).has_value());
+    auto masked = make_test_infra<Test_policy>();
+    NX_CHECK(masked != nullptr);
+    if (!masked) {
+        return;
+    }
+    NX_CHECK(masked->initialize(app::App_settings{}).has_value());
     std::atomic<bool> both_blocked{false};
     std::jthread probe{[&] {
         sigset_t current;
@@ -831,34 +898,19 @@ void test_app_stop_and_mask() {
     }};
     probe.join();
     NX_CHECK(both_blocked.load(std::memory_order_acquire));
-    NX_CHECK(masked.shutdown().has_value());
-}
-
-void test_app_sequential_current() {
-    static Test_app first;
-    static Test_app second;
-    NX_CHECK(first.initialize(app::App_settings{}).has_value());
-    NX_CHECK(Test_app::current() == &first);
-    NX_CHECK(first.shutdown().has_value());
-    NX_CHECK(Test_app::current() == nullptr);
-    NX_CHECK(second.initialize(app::App_settings{}).has_value());
-    NX_CHECK(Test_app::current() == &second);
-    NX_CHECK(second.shutdown().has_value());
-    NX_CHECK(Test_app::current() == nullptr);
-    NX_CHECK(!second.initialize(app::App_settings{}).has_value());
+    NX_CHECK(masked->shutdown().has_value());
 }
 
 int main() {
     run_suite("stop_reason", test_stop_reason);
     run_suite("settings", test_settings_loaders);
     run_suite("settings_full", test_app_settings_full_coverage);
-    run_suite("lifecycle", test_app_lifecycle);
-    run_suite("bool_tick_failure", test_app_bool_tick_and_failure);
-    run_suite("failure_variants", test_app_failure_variants);
-    run_suite("stop_and_mask", test_app_stop_and_mask);
-    run_suite("sequential_current", test_app_sequential_current);
-    run_suite("signals", test_app_signals);
-    run_suite("tick_allocation", test_app_tick_allocation);
+    run_suite("lifecycle", test_infrastructure_lifecycle);
+    run_suite("failures", test_infrastructure_failures);
+    run_suite("conflict", test_infrastructure_conflict);
+    run_suite("stop_and_mask", test_infrastructure_stop_and_mask);
+    run_suite("signals", test_infrastructure_signals);
+    run_suite("tick_allocation", test_infrastructure_tick_allocation);
     std::printf("total: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures;
 }

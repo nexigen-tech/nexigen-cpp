@@ -38,12 +38,14 @@ static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::InvalidArgument
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::SystemError) == "SystemError");
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::NotInitialized) == "NotInitialized");
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::RateLimited) == "RateLimited");
+static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::Conflict) == "Conflict");
 
 // Append-only contract (logging change): existing enumerator values are pinned,
 // so RateLimited joins the catalogue as enumerator 6 without renumbering.
 static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::Ok) == 0);
 static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::NotInitialized) == 5);
 static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::RateLimited) == 6);
+static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::Conflict) == 7);
 
 // Alias identity: Result's default error type IS ErrorCode; Status is the void form.
 static_assert(std::is_same_v<nexigen::core::Result<int>, std::expected<int, nexigen::core::ErrorCode>>);
@@ -127,14 +129,14 @@ void run_suite(const char* suite_name, void (*body)())
 [[nodiscard]] Result<int> parse_fails() noexcept { return std::unexpected(ErrorCode::BufferEmpty); }
 
 void test_result() {
-    // Distinctness: all seven codes pairwise different (21 pairs).
+    // Distinctness: all eight codes pairwise different (28 pairs).
     const ErrorCode all_codes[] = {
         ErrorCode::Ok, ErrorCode::BufferFull, ErrorCode::BufferEmpty,
         ErrorCode::InvalidArgument, ErrorCode::SystemError, ErrorCode::NotInitialized,
-        ErrorCode::RateLimited,
+        ErrorCode::RateLimited, ErrorCode::Conflict,
     };
-    for (int i = 0; i < 7; ++i) {
-        for (int j = i + 1; j < 7; ++j) {
+    for (int i = 0; i < 8; ++i) {
+        for (int j = i + 1; j < 8; ++j) {
             NX_CHECK(all_codes[i] != all_codes[j]);
         }
     }
@@ -149,6 +151,7 @@ void test_result() {
     NX_CHECK(to_string(ErrorCode::SystemError) == "SystemError");
     NX_CHECK(to_string(ErrorCode::NotInitialized) == "NotInitialized");
     NX_CHECK(to_string(ErrorCode::RateLimited) == "RateLimited");
+    NX_CHECK(to_string(ErrorCode::Conflict) == "Conflict");
     // Garbage-cast value is well-defined via the default arm.
     NX_CHECK(to_string(static_cast<ErrorCode>(200)) == "Unknown");
 
@@ -436,7 +439,7 @@ void run_visibility_variant(const bool consumer_first) {
 constexpr ErrorCode k_all_codes[] = {
     ErrorCode::Ok, ErrorCode::BufferFull, ErrorCode::BufferEmpty,
     ErrorCode::InvalidArgument, ErrorCode::SystemError, ErrorCode::NotInitialized,
-    ErrorCode::RateLimited,
+    ErrorCode::RateLimited, ErrorCode::Conflict,
 };
 
 void test_json_smoke() {

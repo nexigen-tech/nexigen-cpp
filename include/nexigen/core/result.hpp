@@ -33,6 +33,7 @@ enum class ErrorCode : std::uint8_t {
     SystemError,    ///< An OS call failed (errno-era failure, e.g. clock_gettime).
     NotInitialized, ///< Operation attempted before required setup completed.
     RateLimited,    ///< Rate policy rejected the request before any queue interaction.
+    Conflict,       ///< Another owner holds a process-global resource/state.
 };
 
 /// Compile-time name of an error code; returns a static-storage view, no
@@ -48,6 +49,7 @@ enum class ErrorCode : std::uint8_t {
         case ErrorCode::SystemError:    return "SystemError";
         case ErrorCode::NotInitialized: return "NotInitialized";
         case ErrorCode::RateLimited:    return "RateLimited";
+        case ErrorCode::Conflict:       return "Conflict";
         default:                        return "Unknown";
     }
 }
@@ -63,6 +65,7 @@ enum class ErrorCode : std::uint8_t {
     if (name == "SystemError") { out = ErrorCode::SystemError; return true; }
     if (name == "NotInitialized") { out = ErrorCode::NotInitialized; return true; }
     if (name == "RateLimited") { out = ErrorCode::RateLimited; return true; }
+    if (name == "Conflict") { out = ErrorCode::Conflict; return true; }
     return false;
 }
 

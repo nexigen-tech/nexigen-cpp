@@ -1,20 +1,24 @@
-// nexigen::app — the application lifecycle base (change add-app-class; spec
-// app/application).
+// nexigen::app — heap-only infrastructure service (change
+// rework-app-as-infrastructure; spec app/application).
 //
-// CRTP: the derived application declares Logger/Metrics_sink/Trace_sink and
-// three emplacement hooks. The base owns the components in a lifetime-safe
-// order, initializes them from App_settings, watches SIGINT/SIGTERM on a
-// signalfd, exposes the logger/metric/tracer factories, and provides an
-// idempotent shutdown that flushes everything and logs the stop reason once.
+// Composition replaces the old CRTP App: an application owns an
+// Infrastructure through make_infrastructure<Policy>() and uses it as a
+// provider of logging, metrics and tracing. The constructor is private, so
+// automatic/static objects are impossible; the factory allocates once on the
+// heap (cold path) and reports allocation failure as ErrorCode::SystemError.
 //
-// Cold path only: initialize/shutdown are control-plane. run() performs one
-// acquire load per tick and never allocates or locks.
+// Process-global signal ownership: only one Infrastructure (of any Policy)
+// may be initialized at a time. A second initialize returns
+// ErrorCode::Conflict; rollback and shutdown release ownership.
 #pragma once
 
 #include <atomic>
 #include <cerrno>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <new>
 #include <optional>
 #include <string_view>
 #include <thread>
@@ -28,7 +32,7 @@
 #include <unistd.h>
 
 #include <nexigen/app/app_settings.hpp>
-#include <nexigen/app/app_stop_reason.hpp>
+#include <nexigen/app/infrastructure_stop_reason.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/concepts/logger_concept.hpp>
 #include <nexigen/metrics/concepts/metric_sink_concept.hpp>
@@ -36,11 +40,39 @@
 #include <nexigen/tracing/concepts/tracer_concept.hpp>
 #include <nexigen/tracing/tracer_provider.hpp>
 
-namespace nexigen::app::detail {
+namespace nexigen::app {
 
-/// signalfd watcher: masks are blocked by App::initialize before any worker
-/// starts; this thread is the only consumer of SIGINT/SIGTERM. It records the
-/// reason and requests the stop — it never formats or writes to a sink.
+template <class Policy, std::size_t Tracer_capacity = 1024,
+          std::size_t Tracer_threads = 32>
+class Infrastructure;
+
+/// Stateless policy contract: component types plus static emplacement hooks.
+template <class Policy>
+concept InfrastructurePolicy = requires(
+    std::optional<typename Policy::Logger>& logger,
+    std::optional<typename Policy::Metrics_sink>& metrics_sink,
+    std::optional<typename Policy::Trace_sink>& trace_sink,
+    const logging::Logging_settings& logging_settings,
+    const Metrics_settings& metrics_settings,
+    const Tracing_settings& tracing_settings) {
+    typename Policy::Logger;
+    typename Policy::Metrics_sink;
+    typename Policy::Trace_sink;
+    { Policy::emplace_logger(logger, logging_settings) } noexcept -> std::same_as<core::Status>;
+    { Policy::emplace_metrics_sink(metrics_sink, metrics_settings) } noexcept
+        -> std::same_as<core::Status>;
+    { Policy::emplace_trace_sink(trace_sink, tracing_settings) } noexcept
+        -> std::same_as<core::Status>;
+};
+
+namespace detail {
+
+/// Non-template process-global signal ownership. alignas(64) keeps the
+/// contended CAS off neighbouring state; control plane only.
+alignas(64) inline std::atomic<const void*> signal_owner{nullptr};
+
+/// signalfd watcher: masks are blocked by initialize before any worker
+/// starts; this thread is the only consumer of SIGINT/SIGTERM.
 class Signal_watcher {
 public:
     Signal_watcher() noexcept = default;
@@ -51,15 +83,15 @@ public:
 
     ~Signal_watcher() { stop(); }
 
-    template <class App>
-    [[nodiscard]] core::Status start(App* app, const sigset_t& mask) noexcept {
+    template <class Target>
+    [[nodiscard]] core::Status start(Target* target, const sigset_t& mask) noexcept {
         fd_ = ::signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK);
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         // Under -fno-exceptions a failed thread creation terminates; this is
-        // the same cold-path deployment assumption as the existing providers.
-        thread_ = std::jthread{[this, app](std::stop_token token) { run(app, token); }};
+        // the same cold-path deployment assumption as the providers.
+        thread_ = std::jthread{[this, target](std::stop_token token) { run(target, token); }};
         return {};
     }
 
@@ -77,8 +109,8 @@ public:
     [[nodiscard]] bool active() const noexcept { return fd_ >= 0; }
 
 private:
-    template <class App>
-    void run(App* app, std::stop_token token) noexcept {
+    template <class Target>
+    void run(Target* target, std::stop_token token) noexcept {
         while (!token.stop_requested()) {
             pollfd descriptor{fd_, POLLIN, 0};
             const int ready = ::poll(&descriptor, 1, 100);
@@ -91,9 +123,9 @@ private:
                 continue;
             }
             if (info.ssi_signo == static_cast<std::uint32_t>(SIGINT)) {
-                app->request_stop(App_stop_reason::Sigint);
+                target->request_stop(Infrastructure_stop_reason::Sigint);
             } else if (info.ssi_signo == static_cast<std::uint32_t>(SIGTERM)) {
-                app->request_stop(App_stop_reason::Sigterm);
+                target->request_stop(Infrastructure_stop_reason::Sigterm);
             }
         }
     }
@@ -102,40 +134,40 @@ private:
     std::jthread thread_{};
 };
 
-} // namespace nexigen::app::detail
+} // namespace detail
 
-namespace nexigen::app {
-
-template <class Derived, class Logger_type, class Metrics_sink_type, class Trace_sink_type,
-          std::size_t Tracer_capacity = 1024, std::size_t Tracer_threads = 32>
-class App {
+template <class Policy, std::size_t Tracer_capacity, std::size_t Tracer_threads>
+class Infrastructure {
 public:
-    using Logger = Logger_type;
-    using Metrics_sink = Metrics_sink_type;
-    using Trace_sink = Trace_sink_type;
+    using Logger = typename Policy::Logger;
+    using Metrics_sink = typename Policy::Metrics_sink;
+    using Trace_sink = typename Policy::Trace_sink;
     using Tracer_provider = tracing::TracerProvider<Tracer_capacity, Tracer_threads>;
     using Tracer_type = tracing::Tracer<Tracer_capacity, Tracer_threads>;
 
+    static_assert(InfrastructurePolicy<Policy>,
+                  "Policy must declare Logger/Metrics_sink/Trace_sink and static emplace hooks");
     static_assert(logging::concepts::Logger<Logger>,
-                  "Derived::Logger must satisfy nexigen::logging::concepts::Logger");
+                  "Policy::Logger must satisfy nexigen::logging::concepts::Logger");
     static_assert(metrics::concepts::MetricSink<Metrics_sink>,
-                  "Derived::Metrics_sink must satisfy metrics::concepts::MetricSink");
+                  "Policy::Metrics_sink must satisfy metrics::concepts::MetricSink");
     static_assert(tracing::concepts::TraceSink<Trace_sink>,
-                  "Derived::Trace_sink must satisfy tracing::concepts::TraceSink");
+                  "Policy::Trace_sink must satisfy tracing::concepts::TraceSink");
 
-    App(const App&) = delete;
-    App& operator=(const App&) = delete;
-    App(App&&) = delete;
-    App& operator=(App&&) = delete;
+    Infrastructure(const Infrastructure&) = delete;
+    Infrastructure& operator=(const Infrastructure&) = delete;
+    Infrastructure(Infrastructure&&) = delete;
+    Infrastructure& operator=(Infrastructure&&) = delete;
 
-    ~App() {
+    ~Infrastructure() {
         if (initialized_) {
             static_cast<void>(shutdown());
         }
     }
 
-    /// Configure the derived components, construct the providers, start the
-    /// signal watcher and publish current(). Idempotent while initialized.
+    /// Claim signal ownership, block SIGINT/SIGTERM, build the policy
+    /// components and providers, start the watcher. Idempotent on this
+    /// instance; Conflict when another infrastructure owns the signals.
     [[nodiscard]] core::Status initialize(const App_settings& settings) noexcept {
         if (initialized_) {
             return {};
@@ -144,11 +176,19 @@ public:
             return std::unexpected(core::ErrorCode::NotInitialized);
         }
 
+        const void* no_owner = nullptr;
+        if (!detail::signal_owner.compare_exchange_strong(
+                no_owner, static_cast<const void*>(this), std::memory_order_acq_rel,
+                std::memory_order_relaxed)) {
+            return std::unexpected(core::ErrorCode::Conflict);
+        }
+
         sigset_t mask;
         sigemptyset(&mask);
         sigaddset(&mask, SIGINT);
         sigaddset(&mask, SIGTERM);
         if (::pthread_sigmask(SIG_BLOCK, &mask, &previous_mask_) != 0) {
+            detail::signal_owner.store(nullptr, std::memory_order_release);
             return std::unexpected(core::ErrorCode::SystemError);
         }
 
@@ -157,19 +197,19 @@ public:
             return status;
         };
 
-        if (const core::Status status = derived().emplace_logger(logger_, settings.logging);
+        if (const core::Status status = Policy::emplace_logger(logger_, settings.logging);
             !status || !logger_) {
             return fail(status ? std::unexpected(core::ErrorCode::InvalidArgument) : status);
         }
         if (const core::Status status =
-                derived().emplace_metrics_sink(metrics_sink_, settings.metrics);
+                Policy::emplace_metrics_sink(metrics_sink_, settings.metrics);
             !status || !metrics_sink_) {
             return fail(status ? std::unexpected(core::ErrorCode::InvalidArgument) : status);
         }
         metrics_.emplace(settings.metrics.options, *metrics_sink_);
 
         if (const core::Status status =
-                derived().emplace_trace_sink(trace_sink_, settings.tracing);
+                Policy::emplace_trace_sink(trace_sink_, settings.tracing);
             !status || !trace_sink_) {
             return fail(status ? std::unexpected(core::ErrorCode::InvalidArgument) : status);
         }
@@ -183,18 +223,17 @@ public:
         }
 
         initialized_ = true;
-        current_.store(static_cast<Derived*>(this), std::memory_order_release);
         return {};
     }
 
-    /// Run the caller's tick until a stop is requested; returns the recorded
-    /// reason. A bool-returning tick requests a host stop when it yields false.
+    /// Run the caller's tick until a stop is requested; returns the reason.
+    /// A bool-returning tick requests a host stop when it yields false.
     template <class Tick>
-    [[nodiscard]] App_stop_reason run(Tick&& tick) noexcept {
+    [[nodiscard]] Infrastructure_stop_reason run(Tick&& tick) noexcept {
         while (!stop_requested()) {
             if constexpr (std::is_invocable_r_v<bool, Tick&>) {
                 if (!tick()) {
-                    request_stop(App_stop_reason::Requested);
+                    request_stop(Infrastructure_stop_reason::Requested);
                     break;
                 }
             } else {
@@ -205,25 +244,25 @@ public:
     }
 
     /// First stop cause wins; later requests leave the reason unchanged.
-    void request_stop(App_stop_reason reason) noexcept {
-        if (reason == App_stop_reason::None) {
+    void request_stop(Infrastructure_stop_reason reason) noexcept {
+        if (reason == Infrastructure_stop_reason::None) {
             return;
         }
-        App_stop_reason expected = App_stop_reason::None;
+        Infrastructure_stop_reason expected = Infrastructure_stop_reason::None;
         static_cast<void>(stop_reason_.compare_exchange_strong(
             expected, reason, std::memory_order_acq_rel, std::memory_order_relaxed));
     }
 
     [[nodiscard]] bool stop_requested() const noexcept {
-        return stop_reason_.load(std::memory_order_acquire) != App_stop_reason::None;
+        return stop_reason_.load(std::memory_order_acquire) != Infrastructure_stop_reason::None;
     }
 
-    [[nodiscard]] App_stop_reason stop_reason() const noexcept {
+    [[nodiscard]] Infrastructure_stop_reason stop_reason() const noexcept {
         return stop_reason_.load(std::memory_order_acquire);
     }
 
     /// Stop the watcher, log the reason once, flush tracer → metrics → logger,
-    /// restore the mask and clear current(). Sequential calls are idempotent.
+    /// restore the mask, release signal ownership and destroy the components.
     [[nodiscard]] core::Status shutdown() noexcept {
         if (!initialized_) {
             return {};
@@ -245,16 +284,16 @@ public:
         if (logger_) {
             capture(logger_->flush()); // drain first so the final record fits
             switch (stop_reason()) {
-                case App_stop_reason::Sigint:
+                case Infrastructure_stop_reason::Sigint:
                     logger_->warning("shutdown reason: sigint (2)");
                     break;
-                case App_stop_reason::Sigterm:
+                case Infrastructure_stop_reason::Sigterm:
                     logger_->warning("shutdown reason: sigterm (15)");
                     break;
-                case App_stop_reason::Requested:
+                case Infrastructure_stop_reason::Requested:
                     logger_->info("shutdown reason: requested");
                     break;
-                case App_stop_reason::None:
+                case Infrastructure_stop_reason::None:
                 default:
                     logger_->info("shutdown reason: none");
                     break;
@@ -271,7 +310,6 @@ public:
         }
 
         static_cast<void>(::pthread_sigmask(SIG_SETMASK, &previous_mask_, nullptr));
-        current_.store(nullptr, std::memory_order_release);
 
         tracer_.reset();
         trace_sink_.reset();
@@ -279,6 +317,7 @@ public:
         metrics_sink_.reset();
         logger_.reset();
         initialized_ = false;
+        detail::signal_owner.store(nullptr, std::memory_order_release);
         return first;
     }
 
@@ -303,19 +342,13 @@ public:
         return tracer_->get_tracer(scope);
     }
 
-    /// Non-owning pointer to the most recently initialized instance.
-    [[nodiscard]] static App* current() noexcept {
-        return current_.load(std::memory_order_acquire);
-    }
-
-protected:
-    App() noexcept = default;
-
-    [[nodiscard]] Derived& derived() noexcept {
-        return *static_cast<Derived*>(this);
-    }
-
 private:
+    Infrastructure() noexcept = default;
+
+    template <class P, std::size_t C, std::size_t T>
+    friend core::Result<std::unique_ptr<Infrastructure<P, C, T>>>
+    make_infrastructure() noexcept;
+
     void rollback() noexcept {
         signals_.stop();
         tracer_.reset();
@@ -324,13 +357,12 @@ private:
         metrics_sink_.reset();
         logger_.reset();
         static_cast<void>(::pthread_sigmask(SIG_SETMASK, &previous_mask_, nullptr));
-        current_.store(nullptr, std::memory_order_release);
         initialized_ = false;
+        detail::signal_owner.store(nullptr, std::memory_order_release);
     }
 
-    // Declaration order is the lifetime contract (design D2): providers are
-    // destroyed before the sinks they reference; the watcher is destroyed
-    // first.
+    // Declaration order is the lifetime contract: providers before the sinks
+    // they reference; the watcher is destroyed first.
     std::optional<Logger> logger_{};
     std::optional<Metrics_sink> metrics_sink_{};
     std::optional<metrics::MetricProvider> metrics_{};
@@ -341,9 +373,23 @@ private:
     sigset_t previous_mask_{};
     bool initialized_{false};
     std::atomic<bool> shutdown_started_{false};
-    alignas(64) std::atomic<App_stop_reason> stop_reason_{App_stop_reason::None};
-
-    alignas(64) static inline std::atomic<App*> current_{nullptr};
+    alignas(64) std::atomic<Infrastructure_stop_reason> stop_reason_{
+        Infrastructure_stop_reason::None};
 };
+
+/// Heap-only factory: the private constructor makes automatic/static
+/// Infrastructure objects impossible. Allocation failure is a SystemError.
+template <class Policy, std::size_t Tracer_capacity = 1024,
+          std::size_t Tracer_threads = 32>
+[[nodiscard]] core::Result<std::unique_ptr<
+    Infrastructure<Policy, Tracer_capacity, Tracer_threads>>>
+make_infrastructure() noexcept {
+    using Type = Infrastructure<Policy, Tracer_capacity, Tracer_threads>;
+    Type* const raw = new (std::nothrow) Type{};
+    if (raw == nullptr) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return std::unique_ptr<Type>{raw};
+}
 
 } // namespace nexigen::app

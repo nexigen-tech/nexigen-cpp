@@ -64,7 +64,7 @@ struct App_settings_paths {
     return paths.to_string();
 }
 
-/// One merged value consumed by App::initialize.
+/// One merged value consumed by Infrastructure::initialize.
 struct App_settings {
     logging::Logging_settings logging{};
     Metrics_settings metrics{};

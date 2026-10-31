@@ -10,7 +10,7 @@ The backbone of the **nexigen** ecosystem — an ultra-high performance C++23 co
 ## 🛠️ Core Components
 * Asynchronous lock-free ring-buffer Logger.
 * Atomic-based Metrics collection and high-resolution Tracer.
-* Base `AppClass` framework (`nexigen::app::App`) handling infrastructure bootstrap, OS signal intercepts and predictable application lifecycles.
+* Heap-only `nexigen::app::Infrastructure` service handling infrastructure bootstrap, OS signal ownership and predictable application lifecycles.
 
 ### Running the `nexigen::core` unit tests
 
@@ -58,8 +58,8 @@ The target cleans old `.gcda` counters, runs the seven `nexigen_*_tests` binarie
 prints line coverage per module. Add `-DNEXIGEN_COVERAGE_FAIL_UNDER=85` to fail the
 target below the requested percentage. Coverage cannot be combined with ASan/TSan.
 
-Current unit-test line coverage is **96.1%** (6 139 / 6 387): core and diagnostics
-100%, app 96.7%, logging 96.2%, metrics 96.2%, tracing 95.5%, chrono 91.6%. The
+Current unit-test line coverage is **96.1%** (6 143 / 6 393): core and diagnostics
+100%, app 96.2%, logging 96.3%, metrics 96.2%, tracing 95.5%, chrono 91.6%. The
 project expectation is **≥95%**, enforced by passing
 `-DNEXIGEN_COVERAGE_FAIL_UNDER=95` in CI.
 
@@ -69,7 +69,7 @@ Header-only, C++23, no exceptions/RTTI, no heap allocation on hot paths. Link th
 `nexigen::core` (alias of `nexigen_core`) INTERFACE target and include what you use:
 
 * **`<nexigen/core/result.hpp>`** — the error model. `ErrorCode` (`Ok`, `BufferFull`,
-  `BufferEmpty`, `InvalidArgument`, `SystemError`, `NotInitialized`, `RateLimited`),
+  `BufferEmpty`, `InvalidArgument`, `SystemError`, `NotInitialized`, `RateLimited`, `Conflict`),
   `constexpr to_string`/`from_string`, `to_json`/`from_json` (nlohmann::json, non-throwing
   under `JSON_NOEXCEPTION=1`) and `std::formatter<ErrorCode>`, plus
   `Result<T, E = ErrorCode>` / `Status` over `std::expected`. Branch on `has_value()`
@@ -510,25 +510,29 @@ sanitizer builds are correctness-only.
 
 ## 📡 `nexigen::app` API
 
-Application lifecycle base for real-time programs: one class owns the logger, the metric/tracing
-sinks and providers, loads per-subsystem settings, watches `SIGINT`/`SIGTERM`, and flushes
-everything on the way out. Link `nexigen::app` (alias of `nexigen_app`) — it brings logging,
+Application infrastructure service for real-time programs: one heap-owned object manages the
+logger, the metric/tracing sinks and providers, loads per-subsystem settings, watches
+`SIGINT`/`SIGTERM`, and flushes everything on the way out. Applications **own** it; they do
+not inherit from it. Link `nexigen::app` (alias of `nexigen_app`) — it brings logging,
 metrics, tracing and chrono transitively.
 
-`App<Derived, Logger, Metrics_sink, Trace_sink, Tracer_capacity = 1024, Tracer_threads = 32>`
-is a CRTP base. The derived app supplies the three component types and three in-place
-emplacement hooks; the base owns them in a lifetime-safe order (providers are destroyed
-before the sinks they reference):
+`Infrastructure<Policy, Tracer_capacity = 1024, Tracer_threads = 32>` is heap-only: the
+constructor is private and `make_infrastructure<Policy>()` returns
+`core::Result<std::unique_ptr<Infrastructure<...>>>`. A stateless `Policy` supplies the
+component types and the in-place creation hooks:
 
 ```cpp
-class My_app : public nexigen::app::App<My_app, My_logger, My_metrics_sink, My_trace_sink> {
-public:
-    nexigen::core::Status emplace_logger(std::optional<My_logger>& out,
-                                         const nexigen::logging::Logging_settings& s) noexcept;
-    nexigen::core::Status emplace_metrics_sink(std::optional<My_metrics_sink>& out,
-                                               const nexigen::app::Metrics_settings& s) noexcept;
-    nexigen::core::Status emplace_trace_sink(std::optional<My_trace_sink>& out,
-                                             const nexigen::app::Tracing_settings& s) noexcept;
+struct My_policy {
+    using Logger = My_logger;
+    using Metrics_sink = My_metrics_sink;
+    using Trace_sink = My_trace_sink;
+
+    static nexigen::core::Status emplace_logger(
+        std::optional<Logger>&, const nexigen::logging::Logging_settings&) noexcept;
+    static nexigen::core::Status emplace_metrics_sink(
+        std::optional<Metrics_sink>&, const nexigen::app::Metrics_settings&) noexcept;
+    static nexigen::core::Status emplace_trace_sink(
+        std::optional<Trace_sink>&, const nexigen::app::Tracing_settings&) noexcept;
 };
 ```
 
@@ -539,26 +543,30 @@ nexigen::app::App_settings_paths paths{};   // logging / metrics / tracing: glob
 nexigen::app::App_settings settings{};
 if (!nexigen::app::load_app_settings(paths, settings).has_value()) { return 1; }
 
-static My_app app;
-if (!app.initialize(settings).has_value()) { return 1; }
+auto created = nexigen::app::make_infrastructure<My_policy>();
+if (!created.has_value()) { return 1; }      // SystemError on allocation failure
+auto infra = std::move(*created);
 
-app.logger().info("started");                       // configured logger
-const auto meter = app.meter("sim", "1.0");         // MetricProvider::get_meter
-const auto tracer = app.tracer_for("sim.loop");     // TracerProvider::get_tracer
-
-const auto reason = app.run([] { /* one tick */ });
-static_cast<void>(app.shutdown());                  // logs reason, flushes all three
+if (!infra->initialize(settings).has_value()) { return 1; }
+infra->logger().info("started");                     // configured logger
+const auto meter = infra->meter("sim", "1.0");       // MetricProvider::get_meter
+const auto tracer = infra->tracer_for("sim.loop");   // TracerProvider::get_tracer
+const auto reason = infra->run([] { /* one tick */ });
+static_cast<void>(infra->shutdown());                // logs reason, flushes all three
 ```
 
-* `initialize(settings)` blocks `SIGINT`/`SIGTERM` before any worker starts, configures the
-  logger, constructs the providers, starts the `signalfd` watcher, and publishes `current()`.
+* `initialize(settings)` claims the **process-global signal ownership** first; a second
+  initialized `Infrastructure` (any policy) receives `ErrorCode::Conflict`. It then blocks
+  `SIGINT`/`SIGTERM`, runs the policy hooks, constructs the providers and starts the
+  `signalfd` watcher.
 * `run(tick)` loops until `stop_requested()`; a `bool` tick returning `false` requests
-  `App_stop_reason::Requested`.
-* SIGINT/SIGTERM become `App_stop_reason::Sigint`/`Sigterm`; shutdown logs exactly one
-  `"shutdown reason: ..."` record.
-* `shutdown()` is idempotent, flushes tracer → metrics → logger, restores the signal mask
-  and clears `current()`. The destructor calls it.
-* `App::current()` is a non-owning pointer for deep-code convenience; it is cleared on shutdown.
+  `Infrastructure_stop_reason::Requested`.
+* SIGINT/SIGTERM become `Infrastructure_stop_reason::Sigint`/`Sigterm`; shutdown logs exactly
+  one `"shutdown reason: ..."` record.
+* `shutdown()` is idempotent, flushes tracer → metrics → logger, restores the signal mask and
+  releases signal ownership. The destructor calls it.
+* There is no `current()` accessor: pass the `Infrastructure&` (or the logger/provider
+  references) to code that needs it.
 * Settings are explicit per-subsystem global/local pairs (`App_settings_paths`), merged
   defaults → global → local → environment with the same best-effort diagnostics as logging.
 
@@ -717,12 +725,13 @@ Run them directly from the build tree (the logging examples write to
   table with ASCII bars, and the cold-path `HistogramSnapshot::to_string()`
   diagnostic; the example self-verifies one sample per tick, bucket counts summing
   to the total, ordered percentiles and samples inside the whole-run measurement.
-* **`ex_app_lifecycle`** — the base application class end to end: loads separate
-  logging/metrics/tracing global+local JSON pairs, initializes `App`, logs through
-  `app.logger()`, creates and increments a counter through `app.meter()`, opens and
-  closes a span through `app.tracer_for()`, raises `SIGINT` from a helper thread,
-  shuts down with `shutdown()`, and verifies the shutdown-reason log record, the
-  metric batch and the trace file under `/tmp/nexigen-examples-app/`.
+* **`ex_app_lifecycle`** — the infrastructure service end to end: loads separate
+  logging/metrics/tracing global+local JSON pairs, creates an `Infrastructure` through
+  `make_infrastructure<Demo_policy>()`, logs through `infra->logger()`, creates and increments
+  a counter through `infra->meter()`, opens and closes a span through `infra->tracer_for()`,
+  raises `SIGINT` from a helper thread, shuts down with `shutdown()`, and verifies the
+  shutdown-reason log record, the metric batch and the trace file under
+  `/tmp/nexigen-examples-app/`.
 
 Every example is also registered as a CTest smoke test (label `examples`): each must run
 to completion and exit with status 0.
