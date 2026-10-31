@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <new>
 #include <string>
@@ -30,6 +31,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sched.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <nexigen/core/result.hpp>
@@ -298,6 +300,13 @@ void test_time_format() {
         format_utc_iso8601_ns(probe, buf);
         NX_CHECK(std::strlen(buf) == 30);
     }
+
+    // A negative civil year keeps its sign instead of zero-padding.
+    Civil_time pre{};
+    pre.year = -1;
+    pre.month = 1;
+    pre.day = 1;
+    NX_CHECK(pre.to_string().find("-1-01-01") != std::string::npos);
 }
 
 // --- diagnostics suite (change add-serialization-and-wait-free-logging, task
@@ -312,6 +321,8 @@ void test_diag_strings() {
     NX_CHECK(ts_dump.find("monotonic") != std::string::npos);
     NX_CHECK(to_string(ts) == ts_dump); // free == member
     NX_CHECK(Timestamp{0}.to_string().find("0.000000000") != std::string::npos);
+    // A full nine-digit fraction skips the left-pad branch.
+    NX_CHECK(Timestamp{123'456'789ULL}.to_string().find(".123456789") != std::string::npos);
 
     // Stamp_source: uncalibrated state is identifiable before calibrate().
     Stamp_source src{};
@@ -462,6 +473,61 @@ void test_clock_id() {
     NX_CHECK(clock_domain<Boottime_component> == Clock_id::boottime);
 }
 
+void test_enum_contracts() {
+    // Rendering an out-of-range enumerator is well-defined ("Unknown").
+    NX_CHECK(to_string(static_cast<Clock_id>(0x7f)) == "Unknown");
+
+    // Chrono_settings_source: all values round-trip; unknown spellings are
+    // rejected without touching the out-parameter.
+    for (const Chrono_settings_source src :
+         {Chrono_settings_source::Global, Chrono_settings_source::Local,
+          Chrono_settings_source::Environment, Chrono_settings_source::Computed}) {
+        Chrono_settings_source back{};
+        NX_CHECK(from_string(to_string(src), back));
+        NX_CHECK(back == src);
+    }
+    NX_CHECK(to_string(Chrono_settings_source::Environment) == "environment");
+    NX_CHECK(to_string(Chrono_settings_source::Computed) == "computed");
+    NX_CHECK(to_string(static_cast<Chrono_settings_source>(0x7f)) == "Unknown");
+    Chrono_settings_source source = Chrono_settings_source::Local;
+    NX_CHECK(!from_string("bogus", source));
+    NX_CHECK(source == Chrono_settings_source::Local);
+
+    // JSON source: strings round-trip; non-strings are ignored.
+    {
+        nlohmann::json j = "environment";
+        Chrono_settings_source parsed = Chrono_settings_source::Global;
+        from_json(j, parsed);
+        NX_CHECK(parsed == Chrono_settings_source::Environment);
+        to_json(j, parsed);
+        NX_CHECK(j == "environment");
+        from_json(nlohmann::json{42}, parsed);
+        NX_CHECK(parsed == Chrono_settings_source::Environment);
+        NX_CHECK(std::format("{}", parsed) == "environment");
+    }
+
+    // Clock_log_level: every name, unknown handling, JSON trio and formatter.
+    for (const Clock_log_level level :
+         {Clock_log_level::info, Clock_log_level::warning, Clock_log_level::error}) {
+        Clock_log_level back{};
+        NX_CHECK(from_string(to_string(level), back));
+        NX_CHECK(back == level);
+        nlohmann::json j;
+        to_json(j, level);
+        NX_CHECK(j == std::string(to_string(level)));
+        Clock_log_level parsed = Clock_log_level::info;
+        from_json(j, parsed);
+        NX_CHECK(parsed == level);
+    }
+    Clock_log_level level = Clock_log_level::info;
+    NX_CHECK(!from_string("bogus", level));
+    NX_CHECK(level == Clock_log_level::info);
+    from_json(nlohmann::json{42}, level);
+    NX_CHECK(level == Clock_log_level::info);
+    NX_CHECK(to_string(static_cast<Clock_log_level>(0x7f)) == "Unknown");
+    NX_CHECK(std::format("{}", Clock_log_level::error) == "error");
+}
+
 void test_snapshot() {
     // Register-sized, trivially copyable.
     static_assert(sizeof(Chrono_snapshot) == 16);
@@ -496,6 +562,27 @@ void test_snapshot() {
     NX_CHECK(text.find("realtime_offset_ns") != std::string::npos);
     NX_CHECK(to_string(original) == text);
     NX_CHECK(std::format("{}", original) == text);
+}
+
+void test_snapshot_edges() {
+    // from_json: non-object and mistyped members leave the snapshot unchanged;
+    // absent members preserve the existing field.
+    Chrono_snapshot out{Timestamp{7ULL}, -9};
+    from_json(nlohmann::json::array(), out);
+    NX_CHECK(out.stamp.nanoseconds() == 7ULL);
+    NX_CHECK(out.realtime_offset_ns == -9);
+
+    from_json(nlohmann::json{{"stamp_ns", "nope"}, {"realtime_offset_ns", "nope"}}, out);
+    NX_CHECK(out.stamp.nanoseconds() == 7ULL);
+    NX_CHECK(out.realtime_offset_ns == -9);
+
+    from_json(nlohmann::json{{"stamp_ns", 11ULL}}, out);
+    NX_CHECK(out.stamp.nanoseconds() == 11ULL);
+    NX_CHECK(out.realtime_offset_ns == -9); // absent offset is preserved
+
+    from_json(nlohmann::json{{"realtime_offset_ns", 12}}, out);
+    NX_CHECK(out.stamp.nanoseconds() == 11ULL);
+    NX_CHECK(out.realtime_offset_ns == 12);
 }
 
 void test_sinks() {
@@ -640,6 +727,79 @@ void test_sinks() {
         NX_CHECK(typed.get<NullChronoSink>().to_string() == "NullChronoSink()");
         NX_CHECK(typed.get<Count_sink>().count == 0);
         NX_CHECK(typed.get<1>().count == 0);
+    }
+}
+
+void test_sink_edges() {
+    // Config: append=false rendering, JSON edge cases and formatter.
+    {
+        JsonFileChronoSink_config config;
+        config.path = "/tmp/nexigen_chrono_sink_edges.jsonl";
+        config.append = false;
+        NX_CHECK(config.to_string().find("append=false") != std::string::npos);
+        NX_CHECK(std::format("{}", config) == config.to_string());
+
+        JsonFileChronoSink_config out;
+        out.path = "/keep";
+        out.append = true;
+        from_json(nlohmann::json::array(), out);
+        NX_CHECK(out.path == "/keep" && out.append);
+        from_json(nlohmann::json{{"path", 1}, {"append", "yes"}}, out);
+        NX_CHECK(out.path == "/keep" && out.append);
+        from_json(nlohmann::json{{"path", "/new"}, {"append", false}}, out);
+        NX_CHECK(out.path == "/new" && !out.append);
+        from_json(nlohmann::json::object(), out);
+        NX_CHECK(out.path == "/new" && !out.append);
+    }
+
+    // append=false truncates an existing file instead of appending.
+    char tmpl[] = "/tmp/nexigen_chrono_trunc_XXXXXX";
+    const int mfd = ::mkstemp(tmpl);
+    NX_CHECK(mfd >= 0);
+    NX_CHECK(write_file(tmpl, "stale-content-that-must-disappear"));
+    ::close(mfd);
+    {
+        JsonFileChronoSink_config config;
+        config.path = tmpl;
+        config.append = false;
+        JsonFileChronoSink sink{config};
+        NX_CHECK(sink.is_open());
+        NX_CHECK(sink.on_snapshot(Chrono_snapshot{Timestamp{5ULL}, 6}).has_value());
+        NX_CHECK(sink.flush().has_value());
+    }
+    {
+        const std::string content = read_all(tmpl);
+        NX_CHECK(content.find("stale") == std::string::npos);
+        NX_CHECK(content.find("\"stamp_ns\":5") != std::string::npos);
+    }
+    ::unlink(tmpl);
+
+    // fsync failure: /dev/null opens but cannot be synced.
+    {
+        JsonFileChronoSink_config config;
+        config.path = "/dev/null";
+        config.append = false;
+        JsonFileChronoSink sink{config};
+        NX_CHECK(sink.is_open());
+        NX_CHECK(sink.on_snapshot(Chrono_snapshot{}).has_value());
+        NX_CHECK(!sink.flush().has_value());
+    }
+
+    // Write failure: /dev/full reports ENOSPC on every write.
+    {
+        JsonFileChronoSink_config config;
+        config.path = "/dev/full";
+        config.append = false;
+        JsonFileChronoSink sink{config};
+        NX_CHECK(sink.is_open());
+        NX_CHECK(!sink.on_snapshot(Chrono_snapshot{}).has_value());
+    }
+    {
+        const int fd = ::open("/dev/full", O_WRONLY | O_CLOEXEC);
+        NX_CHECK(fd >= 0);
+        ConsoleChronoSink sink{fd};
+        NX_CHECK(!sink.on_snapshot(Chrono_snapshot{}).has_value());
+        ::close(fd);
     }
 }
 
@@ -854,6 +1014,115 @@ void test_provider() {
         sink.snapshot_status = {};
         NX_CHECK(provider.snapshot_now().has_value());
     }
+
+    // Worker delivery failures are logged as warnings.
+    {
+        Recording_clock_logger logger;
+        Fail_sink sink;
+        ChronoProvider_config config{};
+        config.collect_interval = std::chrono::nanoseconds{1'000'000};
+        {
+            ChronoProvider provider{config, sink};
+            NX_CHECK(provider.start(logger).has_value());
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        }
+        bool warned = false;
+        for (const auto& [level, message] : logger.messages) {
+            if (level == Clock_log_level::warning &&
+                message.find("delivery failed") != std::string::npos) {
+                warned = true;
+            }
+        }
+        NX_CHECK(warned);
+    }
+
+    // A sink slower than the period rebases the schedule instead of chasing
+    // the backlog.
+    {
+        struct Slow_sink {
+            std::atomic<int> count{0};
+            Status on_snapshot(const Chrono_snapshot&) noexcept {
+                std::this_thread::sleep_for(std::chrono::milliseconds{5});
+                count.fetch_add(1, std::memory_order_relaxed);
+                return {};
+            }
+            Status flush() noexcept { return {}; }
+            std::string to_string() const { return "Slow_sink()"; }
+        };
+        Slow_sink sink;
+        ChronoProvider_config config{};
+        config.collect_interval = std::chrono::nanoseconds{1};
+        {
+            ChronoProvider provider{config, sink};
+            NX_CHECK(provider.start().has_value());
+            std::this_thread::sleep_for(std::chrono::milliseconds{30});
+        }
+        NX_CHECK(sink.count.load(std::memory_order_relaxed) >= 2);
+    }
+}
+
+void test_provider_config_edges() {
+    ChronoProvider_config config;
+    config.collect_interval = std::chrono::nanoseconds{5};
+    config.core_mask = 7;
+
+    // Non-object and empty-object documents leave the config untouched.
+    from_json(nlohmann::json::array(), config);
+    NX_CHECK(config.collect_interval == std::chrono::nanoseconds{5});
+    NX_CHECK(config.core_mask == 7);
+    from_json(nlohmann::json::object(), config);
+    NX_CHECK(config.collect_interval == std::chrono::nanoseconds{5});
+    NX_CHECK(config.core_mask == 7);
+
+    // Mistyped and negative members are ignored individually.
+    from_json(nlohmann::json{{"collect_interval_ns", -1}, {"core_mask", "bad"}}, config);
+    NX_CHECK(config.collect_interval == std::chrono::nanoseconds{5});
+    NX_CHECK(config.core_mask == 7);
+    from_json(nlohmann::json{{"collect_interval_ns", "bad"}}, config);
+    NX_CHECK(config.collect_interval == std::chrono::nanoseconds{5});
+    from_json(nlohmann::json{{"core_mask", -1}}, config);
+    NX_CHECK(config.core_mask == 7);
+
+    // Valid members replace the previous values.
+    from_json(nlohmann::json{{"collect_interval_ns", 9}, {"core_mask", 3ULL}}, config);
+    NX_CHECK(config.collect_interval == std::chrono::nanoseconds{9});
+    NX_CHECK(config.core_mask == 3);
+}
+
+void test_affinity_edges() {
+    // Zero mask is rejected before touching the thread affinity.
+    const Status zero = detail::pin_self(0);
+    NX_CHECK(!zero.has_value());
+    NX_CHECK(zero.error() == ErrorCode::InvalidArgument);
+
+    // self_affinity reports the current mask.
+    std::uint64_t mask = 0;
+    NX_CHECK(detail::self_affinity(mask).has_value());
+    NX_CHECK(mask != 0ULL);
+
+    // Pinning to a core outside the process's allowed set fails. Some
+    // containers expose every CPU 0..63, in which case the failure path is
+    // simply not observable; skip the assertion rather than fake it.
+    cpu_set_t allowed;
+    CPU_ZERO(&allowed);
+    NX_CHECK(::sched_getaffinity(0, sizeof(allowed), &allowed) == 0);
+    int denied = -1;
+    for (int cpu = 0; cpu < 64; ++cpu) {
+        if (!CPU_ISSET(static_cast<std::size_t>(cpu), &allowed)) {
+            denied = cpu;
+            break;
+        }
+    }
+    if (denied >= 0) {
+        std::atomic<int> result{-1};
+        std::thread worker([denied, &result] {
+            const Status pinned = detail::pin_self(std::uint64_t{1} << denied);
+            result.store(pinned.has_value() ? 0 : static_cast<int>(pinned.error()),
+                         std::memory_order_relaxed);
+        });
+        worker.join();
+        NX_CHECK(result.load() == static_cast<int>(ErrorCode::SystemError));
+    }
 }
 
 void test_settings() {
@@ -980,6 +1249,224 @@ void test_settings() {
     ::unlink(local_path);
 }
 
+void test_settings_edges() {
+    ::unsetenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS");
+    ::unsetenv("NEXIGEN_CHRONO_CORE_MASK");
+
+    // Diagnostics and paths render through member/free/formatter.
+    {
+        Chrono_settings_diagnostic diag{Chrono_settings_source::Computed, "field", "message"};
+        const std::string text = diag.to_string();
+        NX_CHECK(text.find("source=computed") != std::string::npos);
+        NX_CHECK(text.find("field=field") != std::string::npos);
+        NX_CHECK(to_string(diag) == text);
+        NX_CHECK(std::format("{}", diag) == text);
+
+        Chrono_settings_paths paths;
+        paths.global_file = "/global";
+        paths.local_file = "/local";
+        NX_CHECK(paths.to_string().find("/global") != std::string::npos);
+        NX_CHECK(std::format("{}", paths) == paths.to_string());
+    }
+
+    // Settings render loaded flags and a multi-entry diagnostic list.
+    {
+        Chrono_settings settings;
+        settings.global_loaded = true;
+        settings.local_loaded = true;
+        settings.options.collect_interval = std::chrono::nanoseconds{4};
+        settings.options.core_mask = 2;
+        settings.diagnostics.push_back({Chrono_settings_source::Global, "a", "b"});
+        settings.diagnostics.push_back({Chrono_settings_source::Local, "c", "d"});
+        const std::string text = settings.to_string();
+        NX_CHECK(text.find("global_loaded=true") != std::string::npos);
+        NX_CHECK(text.find("local_loaded=true") != std::string::npos);
+        NX_CHECK(text.find("; ") != std::string::npos);
+        NX_CHECK(std::format("{}", settings) == text);
+
+        nlohmann::json j;
+        to_json(j, settings);
+        NX_CHECK(j["diagnostics"].size() == 2U);
+    }
+
+    // from_json edge cases: non-objects and mistyped members are ignored.
+    {
+        Chrono_settings_paths paths;
+        paths.global_file = "/keep";
+        from_json(nlohmann::json::array(), paths);
+        NX_CHECK(paths.global_file == "/keep");
+        from_json(nlohmann::json{{"global_file", 1}, {"local_file", false}}, paths);
+        NX_CHECK(paths.global_file == "/keep");
+        NX_CHECK(paths.local_file.empty());
+        from_json(nlohmann::json::object(), paths);
+        NX_CHECK(paths.global_file == "/keep");
+        NX_CHECK(paths.local_file.empty());
+
+        Chrono_settings_diagnostic diag{Chrono_settings_source::Local, "keep", "keep"};
+        from_json(nlohmann::json::array(), diag);
+        NX_CHECK(diag.source == Chrono_settings_source::Local);
+        from_json(nlohmann::json{{"source", 1}, {"field", 2}, {"message", 3}}, diag);
+        NX_CHECK(diag.source == Chrono_settings_source::Local);
+        NX_CHECK(diag.field == "keep");
+        NX_CHECK(diag.message == "keep");
+        from_json(nlohmann::json::object(), diag);
+        NX_CHECK(diag.source == Chrono_settings_source::Local);
+        NX_CHECK(diag.field == "keep");
+        NX_CHECK(diag.message == "keep");
+        from_json(nlohmann::json{{"source", "bogus"}}, diag);
+        NX_CHECK(diag.source == Chrono_settings_source::Local);
+    }
+
+    const char* global_path = "/tmp/nexigen_chrono_edge_global.json";
+    const char* local_path = "/tmp/nexigen_chrono_edge_local.json";
+
+    // Non-object documents: one InvalidArgument per file, both loaded.
+    NX_CHECK(write_file(global_path, "[]"));
+    NX_CHECK(write_file(local_path, "\"not-an-object\""));
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = global_path;
+        paths.local_file = local_path;
+        const Status s = load_chrono_settings(paths, settings);
+        NX_CHECK(!s.has_value());
+        NX_CHECK(s.error() == ErrorCode::InvalidArgument);
+        NX_CHECK(settings.global_loaded && settings.local_loaded);
+        NX_CHECK(settings.diagnostics.size() == 2U);
+        const std::string text = settings.to_string();
+        NX_CHECK(text.find("diagnostics=[") != std::string::npos);
+        NX_CHECK(text.find("; ") != std::string::npos);
+    }
+
+    // A directory opens but cannot be read: SystemError, not "absent".
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = "/tmp";
+        const Status s = load_chrono_settings(paths, settings);
+        NX_CHECK(!s.has_value());
+        NX_CHECK(s.error() == ErrorCode::SystemError);
+        NX_CHECK(settings.diagnostics.size() == 1U);
+        NX_CHECK(settings.diagnostics[0].message.find("could not be read") !=
+                 std::string::npos);
+    }
+
+    // The same failure on the local source (the global path succeeded).
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.local_file = "/tmp";
+        const Status s = load_chrono_settings(paths, settings);
+        NX_CHECK(!s.has_value());
+        NX_CHECK(s.error() == ErrorCode::SystemError);
+        NX_CHECK(settings.diagnostics.size() == 1U);
+        NX_CHECK(settings.diagnostics[0].source == Chrono_settings_source::Local);
+    }
+
+    // Malformed JSON in the global file is a diagnostic and InvalidArgument.
+    NX_CHECK(write_file(global_path, "{ not json"));
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = global_path;
+        const Status s = load_chrono_settings(paths, settings);
+        NX_CHECK(!s.has_value());
+        NX_CHECK(s.error() == ErrorCode::InvalidArgument);
+        NX_CHECK(settings.global_loaded);
+        NX_CHECK(settings.diagnostics.size() == 1U);
+        NX_CHECK(settings.diagnostics[0].message.find("malformed JSON") !=
+                 std::string::npos);
+    }
+
+    // An unreadable file (EACCES, not ENOENT) is a SystemError. Skip when the
+    // test runs as root, where mode 000 is not restrictive.
+    if (::geteuid() != 0) {
+        const char* unreadable_path = "/tmp/nexigen_chrono_unreadable.json";
+        NX_CHECK(write_file(unreadable_path, "{}"));
+        NX_CHECK(::chmod(unreadable_path, 0) == 0);
+        {
+            Chrono_settings settings;
+            Chrono_settings_paths paths;
+            paths.global_file = unreadable_path;
+            const Status s = load_chrono_settings(paths, settings);
+            NX_CHECK(!s.has_value());
+            NX_CHECK(s.error() == ErrorCode::SystemError);
+        }
+        NX_CHECK(::chmod(unreadable_path, 0644) == 0);
+        ::unlink(unreadable_path);
+    }
+
+    // Environment interval: valid, invalid and > INT64_MAX.
+    ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "4242", 1);
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        NX_CHECK(load_chrono_settings(paths, settings).has_value());
+        NX_CHECK(settings.options.collect_interval == std::chrono::nanoseconds{4242});
+    }
+    ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "-1", 1);
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        const Status s = load_chrono_settings(paths, settings);
+        NX_CHECK(!s.has_value());
+        NX_CHECK(s.error() == ErrorCode::InvalidArgument);
+        NX_CHECK(settings.diagnostics.size() == 1U);
+        NX_CHECK(settings.diagnostics[0].source == Chrono_settings_source::Environment);
+    }
+    ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "9223372036854775808", 1);
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        const Status s = load_chrono_settings(paths, settings);
+        NX_CHECK(!s.has_value());
+        NX_CHECK(s.error() == ErrorCode::InvalidArgument);
+    }
+    ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "12abc", 1);
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        const Status s = load_chrono_settings(paths, settings);
+        NX_CHECK(!s.has_value());
+        NX_CHECK(s.error() == ErrorCode::InvalidArgument);
+    }
+    ::unsetenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS");
+
+    // Environment core mask: invalid spelling is a diagnostic.
+    ::setenv("NEXIGEN_CHRONO_CORE_MASK", "not-a-number", 1);
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        const Status s = load_chrono_settings(paths, settings);
+        NX_CHECK(!s.has_value());
+        NX_CHECK(s.error() == ErrorCode::InvalidArgument);
+        NX_CHECK(settings.diagnostics.size() == 1U);
+    }
+    ::unsetenv("NEXIGEN_CHRONO_CORE_MASK");
+
+    // JSON range checks: interval above INT64_MAX and a max-width core mask.
+    NX_CHECK(write_file(global_path, "{\"collect_interval_ns\": 9223372036854775808}"));
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = global_path;
+        const Status s = load_chrono_settings(paths, settings);
+        NX_CHECK(!s.has_value());
+        NX_CHECK(s.error() == ErrorCode::InvalidArgument);
+    }
+    NX_CHECK(write_file(global_path, "{\"core_mask\": 18446744073709551615}"));
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = global_path;
+        NX_CHECK(load_chrono_settings(paths, settings).has_value());
+        NX_CHECK(settings.options.core_mask == std::numeric_limits<std::uint64_t>::max());
+    }
+
+    ::unlink(global_path);
+    ::unlink(local_path);
+}
+
 } // namespace
 
 int main()
@@ -989,11 +1476,17 @@ int main()
     run_suite("utc_offset", test_utc_offset);
     run_suite("time_format", test_time_format);
     run_suite("diag_strings", test_diag_strings);
+    run_suite("enum_contracts", test_enum_contracts);
     run_suite("clock_id", test_clock_id);
     run_suite("snapshot", test_snapshot);
+    run_suite("snapshot_edges", test_snapshot_edges);
     run_suite("sinks", test_sinks);
+    run_suite("sink_edges", test_sink_edges);
     run_suite("provider", test_provider);
+    run_suite("provider_config_edges", test_provider_config_edges);
+    run_suite("affinity_edges", test_affinity_edges);
     run_suite("settings", test_settings);
+    run_suite("settings_edges", test_settings_edges);
 
     const int failures = g_failures;
     std::printf("total: %d checks, %d failed\n", g_checks, failures);
