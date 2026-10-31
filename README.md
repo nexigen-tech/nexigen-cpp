@@ -570,6 +570,98 @@ static_cast<void>(infra->shutdown());                // logs reason, flushes all
 * Settings are explicit per-subsystem global/local pairs (`App_settings_paths`), merged
   defaults → global → local → environment with the same best-effort diagnostics as logging.
 
+### Command-line settings
+
+`include/nexigen/app/command_line.hpp` provides a cold-path, boost::program_options-style
+parser for the two settings directories and the initial log level:
+
+| Option | Meaning |
+| --- | --- |
+| `-gs, --global-settings <absolute-dir>` | global settings directory; must be an absolute path |
+| `-ls, --local-settings <relative-dir>` | local settings directory; must be a relative path |
+| `-lgl, --log-level <level>` | `verbose`, `debug`, `info`, `warning`, `error`, `fatal`, or `off` |
+| `-h, --help` | print usage; short-circuits every other argument |
+
+Both directories use the same fixed file names: `logging.json`, `metrics.json`,
+`tracing.json`, and `chrono.json`. Omitting a directory disables that source; supplying an
+empty value, a relative global directory, or an absolute local directory is
+`ErrorCode::InvalidArgument`. **At least one** of `--global-settings` or `--local-settings`
+must be supplied unless `--help` is present. If neither is given, parsing fails with a
+diagnostic stating that one settings directory is required; the application prints the
+diagnostic and usage text to stderr and exits with a non-zero status instead of loading
+built-in defaults.
+
+Accepted value forms are `--name value`, `--name=value`, `-name value`, `-namevalue`, and
+`-name=value` (for example `-gs/etc/nexigen`, `-lgl=warning`). A standalone `--` ends option
+parsing; positional arguments are rejected. Use `--name=value` when a value starts with `-`.
+
+The CLI log level has the highest precedence: `apply_to` overwrites
+`logging.options.initial_log_level` after the global → local → environment load. Without
+`--log-level`, the loaded value is preserved.
+
+Minimal startup flow:
+
+```cpp
+#include <cstdio>
+#include <string_view>
+
+#include <nexigen/app/command_line.hpp>
+#include <nexigen/app/infrastructure.hpp>
+
+int main(int argc, char** argv) {
+    const auto parsed = nexigen::app::parse_command_line(argc, argv);
+    if (!parsed.has_value()) {
+        for (const auto& diagnostic : parsed.error().diagnostics) {
+            std::fprintf(stderr, "%s: %s\n", diagnostic.option.c_str(),
+                         diagnostic.message.c_str());
+        }
+        const std::string_view usage = nexigen::app::command_line_usage();
+        std::fwrite(usage.data(), 1, usage.size(), stderr);
+        return 2; // usage error
+    }
+    if (parsed->help) {
+        const std::string_view usage = nexigen::app::command_line_usage();
+        std::fwrite(usage.data(), 1, usage.size(), stdout);
+        return 0;
+    }
+
+    auto created = nexigen::app::make_infrastructure<My_policy>();
+    if (!created.has_value()) {
+        return 1; // allocation failure
+    }
+    auto& infra = *created;
+
+    nexigen::app::App_settings loaded{};
+    if (!infra->initialize(*parsed, loaded).has_value()) {
+        // Fail fast: loaded still holds best-effort settings and diagnostics.
+        // Inspect them, or explicitly call infra->initialize(loaded) for a
+        // degraded startup.
+        return 1;
+    }
+    // ... run the application ...
+    static_cast<void>(infra->shutdown());
+    return 0;
+}
+```
+
+`Infrastructure::initialize(options, loaded)` maps the directories, loads all four
+subsystems, applies the CLI level, and delegates to the existing
+`initialize(const App_settings&)` only when loading succeeds. A loader failure is fail-fast:
+no signal ownership is claimed and no component is created. Help is rejected as an
+initialization input.
+
+The equivalent manual sequence is:
+
+```cpp
+const auto paths = nexigen::app::make_app_settings_paths(*parsed);
+nexigen::app::App_settings settings{};
+const auto load_status = nexigen::app::load_app_settings(paths, settings);
+nexigen::app::apply_to(*parsed, settings); // CLI level wins even after a load error
+```
+
+`load_app_settings(*parsed, settings)` is a convenience that performs the same sequence and
+rejects a manually built options value when both directories are empty.
+
 ## 📡 `nexigen::diagnostics` API
 
 Interval timing for real-time loops: the cache-line-aligned `Stopwatch` (O(1)

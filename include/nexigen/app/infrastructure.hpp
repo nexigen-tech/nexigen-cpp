@@ -32,6 +32,7 @@
 #include <unistd.h>
 
 #include <nexigen/app/app_settings.hpp>
+#include <nexigen/app/command_line.hpp>
 #include <nexigen/app/infrastructure_stop_reason.hpp>
 #include <nexigen/chrono/chrono_provider.hpp>
 #include <nexigen/chrono/chrono_settings.hpp>
@@ -272,6 +273,25 @@ public:
 
         initialized_ = true;
         return {};
+    }
+
+    /// Load settings from parsed command-line options and initialize through
+    /// the existing path. Loading is fail-fast: on a loader diagnostic this
+    /// returns the failure without claiming signals or creating components,
+    /// while `loaded` keeps the best-effort settings and diagnostics. Help is a
+    /// caller action and is rejected as an initialization input.
+    [[nodiscard]] core::Status initialize(const Command_line_options& options,
+                                          App_settings& loaded) noexcept {
+        if (options.help) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        App_settings settings{};
+        const core::Status status = load_app_settings(options, settings);
+        loaded = std::move(settings);
+        if (!status) {
+            return status;
+        }
+        return initialize(loaded);
     }
 
     /// Run the caller's tick until a stop is requested; returns the reason.
