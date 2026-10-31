@@ -73,3 +73,10 @@ target_link_libraries(nexigen_app_tests PRIVATE nexigen_app Threads::Threads)
 
 add_test(NAME nexigen_app_tests COMMAND nexigen_app_tests)
 set_tests_properties(nexigen_app_tests PROPERTIES TIMEOUT 600)
+
+# Юнит-тесты nexigen::runner: создание каталогов, metadata, генерация настроек.
+add_executable(nexigen_runner_tests runner/runner_test.cpp)
+target_link_libraries(nexigen_runner_tests PRIVATE nexigen_runner Threads::Threads)
+
+add_test(NAME nexigen_runner_tests COMMAND nexigen_runner_tests)
+set_tests_properties(nexigen_runner_tests PROPERTIES TIMEOUT 600)

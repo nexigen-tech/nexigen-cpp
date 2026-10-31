@@ -264,12 +264,29 @@ target_link_libraries(nexigen_app PUBLIC nexigen_core nexigen_chrono nexigen_log
     nexigen_metrics nexigen_tracing PRIVATE Threads::Threads)
 
 # =============================================================================
+# nexigen::runner — instance lifecycle library.
+# =============================================================================
+file(GLOB NEXIGEN_RUNNER_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/runner/*.cpp")
+
+add_library(nexigen_runner STATIC ${NEXIGEN_RUNNER_SOURCES})
+add_library(nexigen::runner ALIAS nexigen_runner)
+
+target_include_directories(nexigen_runner PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_compile_definitions(nexigen_runner PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+target_link_libraries(nexigen_runner PUBLIC nexigen_core nexigen_app PRIVATE Threads::Threads)
+
+# =============================================================================
 # Опции сборки: юнит-тесты и runnable-примеры (включены по умолчанию).
 # enable_testing() поднимаем на уровень обеих веток: ctest должен видеть
 # примеры даже при -DNEXIGEN_BUILD_TESTS=OFF.
 # =============================================================================
 option(NEXIGEN_BUILD_TESTS "Build nexigen unit tests" ON)
 option(NEXIGEN_BUILD_EXAMPLES "Build nexigen runnable examples" ON)
+option(NEXIGEN_BUILD_TOOLS "Build nexigen command-line tools" ON)
 
 if(NEXIGEN_BUILD_TESTS OR NEXIGEN_BUILD_EXAMPLES)
     enable_testing()
@@ -281,6 +298,10 @@ endif()
 
 if(NEXIGEN_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+if(NEXIGEN_BUILD_TOOLS)
+    add_subdirectory(tools)
 endif()
 
 # =============================================================================
