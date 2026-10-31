@@ -28,6 +28,9 @@ int main() {
     config.collect_interval = std::chrono::milliseconds{10};
     {
         chrono::ChronoProvider provider{config, sink};
+        if (!provider.start()) {
+            return 1;
+        }
         if (!provider.snapshot_now()) {
             return 1;
         }

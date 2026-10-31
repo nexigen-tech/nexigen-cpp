@@ -412,6 +412,14 @@ struct Fail_sink {
     std::string to_string() const { return "Fail_sink()"; }
 };
 
+/// Records the Clock_log_level diagnostics a worker emits through a logger.
+struct Recording_clock_logger {
+    std::vector<std::pair<Clock_log_level, std::string>> messages{};
+    void log(Clock_log_level level, std::string_view message) noexcept {
+        messages.push_back({level, std::string(message)});
+    }
+};
+
 void test_clock_id() {
     // Three base domains only.
     NX_CHECK(to_string(Clock_id::monotonic_raw) == "monotonic_raw");
@@ -697,6 +705,61 @@ void test_provider() {
         NX_CHECK(sink.flushes >= 1);
     }
 
+    // Deferred start: construction does not start the worker; start() is
+    // idempotent; a zero interval makes start() a no-op.
+    {
+        Recording_sink sink;
+        ChronoProvider_config config{};
+        config.collect_interval = std::chrono::nanoseconds{5'000'000}; // 5 ms
+        {
+            ChronoProvider provider{config, sink};
+            std::this_thread::sleep_for(std::chrono::milliseconds{30});
+            NX_CHECK(sink.snapshots.empty()); // not started yet
+            NX_CHECK(provider.start().has_value());
+            NX_CHECK(provider.start().has_value()); // idempotent
+            std::this_thread::sleep_for(std::chrono::milliseconds{30});
+        } // destructor: final snapshot + flush
+        NX_CHECK(sink.snapshots.size() >= 1U); // worker delivered after start()
+    }
+    {
+        Recording_sink sink;
+        ChronoProvider_config config{};
+        config.collect_interval = std::chrono::nanoseconds{0}; // zero interval
+        {
+            ChronoProvider provider{config, sink};
+            NX_CHECK(provider.start().has_value()); // no-op
+            std::this_thread::sleep_for(std::chrono::milliseconds{30});
+            NX_CHECK(sink.snapshots.empty()); // no worker, nothing delivered
+        }
+        NX_CHECK(sink.snapshots.size() == 1U); // only the destructor's final snapshot
+    }
+
+    // Worker logging: start(Logger&) binds a logger; start() runs silent.
+    {
+        Recording_clock_logger logger;
+        NullChronoSink sink;
+        ChronoProvider_config config{};
+        config.collect_interval = std::chrono::nanoseconds{1'000'000}; // 1 ms
+        {
+            ChronoProvider provider{config, sink};
+            NX_CHECK(provider.start(logger).has_value());
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        } // destructor stops the worker, which logs its shutdown
+        NX_CHECK(!logger.messages.empty());
+    }
+    {
+        Recording_clock_logger logger;
+        NullChronoSink sink;
+        ChronoProvider_config config{};
+        config.collect_interval = std::chrono::nanoseconds{1'000'000};
+        {
+            ChronoProvider provider{config, sink};
+            NX_CHECK(provider.start().has_value()); // no logger
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        }
+        NX_CHECK(logger.messages.empty()); // no logging calls
+    }
+
     // Background worker honors the period.
     {
         Recording_sink sink;
@@ -704,6 +767,7 @@ void test_provider() {
         config.collect_interval = std::chrono::nanoseconds{10'000'000}; // 10 ms
         {
             ChronoProvider provider{config, sink};
+            NX_CHECK(provider.start().has_value());
             std::this_thread::sleep_for(std::chrono::milliseconds{120});
         } // destructor joins the worker before the sink is read again
         NX_CHECK(sink.snapshots.size() >= 3U);
@@ -735,6 +799,7 @@ void test_provider() {
         {
             ChronoProvider provider{config, sink};
             NX_CHECK(provider.startup_status().has_value());
+            NX_CHECK(provider.start().has_value());
             for (int i = 0; i < 200 && provider.worker_mask() == 0ULL; ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds{1});
             }
@@ -755,6 +820,7 @@ void test_provider() {
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         config.core_mask = std::uint64_t{1} << denied_cpu;
         ChronoProvider provider{config, sink};
+        NX_CHECK(provider.start().has_value());
         for (int i = 0; i < 200 && provider.startup_status().has_value(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds{1});
         }

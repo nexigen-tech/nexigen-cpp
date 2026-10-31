@@ -15,9 +15,8 @@ namespace nexigen::chrono {
 
 ChronoProvider::ChronoProvider(const ChronoProvider_config& config, detail::Sink_binding binding)
     : config_(config), binding_(binding) {
-    if (config_.collect_interval > std::chrono::nanoseconds{0}) {
-        worker_ = std::jthread([this](std::stop_token stop) { snapshot_loop(stop); });
-    }
+    // The background worker is started by start(), not by construction, so the
+    // caller can bind a logger first (two-phase lifecycle).
 }
 
 ChronoProvider::~ChronoProvider() {
@@ -94,12 +93,14 @@ void ChronoProvider::snapshot_loop(std::stop_token stop) noexcept {
         const core::Status pinned = detail::pin_self(config_.core_mask);
         if (!pinned) {
             startup_error_.store(pinned.error(), std::memory_order_release);
+            log(Clock_log_level::warning, "chrono worker: affinity pin failed");
         }
     }
     std::uint64_t mask = 0;
     if (detail::self_affinity(mask)) {
         worker_mask_.store(mask, std::memory_order_relaxed);
     }
+    log(Clock_log_level::info, "chrono worker started");
 
     auto next = std::chrono::steady_clock::now() + config_.collect_interval;
     while (!stop.stop_requested()) {
@@ -110,13 +111,17 @@ void ChronoProvider::snapshot_loop(std::stop_token stop) noexcept {
         if (stop.stop_requested()) {
             break;
         }
-        static_cast<void>(snapshot_now());
+        const core::Status delivered = snapshot_now();
+        if (!delivered) {
+            log(Clock_log_level::warning, "chrono worker: snapshot delivery failed");
+        }
         next += config_.collect_interval;
         const auto now = std::chrono::steady_clock::now();
         if (next < now) {
             next = now + config_.collect_interval; // do not chase a backlog
         }
     }
+    log(Clock_log_level::info, "chrono worker stopped");
 }
 
 // --- ChronoProvider_config serialization (cold path).

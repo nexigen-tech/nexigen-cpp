@@ -142,12 +142,14 @@ std::string Tracing_settings::to_string() const {
 
 std::string App_settings_paths::to_string() const {
     return "App_settings_paths(logging=" + logging.to_string() +
-           ", metrics=" + metrics.to_string() + ", tracing=" + tracing.to_string() + ")";
+           ", metrics=" + metrics.to_string() + ", tracing=" + tracing.to_string() +
+           ", chrono=" + chrono.to_string() + ")";
 }
 
 std::string App_settings::to_string() const {
     return "App_settings(logging=" + logging.to_string() +
-           ", metrics=" + metrics.to_string() + ", tracing=" + tracing.to_string() + ")";
+           ", metrics=" + metrics.to_string() + ", tracing=" + tracing.to_string() +
+           ", chrono=" + chrono.to_string() + ")";
 }
 
 void to_json(nlohmann::json& j, const Metrics_settings& settings) {
@@ -194,7 +196,9 @@ void to_json(nlohmann::json& j, const App_settings_paths& paths) {
                        {"metrics", nlohmann::json{{"global_file", paths.metrics.global_file},
                                                   {"local_file", paths.metrics.local_file}}},
                        {"tracing", nlohmann::json{{"global_file", paths.tracing.global_file},
-                                                  {"local_file", paths.tracing.local_file}}}};
+                                                  {"local_file", paths.tracing.local_file}}},
+                       {"chrono", nlohmann::json{{"global_file", paths.chrono.global_file},
+                                                 {"local_file", paths.chrono.local_file}}}};
 }
 
 void to_json(nlohmann::json& j, const App_settings& settings) {
@@ -204,9 +208,12 @@ void to_json(nlohmann::json& j, const App_settings& settings) {
     to_json(metrics_json, settings.metrics);
     nlohmann::json tracing_json;
     to_json(tracing_json, settings.tracing);
+    nlohmann::json chrono_json;
+    to_json(chrono_json, settings.chrono);
     j = nlohmann::json{{"logging", std::move(logging_json)},
                        {"metrics", std::move(metrics_json)},
-                       {"tracing", std::move(tracing_json)}};
+                       {"tracing", std::move(tracing_json)},
+                       {"chrono", std::move(chrono_json)}};
 }
 
 namespace {
@@ -480,11 +487,13 @@ core::Status load_app_settings(const App_settings_paths& paths,
         logging::load_logging_settings(paths.logging, out.logging);
     const core::Status metrics_status = load_metrics_settings(paths.metrics, out.metrics);
     const core::Status tracing_status = load_tracing_settings(paths.tracing, out.tracing);
+    const core::Status chrono_status = chrono::load_chrono_settings(paths.chrono, out.chrono);
 
-    if (!logging_status || !metrics_status || !tracing_status) {
+    if (!logging_status || !metrics_status || !tracing_status || !chrono_status) {
         if ((!logging_status && logging_status.error() == core::ErrorCode::SystemError) ||
             (!metrics_status && metrics_status.error() == core::ErrorCode::SystemError) ||
-            (!tracing_status && tracing_status.error() == core::ErrorCode::SystemError)) {
+            (!tracing_status && tracing_status.error() == core::ErrorCode::SystemError) ||
+            (!chrono_status && chrono_status.error() == core::ErrorCode::SystemError)) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         return std::unexpected(core::ErrorCode::InvalidArgument);

@@ -13,6 +13,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/chrono/chrono_settings.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/logging_settings.hpp>
 #include <nexigen/metrics/metric_provider.hpp>
@@ -52,11 +53,12 @@ struct Tracing_settings {
     return settings.to_string();
 }
 
-/// The three explicit source pairs consumed by load_app_settings.
+/// The four explicit source pairs consumed by load_app_settings.
 struct App_settings_paths {
     logging::Settings_paths logging{};
     logging::Settings_paths metrics{};
     logging::Settings_paths tracing{};
+    chrono::Chrono_settings_paths chrono{};
 
     [[nodiscard]] std::string to_string() const;
 };
@@ -69,6 +71,7 @@ struct App_settings {
     logging::Logging_settings logging{};
     Metrics_settings metrics{};
     Tracing_settings tracing{};
+    chrono::Chrono_settings chrono{};
 
     [[nodiscard]] std::string to_string() const;
 };

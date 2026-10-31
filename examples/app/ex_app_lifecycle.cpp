@@ -12,6 +12,7 @@
 #include <utility>
 
 #include <nexigen/app/infrastructure.hpp>
+#include <nexigen/chrono/null_chrono_sink.hpp>
 #include <nexigen/logging/console_logger.hpp>
 #include <nexigen/metrics/console_metric_sink.hpp>
 #include <nexigen/tracing/console_trace_sink.hpp>
@@ -20,6 +21,7 @@ namespace {
 
 namespace app = nexigen::app;
 namespace core = nexigen::core;
+namespace chrono = nexigen::chrono;
 namespace logging = nexigen::logging;
 namespace metrics = nexigen::metrics;
 namespace tracing = nexigen::tracing;
@@ -28,6 +30,7 @@ struct Simple_policy {
     using Logger = logging::ConsoleLogger<>;
     using Metrics_sink = metrics::ConsoleMetricSink;
     using Trace_sink = tracing::ConsoleTraceSink;
+    using Chrono_sink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(
         std::optional<Logger>& out,
@@ -47,6 +50,13 @@ struct Simple_policy {
         std::optional<Trace_sink>& out,
         const app::Tracing_settings&) noexcept {
         out.emplace(1);
+        return {};
+    }
+
+    static core::Status emplace_chrono_sink(
+        std::optional<Chrono_sink>& out,
+        const chrono::Chrono_settings&) noexcept {
+        out.emplace();
         return {};
     }
 };
@@ -70,6 +80,10 @@ int main() {
     }
 
     infra->logger().info("infrastructure ready");
+
+    if (!infra->chrono().snapshot_now()) {
+        return fail("infra->chrono().snapshot_now failed");
+    }
 
     const auto meter = infra->meter("demo", "1.0");
     if (!meter.has_value()) {

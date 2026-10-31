@@ -27,6 +27,7 @@
 #include <nexigen/app/infrastructure.hpp>
 #include <nexigen/app/app_settings.hpp>
 #include <nexigen/app/infrastructure_stop_reason.hpp>
+#include <nexigen/chrono/null_chrono_sink.hpp>
 #include <nexigen/metrics/null_metric_sink.hpp>
 #include <nexigen/tracing/null_trace_sink.hpp>
 
@@ -38,6 +39,7 @@ namespace {
 
 namespace app = nexigen::app;
 namespace core = nexigen::core;
+namespace chrono = nexigen::chrono;
 namespace logging = nexigen::logging;
 namespace metrics = nexigen::metrics;
 namespace tracing = nexigen::tracing;
@@ -122,6 +124,7 @@ struct Test_policy {
     using Logger = Capture_logger;
     using Metrics_sink = metrics::NullMetricSink;
     using Trace_sink = tracing::NullTraceSink;
+    using Chrono_sink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Logging_settings&) noexcept {
@@ -138,12 +141,18 @@ struct Test_policy {
         out.emplace();
         return {};
     }
+    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
+                                            const chrono::Chrono_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
 };
 
 struct Fail_logger_policy {
     using Logger = Capture_logger;
     using Metrics_sink = metrics::NullMetricSink;
     using Trace_sink = tracing::NullTraceSink;
+    using Chrono_sink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>&,
                                        const logging::Logging_settings&) noexcept {
@@ -159,12 +168,18 @@ struct Fail_logger_policy {
         out.emplace();
         return {};
     }
+    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
+                                            const chrono::Chrono_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
 };
 
 struct Fail_metrics_policy {
     using Logger = Capture_logger;
     using Metrics_sink = metrics::NullMetricSink;
     using Trace_sink = tracing::NullTraceSink;
+    using Chrono_sink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Logging_settings&) noexcept {
@@ -180,12 +195,18 @@ struct Fail_metrics_policy {
         out.emplace();
         return {};
     }
+    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
+                                            const chrono::Chrono_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
 };
 
 struct Fail_trace_policy {
     using Logger = Capture_logger;
     using Metrics_sink = metrics::NullMetricSink;
     using Trace_sink = tracing::NullTraceSink;
+    using Chrono_sink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Logging_settings&) noexcept {
@@ -201,12 +222,18 @@ struct Fail_trace_policy {
                                            const app::Tracing_settings&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
+    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
+                                            const chrono::Chrono_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
 };
 
 struct Flush_fail_policy {
     using Logger = Flush_fail_logger;
     using Metrics_sink = metrics::NullMetricSink;
     using Trace_sink = tracing::NullTraceSink;
+    using Chrono_sink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Logging_settings&) noexcept {
@@ -222,6 +249,38 @@ struct Flush_fail_policy {
                                            const app::Tracing_settings&) noexcept {
         out.emplace();
         return {};
+    }
+    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
+                                            const chrono::Chrono_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+};
+
+struct Fail_chrono_policy {
+    using Logger = Capture_logger;
+    using Metrics_sink = metrics::NullMetricSink;
+    using Trace_sink = tracing::NullTraceSink;
+    using Chrono_sink = chrono::NullChronoSink;
+
+    static core::Status emplace_logger(std::optional<Logger>& out,
+                                       const logging::Logging_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
+                                             const app::Metrics_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
+                                           const app::Tracing_settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>&,
+                                            const chrono::Chrono_settings&) noexcept {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 };
 
@@ -487,6 +546,8 @@ void test_infrastructure_lifecycle() {
     app->logger().info("lifecycle record");
     NX_CHECK(g_log_lines.size() == 1U);
 
+    NX_CHECK(app->chrono().snapshot_now().has_value());
+
     const auto meter = app->meter("sim", "1.0");
     NX_CHECK(meter.has_value());
     const auto counter = (*meter)->create_counter<metrics::ConcurrencyPolicy::SingleThreaded,
@@ -552,6 +613,12 @@ void test_infrastructure_failures() {
     if (fail_trace) {
         NX_CHECK(!fail_trace->initialize(app::App_settings{}).has_value());
         NX_CHECK(fail_trace->shutdown().has_value());
+    }
+    auto fail_chrono = make_test_infra<Fail_chrono_policy>();
+    NX_CHECK(fail_chrono != nullptr);
+    if (fail_chrono) {
+        NX_CHECK(!fail_chrono->initialize(app::App_settings{}).has_value());
+        NX_CHECK(fail_chrono->shutdown().has_value());
     }
     auto flush_fail = make_test_infra<Flush_fail_policy>();
     NX_CHECK(flush_fail != nullptr);
