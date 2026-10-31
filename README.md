@@ -633,8 +633,7 @@ Run them directly from the build tree (the logging examples write to
 `/tmp/nexigen-examples-logging-settings/` and
 `/tmp/nexigen-examples-logging-settings-simple/`; the metrics pipeline example writes to
 `/tmp/nexigen-examples-metrics/`; the tracing example writes to
-`/tmp/nexigen-examples-tracing/`; the app lifecycle example writes to
-`/tmp/nexigen-examples-app/`):
+`/tmp/nexigen-examples-tracing/`):
 
 ```bash
 ./build/debug/examples/core/ex_spsc_ring_buffer
@@ -725,13 +724,12 @@ Run them directly from the build tree (the logging examples write to
   table with ASCII bars, and the cold-path `HistogramSnapshot::to_string()`
   diagnostic; the example self-verifies one sample per tick, bucket counts summing
   to the total, ordered percentiles and samples inside the whole-run measurement.
-* **`ex_app_lifecycle`** — the infrastructure service end to end: loads separate
-  logging/metrics/tracing global+local JSON pairs, creates an `Infrastructure` through
-  `make_infrastructure<Demo_policy>()`, logs through `infra->logger()`, creates and increments
-  a counter through `infra->meter()`, opens and closes a span through `infra->tracer_for()`,
-  raises `SIGINT` from a helper thread, shuts down with `shutdown()`, and verifies the
-  shutdown-reason log record, the metric batch and the trace file under
-  `/tmp/nexigen-examples-app/`.
+* **`ex_app_lifecycle`** — the minimal `Infrastructure` flow in one direct `main`:
+  an inline stateless `Simple_policy` (console logger, metric sink and trace sink),
+  `make_infrastructure<Simple_policy>()`, `initialize(App_settings{})`, a log line,
+  a counter created through `meter()`, a span through `tracer_for()`, three ticks,
+  `request_stop(Requested)`, and `shutdown()` — no application class, no settings
+  files and no signal helper.
 
 Every example is also registered as a CTest smoke test (label `examples`): each must run
 to completion and exit with status 0.

@@ -82,25 +82,6 @@ The system SHALL block `SIGINT` and `SIGTERM` before any logging, metrics, or tr
 - **WHEN** logging, metric, or tracing workers are created after signal masking
 - **THEN** they inherit the blocked `SIGINT`/`SIGTERM` mask and cannot consume the signal themselves
 
-### Requirement: Runnable application lifecycle example
-
-The project SHALL provide an `ex_app_lifecycle` executable that loads temporary logging/metrics/tracing settings pairs, creates an `Infrastructure` through `make_infrastructure`, initializes it, demonstrates logger records, a metric created through `meter()` and recorded, and a tracer obtained through `tracer_for()` with a span, runs ticks, raises SIGINT from a helper thread, shuts down, verifies the shutdown reason was logged, and exits 0.
-
-#### Scenario: Example exercises logging, metrics and tracing
-
-- **WHEN** `ex_app_lifecycle` runs without arguments
-- **THEN** it creates its settings files, initializes the infrastructure, logs through `logger()`, creates and increments a metric through `meter()`, starts and finishes a span through `tracer_for()`, and verifies the produced log/metric/trace output
-
-#### Scenario: Example exercises the signal path
-
-- **WHEN** the example raises SIGINT after a few ticks
-- **THEN** `run` returns `Sigint`, `shutdown` writes the reason record, flushes all three subsystems, releases signal ownership, and the process exits 0
-
-#### Scenario: Example reports failures
-
-- **WHEN** settings loading, infrastructure creation, initialization, or verified output fails
-- **THEN** the example prints the failure and exits with a non-zero status
-
 ### Requirement: Heap-only infrastructure factory
 
 The system SHALL provide `make_infrastructure<Policy, Tracer_capacity, Tracer_threads>()` returning `core::Result<std::unique_ptr<Infrastructure<...>>>`. `Infrastructure` construction SHALL be private to the factory, so automatic and static `Infrastructure` objects cannot be created; allocation failure SHALL return `SystemError` without terminating.
@@ -190,3 +171,27 @@ The system SHALL require a `Policy` with nested `Logger`, `Metrics_sink`, and `T
 
 - **WHEN** `std::format("{}", Infrastructure_stop_reason::Sigint)` is evaluated
 - **THEN** the result is `"sigint"`
+
+### Requirement: Runnable minimal infrastructure example
+
+The project SHALL provide an `ex_app_lifecycle` executable that uses `Infrastructure` directly in `main` with a stateless policy and **no application class**: create it through `make_infrastructure`, initialize it with default `App_settings`, log, create and record a metric, open and finish a span, run a few ticks, request a stop, shut down, and exit 0.
+
+#### Scenario: Example exercises logging, metrics and tracing
+
+- **WHEN** `ex_app_lifecycle` runs without arguments
+- **THEN** it creates the infrastructure, logs through `logger()`, creates and increments a counter through `meter()`, starts and finishes a span through `tracer_for()`, and exits 0
+
+#### Scenario: Example uses a direct main flow
+
+- **WHEN** the example source is read
+- **THEN** it contains a `main` function and a stateless policy, with no application class and no settings-file parsing
+
+#### Scenario: Example stops and flushes
+
+- **WHEN** the example finishes a few ticks and requests a stop
+- **THEN** `run` returns `Requested`, `shutdown` flushes all three subsystems and returns OK, and the process exits 0
+
+#### Scenario: Example reports failures
+
+- **WHEN** infrastructure creation, initialization, or shutdown fails
+- **THEN** the example prints the failure and exits with a non-zero status
