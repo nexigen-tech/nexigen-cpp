@@ -55,6 +55,7 @@ void to_json(nlohmann::json& j, const LoggerOptions& opts) {
         {"initial_log_level", std::string(to_string(opts.initial_log_level))},
         {"max_file_size_bytes", opts.max_file_size_bytes},
         {"spsc_ring_buffer_capacity", opts.spsc_ring_buffer_capacity},
+        {"message_capacity", opts.message_capacity},
         {"max_producer_threads", opts.max_producer_threads},
         {"overflow_policy", std::string(to_string(opts.overflow_policy))},
         {"flush_cpu_affinity", opts.flush_cpu_affinity},
@@ -79,6 +80,8 @@ void from_json(const nlohmann::json& j, LoggerOptions& out) noexcept {
     if (it != j.end() && it->is_number_unsigned()) { out.max_file_size_bytes = it->get<std::uint64_t>(); }
     it = j.find("spsc_ring_buffer_capacity");
     if (it != j.end() && it->is_number_unsigned()) { out.spsc_ring_buffer_capacity = it->get<std::uint32_t>(); }
+    it = j.find("message_capacity");
+    if (it != j.end() && it->is_number_unsigned()) { out.message_capacity = it->get<std::uint32_t>(); }
     it = j.find("max_producer_threads");
     if (it != j.end() && it->is_number_unsigned()) { out.max_producer_threads = it->get<std::uint32_t>(); }
     it = j.find("overflow_policy");
@@ -122,6 +125,7 @@ std::string LoggerOptions::to_string() const {
            ", initial_log_level=" + std::string(nexigen::logging::to_string(initial_log_level)) +
            ", max_file_size_bytes=" + std::to_string(max_file_size_bytes) +
            ", spsc_ring_buffer_capacity=" + std::to_string(spsc_ring_buffer_capacity) +
+           ", message_capacity=" + std::to_string(message_capacity) +
            ", max_producer_threads=" + std::to_string(max_producer_threads) +
            ", overflow_policy=" + std::string(nexigen::logging::to_string(overflow_policy)) +
            ", worker_poll_interval_us=" + std::to_string(worker_poll_interval_us) +

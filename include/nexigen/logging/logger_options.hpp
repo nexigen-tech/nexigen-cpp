@@ -119,6 +119,7 @@ struct LoggerOptions {
     LogLevel initial_log_level{LogLevel::Info};
     std::uint64_t max_file_size_bytes{104857600ULL}; ///< 0 = no limit.
     std::uint32_t spsc_ring_buffer_capacity{65536U}; ///< rounded up via bit_ceil.
+    std::uint32_t message_capacity{128U}; ///< inline argument blob capacity (max bytes per record).
     std::uint32_t max_producer_threads{64U};
     OverflowPolicy overflow_policy{OverflowPolicy::DropNewest};
     std::vector<std::uint64_t> flush_cpu_affinity{};   ///< empty = OS placement.

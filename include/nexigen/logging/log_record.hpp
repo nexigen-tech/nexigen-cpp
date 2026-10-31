@@ -41,6 +41,16 @@
 // record methods return void (spec logging/logger-concept).
 #pragma once
 
+#ifndef NEXIGEN_LOG_MESSAGE_CAPACITY
+#define NEXIGEN_LOG_MESSAGE_CAPACITY 128
+#endif
+/* 
+ * Configurable message capacity for LogRecord.
+ * Users can define NEXIGEN_LOG_MESSAGE_CAPACITY before including this header
+ * (e.g. via -DNEXIGEN_LOG_MESSAGE_CAPACITY=256) to change the default.
+ * If undefined, the default is 128.
+ */
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -63,7 +73,7 @@ using record_render_fn = std::size_t (*)(const char* fmt, const char* blob,
                                          std::size_t cap) noexcept;
 
 /// Fixed-capacity log record: template over the inline argument blob size.
-template <std::size_t MessageCapacity>
+template <std::size_t MessageCapacity = NEXIGEN_LOG_MESSAGE_CAPACITY>
 struct alignas(64) LogRecord {
     static_assert(MessageCapacity >= 16 && MessageCapacity <= 0xFFFF,
                   "argument blob must be positive and addressable by uint16 length");
@@ -129,7 +139,7 @@ struct alignas(64) LogRecord {
 };
 
 /// Free helper (mandate 9): mirrors the member.
-template <std::size_t MessageCapacity>
+template <std::size_t MessageCapacity = NEXIGEN_LOG_MESSAGE_CAPACITY>
 [[nodiscard]] std::string to_string(const LogRecord<MessageCapacity>& rec) {
     return rec.to_string();
 }

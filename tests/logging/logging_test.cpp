@@ -1982,6 +1982,7 @@ void test_logger_options() {
     NX_CHECK(o.initial_log_level == LogLevel::Info);
     NX_CHECK(o.max_file_size_bytes == 104857600ULL);
     NX_CHECK(o.spsc_ring_buffer_capacity == 65536U);
+    NX_CHECK(o.message_capacity == 128U);
     NX_CHECK(o.max_producer_threads == 64U);
     NX_CHECK(o.overflow_policy == OverflowPolicy::DropNewest);
     NX_CHECK(o.flush_cpu_affinity.empty());
@@ -2004,6 +2005,7 @@ void test_logger_options() {
     const std::string s = o.to_string();
     NX_CHECK(s.find("log_root_directory") != std::string::npos);
     NX_CHECK(s.find("app_name") != std::string::npos);
+    NX_CHECK(s.find("message_capacity") != std::string::npos);
     NX_CHECK(s.find("overflow_policy") != std::string::npos);
     NX_CHECK(s.find("spam_protection") != std::string::npos);
     NX_CHECK(to_string(o) == s);
@@ -2033,10 +2035,20 @@ void test_logger_options() {
     NX_CHECK(back.app_name == "nexigen_app");
     NX_CHECK(back.initial_log_level == LogLevel::Info);
     NX_CHECK(back.spsc_ring_buffer_capacity == 65536U);
+    NX_CHECK(back.message_capacity == 128U);
     NX_CHECK(back.max_producer_threads == 64U);
     NX_CHECK(back.overflow_policy == OverflowPolicy::DropNewest);
     NX_CHECK(back.spam_protection.bypass_min_level == LogLevel::Fatal);
     NX_CHECK(back.spam_protection.max_messages_per_sec_per_shard == 100000U);
+
+    // Non-default message_capacity round-trips exactly (uint32, no bit_ceil).
+    nlohmann::json jmc;
+    LoggerOptions big{};
+    big.message_capacity = 256U;
+    to_json(jmc, big);
+    LoggerOptions big_back{};
+    from_json(jmc, big_back);
+    NX_CHECK(big_back.message_capacity == 256U);
 
     // Hostile JSON leaves target untouched (no throw).
     LoggerOptions keep = o;
@@ -2833,6 +2845,7 @@ void test_logging_settings_loader() {
     Env_guard ring_env{"NEXIGEN_LOG_RING_CAPACITY"};
     Env_guard threads_env{"NEXIGEN_LOG_MAX_PRODUCER_THREADS"};
     Env_guard overflow_env{"NEXIGEN_LOG_OVERFLOW_POLICY"};
+    Env_guard message_env{"NEXIGEN_LOG_MESSAGE_CAPACITY"};
     level_env.clear();
     dir_env.clear();
     app_env.clear();
@@ -2841,6 +2854,7 @@ void test_logging_settings_loader() {
     ring_env.clear();
     threads_env.clear();
     overflow_env.clear();
+    message_env.clear();
 
     // Explicit paths only: both empty -> defaults, no diagnostics.
     {
@@ -2864,7 +2878,8 @@ void test_logging_settings_loader() {
     write_text(local_path,
                R"({"initial_log_level":"debug",)"
                R"("app_name":"hil-runner",)"
-               R"("spsc_ring_buffer_capacity":16})");
+               R"("spsc_ring_buffer_capacity":16,)"
+               R"("message_capacity":64})");
 
     {
         Logging_settings out{};
@@ -2879,6 +2894,8 @@ void test_logging_settings_loader() {
                  std::vector<std::uint64_t>({1U, 3U}));
         NX_CHECK(out.ring_capacity_set);
         NX_CHECK(!out.max_threads_set);
+        NX_CHECK(out.message_capacity_set);
+        NX_CHECK(out.options.message_capacity == 64U);
         NX_CHECK(out.diagnostics.empty());
     }
 
@@ -2886,6 +2903,7 @@ void test_logging_settings_loader() {
     level_env.set("error");
     app_env.set("env-app");
     affinity_env.set("0,2-3");
+    message_env.set("256");
     {
         Logging_settings out{};
         NX_CHECK(load_logging_settings(Settings_paths{global_path, local_path}, out)
@@ -2894,9 +2912,12 @@ void test_logging_settings_loader() {
         NX_CHECK(out.options.app_name == "env-app");
         NX_CHECK(out.options.flush_cpu_affinity ==
                  std::vector<std::uint64_t>({0U, 2U, 3U}));
+        NX_CHECK(out.options.message_capacity == 256U);
+        NX_CHECK(out.message_capacity_set);
     }
     level_env.clear();
     app_env.clear();
+    message_env.clear();
     affinity_env.clear();
 
     // Missing local file: no diagnostic, global still applies.
@@ -3089,7 +3110,7 @@ void test_logging_settings_apply() {
     settings.ring_capacity_set = true;
     settings.options.spsc_ring_buffer_capacity = 1024U;
     std::vector<Settings_diagnostic> diagnostics;
-    const Status too_big = check_capacity<128, 32>(settings, &diagnostics);
+    const Status too_big = check_capacity<128, 32, 128>(settings, &diagnostics);
     NX_CHECK(!too_big.has_value());
     NX_CHECK(too_big.error() == ErrorCode::InvalidArgument);
     NX_CHECK(diagnostics.size() == 1U);
@@ -3098,12 +3119,32 @@ void test_logging_settings_apply() {
     NX_CHECK(diagnostics.front().message.find("128") != std::string::npos);
 
     settings.ring_capacity_set = false;
-    NX_CHECK((check_capacity<128, 32>(settings, &diagnostics).has_value()));
+    NX_CHECK((check_capacity<128, 32, 128>(settings, &diagnostics).has_value()));
     settings.ring_capacity_set = true;
     settings.options.spsc_ring_buffer_capacity = 128U;
     settings.max_threads_set = true;
     settings.options.max_producer_threads = 32U;
-    NX_CHECK((check_capacity<128, 32>(settings, &diagnostics).has_value()));
+    NX_CHECK((check_capacity<128, 32, 128>(settings, &diagnostics).has_value()));
+
+    // Explicit message capacity above the compile-time bound is rejected.
+    settings.message_capacity_set = true;
+    settings.options.message_capacity = 512U;
+    diagnostics.clear();
+    const Status msg_too_big = check_capacity<128, 32, 128>(settings, &diagnostics);
+    NX_CHECK(!msg_too_big.has_value());
+    NX_CHECK(msg_too_big.error() == ErrorCode::InvalidArgument);
+    NX_CHECK(diagnostics.size() == 1U);
+    NX_CHECK(diagnostics.front().field == "message_capacity");
+    NX_CHECK(diagnostics.front().message.find("512") != std::string::npos);
+    NX_CHECK(diagnostics.front().message.find("128") != std::string::npos);
+
+    // Default (not explicitly set) message capacity is never checked.
+    settings.message_capacity_set = false;
+    settings.options.message_capacity = 512U;
+    diagnostics.clear();
+    NX_CHECK((check_capacity<128, 32, 128>(settings, &diagnostics).has_value()));
+    NX_CHECK(diagnostics.empty());
+    settings.options.message_capacity = 128U;
 
     // initialize(Logging_settings) runs the check before touching the worker.
     {

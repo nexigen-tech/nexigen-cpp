@@ -205,7 +205,7 @@ public:
     /// The console sink is deliberately unpinned, so only the initial level and
     /// the explicit capacity check apply.
     [[nodiscard]] core::Status initialize(const Logging_settings& settings) noexcept {
-        const core::Status capacity = check_capacity<ShardCapacity, MaxThreads>(settings);
+        const core::Status capacity = check_capacity<ShardCapacity, MaxThreads, MessageCapacity>(settings);
         if (!capacity) {
             return capacity;
         }

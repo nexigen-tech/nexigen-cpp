@@ -375,7 +375,7 @@ public:
     /// capacity check and maps every supported option; string views inside the
     /// temporary config alias `settings` for the duration of this call only.
     [[nodiscard]] core::Status initialize(const Logging_settings& settings) noexcept {
-        const core::Status capacity = check_capacity<ShardCapacity, MaxThreads>(settings);
+        const core::Status capacity = check_capacity<ShardCapacity, MaxThreads, MessageCapacity>(settings);
         if (!capacity) {
             return capacity;
         }

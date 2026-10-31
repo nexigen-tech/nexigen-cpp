@@ -182,6 +182,18 @@ void sanitize_document(const nlohmann::json& document, Settings_source source,
         }
     }
 
+    it = document.find("message_capacity");
+    if (it != document.end()) {
+        settings.message_capacity_set = true;
+        std::uint64_t value = 0;
+        if (unsigned_value(*it, value) && value > 0ULL && value <= 0xFFFFFFFFULL) {
+            clean["message_capacity"] = static_cast<std::uint32_t>(value);
+        } else {
+            add_diagnostic(settings, source, "message_capacity",
+                           "expected a positive 32-bit integer");
+        }
+    }
+
     it = document.find("overflow_policy");
     if (it != document.end()) {
         const auto* const text = string_ptr(*it);
@@ -430,6 +442,19 @@ void apply_environment(Logging_settings& settings) noexcept {
         }
     }
 
+    value = env("NEXIGEN_LOG_MESSAGE_CAPACITY");
+    if (!value.empty()) {
+        settings.message_capacity_set = true;
+        std::uint32_t parsed = 0;
+        if (parse_u32(value, parsed) && parsed > 0U) {
+            settings.options.message_capacity = parsed;
+        } else {
+            add_diagnostic(settings, Settings_source::Environment,
+                           "message_capacity",
+                           "expected a positive 32-bit integer");
+        }
+    }
+
     value = env("NEXIGEN_LOG_MAX_PRODUCER_THREADS");
     if (!value.empty()) {
         settings.max_threads_set = true;
@@ -475,6 +500,8 @@ std::string Logging_settings::to_string() const {
                       std::string(ring_capacity_set ? "true" : "false") +
                       ", max_threads_set=" +
                       std::string(max_threads_set ? "true" : "false") +
+                      ", message_capacity_set=" +
+                      std::string(message_capacity_set ? "true" : "false") +
                       ", options=" + options.to_string() + ", diagnostics=[";
     for (std::size_t i = 0; i < diagnostics.size(); ++i) {
         if (i != 0) {
@@ -545,6 +572,7 @@ void to_json(nlohmann::json& j, const Logging_settings& settings) {
                        {"local_loaded", settings.local_loaded},
                        {"ring_capacity_set", settings.ring_capacity_set},
                        {"max_threads_set", settings.max_threads_set},
+                       {"message_capacity_set", settings.message_capacity_set},
                        {"options", std::move(options)},
                        {"diagnostics", std::move(diagnostics)}};
 }

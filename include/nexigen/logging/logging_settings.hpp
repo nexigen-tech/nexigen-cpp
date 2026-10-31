@@ -108,6 +108,7 @@ struct Logging_settings {
     /// template limits are smaller.
     bool ring_capacity_set{false};
     bool max_threads_set{false};
+    bool message_capacity_set{false};
     std::vector<Settings_diagnostic> diagnostics{};
 
     [[nodiscard]] std::string to_string() const;
@@ -143,7 +144,7 @@ void to_json(nlohmann::json& j, const Logging_settings& settings);
 /// Check explicitly configured capacities against a logger's compile-time
 /// limits. Defaults that were never explicitly set are not checked. When
 /// `diagnostics` is non-null, a Computed diagnostic is appended on failure.
-template <std::size_t ShardCapacity, std::size_t MaxThreads>
+template <std::size_t ShardCapacity, std::size_t MaxThreads, std::size_t MessageCapacity>
 [[nodiscard]] core::Status check_capacity(
     const Logging_settings& settings,
     std::vector<Settings_diagnostic>* diagnostics = nullptr) noexcept {
@@ -172,6 +173,19 @@ template <std::size_t ShardCapacity, std::size_t MaxThreads>
                     std::to_string(settings.options.max_producer_threads) +
                     " exceeds logger producer slots " +
                     std::to_string(MaxThreads)});
+        }
+    }
+    if (settings.message_capacity_set &&
+        settings.options.message_capacity > MessageCapacity) {
+        ok = false;
+        if (diagnostics != nullptr) {
+            diagnostics->push_back(Settings_diagnostic{
+                Settings_source::Computed,
+                "message_capacity",
+                "configured " +
+                    std::to_string(settings.options.message_capacity) +
+                    " exceeds logger message capacity " +
+                    std::to_string(MessageCapacity)});
         }
     }
     if (!ok) {
