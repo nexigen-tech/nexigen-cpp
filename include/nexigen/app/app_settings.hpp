@@ -16,7 +16,9 @@
 #include <nexigen/chrono/chrono_settings.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/logging_settings.hpp>
+#include <nexigen/metrics/json_file_metric_sink.hpp>
 #include <nexigen/metrics/metric_provider.hpp>
+#include <nexigen/tracing/json_file_trace_sink.hpp>
 #include <nexigen/tracing/tracer_provider.hpp>
 
 namespace nexigen::app {
@@ -29,6 +31,7 @@ using Settings_diagnostic = logging::Settings_diagnostic;
 /// provider field"). Loader-produced: to_json only, no from_json.
 struct Metrics_settings {
     metrics::MetricProvider_config options{};
+    metrics::JsonFileMetricSink_config sink{};
     bool global_loaded{false};
     bool local_loaded{false};
     std::vector<Settings_diagnostic> diagnostics{};
@@ -43,6 +46,7 @@ struct Metrics_settings {
 /// provider field"). Loader-produced: to_json only, no from_json.
 struct Tracing_settings {
     tracing::TracerProvider_config options{};
+    tracing::JsonFileTraceSink_config sink{};
     bool global_loaded{false};
     bool local_loaded{false};
     std::vector<Settings_diagnostic> diagnostics{};

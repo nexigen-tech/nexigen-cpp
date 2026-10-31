@@ -70,7 +70,8 @@ constexpr std::string_view kLoggingSettings = R"({
 )";
 
 constexpr std::string_view kMetricsSettings = R"({
-  "collect_interval_ns": 1000000000
+  "collect_interval_ns": 1000000000,
+  "sink": { "path": "./nexigen-example-output/metrics.jsonl", "append": false }
 }
 )";
 
@@ -79,12 +80,19 @@ constexpr std::string_view kMetricsSettings = R"({
 constexpr std::string_view kMalformedMetricsSettings = R"({"collect_interval_ns": )";
 
 constexpr std::string_view kTracingSettings = R"({
-  "max_tracers": 4
+  "max_tracers": 4,
+  "sink": {
+    "path": "./nexigen-example-output/traces.jsonl",
+    "rotation": "None",
+    "max_spans_per_window": 0,
+    "window_ns": 0
+  }
 }
 )";
 
 constexpr std::string_view kChronoSettings = R"({
-  "collect_interval_ns": 1000000000
+  "collect_interval_ns": 1000000000,
+  "sink": { "path": "./nexigen-example-output/chrono.jsonl", "append": false }
 }
 )";
 
@@ -116,23 +124,31 @@ struct Cli_file_policy {
 
     static core::Status emplace_metrics_sink(
         std::optional<Metrics_sink>& out,
-        const app::Metrics_settings&) noexcept {
-        out.emplace(metrics::JsonFileMetricSink_config{std::string(kMetricsPath), false});
+        const app::Metrics_settings& settings) noexcept {
+        if (settings.sink.path.empty()) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        out.emplace(settings.sink);
         return {};
     }
 
     static core::Status emplace_trace_sink(
         std::optional<Trace_sink>& out,
-        const app::Tracing_settings&) noexcept {
-        out.emplace(tracing::JsonFileTraceSink_config{
-            std::string(kTracesPath), tracing::RotationPolicy::None, 0, 0});
+        const app::Tracing_settings& settings) noexcept {
+        if (settings.sink.path.empty()) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        out.emplace(settings.sink);
         return {};
     }
 
     static core::Status emplace_chrono_sink(
         std::optional<Chrono_sink>& out,
-        const chrono::Chrono_settings&) noexcept {
-        out.emplace(chrono::JsonFileChronoSink_config{std::string(kChronoPath), false});
+        const chrono::Chrono_settings& settings) noexcept {
+        if (settings.sink.path.empty()) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        out.emplace(settings.sink);
         return {};
     }
 };

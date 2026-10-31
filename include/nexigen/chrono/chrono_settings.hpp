@@ -22,6 +22,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/chrono/chrono_provider.hpp>
+#include <nexigen/chrono/json_file_chrono_sink.hpp>
 #include <nexigen/core/result.hpp>
 
 namespace nexigen::chrono {
@@ -92,6 +93,7 @@ struct Chrono_settings_diagnostic {
 /// presence, not success; `diagnostics` carries every non-fatal problem.
 struct Chrono_settings {
     ChronoProvider_config options{};
+    JsonFileChronoSink_config sink{};
     bool global_loaded{false};
     bool local_loaded{false};
     std::vector<Chrono_settings_diagnostic> diagnostics{};

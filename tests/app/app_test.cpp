@@ -22,6 +22,7 @@
 #include <vector>
 
 #include <signal.h>
+#include <dirent.h>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -31,8 +32,13 @@
 #include <nexigen/app/infrastructure.hpp>
 #include <nexigen/app/app_settings.hpp>
 #include <nexigen/app/infrastructure_stop_reason.hpp>
+#include <nexigen/app/telemetry_layout.hpp>
+#include <nexigen/chrono/json_file_chrono_sink.hpp>
 #include <nexigen/chrono/null_chrono_sink.hpp>
+#include <nexigen/logging/file_logger.hpp>
+#include <nexigen/metrics/json_file_metric_sink.hpp>
 #include <nexigen/metrics/null_metric_sink.hpp>
+#include <nexigen/tracing/json_file_trace_sink.hpp>
 #include <nexigen/tracing/null_trace_sink.hpp>
 
 #if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
@@ -148,6 +154,51 @@ struct Test_policy {
     static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
                                             const chrono::Chrono_settings&) noexcept {
         out.emplace();
+        return {};
+    }
+};
+
+/// File-backed policy used by the telemetry-layout integration test. It reads
+/// every sink from the settings value and never uses a hard-coded path.
+struct Resolved_path_policy {
+    using Logger = logging::FileLogger<>;
+    using Metrics_sink = metrics::JsonFileMetricSink;
+    using Trace_sink = tracing::JsonFileTraceSink;
+    using Chrono_sink = chrono::JsonFileChronoSink;
+
+    static core::Status emplace_logger(std::optional<Logger>& out,
+                                       const logging::Logging_settings& settings) noexcept {
+        logging::FileLogger_config config{};
+        const core::Status applied = logging::apply_to(settings, config);
+        if (!applied) {
+            return applied;
+        }
+        config.rotation.kind = logging::Rotation_schedule::None;
+        out.emplace();
+        return out->initialize(config);
+    }
+    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
+                                             const app::Metrics_settings& settings) noexcept {
+        if (settings.sink.path.empty()) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        out.emplace(settings.sink);
+        return {};
+    }
+    static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
+                                           const app::Tracing_settings& settings) noexcept {
+        if (settings.sink.path.empty()) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        out.emplace(settings.sink);
+        return {};
+    }
+    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
+                                            const chrono::Chrono_settings& settings) noexcept {
+        if (settings.sink.path.empty()) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        out.emplace(settings.sink);
         return {};
     }
 };
@@ -313,6 +364,18 @@ static_assert(has_from_json<app::Command_line_options>::value);
 static_assert(has_from_json<app::Command_line_diagnostic>::value);
 static_assert(has_from_json<app::Command_line_error>::value);
 static_assert(has_from_json<app::Settings_paths>::value);
+
+// Design D9: the sink member does not turn settings into a polymorphic or
+// move-only type; they stay ordinary copyable/movable value types.
+template <class T>
+constexpr bool is_plain_value_type =
+    std::is_copy_constructible_v<T> && std::is_move_constructible_v<T> &&
+    std::is_copy_assignable_v<T> && std::is_move_assignable_v<T> &&
+    std::is_nothrow_destructible_v<T> && !std::is_polymorphic_v<T>;
+
+static_assert(is_plain_value_type<app::Metrics_settings>);
+static_assert(is_plain_value_type<app::Tracing_settings>);
+static_assert(is_plain_value_type<chrono::Chrono_settings>);
 
 struct Env_guard {
     std::string name;
@@ -561,6 +624,495 @@ void test_settings_loaders() {
     static_cast<void>(std::remove(metrics_local.c_str()));
     static_cast<void>(std::remove(tracing_global.c_str()));
     static_cast<void>(std::remove(tracing_local.c_str()));
+}
+
+void test_settings_sink() {
+    Env_guard interval_env{"NEXIGEN_METRICS_COLLECT_INTERVAL_NS"};
+    Env_guard metrics_mask_env{"NEXIGEN_METRICS_CORE_MASK"};
+    Env_guard trace_mask_env{"NEXIGEN_TRACING_CORE_MASK"};
+    Env_guard tracers_env{"NEXIGEN_TRACING_MAX_TRACERS"};
+    Env_guard spans_env{"NEXIGEN_TRACING_MAX_SPANS_PER_WINDOW"};
+    Env_guard window_env{"NEXIGEN_TRACING_WINDOW_NS"};
+    interval_env.clear();
+    metrics_mask_env.clear();
+    trace_mask_env.clear();
+    tracers_env.clear();
+    spans_env.clear();
+    window_env.clear();
+
+    const std::string base = unique_path("app_settings_sink");
+    const std::string metrics_global = base + "_mg.json";
+    const std::string metrics_local = base + "_ml.json";
+    const std::string tracing_global = base + "_tg.json";
+    const std::string tracing_local = base + "_tl.json";
+
+    // Local overrides global; absent local fields inherit global values.
+    write_text(metrics_global,
+               R"({"sink":{"path":"/tmp/global-metrics.jsonl","append":true}})");
+    write_text(metrics_local,
+               R"({"sink":{"path":"/tmp/local-metrics.jsonl","append":false}})");
+    write_text(tracing_global,
+               R"({"sink":{"path":"/tmp/global-traces.jsonl","rotation":"Hourly",)"
+               R"("max_spans_per_window":10,"window_ns":100}})");
+    write_text(tracing_local, R"({"sink":{"path":"/tmp/local-traces.jsonl"}})");
+    {
+        app::Metrics_settings metrics{};
+        app::Tracing_settings tracing{};
+        NX_CHECK(app::load_metrics_settings({metrics_global, metrics_local}, metrics)
+                     .has_value());
+        NX_CHECK(metrics.sink.path == "/tmp/local-metrics.jsonl");
+        NX_CHECK(!metrics.sink.append);
+        NX_CHECK(app::load_tracing_settings({tracing_global, tracing_local}, tracing)
+                     .has_value());
+        NX_CHECK(tracing.sink.path == "/tmp/local-traces.jsonl");
+        NX_CHECK(tracing.sink.rotation == tracing::RotationPolicy::Hourly);
+        NX_CHECK(tracing.sink.max_spans_per_window == 10ULL);
+        NX_CHECK(tracing.sink.window_ns == 100ULL);
+
+        // Provider environment overrides never touch the sink.
+        interval_env.set("50000000");
+        trace_mask_env.set("3");
+        NX_CHECK(app::load_metrics_settings({metrics_global, metrics_local}, metrics)
+                     .has_value());
+        NX_CHECK(app::load_tracing_settings({tracing_global, tracing_local}, tracing)
+                     .has_value());
+        NX_CHECK(metrics.sink.path == "/tmp/local-metrics.jsonl");
+        NX_CHECK(tracing.sink.path == "/tmp/local-traces.jsonl");
+        NX_CHECK(tracing.sink.rotation == tracing::RotationPolicy::Hourly);
+        interval_env.clear();
+        trace_mask_env.clear();
+    }
+
+    // Serialization carries both sink objects and the formatter matches.
+    {
+        app::Metrics_settings metrics{};
+        app::Tracing_settings tracing{};
+        NX_CHECK(app::load_metrics_settings({metrics_global, metrics_local}, metrics)
+                     .has_value());
+        NX_CHECK(app::load_tracing_settings({tracing_global, tracing_local}, tracing)
+                     .has_value());
+        NX_CHECK(metrics.to_string().find("sink=JsonFileMetricSink_config") !=
+                 std::string::npos);
+        NX_CHECK(tracing.to_string().find("sink=JsonFileTraceSink_config") !=
+                 std::string::npos);
+        NX_CHECK(std::format("{}", metrics) == metrics.to_string());
+        NX_CHECK(std::format("{}", tracing) == tracing.to_string());
+
+        nlohmann::json json;
+        app::to_json(json, metrics);
+        NX_CHECK(json["sink"]["path"] == "/tmp/local-metrics.jsonl");
+        NX_CHECK(json["sink"]["append"] == false);
+        app::to_json(json, tracing);
+        NX_CHECK(json["sink"]["path"] == "/tmp/local-traces.jsonl");
+        NX_CHECK(json["sink"]["rotation"] == "Hourly");
+        NX_CHECK(json["sink"]["max_spans_per_window"] == 10U);
+        NX_CHECK(json["sink"]["window_ns"] == 100U);
+
+        // App_settings carries both sink objects through its members.
+        app::App_settings aggregate{};
+        aggregate.metrics = metrics;
+        aggregate.tracing = tracing;
+        app::to_json(json, aggregate);
+        NX_CHECK(json["metrics"]["sink"]["path"] == "/tmp/local-metrics.jsonl");
+        NX_CHECK(json["tracing"]["sink"]["path"] == "/tmp/local-traces.jsonl");
+        NX_CHECK(json["tracing"]["sink"]["rotation"] == "Hourly");
+    }
+
+    // Absent sink blocks leave the sink unconfigured.
+    write_text(metrics_global, "{}");
+    write_text(metrics_local, "{}");
+    write_text(tracing_global, "{}");
+    write_text(tracing_local, "{}");
+    {
+        app::Metrics_settings metrics{};
+        app::Tracing_settings tracing{};
+        NX_CHECK(app::load_metrics_settings({metrics_global, metrics_local}, metrics)
+                     .has_value());
+        NX_CHECK(app::load_tracing_settings({tracing_global, tracing_local}, tracing)
+                     .has_value());
+        NX_CHECK(metrics.sink.path.empty());
+        NX_CHECK(metrics.sink.append);
+        NX_CHECK(tracing.sink.path.empty());
+        NX_CHECK(tracing.sink.rotation == tracing::RotationPolicy::None);
+        NX_CHECK(tracing.sink.max_spans_per_window == 0ULL);
+        NX_CHECK(tracing.sink.window_ns == 0ULL);
+    }
+
+    // An empty path is accepted as "unconfigured", not a diagnostic.
+    write_text(metrics_global, R"({"sink":{"path":""}})");
+    {
+        app::Metrics_settings metrics{};
+        NX_CHECK(app::load_metrics_settings({metrics_global, ""}, metrics).has_value());
+        NX_CHECK(metrics.sink.path.empty());
+        NX_CHECK(metrics.diagnostics.empty());
+    }
+
+    // Invalid rotation keeps the previous policy and reports sink.rotation.
+    write_text(tracing_global,
+               R"({"sink":{"path":"/tmp/g.jsonl","rotation":"Hourly"}})");
+    write_text(tracing_local,
+               R"({"sink":{"path":"/tmp/l.jsonl","rotation":"Sometimes"}})");
+    {
+        app::Tracing_settings tracing{};
+        NX_CHECK(!app::load_tracing_settings({tracing_global, tracing_local}, tracing)
+                      .has_value());
+        NX_CHECK(tracing.sink.path == "/tmp/l.jsonl");
+        NX_CHECK(tracing.sink.rotation == tracing::RotationPolicy::Hourly);
+        NX_CHECK(tracing.diagnostics.size() == 1U);
+        NX_CHECK(tracing.diagnostics[0].field == "sink.rotation");
+    }
+
+    // A non-object sink keeps the whole previous sink and reports "sink".
+    write_text(tracing_local, R"({"sink":"not-an-object"})");
+    {
+        app::Tracing_settings tracing{};
+        NX_CHECK(!app::load_tracing_settings({tracing_global, tracing_local}, tracing)
+                      .has_value());
+        NX_CHECK(tracing.sink.path == "/tmp/g.jsonl");
+        NX_CHECK(tracing.sink.rotation == tracing::RotationPolicy::Hourly);
+        NX_CHECK(tracing.diagnostics[0].field == "sink");
+    }
+
+    // A non-object metrics sink reports "sink" and still populates provider fields.
+    write_text(metrics_global, "{}");
+    write_text(metrics_local,
+               R"({"collect_interval_ns":42,"sink":"not-an-object"})");
+    {
+        app::Metrics_settings metrics{};
+        const core::Status status =
+            app::load_metrics_settings({metrics_global, metrics_local}, metrics);
+        NX_CHECK(!status.has_value());
+        NX_CHECK(status.error() == core::ErrorCode::InvalidArgument);
+        NX_CHECK(metrics.options.collect_interval == std::chrono::nanoseconds{42});
+        NX_CHECK(metrics.diagnostics.size() == 1U);
+        NX_CHECK(metrics.diagnostics[0].field == "sink");
+    }
+
+    // Wrong field types keep the previous value and name the field.
+    write_text(tracing_local,
+               R"({"sink":{"max_spans_per_window":"x","window_ns":false}})");
+    {
+        app::Tracing_settings tracing{};
+        NX_CHECK(!app::load_tracing_settings({tracing_global, tracing_local}, tracing)
+                      .has_value());
+        NX_CHECK(tracing.sink.max_spans_per_window == 0ULL);
+        NX_CHECK(tracing.sink.window_ns == 0ULL);
+        NX_CHECK(tracing.diagnostics.size() == 2U);
+        NX_CHECK(tracing.diagnostics[0].field == "sink.max_spans_per_window");
+        NX_CHECK(tracing.diagnostics[1].field == "sink.window_ns");
+    }
+
+    static_cast<void>(std::remove(metrics_global.c_str()));
+    static_cast<void>(std::remove(metrics_local.c_str()));
+    static_cast<void>(std::remove(tracing_global.c_str()));
+    static_cast<void>(std::remove(tracing_local.c_str()));
+}
+
+void test_telemetry_layout() {
+    Env_guard run_id_env{"NEXIGEN_RUN_ID"};
+    Env_guard run_dir_env{"NEXIGEN_RUN_DIR"};
+    Env_guard app_name_env{"NEXIGEN_APP_NAME"};
+    Env_guard instance_id_env{"NEXIGEN_INSTANCE_ID"};
+    Env_guard instance_dir_env{"NEXIGEN_INSTANCE_DIR"};
+    run_id_env.clear();
+    run_dir_env.clear();
+    app_name_env.clear();
+    instance_id_env.clear();
+    instance_dir_env.clear();
+
+    // Unset environment yields an empty, valid identity.
+    {
+        const app::Run_identity empty = app::load_run_identity();
+        NX_CHECK(empty.run_id.empty());
+        NX_CHECK(empty.run_dir.empty());
+        NX_CHECK(empty.app_name.empty());
+        NX_CHECK(empty.instance_id.empty());
+        NX_CHECK(empty.instance_dir.empty());
+        NX_CHECK(app::validate_run_identity(empty).has_value());
+    }
+
+    // Partial environment preserves only the supplied fields.
+    app_name_env.set("controller");
+    instance_id_env.set("i42");
+    {
+        const app::Run_identity partial = app::load_run_identity();
+        NX_CHECK(partial.run_id.empty());
+        NX_CHECK(partial.run_dir.empty());
+        NX_CHECK(partial.app_name == "controller");
+        NX_CHECK(partial.instance_id == "i42");
+        NX_CHECK(partial.instance_dir.empty());
+    }
+
+    // Complete environment derives the instance directory.
+    run_id_env.set("r1");
+    run_dir_env.set("/var/nexigen/runs/r1");
+    {
+        const app::Run_identity derived = app::load_run_identity();
+        NX_CHECK(derived.run_id == "r1");
+        NX_CHECK(derived.run_dir == "/var/nexigen/runs/r1");
+        NX_CHECK(derived.instance_dir == "/var/nexigen/runs/r1/controller/i42");
+        NX_CHECK(app::validate_run_identity(derived).has_value());
+    }
+
+    // A trailing slash on the run directory does not double the separator.
+    run_dir_env.set("/var/nexigen/runs/r1/");
+    {
+        const app::Run_identity derived = app::load_run_identity();
+        NX_CHECK(derived.instance_dir == "/var/nexigen/runs/r1/controller/i42");
+    }
+    run_dir_env.set("/var/nexigen/runs/r1");
+
+    // An explicit instance directory wins over derivation.
+    instance_dir_env.set("/tmp/explicit-instance");
+    {
+        const app::Run_identity explicit_identity = app::load_run_identity();
+        NX_CHECK(explicit_identity.instance_dir == "/tmp/explicit-instance");
+    }
+    instance_dir_env.clear();
+
+    // Validation: safe ids and absolute directories pass.
+    const app::Run_identity valid{"r1", "/var/nexigen/runs/r1", "controller", "i42",
+                                  "/var/nexigen/runs/r1/controller/i42"};
+    NX_CHECK(app::validate_run_identity(valid).has_value());
+
+    // Unsafe ids and relative directories are rejected.
+    {
+        app::Run_identity bad = valid;
+        bad.app_name = "con/troller";
+        const core::Status status = app::validate_run_identity(bad);
+        NX_CHECK(!status.has_value());
+        NX_CHECK(status.error() == core::ErrorCode::InvalidArgument);
+    }
+    {
+        app::Run_identity bad = valid;
+        bad.instance_id = "i..42";
+        NX_CHECK(!app::validate_run_identity(bad).has_value());
+    }
+    {
+        app::Run_identity bad = valid;
+        bad.run_id = "..";
+        NX_CHECK(!app::validate_run_identity(bad).has_value());
+    }
+    {
+        app::Run_identity bad = valid;
+        bad.run_id = std::string(129, 'a');
+        NX_CHECK(!app::validate_run_identity(bad).has_value());
+    }
+    {
+        app::Run_identity bad = valid;
+        bad.run_dir = "relative/runs";
+        NX_CHECK(!app::validate_run_identity(bad).has_value());
+    }
+    {
+        app::Run_identity bad = valid;
+        bad.instance_dir = "relative/instance";
+        NX_CHECK(!app::validate_run_identity(bad).has_value());
+    }
+
+    // Per-signal precedence: explicit path, instance fallback, then empty.
+    {
+        app::Telemetry_paths paths{};
+        NX_CHECK(app::resolve_telemetry_paths(valid, "", "", "", paths).has_value());
+        NX_CHECK(paths.metrics == "/var/nexigen/runs/r1/controller/i42/metrics.jsonl");
+        NX_CHECK(paths.traces == "/var/nexigen/runs/r1/controller/i42/traces.jsonl");
+        NX_CHECK(paths.chrono == "/var/nexigen/runs/r1/controller/i42/chrono.jsonl");
+
+        NX_CHECK(app::resolve_telemetry_paths(valid, "/explicit/metrics.jsonl", "", "",
+                                              paths)
+                     .has_value());
+        NX_CHECK(paths.metrics == "/explicit/metrics.jsonl");
+        NX_CHECK(paths.traces == "/var/nexigen/runs/r1/controller/i42/traces.jsonl");
+        NX_CHECK(paths.chrono == "/var/nexigen/runs/r1/controller/i42/chrono.jsonl");
+
+        NX_CHECK(app::resolve_telemetry_paths(valid, "", "/explicit/traces.jsonl",
+                                              "/explicit/chrono.jsonl", paths)
+                     .has_value());
+        NX_CHECK(paths.metrics == "/var/nexigen/runs/r1/controller/i42/metrics.jsonl");
+        NX_CHECK(paths.traces == "/explicit/traces.jsonl");
+        NX_CHECK(paths.chrono == "/explicit/chrono.jsonl");
+    }
+
+    // The settings overload reads each sink path.
+    {
+        app::Metrics_settings metrics{};
+        app::Tracing_settings tracing{};
+        chrono::Chrono_settings chrono{};
+        metrics.sink.path = "/settings/metrics.jsonl";
+        tracing.sink.path = "";
+        chrono.sink.path = "/settings/chrono.jsonl";
+        app::Telemetry_paths paths{};
+        NX_CHECK(app::resolve_telemetry_paths(valid, metrics, tracing, chrono, paths)
+                     .has_value());
+        NX_CHECK(paths.metrics == "/settings/metrics.jsonl");
+        NX_CHECK(paths.traces == "/var/nexigen/runs/r1/controller/i42/traces.jsonl");
+        NX_CHECK(paths.chrono == "/settings/chrono.jsonl");
+    }
+
+    // Empty identity and no explicit paths yield empty paths.
+    {
+        app::Telemetry_paths paths{};
+        NX_CHECK(app::resolve_telemetry_paths(app::Run_identity{}, "", "", "", paths)
+                     .has_value());
+        NX_CHECK(paths.metrics.empty() && paths.traces.empty() && paths.chrono.empty());
+    }
+
+    // Invalid identity is rejected before output is touched.
+    {
+        app::Run_identity bad = valid;
+        bad.instance_id = "bad id";
+        app::Telemetry_paths untouched{"keep-metrics", "keep-traces", "keep-chrono"};
+        const core::Status status =
+            app::resolve_telemetry_paths(bad, "/x", "", "", untouched);
+        NX_CHECK(!status.has_value());
+        NX_CHECK(status.error() == core::ErrorCode::InvalidArgument);
+        NX_CHECK(untouched.metrics == "keep-metrics");
+        NX_CHECK(untouched.traces == "keep-traces");
+        NX_CHECK(untouched.chrono == "keep-chrono");
+    }
+
+    // Resolution is pure: a non-existent instance directory is not created.
+    {
+        const std::string missing =
+            unique_path("telemetry_layout_missing") + "/controller/i1";
+        app::Run_identity absent{"r1", "/tmp", "controller", "i1", missing};
+        app::Telemetry_paths paths{};
+        NX_CHECK(app::resolve_telemetry_paths(absent, "", "", "", paths).has_value());
+        NX_CHECK(paths.metrics == missing + "/metrics.jsonl");
+        NX_CHECK(::access(missing.c_str(), F_OK) != 0);
+    }
+
+    // Serialization round-trip and formatter equality.
+    {
+        nlohmann::json json;
+        app::to_json(json, valid);
+        app::Run_identity back{};
+        app::from_json(json, back);
+        NX_CHECK(back.run_id == valid.run_id && back.run_dir == valid.run_dir);
+        NX_CHECK(back.app_name == valid.app_name && back.instance_id == valid.instance_id);
+        NX_CHECK(back.instance_dir == valid.instance_dir);
+        NX_CHECK(std::format("{}", valid) == valid.to_string());
+        NX_CHECK(app::to_string(valid) == valid.to_string());
+
+        app::from_json(nlohmann::json::array(), back);
+        NX_CHECK(back.run_id == valid.run_id);
+        app::from_json(nlohmann::json{{"run_id", 5}, {"extra", true}}, back);
+        NX_CHECK(back.run_id == valid.run_id);
+        NX_CHECK(back.instance_dir == valid.instance_dir);
+
+        app::Telemetry_paths paths{"/m", "/t", "/c"};
+        nlohmann::json paths_json;
+        app::to_json(paths_json, paths);
+        app::Telemetry_paths paths_back{};
+        app::from_json(paths_json, paths_back);
+        NX_CHECK(paths_back.metrics == "/m" && paths_back.traces == "/t" &&
+                 paths_back.chrono == "/c");
+        NX_CHECK(std::format("{}", paths) == paths.to_string());
+
+        app::from_json(nlohmann::json::array(), paths);
+        NX_CHECK(paths.metrics == "/m");
+        app::from_json(nlohmann::json{{"metrics", 1}, {"traces", false}}, paths);
+        NX_CHECK(paths.metrics == "/m" && paths.traces == "/t");
+    }
+}
+
+void test_telemetry_layout_infrastructure() {
+    Env_guard run_id_env{"NEXIGEN_RUN_ID"};
+    Env_guard run_dir_env{"NEXIGEN_RUN_DIR"};
+    Env_guard app_name_env{"NEXIGEN_APP_NAME"};
+    Env_guard instance_id_env{"NEXIGEN_INSTANCE_ID"};
+    Env_guard instance_dir_env{"NEXIGEN_INSTANCE_DIR"};
+    run_id_env.set("run-layout");
+    run_dir_env.set("/tmp/opencode");
+    app_name_env.set("layout-app");
+    instance_id_env.set("i1");
+
+    const std::string instance_dir = unique_path("telemetry_instance");
+    make_dir(instance_dir);
+    instance_dir_env.set(instance_dir.c_str());
+
+    const app::Run_identity identity = app::load_run_identity();
+    NX_CHECK(identity.instance_dir == instance_dir);
+
+    app::App_settings settings{};
+    NX_CHECK(app::load_app_settings(app::App_settings_paths{}, settings).has_value());
+    settings.logging.options.log_root_directory = instance_dir;
+    settings.logging.options.app_name = "layout-app";
+
+    app::Telemetry_paths resolved{};
+    NX_CHECK(app::resolve_telemetry_paths(identity, settings.metrics, settings.tracing,
+                                          settings.chrono, resolved)
+                 .has_value());
+    NX_CHECK(resolved.metrics == instance_dir + "/metrics.jsonl");
+    NX_CHECK(resolved.traces == instance_dir + "/traces.jsonl");
+    NX_CHECK(resolved.chrono == instance_dir + "/chrono.jsonl");
+    settings.metrics.sink.path = resolved.metrics;
+    settings.tracing.sink.path = resolved.traces;
+    settings.chrono.sink.path = resolved.chrono;
+
+    auto infra = make_test_infra<Resolved_path_policy>();
+    NX_CHECK(infra != nullptr);
+    if (infra == nullptr) {
+        return;
+    }
+    NX_CHECK(infra->initialize(settings).has_value());
+    infra->logger().info("layout integration record");
+
+    const auto meter = infra->meter("layout", "1.0");
+    NX_CHECK(meter.has_value());
+    if (meter.has_value()) {
+        const auto counter =
+            (*meter)->create_counter<metrics::ConcurrencyPolicy::MultiThreaded,
+                                     metrics::AccessPolicy::Readable>("ticks");
+        NX_CHECK(counter.has_value());
+        if (counter.has_value()) {
+            (*counter)->inc();
+        }
+    }
+    NX_CHECK(infra->metrics().collect_now().has_value());
+    NX_CHECK(infra->chrono().snapshot_now().has_value());
+
+    const auto tracer = infra->tracer_for("layout.span");
+    NX_CHECK(tracer.has_value());
+    if (tracer.has_value()) {
+        auto span = (*tracer)->start_span("work", tracing::SpanKind::Internal);
+        static_cast<void>(span.set_status(tracing::SpanStatus::Ok));
+        static_cast<void>(span.end());
+    }
+    NX_CHECK(infra->shutdown().has_value());
+
+    const auto non_empty = [](const std::string& path) {
+        struct stat st {};
+        return ::stat(path.c_str(), &st) == 0 && st.st_size > 0;
+    };
+    NX_CHECK(non_empty(instance_dir + "/app.jsonl"));
+    NX_CHECK(non_empty(resolved.metrics));
+    NX_CHECK(non_empty(resolved.traces));
+    NX_CHECK(non_empty(resolved.chrono));
+
+    // Every artefact lives directly under the instance directory.
+    DIR* const dir = ::opendir(instance_dir.c_str());
+    NX_CHECK(dir != nullptr);
+    if (dir != nullptr) {
+        int entries = 0;
+        while (const dirent* const entry = ::readdir(dir)) {
+            const std::string_view name{entry->d_name};
+            if (name == "." || name == "..") {
+                continue;
+            }
+            ++entries;
+            const bool known = name == "app.jsonl" || name == "metrics.jsonl" ||
+                               name == "traces.jsonl" || name == "chrono.jsonl";
+            NX_CHECK(known);
+        }
+        NX_CHECK(entries == 4);
+        static_cast<void>(::closedir(dir));
+    }
+
+    static_cast<void>(std::remove((instance_dir + "/app.jsonl").c_str()));
+    static_cast<void>(std::remove(resolved.metrics.c_str()));
+    static_cast<void>(std::remove(resolved.traces.c_str()));
+    static_cast<void>(std::remove(resolved.chrono.c_str()));
+    static_cast<void>(::rmdir(instance_dir.c_str()));
 }
 
 void test_infrastructure_lifecycle() {
@@ -1632,7 +2184,10 @@ int main() {
     run_suite("cli_loading", test_command_line_loading);
     run_suite("cli_infrastructure", test_command_line_infrastructure);
     run_suite("settings", test_settings_loaders);
+    run_suite("settings_sink", test_settings_sink);
     run_suite("settings_full", test_app_settings_full_coverage);
+    run_suite("telemetry_layout", test_telemetry_layout);
+    run_suite("telemetry_infra", test_telemetry_layout_infrastructure);
     run_suite("lifecycle", test_infrastructure_lifecycle);
     run_suite("failures", test_infrastructure_failures);
     run_suite("conflict", test_infrastructure_conflict);

@@ -662,6 +662,82 @@ nexigen::app::apply_to(*parsed, settings); // CLI level wins even after a load e
 `load_app_settings(*parsed, settings)` is a convenience that performs the same sequence and
 rejects a manually built options value when both directories are empty.
 
+### Telemetry output and run identity
+
+Metrics, tracing, and chrono settings carry an optional `sink` block next to their provider
+fields. The block reuses the file-sink configuration directly; an empty `path` means "this
+source does not configure a sink" and is not an error.
+
+```json
+// metrics.json
+{ "collect_interval_ns": 1000000000,
+  "sink": { "path": "/var/nexigen/runs/r1/controller/i1/metrics.jsonl", "append": true } }
+
+// tracing.json
+{ "max_tracers": 4,
+  "sink": { "path": "/var/nexigen/runs/r1/controller/i1/traces.jsonl",
+            "rotation": "None", "max_spans_per_window": 0, "window_ns": 0 } }
+
+// chrono.json
+{ "collect_interval_ns": 1000000000,
+  "sink": { "path": "/var/nexigen/runs/r1/controller/i1/chrono.jsonl", "append": true } }
+```
+
+`rotation` accepts `"None"`, `"Hourly"`, or `"Daily"`. Sink fields merge field by field with
+the same precedence as provider fields (defaults → global → local). Sink configuration is
+file-only: the documented `NEXIGEN_METRICS_*`, `NEXIGEN_TRACING_*`, and `NEXIGEN_CHRONO_*`
+overrides never modify a sink path. Invalid types or an unknown rotation produce a settings
+diagnostic (`sink`, `sink.path`, `sink.rotation`, ...) and keep the previous value; loading
+does not open or create the file.
+
+`include/nexigen/app/telemetry_layout.hpp` adds the environment identity contract and a
+resolver for launchers that cannot write settings:
+
+| Variable | Field |
+| --- | --- |
+| `NEXIGEN_RUN_ID` | `Run_identity::run_id` |
+| `NEXIGEN_RUN_DIR` | `Run_identity::run_dir` |
+| `NEXIGEN_APP_NAME` | `Run_identity::app_name` |
+| `NEXIGEN_INSTANCE_ID` | `Run_identity::instance_id` |
+| `NEXIGEN_INSTANCE_DIR` | `Run_identity::instance_dir` |
+
+When `NEXIGEN_INSTANCE_DIR` is unset and the run directory, app name, and instance id are all
+present, the loader derives `<run_dir>/<app_name>/<instance_id>`. Ids are validated as 1–128
+bytes of `A-Z`, `a-z`, `0-9`, `.`, `_`, `-`; `.`/`..` and `..` substrings are rejected, and
+present directories must be POSIX-absolute. A completely empty identity is valid and means the
+application does not use the contract.
+
+Resolution is per signal and has no I/O side effects:
+
+1. a non-empty `settings.<signal>.sink.path` wins verbatim;
+2. otherwise, with a validated instance directory, the path is
+   `<instance_dir>/metrics.jsonl`, `<instance_dir>/traces.jsonl`, or
+   `<instance_dir>/chrono.jsonl`;
+3. otherwise the path is empty and the policy keeps its own choice.
+
+```cpp
+nexigen::app::App_settings loaded{};
+const auto paths = nexigen::app::make_app_settings_paths(*parsed);
+if (!nexigen::app::load_app_settings(paths, loaded).has_value()) {
+    return 1; // best-effort settings and diagnostics remain in `loaded`
+}
+
+const nexigen::app::Run_identity identity = nexigen::app::load_run_identity();
+nexigen::app::Telemetry_paths resolved{};
+if (!nexigen::app::resolve_telemetry_paths(
+        identity, loaded.metrics, loaded.tracing, loaded.chrono, resolved)
+         .has_value()) {
+    return 1; // invalid identity
+}
+loaded.metrics.sink.path = resolved.metrics; // empty stays empty
+loaded.tracing.sink.path = resolved.traces;
+loaded.chrono.sink.path  = resolved.chrono;
+// pass `loaded` to Infrastructure::initialize
+```
+
+Logging keeps its existing `log_root_directory` and `app_name` keys; a launcher sets
+`log_root_directory` to the instance directory so all four streams share one layout.
+
 ## 📡 `nexigen::diagnostics` API
 
 Interval timing for real-time loops: the cache-line-aligned `Stopwatch` (O(1)
@@ -828,7 +904,8 @@ does this for you):
   files and no signal helper.
 * **`ex_app_cli_settings`** — the command-line settings flow: prepares
   `./nexigen-example-settings/` with `logging.json`, `metrics.json`, `tracing.json` and
-  `chrono.json` (metrics and chrono set `collect_interval_ns` to one second) and clears
+  `chrono.json` (metrics and chrono set `collect_interval_ns` to one second and each
+  subsystem sets a `sink` path under `./nexigen-example-output/`) and clears
   `./nexigen-example-output/` before parsing
   `-gs/--global-settings`, `-ls/--local-settings`, `-lgl/--log-level` and `-h/--help`,
   initializes `Infrastructure` through `initialize(options, loaded)` with file-backed

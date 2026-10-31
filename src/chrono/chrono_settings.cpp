@@ -105,6 +105,57 @@ void read_uint(const nlohmann::json& document, const char* key, std::uint64_t ma
     }
 }
 
+[[nodiscard]] std::string sink_field(const char* key) {
+    return std::string("sink.") + key;
+}
+
+/// Locate the optional sink object. Returns nullptr when absent or invalid;
+/// an invalid value is reported once and leaves the previous sink intact.
+[[nodiscard]] const nlohmann::json* find_sink(
+    const nlohmann::json& document, std::vector<Chrono_settings_diagnostic>& diagnostics,
+    Chrono_settings_source source) {
+    const auto it = document.find("sink");
+    if (it == document.end()) {
+        return nullptr;
+    }
+    if (!it->is_object()) {
+        add_diagnostic(diagnostics, source, "sink", "expected a JSON object");
+        return nullptr;
+    }
+    return &*it;
+}
+
+void read_sink_string(const nlohmann::json& sink, const char* key, std::string& target,
+                      std::vector<Chrono_settings_diagnostic>& diagnostics,
+                      Chrono_settings_source source) {
+    const auto it = sink.find(key);
+    if (it == sink.end()) {
+        return;
+    }
+    if (!it->is_string()) {
+        add_diagnostic(diagnostics, source, sink_field(key), "expected a string");
+        return;
+    }
+    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
+    if (text != nullptr) {
+        target = std::string(*text);
+    }
+}
+
+void read_sink_bool(const nlohmann::json& sink, const char* key, bool& target,
+                    std::vector<Chrono_settings_diagnostic>& diagnostics,
+                    Chrono_settings_source source) {
+    const auto it = sink.find(key);
+    if (it == sink.end()) {
+        return;
+    }
+    if (!it->is_boolean()) {
+        add_diagnostic(diagnostics, source, sink_field(key), "expected a boolean");
+        return;
+    }
+    target = it->get<bool>();
+}
+
 } // namespace
 
 std::string Chrono_settings_paths::to_string() const {
@@ -122,6 +173,7 @@ std::string Chrono_settings::to_string() const {
                       std::string(global_loaded ? "true" : "false") +
                       ", local_loaded=" + std::string(local_loaded ? "true" : "false") +
                       ", options=" + nexigen::chrono::to_string(options) +
+                      ", sink=" + nexigen::chrono::to_string(sink) +
                       ", diagnostics=[";
     for (std::size_t i = 0; i < diagnostics.size(); ++i) {
         if (i != 0) {
@@ -202,6 +254,8 @@ void to_json(nlohmann::json& j, const Chrono_settings& settings) {
                        {"local_loaded", settings.local_loaded},
                        {"collect_interval_ns", options.collect_interval.count()},
                        {"core_mask", options.core_mask},
+                       {"sink", nlohmann::json{{"path", settings.sink.path},
+                                               {"append", settings.sink.append}}},
                        {"diagnostics", std::move(diagnostics)}};
 }
 
@@ -227,6 +281,12 @@ void merge_document(const nlohmann::json& document, Chrono_settings_source sourc
     read_uint(document, "core_mask", std::numeric_limits<std::uint64_t>::max(), core_mask,
               out.diagnostics, source);
     out.options.core_mask = core_mask;
+
+    const nlohmann::json* const sink = find_sink(document, out.diagnostics, source);
+    if (sink != nullptr) {
+        read_sink_string(*sink, "path", out.sink.path, out.diagnostics, source);
+        read_sink_bool(*sink, "append", out.sink.append, out.diagnostics, source);
+    }
 }
 
 [[nodiscard]] std::string_view env_value(const char* name) noexcept {

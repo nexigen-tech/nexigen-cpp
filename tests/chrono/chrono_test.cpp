@@ -24,6 +24,7 @@
 #include <string_view>
 #include <thread>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -55,6 +56,16 @@ static_assert(std::is_trivially_copyable_v<nexigen::chrono::Timestamp>);
 
 using namespace nexigen::core;   // test TU: exercise the error model unqualified
 using namespace nexigen::chrono; // test TU: exercise the API unqualified
+
+// Loader-produced Chrono_settings have no from_json; pin that contract.
+template <class T, class = void>
+struct has_from_json : std::false_type {};
+template <class T>
+struct has_from_json<
+    T, std::void_t<decltype(from_json(std::declval<const nlohmann::json&>(),
+                                      std::declval<T&>()))>> : std::true_type {};
+
+static_assert(!has_from_json<Chrono_settings>::value);
 
 namespace {
 
@@ -1249,6 +1260,134 @@ void test_settings() {
     ::unlink(local_path);
 }
 
+void test_settings_sink() {
+    ::unsetenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS");
+    ::unsetenv("NEXIGEN_CHRONO_CORE_MASK");
+
+    const std::string base =
+        "/tmp/opencode/chrono_sink_" + std::to_string(static_cast<long long>(::getpid()));
+    const std::string global_path = base + "_global.json";
+    const std::string local_path = base + "_local.json";
+
+    // Local path overrides global; absent local append inherits global.
+    NX_CHECK(write_file(global_path.c_str(),
+                        R"({"collect_interval_ns":1,)"
+                        R"("sink":{"path":"/tmp/global-chrono.jsonl","append":false}})"));
+    NX_CHECK(write_file(local_path.c_str(),
+                        R"({"sink":{"path":"/tmp/local-chrono.jsonl"}})"));
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = global_path;
+        paths.local_file = local_path;
+        NX_CHECK(load_chrono_settings(paths, settings).has_value());
+        NX_CHECK(settings.options.collect_interval == std::chrono::nanoseconds{1});
+        NX_CHECK(settings.sink.path == "/tmp/local-chrono.jsonl");
+        NX_CHECK(!settings.sink.append);
+    }
+
+    // Without a local sink block the global path and append flag are retained.
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = global_path;
+        paths.local_file = "";
+        NX_CHECK(load_chrono_settings(paths, settings).has_value());
+        NX_CHECK(settings.sink.path == "/tmp/global-chrono.jsonl");
+        NX_CHECK(!settings.sink.append);
+    }
+
+    // Provider environment overrides do not touch the sink.
+    ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "42", 1);
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = global_path;
+        paths.local_file = local_path;
+        NX_CHECK(load_chrono_settings(paths, settings).has_value());
+        NX_CHECK(settings.options.collect_interval == std::chrono::nanoseconds{42});
+        NX_CHECK(settings.sink.path == "/tmp/local-chrono.jsonl");
+        NX_CHECK(!settings.sink.append);
+    }
+    ::unsetenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS");
+
+    // Serialization carries the sink; apply_to ignores it.
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = global_path;
+        paths.local_file = local_path;
+        NX_CHECK(load_chrono_settings(paths, settings).has_value());
+        NX_CHECK(settings.to_string().find("sink=JsonFileChronoSink_config") !=
+                 std::string::npos);
+        NX_CHECK(std::format("{}", settings) == settings.to_string());
+        nlohmann::json j;
+        to_json(j, settings);
+        NX_CHECK(j["sink"]["path"] == "/tmp/local-chrono.jsonl");
+        NX_CHECK(j["sink"]["append"] == false);
+
+        ChronoProvider_config config;
+        NX_CHECK(apply_to(settings, config).has_value());
+        NX_CHECK(config.collect_interval == settings.options.collect_interval);
+        NX_CHECK(config.core_mask == settings.options.core_mask);
+    }
+
+    // Absent sink blocks leave the sink unconfigured.
+    NX_CHECK(write_file(global_path.c_str(), "{}"));
+    NX_CHECK(write_file(local_path.c_str(), "{}"));
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = global_path;
+        paths.local_file = local_path;
+        NX_CHECK(load_chrono_settings(paths, settings).has_value());
+        NX_CHECK(settings.sink.path.empty());
+        NX_CHECK(settings.sink.append);
+        NX_CHECK(settings.diagnostics.empty());
+    }
+
+    // An empty path is accepted as unconfigured, not a diagnostic.
+    NX_CHECK(write_file(global_path.c_str(), R"({"sink":{"path":""}})"));
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = global_path;
+        NX_CHECK(load_chrono_settings(paths, settings).has_value());
+        NX_CHECK(settings.sink.path.empty());
+        NX_CHECK(settings.diagnostics.empty());
+    }
+
+    // Wrong field types keep the previous value and name sink.<field>.
+    NX_CHECK(write_file(global_path.c_str(),
+                        R"({"sink":{"path":"/tmp/keep-chrono.jsonl"}})"));
+    NX_CHECK(write_file(local_path.c_str(), R"({"sink":{"path":3}})"));
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = global_path;
+        paths.local_file = local_path;
+        NX_CHECK(!load_chrono_settings(paths, settings).has_value());
+        NX_CHECK(settings.sink.path == "/tmp/keep-chrono.jsonl");
+        NX_CHECK(settings.diagnostics.size() == 1U);
+        NX_CHECK(settings.diagnostics[0].field == "sink.path");
+    }
+
+    // A non-object sink keeps the whole previous sink and reports "sink".
+    NX_CHECK(write_file(local_path.c_str(), R"({"sink":[]})"));
+    {
+        Chrono_settings settings;
+        Chrono_settings_paths paths;
+        paths.global_file = global_path;
+        paths.local_file = local_path;
+        NX_CHECK(!load_chrono_settings(paths, settings).has_value());
+        NX_CHECK(settings.sink.path == "/tmp/keep-chrono.jsonl");
+        NX_CHECK(settings.diagnostics[0].field == "sink");
+    }
+
+    ::unlink(global_path.c_str());
+    ::unlink(local_path.c_str());
+}
+
 void test_settings_edges() {
     ::unsetenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS");
     ::unsetenv("NEXIGEN_CHRONO_CORE_MASK");
@@ -1486,6 +1625,7 @@ int main()
     run_suite("provider_config_edges", test_provider_config_edges);
     run_suite("affinity_edges", test_affinity_edges);
     run_suite("settings", test_settings);
+    run_suite("settings_sink", test_settings_sink);
     run_suite("settings_edges", test_settings_edges);
 
     const int failures = g_failures;

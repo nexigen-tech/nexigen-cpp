@@ -106,6 +106,73 @@ void read_uint(const nlohmann::json& document, const char* key, std::uint64_t ma
     }
 }
 
+[[nodiscard]] std::string sink_field(const char* key) {
+    return std::string("sink.") + key;
+}
+
+void read_sink_string(const nlohmann::json& sink, const char* key, std::string& target,
+                      std::vector<Settings_diagnostic>& diagnostics,
+                      logging::Settings_source source) {
+    const auto it = sink.find(key);
+    if (it == sink.end()) {
+        return;
+    }
+    if (!it->is_string()) {
+        add_diagnostic(diagnostics, source, sink_field(key), "expected a string");
+        return;
+    }
+    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
+    if (text != nullptr) {
+        target = std::string(*text);
+    }
+}
+
+void read_sink_bool(const nlohmann::json& sink, const char* key, bool& target,
+                    std::vector<Settings_diagnostic>& diagnostics,
+                    logging::Settings_source source) {
+    const auto it = sink.find(key);
+    if (it == sink.end()) {
+        return;
+    }
+    if (!it->is_boolean()) {
+        add_diagnostic(diagnostics, source, sink_field(key), "expected a boolean");
+        return;
+    }
+    target = it->get<bool>();
+}
+
+void read_sink_uint(const nlohmann::json& sink, const char* key, std::uint64_t& target,
+                    std::vector<Settings_diagnostic>& diagnostics,
+                    logging::Settings_source source) {
+    const auto it = sink.find(key);
+    if (it == sink.end()) {
+        return;
+    }
+    std::uint64_t value = 0;
+    if (unsigned_value(*it, value)) {
+        target = value;
+    } else {
+        add_diagnostic(diagnostics, source, sink_field(key),
+                       "expected a non-negative integer");
+    }
+}
+
+/// Locate the optional sink object. Returns nullptr when absent or invalid;
+/// an invalid value is reported once and leaves the previous sink intact.
+[[nodiscard]] const nlohmann::json* find_sink(const nlohmann::json& document,
+                                              std::vector<Settings_diagnostic>& diagnostics,
+                                              logging::Settings_source source) {
+    const auto it = document.find("sink");
+    if (it == document.end()) {
+        return nullptr;
+    }
+    if (!it->is_object()) {
+        add_diagnostic(diagnostics, source, "sink", "expected a JSON object");
+        return nullptr;
+    }
+    return &*it;
+}
+
 } // namespace
 
 std::string Metrics_settings::to_string() const {
@@ -113,6 +180,7 @@ std::string Metrics_settings::to_string() const {
                       std::string(global_loaded ? "true" : "false") +
                       ", local_loaded=" + std::string(local_loaded ? "true" : "false") +
                       ", options=" + nexigen::metrics::to_string(options) +
+                      ", sink=" + nexigen::metrics::to_string(sink) +
                       ", diagnostics=[";
     for (std::size_t i = 0; i < diagnostics.size(); ++i) {
         if (i != 0) {
@@ -129,6 +197,7 @@ std::string Tracing_settings::to_string() const {
                       std::string(global_loaded ? "true" : "false") +
                       ", local_loaded=" + std::string(local_loaded ? "true" : "false") +
                       ", options=" + nexigen::tracing::to_string(options) +
+                      ", sink=" + nexigen::tracing::to_string(sink) +
                       ", diagnostics=[";
     for (std::size_t i = 0; i < diagnostics.size(); ++i) {
         if (i != 0) {
@@ -170,6 +239,8 @@ void to_json(nlohmann::json& j, const Metrics_settings& settings) {
                        {"max_statistics", options.max_statistics},
                        {"max_explicit_histograms", options.max_explicit_histograms},
                        {"max_exponential_histograms", options.max_exponential_histograms},
+                       {"sink", nlohmann::json{{"path", settings.sink.path},
+                                               {"append", settings.sink.append}}},
                        {"diagnostics", std::move(diagnostics)}};
 }
 
@@ -187,6 +258,12 @@ void to_json(nlohmann::json& j, const Tracing_settings& settings) {
                        {"max_tracers", options.max_tracers},
                        {"max_spans_per_window", options.max_spans_per_window},
                        {"window_ns", options.window_ns},
+                       {"sink", nlohmann::json{
+                                    {"path", settings.sink.path},
+                                    {"rotation", std::string(to_string(settings.sink.rotation))},
+                                    {"max_spans_per_window",
+                                     settings.sink.max_spans_per_window},
+                                    {"window_ns", settings.sink.window_ns}}},
                        {"diagnostics", std::move(diagnostics)}};
 }
 
@@ -217,6 +294,45 @@ void to_json(nlohmann::json& j, const App_settings& settings) {
 }
 
 namespace {
+
+void merge_metrics_sink(const nlohmann::json& document, logging::Settings_source source,
+                        Metrics_settings& out) {
+    const nlohmann::json* const sink = find_sink(document, out.diagnostics, source);
+    if (sink == nullptr) {
+        return;
+    }
+    read_sink_string(*sink, "path", out.sink.path, out.diagnostics, source);
+    read_sink_bool(*sink, "append", out.sink.append, out.diagnostics, source);
+}
+
+void merge_tracing_sink(const nlohmann::json& document, logging::Settings_source source,
+                        Tracing_settings& out) {
+    const nlohmann::json* const sink = find_sink(document, out.diagnostics, source);
+    if (sink == nullptr) {
+        return;
+    }
+    read_sink_string(*sink, "path", out.sink.path, out.diagnostics, source);
+    const auto rotation_it = sink->find("rotation");
+    if (rotation_it != sink->end()) {
+        if (!rotation_it->is_string()) {
+            add_diagnostic(out.diagnostics, source, "sink.rotation", "expected a string");
+        } else {
+            const auto* const name =
+                rotation_it->get_ptr<const nlohmann::json::string_t*>();
+            tracing::RotationPolicy parsed = out.sink.rotation;
+            if (name != nullptr &&
+                tracing::from_string(std::string_view(*name), parsed)) {
+                out.sink.rotation = parsed;
+            } else {
+                add_diagnostic(out.diagnostics, source, "sink.rotation",
+                               "expected None, Hourly or Daily");
+            }
+        }
+    }
+    read_sink_uint(*sink, "max_spans_per_window", out.sink.max_spans_per_window,
+                   out.diagnostics, source);
+    read_sink_uint(*sink, "window_ns", out.sink.window_ns, out.diagnostics, source);
+}
 
 void merge_metrics_document(const nlohmann::json& document,
                             logging::Settings_source source,
@@ -254,6 +370,7 @@ void merge_metrics_document(const nlohmann::json& document,
     read_u32("max_statistics", out.options.max_statistics);
     read_u32("max_explicit_histograms", out.options.max_explicit_histograms);
     read_u32("max_exponential_histograms", out.options.max_exponential_histograms);
+    merge_metrics_sink(document, source, out);
 }
 
 void merge_tracing_document(const nlohmann::json& document,
@@ -286,6 +403,7 @@ void merge_tracing_document(const nlohmann::json& document,
     read_uint(document, "window_ns", std::numeric_limits<std::uint64_t>::max(), window,
               out.diagnostics, source);
     out.options.window_ns = window;
+    merge_tracing_sink(document, source, out);
 }
 
 [[nodiscard]] std::string_view env_value(const char* name) noexcept {
