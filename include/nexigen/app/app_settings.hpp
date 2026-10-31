@@ -30,8 +30,8 @@ using Settings_diagnostic = logging::Settings_diagnostic;
 /// Merged metrics settings (spec app/settings "Metrics settings map every
 /// provider field"). Loader-produced: to_json only, no from_json.
 struct Metrics_settings {
-    metrics::MetricProvider_config options{};
-    metrics::JsonFileMetricSink_config sink{};
+    metrics::MetricProvider_config options{};           ///< Provider configuration.
+    metrics::JsonFileMetricSink_config sink{};           ///< File-sink path, append flag.
     bool global_loaded{false};
     bool local_loaded{false};
     std::vector<Settings_diagnostic> diagnostics{};
@@ -45,8 +45,8 @@ struct Metrics_settings {
 /// Merged tracing settings (spec app/settings "Tracing settings map every
 /// provider field"). Loader-produced: to_json only, no from_json.
 struct Tracing_settings {
-    tracing::TracerProvider_config options{};
-    tracing::JsonFileTraceSink_config sink{};
+    tracing::TracerProvider_config options{};           ///< Provider configuration.
+    tracing::JsonFileTraceSink_config sink{};            ///< File-sink path, rotation, rate limits.
     bool global_loaded{false};
     bool local_loaded{false};
     std::vector<Settings_diagnostic> diagnostics{};

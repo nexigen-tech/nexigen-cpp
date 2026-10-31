@@ -92,8 +92,8 @@ struct Chrono_settings_diagnostic {
 /// Merged result of one load. `global_loaded`/`local_loaded` report file
 /// presence, not success; `diagnostics` carries every non-fatal problem.
 struct Chrono_settings {
-    ChronoProvider_config options{};
-    JsonFileChronoSink_config sink{};
+    ChronoProvider_config options{};             ///< Provider configuration.
+    JsonFileChronoSink_config sink{};            ///< File-sink path and append flag.
     bool global_loaded{false};
     bool local_loaded{false};
     std::vector<Chrono_settings_diagnostic> diagnostics{};

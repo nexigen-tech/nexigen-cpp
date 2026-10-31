@@ -25,11 +25,11 @@ namespace nexigen::app {
 /// corresponding variable was unset; a completely empty value is valid and
 /// means "this application does not use the identity contract".
 struct Run_identity {
-    std::string run_id{};
-    std::string run_dir{};
-    std::string app_name{};
-    std::string instance_id{};
-    std::string instance_dir{};
+    std::string run_id{};         ///< NEXIGEN_RUN_ID
+    std::string run_dir{};        ///< NEXIGEN_RUN_DIR
+    std::string app_name{};       ///< NEXIGEN_APP_NAME
+    std::string instance_id{};    ///< NEXIGEN_INSTANCE_ID
+    std::string instance_dir{};   ///< NEXIGEN_INSTANCE_DIR or derived <run_dir>/<app_name>/<instance_id>
 
     [[nodiscard]] std::string to_string() const;
 };
@@ -40,9 +40,9 @@ struct Run_identity {
 /// Resolved output locations. An empty path means the resolver did not
 /// configure that stream; the application keeps its own policy.
 struct Telemetry_paths {
-    std::string metrics{};
-    std::string traces{};
-    std::string chrono{};
+    std::string metrics{};   ///< Resolved path for metrics.jsonl, or empty.
+    std::string traces{};    ///< Resolved path for traces.jsonl, or empty.
+    std::string chrono{};    ///< Resolved path for chrono.jsonl, or empty.
 
     [[nodiscard]] std::string to_string() const;
 };
@@ -79,9 +79,15 @@ struct Telemetry_paths {
 }
 
 // --- cold-path ADL serialization (bodies in src/app/telemetry_layout.cpp)
+/// Serialise a Run_identity into JSON. Field names match the variable names.
 void to_json(nlohmann::json& j, const Run_identity& identity);
+/// Deserialise a Run_identity from JSON. Non-object, wrong types, and extra
+/// fields leave the target unchanged when compiled with JSON_NOEXCEPTION=1.
 void from_json(const nlohmann::json& j, Run_identity& identity) noexcept;
+/// Serialise a Telemetry_paths into JSON.
 void to_json(nlohmann::json& j, const Telemetry_paths& paths);
+/// Deserialise a Telemetry_paths from JSON. Same hostile-JSON guarantees as
+/// from_json(Run_identity).
 void from_json(const nlohmann::json& j, Telemetry_paths& paths) noexcept;
 
 } // namespace nexigen::app
