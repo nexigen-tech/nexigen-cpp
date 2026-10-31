@@ -13,6 +13,8 @@ in the OpenSpec capabilities under [`openspec/specs/`](../openspec/specs).
 | `nexigen::chrono` | `include/nexigen/chrono/`, `src/chrono/` | `nexigen_chrono` | STATIC |
 | `nexigen::logging` | `include/nexigen/logging/`, `src/logging/` | `nexigen_logging` | STATIC |
 | `nexigen::metrics` | `include/nexigen/metrics/`, `src/metrics/` | `nexigen_metrics` (alias `nexigen::metrics`) | STATIC |
+| `nexigen::tracing` | `include/nexigen/tracing/`, `src/tracing/` | `nexigen_tracing` (alias `nexigen::tracing`) | STATIC |
+| `nexigen::diagnostics` | `include/nexigen/diagnostics/`, `src/diagnostics/` | `nexigen_diagnostics` (alias `nexigen::diagnostics`) | STATIC |
 | `nexigen::app` | `include/nexigen/app/`, `src/app/` | `nexigen_app` (alias `nexigen::app`) | STATIC |
 | examples | `examples/<module>/` | `NEXIGEN_BUILD_EXAMPLES` option | executables |
 | tests | `tests/<module>/` | `NEXIGEN_BUILD_TESTS` option | CTest suites |
@@ -145,8 +147,8 @@ Behaviour is contract-first via [OpenSpec](https://openspec.github.io/openspec/)
 3. `openspec sync` merges the change's capability deltas into
    `openspec/specs/**`; `openspec archive` applies remaining deltas and retires
    the change.
-4. `openspec validate --specs` gates the main-spec corpus (currently 25
-   capabilities / 160 requirements / 387 scenarios).
+4. `openspec validate --specs` gates the main-spec corpus (currently 43
+   capabilities / 271 requirements / 671 scenarios).
 
 Archived changes live in `openspec/changes/archive/` with their full planning
 history. If code and specs disagree, the spec wins — fix the code or open a

@@ -88,7 +88,7 @@ Header-only, C++23, no exceptions/RTTI, no heap allocation on hot paths. Link th
 `std::string to_string() const` + free `to_string(const T&)`; every enum class exposes
 constexpr `to_string`/`from_string`, ADL `to_json`/`from_json` and a `std::formatter`
 specialization. The build resolves nlohmann::json via `find_package(nlohmann_json QUIET)`
-with a FetchContent fallback (pinned v3.11.3) and propagates `JSON_NOEXCEPTION=1` publicly,
+with a FetchContent fallback (pinned v3.12.0) and propagates `JSON_NOEXCEPTION=1` publicly,
 so the JSON vocabulary compiles everywhere under `-fno-exceptions`. `std::string` and
 nlohmann::json remain strictly cold-path tools — never on a producer or worker hot path.
 

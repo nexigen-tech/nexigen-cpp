@@ -62,7 +62,7 @@ if(NOT nlohmann_json_FOUND)
     set(JSON_Install OFF CACHE INTERNAL "")
     FetchContent_Declare(nlohmann_json
         SYSTEM
-        URL https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz)
+        URL https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz)
     FetchContent_MakeAvailable(nlohmann_json)
 endif()
 
