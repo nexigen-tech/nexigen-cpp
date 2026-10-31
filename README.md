@@ -725,7 +725,10 @@ Run them directly from the build tree (the logging examples write to
 `/tmp/nexigen-examples-logging-settings/` and
 `/tmp/nexigen-examples-logging-settings-simple/`; the metrics pipeline example writes to
 `/tmp/nexigen-examples-metrics/`; the tracing example writes to
-`/tmp/nexigen-examples-tracing/`):
+`/tmp/nexigen-examples-tracing/`). The command-line settings example is the exception:
+it writes `./nexigen-example-settings/` and `./nexigen-example-output/` relative to the
+current working directory, so run it from the repository root (the runner script below
+does this for you):
 
 ```bash
 ./build/debug/examples/core/ex_spsc_ring_buffer
@@ -743,6 +746,7 @@ Run them directly from the build tree (the logging examples write to
 ./build/debug/examples/diagnostics/ex_stopwatch
 ./build/debug/examples/diagnostics/ex_stopwatch_histogram
 ./build/debug/examples/app/ex_app_lifecycle
+./build/debug/examples/app/ex_app_cli_settings
 ```
 
 * **`ex_spsc_ring_buffer`** — a two-thread telemetry pipeline over
@@ -822,6 +826,42 @@ Run them directly from the build tree (the logging examples write to
   a counter created through `meter()`, a span through `tracer_for()`, three ticks,
   `request_stop(Requested)`, and `shutdown()` — no application class, no settings
   files and no signal helper.
+* **`ex_app_cli_settings`** — the command-line settings flow: prepares
+  `./nexigen-example-settings/` with `logging.json`, `metrics.json`, `tracing.json` and
+  `chrono.json` and clears `./nexigen-example-output/` before parsing
+  `-gs/--global-settings`, `-ls/--local-settings`, `-lgl/--log-level` and `-h/--help`,
+  initializes `Infrastructure` through `initialize(options, loaded)` with file-backed
+  sinks, runs a bounded tick loop (counter, gauge, span, periodic logs and collections),
+  and verifies that `app.jsonl`, `metrics.jsonl`, `traces.jsonl` and `chrono.jsonl` are
+  non-empty.
+
+### Command-line settings example: runner and cleanup
+
+`examples/app/run_ex_app_cli_settings.sh` locates (or builds) `ex_app_cli_settings`,
+runs it from the repository root under a 60-second `timeout`, and forwards extra
+arguments plus the example's exit status:
+
+```bash
+./examples/app/run_ex_app_cli_settings.sh
+./examples/app/run_ex_app_cli_settings.sh --log-level debug
+```
+
+The example generates:
+
+- `./nexigen-example-settings/logging.json`, `metrics.json`, `tracing.json` and
+  `chrono.json` — local settings written before the command line is applied.
+- `./nexigen-example-output/app.jsonl`, `metrics.jsonl`, `traces.jsonl` and
+  `chrono.jsonl` — log records, metric batches, span records and chrono snapshots. The
+  output directory is cleared on every run.
+
+`examples/app/clean_ex_app_cli_settings.sh` removes both directories and succeeds when
+they are already absent:
+
+```bash
+./examples/app/clean_ex_app_cli_settings.sh
+```
+
+Set `BUILD_DIR` to point the runner at a non-default build tree.
 
 Every example is also registered as a CTest smoke test (label `examples`): each must run
 to completion and exit with status 0.
