@@ -828,12 +828,18 @@ does this for you):
   files and no signal helper.
 * **`ex_app_cli_settings`** — the command-line settings flow: prepares
   `./nexigen-example-settings/` with `logging.json`, `metrics.json`, `tracing.json` and
-  `chrono.json` and clears `./nexigen-example-output/` before parsing
+  `chrono.json` (metrics and chrono set `collect_interval_ns` to one second) and clears
+  `./nexigen-example-output/` before parsing
   `-gs/--global-settings`, `-ls/--local-settings`, `-lgl/--log-level` and `-h/--help`,
   initializes `Infrastructure` through `initialize(options, loaded)` with file-backed
-  sinks, runs a bounded tick loop (counter, gauge, span, periodic logs and collections),
-  and verifies that `app.jsonl`, `metrics.jsonl`, `traces.jsonl` and `chrono.jsonl` are
-  non-empty.
+  sinks, runs a fifteen-second paced workload (counter, gauge, periodic logs and
+  one-second background metric batches and chrono snapshots) recorded as three nested
+  traces — `startup`, `tick-loop` with per-batch Producer/Consumer children, and
+  `shutdown` — and verifies the artifact floors (metric batches, chrono snapshots,
+  distinct trace ids) in `app.jsonl`, `metrics.jsonl`, `traces.jsonl` and `chrono.jsonl`.
+  The example-local `--fail-demo` token (stripped before the standard parser) writes
+  one malformed settings file so the run fails through the real settings-loading path
+  — a diagnostic on stderr and a non-zero exit, for exercising the failure branch.
 
 ### Command-line settings example: runner and cleanup
 
@@ -862,6 +868,10 @@ they are already absent:
 ```
 
 Set `BUILD_DIR` to point the runner at a non-default build tree.
+
+The test configuration also registers `ex_app_cli_settings_help`, an
+argument-driven smoke variant that runs `ex_app_cli_settings --help` and passes
+when the command-line usage is printed and the exit status is 0.
 
 Every example is also registered as a CTest smoke test (label `examples`): each must run
 to completion and exit with status 0.
