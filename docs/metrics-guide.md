@@ -98,6 +98,14 @@ Two triggers, both cold-path:
 
 `collect_interval = 0` disables the background thread entirely.
 
+* **Warning:** the background harvester reads *every* registered instrument on
+  its own thread. `SingleThreaded` instruments use plain non-atomic storage and
+  must not be harvested concurrently with recording: use `collect_now()` on the
+  recording thread, or `MultiThreaded` (the safe default when a background
+  harvester runs). Harvesting a `SingleThreaded` instrument while its recorder
+  is live is a data race — ThreadSanitizer reports it as a race in
+  `Counter_storage`/`Gauge_storage::take()`.
+
 ## 5. Sinks
 
 The sink contract is `concepts::MetricSink`: `on_batch(const
@@ -159,5 +167,6 @@ histogram parameters (unsorted/non-finite bounds, scale outside 0–20) return
 | `get_meter`/`collect_now` after destruction → `NotInitialized` | you held the provider or its handles past its lifetime |
 | `startup_status()` → `SystemError` | harvester could not pin `core_mask` — pick CPUs inside the process's allowed set, or use `0` |
 | No background batches | `collect_interval == 0` — the thread is disabled by design; call `collect_now()` |
+| TSan race in `Counter_storage`/`Gauge_storage::take()` | a `SingleThreaded` instrument is harvested by the background thread while its recorder is live — switch to `MultiThreaded`, or harvest with `collect_now()` on the recording thread |
 | Statistics drop samples under load | more than 32 threads record that kind concurrently — check `dropped_samples`, or reduce the thread set |
 | Percentiles look coarse after a wide range | coarsening lowered `effective_scale`; counts stay exact, resolution degrades as documented |
