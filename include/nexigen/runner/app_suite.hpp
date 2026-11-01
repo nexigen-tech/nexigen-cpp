@@ -140,6 +140,8 @@ struct Suite_manifest {
     std::uint32_t suite_restart_attempts{0};
     std::uint64_t suite_restart_delay_s{5};
     std::string manifest_path{};
+    std::vector<std::uint32_t> runner_control_cpus{};
+    std::vector<std::uint32_t> runner_logger_cpus{};
     std::vector<App_spec> apps{};
 
     [[nodiscard]] std::string to_string() const;
@@ -166,6 +168,8 @@ struct Suite_metadata {
     std::string start_time_rfc3339{};
     std::uint64_t start_time_mono_ns{0};
     std::string manifest_path{};
+    std::vector<std::uint32_t> runner_control_cpus{};
+    std::vector<std::uint32_t> runner_logger_cpus{};
     std::vector<Suite_app_metadata> apps{};
 
     [[nodiscard]] std::string to_string() const;

@@ -3,6 +3,7 @@
 set -euo pipefail
 
 BIN="${1:?usage: cli_test.sh <nexigen-run>}"
+BIN="$(realpath "$BIN")"
 ROOT="$(mktemp -d /tmp/opencode/nexigen_cli_XXXXXX)"
 ART="$(mktemp -d /tmp/opencode/nexigen_cli_art_XXXXXX)"
 MANIFEST="$ROOT/manifest.json"
@@ -38,6 +39,13 @@ cat > "$MANIFEST" <<EOF
 EOF
 
 "$BIN" start --config "$MANIFEST" | grep -q "started:"
+RUNNER_LOG="$ART/cli/runner.jsonl"
+for _ in {1..50}; do
+    [ -f "$RUNNER_LOG" ] && grep -q "event=suite_started" "$RUNNER_LOG" && break
+    sleep 0.1
+done
+grep -q "event=command" "$RUNNER_LOG"
+grep -q "event=suite_started" "$RUNNER_LOG"
 "$BIN" --help | grep -q -- "--config"
 "$BIN" status --config "$MANIFEST" | grep -q "suite: running"
 "$BIN" status --config "$MANIFEST" --json | grep -q '"state": "running"'
@@ -45,7 +53,17 @@ CONFIG_STATUS="$("$BIN" status --config "$MANIFEST")"
 DIR_STATUS="$("$BIN" status --suite-dir "$ROOT/.suite/cli")"
 [ "$CONFIG_STATUS" = "$DIR_STATUS" ]
 "$BIN" stop --config "$MANIFEST" --grace 2 | grep -q "stopped:"
+grep -q "event=suite_stopped" "$RUNNER_LOG"
 "$BIN" status --config "$MANIFEST" | grep -q "suite: stopped"
 "$BIN" stop --config "$MANIFEST" --grace 0 | grep -q "stopped:"
+
+# An invalid manifest still logs through the working-directory fallback.
+mkdir -p "$ROOT/fallback_cwd"
+printf '{bad json' > "$ROOT/bad.json"
+if (cd "$ROOT/fallback_cwd" && "$BIN" start --config "$ROOT/bad.json"); then
+    echo "invalid manifest unexpectedly succeeded" >&2
+    exit 1
+fi
+grep -q "event=command" "$ROOT/fallback_cwd/.nexigen-run/runner.jsonl"
 
 echo "cli checks passed"

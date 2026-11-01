@@ -34,6 +34,7 @@
 #include <nexigen/runner/app_suite.hpp>
 #include <nexigen/runner/instance_lifecycle.hpp>
 #include <nexigen/runner/runner.hpp>
+#include <nexigen/runner/runner_logging.hpp>
 
 namespace nexigen::runner {
 
@@ -572,6 +573,8 @@ void to_json(nlohmann::json& j, const Suite_manifest& manifest) {
         {"suite_restart_attempts", manifest.suite_restart_attempts},
         {"suite_restart_delay_s", manifest.suite_restart_delay_s},
         {"manifest_path", manifest.manifest_path},
+        {"runner_control_cpus", manifest.runner_control_cpus},
+        {"runner_logger_cpus", manifest.runner_logger_cpus},
         {"apps", std::move(apps)},
     };
 }
@@ -591,6 +594,10 @@ void from_json(const nlohmann::json& j, Suite_manifest& manifest) noexcept {
     static_cast<void>(read_u64(j, "suite_restart_delay_s",
                                manifest.suite_restart_delay_s));
     static_cast<void>(read_string(j, "manifest_path", manifest.manifest_path));
+    static_cast<void>(read_cpu_array(j, "runner_control_cpus",
+                                     manifest.runner_control_cpus));
+    static_cast<void>(read_cpu_array(j, "runner_logger_cpus",
+                                     manifest.runner_logger_cpus));
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
         std::vector<App_spec> apps;
         apps.reserve(it->size());
@@ -634,6 +641,8 @@ void to_json(nlohmann::json& j, const Suite_metadata& metadata) {
         {"start_time_rfc3339", metadata.start_time_rfc3339},
         {"start_time_mono_ns", metadata.start_time_mono_ns},
         {"manifest_path", metadata.manifest_path},
+        {"runner_control_cpus", metadata.runner_control_cpus},
+        {"runner_logger_cpus", metadata.runner_logger_cpus},
         {"apps", std::move(apps)},
     };
 }
@@ -652,6 +661,10 @@ void from_json(const nlohmann::json& j, Suite_metadata& metadata) noexcept {
     static_cast<void>(read_u64(j, "start_time_mono_ns",
                                metadata.start_time_mono_ns));
     static_cast<void>(read_string(j, "manifest_path", metadata.manifest_path));
+    static_cast<void>(read_cpu_array(j, "runner_control_cpus",
+                                     metadata.runner_control_cpus));
+    static_cast<void>(read_cpu_array(j, "runner_logger_cpus",
+                                     metadata.runner_logger_cpus));
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
         std::vector<Suite_app_metadata> apps;
         apps.reserve(it->size());
@@ -923,6 +936,29 @@ core::Status validate_suite_manifest(const Suite_manifest& manifest) noexcept {
     if (!valid_level(document, "log_level")) {
         return false;
     }
+    auto valid_cpu_array = [](const nlohmann::json& object,
+                              const char* key) -> bool {
+        const auto it = object.find(key);
+        if (it == object.end()) {
+            return true;
+        }
+        if (!it->is_array()) {
+            return false;
+        }
+        for (const auto& item : *it) {
+            if (!item.is_number_unsigned()) {
+                return false;
+            }
+            if (item.get<std::uint64_t>() > UINT32_MAX) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!valid_cpu_array(document, "runner_control_cpus") ||
+        !valid_cpu_array(document, "runner_logger_cpus")) {
+        return false;
+    }
     const auto apps = document.find("apps");
     if (apps == document.end() || !apps->is_array()) {
         return false;
@@ -1170,11 +1206,23 @@ void schedule_retry_or_fail(Runtime_suite& suite, Runtime_app& app) {
         app.state = App_state::Restarting;
         app.next_restart_ns =
             monotonic_now_ns() + app.spec.restart_delay_s * nanoseconds_per_second;
+        log_runner(logging::LogLevel::Info,
+                   std::format("event=retry_scheduled app={} instance={} "
+                               "attempt={} impact={} delay_s={}",
+                               app.spec.app, app.spec.instance, app.attempt,
+                               nexigen::runner::to_string(app.spec.impact),
+                               app.spec.restart_delay_s));
     } else {
         app.state = App_state::Failed;
         if (app.spec.impact == Impact_on_app_suite_operability::Degrade) {
             suite.state = Suite_state::Degraded;
         }
+        log_runner(logging::LogLevel::Warning,
+                   std::format("event=app_failed app={} instance={} impact={} "
+                               "suite_state={}",
+                               app.spec.app, app.spec.instance,
+                               nexigen::runner::to_string(app.spec.impact),
+                               nexigen::runner::to_string(suite.state)));
     }
     suite.dirty = true;
 }
@@ -1186,7 +1234,11 @@ void finish_failed(Runtime_suite& suite) {
             app.state = App_state::Stopped;
         }
     }
+    log_runner(logging::LogLevel::Error,
+               std::format("event=suite_failed suite={} reason=restart_exhausted",
+                           suite.manifest->suite_id));
     write_suite_exit(suite, Suite_state::Failed, "restart_exhausted");
+    shutdown_runner_logging();
     _exit(0);
 }
 
@@ -1196,6 +1248,12 @@ void trigger_suite_restart(Runtime_suite& suite) {
         finish_failed(suite);
     }
     ++suite.suite_restarts_used;
+    log_runner(logging::LogLevel::Warning,
+               std::format("event=suite_restart trigger={} used={} limit={} "
+                           "delay_s={}",
+                           "failure", suite.suite_restarts_used,
+                           suite.manifest->suite_restart_attempts,
+                           suite.manifest->suite_restart_delay_s));
     stop_all(suite);
     for (Runtime_app& app : suite.apps) {
         app.state = App_state::Restarting;
@@ -1253,6 +1311,15 @@ void apply_launch_failures(Runtime_suite& suite) {
 void run_suite_supervisor(const Suite_manifest& manifest,
                           const std::string& suite_dir,
                           int report_fd) {
+    static_cast<void>(reset_runner_affinity());
+    const core::Status control_pin =
+        apply_runner_affinity(manifest.runner_control_cpus, "suite-supervisor");
+    if (!control_pin) {
+        std::fprintf(stderr,
+                     "nexigen-run: runner_control_cpus is invalid; suite "
+                     "supervisor is unpinned\n");
+    }
+
     Runtime_suite suite{};
     suite.manifest = &manifest;
     suite.suite_dir = suite_dir;
@@ -1271,6 +1338,8 @@ void run_suite_supervisor(const Suite_manifest& manifest,
     metadata.start_time_rfc3339 = utc_now_rfc3339();
     metadata.start_time_mono_ns = suite.start_mono_ns;
     metadata.manifest_path = manifest.manifest_path;
+    metadata.runner_control_cpus = manifest.runner_control_cpus;
+    metadata.runner_logger_cpus = manifest.runner_logger_cpus;
     metadata.apps.reserve(manifest.apps.size());
     for (const App_spec& app : manifest.apps) {
         Suite_app_metadata entry{};
@@ -1307,16 +1376,57 @@ void run_suite_supervisor(const Suite_manifest& manifest,
     static_cast<void>(write_all(report_fd, &report, sizeof(report)));
     static_cast<void>(::close(report_fd));
 
+    logging::Logging_settings log_settings{};
+    const core::Status settings_status = load_runner_logging_settings(
+        manifest.global_settings_path, log_settings);
+    if (!settings_status) {
+        warn_runner("event=logging_settings_invalid detail=using defaults");
+        log_settings = logging::Logging_settings{};
+    }
+    const logging::LogLevel log_level =
+        manifest.log_level.value_or(
+            log_settings.global_loaded
+                ? log_settings.options.initial_log_level
+                : logging::LogLevel::Info);
+    const core::Status log_status = init_runner_logging(
+        join_path(manifest.artifacts_path, manifest.suite_id), log_settings,
+        log_level,
+        std::span<const std::uint32_t>(manifest.runner_logger_cpus.data(),
+                                       manifest.runner_logger_cpus.size()));
+    if (!log_status) {
+        warn_runner("event=logging_unavailable detail=runner.jsonl not writable");
+    }
+    log_runner(logging::LogLevel::Info,
+               std::format("event=suite_started suite={} apps={}",
+                           manifest.suite_id, suite.apps.size()));
+    for (const Runtime_app& app : suite.apps) {
+        log_runner(app.state == App_state::Failed
+                       ? logging::LogLevel::Warning
+                       : logging::LogLevel::Info,
+                   std::format("event=app_launch app={} instance={} attempt={} "
+                               "pid={} state={}",
+                               app.spec.app, app.spec.instance, app.attempt,
+                               app.child_pid,
+                               nexigen::runner::to_string(app.state)));
+    }
+
     apply_launch_failures(suite);
     write_suite_status(suite);
 
     for (;;) {
         if (file_exists(suite.stop_path)) {
+            log_runner(logging::LogLevel::Info,
+                       std::format("event=stop_requested suite={}",
+                                   manifest.suite_id));
             stop_all(suite);
             for (Runtime_app& app : suite.apps) {
                 app.state = App_state::Stopped;
             }
             write_suite_exit(suite, Suite_state::Stopped, "operator_stop");
+            log_runner(logging::LogLevel::Info,
+                       std::format("event=suite_stopped suite={} reason=operator_stop",
+                                   manifest.suite_id));
+            shutdown_runner_logging();
             _exit(0);
         }
         reap_supervisors();
@@ -1325,8 +1435,23 @@ void run_suite_supervisor(const Suite_manifest& manifest,
         if (suite.suite_restart_pending) {
             if (now >= suite.next_suite_restart_ns) {
                 suite.suite_restart_pending = false;
+                suspend_runner_logging();
                 launch_all(suite);
+                static_cast<void>(resume_runner_logging());
                 apply_launch_failures(suite);
+                log_runner(logging::LogLevel::Info,
+                           std::format("event=suite_restart suite={} used={} limit={}",
+                                       manifest.suite_id,
+                                       suite.suite_restarts_used,
+                                       manifest.suite_restart_attempts));
+                for (const Runtime_app& app : suite.apps) {
+                    log_runner(logging::LogLevel::Info,
+                               std::format("event=app_launch app={} instance={} "
+                                           "attempt={} pid={} state={}",
+                                           app.spec.app, app.spec.instance,
+                                           app.attempt, app.child_pid,
+                                           nexigen::runner::to_string(app.state)));
+                }
                 write_suite_status(suite);
             }
             sleep_ms(suite_poll_interval_ms);
@@ -1339,6 +1464,19 @@ void run_suite_supervisor(const Suite_manifest& manifest,
                 if (read_exit_metadata(app.instance_dir, exit) &&
                     !app.exit_consumed) {
                     app.exit_consumed = true;
+                    if (exit.exit_code.has_value()) {
+                        log_runner(logging::LogLevel::Info,
+                                   std::format("event=app_exit app={} instance={} "
+                                               "attempt={} exit_code={}",
+                                               app.spec.app, app.spec.instance,
+                                               app.attempt, *exit.exit_code));
+                    } else if (exit.signal.has_value()) {
+                        log_runner(logging::LogLevel::Warning,
+                                   std::format("event=app_exit app={} instance={} "
+                                               "attempt={} signal={}",
+                                               app.spec.app, app.spec.instance,
+                                               app.attempt, *exit.signal));
+                    }
                     if (exit.exit_code.has_value() &&
                         *exit.exit_code == 0) {
                         app.state = App_state::Exited;
@@ -1353,9 +1491,23 @@ void run_suite_supervisor(const Suite_manifest& manifest,
             } else if (app.state == App_state::Restarting &&
                        app.next_restart_ns != 0 && now >= app.next_restart_ns) {
                 app.launch_failed = false;
-                if (!launch_app(suite, app)) {
+                suspend_runner_logging();
+                const bool launched = launch_app(suite, app);
+                static_cast<void>(resume_runner_logging());
+                if (!launched) {
                     app.launch_failed = false;
+                    log_runner(logging::LogLevel::Warning,
+                               std::format("event=app_launch_failed app={} "
+                                           "instance={} attempt={}",
+                                           app.spec.app, app.spec.instance,
+                                           app.attempt));
                     schedule_retry_or_fail(suite, app);
+                } else {
+                    log_runner(logging::LogLevel::Info,
+                               std::format("event=app_launch app={} instance={} "
+                                           "attempt={} pid={} state=running",
+                                           app.spec.app, app.spec.instance,
+                                           app.attempt, app.child_pid));
                 }
                 suite.dirty = true;
             }
@@ -1418,6 +1570,7 @@ core::Status start_suite(const Suite_manifest& manifest,
 
     if (supervisor == 0) {
         static_cast<void>(::close(pipe_fds[0]));
+        static_cast<void>(reset_runner_affinity());
         static_cast<void>(::setsid());
         const int null_fd = ::open("/dev/null", O_RDWR | O_CLOEXEC);
         if (null_fd >= 0) {

@@ -26,6 +26,8 @@ nexigen-run stop /var/run/nexigen/app/1
   "log_level": "info",
   "suite_restart_attempts": 2,
   "suite_restart_delay_s": 10,
+  "runner_control_cpus": [0, 1],
+  "runner_logger_cpus": [2],
   "apps": [
     {
       "app": "plant",
@@ -60,6 +62,8 @@ nexigen-run stop /var/run/nexigen/app/1
 | `log_level` | no | Suite-wide `verbose`, `debug`, `info`, `warning`, `error`, `fatal`, or `off`. |
 | `suite_restart_attempts` | no | Whole-suite relaunches for `failure` applications. Default `0`. |
 | `suite_restart_delay_s` | no | Pause before a whole-suite relaunch. Default `5`. |
+| `runner_control_cpus` | no | CPU list for the CLI/suite-supervisor control thread; empty = OS placement. |
+| `runner_logger_cpus` | no | CPU list for the runner logger worker; empty = `flush_cpu_affinity` from `logging.json`, then OS placement. |
 | `apps` | yes | 1–256 application entries. |
 
 ### Application fields
@@ -161,13 +165,78 @@ Suite metadata lives in `<run_dir>/.suite/<suite_id>/`:
 - `suite-exit.json` — final `stopped`/`failed` outcome and reason;
 - `stop.request` — empty marker used by `stop`.
 
+## Runner logging
+
+`nexigen-run` writes its own JSONL log through `nexigen::logging::FileLogger`:
+
+```text
+<artifacts_path>/<suite_id>/runner.jsonl
+```
+
+When no manifest is available (single-instance commands, invalid manifest, or
+unreadable suite metadata), it uses:
+
+```text
+<cwd>/.nexigen-run/runner.jsonl
+```
+
+Level selection is:
+
+1. suite manifest `log_level`;
+2. `initial_log_level` from `<global_settings_path>/logging.json`;
+3. `info`.
+
+`--suite-dir` uses the global settings path recorded in `suite.json` and the
+same file-level fallback. Per-application `log_level` does not affect the
+runner.
+
+Operational logger fields from `logging.json` are honored when the file loads:
+`flush_cpu_affinity` (logger-worker fallback), `max_file_size_bytes` (size
+segmentation), and `spam_protection` (throttle). Path, file name, app name, and
+scheduled rotation remain runner-specific: `runner.jsonl`, app `nexigen-run`,
+and `RotationConfig::None`. Without a file, the runner uses no size limit and
+no throttle.
+
+The log contains CLI `command` records and suite-supervisor lifecycle records
+(`suite_started`, `app_launch`, `app_exit`, `retry_scheduled`, `app_failed`,
+`suite_restart`, `stop_requested`, `suite_stopped`, `suite_failed`,
+`affinity_warning`). Logging is best-effort: failures never change command
+results or supervision policy.
+
+The logger worker is flushed and joined before every fork performed after
+initialization, then recreated afterwards. Before `_exit`, accepted records are
+flushed.
+
+## Runner thread affinity
+
+```json
+{
+  "runner_control_cpus": [0, 1],
+  "runner_logger_cpus": [2]
+}
+```
+
+- `runner_control_cpus` pins the CLI and suite-supervisor control thread.
+- `runner_logger_cpus` pins the logger worker; if empty, the file's
+  `flush_cpu_affinity` is used. The FileLogger worker accepts cores `0–63`;
+  higher values are a warning and leave it unpinned.
+- Empty lists mean OS placement.
+- Duplicate, out-of-range, or kernel-rejected affinity is a warning; the
+  command and suite continue, and that thread is simply unpinned.
+- Application processes and per-instance supervisors do not inherit the runner
+  pin. Forked children reset to all online CPUs, and an application with
+  explicit `cpus` applies that list afterwards.
+- `suite.json` records both lists so `stop --suite-dir` and `status --suite-dir`
+  can reproduce the affinity without the manifest.
+
 ## Limitations
 
 - No dependency ordering or readiness probes; applications launch in manifest
   order.
 - No dynamic manifest reload.
-- No log rotation; every attempt keeps its own files, so disk usage grows with
-  attempts.
+- No scheduled log rotation; every application attempt keeps its own files, so
+  disk usage grows with attempts. The runner log also uses no scheduled
+  rotation; `max_file_size_bytes` from `logging.json` may create segments.
 - If the suite supervisor dies, per-instance supervisors keep the applications
   running and `status`/`stop` still work, but automatic restarts stop.
 - Stopping an individual suite member directly is not supported; use the suite

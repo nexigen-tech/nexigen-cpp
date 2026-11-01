@@ -30,6 +30,7 @@
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/logging/logger_options.hpp>
 #include <nexigen/runner/runner.hpp>
+#include <nexigen/runner/runner_logging.hpp>
 
 namespace nexigen::runner {
 
@@ -610,6 +611,7 @@ core::Status Runner::start(const app::Run_identity& identity,
     if (supervisor == 0) {
         // --- Supervisor process ---
         static_cast<void>(::close(pipe_fds[0]));
+        static_cast<void>(reset_runner_affinity());
         static_cast<void>(::setsid());
         redirect_to_null(null_fd);
 
@@ -642,6 +644,7 @@ core::Status Runner::start(const app::Run_identity& identity,
             // --- Application child ---
             static_cast<void>(::close(pipe_fds[1]));
             static_cast<void>(::close(setup_pipe[0]));
+            static_cast<void>(reset_runner_affinity());
             auto fail_setup = [&](std::int32_t setup_status) {
                 const ssize_t written = ::write(setup_pipe[1], &setup_status,
                                                 sizeof(setup_status));

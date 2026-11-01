@@ -88,6 +88,12 @@ target_link_libraries(nexigen_app_suite_tests PRIVATE nexigen_runner Threads::Th
 add_test(NAME nexigen_app_suite_tests COMMAND nexigen_app_suite_tests)
 set_tests_properties(nexigen_app_suite_tests PROPERTIES TIMEOUT 900)
 
+add_executable(nexigen_runner_logging_tests runner/runner_logging_test.cpp)
+target_link_libraries(nexigen_runner_logging_tests PRIVATE nexigen_runner Threads::Threads)
+
+add_test(NAME nexigen_runner_logging_tests COMMAND nexigen_runner_logging_tests)
+set_tests_properties(nexigen_runner_logging_tests PROPERTIES TIMEOUT 300)
+
 add_test(NAME nexigen_run_cli_tests
          COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/runner/cli_test.sh
                  $<TARGET_FILE:nexigen-run>)

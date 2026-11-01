@@ -1,5 +1,6 @@
 // nexigen::runner suite tests — manifest, policy, artifacts, and CLI-facing state.
 #include <chrono>
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -84,6 +85,28 @@ bool contains(std::string_view text, std::string_view needle) {
     return text.find(needle) != std::string_view::npos;
 }
 
+bool cpu_is_set(int cpu, const cpu_set_t& mask) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+    const bool set = CPU_ISSET(cpu, &mask) != 0;
+#pragma GCC diagnostic pop
+    return set;
+}
+
+int first_allowed_cpu() {
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    if (::sched_getaffinity(0, sizeof(mask), &mask) != 0) {
+        return -1;
+    }
+    for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+        if (cpu_is_set(cpu, mask)) {
+            return cpu;
+        }
+    }
+    return -1;
+}
+
 template <class Predicate>
 bool wait_until(Predicate predicate, int timeout_ms) {
     const auto deadline = std::chrono::steady_clock::now() +
@@ -152,6 +175,16 @@ runner::Suite_status read_status(const std::string& suite_dir) {
     runner::Suite_status status{};
     static_cast<void>(runner::suite_status(suite_dir, status));
     return status;
+}
+
+runner::Suite_metadata read_metadata(const std::string& suite_dir) {
+    runner::Suite_metadata metadata{};
+    const core::Result<nlohmann::json> document =
+        runner::read_json_file(suite_dir + "/suite.json");
+    if (document) {
+        runner::from_json(*document, metadata);
+    }
+    return metadata;
 }
 
 runner::Suite_app_status find_app(const runner::Suite_status& status,
@@ -237,6 +270,8 @@ void test_enums_and_serialization() {
     manifest.suite_restart_attempts = 2;
     manifest.suite_restart_delay_s = 3;
     manifest.manifest_path = "/etc/nexigen/suite.json";
+    manifest.runner_control_cpus = {0, 1};
+    manifest.runner_logger_cpus = {2};
     manifest.apps.push_back(spec);
     nlohmann::json manifest_json;
     runner::to_json(manifest_json, manifest);
@@ -244,6 +279,8 @@ void test_enums_and_serialization() {
     runner::from_json(manifest_json, manifest_round);
     NX_CHECK(manifest_round.suite_id == "s");
     NX_CHECK(manifest_round.log_level == logging::LogLevel::Debug);
+    NX_CHECK(manifest_round.runner_control_cpus.size() == 2);
+    NX_CHECK(manifest_round.runner_logger_cpus.size() == 1);
     NX_CHECK(manifest_round.apps.size() == 1);
 
     runner::Suite_status status{};
@@ -296,6 +333,8 @@ void test_enums_and_serialization() {
     metadata.start_time_rfc3339 = "2026-11-01T00:00:00.000000000Z";
     metadata.start_time_mono_ns = 123;
     metadata.manifest_path = "/etc/nexigen/suite.json";
+    metadata.runner_control_cpus = {0};
+    metadata.runner_logger_cpus = {1};
     metadata.apps.push_back(app_metadata);
     nlohmann::json metadata_json;
     runner::to_json(metadata_json, metadata);
@@ -304,6 +343,8 @@ void test_enums_and_serialization() {
     NX_CHECK(metadata_round.pid == 42);
     NX_CHECK(metadata_round.apps.size() == 1);
     NX_CHECK(metadata_round.artifacts_path == "/artifacts");
+    NX_CHECK(metadata_round.runner_control_cpus.size() == 1);
+    NX_CHECK(metadata_round.runner_logger_cpus.size() == 1);
 
     runner::Suite_exit suite_exit{};
     suite_exit.state = runner::Suite_state::Failed;
@@ -383,6 +424,13 @@ void test_manifest_validation() {
                          core::ErrorCode::InvalidArgument));
 
     bad = manifest;
+    bad.runner_control_cpus = {99999};
+    NX_CHECK(runner::validate_suite_manifest(bad).has_value());
+    bad = manifest;
+    bad.runner_logger_cpus = {99999};
+    NX_CHECK(runner::validate_suite_manifest(bad).has_value());
+
+    bad = manifest;
     bad.apps.clear();
     NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
                          core::ErrorCode::InvalidArgument));
@@ -415,6 +463,14 @@ void test_manifest_validation() {
     NX_CHECK(runner::write_json_file(root + "/bad_level.json", document).has_value());
     NX_CHECK(failed_with(
         runner::load_suite_manifest(root + "/bad_level.json", loaded),
+        core::ErrorCode::InvalidArgument));
+
+    runner::to_json(document, manifest);
+    document["runner_control_cpus"] = "bad";
+    NX_CHECK(runner::write_json_file(root + "/bad_runner_cpus.json", document)
+                 .has_value());
+    NX_CHECK(failed_with(
+        runner::load_suite_manifest(root + "/bad_runner_cpus.json", loaded),
         core::ErrorCode::InvalidArgument));
 
     runner::Suite_status missing{};
@@ -756,6 +812,100 @@ void test_clean_exit_is_final() {
     remove_tree(artifacts);
 }
 
+void test_runner_logging_and_affinity() {
+    const std::string root = unique_dir("runner_log");
+    const std::string artifacts = unique_dir("runner_log_artifacts");
+    const int cpu = first_allowed_cpu();
+    if (cpu < 0) {
+        return;
+    }
+    runner::Suite_manifest manifest = base_manifest(root, artifacts);
+    manifest.log_level = logging::LogLevel::Debug;
+    manifest.runner_control_cpus = {static_cast<std::uint32_t>(cpu)};
+    manifest.runner_logger_cpus = {static_cast<std::uint32_t>(cpu)};
+    runner::App_spec spec =
+        app_spec("logged", "1", "/bin/sh",
+                 runner::Impact_on_app_suite_operability::Not_impact);
+    spec.args = {"-c", "exec sleep 60"};
+    manifest.apps.push_back(spec);
+
+    std::string suite_dir;
+    NX_CHECK(runner::start_suite(manifest, suite_dir).has_value());
+    if (!file_exists(suite_dir + "/suite.json")) {
+        remove_tree(root);
+        remove_tree(artifacts);
+        return;
+    }
+
+    const std::string log_path = artifacts + "/" + manifest.suite_id +
+                                 "/runner.jsonl";
+    NX_CHECK(wait_until([&] { return file_exists(log_path); }, 5000));
+    NX_CHECK(wait_until(
+        [&] { return contains(read_text(log_path), "event=suite_started"); },
+        5000));
+
+    const runner::Suite_metadata metadata = read_metadata(suite_dir);
+    NX_CHECK(metadata.runner_control_cpus.size() == 1);
+    NX_CHECK(metadata.runner_logger_cpus.size() == 1);
+    NX_CHECK(metadata.pid > 0);
+
+    cpu_set_t control_mask;
+    CPU_ZERO(&control_mask);
+    NX_CHECK(::sched_getaffinity(metadata.pid, sizeof(control_mask),
+                                 &control_mask) == 0);
+    NX_CHECK(CPU_COUNT(&control_mask) == 1);
+    NX_CHECK(cpu_is_set(cpu, control_mask));
+
+    const runner::Suite_status status = read_status(suite_dir);
+    const runner::Suite_app_status app = find_app(status, "logged");
+    NX_CHECK(app.state == runner::App_state::Running);
+    const auto resource =
+        runner::read_json_file(app.instance_dir + "/resource.json");
+    NX_CHECK(resource.has_value());
+    if (resource) {
+        const std::int32_t child_pid = (*resource)["pid"].get<std::int32_t>();
+        cpu_set_t app_mask;
+        CPU_ZERO(&app_mask);
+        NX_CHECK(::sched_getaffinity(child_pid, sizeof(app_mask), &app_mask) == 0);
+        const long online = ::sysconf(_SC_NPROCESSORS_ONLN);
+        if (online > 1) {
+            NX_CHECK(CPU_COUNT(&app_mask) > 1);
+        }
+    }
+
+    NX_CHECK(runner::stop_suite(suite_dir, 2).has_value());
+    NX_CHECK(wait_until(
+        [&] { return contains(read_text(log_path), "event=suite_stopped"); },
+        5000));
+    NX_CHECK(contains(read_text(log_path), "event=stop_requested"));
+
+    remove_tree(root);
+    remove_tree(artifacts);
+}
+
+void test_invalid_affinity_nonfatal() {
+    const std::string root = unique_dir("bad_affinity");
+    const std::string artifacts = unique_dir("bad_affinity_artifacts");
+    runner::Suite_manifest manifest = base_manifest(root, artifacts);
+    manifest.runner_control_cpus = {99999};
+    manifest.runner_logger_cpus = {99999};
+    runner::App_spec spec =
+        app_spec("bad_pin", "1", "/bin/sh",
+                 runner::Impact_on_app_suite_operability::Not_impact);
+    spec.args = {"-c", "exec sleep 60"};
+    manifest.apps.push_back(spec);
+
+    std::string suite_dir;
+    NX_CHECK(runner::start_suite(manifest, suite_dir).has_value());
+    if (file_exists(suite_dir + "/suite.json")) {
+        NX_CHECK(read_status(suite_dir).state == runner::Suite_state::Running);
+        NX_CHECK(runner::stop_suite(suite_dir, 2).has_value());
+        NX_CHECK(read_status(suite_dir).state == runner::Suite_state::Stopped);
+    }
+    remove_tree(root);
+    remove_tree(artifacts);
+}
+
 void test_setup_failure() {
     const std::string root = unique_dir("setup");
     const std::string artifacts = unique_dir("setup_artifacts");
@@ -840,6 +990,8 @@ int main() {
     run_suite("not_impact_retries", test_not_impact_retries_new_attempts);
     run_suite("failure_restarts_suite", test_failure_impact_restarts_suite);
     run_suite("clean_exit_is_final", test_clean_exit_is_final);
+    run_suite("runner_logging_affinity", test_runner_logging_and_affinity);
+    run_suite("invalid_affinity", test_invalid_affinity_nonfatal);
     run_suite("setup_failure", test_setup_failure);
     run_suite("forced_stop", test_forced_stop);
 

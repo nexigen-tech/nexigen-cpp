@@ -218,9 +218,21 @@ class Producer {
             std::int32_t slot{-1};
         };
         thread_local Entry tls[4]{}; // 4 distinct producers per thread
-        for (const Entry& e : tls) {
+        for (Entry& e : tls) {
             if (e.owner == this) {
-                return e.slot; // steady path: TLS only, no shared atomics
+                // A producer destroyed and re-created at the same address
+                // leaves a stale TLS entry. Its new registration has not
+                // published any slot yet, so treat the entry as stale and
+                // re-register instead of returning a slot the worker cannot
+                // drain.
+                if (e.slot >= 0 &&
+                    static_cast<std::uint32_t>(e.slot) <
+                        registration_.active.load(std::memory_order_acquire)) {
+                    return e.slot; // steady path: TLS only, no shared atomics
+                }
+                e.owner = nullptr;
+                e.slot = -1;
+                break;
             }
         }
         const std::uint32_t claimed =
