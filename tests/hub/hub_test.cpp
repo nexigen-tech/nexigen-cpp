@@ -22,6 +22,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "../support/test_temp.hpp"
+
 #include <nexigen/core/result.hpp>
 #include <nexigen/hub/discovery.hpp>
 #include <nexigen/hub/http_server.hpp>

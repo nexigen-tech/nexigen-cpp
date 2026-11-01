@@ -13,6 +13,8 @@
 #include <sched.h>
 #include <unistd.h>
 
+#include "../support/test_temp.hpp"
+
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/logging_settings.hpp>
 #include <nexigen/runner/runner_logging.hpp>

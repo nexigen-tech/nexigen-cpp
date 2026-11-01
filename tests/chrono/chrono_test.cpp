@@ -35,6 +35,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "../support/test_temp.hpp"
+
 #include <nexigen/core/result.hpp>
 #include <nexigen/chrono/chrono_provider.hpp>
 #include <nexigen/chrono/chrono_settings.hpp>

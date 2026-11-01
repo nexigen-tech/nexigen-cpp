@@ -20,6 +20,12 @@ option(NEXIGEN_ENABLE_COVERAGE "Instrument the build with GCC/Clang --coverage" 
 set(NEXIGEN_COVERAGE_FAIL_UNDER "0" CACHE STRING
     "Fail the coverage target below this line-coverage percentage (0 = no gate)")
 
+# ns-class latency gates are meaningful only on dedicated hardware. Shared CI
+# runners and containers cannot guarantee the 20 ns budget, so Release CI can
+# turn the gates off while still exercising optimized code.
+option(NEXIGEN_STRICT_LATENCY_TESTS
+    "Enable ns-class latency gates in Release/RelWithDebInfo tests" ON)
+
 if(NEXIGEN_ENABLE_COVERAGE AND (NEXIGEN_ENABLE_ASAN OR NEXIGEN_ENABLE_TSAN))
     message(FATAL_ERROR "❌ Coverage cannot be combined with ASan/TSan in one build.")
 endif()
@@ -336,7 +342,7 @@ if(NEXIGEN_ENABLE_COVERAGE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/coverage_report.py
                 --clean-only --build-dir ${CMAKE_BINARY_DIR}
         COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR}
-                --output-on-failure -R "^nexigen_.*_tests$"
+                --output-on-failure -R "^nexigen_.*_tests$" -E "_cli_tests$"
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/coverage_report.py
                 --build-dir ${CMAKE_BINARY_DIR}
                 --source-dir ${CMAKE_CURRENT_SOURCE_DIR}
@@ -350,6 +356,10 @@ if(NEXIGEN_ENABLE_COVERAGE)
             nexigen_tracing_tests
             nexigen_diagnostics_tests
             nexigen_app_tests
+            nexigen_runner_tests
+            nexigen_app_suite_tests
+            nexigen_runner_logging_tests
+            nexigen_hub_tests
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         USES_TERMINAL
         VERBATIM

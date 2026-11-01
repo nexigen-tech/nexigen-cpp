@@ -28,6 +28,8 @@
 #include <unistd.h>
 #include <malloc.h>
 
+#include "../support/test_temp.hpp"
+
 #include <nexigen/app/command_line.hpp>
 #include <nexigen/app/infrastructure.hpp>
 #include <nexigen/app/app_settings.hpp>

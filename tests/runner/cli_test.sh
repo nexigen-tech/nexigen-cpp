@@ -4,8 +4,10 @@ set -euo pipefail
 
 BIN="${1:?usage: cli_test.sh <nexigen-run>}"
 BIN="$(realpath "$BIN")"
-ROOT="$(mktemp -d /tmp/opencode/nexigen_cli_XXXXXX)"
-ART="$(mktemp -d /tmp/opencode/nexigen_cli_art_XXXXXX)"
+TEST_TMP="${NEXIGEN_TEST_TMPDIR:-/tmp/opencode}"
+mkdir -p "$TEST_TMP"
+ROOT="$(mktemp -d "$TEST_TMP/nexigen_cli_XXXXXX")"
+ART="$(mktemp -d "$TEST_TMP/nexigen_cli_art_XXXXXX")"
 MANIFEST="$ROOT/manifest.json"
 
 cleanup() {

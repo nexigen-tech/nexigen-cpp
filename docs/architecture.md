@@ -16,13 +16,16 @@ in the OpenSpec capabilities under [`openspec/specs/`](../openspec/specs).
 | `nexigen::tracing` | `include/nexigen/tracing/`, `src/tracing/` | `nexigen_tracing` (alias `nexigen::tracing`) | STATIC |
 | `nexigen::diagnostics` | `include/nexigen/diagnostics/`, `src/diagnostics/` | `nexigen_diagnostics` (alias `nexigen::diagnostics`) | STATIC |
 | `nexigen::app` | `include/nexigen/app/`, `src/app/` | `nexigen_app` (alias `nexigen::app`) | STATIC |
+| `nexigen::runner` | `include/nexigen/runner/`, `src/runner/` | `nexigen_runner` (alias `nexigen::runner`) | STATIC |
+| `nexigen::hub` | `include/nexigen/hub/`, `src/hub/` | `nexigen_hub` (alias `nexigen::hub`) | STATIC |
 | examples | `examples/<module>/` | `NEXIGEN_BUILD_EXAMPLES` option | executables |
 | tests | `tests/<module>/` | `NEXIGEN_BUILD_TESTS` option | CTest suites |
 
-`nexigen::core` is INTERFACE because it is pure templates; `chrono`, `logging` and
-`metrics` are STATIC because they own compiled cold paths (calibration, the harvest
-loop, sink I/O, snapshot serialisation) that must not be inlined into every
-consumer. Modules never consume another module's `detail/` — the chrono extraction
+`nexigen::core` is INTERFACE because it is pure templates; `chrono`, `logging`,
+`metrics`, `tracing`, `diagnostics`, `app`, `runner`, and `hub` are STATIC because
+they own compiled cold paths (calibration, the harvest loop, sink I/O, snapshot
+serialisation, process supervision, HTTP/SSE serving) that must not be inlined into
+every consumer. Modules never consume another module's `detail/` — the chrono extraction
 established that rule (a module needing shared machinery promotes it or
 duplicates it, keeping dependency arrows one-way: `metrics → chrono/core`,
 `logging → chrono/core`).
@@ -46,6 +49,14 @@ construction path; a second initialized infrastructure receives
 `ErrorCode::Conflict`. The hot path is unchanged: `run()` performs one acquire load
 per tick, and the watcher only records a reason. Dependency arrows stay one-way:
 `app → logging, metrics, tracing, chrono, core`.
+
+`nexigen::runner` owns detached per-instance and per-suite supervision: instance
+directory layout, generated settings, fork/exec with `setsid`, signal escalation,
+restart policy, and JSON-lines runner logging. `nexigen::hub` is a read-only
+observatory over explicit run roots: inotify discovery, bounded stream rings with
+replay/gap markers, and an epoll HTTP/SSE server with an embedded web UI. Neither
+module adds work to the application tick, producer, snapshot, or sink paths; both
+depend on `core`/`chrono`/`runner` in one direction only.
 
 ## The hard mandates
 
@@ -106,6 +117,9 @@ record to stay exact under any thread interleaving.
 cmake -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
 # Release (production: -O3 -march=native + LTO, latency gates active)
 cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release
+# Shared CI runners: optimized code without the ns-class gate
+cmake -B build/release-ci -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DNEXIGEN_STRICT_LATENCY_TESTS=OFF
 # ThreadSanitizer (RelWithDebInfo so the STRICT_LATENCY define stays inert)
 cmake -B build/tsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DNEXIGEN_ENABLE_TSAN=ON
 # AddressSanitizer/UBSan
@@ -113,6 +127,11 @@ cmake -B build/asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_ASAN=ON
 
 cmake --build <dir> && ctest --test-dir <dir> --output-on-failure
 ```
+
+`NEXIGEN_STRICT_LATENCY_TESTS` (default `ON`) controls the ns-class gates in
+Release and RelWithDebInfo. CI disables them because shared runners cannot
+guarantee the 20 ns budget; run the default on dedicated hardware before a
+performance-sensitive release.
 
 Coverage instrumentation and the aggregated report target:
 
@@ -122,17 +141,29 @@ cmake --build build/coverage --target coverage
 # optional gate: -DNEXIGEN_COVERAGE_FAIL_UNDER=85
 ```
 
-`coverage` cleans `.gcda`, runs the unit-test binaries, and prints line coverage per
-module via `cmake/coverage_report.py` (stdlib only). It is mutually exclusive with
-ASan/TSan.
+`coverage` cleans `.gcda`, builds and runs the eleven unit-test binaries, and prints
+line coverage per module via `cmake/coverage_report.py` (stdlib only). CLI smoke
+tests are excluded because they exercise subprocesses rather than instrumented
+library code. The target is mutually exclusive with ASan/TSan.
 
-Current unit-test line coverage is **96.1%** (6 143 / 6 393 lines); the project
-expectation is **≥95%** (`-DNEXIGEN_COVERAGE_FAIL_UNDER=95` in CI). Remaining
+Current unit-test line coverage is **86.2–86.3%** (≈9 950 / 11 532 lines):
+
+| Scope | Coverage |
+|---|---:|
+| Original seven modules | 95.9% (7 327 / 7 639) |
+| `runner` | 58.4–58.7% (≈1 380 / 2 363) |
+| `hub` | 80.6–80.8% (≈1 235 / 1 530) |
+
+The project target is **≥95%**. CI enforces an interim **≥85%** gate
+(`-DNEXIGEN_COVERAGE_FAIL_UNDER=85`) until runner/hub coverage is raised. Remaining
 uncovered lines are concentrated in platform-specific calibration branches, sink
-open/read failure paths and `std::to_chars` error arms that no valid input reaches.
+open/read failure paths, `std::to_chars` error arms, and runner/hub control-plane
+branches. The measured baseline and the P1/P2 backlog are recorded in
+[`project-analysis.md`](project-analysis.md).
 
 All four modes must report `100% tests passed` with no sanitizer diagnostics.
-TSan and ASan are mutually exclusive. Tests are zero-dependency harnesses
+TSan and ASan are mutually exclusive. GitHub Actions runs the same matrix, plus the
+coverage gate and OpenSpec validation, from `.github/workflows/ci.yml`. Tests are zero-dependency harnesses
 (`NX_CHECK` / `run_suite`, arena `operator new` counter + `mallinfo2` delta for
 allocation windows); Release adds the numeric latency gates
 (`NEXIGEN_METRICS_STRICT_LATENCY`), which are compiled out under Debug and
@@ -147,8 +178,8 @@ Behaviour is contract-first via [OpenSpec](https://openspec.github.io/openspec/)
 3. `openspec sync` merges the change's capability deltas into
    `openspec/specs/**`; `openspec archive` applies remaining deltas and retires
    the change.
-4. `openspec validate --specs` gates the main-spec corpus (currently 43
-   capabilities / 271 requirements / 671 scenarios).
+4. `openspec validate --specs` gates the main-spec corpus (currently 58
+   capabilities / 407 requirements / 1 096 scenarios).
 
 Archived changes live in `openspec/changes/archive/` with their full planning
 history. If code and specs disagree, the spec wins — fix the code or open a

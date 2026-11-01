@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - learning-enhancement
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: "2"
+
+jobs:
+  build-test:
+    name: Build & test (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    container:
+      image: gcc:15
+      # TSan calls personality(ADDR_NO_RANDOMIZE); Docker's default seccomp
+      # profile blocks it, so TSan fails intermittently in a container.
+      options: ${{ matrix.container_options }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debug
+            build_type: Debug
+            cmake_args: ""
+            container_options: ""
+          - name: Release
+            build_type: Release
+            # Shared runners cannot guarantee the 20 ns latency budget; the
+            # dedicated-hardware gate stays available via the default ON.
+            cmake_args: "-DNEXIGEN_STRICT_LATENCY_TESTS=OFF"
+            container_options: ""
+          - name: TSan
+            build_type: RelWithDebInfo
+            cmake_args: "-DNEXIGEN_ENABLE_TSAN=ON"
+            container_options: "--security-opt seccomp=unconfined"
+          - name: ASan
+            build_type: Debug
+            cmake_args: "-DNEXIGEN_ENABLE_ASAN=ON"
+            container_options: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates cmake curl git ninja-build
+
+      - name: Configure
+        run: |
+          cmake -S . -B "build/${{ matrix.name }}" -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            ${{ matrix.cmake_args }}
+
+      - name: Build
+        run: cmake --build "build/${{ matrix.name }}" --parallel 2
+
+      - name: Test
+        run: ctest --test-dir "build/${{ matrix.name }}" --output-on-failure
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    container: gcc:15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates cmake curl git ninja-build python3
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/coverage -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DNEXIGEN_ENABLE_COVERAGE=ON \
+            -DNEXIGEN_COVERAGE_FAIL_UNDER=85
+
+      - name: Run coverage gate
+        run: cmake --build build/coverage --target coverage --parallel 2
+
+  openspec:
+    name: OpenSpec
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install OpenSpec CLI
+        run: npm install --global @fission-ai/openspec@1.14.3
+
+      - name: Validate specs and changes
+        run: |
+          openspec validate --specs
+          openspec validate --changes --strict

@@ -48,6 +48,8 @@
 #include <x86intrin.h> // __rdtsc — an intrinsic, not a language extension
 #endif
 
+#include "../support/test_temp.hpp"
+
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
 #include <nexigen/chrono/timestamp.hpp>

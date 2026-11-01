@@ -3,8 +3,10 @@
 set -euo pipefail
 BIN="${1:?usage: hub_cli_test.sh <nexigen-hub>}"
 BIN="$(realpath "$BIN")"
-ROOT="$(mktemp -d /tmp/opencode/nexigen_hub_cli_XXXXXX)"
-OUT="$(mktemp /tmp/opencode/nexigen_hub_cli_out_XXXXXX)"
+TEST_TMP="${NEXIGEN_TEST_TMPDIR:-/tmp/opencode}"
+mkdir -p "$TEST_TMP"
+ROOT="$(mktemp -d "$TEST_TMP/nexigen_hub_cli_XXXXXX")"
+OUT="$(mktemp "$TEST_TMP/nexigen_hub_cli_out_XXXXXX")"
 cleanup() {
     if [[ -n "${HUB_PID:-}" ]]; then kill "$HUB_PID" 2>/dev/null || true; fi
     rm -rf "$ROOT" "$OUT"

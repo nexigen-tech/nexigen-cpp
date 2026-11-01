@@ -25,6 +25,10 @@ cmake --build build/release
 ctest --test-dir build/release --output-on-failure
 ```
 
+Release and RelWithDebInfo enable the ns-class latency gates by default. They are
+meaningful only on dedicated hardware; shared CI runners configure with
+`-DNEXIGEN_STRICT_LATENCY_TESTS=OFF` and still exercise the optimized code.
+
 ThreadSanitizer (data-race check for lock-free queues and atomics):
 
 ```bash
@@ -41,8 +45,9 @@ cmake --build build/asan
 ctest --test-dir build/asan --output-on-failure
 ```
 
-All three modes must report `100% tests passed`. TSan and ASan are mutually exclusive —
-enabling both at once is a configure-time error.
+All four modes must report `100% tests passed`. TSan and ASan are mutually exclusive —
+enabling both at once is a configure-time error. The same matrix runs in GitHub
+Actions via [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ### Coverage target
 
@@ -54,14 +59,26 @@ cmake -B build/coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_COVER
 cmake --build build/coverage --target coverage
 ```
 
-The target cleans old `.gcda` counters, runs the seven `nexigen_*_tests` binaries and
-prints line coverage per module. Add `-DNEXIGEN_COVERAGE_FAIL_UNDER=85` to fail the
-target below the requested percentage. Coverage cannot be combined with ASan/TSan.
+The target cleans old `.gcda` counters, builds and runs the eleven
+`nexigen_*_tests` unit binaries (CLI smoke tests are excluded), and prints line
+coverage per module. Add `-DNEXIGEN_COVERAGE_FAIL_UNDER=85` to fail the target below
+the requested percentage. Coverage cannot be combined with ASan/TSan.
 
-Current unit-test line coverage is **96.1%** (6 143 / 6 393): core and diagnostics
-100%, app 96.2%, logging 96.3%, metrics 96.2%, tracing 95.5%, chrono 91.6%. The
-project expectation is **≥95%**, enforced by passing
-`-DNEXIGEN_COVERAGE_FAIL_UNDER=95` in CI.
+Current unit-test line coverage is **86.2–86.3%** (≈9 950 / 11 532):
+
+| Module | Coverage |
+|---|---:|
+| core, diagnostics | 100.0% |
+| chrono, metrics | 96.2% |
+| app | 95.8% |
+| logging, tracing | 95.3% |
+| hub | 80.6–80.8% |
+| runner | 58.4–58.7% |
+
+The project target is **≥95%**. CI currently enforces an interim **≥85%** gate so
+the newest subsystems cannot regress while their coverage is raised. The per-module
+breakdown and the remaining backlog are tracked in
+[`docs/project-analysis.md`](docs/project-analysis.md).
 
 ## 📡 `nexigen::core` API
 

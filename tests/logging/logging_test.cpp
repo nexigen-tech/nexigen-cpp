@@ -39,6 +39,8 @@
 #include <sys/stat.h>
 #include <dirent.h>  // period directory walk for rotation/soak tests
 
+#include "../support/test_temp.hpp"
+
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
 #include <nexigen/chrono/timestamp.hpp>

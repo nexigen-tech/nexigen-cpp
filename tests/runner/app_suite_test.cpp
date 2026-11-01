@@ -22,6 +22,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "../support/test_temp.hpp"
+
 #include <nexigen/core/result.hpp>
 #include <nexigen/runner/app_suite.hpp>
 #include <nexigen/runner/instance_lifecycle.hpp>

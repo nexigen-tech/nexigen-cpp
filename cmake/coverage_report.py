@@ -77,8 +77,6 @@ def collect_line_counts(build_dir: str, source_dir: str, gcov: str) -> dict:
 
 def summarize(counts: dict, source_dir: str) -> tuple[int, int]:
     source_dir = os.path.realpath(source_dir)
-    modules = ["core", "chrono", "logging", "metrics", "tracing", "diagnostics", "app"]
-
     def module_of(path: str) -> str:
         rel = os.path.realpath(path)[len(source_dir) + 1:]
         parts = rel.split(os.sep)
@@ -95,6 +93,24 @@ def summarize(counts: dict, source_dir: str) -> tuple[int, int]:
         if count > 0:
             totals[bucket][1] += 1
 
+    preferred = [
+        "core",
+        "chrono",
+        "logging",
+        "metrics",
+        "tracing",
+        "diagnostics",
+        "app",
+        "runner",
+        "hub",
+    ]
+    modules = [module for module in preferred if module in totals]
+    modules += sorted(
+        module for module in totals if module not in preferred and module != "other"
+    )
+    if "other" in totals:
+        modules.append("other")
+
     def percent(hit: int, total: int) -> float:
         return 100.0 * hit / total if total else 0.0
 
@@ -102,7 +118,7 @@ def summarize(counts: dict, source_dir: str) -> tuple[int, int]:
     print(f"{'module':14} {'covered':>8} {'total':>8} {'%':>8}")
     print("-" * 42)
     overall_hit = overall_total = 0
-    for module in modules + ["other"]:
+    for module in modules:
         if module not in totals:
             continue
         total, hit = totals[module][0], totals[module][1]
