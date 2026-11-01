@@ -1143,6 +1143,11 @@ void test_web_assets() {
     NX_CHECK(contains(hub::app_js(), "EventSource"));
     NX_CHECK(!contains(hub::app_js(), "/api/start"));
     NX_CHECK(contains(hub::style_css(), "--accent"));
+    // app.js is an IIFE `(() => { ... })();`. A missing wrapper parenthesis is
+    // a JavaScript syntax error that leaves the connection badge stuck on
+    // "connecting" (spec hub/web-ui "Embedded script parses and bootstraps").
+    NX_CHECK(contains(hub::app_js(), "(() => {"));
+    NX_CHECK(contains(hub::app_js(), "})();"));
 }
 
 void test_http_server() {
@@ -1357,6 +1362,7 @@ void test_http_server() {
         },
         3000));
     NX_CHECK(contains(sse, "Content-Type: text/event-stream"));
+    NX_CHECK(contains(sse, "Transfer-Encoding: chunked"));
     NX_CHECK(contains(sse, "event: snapshot_begin"));
     NX_CHECK(contains(sse, "event: record"));
 

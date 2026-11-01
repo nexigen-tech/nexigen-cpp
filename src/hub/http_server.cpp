@@ -85,6 +85,7 @@ struct HttpServer::Impl {
         std::string output{};
         bool close_after_write{false};
         bool sse{false};
+        bool chunked{false};
         bool tree_topic{false};
         std::uint64_t subscriber{0};
         std::uint64_t last_tree_revision{0};
@@ -112,6 +113,20 @@ struct HttpServer::Impl {
         if (diagnostic_sink != nullptr) {
             diagnostic_sink(diagnostic_context, message);
         }
+    }
+
+    /// Append one SSE body chunk in HTTP/1.1 chunked-transfer framing
+    /// (`<size hex>\r\n<data>\r\n`), so browsers can stream the event body.
+    void append_sse(Client& client, std::string_view data) noexcept {
+        if (data.empty()) {
+            return;
+        }
+        char size_line[32];
+        const int size_len = std::snprintf(size_line, sizeof(size_line), "%zx\r\n",
+                                           data.size());
+        client.output.append(size_line, static_cast<std::size_t>(size_len));
+        client.output.append(data.data(), data.size());
+        client.output.append("\r\n", 2);
     }
 
     Impl(Discovery& discovery_ref, StreamManager& streaming_ref,
@@ -287,6 +302,9 @@ struct HttpServer::Impl {
         if (found->second.subscriber != 0) {
             streaming.unsubscribe(found->second.subscriber);
         }
+        if (found->second.chunked) {
+            static_cast<void>(::send(fd, "0\r\n\r\n", 5, MSG_NOSIGNAL));
+        }
         static_cast<void>(::epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr));
         static_cast<void>(::close(fd));
         clients.erase(found);
@@ -366,10 +384,11 @@ struct HttpServer::Impl {
         }
 
         client.sse = true;
+        client.chunked = true;
         client.close_after_write = false;
         client.output +=
             "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
-            "Cache-Control: no-cache\r\nConnection: keep-alive\r\n"
+            "Cache-Control: no-cache\r\nTransfer-Encoding: chunked\r\n"
             "X-Accel-Buffering: no\r\n\r\n";
         client.last_heartbeat_ns = monotonic_now_ns();
 
@@ -378,7 +397,7 @@ struct HttpServer::Impl {
             client.last_tree_revision = discovery.revision();
             nlohmann::json document;
             to_json(document, discovery.tree());
-            client.output += "event: tree\ndata: " + json_text(document) + "\n\n";
+            append_sse(client, "event: tree\ndata: " + json_text(document) + "\n\n");
             return;
         }
 
@@ -402,14 +421,14 @@ struct HttpServer::Impl {
         std::vector<StreamRecord> snapshot;
         std::optional<GapMarker> gap;
         client.subscriber = streaming.subscribe(stream, since, snapshot, gap);
-        client.output += "event: snapshot_begin\ndata: {}\n\n";
+        append_sse(client, "event: snapshot_begin\ndata: {}\n\n");
         for (const StreamRecord& record : snapshot) {
-            client.output += sse_record(record);
+            append_sse(client, sse_record(record));
         }
         if (gap.has_value()) {
-            client.output += sse_gap(*gap);
+            append_sse(client, sse_gap(*gap));
         }
-        client.output += "event: snapshot_end\ndata: {}\n\n";
+        append_sse(client, "event: snapshot_end\ndata: {}\n\n");
     }
 
     void handle_health(Client& client, bool keep_alive) noexcept {
@@ -653,18 +672,18 @@ struct HttpServer::Impl {
                     client.last_tree_revision = discovery.revision();
                     nlohmann::json document;
                     to_json(document, discovery.tree());
-                    client.output +=
-                        "event: tree\ndata: " + json_text(document) + "\n\n";
+                    append_sse(client,
+                               "event: tree\ndata: " + json_text(document) + "\n\n");
                 }
             } else if (client.subscriber != 0) {
                 std::vector<StreamRecord> records;
                 std::vector<GapMarker> gaps;
                 streaming.take(client.subscriber, records, gaps);
                 for (const GapMarker& gap : gaps) {
-                    client.output += sse_gap(gap);
+                    append_sse(client, sse_gap(gap));
                 }
                 for (const StreamRecord& record : records) {
-                    client.output += sse_record(record);
+                    append_sse(client, sse_record(record));
                 }
                 if (streaming.overflowed(client.subscriber)) {
                     const int fd = it->first;
@@ -711,7 +730,7 @@ struct HttpServer::Impl {
             if (client.sse &&
                 now - client.last_heartbeat_ns >= heartbeat_interval_ns) {
                 client.last_heartbeat_ns = now;
-                client.output += ": heartbeat\n\n";
+                append_sse(client, ": heartbeat\n\n");
             }
         }
     }

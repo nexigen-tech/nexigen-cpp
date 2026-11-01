@@ -72,7 +72,7 @@ button:hover{border-color:var(--accent)}
 }
 
 std::string_view app_js() noexcept {
-    return R"JS(() => {
+    return R"JS((() => {
   "use strict";
   const treeEl = document.getElementById("tree");
   const titleEl = document.getElementById("title");

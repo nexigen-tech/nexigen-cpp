@@ -66,7 +66,7 @@ The hub SHALL serve `GET /api/health`, `GET /api/tree`, `GET /api/streams`, and 
 #### Scenario: SSE headers are correct
 
 - **WHEN** a client requests `/api/events?stream=<id>`
-- **THEN** the response is `200` with `Content-Type: text/event-stream` and no `Content-Length`
+- **THEN** the response is `200` with `Content-Type: text/event-stream`, no `Content-Length`, and `Transfer-Encoding: chunked` so the body is streamed incrementally
 
 #### Scenario: Replay then live
 
