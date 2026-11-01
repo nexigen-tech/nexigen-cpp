@@ -24,6 +24,7 @@
 #include <string>
 
 #include <nexigen/metrics/concepts/metric_concept.hpp>
+#include <nexigen/metrics/detail/instrument_helpers.hpp>
 #include <nexigen/metrics/detail/layout.hpp>
 #include <nexigen/metrics/detail/probes.hpp>
 #include <nexigen/metrics/detail/sharded_scalar.hpp>
@@ -116,25 +117,15 @@ public:
 
     /// Full record for this instrument (identity, classification, values).
     [[nodiscard]] MetricRecord snapshot() const requires (Access == AccessPolicy::Readable) {
-        MetricRecord record{};
-        record.kind = kind;
-        record.concurrency = concurrency;
-        record.access = access;
-        record.reset = reset;
+        MetricRecord record = detail::make_record(kind, concurrency, access, reset, identity_);
         record.scalar.counter = storage_.take();
-        if (identity_ != nullptr) {
-            record.identity = *identity_;
-        }
         return record;
     }
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
         std::string out = "Counter(kind=";
-        out += std::string(metrics::to_string(kind));
-        out += ", concurrency=" + std::string(metrics::to_string(concurrency));
-        out += ", access=" + std::string(metrics::to_string(access));
-        out += ", reset=" + std::string(metrics::to_string(reset));
+        detail::append_classification(out, kind, concurrency, access, reset);
         out += ", value=" + std::to_string(storage_.observe());
         out += ")";
         return out;
@@ -143,13 +134,9 @@ public:
     /// Diagnostic JSON (cold path). The instrument is NOT deserializable: its
     /// construction is Meter-only.
     friend void to_json(nlohmann::json& j, const Counter& counter) {
-        j = nlohmann::json{
-            {"kind", std::string(metrics::to_string(Counter::kind))},
-            {"concurrency", std::string(metrics::to_string(Counter::concurrency))},
-            {"access", std::string(metrics::to_string(Counter::access))},
-            {"reset", std::string(metrics::to_string(Counter::reset))},
-            {"value", counter.storage_.observe()},
-        };
+        j = detail::classification_json(Counter::kind, Counter::concurrency, Counter::access,
+                                        Counter::reset);
+        j["value"] = counter.storage_.observe();
     }
 
 private:
@@ -163,10 +150,6 @@ private:
     static void harvest_thunk(void* object, MetricRecord& record) noexcept {
         const auto& self = *static_cast<const Counter*>(object);
         record.scalar.counter = self.storage_.take();
-    }
-
-    static void destroy_thunk(void* object) noexcept {
-        static_cast<Counter*>(object)->~Counter();
     }
 
     /// Identity of the owning registry slot (set by the Meter at creation).

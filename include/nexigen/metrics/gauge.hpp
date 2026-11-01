@@ -22,6 +22,7 @@
 #include <type_traits>
 
 #include <nexigen/metrics/concepts/metric_concept.hpp>
+#include <nexigen/metrics/detail/instrument_helpers.hpp>
 #include <nexigen/metrics/detail/layout.hpp>
 #include <nexigen/metrics/detail/probes.hpp>
 #include <nexigen/metrics/detail/sharded_scalar.hpp>
@@ -120,11 +121,7 @@ public:
 
     /// Full record for this instrument (identity, classification, values).
     [[nodiscard]] MetricRecord snapshot() const requires (Access == AccessPolicy::Readable) {
-        MetricRecord record{};
-        record.kind = kind;
-        record.concurrency = concurrency;
-        record.access = access;
-        record.reset = reset;
+        MetricRecord record = detail::make_record(kind, concurrency, access, reset, identity_);
         const ValueType value = storage_.take();
         if constexpr (std::is_same_v<ValueType, double>) {
             record.scalar.gauge_double = static_cast<double>(value);
@@ -133,19 +130,13 @@ public:
             record.scalar.gauge_int = static_cast<std::int64_t>(value);
             record.scalar.is_double = false;
         }
-        if (identity_ != nullptr) {
-            record.identity = *identity_;
-        }
         return record;
     }
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
         std::string out = "Gauge(kind=";
-        out += std::string(metrics::to_string(kind));
-        out += ", concurrency=" + std::string(metrics::to_string(concurrency));
-        out += ", access=" + std::string(metrics::to_string(access));
-        out += ", reset=" + std::string(metrics::to_string(reset));
+        detail::append_classification(out, kind, concurrency, access, reset);
         out += ", value=" + std::to_string(storage_.observe());
         out += ")";
         return out;
@@ -154,13 +145,9 @@ public:
     /// Diagnostic JSON (cold path). The instrument is NOT deserializable: its
     /// construction is Meter-only.
     friend void to_json(nlohmann::json& j, const Gauge& gauge) {
-        j = nlohmann::json{
-            {"kind", std::string(metrics::to_string(Gauge::kind))},
-            {"concurrency", std::string(metrics::to_string(Gauge::concurrency))},
-            {"access", std::string(metrics::to_string(Gauge::access))},
-            {"reset", std::string(metrics::to_string(Gauge::reset))},
-            {"value", gauge.storage_.observe()},
-        };
+        j = detail::classification_json(Gauge::kind, Gauge::concurrency, Gauge::access,
+                                        Gauge::reset);
+        j["value"] = gauge.storage_.observe();
     }
 
 private:
@@ -179,10 +166,6 @@ private:
             record.scalar.gauge_int = static_cast<std::int64_t>(value);
             record.scalar.is_double = false;
         }
-    }
-
-    static void destroy_thunk(void* object) noexcept {
-        static_cast<Gauge*>(object)->~Gauge();
     }
 
     /// Identity of the owning registry slot (set by the Meter at creation).

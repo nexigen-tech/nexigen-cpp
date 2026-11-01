@@ -31,6 +31,7 @@
 #include <string>
 
 #include <nexigen/metrics/concepts/metric_concept.hpp>
+#include <nexigen/metrics/detail/instrument_helpers.hpp>
 #include <nexigen/metrics/detail/layout.hpp>
 #include <nexigen/metrics/detail/probes.hpp>
 #include <nexigen/metrics/detail/thread_slot.hpp>
@@ -178,15 +179,8 @@ public:
 
     /// Full record for this instrument (identity, classification, values).
     [[nodiscard]] MetricRecord snapshot() const requires (Access == AccessPolicy::Readable) {
-        MetricRecord record{};
-        record.kind = kind;
-        record.concurrency = concurrency;
-        record.access = access;
-        record.reset = reset;
+        MetricRecord record = detail::make_record(kind, concurrency, access, reset, identity_);
         record.statistics = read();
-        if (identity_ != nullptr) {
-            record.identity = *identity_;
-        }
         return record;
     }
 
@@ -194,10 +188,7 @@ public:
     [[nodiscard]] std::string to_string() const {
         const detail::WelfordState state = observe_state();
         std::string out = "DescriptiveStatistics(kind=";
-        out += std::string(metrics::to_string(kind));
-        out += ", concurrency=" + std::string(metrics::to_string(concurrency));
-        out += ", access=" + std::string(metrics::to_string(access));
-        out += ", reset=" + std::string(metrics::to_string(reset));
+        detail::append_classification(out, kind, concurrency, access, reset);
         out += ", count=" + std::to_string(state.count);
         out += ", min=" + std::to_string(state.min);
         out += ", max=" + std::to_string(state.max);
@@ -211,13 +202,11 @@ public:
     /// construction is Meter-only.
     friend void to_json(nlohmann::json& j, const DescriptiveStatistics& statistics) {
         const StatisticsSnapshot snapshot = statistics.read();
-        j = nlohmann::json{
-            {"kind", std::string(metrics::to_string(DescriptiveStatistics::kind))},
-            {"concurrency", std::string(metrics::to_string(DescriptiveStatistics::concurrency))},
-            {"access", std::string(metrics::to_string(DescriptiveStatistics::access))},
-            {"reset", std::string(metrics::to_string(DescriptiveStatistics::reset))},
-            {"statistics", snapshot},
-        };
+        j = detail::classification_json(DescriptiveStatistics::kind,
+                                        DescriptiveStatistics::concurrency,
+                                        DescriptiveStatistics::access,
+                                        DescriptiveStatistics::reset);
+        j["statistics"] = snapshot;
     }
 
 private:
@@ -236,10 +225,6 @@ private:
         record.statistics.max = state.max;
         record.statistics.mean = state.mean;
         record.statistics.stddev = detail::population_std(state);
-    }
-
-    static void destroy_thunk(void* object) noexcept {
-        static_cast<DescriptiveStatistics*>(object)->~DescriptiveStatistics();
     }
 
     /// Non-destructive summary (never clears a window).

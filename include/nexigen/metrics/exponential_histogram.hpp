@@ -32,6 +32,7 @@
 #include <string>
 
 #include <nexigen/metrics/concepts/metric_concept.hpp>
+#include <nexigen/metrics/detail/instrument_helpers.hpp>
 #include <nexigen/metrics/detail/layout.hpp>
 #include <nexigen/metrics/detail/probes.hpp>
 #include <nexigen/metrics/detail/thread_slot.hpp>
@@ -522,25 +523,15 @@ public:
 
     /// Full record for this instrument (identity, classification, values).
     [[nodiscard]] MetricRecord snapshot() const requires (Access == AccessPolicy::Readable) {
-        MetricRecord record{};
-        record.kind = kind;
-        record.concurrency = concurrency;
-        record.access = access;
-        record.reset = reset;
+        MetricRecord record = detail::make_record(kind, concurrency, access, reset, identity_);
         record.histogram = read();
-        if (identity_ != nullptr) {
-            record.identity = *identity_;
-        }
         return record;
     }
 
     /// Cold-path diagnostic (mandate 9). Never resets a window.
     [[nodiscard]] std::string to_string() const {
         std::string out = "ExponentialHistogram(kind=";
-        out += std::string(metrics::to_string(kind));
-        out += ", concurrency=" + std::string(metrics::to_string(concurrency));
-        out += ", access=" + std::string(metrics::to_string(access));
-        out += ", reset=" + std::string(metrics::to_string(reset));
+        detail::append_classification(out, kind, concurrency, access, reset);
         out += ", scale=" + std::to_string(scale_);
         out += ")";
         return out;
@@ -549,13 +540,11 @@ public:
     /// Diagnostic JSON (cold path). The instrument is NOT deserializable: its
     /// construction is Meter-only.
     friend void to_json(nlohmann::json& j, const ExponentialHistogram& histogram) {
-        j = nlohmann::json{
-            {"kind", std::string(metrics::to_string(ExponentialHistogram::kind))},
-            {"concurrency", std::string(metrics::to_string(ExponentialHistogram::concurrency))},
-            {"access", std::string(metrics::to_string(ExponentialHistogram::access))},
-            {"reset", std::string(metrics::to_string(ExponentialHistogram::reset))},
-            {"scale", histogram.scale_},
-        };
+        j = detail::classification_json(ExponentialHistogram::kind,
+                                        ExponentialHistogram::concurrency,
+                                        ExponentialHistogram::access,
+                                        ExponentialHistogram::reset);
+        j["scale"] = histogram.scale_;
     }
 
 private:
@@ -578,10 +567,6 @@ private:
     static void harvest_thunk(void* object, MetricRecord& record) noexcept {
         const auto& self = *static_cast<const ExponentialHistogram*>(object);
         record.histogram = self.read();
-    }
-
-    static void destroy_thunk(void* object) noexcept {
-        static_cast<ExponentialHistogram*>(object)->~ExponentialHistogram();
     }
 
     /// Map the value into the bank's window, coarsening when it does not fit.

@@ -27,6 +27,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/metrics/concepts/metric_sink_concept.hpp>
+#include <nexigen/metrics/detail/instrument_helpers.hpp>
 #include <nexigen/metrics/detail/layout.hpp>
 #include <nexigen/metrics/meter.hpp>
 #include <nexigen/metrics/metric_snapshot.hpp>
@@ -206,7 +207,7 @@ core::Result<Instrument*> Meter::create_instrument(
     MetricProvider::SlotMeta* meta = nullptr;
     const core::Status reserved =
         provider_->reserve_slot(kind, sizeof(Instrument), identity, concurrency, access, reset,
-                                &Instrument::harvest_thunk, &Instrument::destroy_thunk,
+                                &Instrument::harvest_thunk, &detail::destroy_instrument<Instrument>,
                                 object, meta);
     if (!reserved) {
         return std::unexpected(reserved.error());

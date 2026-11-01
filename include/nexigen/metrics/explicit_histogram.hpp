@@ -25,6 +25,7 @@
 #include <string>
 
 #include <nexigen/metrics/concepts/metric_concept.hpp>
+#include <nexigen/metrics/detail/instrument_helpers.hpp>
 #include <nexigen/metrics/detail/layout.hpp>
 #include <nexigen/metrics/detail/probes.hpp>
 #include <nexigen/metrics/detail/thread_slot.hpp>
@@ -260,25 +261,15 @@ public:
 
     /// Full record for this instrument (identity, classification, values).
     [[nodiscard]] MetricRecord snapshot() const requires (Access == AccessPolicy::Readable) {
-        MetricRecord record{};
-        record.kind = kind;
-        record.concurrency = concurrency;
-        record.access = access;
-        record.reset = reset;
+        MetricRecord record = detail::make_record(kind, concurrency, access, reset, identity_);
         record.histogram = read();
-        if (identity_ != nullptr) {
-            record.identity = *identity_;
-        }
         return record;
     }
 
     /// Cold-path diagnostic (mandate 9). Never resets a window.
     [[nodiscard]] std::string to_string() const {
         std::string out = "ExplicitBucketHistogram(kind=";
-        out += std::string(metrics::to_string(kind));
-        out += ", concurrency=" + std::string(metrics::to_string(concurrency));
-        out += ", access=" + std::string(metrics::to_string(access));
-        out += ", reset=" + std::string(metrics::to_string(reset));
+        detail::append_classification(out, kind, concurrency, access, reset);
         out += ", bounds=" + std::to_string(bound_count_);
         out += ")";
         return out;
@@ -287,13 +278,11 @@ public:
     /// Diagnostic JSON (cold path). The instrument is NOT deserializable: its
     /// construction is Meter-only.
     friend void to_json(nlohmann::json& j, const ExplicitBucketHistogram& histogram) {
-        j = nlohmann::json{
-            {"kind", std::string(metrics::to_string(ExplicitBucketHistogram::kind))},
-            {"concurrency", std::string(metrics::to_string(ExplicitBucketHistogram::concurrency))},
-            {"access", std::string(metrics::to_string(ExplicitBucketHistogram::access))},
-            {"reset", std::string(metrics::to_string(ExplicitBucketHistogram::reset))},
-            {"bounds", histogram.bound_count_},
-        };
+        j = detail::classification_json(ExplicitBucketHistogram::kind,
+                                        ExplicitBucketHistogram::concurrency,
+                                        ExplicitBucketHistogram::access,
+                                        ExplicitBucketHistogram::reset);
+        j["bounds"] = histogram.bound_count_;
     }
 
 private:
@@ -313,10 +302,6 @@ private:
     static void harvest_thunk(void* object, MetricRecord& record) noexcept {
         const auto& self = *static_cast<const ExplicitBucketHistogram*>(object);
         record.histogram = self.read();
-    }
-
-    static void destroy_thunk(void* object) noexcept {
-        static_cast<ExplicitBucketHistogram*>(object)->~ExplicitBucketHistogram();
     }
 
     /// Bucket index: the first bucket whose upper bound is >= value, or the
