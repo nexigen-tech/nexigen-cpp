@@ -122,6 +122,9 @@ jobs:
           apt-get install -y --no-install-recommends \
             ca-certificates cmake curl git ninja-build python3
 
+      - name: Check Result::value ban
+        run: python3 cmake/check_result_value.py
+
       - name: Configure
         run: |
           cmake -S . -B build/coverage -G Ninja \

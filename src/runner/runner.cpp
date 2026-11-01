@@ -454,6 +454,324 @@ void reap_child(pid_t child) noexcept {
     }
 }
 
+struct Start_layout {
+    app::Run_identity resolved{};
+    std::string instance_dir{};
+    std::string stream_root{};
+    std::string exit_path{};
+};
+
+[[nodiscard]] core::Status resolve_start_layout(
+    const app::Run_identity& identity, const Start_options& options,
+    Start_layout& out) noexcept {
+    app::Run_identity resolved = identity;
+    if (resolved.instance_dir.empty()) {
+        if (resolved.run_dir.empty() || resolved.app_name.empty() ||
+            resolved.instance_id.empty()) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        resolved.instance_dir = resolved.run_dir + "/" + resolved.app_name +
+                                "/" + resolved.instance_id;
+    }
+    while (resolved.instance_dir.size() > 1 &&
+           resolved.instance_dir.back() == '/') {
+        resolved.instance_dir.pop_back();
+    }
+    if (resolved.instance_dir.empty() ||
+        resolved.instance_dir.size() > max_instance_dir_bytes) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    const core::Status valid = app::validate_run_identity(resolved);
+    if (!valid) {
+        return valid;
+    }
+
+    out.instance_dir = resolved.instance_dir;
+    out.stream_root =
+        options.artifact_dir.empty() ? out.instance_dir : options.artifact_dir;
+    if (out.stream_root.size() > max_instance_dir_bytes) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+
+    // One live instance per directory: refuse to clobber an unfinished run.
+    const std::string resource_path =
+        instance_file_path(out.instance_dir, "resource.json");
+    out.exit_path = instance_file_path(out.instance_dir, "exit.json");
+    if (file_exists(resource_path) && !file_exists(out.exit_path)) {
+        return std::unexpected(core::ErrorCode::Conflict);
+    }
+    out.resolved = std::move(resolved);
+    return {};
+}
+
+[[nodiscard]] core::Status prepare_start_layout(
+    const Start_layout& layout, const Start_options& options) noexcept {
+    const core::Status created = create_instance_dir(layout.instance_dir);
+    if (!created) {
+        return created;
+    }
+    if (layout.stream_root != layout.instance_dir) {
+        const core::Status artifact_created =
+            create_artifact_dir(layout.stream_root);
+        if (!artifact_created) {
+            return artifact_created;
+        }
+    }
+
+    app::Telemetry_paths resolved_paths{};
+    const core::Status paths_status = app::resolve_telemetry_paths(
+        layout.resolved, "", "", "", resolved_paths);
+    if (!paths_status) {
+        return paths_status;
+    }
+    const bool suite_settings =
+        !options.artifact_dir.empty() ||
+        !options.global_settings_dir.empty() ||
+        !options.local_settings_dir.empty() ||
+        options.log_level.has_value();
+    const core::Status settings_status =
+        suite_settings
+            ? write_suite_settings(layout.instance_dir, layout.stream_root,
+                                   options, layout.resolved)
+            : generate_settings(layout.instance_dir, resolved_paths);
+    if (!settings_status) {
+        return settings_status;
+    }
+
+    // The deterministic layout lists all four JSONL streams; make sure they
+    // exist before the child starts (the sinks append to them).
+    for (const char* stream : {"app.jsonl", "metrics.jsonl", "traces.jsonl",
+                               "chrono.jsonl"}) {
+        const std::string stream_file =
+            instance_file_path(layout.stream_root, stream);
+        const int stream_fd =
+            ::open(stream_file.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+        if (stream_fd < 0) {
+            return std::unexpected(core::ErrorCode::SystemError);
+        }
+        static_cast<void>(::close(stream_fd));
+    }
+
+    // A new run supersedes any previous completion record.
+    static_cast<void>(::unlink(layout.exit_path.c_str()));
+    return {};
+}
+
+[[nodiscard]] core::Status open_start_logs(std::string_view stream_root,
+                                           int& stdout_fd, int& stderr_fd,
+                                           int& null_fd) noexcept {
+    stdout_fd = open_truncated_log(
+        instance_file_path(stream_root, "stdout.log"));
+    if (stdout_fd < 0) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    stderr_fd = open_truncated_log(
+        instance_file_path(stream_root, "stderr.log"));
+    if (stderr_fd < 0) {
+        static_cast<void>(::close(stdout_fd));
+        stdout_fd = -1;
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    null_fd = ::open("/dev/null", O_RDWR | O_CLOEXEC);
+    if (null_fd < 0) {
+        static_cast<void>(::close(stdout_fd));
+        static_cast<void>(::close(stderr_fd));
+        stdout_fd = -1;
+        stderr_fd = -1;
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return {};
+}
+
+struct Supervisor_context {
+    int report_fd{-1};
+    int stdout_fd{-1};
+    int stderr_fd{-1};
+    int null_fd{-1};
+    const Start_options* options{nullptr};
+    const app::Run_identity* resolved{nullptr};
+    const std::string* instance_dir{nullptr};
+    const std::vector<char*>* argv{nullptr};
+    std::uint64_t timeout_s{0};
+    std::string log_level{};
+    Resource_metadata metadata{};
+};
+
+[[noreturn]] void run_instance_supervisor(Supervisor_context& context) noexcept {
+    static_cast<void>(reset_runner_affinity());
+    static_cast<void>(::setsid());
+    redirect_to_null(context.null_fd);
+
+    // The child signals completion of setsid()/dup2() through this pipe;
+    // resource.json is written only afterwards, so `start` never returns
+    // before the process group exists.
+    int setup_pipe[2]{-1, -1};
+    if (::pipe2(setup_pipe, O_CLOEXEC) != 0) {
+        Start_report report{
+            0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
+        static_cast<void>(
+            write_all(context.report_fd, &report, sizeof(report)));
+        static_cast<void>(::close(context.report_fd));
+        child_exit(1);
+    }
+
+    const pid_t child = ::fork();
+    if (child < 0) {
+        Start_report report{
+            0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
+        static_cast<void>(
+            write_all(context.report_fd, &report, sizeof(report)));
+        static_cast<void>(::close(context.report_fd));
+        static_cast<void>(::close(setup_pipe[0]));
+        static_cast<void>(::close(setup_pipe[1]));
+        child_exit(1);
+    }
+
+    if (child == 0) {
+        // --- Application child ---
+        static_cast<void>(::close(context.report_fd));
+        static_cast<void>(::close(setup_pipe[0]));
+        static_cast<void>(reset_runner_affinity());
+        auto fail_setup = [&](std::int32_t setup_status) {
+            const ssize_t written = ::write(setup_pipe[1], &setup_status,
+                                            sizeof(setup_status));
+            static_cast<void>(written);
+            static_cast<void>(::close(setup_pipe[1]));
+            child_exit(126);
+        };
+        if (::setsid() < 0) {
+            fail_setup(1);
+        }
+        if (::dup2(context.null_fd, STDIN_FILENO) < 0 ||
+            ::dup2(context.stdout_fd, STDOUT_FILENO) < 0 ||
+            ::dup2(context.stderr_fd, STDERR_FILENO) < 0) {
+            fail_setup(1);
+        }
+        if (context.null_fd > STDERR_FILENO) {
+            static_cast<void>(::close(context.null_fd));
+        }
+        if (context.stdout_fd > STDERR_FILENO) {
+            static_cast<void>(::close(context.stdout_fd));
+        }
+        if (context.stderr_fd > STDERR_FILENO) {
+            static_cast<void>(::close(context.stderr_fd));
+        }
+
+        if (!context.options->cpus.empty()) {
+            cpu_set_t mask;
+            CPU_ZERO(&mask);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+            for (const std::uint32_t cpu : context.options->cpus) {
+                CPU_SET(cpu, &mask);
+            }
+#pragma GCC diagnostic pop
+            if (::sched_setaffinity(0, sizeof(mask), &mask) != 0) {
+                fail_setup(2);
+            }
+        }
+
+        for (const auto& [key, value] : context.options->env) {
+            if (::setenv(key.c_str(), value.c_str(), 1) != 0) {
+                fail_setup(3);
+            }
+        }
+
+        const app::Run_identity& resolved = *context.resolved;
+        static_cast<void>(
+            ::setenv("NEXIGEN_RUN_ID", resolved.run_id.c_str(), 1));
+        static_cast<void>(
+            ::setenv("NEXIGEN_RUN_DIR", resolved.run_dir.c_str(), 1));
+        static_cast<void>(
+            ::setenv("NEXIGEN_APP_NAME", resolved.app_name.c_str(), 1));
+        static_cast<void>(
+            ::setenv("NEXIGEN_INSTANCE_ID", resolved.instance_id.c_str(), 1));
+        static_cast<void>(::setenv("NEXIGEN_INSTANCE_DIR",
+                                   context.instance_dir->c_str(), 1));
+        if (!context.log_level.empty()) {
+            static_cast<void>(::setenv("NEXIGEN_LOG_LEVEL",
+                                       context.log_level.c_str(), 1));
+        }
+
+        const std::int32_t setup_status = 0;
+        const ssize_t ready_written =
+            ::write(setup_pipe[1], &setup_status, sizeof(setup_status));
+        static_cast<void>(ready_written);
+        static_cast<void>(::close(setup_pipe[1]));
+
+        detail::coverage_flush();
+        ::execvp((*context.argv)[0], context.argv->data());
+        child_exit(127);
+    }
+
+    // --- Supervisor parent of the application child ---
+    static_cast<void>(::close(setup_pipe[1]));
+    std::int32_t setup_status = 0;
+    const bool setup_read =
+        read_all(setup_pipe[0], &setup_status, sizeof(setup_status));
+    static_cast<void>(::close(setup_pipe[0]));
+
+    if (context.null_fd > STDERR_FILENO) {
+        static_cast<void>(::close(context.null_fd));
+    }
+    if (context.stdout_fd > STDERR_FILENO) {
+        static_cast<void>(::close(context.stdout_fd));
+    }
+    if (context.stderr_fd > STDERR_FILENO) {
+        static_cast<void>(::close(context.stderr_fd));
+    }
+
+    if (!setup_read || setup_status != 0) {
+        static_cast<void>(::kill(-child, SIGKILL));
+        reap_child(child);
+        Start_report report{
+            0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
+        static_cast<void>(
+            write_all(context.report_fd, &report, sizeof(report)));
+        static_cast<void>(::close(context.report_fd));
+        child_exit(1);
+    }
+
+    context.metadata.pid = child;
+    context.metadata.ppid = ::getpid();
+    const core::Status resource_status =
+        write_resource_json(*context.instance_dir, context.metadata);
+    if (!resource_status) {
+        static_cast<void>(::kill(-child, SIGKILL));
+        reap_child(child);
+        Start_report report{
+            0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
+        static_cast<void>(
+            write_all(context.report_fd, &report, sizeof(report)));
+        static_cast<void>(::close(context.report_fd));
+        child_exit(1);
+    }
+
+    Start_report report{context.metadata.pid, 0};
+    static_cast<void>(write_all(context.report_fd, &report, sizeof(report)));
+    static_cast<void>(::close(context.report_fd));
+
+    int child_status = 0;
+    const Supervise_result supervised = supervise_child(
+        child, context.timeout_s, context.metadata.start_time_mono_ns,
+        child_status);
+    const std::uint64_t end_ns = monotonic_now_ns();
+    std::uint64_t uptime = 0;
+    if (supervised.reaped && end_ns != 0 &&
+        context.metadata.start_time_mono_ns != 0 &&
+        end_ns >= context.metadata.start_time_mono_ns) {
+        uptime = (end_ns - context.metadata.start_time_mono_ns) /
+                 nanoseconds_per_second;
+    }
+
+    const Terminated_by terminated_by = attribution(
+        supervised.runner_stopped, supervised.reaped, child_status);
+    const Exit_metadata exit_metadata = Exit_metadata::from_child_status(
+        child, child_status, uptime, terminated_by);
+    static_cast<void>(write_exit_json(*context.instance_dir, exit_metadata));
+    child_exit(0);
+}
+
 } // namespace
 
 std::string Start_options::to_string() const {
@@ -484,108 +802,24 @@ core::Status Runner::start(const app::Run_identity& identity,
         return options_valid;
     }
 
-    app::Run_identity resolved = identity;
-    if (resolved.instance_dir.empty()) {
-        if (resolved.run_dir.empty() || resolved.app_name.empty() ||
-            resolved.instance_id.empty()) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        resolved.instance_dir = resolved.run_dir + "/" + resolved.app_name +
-                                "/" + resolved.instance_id;
+    Start_layout layout;
+    const core::Status resolved_status =
+        resolve_start_layout(identity, options, layout);
+    if (!resolved_status) {
+        return resolved_status;
     }
-    while (resolved.instance_dir.size() > 1 &&
-           resolved.instance_dir.back() == '/') {
-        resolved.instance_dir.pop_back();
-    }
-    if (resolved.instance_dir.empty() ||
-        resolved.instance_dir.size() > max_instance_dir_bytes) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
+    const core::Status prepared = prepare_start_layout(layout, options);
+    if (!prepared) {
+        return prepared;
     }
 
-    const core::Status valid = app::validate_run_identity(resolved);
-    if (!valid) {
-        return valid;
-    }
-
-    const std::string instance_dir = resolved.instance_dir;
-    const std::string stream_root =
-        options.artifact_dir.empty() ? instance_dir : options.artifact_dir;
-    if (stream_root.size() > max_instance_dir_bytes) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-
-    // One live instance per directory: refuse to clobber an unfinished run.
-    const std::string resource_path =
-        instance_file_path(instance_dir, "resource.json");
-    const std::string exit_path = instance_file_path(instance_dir, "exit.json");
-    if (file_exists(resource_path) && !file_exists(exit_path)) {
-        return std::unexpected(core::ErrorCode::Conflict);
-    }
-
-    const core::Status created = create_instance_dir(instance_dir);
-    if (!created) {
-        return created;
-    }
-    if (stream_root != instance_dir) {
-        const core::Status artifact_created = create_artifact_dir(stream_root);
-        if (!artifact_created) {
-            return artifact_created;
-        }
-    }
-
-    app::Telemetry_paths resolved_paths{};
-    const core::Status paths_status = app::resolve_telemetry_paths(
-        resolved, "", "", "", resolved_paths);
-    if (!paths_status) {
-        return paths_status;
-    }
-    const bool suite_settings =
-        !options.artifact_dir.empty() ||
-        !options.global_settings_dir.empty() ||
-        !options.local_settings_dir.empty() ||
-        options.log_level.has_value();
-    const core::Status settings_status =
-        suite_settings
-            ? write_suite_settings(instance_dir, stream_root, options, resolved)
-            : generate_settings(instance_dir, resolved_paths);
-    if (!settings_status) {
-        return settings_status;
-    }
-
-    // The deterministic layout lists all four JSONL streams; make sure they
-    // exist before the child starts (the sinks append to them).
-    for (const char* stream : {"app.jsonl", "metrics.jsonl", "traces.jsonl",
-                               "chrono.jsonl"}) {
-        const std::string stream_file = instance_file_path(stream_root, stream);
-        const int stream_fd =
-            ::open(stream_file.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
-        if (stream_fd < 0) {
-            return std::unexpected(core::ErrorCode::SystemError);
-        }
-        static_cast<void>(::close(stream_fd));
-    }
-
-    // A new run supersedes any previous completion record.
-    static_cast<void>(::unlink(exit_path.c_str()));
-
-    const std::string stdout_path =
-        instance_file_path(stream_root, "stdout.log");
-    const std::string stderr_path =
-        instance_file_path(stream_root, "stderr.log");
-    const int stdout_fd = open_truncated_log(stdout_path);
-    if (stdout_fd < 0) {
-        return std::unexpected(core::ErrorCode::SystemError);
-    }
-    const int stderr_fd = open_truncated_log(stderr_path);
-    if (stderr_fd < 0) {
-        static_cast<void>(::close(stdout_fd));
-        return std::unexpected(core::ErrorCode::SystemError);
-    }
-    const int null_fd = ::open("/dev/null", O_RDWR | O_CLOEXEC);
-    if (null_fd < 0) {
-        static_cast<void>(::close(stdout_fd));
-        static_cast<void>(::close(stderr_fd));
-        return std::unexpected(core::ErrorCode::SystemError);
+    int stdout_fd = -1;
+    int stderr_fd = -1;
+    int null_fd = -1;
+    const core::Status logs =
+        open_start_logs(layout.stream_root, stdout_fd, stderr_fd, null_fd);
+    if (!logs) {
+        return logs;
     }
 
     std::vector<char*> argv;
@@ -596,7 +830,7 @@ core::Status Runner::start(const app::Run_identity& identity,
     argv.push_back(nullptr);
 
     Resource_metadata metadata =
-        Resource_metadata::from_identity(resolved, 0, 0);
+        Resource_metadata::from_identity(layout.resolved, 0, 0);
 
     int pipe_fds[2]{-1, -1};
     if (::pipe2(pipe_fds, O_CLOEXEC) != 0) {
@@ -604,6 +838,21 @@ core::Status Runner::start(const app::Run_identity& identity,
         static_cast<void>(::close(stderr_fd));
         static_cast<void>(::close(null_fd));
         return std::unexpected(core::ErrorCode::SystemError);
+    }
+
+    Supervisor_context context;
+    context.report_fd = pipe_fds[1];
+    context.stdout_fd = stdout_fd;
+    context.stderr_fd = stderr_fd;
+    context.null_fd = null_fd;
+    context.options = &options;
+    context.resolved = &layout.resolved;
+    context.instance_dir = &layout.instance_dir;
+    context.argv = &argv;
+    context.timeout_s = timeout_s;
+    context.metadata = metadata;
+    if (options.log_level.has_value()) {
+        context.log_level = std::string(logging::to_string(*options.log_level));
     }
 
     const pid_t supervisor = ::fork();
@@ -617,181 +866,8 @@ core::Status Runner::start(const app::Run_identity& identity,
     }
 
     if (supervisor == 0) {
-        // --- Supervisor process ---
         static_cast<void>(::close(pipe_fds[0]));
-        static_cast<void>(reset_runner_affinity());
-        static_cast<void>(::setsid());
-        redirect_to_null(null_fd);
-
-        // The child signals completion of setsid()/dup2() through this pipe;
-        // resource.json is written only afterwards, so `start` never returns
-        // before the process group exists.
-        int setup_pipe[2]{-1, -1};
-        if (::pipe2(setup_pipe, O_CLOEXEC) != 0) {
-            Start_report report{0,
-                                static_cast<std::int32_t>(
-                                    core::ErrorCode::SystemError)};
-            static_cast<void>(write_all(pipe_fds[1], &report, sizeof(report)));
-            static_cast<void>(::close(pipe_fds[1]));
-            child_exit(1);
-        }
-
-        const pid_t child = ::fork();
-        if (child < 0) {
-            Start_report report{0,
-                                static_cast<std::int32_t>(
-                                    core::ErrorCode::SystemError)};
-            static_cast<void>(write_all(pipe_fds[1], &report, sizeof(report)));
-            static_cast<void>(::close(pipe_fds[1]));
-            static_cast<void>(::close(setup_pipe[0]));
-            static_cast<void>(::close(setup_pipe[1]));
-            child_exit(1);
-        }
-
-        if (child == 0) {
-            // --- Application child ---
-            static_cast<void>(::close(pipe_fds[1]));
-            static_cast<void>(::close(setup_pipe[0]));
-            static_cast<void>(reset_runner_affinity());
-            auto fail_setup = [&](std::int32_t setup_status) {
-                const ssize_t written = ::write(setup_pipe[1], &setup_status,
-                                                sizeof(setup_status));
-                static_cast<void>(written);
-                static_cast<void>(::close(setup_pipe[1]));
-                child_exit(126);
-            };
-            if (::setsid() < 0) {
-                fail_setup(1);
-            }
-            if (::dup2(null_fd, STDIN_FILENO) < 0 ||
-                ::dup2(stdout_fd, STDOUT_FILENO) < 0 ||
-                ::dup2(stderr_fd, STDERR_FILENO) < 0) {
-                fail_setup(1);
-            }
-            if (null_fd > STDERR_FILENO) {
-                static_cast<void>(::close(null_fd));
-            }
-            if (stdout_fd > STDERR_FILENO) {
-                static_cast<void>(::close(stdout_fd));
-            }
-            if (stderr_fd > STDERR_FILENO) {
-                static_cast<void>(::close(stderr_fd));
-            }
-
-            if (!options.cpus.empty()) {
-                cpu_set_t mask;
-                CPU_ZERO(&mask);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wsign-conversion"
-                for (const std::uint32_t cpu : options.cpus) {
-                    CPU_SET(cpu, &mask);
-                }
-#pragma GCC diagnostic pop
-                if (::sched_setaffinity(0, sizeof(mask), &mask) != 0) {
-                    fail_setup(2);
-                }
-            }
-
-            for (const auto& [key, value] : options.env) {
-                if (::setenv(key.c_str(), value.c_str(), 1) != 0) {
-                    fail_setup(3);
-                }
-            }
-
-            static_cast<void>(
-                ::setenv("NEXIGEN_RUN_ID", resolved.run_id.c_str(), 1));
-            static_cast<void>(
-                ::setenv("NEXIGEN_RUN_DIR", resolved.run_dir.c_str(), 1));
-            static_cast<void>(
-                ::setenv("NEXIGEN_APP_NAME", resolved.app_name.c_str(), 1));
-            static_cast<void>(
-                ::setenv("NEXIGEN_INSTANCE_ID", resolved.instance_id.c_str(), 1));
-            static_cast<void>(::setenv("NEXIGEN_INSTANCE_DIR",
-                                       instance_dir.c_str(), 1));
-            if (options.log_level.has_value()) {
-                static_cast<void>(::setenv(
-                    "NEXIGEN_LOG_LEVEL",
-                    std::string(logging::to_string(*options.log_level)).c_str(),
-                    1));
-            }
-
-            const std::int32_t setup_status = 0;
-            const ssize_t ready_written =
-                ::write(setup_pipe[1], &setup_status, sizeof(setup_status));
-            static_cast<void>(ready_written);
-            static_cast<void>(::close(setup_pipe[1]));
-
-            detail::coverage_flush();
-            ::execvp(argv[0], argv.data());
-            child_exit(127);
-        }
-
-        // --- Supervisor parent of the application child ---
-        static_cast<void>(::close(setup_pipe[1]));
-        std::int32_t setup_status = 0;
-        const bool setup_read =
-            read_all(setup_pipe[0], &setup_status, sizeof(setup_status));
-        static_cast<void>(::close(setup_pipe[0]));
-
-        if (null_fd > STDERR_FILENO) {
-            static_cast<void>(::close(null_fd));
-        }
-        if (stdout_fd > STDERR_FILENO) {
-            static_cast<void>(::close(stdout_fd));
-        }
-        if (stderr_fd > STDERR_FILENO) {
-            static_cast<void>(::close(stderr_fd));
-        }
-
-        if (!setup_read || setup_status != 0) {
-            static_cast<void>(::kill(-child, SIGKILL));
-            reap_child(child);
-            Start_report report{0,
-                                static_cast<std::int32_t>(
-                                    core::ErrorCode::SystemError)};
-            static_cast<void>(write_all(pipe_fds[1], &report, sizeof(report)));
-            static_cast<void>(::close(pipe_fds[1]));
-            child_exit(1);
-        }
-
-        metadata.pid = child;
-        metadata.ppid = ::getpid();
-        const core::Status resource_status =
-            write_resource_json(instance_dir, metadata);
-        if (!resource_status) {
-            static_cast<void>(::kill(-child, SIGKILL));
-            reap_child(child);
-            Start_report report{0,
-                                static_cast<std::int32_t>(
-                                    core::ErrorCode::SystemError)};
-            static_cast<void>(write_all(pipe_fds[1], &report, sizeof(report)));
-            static_cast<void>(::close(pipe_fds[1]));
-            child_exit(1);
-        }
-
-        Start_report report{metadata.pid, 0};
-        static_cast<void>(write_all(pipe_fds[1], &report, sizeof(report)));
-        static_cast<void>(::close(pipe_fds[1]));
-
-        int child_status = 0;
-        const Supervise_result supervised =
-            supervise_child(child, timeout_s, metadata.start_time_mono_ns,
-                            child_status);
-        const std::uint64_t end_ns = monotonic_now_ns();
-        std::uint64_t uptime = 0;
-        if (supervised.reaped && end_ns != 0 &&
-            metadata.start_time_mono_ns != 0 &&
-            end_ns >= metadata.start_time_mono_ns) {
-            uptime = (end_ns - metadata.start_time_mono_ns) /
-                     nanoseconds_per_second;
-        }
-
-        const Terminated_by terminated_by = attribution(
-            supervised.runner_stopped, supervised.reaped, child_status);
-        const Exit_metadata exit_metadata = Exit_metadata::from_child_status(
-            child, child_status, uptime, terminated_by);
-        static_cast<void>(write_exit_json(instance_dir, exit_metadata));
-        child_exit(0);
+        run_instance_supervisor(context);
     }
 
     // --- Start caller ---
@@ -801,14 +877,12 @@ core::Status Runner::start(const app::Run_identity& identity,
     static_cast<void>(::close(null_fd));
 
     Start_report report{};
-    const bool received =
-        read_all(pipe_fds[0], &report, sizeof(report));
+    const bool received = read_all(pipe_fds[0], &report, sizeof(report));
     static_cast<void>(::close(pipe_fds[0]));
 
     if (!received || report.error != 0 || report.pid <= 0) {
         int supervisor_status = 0;
-        static_cast<void>(
-            ::waitpid(supervisor, &supervisor_status, WNOHANG));
+        static_cast<void>(::waitpid(supervisor, &supervisor_status, WNOHANG));
         return std::unexpected(core::ErrorCode::SystemError);
     }
     return {};

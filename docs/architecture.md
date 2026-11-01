@@ -154,21 +154,25 @@ library code. The target is mutually exclusive with ASan/TSan, enforces
 `runner >= 90` and `hub >= 90`, and flushes gcov counters from forked runner
 supervisors before `_exit()`/`exec`, so control-plane work is measured.
 
-Current unit-test line coverage is **94.2%** (≈10 970 / 11 645 lines):
+Current unit-test line coverage is **94.2%** (≈11 037 / 11 713 lines):
 
 | Scope | Coverage |
 |---|---:|
-| Original seven modules | 95.9% (7 329 / 7 639) |
-| `runner` | 90.5% (≈2 168 / 2 395) |
-| `hub` | 91.6% (≈1 476 / 1 611) |
+| Original seven modules | 95.9% (7 327 / 7 639) |
+| `runner` | 90.6% (≈2 214 / 2 443) |
+| `hub` | 91.8% (≈1 497 / 1 631) |
 
 The project target is **≥95%**. CI enforces an overall **≥90%** gate
 (`-DNEXIGEN_COVERAGE_FAIL_UNDER=90`) plus the 90% runner and hub module gates.
 Remaining uncovered lines are concentrated in platform-specific calibration
 branches, sink open/read failure paths, `std::to_chars` error arms, and
 retry/fork failure arms that cannot be triggered without fault injection. The
-measured baseline and the P2/P3 backlog are recorded in
+measured baseline and the P3 backlog are recorded in
 [`project-analysis.md`](project-analysis.md).
+
+`nexigen_hub_tests` also runs a fixed-seed malformed-request corpus against the
+live server. `cmake/check_result_value.py` enforces the `Result::value()` ban in
+CI; it strips comments/literals and allowlists only known non-Result receivers.
 
 All five GCC modes (Debug, Release, portable Release, TSan, ASan) must report
 `100% tests passed` with no sanitizer diagnostics; the Clang job must do the same

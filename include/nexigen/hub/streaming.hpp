@@ -24,10 +24,10 @@ using Diagnostic_sink = void (*)(void* context,
 /// Per-stream capacity and read bounds.
 struct Stream_limits {
     std::size_t ring_records{4096};
-    std::size_t ring_bytes{8U * 1024U * 1024U};
-    std::size_t max_line_bytes{1U * 1024U * 1024U};
-    std::size_t read_chunk_bytes{256U * 1024U};
-    std::size_t subscriber_bytes{1U * 1024U * 1024U};
+    std::size_t ring_bytes{std::size_t{8} * 1024U * 1024U};
+    std::size_t max_line_bytes{std::size_t{1} * 1024U * 1024U};
+    std::size_t read_chunk_bytes{std::size_t{256} * 1024U};
+    std::size_t subscriber_bytes{std::size_t{1} * 1024U * 1024U};
 
     [[nodiscard]] std::string to_string() const;
 };

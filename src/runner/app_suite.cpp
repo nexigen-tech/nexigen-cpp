@@ -1316,6 +1316,107 @@ void apply_launch_failures(Runtime_suite& suite) {
     }
 }
 
+[[noreturn]] void finish_suite_stop(Runtime_suite& suite,
+                                    const Suite_manifest& manifest) {
+    log_runner(logging::LogLevel::Info,
+               std::format("event=stop_requested suite={}",
+                           manifest.suite_id));
+    stop_all(suite);
+    for (Runtime_app& app : suite.apps) {
+        app.state = App_state::Stopped;
+    }
+    write_suite_exit(suite, Suite_state::Stopped, "operator_stop");
+    log_runner(logging::LogLevel::Info,
+               std::format("event=suite_stopped suite={} reason=operator_stop",
+                           manifest.suite_id));
+    shutdown_runner_logging();
+    child_exit(0);
+}
+
+[[nodiscard]] bool advance_suite_restart(Runtime_suite& suite,
+                                         const Suite_manifest& manifest,
+                                         std::uint64_t now) {
+    if (!suite.suite_restart_pending) {
+        return false;
+    }
+    if (now >= suite.next_suite_restart_ns) {
+        suite.suite_restart_pending = false;
+        suspend_runner_logging();
+        launch_all(suite);
+        static_cast<void>(resume_runner_logging());
+        apply_launch_failures(suite);
+        log_runner(logging::LogLevel::Info,
+                   std::format("event=suite_restart suite={} used={} limit={}",
+                               manifest.suite_id, suite.suite_restarts_used,
+                               manifest.suite_restart_attempts));
+        for (const Runtime_app& app : suite.apps) {
+            log_runner(logging::LogLevel::Info,
+                       std::format("event=app_launch app={} instance={} "
+                                   "attempt={} pid={} state={}",
+                                   app.spec.app, app.spec.instance, app.attempt,
+                                   app.child_pid,
+                                   nexigen::runner::to_string(app.state)));
+        }
+        write_suite_status(suite);
+    }
+    return true;
+}
+
+/// Advance one application state machine. Returns true when an abnormal exit
+/// scheduled a suite-wide restart, so the caller stops scanning this tick.
+[[nodiscard]] bool advance_app(Runtime_suite& suite, Runtime_app& app,
+                               std::uint64_t now) {
+    if (app.state == App_state::Running) {
+        Exit_metadata exit{};
+        if (read_exit_metadata(app.instance_dir, exit) && !app.exit_consumed) {
+            app.exit_consumed = true;
+            if (exit.exit_code.has_value()) {
+                log_runner(logging::LogLevel::Info,
+                           std::format("event=app_exit app={} instance={} "
+                                       "attempt={} exit_code={}",
+                                       app.spec.app, app.spec.instance,
+                                       app.attempt, *exit.exit_code));
+            } else if (exit.signal.has_value()) {
+                log_runner(logging::LogLevel::Warning,
+                           std::format("event=app_exit app={} instance={} "
+                                       "attempt={} signal={}",
+                                       app.spec.app, app.spec.instance,
+                                       app.attempt, *exit.signal));
+            }
+            if (exit.exit_code.has_value() && *exit.exit_code == 0) {
+                app.state = App_state::Exited;
+                suite.dirty = true;
+            } else {
+                handle_abnormal(suite, app);
+                return suite.suite_restart_pending;
+            }
+        }
+    } else if (app.state == App_state::Restarting &&
+               app.next_restart_ns != 0 && now >= app.next_restart_ns) {
+        app.launch_failed = false;
+        suspend_runner_logging();
+        const bool launched = launch_app(suite, app);
+        static_cast<void>(resume_runner_logging());
+        if (!launched) {
+            app.launch_failed = false;
+            log_runner(logging::LogLevel::Warning,
+                       std::format("event=app_launch_failed app={} "
+                                   "instance={} attempt={}",
+                                   app.spec.app, app.spec.instance,
+                                   app.attempt));
+            schedule_retry_or_fail(suite, app);
+        } else {
+            log_runner(logging::LogLevel::Info,
+                       std::format("event=app_launch app={} instance={} "
+                                   "attempt={} pid={} state=running",
+                                   app.spec.app, app.spec.instance, app.attempt,
+                                   app.child_pid));
+        }
+        suite.dirty = true;
+    }
+    return false;
+}
+
 void run_suite_supervisor(const Suite_manifest& manifest,
                           const std::string& suite_dir,
                           int report_fd) {
@@ -1423,101 +1524,19 @@ void run_suite_supervisor(const Suite_manifest& manifest,
 
     for (;;) {
         if (file_exists(suite.stop_path)) {
-            log_runner(logging::LogLevel::Info,
-                       std::format("event=stop_requested suite={}",
-                                   manifest.suite_id));
-            stop_all(suite);
-            for (Runtime_app& app : suite.apps) {
-                app.state = App_state::Stopped;
-            }
-            write_suite_exit(suite, Suite_state::Stopped, "operator_stop");
-            log_runner(logging::LogLevel::Info,
-                       std::format("event=suite_stopped suite={} reason=operator_stop",
-                                   manifest.suite_id));
-            shutdown_runner_logging();
-            child_exit(0);
+            finish_suite_stop(suite, manifest);
         }
         reap_supervisors();
 
         const std::uint64_t now = monotonic_now_ns();
-        if (suite.suite_restart_pending) {
-            if (now >= suite.next_suite_restart_ns) {
-                suite.suite_restart_pending = false;
-                suspend_runner_logging();
-                launch_all(suite);
-                static_cast<void>(resume_runner_logging());
-                apply_launch_failures(suite);
-                log_runner(logging::LogLevel::Info,
-                           std::format("event=suite_restart suite={} used={} limit={}",
-                                       manifest.suite_id,
-                                       suite.suite_restarts_used,
-                                       manifest.suite_restart_attempts));
-                for (const Runtime_app& app : suite.apps) {
-                    log_runner(logging::LogLevel::Info,
-                               std::format("event=app_launch app={} instance={} "
-                                           "attempt={} pid={} state={}",
-                                           app.spec.app, app.spec.instance,
-                                           app.attempt, app.child_pid,
-                                           nexigen::runner::to_string(app.state)));
-                }
-                write_suite_status(suite);
-            }
+        if (advance_suite_restart(suite, manifest, now)) {
             sleep_ms(suite_poll_interval_ms);
             continue;
         }
 
         for (Runtime_app& app : suite.apps) {
-            if (app.state == App_state::Running) {
-                Exit_metadata exit{};
-                if (read_exit_metadata(app.instance_dir, exit) &&
-                    !app.exit_consumed) {
-                    app.exit_consumed = true;
-                    if (exit.exit_code.has_value()) {
-                        log_runner(logging::LogLevel::Info,
-                                   std::format("event=app_exit app={} instance={} "
-                                               "attempt={} exit_code={}",
-                                               app.spec.app, app.spec.instance,
-                                               app.attempt, *exit.exit_code));
-                    } else if (exit.signal.has_value()) {
-                        log_runner(logging::LogLevel::Warning,
-                                   std::format("event=app_exit app={} instance={} "
-                                               "attempt={} signal={}",
-                                               app.spec.app, app.spec.instance,
-                                               app.attempt, *exit.signal));
-                    }
-                    if (exit.exit_code.has_value() &&
-                        *exit.exit_code == 0) {
-                        app.state = App_state::Exited;
-                        suite.dirty = true;
-                    } else {
-                        handle_abnormal(suite, app);
-                        if (suite.suite_restart_pending) {
-                            break;
-                        }
-                    }
-                }
-            } else if (app.state == App_state::Restarting &&
-                       app.next_restart_ns != 0 && now >= app.next_restart_ns) {
-                app.launch_failed = false;
-                suspend_runner_logging();
-                const bool launched = launch_app(suite, app);
-                static_cast<void>(resume_runner_logging());
-                if (!launched) {
-                    app.launch_failed = false;
-                    log_runner(logging::LogLevel::Warning,
-                               std::format("event=app_launch_failed app={} "
-                                           "instance={} attempt={}",
-                                           app.spec.app, app.spec.instance,
-                                           app.attempt));
-                    schedule_retry_or_fail(suite, app);
-                } else {
-                    log_runner(logging::LogLevel::Info,
-                               std::format("event=app_launch app={} instance={} "
-                                           "attempt={} pid={} state=running",
-                                           app.spec.app, app.spec.instance,
-                                           app.attempt, app.child_pid));
-                }
-                suite.dirty = true;
+            if (advance_app(suite, app, now)) {
+                break;
             }
         }
 

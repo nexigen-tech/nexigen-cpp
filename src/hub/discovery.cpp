@@ -500,7 +500,9 @@ void Discovery::scan_attempts(std::string_view artifacts_path,
 }
 
 void Discovery::scan_standalone(const Run_root& root, Hub_run& out) noexcept {
-    for (const std::string& name : list_directory(root.path)) {
+    const std::vector<std::string> names = list_directory(root.path);
+    out.standalone_instances.reserve(names.size());
+    for (const std::string& name : names) {
         if (name == ".suite") {
             continue;
         }

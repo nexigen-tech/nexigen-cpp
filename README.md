@@ -91,7 +91,7 @@ the requested percentage; the target also enforces `runner >= 90` and `hub >= 90
 Coverage cannot be combined with ASan/TSan. Forked runner supervisors flush gcov
 counters before `_exit()`/`exec`, so control-plane work is measured too.
 
-Current unit-test line coverage is **94.2%** (≈10 970 / 11 645):
+Current unit-test line coverage is **94.2%** (≈11 037 / 11 713):
 
 | Module | Coverage |
 |---|---:|
@@ -99,8 +99,8 @@ Current unit-test line coverage is **94.2%** (≈10 970 / 11 645):
 | chrono, metrics | 96.2% |
 | app | 95.8% |
 | logging, tracing | 95.3–95.5% |
-| hub | 91.6% |
-| runner | 90.5% |
+| hub | 91.8% |
+| runner | 90.6% |
 
 The project target is **≥95%**. CI enforces a **≥90%** overall gate plus the
 90% runner/hub module gates so the newest subsystems cannot regress. The

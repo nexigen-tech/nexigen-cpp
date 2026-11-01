@@ -824,6 +824,84 @@ void test_http_start_errors() {
     static_cast<void>(::close(occupied));
 }
 
+void test_http_fuzz_corpus() {
+    Fixture fixture("http_fuzz");
+    hub::Discovery discovery;
+    std::vector<std::string> roots{fixture.root};
+    NX_CHECK(discovery.initialize(roots).has_value());
+    hub::Stream_manager streaming;
+    NX_CHECK(streaming.sync(discovery.tree()).has_value());
+    streaming.poll();
+    hub::Http_server server(discovery, streaming);
+    NX_CHECK(server.start("127.0.0.1:0").has_value());
+    std::atomic<bool> stop{false};
+    std::thread thread([&] { server.run(&stop); });
+    const std::uint16_t port = server.port();
+    NX_CHECK(port != 0);
+
+    auto exchange = [&](std::string_view payload) {
+        const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        NX_CHECK(fd >= 0);
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_port = htons(port);
+        static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr));
+        NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&address),
+                           sizeof(address)) == 0);
+        timeval timeout{};
+        timeout.tv_usec = 200000;
+        static_cast<void>(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout,
+                                        sizeof(timeout)));
+        static_cast<void>(::send(fd, payload.data(), payload.size(), 0));
+        static_cast<void>(::shutdown(fd, SHUT_WR));
+        std::string response;
+        char buffer[4096];
+        for (;;) {
+            const ssize_t count = ::recv(fd, buffer, sizeof(buffer), 0);
+            if (count <= 0) break;
+            response.append(buffer, static_cast<std::size_t>(count));
+        }
+        static_cast<void>(::close(fd));
+        return response;
+    };
+
+    // Fixed-seed bytes exercise request-line, header, URL, and body edges.
+    std::uint64_t state = 0x9e3779b97f4a7c15ULL;
+    auto next = [&]() -> std::uint32_t {
+        state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+        return static_cast<std::uint32_t>(state >> 33);
+    };
+    static constexpr char alphabet[] =
+        "GET /api/health?stream=abc&since=1&limit=2 HTTP/1.1\r\n"
+        "Host: localhost\r\nConnection: close\r\nLast-Event-ID: a:1\r\n"
+        ":%?%\0\x01\x7f";
+    constexpr std::size_t alphabet_size = sizeof(alphabet) - 1;
+    for (int case_index = 0; case_index < 120; ++case_index) {
+        const std::size_t length = next() % 512U;
+        std::string payload;
+        payload.reserve(length + 32U);
+        if (case_index % 3 == 0) {
+            payload += "GET /api/health HTTP/1.1\r\nHost: localhost\r\n";
+        }
+        for (std::size_t index = 0; index < length; ++index) {
+            payload.push_back(alphabet[next() % alphabet_size]);
+        }
+        payload += "\r\n\r\n";
+        const std::string response = exchange(payload);
+        NX_CHECK(response.empty() || contains(response, "HTTP/1.1"));
+    }
+
+    const std::string health = exchange(
+        "GET /api/health HTTP/1.1\r\nHost: localhost\r\n"
+        "Connection: close\r\n\r\n");
+    NX_CHECK(contains(health, "200"));
+    NX_CHECK(contains(health, "\"status\":\"ok\""));
+
+    stop.store(true);
+    server.stop();
+    thread.join();
+}
+
 void test_web_assets() {
     NX_CHECK(contains(hub::index_html(), "/app.js"));
     NX_CHECK(contains(hub::index_html(), "/style.css"));
@@ -1256,6 +1334,7 @@ int main() {
     run_suite("streaming", test_streaming);
     run_suite("web_assets", test_web_assets);
     run_suite("http_start_errors", test_http_start_errors);
+    run_suite("http_fuzz_corpus", test_http_fuzz_corpus);
     run_suite("http_server", test_http_server);
     std::printf("total: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

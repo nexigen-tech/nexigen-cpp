@@ -38,11 +38,11 @@ namespace nexigen::hub {
 
 namespace {
 
-constexpr std::size_t max_request_line_bytes = 4U * 1024U;
-constexpr std::size_t max_header_bytes = 8U * 1024U;
+constexpr std::size_t max_request_line_bytes = std::size_t{4} * 1024U;
+constexpr std::size_t max_header_bytes = std::size_t{8} * 1024U;
 constexpr std::size_t max_request_bytes =
     max_request_line_bytes + max_header_bytes + 4U;
-constexpr std::size_t max_client_output_bytes = 1U * 1024U * 1024U;
+constexpr std::size_t max_client_output_bytes = std::size_t{1} * 1024U * 1024U;
 constexpr std::size_t max_clients = 64;
 constexpr std::uint64_t heartbeat_interval_ns = 15ULL * 1'000'000'000ULL;
 constexpr std::uint64_t refresh_interval_ns = 1ULL * 1'000'000'000ULL;
@@ -512,6 +512,104 @@ struct Http_server::Impl {
         client.output += "event: snapshot_end\ndata: {}\n\n";
     }
 
+    void handle_health(Client& client, bool keep_alive) noexcept {
+        respond_json(client, 200, "OK",
+                     {{"status", "ok"}, {"version", "nexigen-hub"}},
+                     keep_alive);
+    }
+
+    void handle_tree(Client& client, bool keep_alive) noexcept {
+        nlohmann::json document;
+        to_json(document, discovery.tree());
+        respond_json(client, 200, "OK", document, keep_alive);
+    }
+
+    void handle_streams(Client& client, bool keep_alive) noexcept {
+        nlohmann::json document = nlohmann::json::array();
+        for (const Hub_stream& stream : all_streams(discovery.tree())) {
+            nlohmann::json entry;
+            to_json(entry, stream);
+            document.push_back(std::move(entry));
+        }
+        respond_json(client, 200, "OK", document, keep_alive);
+    }
+
+    void handle_recent(Client& client, std::string_view route,
+                       std::string_view path,
+                       std::size_t query_start, bool keep_alive) noexcept {
+        constexpr std::string_view recent_prefix = "/api/streams/";
+        constexpr std::string_view recent_suffix = "/recent";
+        const std::string id =
+            url_decode(route.substr(recent_prefix.size(),
+                                    route.size() - recent_prefix.size() -
+                                        recent_suffix.size()));
+        if (find_stream(discovery.tree(), id) == nullptr) {
+            respond_json(client, 404, "Not Found", {{"error", "unknown stream"}},
+                         false);
+            return;
+        }
+        std::size_t limit = streaming.limits().ring_records;
+        if (query_start != std::string_view::npos) {
+            const std::string limit_text =
+                query_value(path.substr(query_start + 1), "limit");
+            if (!limit_text.empty()) {
+                std::size_t parsed = 0;
+                for (const char c : limit_text) {
+                    if (c < '0' || c > '9') {
+                        parsed = 0;
+                        break;
+                    }
+                    parsed = parsed * 10U + static_cast<std::size_t>(c - '0');
+                }
+                if (parsed != 0) {
+                    limit = std::min(parsed, streaming.limits().ring_records);
+                }
+            }
+        }
+        std::vector<Stream_record> records;
+        std::optional<Gap_marker> gap;
+        streaming.recent(id, limit, records, gap);
+        nlohmann::json document;
+        to_json(document, *find_stream(discovery.tree(), id));
+        nlohmann::json array = nlohmann::json::array();
+        for (const Stream_record& record : records) {
+            nlohmann::json entry;
+            to_json(entry, record);
+            array.push_back(std::move(entry));
+        }
+        document["records"] = std::move(array);
+        if (gap.has_value()) {
+            to_json(document["gap"], *gap);
+        }
+        respond_json(client, 200, "OK", document, keep_alive);
+    }
+
+    void handle_events(Client& client, std::string_view request,
+                       std::string_view path) noexcept {
+        const std::string last_event_id(header_value(request, "Last-Event-ID"));
+        start_sse(client, path, last_event_id);
+    }
+
+    [[nodiscard]] bool handle_assets(Client& client, std::string_view route,
+                                     bool keep_alive) noexcept {
+        if (route == "/" || route == "/index.html") {
+            respond(client, 200, "OK", "text/html; charset=utf-8", index_html(),
+                    keep_alive);
+            return true;
+        }
+        if (route == "/app.js") {
+            respond(client, 200, "OK", "text/javascript; charset=utf-8",
+                    app_js(), keep_alive);
+            return true;
+        }
+        if (route == "/style.css") {
+            respond(client, 200, "OK", "text/css; charset=utf-8", style_css(),
+                    keep_alive);
+            return true;
+        }
+        return false;
+    }
+
     void handle_request(Client& client, std::string_view request,
                         bool keep_alive) noexcept {
         const std::size_t first_line_end = request.find("\r\n");
@@ -545,98 +643,30 @@ struct Http_server::Impl {
         const std::size_t query_start = path.find('?');
         const std::string_view route = path.substr(0, query_start);
         if (route == "/api/health") {
-            respond_json(client, 200, "OK",
-                         {{"status", "ok"}, {"version", "nexigen-hub"}},
-                         keep_alive);
+            handle_health(client, keep_alive);
             return;
         }
         if (route == "/api/tree") {
-            nlohmann::json document;
-            to_json(document, discovery.tree());
-            respond_json(client, 200, "OK", document, keep_alive);
+            handle_tree(client, keep_alive);
             return;
         }
         if (route == "/api/streams") {
-            nlohmann::json document = nlohmann::json::array();
-            for (const Hub_stream& stream : all_streams(discovery.tree())) {
-                nlohmann::json entry;
-                to_json(entry, stream);
-                document.push_back(std::move(entry));
-            }
-            respond_json(client, 200, "OK", document, keep_alive);
+            handle_streams(client, keep_alive);
             return;
         }
         constexpr std::string_view recent_prefix = "/api/streams/";
-        const std::string_view recent_suffix = "/recent";
+        constexpr std::string_view recent_suffix = "/recent";
         if (starts_with(route, recent_prefix) &&
             route.size() > recent_prefix.size() + recent_suffix.size() &&
             route.substr(route.size() - recent_suffix.size()) == recent_suffix) {
-            const std::string id =
-                url_decode(route.substr(recent_prefix.size(),
-                                        route.size() - recent_prefix.size() -
-                                            recent_suffix.size()));
-            if (find_stream(discovery.tree(), id) == nullptr) {
-                respond_json(client, 404, "Not Found",
-                             {{"error", "unknown stream"}}, false);
-                return;
-            }
-            std::size_t limit = streaming.limits().ring_records;
-            if (query_start != std::string_view::npos) {
-                const std::string limit_text =
-                    query_value(path.substr(query_start + 1), "limit");
-                if (!limit_text.empty()) {
-                    std::size_t parsed = 0;
-                    for (const char c : limit_text) {
-                        if (c < '0' || c > '9') {
-                            parsed = 0;
-                            break;
-                        }
-                        parsed = parsed * 10U +
-                                 static_cast<std::size_t>(c - '0');
-                    }
-                    if (parsed != 0) {
-                        limit = std::min(parsed,
-                                         streaming.limits().ring_records);
-                    }
-                }
-            }
-            std::vector<Stream_record> records;
-            std::optional<Gap_marker> gap;
-            streaming.recent(id, limit, records, gap);
-            nlohmann::json document;
-            to_json(document, *find_stream(discovery.tree(), id));
-            nlohmann::json array = nlohmann::json::array();
-            for (const Stream_record& record : records) {
-                nlohmann::json entry;
-                to_json(entry, record);
-                array.push_back(std::move(entry));
-            }
-            document["records"] = std::move(array);
-            if (gap.has_value()) {
-                to_json(document["gap"], *gap);
-            }
-            respond_json(client, 200, "OK", document, keep_alive);
+            handle_recent(client, route, path, query_start, keep_alive);
             return;
         }
         if (route == "/api/events") {
-            const std::string last_event_id(
-                header_value(request, "Last-Event-ID"));
-            start_sse(client, path, last_event_id);
+            handle_events(client, request, path);
             return;
         }
-        if (route == "/" || route == "/index.html") {
-            respond(client, 200, "OK", "text/html; charset=utf-8", index_html(),
-                    keep_alive);
-            return;
-        }
-        if (route == "/app.js") {
-            respond(client, 200, "OK", "text/javascript; charset=utf-8",
-                    app_js(), keep_alive);
-            return;
-        }
-        if (route == "/style.css") {
-            respond(client, 200, "OK", "text/css; charset=utf-8", style_css(),
-                    keep_alive);
+        if (handle_assets(client, route, keep_alive)) {
             return;
         }
         respond_json(client, 404, "Not Found", {{"error", "not found"}}, false);
@@ -649,6 +679,7 @@ struct Http_server::Impl {
         }
         Client& client = found->second;
         std::array<char, 4096> buffer{};
+        bool peer_closed = false;
         for (;;) {
             const ssize_t count = ::recv(fd, buffer.data(), buffer.size(), 0);
             if (count > 0) {
@@ -661,8 +692,8 @@ struct Http_server::Impl {
                 continue;
             }
             if (count == 0) {
-                close_client(fd);
-                return;
+                peer_closed = true;
+                break;
             }
             if (errno == EINTR) {
                 continue;
@@ -697,6 +728,9 @@ struct Http_server::Impl {
             if (client.sse) {
                 break;
             }
+        }
+        if (peer_closed) {
+            client.close_after_write = true;
         }
         static_cast<void>(flush_client(client));
         if (client.close_after_write && client.output.empty()) {
@@ -817,12 +851,14 @@ struct Http_server::Impl {
                 } else if (fd == discovery.inotify_fd()) {
                     discovery.handle_inotify();
                 } else {
-                    if ((events[static_cast<std::size_t>(index)].events &
-                     (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
-                        close_client(fd);
-                    } else if ((events[static_cast<std::size_t>(index)].events & EPOLLIN) != 0U) {
+                    const std::uint32_t events_mask =
+                        events[static_cast<std::size_t>(index)].events;
+                    if ((events_mask & EPOLLIN) != 0U) {
                         read_client(fd);
-                    } else if ((events[static_cast<std::size_t>(index)].events & EPOLLOUT) != 0U) {
+                    } else if ((events_mask &
+                                (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
+                        close_client(fd);
+                    } else if ((events_mask & EPOLLOUT) != 0U) {
                         write_client(fd);
                     }
                 }

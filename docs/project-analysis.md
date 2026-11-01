@@ -318,3 +318,30 @@ P2 was implemented in
 - **Remaining:** the project-wide 95% target is within reach but not yet
   enforced; the P3 items (HTTP fuzzing, long-function splits, tidiness checks)
   remain open.
+
+## 11. P3 completion notes (2026-11-01)
+
+P3 was implemented in
+`openspec/changes/archive/2026-11-01-improve-maintainability`:
+
+- **Long functions:** `Runner::start` now composes `resolve_start_layout`,
+  `prepare_start_layout`, `open_start_logs`, and `run_instance_supervisor`;
+  the suite supervisor loop delegates to `finish_suite_stop`,
+  `advance_suite_restart`, and `advance_app`; `Http_server::handle_request`
+  dispatches to per-route handlers. The public API and fork/exit ordering are
+  unchanged.
+- **HTTP robustness:** a fixed-seed malformed-request corpus drives 120
+  bounded byte sequences through the live server and verifies that every case
+  either receives a bounded HTTP response or is closed, then checks a final
+  health probe. The server now processes buffered data before closing a
+  half-closed client.
+- **Convention guard:** `cmake/check_result_value.py` strips comments/literals,
+  extracts every `.value()` receiver, and fails on Result/Status receivers. It
+  runs in the coverage CI job; known span-ID and nlohmann receivers are
+  allowlisted.
+- **Static nits:** constant byte counts are multiplied as `std::size_t`, and
+  `Discovery::scan_standalone` reserves its instance vector.
+- **Coverage after the refactor:** **94.2%** overall (11 037 / 11 713),
+  `runner` **90.6%**, `hub` **91.8%**. All module gates still pass.
+- **Remaining:** the project-wide 95% target is the only open quality item;
+  coverage-guided fuzzing and clang-tidy integration are optional future work.
