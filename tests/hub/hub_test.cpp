@@ -26,6 +26,7 @@
 #include "../support/test_temp.hpp"
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/detail/fault_injection.hpp>
 #include <nexigen/hub/discovery.hpp>
 #include <nexigen/hub/http_server.hpp>
 #include <nexigen/hub/model.hpp>
@@ -117,6 +118,16 @@ bool diagnostic_contains(const Diagnostic_capture& capture,
     }
     return false;
 }
+
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+core::detail::Fault_point g_hub_fault_point =
+    core::detail::Fault_point::Hub_socket;
+bool g_hub_fault_enabled = false;
+
+bool hub_fault_hook(core::detail::Fault_point point) noexcept {
+    return g_hub_fault_enabled && point == g_hub_fault_point;
+}
+#endif
 
 template <class Predicate>
 bool wait_until(Predicate predicate, int timeout_ms) {
@@ -1099,6 +1110,29 @@ void test_http_fuzz_corpus() {
     thread.join();
 }
 
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+void test_http_fault_injection() {
+    Fixture fixture("http_faults");
+    hub::Discovery discovery;
+    std::vector<std::string> roots{fixture.root};
+    NX_CHECK(discovery.initialize(roots).has_value());
+    hub::Stream_manager streaming;
+
+    core::detail::set_fault_hook(hub_fault_hook);
+    for (const auto point : {core::detail::Fault_point::Hub_socket,
+                             core::detail::Fault_point::Hub_bind,
+                             core::detail::Fault_point::Hub_epoll,
+                             core::detail::Fault_point::Hub_eventfd}) {
+        g_hub_fault_point = point;
+        g_hub_fault_enabled = true;
+        hub::Http_server server(discovery, streaming);
+        NX_CHECK(!server.start("127.0.0.1:0").has_value());
+        g_hub_fault_enabled = false;
+    }
+    core::detail::set_fault_hook(nullptr);
+}
+#endif
+
 void test_web_assets() {
     NX_CHECK(contains(hub::index_html(), "/app.js"));
     NX_CHECK(contains(hub::index_html(), "/style.css"));
@@ -1545,6 +1579,9 @@ int main() {
     run_suite("http_sse_gaps", test_http_sse_gaps);
     run_suite("http_fuzz_corpus", test_http_fuzz_corpus);
     run_suite("http_server", test_http_server);
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    run_suite("http_fault_injection", test_http_fault_injection);
+#endif
     std::printf("total: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

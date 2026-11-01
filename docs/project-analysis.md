@@ -353,7 +353,7 @@ P4 was implemented in
 `openspec/changes/archive/2026-11-01-improve-maintainability-p4`:
 
 - **Coverage target reached:** the overall line coverage is **95.1%**
-  (11 142 / 11 719), with `runner` at **92.6%** and `hub` at **95.0%**.
+  (11 191 / 11 753), with `runner` at **93.0%** and `hub` at **95.2%**.
   New tests cover streaming path changes and directory read failures, SSE gap
   replay/live delivery, percent-decoded stream IDs, discovery state derivation
   and standalone state branches, runner settings/stream preparation failures,
@@ -369,3 +369,28 @@ P4 was implemented in
   noisy checks are disabled with documented rationale.
 - **Remaining:** only optional future work (coverage-guided fuzzing, additional
   analyzer opt-ins, and long-tail platform fault injection).
+
+## 13. P5 completion notes (2026-11-01)
+
+P5 was implemented in
+`openspec/changes/archive/2026-11-01-improve-verification-depth`:
+
+- **Fuzzable parser:** the pure HTTP helpers now live in
+  `include/nexigen/hub/detail/http_parse.hpp`; `Http_server` calls the same
+  functions. A libFuzzer harness (`tests/fuzz/http_parse_fuzz.cpp`) checks
+  request-line invariants, header-view bounds, and decode-size bounds against a
+  four-file seed corpus.
+- **Fuzz CI:** `NEXIGEN_BUILD_FUZZERS=ON` builds the Clang-only harness; the
+  Clang job runs a 20 000-iteration smoke over the corpus.
+- **Fault injection:** `NEXIGEN_ENABLE_FAULT_INJECTION=ON` enables test-only
+  cold-path hooks for runner `pipe2`/`fork`/`/dev/null` and hub
+  `socket`/`bind`/`epoll`/`eventfd`. Tests cover all seven points; the checks
+  compile to constant `false` in production builds. Debug and coverage CI use
+  the option.
+- **Analyzer depth:** `clang-analyzer-optin.cplusplus.*` and
+  `clang-analyzer-optin.portability.*` are enabled; the padding opt-in stays
+  disabled with a documented alignment rationale.
+- **Coverage:** **95.2%** overall (11 191 / 11 753), `runner` **93.0%**,
+  `hub` **95.2%**. The 95% project gate and 90% module gates still pass.
+- **Remaining:** no required quality work; platform-specific calibration and
+  true I/O fault injection remain optional long-tail work.

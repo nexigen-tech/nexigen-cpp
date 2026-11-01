@@ -20,6 +20,14 @@ option(NEXIGEN_ENABLE_COVERAGE "Instrument the build with GCC/Clang --coverage" 
 set(NEXIGEN_COVERAGE_FAIL_UNDER "0" CACHE STRING
     "Fail the coverage target below this line-coverage percentage (0 = no gate)")
 
+# Test-only cold-path fault injection (Debug/coverage CI). The checks compile
+# to constant false in production builds.
+option(NEXIGEN_ENABLE_FAULT_INJECTION
+    "Enable test-only fault injection hooks for cold-path syscalls" OFF)
+
+# libFuzzer harnesses are Clang-only and not part of the default build.
+option(NEXIGEN_BUILD_FUZZERS "Build libFuzzer harnesses (Clang only)" OFF)
+
 # ns-class latency gates are meaningful only on dedicated hardware. Shared CI
 # runners and containers cannot guarantee the 20 ns budget, so Release CI can
 # turn the gates off while still exercising optimized code.
@@ -55,6 +63,12 @@ if(NEXIGEN_ENABLE_COVERAGE)
     # Forked runner children flush gcov counters before `_exit()`/`execvp()`.
     target_compile_definitions(nexigen_options INTERFACE
         NEXIGEN_ENABLE_COVERAGE=1)
+endif()
+
+if(NEXIGEN_ENABLE_FAULT_INJECTION)
+    message(STATUS "🧪 Cold-path fault injection enabled")
+    target_compile_definitions(nexigen_options INTERFACE
+        NEXIGEN_ENABLE_FAULT_INJECTION=1)
 endif()
 
 # Настраиваем пути к заголовочным файлам
@@ -383,6 +397,21 @@ if(NEXIGEN_ENABLE_COVERAGE)
         USES_TERMINAL
         VERBATIM
         COMMENT "Running unit tests under coverage and aggregating gcov data")
+endif()
+
+# =============================================================================
+# Optional libFuzzer harnesses (Clang only, not part of the default build).
+# =============================================================================
+if(NEXIGEN_BUILD_FUZZERS)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "❌ NEXIGEN_BUILD_FUZZERS requires Clang.")
+    endif()
+    add_executable(nexigen_http_parse_fuzz tests/fuzz/http_parse_fuzz.cpp)
+    target_link_libraries(nexigen_http_parse_fuzz PRIVATE nexigen_options)
+    target_compile_options(nexigen_http_parse_fuzz PRIVATE
+        -fsanitize=fuzzer,address -g -O1)
+    target_link_options(nexigen_http_parse_fuzz PRIVATE
+        -fsanitize=fuzzer,address)
 endif()
 
 # =============================================================================

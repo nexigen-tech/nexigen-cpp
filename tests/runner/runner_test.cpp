@@ -31,6 +31,7 @@
 #include "../support/test_temp.hpp"
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/detail/fault_injection.hpp>
 #include <nexigen/runner/instance_lifecycle.hpp>
 #include <nexigen/runner/runner.hpp>
 
@@ -168,6 +169,16 @@ std::optional<std::uint32_t> first_allowed_cpu() {
 #pragma GCC diagnostic pop
     return std::nullopt;
 }
+
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+core::detail::Fault_point g_fault_point =
+    core::detail::Fault_point::Runner_pipe2;
+bool g_fault_enabled = false;
+
+bool test_fault_hook(core::detail::Fault_point point) noexcept {
+    return g_fault_enabled && point == g_fault_point;
+}
+#endif
 
 // --- Compile-time contracts ---
 template <class T, class = void>
@@ -1081,6 +1092,35 @@ void test_lifecycle_edges() {
     remove_tree(completed);
 }
 
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+void test_fault_injection() {
+    const std::string root = unique_dir("faults");
+    const app::Run_identity identity = identity_for(root);
+    const std::vector<std::string> command{"/bin/true"};
+
+    core::detail::set_fault_hook(test_fault_hook);
+    runner::Runner launcher;
+    auto run_fault = [&](core::detail::Fault_point point) {
+        g_fault_point = point;
+        g_fault_enabled = true;
+        const core::Status status = launcher.start(identity, command, 0);
+        g_fault_enabled = false;
+        return status;
+    };
+
+    NX_CHECK(failed_with(run_fault(core::detail::Fault_point::Runner_pipe2),
+                         core::ErrorCode::SystemError));
+    NX_CHECK(failed_with(run_fault(core::detail::Fault_point::Runner_fork),
+                         core::ErrorCode::SystemError));
+    NX_CHECK(failed_with(run_fault(core::detail::Fault_point::Runner_open_null),
+                         core::ErrorCode::SystemError));
+    core::detail::set_fault_hook(nullptr);
+
+    reap_supervisors();
+    remove_tree(root);
+}
+#endif
+
 void test_error_paths() {
     runner::Runner runner;
 
@@ -1210,6 +1250,9 @@ int main() {
     run_suite("start_options", test_start_options);
     run_suite("lifecycle_edges", test_lifecycle_edges);
     run_suite("error_paths", test_error_paths);
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    run_suite("fault_injection", test_fault_injection);
+#endif
 
     std::printf("total: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

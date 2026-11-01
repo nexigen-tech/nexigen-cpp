@@ -14,8 +14,8 @@
 #     tagged layouts; the checks are not actionable here.
 #   performance-unnecessary-value-param: std::stop_token and string_view are
 #     cheap by-value types in this codebase.
-#   clang-analyzer-optin.*: opt-in analyzers flag intentional hot-path padding
-#     in aligned real-time classes.
+#   clang-analyzer-optin.performance.Padding: flags intentional cache-line
+#     alignment in hot-path containers; reordering is a benchmark decision.
 Checks: >
   -*,
   bugprone-*,
@@ -29,7 +29,9 @@ Checks: >
   portability-*,
   -portability-avoid-pragma-once,
   clang-analyzer-*,
-  -clang-analyzer-optin.*
+  -clang-analyzer-optin.performance.Padding,
+  clang-analyzer-optin.cplusplus.*,
+  clang-analyzer-optin.portability.*
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*/(include|src)/.*'
 FormatStyle: none

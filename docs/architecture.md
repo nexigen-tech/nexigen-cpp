@@ -154,13 +154,13 @@ library code. The target is mutually exclusive with ASan/TSan, enforces
 `runner >= 90` and `hub >= 90`, and flushes gcov counters from forked runner
 supervisors before `_exit()`/`exec`, so control-plane work is measured.
 
-Current unit-test line coverage is **95.1%** (≈11 142 / 11 719 lines):
+Current unit-test line coverage is **95.2%** (≈11 191 / 11 753 lines):
 
 | Scope | Coverage |
 |---|---:|
-| Original seven modules | 95.9% (7 332 / 7 646) |
-| `runner` | 92.6% (≈2 261 / 2 443) |
-| `hub` | 95.0% (≈1 549 / 1 630) |
+| Original seven modules | 95.9% (7 341 / 7 651) |
+| `runner` | 93.0% (≈2 280 / 2 452) |
+| `hub` | 95.2% (≈1 570 / 1 650) |
 
 The project target is **≥95%**. CI enforces the **≥95%** project gate
 (`-DNEXIGEN_COVERAGE_FAIL_UNDER=95`) plus the 90% runner and hub module gates.
@@ -174,8 +174,20 @@ measured baseline and the P4 backlog are recorded in
 live server. `cmake/check_result_value.py` enforces the `Result::value()` ban in
 CI; it strips comments/literals and allowlists only known non-Result receivers.
 The Clang CI job runs `.clang-tidy` (`bugprone-*`, `performance-*`,
-`portability-*`, and the non-opt-in clang-analyzer checks) over every
-`src/*.cpp` translation unit with warnings treated as errors.
+`portability-*`, and clang-analyzer including the cplusplus/portability opt-ins,
+excluding the intentional-padding check) over every `src/*.cpp` translation
+unit with warnings treated as errors.
+
+Optional verification depth:
+
+- `-DNEXIGEN_ENABLE_FAULT_INJECTION=ON` enables test-only cold-path hooks for
+  runner `pipe2`/`fork`/`/dev/null` and hub `socket`/`bind`/`epoll`/`eventfd`.
+  The Debug and coverage CI builds use it; production builds compile the checks
+  to constant `false`.
+- `-DNEXIGEN_BUILD_FUZZERS=ON` (Clang only) builds
+  `nexigen_http_parse_fuzz`, a libFuzzer harness over the pure helpers in
+  `include/nexigen/hub/detail/http_parse.hpp`. CI runs a 20 000-iteration smoke
+  over `tests/fuzz/corpus/http_parse`.
 
 All five GCC modes (Debug, Release, portable Release, TSan, ASan) must report
 `100% tests passed` with no sanitizer diagnostics; the Clang job must do the same

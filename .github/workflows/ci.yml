@@ -34,7 +34,7 @@ jobs:
         include:
           - name: Debug
             build_type: Debug
-            cmake_args: ""
+            cmake_args: "-DNEXIGEN_ENABLE_FAULT_INJECTION=ON"
             container_options: ""
           - name: Release
             build_type: Release
@@ -110,6 +110,19 @@ jobs:
           git ls-files 'src/*.cpp' \
             | xargs -n 1 -P 2 clang-tidy -p build/clang -quiet
 
+      - name: Fuzz HTTP parser
+        run: |
+          cmake -S . -B build/fuzz -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DNEXIGEN_BUILD_TESTS=OFF \
+            -DNEXIGEN_BUILD_EXAMPLES=OFF \
+            -DNEXIGEN_BUILD_TOOLS=OFF \
+            -DNEXIGEN_BUILD_FUZZERS=ON
+          cmake --build build/fuzz --target nexigen_http_parse_fuzz --parallel 2
+          ./build/fuzz/nexigen_http_parse_fuzz -runs=20000 \
+            tests/fuzz/corpus/http_parse
+
       - name: Package smoke test
         run: ./tests/packaging/smoke_test.sh build/clang
 
@@ -135,6 +148,7 @@ jobs:
           cmake -S . -B build/coverage -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DNEXIGEN_ENABLE_COVERAGE=ON \
+            -DNEXIGEN_ENABLE_FAULT_INJECTION=ON \
             -DNEXIGEN_COVERAGE_FAIL_UNDER=95
 
       - name: Run coverage gate

@@ -28,6 +28,8 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/detail/fault_injection.hpp>
+#include <nexigen/hub/detail/http_parse.hpp>
 #include <nexigen/hub/discovery.hpp>
 #include <nexigen/hub/http_server.hpp>
 #include <nexigen/hub/model.hpp>
@@ -55,30 +57,6 @@ constexpr std::uint64_t refresh_interval_ns = 1ULL * 1'000'000'000ULL;
 }
 
 
-[[nodiscard]] std::string url_decode(std::string_view text) {
-    std::string out;
-    out.reserve(text.size());
-    for (std::size_t index = 0; index < text.size(); ++index) {
-        if (text[index] == '%' && index + 2 < text.size()) {
-            const auto hex = [](char c) -> int {
-                if (c >= '0' && c <= '9') return c - '0';
-                if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-                if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-                return -1;
-            };
-            const int hi = hex(text[index + 1]);
-            const int lo = hex(text[index + 2]);
-            if (hi >= 0 && lo >= 0) {
-                out.push_back(static_cast<char>((hi << 4) | lo));
-                index += 2;
-                continue;
-            }
-        }
-        out.push_back(text[index] == '+' ? ' ' : text[index]);
-    }
-    return out;
-}
-
 [[nodiscard]] std::string json_text(const nlohmann::json& document) {
     return document.dump();
 }
@@ -87,64 +65,6 @@ constexpr std::uint64_t refresh_interval_ns = 1ULL * 1'000'000'000ULL;
                                std::string_view prefix) noexcept {
     return text.size() >= prefix.size() &&
            text.compare(0, prefix.size(), prefix) == 0;
-}
-
-[[nodiscard]] char ascii_lower(char value) noexcept {
-    return value >= 'A' && value <= 'Z'
-               ? static_cast<char>(value - 'A' + 'a')
-               : value;
-}
-
-[[nodiscard]] bool equals_ignore_case(std::string_view left,
-                                      std::string_view right) noexcept {
-    if (left.size() != right.size()) {
-        return false;
-    }
-    for (std::size_t index = 0; index < left.size(); ++index) {
-        if (ascii_lower(left[index]) != ascii_lower(right[index])) {
-            return false;
-        }
-    }
-    return true;
-}
-
-[[nodiscard]] std::string_view trim_header(std::string_view text) noexcept {
-    while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) {
-        text.remove_prefix(1);
-    }
-    while (!text.empty() && (text.back() == ' ' || text.back() == '\t')) {
-        text.remove_suffix(1);
-    }
-    return text;
-}
-
-/// Case-insensitive header lookup. Returns a view into `request` or an empty
-/// view when the header is absent. Only the header block is inspected, so a
-/// body or a differently named header cannot produce a false match.
-[[nodiscard]] std::string_view header_value(std::string_view request,
-                                            std::string_view name) noexcept {
-    std::size_t position = request.find("\r\n");
-    if (position == std::string_view::npos) {
-        return {};
-    }
-    position += 2;
-    while (position < request.size()) {
-        std::size_t line_end = request.find("\r\n", position);
-        if (line_end == std::string_view::npos) {
-            line_end = request.size();
-        }
-        const std::string_view line = request.substr(position, line_end - position);
-        if (line.empty()) {
-            break;
-        }
-        const std::size_t colon = line.find(':');
-        if (colon != std::string_view::npos &&
-            equals_ignore_case(trim_header(line.substr(0, colon)), name)) {
-            return trim_header(line.substr(colon + 1));
-        }
-        position = line_end + 2;
-    }
-    return {};
 }
 
 [[nodiscard]] std::string sse_record(const Stream_record& record) {
@@ -267,6 +187,9 @@ struct Http_server::Impl {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
 
+        if (core::detail::fault(core::detail::Fault_point::Hub_socket)) {
+            return std::unexpected(core::ErrorCode::SystemError);
+        }
         listen_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
                              0);
         if (listen_fd < 0) {
@@ -275,7 +198,8 @@ struct Http_server::Impl {
         int enabled = 1;
         static_cast<void>(::setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR,
                                         &enabled, sizeof(enabled)));
-        if (::bind(listen_fd, reinterpret_cast<sockaddr*>(&address),
+        if (core::detail::fault(core::detail::Fault_point::Hub_bind) ||
+            ::bind(listen_fd, reinterpret_cast<sockaddr*>(&address),
                    sizeof(address)) != 0 ||
             ::listen(listen_fd, 128) != 0) {
             return std::unexpected(core::ErrorCode::SystemError);
@@ -287,8 +211,12 @@ struct Http_server::Impl {
             port = ntohs(bound.sin_port);
         }
 
-        epoll_fd = ::epoll_create1(EPOLL_CLOEXEC);
-        event_fd = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+        epoll_fd = core::detail::fault(core::detail::Fault_point::Hub_epoll)
+                       ? -1
+                       : ::epoll_create1(EPOLL_CLOEXEC);
+        event_fd = core::detail::fault(core::detail::Fault_point::Hub_eventfd)
+                       ? -1
+                       : ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
         if (epoll_fd < 0 || event_fd < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -426,29 +354,6 @@ struct Http_server::Impl {
                 keep_alive);
     }
 
-    [[nodiscard]] static std::string query_value(std::string_view query,
-                                                 std::string_view key) {
-        std::size_t position = 0;
-        while (position < query.size()) {
-            const std::size_t ampersand = query.find('&', position);
-            const std::size_t end =
-                ampersand == std::string_view::npos ? query.size() : ampersand;
-            const std::string_view pair = query.substr(position, end - position);
-            const std::size_t equals = pair.find('=');
-            const std::string_view name = pair.substr(0, equals);
-            if (name == key) {
-                return equals == std::string_view::npos
-                           ? std::string{}
-                           : url_decode(pair.substr(equals + 1));
-            }
-            if (ampersand == std::string_view::npos) {
-                break;
-            }
-            position = ampersand + 1;
-        }
-        return {};
-    }
-
     void start_sse(Client& client, std::string_view path,
                    std::string_view last_event_id) noexcept {
         const std::size_t query_start = path.find('?');
@@ -456,8 +361,8 @@ struct Http_server::Impl {
             query_start == std::string_view::npos
                 ? std::string_view{}
                 : path.substr(query_start + 1);
-        const std::string tree_topic = query_value(query, "tree");
-        const std::string stream = query_value(query, "stream");
+        const std::string tree_topic = detail::query_value(query, "tree");
+        const std::string stream = detail::query_value(query, "stream");
         if (tree_topic != "1" && !stream.empty() &&
             find_stream(discovery.tree(), stream) == nullptr) {
             respond_json(client, 404, "Not Found", {{"error", "unknown stream"}},
@@ -482,7 +387,7 @@ struct Http_server::Impl {
             return;
         }
 
-        std::string since_text = query_value(query, "since");
+        std::string since_text = detail::query_value(query, "since");
         if (since_text.empty() && !last_event_id.empty()) {
             const std::size_t colon = last_event_id.rfind(':');
             if (colon != std::string_view::npos) {
@@ -540,7 +445,7 @@ struct Http_server::Impl {
         constexpr std::string_view recent_prefix = "/api/streams/";
         constexpr std::string_view recent_suffix = "/recent";
         const std::string id =
-            url_decode(route.substr(recent_prefix.size(),
+            detail::url_decode(route.substr(recent_prefix.size(),
                                     route.size() - recent_prefix.size() -
                                         recent_suffix.size()));
         if (find_stream(discovery.tree(), id) == nullptr) {
@@ -551,7 +456,7 @@ struct Http_server::Impl {
         std::size_t limit = streaming.limits().ring_records;
         if (query_start != std::string_view::npos) {
             const std::string limit_text =
-                query_value(path.substr(query_start + 1), "limit");
+                detail::query_value(path.substr(query_start + 1), "limit");
             if (!limit_text.empty()) {
                 std::size_t parsed = 0;
                 for (const char c : limit_text) {
@@ -583,7 +488,7 @@ struct Http_server::Impl {
 
     void handle_events(Client& client, std::string_view request,
                        std::string_view path) noexcept {
-        const std::string last_event_id(header_value(request, "Last-Event-ID"));
+        const std::string last_event_id(detail::header_value(request, "Last-Event-ID"));
         start_sse(client, path, last_event_id);
     }
 
@@ -609,33 +514,24 @@ struct Http_server::Impl {
 
     void handle_request(Client& client, std::string_view request,
                         bool keep_alive) noexcept {
-        const std::size_t first_line_end = request.find("\r\n");
-        const std::string_view first_line = request.substr(0, first_line_end);
-        const std::size_t first_space = first_line.find(' ');
-        const std::size_t second_space =
-            first_space == std::string_view::npos
-                ? std::string_view::npos
-                : first_line.find(' ', first_space + 1);
-        if (first_space == std::string_view::npos ||
-            second_space == std::string_view::npos) {
-            respond_json(client, 400, "Bad Request", {{"error", "bad request"}},
-                         false);
-            return;
+        detail::Request_line parsed;
+        switch (detail::parse_request_line(request, parsed)) {
+            case detail::Request_line_error::BadRequest:
+                respond_json(client, 400, "Bad Request",
+                             {{"error", "bad request"}}, false);
+                return;
+            case detail::Request_line_error::BadVersion:
+                respond_json(client, 400, "Bad Request",
+                             {{"error", "bad version"}}, false);
+                return;
+            case detail::Request_line_error::MethodNotAllowed:
+                respond_json(client, 405, "Method Not Allowed",
+                             {{"error", "read only"}}, false);
+                return;
+            case detail::Request_line_error::None:
+                break;
         }
-        const std::string_view method = first_line.substr(0, first_space);
-        const std::string_view path =
-            first_line.substr(first_space + 1, second_space - first_space - 1);
-        const std::string_view version = first_line.substr(second_space + 1);
-        if (version != "HTTP/1.1" && version != "HTTP/1.0") {
-            respond_json(client, 400, "Bad Request", {{"error", "bad version"}},
-                         false);
-            return;
-        }
-        if (method != "GET") {
-            respond_json(client, 405, "Method Not Allowed",
-                         {{"error", "read only"}}, false);
-            return;
-        }
+        const std::string_view path = parsed.path;
 
         const std::size_t query_start = path.find('?');
         const std::string_view route = path.substr(0, query_start);
@@ -719,8 +615,8 @@ struct Http_server::Impl {
             }
             const std::string request = client.input.substr(0, header_end + 4);
             client.input.erase(0, header_end + 4);
-            const bool keep_alive = !equals_ignore_case(
-                header_value(request, "Connection"), "close");
+            const bool keep_alive = !detail::equals_ignore_case(
+                detail::header_value(request, "Connection"), "close");
             handle_request(client, request, keep_alive);
             if (client.sse) {
                 break;

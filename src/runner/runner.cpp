@@ -28,6 +28,7 @@
 
 #include <nexigen/app/app_settings.hpp>
 #include <nexigen/chrono/timestamp.hpp>
+#include <nexigen/core/detail/fault_injection.hpp>
 #include <nexigen/logging/logger_options.hpp>
 #include <nexigen/runner/runner.hpp>
 #include <nexigen/runner/runner_logging.hpp>
@@ -572,6 +573,13 @@ struct Start_layout {
         stdout_fd = -1;
         return std::unexpected(core::ErrorCode::SystemError);
     }
+    if (core::detail::fault(core::detail::Fault_point::Runner_open_null)) {
+        static_cast<void>(::close(stdout_fd));
+        static_cast<void>(::close(stderr_fd));
+        stdout_fd = -1;
+        stderr_fd = -1;
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
     null_fd = ::open("/dev/null", O_RDWR | O_CLOEXEC);
     if (null_fd < 0) {
         static_cast<void>(::close(stdout_fd));
@@ -833,7 +841,8 @@ core::Status Runner::start(const app::Run_identity& identity,
         Resource_metadata::from_identity(layout.resolved, 0, 0);
 
     int pipe_fds[2]{-1, -1};
-    if (::pipe2(pipe_fds, O_CLOEXEC) != 0) {
+    if (core::detail::fault(core::detail::Fault_point::Runner_pipe2) ||
+        ::pipe2(pipe_fds, O_CLOEXEC) != 0) {
         static_cast<void>(::close(stdout_fd));
         static_cast<void>(::close(stderr_fd));
         static_cast<void>(::close(null_fd));
@@ -855,7 +864,10 @@ core::Status Runner::start(const app::Run_identity& identity,
         context.log_level = std::string(logging::to_string(*options.log_level));
     }
 
-    const pid_t supervisor = ::fork();
+    const pid_t supervisor =
+        core::detail::fault(core::detail::Fault_point::Runner_fork)
+            ? -1
+            : ::fork();
     if (supervisor < 0) {
         static_cast<void>(::close(pipe_fds[0]));
         static_cast<void>(::close(pipe_fds[1]));

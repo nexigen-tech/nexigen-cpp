@@ -91,7 +91,7 @@ the requested percentage; the target also enforces `runner >= 90` and `hub >= 90
 Coverage cannot be combined with ASan/TSan. Forked runner supervisors flush gcov
 counters before `_exit()`/`exec`, so control-plane work is measured too.
 
-Current unit-test line coverage is **95.1%** (≈11 142 / 11 719):
+Current unit-test line coverage is **95.2%** (≈11 191 / 11 753):
 
 | Module | Coverage |
 |---|---:|
@@ -99,13 +99,31 @@ Current unit-test line coverage is **95.1%** (≈11 142 / 11 719):
 | chrono, metrics | 96.1–96.2% |
 | app | 95.8% |
 | logging, tracing | 95.2–95.5% |
-| hub | 95.0% |
-| runner | 92.6% |
+| hub | 95.2% |
+| runner | 93.0% |
 
 The project target is **≥95%** and CI enforces it
 (`-DNEXIGEN_COVERAGE_FAIL_UNDER=95`) together with the 90% runner/hub module
 gates. The per-module breakdown and the remaining backlog are tracked in
 [`docs/project-analysis.md`](docs/project-analysis.md).
+
+Optional verification depth:
+
+```bash
+# Cold-path syscall fault injection (Debug/coverage builds)
+cmake -B build/faults -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+      -DNEXIGEN_ENABLE_FAULT_INJECTION=ON
+cmake --build build/faults
+ctest --test-dir build/faults --output-on-failure
+
+# libFuzzer harness for the pure HTTP parser (Clang only)
+cmake -B build/fuzz -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+      -DCMAKE_CXX_COMPILER=clang++ \
+      -DNEXIGEN_BUILD_TESTS=OFF -DNEXIGEN_BUILD_EXAMPLES=OFF \
+      -DNEXIGEN_BUILD_TOOLS=OFF -DNEXIGEN_BUILD_FUZZERS=ON
+cmake --build build/fuzz --target nexigen_http_parse_fuzz
+./build/fuzz/nexigen_http_parse_fuzz -runs=20000 tests/fuzz/corpus/http_parse
+```
 
 ### Install and consume
 
