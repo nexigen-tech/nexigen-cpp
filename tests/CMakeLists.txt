@@ -80,3 +80,15 @@ target_link_libraries(nexigen_runner_tests PRIVATE nexigen_runner Threads::Threa
 
 add_test(NAME nexigen_runner_tests COMMAND nexigen_runner_tests)
 set_tests_properties(nexigen_runner_tests PROPERTIES TIMEOUT 600)
+
+# Юнит-тесты suite-манифеста, политики рестартов и артефактов.
+add_executable(nexigen_app_suite_tests runner/app_suite_test.cpp)
+target_link_libraries(nexigen_app_suite_tests PRIVATE nexigen_runner Threads::Threads)
+
+add_test(NAME nexigen_app_suite_tests COMMAND nexigen_app_suite_tests)
+set_tests_properties(nexigen_app_suite_tests PROPERTIES TIMEOUT 900)
+
+add_test(NAME nexigen_run_cli_tests
+         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/runner/cli_test.sh
+                 $<TARGET_FILE:nexigen-run>)
+set_tests_properties(nexigen_run_cli_tests PROPERTIES TIMEOUT 300)

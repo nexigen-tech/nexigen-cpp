@@ -9,12 +9,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <fcntl.h>
+#include <sched.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -24,7 +26,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/app/app_settings.hpp>
 #include <nexigen/chrono/timestamp.hpp>
+#include <nexigen/logging/logger_options.hpp>
 #include <nexigen/runner/runner.hpp>
 
 namespace nexigen::runner {
@@ -158,6 +162,160 @@ void redirect_to_null(int null_fd) noexcept {
     static_cast<void>(::dup2(null_fd, STDERR_FILENO));
 }
 
+constexpr std::size_t max_path_bytes = 511;
+
+[[nodiscard]] bool absolute_path(std::string_view path) noexcept {
+    return !path.empty() && path.front() == '/';
+}
+
+[[nodiscard]] core::Status validate_start_options(
+    const Start_options& options) noexcept {
+    if (!options.artifact_dir.empty() &&
+        (!absolute_path(options.artifact_dir) ||
+         options.artifact_dir.size() > max_path_bytes)) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (!options.global_settings_dir.empty() &&
+        !absolute_path(options.global_settings_dir)) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (!options.local_settings_dir.empty() &&
+        !absolute_path(options.local_settings_dir)) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    for (const auto& [key, value] : options.env) {
+        static_cast<void>(value);
+        if (key.empty() || key.find('=') != std::string::npos ||
+            key.find('\0') != std::string::npos) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+    }
+    if (!options.cpus.empty()) {
+        long online = ::sysconf(_SC_NPROCESSORS_ONLN);
+        if (online <= 0) {
+            online = static_cast<long>(CPU_SETSIZE);
+        }
+        for (std::size_t index = 0; index < options.cpus.size(); ++index) {
+            if (options.cpus[index] >= static_cast<std::uint32_t>(online) ||
+                options.cpus[index] >= static_cast<std::uint32_t>(CPU_SETSIZE)) {
+                return std::unexpected(core::ErrorCode::InvalidArgument);
+            }
+            for (std::size_t previous = 0; previous < index; ++previous) {
+                if (options.cpus[previous] == options.cpus[index]) {
+                    return std::unexpected(core::ErrorCode::InvalidArgument);
+                }
+            }
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] nlohmann::json logging_document(
+    const logging::LoggerOptions& options, std::string_view stream_root,
+    const std::optional<logging::LogLevel> level) {
+    nlohmann::json document;
+    to_json(document, options);
+    document["log_root_directory"] = std::string(stream_root);
+    if (level.has_value()) {
+        document["initial_log_level"] = std::string(logging::to_string(*level));
+    }
+    document["sink"] = nlohmann::json{
+        {"path", instance_file_path(stream_root, "app.jsonl")},
+        {"append", true}};
+    return document;
+}
+
+[[nodiscard]] core::Status write_suite_settings(
+    std::string_view instance_dir, std::string_view stream_root,
+    const Start_options& options, const app::Run_identity& identity) noexcept {
+    app::App_settings settings{};
+    if (!options.global_settings_dir.empty() ||
+        !options.local_settings_dir.empty()) {
+        app::App_settings_paths paths{};
+        auto make_pair = [](std::string_view global, std::string_view local,
+                            const char* name) {
+            logging::Settings_paths entry{};
+            if (!global.empty()) {
+                entry.global_file = std::string(global) + "/" + name;
+            }
+            if (!local.empty()) {
+                entry.local_file = std::string(local) + "/" + name;
+            }
+            return entry;
+        };
+        paths.logging = make_pair(options.global_settings_dir,
+                                  options.local_settings_dir, "logging.json");
+        paths.metrics = make_pair(options.global_settings_dir,
+                                  options.local_settings_dir, "metrics.json");
+        paths.tracing = make_pair(options.global_settings_dir,
+                                  options.local_settings_dir, "tracing.json");
+        paths.chrono.global_file =
+            options.global_settings_dir.empty()
+                ? std::string{}
+                : std::string(options.global_settings_dir) + "/chrono.json";
+        paths.chrono.local_file =
+            options.local_settings_dir.empty()
+                ? std::string{}
+                : std::string(options.local_settings_dir) + "/chrono.json";
+        const core::Status loaded = app::load_app_settings(paths, settings);
+        if (!loaded) {
+            return loaded;
+        }
+    }
+
+    settings.logging.options.log_root_directory = std::string(stream_root);
+    settings.logging.options.app_name =
+        (!identity.app_name.empty() && identity.app_name.size() <= 63)
+            ? identity.app_name
+            : "nexigen";
+    if (options.log_level.has_value()) {
+        settings.logging.options.initial_log_level = *options.log_level;
+    }
+
+    settings.metrics.sink.path = instance_file_path(stream_root, "metrics.jsonl");
+    settings.metrics.sink.append = true;
+    settings.tracing.sink.path = instance_file_path(stream_root, "traces.jsonl");
+    settings.chrono.sink.path = instance_file_path(stream_root, "chrono.jsonl");
+    settings.chrono.sink.append = true;
+
+    const std::string settings_dir = instance_file_path(instance_dir, "settings");
+    auto write = [&](const char* name, const nlohmann::json& document) {
+        return write_json_file(instance_file_path(settings_dir, name), document);
+    };
+
+    nlohmann::json logging_json =
+        logging_document(settings.logging.options, stream_root, options.log_level);
+    const core::Status logging_status = write("logging.json", logging_json);
+    if (!logging_status) {
+        return logging_status;
+    }
+
+    nlohmann::json metrics_json;
+    to_json(metrics_json, settings.metrics);
+    metrics_json["sink"] = nlohmann::json{
+        {"path", settings.metrics.sink.path},
+        {"append", settings.metrics.sink.append}};
+    const core::Status metrics_status = write("metrics.json", metrics_json);
+    if (!metrics_status) {
+        return metrics_status;
+    }
+
+    nlohmann::json tracing_json;
+    to_json(tracing_json, settings.tracing);
+    tracing_json["sink"]["path"] = settings.tracing.sink.path;
+    const core::Status tracing_status = write("tracing.json", tracing_json);
+    if (!tracing_status) {
+        return tracing_status;
+    }
+
+    nlohmann::json chrono_json;
+    to_json(chrono_json, settings.chrono);
+    chrono_json["sink"] = nlohmann::json{
+        {"path", settings.chrono.sink.path},
+        {"append", settings.chrono.sink.append}};
+    return write("chrono.json", chrono_json);
+}
+
 /// Wait for the child while enforcing the optional idle timeout. When the
 /// deadline expires, run the same SIGTERM → grace → SIGKILL sequence as
 /// `Runner::stop`.
@@ -289,11 +447,32 @@ void reap_child(pid_t child) noexcept {
 
 } // namespace
 
+std::string Start_options::to_string() const {
+    return std::format(
+        "Start_options(artifact_dir={}, global_settings_dir={}, "
+        "local_settings_dir={}, log_level={}, env={}, cpus={})",
+        artifact_dir, global_settings_dir, local_settings_dir,
+        log_level.has_value() ? std::string(logging::to_string(*log_level))
+                              : std::string("inherit"),
+        env.size(), cpus.size());
+}
+
 core::Status Runner::start(const app::Run_identity& identity,
                            const std::vector<std::string>& command,
                            std::uint64_t timeout_s) {
+    return start(identity, command, timeout_s, Start_options{});
+}
+
+core::Status Runner::start(const app::Run_identity& identity,
+                           const std::vector<std::string>& command,
+                           std::uint64_t timeout_s,
+                           const Start_options& options) {
     if (command.empty() || command.front().empty()) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    const core::Status options_valid = validate_start_options(options);
+    if (!options_valid) {
+        return options_valid;
     }
 
     app::Run_identity resolved = identity;
@@ -320,6 +499,11 @@ core::Status Runner::start(const app::Run_identity& identity,
     }
 
     const std::string instance_dir = resolved.instance_dir;
+    const std::string stream_root =
+        options.artifact_dir.empty() ? instance_dir : options.artifact_dir;
+    if (stream_root.size() > max_instance_dir_bytes) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
 
     // One live instance per directory: refuse to clobber an unfinished run.
     const std::string resource_path =
@@ -333,6 +517,12 @@ core::Status Runner::start(const app::Run_identity& identity,
     if (!created) {
         return created;
     }
+    if (stream_root != instance_dir) {
+        const core::Status artifact_created = create_artifact_dir(stream_root);
+        if (!artifact_created) {
+            return artifact_created;
+        }
+    }
 
     app::Telemetry_paths resolved_paths{};
     const core::Status paths_status = app::resolve_telemetry_paths(
@@ -340,8 +530,15 @@ core::Status Runner::start(const app::Run_identity& identity,
     if (!paths_status) {
         return paths_status;
     }
+    const bool suite_settings =
+        !options.artifact_dir.empty() ||
+        !options.global_settings_dir.empty() ||
+        !options.local_settings_dir.empty() ||
+        options.log_level.has_value();
     const core::Status settings_status =
-        generate_settings(instance_dir, resolved_paths);
+        suite_settings
+            ? write_suite_settings(instance_dir, stream_root, options, resolved)
+            : generate_settings(instance_dir, resolved_paths);
     if (!settings_status) {
         return settings_status;
     }
@@ -350,7 +547,7 @@ core::Status Runner::start(const app::Run_identity& identity,
     // exist before the child starts (the sinks append to them).
     for (const char* stream : {"app.jsonl", "metrics.jsonl", "traces.jsonl",
                                "chrono.jsonl"}) {
-        const std::string stream_file = instance_file_path(instance_dir, stream);
+        const std::string stream_file = instance_file_path(stream_root, stream);
         const int stream_fd =
             ::open(stream_file.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
         if (stream_fd < 0) {
@@ -363,9 +560,9 @@ core::Status Runner::start(const app::Run_identity& identity,
     static_cast<void>(::unlink(exit_path.c_str()));
 
     const std::string stdout_path =
-        instance_file_path(instance_dir, "stdout.log");
+        instance_file_path(stream_root, "stdout.log");
     const std::string stderr_path =
-        instance_file_path(instance_dir, "stderr.log");
+        instance_file_path(stream_root, "stderr.log");
     const int stdout_fd = open_truncated_log(stdout_path);
     if (stdout_fd < 0) {
         return std::unexpected(core::ErrorCode::SystemError);
@@ -445,12 +642,21 @@ core::Status Runner::start(const app::Run_identity& identity,
             // --- Application child ---
             static_cast<void>(::close(pipe_fds[1]));
             static_cast<void>(::close(setup_pipe[0]));
-            if (::setsid() < 0) {
+            auto fail_setup = [&](std::int32_t setup_status) {
+                const ssize_t written = ::write(setup_pipe[1], &setup_status,
+                                                sizeof(setup_status));
+                static_cast<void>(written);
+                static_cast<void>(::close(setup_pipe[1]));
                 _exit(126);
+            };
+            if (::setsid() < 0) {
+                fail_setup(1);
             }
-            static_cast<void>(::dup2(null_fd, STDIN_FILENO));
-            static_cast<void>(::dup2(stdout_fd, STDOUT_FILENO));
-            static_cast<void>(::dup2(stderr_fd, STDERR_FILENO));
+            if (::dup2(null_fd, STDIN_FILENO) < 0 ||
+                ::dup2(stdout_fd, STDOUT_FILENO) < 0 ||
+                ::dup2(stderr_fd, STDERR_FILENO) < 0) {
+                fail_setup(1);
+            }
             if (null_fd > STDERR_FILENO) {
                 static_cast<void>(::close(null_fd));
             }
@@ -461,11 +667,25 @@ core::Status Runner::start(const app::Run_identity& identity,
                 static_cast<void>(::close(stderr_fd));
             }
 
-            const char ready = 1;
-            const ssize_t ready_written =
-                ::write(setup_pipe[1], &ready, sizeof(ready));
-            static_cast<void>(ready_written);
-            static_cast<void>(::close(setup_pipe[1]));
+            if (!options.cpus.empty()) {
+                cpu_set_t mask;
+                CPU_ZERO(&mask);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+                for (const std::uint32_t cpu : options.cpus) {
+                    CPU_SET(cpu, &mask);
+                }
+#pragma GCC diagnostic pop
+                if (::sched_setaffinity(0, sizeof(mask), &mask) != 0) {
+                    fail_setup(2);
+                }
+            }
+
+            for (const auto& [key, value] : options.env) {
+                if (::setenv(key.c_str(), value.c_str(), 1) != 0) {
+                    fail_setup(3);
+                }
+            }
 
             static_cast<void>(
                 ::setenv("NEXIGEN_RUN_ID", resolved.run_id.c_str(), 1));
@@ -477,6 +697,18 @@ core::Status Runner::start(const app::Run_identity& identity,
                 ::setenv("NEXIGEN_INSTANCE_ID", resolved.instance_id.c_str(), 1));
             static_cast<void>(::setenv("NEXIGEN_INSTANCE_DIR",
                                        instance_dir.c_str(), 1));
+            if (options.log_level.has_value()) {
+                static_cast<void>(::setenv(
+                    "NEXIGEN_LOG_LEVEL",
+                    std::string(logging::to_string(*options.log_level)).c_str(),
+                    1));
+            }
+
+            const std::int32_t setup_status = 0;
+            const ssize_t ready_written =
+                ::write(setup_pipe[1], &setup_status, sizeof(setup_status));
+            static_cast<void>(ready_written);
+            static_cast<void>(::close(setup_pipe[1]));
 
             ::execvp(argv[0], argv.data());
             _exit(127);
@@ -484,10 +716,9 @@ core::Status Runner::start(const app::Run_identity& identity,
 
         // --- Supervisor parent of the application child ---
         static_cast<void>(::close(setup_pipe[1]));
-        char ready = 0;
-        const ssize_t ready_read =
-            ::read(setup_pipe[0], &ready, sizeof(ready));
-        static_cast<void>(ready_read);
+        std::int32_t setup_status = 0;
+        const bool setup_read =
+            read_all(setup_pipe[0], &setup_status, sizeof(setup_status));
         static_cast<void>(::close(setup_pipe[0]));
 
         if (null_fd > STDERR_FILENO) {
@@ -498,6 +729,17 @@ core::Status Runner::start(const app::Run_identity& identity,
         }
         if (stderr_fd > STDERR_FILENO) {
             static_cast<void>(::close(stderr_fd));
+        }
+
+        if (!setup_read || setup_status != 0) {
+            static_cast<void>(::kill(-child, SIGKILL));
+            reap_child(child);
+            Start_report report{0,
+                                static_cast<std::int32_t>(
+                                    core::ErrorCode::SystemError)};
+            static_cast<void>(write_all(pipe_fds[1], &report, sizeof(report)));
+            static_cast<void>(::close(pipe_fds[1]));
+            _exit(1);
         }
 
         metadata.pid = child;
@@ -558,6 +800,11 @@ core::Status Runner::start(const app::Run_identity& identity,
         return std::unexpected(core::ErrorCode::SystemError);
     }
     return {};
+}
+
+core::Status Runner::start_suite(const Suite_manifest& manifest,
+                                 std::string& suite_dir_out) {
+    return ::nexigen::runner::start_suite(manifest, suite_dir_out);
 }
 
 core::Status Runner::stop(std::string_view instance_dir,

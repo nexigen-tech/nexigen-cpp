@@ -2,6 +2,7 @@
 // (change nexigen-run; spec runner/process-supervision, design D8).
 #include <cstdint>
 #include <cstdio>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -24,8 +25,11 @@ void print_usage(std::FILE* out) {
   nexigen-run start [--run-id <id>] [--app <name>] [--instance <id>]
                     [--run-dir <path>] [--instance-dir <path>]
                     [--timeout <secs>] -- <command> [args...]
-  nexigen-run stop  <instance-dir> [--grace <secs>]
+  nexigen-run start  --config <suite-manifest>
+  nexigen-run stop   <instance-dir> [--grace <secs>]
+  nexigen-run stop   --config <suite-manifest>|--suite-dir <dir> [--grace <secs>]
   nexigen-run status <instance-dir>
+  nexigen-run status --config <suite-manifest>|--suite-dir <dir> [--json]
   nexigen-run --help
 
 Environment variables NEXIGEN_RUN_ID, NEXIGEN_RUN_DIR, NEXIGEN_APP_NAME,
@@ -71,6 +75,7 @@ int cmd_start(int argc, char* argv[]) {
     std::string instance_id;
     std::string run_dir;
     std::string instance_dir;
+    std::string config;
     std::uint64_t timeout_s = 0;
     std::vector<std::string> command;
 
@@ -122,6 +127,11 @@ int cmd_start(int argc, char* argv[]) {
                 print_usage(stderr);
                 return exit_usage;
             }
+        } else if (argument == "--config") {
+            if (!take_value(config)) {
+                print_usage(stderr);
+                return exit_usage;
+            }
         } else if (argument == "--timeout") {
             std::string value;
             if (!take_value(value) || !parse_uint(value, timeout_s)) {
@@ -147,9 +157,37 @@ int cmd_start(int argc, char* argv[]) {
         }
     }
     if (command.empty()) {
-        std::fprintf(stderr, "nexigen-run: missing command\n");
-        print_usage(stderr);
-        return exit_usage;
+        if (config.empty()) {
+            std::fprintf(stderr, "nexigen-run: missing command or --config\n");
+            print_usage(stderr);
+            return exit_usage;
+        }
+    }
+
+    if (!config.empty()) {
+        if (!command.empty()) {
+            std::fprintf(stderr,
+                         "nexigen-run: --config cannot be combined with a command\n");
+            print_usage(stderr);
+            return exit_usage;
+        }
+        runner::Suite_manifest manifest{};
+        const core::Status loaded = runner::load_suite_manifest(config, manifest);
+        if (!loaded) {
+            std::fprintf(stderr, "nexigen-run: manifest failed: %s\n",
+                         std::string(core::to_string(loaded.error())).c_str());
+            return exit_failure;
+        }
+        std::string target;
+        runner::Runner suite_runner;
+        const core::Status started = suite_runner.start_suite(manifest, target);
+        if (!started) {
+            std::fprintf(stderr, "nexigen-run: suite start failed: %s\n",
+                         std::string(core::to_string(started.error())).c_str());
+            return exit_failure;
+        }
+        std::fprintf(stdout, "started: %s\n", target.c_str());
+        return 0;
     }
 
     app::Run_identity identity = app::load_run_identity();
@@ -183,7 +221,10 @@ int cmd_start(int argc, char* argv[]) {
 
 int cmd_stop(int argc, char* argv[]) {
     std::string instance_dir;
+    std::string config;
+    std::string suite_dir;
     std::uint64_t grace_s = 5;
+    bool grace_set = false;
     bool have_dir = false;
 
     int index = 2;
@@ -201,6 +242,19 @@ int cmd_stop(int argc, char* argv[]) {
                 print_usage(stderr);
                 return exit_usage;
             }
+            grace_set = true;
+        } else if (argument == "--config") {
+            if (index + 1 >= argc) {
+                print_usage(stderr);
+                return exit_usage;
+            }
+            config = argv[++index];
+        } else if (argument == "--suite-dir") {
+            if (index + 1 >= argc) {
+                print_usage(stderr);
+                return exit_usage;
+            }
+            suite_dir = argv[++index];
         } else if (argument == "--help") {
             print_usage(stdout);
             return 0;
@@ -218,6 +272,49 @@ int cmd_stop(int argc, char* argv[]) {
             return exit_usage;
         }
         ++index;
+    }
+
+    if (!config.empty() && !suite_dir.empty()) {
+        std::fprintf(stderr,
+                     "nexigen-run: --config and --suite-dir are mutually exclusive\n");
+        print_usage(stderr);
+        return exit_usage;
+    }
+    if ((!config.empty() || !suite_dir.empty()) && have_dir) {
+        std::fprintf(stderr,
+                     "nexigen-run: suite options cannot be combined with an instance directory\n");
+        print_usage(stderr);
+        return exit_usage;
+    }
+
+    if (!config.empty() || !suite_dir.empty()) {
+        std::string target = suite_dir;
+        if (!config.empty()) {
+            runner::Suite_manifest manifest{};
+            const core::Status loaded =
+                runner::load_suite_manifest(config, manifest);
+            if (!loaded) {
+                std::fprintf(stderr, "nexigen-run: manifest failed: %s\n",
+                             std::string(core::to_string(loaded.error())).c_str());
+                return exit_failure;
+            }
+            target = runner::suite_dir_path(manifest.run_dir, manifest.suite_id);
+        }
+        if (target.empty()) {
+            std::fprintf(stderr, "nexigen-run: missing suite directory\n");
+            print_usage(stderr);
+            return exit_usage;
+        }
+        const std::optional<std::uint64_t> override =
+            grace_set ? std::optional<std::uint64_t>(grace_s) : std::nullopt;
+        const core::Status status = runner::stop_suite(target, override);
+        if (!status) {
+            std::fprintf(stderr, "nexigen-run: suite stop failed: %s\n",
+                         std::string(core::to_string(status.error())).c_str());
+            return exit_failure;
+        }
+        std::fprintf(stdout, "stopped: %s\n", target.c_str());
+        return 0;
     }
 
     if (!have_dir) {
@@ -239,13 +336,36 @@ int cmd_stop(int argc, char* argv[]) {
 
 int cmd_status(int argc, char* argv[]) {
     std::string instance_dir;
+    std::string config;
+    std::string suite_dir;
     bool have_dir = false;
+    bool json_output = false;
 
     for (int index = 2; index < argc; ++index) {
         const std::string_view argument{argv[index]};
         if (argument == "--help") {
             print_usage(stdout);
             return 0;
+        }
+        if (argument == "--config") {
+            if (index + 1 >= argc) {
+                print_usage(stderr);
+                return exit_usage;
+            }
+            config = argv[++index];
+            continue;
+        }
+        if (argument == "--suite-dir") {
+            if (index + 1 >= argc) {
+                print_usage(stderr);
+                return exit_usage;
+            }
+            suite_dir = argv[++index];
+            continue;
+        }
+        if (argument == "--json") {
+            json_output = true;
+            continue;
         }
         if (argument.starts_with("-")) {
             std::fprintf(stderr, "nexigen-run: unknown option '%s'\n",
@@ -260,6 +380,57 @@ int cmd_status(int argc, char* argv[]) {
         }
         instance_dir = argv[index];
         have_dir = true;
+    }
+
+    if (!config.empty() && !suite_dir.empty()) {
+        std::fprintf(stderr,
+                     "nexigen-run: --config and --suite-dir are mutually exclusive\n");
+        print_usage(stderr);
+        return exit_usage;
+    }
+    if ((!config.empty() || !suite_dir.empty()) && have_dir) {
+        std::fprintf(stderr,
+                     "nexigen-run: suite options cannot be combined with an instance directory\n");
+        print_usage(stderr);
+        return exit_usage;
+    }
+
+    if (!config.empty() || !suite_dir.empty()) {
+        std::string target = suite_dir;
+        if (!config.empty()) {
+            runner::Suite_manifest manifest{};
+            const core::Status loaded =
+                runner::load_suite_manifest(config, manifest);
+            if (!loaded) {
+                std::fprintf(stderr, "nexigen-run: manifest failed: %s\n",
+                             std::string(core::to_string(loaded.error())).c_str());
+                return exit_failure;
+            }
+            target = runner::suite_dir_path(manifest.run_dir, manifest.suite_id);
+        }
+        runner::Suite_status status{};
+        const core::Status queried = runner::suite_status(target, status);
+        if (!queried) {
+            std::fprintf(stderr, "nexigen-run: suite status failed: %s\n",
+                         std::string(core::to_string(queried.error())).c_str());
+            return exit_failure;
+        }
+        if (json_output) {
+            nlohmann::json document;
+            runner::to_json(document, status);
+            std::fprintf(stdout, "%s\n", document.dump(2).c_str());
+        } else {
+            std::fprintf(stdout, "suite: %s (restarts used: %u)\n",
+                         std::string(runner::to_string(status.state)).c_str(),
+                         status.suite_restarts_used);
+            for (const runner::Suite_app_status& app : status.apps) {
+                std::fprintf(stdout, "  %s/%s: %s attempt=%u artifact=%s\n",
+                             app.app.c_str(), app.instance.c_str(),
+                             std::string(runner::to_string(app.state)).c_str(),
+                             app.attempt, app.artifact_dir.c_str());
+            }
+        }
+        return 0;
     }
 
     if (!have_dir) {

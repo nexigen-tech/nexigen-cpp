@@ -123,14 +123,27 @@ void from_json(const nlohmann::json& j, Terminated_by& value) noexcept;
 [[nodiscard]] core::Status create_instance_dir(
     std::string_view instance_dir) noexcept;
 
-/// Write the four generated settings files under `<instance_dir>/settings/`.
-///
-/// Each `sink.path` is an absolute path inside `instance_dir`. A path in
-/// `resolved` is used only when it is absolute and lies inside the instance
-/// directory; otherwise the deterministic `<instance_dir>/<stream>.jsonl`
-/// default is written. `log_root_directory` is exactly `instance_dir`.
+/// Create an absolute directory tree (mkdir -p) for runtime artifacts.
+[[nodiscard]] core::Status create_artifact_dir(
+    std::string_view artifact_dir) noexcept;
+
+/// Write the four generated settings files under `<instance_dir>/settings/`
+/// with the instance directory as the stream root.
 [[nodiscard]] core::Status generate_settings(
     std::string_view instance_dir,
+    const app::Telemetry_paths& resolved) noexcept;
+
+/// Write the four generated settings files under `<instance_dir>/settings/`.
+///
+/// `stream_root` is the directory that receives `app.jsonl`, `metrics.jsonl`,
+/// `traces.jsonl`, `chrono.jsonl`, and `stdout.log`/`stderr.log`. Each
+/// `sink.path` is an absolute path inside `stream_root`. A path in `resolved`
+/// is used only when it is absolute and lies inside `stream_root`; otherwise
+/// the deterministic `<stream_root>/<stream>.jsonl` default is written.
+/// `log_root_directory` is exactly `stream_root`.
+[[nodiscard]] core::Status generate_settings(
+    std::string_view instance_dir,
+    std::string_view stream_root,
     const app::Telemetry_paths& resolved) noexcept;
 
 /// Deterministic stream path `<instance_dir>/<file_name>`.

@@ -156,25 +156,25 @@ constexpr std::size_t max_instance_dir_bytes = 511;
     return true;
 }
 
-[[nodiscard]] bool inside_instance_dir(std::string_view path,
-                                       std::string_view instance_dir) noexcept {
+[[nodiscard]] bool inside_stream_root(std::string_view path,
+                                      std::string_view stream_root) noexcept {
     if (path.empty() || path.front() != '/') {
         return false;
     }
-    if (path.size() <= instance_dir.size()) {
+    if (path.size() <= stream_root.size()) {
         return false;
     }
-    return path.compare(0, instance_dir.size(), instance_dir) == 0 &&
-           path[instance_dir.size()] == '/';
+    return path.compare(0, stream_root.size(), stream_root) == 0 &&
+           path[stream_root.size()] == '/';
 }
 
-[[nodiscard]] std::string stream_path(std::string_view instance_dir,
+[[nodiscard]] std::string stream_path(std::string_view stream_root,
                                       std::string_view resolved,
                                       std::string_view file_name) {
-    if (inside_instance_dir(resolved, instance_dir)) {
+    if (inside_stream_root(resolved, stream_root)) {
         return std::string(resolved);
     }
-    return instance_file_path(instance_dir, file_name);
+    return instance_file_path(stream_root, file_name);
 }
 
 } // namespace
@@ -419,12 +419,32 @@ core::Status create_instance_dir(std::string_view instance_dir) noexcept {
     return {};
 }
 
+core::Status create_artifact_dir(std::string_view artifact_dir) noexcept {
+    if (artifact_dir.empty() || artifact_dir.front() != '/' ||
+        artifact_dir.size() > max_instance_dir_bytes) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (!make_directories(artifact_dir)) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return {};
+}
+
 // --- Settings generation ---
 core::Status generate_settings(
     std::string_view instance_dir,
     const app::Telemetry_paths& resolved) noexcept {
+    return generate_settings(instance_dir, instance_dir, resolved);
+}
+
+core::Status generate_settings(
+    std::string_view instance_dir,
+    std::string_view stream_root,
+    const app::Telemetry_paths& resolved) noexcept {
     if (instance_dir.empty() || instance_dir.front() != '/' ||
-        instance_dir.size() > max_instance_dir_bytes) {
+        instance_dir.size() > max_instance_dir_bytes ||
+        stream_root.empty() || stream_root.front() != '/' ||
+        stream_root.size() > max_instance_dir_bytes) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 
@@ -437,17 +457,17 @@ core::Status generate_settings(
     };
 
     const std::string app_log =
-        instance_file_path(instance_dir, "app.jsonl");
+        instance_file_path(stream_root, "app.jsonl");
     const std::string metrics_log =
-        stream_path(instance_dir, resolved.metrics, "metrics.jsonl");
+        stream_path(stream_root, resolved.metrics, "metrics.jsonl");
     const std::string traces_log =
-        stream_path(instance_dir, resolved.traces, "traces.jsonl");
+        stream_path(stream_root, resolved.traces, "traces.jsonl");
     const std::string chrono_log =
-        stream_path(instance_dir, resolved.chrono, "chrono.jsonl");
+        stream_path(stream_root, resolved.chrono, "chrono.jsonl");
 
     {
         nlohmann::json document = {
-            {"log_root_directory", std::string(instance_dir)},
+            {"log_root_directory", std::string(stream_root)},
             {"app_name", "nexigen"},
             {"initial_log_level", "info"},
             {"sink", {{"path", app_log}, {"append", true}}},
