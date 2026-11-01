@@ -13,8 +13,11 @@
 #include <nexigen/hub/http_server.hpp>
 #include <nexigen/hub/streaming.hpp>
 
+#include "detail/cli.hpp"
+
 namespace core = nexigen::core;
 namespace hub = nexigen::hub;
+namespace tools = nexigen::tools;
 
 namespace {
 
@@ -41,25 +44,6 @@ void hub_diagnostic(void* context, std::string_view message) noexcept {
     static_cast<void>(context);
     std::fprintf(stderr, "nexigen-hub: %.*s\n",
                  static_cast<int>(message.size()), message.data());
-}
-
-[[nodiscard]] bool parse_u64(std::string_view text, std::uint64_t& out) noexcept {
-    if (text.empty()) {
-        return false;
-    }
-    std::uint64_t value = 0;
-    for (const char c : text) {
-        if (c < '0' || c > '9') {
-            return false;
-        }
-        const std::uint64_t digit = static_cast<std::uint64_t>(c - '0');
-        if (value > (UINT64_MAX - digit) / 10ULL) {
-            return false;
-        }
-        value = value * 10ULL + digit;
-    }
-    out = value;
-    return true;
 }
 
 } // namespace
@@ -98,19 +82,19 @@ int main(int argc, char* argv[]) {
             }
         } else if (argument == "--ring-records") {
             std::string text;
-            if (!value(text) || !parse_u64(text, ring_records)) {
+            if (!value(text) || !tools::parse_u64(text, ring_records)) {
                 print_usage(stderr);
                 return 2;
             }
         } else if (argument == "--ring-bytes") {
             std::string text;
-            if (!value(text) || !parse_u64(text, ring_bytes)) {
+            if (!value(text) || !tools::parse_u64(text, ring_bytes)) {
                 print_usage(stderr);
                 return 2;
             }
         } else if (argument == "--max-line-bytes") {
             std::string text;
-            if (!value(text) || !parse_u64(text, max_line_bytes)) {
+            if (!value(text) || !tools::parse_u64(text, max_line_bytes)) {
                 print_usage(stderr);
                 return 2;
             }

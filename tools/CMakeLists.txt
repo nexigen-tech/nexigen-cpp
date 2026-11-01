@@ -1,6 +1,7 @@
 # nexigen-run binary — links nexigen_runner + nexigen_app + nexigen_core.
 add_executable(nexigen-run nexigen-run/main.cpp)
 target_link_libraries(nexigen-run PRIVATE nexigen_runner nexigen_app Threads::Threads)
+target_include_directories(nexigen-run PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_test(NAME nexigen_run_help COMMAND nexigen-run --help)
 set_tests_properties(nexigen_run_help PROPERTIES
@@ -8,6 +9,7 @@ set_tests_properties(nexigen_run_help PROPERTIES
 # nexigen-hub — local observatory CLI.
 add_executable(nexigen-hub nexigen-hub/main.cpp)
 target_link_libraries(nexigen-hub PRIVATE nexigen_hub Threads::Threads)
+target_include_directories(nexigen-hub PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_test(NAME nexigen_hub_help COMMAND nexigen-hub --help)
 set_tests_properties(nexigen_hub_help PROPERTIES

@@ -15,10 +15,13 @@
 #include <nexigen/runner/runner.hpp>
 #include <nexigen/runner/runner_logging.hpp>
 
+#include "detail/cli.hpp"
+
 namespace app = nexigen::app;
 namespace core = nexigen::core;
 namespace logging = nexigen::logging;
 namespace runner = nexigen::runner;
+namespace tools = nexigen::tools;
 
 namespace {
 
@@ -40,26 +43,6 @@ void print_usage(std::FILE* out) {
 Environment variables NEXIGEN_RUN_ID, NEXIGEN_RUN_DIR, NEXIGEN_APP_NAME,
 NEXIGEN_INSTANCE_ID, and NEXIGEN_INSTANCE_DIR are start-time defaults.
 )");
-}
-
-[[nodiscard]] bool parse_uint(std::string_view text, std::uint64_t& out) noexcept {
-    if (text.empty()) {
-        return false;
-    }
-    std::uint64_t value = 0;
-    for (const char character : text) {
-        if (character < '0' || character > '9') {
-            return false;
-        }
-        const std::uint64_t digit =
-            static_cast<std::uint64_t>(character - '0');
-        if (value > (UINT64_MAX - digit) / 10ULL) {
-            return false;
-        }
-        value = value * 10ULL + digit;
-    }
-    out = value;
-    return true;
 }
 
 [[nodiscard]] std::string derived_instance_dir(const app::RunIdentity& identity) {
@@ -254,7 +237,7 @@ int cmd_start(int argc, char* argv[]) {
             }
         } else if (argument == "--timeout") {
             std::string value;
-            if (!take_value(value) || !parse_uint(value, timeout_s)) {
+            if (!take_value(value) || !tools::parse_u64(value, timeout_s)) {
                 print_usage(stderr);
                 return exit_usage;
             }
@@ -378,7 +361,7 @@ int cmd_stop(int argc, char* argv[]) {
             }
             ++index;
             value = argv[index];
-            if (!parse_uint(value, grace_s)) {
+            if (!tools::parse_u64(value, grace_s)) {
                 print_usage(stderr);
                 return exit_usage;
             }
