@@ -26,6 +26,7 @@
 #include <nexigen/metrics/concepts/metric_concept.hpp>
 #include <nexigen/metrics/detail/layout.hpp>
 #include <nexigen/metrics/detail/probes.hpp>
+#include <nexigen/metrics/detail/sharded_scalar.hpp>
 #include <nexigen/metrics/detail/thread_slot.hpp>
 #include <nexigen/metrics/metric_snapshot.hpp>
 #include <nexigen/metrics/policy_enums.hpp>
@@ -47,10 +48,8 @@ struct alignas(64) CounterCell {
 };
 
 /// Multi-threaded counter shard: 64-byte aligned atomic cell.
-struct alignas(64) CounterShard {
-    std::atomic<std::uint64_t> value{0};
-};
-static_assert(sizeof(CounterShard) == 64, "a counter shard owns exactly one cache line");
+static_assert(sizeof(detail::ScalarShard<std::uint64_t>) == 64,
+              "a counter shard owns exactly one cache line");
 
 /// Counter storage selected by the concurrency policy.
 template <ConcurrencyPolicy Concurrency, ResetPolicy Reset>
@@ -78,35 +77,8 @@ private:
 };
 
 template <ResetPolicy Reset>
-class CounterStorage<ConcurrencyPolicy::MultiThreaded, Reset> {
-public:
-    void add(std::uint64_t delta) noexcept {
-        shards_[detail::thread_slot(MetricKind::Counter)].value.fetch_add(delta, std::memory_order_relaxed);
-    }
-
-    [[nodiscard]] std::uint64_t observe() const noexcept {
-        std::uint64_t total = 0;
-        for (const auto& shard : shards_) {
-            total += shard.value.load(std::memory_order_relaxed);
-        }
-        return total;
-    }
-
-    [[nodiscard]] std::uint64_t take() const noexcept {
-        std::uint64_t total = 0;
-        for (auto& shard : shards_) {
-            if constexpr (Reset == ResetPolicy::ResetOnRead) {
-                total += shard.value.exchange(0, std::memory_order_relaxed);
-            } else {
-                total += shard.value.load(std::memory_order_relaxed);
-            }
-        }
-        return total;
-    }
-
-private:
-    mutable CounterShard shards_[shard_count]{};
-};
+class CounterStorage<ConcurrencyPolicy::MultiThreaded, Reset>
+    : public detail::ShardedScalar<std::uint64_t, MetricKind::Counter, Reset> {};
 
 } // namespace detail
 

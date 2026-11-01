@@ -105,6 +105,18 @@ public:
 private:
     friend class MetricProvider;
 
+    /// Shared factory prologue (defined in metric_provider.hpp): lock the
+    /// harvest mutex, resolve the meter identity, copy the metric name,
+    /// reserve a registry slot, placement-construct the instrument via
+    /// `construct` (which also runs instrument-specific init such as
+    /// install_bounds), and wire the instrument's identity. `construct` is
+    /// invoked on the reserved object and must return the typed pointer.
+    template <class Instrument, class Construct>
+    core::Result<Instrument*> create_instrument(
+        MetricKind kind, std::string_view name,
+        ConcurrencyPolicy concurrency, AccessPolicy access, ResetPolicy reset,
+        Construct&& construct);
+
     Meter() = default;
 
     MetricProvider* provider_{nullptr};

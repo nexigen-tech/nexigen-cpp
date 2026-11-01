@@ -189,9 +189,11 @@ private:
 // --- Meter creation methods (defined here: they need the complete provider).
 namespace nexigen::metrics {
 
-template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
-core::Result<Counter<Concurrency, Access, Reset>*>
-Meter::create_counter(std::string_view name) {
+template <class Instrument, class Construct>
+core::Result<Instrument*> Meter::create_instrument(
+    MetricKind kind, std::string_view name,
+    ConcurrencyPolicy concurrency, AccessPolicy access, ResetPolicy reset,
+    Construct&& construct) {
     // Publish the slot under the harvest lock (design D11): construction and
     // occupancy happen-before the background harvester can observe them.
     std::lock_guard<std::mutex> lock(provider_->harvest_mutex_);
@@ -202,74 +204,56 @@ Meter::create_counter(std::string_view name) {
     }
     void* object = nullptr;
     MetricProvider::SlotMeta* meta = nullptr;
-    using Instrument = Counter<Concurrency, Access, Reset>;
     const core::Status reserved =
-        provider_->reserve_slot(MetricKind::Counter, sizeof(Instrument), identity, Concurrency,
-                                Access, Reset, &Instrument::harvest_thunk,
-                                &Instrument::destroy_thunk, object, meta);
+        provider_->reserve_slot(kind, sizeof(Instrument), identity, concurrency, access, reset,
+                                &Instrument::harvest_thunk, &Instrument::destroy_thunk,
+                                object, meta);
     if (!reserved) {
         return std::unexpected(reserved.error());
     }
-    auto* instrument = new (object) Instrument(MeterPasskey{});
+    Instrument* instrument = construct(object);
     instrument->identity_ = &meta->identity;
     return instrument;
+}
+
+template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
+core::Result<Counter<Concurrency, Access, Reset>*>
+Meter::create_counter(std::string_view name) {
+    using Instrument = Counter<Concurrency, Access, Reset>;
+    return create_instrument<Instrument>(
+        MetricKind::Counter, name, Concurrency, Access, Reset,
+        [](void* object) -> Instrument* {
+            return new (object) Instrument(MeterPasskey{});
+        });
 }
 
 template <typename ValueType, ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
 core::Result<Gauge<ValueType, Concurrency, Access, Reset>*>
 Meter::create_gauge(std::string_view name) {
-    // Publish under the harvest lock (design D11).
-    std::lock_guard<std::mutex> lock(provider_->harvest_mutex_);
-    MetricIdentity identity{};
-    detail::copy_meter_identity(identity, identity_);
-    if (!detail::copy_name(identity.metric_name, name)) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    void* object = nullptr;
-    MetricProvider::SlotMeta* meta = nullptr;
     using Instrument = Gauge<ValueType, Concurrency, Access, Reset>;
-    const core::Status reserved =
-        provider_->reserve_slot(MetricKind::Gauge, sizeof(Instrument), identity, Concurrency, Access,
-                                Reset, &Instrument::harvest_thunk, &Instrument::destroy_thunk, object,
-                                meta);
-    if (!reserved) {
-        return std::unexpected(reserved.error());
-    }
-    auto* instrument = new (object) Instrument(MeterPasskey{});
-    instrument->identity_ = &meta->identity;
-    return instrument;
+    return create_instrument<Instrument>(
+        MetricKind::Gauge, name, Concurrency, Access, Reset,
+        [](void* object) -> Instrument* {
+            return new (object) Instrument(MeterPasskey{});
+        });
 }
 
 template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
 core::Result<DescriptiveStatistics<Concurrency, Access, Reset>*>
 Meter::create_statistics(std::string_view name) {
-    // Publish under the harvest lock (design D11).
-    std::lock_guard<std::mutex> lock(provider_->harvest_mutex_);
-    MetricIdentity identity{};
-    detail::copy_meter_identity(identity, identity_);
-    if (!detail::copy_name(identity.metric_name, name)) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    void* object = nullptr;
-    MetricProvider::SlotMeta* meta = nullptr;
     using Instrument = DescriptiveStatistics<Concurrency, Access, Reset>;
-    const core::Status reserved =
-        provider_->reserve_slot(MetricKind::DescriptiveStatistics, sizeof(Instrument), identity,
-                                Concurrency, Access, Reset, &Instrument::harvest_thunk,
-                                &Instrument::destroy_thunk, object, meta);
-    if (!reserved) {
-        return std::unexpected(reserved.error());
-    }
-    auto* instrument = new (object) Instrument(MeterPasskey{});
-    instrument->identity_ = &meta->identity;
-    return instrument;
+    return create_instrument<Instrument>(
+        MetricKind::DescriptiveStatistics, name, Concurrency, Access, Reset,
+        [](void* object) -> Instrument* {
+            return new (object) Instrument(MeterPasskey{});
+        });
 }
 
 template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
 core::Result<ExplicitBucketHistogram<Concurrency, Access, Reset>*>
 Meter::create_explicit_histogram(std::string_view name, std::span<const double> bounds) {
-    // Publish under the harvest lock (design D11).
-    std::lock_guard<std::mutex> lock(provider_->harvest_mutex_);
+    // Validate the bounds before touching the registry (no lock needed — the
+    // span is caller-owned and read-only).
     if (bounds.empty() || bounds.size() > detail::max_explicit_bounds) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
@@ -281,53 +265,28 @@ Meter::create_explicit_histogram(std::string_view name, std::span<const double> 
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
     }
-    MetricIdentity identity{};
-    detail::copy_meter_identity(identity, identity_);
-    if (!detail::copy_name(identity.metric_name, name)) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    void* object = nullptr;
-    MetricProvider::SlotMeta* meta = nullptr;
     using Instrument = ExplicitBucketHistogram<Concurrency, Access, Reset>;
-    const core::Status reserved =
-        provider_->reserve_slot(MetricKind::ExplicitHistogram, sizeof(Instrument), identity,
-                                Concurrency, Access, Reset, &Instrument::harvest_thunk,
-                                &Instrument::destroy_thunk, object, meta);
-    if (!reserved) {
-        return std::unexpected(reserved.error());
-    }
-    auto* instrument = new (object) Instrument(MeterPasskey{});
-    instrument->install_bounds(bounds.data(), static_cast<std::uint32_t>(bounds.size()));
-    instrument->identity_ = &meta->identity;
-    return instrument;
+    return create_instrument<Instrument>(
+        MetricKind::ExplicitHistogram, name, Concurrency, Access, Reset,
+        [bounds](void* object) -> Instrument* {
+            auto* instrument = new (object) Instrument(MeterPasskey{});
+            instrument->install_bounds(bounds.data(), static_cast<std::uint32_t>(bounds.size()));
+            return instrument;
+        });
 }
 
 template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
 core::Result<ExponentialHistogram<Concurrency, Access, Reset>*>
 Meter::create_exponential_histogram(std::string_view name, std::int32_t scale) {
-    // Publish under the harvest lock (design D11).
-    std::lock_guard<std::mutex> lock(provider_->harvest_mutex_);
     if (scale < 0 || scale > detail::max_exponential_scale) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    MetricIdentity identity{};
-    detail::copy_meter_identity(identity, identity_);
-    if (!detail::copy_name(identity.metric_name, name)) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    void* object = nullptr;
-    MetricProvider::SlotMeta* meta = nullptr;
     using Instrument = ExponentialHistogram<Concurrency, Access, Reset>;
-    const core::Status reserved =
-        provider_->reserve_slot(MetricKind::ExponentialHistogram, sizeof(Instrument), identity,
-                                Concurrency, Access, Reset, &Instrument::harvest_thunk,
-                                &Instrument::destroy_thunk, object, meta);
-    if (!reserved) {
-        return std::unexpected(reserved.error());
-    }
-    auto* instrument = new (object) Instrument(MeterPasskey{}, scale);
-    instrument->identity_ = &meta->identity;
-    return instrument;
+    return create_instrument<Instrument>(
+        MetricKind::ExponentialHistogram, name, Concurrency, Access, Reset,
+        [scale](void* object) -> Instrument* {
+            return new (object) Instrument(MeterPasskey{}, scale);
+        });
 }
 
 } // namespace nexigen::metrics

@@ -24,6 +24,7 @@
 #include <nexigen/metrics/concepts/metric_concept.hpp>
 #include <nexigen/metrics/detail/layout.hpp>
 #include <nexigen/metrics/detail/probes.hpp>
+#include <nexigen/metrics/detail/sharded_scalar.hpp>
 #include <nexigen/metrics/detail/thread_slot.hpp>
 #include <nexigen/metrics/metric_snapshot.hpp>
 #include <nexigen/metrics/policy_enums.hpp>
@@ -38,12 +39,6 @@ class Gauge;
 class MeterPasskey;
 
 namespace detail {
-
-/// Multi-threaded gauge shard: 64-byte aligned atomic cell.
-template <typename ValueType>
-struct alignas(64) GaugeShard {
-    std::atomic<ValueType> value{0};
-};
 
 /// Gauge storage selected by the concurrency policy.
 template <typename ValueType, ConcurrencyPolicy Concurrency, ResetPolicy Reset>
@@ -72,44 +67,15 @@ private:
 };
 
 template <typename ValueType, ResetPolicy Reset>
-class GaugeStorage<ValueType, ConcurrencyPolicy::MultiThreaded, Reset> {
+class GaugeStorage<ValueType, ConcurrencyPolicy::MultiThreaded, Reset>
+    : public detail::ShardedScalar<ValueType, MetricKind::Gauge, Reset> {
 public:
     void set(ValueType value) noexcept {
         // Move the aggregate to `value`: apply the difference to the caller's
         // own shard (a control-plane operation — one pass over the shards).
-        const ValueType delta = static_cast<ValueType>(value - aggregate());
-        shards_[detail::thread_slot(MetricKind::Gauge)].value.fetch_add(delta, std::memory_order_relaxed);
+        const ValueType delta = static_cast<ValueType>(value - this->observe());
+        this->add(delta);
     }
-
-    void add(ValueType delta) noexcept {
-        shards_[detail::thread_slot(MetricKind::Gauge)].value.fetch_add(delta, std::memory_order_relaxed);
-    }
-
-    [[nodiscard]] ValueType aggregate() const noexcept {
-        ValueType total{};
-        for (const auto& shard : shards_) {
-            total = static_cast<ValueType>(total + shard.value.load(std::memory_order_relaxed));
-        }
-        return total;
-    }
-
-    [[nodiscard]] ValueType observe() const noexcept { return aggregate(); }
-
-    [[nodiscard]] ValueType take() const noexcept {
-        ValueType total{};
-        for (auto& shard : shards_) {
-            if constexpr (Reset == ResetPolicy::ResetOnRead) {
-                total = static_cast<ValueType>(
-                    total + shard.value.exchange(ValueType{0}, std::memory_order_relaxed));
-            } else {
-                total = static_cast<ValueType>(total + shard.value.load(std::memory_order_relaxed));
-            }
-        }
-        return total;
-    }
-
-private:
-    mutable GaugeShard<ValueType> shards_[shard_count]{};
 };
 
 } // namespace detail
