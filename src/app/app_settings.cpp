@@ -175,8 +175,8 @@ void read_sink_uint(const nlohmann::json& sink, const char* key, std::uint64_t& 
 
 } // namespace
 
-std::string Metrics_settings::to_string() const {
-    std::string out = "Metrics_settings(global_loaded=" +
+std::string MetricsSettings::to_string() const {
+    std::string out = "MetricsSettings(global_loaded=" +
                       std::string(global_loaded ? "true" : "false") +
                       ", local_loaded=" + std::string(local_loaded ? "true" : "false") +
                       ", options=" + nexigen::metrics::to_string(options) +
@@ -192,8 +192,8 @@ std::string Metrics_settings::to_string() const {
     return out;
 }
 
-std::string Tracing_settings::to_string() const {
-    std::string out = "Tracing_settings(global_loaded=" +
+std::string TracingSettings::to_string() const {
+    std::string out = "TracingSettings(global_loaded=" +
                       std::string(global_loaded ? "true" : "false") +
                       ", local_loaded=" + std::string(local_loaded ? "true" : "false") +
                       ", options=" + nexigen::tracing::to_string(options) +
@@ -209,19 +209,19 @@ std::string Tracing_settings::to_string() const {
     return out;
 }
 
-std::string App_settings_paths::to_string() const {
-    return "App_settings_paths(logging=" + logging.to_string() +
+std::string AppSettingsPaths::to_string() const {
+    return "AppSettingsPaths(logging=" + logging.to_string() +
            ", metrics=" + metrics.to_string() + ", tracing=" + tracing.to_string() +
            ", chrono=" + chrono.to_string() + ")";
 }
 
-std::string App_settings::to_string() const {
-    return "App_settings(logging=" + logging.to_string() +
+std::string AppSettings::to_string() const {
+    return "AppSettings(logging=" + logging.to_string() +
            ", metrics=" + metrics.to_string() + ", tracing=" + tracing.to_string() +
            ", chrono=" + chrono.to_string() + ")";
 }
 
-void to_json(nlohmann::json& j, const Metrics_settings& settings) {
+void to_json(nlohmann::json& j, const MetricsSettings& settings) {
     const metrics::MetricProvider_config& options = settings.options;
     nlohmann::json diagnostics = nlohmann::json::array();
     for (const Settings_diagnostic& diag : settings.diagnostics) {
@@ -244,7 +244,7 @@ void to_json(nlohmann::json& j, const Metrics_settings& settings) {
                        {"diagnostics", std::move(diagnostics)}};
 }
 
-void to_json(nlohmann::json& j, const Tracing_settings& settings) {
+void to_json(nlohmann::json& j, const TracingSettings& settings) {
     const tracing::TracerProvider_config& options = settings.options;
     nlohmann::json diagnostics = nlohmann::json::array();
     for (const Settings_diagnostic& diag : settings.diagnostics) {
@@ -267,7 +267,7 @@ void to_json(nlohmann::json& j, const Tracing_settings& settings) {
                        {"diagnostics", std::move(diagnostics)}};
 }
 
-void to_json(nlohmann::json& j, const App_settings_paths& paths) {
+void to_json(nlohmann::json& j, const AppSettingsPaths& paths) {
     j = nlohmann::json{{"logging", nlohmann::json{{"global_file", paths.logging.global_file},
                                                   {"local_file", paths.logging.local_file}}},
                        {"metrics", nlohmann::json{{"global_file", paths.metrics.global_file},
@@ -278,7 +278,7 @@ void to_json(nlohmann::json& j, const App_settings_paths& paths) {
                                                  {"local_file", paths.chrono.local_file}}}};
 }
 
-void to_json(nlohmann::json& j, const App_settings& settings) {
+void to_json(nlohmann::json& j, const AppSettings& settings) {
     nlohmann::json logging_json;
     to_json(logging_json, settings.logging);
     nlohmann::json metrics_json;
@@ -296,7 +296,7 @@ void to_json(nlohmann::json& j, const App_settings& settings) {
 namespace {
 
 void merge_metrics_sink(const nlohmann::json& document, logging::Settings_source source,
-                        Metrics_settings& out) {
+                        MetricsSettings& out) {
     const nlohmann::json* const sink = find_sink(document, out.diagnostics, source);
     if (sink == nullptr) {
         return;
@@ -306,7 +306,7 @@ void merge_metrics_sink(const nlohmann::json& document, logging::Settings_source
 }
 
 void merge_tracing_sink(const nlohmann::json& document, logging::Settings_source source,
-                        Tracing_settings& out) {
+                        TracingSettings& out) {
     const nlohmann::json* const sink = find_sink(document, out.diagnostics, source);
     if (sink == nullptr) {
         return;
@@ -336,7 +336,7 @@ void merge_tracing_sink(const nlohmann::json& document, logging::Settings_source
 
 void merge_metrics_document(const nlohmann::json& document,
                             logging::Settings_source source,
-                            Metrics_settings& out) {
+                            MetricsSettings& out) {
     if (!document.is_object()) {
         add_diagnostic(out.diagnostics, source, "", "document is not a JSON object");
         return;
@@ -375,7 +375,7 @@ void merge_metrics_document(const nlohmann::json& document,
 
 void merge_tracing_document(const nlohmann::json& document,
                             logging::Settings_source source,
-                            Tracing_settings& out) {
+                            TracingSettings& out) {
     if (!document.is_object()) {
         add_diagnostic(out.diagnostics, source, "", "document is not a JSON object");
         return;
@@ -411,7 +411,7 @@ void merge_tracing_document(const nlohmann::json& document,
     return value == nullptr ? std::string_view{} : std::string_view{value};
 }
 
-void apply_metrics_environment(Metrics_settings& out) {
+void apply_metrics_environment(MetricsSettings& out) {
     std::string_view value = env_value("NEXIGEN_METRICS_COLLECT_INTERVAL_NS");
     if (!value.empty()) {
         std::uint64_t parsed = 0;
@@ -435,7 +435,7 @@ void apply_metrics_environment(Metrics_settings& out) {
     }
 }
 
-void apply_tracing_environment(Tracing_settings& out) {
+void apply_tracing_environment(TracingSettings& out) {
     std::string_view value = env_value("NEXIGEN_TRACING_CORE_MASK");
     if (!value.empty()) {
         std::uint64_t parsed = 0;
@@ -481,8 +481,8 @@ void apply_tracing_environment(Tracing_settings& out) {
 } // namespace
 
 core::Status load_metrics_settings(const Settings_paths& paths,
-                                   Metrics_settings& out) noexcept {
-    out = Metrics_settings{};
+                                   MetricsSettings& out) noexcept {
+    out = MetricsSettings{};
     bool invalid = false;
     bool system_error = false;
     std::string text;
@@ -540,8 +540,8 @@ core::Status load_metrics_settings(const Settings_paths& paths,
 }
 
 core::Status load_tracing_settings(const Settings_paths& paths,
-                                   Tracing_settings& out) noexcept {
-    out = Tracing_settings{};
+                                   TracingSettings& out) noexcept {
+    out = TracingSettings{};
     bool invalid = false;
     bool system_error = false;
     std::string text;
@@ -598,9 +598,9 @@ core::Status load_tracing_settings(const Settings_paths& paths,
     return {};
 }
 
-core::Status load_app_settings(const App_settings_paths& paths,
-                               App_settings& out) noexcept {
-    out = App_settings{};
+core::Status load_app_settings(const AppSettingsPaths& paths,
+                               AppSettings& out) noexcept {
+    out = AppSettings{};
     const core::Status logging_status =
         logging::load_logging_settings(paths.logging, out.logging);
     const core::Status metrics_status = load_metrics_settings(paths.metrics, out.metrics);

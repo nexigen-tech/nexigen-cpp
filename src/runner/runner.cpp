@@ -30,6 +30,7 @@
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/core/detail/fault_injection.hpp>
 #include <nexigen/logging/logger_options.hpp>
+#include <nexigen/runner/detail/sys_helpers.hpp>
 #include <nexigen/runner/runner.hpp>
 #include <nexigen/runner/runner_logging.hpp>
 
@@ -37,10 +38,19 @@
 
 namespace nexigen::runner {
 
+using detail::file_exists;
+using detail::group_alive;
+using detail::monotonic_now_ns;
+using detail::nanoseconds_per_second;
+using detail::process_alive;
+using detail::read_all;
+using detail::sleep_ms;
+using detail::StartReport;
+using detail::write_all;
+
 namespace {
 
 constexpr std::size_t max_instance_dir_bytes = 511;
-constexpr std::uint64_t nanoseconds_per_second = 1'000'000'000ULL;
 
 /// Flush coverage counters before a forked child leaves the process image.
 [[noreturn]] void child_exit(int code) noexcept {
@@ -50,109 +60,6 @@ constexpr std::uint64_t nanoseconds_per_second = 1'000'000'000ULL;
 constexpr std::uint64_t timeout_grace_seconds = 5;
 constexpr std::uint64_t stop_settle_seconds = 5;
 constexpr std::uint64_t poll_interval_ms = 20;
-
-/// Handshake message written by the supervisor before it starts reaping.
-struct Start_report {
-    std::int32_t pid{0};
-    std::int32_t error{0};
-};
-
-[[nodiscard]] std::uint64_t monotonic_now_ns() noexcept {
-    const core::Result<nexigen::chrono::Timestamp> now =
-        nexigen::chrono::Timestamp::now();
-    return now ? now->nanoseconds() : 0;
-}
-
-void sleep_ms(std::uint64_t milliseconds) noexcept {
-    ::timespec request{};
-    request.tv_sec = static_cast<time_t>(milliseconds / 1000ULL);
-    request.tv_nsec =
-        static_cast<long>((milliseconds % 1000ULL) * 1'000'000ULL);
-    while (::nanosleep(&request, &request) != 0 && errno == EINTR) {
-    }
-}
-
-[[nodiscard]] bool write_all(int fd, const void* data,
-                             std::size_t size) noexcept {
-    const auto* bytes = static_cast<const char*>(data);
-    std::size_t written = 0;
-    while (written < size) {
-        const ssize_t count = ::write(fd, bytes + written, size - written);
-        if (count <= 0) {
-            if (count < 0 && errno == EINTR) {
-                continue;
-            }
-            return false;
-        }
-        written += static_cast<std::size_t>(count);
-    }
-    return true;
-}
-
-[[nodiscard]] bool read_all(int fd, void* data, std::size_t size) noexcept {
-    auto* bytes = static_cast<char*>(data);
-    std::size_t read_bytes = 0;
-    while (read_bytes < size) {
-        const ssize_t count = ::read(fd, bytes + read_bytes, size - read_bytes);
-        if (count == 0) {
-            return false;
-        }
-        if (count < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            return false;
-        }
-        read_bytes += static_cast<std::size_t>(count);
-    }
-    return true;
-}
-
-[[nodiscard]] bool file_exists(std::string_view path) noexcept {
-    const std::string name(path);
-    return ::access(name.c_str(), F_OK) == 0;
-}
-
-/// True when the PID exists and is not a zombie. `/proc/<pid>/stat` is used
-/// after the kill probe so a reaped child is not mistaken for a live one.
-[[nodiscard]] bool process_alive(std::int32_t pid) noexcept {
-    if (pid <= 0) {
-        return false;
-    }
-    if (::kill(static_cast<pid_t>(pid), 0) != 0 && errno != EPERM) {
-        return false;
-    }
-    char path[64]{};
-    static_cast<void>(
-        std::snprintf(path, sizeof(path), "/proc/%d/stat", pid));
-    const int fd = ::open(path, O_RDONLY | O_CLOEXEC);
-    if (fd < 0) {
-        return true;
-    }
-    char buffer[512]{};
-    const ssize_t count = ::read(fd, buffer, sizeof(buffer) - 1);
-    static_cast<void>(::close(fd));
-    if (count <= 0) {
-        return true;
-    }
-    buffer[count] = '\0';
-    const char* const last_paren = std::strrchr(buffer, ')');
-    if (last_paren == nullptr || last_paren[1] != ' ') {
-        return true;
-    }
-    const char state = last_paren[2];
-    return state != 'Z' && state != 'X' && state != 'x';
-}
-
-[[nodiscard]] bool group_alive(std::int32_t pgid) noexcept {
-    if (pgid <= 0) {
-        return false;
-    }
-    if (::kill(-static_cast<pid_t>(pgid), 0) == 0) {
-        return true;
-    }
-    return errno == EPERM;
-}
 
 /// Create (or truncate) then reopen a log file in append mode. The truncation
 /// happens on every start, as required by the spec.
@@ -179,7 +86,7 @@ constexpr std::size_t max_path_bytes = 511;
 }
 
 [[nodiscard]] core::Status validate_start_options(
-    const Start_options& options) noexcept {
+    const StartOptions& options) noexcept {
     if (!options.artifact_dir.empty() &&
         (!absolute_path(options.artifact_dir) ||
          options.artifact_dir.size() > max_path_bytes)) {
@@ -237,11 +144,11 @@ constexpr std::size_t max_path_bytes = 511;
 
 [[nodiscard]] core::Status write_suite_settings(
     std::string_view instance_dir, std::string_view stream_root,
-    const Start_options& options, const app::Run_identity& identity) noexcept {
-    app::App_settings settings{};
+    const StartOptions& options, const app::RunIdentity& identity) noexcept {
+    app::AppSettings settings{};
     if (!options.global_settings_dir.empty() ||
         !options.local_settings_dir.empty()) {
-        app::App_settings_paths paths{};
+        app::AppSettingsPaths paths{};
         auto make_pair = [](std::string_view global, std::string_view local,
                             const char* name) {
             logging::Settings_paths entry{};
@@ -396,33 +303,33 @@ struct Supervise_result {
     return result;
 }
 
-[[nodiscard]] Terminated_by attribution(bool runner_stopped, bool reaped,
+[[nodiscard]] TerminatedBy attribution(bool runner_stopped, bool reaped,
                                         int status) noexcept {
     if (runner_stopped) {
-        return Terminated_by::Runner;
+        return TerminatedBy::Runner;
     }
     if (!reaped) {
-        return Terminated_by::Unknown;
+        return TerminatedBy::Unknown;
     }
     if (WIFEXITED(status)) {
-        return Terminated_by::Self;
+        return TerminatedBy::Self;
     }
     if (WIFSIGNALED(status)) {
         const int signal_number = WTERMSIG(status);
         if (signal_number == SIGTERM || signal_number == SIGKILL) {
-            return Terminated_by::Runner;
+            return TerminatedBy::Runner;
         }
     }
-    return Terminated_by::Unknown;
+    return TerminatedBy::Unknown;
 }
 
 void rewrite_terminated_by(const std::string& exit_path,
-                           Terminated_by value) noexcept {
+                           TerminatedBy value) noexcept {
     core::Result<nlohmann::json> document = read_json_file(exit_path);
     if (!document) {
         return;
     }
-    Exit_metadata metadata{};
+    ExitMetadata metadata{};
     from_json(*document, metadata);
     metadata.terminated_by = value;
     nlohmann::json updated;
@@ -431,16 +338,16 @@ void rewrite_terminated_by(const std::string& exit_path,
 }
 
 void write_fallback_exit(const std::string& exit_path,
-                         const Resource_metadata& resource,
+                         const ResourceMetadata& resource,
                          std::optional<std::int32_t> signal_number,
-                         Terminated_by attribution_value) noexcept {
+                         TerminatedBy attribution_value) noexcept {
     const std::uint64_t now = monotonic_now_ns();
     std::uint64_t uptime = 0;
     if (now != 0 && resource.start_time_mono_ns != 0 &&
         now >= resource.start_time_mono_ns) {
         uptime = (now - resource.start_time_mono_ns) / nanoseconds_per_second;
     }
-    Exit_metadata metadata;
+    ExitMetadata metadata;
     metadata.signal = signal_number;
     metadata.uptime_s = uptime;
     metadata.terminated_by = attribution_value;
@@ -456,16 +363,16 @@ void reap_child(pid_t child) noexcept {
 }
 
 struct Start_layout {
-    app::Run_identity resolved{};
+    app::RunIdentity resolved{};
     std::string instance_dir{};
     std::string stream_root{};
     std::string exit_path{};
 };
 
 [[nodiscard]] core::Status resolve_start_layout(
-    const app::Run_identity& identity, const Start_options& options,
+    const app::RunIdentity& identity, const StartOptions& options,
     Start_layout& out) noexcept {
-    app::Run_identity resolved = identity;
+    app::RunIdentity resolved = identity;
     if (resolved.instance_dir.empty()) {
         if (resolved.run_dir.empty() || resolved.app_name.empty() ||
             resolved.instance_id.empty()) {
@@ -506,7 +413,7 @@ struct Start_layout {
 }
 
 [[nodiscard]] core::Status prepare_start_layout(
-    const Start_layout& layout, const Start_options& options) noexcept {
+    const Start_layout& layout, const StartOptions& options) noexcept {
     const core::Status created = create_instance_dir(layout.instance_dir);
     if (!created) {
         return created;
@@ -519,7 +426,7 @@ struct Start_layout {
         }
     }
 
-    app::Telemetry_paths resolved_paths{};
+    app::TelemetryPaths resolved_paths{};
     const core::Status paths_status = app::resolve_telemetry_paths(
         layout.resolved, "", "", "", resolved_paths);
     if (!paths_status) {
@@ -596,13 +503,13 @@ struct Supervisor_context {
     int stdout_fd{-1};
     int stderr_fd{-1};
     int null_fd{-1};
-    const Start_options* options{nullptr};
-    const app::Run_identity* resolved{nullptr};
+    const StartOptions* options{nullptr};
+    const app::RunIdentity* resolved{nullptr};
     const std::string* instance_dir{nullptr};
-    const std::vector<char*>* argv{nullptr};
+    const std::vector<const char*>* argv{nullptr};
     std::uint64_t timeout_s{0};
     std::string log_level{};
-    Resource_metadata metadata{};
+    ResourceMetadata metadata{};
 };
 
 [[noreturn]] void run_instance_supervisor(Supervisor_context& context) noexcept {
@@ -615,7 +522,7 @@ struct Supervisor_context {
     // before the process group exists.
     int setup_pipe[2]{-1, -1};
     if (::pipe2(setup_pipe, O_CLOEXEC) != 0) {
-        Start_report report{
+        StartReport report{
             0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
         static_cast<void>(
             write_all(context.report_fd, &report, sizeof(report)));
@@ -625,7 +532,7 @@ struct Supervisor_context {
 
     const pid_t child = ::fork();
     if (child < 0) {
-        Start_report report{
+        StartReport report{
             0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
         static_cast<void>(
             write_all(context.report_fd, &report, sizeof(report)));
@@ -685,7 +592,7 @@ struct Supervisor_context {
             }
         }
 
-        const app::Run_identity& resolved = *context.resolved;
+        const app::RunIdentity& resolved = *context.resolved;
         static_cast<void>(
             ::setenv("NEXIGEN_RUN_ID", resolved.run_id.c_str(), 1));
         static_cast<void>(
@@ -708,7 +615,10 @@ struct Supervisor_context {
         static_cast<void>(::close(setup_pipe[1]));
 
         detail::coverage_flush();
-        ::execvp((*context.argv)[0], context.argv->data());
+        // POSIX declares execvp's `argv` as `char* const[]`, but it never
+        // mutates the argument strings. Cast away the inner const once, here,
+        // instead of per-element in the argv construction above.
+        ::execvp((*context.argv)[0], const_cast<char**>(context.argv->data()));
         child_exit(127);
     }
 
@@ -732,7 +642,7 @@ struct Supervisor_context {
     if (!setup_read || setup_status != 0) {
         static_cast<void>(::kill(-child, SIGKILL));
         reap_child(child);
-        Start_report report{
+        StartReport report{
             0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
         static_cast<void>(
             write_all(context.report_fd, &report, sizeof(report)));
@@ -747,7 +657,7 @@ struct Supervisor_context {
     if (!resource_status) {
         static_cast<void>(::kill(-child, SIGKILL));
         reap_child(child);
-        Start_report report{
+        StartReport report{
             0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
         static_cast<void>(
             write_all(context.report_fd, &report, sizeof(report)));
@@ -755,7 +665,7 @@ struct Supervisor_context {
         child_exit(1);
     }
 
-    Start_report report{context.metadata.pid, 0};
+    StartReport report{context.metadata.pid, 0};
     static_cast<void>(write_all(context.report_fd, &report, sizeof(report)));
     static_cast<void>(::close(context.report_fd));
 
@@ -772,9 +682,9 @@ struct Supervisor_context {
                  nanoseconds_per_second;
     }
 
-    const Terminated_by terminated_by = attribution(
+    const TerminatedBy terminated_by = attribution(
         supervised.runner_stopped, supervised.reaped, child_status);
-    const Exit_metadata exit_metadata = Exit_metadata::from_child_status(
+    const ExitMetadata exit_metadata = ExitMetadata::from_child_status(
         child, child_status, uptime, terminated_by);
     static_cast<void>(write_exit_json(*context.instance_dir, exit_metadata));
     child_exit(0);
@@ -782,9 +692,9 @@ struct Supervisor_context {
 
 } // namespace
 
-std::string Start_options::to_string() const {
+std::string StartOptions::to_string() const {
     return std::format(
-        "Start_options(artifact_dir={}, global_settings_dir={}, "
+        "StartOptions(artifact_dir={}, global_settings_dir={}, "
         "local_settings_dir={}, log_level={}, env={}, cpus={})",
         artifact_dir, global_settings_dir, local_settings_dir,
         log_level.has_value() ? std::string(logging::to_string(*log_level))
@@ -792,16 +702,16 @@ std::string Start_options::to_string() const {
         env.size(), cpus.size());
 }
 
-core::Status Runner::start(const app::Run_identity& identity,
+core::Status Runner::start(const app::RunIdentity& identity,
                            const std::vector<std::string>& command,
                            std::uint64_t timeout_s) {
-    return start(identity, command, timeout_s, Start_options{});
+    return start(identity, command, timeout_s, StartOptions{});
 }
 
-core::Status Runner::start(const app::Run_identity& identity,
+core::Status Runner::start(const app::RunIdentity& identity,
                            const std::vector<std::string>& command,
                            std::uint64_t timeout_s,
-                           const Start_options& options) {
+                           const StartOptions& options) {
     if (command.empty() || command.front().empty()) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
@@ -830,15 +740,15 @@ core::Status Runner::start(const app::Run_identity& identity,
         return logs;
     }
 
-    std::vector<char*> argv;
+    std::vector<const char*> argv;
     argv.reserve(command.size() + 1);
     for (const std::string& argument : command) {
-        argv.push_back(const_cast<char*>(argument.c_str()));
+        argv.push_back(argument.c_str());
     }
     argv.push_back(nullptr);
 
-    Resource_metadata metadata =
-        Resource_metadata::from_identity(layout.resolved, 0, 0);
+    ResourceMetadata metadata =
+        ResourceMetadata::from_identity(layout.resolved, 0, 0);
 
     int pipe_fds[2]{-1, -1};
     if (core::detail::fault(core::detail::Fault_point::Runner_pipe2) ||
@@ -888,7 +798,7 @@ core::Status Runner::start(const app::Run_identity& identity,
     static_cast<void>(::close(stderr_fd));
     static_cast<void>(::close(null_fd));
 
-    Start_report report{};
+    StartReport report{};
     const bool received = read_all(pipe_fds[0], &report, sizeof(report));
     static_cast<void>(::close(pipe_fds[0]));
 
@@ -900,7 +810,7 @@ core::Status Runner::start(const app::Run_identity& identity,
     return {};
 }
 
-core::Status Runner::start_suite(const Suite_manifest& manifest,
+core::Status Runner::start_suite(const SuiteManifest& manifest,
                                  std::string& suite_dir_out) {
     return ::nexigen::runner::start_suite(manifest, suite_dir_out);
 }
@@ -924,7 +834,7 @@ core::Status Runner::stop(std::string_view instance_dir,
         if (!completed) {
             return {};
         }
-        Resource_metadata completed_metadata{};
+        ResourceMetadata completed_metadata{};
         from_json(*completed, completed_metadata);
         if (completed_metadata.pid > 0 &&
             group_alive(completed_metadata.pid)) {
@@ -938,7 +848,7 @@ core::Status Runner::stop(std::string_view instance_dir,
     if (!resource_document) {
         return std::unexpected(resource_document.error());
     }
-    Resource_metadata resource{};
+    ResourceMetadata resource{};
     from_json(*resource_document, resource);
     if (resource.pid <= 0) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -954,7 +864,7 @@ core::Status Runner::stop(std::string_view instance_dir,
         }
         if (!file_exists(exit_path)) {
             write_fallback_exit(exit_path, resource, std::nullopt,
-                                Terminated_by::Unknown);
+                                TerminatedBy::Unknown);
         }
         return {};
     }
@@ -997,7 +907,7 @@ core::Status Runner::stop(std::string_view instance_dir,
 
     if (file_exists(exit_path)) {
         if (sent_signal) {
-            rewrite_terminated_by(exit_path, Terminated_by::Runner);
+            rewrite_terminated_by(exit_path, TerminatedBy::Runner);
         }
         if (group_alive(pid)) {
             return std::unexpected(core::ErrorCode::SystemError);
@@ -1006,8 +916,8 @@ core::Status Runner::stop(std::string_view instance_dir,
     }
 
     write_fallback_exit(exit_path, resource, last_signal,
-                        sent_signal ? Terminated_by::Runner
-                                    : Terminated_by::Unknown);
+                        sent_signal ? TerminatedBy::Runner
+                                    : TerminatedBy::Unknown);
     if (group_alive(pid)) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
@@ -1026,7 +936,7 @@ core::Status Runner::status(std::string_view instance_dir,
     if (!resource_document) {
         return {};
     }
-    Resource_metadata resource{};
+    ResourceMetadata resource{};
     from_json(*resource_document, resource);
     if (resource.pid <= 0) {
         return {};
@@ -1045,9 +955,9 @@ core::Status Runner::status(std::string_view instance_dir,
         state = "exited";
         return {};
     }
-    Exit_metadata exit_metadata{};
+    ExitMetadata exit_metadata{};
     from_json(*exit_document, exit_metadata);
-    state = exit_metadata.terminated_by == Terminated_by::Runner ? "stopped"
+    state = exit_metadata.terminated_by == TerminatedBy::Runner ? "stopped"
                                                                  : "exited";
     return {};
 }

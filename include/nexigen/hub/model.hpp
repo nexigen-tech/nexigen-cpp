@@ -18,7 +18,7 @@
 namespace nexigen::hub {
 
 /// Runtime stream family.
-enum class Stream_kind : std::uint8_t {
+enum class StreamKind : std::uint8_t {
     App,
     Metrics,
     Traces,
@@ -28,104 +28,104 @@ enum class Stream_kind : std::uint8_t {
     Runner,
 };
 
-[[nodiscard]] constexpr std::string_view to_string(Stream_kind kind) noexcept {
+[[nodiscard]] constexpr std::string_view to_string(StreamKind kind) noexcept {
     switch (kind) {
-        case Stream_kind::App:     return "app";
-        case Stream_kind::Metrics: return "metrics";
-        case Stream_kind::Traces:  return "traces";
-        case Stream_kind::Chrono:  return "chrono";
-        case Stream_kind::Stdout:  return "stdout";
-        case Stream_kind::Stderr:  return "stderr";
-        case Stream_kind::Runner:  return "runner";
+        case StreamKind::App:     return "app";
+        case StreamKind::Metrics: return "metrics";
+        case StreamKind::Traces:  return "traces";
+        case StreamKind::Chrono:  return "chrono";
+        case StreamKind::Stdout:  return "stdout";
+        case StreamKind::Stderr:  return "stderr";
+        case StreamKind::Runner:  return "runner";
         default:                   return "unknown";
     }
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name,
-                                         Stream_kind& out) noexcept {
-    if (name == "app")     { out = Stream_kind::App;     return true; }
-    if (name == "metrics") { out = Stream_kind::Metrics; return true; }
-    if (name == "traces")  { out = Stream_kind::Traces;  return true; }
-    if (name == "chrono")  { out = Stream_kind::Chrono;  return true; }
-    if (name == "stdout")  { out = Stream_kind::Stdout;  return true; }
-    if (name == "stderr")  { out = Stream_kind::Stderr;  return true; }
-    if (name == "runner")  { out = Stream_kind::Runner;  return true; }
+                                         StreamKind& out) noexcept {
+    if (name == "app")     { out = StreamKind::App;     return true; }
+    if (name == "metrics") { out = StreamKind::Metrics; return true; }
+    if (name == "traces")  { out = StreamKind::Traces;  return true; }
+    if (name == "chrono")  { out = StreamKind::Chrono;  return true; }
+    if (name == "stdout")  { out = StreamKind::Stdout;  return true; }
+    if (name == "stderr")  { out = StreamKind::Stderr;  return true; }
+    if (name == "runner")  { out = StreamKind::Runner;  return true; }
     return false;
 }
 
 /// One tailed file.
-struct Hub_stream {
+struct HubStream {
     std::string id{};
-    Stream_kind kind{Stream_kind::App};
+    StreamKind kind{StreamKind::App};
     std::string path{};
 
     [[nodiscard]] std::string to_string() const;
 };
 
 /// One launch attempt and its streams.
-struct Hub_attempt {
+struct HubAttempt {
     std::uint32_t attempt{0};
     std::string artifact_dir{};
-    std::vector<Hub_stream> streams{};
+    std::vector<HubStream> streams{};
 
     [[nodiscard]] std::string to_string() const;
 };
 
 /// One application instance (control directory + attempts).
-struct Hub_instance {
+struct HubInstance {
     std::string instance{};
     std::string instance_dir{};
-    runner::App_state state{runner::App_state::Unknown};
-    std::vector<Hub_attempt> attempts{};
+    runner::AppState state{runner::AppState::Unknown};
+    std::vector<HubAttempt> attempts{};
 
     [[nodiscard]] std::string to_string() const;
 };
 
 /// One application and all of its instances.
-struct Hub_app {
+struct HubApp {
     std::string app{};
-    runner::App_state state{runner::App_state::Unknown};
-    std::vector<Hub_instance> instances{};
+    runner::AppState state{runner::AppState::Unknown};
+    std::vector<HubInstance> instances{};
 
     [[nodiscard]] std::string to_string() const;
 };
 
 /// One suite and its applications.
-struct Hub_suite {
+struct HubSuite {
     std::string suite_id{};
     std::string suite_dir{};
     std::string artifacts_path{};
-    runner::Suite_state state{runner::Suite_state::Unknown};
+    runner::SuiteState state{runner::SuiteState::Unknown};
     std::uint32_t suite_restarts_used{0};
     std::string reason{};
-    Hub_stream runner_log{};
-    std::vector<Hub_app> apps{};
+    HubStream runner_log{};
+    std::vector<HubApp> apps{};
 
     [[nodiscard]] std::string to_string() const;
 };
 
 /// One run root.
-struct Hub_run {
+struct HubRun {
     std::string run_key{};
     std::string run_dir{};
-    std::vector<Hub_suite> suites{};
-    std::vector<Hub_instance> standalone_instances{};
+    std::vector<HubSuite> suites{};
+    std::vector<HubInstance> standalone_instances{};
 
     [[nodiscard]] std::string to_string() const;
 };
 
 /// Complete discovered tree.
-struct Hub_tree {
-    std::vector<Hub_run> runs{};
+struct HubTree {
+    std::vector<HubRun> runs{};
 
     [[nodiscard]] std::string to_string() const;
     [[nodiscard]] bool empty() const noexcept { return runs.empty(); }
 };
 
 /// One complete line from a stream.
-struct Stream_record {
+struct StreamRecord {
     std::string stream_id{};
-    Stream_kind kind{Stream_kind::App};
+    StreamKind kind{StreamKind::App};
     std::uint64_t sequence{0};
     std::string received_at_rfc3339{};
     std::string line{};
@@ -135,7 +135,7 @@ struct Stream_record {
 };
 
 /// A missing sequence range in a stream ring.
-struct Gap_marker {
+struct GapMarker {
     std::string stream_id{};
     std::uint64_t dropped{0};
     std::uint64_t first_missing_sequence{0};
@@ -145,51 +145,51 @@ struct Gap_marker {
 };
 
 // --- free to_string helpers
-[[nodiscard]] inline std::string to_string(const Hub_stream& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Hub_attempt& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Hub_instance& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Hub_app& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Hub_suite& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Hub_run& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Hub_tree& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Stream_record& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Gap_marker& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const HubStream& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const HubAttempt& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const HubInstance& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const HubApp& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const HubSuite& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const HubRun& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const HubTree& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const StreamRecord& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const GapMarker& value) { return value.to_string(); }
 
 // --- cold-path ADL serialization (bodies in src/hub/model.cpp)
-void to_json(nlohmann::json& j, Stream_kind value);
-void from_json(const nlohmann::json& j, Stream_kind& value) noexcept;
+void to_json(nlohmann::json& j, StreamKind value);
+void from_json(const nlohmann::json& j, StreamKind& value) noexcept;
 
-void to_json(nlohmann::json& j, const Hub_stream& value);
-void from_json(const nlohmann::json& j, Hub_stream& value) noexcept;
-void to_json(nlohmann::json& j, const Hub_attempt& value);
-void from_json(const nlohmann::json& j, Hub_attempt& value) noexcept;
-void to_json(nlohmann::json& j, const Hub_instance& value);
-void from_json(const nlohmann::json& j, Hub_instance& value) noexcept;
-void to_json(nlohmann::json& j, const Hub_app& value);
-void from_json(const nlohmann::json& j, Hub_app& value) noexcept;
-void to_json(nlohmann::json& j, const Hub_suite& value);
-void from_json(const nlohmann::json& j, Hub_suite& value) noexcept;
-void to_json(nlohmann::json& j, const Hub_run& value);
-void from_json(const nlohmann::json& j, Hub_run& value) noexcept;
-void to_json(nlohmann::json& j, const Hub_tree& value);
-void from_json(const nlohmann::json& j, Hub_tree& value) noexcept;
-void to_json(nlohmann::json& j, const Stream_record& value);
-void from_json(const nlohmann::json& j, Stream_record& value) noexcept;
-void to_json(nlohmann::json& j, const Gap_marker& value);
-void from_json(const nlohmann::json& j, Gap_marker& value) noexcept;
+void to_json(nlohmann::json& j, const HubStream& value);
+void from_json(const nlohmann::json& j, HubStream& value) noexcept;
+void to_json(nlohmann::json& j, const HubAttempt& value);
+void from_json(const nlohmann::json& j, HubAttempt& value) noexcept;
+void to_json(nlohmann::json& j, const HubInstance& value);
+void from_json(const nlohmann::json& j, HubInstance& value) noexcept;
+void to_json(nlohmann::json& j, const HubApp& value);
+void from_json(const nlohmann::json& j, HubApp& value) noexcept;
+void to_json(nlohmann::json& j, const HubSuite& value);
+void from_json(const nlohmann::json& j, HubSuite& value) noexcept;
+void to_json(nlohmann::json& j, const HubRun& value);
+void from_json(const nlohmann::json& j, HubRun& value) noexcept;
+void to_json(nlohmann::json& j, const HubTree& value);
+void from_json(const nlohmann::json& j, HubTree& value) noexcept;
+void to_json(nlohmann::json& j, const StreamRecord& value);
+void from_json(const nlohmann::json& j, StreamRecord& value) noexcept;
+void to_json(nlohmann::json& j, const GapMarker& value);
+void from_json(const nlohmann::json& j, GapMarker& value) noexcept;
 
 /// Flatten all streams in a tree (including suite runner logs).
-[[nodiscard]] std::vector<Hub_stream> all_streams(const Hub_tree& tree);
+[[nodiscard]] std::vector<HubStream> all_streams(const HubTree& tree);
 /// Find one stream by id, or nullptr.
-[[nodiscard]] const Hub_stream* find_stream(const Hub_tree& tree,
+[[nodiscard]] const HubStream* find_stream(const HubTree& tree,
                                             std::string_view id) noexcept;
 
 } // namespace nexigen::hub
 
 template <>
-struct std::formatter<nexigen::hub::Stream_kind> : std::formatter<std::string_view> {
+struct std::formatter<nexigen::hub::StreamKind> : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::hub::Stream_kind value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::hub::StreamKind value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(
             nexigen::hub::to_string(value), ctx);
     }
@@ -204,14 +204,14 @@ struct std::formatter<nexigen::hub::Stream_kind> : std::formatter<std::string_vi
         }                                                                                  \
     }
 
-NEXIGEN_HUB_FORMATTER(Hub_stream);
-NEXIGEN_HUB_FORMATTER(Hub_attempt);
-NEXIGEN_HUB_FORMATTER(Hub_instance);
-NEXIGEN_HUB_FORMATTER(Hub_app);
-NEXIGEN_HUB_FORMATTER(Hub_suite);
-NEXIGEN_HUB_FORMATTER(Hub_run);
-NEXIGEN_HUB_FORMATTER(Hub_tree);
-NEXIGEN_HUB_FORMATTER(Stream_record);
-NEXIGEN_HUB_FORMATTER(Gap_marker);
+NEXIGEN_HUB_FORMATTER(HubStream);
+NEXIGEN_HUB_FORMATTER(HubAttempt);
+NEXIGEN_HUB_FORMATTER(HubInstance);
+NEXIGEN_HUB_FORMATTER(HubApp);
+NEXIGEN_HUB_FORMATTER(HubSuite);
+NEXIGEN_HUB_FORMATTER(HubRun);
+NEXIGEN_HUB_FORMATTER(HubTree);
+NEXIGEN_HUB_FORMATTER(StreamRecord);
+NEXIGEN_HUB_FORMATTER(GapMarker);
 
 #undef NEXIGEN_HUB_FORMATTER

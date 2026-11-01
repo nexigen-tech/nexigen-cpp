@@ -24,10 +24,20 @@
 
 #include <nexigen/chrono/time_format.hpp>
 #include <nexigen/chrono/timestamp.hpp>
+#include <nexigen/runner/detail/sys_helpers.hpp>
 #include <nexigen/runner/instance_lifecycle.hpp>
 #include <nexigen/runner/runner_logging.hpp>
 
 namespace nexigen::runner {
+
+using detail::enum_from_json;
+using detail::enum_to_json;
+using detail::monotonic_now_ns;
+using detail::read_i32;
+using detail::read_optional_i32;
+using detail::read_string;
+using detail::read_u64;
+using detail::utc_now_rfc3339;
 
 namespace {
 
@@ -38,102 +48,6 @@ constexpr std::size_t max_instance_dir_bytes = 511;
 void report_write_failure(std::string_view path, int error) noexcept {
     warn_runner(std::format("event=json_write_failed path={} errno={}", path,
                             error));
-}
-
-[[nodiscard]] bool read_string(const nlohmann::json& document, const char* key,
-                               std::string& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end() || !it->is_string()) {
-        return false;
-    }
-    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
-    if (text == nullptr) {
-        return false;
-    }
-    target = *text;
-    return true;
-}
-
-[[nodiscard]] bool read_int32(const nlohmann::json& document, const char* key,
-                              std::int32_t& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end() || !it->is_number_integer()) {
-        return false;
-    }
-    const std::int64_t value = it->get<std::int64_t>();
-    if (value < static_cast<std::int64_t>(
-                    std::numeric_limits<std::int32_t>::min()) ||
-        value > static_cast<std::int64_t>(
-                    std::numeric_limits<std::int32_t>::max())) {
-        return false;
-    }
-    target = static_cast<std::int32_t>(value);
-    return true;
-}
-
-[[nodiscard]] bool read_uint64(const nlohmann::json& document, const char* key,
-                               std::uint64_t& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end() || !it->is_number_unsigned()) {
-        return false;
-    }
-    target = it->get<std::uint64_t>();
-    return true;
-}
-
-/// Reads a nullable int32 field. `present` reports whether the key was seen;
-/// a wrong-typed value leaves `target` untouched and reports present=false.
-[[nodiscard]] bool read_optional_int32(const nlohmann::json& document,
-                                       const char* key,
-                                       std::optional<std::int32_t>& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end()) {
-        return false;
-    }
-    if (it->is_null()) {
-        target = std::nullopt;
-        return true;
-    }
-    if (!it->is_number_integer()) {
-        return false;
-    }
-    const std::int64_t value = it->get<std::int64_t>();
-    if (value < static_cast<std::int64_t>(
-                    std::numeric_limits<std::int32_t>::min()) ||
-        value > static_cast<std::int64_t>(
-                    std::numeric_limits<std::int32_t>::max())) {
-        return false;
-    }
-    target = static_cast<std::int32_t>(value);
-    return true;
-}
-
-[[nodiscard]] std::string utc_now_rfc3339() {
-    using namespace std::chrono;
-    const auto since_epoch = system_clock::now().time_since_epoch();
-    const std::int64_t epoch_ns =
-        duration_cast<nanoseconds>(since_epoch).count();
-    char buffer[31]{};
-    nexigen::chrono::format_utc_iso8601_ns(epoch_ns, buffer);
-    return std::string(buffer);
-}
-
-[[nodiscard]] std::uint64_t monotonic_now_ns() noexcept {
-    const core::Result<nexigen::chrono::Timestamp> now =
-        nexigen::chrono::Timestamp::now();
-    return now ? now->nanoseconds() : 0;
 }
 
 /// mkdir -p for absolute paths. Every existing component must be a directory.
@@ -185,31 +99,28 @@ void report_write_failure(std::string_view path, int error) noexcept {
 
 } // namespace
 
-// --- Terminated_by ---
-void to_json(nlohmann::json& j, Terminated_by value) {
-    j = std::string(to_string(value));
+// --- TerminatedBy ---
+void to_json(nlohmann::json& j, TerminatedBy value) {
+    enum_to_json(j, value);
 }
 
-void from_json(const nlohmann::json& j, Terminated_by& value) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), value));
-    }
+void from_json(const nlohmann::json& j, TerminatedBy& value) noexcept {
+    enum_from_json(j, value);
 }
 
-// --- Resource_metadata ---
-std::string Resource_metadata::to_string() const {
+// --- ResourceMetadata ---
+std::string ResourceMetadata::to_string() const {
     return std::format(
-        "Resource_metadata(run_id={}, app_name={}, instance_id={}, "
+        "ResourceMetadata(run_id={}, app_name={}, instance_id={}, "
         "instance_dir={}, pid={}, ppid={}, start_time_rfc3339={}, "
         "start_time_mono_ns={}, version={})",
         run_id, app_name, instance_id, instance_dir, pid, ppid,
         start_time_rfc3339, start_time_mono_ns, version);
 }
 
-Resource_metadata Resource_metadata::from_identity(
-    const app::Run_identity& identity, std::int32_t pid, std::int32_t ppid) {
-    Resource_metadata metadata;
+ResourceMetadata ResourceMetadata::from_identity(
+    const app::RunIdentity& identity, std::int32_t pid, std::int32_t ppid) {
+    ResourceMetadata metadata;
     metadata.run_id = identity.run_id;
     metadata.app_name = identity.app_name;
     metadata.instance_id = identity.instance_id;
@@ -221,7 +132,7 @@ Resource_metadata Resource_metadata::from_identity(
     return metadata;
 }
 
-void to_json(nlohmann::json& j, const Resource_metadata& metadata) {
+void to_json(nlohmann::json& j, const ResourceMetadata& metadata) {
     j = nlohmann::json{
         {"run_id", metadata.run_id},
         {"app_name", metadata.app_name},
@@ -235,37 +146,37 @@ void to_json(nlohmann::json& j, const Resource_metadata& metadata) {
     };
 }
 
-void from_json(const nlohmann::json& j, Resource_metadata& metadata) noexcept {
+void from_json(const nlohmann::json& j, ResourceMetadata& metadata) noexcept {
     static_cast<void>(read_string(j, "run_id", metadata.run_id));
     static_cast<void>(read_string(j, "app_name", metadata.app_name));
     static_cast<void>(read_string(j, "instance_id", metadata.instance_id));
     static_cast<void>(read_string(j, "instance_dir", metadata.instance_dir));
-    static_cast<void>(read_int32(j, "pid", metadata.pid));
-    static_cast<void>(read_int32(j, "ppid", metadata.ppid));
+    static_cast<void>(read_i32(j, "pid", metadata.pid));
+    static_cast<void>(read_i32(j, "ppid", metadata.ppid));
     static_cast<void>(read_string(j, "start_time_rfc3339",
                                   metadata.start_time_rfc3339));
-    static_cast<void>(read_uint64(j, "start_time_mono_ns",
+    static_cast<void>(read_u64(j, "start_time_mono_ns",
                                   metadata.start_time_mono_ns));
     static_cast<void>(read_string(j, "version", metadata.version));
 }
 
-// --- Exit_metadata ---
-std::string Exit_metadata::to_string() const {
+// --- ExitMetadata ---
+std::string ExitMetadata::to_string() const {
     const std::string exit_text =
         exit_code.has_value() ? std::to_string(*exit_code) : "null";
     const std::string signal_text =
         signal.has_value() ? std::to_string(*signal) : "null";
     return std::format(
-        "Exit_metadata(exit_code={}, signal={}, uptime_s={}, terminated_by={})",
+        "ExitMetadata(exit_code={}, signal={}, uptime_s={}, terminated_by={})",
         exit_text, signal_text, uptime_s,
         nexigen::runner::to_string(terminated_by));
 }
 
-Exit_metadata Exit_metadata::from_child_status(
+ExitMetadata ExitMetadata::from_child_status(
     std::int32_t pid, std::int32_t status, std::uint64_t uptime_s,
-    Terminated_by terminated_by) noexcept {
+    TerminatedBy terminated_by) noexcept {
     static_cast<void>(pid);
-    Exit_metadata metadata;
+    ExitMetadata metadata;
     metadata.uptime_s = uptime_s;
     metadata.terminated_by = terminated_by;
     if (WIFEXITED(status)) {
@@ -276,7 +187,7 @@ Exit_metadata Exit_metadata::from_child_status(
     return metadata;
 }
 
-void to_json(nlohmann::json& j, const Exit_metadata& metadata) {
+void to_json(nlohmann::json& j, const ExitMetadata& metadata) {
     nlohmann::json exit_code = nlohmann::json();
     nlohmann::json signal = nlohmann::json();
     if (metadata.exit_code.has_value()) {
@@ -293,19 +204,19 @@ void to_json(nlohmann::json& j, const Exit_metadata& metadata) {
     };
 }
 
-void from_json(const nlohmann::json& j, Exit_metadata& metadata) noexcept {
+void from_json(const nlohmann::json& j, ExitMetadata& metadata) noexcept {
     if (!j.is_object()) {
         return;
     }
     static_cast<void>(
-        read_optional_int32(j, "exit_code", metadata.exit_code));
-    static_cast<void>(read_optional_int32(j, "signal", metadata.signal));
-    static_cast<void>(read_uint64(j, "uptime_s", metadata.uptime_s));
+        read_optional_i32(j, "exit_code", metadata.exit_code));
+    static_cast<void>(read_optional_i32(j, "signal", metadata.signal));
+    static_cast<void>(read_u64(j, "uptime_s", metadata.uptime_s));
     if (const auto it = j.find("terminated_by");
         it != j.end() && it->is_string()) {
         const auto* const name = it->get_ptr<const nlohmann::json::string_t*>();
         if (name != nullptr) {
-            Terminated_by parsed = metadata.terminated_by;
+            TerminatedBy parsed = metadata.terminated_by;
             if (from_string(std::string_view(*name), parsed)) {
                 metadata.terminated_by = parsed;
             }
@@ -392,7 +303,7 @@ core::Result<nlohmann::json> read_json_file(std::string_view path) noexcept {
 
 core::Status write_resource_json(
     std::string_view instance_dir,
-    const Resource_metadata& metadata) noexcept {
+    const ResourceMetadata& metadata) noexcept {
     nlohmann::json document;
     to_json(document, metadata);
     return write_json_file(instance_file_path(instance_dir, "resource.json"),
@@ -400,7 +311,7 @@ core::Status write_resource_json(
 }
 
 core::Status write_exit_json(std::string_view instance_dir,
-                             const Exit_metadata& metadata) noexcept {
+                             const ExitMetadata& metadata) noexcept {
     nlohmann::json document;
     to_json(document, metadata);
     return write_json_file(instance_file_path(instance_dir, "exit.json"),
@@ -446,14 +357,14 @@ core::Status create_artifact_dir(std::string_view artifact_dir) noexcept {
 // --- Settings generation ---
 core::Status generate_settings(
     std::string_view instance_dir,
-    const app::Telemetry_paths& resolved) noexcept {
+    const app::TelemetryPaths& resolved) noexcept {
     return generate_settings(instance_dir, instance_dir, resolved);
 }
 
 core::Status generate_settings(
     std::string_view instance_dir,
     std::string_view stream_root,
-    const app::Telemetry_paths& resolved) noexcept {
+    const app::TelemetryPaths& resolved) noexcept {
     if (instance_dir.empty() || instance_dir.front() != '/' ||
         instance_dir.size() > max_instance_dir_bytes ||
         stream_root.empty() || stream_root.front() != '/' ||

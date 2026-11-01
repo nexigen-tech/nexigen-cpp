@@ -41,14 +41,14 @@ struct Simple_policy {
 
     static core::Status emplace_metrics_sink(
         std::optional<Metrics_sink>& out,
-        const app::Metrics_settings&) noexcept {
+        const app::MetricsSettings&) noexcept {
         out.emplace();
         return {};
     }
 
     static core::Status emplace_trace_sink(
         std::optional<Trace_sink>& out,
-        const app::Tracing_settings&) noexcept {
+        const app::TracingSettings&) noexcept {
         out.emplace(1);
         return {};
     }
@@ -75,7 +75,7 @@ int main() {
     }
     auto infra = std::move(*created);
 
-    if (!infra->initialize(app::App_settings{}).has_value()) {
+    if (!infra->initialize(app::AppSettings{}).has_value()) {
         return fail("Infrastructure::initialize failed");
     }
 
@@ -102,17 +102,17 @@ int main() {
 
     auto span = (*tracer)->start_span("loop", tracing::SpanKind::Internal);
     int count = 0;
-    const app::Infrastructure_stop_reason reason = infra->run([&] {
+    const app::InfrastructureStopReason reason = infra->run([&] {
         (*ticks)->inc();
         ++count;
         if (count == 3) {
-            infra->request_stop(app::Infrastructure_stop_reason::Requested);
+            infra->request_stop(app::InfrastructureStopReason::Requested);
         }
     });
     static_cast<void>(span.set_attribute("ticks", static_cast<std::int64_t>(count)));
     static_cast<void>(span.end());
 
-    if (reason != app::Infrastructure_stop_reason::Requested) {
+    if (reason != app::InfrastructureStopReason::Requested) {
         return fail("run() did not return Requested");
     }
     if (!infra->shutdown().has_value()) {

@@ -18,11 +18,11 @@ namespace nexigen::hub {
 
 /// Control-plane diagnostic callback. It must not throw and should be cheap;
 /// the hub passes preformatted messages once per failed refresh or stream.
-using Diagnostic_sink = void (*)(void* context,
+using DiagnosticSink = void (*)(void* context,
                                  std::string_view message) noexcept;
 
 /// Per-stream capacity and read bounds.
-struct Stream_limits {
+struct StreamLimits {
     std::size_t ring_records{4096};
     std::size_t ring_bytes{std::size_t{8} * 1024U * 1024U};
     std::size_t max_line_bytes{std::size_t{1} * 1024U * 1024U};
@@ -32,27 +32,27 @@ struct Stream_limits {
     [[nodiscard]] std::string to_string() const;
 };
 
-[[nodiscard]] inline std::string to_string(const Stream_limits& limits) {
+[[nodiscard]] inline std::string to_string(const StreamLimits& limits) {
     return limits.to_string();
 }
 
 /// Owns one tailer per discovered stream and all live subscribers.
-class Stream_manager {
+class StreamManager {
 public:
-    explicit Stream_manager(Stream_limits limits = {}) noexcept;
-    ~Stream_manager();
+    explicit StreamManager(StreamLimits limits = {}) noexcept;
+    ~StreamManager();
 
-    Stream_manager(const Stream_manager&) = delete;
-    Stream_manager& operator=(const Stream_manager&) = delete;
+    StreamManager(const StreamManager&) = delete;
+    StreamManager& operator=(const StreamManager&) = delete;
 
     /// Install a callback for stream open/stat/read failures. Passing nullptr
     /// (the default) keeps diagnostics silent.
-    void set_diagnostic_sink(Diagnostic_sink sink, void* context) noexcept;
+    void set_diagnostic_sink(DiagnosticSink sink, void* context) noexcept;
 
     /// Reconcile tailers with the current tree. New streams are opened and
     /// seeded from the bounded file tail; removed streams are closed. Returns
     /// `SystemError` when at least one tailer could not be opened or refreshed.
-    core::Status sync(const Hub_tree& tree) noexcept;
+    core::Status sync(const HubTree& tree) noexcept;
 
     /// Read bounded chunks from all tailers and fan records/gaps out to
     /// subscribers. Runs on the hub control loop.
@@ -62,28 +62,28 @@ public:
     /// `stream_id` empty means all streams. `since` filters one stream's replay.
     [[nodiscard]] std::uint64_t subscribe(
         std::string_view stream_id, std::uint64_t since,
-        std::vector<Stream_record>& snapshot,
-        std::optional<Gap_marker>& gap) noexcept;
+        std::vector<StreamRecord>& snapshot,
+        std::optional<GapMarker>& gap) noexcept;
 
     void unsubscribe(std::uint64_t subscriber_id) noexcept;
 
     /// Move queued live records/gaps out for one subscriber.
-    void take(std::uint64_t subscriber_id, std::vector<Stream_record>& records,
-              std::vector<Gap_marker>& gaps) noexcept;
+    void take(std::uint64_t subscriber_id, std::vector<StreamRecord>& records,
+              std::vector<GapMarker>& gaps) noexcept;
 
     /// Copy up to `limit` newest records from one stream without subscribing.
     void recent(std::string_view stream_id, std::size_t limit,
-                std::vector<Stream_record>& records,
-                std::optional<Gap_marker>& gap) const noexcept;
+                std::vector<StreamRecord>& records,
+                std::optional<GapMarker>& gap) const noexcept;
 
     [[nodiscard]] bool overflowed(std::uint64_t subscriber_id) const noexcept;
     [[nodiscard]] std::size_t subscriber_count() const noexcept;
-    [[nodiscard]] const Stream_limits& limits() const noexcept { return limits_; }
+    [[nodiscard]] const StreamLimits& limits() const noexcept { return limits_; }
     [[nodiscard]] std::string to_string() const;
 
 private:
     struct Tailer {
-        Hub_stream descriptor{};
+        HubStream descriptor{};
         int fd{-1};
         std::uint64_t device{0};
         std::uint64_t inode{0};
@@ -91,18 +91,18 @@ private:
         std::string partial{};
         bool discarding{false};
         bool seeded{false};
-        std::deque<Stream_record> ring{};
+        std::deque<StreamRecord> ring{};
         std::size_t bytes{0};
         std::uint64_t next_sequence{1};
-        std::deque<Gap_marker> gaps{};
+        std::deque<GapMarker> gaps{};
     };
 
     struct Subscriber {
         std::uint64_t id{0};
         std::string filter{};
         std::unordered_map<std::string, std::uint64_t> last{};
-        std::deque<Stream_record> records{};
-        std::deque<Gap_marker> gaps{};
+        std::deque<StreamRecord> records{};
+        std::deque<GapMarker> gaps{};
         std::size_t bytes{0};
         bool overflow{false};
     };
@@ -111,28 +111,29 @@ private:
     void report(std::string_view message) const noexcept;
     void poll_tailer(Tailer& tailer) noexcept;
     void emit(Tailer& tailer, std::string_view line, bool truncated) noexcept;
-    void dispatch(const Stream_record& record) noexcept;
-    void dispatch_gap(const Gap_marker& gap) noexcept;
+    void consume_chunk(Tailer& tailer, std::string_view chunk) noexcept;
+    void dispatch(const StreamRecord& record) noexcept;
+    void dispatch_gap(const GapMarker& gap) noexcept;
     [[nodiscard]] bool matches(const Subscriber& subscriber,
                                std::string_view stream_id) const noexcept;
-    void push_record(Subscriber& subscriber, const Stream_record& record) noexcept;
-    void push_gap(Subscriber& subscriber, const Gap_marker& gap) noexcept;
+    void push_record(Subscriber& subscriber, const StreamRecord& record) noexcept;
+    void push_gap(Subscriber& subscriber, const GapMarker& gap) noexcept;
 
-    Stream_limits limits_{};
+    StreamLimits limits_{};
     std::unordered_map<std::string, Tailer> tailers_{};
     std::unordered_map<std::uint64_t, Subscriber> subscribers_{};
     std::uint64_t next_subscriber_id_{1};
-    Diagnostic_sink diagnostic_sink_{nullptr};
+    DiagnosticSink diagnostic_sink_{nullptr};
     void* diagnostic_context_{nullptr};
 };
 
 } // namespace nexigen::hub
 
 template <>
-struct std::formatter<nexigen::hub::Stream_limits>
+struct std::formatter<nexigen::hub::StreamLimits>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::hub::Stream_limits& value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::hub::StreamLimits& value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(value.to_string(), ctx);
     }
 };

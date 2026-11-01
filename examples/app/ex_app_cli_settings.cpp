@@ -124,7 +124,7 @@ struct Cli_file_policy {
 
     static core::Status emplace_metrics_sink(
         std::optional<Metrics_sink>& out,
-        const app::Metrics_settings& settings) noexcept {
+        const app::MetricsSettings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -134,7 +134,7 @@ struct Cli_file_policy {
 
     static core::Status emplace_trace_sink(
         std::optional<Trace_sink>& out,
-        const app::Tracing_settings& settings) noexcept {
+        const app::TracingSettings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -253,7 +253,7 @@ bool strip_token(std::vector<std::string_view>& args, std::string_view token) {
     return found;
 }
 
-void print_loaded_diagnostics(const app::App_settings& loaded) {
+void print_loaded_diagnostics(const app::AppSettings& loaded) {
     for (const auto& diagnostic : loaded.logging.diagnostics) {
         print_error("logging: " + diagnostic.to_string());
     }
@@ -386,7 +386,7 @@ int main(int argc, char* argv[]) {
         args.emplace_back(kLocalSettingsDir);
     }
 
-    const app::Command_line_result parsed =
+    const app::CommandLineResult parsed =
         app::parse_command_line(std::span<const std::string_view>{args});
     if (!parsed.has_value()) {
         for (const auto& diagnostic : parsed.error().diagnostics) {
@@ -397,7 +397,7 @@ int main(int argc, char* argv[]) {
         static_cast<void>(std::fwrite(usage.data(), 1, usage.size(), stderr));
         return 2;
     }
-    const app::Command_line_options options = *parsed;
+    const app::CommandLineOptions options = *parsed;
     if (options.help) {
         const std::string_view usage = app::command_line_usage();
         static_cast<void>(std::fwrite(usage.data(), 1, usage.size(), stdout));
@@ -410,7 +410,7 @@ int main(int argc, char* argv[]) {
     }
     auto infra = std::move(*created);
 
-    app::App_settings loaded{};
+    app::AppSettings loaded{};
     const core::Status initialized = infra->initialize(options, loaded);
     if (!initialized) {
         print_loaded_diagnostics(loaded);

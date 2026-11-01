@@ -62,7 +62,7 @@ NEXIGEN_INSTANCE_ID, and NEXIGEN_INSTANCE_DIR are start-time defaults.
     return true;
 }
 
-[[nodiscard]] std::string derived_instance_dir(const app::Run_identity& identity) {
+[[nodiscard]] std::string derived_instance_dir(const app::RunIdentity& identity) {
     if (!identity.instance_dir.empty()) {
         return identity.instance_dir;
     }
@@ -99,7 +99,7 @@ struct Cli_log_target {
 }
 
 [[nodiscard]] Cli_log_target manifest_log_target(
-    const runner::Suite_manifest& manifest) {
+    const runner::SuiteManifest& manifest) {
     Cli_log_target target{};
     target.primary_dir =
         manifest.artifacts_path + "/" + manifest.suite_id;
@@ -127,7 +127,7 @@ struct Cli_log_target {
     if (!document) {
         return false;
     }
-    runner::Suite_metadata metadata{};
+    runner::SuiteMetadata metadata{};
     runner::from_json(*document, metadata);
     target.primary_dir = metadata.artifacts_path + "/" + metadata.suite_id;
     target.control_cpus = metadata.runner_control_cpus;
@@ -291,7 +291,7 @@ int cmd_start(int argc, char* argv[]) {
             print_usage(stderr);
             return exit_usage;
         }
-        runner::Suite_manifest manifest{};
+        runner::SuiteManifest manifest{};
         const core::Status loaded = runner::load_suite_manifest(config, manifest);
         if (!loaded) {
             const Cli_log_target target = fallback_log_target();
@@ -323,7 +323,7 @@ int cmd_start(int argc, char* argv[]) {
         return 0;
     }
 
-    app::Run_identity identity = app::load_run_identity();
+    app::RunIdentity identity = app::load_run_identity();
     if (!run_id.empty()) {
         identity.run_id = run_id;
     }
@@ -431,7 +431,7 @@ int cmd_stop(int argc, char* argv[]) {
         std::string target = suite_dir;
         Cli_log_target log_target = fallback_log_target();
         if (!config.empty()) {
-            runner::Suite_manifest manifest{};
+            runner::SuiteManifest manifest{};
             const core::Status loaded =
                 runner::load_suite_manifest(config, manifest);
             if (!loaded) {
@@ -568,7 +568,7 @@ int cmd_status(int argc, char* argv[]) {
         std::string target = suite_dir;
         Cli_log_target log_target = fallback_log_target();
         if (!config.empty()) {
-            runner::Suite_manifest manifest{};
+            runner::SuiteManifest manifest{};
             const core::Status loaded =
                 runner::load_suite_manifest(config, manifest);
             if (!loaded) {
@@ -586,7 +586,7 @@ int cmd_status(int argc, char* argv[]) {
             runner::warn_runner(
                 "event=suite_metadata_unreadable detail=using fallback log");
         }
-        runner::Suite_status status{};
+        runner::SuiteStatus status{};
         const core::Status queried = runner::suite_status(target, status);
         activate_logging(log_target);
         apply_control_affinity(log_target);
@@ -609,7 +609,7 @@ int cmd_status(int argc, char* argv[]) {
             std::fprintf(stdout, "suite: %s (restarts used: %u)\n",
                          std::string(runner::to_string(status.state)).c_str(),
                          status.suite_restarts_used);
-            for (const runner::Suite_app_status& app : status.apps) {
+            for (const runner::SuiteAppStatus& app : status.apps) {
                 std::fprintf(stdout, "  %s/%s: %s attempt=%u artifact=%s\n",
                              app.app.c_str(), app.instance.c_str(),
                              std::string(runner::to_string(app.state)).c_str(),

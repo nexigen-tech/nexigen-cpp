@@ -161,7 +161,7 @@ struct Fixture {
         make_dirs(instance_dir);
         make_dirs(attempt_dir);
 
-        runner::Suite_metadata metadata{};
+        runner::SuiteMetadata metadata{};
         metadata.suite_id = "hil";
         metadata.run_id = "run-1";
         metadata.run_dir = root;
@@ -169,7 +169,7 @@ struct Fixture {
         metadata.pid = 1234;
         metadata.start_time_rfc3339 = "2026-11-01T00:00:00.000000000Z";
         metadata.start_time_mono_ns = 1;
-        runner::Suite_app_metadata app{};
+        runner::SuiteAppMetadata app{};
         app.app = "alpha";
         app.instance = "1";
         app.instance_dir = instance_dir;
@@ -178,18 +178,18 @@ struct Fixture {
         runner::to_json(metadata_json, metadata);
         write_json(suite_dir + "/suite.json", metadata_json);
 
-        runner::Suite_status status{};
-        status.state = runner::Suite_state::Running;
+        runner::SuiteStatus status{};
+        status.state = runner::SuiteState::Running;
         status.suite_id = "hil";
         status.run_dir = root;
         status.artifacts_path = artifacts;
-        runner::Suite_app_status app_status{};
+        runner::SuiteAppStatus app_status{};
         app_status.app = "alpha";
         app_status.instance = "1";
         app_status.instance_dir = instance_dir;
         app_status.artifact_dir = attempt_dir;
         app_status.attempt = 1;
-        app_status.state = runner::App_state::Running;
+        app_status.state = runner::AppState::Running;
         status.apps.push_back(app_status);
         nlohmann::json status_json;
         runner::to_json(status_json, status);
@@ -217,11 +217,11 @@ std::string stream_id(const Fixture& fixture, std::string_view kind) {
 
 void test_model_serialization() {
     for (const auto kind :
-         {hub::Stream_kind::App, hub::Stream_kind::Metrics,
-          hub::Stream_kind::Traces, hub::Stream_kind::Chrono,
-          hub::Stream_kind::Stdout, hub::Stream_kind::Stderr,
-          hub::Stream_kind::Runner}) {
-        hub::Stream_kind parsed = static_cast<hub::Stream_kind>(0xff);
+         {hub::StreamKind::App, hub::StreamKind::Metrics,
+          hub::StreamKind::Traces, hub::StreamKind::Chrono,
+          hub::StreamKind::Stdout, hub::StreamKind::Stderr,
+          hub::StreamKind::Runner}) {
+        hub::StreamKind parsed = static_cast<hub::StreamKind>(0xff);
         NX_CHECK(hub::from_string(hub::to_string(kind), parsed));
         NX_CHECK(parsed == kind);
         NX_CHECK(std::format("{}", kind) == hub::to_string(kind));
@@ -231,48 +231,48 @@ void test_model_serialization() {
         NX_CHECK(parsed == kind);
     }
 
-    hub::Stream_record record{};
+    hub::StreamRecord record{};
     record.stream_id = "run-1:hil:alpha:1:1:app";
-    record.kind = hub::Stream_kind::App;
+    record.kind = hub::StreamKind::App;
     record.sequence = 7;
     record.received_at_rfc3339 = "2026-11-01T00:00:00.000000000Z";
     record.line = "hello";
     nlohmann::json json;
     hub::to_json(json, record);
-    hub::Stream_record round;
+    hub::StreamRecord round;
     hub::from_json(json, round);
     NX_CHECK(round.sequence == 7);
     NX_CHECK(round.line == "hello");
-    NX_CHECK(round.kind == hub::Stream_kind::App);
+    NX_CHECK(round.kind == hub::StreamKind::App);
 
-    hub::Gap_marker gap{};
+    hub::GapMarker gap{};
     gap.stream_id = record.stream_id;
     gap.dropped = 2;
     gap.first_missing_sequence = 3;
     gap.last_missing_sequence = 4;
     hub::to_json(json, gap);
-    hub::Gap_marker gap_round;
+    hub::GapMarker gap_round;
     hub::from_json(json, gap_round);
     NX_CHECK(gap_round.dropped == 2);
     NX_CHECK(gap_round.first_missing_sequence == 3);
 
-    hub::Hub_tree tree{};
-    hub::Hub_run run{};
+    hub::HubTree tree{};
+    hub::HubRun run{};
     run.run_key = "run-1";
     run.run_dir = "/run";
-    hub::Hub_suite suite{};
+    hub::HubSuite suite{};
     suite.suite_id = "hil";
-    suite.state = runner::Suite_state::Running;
-    hub::Hub_app app{};
+    suite.state = runner::SuiteState::Running;
+    hub::HubApp app{};
     app.app = "alpha";
-    app.state = runner::App_state::Running;
-    hub::Hub_instance instance{};
+    app.state = runner::AppState::Running;
+    hub::HubInstance instance{};
     instance.instance = "1";
-    hub::Hub_attempt attempt{};
+    hub::HubAttempt attempt{};
     attempt.attempt = 1;
-    hub::Hub_stream stream{};
+    hub::HubStream stream{};
     stream.id = record.stream_id;
-    stream.kind = hub::Stream_kind::App;
+    stream.kind = hub::StreamKind::App;
     attempt.streams.push_back(stream);
     instance.attempts.push_back(attempt);
     app.instances.push_back(instance);
@@ -281,14 +281,14 @@ void test_model_serialization() {
     tree.runs.push_back(run);
 
     hub::to_json(json, tree);
-    hub::Hub_tree round_tree;
+    hub::HubTree round_tree;
     hub::from_json(json, round_tree);
     NX_CHECK(round_tree.runs.size() == 1);
     NX_CHECK(round_tree.runs[0].suites[0].apps[0].instances[0].attempts[0]
                  .streams[0]
-                 .kind == hub::Stream_kind::App);
+                 .kind == hub::StreamKind::App);
 
-    hub::Hub_tree hostile = round_tree;
+    hub::HubTree hostile = round_tree;
     hub::from_json(nlohmann::json::array(), hostile);
     NX_CHECK(hostile.runs.size() == 1);
 
@@ -305,36 +305,36 @@ void test_model_serialization() {
     NX_CHECK(!std::format("{}", record).empty());
 
     // Standalone instances participate in the tree and in stream lookup.
-    hub::Hub_tree standalone_tree{};
-    hub::Hub_run standalone_run{};
+    hub::HubTree standalone_tree{};
+    hub::HubRun standalone_run{};
     standalone_run.run_key = "standalone";
-    hub::Hub_instance standalone_instance{};
+    hub::HubInstance standalone_instance{};
     standalone_instance.instance = "2";
     standalone_instance.instance_dir = "/run/alpha/2";
-    hub::Hub_attempt standalone_attempt{};
+    hub::HubAttempt standalone_attempt{};
     standalone_attempt.attempt = 1;
     standalone_attempt.streams.push_back(
-        hub::Hub_stream{"standalone:app", hub::Stream_kind::App, "/p"});
+        hub::HubStream{"standalone:app", hub::StreamKind::App, "/p"});
     standalone_instance.attempts.push_back(standalone_attempt);
     standalone_run.standalone_instances.push_back(standalone_instance);
     standalone_tree.runs.push_back(standalone_run);
     nlohmann::json standalone_json;
     hub::to_json(standalone_json, standalone_tree);
-    hub::Hub_tree standalone_round;
+    hub::HubTree standalone_round;
     hub::from_json(standalone_json, standalone_round);
     NX_CHECK(standalone_round.runs[0].standalone_instances.size() == 1);
     NX_CHECK(hub::find_stream(standalone_tree, "standalone:app") != nullptr);
     NX_CHECK(hub::find_stream(standalone_tree, "missing") == nullptr);
 
     // Non-object and wrong-typed fields leave the existing values untouched.
-    hub::Hub_stream bad_stream;
+    hub::HubStream bad_stream;
     bad_stream.id = "keep";
     hub::from_json(nlohmann::json::array(), bad_stream);
     hub::from_json(nlohmann::json{{"id", 5}, {"kind", 7}, {"path", false}},
                    bad_stream);
     NX_CHECK(bad_stream.id == "keep");
 
-    hub::Hub_attempt bad_attempt;
+    hub::HubAttempt bad_attempt;
     bad_attempt.attempt = 9;
     hub::from_json(nlohmann::json::array(), bad_attempt);
     hub::from_json(nlohmann::json{{"attempt", "x"},
@@ -343,7 +343,7 @@ void test_model_serialization() {
                    bad_attempt);
     NX_CHECK(bad_attempt.attempt == 9);
 
-    hub::Hub_instance bad_instance;
+    hub::HubInstance bad_instance;
     bad_instance.instance = "keep";
     hub::from_json(nlohmann::json::array(), bad_instance);
     hub::from_json(nlohmann::json{{"instance", 1},
@@ -353,7 +353,7 @@ void test_model_serialization() {
                    bad_instance);
     NX_CHECK(bad_instance.instance == "keep");
 
-    hub::Hub_app bad_app;
+    hub::HubApp bad_app;
     bad_app.app = "keep";
     hub::from_json(nlohmann::json::array(), bad_app);
     hub::from_json(nlohmann::json{{"app", 1}, {"state", false},
@@ -361,7 +361,7 @@ void test_model_serialization() {
                    bad_app);
     NX_CHECK(bad_app.app == "keep");
 
-    hub::Hub_suite bad_suite;
+    hub::HubSuite bad_suite;
     bad_suite.suite_id = "keep";
     hub::from_json(nlohmann::json::array(), bad_suite);
     hub::from_json(nlohmann::json{{"suite_id", 1},
@@ -376,7 +376,7 @@ void test_model_serialization() {
                    bad_suite);
     NX_CHECK(bad_suite.suite_id == "keep");
 
-    hub::Hub_run bad_run;
+    hub::HubRun bad_run;
     bad_run.run_key = "keep";
     hub::from_json(nlohmann::json::array(), bad_run);
     hub::from_json(nlohmann::json{{"run_key", 1}, {"run_dir", 2},
@@ -385,12 +385,12 @@ void test_model_serialization() {
                    bad_run);
     NX_CHECK(bad_run.run_key == "keep");
 
-    hub::Hub_tree bad_tree;
+    hub::HubTree bad_tree;
     bad_tree.runs.push_back(run);
     hub::from_json(nlohmann::json{{"runs", 3}}, bad_tree);
     NX_CHECK(bad_tree.runs.size() == 1);
 
-    hub::Stream_record bad_record;
+    hub::StreamRecord bad_record;
     bad_record.sequence = 7;
     hub::from_json(nlohmann::json::array(), bad_record);
     hub::from_json(nlohmann::json{{"stream_id", 1},
@@ -402,7 +402,7 @@ void test_model_serialization() {
                    bad_record);
     NX_CHECK(bad_record.sequence == 7);
 
-    hub::Gap_marker bad_gap;
+    hub::GapMarker bad_gap;
     bad_gap.dropped = 7;
     hub::from_json(nlohmann::json::array(), bad_gap);
     hub::from_json(nlohmann::json{{"stream_id", 1},
@@ -418,14 +418,14 @@ void test_discovery() {
     hub::Discovery discovery;
     std::vector<std::string> roots{fixture.root};
     NX_CHECK(discovery.initialize(roots).has_value());
-    const hub::Hub_tree& tree = discovery.tree();
+    const hub::HubTree& tree = discovery.tree();
     NX_CHECK(tree.runs.size() == 1);
     if (tree.runs.empty()) return;
     NX_CHECK(tree.runs[0].suites.size() == 1);
     if (tree.runs[0].suites.empty()) return;
-    const hub::Hub_suite& suite = tree.runs[0].suites[0];
+    const hub::HubSuite& suite = tree.runs[0].suites[0];
     NX_CHECK(suite.suite_id == "hil");
-    NX_CHECK(suite.state == runner::Suite_state::Running);
+    NX_CHECK(suite.state == runner::SuiteState::Running);
     NX_CHECK(suite.apps.size() == 1);
     NX_CHECK(suite.apps[0].instances.size() == 1);
     NX_CHECK(suite.apps[0].instances[0].attempts.size() == 1);
@@ -442,7 +442,7 @@ void test_discovery() {
     // A new suite is discovered through the inotify watch on .suite.
     const std::string extra_dir = fixture.root + "/.suite/extra";
     make_dirs(extra_dir);
-    runner::Suite_metadata extra{};
+    runner::SuiteMetadata extra{};
     extra.suite_id = "extra";
     extra.run_dir = fixture.root;
     extra.artifacts_path = fixture.artifacts;
@@ -472,7 +472,7 @@ void test_discovery() {
     // A suite with no artifact metadata is visible but exposes no streams.
     const std::string empty_dir = fixture.root + "/.suite/empty_artifacts";
     make_dirs(empty_dir);
-    runner::Suite_metadata empty_suite{};
+    runner::SuiteMetadata empty_suite{};
     empty_suite.suite_id = "empty_artifacts";
     empty_suite.run_dir = fixture.root;
     nlohmann::json empty_json;
@@ -480,7 +480,7 @@ void test_discovery() {
     write_json(empty_dir + "/suite.json", empty_json);
     NX_CHECK(discovery.rescan().has_value());
     bool found_empty = false;
-    for (const hub::Hub_suite& candidate : discovery.tree().runs[0].suites) {
+    for (const hub::HubSuite& candidate : discovery.tree().runs[0].suites) {
         if (candidate.suite_id == "empty_artifacts") {
             found_empty = true;
             NX_CHECK(candidate.runner_log.id.empty());
@@ -503,7 +503,7 @@ void test_discovery() {
     const std::vector<std::string> no_roots;
     NX_CHECK(!invalid.initialize(no_roots).has_value());
 
-    hub::Run_root root_label{"run-9", fixture.root};
+    hub::RunRoot root_label{"run-9", fixture.root};
     NX_CHECK(!root_label.to_string().empty());
 
     // Attempts with non-numeric names are ignored.
@@ -516,7 +516,7 @@ void test_discovery() {
     // Standalone instance directories become their own run entries.
     const std::string standalone = fixture.root + "/solo";
     make_dirs(standalone);
-    runner::Resource_metadata solo{};
+    runner::ResourceMetadata solo{};
     solo.run_id = "run-1";
     solo.app_name = "solo";
     solo.instance_id = "1";
@@ -539,7 +539,7 @@ void test_discovery() {
     // Standalone states derive from the same runner status contract.
     const std::string running_dir = fixture.root + "/alive";
     make_dirs(running_dir);
-    runner::Resource_metadata alive{};
+    runner::ResourceMetadata alive{};
     alive.pid = ::getpid();
     nlohmann::json alive_json;
     runner::to_json(alive_json, alive);
@@ -547,13 +547,13 @@ void test_discovery() {
 
     const std::string stopped_dir = fixture.root + "/stopped";
     make_dirs(stopped_dir);
-    runner::Resource_metadata stopped{};
+    runner::ResourceMetadata stopped{};
     stopped.pid = 999999;
     nlohmann::json stopped_json;
     runner::to_json(stopped_json, stopped);
     write_json(stopped_dir + "/resource.json", stopped_json);
-    runner::Exit_metadata stopped_exit{};
-    stopped_exit.terminated_by = runner::Terminated_by::Runner;
+    runner::ExitMetadata stopped_exit{};
+    stopped_exit.terminated_by = runner::TerminatedBy::Runner;
     nlohmann::json stopped_exit_json;
     runner::to_json(stopped_exit_json, stopped_exit);
     write_json(stopped_dir + "/exit.json", stopped_exit_json);
@@ -564,14 +564,14 @@ void test_discovery() {
 
     NX_CHECK(discovery.rescan().has_value());
     NX_CHECK(discovery.tree().runs[0].standalone_instances.size() == 4);
-    for (const hub::Hub_instance& instance :
+    for (const hub::HubInstance& instance :
          discovery.tree().runs[0].standalone_instances) {
         if (instance.instance_dir == running_dir) {
-            NX_CHECK(instance.state == runner::App_state::Running);
+            NX_CHECK(instance.state == runner::AppState::Running);
         } else if (instance.instance_dir == stopped_dir) {
-            NX_CHECK(instance.state == runner::App_state::Stopped);
+            NX_CHECK(instance.state == runner::AppState::Stopped);
         } else if (instance.instance_dir == unknown_dir) {
-            NX_CHECK(instance.state == runner::App_state::Unknown);
+            NX_CHECK(instance.state == runner::AppState::Unknown);
         }
     }
 
@@ -587,31 +587,31 @@ void test_discovery_states() {
     std::vector<std::string> roots{fixture.root};
     NX_CHECK(discovery.initialize(roots).has_value());
 
-    runner::Suite_status degraded{};
-    degraded.state = runner::Suite_state::Degraded;
-    runner::Suite_app_status app{};
+    runner::SuiteStatus degraded{};
+    degraded.state = runner::SuiteState::Degraded;
+    runner::SuiteAppStatus app{};
     app.app = "alpha";
     app.instance = "1";
     app.instance_dir = fixture.instance_dir;
-    app.state = runner::App_state::Failed;
+    app.state = runner::AppState::Failed;
     degraded.apps.push_back(app);
     nlohmann::json document;
     runner::to_json(document, degraded);
     write_json(fixture.suite_dir + "/suite-state.json", document);
     NX_CHECK(discovery.rescan().has_value());
     NX_CHECK(discovery.tree().runs[0].suites[0].state ==
-             runner::Suite_state::Degraded);
+             runner::SuiteState::Degraded);
     NX_CHECK(discovery.tree().runs[0].suites[0].apps[0].state ==
-             runner::App_state::Failed);
+             runner::AppState::Failed);
 
-    runner::Suite_exit exit{};
-    exit.state = runner::Suite_state::Stopped;
+    runner::SuiteExit exit{};
+    exit.state = runner::SuiteState::Stopped;
     exit.reason = "operator_stop";
     runner::to_json(document, exit);
     write_json(fixture.suite_dir + "/suite-exit.json", document);
     NX_CHECK(discovery.rescan().has_value());
     NX_CHECK(discovery.tree().runs[0].suites[0].state ==
-             runner::Suite_state::Stopped);
+             runner::SuiteState::Stopped);
     NX_CHECK(discovery.tree().runs[0].suites[0].reason == "operator_stop");
 
     std::error_code error;
@@ -619,12 +619,12 @@ void test_discovery_states() {
     std::filesystem::remove(fixture.suite_dir + "/suite-exit.json", error);
     NX_CHECK(discovery.rescan().has_value());
     NX_CHECK(discovery.tree().runs[0].suites[0].state ==
-             runner::Suite_state::Unknown);
+             runner::SuiteState::Unknown);
 
-    auto combined_state = [&](runner::App_state app_state) {
-        runner::Suite_status recorded{};
-        recorded.state = runner::Suite_state::Unknown;
-        runner::Suite_app_status entry{};
+    auto combined_state = [&](runner::AppState app_state) {
+        runner::SuiteStatus recorded{};
+        recorded.state = runner::SuiteState::Unknown;
+        runner::SuiteAppStatus entry{};
         entry.app = "alpha";
         entry.instance = "1";
         entry.instance_dir = fixture.instance_dir;
@@ -636,16 +636,16 @@ void test_discovery_states() {
         static_cast<void>(discovery.rescan());
         return discovery.tree().runs[0].suites[0].state;
     };
-    NX_CHECK(combined_state(runner::App_state::Restarting) ==
-             runner::Suite_state::Running);
-    NX_CHECK(combined_state(runner::App_state::Failed) ==
-             runner::Suite_state::Failed);
-    NX_CHECK(combined_state(runner::App_state::Stopped) ==
-             runner::Suite_state::Unknown);
-    NX_CHECK(combined_state(runner::App_state::Exited) ==
-             runner::Suite_state::Unknown);
-    NX_CHECK(combined_state(runner::App_state::Running) ==
-             runner::Suite_state::Running);
+    NX_CHECK(combined_state(runner::AppState::Restarting) ==
+             runner::SuiteState::Running);
+    NX_CHECK(combined_state(runner::AppState::Failed) ==
+             runner::SuiteState::Failed);
+    NX_CHECK(combined_state(runner::AppState::Stopped) ==
+             runner::SuiteState::Unknown);
+    NX_CHECK(combined_state(runner::AppState::Exited) ==
+             runner::SuiteState::Unknown);
+    NX_CHECK(combined_state(runner::AppState::Running) ==
+             runner::SuiteState::Running);
 }
 
 void test_streaming() {
@@ -653,16 +653,16 @@ void test_streaming() {
     hub::Discovery discovery;
     std::vector<std::string> roots{fixture.root};
     NX_CHECK(discovery.initialize(roots).has_value());
-    hub::Stream_limits limits{};
+    hub::StreamLimits limits{};
     limits.ring_records = 2;
     limits.ring_bytes = 4096;
-    hub::Stream_manager streaming(limits);
+    hub::StreamManager streaming(limits);
     NX_CHECK(streaming.sync(discovery.tree()).has_value());
     streaming.poll();
 
     const std::string id = stream_id(fixture, "app");
-    std::vector<hub::Stream_record> snapshot;
-    std::optional<hub::Gap_marker> gap;
+    std::vector<hub::StreamRecord> snapshot;
+    std::optional<hub::GapMarker> gap;
     std::uint64_t subscriber = streaming.subscribe(id, 0, snapshot, gap);
     NX_CHECK(subscriber > 0);
     NX_CHECK(snapshot.size() == 2);
@@ -672,16 +672,16 @@ void test_streaming() {
     write_text(fixture.attempt_dir + "/app.jsonl",
                "{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n");
     streaming.poll();
-    std::vector<hub::Stream_record> live;
-    std::vector<hub::Gap_marker> gaps;
+    std::vector<hub::StreamRecord> live;
+    std::vector<hub::GapMarker> gaps;
     streaming.take(subscriber, live, gaps);
     NX_CHECK(!live.empty());
     NX_CHECK(live.back().line == "{\"a\":3}");
     NX_CHECK(gaps.empty());
 
     // Ring overflow: newest records survive and an older cursor gets a gap.
-    std::vector<hub::Stream_record> recent;
-    std::optional<hub::Gap_marker> recent_gap;
+    std::vector<hub::StreamRecord> recent;
+    std::optional<hub::GapMarker> recent_gap;
     streaming.recent(id, 2, recent, recent_gap);
     NX_CHECK(recent.size() == 2);
     snapshot.clear();
@@ -693,7 +693,7 @@ void test_streaming() {
     // Partial lines wait for the newline.
     write_text(fixture.attempt_dir + "/metrics.jsonl", "part");
     streaming.poll();
-    std::vector<hub::Stream_record> metrics_snapshot;
+    std::vector<hub::StreamRecord> metrics_snapshot;
     gap.reset();
     static_cast<void>(streaming.subscribe(stream_id(fixture, "metrics"), 0,
                                           metrics_snapshot, gap));
@@ -722,13 +722,13 @@ void test_streaming() {
     NX_CHECK(!recent.empty() && recent.back().line == "two");
 
     // A slow subscriber is bounded rather than growing without limit.
-    hub::Stream_limits small{};
+    hub::StreamLimits small{};
     small.subscriber_bytes = 1024;
-    hub::Stream_manager slow(small);
+    hub::StreamManager slow(small);
     NX_CHECK(slow.sync(discovery.tree()).has_value());
     slow.poll();
-    std::vector<hub::Stream_record> slow_snapshot;
-    std::optional<hub::Gap_marker> slow_gap;
+    std::vector<hub::StreamRecord> slow_snapshot;
+    std::optional<hub::GapMarker> slow_gap;
     const std::uint64_t slow_id =
         slow.subscribe(stream_id(fixture, "app"), 0, slow_snapshot, slow_gap);
     std::string many;
@@ -738,8 +738,8 @@ void test_streaming() {
     write_text(fixture.attempt_dir + "/app.jsonl", many);
     slow.poll();
     NX_CHECK(slow.overflowed(slow_id));
-    std::vector<hub::Stream_record> other_snapshot;
-    std::optional<hub::Gap_marker> other_gap;
+    std::vector<hub::StreamRecord> other_snapshot;
+    std::optional<hub::GapMarker> other_gap;
     const std::uint64_t other_id =
         slow.subscribe(stream_id(fixture, "stdout"), 0, other_snapshot,
                        other_gap);
@@ -749,19 +749,19 @@ void test_streaming() {
     // Byte capacity drops oldest records even when the count fits.
     write_text(fixture.attempt_dir + "/metrics.jsonl",
                std::string(100, 'a') + "\n" + std::string(100, 'b') + "\n");
-    hub::Stream_limits byte_limits{};
+    hub::StreamLimits byte_limits{};
     byte_limits.ring_bytes = 256;
-    hub::Stream_manager bytes(byte_limits);
+    hub::StreamManager bytes(byte_limits);
     NX_CHECK(bytes.sync(discovery.tree()).has_value());
     bytes.poll();
-    std::vector<hub::Stream_record> byte_records;
-    std::optional<hub::Gap_marker> byte_gap;
+    std::vector<hub::StreamRecord> byte_records;
+    std::optional<hub::GapMarker> byte_gap;
     bytes.recent(stream_id(fixture, "metrics"), 10, byte_records, byte_gap);
     NX_CHECK(byte_records.size() == 1);
 
     // Bounds are clamped to their documented minimums and string forms work.
-    hub::Stream_limits clamped_limits{0, 0, 0, 0, 0};
-    hub::Stream_manager clamped(clamped_limits);
+    hub::StreamLimits clamped_limits{0, 0, 0, 0, 0};
+    hub::StreamManager clamped(clamped_limits);
     NX_CHECK(clamped.limits().ring_records == 1);
     NX_CHECK(clamped.limits().ring_bytes >= 256);
     NX_CHECK(clamped.limits().max_line_bytes >= 64);
@@ -772,14 +772,14 @@ void test_streaming() {
     NX_CHECK(!std::format("{}", clamped_limits).empty());
 
     // Long lines become gaps, and a small subscriber budget overflows.
-    hub::Stream_limits line_limits{};
+    hub::StreamLimits line_limits{};
     line_limits.max_line_bytes = 64;
     line_limits.subscriber_bytes = 1024;
-    hub::Stream_manager long_lines(line_limits);
+    hub::StreamManager long_lines(line_limits);
     NX_CHECK(long_lines.sync(discovery.tree()).has_value());
     long_lines.poll();
-    std::vector<hub::Stream_record> long_snapshot;
-    std::optional<hub::Gap_marker> long_gap;
+    std::vector<hub::StreamRecord> long_snapshot;
+    std::optional<hub::GapMarker> long_gap;
     const std::uint64_t long_id = long_lines.subscribe(
         stream_id(fixture, "app"), 0, long_snapshot, long_gap);
     NX_CHECK(long_lines.subscriber_count() == 1);
@@ -790,8 +790,8 @@ void test_streaming() {
     long_text += "short-after-gap\n";
     write_text(fixture.attempt_dir + "/app.jsonl", long_text);
     long_lines.poll();
-    std::vector<hub::Stream_record> long_records;
-    std::vector<hub::Gap_marker> long_gaps;
+    std::vector<hub::StreamRecord> long_records;
+    std::vector<hub::GapMarker> long_gaps;
     long_lines.take(long_id, long_records, long_gaps);
     NX_CHECK(!long_gaps.empty());
     NX_CHECK(long_lines.overflowed(long_id));
@@ -802,8 +802,8 @@ void test_streaming() {
     NX_CHECK(!long_lines.overflowed(long_id));
 
     // Subscribing to an unknown stream records the cursor without a snapshot.
-    std::vector<hub::Stream_record> unknown_snapshot;
-    std::optional<hub::Gap_marker> unknown_gap;
+    std::vector<hub::StreamRecord> unknown_snapshot;
+    std::optional<hub::GapMarker> unknown_gap;
     const std::uint64_t unknown_id = long_lines.subscribe(
         "missing-stream", 5, unknown_snapshot, unknown_gap);
     NX_CHECK(unknown_snapshot.empty());
@@ -813,24 +813,24 @@ void test_streaming() {
     // A descriptor path change reopens the stream at the new file.
     const std::string copy_path = fixture.attempt_dir + "/app-copy.jsonl";
     write_text(copy_path, "copied-line\n");
-    hub::Hub_tree changed = discovery.tree();
+    hub::HubTree changed = discovery.tree();
     auto& changed_streams = changed.runs[0]
                                 .suites[0]
                                 .apps[0]
                                 .instances[0]
                                 .attempts[0]
                                 .streams;
-    for (hub::Hub_stream& stream : changed_streams) {
-        if (stream.kind == hub::Stream_kind::App) {
+    for (hub::HubStream& stream : changed_streams) {
+        if (stream.kind == hub::StreamKind::App) {
             stream.path = copy_path;
         }
     }
-    hub::Stream_manager moved;
+    hub::StreamManager moved;
     NX_CHECK(moved.sync(discovery.tree()).has_value());
     NX_CHECK(moved.sync(changed).has_value());
     moved.poll();
-    std::vector<hub::Stream_record> moved_records;
-    std::optional<hub::Gap_marker> moved_gap;
+    std::vector<hub::StreamRecord> moved_records;
+    std::optional<hub::GapMarker> moved_gap;
     moved.recent(stream_id(fixture, "app"), 10, moved_records, moved_gap);
     NX_CHECK(!moved_records.empty());
     NX_CHECK(moved_records.back().line == "copied-line");
@@ -838,17 +838,17 @@ void test_streaming() {
     // A missing stream is reported through the diagnostic sink and makes sync
     // fail without disturbing other tailers.
     Diagnostic_capture capture;
-    hub::Stream_manager diagnosed;
+    hub::StreamManager diagnosed;
     diagnosed.set_diagnostic_sink(capture_diagnostic, &capture);
-    hub::Hub_tree missing_tree{};
-    hub::Hub_run missing_run{};
+    hub::HubTree missing_tree{};
+    hub::HubRun missing_run{};
     missing_run.run_key = "run-missing";
-    hub::Hub_instance missing_instance{};
+    hub::HubInstance missing_instance{};
     missing_instance.instance = "1";
-    hub::Hub_attempt missing_attempt{};
+    hub::HubAttempt missing_attempt{};
     missing_attempt.attempt = 1;
     missing_attempt.streams.push_back(
-        hub::Hub_stream{"missing:app", hub::Stream_kind::App,
+        hub::HubStream{"missing:app", hub::StreamKind::App,
                         fixture.root + "/missing-app.jsonl"});
     missing_instance.attempts.push_back(std::move(missing_attempt));
     missing_run.standalone_instances.push_back(std::move(missing_instance));
@@ -858,23 +858,23 @@ void test_streaming() {
     NX_CHECK(missing_sync.error() == core::ErrorCode::SystemError);
     NX_CHECK(diagnostic_contains(capture, "event=stream_open_failed"));
     NX_CHECK(diagnostic_contains(capture, "missing:app"));
-    NX_CHECK(diagnosed.sync(hub::Hub_tree{}).has_value());
+    NX_CHECK(diagnosed.sync(hub::HubTree{}).has_value());
 
     // A file that disappears after being tailed is reported on the next poll.
     const std::string transient = fixture.attempt_dir + "/transient.jsonl";
     write_text(transient, "x\n");
     Diagnostic_capture stat_capture;
-    hub::Stream_manager transient_streams;
+    hub::StreamManager transient_streams;
     transient_streams.set_diagnostic_sink(capture_diagnostic, &stat_capture);
-    hub::Hub_tree transient_tree{};
-    hub::Hub_run transient_run{};
+    hub::HubTree transient_tree{};
+    hub::HubRun transient_run{};
     transient_run.run_key = "run-transient";
-    hub::Hub_instance transient_instance{};
+    hub::HubInstance transient_instance{};
     transient_instance.instance = "1";
-    hub::Hub_attempt transient_attempt{};
+    hub::HubAttempt transient_attempt{};
     transient_attempt.attempt = 1;
     transient_attempt.streams.push_back(
-        hub::Hub_stream{"transient:app", hub::Stream_kind::App, transient});
+        hub::HubStream{"transient:app", hub::StreamKind::App, transient});
     transient_instance.attempts.push_back(std::move(transient_attempt));
     transient_run.standalone_instances.push_back(
         std::move(transient_instance));
@@ -889,17 +889,17 @@ void test_streaming() {
     // A directory used as a stream path opens but fails to read; both the
     // initial seed and the poll path report the read error.
     Diagnostic_capture read_capture;
-    hub::Stream_manager directory_streams;
+    hub::StreamManager directory_streams;
     directory_streams.set_diagnostic_sink(capture_diagnostic, &read_capture);
-    hub::Hub_tree directory_tree{};
-    hub::Hub_run directory_run{};
+    hub::HubTree directory_tree{};
+    hub::HubRun directory_run{};
     directory_run.run_key = "run-directory";
-    hub::Hub_instance directory_instance{};
+    hub::HubInstance directory_instance{};
     directory_instance.instance = "1";
-    hub::Hub_attempt directory_attempt{};
+    hub::HubAttempt directory_attempt{};
     directory_attempt.attempt = 1;
-    directory_attempt.streams.push_back(hub::Hub_stream{
-        "directory:app", hub::Stream_kind::App, fixture.attempt_dir});
+    directory_attempt.streams.push_back(hub::HubStream{
+        "directory:app", hub::StreamKind::App, fixture.attempt_dir});
     directory_instance.attempts.push_back(std::move(directory_attempt));
     directory_run.standalone_instances.push_back(
         std::move(directory_instance));
@@ -914,8 +914,8 @@ void test_http_start_errors() {
     hub::Discovery discovery;
     std::vector<std::string> roots{fixture.root};
     NX_CHECK(discovery.initialize(roots).has_value());
-    hub::Stream_manager streaming;
-    hub::Http_server server(discovery, streaming);
+    hub::StreamManager streaming;
+    hub::HttpServer server(discovery, streaming);
 
     NX_CHECK(!server.start("").has_value());
     NX_CHECK(!server.start("noport").has_value());
@@ -927,7 +927,7 @@ void test_http_start_errors() {
     server.set_diagnostic_sink(nullptr, nullptr);
     NX_CHECK(!server.to_string().empty());
 
-    hub::Http_server localhost(discovery, streaming);
+    hub::HttpServer localhost(discovery, streaming);
     NX_CHECK(localhost.start("localhost:0").has_value());
     NX_CHECK(localhost.port() != 0);
 
@@ -944,7 +944,7 @@ void test_http_start_errors() {
     socklen_t bound_length = sizeof(bound);
     NX_CHECK(::getsockname(occupied, reinterpret_cast<sockaddr*>(&bound),
                            &bound_length) == 0);
-    hub::Http_server busy(discovery, streaming);
+    hub::HttpServer busy(discovery, streaming);
     NX_CHECK(!busy.start("127.0.0.1:" +
                          std::to_string(ntohs(bound.sin_port)))
                   .has_value());
@@ -955,8 +955,8 @@ void test_http_start_errors() {
     std::error_code remove_error;
     std::filesystem::remove(fixture.attempt_dir + "/traces.jsonl", remove_error);
     Diagnostic_capture capture;
-    hub::Stream_manager late;
-    hub::Http_server with_failure(discovery, late, capture_diagnostic, &capture);
+    hub::StreamManager late;
+    hub::HttpServer with_failure(discovery, late, capture_diagnostic, &capture);
     NX_CHECK(with_failure.start("127.0.0.1:0").has_value());
     NX_CHECK(diagnostic_contains(capture, "event=hub_sync_failed"));
 }
@@ -966,17 +966,17 @@ void test_http_sse_gaps() {
     hub::Discovery discovery;
     std::vector<std::string> roots{fixture.root};
     NX_CHECK(discovery.initialize(roots).has_value());
-    hub::Stream_limits limits{};
+    hub::StreamLimits limits{};
     limits.ring_records = 1;
     limits.max_line_bytes = 64;
     limits.subscriber_bytes = 4096;
-    hub::Stream_manager streaming(limits);
+    hub::StreamManager streaming(limits);
     NX_CHECK(streaming.sync(discovery.tree()).has_value());
     streaming.poll();
     write_text(fixture.attempt_dir + "/app.jsonl", "one\ntwo\nthree\n");
     streaming.poll();
 
-    hub::Http_server server(discovery, streaming);
+    hub::HttpServer server(discovery, streaming);
     NX_CHECK(server.start("127.0.0.1:0").has_value());
     std::atomic<bool> stop{false};
     std::thread thread([&] { server.run(&stop); });
@@ -1037,10 +1037,10 @@ void test_http_fuzz_corpus() {
     hub::Discovery discovery;
     std::vector<std::string> roots{fixture.root};
     NX_CHECK(discovery.initialize(roots).has_value());
-    hub::Stream_manager streaming;
+    hub::StreamManager streaming;
     NX_CHECK(streaming.sync(discovery.tree()).has_value());
     streaming.poll();
-    hub::Http_server server(discovery, streaming);
+    hub::HttpServer server(discovery, streaming);
     NX_CHECK(server.start("127.0.0.1:0").has_value());
     std::atomic<bool> stop{false};
     std::thread thread([&] { server.run(&stop); });
@@ -1116,7 +1116,7 @@ void test_http_fault_injection() {
     hub::Discovery discovery;
     std::vector<std::string> roots{fixture.root};
     NX_CHECK(discovery.initialize(roots).has_value());
-    hub::Stream_manager streaming;
+    hub::StreamManager streaming;
 
     core::detail::set_fault_hook(hub_fault_hook);
     for (const auto point : {core::detail::Fault_point::Hub_socket,
@@ -1125,7 +1125,7 @@ void test_http_fault_injection() {
                              core::detail::Fault_point::Hub_eventfd}) {
         g_hub_fault_point = point;
         g_hub_fault_enabled = true;
-        hub::Http_server server(discovery, streaming);
+        hub::HttpServer server(discovery, streaming);
         NX_CHECK(!server.start("127.0.0.1:0").has_value());
         g_hub_fault_enabled = false;
     }
@@ -1149,11 +1149,11 @@ void test_http_server() {
     hub::Discovery discovery;
     std::vector<std::string> roots{fixture.root};
     NX_CHECK(discovery.initialize(roots).has_value());
-    hub::Stream_manager streaming;
+    hub::StreamManager streaming;
     NX_CHECK(streaming.sync(discovery.tree()).has_value());
     streaming.poll();
     Diagnostic_capture capture;
-    hub::Http_server server(discovery, streaming, capture_diagnostic, &capture);
+    hub::HttpServer server(discovery, streaming, capture_diagnostic, &capture);
     NX_CHECK(server.start("127.0.0.1:0").has_value());
     std::atomic<bool> stop{false};
     std::thread thread([&] { server.run(&stop); });

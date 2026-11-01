@@ -144,12 +144,12 @@ struct Test_policy {
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
-                                             const app::Metrics_settings&) noexcept {
+                                             const app::MetricsSettings&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
-                                           const app::Tracing_settings&) noexcept {
+                                           const app::TracingSettings&) noexcept {
         out.emplace();
         return {};
     }
@@ -180,7 +180,7 @@ struct Resolved_path_policy {
         return out->initialize(config);
     }
     static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
-                                             const app::Metrics_settings& settings) noexcept {
+                                             const app::MetricsSettings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -188,7 +188,7 @@ struct Resolved_path_policy {
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
-                                           const app::Tracing_settings& settings) noexcept {
+                                           const app::TracingSettings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -216,12 +216,12 @@ struct Fail_logger_policy {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
-                                             const app::Metrics_settings&) noexcept {
+                                             const app::MetricsSettings&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
-                                           const app::Tracing_settings&) noexcept {
+                                           const app::TracingSettings&) noexcept {
         out.emplace();
         return {};
     }
@@ -244,11 +244,11 @@ struct Fail_metrics_policy {
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<Metrics_sink>&,
-                                             const app::Metrics_settings&) noexcept {
+                                             const app::MetricsSettings&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
-                                           const app::Tracing_settings&) noexcept {
+                                           const app::TracingSettings&) noexcept {
         out.emplace();
         return {};
     }
@@ -271,12 +271,12 @@ struct Fail_trace_policy {
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
-                                             const app::Metrics_settings&) noexcept {
+                                             const app::MetricsSettings&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<Trace_sink>&,
-                                           const app::Tracing_settings&) noexcept {
+                                           const app::TracingSettings&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
@@ -298,12 +298,12 @@ struct Flush_fail_policy {
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
-                                             const app::Metrics_settings&) noexcept {
+                                             const app::MetricsSettings&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
-                                           const app::Tracing_settings&) noexcept {
+                                           const app::TracingSettings&) noexcept {
         out.emplace();
         return {};
     }
@@ -326,12 +326,12 @@ struct Fail_chrono_policy {
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
-                                             const app::Metrics_settings&) noexcept {
+                                             const app::MetricsSettings&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
-                                           const app::Tracing_settings&) noexcept {
+                                           const app::TracingSettings&) noexcept {
         out.emplace();
         return {};
     }
@@ -358,13 +358,13 @@ struct has_from_json<
     T, std::void_t<decltype(from_json(std::declval<const nlohmann::json&>(),
                                       std::declval<T&>()))>> : std::true_type {};
 
-static_assert(!has_from_json<app::Metrics_settings>::value);
-static_assert(!has_from_json<app::Tracing_settings>::value);
-static_assert(!has_from_json<app::App_settings_paths>::value);
-static_assert(!has_from_json<app::App_settings>::value);
-static_assert(has_from_json<app::Command_line_options>::value);
-static_assert(has_from_json<app::Command_line_diagnostic>::value);
-static_assert(has_from_json<app::Command_line_error>::value);
+static_assert(!has_from_json<app::MetricsSettings>::value);
+static_assert(!has_from_json<app::TracingSettings>::value);
+static_assert(!has_from_json<app::AppSettingsPaths>::value);
+static_assert(!has_from_json<app::AppSettings>::value);
+static_assert(has_from_json<app::CommandLineOptions>::value);
+static_assert(has_from_json<app::CommandLineDiagnostic>::value);
+static_assert(has_from_json<app::CommandLineError>::value);
 static_assert(has_from_json<app::Settings_paths>::value);
 
 // Design D9: the sink member does not turn settings into a polymorphic or
@@ -375,8 +375,8 @@ constexpr bool is_plain_value_type =
     std::is_copy_assignable_v<T> && std::is_move_assignable_v<T> &&
     std::is_nothrow_destructible_v<T> && !std::is_polymorphic_v<T>;
 
-static_assert(is_plain_value_type<app::Metrics_settings>);
-static_assert(is_plain_value_type<app::Tracing_settings>);
+static_assert(is_plain_value_type<app::MetricsSettings>);
+static_assert(is_plain_value_type<app::TracingSettings>);
 static_assert(is_plain_value_type<chrono::Chrono_settings>);
 
 struct Env_guard {
@@ -417,14 +417,14 @@ void make_dir(const std::string& path) {
     NX_CHECK(::mkdir(path.c_str(), 0700) == 0);
 }
 
-app::Command_line_result parse_args(std::initializer_list<std::string_view> args) {
+app::CommandLineResult parse_args(std::initializer_list<std::string_view> args) {
     return app::parse_command_line(
         std::span<const std::string_view>{args.begin(), args.size()});
 }
 
-[[nodiscard]] bool has_diagnostic(const app::Command_line_error& error,
+[[nodiscard]] bool has_diagnostic(const app::CommandLineError& error,
                                   std::string_view option) {
-    for (const app::Command_line_diagnostic& diagnostic : error.diagnostics) {
+    for (const app::CommandLineDiagnostic& diagnostic : error.diagnostics) {
         if (diagnostic.option == option) {
             return true;
         }
@@ -432,9 +432,9 @@ app::Command_line_result parse_args(std::initializer_list<std::string_view> args
     return false;
 }
 
-[[nodiscard]] bool message_contains(const app::Command_line_error& error,
+[[nodiscard]] bool message_contains(const app::CommandLineError& error,
                                     std::string_view text) {
-    for (const app::Command_line_diagnostic& diagnostic : error.diagnostics) {
+    for (const app::CommandLineDiagnostic& diagnostic : error.diagnostics) {
         if (diagnostic.message.find(text) != std::string::npos) {
             return true;
         }
@@ -445,25 +445,25 @@ app::Command_line_result parse_args(std::initializer_list<std::string_view> args
 } // namespace
 
 void test_stop_reason() {
-    NX_CHECK(app::to_string(app::Infrastructure_stop_reason::None) == "none");
-    NX_CHECK(app::to_string(app::Infrastructure_stop_reason::Requested) == "requested");
-    NX_CHECK(app::to_string(app::Infrastructure_stop_reason::Sigint) == "sigint");
-    NX_CHECK(app::to_string(app::Infrastructure_stop_reason::Sigterm) == "sigterm");
+    NX_CHECK(app::to_string(app::InfrastructureStopReason::None) == "none");
+    NX_CHECK(app::to_string(app::InfrastructureStopReason::Requested) == "requested");
+    NX_CHECK(app::to_string(app::InfrastructureStopReason::Sigint) == "sigint");
+    NX_CHECK(app::to_string(app::InfrastructureStopReason::Sigterm) == "sigterm");
 
-    app::Infrastructure_stop_reason reason = app::Infrastructure_stop_reason::None;
+    app::InfrastructureStopReason reason = app::InfrastructureStopReason::None;
     NX_CHECK(app::from_string("sigterm", reason));
-    NX_CHECK(reason == app::Infrastructure_stop_reason::Sigterm);
+    NX_CHECK(reason == app::InfrastructureStopReason::Sigterm);
     NX_CHECK(!app::from_string("bogus", reason));
-    NX_CHECK(reason == app::Infrastructure_stop_reason::Sigterm);
+    NX_CHECK(reason == app::InfrastructureStopReason::Sigterm);
 
     nlohmann::json json;
-    app::to_json(json, app::Infrastructure_stop_reason::Sigint);
+    app::to_json(json, app::InfrastructureStopReason::Sigint);
     NX_CHECK(json == "sigint");
     app::from_json(nlohmann::json("requested"), reason);
-    NX_CHECK(reason == app::Infrastructure_stop_reason::Requested);
+    NX_CHECK(reason == app::InfrastructureStopReason::Requested);
     app::from_json(nlohmann::json(7), reason);
-    NX_CHECK(reason == app::Infrastructure_stop_reason::Requested);
-    NX_CHECK(std::format("{}", app::Infrastructure_stop_reason::Sigterm) == "sigterm");
+    NX_CHECK(reason == app::InfrastructureStopReason::Requested);
+    NX_CHECK(std::format("{}", app::InfrastructureStopReason::Sigterm) == "sigterm");
 }
 
 void test_settings_loaders() {
@@ -494,7 +494,7 @@ void test_settings_loaders() {
                R"("max_spans_per_window":100,"window_ns":1000})");
     write_text(tracing_local, R"({"max_tracers":16})");
 
-    app::Metrics_settings metrics{};
+    app::MetricsSettings metrics{};
     NX_CHECK(app::load_metrics_settings({metrics_global, metrics_local}, metrics).has_value());
     NX_CHECK(metrics.global_loaded && metrics.local_loaded);
     NX_CHECK(metrics.options.core_mask == 1ULL);
@@ -514,7 +514,7 @@ void test_settings_loaders() {
     write_text(metrics_local, R"({"max_counters":"many"})");
     NX_CHECK(!app::load_metrics_settings({metrics_global, metrics_local}, metrics).has_value());
 
-    app::Tracing_settings tracing{};
+    app::TracingSettings tracing{};
     NX_CHECK(app::load_tracing_settings({tracing_global, tracing_local}, tracing).has_value());
     NX_CHECK(tracing.options.core_mask == 2ULL);
     NX_CHECK(tracing.options.max_tracers == 16U);
@@ -536,8 +536,8 @@ void test_settings_loaders() {
 
     // Aggregation: clean logging (empty paths) + one unreadable metrics pair.
     write_text(metrics_local, R"({"core_mask":1})");
-    app::App_settings app_settings{};
-    app::App_settings_paths paths{};
+    app::AppSettings app_settings{};
+    app::AppSettingsPaths paths{};
     paths.metrics.global_file = "/tmp/opencode";
     NX_CHECK(!app::load_app_settings(paths, app_settings).has_value());
     NX_CHECK(app_settings.tracing.options.max_tracers == 16U); // defaults still populated
@@ -559,24 +559,24 @@ void test_settings_loaders() {
     // Malformed JSON and non-object documents on both subsystems.
     write_text(metrics_global, "{");
     {
-        app::Metrics_settings metrics_invalid{};
+        app::MetricsSettings metrics_invalid{};
         NX_CHECK(!app::load_metrics_settings({metrics_global, ""}, metrics_invalid).has_value());
     }
     write_text(tracing_global, "[]");
     {
-        app::Tracing_settings tracing_invalid{};
+        app::TracingSettings tracing_invalid{};
         NX_CHECK(!app::load_tracing_settings({tracing_global, ""}, tracing_invalid).has_value());
         NX_CHECK(!tracing_invalid.diagnostics.empty());
     }
     write_text(tracing_global, "{");
     {
-        app::Tracing_settings tracing_invalid{};
+        app::TracingSettings tracing_invalid{};
         NX_CHECK(!app::load_tracing_settings({tracing_global, ""}, tracing_invalid).has_value());
     }
 
     // Serialization with non-empty diagnostics (loop branches).
     {
-        app::Metrics_settings metrics_serialized{};
+        app::MetricsSettings metrics_serialized{};
         metrics_serialized.global_loaded = true;
         metrics_serialized.diagnostics.push_back(
             {logging::Settings_source::Local, "core_mask", "bad"});
@@ -584,7 +584,7 @@ void test_settings_loaders() {
         nlohmann::json serialized_json;
         app::to_json(serialized_json, metrics_serialized);
         NX_CHECK(serialized_json["diagnostics"].size() == 1U);
-        app::Tracing_settings tracing_serialized{};
+        app::TracingSettings tracing_serialized{};
         tracing_serialized.local_loaded = true;
         tracing_serialized.diagnostics.push_back(
             {logging::Settings_source::Global, "max_tracers", "bad"});
@@ -597,13 +597,13 @@ void test_settings_loaders() {
     {
         write_text(metrics_global, R"({"core_mask":5})");
         write_text(metrics_local, "{");
-        app::Metrics_settings metrics_local_bad{};
+        app::MetricsSettings metrics_local_bad{};
         NX_CHECK(!app::load_metrics_settings({metrics_global, metrics_local},
                                              metrics_local_bad)
                       .has_value());
         write_text(tracing_global, R"({"max_tracers":2})");
         write_text(tracing_local, "{");
-        app::Tracing_settings tracing_local_bad{};
+        app::TracingSettings tracing_local_bad{};
         NX_CHECK(!app::load_tracing_settings({tracing_global, tracing_local},
                                              tracing_local_bad)
                       .has_value());
@@ -613,10 +613,10 @@ void test_settings_loaders() {
     {
         write_text(metrics_local, R"({"core_mask":"x"})");
         write_text(tracing_local, R"({"max_tracers":0})");
-        app::App_settings_paths aggregate_paths{};
+        app::AppSettingsPaths aggregate_paths{};
         aggregate_paths.metrics = {metrics_global, metrics_local};
         aggregate_paths.tracing = {tracing_global, tracing_local};
-        app::App_settings out{};
+        app::AppSettings out{};
         const core::Status status = app::load_app_settings(aggregate_paths, out);
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == core::ErrorCode::InvalidArgument);
@@ -658,8 +658,8 @@ void test_settings_sink() {
                R"("max_spans_per_window":10,"window_ns":100}})");
     write_text(tracing_local, R"({"sink":{"path":"/tmp/local-traces.jsonl"}})");
     {
-        app::Metrics_settings metrics{};
-        app::Tracing_settings tracing{};
+        app::MetricsSettings metrics{};
+        app::TracingSettings tracing{};
         NX_CHECK(app::load_metrics_settings({metrics_global, metrics_local}, metrics)
                      .has_value());
         NX_CHECK(metrics.sink.path == "/tmp/local-metrics.jsonl");
@@ -687,8 +687,8 @@ void test_settings_sink() {
 
     // Serialization carries both sink objects and the formatter matches.
     {
-        app::Metrics_settings metrics{};
-        app::Tracing_settings tracing{};
+        app::MetricsSettings metrics{};
+        app::TracingSettings tracing{};
         NX_CHECK(app::load_metrics_settings({metrics_global, metrics_local}, metrics)
                      .has_value());
         NX_CHECK(app::load_tracing_settings({tracing_global, tracing_local}, tracing)
@@ -710,8 +710,8 @@ void test_settings_sink() {
         NX_CHECK(json["sink"]["max_spans_per_window"] == 10U);
         NX_CHECK(json["sink"]["window_ns"] == 100U);
 
-        // App_settings carries both sink objects through its members.
-        app::App_settings aggregate{};
+        // AppSettings carries both sink objects through its members.
+        app::AppSettings aggregate{};
         aggregate.metrics = metrics;
         aggregate.tracing = tracing;
         app::to_json(json, aggregate);
@@ -726,8 +726,8 @@ void test_settings_sink() {
     write_text(tracing_global, "{}");
     write_text(tracing_local, "{}");
     {
-        app::Metrics_settings metrics{};
-        app::Tracing_settings tracing{};
+        app::MetricsSettings metrics{};
+        app::TracingSettings tracing{};
         NX_CHECK(app::load_metrics_settings({metrics_global, metrics_local}, metrics)
                      .has_value());
         NX_CHECK(app::load_tracing_settings({tracing_global, tracing_local}, tracing)
@@ -743,7 +743,7 @@ void test_settings_sink() {
     // An empty path is accepted as "unconfigured", not a diagnostic.
     write_text(metrics_global, R"({"sink":{"path":""}})");
     {
-        app::Metrics_settings metrics{};
+        app::MetricsSettings metrics{};
         NX_CHECK(app::load_metrics_settings({metrics_global, ""}, metrics).has_value());
         NX_CHECK(metrics.sink.path.empty());
         NX_CHECK(metrics.diagnostics.empty());
@@ -755,7 +755,7 @@ void test_settings_sink() {
     write_text(tracing_local,
                R"({"sink":{"path":"/tmp/l.jsonl","rotation":"Sometimes"}})");
     {
-        app::Tracing_settings tracing{};
+        app::TracingSettings tracing{};
         NX_CHECK(!app::load_tracing_settings({tracing_global, tracing_local}, tracing)
                       .has_value());
         NX_CHECK(tracing.sink.path == "/tmp/l.jsonl");
@@ -767,7 +767,7 @@ void test_settings_sink() {
     // A non-object sink keeps the whole previous sink and reports "sink".
     write_text(tracing_local, R"({"sink":"not-an-object"})");
     {
-        app::Tracing_settings tracing{};
+        app::TracingSettings tracing{};
         NX_CHECK(!app::load_tracing_settings({tracing_global, tracing_local}, tracing)
                       .has_value());
         NX_CHECK(tracing.sink.path == "/tmp/g.jsonl");
@@ -780,7 +780,7 @@ void test_settings_sink() {
     write_text(metrics_local,
                R"({"collect_interval_ns":42,"sink":"not-an-object"})");
     {
-        app::Metrics_settings metrics{};
+        app::MetricsSettings metrics{};
         const core::Status status =
             app::load_metrics_settings({metrics_global, metrics_local}, metrics);
         NX_CHECK(!status.has_value());
@@ -794,7 +794,7 @@ void test_settings_sink() {
     write_text(tracing_local,
                R"({"sink":{"max_spans_per_window":"x","window_ns":false}})");
     {
-        app::Tracing_settings tracing{};
+        app::TracingSettings tracing{};
         NX_CHECK(!app::load_tracing_settings({tracing_global, tracing_local}, tracing)
                       .has_value());
         NX_CHECK(tracing.sink.max_spans_per_window == 0ULL);
@@ -824,7 +824,7 @@ void test_telemetry_layout() {
 
     // Unset environment yields an empty, valid identity.
     {
-        const app::Run_identity empty = app::load_run_identity();
+        const app::RunIdentity empty = app::load_run_identity();
         NX_CHECK(empty.run_id.empty());
         NX_CHECK(empty.run_dir.empty());
         NX_CHECK(empty.app_name.empty());
@@ -837,7 +837,7 @@ void test_telemetry_layout() {
     app_name_env.set("controller");
     instance_id_env.set("i42");
     {
-        const app::Run_identity partial = app::load_run_identity();
+        const app::RunIdentity partial = app::load_run_identity();
         NX_CHECK(partial.run_id.empty());
         NX_CHECK(partial.run_dir.empty());
         NX_CHECK(partial.app_name == "controller");
@@ -849,7 +849,7 @@ void test_telemetry_layout() {
     run_id_env.set("r1");
     run_dir_env.set("/var/nexigen/runs/r1");
     {
-        const app::Run_identity derived = app::load_run_identity();
+        const app::RunIdentity derived = app::load_run_identity();
         NX_CHECK(derived.run_id == "r1");
         NX_CHECK(derived.run_dir == "/var/nexigen/runs/r1");
         NX_CHECK(derived.instance_dir == "/var/nexigen/runs/r1/controller/i42");
@@ -859,7 +859,7 @@ void test_telemetry_layout() {
     // A trailing slash on the run directory does not double the separator.
     run_dir_env.set("/var/nexigen/runs/r1/");
     {
-        const app::Run_identity derived = app::load_run_identity();
+        const app::RunIdentity derived = app::load_run_identity();
         NX_CHECK(derived.instance_dir == "/var/nexigen/runs/r1/controller/i42");
     }
     run_dir_env.set("/var/nexigen/runs/r1");
@@ -867,53 +867,53 @@ void test_telemetry_layout() {
     // An explicit instance directory wins over derivation.
     instance_dir_env.set("/tmp/explicit-instance");
     {
-        const app::Run_identity explicit_identity = app::load_run_identity();
+        const app::RunIdentity explicit_identity = app::load_run_identity();
         NX_CHECK(explicit_identity.instance_dir == "/tmp/explicit-instance");
     }
     instance_dir_env.clear();
 
     // Validation: safe ids and absolute directories pass.
-    const app::Run_identity valid{"r1", "/var/nexigen/runs/r1", "controller", "i42",
+    const app::RunIdentity valid{"r1", "/var/nexigen/runs/r1", "controller", "i42",
                                   "/var/nexigen/runs/r1/controller/i42"};
     NX_CHECK(app::validate_run_identity(valid).has_value());
 
     // Unsafe ids and relative directories are rejected.
     {
-        app::Run_identity bad = valid;
+        app::RunIdentity bad = valid;
         bad.app_name = "con/troller";
         const core::Status status = app::validate_run_identity(bad);
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == core::ErrorCode::InvalidArgument);
     }
     {
-        app::Run_identity bad = valid;
+        app::RunIdentity bad = valid;
         bad.instance_id = "i..42";
         NX_CHECK(!app::validate_run_identity(bad).has_value());
     }
     {
-        app::Run_identity bad = valid;
+        app::RunIdentity bad = valid;
         bad.run_id = "..";
         NX_CHECK(!app::validate_run_identity(bad).has_value());
     }
     {
-        app::Run_identity bad = valid;
+        app::RunIdentity bad = valid;
         bad.run_id = std::string(129, 'a');
         NX_CHECK(!app::validate_run_identity(bad).has_value());
     }
     {
-        app::Run_identity bad = valid;
+        app::RunIdentity bad = valid;
         bad.run_dir = "relative/runs";
         NX_CHECK(!app::validate_run_identity(bad).has_value());
     }
     {
-        app::Run_identity bad = valid;
+        app::RunIdentity bad = valid;
         bad.instance_dir = "relative/instance";
         NX_CHECK(!app::validate_run_identity(bad).has_value());
     }
 
     // Per-signal precedence: explicit path, instance fallback, then empty.
     {
-        app::Telemetry_paths paths{};
+        app::TelemetryPaths paths{};
         NX_CHECK(app::resolve_telemetry_paths(valid, "", "", "", paths).has_value());
         NX_CHECK(paths.metrics == "/var/nexigen/runs/r1/controller/i42/metrics.jsonl");
         NX_CHECK(paths.traces == "/var/nexigen/runs/r1/controller/i42/traces.jsonl");
@@ -936,13 +936,13 @@ void test_telemetry_layout() {
 
     // The settings overload reads each sink path.
     {
-        app::Metrics_settings metrics{};
-        app::Tracing_settings tracing{};
+        app::MetricsSettings metrics{};
+        app::TracingSettings tracing{};
         chrono::Chrono_settings chrono{};
         metrics.sink.path = "/settings/metrics.jsonl";
         tracing.sink.path = "";
         chrono.sink.path = "/settings/chrono.jsonl";
-        app::Telemetry_paths paths{};
+        app::TelemetryPaths paths{};
         NX_CHECK(app::resolve_telemetry_paths(valid, metrics, tracing, chrono, paths)
                      .has_value());
         NX_CHECK(paths.metrics == "/settings/metrics.jsonl");
@@ -952,17 +952,17 @@ void test_telemetry_layout() {
 
     // Empty identity and no explicit paths yield empty paths.
     {
-        app::Telemetry_paths paths{};
-        NX_CHECK(app::resolve_telemetry_paths(app::Run_identity{}, "", "", "", paths)
+        app::TelemetryPaths paths{};
+        NX_CHECK(app::resolve_telemetry_paths(app::RunIdentity{}, "", "", "", paths)
                      .has_value());
         NX_CHECK(paths.metrics.empty() && paths.traces.empty() && paths.chrono.empty());
     }
 
     // Invalid identity is rejected before output is touched.
     {
-        app::Run_identity bad = valid;
+        app::RunIdentity bad = valid;
         bad.instance_id = "bad id";
-        app::Telemetry_paths untouched{"keep-metrics", "keep-traces", "keep-chrono"};
+        app::TelemetryPaths untouched{"keep-metrics", "keep-traces", "keep-chrono"};
         const core::Status status =
             app::resolve_telemetry_paths(bad, "/x", "", "", untouched);
         NX_CHECK(!status.has_value());
@@ -976,8 +976,8 @@ void test_telemetry_layout() {
     {
         const std::string missing =
             unique_path("telemetry_layout_missing") + "/controller/i1";
-        app::Run_identity absent{"r1", "/tmp", "controller", "i1", missing};
-        app::Telemetry_paths paths{};
+        app::RunIdentity absent{"r1", "/tmp", "controller", "i1", missing};
+        app::TelemetryPaths paths{};
         NX_CHECK(app::resolve_telemetry_paths(absent, "", "", "", paths).has_value());
         NX_CHECK(paths.metrics == missing + "/metrics.jsonl");
         NX_CHECK(::access(missing.c_str(), F_OK) != 0);
@@ -987,7 +987,7 @@ void test_telemetry_layout() {
     {
         nlohmann::json json;
         app::to_json(json, valid);
-        app::Run_identity back{};
+        app::RunIdentity back{};
         app::from_json(json, back);
         NX_CHECK(back.run_id == valid.run_id && back.run_dir == valid.run_dir);
         NX_CHECK(back.app_name == valid.app_name && back.instance_id == valid.instance_id);
@@ -1001,10 +1001,10 @@ void test_telemetry_layout() {
         NX_CHECK(back.run_id == valid.run_id);
         NX_CHECK(back.instance_dir == valid.instance_dir);
 
-        app::Telemetry_paths paths{"/m", "/t", "/c"};
+        app::TelemetryPaths paths{"/m", "/t", "/c"};
         nlohmann::json paths_json;
         app::to_json(paths_json, paths);
-        app::Telemetry_paths paths_back{};
+        app::TelemetryPaths paths_back{};
         app::from_json(paths_json, paths_back);
         NX_CHECK(paths_back.metrics == "/m" && paths_back.traces == "/t" &&
                  paths_back.chrono == "/c");
@@ -1032,15 +1032,15 @@ void test_telemetry_layout_infrastructure() {
     make_dir(instance_dir);
     instance_dir_env.set(instance_dir.c_str());
 
-    const app::Run_identity identity = app::load_run_identity();
+    const app::RunIdentity identity = app::load_run_identity();
     NX_CHECK(identity.instance_dir == instance_dir);
 
-    app::App_settings settings{};
-    NX_CHECK(app::load_app_settings(app::App_settings_paths{}, settings).has_value());
+    app::AppSettings settings{};
+    NX_CHECK(app::load_app_settings(app::AppSettingsPaths{}, settings).has_value());
     settings.logging.options.log_root_directory = instance_dir;
     settings.logging.options.app_name = "layout-app";
 
-    app::Telemetry_paths resolved{};
+    app::TelemetryPaths resolved{};
     NX_CHECK(app::resolve_telemetry_paths(identity, settings.metrics, settings.tracing,
                                           settings.chrono, resolved)
                  .has_value());
@@ -1129,8 +1129,8 @@ void test_infrastructure_lifecycle() {
     NX_CHECK(!app->tracer_for("sim").has_value());
     NX_CHECK(app->tracer_for("sim").error() == core::ErrorCode::NotInitialized);
 
-    NX_CHECK(app->initialize(app::App_settings{}).has_value());
-    NX_CHECK(app->initialize(app::App_settings{}).has_value()); // idempotent
+    NX_CHECK(app->initialize(app::AppSettings{}).has_value());
+    NX_CHECK(app->initialize(app::AppSettings{}).has_value()); // idempotent
 
     g_log_lines.clear();
     app->logger().info("lifecycle record");
@@ -1155,13 +1155,13 @@ void test_infrastructure_lifecycle() {
     }
 
     int ticks = 0;
-    const app::Infrastructure_stop_reason reason = app->run([&] {
+    const app::InfrastructureStopReason reason = app->run([&] {
         ++ticks;
         if (ticks == 3) {
-            app->request_stop(app::Infrastructure_stop_reason::Requested);
+            app->request_stop(app::InfrastructureStopReason::Requested);
         }
     });
-    NX_CHECK(reason == app::Infrastructure_stop_reason::Requested);
+    NX_CHECK(reason == app::InfrastructureStopReason::Requested);
     NX_CHECK(ticks == 3);
 
     NX_CHECK(app->shutdown().has_value());
@@ -1180,40 +1180,40 @@ void test_infrastructure_failures() {
     auto bool_app = make_test_infra<Test_policy>();
     NX_CHECK(bool_app != nullptr);
     if (bool_app) {
-        NX_CHECK(bool_app->initialize(app::App_settings{}).has_value());
+        NX_CHECK(bool_app->initialize(app::AppSettings{}).has_value());
         NX_CHECK(bool_app->run([] { return false; }) ==
-                 app::Infrastructure_stop_reason::Requested);
+                 app::InfrastructureStopReason::Requested);
         NX_CHECK(bool_app->shutdown().has_value());
     }
 
     auto fail_logger = make_test_infra<Fail_logger_policy>();
     NX_CHECK(fail_logger != nullptr);
     if (fail_logger) {
-        NX_CHECK(!fail_logger->initialize(app::App_settings{}).has_value());
+        NX_CHECK(!fail_logger->initialize(app::AppSettings{}).has_value());
         NX_CHECK(fail_logger->shutdown().has_value());
     }
     auto fail_metrics = make_test_infra<Fail_metrics_policy>();
     NX_CHECK(fail_metrics != nullptr);
     if (fail_metrics) {
-        NX_CHECK(!fail_metrics->initialize(app::App_settings{}).has_value());
+        NX_CHECK(!fail_metrics->initialize(app::AppSettings{}).has_value());
         NX_CHECK(fail_metrics->shutdown().has_value());
     }
     auto fail_trace = make_test_infra<Fail_trace_policy>();
     NX_CHECK(fail_trace != nullptr);
     if (fail_trace) {
-        NX_CHECK(!fail_trace->initialize(app::App_settings{}).has_value());
+        NX_CHECK(!fail_trace->initialize(app::AppSettings{}).has_value());
         NX_CHECK(fail_trace->shutdown().has_value());
     }
     auto fail_chrono = make_test_infra<Fail_chrono_policy>();
     NX_CHECK(fail_chrono != nullptr);
     if (fail_chrono) {
-        NX_CHECK(!fail_chrono->initialize(app::App_settings{}).has_value());
+        NX_CHECK(!fail_chrono->initialize(app::AppSettings{}).has_value());
         NX_CHECK(fail_chrono->shutdown().has_value());
     }
     auto flush_fail = make_test_infra<Flush_fail_policy>();
     NX_CHECK(flush_fail != nullptr);
     if (flush_fail) {
-        NX_CHECK(flush_fail->initialize(app::App_settings{}).has_value());
+        NX_CHECK(flush_fail->initialize(app::AppSettings{}).has_value());
         const core::Status status = flush_fail->shutdown();
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == core::ErrorCode::SystemError);
@@ -1226,7 +1226,7 @@ void test_infrastructure_signals() {
     if (!int_app) {
         return;
     }
-    NX_CHECK(int_app->initialize(app::App_settings{}).has_value());
+    NX_CHECK(int_app->initialize(app::AppSettings{}).has_value());
     g_log_lines.clear();
     std::atomic<bool> running{false};
     std::jthread raiser{[&running] {
@@ -1235,11 +1235,11 @@ void test_infrastructure_signals() {
         }
         static_cast<void>(::kill(::getpid(), SIGINT));
     }};
-    const app::Infrastructure_stop_reason reason = int_app->run([&running] {
+    const app::InfrastructureStopReason reason = int_app->run([&running] {
         running.store(true, std::memory_order_release);
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
     });
-    NX_CHECK(reason == app::Infrastructure_stop_reason::Sigint);
+    NX_CHECK(reason == app::InfrastructureStopReason::Sigint);
     NX_CHECK(int_app->shutdown().has_value());
     raiser.join();
     int logged = 0;
@@ -1255,7 +1255,7 @@ void test_infrastructure_signals() {
     if (!term_app) {
         return;
     }
-    NX_CHECK(term_app->initialize(app::App_settings{}).has_value());
+    NX_CHECK(term_app->initialize(app::AppSettings{}).has_value());
     std::atomic<bool> term_running{false};
     std::jthread term_raiser{[&term_running] {
         while (!term_running.load(std::memory_order_acquire)) {
@@ -1263,11 +1263,11 @@ void test_infrastructure_signals() {
         }
         static_cast<void>(::kill(::getpid(), SIGTERM));
     }};
-    const app::Infrastructure_stop_reason term_reason = term_app->run([&term_running] {
+    const app::InfrastructureStopReason term_reason = term_app->run([&term_running] {
         term_running.store(true, std::memory_order_release);
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
     });
-    NX_CHECK(term_reason == app::Infrastructure_stop_reason::Sigterm);
+    NX_CHECK(term_reason == app::InfrastructureStopReason::Sigterm);
     NX_CHECK(term_app->shutdown().has_value());
     term_raiser.join();
 }
@@ -1278,17 +1278,17 @@ void test_infrastructure_tick_allocation() {
     if (!infra) {
         return;
     }
-    NX_CHECK(infra->initialize(app::App_settings{}).has_value());
+    NX_CHECK(infra->initialize(app::AppSettings{}).has_value());
     int ticks = 0;
     [[maybe_unused]] const std::size_t before = ::mallinfo2().uordblks;
-    const app::Infrastructure_stop_reason reason = infra->run([&] {
+    const app::InfrastructureStopReason reason = infra->run([&] {
         ++ticks;
         if (ticks == 1000) {
-            infra->request_stop(app::Infrastructure_stop_reason::Requested);
+            infra->request_stop(app::InfrastructureStopReason::Requested);
         }
     });
     [[maybe_unused]] const std::size_t after = ::mallinfo2().uordblks;
-    NX_CHECK(reason == app::Infrastructure_stop_reason::Requested);
+    NX_CHECK(reason == app::InfrastructureStopReason::Requested);
 #ifndef NX_SANITIZER_BUILD
     NX_CHECK(after == before);
 #endif
@@ -1320,7 +1320,7 @@ void test_app_settings_full_coverage() {
                R"({"core_mask":7,"max_tracers":64,)"
                R"("max_spans_per_window":77,"window_ns":88})");
     {
-        app::Metrics_settings metrics{};
+        app::MetricsSettings metrics{};
         NX_CHECK(app::load_metrics_settings({metrics_global, ""}, metrics).has_value());
         NX_CHECK(metrics.options.collect_interval == std::chrono::nanoseconds{123456});
         NX_CHECK(metrics.options.core_mask == 3ULL);
@@ -1330,7 +1330,7 @@ void test_app_settings_full_coverage() {
         NX_CHECK(metrics.options.max_statistics == 4U);
         NX_CHECK(metrics.options.max_explicit_histograms == 5U);
         NX_CHECK(metrics.options.max_exponential_histograms == 6U);
-        app::Tracing_settings tracing{};
+        app::TracingSettings tracing{};
         NX_CHECK(app::load_tracing_settings({tracing_global, ""}, tracing).has_value());
         NX_CHECK(tracing.options.core_mask == 7ULL);
         NX_CHECK(tracing.options.max_tracers == 64U);
@@ -1344,7 +1344,7 @@ void test_app_settings_full_coverage() {
                R"("max_counters":"x","max_gauges":"x","max_statistics":"x",)"
                R"("max_explicit_histograms":"x","max_exponential_histograms":"x"})");
     {
-        app::Metrics_settings metrics{};
+        app::MetricsSettings metrics{};
         NX_CHECK(!app::load_metrics_settings({metrics_global, metrics_local}, metrics)
                       .has_value());
         NX_CHECK(metrics.diagnostics.size() >= 8U);
@@ -1356,28 +1356,28 @@ void test_app_settings_full_coverage() {
                R"({"core_mask":"x","max_tracers":65,)"
                R"("max_spans_per_window":"x","window_ns":"x"})");
     {
-        app::Tracing_settings tracing{};
+        app::TracingSettings tracing{};
         NX_CHECK(!app::load_tracing_settings({tracing_global, tracing_local}, tracing)
                       .has_value());
         NX_CHECK(tracing.diagnostics.size() >= 4U);
     }
     write_text(tracing_local, R"({"max_tracers":0})");
     {
-        app::Tracing_settings tracing{};
+        app::TracingSettings tracing{};
         NX_CHECK(!app::load_tracing_settings({tracing_global, tracing_local}, tracing)
                       .has_value());
     }
     write_text(metrics_local,
                R"({"collect_interval_ns":18446744073709551615})");
     {
-        app::Metrics_settings metrics{};
+        app::MetricsSettings metrics{};
         NX_CHECK(!app::load_metrics_settings({metrics_global, metrics_local}, metrics)
                       .has_value());
     }
 
     // Unreadable paths on both subsystems.
     {
-        app::Metrics_settings metrics{};
+        app::MetricsSettings metrics{};
         const core::Status status = app::load_metrics_settings({"/tmp/opencode", ""}, metrics);
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == core::ErrorCode::SystemError);
@@ -1385,7 +1385,7 @@ void test_app_settings_full_coverage() {
             app::load_metrics_settings({metrics_global, "/tmp/opencode"}, metrics);
         NX_CHECK(!local_metrics.has_value());
         NX_CHECK(local_metrics.error() == core::ErrorCode::SystemError);
-        app::Tracing_settings tracing{};
+        app::TracingSettings tracing{};
         const core::Status tracing_status =
             app::load_tracing_settings({"", "/tmp/opencode"}, tracing);
         NX_CHECK(!tracing_status.has_value());
@@ -1404,8 +1404,8 @@ void test_app_settings_full_coverage() {
     spans_env.set("100");
     window_env.set("200");
     {
-        app::Metrics_settings metrics{};
-        app::Tracing_settings tracing{};
+        app::MetricsSettings metrics{};
+        app::TracingSettings tracing{};
         NX_CHECK(app::load_metrics_settings({"", ""}, metrics).has_value());
         NX_CHECK(app::load_tracing_settings({"", ""}, tracing).has_value());
         NX_CHECK(metrics.options.collect_interval == std::chrono::nanoseconds{50'000'000});
@@ -1422,8 +1422,8 @@ void test_app_settings_full_coverage() {
     spans_env.set("x");
     window_env.set("x");
     {
-        app::Metrics_settings metrics{};
-        app::Tracing_settings tracing{};
+        app::MetricsSettings metrics{};
+        app::TracingSettings tracing{};
         NX_CHECK(!app::load_metrics_settings({"", ""}, metrics).has_value());
         NX_CHECK(!app::load_tracing_settings({"", ""}, tracing).has_value());
         NX_CHECK(metrics.diagnostics.size() >= 2U);
@@ -1433,21 +1433,21 @@ void test_app_settings_full_coverage() {
     tracers_env.clear(); spans_env.clear(); window_env.clear();
 
     // Serialization of all four aggregate types.
-    app::App_settings aggregate{};
-    aggregate.metrics = app::Metrics_settings{};
-    aggregate.tracing = app::Tracing_settings{};
+    app::AppSettings aggregate{};
+    aggregate.metrics = app::MetricsSettings{};
+    aggregate.tracing = app::TracingSettings{};
     aggregate.logging = logging::Logging_settings{};
     const std::string metrics_text = aggregate.metrics.to_string();
-    NX_CHECK(metrics_text.find("Metrics_settings") != std::string::npos);
+    NX_CHECK(metrics_text.find("MetricsSettings") != std::string::npos);
     NX_CHECK(std::format("{}", aggregate.metrics) == metrics_text);
     const std::string tracing_text = aggregate.tracing.to_string();
-    NX_CHECK(tracing_text.find("Tracing_settings") != std::string::npos);
+    NX_CHECK(tracing_text.find("TracingSettings") != std::string::npos);
     NX_CHECK(std::format("{}", aggregate.tracing) == tracing_text);
-    const app::App_settings_paths path_texts{
+    const app::AppSettingsPaths path_texts{
         {"g-log", "l-log"}, {"g-met", "l-met"}, {"g-tra", "l-tra"}};
     NX_CHECK(path_texts.to_string().find("g-met") != std::string::npos);
     NX_CHECK(std::format("{}", path_texts).find("g-tra") != std::string::npos);
-    NX_CHECK(aggregate.to_string().find("App_settings") != std::string::npos);
+    NX_CHECK(aggregate.to_string().find("AppSettings") != std::string::npos);
     NX_CHECK(std::format("{}", aggregate).find("Logging_settings") != std::string::npos);
     nlohmann::json json;
     app::to_json(json, aggregate);
@@ -1456,9 +1456,9 @@ void test_app_settings_full_coverage() {
     NX_CHECK(json["metrics"]["global_file"] == "g-met");
 
     // Aggregate worst status: clean logging + unreadable metrics.
-    app::App_settings_paths worst{};
+    app::AppSettingsPaths worst{};
     worst.metrics.global_file = "/tmp/opencode";
-    app::App_settings loaded{};
+    app::AppSettings loaded{};
     const core::Status worst_status = app::load_app_settings(worst, loaded);
     NX_CHECK(!worst_status.has_value());
     NX_CHECK(worst_status.error() == core::ErrorCode::SystemError);
@@ -1476,23 +1476,23 @@ void test_infrastructure_conflict() {
     if (!first || !second) {
         return;
     }
-    NX_CHECK(first->initialize(app::App_settings{}).has_value());
-    const core::Status conflict = second->initialize(app::App_settings{});
+    NX_CHECK(first->initialize(app::AppSettings{}).has_value());
+    const core::Status conflict = second->initialize(app::AppSettings{});
     NX_CHECK(!conflict.has_value());
     NX_CHECK(conflict.error() == core::ErrorCode::Conflict);
     NX_CHECK(first->shutdown().has_value());
-    NX_CHECK(second->initialize(app::App_settings{}).has_value());
+    NX_CHECK(second->initialize(app::AppSettings{}).has_value());
     NX_CHECK(second->shutdown().has_value());
 
     // A failed initialization releases ownership for the next infrastructure.
     auto failing = make_test_infra<Fail_logger_policy>();
     NX_CHECK(failing != nullptr);
     if (failing) {
-        NX_CHECK(!failing->initialize(app::App_settings{}).has_value());
+        NX_CHECK(!failing->initialize(app::AppSettings{}).has_value());
         auto after_failure = make_test_infra<Test_policy>();
         NX_CHECK(after_failure != nullptr);
         if (after_failure) {
-            NX_CHECK(after_failure->initialize(app::App_settings{}).has_value());
+            NX_CHECK(after_failure->initialize(app::AppSettings{}).has_value());
             NX_CHECK(after_failure->shutdown().has_value());
         }
     }
@@ -1502,8 +1502,8 @@ void test_infrastructure_conflict() {
     auto trace_second = make_test_infra<Fail_trace_policy>();
     NX_CHECK(trace_first != nullptr && trace_second != nullptr);
     if (trace_first && trace_second) {
-        NX_CHECK(trace_first->initialize(app::App_settings{}).has_value());
-        const core::Status policy_conflict = trace_second->initialize(app::App_settings{});
+        NX_CHECK(trace_first->initialize(app::AppSettings{}).has_value());
+        const core::Status policy_conflict = trace_second->initialize(app::AppSettings{});
         NX_CHECK(!policy_conflict.has_value());
         NX_CHECK(policy_conflict.error() == core::ErrorCode::Conflict);
         NX_CHECK(trace_first->shutdown().has_value());
@@ -1516,12 +1516,12 @@ void test_infrastructure_stop_and_mask() {
         auto first = make_test_infra<Test_policy>();
         NX_CHECK(first != nullptr);
         if (first) {
-            NX_CHECK(first->initialize(app::App_settings{}).has_value());
-            first->request_stop(app::Infrastructure_stop_reason::None);
+            NX_CHECK(first->initialize(app::AppSettings{}).has_value());
+            first->request_stop(app::InfrastructureStopReason::None);
             NX_CHECK(!first->stop_requested());
-            first->request_stop(app::Infrastructure_stop_reason::Requested);
-            first->request_stop(app::Infrastructure_stop_reason::Sigint);
-            NX_CHECK(first->stop_reason() == app::Infrastructure_stop_reason::Requested);
+            first->request_stop(app::InfrastructureStopReason::Requested);
+            first->request_stop(app::InfrastructureStopReason::Sigint);
+            NX_CHECK(first->stop_reason() == app::InfrastructureStopReason::Requested);
             NX_CHECK(first->shutdown().has_value());
         }
     }
@@ -1529,10 +1529,10 @@ void test_infrastructure_stop_and_mask() {
         auto second = make_test_infra<Test_policy>();
         NX_CHECK(second != nullptr);
         if (second) {
-            NX_CHECK(second->initialize(app::App_settings{}).has_value());
-            second->request_stop(app::Infrastructure_stop_reason::Sigint);
-            second->request_stop(app::Infrastructure_stop_reason::Requested);
-            NX_CHECK(second->stop_reason() == app::Infrastructure_stop_reason::Sigint);
+            NX_CHECK(second->initialize(app::AppSettings{}).has_value());
+            second->request_stop(app::InfrastructureStopReason::Sigint);
+            second->request_stop(app::InfrastructureStopReason::Requested);
+            NX_CHECK(second->stop_reason() == app::InfrastructureStopReason::Sigint);
             NX_CHECK(second->shutdown().has_value());
         }
     }
@@ -1542,7 +1542,7 @@ void test_infrastructure_stop_and_mask() {
     if (!masked) {
         return;
     }
-    NX_CHECK(masked->initialize(app::App_settings{}).has_value());
+    NX_CHECK(masked->initialize(app::AppSettings{}).has_value());
     std::atomic<bool> both_blocked{false};
     std::jthread probe{[&] {
         sigset_t current;
@@ -1844,10 +1844,10 @@ void test_command_line_parser() {
 }
 
 void test_command_line_mapping() {
-    app::Command_line_options options{};
+    app::CommandLineOptions options{};
     options.global_settings_dir = "/etc/nexigen";
     options.local_settings_dir = "./hil-config";
-    app::App_settings_paths paths = app::make_app_settings_paths(options);
+    app::AppSettingsPaths paths = app::make_app_settings_paths(options);
     NX_CHECK(paths.logging.global_file == "/etc/nexigen/logging.json");
     NX_CHECK(paths.logging.local_file == "./hil-config/logging.json");
     NX_CHECK(paths.metrics.global_file == "/etc/nexigen/metrics.json");
@@ -1873,7 +1873,7 @@ void test_command_line_mapping() {
     NX_CHECK(paths.chrono.global_file.empty());
     NX_CHECK(paths.logging.local_file == "./hil-config/logging.json");
 
-    app::App_settings settings{};
+    app::AppSettings settings{};
     settings.logging.options.initial_log_level = logging::LogLevel::Debug;
     options.log_level = logging::LogLevel::Warning;
     app::apply_to(options, settings);
@@ -1886,12 +1886,12 @@ void test_command_line_mapping() {
 }
 
 void test_command_line_serialization() {
-    const app::Command_line_diagnostic diagnostic{"--log-level", "bad level"};
+    const app::CommandLineDiagnostic diagnostic{"--log-level", "bad level"};
     NX_CHECK(app::to_string(diagnostic) == diagnostic.to_string());
     NX_CHECK(std::format("{}", diagnostic) == diagnostic.to_string());
     NX_CHECK(diagnostic.to_string().find("--log-level") != std::string::npos);
 
-    app::Command_line_options options{};
+    app::CommandLineOptions options{};
     options.global_settings_dir = "/etc/nexigen";
     options.local_settings_dir = "./hil-config";
     options.log_level = logging::LogLevel::Warning;
@@ -1900,7 +1900,7 @@ void test_command_line_serialization() {
     NX_CHECK(std::format("{}", options) == options.to_string());
     NX_CHECK(options.to_string().find("warning") != std::string::npos);
 
-    const app::Command_line_error error{core::ErrorCode::InvalidArgument,
+    const app::CommandLineError error{core::ErrorCode::InvalidArgument,
                                         {diagnostic}};
     NX_CHECK(app::to_string(error) == error.to_string());
     NX_CHECK(std::format("{}", error) == error.to_string());
@@ -1910,12 +1910,12 @@ void test_command_line_serialization() {
     app::to_json(diagnostic_json, diagnostic);
     NX_CHECK(diagnostic_json["option"] == "--log-level");
     NX_CHECK(diagnostic_json["message"] == "bad level");
-    app::Command_line_diagnostic recovered_diagnostic{};
+    app::CommandLineDiagnostic recovered_diagnostic{};
     app::from_json(diagnostic_json, recovered_diagnostic);
     NX_CHECK(recovered_diagnostic.option == diagnostic.option);
     NX_CHECK(recovered_diagnostic.message == diagnostic.message);
 
-    app::Command_line_diagnostic unchanged_diagnostic{"keep", "keep"};
+    app::CommandLineDiagnostic unchanged_diagnostic{"keep", "keep"};
     app::from_json(nlohmann::json::array(), unchanged_diagnostic);
     NX_CHECK(unchanged_diagnostic.option == "keep");
     app::from_json(nlohmann::json{{"option", 7}}, unchanged_diagnostic);
@@ -1924,7 +1924,7 @@ void test_command_line_serialization() {
     NX_CHECK(unchanged_diagnostic.option.empty());
     NX_CHECK(unchanged_diagnostic.message == "new");
 
-    app::Command_line_diagnostic defaulted_diagnostic{"keep", "keep"};
+    app::CommandLineDiagnostic defaulted_diagnostic{"keep", "keep"};
     app::from_json(nlohmann::json::object(), defaulted_diagnostic);
     NX_CHECK(defaulted_diagnostic.option.empty());
     NX_CHECK(defaulted_diagnostic.message.empty());
@@ -1935,14 +1935,14 @@ void test_command_line_serialization() {
     NX_CHECK(options_json["local_settings_dir"] == "./hil-config");
     NX_CHECK(options_json["log_level"] == "warning");
     NX_CHECK(options_json["help"] == true);
-    app::Command_line_options recovered_options{};
+    app::CommandLineOptions recovered_options{};
     app::from_json(options_json, recovered_options);
     NX_CHECK(recovered_options.global_settings_dir == "/etc/nexigen");
     NX_CHECK(recovered_options.local_settings_dir == "./hil-config");
     NX_CHECK(recovered_options.log_level == logging::LogLevel::Warning);
     NX_CHECK(recovered_options.help);
 
-    app::Command_line_options defaulted_options{};
+    app::CommandLineOptions defaulted_options{};
     defaulted_options.global_settings_dir = "/keep";
     defaulted_options.local_settings_dir = "./keep";
     defaulted_options.log_level = logging::LogLevel::Warning;
@@ -1953,14 +1953,14 @@ void test_command_line_serialization() {
     NX_CHECK(defaulted_options.log_level == logging::LogLevel::Info);
     NX_CHECK(!defaulted_options.help);
 
-    app::Command_line_options partial_options{};
+    app::CommandLineOptions partial_options{};
     app::from_json(nlohmann::json{{"global_settings_dir", "/only"}}, partial_options);
     NX_CHECK(partial_options.global_settings_dir == "/only");
     NX_CHECK(partial_options.local_settings_dir.empty());
     NX_CHECK(partial_options.log_level == logging::LogLevel::Info);
     NX_CHECK(!partial_options.help);
 
-    app::Command_line_options kept_options{};
+    app::CommandLineOptions kept_options{};
     kept_options.global_settings_dir = "/keep";
     kept_options.log_level = logging::LogLevel::Warning;
     app::from_json(nlohmann::json{{"help", "yes"}}, kept_options);
@@ -1970,7 +1970,7 @@ void test_command_line_serialization() {
     NX_CHECK(kept_options.global_settings_dir == "/keep");
     NX_CHECK(kept_options.log_level == logging::LogLevel::Warning);
 
-    app::Command_line_options non_object_options{};
+    app::CommandLineOptions non_object_options{};
     non_object_options.global_settings_dir = "/keep";
     non_object_options.log_level = logging::LogLevel::Warning;
     app::from_json(nlohmann::json::array(), non_object_options);
@@ -1987,14 +1987,14 @@ void test_command_line_serialization() {
     app::to_json(error_json, error);
     NX_CHECK(error_json["code"] == "InvalidArgument");
     NX_CHECK(error_json["diagnostics"].size() == 1U);
-    app::Command_line_error recovered_error{};
+    app::CommandLineError recovered_error{};
     app::from_json(error_json, recovered_error);
     NX_CHECK(recovered_error.code == core::ErrorCode::InvalidArgument);
     NX_CHECK(recovered_error.diagnostics.size() == 1U);
     NX_CHECK(recovered_error.diagnostics[0].option == "--log-level");
     NX_CHECK(recovered_error.diagnostics[0].message == "bad level");
 
-    app::Command_line_error unchanged_error{core::ErrorCode::Conflict, {diagnostic}};
+    app::CommandLineError unchanged_error{core::ErrorCode::Conflict, {diagnostic}};
     app::from_json(nlohmann::json(7), unchanged_error);
     NX_CHECK(unchanged_error.code == core::ErrorCode::Conflict);
     NX_CHECK(unchanged_error.diagnostics.size() == 1U);
@@ -2011,12 +2011,12 @@ void test_command_line_serialization() {
     NX_CHECK(unchanged_error.diagnostics.size() == 1U);
     NX_CHECK(unchanged_error.diagnostics[0].option == "--log-level");
 
-    app::Command_line_error defaulted_error{core::ErrorCode::Conflict, {diagnostic}};
+    app::CommandLineError defaulted_error{core::ErrorCode::Conflict, {diagnostic}};
     app::from_json(nlohmann::json::object(), defaulted_error);
     NX_CHECK(defaulted_error.code == core::ErrorCode::InvalidArgument);
     NX_CHECK(defaulted_error.diagnostics.empty());
 
-    app::Command_line_error partial_error{core::ErrorCode::Conflict, {diagnostic}};
+    app::CommandLineError partial_error{core::ErrorCode::Conflict, {diagnostic}};
     app::from_json(
         nlohmann::json{{"diagnostics", nlohmann::json::array({{{"message", "m"}}})}},
         partial_error);
@@ -2037,10 +2037,10 @@ void test_command_line_loading() {
     write_text(global_dir + "/logging.json", R"({"initial_log_level":"debug"})");
     write_text(local_dir + "/logging.json", R"({"initial_log_level":"error"})");
 
-    app::Command_line_options options{};
+    app::CommandLineOptions options{};
     options.global_settings_dir = global_dir;
     options.log_level = logging::LogLevel::Warning;
-    app::App_settings loaded{};
+    app::AppSettings loaded{};
     core::Status status = app::load_app_settings(options, loaded);
     NX_CHECK(status.has_value());
     NX_CHECK(loaded.logging.global_loaded);
@@ -2056,7 +2056,7 @@ void test_command_line_loading() {
 
     // A bad file is best-effort: the CLI level still wins and diagnostics stay.
     write_text(global_dir + "/logging.json", "{");
-    app::App_settings failed{};
+    app::AppSettings failed{};
     status = app::load_app_settings(options, failed);
     NX_CHECK(!status.has_value());
     if (!status.has_value()) {
@@ -2066,8 +2066,8 @@ void test_command_line_loading() {
     NX_CHECK(failed.logging.options.initial_log_level == logging::LogLevel::Warning);
 
     // Manually built options with no directory cannot load built-in defaults.
-    app::Command_line_options empty{};
-    app::App_settings untouched{};
+    app::CommandLineOptions empty{};
+    app::AppSettings untouched{};
     status = app::load_app_settings(empty, untouched);
     NX_CHECK(!status.has_value());
     if (!status.has_value()) {
@@ -2075,9 +2075,9 @@ void test_command_line_loading() {
     }
 
     // Local-only options leave the global source disabled.
-    app::Command_line_options local_only{};
+    app::CommandLineOptions local_only{};
     local_only.local_settings_dir = local_dir;
-    app::App_settings local_loaded{};
+    app::AppSettings local_loaded{};
     status = app::load_app_settings(local_only, local_loaded);
     NX_CHECK(status.has_value());
     NX_CHECK(!local_loaded.logging.global_loaded);
@@ -2097,14 +2097,14 @@ void test_command_line_infrastructure() {
     make_dir(dir);
     write_text(dir + "/logging.json", R"({"initial_log_level":"debug"})");
 
-    app::Command_line_options options{};
+    app::CommandLineOptions options{};
     options.global_settings_dir = dir;
     options.log_level = logging::LogLevel::Warning;
 
     auto infra = make_test_infra<Test_policy>();
     NX_CHECK(infra != nullptr);
     if (infra) {
-        app::App_settings loaded{};
+        app::AppSettings loaded{};
         const core::Status status = infra->initialize(options, loaded);
         NX_CHECK(status.has_value());
         NX_CHECK(loaded.logging.global_loaded);
@@ -2120,7 +2120,7 @@ void test_command_line_infrastructure() {
     auto failing = make_test_infra<Test_policy>();
     NX_CHECK(failing != nullptr);
     if (failing) {
-        app::App_settings failed{};
+        app::AppSettings failed{};
         const core::Status status = failing->initialize(options, failed);
         NX_CHECK(!status.has_value());
         if (!status.has_value()) {
@@ -2139,9 +2139,9 @@ void test_command_line_infrastructure() {
     auto help_infra = make_test_infra<Test_policy>();
     NX_CHECK(help_infra != nullptr);
     if (help_infra) {
-        app::Command_line_options help_options{};
+        app::CommandLineOptions help_options{};
         help_options.help = true;
-        app::App_settings help_loaded{};
+        app::AppSettings help_loaded{};
         const core::Status status = help_infra->initialize(help_options, help_loaded);
         NX_CHECK(!status.has_value());
         if (!status.has_value()) {
@@ -2155,8 +2155,8 @@ void test_command_line_infrastructure() {
     auto empty_infra = make_test_infra<Test_policy>();
     NX_CHECK(empty_infra != nullptr);
     if (empty_infra) {
-        app::Command_line_options empty{};
-        app::App_settings empty_loaded{};
+        app::CommandLineOptions empty{};
+        app::AppSettings empty_loaded{};
         const core::Status status = empty_infra->initialize(empty, empty_loaded);
         NX_CHECK(!status.has_value());
         if (!status.has_value()) {
@@ -2170,7 +2170,7 @@ void test_command_line_infrastructure() {
     auto direct = make_test_infra<Test_policy>();
     NX_CHECK(direct != nullptr);
     if (direct) {
-        NX_CHECK(direct->initialize(app::App_settings{}).has_value());
+        NX_CHECK(direct->initialize(app::AppSettings{}).has_value());
         NX_CHECK(direct->shutdown().has_value());
     }
 

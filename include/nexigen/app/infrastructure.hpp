@@ -58,8 +58,8 @@ concept InfrastructurePolicy = requires(
     std::optional<typename Policy::Trace_sink>& trace_sink,
     std::optional<typename Policy::Chrono_sink>& chrono_sink,
     const logging::Logging_settings& logging_settings,
-    const Metrics_settings& metrics_settings,
-    const Tracing_settings& tracing_settings,
+    const MetricsSettings& metrics_settings,
+    const TracingSettings& tracing_settings,
     const chrono::Chrono_settings& chrono_settings) {
     typename Policy::Logger;
     typename Policy::Metrics_sink;
@@ -82,15 +82,15 @@ alignas(64) inline std::atomic<const void*> signal_owner{nullptr};
 
 /// signalfd watcher: masks are blocked by initialize before any worker
 /// starts; this thread is the only consumer of SIGINT/SIGTERM.
-class Signal_watcher {
+class SignalWatcher {
 public:
-    Signal_watcher() noexcept = default;
-    Signal_watcher(const Signal_watcher&) = delete;
-    Signal_watcher& operator=(const Signal_watcher&) = delete;
-    Signal_watcher(Signal_watcher&&) = delete;
-    Signal_watcher& operator=(Signal_watcher&&) = delete;
+    SignalWatcher() noexcept = default;
+    SignalWatcher(const SignalWatcher&) = delete;
+    SignalWatcher& operator=(const SignalWatcher&) = delete;
+    SignalWatcher(SignalWatcher&&) = delete;
+    SignalWatcher& operator=(SignalWatcher&&) = delete;
 
-    ~Signal_watcher() { stop(); }
+    ~SignalWatcher() { stop(); }
 
     template <class Target>
     [[nodiscard]] core::Status start(Target* target, const sigset_t& mask) noexcept {
@@ -132,9 +132,9 @@ private:
                 continue;
             }
             if (info.ssi_signo == static_cast<std::uint32_t>(SIGINT)) {
-                target->request_stop(Infrastructure_stop_reason::Sigint);
+                target->request_stop(InfrastructureStopReason::Sigint);
             } else if (info.ssi_signo == static_cast<std::uint32_t>(SIGTERM)) {
-                target->request_stop(Infrastructure_stop_reason::Sigterm);
+                target->request_stop(InfrastructureStopReason::Sigterm);
             }
         }
     }
@@ -147,7 +147,7 @@ private:
 /// (chrono must not depend on logging): maps Clock_log_level to LogLevel and
 /// forwards a pre-formatted message through the logger.
 template <class Logger>
-struct Chrono_logger_bridge {
+struct ChronoLoggerBridge {
     Logger* logger{nullptr};
 
     void log(chrono::Clock_log_level level, std::string_view message) noexcept {
@@ -203,7 +203,7 @@ public:
     /// Claim signal ownership, block SIGINT/SIGTERM, build the policy
     /// components and providers, start the watcher. Idempotent on this
     /// instance; Conflict when another infrastructure owns the signals.
-    [[nodiscard]] core::Status initialize(const App_settings& settings) noexcept {
+    [[nodiscard]] core::Status initialize(const AppSettings& settings) noexcept {
         if (initialized_) {
             return {};
         }
@@ -280,12 +280,12 @@ public:
     /// returns the failure without claiming signals or creating components,
     /// while `loaded` keeps the best-effort settings and diagnostics. Help is a
     /// caller action and is rejected as an initialization input.
-    [[nodiscard]] core::Status initialize(const Command_line_options& options,
-                                          App_settings& loaded) noexcept {
+    [[nodiscard]] core::Status initialize(const CommandLineOptions& options,
+                                          AppSettings& loaded) noexcept {
         if (options.help) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        App_settings settings{};
+        AppSettings settings{};
         const core::Status status = load_app_settings(options, settings);
         loaded = std::move(settings);
         if (!status) {
@@ -297,11 +297,11 @@ public:
     /// Run the caller's tick until a stop is requested; returns the reason.
     /// A bool-returning tick requests a host stop when it yields false.
     template <class Tick>
-    [[nodiscard]] Infrastructure_stop_reason run(Tick&& tick) noexcept {
+    [[nodiscard]] InfrastructureStopReason run(Tick&& tick) noexcept {
         while (!stop_requested()) {
             if constexpr (std::is_invocable_r_v<bool, Tick&>) {
                 if (!tick()) {
-                    request_stop(Infrastructure_stop_reason::Requested);
+                    request_stop(InfrastructureStopReason::Requested);
                     break;
                 }
             } else {
@@ -312,20 +312,20 @@ public:
     }
 
     /// First stop cause wins; later requests leave the reason unchanged.
-    void request_stop(Infrastructure_stop_reason reason) noexcept {
-        if (reason == Infrastructure_stop_reason::None) {
+    void request_stop(InfrastructureStopReason reason) noexcept {
+        if (reason == InfrastructureStopReason::None) {
             return;
         }
-        Infrastructure_stop_reason expected = Infrastructure_stop_reason::None;
+        InfrastructureStopReason expected = InfrastructureStopReason::None;
         static_cast<void>(stop_reason_.compare_exchange_strong(
             expected, reason, std::memory_order_acq_rel, std::memory_order_relaxed));
     }
 
     [[nodiscard]] bool stop_requested() const noexcept {
-        return stop_reason_.load(std::memory_order_acquire) != Infrastructure_stop_reason::None;
+        return stop_reason_.load(std::memory_order_acquire) != InfrastructureStopReason::None;
     }
 
-    [[nodiscard]] Infrastructure_stop_reason stop_reason() const noexcept {
+    [[nodiscard]] InfrastructureStopReason stop_reason() const noexcept {
         return stop_reason_.load(std::memory_order_acquire);
     }
 
@@ -349,19 +349,25 @@ public:
             }
         };
 
+        // Flush order: the logger is drained first (so the final shutdown
+        // record is not dropped by a full ring), the reason is logged, and the
+        // logger is flushed again before tracer/metrics/chrono. This deviates
+        // from the spec's textual "tracer → metrics → logger → chrono" order
+        // deliberately: the logger must be drained both before and after the
+        // final record for the "every accepted record is flushed" guarantee.
         if (logger_) {
             capture(logger_->flush()); // drain first so the final record fits
             switch (stop_reason()) {
-                case Infrastructure_stop_reason::Sigint:
+                case InfrastructureStopReason::Sigint:
                     logger_->warning("shutdown reason: sigint (2)");
                     break;
-                case Infrastructure_stop_reason::Sigterm:
+                case InfrastructureStopReason::Sigterm:
                     logger_->warning("shutdown reason: sigterm (15)");
                     break;
-                case Infrastructure_stop_reason::Requested:
+                case InfrastructureStopReason::Requested:
                     logger_->info("shutdown reason: requested");
                     break;
-                case Infrastructure_stop_reason::None:
+                case InfrastructureStopReason::None:
                 default:
                     logger_->info("shutdown reason: none");
                     break;
@@ -443,20 +449,20 @@ private:
     // declared after the logger/sink bridge it references, so the bridge, the
     // chrono sink, and the logger all outlive the chrono worker.
     std::optional<Logger> logger_{};
-    detail::Chrono_logger_bridge<Logger> chrono_logger_bridge_{};
+    detail::ChronoLoggerBridge<Logger> chrono_logger_bridge_{};
     std::optional<Metrics_sink> metrics_sink_{};
     std::optional<metrics::MetricProvider> metrics_{};
     std::optional<Trace_sink> trace_sink_{};
     std::optional<Tracer_provider> tracer_{};
     std::optional<Chrono_sink> chrono_sink_{};
     std::optional<chrono::ChronoProvider> chrono_{};
-    detail::Signal_watcher signals_{};
+    detail::SignalWatcher signals_{};
 
     sigset_t previous_mask_{};
     bool initialized_{false};
     std::atomic<bool> shutdown_started_{false};
-    alignas(64) std::atomic<Infrastructure_stop_reason> stop_reason_{
-        Infrastructure_stop_reason::None};
+    alignas(64) std::atomic<InfrastructureStopReason> stop_reason_{
+        InfrastructureStopReason::None};
 };
 
 /// Heap-only factory: the private constructor makes automatic/static

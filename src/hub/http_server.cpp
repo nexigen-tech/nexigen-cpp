@@ -35,6 +35,7 @@
 #include <nexigen/hub/model.hpp>
 #include <nexigen/hub/streaming.hpp>
 #include <nexigen/hub/web_assets.hpp>
+#include <nexigen/runner/detail/sys_helpers.hpp>
 
 namespace nexigen::hub {
 
@@ -49,13 +50,7 @@ constexpr std::size_t max_clients = 64;
 constexpr std::uint64_t heartbeat_interval_ns = 15ULL * 1'000'000'000ULL;
 constexpr std::uint64_t refresh_interval_ns = 1ULL * 1'000'000'000ULL;
 
-[[nodiscard]] std::uint64_t monotonic_now_ns() noexcept {
-    using namespace std::chrono;
-    return static_cast<std::uint64_t>(
-        duration_cast<nanoseconds>(steady_clock::now().time_since_epoch())
-            .count());
-}
-
+using nexigen::runner::detail::monotonic_now_ns;
 
 [[nodiscard]] std::string json_text(const nlohmann::json& document) {
     return document.dump();
@@ -67,7 +62,7 @@ constexpr std::uint64_t refresh_interval_ns = 1ULL * 1'000'000'000ULL;
            text.compare(0, prefix.size(), prefix) == 0;
 }
 
-[[nodiscard]] std::string sse_record(const Stream_record& record) {
+[[nodiscard]] std::string sse_record(const StreamRecord& record) {
     nlohmann::json document;
     to_json(document, record);
     return "event: record\nid: " + record.stream_id + ":" +
@@ -75,7 +70,7 @@ constexpr std::uint64_t refresh_interval_ns = 1ULL * 1'000'000'000ULL;
            json_text(document) + "\n\n";
 }
 
-[[nodiscard]] std::string sse_gap(const Gap_marker& gap) {
+[[nodiscard]] std::string sse_gap(const GapMarker& gap) {
     nlohmann::json document;
     to_json(document, gap);
     return "event: gap\ndata: " + json_text(document) + "\n\n";
@@ -83,7 +78,7 @@ constexpr std::uint64_t refresh_interval_ns = 1ULL * 1'000'000'000ULL;
 
 } // namespace
 
-struct Http_server::Impl {
+struct HttpServer::Impl {
     struct Client {
         int fd{-1};
         std::string input{};
@@ -97,17 +92,17 @@ struct Http_server::Impl {
     };
 
     Discovery& discovery;
-    Stream_manager& streaming;
+    StreamManager& streaming;
     int listen_fd{-1};
     int epoll_fd{-1};
     int event_fd{-1};
     std::uint16_t port{0};
     std::unordered_map<int, Client> clients{};
     std::uint64_t last_refresh_ns{0};
-    Diagnostic_sink diagnostic_sink{nullptr};
+    DiagnosticSink diagnostic_sink{nullptr};
     void* diagnostic_context{nullptr};
 
-    void set_diagnostic_sink(Diagnostic_sink sink, void* context) noexcept {
+    void set_diagnostic_sink(DiagnosticSink sink, void* context) noexcept {
         diagnostic_sink = sink;
         diagnostic_context = context;
         streaming.set_diagnostic_sink(sink, context);
@@ -119,8 +114,8 @@ struct Http_server::Impl {
         }
     }
 
-    Impl(Discovery& discovery_ref, Stream_manager& streaming_ref,
-         Diagnostic_sink sink, void* context) noexcept
+    Impl(Discovery& discovery_ref, StreamManager& streaming_ref,
+         DiagnosticSink sink, void* context) noexcept
         : discovery(discovery_ref), streaming(streaming_ref) {
         set_diagnostic_sink(sink, context);
     }
@@ -404,11 +399,11 @@ struct Http_server::Impl {
                 since = since * std::uint64_t{10} + static_cast<std::uint64_t>(c - '0');
             }
         }
-        std::vector<Stream_record> snapshot;
-        std::optional<Gap_marker> gap;
+        std::vector<StreamRecord> snapshot;
+        std::optional<GapMarker> gap;
         client.subscriber = streaming.subscribe(stream, since, snapshot, gap);
         client.output += "event: snapshot_begin\ndata: {}\n\n";
-        for (const Stream_record& record : snapshot) {
+        for (const StreamRecord& record : snapshot) {
             client.output += sse_record(record);
         }
         if (gap.has_value()) {
@@ -431,7 +426,7 @@ struct Http_server::Impl {
 
     void handle_streams(Client& client, bool keep_alive) noexcept {
         nlohmann::json document = nlohmann::json::array();
-        for (const Hub_stream& stream : all_streams(discovery.tree())) {
+        for (const HubStream& stream : all_streams(discovery.tree())) {
             nlohmann::json entry;
             to_json(entry, stream);
             document.push_back(std::move(entry));
@@ -448,7 +443,8 @@ struct Http_server::Impl {
             detail::url_decode(route.substr(recent_prefix.size(),
                                     route.size() - recent_prefix.size() -
                                         recent_suffix.size()));
-        if (find_stream(discovery.tree(), id) == nullptr) {
+        const HubStream* const stream = find_stream(discovery.tree(), id);
+        if (stream == nullptr) {
             respond_json(client, 404, "Not Found", {{"error", "unknown stream"}},
                          false);
             return;
@@ -471,13 +467,13 @@ struct Http_server::Impl {
                 }
             }
         }
-        std::vector<Stream_record> records;
-        std::optional<Gap_marker> gap;
+        std::vector<StreamRecord> records;
+        std::optional<GapMarker> gap;
         streaming.recent(id, limit, records, gap);
         nlohmann::json document;
-        to_json(document, *find_stream(discovery.tree(), id));
+        to_json(document, *stream);
         nlohmann::json array = nlohmann::json::array();
-        for (const Stream_record& record : records) {
+        for (const StreamRecord& record : records) {
             nlohmann::json entry;
             to_json(entry, record);
             array.push_back(std::move(entry));
@@ -661,13 +657,13 @@ struct Http_server::Impl {
                         "event: tree\ndata: " + json_text(document) + "\n\n";
                 }
             } else if (client.subscriber != 0) {
-                std::vector<Stream_record> records;
-                std::vector<Gap_marker> gaps;
+                std::vector<StreamRecord> records;
+                std::vector<GapMarker> gaps;
                 streaming.take(client.subscriber, records, gaps);
-                for (const Gap_marker& gap : gaps) {
+                for (const GapMarker& gap : gaps) {
                     client.output += sse_gap(gap);
                 }
-                for (const Stream_record& record : records) {
+                for (const StreamRecord& record : records) {
                     client.output += sse_record(record);
                 }
                 if (streaming.overflowed(client.subscriber)) {
@@ -746,13 +742,20 @@ struct Http_server::Impl {
                 } else {
                     const std::uint32_t events_mask =
                         events[static_cast<std::size_t>(index)].events;
+                    // EPOLLIN and EPOLLOUT may arrive together; handle them
+                    // independently so a readable client also drains its
+                    // pending output this tick. The handlers no-op when the
+                    // client was already removed, so the error check is safe
+                    // to run last.
                     if ((events_mask & EPOLLIN) != 0U) {
                         read_client(fd);
-                    } else if ((events_mask &
-                                (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
-                        close_client(fd);
-                    } else if ((events_mask & EPOLLOUT) != 0U) {
+                    }
+                    if ((events_mask & EPOLLOUT) != 0U) {
                         write_client(fd);
+                    }
+                    if ((events_mask &
+                         (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
+                        close_client(fd);
                     }
                 }
             }
@@ -775,35 +778,35 @@ struct Http_server::Impl {
     }
 };
 
-Http_server::Http_server(Discovery& discovery, Stream_manager& streaming,
-                         Diagnostic_sink sink, void* context)
+HttpServer::HttpServer(Discovery& discovery, StreamManager& streaming,
+                         DiagnosticSink sink, void* context)
     : impl_(std::make_unique<Impl>(discovery, streaming, sink, context)) {}
 
-Http_server::~Http_server() = default;
+HttpServer::~HttpServer() = default;
 
-void Http_server::set_diagnostic_sink(Diagnostic_sink sink,
+void HttpServer::set_diagnostic_sink(DiagnosticSink sink,
                                       void* context) noexcept {
     impl_->set_diagnostic_sink(sink, context);
 }
 
-core::Status Http_server::start(std::string_view listen) noexcept {
+core::Status HttpServer::start(std::string_view listen) noexcept {
     return impl_->start(listen);
 }
 
-void Http_server::run(std::atomic<bool>* stop_flag) noexcept {
+void HttpServer::run(std::atomic<bool>* stop_flag) noexcept {
     impl_->run(stop_flag);
 }
 
-void Http_server::stop() noexcept {
+void HttpServer::stop() noexcept {
     impl_->stop();
 }
 
-std::uint16_t Http_server::port() const noexcept {
+std::uint16_t HttpServer::port() const noexcept {
     return impl_->port;
 }
 
-std::string Http_server::to_string() const {
-    return std::format("Http_server(port={}, clients={})", impl_->port,
+std::string HttpServer::to_string() const {
+    return std::format("HttpServer(port={}, clients={})", impl_->port,
                        impl_->clients.size());
 }
 

@@ -10,175 +10,98 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/hub/model.hpp>
+#include <nexigen/runner/detail/sys_helpers.hpp>
 
 namespace nexigen::hub {
 
-namespace {
+using nexigen::runner::detail::enum_from_json;
+using nexigen::runner::detail::enum_to_json;
+using nexigen::runner::detail::read_bool;
+using nexigen::runner::detail::read_enum;
+using nexigen::runner::detail::read_string;
+using nexigen::runner::detail::read_u32;
+using nexigen::runner::detail::read_u64;
 
-[[nodiscard]] bool read_string(const nlohmann::json& document,
-                               const char* key, std::string& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end() || !it->is_string()) {
-        return false;
-    }
-    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
-    if (text == nullptr) {
-        return false;
-    }
-    target = *text;
-    return true;
-}
-
-[[nodiscard]] bool read_u32(const nlohmann::json& document, const char* key,
-                            std::uint32_t& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end() || !it->is_number_unsigned()) {
-        return false;
-    }
-    const std::uint64_t value = it->get<std::uint64_t>();
-    if (value > UINT32_MAX) {
-        return false;
-    }
-    target = static_cast<std::uint32_t>(value);
-    return true;
-}
-
-[[nodiscard]] bool read_u64(const nlohmann::json& document, const char* key,
-                            std::uint64_t& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end() || !it->is_number_unsigned()) {
-        return false;
-    }
-    target = it->get<std::uint64_t>();
-    return true;
-}
-
-[[nodiscard]] bool read_bool(const nlohmann::json& document, const char* key,
-                             bool& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end() || !it->is_boolean()) {
-        return false;
-    }
-    target = it->get<bool>();
-    return true;
-}
-
-template <class Enum>
-void read_enum(const nlohmann::json& document, const char* key,
-               Enum& target) noexcept {
-    if (!document.is_object()) {
-        return;
-    }
-    const auto it = document.find(key);
-    if (it == document.end() || !it->is_string()) {
-        return;
-    }
-    const auto* const name = it->get_ptr<const nlohmann::json::string_t*>();
-    if (name == nullptr) {
-        return;
-    }
-    Enum parsed = target;
-    from_json(nlohmann::json(*name), parsed);
-    target = parsed;
-}
-
-} // namespace
-
-std::string Hub_stream::to_string() const {
-    return std::format("Hub_stream(id={}, kind={}, path={})", id,
+std::string HubStream::to_string() const {
+    return std::format("HubStream(id={}, kind={}, path={})", id,
                        nexigen::hub::to_string(kind), path);
 }
 
-std::string Hub_attempt::to_string() const {
-    return std::format("Hub_attempt(attempt={}, artifact_dir={}, streams={})",
+std::string HubAttempt::to_string() const {
+    return std::format("HubAttempt(attempt={}, artifact_dir={}, streams={})",
                        attempt, artifact_dir, streams.size());
 }
 
-std::string Hub_instance::to_string() const {
+std::string HubInstance::to_string() const {
     return std::format(
-        "Hub_instance(instance={}, instance_dir={}, state={}, attempts={})",
+        "HubInstance(instance={}, instance_dir={}, state={}, attempts={})",
         instance, instance_dir, nexigen::runner::to_string(state),
         attempts.size());
 }
 
-std::string Hub_app::to_string() const {
-    return std::format("Hub_app(app={}, state={}, instances={})", app,
+std::string HubApp::to_string() const {
+    return std::format("HubApp(app={}, state={}, instances={})", app,
                        nexigen::runner::to_string(state), instances.size());
 }
 
-std::string Hub_suite::to_string() const {
+std::string HubSuite::to_string() const {
     return std::format(
-        "Hub_suite(suite_id={}, suite_dir={}, artifacts_path={}, state={}, "
+        "HubSuite(suite_id={}, suite_dir={}, artifacts_path={}, state={}, "
         "suite_restarts_used={}, apps={})",
         suite_id, suite_dir, artifacts_path, nexigen::runner::to_string(state),
         suite_restarts_used, apps.size());
 }
 
-std::string Hub_run::to_string() const {
+std::string HubRun::to_string() const {
     return std::format(
-        "Hub_run(run_key={}, run_dir={}, suites={}, standalone_instances={})",
+        "HubRun(run_key={}, run_dir={}, suites={}, standalone_instances={})",
         run_key, run_dir, suites.size(), standalone_instances.size());
 }
 
-std::string Hub_tree::to_string() const {
-    return std::format("Hub_tree(runs={})", runs.size());
+std::string HubTree::to_string() const {
+    return std::format("HubTree(runs={})", runs.size());
 }
 
-std::string Stream_record::to_string() const {
+std::string StreamRecord::to_string() const {
     return std::format(
-        "Stream_record(stream_id={}, kind={}, sequence={}, line_size={}, "
+        "StreamRecord(stream_id={}, kind={}, sequence={}, line_size={}, "
         "truncated={})",
         stream_id, nexigen::hub::to_string(kind), sequence, line.size(),
         truncated);
 }
 
-std::string Gap_marker::to_string() const {
+std::string GapMarker::to_string() const {
     return std::format(
-        "Gap_marker(stream_id={}, dropped={}, first_missing_sequence={}, "
+        "GapMarker(stream_id={}, dropped={}, first_missing_sequence={}, "
         "last_missing_sequence={})",
         stream_id, dropped, first_missing_sequence, last_missing_sequence);
 }
 
 // --- enum JSON ---
-void to_json(nlohmann::json& j, Stream_kind value) {
-    j = std::string(to_string(value));
+void to_json(nlohmann::json& j, StreamKind value) {
+    enum_to_json(j, value);
 }
 
-void from_json(const nlohmann::json& j, Stream_kind& value) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), value));
-    }
+void from_json(const nlohmann::json& j, StreamKind& value) noexcept {
+    enum_from_json(j, value);
 }
 
 // --- struct JSON ---
-void to_json(nlohmann::json& j, const Hub_stream& value) {
+void to_json(nlohmann::json& j, const HubStream& value) {
     j = nlohmann::json{{"id", value.id},
                        {"kind", std::string(to_string(value.kind))},
                        {"path", value.path}};
 }
 
-void from_json(const nlohmann::json& j, Hub_stream& value) noexcept {
+void from_json(const nlohmann::json& j, HubStream& value) noexcept {
     static_cast<void>(read_string(j, "id", value.id));
     read_enum(j, "kind", value.kind);
     static_cast<void>(read_string(j, "path", value.path));
 }
 
-void to_json(nlohmann::json& j, const Hub_attempt& value) {
+void to_json(nlohmann::json& j, const HubAttempt& value) {
     nlohmann::json streams = nlohmann::json::array();
-    for (const Hub_stream& stream : value.streams) {
+    for (const HubStream& stream : value.streams) {
         nlohmann::json entry;
         to_json(entry, stream);
         streams.push_back(std::move(entry));
@@ -188,14 +111,14 @@ void to_json(nlohmann::json& j, const Hub_attempt& value) {
                        {"streams", std::move(streams)}};
 }
 
-void from_json(const nlohmann::json& j, Hub_attempt& value) noexcept {
+void from_json(const nlohmann::json& j, HubAttempt& value) noexcept {
     static_cast<void>(read_u32(j, "attempt", value.attempt));
     static_cast<void>(read_string(j, "artifact_dir", value.artifact_dir));
     if (const auto it = j.find("streams"); it != j.end() && it->is_array()) {
-        std::vector<Hub_stream> streams;
+        std::vector<HubStream> streams;
         streams.reserve(it->size());
         for (const auto& entry : *it) {
-            Hub_stream stream;
+            HubStream stream;
             from_json(entry, stream);
             streams.push_back(std::move(stream));
         }
@@ -203,9 +126,9 @@ void from_json(const nlohmann::json& j, Hub_attempt& value) noexcept {
     }
 }
 
-void to_json(nlohmann::json& j, const Hub_instance& value) {
+void to_json(nlohmann::json& j, const HubInstance& value) {
     nlohmann::json attempts = nlohmann::json::array();
-    for (const Hub_attempt& attempt : value.attempts) {
+    for (const HubAttempt& attempt : value.attempts) {
         nlohmann::json entry;
         to_json(entry, attempt);
         attempts.push_back(std::move(entry));
@@ -216,15 +139,15 @@ void to_json(nlohmann::json& j, const Hub_instance& value) {
                        {"attempts", std::move(attempts)}};
 }
 
-void from_json(const nlohmann::json& j, Hub_instance& value) noexcept {
+void from_json(const nlohmann::json& j, HubInstance& value) noexcept {
     static_cast<void>(read_string(j, "instance", value.instance));
     static_cast<void>(read_string(j, "instance_dir", value.instance_dir));
     read_enum(j, "state", value.state);
     if (const auto it = j.find("attempts"); it != j.end() && it->is_array()) {
-        std::vector<Hub_attempt> attempts;
+        std::vector<HubAttempt> attempts;
         attempts.reserve(it->size());
         for (const auto& entry : *it) {
-            Hub_attempt attempt;
+            HubAttempt attempt;
             from_json(entry, attempt);
             attempts.push_back(std::move(attempt));
         }
@@ -232,9 +155,9 @@ void from_json(const nlohmann::json& j, Hub_instance& value) noexcept {
     }
 }
 
-void to_json(nlohmann::json& j, const Hub_app& value) {
+void to_json(nlohmann::json& j, const HubApp& value) {
     nlohmann::json instances = nlohmann::json::array();
-    for (const Hub_instance& instance : value.instances) {
+    for (const HubInstance& instance : value.instances) {
         nlohmann::json entry;
         to_json(entry, instance);
         instances.push_back(std::move(entry));
@@ -244,14 +167,14 @@ void to_json(nlohmann::json& j, const Hub_app& value) {
                        {"instances", std::move(instances)}};
 }
 
-void from_json(const nlohmann::json& j, Hub_app& value) noexcept {
+void from_json(const nlohmann::json& j, HubApp& value) noexcept {
     static_cast<void>(read_string(j, "app", value.app));
     read_enum(j, "state", value.state);
     if (const auto it = j.find("instances"); it != j.end() && it->is_array()) {
-        std::vector<Hub_instance> instances;
+        std::vector<HubInstance> instances;
         instances.reserve(it->size());
         for (const auto& entry : *it) {
-            Hub_instance instance;
+            HubInstance instance;
             from_json(entry, instance);
             instances.push_back(std::move(instance));
         }
@@ -259,9 +182,9 @@ void from_json(const nlohmann::json& j, Hub_app& value) noexcept {
     }
 }
 
-void to_json(nlohmann::json& j, const Hub_suite& value) {
+void to_json(nlohmann::json& j, const HubSuite& value) {
     nlohmann::json apps = nlohmann::json::array();
-    for (const Hub_app& app : value.apps) {
+    for (const HubApp& app : value.apps) {
         nlohmann::json entry;
         to_json(entry, app);
         apps.push_back(std::move(entry));
@@ -280,7 +203,7 @@ void to_json(nlohmann::json& j, const Hub_suite& value) {
     };
 }
 
-void from_json(const nlohmann::json& j, Hub_suite& value) noexcept {
+void from_json(const nlohmann::json& j, HubSuite& value) noexcept {
     static_cast<void>(read_string(j, "suite_id", value.suite_id));
     static_cast<void>(read_string(j, "suite_dir", value.suite_dir));
     static_cast<void>(read_string(j, "artifacts_path", value.artifacts_path));
@@ -292,10 +215,10 @@ void from_json(const nlohmann::json& j, Hub_suite& value) noexcept {
         from_json(*it, value.runner_log);
     }
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
-        std::vector<Hub_app> apps;
+        std::vector<HubApp> apps;
         apps.reserve(it->size());
         for (const auto& entry : *it) {
-            Hub_app app;
+            HubApp app;
             from_json(entry, app);
             apps.push_back(std::move(app));
         }
@@ -303,15 +226,15 @@ void from_json(const nlohmann::json& j, Hub_suite& value) noexcept {
     }
 }
 
-void to_json(nlohmann::json& j, const Hub_run& value) {
+void to_json(nlohmann::json& j, const HubRun& value) {
     nlohmann::json suites = nlohmann::json::array();
-    for (const Hub_suite& suite : value.suites) {
+    for (const HubSuite& suite : value.suites) {
         nlohmann::json entry;
         to_json(entry, suite);
         suites.push_back(std::move(entry));
     }
     nlohmann::json standalone = nlohmann::json::array();
-    for (const Hub_instance& instance : value.standalone_instances) {
+    for (const HubInstance& instance : value.standalone_instances) {
         nlohmann::json entry;
         to_json(entry, instance);
         standalone.push_back(std::move(entry));
@@ -322,14 +245,14 @@ void to_json(nlohmann::json& j, const Hub_run& value) {
                        {"standalone_instances", std::move(standalone)}};
 }
 
-void from_json(const nlohmann::json& j, Hub_run& value) noexcept {
+void from_json(const nlohmann::json& j, HubRun& value) noexcept {
     static_cast<void>(read_string(j, "run_key", value.run_key));
     static_cast<void>(read_string(j, "run_dir", value.run_dir));
     if (const auto it = j.find("suites"); it != j.end() && it->is_array()) {
-        std::vector<Hub_suite> suites;
+        std::vector<HubSuite> suites;
         suites.reserve(it->size());
         for (const auto& entry : *it) {
-            Hub_suite suite;
+            HubSuite suite;
             from_json(entry, suite);
             suites.push_back(std::move(suite));
         }
@@ -337,10 +260,10 @@ void from_json(const nlohmann::json& j, Hub_run& value) noexcept {
     }
     if (const auto it = j.find("standalone_instances");
         it != j.end() && it->is_array()) {
-        std::vector<Hub_instance> instances;
+        std::vector<HubInstance> instances;
         instances.reserve(it->size());
         for (const auto& entry : *it) {
-            Hub_instance instance;
+            HubInstance instance;
             from_json(entry, instance);
             instances.push_back(std::move(instance));
         }
@@ -348,9 +271,9 @@ void from_json(const nlohmann::json& j, Hub_run& value) noexcept {
     }
 }
 
-void to_json(nlohmann::json& j, const Hub_tree& value) {
+void to_json(nlohmann::json& j, const HubTree& value) {
     nlohmann::json runs = nlohmann::json::array();
-    for (const Hub_run& run : value.runs) {
+    for (const HubRun& run : value.runs) {
         nlohmann::json entry;
         to_json(entry, run);
         runs.push_back(std::move(entry));
@@ -358,12 +281,12 @@ void to_json(nlohmann::json& j, const Hub_tree& value) {
     j = nlohmann::json{{"runs", std::move(runs)}};
 }
 
-void from_json(const nlohmann::json& j, Hub_tree& value) noexcept {
+void from_json(const nlohmann::json& j, HubTree& value) noexcept {
     if (const auto it = j.find("runs"); it != j.end() && it->is_array()) {
-        std::vector<Hub_run> runs;
+        std::vector<HubRun> runs;
         runs.reserve(it->size());
         for (const auto& entry : *it) {
-            Hub_run run;
+            HubRun run;
             from_json(entry, run);
             runs.push_back(std::move(run));
         }
@@ -371,7 +294,7 @@ void from_json(const nlohmann::json& j, Hub_tree& value) noexcept {
     }
 }
 
-void to_json(nlohmann::json& j, const Stream_record& value) {
+void to_json(nlohmann::json& j, const StreamRecord& value) {
     j = nlohmann::json{{"stream_id", value.stream_id},
                        {"kind", std::string(to_string(value.kind))},
                        {"sequence", value.sequence},
@@ -380,7 +303,7 @@ void to_json(nlohmann::json& j, const Stream_record& value) {
                        {"truncated", value.truncated}};
 }
 
-void from_json(const nlohmann::json& j, Stream_record& value) noexcept {
+void from_json(const nlohmann::json& j, StreamRecord& value) noexcept {
     static_cast<void>(read_string(j, "stream_id", value.stream_id));
     read_enum(j, "kind", value.kind);
     static_cast<void>(read_u64(j, "sequence", value.sequence));
@@ -389,14 +312,14 @@ void from_json(const nlohmann::json& j, Stream_record& value) noexcept {
     static_cast<void>(read_bool(j, "truncated", value.truncated));
 }
 
-void to_json(nlohmann::json& j, const Gap_marker& value) {
+void to_json(nlohmann::json& j, const GapMarker& value) {
     j = nlohmann::json{{"stream_id", value.stream_id},
                        {"dropped", value.dropped},
                        {"first_missing_sequence", value.first_missing_sequence},
                        {"last_missing_sequence", value.last_missing_sequence}};
 }
 
-void from_json(const nlohmann::json& j, Gap_marker& value) noexcept {
+void from_json(const nlohmann::json& j, GapMarker& value) noexcept {
     static_cast<void>(read_string(j, "stream_id", value.stream_id));
     static_cast<void>(read_u64(j, "dropped", value.dropped));
     static_cast<void>(read_u64(j, "first_missing_sequence",
@@ -405,43 +328,43 @@ void from_json(const nlohmann::json& j, Gap_marker& value) noexcept {
                                value.last_missing_sequence));
 }
 
-std::vector<Hub_stream> all_streams(const Hub_tree& tree) {
-    std::vector<Hub_stream> streams;
-    const auto append_instance = [&](const Hub_instance& instance) {
-        for (const Hub_attempt& attempt : instance.attempts) {
-            for (const Hub_stream& stream : attempt.streams) {
+std::vector<HubStream> all_streams(const HubTree& tree) {
+    std::vector<HubStream> streams;
+    const auto append_instance = [&](const HubInstance& instance) {
+        for (const HubAttempt& attempt : instance.attempts) {
+            for (const HubStream& stream : attempt.streams) {
                 streams.push_back(stream);
             }
         }
     };
-    for (const Hub_run& run : tree.runs) {
-        for (const Hub_suite& suite : run.suites) {
+    for (const HubRun& run : tree.runs) {
+        for (const HubSuite& suite : run.suites) {
             if (!suite.runner_log.id.empty()) {
                 streams.push_back(suite.runner_log);
             }
-            for (const Hub_app& app : suite.apps) {
-                for (const Hub_instance& instance : app.instances) {
+            for (const HubApp& app : suite.apps) {
+                for (const HubInstance& instance : app.instances) {
                     append_instance(instance);
                 }
             }
         }
-        for (const Hub_instance& instance : run.standalone_instances) {
+        for (const HubInstance& instance : run.standalone_instances) {
             append_instance(instance);
         }
     }
     return streams;
 }
 
-const Hub_stream* find_stream(const Hub_tree& tree, std::string_view id) noexcept {
-    for (const Hub_run& run : tree.runs) {
-        for (const Hub_suite& suite : run.suites) {
+const HubStream* find_stream(const HubTree& tree, std::string_view id) noexcept {
+    for (const HubRun& run : tree.runs) {
+        for (const HubSuite& suite : run.suites) {
             if (suite.runner_log.id == id) {
                 return &suite.runner_log;
             }
-            for (const Hub_app& app : suite.apps) {
-                for (const Hub_instance& instance : app.instances) {
-                    for (const Hub_attempt& attempt : instance.attempts) {
-                        for (const Hub_stream& stream : attempt.streams) {
+            for (const HubApp& app : suite.apps) {
+                for (const HubInstance& instance : app.instances) {
+                    for (const HubAttempt& attempt : instance.attempts) {
+                        for (const HubStream& stream : attempt.streams) {
                             if (stream.id == id) {
                                 return &stream;
                             }
@@ -450,9 +373,9 @@ const Hub_stream* find_stream(const Hub_tree& tree, std::string_view id) noexcep
                 }
             }
         }
-        for (const Hub_instance& instance : run.standalone_instances) {
-            for (const Hub_attempt& attempt : instance.attempts) {
-                for (const Hub_stream& stream : attempt.streams) {
+        for (const HubInstance& instance : run.standalone_instances) {
+            for (const HubAttempt& attempt : instance.attempts) {
+                for (const HubStream& stream : attempt.streams) {
                     if (stream.id == id) {
                         return &stream;
                     }

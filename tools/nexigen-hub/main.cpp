@@ -150,12 +150,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    hub::Stream_limits limits{};
+    hub::StreamLimits limits{};
     limits.ring_records = static_cast<std::size_t>(ring_records);
     limits.ring_bytes = static_cast<std::size_t>(ring_bytes);
     limits.max_line_bytes = static_cast<std::size_t>(max_line_bytes);
-    hub::Stream_manager streaming(limits);
-    hub::Http_server server(discovery, streaming, hub_diagnostic, nullptr);
+    hub::StreamManager streaming(limits);
+    hub::HttpServer server(discovery, streaming, hub_diagnostic, nullptr);
     const core::Status started = server.start(listen);
     if (!started) {
         std::fprintf(stderr, "nexigen-hub: listen failed: %s\n",

@@ -21,32 +21,32 @@
 namespace nexigen::runner {
 
 /// How one application affects the operability of the whole suite.
-enum class Impact_on_app_suite_operability : std::uint8_t {
+enum class ImpactOnAppSuiteOperability : std::uint8_t {
     Failure,    ///< Any abnormal termination restarts the whole suite.
     Degrade,    ///< Only this application is retried; suite becomes degraded.
     Not_impact, ///< Only this application is retried; suite state is unchanged.
 };
 
 [[nodiscard]] constexpr std::string_view to_string(
-    Impact_on_app_suite_operability value) noexcept {
+    ImpactOnAppSuiteOperability value) noexcept {
     switch (value) {
-        case Impact_on_app_suite_operability::Failure:    return "failure";
-        case Impact_on_app_suite_operability::Degrade:    return "degrade";
-        case Impact_on_app_suite_operability::Not_impact: return "not_impact";
+        case ImpactOnAppSuiteOperability::Failure:    return "failure";
+        case ImpactOnAppSuiteOperability::Degrade:    return "degrade";
+        case ImpactOnAppSuiteOperability::Not_impact: return "not_impact";
         default:                                          return "unknown";
     }
 }
 
 [[nodiscard]] constexpr bool from_string(
-    std::string_view name, Impact_on_app_suite_operability& out) noexcept {
-    if (name == "failure")    { out = Impact_on_app_suite_operability::Failure;    return true; }
-    if (name == "degrade")    { out = Impact_on_app_suite_operability::Degrade;    return true; }
-    if (name == "not_impact") { out = Impact_on_app_suite_operability::Not_impact; return true; }
+    std::string_view name, ImpactOnAppSuiteOperability& out) noexcept {
+    if (name == "failure")    { out = ImpactOnAppSuiteOperability::Failure;    return true; }
+    if (name == "degrade")    { out = ImpactOnAppSuiteOperability::Degrade;    return true; }
+    if (name == "not_impact") { out = ImpactOnAppSuiteOperability::Not_impact; return true; }
     return false;
 }
 
 /// Aggregate state of a supervised suite.
-enum class Suite_state : std::uint8_t {
+enum class SuiteState : std::uint8_t {
     Running,
     Degraded,
     Failed,
@@ -54,29 +54,29 @@ enum class Suite_state : std::uint8_t {
     Unknown,
 };
 
-[[nodiscard]] constexpr std::string_view to_string(Suite_state value) noexcept {
+[[nodiscard]] constexpr std::string_view to_string(SuiteState value) noexcept {
     switch (value) {
-        case Suite_state::Running:  return "running";
-        case Suite_state::Degraded: return "degraded";
-        case Suite_state::Failed:   return "failed";
-        case Suite_state::Stopped:  return "stopped";
-        case Suite_state::Unknown:  return "unknown";
+        case SuiteState::Running:  return "running";
+        case SuiteState::Degraded: return "degraded";
+        case SuiteState::Failed:   return "failed";
+        case SuiteState::Stopped:  return "stopped";
+        case SuiteState::Unknown:  return "unknown";
         default:                    return "unknown";
     }
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name,
-                                         Suite_state& out) noexcept {
-    if (name == "running")  { out = Suite_state::Running;  return true; }
-    if (name == "degraded") { out = Suite_state::Degraded; return true; }
-    if (name == "failed")   { out = Suite_state::Failed;   return true; }
-    if (name == "stopped")  { out = Suite_state::Stopped;  return true; }
-    if (name == "unknown")  { out = Suite_state::Unknown;  return true; }
+                                         SuiteState& out) noexcept {
+    if (name == "running")  { out = SuiteState::Running;  return true; }
+    if (name == "degraded") { out = SuiteState::Degraded; return true; }
+    if (name == "failed")   { out = SuiteState::Failed;   return true; }
+    if (name == "stopped")  { out = SuiteState::Stopped;  return true; }
+    if (name == "unknown")  { out = SuiteState::Unknown;  return true; }
     return false;
 }
 
 /// State of one application inside a suite.
-enum class App_state : std::uint8_t {
+enum class AppState : std::uint8_t {
     Running,
     Restarting,
     Exited,
@@ -85,31 +85,31 @@ enum class App_state : std::uint8_t {
     Unknown,
 };
 
-[[nodiscard]] constexpr std::string_view to_string(App_state value) noexcept {
+[[nodiscard]] constexpr std::string_view to_string(AppState value) noexcept {
     switch (value) {
-        case App_state::Running:    return "running";
-        case App_state::Restarting: return "restarting";
-        case App_state::Exited:     return "exited";
-        case App_state::Stopped:    return "stopped";
-        case App_state::Failed:     return "failed";
-        case App_state::Unknown:    return "unknown";
+        case AppState::Running:    return "running";
+        case AppState::Restarting: return "restarting";
+        case AppState::Exited:     return "exited";
+        case AppState::Stopped:    return "stopped";
+        case AppState::Failed:     return "failed";
+        case AppState::Unknown:    return "unknown";
         default:                    return "unknown";
     }
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name,
-                                         App_state& out) noexcept {
-    if (name == "running")    { out = App_state::Running;    return true; }
-    if (name == "restarting") { out = App_state::Restarting; return true; }
-    if (name == "exited")     { out = App_state::Exited;     return true; }
-    if (name == "stopped")    { out = App_state::Stopped;    return true; }
-    if (name == "failed")     { out = App_state::Failed;     return true; }
-    if (name == "unknown")    { out = App_state::Unknown;    return true; }
+                                         AppState& out) noexcept {
+    if (name == "running")    { out = AppState::Running;    return true; }
+    if (name == "restarting") { out = AppState::Restarting; return true; }
+    if (name == "exited")     { out = AppState::Exited;     return true; }
+    if (name == "stopped")    { out = AppState::Stopped;    return true; }
+    if (name == "failed")     { out = AppState::Failed;     return true; }
+    if (name == "unknown")    { out = AppState::Unknown;    return true; }
     return false;
 }
 
 /// One application entry in the suite manifest.
-struct App_spec {
+struct AppSpec {
     std::string app{};
     std::string instance{};
     std::string command{};
@@ -120,7 +120,7 @@ struct App_spec {
     std::uint64_t stop_grace_s{5};
     std::uint32_t restart_attempts{0};
     std::uint64_t restart_delay_s{0};
-    Impact_on_app_suite_operability impact{Impact_on_app_suite_operability::Degrade};
+    ImpactOnAppSuiteOperability impact{ImpactOnAppSuiteOperability::Degrade};
     std::string global_settings_path{};
     std::string local_settings_path{};
     std::optional<logging::LogLevel> log_level{};
@@ -129,7 +129,7 @@ struct App_spec {
 };
 
 /// Parsed and validated suite manifest.
-struct Suite_manifest {
+struct SuiteManifest {
     std::uint32_t version{0};
     std::string suite_id{};
     std::string run_id{};
@@ -142,13 +142,13 @@ struct Suite_manifest {
     std::string manifest_path{};
     std::vector<std::uint32_t> runner_control_cpus{};
     std::vector<std::uint32_t> runner_logger_cpus{};
-    std::vector<App_spec> apps{};
+    std::vector<AppSpec> apps{};
 
     [[nodiscard]] std::string to_string() const;
 };
 
 /// One application record inside suite.json.
-struct Suite_app_metadata {
+struct SuiteAppMetadata {
     std::string app{};
     std::string instance{};
     std::string instance_dir{};
@@ -158,7 +158,7 @@ struct Suite_app_metadata {
 };
 
 /// Suite resource record (`suite.json`).
-struct Suite_metadata {
+struct SuiteMetadata {
     std::string suite_id{};
     std::string run_id{};
     std::string run_dir{};
@@ -170,14 +170,14 @@ struct Suite_metadata {
     std::string manifest_path{};
     std::vector<std::uint32_t> runner_control_cpus{};
     std::vector<std::uint32_t> runner_logger_cpus{};
-    std::vector<Suite_app_metadata> apps{};
+    std::vector<SuiteAppMetadata> apps{};
 
     [[nodiscard]] std::string to_string() const;
 };
 
 /// Final suite record (`suite-exit.json`).
-struct Suite_exit {
-    Suite_state state{Suite_state::Unknown};
+struct SuiteExit {
+    SuiteState state{SuiteState::Unknown};
     std::string reason{};
     std::uint64_t uptime_s{0};
 
@@ -185,61 +185,61 @@ struct Suite_exit {
 };
 
 /// One application state in `suite-state.json` and `status`.
-struct Suite_app_status {
+struct SuiteAppStatus {
     std::string app{};
     std::string instance{};
     std::string instance_dir{};
     std::string artifact_dir{};
     std::uint32_t attempt{0};
-    App_state state{App_state::Unknown};
+    AppState state{AppState::Unknown};
     std::uint32_t restarts_used{0};
 
     [[nodiscard]] std::string to_string() const;
 };
 
 /// Aggregate + per-application suite state.
-struct Suite_status {
-    Suite_state state{Suite_state::Unknown};
+struct SuiteStatus {
+    SuiteState state{SuiteState::Unknown};
     std::string suite_id{};
     std::string run_dir{};
     std::string artifacts_path{};
     std::uint32_t suite_restarts_used{0};
-    std::vector<Suite_app_status> apps{};
+    std::vector<SuiteAppStatus> apps{};
 
     [[nodiscard]] std::string to_string() const;
 };
 
 // --- free to_string helpers
-[[nodiscard]] inline std::string to_string(const App_spec& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Suite_manifest& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Suite_app_metadata& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Suite_metadata& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Suite_exit& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Suite_app_status& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const Suite_status& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const AppSpec& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const SuiteManifest& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const SuiteAppMetadata& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const SuiteMetadata& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const SuiteExit& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const SuiteAppStatus& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const SuiteStatus& value) { return value.to_string(); }
 
 // --- cold-path ADL serialization (bodies in src/runner/app_suite.cpp)
-void to_json(nlohmann::json& j, Impact_on_app_suite_operability value);
-void from_json(const nlohmann::json& j, Impact_on_app_suite_operability& value) noexcept;
-void to_json(nlohmann::json& j, Suite_state value);
-void from_json(const nlohmann::json& j, Suite_state& value) noexcept;
-void to_json(nlohmann::json& j, App_state value);
-void from_json(const nlohmann::json& j, App_state& value) noexcept;
+void to_json(nlohmann::json& j, ImpactOnAppSuiteOperability value);
+void from_json(const nlohmann::json& j, ImpactOnAppSuiteOperability& value) noexcept;
+void to_json(nlohmann::json& j, SuiteState value);
+void from_json(const nlohmann::json& j, SuiteState& value) noexcept;
+void to_json(nlohmann::json& j, AppState value);
+void from_json(const nlohmann::json& j, AppState& value) noexcept;
 
-void to_json(nlohmann::json& j, const App_spec& spec);
-void from_json(const nlohmann::json& j, App_spec& spec) noexcept;
-void to_json(nlohmann::json& j, const Suite_manifest& manifest);
-void from_json(const nlohmann::json& j, Suite_manifest& manifest) noexcept;
-void to_json(nlohmann::json& j, const Suite_app_metadata& app);
-void from_json(const nlohmann::json& j, Suite_app_metadata& app) noexcept;
-void to_json(nlohmann::json& j, const Suite_metadata& metadata);
-void from_json(const nlohmann::json& j, Suite_metadata& metadata) noexcept;
-void to_json(nlohmann::json& j, const Suite_exit& exit);
-void from_json(const nlohmann::json& j, Suite_exit& exit) noexcept;
-void to_json(nlohmann::json& j, const Suite_app_status& status);
-void from_json(const nlohmann::json& j, Suite_app_status& status) noexcept;
-void to_json(nlohmann::json& j, const Suite_status& status);
-void from_json(const nlohmann::json& j, Suite_status& status) noexcept;
+void to_json(nlohmann::json& j, const AppSpec& spec);
+void from_json(const nlohmann::json& j, AppSpec& spec) noexcept;
+void to_json(nlohmann::json& j, const SuiteManifest& manifest);
+void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept;
+void to_json(nlohmann::json& j, const SuiteAppMetadata& app);
+void from_json(const nlohmann::json& j, SuiteAppMetadata& app) noexcept;
+void to_json(nlohmann::json& j, const SuiteMetadata& metadata);
+void from_json(const nlohmann::json& j, SuiteMetadata& metadata) noexcept;
+void to_json(nlohmann::json& j, const SuiteExit& exit);
+void from_json(const nlohmann::json& j, SuiteExit& exit) noexcept;
+void to_json(nlohmann::json& j, const SuiteAppStatus& status);
+void from_json(const nlohmann::json& j, SuiteAppStatus& status) noexcept;
+void to_json(nlohmann::json& j, const SuiteStatus& status);
+void from_json(const nlohmann::json& j, SuiteStatus& status) noexcept;
 
 /// `<run_dir>/.suite/<suite_id>`.
 [[nodiscard]] std::string suite_dir_path(std::string_view run_dir,
@@ -255,16 +255,16 @@ void from_json(const nlohmann::json& j, Suite_status& status) noexcept;
 /// Read, parse, and validate one suite manifest. `manifest_path` is resolved
 /// to an absolute path so relative local settings resolve deterministically.
 [[nodiscard]] core::Status load_suite_manifest(std::string_view path,
-                                               Suite_manifest& out) noexcept;
+                                               SuiteManifest& out) noexcept;
 
 /// Pure validation over an already parsed manifest.
 [[nodiscard]] core::Status validate_suite_manifest(
-    const Suite_manifest& manifest) noexcept;
+    const SuiteManifest& manifest) noexcept;
 
 /// Start a detached suite supervisor. Returns once the supervisor owns the
 /// suite and wrote `suite.json`. Per-application launch failures are recorded
 /// in suite state and handled by policy, not by this status.
-[[nodiscard]] core::Status start_suite(const Suite_manifest& manifest,
+[[nodiscard]] core::Status start_suite(const SuiteManifest& manifest,
                                        std::string& suite_dir_out);
 
 /// Request a final suite stop and wait for the recorded outcome. Idempotent.
@@ -274,15 +274,15 @@ void from_json(const nlohmann::json& j, Suite_status& status) noexcept;
 
 /// Derive aggregate and per-application state from the suite directory.
 [[nodiscard]] core::Status suite_status(std::string_view suite_dir,
-                                        Suite_status& out) noexcept;
+                                        SuiteStatus& out) noexcept;
 
 } // namespace nexigen::runner
 
 template <>
-struct std::formatter<nexigen::runner::Impact_on_app_suite_operability>
+struct std::formatter<nexigen::runner::ImpactOnAppSuiteOperability>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::Impact_on_app_suite_operability value,
+    constexpr auto format(const nexigen::runner::ImpactOnAppSuiteOperability value,
                           Ctx& ctx) const {
         return std::formatter<std::string_view>::format(
             nexigen::runner::to_string(value), ctx);
@@ -290,84 +290,84 @@ struct std::formatter<nexigen::runner::Impact_on_app_suite_operability>
 };
 
 template <>
-struct std::formatter<nexigen::runner::Suite_state>
+struct std::formatter<nexigen::runner::SuiteState>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::Suite_state value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::runner::SuiteState value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(
             nexigen::runner::to_string(value), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::runner::App_state>
+struct std::formatter<nexigen::runner::AppState>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::App_state value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::runner::AppState value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(
             nexigen::runner::to_string(value), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::runner::App_spec>
+struct std::formatter<nexigen::runner::AppSpec>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::App_spec& value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::runner::AppSpec& value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(value.to_string(), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::runner::Suite_manifest>
+struct std::formatter<nexigen::runner::SuiteManifest>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::Suite_manifest& value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::runner::SuiteManifest& value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(value.to_string(), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::runner::Suite_app_metadata>
+struct std::formatter<nexigen::runner::SuiteAppMetadata>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::Suite_app_metadata& value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::runner::SuiteAppMetadata& value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(value.to_string(), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::runner::Suite_metadata>
+struct std::formatter<nexigen::runner::SuiteMetadata>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::Suite_metadata& value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::runner::SuiteMetadata& value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(value.to_string(), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::runner::Suite_exit>
+struct std::formatter<nexigen::runner::SuiteExit>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::Suite_exit& value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::runner::SuiteExit& value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(value.to_string(), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::runner::Suite_app_status>
+struct std::formatter<nexigen::runner::SuiteAppStatus>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::Suite_app_status& value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::runner::SuiteAppStatus& value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(value.to_string(), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::runner::Suite_status>
+struct std::formatter<nexigen::runner::SuiteStatus>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::Suite_status& value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::runner::SuiteStatus& value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(value.to_string(), ctx);
     }
 };

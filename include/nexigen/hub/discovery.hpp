@@ -14,14 +14,14 @@
 namespace nexigen::hub {
 
 /// One explicit observation root.
-struct Run_root {
+struct RunRoot {
     std::string key{};
     std::string path{};
 
     [[nodiscard]] std::string to_string() const;
 };
 
-[[nodiscard]] inline std::string to_string(const Run_root& root) {
+[[nodiscard]] inline std::string to_string(const RunRoot& root) {
     return root.to_string();
 }
 
@@ -50,8 +50,8 @@ public:
     void clear_dirty() noexcept { dirty_ = false; }
 
     [[nodiscard]] int inotify_fd() const noexcept { return inotify_fd_; }
-    [[nodiscard]] const Hub_tree& tree() const noexcept { return tree_; }
-    [[nodiscard]] const std::vector<Run_root>& roots() const noexcept {
+    [[nodiscard]] const HubTree& tree() const noexcept { return tree_; }
+    [[nodiscard]] const std::vector<RunRoot>& roots() const noexcept {
         return roots_;
     }
     [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
@@ -59,20 +59,17 @@ public:
 private:
     void add_watch(std::string_view path) noexcept;
     void rebuild_watches() noexcept;
-    [[nodiscard]] bool scan_run(const Run_root& root, Hub_run& out) noexcept;
-    void scan_suite(const Run_root& root, const std::string& suite_dir,
-                    Hub_suite& out) noexcept;
-    void scan_instance(const std::string& instance_dir,
-                       std::string_view app, std::string_view instance,
-                       Hub_instance& out) noexcept;
+    [[nodiscard]] bool scan_run(const RunRoot& root, HubRun& out) noexcept;
+    void scan_suite(const RunRoot& root, const std::string& suite_dir,
+                    HubSuite& out) noexcept;
     void scan_attempts(std::string_view artifacts_path,
                        std::string_view suite_id, std::string_view app,
                        std::string_view instance, std::string_view run_key,
-                       Hub_instance& out) noexcept;
-    void scan_standalone(const Run_root& root, Hub_run& out) noexcept;
+                       HubInstance& out) noexcept;
+    void scan_standalone(const RunRoot& root, HubRun& out) noexcept;
 
-    std::vector<Run_root> roots_{};
-    Hub_tree tree_{};
+    std::vector<RunRoot> roots_{};
+    HubTree tree_{};
     std::string tree_signature_{};
     std::uint64_t revision_{0};
     int inotify_fd_{-1};
@@ -82,9 +79,9 @@ private:
 } // namespace nexigen::hub
 
 template <>
-struct std::formatter<nexigen::hub::Run_root> : std::formatter<std::string_view> {
+struct std::formatter<nexigen::hub::RunRoot> : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::hub::Run_root& value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::hub::RunRoot& value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(value.to_string(), ctx);
     }
 };

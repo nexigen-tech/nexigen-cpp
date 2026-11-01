@@ -41,15 +41,15 @@ constexpr std::size_t record_overhead_bytes = 64;
 
 } // namespace
 
-std::string Stream_limits::to_string() const {
+std::string StreamLimits::to_string() const {
     return std::format(
-        "Stream_limits(ring_records={}, ring_bytes={}, max_line_bytes={}, "
+        "StreamLimits(ring_records={}, ring_bytes={}, max_line_bytes={}, "
         "read_chunk_bytes={}, subscriber_bytes={})",
         ring_records, ring_bytes, max_line_bytes, read_chunk_bytes,
         subscriber_bytes);
 }
 
-Stream_manager::Stream_manager(Stream_limits limits) noexcept : limits_(limits) {
+StreamManager::StreamManager(StreamLimits limits) noexcept : limits_(limits) {
     if (limits_.ring_records == 0) {
         limits_.ring_records = 1;
     }
@@ -67,7 +67,7 @@ Stream_manager::Stream_manager(Stream_limits limits) noexcept : limits_(limits) 
     }
 }
 
-Stream_manager::~Stream_manager() {
+StreamManager::~StreamManager() {
     for (auto& [id, tailer] : tailers_) {
         static_cast<void>(id);
         if (tailer.fd >= 0) {
@@ -76,24 +76,24 @@ Stream_manager::~Stream_manager() {
     }
 }
 
-std::string Stream_manager::to_string() const {
-    return std::format("Stream_manager(tailers={}, subscribers={})",
+std::string StreamManager::to_string() const {
+    return std::format("StreamManager(tailers={}, subscribers={})",
                        tailers_.size(), subscribers_.size());
 }
 
-void Stream_manager::set_diagnostic_sink(Diagnostic_sink sink,
+void StreamManager::set_diagnostic_sink(DiagnosticSink sink,
                                          void* context) noexcept {
     diagnostic_sink_ = sink;
     diagnostic_context_ = context;
 }
 
-void Stream_manager::report(std::string_view message) const noexcept {
+void StreamManager::report(std::string_view message) const noexcept {
     if (diagnostic_sink_ != nullptr) {
         diagnostic_sink_(diagnostic_context_, message);
     }
 }
 
-bool Stream_manager::open_tailer(Tailer& tailer) noexcept {
+bool StreamManager::open_tailer(Tailer& tailer) noexcept {
     if (tailer.fd >= 0) {
         static_cast<void>(::close(tailer.fd));
         tailer.fd = -1;
@@ -156,31 +156,7 @@ bool Stream_manager::open_tailer(Tailer& tailer) noexcept {
                 }
                 chunk.remove_prefix(newline + 1);
             }
-            for (const char c : chunk) {
-                if (tailer.discarding) {
-                    if (c == '\n') {
-                        tailer.discarding = false;
-                    }
-                    continue;
-                }
-                if (c == '\n') {
-                    emit(tailer, tailer.partial, false);
-                    tailer.partial.clear();
-                } else {
-                    tailer.partial.push_back(c);
-                    if (tailer.partial.size() > limits_.max_line_bytes) {
-                        tailer.partial.clear();
-                        tailer.discarding = true;
-                        Gap_marker gap{};
-                        gap.stream_id = tailer.descriptor.id;
-                        gap.dropped = 1;
-                        gap.first_missing_sequence = tailer.next_sequence;
-                        gap.last_missing_sequence = tailer.next_sequence;
-                        ++tailer.next_sequence;
-                        tailer.gaps.push_back(std::move(gap));
-                    }
-                }
-            }
+            consume_chunk(tailer, chunk);
             tailer.offset += static_cast<std::uint64_t>(count);
         }
         tailer.offset = static_cast<std::uint64_t>(status.st_size);
@@ -192,12 +168,41 @@ bool Stream_manager::open_tailer(Tailer& tailer) noexcept {
     return true;
 }
 
-void Stream_manager::emit(Tailer& tailer, std::string_view line,
+void StreamManager::consume_chunk(Tailer& tailer,
+                                   std::string_view chunk) noexcept {
+    for (const char c : chunk) {
+        if (tailer.discarding) {
+            if (c == '\n') {
+                tailer.discarding = false;
+            }
+            continue;
+        }
+        if (c == '\n') {
+            emit(tailer, tailer.partial, false);
+            tailer.partial.clear();
+        } else {
+            tailer.partial.push_back(c);
+            if (tailer.partial.size() > limits_.max_line_bytes) {
+                tailer.partial.clear();
+                tailer.discarding = true;
+                GapMarker gap{};
+                gap.stream_id = tailer.descriptor.id;
+                gap.dropped = 1;
+                gap.first_missing_sequence = tailer.next_sequence;
+                gap.last_missing_sequence = tailer.next_sequence;
+                ++tailer.next_sequence;
+                tailer.gaps.push_back(std::move(gap));
+            }
+        }
+    }
+}
+
+void StreamManager::emit(Tailer& tailer, std::string_view line,
                           bool truncated) noexcept {
     if (line.empty() && tailer.partial.empty() && truncated) {
         return;
     }
-    Stream_record record{};
+    StreamRecord record{};
     record.stream_id = tailer.descriptor.id;
     record.kind = tailer.descriptor.kind;
     record.sequence = tailer.next_sequence++;
@@ -212,7 +217,7 @@ void Stream_manager::emit(Tailer& tailer, std::string_view line,
         if (tailer.ring.empty()) {
             break;
         }
-        const Stream_record& dropped = tailer.ring.front();
+        const StreamRecord& dropped = tailer.ring.front();
         tailer.bytes -= dropped.line.size() + record_overhead_bytes;
         tailer.ring.pop_front();
     }
@@ -224,7 +229,7 @@ void Stream_manager::emit(Tailer& tailer, std::string_view line,
     }
 }
 
-void Stream_manager::poll_tailer(Tailer& tailer) noexcept {
+void StreamManager::poll_tailer(Tailer& tailer) noexcept {
     if (tailer.fd < 0) {
         static_cast<void>(open_tailer(tailer));
         if (tailer.fd < 0) {
@@ -264,31 +269,7 @@ void Stream_manager::poll_tailer(Tailer& tailer) noexcept {
         return;
     }
     const std::string_view chunk(buffer.data(), static_cast<std::size_t>(count));
-    for (const char c : chunk) {
-        if (tailer.discarding) {
-            if (c == '\n') {
-                tailer.discarding = false;
-            }
-            continue;
-        }
-        if (c == '\n') {
-            emit(tailer, tailer.partial, false);
-            tailer.partial.clear();
-        } else {
-            tailer.partial.push_back(c);
-            if (tailer.partial.size() > limits_.max_line_bytes) {
-                tailer.partial.clear();
-                tailer.discarding = true;
-                Gap_marker gap{};
-                gap.stream_id = tailer.descriptor.id;
-                gap.dropped = 1;
-                gap.first_missing_sequence = tailer.next_sequence;
-                gap.last_missing_sequence = tailer.next_sequence;
-                ++tailer.next_sequence;
-                tailer.gaps.push_back(std::move(gap));
-            }
-        }
-    }
+    consume_chunk(tailer, chunk);
     tailer.offset += static_cast<std::uint64_t>(count);
     while (!tailer.gaps.empty()) {
         dispatch_gap(tailer.gaps.front());
@@ -296,19 +277,19 @@ void Stream_manager::poll_tailer(Tailer& tailer) noexcept {
     }
 }
 
-void Stream_manager::poll() noexcept {
+void StreamManager::poll() noexcept {
     for (auto& [id, tailer] : tailers_) {
         static_cast<void>(id);
         poll_tailer(tailer);
     }
 }
 
-core::Status Stream_manager::sync(const Hub_tree& tree) noexcept {
+core::Status StreamManager::sync(const HubTree& tree) noexcept {
     bool failed = false;
-    const std::vector<Hub_stream> streams = all_streams(tree);
+    const std::vector<HubStream> streams = all_streams(tree);
     std::unordered_set<std::string> present;
     present.reserve(streams.size());
-    for (const Hub_stream& descriptor : streams) {
+    for (const HubStream& descriptor : streams) {
         present.insert(descriptor.id);
         auto it = tailers_.find(descriptor.id);
         if (it == tailers_.end()) {
@@ -350,13 +331,13 @@ core::Status Stream_manager::sync(const Hub_tree& tree) noexcept {
                   : core::Status{};
 }
 
-bool Stream_manager::matches(const Subscriber& subscriber,
+bool StreamManager::matches(const Subscriber& subscriber,
                              std::string_view stream_id) const noexcept {
     return subscriber.filter.empty() || subscriber.filter == stream_id;
 }
 
-void Stream_manager::push_gap(Subscriber& subscriber,
-                              const Gap_marker& gap) noexcept {
+void StreamManager::push_gap(Subscriber& subscriber,
+                              const GapMarker& gap) noexcept {
     if (subscriber.overflow) {
         return;
     }
@@ -369,8 +350,8 @@ void Stream_manager::push_gap(Subscriber& subscriber,
     subscriber.gaps.push_back(gap);
 }
 
-void Stream_manager::push_record(Subscriber& subscriber,
-                                 const Stream_record& record) noexcept {
+void StreamManager::push_record(Subscriber& subscriber,
+                                 const StreamRecord& record) noexcept {
     if (subscriber.overflow) {
         return;
     }
@@ -383,7 +364,7 @@ void Stream_manager::push_record(Subscriber& subscriber,
     subscriber.records.push_back(record);
 }
 
-void Stream_manager::dispatch(const Stream_record& record) noexcept {
+void StreamManager::dispatch(const StreamRecord& record) noexcept {
     for (auto& [id, subscriber] : subscribers_) {
         static_cast<void>(id);
         if (!matches(subscriber, record.stream_id)) {
@@ -396,7 +377,7 @@ void Stream_manager::dispatch(const Stream_record& record) noexcept {
         }
         if (last != subscriber.last.end() &&
             record.sequence > last->second + 1U) {
-            Gap_marker gap{};
+            GapMarker gap{};
             gap.stream_id = record.stream_id;
             gap.dropped = record.sequence - last->second - 1U;
             gap.first_missing_sequence = last->second + 1U;
@@ -408,7 +389,7 @@ void Stream_manager::dispatch(const Stream_record& record) noexcept {
     }
 }
 
-void Stream_manager::dispatch_gap(const Gap_marker& gap) noexcept {
+void StreamManager::dispatch_gap(const GapMarker& gap) noexcept {
     for (auto& [id, subscriber] : subscribers_) {
         static_cast<void>(id);
         if (matches(subscriber, gap.stream_id)) {
@@ -417,10 +398,10 @@ void Stream_manager::dispatch_gap(const Gap_marker& gap) noexcept {
     }
 }
 
-std::uint64_t Stream_manager::subscribe(
+std::uint64_t StreamManager::subscribe(
     std::string_view stream_id, std::uint64_t since,
-    std::vector<Stream_record>& snapshot,
-    std::optional<Gap_marker>& gap) noexcept {
+    std::vector<StreamRecord>& snapshot,
+    std::optional<GapMarker>& gap) noexcept {
     const std::uint64_t id = next_subscriber_id_++;
     Subscriber subscriber{};
     subscriber.id = id;
@@ -432,7 +413,7 @@ std::uint64_t Stream_manager::subscribe(
         }
         const std::uint64_t first = tailer.ring.front().sequence;
         if (first > from + 1U) {
-            Gap_marker missing{};
+            GapMarker missing{};
             missing.stream_id = tailer.descriptor.id;
             missing.dropped = first - from - 1U;
             missing.first_missing_sequence = from + 1U;
@@ -441,7 +422,7 @@ std::uint64_t Stream_manager::subscribe(
                 gap = missing;
             }
         }
-        for (const Stream_record& record : tailer.ring) {
+        for (const StreamRecord& record : tailer.ring) {
             if (record.sequence > from) {
                 snapshot.push_back(record);
             }
@@ -467,13 +448,13 @@ std::uint64_t Stream_manager::subscribe(
     return id;
 }
 
-void Stream_manager::unsubscribe(std::uint64_t subscriber_id) noexcept {
+void StreamManager::unsubscribe(std::uint64_t subscriber_id) noexcept {
     subscribers_.erase(subscriber_id);
 }
 
-void Stream_manager::recent(std::string_view stream_id, std::size_t limit,
-                            std::vector<Stream_record>& records,
-                            std::optional<Gap_marker>& gap) const noexcept {
+void StreamManager::recent(std::string_view stream_id, std::size_t limit,
+                            std::vector<StreamRecord>& records,
+                            std::optional<GapMarker>& gap) const noexcept {
     static_cast<void>(gap);
     const auto found = tailers_.find(std::string(stream_id));
     if (found == tailers_.end()) {
@@ -488,9 +469,9 @@ void Stream_manager::recent(std::string_view stream_id, std::size_t limit,
     }
 }
 
-void Stream_manager::take(std::uint64_t subscriber_id,
-                          std::vector<Stream_record>& records,
-                          std::vector<Gap_marker>& gaps) noexcept {
+void StreamManager::take(std::uint64_t subscriber_id,
+                          std::vector<StreamRecord>& records,
+                          std::vector<GapMarker>& gaps) noexcept {
     const auto found = subscribers_.find(subscriber_id);
     if (found == subscribers_.end()) {
         return;
@@ -509,12 +490,12 @@ void Stream_manager::take(std::uint64_t subscriber_id,
     subscriber.bytes = 0;
 }
 
-bool Stream_manager::overflowed(std::uint64_t subscriber_id) const noexcept {
+bool StreamManager::overflowed(std::uint64_t subscriber_id) const noexcept {
     const auto found = subscribers_.find(subscriber_id);
     return found != subscribers_.end() && found->second.overflow;
 }
 
-std::size_t Stream_manager::subscriber_count() const noexcept {
+std::size_t StreamManager::subscriber_count() const noexcept {
     return subscribers_.size();
 }
 

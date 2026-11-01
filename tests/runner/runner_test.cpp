@@ -129,8 +129,8 @@ void reap_supervisors() {
     }
 }
 
-runner::Resource_metadata read_resource(const std::string& directory) {
-    runner::Resource_metadata metadata{};
+runner::ResourceMetadata read_resource(const std::string& directory) {
+    runner::ResourceMetadata metadata{};
     const auto document =
         runner::read_json_file(directory + "/resource.json");
     if (document) {
@@ -139,8 +139,8 @@ runner::Resource_metadata read_resource(const std::string& directory) {
     return metadata;
 }
 
-runner::Exit_metadata read_exit(const std::string& directory) {
-    runner::Exit_metadata metadata{};
+runner::ExitMetadata read_exit(const std::string& directory) {
+    runner::ExitMetadata metadata{};
     const auto document = runner::read_json_file(directory + "/exit.json");
     if (document) {
         runner::from_json(*document, metadata);
@@ -148,8 +148,8 @@ runner::Exit_metadata read_exit(const std::string& directory) {
     return metadata;
 }
 
-app::Run_identity identity_for(const std::string& root) {
-    return app::Run_identity{
+app::RunIdentity identity_for(const std::string& root) {
+    return app::RunIdentity{
         "run-1", root, "test_app", "instance-1", root + "/test_app/instance-1"};
 }
 
@@ -194,45 +194,45 @@ constexpr bool is_plain_value_type =
     std::is_copy_assignable_v<T> && std::is_move_assignable_v<T> &&
     std::is_nothrow_destructible_v<T> && !std::is_polymorphic_v<T>;
 
-static_assert(has_from_json<runner::Resource_metadata>::value);
-static_assert(has_from_json<runner::Exit_metadata>::value);
-static_assert(has_from_json<runner::Terminated_by>::value);
-static_assert(is_plain_value_type<runner::Resource_metadata>);
-static_assert(is_plain_value_type<runner::Exit_metadata>);
-static_assert(std::is_trivially_copyable_v<runner::Terminated_by>);
+static_assert(has_from_json<runner::ResourceMetadata>::value);
+static_assert(has_from_json<runner::ExitMetadata>::value);
+static_assert(has_from_json<runner::TerminatedBy>::value);
+static_assert(is_plain_value_type<runner::ResourceMetadata>);
+static_assert(is_plain_value_type<runner::ExitMetadata>);
+static_assert(std::is_trivially_copyable_v<runner::TerminatedBy>);
 
-// --- Terminated_by ---
+// --- TerminatedBy ---
 void test_terminated_by() {
-    for (const auto value : {runner::Terminated_by::Self,
-                             runner::Terminated_by::Runner,
-                             runner::Terminated_by::Unknown}) {
+    for (const auto value : {runner::TerminatedBy::Self,
+                             runner::TerminatedBy::Runner,
+                             runner::TerminatedBy::Unknown}) {
         const std::string_view text = runner::to_string(value);
-        runner::Terminated_by parsed = static_cast<runner::Terminated_by>(0xff);
+        runner::TerminatedBy parsed = static_cast<runner::TerminatedBy>(0xff);
         NX_CHECK(runner::from_string(text, parsed));
         NX_CHECK(parsed == value);
     }
-    NX_CHECK(runner::to_string(static_cast<runner::Terminated_by>(0x7f)) ==
+    NX_CHECK(runner::to_string(static_cast<runner::TerminatedBy>(0x7f)) ==
              "Unknown");
 
     nlohmann::json json;
-    runner::to_json(json, runner::Terminated_by::Runner);
-    runner::Terminated_by parsed = runner::Terminated_by::Unknown;
+    runner::to_json(json, runner::TerminatedBy::Runner);
+    runner::TerminatedBy parsed = runner::TerminatedBy::Unknown;
     runner::from_json(json, parsed);
-    NX_CHECK(parsed == runner::Terminated_by::Runner);
+    NX_CHECK(parsed == runner::TerminatedBy::Runner);
 
     runner::from_json(nlohmann::json::array(), parsed);
-    NX_CHECK(parsed == runner::Terminated_by::Runner);
+    NX_CHECK(parsed == runner::TerminatedBy::Runner);
 
-    NX_CHECK(std::format("{}", runner::Terminated_by::Self) == "self");
+    NX_CHECK(std::format("{}", runner::TerminatedBy::Self) == "self");
 }
 
-// --- Resource_metadata ---
+// --- ResourceMetadata ---
 void test_resource_metadata() {
-    const app::Run_identity identity{
+    const app::RunIdentity identity{
         "run-1", "/runs/run-1", "app", "instance-1",
         "/runs/run-1/app/instance-1"};
-    const runner::Resource_metadata metadata =
-        runner::Resource_metadata::from_identity(identity, 12345, 67890);
+    const runner::ResourceMetadata metadata =
+        runner::ResourceMetadata::from_identity(identity, 12345, 67890);
 
     NX_CHECK(metadata.run_id == "run-1");
     NX_CHECK(metadata.app_name == "app");
@@ -249,7 +249,7 @@ void test_resource_metadata() {
     runner::to_json(json, metadata);
     NX_CHECK(json["ppid"] == 67890);
 
-    runner::Resource_metadata parsed{};
+    runner::ResourceMetadata parsed{};
     runner::from_json(json, parsed);
     NX_CHECK(parsed.run_id == metadata.run_id);
     NX_CHECK(parsed.app_name == metadata.app_name);
@@ -276,35 +276,35 @@ void test_resource_metadata() {
     NX_CHECK(parsed.pid == metadata.pid);
 }
 
-// --- Exit_metadata ---
+// --- ExitMetadata ---
 void test_exit_metadata() {
-    const runner::Exit_metadata normal = runner::Exit_metadata::from_child_status(
-        100, 0, 42, runner::Terminated_by::Self);
+    const runner::ExitMetadata normal = runner::ExitMetadata::from_child_status(
+        100, 0, 42, runner::TerminatedBy::Self);
     NX_CHECK(normal.exit_code.has_value());
     NX_CHECK(*normal.exit_code == 0);
     NX_CHECK(!normal.signal.has_value());
     NX_CHECK(normal.uptime_s == 42ULL);
-    NX_CHECK(normal.terminated_by == runner::Terminated_by::Self);
+    NX_CHECK(normal.terminated_by == runner::TerminatedBy::Self);
 
     nlohmann::json json;
     runner::to_json(json, normal);
     NX_CHECK(json["exit_code"] == 0);
     NX_CHECK(json["signal"].is_null());
 
-    runner::Exit_metadata parsed{};
+    runner::ExitMetadata parsed{};
     runner::from_json(json, parsed);
     NX_CHECK(parsed.exit_code.has_value());
     NX_CHECK(*parsed.exit_code == 0);
     NX_CHECK(!parsed.signal.has_value());
     NX_CHECK(parsed.uptime_s == 42ULL);
-    NX_CHECK(parsed.terminated_by == runner::Terminated_by::Self);
+    NX_CHECK(parsed.terminated_by == runner::TerminatedBy::Self);
 
-    const runner::Exit_metadata killed = runner::Exit_metadata::from_child_status(
-        100, SIGKILL, 3, runner::Terminated_by::Runner);
+    const runner::ExitMetadata killed = runner::ExitMetadata::from_child_status(
+        100, SIGKILL, 3, runner::TerminatedBy::Runner);
     NX_CHECK(!killed.exit_code.has_value());
     NX_CHECK(killed.signal.has_value());
     NX_CHECK(*killed.signal == SIGKILL);
-    NX_CHECK(killed.terminated_by == runner::Terminated_by::Runner);
+    NX_CHECK(killed.terminated_by == runner::TerminatedBy::Runner);
 
     nlohmann::json killed_json;
     runner::to_json(killed_json, killed);
@@ -315,7 +315,7 @@ void test_exit_metadata() {
     NX_CHECK(std::format("{}", killed) == killed.to_string());
 
     // Hostile input leaves the target untouched.
-    const runner::Exit_metadata before = parsed;
+    const runner::ExitMetadata before = parsed;
     runner::from_json(nlohmann::json::array(), parsed);
     NX_CHECK(parsed.uptime_s == before.uptime_s);
     runner::from_json(nlohmann::json{{"exit_code", "bad"},
@@ -380,7 +380,7 @@ void test_generate_settings() {
     const std::string directory = unique_dir("settings");
     NX_CHECK(runner::create_instance_dir(directory).has_value());
 
-    app::Telemetry_paths resolved{
+    app::TelemetryPaths resolved{
         directory + "/custom-metrics.jsonl",
         "/etc/traces.jsonl",
         "",
@@ -503,37 +503,37 @@ void test_json_file_io() {
         remove_tree(settings_root);
     }
 
-    const app::Run_identity identity{
+    const app::RunIdentity identity{
         "run-1", directory, "app", "instance-1", directory};
-    const runner::Resource_metadata resource =
-        runner::Resource_metadata::from_identity(identity, 4242, 4343);
+    const runner::ResourceMetadata resource =
+        runner::ResourceMetadata::from_identity(identity, 4242, 4343);
     NX_CHECK(runner::write_resource_json(directory, resource).has_value());
     const auto resource_document =
         runner::read_json_file(directory + "/resource.json");
     NX_CHECK(resource_document.has_value());
     if (resource_document) {
-        runner::Resource_metadata parsed_resource{};
+        runner::ResourceMetadata parsed_resource{};
         runner::from_json(*resource_document, parsed_resource);
         NX_CHECK(parsed_resource.pid == 4242);
         NX_CHECK(parsed_resource.ppid == 4343);
         NX_CHECK(parsed_resource.instance_dir == directory);
     }
 
-    runner::Exit_metadata exit_metadata;
+    runner::ExitMetadata exit_metadata;
     exit_metadata.exit_code = 0;
     exit_metadata.uptime_s = 9;
-    exit_metadata.terminated_by = runner::Terminated_by::Self;
+    exit_metadata.terminated_by = runner::TerminatedBy::Self;
     NX_CHECK(runner::write_exit_json(directory, exit_metadata).has_value());
     const auto exit_document =
         runner::read_json_file(directory + "/exit.json");
     NX_CHECK(exit_document.has_value());
     if (exit_document) {
-        runner::Exit_metadata parsed_exit{};
+        runner::ExitMetadata parsed_exit{};
         runner::from_json(*exit_document, parsed_exit);
         NX_CHECK(parsed_exit.exit_code.has_value());
         NX_CHECK(*parsed_exit.exit_code == 0);
         NX_CHECK(parsed_exit.uptime_s == 9ULL);
-        NX_CHECK(parsed_exit.terminated_by == runner::Terminated_by::Self);
+        NX_CHECK(parsed_exit.terminated_by == runner::TerminatedBy::Self);
     }
 
     remove_tree(directory);
@@ -542,7 +542,7 @@ void test_json_file_io() {
 // --- Start / status / stop ---
 void test_start_status_stop() {
     const std::string root = unique_dir("lifecycle");
-    const app::Run_identity identity = identity_for(root);
+    const app::RunIdentity identity = identity_for(root);
     const std::vector<std::string> command{
         "/bin/sh", "-c",
         "echo hello-out; echo hello-err >&2; exec sleep 60"};
@@ -564,7 +564,7 @@ void test_start_status_stop() {
     NX_CHECK(failed_with(runner.start(identity, command, 0),
                          core::ErrorCode::Conflict));
 
-    const runner::Resource_metadata metadata =
+    const runner::ResourceMetadata metadata =
         read_resource(identity.instance_dir);
     NX_CHECK(metadata.pid > 0);
     NX_CHECK(metadata.ppid > 0);
@@ -605,9 +605,9 @@ void test_start_status_stop() {
     NX_CHECK(runner.status(identity.instance_dir, state).has_value());
     NX_CHECK(state == "stopped");
 
-    const runner::Exit_metadata exit_metadata =
+    const runner::ExitMetadata exit_metadata =
         read_exit(identity.instance_dir);
-    NX_CHECK(exit_metadata.terminated_by == runner::Terminated_by::Runner);
+    NX_CHECK(exit_metadata.terminated_by == runner::TerminatedBy::Runner);
     NX_CHECK(exit_metadata.signal.has_value());
     NX_CHECK(*exit_metadata.signal == SIGTERM);
     NX_CHECK(!exit_metadata.exit_code.has_value());
@@ -626,7 +626,7 @@ void test_start_status_stop() {
 // --- Self exit ---
 void test_self_exit_status() {
     const std::string root = unique_dir("selfexit");
-    const app::Run_identity identity = identity_for(root);
+    const app::RunIdentity identity = identity_for(root);
     const std::vector<std::string> command{
         "/bin/sh", "-c", "sleep 1; exit 7"};
 
@@ -651,13 +651,13 @@ void test_self_exit_status() {
     NX_CHECK(runner.status(identity.instance_dir, state).has_value());
     NX_CHECK(state == "exited");
 
-    const runner::Exit_metadata exit_metadata =
+    const runner::ExitMetadata exit_metadata =
         read_exit(identity.instance_dir);
     NX_CHECK(exit_metadata.exit_code.has_value());
     NX_CHECK(*exit_metadata.exit_code == 7);
     NX_CHECK(!exit_metadata.signal.has_value());
     NX_CHECK(exit_metadata.uptime_s >= 1);
-    NX_CHECK(exit_metadata.terminated_by == runner::Terminated_by::Self);
+    NX_CHECK(exit_metadata.terminated_by == runner::TerminatedBy::Self);
 
     reap_supervisors();
     remove_tree(root);
@@ -672,7 +672,7 @@ void test_env_identity_layout() {
     NX_CHECK(::setenv("NEXIGEN_INSTANCE_ID", "env_instance", 1) == 0);
     NX_CHECK(::unsetenv("NEXIGEN_INSTANCE_DIR") == 0);
 
-    const app::Run_identity identity = app::load_run_identity();
+    const app::RunIdentity identity = app::load_run_identity();
     NX_CHECK(identity.run_id == "run-env");
     NX_CHECK(identity.run_dir == root);
     NX_CHECK(identity.app_name == "env_app");
@@ -717,7 +717,7 @@ void test_env_identity_layout() {
 // --- Restarting an instance truncates the captured logs ---
 void test_log_truncation_on_restart() {
     const std::string root = unique_dir("restart");
-    const app::Run_identity identity = identity_for(root);
+    const app::RunIdentity identity = identity_for(root);
     runner::Runner runner;
 
     const std::vector<std::string> first{
@@ -755,7 +755,7 @@ void test_log_truncation_on_restart() {
 // --- Graceful SIGTERM keeps the child's exit code ---
 void test_graceful_sigterm() {
     const std::string root = unique_dir("graceful");
-    const app::Run_identity identity = identity_for(root);
+    const app::RunIdentity identity = identity_for(root);
     const std::vector<std::string> command{
         "/bin/sh", "-c",
         "trap 'exit 0' TERM; echo trap-ready; while :; do sleep 1; done"};
@@ -783,12 +783,12 @@ void test_graceful_sigterm() {
     NX_CHECK(runner.status(identity.instance_dir, state).has_value());
     NX_CHECK(state == "stopped");
 
-    const runner::Exit_metadata exit_metadata =
+    const runner::ExitMetadata exit_metadata =
         read_exit(identity.instance_dir);
     NX_CHECK(exit_metadata.exit_code.has_value());
     NX_CHECK(*exit_metadata.exit_code == 0);
     NX_CHECK(!exit_metadata.signal.has_value());
-    NX_CHECK(exit_metadata.terminated_by == runner::Terminated_by::Runner);
+    NX_CHECK(exit_metadata.terminated_by == runner::TerminatedBy::Runner);
 
     reap_supervisors();
     remove_tree(root);
@@ -797,7 +797,7 @@ void test_graceful_sigterm() {
 // --- A killed runner session leaves the supervised child running ---
 void test_runner_session_isolation() {
     const std::string root = unique_dir("session");
-    const app::Run_identity identity = identity_for(root);
+    const app::RunIdentity identity = identity_for(root);
     const std::vector<std::string> command{
         "/bin/sh", "-c", "exec sleep 60"};
 
@@ -847,7 +847,7 @@ void test_runner_session_isolation() {
         NX_CHECK(runner.status(identity.instance_dir, state).has_value());
         NX_CHECK(state == "running");
 
-        const runner::Resource_metadata metadata =
+        const runner::ResourceMetadata metadata =
             read_resource(identity.instance_dir);
         NX_CHECK(metadata.pid > 0);
         NX_CHECK(::kill(static_cast<pid_t>(metadata.pid), 0) == 0);
@@ -867,7 +867,7 @@ void test_runner_session_isolation() {
 // --- Idle timeout ---
 void test_idle_timeout() {
     const std::string root = unique_dir("timeout");
-    const app::Run_identity identity = identity_for(root);
+    const app::RunIdentity identity = identity_for(root);
     const std::vector<std::string> command{"/bin/sh", "-c", "exec sleep 60"};
 
     runner::Runner runner;
@@ -891,9 +891,9 @@ void test_idle_timeout() {
     NX_CHECK(runner.status(identity.instance_dir, state).has_value());
     NX_CHECK(state == "stopped");
 
-    const runner::Exit_metadata exit_metadata =
+    const runner::ExitMetadata exit_metadata =
         read_exit(identity.instance_dir);
-    NX_CHECK(exit_metadata.terminated_by == runner::Terminated_by::Runner);
+    NX_CHECK(exit_metadata.terminated_by == runner::TerminatedBy::Runner);
     NX_CHECK(exit_metadata.signal.has_value());
     NX_CHECK(*exit_metadata.signal == SIGTERM);
 
@@ -904,7 +904,7 @@ void test_idle_timeout() {
 // --- SIGKILL after an unresponsive grace period ---
 void test_sigkill_after_grace() {
     const std::string root = unique_dir("sigkill");
-    const app::Run_identity identity = identity_for(root);
+    const app::RunIdentity identity = identity_for(root);
     const std::vector<std::string> command{
         "/bin/sh", "-c", "trap '' TERM; exec sleep 60"};
 
@@ -917,7 +917,7 @@ void test_sigkill_after_grace() {
         return;
     }
 
-    const runner::Resource_metadata metadata =
+    const runner::ResourceMetadata metadata =
         read_resource(identity.instance_dir);
     NX_CHECK(metadata.pid > 0);
 
@@ -927,9 +927,9 @@ void test_sigkill_after_grace() {
     const core::Status stopped = runner.stop(identity.instance_dir, 0);
     NX_CHECK(stopped.has_value());
 
-    const runner::Exit_metadata exit_metadata =
+    const runner::ExitMetadata exit_metadata =
         read_exit(identity.instance_dir);
-    NX_CHECK(exit_metadata.terminated_by == runner::Terminated_by::Runner);
+    NX_CHECK(exit_metadata.terminated_by == runner::TerminatedBy::Runner);
     NX_CHECK(exit_metadata.signal.has_value());
     NX_CHECK(*exit_metadata.signal == SIGKILL);
     NX_CHECK(!exit_metadata.exit_code.has_value());
@@ -951,16 +951,16 @@ void test_start_options() {
     std::error_code error;
     std::filesystem::create_directories(root, error);
     std::filesystem::create_directories(settings, error);
-    const app::Run_identity identity = identity_for(root);
+    const app::RunIdentity identity = identity_for(root);
     const std::vector<std::string> command{"/bin/true"};
     runner::Runner runner;
 
-    auto invalid = [&](const runner::Start_options& options) {
+    auto invalid = [&](const runner::StartOptions& options) {
         return failed_with(runner.start(identity, command, 0, options),
                            core::ErrorCode::InvalidArgument);
     };
 
-    runner::Start_options bad;
+    runner::StartOptions bad;
     bad.artifact_dir = "relative/artifacts";
     NX_CHECK(invalid(bad));
     bad = {};
@@ -990,7 +990,7 @@ void test_start_options() {
         NX_CHECK(invalid(bad));
     }
 
-    runner::Start_options options;
+    runner::StartOptions options;
     options.artifact_dir = artifacts;
     options.global_settings_dir = settings;
     options.local_settings_dir = settings;
@@ -1037,7 +1037,7 @@ void test_lifecycle_edges() {
 
     // resource.json with a non-positive PID is rejected by stop and reported
     // as unknown by status.
-    runner::Resource_metadata invalid_resource{};
+    runner::ResourceMetadata invalid_resource{};
     invalid_resource.pid = 0;
     NX_CHECK(runner::write_resource_json(root, invalid_resource).has_value());
     NX_CHECK(failed_with(runner.stop(root, 0),
@@ -1047,22 +1047,22 @@ void test_lifecycle_edges() {
 
     // A dead PID without exit.json becomes exited, and stop writes the
     // fallback completion record.
-    runner::Resource_metadata dead_resource{};
+    runner::ResourceMetadata dead_resource{};
     dead_resource.pid = 999999;
     dead_resource.start_time_mono_ns = 1;
     NX_CHECK(runner::write_resource_json(root, dead_resource).has_value());
     NX_CHECK(runner.status(root, state).has_value());
     NX_CHECK(state == "exited");
     NX_CHECK(runner.stop(root, 0).has_value());
-    const runner::Exit_metadata fallback = read_exit(root);
-    NX_CHECK(fallback.terminated_by == runner::Terminated_by::Unknown);
+    const runner::ExitMetadata fallback = read_exit(root);
+    NX_CHECK(fallback.terminated_by == runner::TerminatedBy::Unknown);
 
     // An exit record with a missing resource directory is a successful no-op.
     const std::string completed = unique_dir("edges_completed");
     NX_CHECK(runner::create_instance_dir(completed).has_value());
-    runner::Exit_metadata exit_metadata{};
+    runner::ExitMetadata exit_metadata{};
     exit_metadata.exit_code = 0;
-    exit_metadata.terminated_by = runner::Terminated_by::Self;
+    exit_metadata.terminated_by = runner::TerminatedBy::Self;
     NX_CHECK(runner::write_exit_json(completed, exit_metadata).has_value());
     NX_CHECK(runner.stop(completed, 0).has_value());
 
@@ -1076,7 +1076,7 @@ void test_lifecycle_edges() {
     NX_CHECK(live_group > 0);
     if (live_group > 0) {
         static_cast<void>(::setpgid(live_group, live_group));
-        runner::Resource_metadata alive{};
+        runner::ResourceMetadata alive{};
         alive.pid = static_cast<std::int32_t>(live_group);
         NX_CHECK(runner::write_resource_json(root, alive).has_value());
         NX_CHECK(runner::write_exit_json(root, exit_metadata).has_value());
@@ -1095,7 +1095,7 @@ void test_lifecycle_edges() {
 #if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
 void test_fault_injection() {
     const std::string root = unique_dir("faults");
-    const app::Run_identity identity = identity_for(root);
+    const app::RunIdentity identity = identity_for(root);
     const std::vector<std::string> command{"/bin/true"};
 
     core::detail::set_fault_hook(test_fault_hook);
@@ -1135,25 +1135,25 @@ void test_error_paths() {
 
     // Empty command.
     const std::string root = unique_dir("errors");
-    app::Run_identity identity = identity_for(root);
+    app::RunIdentity identity = identity_for(root);
     const std::vector<std::string> empty_command;
     NX_CHECK(failed_with(runner.start(identity, empty_command, 0),
                          core::ErrorCode::InvalidArgument));
 
     // Empty identity cannot derive an instance directory.
-    const app::Run_identity empty_identity{};
+    const app::RunIdentity empty_identity{};
     const std::vector<std::string> command{"/bin/true"};
     NX_CHECK(failed_with(runner.start(empty_identity, command, 0),
                          core::ErrorCode::InvalidArgument));
 
     // Relative instance directory.
-    app::Run_identity relative = identity_for(root);
+    app::RunIdentity relative = identity_for(root);
     relative.instance_dir = "relative/path";
     NX_CHECK(failed_with(runner.start(relative, command, 0),
                          core::ErrorCode::InvalidArgument));
 
     // Unwritable parent.
-    app::Run_identity denied = identity_for(root);
+    app::RunIdentity denied = identity_for(root);
     denied.instance_dir =
         "/proc/nexigen_runner_denied_" +
         std::to_string(static_cast<long long>(::getpid())) + "/instance";
@@ -1161,7 +1161,7 @@ void test_error_paths() {
                          core::ErrorCode::SystemError));
 
     // Identity derived from the three components when instance_dir is empty.
-    app::Run_identity derived{"run-2", root, "test_app", "derived", ""};
+    app::RunIdentity derived{"run-2", root, "test_app", "derived", ""};
     const core::Status derived_start = runner.start(derived, command, 0);
     NX_CHECK(derived_start.has_value());
     if (derived_start) {
@@ -1178,12 +1178,12 @@ void test_error_paths() {
     }
 
     // Trailing slashes are normalized before the layout is created.
-    app::Run_identity padded = identity_for(root);
+    app::RunIdentity padded = identity_for(root);
     padded.instance_dir = root + "/test_app/instance-padded///";
     NX_CHECK(runner.start(padded, command, 0).has_value());
 
     // An instance directory beyond the path budget is rejected.
-    app::Run_identity too_long = identity_for(root);
+    app::RunIdentity too_long = identity_for(root);
     too_long.instance_dir = "/" + std::string(600, 'x');
     NX_CHECK(failed_with(runner.start(too_long, command, 0),
                          core::ErrorCode::InvalidArgument));
@@ -1194,7 +1194,7 @@ void test_error_paths() {
     std::error_code io_error;
     std::filesystem::create_directories(
         task_root + "/test_app/instance-1/stdout.log", io_error);
-    app::Run_identity stdout_blocked{
+    app::RunIdentity stdout_blocked{
         "run-1", task_root, "test_app", "instance-1",
         task_root + "/test_app/instance-1"};
     NX_CHECK(failed_with(runner.start(stdout_blocked, command, 0),
@@ -1205,7 +1205,7 @@ void test_error_paths() {
                  .has_value());
     std::filesystem::create_directories(
         stderr_root + "/test_app/instance-1/stderr.log", io_error);
-    app::Run_identity stderr_blocked{
+    app::RunIdentity stderr_blocked{
         "run-1", stderr_root, "test_app", "instance-1",
         stderr_root + "/test_app/instance-1"};
     NX_CHECK(failed_with(runner.start(stderr_blocked, command, 0),
@@ -1217,7 +1217,7 @@ void test_error_paths() {
                  .has_value());
     std::filesystem::create_directories(
         stream_root + "/test_app/instance-1/app.jsonl", io_error);
-    app::Run_identity stream_blocked{
+    app::RunIdentity stream_blocked{
         "run-1", stream_root, "test_app", "instance-1",
         stream_root + "/test_app/instance-1"};
     NX_CHECK(failed_with(runner.start(stream_blocked, command, 0),

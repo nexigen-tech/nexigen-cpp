@@ -15,18 +15,18 @@
 namespace nexigen::hub {
 
 /// Foreground HTTP/SSE server. One epoll control loop; no application work.
-class Http_server {
+class HttpServer {
 public:
-    Http_server(Discovery& discovery, Stream_manager& streaming,
-                Diagnostic_sink sink = nullptr, void* context = nullptr);
-    ~Http_server();
+    HttpServer(Discovery& discovery, StreamManager& streaming,
+                DiagnosticSink sink = nullptr, void* context = nullptr);
+    ~HttpServer();
 
-    Http_server(const Http_server&) = delete;
-    Http_server& operator=(const Http_server&) = delete;
+    HttpServer(const HttpServer&) = delete;
+    HttpServer& operator=(const HttpServer&) = delete;
 
     /// Install a callback for rescan, stream reconciliation, and stream I/O
     /// failures. Passing nullptr (the default) keeps diagnostics silent.
-    void set_diagnostic_sink(Diagnostic_sink sink, void* context) noexcept;
+    void set_diagnostic_sink(DiagnosticSink sink, void* context) noexcept;
 
     /// Bind and start listening. `--listen` accepts `host:port`; port 0 asks
     /// the kernel for an ephemeral port (used by tests).

@@ -24,7 +24,7 @@ namespace nexigen::app {
 /// Identity of one application instance inside one run. Empty fields mean the
 /// corresponding variable was unset; a completely empty value is valid and
 /// means "this application does not use the identity contract".
-struct Run_identity {
+struct RunIdentity {
     std::string run_id{};         ///< NEXIGEN_RUN_ID
     std::string run_dir{};        ///< NEXIGEN_RUN_DIR
     std::string app_name{};       ///< NEXIGEN_APP_NAME
@@ -33,20 +33,20 @@ struct Run_identity {
 
     [[nodiscard]] std::string to_string() const;
 };
-[[nodiscard]] inline std::string to_string(const Run_identity& identity) {
+[[nodiscard]] inline std::string to_string(const RunIdentity& identity) {
     return identity.to_string();
 }
 
 /// Resolved output locations. An empty path means the resolver did not
 /// configure that stream; the application keeps its own policy.
-struct Telemetry_paths {
+struct TelemetryPaths {
     std::string metrics{};   ///< Resolved path for metrics.jsonl, or empty.
     std::string traces{};    ///< Resolved path for traces.jsonl, or empty.
     std::string chrono{};    ///< Resolved path for chrono.jsonl, or empty.
 
     [[nodiscard]] std::string to_string() const;
 };
-[[nodiscard]] inline std::string to_string(const Telemetry_paths& paths) {
+[[nodiscard]] inline std::string to_string(const TelemetryPaths& paths) {
     return paths.to_string();
 }
 
@@ -54,56 +54,56 @@ struct Telemetry_paths {
 /// NEXIGEN_INSTANCE_ID, and NEXIGEN_INSTANCE_DIR. When the instance directory
 /// is absent and the three derivation inputs are present, derive it as
 /// `<run_dir>/<app_name>/<instance_id>`. Never consults CWD, hostname, or PID.
-[[nodiscard]] Run_identity load_run_identity() noexcept;
+[[nodiscard]] RunIdentity load_run_identity() noexcept;
 
 /// Validate present ids (1..128 bytes, [A-Za-z0-9._-], no "."/".."/"..")
 /// and present directories (POSIX absolute). A completely empty identity is
 /// valid. Returns InvalidArgument on any violation.
-[[nodiscard]] core::Status validate_run_identity(const Run_identity& identity) noexcept;
+[[nodiscard]] core::Status validate_run_identity(const RunIdentity& identity) noexcept;
 
 /// Resolve each stream independently: explicit non-empty path, otherwise
 /// `<instance_dir>/<metrics|traces|chrono>.jsonl`, otherwise empty. The
 /// resolver performs no I/O and leaves `out` untouched on invalid identity.
 [[nodiscard]] core::Status resolve_telemetry_paths(
-    const Run_identity& identity, std::string_view explicit_metrics_path,
+    const RunIdentity& identity, std::string_view explicit_metrics_path,
     std::string_view explicit_traces_path, std::string_view explicit_chrono_path,
-    Telemetry_paths& out) noexcept;
+    TelemetryPaths& out) noexcept;
 
 /// Settings convenience overload: reads `sink.path` from each subsystem.
 [[nodiscard]] inline core::Status resolve_telemetry_paths(
-    const Run_identity& identity, const Metrics_settings& metrics,
-    const Tracing_settings& tracing, const chrono::Chrono_settings& chrono,
-    Telemetry_paths& out) noexcept {
+    const RunIdentity& identity, const MetricsSettings& metrics,
+    const TracingSettings& tracing, const chrono::Chrono_settings& chrono,
+    TelemetryPaths& out) noexcept {
     return resolve_telemetry_paths(identity, metrics.sink.path, tracing.sink.path,
                                    chrono.sink.path, out);
 }
 
 // --- cold-path ADL serialization (bodies in src/app/telemetry_layout.cpp)
-/// Serialise a Run_identity into JSON. Field names match the variable names.
-void to_json(nlohmann::json& j, const Run_identity& identity);
-/// Deserialise a Run_identity from JSON. Non-object, wrong types, and extra
+/// Serialise a RunIdentity into JSON. Field names match the variable names.
+void to_json(nlohmann::json& j, const RunIdentity& identity);
+/// Deserialise a RunIdentity from JSON. Non-object, wrong types, and extra
 /// fields leave the target unchanged when compiled with JSON_NOEXCEPTION=1.
-void from_json(const nlohmann::json& j, Run_identity& identity) noexcept;
-/// Serialise a Telemetry_paths into JSON.
-void to_json(nlohmann::json& j, const Telemetry_paths& paths);
-/// Deserialise a Telemetry_paths from JSON. Same hostile-JSON guarantees as
-/// from_json(Run_identity).
-void from_json(const nlohmann::json& j, Telemetry_paths& paths) noexcept;
+void from_json(const nlohmann::json& j, RunIdentity& identity) noexcept;
+/// Serialise a TelemetryPaths into JSON.
+void to_json(nlohmann::json& j, const TelemetryPaths& paths);
+/// Deserialise a TelemetryPaths from JSON. Same hostile-JSON guarantees as
+/// from_json(RunIdentity).
+void from_json(const nlohmann::json& j, TelemetryPaths& paths) noexcept;
 
 } // namespace nexigen::app
 
 template <>
-struct std::formatter<nexigen::app::Run_identity> : std::formatter<std::string_view> {
+struct std::formatter<nexigen::app::RunIdentity> : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::app::Run_identity& identity, Ctx& ctx) const {
+    constexpr auto format(const nexigen::app::RunIdentity& identity, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(identity.to_string(), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::app::Telemetry_paths> : std::formatter<std::string_view> {
+struct std::formatter<nexigen::app::TelemetryPaths> : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::app::Telemetry_paths& paths, Ctx& ctx) const {
+    constexpr auto format(const nexigen::app::TelemetryPaths& paths, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(paths.to_string(), ctx);
     }
 };

@@ -58,7 +58,7 @@ namespace {
     return out;
 }
 
-[[nodiscard]] std::string choose_path(const Run_identity& identity,
+[[nodiscard]] std::string choose_path(const RunIdentity& identity,
                                       std::string_view explicit_path,
                                       std::string_view filename) {
     if (!explicit_path.empty()) {
@@ -93,19 +93,19 @@ void read_string_field(const nlohmann::json& j, const char* key,
 
 } // namespace
 
-std::string Run_identity::to_string() const {
-    return "Run_identity(run_id=" + run_id + ", run_dir=" + run_dir +
+std::string RunIdentity::to_string() const {
+    return "RunIdentity(run_id=" + run_id + ", run_dir=" + run_dir +
            ", app_name=" + app_name + ", instance_id=" + instance_id +
            ", instance_dir=" + instance_dir + ")";
 }
 
-std::string Telemetry_paths::to_string() const {
-    return "Telemetry_paths(metrics=" + metrics + ", traces=" + traces +
+std::string TelemetryPaths::to_string() const {
+    return "TelemetryPaths(metrics=" + metrics + ", traces=" + traces +
            ", chrono=" + chrono + ")";
 }
 
-Run_identity load_run_identity() noexcept {
-    Run_identity identity;
+RunIdentity load_run_identity() noexcept {
+    RunIdentity identity;
     identity.run_id = std::string(env_value("NEXIGEN_RUN_ID"));
     identity.run_dir = std::string(env_value("NEXIGEN_RUN_DIR"));
     identity.app_name = std::string(env_value("NEXIGEN_APP_NAME"));
@@ -119,7 +119,7 @@ Run_identity load_run_identity() noexcept {
     return identity;
 }
 
-core::Status validate_run_identity(const Run_identity& identity) noexcept {
+core::Status validate_run_identity(const RunIdentity& identity) noexcept {
     if (!identity.run_id.empty() && !safe_id(identity.run_id)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
@@ -138,16 +138,16 @@ core::Status validate_run_identity(const Run_identity& identity) noexcept {
     return {};
 }
 
-core::Status resolve_telemetry_paths(const Run_identity& identity,
+core::Status resolve_telemetry_paths(const RunIdentity& identity,
                                      std::string_view explicit_metrics_path,
                                      std::string_view explicit_traces_path,
                                      std::string_view explicit_chrono_path,
-                                     Telemetry_paths& out) noexcept {
+                                     TelemetryPaths& out) noexcept {
     const core::Status valid = validate_run_identity(identity);
     if (!valid) {
         return valid;
     }
-    Telemetry_paths resolved{
+    TelemetryPaths resolved{
         choose_path(identity, explicit_metrics_path, "metrics.jsonl"),
         choose_path(identity, explicit_traces_path, "traces.jsonl"),
         choose_path(identity, explicit_chrono_path, "chrono.jsonl")};
@@ -155,7 +155,7 @@ core::Status resolve_telemetry_paths(const Run_identity& identity,
     return {};
 }
 
-void to_json(nlohmann::json& j, const Run_identity& identity) {
+void to_json(nlohmann::json& j, const RunIdentity& identity) {
     j = nlohmann::json{{"run_id", identity.run_id},
                        {"run_dir", identity.run_dir},
                        {"app_name", identity.app_name},
@@ -163,7 +163,7 @@ void to_json(nlohmann::json& j, const Run_identity& identity) {
                        {"instance_dir", identity.instance_dir}};
 }
 
-void from_json(const nlohmann::json& j, Run_identity& identity) noexcept {
+void from_json(const nlohmann::json& j, RunIdentity& identity) noexcept {
     read_string_field(j, "run_id", identity.run_id);
     read_string_field(j, "run_dir", identity.run_dir);
     read_string_field(j, "app_name", identity.app_name);
@@ -171,13 +171,13 @@ void from_json(const nlohmann::json& j, Run_identity& identity) noexcept {
     read_string_field(j, "instance_dir", identity.instance_dir);
 }
 
-void to_json(nlohmann::json& j, const Telemetry_paths& paths) {
+void to_json(nlohmann::json& j, const TelemetryPaths& paths) {
     j = nlohmann::json{{"metrics", paths.metrics},
                        {"traces", paths.traces},
                        {"chrono", paths.chrono}};
 }
 
-void from_json(const nlohmann::json& j, Telemetry_paths& paths) noexcept {
+void from_json(const nlohmann::json& j, TelemetryPaths& paths) noexcept {
     read_string_field(j, "metrics", paths.metrics);
     read_string_field(j, "traces", paths.traces);
     read_string_field(j, "chrono", paths.chrono);

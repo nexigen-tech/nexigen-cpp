@@ -20,33 +20,33 @@
 namespace nexigen::runner {
 
 /// Why the child process ended.
-enum class Terminated_by : std::uint8_t {
+enum class TerminatedBy : std::uint8_t {
     Self,    ///< The child exited on its own.
     Runner,  ///< The runner/stop command sent the terminating signal.
     Unknown, ///< No attribution is available.
 };
 
 /// Canonical lower-case name used by exit.json.
-[[nodiscard]] constexpr std::string_view to_string(Terminated_by value) noexcept {
+[[nodiscard]] constexpr std::string_view to_string(TerminatedBy value) noexcept {
     switch (value) {
-        case Terminated_by::Self:    return "self";
-        case Terminated_by::Runner:  return "runner";
-        case Terminated_by::Unknown: return "unknown";
+        case TerminatedBy::Self:    return "self";
+        case TerminatedBy::Runner:  return "runner";
+        case TerminatedBy::Unknown: return "unknown";
         default:                     return "Unknown";
     }
 }
 
 /// Parse a canonical name; false leaves `out` unchanged.
 [[nodiscard]] constexpr bool from_string(std::string_view name,
-                                         Terminated_by& out) noexcept {
-    if (name == "self")    { out = Terminated_by::Self;    return true; }
-    if (name == "runner")  { out = Terminated_by::Runner;  return true; }
-    if (name == "unknown") { out = Terminated_by::Unknown; return true; }
+                                         TerminatedBy& out) noexcept {
+    if (name == "self")    { out = TerminatedBy::Self;    return true; }
+    if (name == "runner")  { out = TerminatedBy::Runner;  return true; }
+    if (name == "unknown") { out = TerminatedBy::Unknown; return true; }
     return false;
 }
 
 /// Start-time metadata written to resource.json.
-struct Resource_metadata {
+struct ResourceMetadata {
     std::string run_id{};              ///< NEXIGEN_RUN_ID
     std::string app_name{};            ///< NEXIGEN_APP_NAME
     std::string instance_id{};         ///< NEXIGEN_INSTANCE_ID
@@ -61,41 +61,41 @@ struct Resource_metadata {
 
     /// Build start metadata from an identity. `pid` is the child, `ppid` the
     /// supervisor; pass 0/0 before the fork if the pids are not known yet.
-    [[nodiscard]] static Resource_metadata from_identity(
-        const app::Run_identity& identity, std::int32_t pid,
+    [[nodiscard]] static ResourceMetadata from_identity(
+        const app::RunIdentity& identity, std::int32_t pid,
         std::int32_t ppid = 0);
 };
 
-[[nodiscard]] inline std::string to_string(const Resource_metadata& metadata) {
+[[nodiscard]] inline std::string to_string(const ResourceMetadata& metadata) {
     return metadata.to_string();
 }
 
 /// Exit metadata written to exit.json.
-struct Exit_metadata {
+struct ExitMetadata {
     std::optional<std::int32_t> exit_code{}; ///< null when killed by a signal.
     std::optional<std::int32_t> signal{};    ///< null on a normal exit.
     std::uint64_t uptime_s{0};               ///< Whole seconds from start to exit.
-    Terminated_by terminated_by{Terminated_by::Unknown};
+    TerminatedBy terminated_by{TerminatedBy::Unknown};
 
     [[nodiscard]] std::string to_string() const;
 
     /// Build from a waitpid status word (WIFEXITED/WIFSIGNALED are honoured).
-    [[nodiscard]] static Exit_metadata from_child_status(
+    [[nodiscard]] static ExitMetadata from_child_status(
         std::int32_t pid, std::int32_t status, std::uint64_t uptime_s,
-        Terminated_by terminated_by) noexcept;
+        TerminatedBy terminated_by) noexcept;
 };
 
-[[nodiscard]] inline std::string to_string(const Exit_metadata& metadata) {
+[[nodiscard]] inline std::string to_string(const ExitMetadata& metadata) {
     return metadata.to_string();
 }
 
 // --- cold-path ADL serialisation (bodies in src/runner/instance_lifecycle.cpp)
-void to_json(nlohmann::json& j, const Resource_metadata& metadata);
-void from_json(const nlohmann::json& j, Resource_metadata& metadata) noexcept;
-void to_json(nlohmann::json& j, const Exit_metadata& metadata);
-void from_json(const nlohmann::json& j, Exit_metadata& metadata) noexcept;
-void to_json(nlohmann::json& j, Terminated_by value);
-void from_json(const nlohmann::json& j, Terminated_by& value) noexcept;
+void to_json(nlohmann::json& j, const ResourceMetadata& metadata);
+void from_json(const nlohmann::json& j, ResourceMetadata& metadata) noexcept;
+void to_json(nlohmann::json& j, const ExitMetadata& metadata);
+void from_json(const nlohmann::json& j, ExitMetadata& metadata) noexcept;
+void to_json(nlohmann::json& j, TerminatedBy value);
+void from_json(const nlohmann::json& j, TerminatedBy& value) noexcept;
 
 /// Write a JSON document atomically (temporary file in the same directory,
 /// then rename). Returns SystemError when any step fails.
@@ -105,11 +105,11 @@ void from_json(const nlohmann::json& j, Terminated_by& value) noexcept;
 /// Write `<instance_dir>/resource.json` (start-time metadata).
 [[nodiscard]] core::Status write_resource_json(
     std::string_view instance_dir,
-    const Resource_metadata& metadata) noexcept;
+    const ResourceMetadata& metadata) noexcept;
 
 /// Write `<instance_dir>/exit.json` (completion metadata).
 [[nodiscard]] core::Status write_exit_json(
-    std::string_view instance_dir, const Exit_metadata& metadata) noexcept;
+    std::string_view instance_dir, const ExitMetadata& metadata) noexcept;
 
 /// Read and parse a JSON document. Returns SystemError when the file cannot
 /// be read and InvalidArgument when it is not valid JSON.
@@ -131,7 +131,7 @@ void from_json(const nlohmann::json& j, Terminated_by& value) noexcept;
 /// with the instance directory as the stream root.
 [[nodiscard]] core::Status generate_settings(
     std::string_view instance_dir,
-    const app::Telemetry_paths& resolved) noexcept;
+    const app::TelemetryPaths& resolved) noexcept;
 
 /// Write the four generated settings files under `<instance_dir>/settings/`.
 ///
@@ -144,7 +144,7 @@ void from_json(const nlohmann::json& j, Terminated_by& value) noexcept;
 [[nodiscard]] core::Status generate_settings(
     std::string_view instance_dir,
     std::string_view stream_root,
-    const app::Telemetry_paths& resolved) noexcept;
+    const app::TelemetryPaths& resolved) noexcept;
 
 /// Deterministic stream path `<instance_dir>/<file_name>`.
 [[nodiscard]] std::string instance_file_path(std::string_view instance_dir,
@@ -153,10 +153,10 @@ void from_json(const nlohmann::json& j, Terminated_by& value) noexcept;
 } // namespace nexigen::runner
 
 template <>
-struct std::formatter<nexigen::runner::Terminated_by>
+struct std::formatter<nexigen::runner::TerminatedBy>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::Terminated_by value,
+    constexpr auto format(const nexigen::runner::TerminatedBy value,
                           Ctx& ctx) const {
         return std::formatter<std::string_view>::format(
             nexigen::runner::to_string(value), ctx);
@@ -164,20 +164,20 @@ struct std::formatter<nexigen::runner::Terminated_by>
 };
 
 template <>
-struct std::formatter<nexigen::runner::Resource_metadata>
+struct std::formatter<nexigen::runner::ResourceMetadata>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::Resource_metadata& metadata,
+    constexpr auto format(const nexigen::runner::ResourceMetadata& metadata,
                           Ctx& ctx) const {
         return std::formatter<std::string_view>::format(metadata.to_string(), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::runner::Exit_metadata>
+struct std::formatter<nexigen::runner::ExitMetadata>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::Exit_metadata& metadata,
+    constexpr auto format(const nexigen::runner::ExitMetadata& metadata,
                           Ctx& ctx) const {
         return std::formatter<std::string_view>::format(metadata.to_string(), ctx);
     }

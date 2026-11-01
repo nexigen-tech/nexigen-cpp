@@ -16,16 +16,18 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/logging/logging_settings.hpp>
+#include <nexigen/runner/detail/sys_helpers.hpp>
 #include <nexigen/runner/instance_lifecycle.hpp>
 #include <nexigen/runner/runner_logging.hpp>
 
 namespace nexigen::runner {
 
+using detail::nanoseconds_per_second;
+using detail::sleep_ms;
+
 namespace {
 
 using Runner_file_logger = logging::FileLogger<64, 256, 4>;
-
-constexpr std::uint64_t nanoseconds_per_second = 1'000'000'000ULL;
 
 struct Logging_state {
     std::unique_ptr<Runner_file_logger> logger{};
@@ -45,14 +47,6 @@ Logging_state& state() {
 void warn_stderr(std::string_view message) noexcept {
     std::fprintf(stderr, "nexigen-run: %.*s\n",
                  static_cast<int>(message.size()), message.data());
-}
-
-void sleep_ms(std::uint64_t milliseconds) noexcept {
-    ::timespec request{};
-    request.tv_sec = static_cast<time_t>(milliseconds / 1000ULL);
-    request.tv_nsec = static_cast<long>((milliseconds % 1000ULL) * 1'000'000ULL);
-    while (::nanosleep(&request, &request) != 0 && errno == EINTR) {
-    }
 }
 
 [[nodiscard]] long online_cpus() noexcept {

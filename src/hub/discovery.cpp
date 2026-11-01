@@ -25,7 +25,6 @@
 #include <nexigen/hub/model.hpp>
 #include <nexigen/runner/app_suite.hpp>
 #include <nexigen/runner/instance_lifecycle.hpp>
-#include <nexigen/runner/runner.hpp>
 
 namespace nexigen::hub {
 
@@ -103,96 +102,94 @@ constexpr std::uint32_t watch_mask =
                                     std::string_view app,
                                     std::string_view instance,
                                     std::uint32_t attempt,
-                                    Stream_kind kind) {
+                                    StreamKind kind) {
     return std::string(run_key) + ":" + std::string(suite_id) + ":" +
            std::string(app) + ":" + std::string(instance) + ":" +
            std::to_string(attempt) + ":" + std::string(to_string(kind));
 }
 
-[[nodiscard]] runner::App_state combine_app_state(
-    const std::vector<runner::App_state>& states) noexcept {
+[[nodiscard]] runner::AppState combine_app_state(
+    const std::vector<runner::AppState>& states) noexcept {
     bool running = false;
     bool restarting = false;
     bool failed = false;
     bool stopped = false;
     bool exited = false;
-    for (const runner::App_state state : states) {
-        if (state == runner::App_state::Failed) {
+    for (const runner::AppState state : states) {
+        if (state == runner::AppState::Failed) {
             failed = true;
-        } else if (state == runner::App_state::Restarting) {
+        } else if (state == runner::AppState::Restarting) {
             restarting = true;
-        } else if (state == runner::App_state::Running) {
+        } else if (state == runner::AppState::Running) {
             running = true;
-        } else if (state == runner::App_state::Stopped) {
+        } else if (state == runner::AppState::Stopped) {
             stopped = true;
-        } else if (state == runner::App_state::Exited) {
+        } else if (state == runner::AppState::Exited) {
             exited = true;
         }
     }
     if (failed) {
-        return runner::App_state::Failed;
+        return runner::AppState::Failed;
     }
     if (restarting) {
-        return runner::App_state::Restarting;
+        return runner::AppState::Restarting;
     }
     if (running) {
-        return runner::App_state::Running;
+        return runner::AppState::Running;
     }
     if (stopped) {
-        return runner::App_state::Stopped;
+        return runner::AppState::Stopped;
     }
     if (exited) {
-        return runner::App_state::Exited;
+        return runner::AppState::Exited;
     }
-    return runner::App_state::Unknown;
+    return runner::AppState::Unknown;
 }
 
-[[nodiscard]] runner::App_state app_state_from_string(std::string_view state) {
-    if (state == "running") {
-        return runner::App_state::Running;
+[[nodiscard]] runner::AppState instance_state(const std::string& instance_dir) {
+    // Read-only derivation from the on-disk instance contract: a resource.json
+    // without exit.json means the instance is (or was) running; exit.json
+    // attributes the end. The hub never probes /proc or signals the runner.
+    const core::Result<nlohmann::json> resource_document = runner::read_json_file(
+        runner::instance_file_path(instance_dir, "resource.json"));
+    if (!resource_document) {
+        return runner::AppState::Unknown;
     }
-    if (state == "restarting") {
-        return runner::App_state::Restarting;
+    runner::ResourceMetadata resource{};
+    runner::from_json(*resource_document, resource);
+    if (resource.pid <= 0) {
+        return runner::AppState::Unknown;
     }
-    if (state == "exited") {
-        return runner::App_state::Exited;
+    const core::Result<nlohmann::json> exit_document = runner::read_json_file(
+        runner::instance_file_path(instance_dir, "exit.json"));
+    if (!exit_document) {
+        return runner::AppState::Running;
     }
-    if (state == "stopped") {
-        return runner::App_state::Stopped;
-    }
-    if (state == "failed") {
-        return runner::App_state::Failed;
-    }
-    return runner::App_state::Unknown;
+    runner::ExitMetadata exit{};
+    runner::from_json(*exit_document, exit);
+    return exit.terminated_by == runner::TerminatedBy::Runner
+               ? runner::AppState::Stopped
+               : runner::AppState::Exited;
 }
 
-[[nodiscard]] runner::App_state instance_state(const std::string& instance_dir) {
-    runner::Runner runner;
-    std::string state;
-    if (!runner.status(instance_dir, state).has_value()) {
-        return runner::App_state::Unknown;
-    }
-    return app_state_from_string(state);
-}
-
-void append_attempt_streams(Hub_attempt& attempt, std::string_view run_key,
+void append_attempt_streams(HubAttempt& attempt, std::string_view run_key,
                             std::string_view suite_id, std::string_view app,
                             std::string_view instance) {
     struct Entry {
         const char* name;
-        Stream_kind kind;
+        StreamKind kind;
     };
     static constexpr Entry entries[] = {
-        {"app.jsonl", Stream_kind::App},
-        {"metrics.jsonl", Stream_kind::Metrics},
-        {"traces.jsonl", Stream_kind::Traces},
-        {"chrono.jsonl", Stream_kind::Chrono},
-        {"stdout.log", Stream_kind::Stdout},
-        {"stderr.log", Stream_kind::Stderr},
+        {"app.jsonl", StreamKind::App},
+        {"metrics.jsonl", StreamKind::Metrics},
+        {"traces.jsonl", StreamKind::Traces},
+        {"chrono.jsonl", StreamKind::Chrono},
+        {"stdout.log", StreamKind::Stdout},
+        {"stderr.log", StreamKind::Stderr},
     };
     attempt.streams.reserve(6);
     for (const Entry& entry : entries) {
-        Hub_stream stream{};
+        HubStream stream{};
         stream.id = stream_id(run_key, suite_id, app, instance,
                               attempt.attempt, entry.kind);
         stream.kind = entry.kind;
@@ -203,8 +200,8 @@ void append_attempt_streams(Hub_attempt& attempt, std::string_view run_key,
 
 } // namespace
 
-std::string Run_root::to_string() const {
-    return "Run_root(key=" + key + ", path=" + path + ")";
+std::string RunRoot::to_string() const {
+    return "RunRoot(key=" + key + ", path=" + path + ")";
 }
 
 Discovery::~Discovery() {
@@ -225,16 +222,16 @@ core::Status Discovery::initialize(
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         if (std::any_of(roots_.begin(), roots_.end(),
-                        [&](const Run_root& root) {
+                        [&](const RunRoot& root) {
                             return root.path == canonical;
                         })) {
             continue;
         }
-        roots_.push_back(Run_root{"run-" + std::to_string(roots_.size() + 1),
+        roots_.push_back(RunRoot{"run-" + std::to_string(roots_.size() + 1),
                                   canonical});
     }
     std::sort(roots_.begin(), roots_.end(),
-              [](const Run_root& left, const Run_root& right) {
+              [](const RunRoot& left, const RunRoot& right) {
                   return left.path < right.path;
               });
     for (std::size_t index = 0; index < roots_.size(); ++index) {
@@ -245,7 +242,7 @@ core::Status Discovery::initialize(
     if (inotify_fd_ < 0) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
-    tree_ = Hub_tree{};
+    tree_ = HubTree{};
     tree_signature_.clear();
     revision_ = 0;
     const core::Status scanned = rescan();
@@ -256,14 +253,14 @@ core::Status Discovery::initialize(
 }
 
 core::Status Discovery::rescan() noexcept {
-    Hub_tree next{};
+    HubTree next{};
     bool failed = false;
-    for (const Run_root& root : roots_) {
+    for (const RunRoot& root : roots_) {
         if (!is_directory(root.path)) {
             failed = true;
             continue;
         }
-        Hub_run run{};
+        HubRun run{};
         if (scan_run(root, run)) {
             next.runs.push_back(std::move(run));
         }
@@ -326,35 +323,35 @@ void Discovery::rebuild_watches() noexcept {
     if (inotify_fd_ < 0) {
         return;
     }
-    for (const Run_root& root : roots_) {
+    for (const RunRoot& root : roots_) {
         add_watch(root.path);
         add_watch(join(root.path, ".suite"));
     }
-    for (const Hub_run& run : tree_.runs) {
-        for (const Hub_suite& suite : run.suites) {
+    for (const HubRun& run : tree_.runs) {
+        for (const HubSuite& suite : run.suites) {
             add_watch(suite.suite_dir);
             if (!suite.artifacts_path.empty()) {
                 add_watch(suite.artifacts_path);
             }
-            for (const Hub_app& app : suite.apps) {
-                for (const Hub_instance& instance : app.instances) {
+            for (const HubApp& app : suite.apps) {
+                for (const HubInstance& instance : app.instances) {
                     add_watch(instance.instance_dir);
-                    for (const Hub_attempt& attempt : instance.attempts) {
+                    for (const HubAttempt& attempt : instance.attempts) {
                         add_watch(attempt.artifact_dir);
                     }
                 }
             }
         }
-        for (const Hub_instance& instance : run.standalone_instances) {
+        for (const HubInstance& instance : run.standalone_instances) {
             add_watch(instance.instance_dir);
-            for (const Hub_attempt& attempt : instance.attempts) {
+            for (const HubAttempt& attempt : instance.attempts) {
                 add_watch(attempt.artifact_dir);
             }
         }
     }
 }
 
-bool Discovery::scan_run(const Run_root& root, Hub_run& out) noexcept {
+bool Discovery::scan_run(const RunRoot& root, HubRun& out) noexcept {
     out.run_key = root.key;
     out.run_dir = root.path;
 
@@ -365,7 +362,7 @@ bool Discovery::scan_run(const Run_root& root, Hub_run& out) noexcept {
             !is_regular(join(suite_dir, "suite.json"))) {
             continue;
         }
-        Hub_suite suite{};
+        HubSuite suite{};
         scan_suite(root, suite_dir, suite);
         if (!suite.suite_id.empty()) {
             out.suites.push_back(std::move(suite));
@@ -375,14 +372,14 @@ bool Discovery::scan_run(const Run_root& root, Hub_run& out) noexcept {
     return true;
 }
 
-void Discovery::scan_suite(const Run_root& root, const std::string& suite_dir,
-                           Hub_suite& out) noexcept {
+void Discovery::scan_suite(const RunRoot& root, const std::string& suite_dir,
+                           HubSuite& out) noexcept {
     const core::Result<nlohmann::json> document =
         runner::read_json_file(join(suite_dir, "suite.json"));
     if (!document) {
         return;
     }
-    runner::Suite_metadata metadata{};
+    runner::SuiteMetadata metadata{};
     runner::from_json(*document, metadata);
     if (metadata.suite_id.empty()) {
         return;
@@ -393,13 +390,13 @@ void Discovery::scan_suite(const Run_root& root, const std::string& suite_dir,
     out.artifacts_path = metadata.artifacts_path;
     if (!out.artifacts_path.empty()) {
         out.runner_log.id = stream_id(root.key, out.suite_id, "suite", "runner",
-                                      0, Stream_kind::Runner);
-        out.runner_log.kind = Stream_kind::Runner;
+                                      0, StreamKind::Runner);
+        out.runner_log.kind = StreamKind::Runner;
         out.runner_log.path = join(out.artifacts_path, "runner.jsonl");
     }
 
-    runner::Suite_state recorded_state = runner::Suite_state::Unknown;
-    runner::Suite_status status{};
+    runner::SuiteState recorded_state = runner::SuiteState::Unknown;
+    runner::SuiteStatus status{};
     bool have_status = false;
     if (const core::Result<nlohmann::json> state_document =
             runner::read_json_file(join(suite_dir, "suite-state.json"))) {
@@ -410,7 +407,7 @@ void Discovery::scan_suite(const Run_root& root, const std::string& suite_dir,
     }
     if (const core::Result<nlohmann::json> exit_document =
             runner::read_json_file(join(suite_dir, "suite-exit.json"))) {
-        runner::Suite_exit exit{};
+        runner::SuiteExit exit{};
         runner::from_json(*exit_document, exit);
         recorded_state = exit.state;
         out.reason = exit.reason;
@@ -418,25 +415,25 @@ void Discovery::scan_suite(const Run_root& root, const std::string& suite_dir,
     out.state = recorded_state;
 
     std::unordered_map<std::string, std::size_t> app_index{};
-    for (const runner::Suite_app_metadata& app_meta : metadata.apps) {
+    for (const runner::SuiteAppMetadata& app_meta : metadata.apps) {
         std::size_t index = 0;
         const auto found = app_index.find(app_meta.app);
         if (found == app_index.end()) {
             index = out.apps.size();
-            Hub_app app{};
+            HubApp app{};
             app.app = app_meta.app;
             out.apps.push_back(std::move(app));
             app_index.emplace(app_meta.app, index);
         } else {
             index = found->second;
         }
-        Hub_instance instance{};
+        HubInstance instance{};
         instance.instance = app_meta.instance;
         instance.instance_dir = app_meta.instance_dir;
         instance.state = instance_state(instance.instance_dir);
 
         if (have_status) {
-            for (const runner::Suite_app_status& recorded : status.apps) {
+            for (const runner::SuiteAppStatus& recorded : status.apps) {
                 if (recorded.app == app_meta.app &&
                     recorded.instance == app_meta.instance) {
                     instance.state = recorded.state;
@@ -448,27 +445,27 @@ void Discovery::scan_suite(const Run_root& root, const std::string& suite_dir,
                       app_meta.instance, root.key, instance);
         out.apps[index].instances.push_back(std::move(instance));
     }
-    for (Hub_app& app : out.apps) {
-        std::vector<runner::App_state> states;
+    for (HubApp& app : out.apps) {
+        std::vector<runner::AppState> states;
         states.reserve(app.instances.size());
-        for (const Hub_instance& instance : app.instances) {
+        for (const HubInstance& instance : app.instances) {
             states.push_back(instance.state);
         }
         app.state = combine_app_state(states);
     }
 
-    if (out.state == runner::Suite_state::Unknown) {
-        std::vector<runner::App_state> states;
+    if (out.state == runner::SuiteState::Unknown) {
+        std::vector<runner::AppState> states;
         states.reserve(out.apps.size());
-        for (const Hub_app& app : out.apps) {
+        for (const HubApp& app : out.apps) {
             states.push_back(app.state);
         }
-        const runner::App_state combined = combine_app_state(states);
-        if (combined == runner::App_state::Running ||
-            combined == runner::App_state::Restarting) {
-            out.state = runner::Suite_state::Running;
-        } else if (combined == runner::App_state::Failed) {
-            out.state = runner::Suite_state::Failed;
+        const runner::AppState combined = combine_app_state(states);
+        if (combined == runner::AppState::Running ||
+            combined == runner::AppState::Restarting) {
+            out.state = runner::SuiteState::Running;
+        } else if (combined == runner::AppState::Failed) {
+            out.state = runner::SuiteState::Failed;
         }
     }
 }
@@ -477,7 +474,7 @@ void Discovery::scan_attempts(std::string_view artifacts_path,
                               std::string_view suite_id, std::string_view app,
                               std::string_view instance,
                               std::string_view run_key,
-                              Hub_instance& out) noexcept {
+                              HubInstance& out) noexcept {
     if (artifacts_path.empty()) {
         return;
     }
@@ -488,19 +485,19 @@ void Discovery::scan_attempts(std::string_view artifacts_path,
         if (attempt == 0U) {
             continue;
         }
-        Hub_attempt entry{};
+        HubAttempt entry{};
         entry.attempt = attempt;
         entry.artifact_dir = join(base, name);
         append_attempt_streams(entry, run_key, suite_id, app, instance);
         out.attempts.push_back(std::move(entry));
     }
     std::sort(out.attempts.begin(), out.attempts.end(),
-              [](const Hub_attempt& left, const Hub_attempt& right) {
+              [](const HubAttempt& left, const HubAttempt& right) {
                   return left.attempt < right.attempt;
               });
 }
 
-void Discovery::scan_standalone(const Run_root& root, Hub_run& out) noexcept {
+void Discovery::scan_standalone(const RunRoot& root, HubRun& out) noexcept {
     const std::vector<std::string> names = list_directory(root.path);
     out.standalone_instances.reserve(names.size());
     for (const std::string& name : names) {
@@ -512,11 +509,11 @@ void Discovery::scan_standalone(const Run_root& root, Hub_run& out) noexcept {
             !is_regular(join(candidate, "resource.json"))) {
             continue;
         }
-        Hub_instance instance{};
+        HubInstance instance{};
         instance.instance = "1";
         instance.instance_dir = candidate;
         instance.state = instance_state(candidate);
-        Hub_attempt attempt{};
+        HubAttempt attempt{};
         attempt.attempt = 1;
         attempt.artifact_dir = candidate;
         append_attempt_streams(attempt, root.key, "standalone", name, "1");

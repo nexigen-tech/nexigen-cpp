@@ -48,9 +48,9 @@ struct Collected {
     return token.size() > 1 && token.front() == '-';
 }
 
-void add_diagnostic(std::vector<Command_line_diagnostic>& diagnostics,
+void add_diagnostic(std::vector<CommandLineDiagnostic>& diagnostics,
                     std::string_view option, std::string_view message) {
-    diagnostics.push_back(Command_line_diagnostic{std::string(option), std::string(message)});
+    diagnostics.push_back(CommandLineDiagnostic{std::string(option), std::string(message)});
 }
 
 void store_value(Collected& collected, Value_kind kind, std::string_view value) {
@@ -72,7 +72,7 @@ void store_value(Collected& collected, Value_kind kind, std::string_view value) 
 
 [[nodiscard]] bool take_next_value(std::span<const std::string_view> args,
                                    std::size_t& index, std::string_view option,
-                                   std::vector<Command_line_diagnostic>& diagnostics,
+                                   std::vector<CommandLineDiagnostic>& diagnostics,
                                    std::string_view& value) {
     if (index + 1 >= args.size()) {
         add_diagnostic(diagnostics, option, "missing required value");
@@ -91,7 +91,7 @@ void store_value(Collected& collected, Value_kind kind, std::string_view value) 
 
 void parse_long(std::string_view token, std::span<const std::string_view> args,
                 std::size_t& index, Collected& collected,
-                std::vector<Command_line_diagnostic>& diagnostics) {
+                std::vector<CommandLineDiagnostic>& diagnostics) {
     const std::size_t equals = token.find('=');
     const std::string_view name =
         equals == std::string_view::npos ? token : token.substr(0, equals);
@@ -114,7 +114,7 @@ void parse_long(std::string_view token, std::span<const std::string_view> args,
 
 void parse_short(std::string_view token, std::span<const std::string_view> args,
                  std::size_t& index, Collected& collected,
-                 std::vector<Command_line_diagnostic>& diagnostics) {
+                 std::vector<CommandLineDiagnostic>& diagnostics) {
     for (const Option_spec& spec : kOptions) {
         if (token == spec.short_name) {
             std::string_view value;
@@ -136,9 +136,9 @@ void parse_short(std::string_view token, std::span<const std::string_view> args,
     add_diagnostic(diagnostics, token, "unknown option");
 }
 
-[[nodiscard]] Command_line_result finish_parse(
-    Collected&& collected, std::vector<Command_line_diagnostic>&& diagnostics) {
-    Command_line_options options{};
+[[nodiscard]] CommandLineResult finish_parse(
+    Collected&& collected, std::vector<CommandLineDiagnostic>&& diagnostics) {
+    CommandLineOptions options{};
 
     if (!collected.global_supplied && !collected.local_supplied) {
         add_diagnostic(diagnostics, "--global-settings/--local-settings",
@@ -174,7 +174,7 @@ void parse_short(std::string_view token, std::span<const std::string_view> args,
 
     if (!diagnostics.empty()) {
         return std::unexpected(
-            Command_line_error{core::ErrorCode::InvalidArgument, std::move(diagnostics)});
+            CommandLineError{core::ErrorCode::InvalidArgument, std::move(diagnostics)});
     }
 
     options.global_settings_dir = std::move(collected.global_settings_dir);
@@ -208,23 +208,23 @@ constexpr std::string_view kUsage =
 
 } // namespace
 
-std::string Command_line_diagnostic::to_string() const {
-    return "Command_line_diagnostic(option=\"" + option + "\", message=\"" + message +
+std::string CommandLineDiagnostic::to_string() const {
+    return "CommandLineDiagnostic(option=\"" + option + "\", message=\"" + message +
            "\")";
 }
 
-std::string Command_line_options::to_string() const {
+std::string CommandLineOptions::to_string() const {
     std::string level = "none";
     if (log_level.has_value()) {
         level = std::string(logging::to_string(*log_level));
     }
-    return "Command_line_options(global_settings_dir=\"" + global_settings_dir +
+    return "CommandLineOptions(global_settings_dir=\"" + global_settings_dir +
            "\", local_settings_dir=\"" + local_settings_dir + "\", log_level=" + level +
            ", help=" + std::string(help ? "true" : "false") + ")";
 }
 
-std::string Command_line_error::to_string() const {
-    std::string out = "Command_line_error(code=" + std::string(core::to_string(code)) +
+std::string CommandLineError::to_string() const {
+    std::string out = "CommandLineError(code=" + std::string(core::to_string(code)) +
                       ", diagnostics=[";
     for (std::size_t i = 0; i < diagnostics.size(); ++i) {
         if (i != 0) {
@@ -236,15 +236,15 @@ std::string Command_line_error::to_string() const {
     return out;
 }
 
-void to_json(nlohmann::json& j, const Command_line_diagnostic& diagnostic) {
+void to_json(nlohmann::json& j, const CommandLineDiagnostic& diagnostic) {
     j = nlohmann::json{{"option", diagnostic.option}, {"message", diagnostic.message}};
 }
 
-void from_json(const nlohmann::json& j, Command_line_diagnostic& diagnostic) noexcept {
+void from_json(const nlohmann::json& j, CommandLineDiagnostic& diagnostic) noexcept {
     if (!j.is_object()) {
         return;
     }
-    Command_line_diagnostic parsed{};
+    CommandLineDiagnostic parsed{};
     auto it = j.find("option");
     if (it != j.end()) {
         if (!it->is_string()) {
@@ -262,7 +262,7 @@ void from_json(const nlohmann::json& j, Command_line_diagnostic& diagnostic) noe
     diagnostic = std::move(parsed);
 }
 
-void to_json(nlohmann::json& j, const Command_line_options& options) {
+void to_json(nlohmann::json& j, const CommandLineOptions& options) {
     nlohmann::json level = nullptr;
     if (options.log_level.has_value()) {
         level = std::string(logging::to_string(*options.log_level));
@@ -273,11 +273,11 @@ void to_json(nlohmann::json& j, const Command_line_options& options) {
                        {"help", options.help}};
 }
 
-void from_json(const nlohmann::json& j, Command_line_options& options) noexcept {
+void from_json(const nlohmann::json& j, CommandLineOptions& options) noexcept {
     if (!j.is_object()) {
         return;
     }
-    Command_line_options parsed{};
+    CommandLineOptions parsed{};
     parsed.log_level = logging::LogLevel::Info;
     auto it = j.find("global_settings_dir");
     if (it != j.end()) {
@@ -317,9 +317,9 @@ void from_json(const nlohmann::json& j, Command_line_options& options) noexcept 
     options = std::move(parsed);
 }
 
-void to_json(nlohmann::json& j, const Command_line_error& error) {
+void to_json(nlohmann::json& j, const CommandLineError& error) {
     nlohmann::json diagnostics = nlohmann::json::array();
-    for (const Command_line_diagnostic& diagnostic : error.diagnostics) {
+    for (const CommandLineDiagnostic& diagnostic : error.diagnostics) {
         nlohmann::json entry;
         to_json(entry, diagnostic);
         diagnostics.push_back(std::move(entry));
@@ -328,11 +328,11 @@ void to_json(nlohmann::json& j, const Command_line_error& error) {
                        {"diagnostics", std::move(diagnostics)}};
 }
 
-void from_json(const nlohmann::json& j, Command_line_error& error) noexcept {
+void from_json(const nlohmann::json& j, CommandLineError& error) noexcept {
     if (!j.is_object()) {
         return;
     }
-    Command_line_error parsed{};
+    CommandLineError parsed{};
     auto it = j.find("code");
     if (it != j.end()) {
         if (!it->is_string()) {
@@ -349,7 +349,7 @@ void from_json(const nlohmann::json& j, Command_line_error& error) noexcept {
         if (!it->is_array()) {
             return;
         }
-        std::vector<Command_line_diagnostic> parsed_diagnostics;
+        std::vector<CommandLineDiagnostic> parsed_diagnostics;
         parsed_diagnostics.reserve(it->size());
         for (const nlohmann::json& entry : *it) {
             if (!entry.is_object()) {
@@ -363,7 +363,7 @@ void from_json(const nlohmann::json& j, Command_line_error& error) noexcept {
             if (message != entry.end() && !message->is_string()) {
                 return;
             }
-            Command_line_diagnostic diagnostic{};
+            CommandLineDiagnostic diagnostic{};
             from_json(entry, diagnostic);
             parsed_diagnostics.push_back(std::move(diagnostic));
         }
@@ -372,7 +372,7 @@ void from_json(const nlohmann::json& j, Command_line_error& error) noexcept {
     error = std::move(parsed);
 }
 
-Command_line_result parse_command_line(int argc, const char* const argv[]) noexcept {
+CommandLineResult parse_command_line(int argc, const char* const argv[]) noexcept {
     if (argc <= 1 || argv == nullptr) {
         return parse_command_line(std::span<const std::string_view>{});
     }
@@ -386,7 +386,7 @@ Command_line_result parse_command_line(int argc, const char* const argv[]) noexc
     return parse_command_line(std::span<const std::string_view>{args.data(), args.size()});
 }
 
-Command_line_result parse_command_line(
+CommandLineResult parse_command_line(
     std::span<const std::string_view> args) noexcept {
     // Help wins over every other argument and does not require a directory.
     for (const std::string_view token : args) {
@@ -394,14 +394,14 @@ Command_line_result parse_command_line(
             break;
         }
         if (token == "-h" || token == "--help") {
-            Command_line_options options{};
+            CommandLineOptions options{};
             options.help = true;
             return options;
         }
     }
 
     Collected collected{};
-    std::vector<Command_line_diagnostic> diagnostics;
+    std::vector<CommandLineDiagnostic> diagnostics;
     bool options_done = false;
 
     for (std::size_t index = 0; index < args.size(); ++index) {
@@ -430,9 +430,9 @@ Command_line_result parse_command_line(
     return finish_parse(std::move(collected), std::move(diagnostics));
 }
 
-App_settings_paths make_app_settings_paths(
-    const Command_line_options& options) noexcept {
-    App_settings_paths paths{};
+AppSettingsPaths make_app_settings_paths(
+    const CommandLineOptions& options) noexcept {
+    AppSettingsPaths paths{};
     paths.logging.global_file = join_path(options.global_settings_dir, "logging.json");
     paths.logging.local_file = join_path(options.local_settings_dir, "logging.json");
     paths.metrics.global_file = join_path(options.global_settings_dir, "metrics.json");
@@ -444,18 +444,18 @@ App_settings_paths make_app_settings_paths(
     return paths;
 }
 
-void apply_to(const Command_line_options& options, App_settings& settings) noexcept {
+void apply_to(const CommandLineOptions& options, AppSettings& settings) noexcept {
     if (options.log_level.has_value()) {
         settings.logging.options.initial_log_level = *options.log_level;
     }
 }
 
-core::Status load_app_settings(const Command_line_options& options,
-                               App_settings& out) noexcept {
+core::Status load_app_settings(const CommandLineOptions& options,
+                               AppSettings& out) noexcept {
     if (options.global_settings_dir.empty() && options.local_settings_dir.empty()) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    const App_settings_paths paths = make_app_settings_paths(options);
+    const AppSettingsPaths paths = make_app_settings_paths(options);
     const core::Status status = nexigen::app::load_app_settings(paths, out);
     apply_to(options, out);
     return status;

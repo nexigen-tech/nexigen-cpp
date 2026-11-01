@@ -26,7 +26,7 @@ namespace nexigen::runner {
 /// Optional launch settings for one instance. Defaults preserve the original
 /// single-instance behavior: streams in the instance directory, no extra
 /// environment, no affinity restriction, no settings sources, no level override.
-struct Start_options {
+struct StartOptions {
     std::string artifact_dir{};          ///< Empty = instance directory.
     std::string global_settings_dir{};   ///< Absolute directory or empty.
     std::string local_settings_dir{};    ///< Absolute directory or empty.
@@ -37,7 +37,7 @@ struct Start_options {
     [[nodiscard]] std::string to_string() const;
 };
 
-[[nodiscard]] inline std::string to_string(const Start_options& options) {
+[[nodiscard]] inline std::string to_string(const StartOptions& options) {
     return options.to_string();
 }
 
@@ -53,7 +53,7 @@ public:
     /// `<run_dir>/<app_name>/<instance_id>` when it is empty. A non-zero
     /// `timeout_s` starts the same stop sequence as `stop` on expiry.
     [[nodiscard]] core::Status start(
-        const app::Run_identity& identity,
+        const app::RunIdentity& identity,
         const std::vector<std::string>& command,
         std::uint64_t timeout_s = 0);
 
@@ -61,13 +61,13 @@ public:
     /// runtime streams, `global_settings_dir`/`local_settings_dir` feed the
     /// settings merge, and `env`/`cpus` apply to the child before `exec`.
     [[nodiscard]] core::Status start(
-        const app::Run_identity& identity,
+        const app::RunIdentity& identity,
         const std::vector<std::string>& command,
         std::uint64_t timeout_s,
-        const Start_options& options);
+        const StartOptions& options);
 
     /// Start a detached suite supervisor and return once `suite.json` exists.
-    [[nodiscard]] core::Status start_suite(const Suite_manifest& manifest,
+    [[nodiscard]] core::Status start_suite(const SuiteManifest& manifest,
                                            std::string& suite_dir_out);
 
     /// Send SIGTERM to the child process group, wait up to `grace_s`, then
@@ -86,10 +86,10 @@ public:
 } // namespace nexigen::runner
 
 template <>
-struct std::formatter<nexigen::runner::Start_options>
+struct std::formatter<nexigen::runner::StartOptions>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::runner::Start_options& value, Ctx& ctx) const {
+    constexpr auto format(const nexigen::runner::StartOptions& value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(value.to_string(), ctx);
     }
 };
