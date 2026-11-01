@@ -454,7 +454,7 @@ private:
     static void copy_into(std::string_view src, char (&dst)[N], std::size_t& len_out) noexcept {
         const std::size_t take = src.size() < N ? src.size() : N - 1U;
         if (take > 0) {
-            std::memcpy(dst, src.data(), take);
+            std::memcpy(dst, src.data(), take); // NOLINT(bugprone-suspicious-stringview-data-usage)
         }
         dst[take] = '\0';
         len_out = take;

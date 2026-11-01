@@ -144,7 +144,7 @@ Coverage instrumentation and the aggregated report target:
 ```bash
 cmake -B build/coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_COVERAGE=ON
 cmake --build build/coverage --target coverage
-# optional overall gate: -DNEXIGEN_COVERAGE_FAIL_UNDER=90
+# overall gate: -DNEXIGEN_COVERAGE_FAIL_UNDER=95
 ```
 
 `coverage` cleans `.gcda`, builds and runs the eleven unit-test binaries, and prints
@@ -154,25 +154,28 @@ library code. The target is mutually exclusive with ASan/TSan, enforces
 `runner >= 90` and `hub >= 90`, and flushes gcov counters from forked runner
 supervisors before `_exit()`/`exec`, so control-plane work is measured.
 
-Current unit-test line coverage is **94.2%** (≈11 037 / 11 713 lines):
+Current unit-test line coverage is **95.1%** (≈11 142 / 11 719 lines):
 
 | Scope | Coverage |
 |---|---:|
-| Original seven modules | 95.9% (7 327 / 7 639) |
-| `runner` | 90.6% (≈2 214 / 2 443) |
-| `hub` | 91.8% (≈1 497 / 1 631) |
+| Original seven modules | 95.9% (7 332 / 7 646) |
+| `runner` | 92.6% (≈2 261 / 2 443) |
+| `hub` | 95.0% (≈1 549 / 1 630) |
 
-The project target is **≥95%**. CI enforces an overall **≥90%** gate
-(`-DNEXIGEN_COVERAGE_FAIL_UNDER=90`) plus the 90% runner and hub module gates.
+The project target is **≥95%**. CI enforces the **≥95%** project gate
+(`-DNEXIGEN_COVERAGE_FAIL_UNDER=95`) plus the 90% runner and hub module gates.
 Remaining uncovered lines are concentrated in platform-specific calibration
 branches, sink open/read failure paths, `std::to_chars` error arms, and
 retry/fork failure arms that cannot be triggered without fault injection. The
-measured baseline and the P3 backlog are recorded in
+measured baseline and the P4 backlog are recorded in
 [`project-analysis.md`](project-analysis.md).
 
 `nexigen_hub_tests` also runs a fixed-seed malformed-request corpus against the
 live server. `cmake/check_result_value.py` enforces the `Result::value()` ban in
 CI; it strips comments/literals and allowlists only known non-Result receivers.
+The Clang CI job runs `.clang-tidy` (`bugprone-*`, `performance-*`,
+`portability-*`, and the non-opt-in clang-analyzer checks) over every
+`src/*.cpp` translation unit with warnings treated as errors.
 
 All five GCC modes (Debug, Release, portable Release, TSan, ASan) must report
 `100% tests passed` with no sanitizer diagnostics; the Clang job must do the same

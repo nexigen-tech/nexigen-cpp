@@ -260,6 +260,9 @@ void test_resource_metadata() {
         parsed);
     NX_CHECK(parsed.pid == metadata.pid);
     NX_CHECK(parsed.ppid == metadata.ppid);
+    runner::from_json(
+        nlohmann::json{{"pid", std::int64_t{1} << 40}}, parsed);
+    NX_CHECK(parsed.pid == metadata.pid);
 }
 
 // --- Exit_metadata ---
@@ -311,6 +314,15 @@ void test_exit_metadata() {
     NX_CHECK(parsed.exit_code == before.exit_code);
     NX_CHECK(parsed.signal == before.signal);
     NX_CHECK(parsed.uptime_s == before.uptime_s);
+    runner::from_json(
+        nlohmann::json{{"exit_code", std::int64_t{1} << 40},
+                       {"signal", std::int64_t{1} << 40}},
+        parsed);
+    NX_CHECK(parsed.exit_code == before.exit_code);
+    NX_CHECK(parsed.signal == before.signal);
+    runner::from_json(nlohmann::json{{"signal", 15}}, parsed);
+    NX_CHECK(parsed.signal.has_value());
+    NX_CHECK(*parsed.signal == 15);
 }
 
 // --- Directory creation ---
@@ -338,6 +350,15 @@ void test_instance_dir_creation() {
         "/proc/nexigen_runner_denied_" +
         std::to_string(static_cast<long long>(::getpid()));
     NX_CHECK(failed_with(runner::create_instance_dir(denied),
+                         core::ErrorCode::SystemError));
+
+    // An existing non-directory component is rejected by the mkdir walk.
+    const std::string component = root + "/component-file";
+    {
+        std::ofstream output(component, std::ios::binary | std::ios::trunc);
+        output << "x";
+    }
+    NX_CHECK(failed_with(runner::create_instance_dir(component + "/child"),
                          core::ErrorCode::SystemError));
 
     remove_tree(root);
@@ -459,6 +480,17 @@ void test_json_file_io() {
     NX_CHECK(failed_with(
         runner::generate_settings("/proc/nexigen_settings_denied", {}),
         core::ErrorCode::SystemError));
+
+    for (const char* blocked : {"metrics.json", "tracing.json", "chrono.json"}) {
+        const std::string settings_root =
+            unique_dir(std::string("settings_") + blocked);
+        std::error_code mkdir_error;
+        std::filesystem::create_directories(
+            settings_root + "/settings/" + blocked, mkdir_error);
+        NX_CHECK(failed_with(runner::generate_settings(settings_root, {}),
+                             core::ErrorCode::SystemError));
+        remove_tree(settings_root);
+    }
 
     const app::Run_identity identity{
         "run-1", directory, "app", "instance-1", directory};
@@ -1023,6 +1055,27 @@ void test_lifecycle_edges() {
     NX_CHECK(runner::write_exit_json(completed, exit_metadata).has_value());
     NX_CHECK(runner.stop(completed, 0).has_value());
 
+    // A completed record whose process group is still alive is a conflict.
+    const pid_t live_group = ::fork();
+    if (live_group == 0) {
+        static_cast<void>(::setpgid(0, 0));
+        ::execl("/bin/sleep", "sleep", "60", nullptr);
+        _exit(127);
+    }
+    NX_CHECK(live_group > 0);
+    if (live_group > 0) {
+        static_cast<void>(::setpgid(live_group, live_group));
+        runner::Resource_metadata alive{};
+        alive.pid = static_cast<std::int32_t>(live_group);
+        NX_CHECK(runner::write_resource_json(root, alive).has_value());
+        NX_CHECK(runner::write_exit_json(root, exit_metadata).has_value());
+        NX_CHECK(failed_with(runner.stop(root, 0),
+                             core::ErrorCode::SystemError));
+        static_cast<void>(::kill(-live_group, SIGKILL));
+        int status = 0;
+        static_cast<void>(::waitpid(live_group, &status, 0));
+    }
+
     reap_supervisors();
     remove_tree(root);
     remove_tree(completed);
@@ -1118,10 +1171,23 @@ void test_error_paths() {
     NX_CHECK(failed_with(runner.start(stderr_blocked, command, 0),
                          core::ErrorCode::SystemError));
 
+    // A stream file that cannot be created fails the preparation phase.
+    const std::string stream_root = unique_dir("errors_stream");
+    NX_CHECK(runner::create_instance_dir(stream_root + "/test_app/instance-1")
+                 .has_value());
+    std::filesystem::create_directories(
+        stream_root + "/test_app/instance-1/app.jsonl", io_error);
+    app::Run_identity stream_blocked{
+        "run-1", stream_root, "test_app", "instance-1",
+        stream_root + "/test_app/instance-1"};
+    NX_CHECK(failed_with(runner.start(stream_blocked, command, 0),
+                         core::ErrorCode::SystemError));
+
     reap_supervisors();
     remove_tree(root);
     remove_tree(task_root);
     remove_tree(stderr_root);
+    remove_tree(stream_root);
 }
 
 } // namespace

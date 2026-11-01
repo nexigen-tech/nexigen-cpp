@@ -271,7 +271,10 @@ private:
                 return std::unexpected(core::ErrorCode::InvalidArgument);
             }
         }
-        const int fd = ::open(name.data(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+        // window_filename/path_ always keep a trailing NUL in their scratch.
+        // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
+        const int fd = ::open(name.data(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC,
+                              0644);
         if (fd < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }

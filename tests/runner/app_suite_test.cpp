@@ -334,6 +334,22 @@ void test_enums_and_serialization() {
     NX_CHECK(hostile.restart_attempts == 3);
     NX_CHECK(hostile.log_level == logging::LogLevel::Warning);
 
+    runner::from_json(nlohmann::json::object(), hostile);
+    runner::from_json(nlohmann::json{{"args", nlohmann::json::array({1})}},
+                      hostile);
+    runner::from_json(nlohmann::json{{"cpus", nlohmann::json::array({-1})}},
+                      hostile);
+    runner::from_json(
+        nlohmann::json{{"cpus", nlohmann::json::array(
+                                     {std::uint64_t{4294967296ULL}})}},
+        hostile);
+    runner::from_json(nlohmann::json{{"env", {{"A", 1}}}}, hostile);
+    runner::from_json(nlohmann::json{{"restart_attempts",
+                                      std::uint64_t{4294967296ULL}}},
+                      hostile);
+    runner::from_json(nlohmann::json{{"log_level", "chatty"}}, hostile);
+    NX_CHECK(hostile.log_level == logging::LogLevel::Warning);
+
     runner::Suite_app_metadata app_metadata{};
     app_metadata.app = "app";
     app_metadata.instance = "1";
@@ -400,6 +416,36 @@ void test_enums_and_serialization() {
     runner::from_json(nlohmann::json::array(), hostile_status);
     NX_CHECK(hostile_status.state == runner::Suite_state::Degraded);
     NX_CHECK(hostile_status.apps.size() == 1);
+
+    nlohmann::json wrong_manifest{
+        {"version", "x"}, {"suite_id", 1}, {"run_id", 2}, {"run_dir", 3},
+        {"global_settings_path", 4}, {"artifacts_path", 5},
+        {"log_level", 6}, {"suite_restart_attempts", "x"},
+        {"suite_restart_delay_s", "x"}, {"manifest_path", 7},
+        {"runner_control_cpus", 8}, {"runner_logger_cpus", 9},
+        {"apps", 10}};
+    runner::from_json(wrong_manifest, hostile_manifest);
+    NX_CHECK(hostile_manifest.suite_id == "s");
+
+    nlohmann::json wrong_metadata{
+        {"suite_id", 1}, {"run_id", 2}, {"run_dir", 3},
+        {"global_settings_path", 4}, {"artifacts_path", 5},
+        {"pid", "x"}, {"start_time_rfc3339", 6},
+        {"start_time_mono_ns", "x"}, {"manifest_path", 7},
+        {"runner_control_cpus", 8}, {"runner_logger_cpus", 9},
+        {"apps", 10}};
+    runner::from_json(wrong_metadata, hostile_metadata);
+    NX_CHECK(hostile_metadata.suite_id == "s");
+    runner::from_json(
+        nlohmann::json{{"pid", std::int64_t{1} << 40}}, hostile_metadata);
+    NX_CHECK(hostile_metadata.suite_id == "s");
+
+    nlohmann::json wrong_status{
+        {"state", 1}, {"suite_id", 2}, {"run_dir", 3},
+        {"artifacts_path", 4}, {"suite_restarts_used", "x"},
+        {"apps", 5}};
+    runner::from_json(wrong_status, hostile_status);
+    NX_CHECK(hostile_status.state == runner::Suite_state::Degraded);
 
     NX_CHECK(!manifest.to_string().empty());
     NX_CHECK(!app_metadata.to_string().empty());
@@ -655,6 +701,9 @@ void test_manifest_validation() {
     runner::to_json(document, manifest);
     document["apps"][0]["log_level"] = "chatty";
     NX_CHECK(rejected(document));
+    runner::to_json(document, manifest);
+    document["global_settings_path"] = "relative";
+    NX_CHECK(rejected(document));
 
     runner::Suite_status missing{};
     NX_CHECK(runner::suite_status(root + "/missing_suite", missing).has_value());
@@ -807,6 +856,71 @@ void test_suite_edge_paths() {
     NX_CHECK(failed_with(
         suite_runner.start_suite(invalid_manifest, invalid_dir),
         core::ErrorCode::InvalidArgument));
+
+    // Invalid global logging settings fall back to defaults with a warning.
+    const std::string log_root = unique_dir("suite_bad_log");
+    const std::string log_artifacts = unique_dir("suite_bad_log_artifacts");
+    const std::string log_settings = unique_dir("suite_bad_settings");
+    std::filesystem::create_directories(log_root, error);
+    std::filesystem::create_directories(log_settings, error);
+    {
+        std::ofstream output(log_settings + "/logging.json",
+                             std::ios::binary | std::ios::trunc);
+        output << "{not-json";
+    }
+    runner::Suite_manifest bad_log = base_manifest(log_root, log_artifacts);
+    bad_log.suite_id = "bad_log";
+    bad_log.global_settings_path = log_settings;
+    bad_log.apps.push_back(
+        app_spec("alpha", "1", "/bin/true",
+                 runner::Impact_on_app_suite_operability::Degrade));
+    std::string bad_log_dir;
+    NX_CHECK(runner::start_suite(bad_log, bad_log_dir).has_value());
+    NX_CHECK(runner::stop_suite(bad_log_dir, 1).has_value());
+    remove_tree(log_root);
+    remove_tree(log_artifacts);
+    remove_tree(log_settings);
+
+    // A live supervisor PID is terminated and a forced exit record is written.
+    const pid_t live_supervisor = ::fork();
+    if (live_supervisor == 0) {
+        ::execl("/bin/sleep", "sleep", "60", nullptr);
+        _exit(127);
+    }
+    NX_CHECK(live_supervisor > 0);
+    if (live_supervisor > 0) {
+        const std::string live_dir = root + "/.suite/live";
+        std::filesystem::create_directories(live_dir, error);
+        runner::Suite_metadata live{};
+        live.suite_id = "live";
+        live.run_dir = root;
+        live.artifacts_path = artifacts;
+        live.pid = live_supervisor;
+        runner::Suite_app_metadata live_app{};
+        live_app.app = "alpha";
+        live_app.instance = "1";
+        live_app.instance_dir = root + "/alpha/1";
+        live_app.stop_grace_s = 0;
+        live.apps.push_back(live_app);
+        nlohmann::json live_json;
+        runner::to_json(live_json, live);
+        NX_CHECK(runner::write_json_file(live_dir + "/suite.json", live_json)
+                     .has_value());
+        NX_CHECK(runner::stop_suite(live_dir).has_value());
+        NX_CHECK(file_exists(live_dir + "/suite-exit.json"));
+        int live_status = 0;
+        static_cast<void>(::waitpid(live_supervisor, &live_status, 0));
+    }
+
+    // A suite.json path that is a directory fails the supervisor's metadata
+    // write and is reported back as a start failure.
+    runner::Suite_manifest blocked = manifest;
+    blocked.suite_id = "blocked";
+    const std::string blocked_dir = root + "/.suite/blocked";
+    std::filesystem::create_directories(blocked_dir + "/suite.json", error);
+    std::string blocked_out;
+    NX_CHECK(failed_with(runner::start_suite(blocked, blocked_out),
+                         core::ErrorCode::SystemError));
 
     remove_tree(directory);
     remove_tree(root);

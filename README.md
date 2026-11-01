@@ -86,25 +86,25 @@ cmake --build build/coverage --target coverage
 
 The target cleans old `.gcda` counters, builds and runs the eleven
 `nexigen_*_tests` unit binaries (CLI smoke tests are excluded), and prints line
-coverage per module. Add `-DNEXIGEN_COVERAGE_FAIL_UNDER=90` to fail the target below
+coverage per module. Add `-DNEXIGEN_COVERAGE_FAIL_UNDER=95` to fail the target below
 the requested percentage; the target also enforces `runner >= 90` and `hub >= 90`.
 Coverage cannot be combined with ASan/TSan. Forked runner supervisors flush gcov
 counters before `_exit()`/`exec`, so control-plane work is measured too.
 
-Current unit-test line coverage is **94.2%** (≈11 037 / 11 713):
+Current unit-test line coverage is **95.1%** (≈11 142 / 11 719):
 
 | Module | Coverage |
 |---|---:|
 | core, diagnostics | 100.0% |
-| chrono, metrics | 96.2% |
+| chrono, metrics | 96.1–96.2% |
 | app | 95.8% |
-| logging, tracing | 95.3–95.5% |
-| hub | 91.8% |
-| runner | 90.6% |
+| logging, tracing | 95.2–95.5% |
+| hub | 95.0% |
+| runner | 92.6% |
 
-The project target is **≥95%**. CI enforces a **≥90%** overall gate plus the
-90% runner/hub module gates so the newest subsystems cannot regress. The
-per-module breakdown and the remaining backlog are tracked in
+The project target is **≥95%** and CI enforces it
+(`-DNEXIGEN_COVERAGE_FAIL_UNDER=95`) together with the 90% runner/hub module
+gates. The per-module breakdown and the remaining backlog are tracked in
 [`docs/project-analysis.md`](docs/project-analysis.md).
 
 ### Install and consume

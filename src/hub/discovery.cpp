@@ -459,6 +459,7 @@ void Discovery::scan_suite(const Run_root& root, const std::string& suite_dir,
 
     if (out.state == runner::Suite_state::Unknown) {
         std::vector<runner::App_state> states;
+        states.reserve(out.apps.size());
         for (const Hub_app& app : out.apps) {
             states.push_back(app.state);
         }

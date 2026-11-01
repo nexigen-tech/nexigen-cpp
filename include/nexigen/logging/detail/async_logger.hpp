@@ -95,6 +95,10 @@ class Async_worker {
         // start (fd/rotation/open). First error wins the code snapshot; a
         // failure never prevents the logging loop from running.
         std::uint8_t first_error = 0U;
+        if (!sink_.has_value()) {
+            return;
+        }
+        Sink& sink = *sink_;
         if (core_mask_ != 0ULL) {
             const core::Status pinned = pin_self(core_mask_);
             if (!pinned) {
@@ -105,7 +109,7 @@ class Async_worker {
         static_cast<void>(self_affinity(mask_now));
         start_.mask.store(mask_now, std::memory_order_relaxed);
 
-        const core::Status started = sink_->start();
+        const core::Status started = sink.start();
         if (!started && first_error == 0U) {
             first_error = static_cast<std::uint8_t>(started.error());
         }
@@ -117,7 +121,7 @@ class Async_worker {
         while (!st.stop_requested()) {
             std::size_t n = 0;
             while (n < 64 && producer_->pop(rec)) { // bounded batch
-                sink_->handle(rec);
+                sink.handle(rec);
                 ++n;
             }
             if (n != 0) {
@@ -141,14 +145,18 @@ class Async_worker {
         // then let the sink close (spec: "Destruction does not lose accepted
         // records" — the join happens before any logger member dies).
         while (producer_->pop(rec)) {
-            sink_->handle(rec);
+            sink.handle(rec);
         }
         publish_sync(flush_.requested.load(std::memory_order_relaxed));
-        sink_->stop();
+        sink.stop();
     }
 
     void publish_sync(std::uint64_t seq) noexcept {
-        const core::Status sync = sink_->synchronize();
+        if (!sink_.has_value()) {
+            return;
+        }
+        Sink& sink = *sink_;
+        const core::Status sync = sink.synchronize();
         flush_.sync_error.store(
             sync ? std::uint8_t{0}
                  : static_cast<std::uint8_t>(static_cast<std::uint8_t>(sync.error()) + 1U),

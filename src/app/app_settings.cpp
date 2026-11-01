@@ -31,7 +31,7 @@
 namespace nexigen::app {
 namespace {
 
-enum class File_read { Absent, Ok, Failed };
+enum class File_read : std::uint8_t { Absent, Ok, Failed };
 
 [[nodiscard]] File_read read_settings_file(std::string_view path,
                                            std::string& out) noexcept {

@@ -578,9 +578,6 @@ struct Http_server::Impl {
             array.push_back(std::move(entry));
         }
         document["records"] = std::move(array);
-        if (gap.has_value()) {
-            to_json(document["gap"], *gap);
-        }
         respond_json(client, 200, "OK", document, keep_alive);
     }
 

@@ -281,7 +281,10 @@ class Producer {
                                     "Dropped %llu record(s) in the last window "
                                     "(rate-limited: %llu, buffer-full: %llu, "
                                     "slot-exhausted: %llu, throttled: %llu).",
-                                    static_cast<unsigned long long>(rl + bf + se + th),
+                                    static_cast<unsigned long long>(rl) +
+                                        static_cast<unsigned long long>(bf) +
+                                        static_cast<unsigned long long>(se) +
+                                        static_cast<unsigned long long>(th),
                                     static_cast<unsigned long long>(rl),
                                     static_cast<unsigned long long>(bf),
                                     static_cast<unsigned long long>(se),

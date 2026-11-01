@@ -16,6 +16,7 @@
 
 #include <cerrno>
 #include <charconv>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -31,7 +32,7 @@ namespace {
 
 constexpr std::uint64_t kNanoseconds_per_second = 1'000'000'000ULL;
 
-enum class File_read { Absent, Ok, Failed };
+enum class File_read : std::uint8_t { Absent, Ok, Failed };
 
 [[nodiscard]] File_read read_settings_file(std::string_view path,
                                            std::string& out) noexcept {

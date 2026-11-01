@@ -15,6 +15,7 @@
 
 #include <cerrno>
 #include <charconv>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
@@ -29,7 +30,7 @@
 namespace nexigen::chrono {
 namespace {
 
-enum class File_read { Absent, Ok, Failed };
+enum class File_read : std::uint8_t { Absent, Ok, Failed };
 
 [[nodiscard]] File_read read_settings_file(std::string_view path,
                                            std::string& out) noexcept {

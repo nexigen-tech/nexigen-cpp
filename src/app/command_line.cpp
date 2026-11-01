@@ -9,6 +9,7 @@
 #include <nexigen/app/command_line.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -19,7 +20,7 @@
 namespace nexigen::app {
 namespace {
 
-enum class Value_kind { Global, Local, Log_level };
+enum class Value_kind : std::uint8_t { Global, Local, Log_level };
 
 struct Option_spec {
     std::string_view long_name;

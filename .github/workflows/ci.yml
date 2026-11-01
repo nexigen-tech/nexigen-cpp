@@ -91,7 +91,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates clang cmake curl git ninja-build nlohmann-json3-dev
+            ca-certificates clang clang-tidy cmake curl git ninja-build nlohmann-json3-dev
 
       - name: Configure
         run: |
@@ -104,6 +104,11 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build/clang --output-on-failure
+
+      - name: clang-tidy
+        run: |
+          git ls-files 'src/*.cpp' \
+            | xargs -n 1 -P 2 clang-tidy -p build/clang -quiet
 
       - name: Package smoke test
         run: ./tests/packaging/smoke_test.sh build/clang
@@ -130,7 +135,7 @@ jobs:
           cmake -S . -B build/coverage -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DNEXIGEN_ENABLE_COVERAGE=ON \
-            -DNEXIGEN_COVERAGE_FAIL_UNDER=90
+            -DNEXIGEN_COVERAGE_FAIL_UNDER=95
 
       - name: Run coverage gate
         run: cmake --build build/coverage --target coverage --parallel 2

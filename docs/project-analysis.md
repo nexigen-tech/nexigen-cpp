@@ -343,5 +343,29 @@ P3 was implemented in
   `Discovery::scan_standalone` reserves its instance vector.
 - **Coverage after the refactor:** **94.2%** overall (11 037 / 11 713),
   `runner` **90.6%**, `hub` **91.8%**. All module gates still pass.
-- **Remaining:** the project-wide 95% target is the only open quality item;
-  coverage-guided fuzzing and clang-tidy integration are optional future work.
+- **Remaining:** the project-wide 95% target was the only open quality item
+  (closed by P4 below); coverage-guided fuzzing and clang-tidy integration were
+  optional future work at that point.
+
+## 12. P4 completion notes (2026-11-01)
+
+P4 was implemented in
+`openspec/changes/archive/2026-11-01-improve-maintainability-p4`:
+
+- **Coverage target reached:** the overall line coverage is **95.1%**
+  (11 142 / 11 719), with `runner` at **92.6%** and `hub` at **95.0%**.
+  New tests cover streaming path changes and directory read failures, SSE gap
+  replay/live delivery, percent-decoded stream IDs, discovery state derivation
+  and standalone state branches, runner settings/stream preparation failures,
+  suite metadata write failures, invalid logging settings, live-supervisor
+  stops, and hostile metadata/status JSON.
+- **CI gate:** the coverage job now enforces the **95%** project gate while
+  keeping the 90% runner/hub module gates.
+- **clang-tidy:** `.clang-tidy` enables `bugprone-*`, `performance-*`,
+  `portability-*`, and non-opt-in `clang-analyzer-*` checks with warnings as
+  errors. The Clang CI job runs the profile over every `src/*.cpp` translation
+  unit. Finding fixes include enum sizes, cast ordering, structured pointer
+  conversion, a vector reserve, optional access, and `string_view` data usage;
+  noisy checks are disabled with documented rationale.
+- **Remaining:** only optional future work (coverage-guided fuzzing, additional
+  analyzer opt-ins, and long-tail platform fault injection).

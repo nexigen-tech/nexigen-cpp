@@ -101,7 +101,7 @@ MetricProvider::MetricProvider(const MetricProvider_config& config, detail::Sink
     const std::size_t meter_table_bytes =
         detail::align_up(static_cast<std::size_t>(config_.max_meters) * sizeof(Meter*));
     meters_ = reinterpret_cast<Meter**>(block_ + offset);
-    std::memset(meters_, 0, meter_table_bytes);
+    std::memset(static_cast<void*>(meters_), 0, meter_table_bytes);
     meter_capacity_ = config_.max_meters;
     offset += meter_table_bytes;
     meter_arena_ = block_ + offset;
@@ -117,7 +117,9 @@ MetricProvider::MetricProvider(const MetricProvider_config& config, detail::Sink
     }
 
     if (config_.collect_interval > std::chrono::nanoseconds{0}) {
-        harvester_ = std::jthread([this](std::stop_token stop) { harvest_loop(stop); });
+        harvester_ = std::jthread([this](std::stop_token stop) {
+            harvest_loop(stop);
+        });
     }
 }
 

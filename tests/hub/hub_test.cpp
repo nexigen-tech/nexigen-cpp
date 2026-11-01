@@ -497,6 +497,7 @@ void test_discovery() {
 
     // Attempts with non-numeric names are ignored.
     make_dirs(fixture.artifacts + "/hil/alpha/1/attempt-bogus");
+    make_dirs(fixture.artifacts + "/hil/alpha/1/attempt-");
     NX_CHECK(discovery.rescan().has_value());
     NX_CHECK(discovery.tree().runs[0].suites[0].apps[0].instances[0]
                  .attempts.size() == 2);
@@ -523,6 +524,45 @@ void test_discovery() {
     NX_CHECK(discovery.tree().runs[0].standalone_instances.size() == 1);
     NX_CHECK(hub::find_stream(discovery.tree(),
                               "run-1:standalone:solo:1:1:app") != nullptr);
+
+    // Standalone states derive from the same runner status contract.
+    const std::string running_dir = fixture.root + "/alive";
+    make_dirs(running_dir);
+    runner::Resource_metadata alive{};
+    alive.pid = ::getpid();
+    nlohmann::json alive_json;
+    runner::to_json(alive_json, alive);
+    write_json(running_dir + "/resource.json", alive_json);
+
+    const std::string stopped_dir = fixture.root + "/stopped";
+    make_dirs(stopped_dir);
+    runner::Resource_metadata stopped{};
+    stopped.pid = 999999;
+    nlohmann::json stopped_json;
+    runner::to_json(stopped_json, stopped);
+    write_json(stopped_dir + "/resource.json", stopped_json);
+    runner::Exit_metadata stopped_exit{};
+    stopped_exit.terminated_by = runner::Terminated_by::Runner;
+    nlohmann::json stopped_exit_json;
+    runner::to_json(stopped_exit_json, stopped_exit);
+    write_json(stopped_dir + "/exit.json", stopped_exit_json);
+
+    const std::string unknown_dir = fixture.root + "/unknown";
+    make_dirs(unknown_dir);
+    write_text(unknown_dir + "/resource.json", "{not-json");
+
+    NX_CHECK(discovery.rescan().has_value());
+    NX_CHECK(discovery.tree().runs[0].standalone_instances.size() == 4);
+    for (const hub::Hub_instance& instance :
+         discovery.tree().runs[0].standalone_instances) {
+        if (instance.instance_dir == running_dir) {
+            NX_CHECK(instance.state == runner::App_state::Running);
+        } else if (instance.instance_dir == stopped_dir) {
+            NX_CHECK(instance.state == runner::App_state::Stopped);
+        } else if (instance.instance_dir == unknown_dir) {
+            NX_CHECK(instance.state == runner::App_state::Unknown);
+        }
+    }
 
     // Read-only: no source file was modified by scan/watch/reconcile.
     const std::string before = read_text(fixture.attempt_dir + "/app.jsonl");
@@ -569,6 +609,32 @@ void test_discovery_states() {
     NX_CHECK(discovery.rescan().has_value());
     NX_CHECK(discovery.tree().runs[0].suites[0].state ==
              runner::Suite_state::Unknown);
+
+    auto combined_state = [&](runner::App_state app_state) {
+        runner::Suite_status recorded{};
+        recorded.state = runner::Suite_state::Unknown;
+        runner::Suite_app_status entry{};
+        entry.app = "alpha";
+        entry.instance = "1";
+        entry.instance_dir = fixture.instance_dir;
+        entry.state = app_state;
+        recorded.apps.push_back(entry);
+        nlohmann::json json;
+        runner::to_json(json, recorded);
+        write_json(fixture.suite_dir + "/suite-state.json", json);
+        static_cast<void>(discovery.rescan());
+        return discovery.tree().runs[0].suites[0].state;
+    };
+    NX_CHECK(combined_state(runner::App_state::Restarting) ==
+             runner::Suite_state::Running);
+    NX_CHECK(combined_state(runner::App_state::Failed) ==
+             runner::Suite_state::Failed);
+    NX_CHECK(combined_state(runner::App_state::Stopped) ==
+             runner::Suite_state::Unknown);
+    NX_CHECK(combined_state(runner::App_state::Exited) ==
+             runner::Suite_state::Unknown);
+    NX_CHECK(combined_state(runner::App_state::Running) ==
+             runner::Suite_state::Running);
 }
 
 void test_streaming() {
@@ -710,6 +776,7 @@ void test_streaming() {
     for (int index = 0; index < 40; ++index) {
         long_text += std::string(200, 'x') + "\n";
     }
+    long_text += "short-after-gap\n";
     write_text(fixture.attempt_dir + "/app.jsonl", long_text);
     long_lines.poll();
     std::vector<hub::Stream_record> long_records;
@@ -748,6 +815,7 @@ void test_streaming() {
         }
     }
     hub::Stream_manager moved;
+    NX_CHECK(moved.sync(discovery.tree()).has_value());
     NX_CHECK(moved.sync(changed).has_value());
     moved.poll();
     std::vector<hub::Stream_record> moved_records;
@@ -780,6 +848,54 @@ void test_streaming() {
     NX_CHECK(diagnostic_contains(capture, "event=stream_open_failed"));
     NX_CHECK(diagnostic_contains(capture, "missing:app"));
     NX_CHECK(diagnosed.sync(hub::Hub_tree{}).has_value());
+
+    // A file that disappears after being tailed is reported on the next poll.
+    const std::string transient = fixture.attempt_dir + "/transient.jsonl";
+    write_text(transient, "x\n");
+    Diagnostic_capture stat_capture;
+    hub::Stream_manager transient_streams;
+    transient_streams.set_diagnostic_sink(capture_diagnostic, &stat_capture);
+    hub::Hub_tree transient_tree{};
+    hub::Hub_run transient_run{};
+    transient_run.run_key = "run-transient";
+    hub::Hub_instance transient_instance{};
+    transient_instance.instance = "1";
+    hub::Hub_attempt transient_attempt{};
+    transient_attempt.attempt = 1;
+    transient_attempt.streams.push_back(
+        hub::Hub_stream{"transient:app", hub::Stream_kind::App, transient});
+    transient_instance.attempts.push_back(std::move(transient_attempt));
+    transient_run.standalone_instances.push_back(
+        std::move(transient_instance));
+    transient_tree.runs.push_back(std::move(transient_run));
+    NX_CHECK(transient_streams.sync(transient_tree).has_value());
+    transient_streams.poll();
+    std::error_code remove_error;
+    std::filesystem::remove(transient, remove_error);
+    transient_streams.poll();
+    NX_CHECK(diagnostic_contains(stat_capture, "event=stream_stat_failed"));
+
+    // A directory used as a stream path opens but fails to read; both the
+    // initial seed and the poll path report the read error.
+    Diagnostic_capture read_capture;
+    hub::Stream_manager directory_streams;
+    directory_streams.set_diagnostic_sink(capture_diagnostic, &read_capture);
+    hub::Hub_tree directory_tree{};
+    hub::Hub_run directory_run{};
+    directory_run.run_key = "run-directory";
+    hub::Hub_instance directory_instance{};
+    directory_instance.instance = "1";
+    hub::Hub_attempt directory_attempt{};
+    directory_attempt.attempt = 1;
+    directory_attempt.streams.push_back(hub::Hub_stream{
+        "directory:app", hub::Stream_kind::App, fixture.attempt_dir});
+    directory_instance.attempts.push_back(std::move(directory_attempt));
+    directory_run.standalone_instances.push_back(
+        std::move(directory_instance));
+    directory_tree.runs.push_back(std::move(directory_run));
+    NX_CHECK(directory_streams.sync(directory_tree).has_value());
+    directory_streams.poll();
+    NX_CHECK(diagnostic_contains(read_capture, "event=stream_read_failed"));
 }
 
 void test_http_start_errors() {
@@ -822,6 +938,87 @@ void test_http_start_errors() {
                          std::to_string(ntohs(bound.sin_port)))
                   .has_value());
     static_cast<void>(::close(occupied));
+
+    // A failed initial stream reconciliation is reported but does not prevent
+    // the listener from starting.
+    std::error_code remove_error;
+    std::filesystem::remove(fixture.attempt_dir + "/traces.jsonl", remove_error);
+    Diagnostic_capture capture;
+    hub::Stream_manager late;
+    hub::Http_server with_failure(discovery, late, capture_diagnostic, &capture);
+    NX_CHECK(with_failure.start("127.0.0.1:0").has_value());
+    NX_CHECK(diagnostic_contains(capture, "event=hub_sync_failed"));
+}
+
+void test_http_sse_gaps() {
+    Fixture fixture("http_gaps");
+    hub::Discovery discovery;
+    std::vector<std::string> roots{fixture.root};
+    NX_CHECK(discovery.initialize(roots).has_value());
+    hub::Stream_limits limits{};
+    limits.ring_records = 1;
+    limits.max_line_bytes = 64;
+    limits.subscriber_bytes = 4096;
+    hub::Stream_manager streaming(limits);
+    NX_CHECK(streaming.sync(discovery.tree()).has_value());
+    streaming.poll();
+    write_text(fixture.attempt_dir + "/app.jsonl", "one\ntwo\nthree\n");
+    streaming.poll();
+
+    hub::Http_server server(discovery, streaming);
+    NX_CHECK(server.start("127.0.0.1:0").has_value());
+    std::atomic<bool> stop{false};
+    std::thread thread([&] { server.run(&stop); });
+    const std::uint16_t port = server.port();
+
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    NX_CHECK(fd >= 0);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_port = htons(port);
+    static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr));
+    NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&address),
+                       sizeof(address)) == 0);
+    timeval timeout{};
+    timeout.tv_sec = 2;
+    static_cast<void>(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout,
+                                    sizeof(timeout)));
+    const std::string request =
+        "GET /api/events?stream=" + stream_id(fixture, "app") +
+        "&since=0 HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    static_cast<void>(::send(fd, request.data(), request.size(), 0));
+    std::string text;
+    char buffer[4096];
+    NX_CHECK(wait_until(
+        [&] {
+            const ssize_t count = ::recv(fd, buffer, sizeof(buffer), 0);
+            if (count > 0) {
+                text.append(buffer, static_cast<std::size_t>(count));
+            }
+            return contains(text, "event: snapshot_end");
+        },
+        3000));
+    NX_CHECK(contains(text, "event: gap"));
+    NX_CHECK(contains(text, "\"sequence\":"));
+
+    // A long line produces a live gap after the snapshot boundary.
+    write_text(fixture.attempt_dir + "/app.jsonl",
+               std::string(200, 'x') + "\n");
+    std::string live;
+    NX_CHECK(wait_until(
+        [&] {
+            const ssize_t count = ::recv(fd, buffer, sizeof(buffer), 0);
+            if (count > 0) {
+                live.append(buffer, static_cast<std::size_t>(count));
+            }
+            return contains(live, "event: gap");
+        },
+        3000));
+    static_cast<void>(::close(fd));
+
+    stop.store(true);
+    server.stop();
+    thread.join();
 }
 
 void test_http_fuzz_corpus() {
@@ -1015,6 +1212,17 @@ void test_http_server() {
                               "200"));
     NX_CHECK(contains(request("GET", "/api/streams/%zz/recent"), "404"));
     NX_CHECK(contains(request("GET", "/api/streams/unknown/recent"), "404"));
+    // Percent-decoding is exercised by encoding every separator manually.
+    std::string encoded_path;
+    for (const char c : stream_id(fixture, "app")) {
+        if (c == ':') {
+            encoded_path += "%3A";
+        } else {
+            encoded_path.push_back(c);
+        }
+    }
+    NX_CHECK(contains(request("GET", "/api/streams/" + encoded_path + "/recent"),
+                      "200"));
     NX_CHECK(contains(raw("GET /api/events?stream=unknown HTTP/1.1\r\n"
                           "Host: localhost\r\n\r\n"),
                       "404"));
@@ -1334,6 +1542,7 @@ int main() {
     run_suite("streaming", test_streaming);
     run_suite("web_assets", test_web_assets);
     run_suite("http_start_errors", test_http_start_errors);
+    run_suite("http_sse_gaps", test_http_sse_gaps);
     run_suite("http_fuzz_corpus", test_http_fuzz_corpus);
     run_suite("http_server", test_http_server);
     std::printf("total: %d checks, %d failed\n", g_checks, g_failures);

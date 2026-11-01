@@ -43,9 +43,9 @@ void format_hex16(std::uint64_t value, char (&out)[16]) noexcept {
         if (c >= '0' && c <= '9') {
             digit = static_cast<std::uint64_t>(c - '0');
         } else if (c >= 'a' && c <= 'f') {
-            digit = static_cast<std::uint64_t>(c - 'a' + 10);
+            digit = static_cast<std::uint64_t>(c - 'a') + 10U;
         } else if (c >= 'A' && c <= 'F') {
-            digit = static_cast<std::uint64_t>(c - 'A' + 10);
+            digit = static_cast<std::uint64_t>(c - 'A') + 10U;
         } else {
             return false;
         }
