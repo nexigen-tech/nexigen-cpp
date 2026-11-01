@@ -44,7 +44,7 @@ static_assert(concepts::MetricSink<NullMetricSink>, "NullMetricSink must satisfy
 template <>
 struct std::formatter<nexigen::metrics::NullMetricSink> : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::metrics::NullMetricSink& sink, Ctx& ctx) const {
+    auto format([[maybe_unused]] const nexigen::metrics::NullMetricSink& sink, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(std::string_view("NullMetricSink()"), ctx);
     }
 };

@@ -269,3 +269,24 @@ P0 was implemented in `openspec/changes/archive/2026-11-01-improve-quality-gates
   exists, which makes the suites pass in a clean container.
 - CI enforces the honest interim 85% coverage gate; raising runner/hub coverage
   to restore the 95% project target remains P2.
+
+## 9. P1 completion notes (2026-11-01)
+
+P1 was implemented in `openspec/changes/improve-distribution`:
+
+- **Clang:** the four `-Werror` findings are fixed without suppressing warnings.
+  CI runs a dedicated Clang job in the `gcc:15` container (Clang 19 + libstdc++ 15).
+  The earlier Clang 18 attempt exposed a toolchain constraint, not a code defect:
+  `std::expected` requires a C++23 standard library, and Ubuntu 24.04's
+  libstdc++ 13 is too old. Documentation now states that requirement.
+- **Install/export:** `cmake --install` writes `include/nexigen/`, eight static
+  archives, both CLI tools, `nexigenTargets.cmake`, `nexigenConfig.cmake`, and a
+  same-minor version file. Build-only flags stay behind `$<BUILD_INTERFACE>`.
+  `find_dependency` resolves `Threads` and `nlohmann_json`; a standalone consumer
+  in `tests/packaging/consumer/` verifies the installed package.
+- **Docs:** README now documents `tracing`, `runner`, `hub`, Clang, and package
+  consumption; the architecture page has the packaging section; the unused
+  `io_uring` claim and the stale module list are gone.
+
+P2 remains: runner/hub coverage, control-plane error logging, FetchContent hash,
+portable Release mode, and HTTP edge hardening.

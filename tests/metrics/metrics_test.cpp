@@ -357,17 +357,17 @@ void test_policy_format() {
 namespace probes {
 
 struct Missing_kind {
-    static constexpr metrics::ConcurrencyPolicy concurrency = metrics::ConcurrencyPolicy::SingleThreaded;
-    static constexpr metrics::AccessPolicy access = metrics::AccessPolicy::Readable;
-    static constexpr metrics::ResetPolicy reset = metrics::ResetPolicy::Cumulative;
+    [[maybe_unused]] static constexpr metrics::ConcurrencyPolicy concurrency = metrics::ConcurrencyPolicy::SingleThreaded;
+    [[maybe_unused]] static constexpr metrics::AccessPolicy access = metrics::AccessPolicy::Readable;
+    [[maybe_unused]] static constexpr metrics::ResetPolicy reset = metrics::ResetPolicy::Cumulative;
     [[nodiscard]] std::string to_string() const { return "probe"; }
 };
 
 struct Wrong_kind_type {
     static constexpr int kind = 0;
-    static constexpr metrics::ConcurrencyPolicy concurrency = metrics::ConcurrencyPolicy::SingleThreaded;
-    static constexpr metrics::AccessPolicy access = metrics::AccessPolicy::Readable;
-    static constexpr metrics::ResetPolicy reset = metrics::ResetPolicy::Cumulative;
+    [[maybe_unused]] static constexpr metrics::ConcurrencyPolicy concurrency = metrics::ConcurrencyPolicy::SingleThreaded;
+    [[maybe_unused]] static constexpr metrics::AccessPolicy access = metrics::AccessPolicy::Readable;
+    [[maybe_unused]] static constexpr metrics::ResetPolicy reset = metrics::ResetPolicy::Cumulative;
     [[nodiscard]] std::string to_string() const { return "probe"; }
 };
 

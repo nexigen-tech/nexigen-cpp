@@ -4,13 +4,20 @@ The backbone of the **nexigen** ecosystem — an ultra-high performance C++23 co
 
 ## 🚀 Key Architectural Features
 * **Real-Time Ready:** Strictly zero-lock (lock-free / wait-free primitives) implementation within critical execution data paths (hot paths).
-* **Deep OS Integration:** Direct interaction with low-level Linux system calls (`epoll`, `io_uring`, POSIX signals, and high-resolution timers).
+* **Deep OS Integration:** Direct interaction with low-level Linux system calls (`epoll`, `signalfd`, `inotify`, POSIX signals, and high-resolution timers).
 * **Zero-Cost Abstractions:** O3, native architecture deployment (`-march=native`), and Link-Time Optimization (LTO) for bare-metal execution speed.
+* **Spec-Driven:** 59 capabilities and 1 103 executable scenarios validated on every change; GCC and Clang both build under `-Werror`.
 
 ## 🛠️ Core Components
-* Asynchronous lock-free ring-buffer Logger.
-* Atomic-based Metrics collection and high-resolution Tracer.
-* Heap-only `nexigen::app::Infrastructure` service handling infrastructure bootstrap, OS signal ownership and predictable application lifecycles.
+* **`core`** — wait-free SPSC ring buffers, the `Result`/`Status` error model, and JSON vocabularies.
+* **`chrono`** — monotonic timestamps, the calibrated TSC `Stamp_source`, UTC formatting, and the clock service.
+* **`logging`** — asynchronous sharded loggers (console, file, composite, null) with anti-spam and JSONL output.
+* **`metrics`** — wait-free counters, gauges, statistics, and histograms with background harvesting and sinks.
+* **`tracing`** — RAII spans, cross-thread context propagation, and console/JSONL/Perfetto trace sinks.
+* **`diagnostics`** — the allocation-free `Stopwatch` and the RAII `ScopedStopwatch` budget guard.
+* **`app`** — `Infrastructure` bootstrap: subsystem ownership, settings loading, and `signalfd` lifecycle.
+* **`runner`** — per-instance and per-suite process supervision (`nexigen-run`).
+* **`hub`** — read-only run observatory with discovery, replay streams, and an HTTP/SSE API (`nexigen-hub`).
 
 ### Running the `nexigen::core` unit tests
 
@@ -45,9 +52,18 @@ cmake --build build/asan
 ctest --test-dir build/asan --output-on-failure
 ```
 
-All four modes must report `100% tests passed`. TSan and ASan are mutually exclusive —
+All four GCC modes must report `100% tests passed`. TSan and ASan are mutually exclusive —
 enabling both at once is a configure-time error. The same matrix runs in GitHub
 Actions via [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+Clang is supported when paired with a C++23 standard library (`std::expected` is
+required; an older libstdc++ fails even with a modern Clang):
+
+```bash
+cmake -B build/clang -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++
+cmake --build build/clang
+ctest --test-dir build/clang --output-on-failure
+```
 
 ### Coverage target
 
@@ -69,7 +85,7 @@ Current unit-test line coverage is **86.2–86.3%** (≈9 950 / 11 532):
 | Module | Coverage |
 |---|---:|
 | core, diagnostics | 100.0% |
-| chrono, metrics | 96.2% |
+| chrono, metrics | 96.1–96.2% |
 | app | 95.8% |
 | logging, tracing | 95.3% |
 | hub | 80.6–80.8% |
@@ -79,6 +95,36 @@ The project target is **≥95%**. CI currently enforces an interim **≥85%** ga
 the newest subsystems cannot regress while their coverage is raised. The per-module
 breakdown and the remaining backlog are tracked in
 [`docs/project-analysis.md`](docs/project-analysis.md).
+
+### Install and consume
+
+`cmake --install` writes headers, static archives, the `nexigen-run`/`nexigen-hub`
+tools, and a CMake package (`nexigenConfig.cmake`, version file, exported targets
+with the `nexigen::` namespace):
+
+```bash
+cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/release
+cmake --install build/release --prefix /opt/nexigen
+```
+
+A downstream project then uses the same target names as the source tree:
+
+```cmake
+find_package(nexigen 0.1 CONFIG REQUIRED)
+
+add_executable(app main.cpp)
+target_link_libraries(app PRIVATE nexigen::logging nexigen::metrics)
+```
+
+The package config resolves `Threads` and `nlohmann_json` for the consumer; an
+installed `nlohmann_json` (3.11 or newer) must be discoverable. Version
+compatibility is same-minor (`0.1.x`). The standalone consumer in
+`tests/packaging/consumer/` verifies the install tree end to end:
+
+```bash
+./tests/packaging/smoke_test.sh build/release /tmp/nexigen-prefix
+```
 
 ## 📡 `nexigen::core` API
 
@@ -525,6 +571,57 @@ safe default when a background harvester runs). The Release build enables the
 `NEXIGEN_METRICS_STRICT_LATENCY` median gates for the benchmark suites; Debug and
 sanitizer builds are correctness-only.
 
+## 📡 `nexigen::tracing` API
+
+Causal telemetry for real-time loops: RAII spans, cross-thread context, and a
+wait-free per-thread shard pool. Hot paths (`start_span`, `end()`, attributes,
+status) are inline, lock-free, and allocation-free; the background consumer and
+sink I/O are cold. Link `nexigen::tracing` (alias of `nexigen_tracing`) — it
+brings `nexigen_core` and `nexigen_chrono` transitively.
+
+* **`<nexigen/tracing/tracer_provider.hpp>`** — the factory root and owner of the
+  whole footprint (`~10 MiB` with the defaults — keep it in static or heap
+  storage, never on the stack). `TracerProvider<ShardCapacity = 1024,
+  Max_threads = 32>` takes a `TracerProvider_config` (`core_mask`,
+  `max_tracers`, optional span-rate window) and a sink; `get_tracer(scope)` is
+  the only way to obtain a `Tracer`.
+* **`<nexigen/tracing/tracer.hpp>`, `<nexigen/tracing/scoped_span.hpp>`** —
+  `start_span(name, kind, parent = nullptr)` returns a non-movable `ScopedSpan`
+  guard. Nested same-thread spans inherit the active parent automatically; pass
+  an explicit `SpanContext` to link across a thread boundary. The guard ends the
+  span on destruction; `set_attribute()`/`set_status()` mutate the inline record.
+* **`<nexigen/tracing/span_context.hpp>`, `span_enums.hpp`, `span_record.hpp`** —
+  the 8-byte trace/span id context, `SpanKind`/`SpanStatus`/`SamplingDecision`
+  vocabularies (with the JSON/`std::format` trio), and the fixed-size drained
+  record.
+* **Sinks** — `ConsoleTraceSink` (one line per span), `JsonFileTraceSink`
+  (JSONL with UTC ISO-8601 stamps), `ChromeTraceSink` (Perfetto-loadable JSON),
+  `CompositeTraceSink<Sinks...>` (fan-out), and `NullTraceSink`.
+
+```cpp
+#include <nexigen/tracing/console_trace_sink.hpp>
+#include <nexigen/tracing/tracer_provider.hpp>
+
+int main() {
+    static nexigen::tracing::ConsoleTraceSink sink{};
+    static nexigen::tracing::TracerProvider<1024, 32> provider{{}, sink};
+
+    const auto tracer = provider.get_tracer("engine");
+    if (!tracer) { return 1; }
+
+    {
+        auto step = (*tracer)->start_span("tick", nexigen::tracing::SpanKind::Internal);
+        static_cast<void>(step.set_attribute("tick", 1));
+        static_cast<void>(step.set_status(nexigen::tracing::SpanStatus::Ok));
+    } // guard ends and enqueues the span
+
+    return provider.flush().has_value() ? 0 : 1; // cold-path drain
+}
+```
+
+The provider's drop accounting separates `rate_limited`, `buffer_full`, and
+`slot_exhausted`; sampling decisions are not failures and are not counted.
+
 ## 📡 `nexigen::app` API
 
 Application infrastructure service for real-time programs: one heap-owned object manages the
@@ -754,6 +851,63 @@ loaded.chrono.sink.path  = resolved.chrono;
 
 Logging keeps its existing `log_root_directory` and `app_name` keys; a launcher sets
 `log_root_directory` to the instance directory so all four streams share one layout.
+
+## 📡 `nexigen::runner` API
+
+Process supervision for HIL and multi-application benches. The library owns the
+instance directory layout, generated settings, `fork`/`exec` with `setsid`,
+signal escalation, restart policy, and JSON-lines runner logging; the
+`nexigen-run` CLI is the default front end. Link `nexigen::runner` (alias of
+`nexigen_runner`) — it brings `nexigen_app` and the lower modules transitively.
+
+* **`<nexigen/runner/runner.hpp>`** — `Runner::start()`, `start_suite()`,
+  `stop()`, and `status()` over explicit run/instance directories;
+  `Start_options` carries the stop grace period and log level.
+* **`<nexigen/runner/instance_lifecycle.hpp>`** — the on-disk instance
+  contract: control directory, `state.json`, pid/exit metadata, and resource
+  accounting.
+* **`<nexigen/runner/app_suite.hpp>`** — `Suite_manifest` (apps, CPU masks,
+  per-app arguments, restart and impact policy) plus `Suite_status`/`App_state`
+  snapshots used by the CLI.
+* **`<nexigen/runner/runner_logging.hpp>`** — the dedicated JSONL runner log
+  that records lifecycle transitions without touching application hot paths.
+
+```bash
+nexigen-run start -- /opt/app --flag
+nexigen-run status /var/run/nexigen/app/1
+nexigen-run stop /var/run/nexigen/app/1
+```
+
+Suite manifests, restart semantics, and the full CLI contract are documented in
+[`docs/runner-suite.md`](docs/runner-suite.md).
+
+## 📡 `nexigen::hub` API
+
+A read-only observatory over explicit run roots. It follows the streams written
+by `nexigen-run`, keeps bounded replay rings with explicit gap markers, and
+serves an HTTP/SSE API plus an embedded Web UI. It never starts, stops, or
+modifies applications; every path is a cold control-plane path. Link
+`nexigen::hub` (alias of `nexigen_hub`) — it brings `nexigen_runner` and the
+lower modules transitively.
+
+* **`<nexigen/hub/discovery.hpp>`** — `Run_root` and `Discovery`: inotify-based
+  enumeration of suites, instances, attempts, and artifact streams.
+* **`<nexigen/hub/streaming.hpp>`** — `Stream_manager`/`Stream_limits`: bounded
+  record and byte rings, replay from `Last-Event-ID`, and gap reporting when a
+  producer outruns the ring or a line exceeds the limit.
+* **`<nexigen/hub/model.hpp>`** — the `Hub_tree` (`run → suite → app → instance
+  → attempt`) and stream record types used by the API and UI.
+* **`<nexigen/hub/http_server.hpp>`** — the epoll HTTP/SSE server and request
+  routing.
+
+```bash
+nexigen-hub --run-dir /var/run/nexigen
+nexigen-hub --run-dir /var/run/nexigen-a --run-dir /var/run/nexigen-b \
+            --listen 127.0.0.1:8080
+```
+
+Discovery rules, endpoint shapes, and the UI are documented in
+[`docs/nexigen-hub.md`](docs/nexigen-hub.md).
 
 ## 📡 `nexigen::diagnostics` API
 

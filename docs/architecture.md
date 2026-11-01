@@ -124,6 +124,8 @@ cmake -B build/release-ci -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake -B build/tsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DNEXIGEN_ENABLE_TSAN=ON
 # AddressSanitizer/UBSan
 cmake -B build/asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_ASAN=ON
+# Clang (requires a C++23 standard library: std::expected)
+cmake -B build/clang -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++
 
 cmake --build <dir> && ctest --test-dir <dir> --output-on-failure
 ```
@@ -161,13 +163,41 @@ open/read failure paths, `std::to_chars` error arms, and runner/hub control-plan
 branches. The measured baseline and the P1/P2 backlog are recorded in
 [`project-analysis.md`](project-analysis.md).
 
-All four modes must report `100% tests passed` with no sanitizer diagnostics.
-TSan and ASan are mutually exclusive. GitHub Actions runs the same matrix, plus the
-coverage gate and OpenSpec validation, from `.github/workflows/ci.yml`. Tests are zero-dependency harnesses
+All four GCC modes must report `100% tests passed` with no sanitizer diagnostics;
+the Clang job must do the same under `-Werror`. TSan and ASan are mutually exclusive.
+GitHub Actions runs the same matrix, plus the coverage gate and OpenSpec
+validation, from `.github/workflows/ci.yml`. Tests are zero-dependency harnesses
 (`NX_CHECK` / `run_suite`, arena `operator new` counter + `mallinfo2` delta for
 allocation windows); Release adds the numeric latency gates
 (`NEXIGEN_METRICS_STRICT_LATENCY`), which are compiled out under Debug and
 sanitizers.
+
+## Install and package
+
+The build exports every module target under the `nexigen::` namespace and installs
+a CMake package:
+
+```bash
+cmake --install build/release --prefix /opt/nexigen
+```
+
+The prefix receives `include/nexigen/`, the eight static archives, the
+`nexigen-run`/`nexigen-hub` tools, and
+`lib/cmake/nexigen/{nexigenConfig,nexigenConfigVersion,nexigenTargets}.cmake`.
+`nexigenConfig.cmake` resolves `Threads` and `nlohmann_json` with
+`find_dependency`; installed consumers therefore link `nexigen::logging`,
+`nexigen::metrics`, etc. without repeating dependency discovery. Compatibility is
+same-minor (`0.1.x`).
+
+Build-only flags (`-Werror`, LTO, sanitizers) are attached through
+`$<BUILD_INTERFACE:nexigen_options>` and never leak into consumer targets. The
+`nexigen::core` JSON dependency is also re-attached by the package config, which
+keeps the export valid when nlohmann/json came from FetchContent.
+
+`tests/packaging/smoke_test.sh <build-dir> [prefix]` installs into a scratch
+prefix and builds `tests/packaging/consumer/`, a standalone CMake project that
+uses only `find_package(nexigen CONFIG REQUIRED)`.
+
 
 ## Spec-driven process
 
@@ -178,8 +208,8 @@ Behaviour is contract-first via [OpenSpec](https://openspec.github.io/openspec/)
 3. `openspec sync` merges the change's capability deltas into
    `openspec/specs/**`; `openspec archive` applies remaining deltas and retires
    the change.
-4. `openspec validate --specs` gates the main-spec corpus (currently 58
-   capabilities / 407 requirements / 1 096 scenarios).
+4. `openspec validate --specs` gates the main-spec corpus (currently 59
+   capabilities / 411 requirements / 1 103 scenarios).
 
 Archived changes live in `openspec/changes/archive/` with their full planning
 history. If code and specs disagree, the spec wins — fix the code or open a

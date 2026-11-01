@@ -120,7 +120,7 @@ private:
 template <>
 struct std::formatter<nexigen::metrics::MeterPasskey> : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::metrics::MeterPasskey& key, Ctx& ctx) const {
+    auto format([[maybe_unused]] const nexigen::metrics::MeterPasskey& key, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(std::string_view("MeterPasskey"), ctx);
     }
 };

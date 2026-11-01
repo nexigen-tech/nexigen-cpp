@@ -71,6 +71,38 @@ jobs:
       - name: Test
         run: ctest --test-dir "build/${{ matrix.name }}" --output-on-failure
 
+  clang:
+    name: Build & test (Clang)
+    runs-on: ubuntu-24.04
+    # Pair Clang with the GCC 15 libstdc++: std::expected (C++23) is missing
+    # from the Ubuntu 24.04 system libstdc++ 13, so a distro-only Clang image
+    # cannot compile the headers even though the compiler itself is modern.
+    container: gcc:15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates clang cmake curl git ninja-build nlohmann-json3-dev
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/clang -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++
+
+      - name: Build
+        run: cmake --build build/clang --parallel 2
+
+      - name: Test
+        run: ctest --test-dir build/clang --output-on-failure
+
+      - name: Package smoke test
+        run: ./tests/packaging/smoke_test.sh build/clang
+
   coverage:
     name: Coverage
     runs-on: ubuntu-24.04

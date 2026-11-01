@@ -33,6 +33,8 @@ endif()
 # Создаем единую интерфейсную цель с правилами компиляции
 add_library(nexigen_options INTERFACE)
 
+include(GNUInstallDirs)
+
 # Применяем функции из наших скриптов
 nexigen_set_warnings(nexigen_options)
 nexigen_set_optimizations(nexigen_options)
@@ -88,7 +90,13 @@ target_compile_features(nexigen_core INTERFACE cxx_std_23)
 # nlohmann_json + JSON_NOEXCEPTION — INTERFACE: транзитивно на chrono/logging/
 # tests/downstream, чтобы enum-заголовки (result.hpp и др.) компилировались
 # везде под общим -fno-exceptions (design D1).
-target_link_libraries(nexigen_core INTERFACE nexigen_options nlohmann_json::nlohmann_json)
+target_link_libraries(nexigen_core INTERFACE
+    # Build-tree only: installed consumers must not inherit -Werror/LTO/
+    # sanitizer flags. nlohmann_json is re-attached by nexigenConfig.cmake
+    # after find_dependency, because a FetchContent build cannot export an
+    # external target.
+    $<BUILD_INTERFACE:nexigen_options>
+    $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
 target_compile_definitions(nexigen_core INTERFACE JSON_NOEXCEPTION=1)
 
 # clock_gettime()/CLOCK_MONOTONIC_RAW на Linux: явно запрашиваем POSIX-объявления,
@@ -365,5 +373,66 @@ if(NEXIGEN_ENABLE_COVERAGE)
         VERBATIM
         COMMENT "Running unit tests under coverage and aggregating gcov data")
 endif()
+
+# =============================================================================
+# Install, export and package configuration.
+#
+# The export set exposes the in-tree alias names (nexigen::core, ...) and keeps
+# build-only flags out of consumer targets: nexigen_options is attached through
+# $<BUILD_INTERFACE:...>, so the installed nexigen::core carries only
+# cxx_std_23, JSON_NOEXCEPTION and the public platform definitions.
+# =============================================================================
+include(CMakePackageConfigHelpers)
+
+set(NEXIGEN_EXPORT_TARGETS
+    nexigen_core
+    nexigen_chrono
+    nexigen_logging
+    nexigen_metrics
+    nexigen_tracing
+    nexigen_diagnostics
+    nexigen_app
+    nexigen_runner
+    nexigen_hub)
+
+set_target_properties(nexigen_core        PROPERTIES EXPORT_NAME core)
+set_target_properties(nexigen_chrono      PROPERTIES EXPORT_NAME chrono)
+set_target_properties(nexigen_logging     PROPERTIES EXPORT_NAME logging)
+set_target_properties(nexigen_metrics     PROPERTIES EXPORT_NAME metrics)
+set_target_properties(nexigen_tracing     PROPERTIES EXPORT_NAME tracing)
+set_target_properties(nexigen_diagnostics PROPERTIES EXPORT_NAME diagnostics)
+set_target_properties(nexigen_app         PROPERTIES EXPORT_NAME app)
+set_target_properties(nexigen_runner      PROPERTIES EXPORT_NAME runner)
+set_target_properties(nexigen_hub         PROPERTIES EXPORT_NAME hub)
+
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/nexigen"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
+install(TARGETS ${NEXIGEN_EXPORT_TARGETS}
+        EXPORT nexigenTargets
+        ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+        LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+        INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
+install(EXPORT nexigenTargets
+        FILE nexigenTargets.cmake
+        NAMESPACE nexigen::
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/nexigen")
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/nexigenConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/nexigenConfig.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/nexigen")
+
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/nexigenConfigVersion.cmake"
+    VERSION "${PROJECT_VERSION}"
+    COMPATIBILITY SameMinorVersion)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/nexigenConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/nexigenConfigVersion.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/nexigen")
 
 message(STATUS "⚡ nexigen-cpp configured [Build type: ${CMAKE_BUILD_TYPE}]")

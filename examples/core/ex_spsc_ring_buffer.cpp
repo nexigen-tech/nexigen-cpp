@@ -66,6 +66,11 @@ void print_line(const std::string& line) {
 } // namespace
 
 int main() {
+    // Cold-path diagnostic via the ADL free function (mandate 9).
+    TelemetryPacket sample{};
+    sample.sensor_value = 0.0025;
+    print_line(std::format("sample packet: {}", to_string(sample)));
+
     std::uint64_t producer_retries = 0;
     nexigen::core::ErrorCode producer_last_error = nexigen::core::ErrorCode::Ok;
 
