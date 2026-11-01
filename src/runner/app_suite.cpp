@@ -36,6 +36,8 @@
 #include <nexigen/runner/runner.hpp>
 #include <nexigen/runner/runner_logging.hpp>
 
+#include "coverage_flush.hpp"
+
 namespace nexigen::runner {
 
 namespace {
@@ -43,6 +45,12 @@ namespace {
 constexpr std::size_t max_path_bytes = 511;
 constexpr std::size_t max_apps = 256;
 constexpr std::uint32_t max_restart_attempts = 1000;
+
+/// Flush coverage counters before the detached supervisor leaves the process.
+[[noreturn]] void child_exit(int code) noexcept {
+    detail::coverage_flush();
+    _exit(code);
+}
 constexpr std::uint64_t max_delay_seconds = 86400;
 constexpr std::uint64_t suite_poll_interval_ms = 100;
 constexpr std::uint64_t nanoseconds_per_second = 1'000'000'000ULL;
@@ -1239,7 +1247,7 @@ void finish_failed(Runtime_suite& suite) {
                            suite.manifest->suite_id));
     write_suite_exit(suite, Suite_state::Failed, "restart_exhausted");
     shutdown_runner_logging();
-    _exit(0);
+    child_exit(0);
 }
 
 void trigger_suite_restart(Runtime_suite& suite) {
@@ -1357,7 +1365,7 @@ void run_suite_supervisor(const Suite_manifest& manifest,
                                           core::ErrorCode::SystemError)};
         static_cast<void>(write_all(report_fd, &report, sizeof(report)));
         static_cast<void>(::close(report_fd));
-        _exit(1);
+        child_exit(1);
     }
 
     suite.apps.reserve(manifest.apps.size());
@@ -1427,7 +1435,7 @@ void run_suite_supervisor(const Suite_manifest& manifest,
                        std::format("event=suite_stopped suite={} reason=operator_stop",
                                    manifest.suite_id));
             shutdown_runner_logging();
-            _exit(0);
+            child_exit(0);
         }
         reap_supervisors();
 
@@ -1580,7 +1588,7 @@ core::Status start_suite(const Suite_manifest& manifest,
             }
         }
         run_suite_supervisor(manifest, suite_dir, pipe_fds[1]);
-        _exit(0);
+        child_exit(0);
     }
 
     static_cast<void>(::close(pipe_fds[1]));

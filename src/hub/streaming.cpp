@@ -81,19 +81,38 @@ std::string Stream_manager::to_string() const {
                        tailers_.size(), subscribers_.size());
 }
 
-void Stream_manager::open_tailer(Tailer& tailer) noexcept {
+void Stream_manager::set_diagnostic_sink(Diagnostic_sink sink,
+                                         void* context) noexcept {
+    diagnostic_sink_ = sink;
+    diagnostic_context_ = context;
+}
+
+void Stream_manager::report(std::string_view message) const noexcept {
+    if (diagnostic_sink_ != nullptr) {
+        diagnostic_sink_(diagnostic_context_, message);
+    }
+}
+
+bool Stream_manager::open_tailer(Tailer& tailer) noexcept {
     if (tailer.fd >= 0) {
         static_cast<void>(::close(tailer.fd));
         tailer.fd = -1;
     }
     const int fd = ::open(tailer.descriptor.path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
-        return;
+        report(std::format("event=stream_open_failed stream={} path={} errno={}",
+                           tailer.descriptor.id, tailer.descriptor.path,
+                           errno));
+        return false;
     }
     struct stat status {};
     if (::fstat(fd, &status) != 0) {
+        const int error = errno;
         static_cast<void>(::close(fd));
-        return;
+        report(std::format("event=stream_stat_failed stream={} path={} errno={}",
+                           tailer.descriptor.id, tailer.descriptor.path,
+                           error));
+        return false;
     }
     tailer.fd = fd;
     tailer.device = status.st_dev;
@@ -120,6 +139,11 @@ void Stream_manager::open_tailer(Tailer& tailer) noexcept {
         while (true) {
             const ssize_t count = ::read(fd, buffer.data(), buffer.size());
             if (count <= 0) {
+                if (count < 0) {
+                    report(std::format(
+                        "event=stream_read_failed stream={} path={} errno={}",
+                        tailer.descriptor.id, tailer.descriptor.path, errno));
+                }
                 break;
             }
             std::string_view chunk(buffer.data(), static_cast<std::size_t>(count));
@@ -160,11 +184,12 @@ void Stream_manager::open_tailer(Tailer& tailer) noexcept {
             tailer.offset += static_cast<std::uint64_t>(count);
         }
         tailer.offset = static_cast<std::uint64_t>(status.st_size);
-        return;
+        return true;
     }
 
     tailer.offset = 0;
     static_cast<void>(::lseek(fd, 0, SEEK_SET));
+    return true;
 }
 
 void Stream_manager::emit(Tailer& tailer, std::string_view line,
@@ -201,13 +226,16 @@ void Stream_manager::emit(Tailer& tailer, std::string_view line,
 
 void Stream_manager::poll_tailer(Tailer& tailer) noexcept {
     if (tailer.fd < 0) {
-        open_tailer(tailer);
+        static_cast<void>(open_tailer(tailer));
         if (tailer.fd < 0) {
             return;
         }
     }
     struct stat status {};
     if (::stat(tailer.descriptor.path.c_str(), &status) != 0) {
+        report(std::format("event=stream_stat_failed stream={} path={} errno={}",
+                           tailer.descriptor.id, tailer.descriptor.path,
+                           errno));
         return;
     }
     if (static_cast<std::uint64_t>(status.st_dev) != tailer.device ||
@@ -218,7 +246,7 @@ void Stream_manager::poll_tailer(Tailer& tailer) noexcept {
         static_cast<void>(::close(tailer.fd));
         tailer.fd = -1;
         tailer.seeded = false;
-        open_tailer(tailer);
+        static_cast<void>(open_tailer(tailer));
         tailer.seeded = was_seeded;
         if (tailer.fd < 0) {
             return;
@@ -227,7 +255,12 @@ void Stream_manager::poll_tailer(Tailer& tailer) noexcept {
 
     std::vector<char> buffer(limits_.read_chunk_bytes);
     const ssize_t count = ::read(tailer.fd, buffer.data(), buffer.size());
-    if (count <= 0) {
+    if (count < 0) {
+        report(std::format("event=stream_read_failed stream={} path={} errno={}",
+                           tailer.descriptor.id, tailer.descriptor.path, errno));
+        return;
+    }
+    if (count == 0) {
         return;
     }
     const std::string_view chunk(buffer.data(), static_cast<std::size_t>(count));
@@ -270,7 +303,8 @@ void Stream_manager::poll() noexcept {
     }
 }
 
-void Stream_manager::sync(const Hub_tree& tree) noexcept {
+core::Status Stream_manager::sync(const Hub_tree& tree) noexcept {
+    bool failed = false;
     const std::vector<Hub_stream> streams = all_streams(tree);
     std::unordered_set<std::string> present;
     present.reserve(streams.size());
@@ -283,7 +317,9 @@ void Stream_manager::sync(const Hub_tree& tree) noexcept {
             auto [inserted, ok] = tailers_.emplace(descriptor.id,
                                                    std::move(tailer));
             static_cast<void>(ok);
-            open_tailer(inserted->second);
+            if (!open_tailer(inserted->second)) {
+                failed = true;
+            }
         } else {
             if (it->second.descriptor.path != descriptor.path) {
                 if (it->second.fd >= 0) {
@@ -295,8 +331,8 @@ void Stream_manager::sync(const Hub_tree& tree) noexcept {
                 it->second.partial.clear();
             }
             it->second.descriptor = descriptor;
-            if (it->second.fd < 0) {
-                open_tailer(it->second);
+            if (it->second.fd < 0 && !open_tailer(it->second)) {
+                failed = true;
             }
         }
     }
@@ -310,6 +346,8 @@ void Stream_manager::sync(const Hub_tree& tree) noexcept {
             ++it;
         }
     }
+    return failed ? core::Status{std::unexpected(core::ErrorCode::SystemError)}
+                  : core::Status{};
 }
 
 bool Stream_manager::matches(const Subscriber& subscriber,

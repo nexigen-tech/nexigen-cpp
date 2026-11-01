@@ -227,6 +227,9 @@ void test_enums_and_serialization() {
         NX_CHECK(runner::from_string(runner::to_string(value), parsed));
         NX_CHECK(parsed == value);
         NX_CHECK(std::format("{}", value) == runner::to_string(value));
+        nlohmann::json state_json;
+        runner::to_json(state_json, value);
+        NX_CHECK(state_json.is_string());
     }
     for (const auto value : {runner::App_state::Running,
                              runner::App_state::Restarting,
@@ -238,6 +241,9 @@ void test_enums_and_serialization() {
         NX_CHECK(runner::from_string(runner::to_string(value), parsed));
         NX_CHECK(parsed == value);
         NX_CHECK(std::format("{}", value) == runner::to_string(value));
+        nlohmann::json state_json;
+        runner::to_json(state_json, value);
+        NX_CHECK(state_json.is_string());
     }
 
     runner::App_spec spec = app_spec(
@@ -312,6 +318,21 @@ void test_enums_and_serialization() {
     runner::from_json(nlohmann::json::array(), hostile);
     NX_CHECK(hostile.app == "app");
     NX_CHECK(hostile.log_level == logging::LogLevel::Warning);
+    nlohmann::json wrong_spec{
+        {"app", 1}, {"instance", 2}, {"command", 3}, {"args", 4},
+        {"env", 5}, {"cpus", 6},
+        {"impact_on_app_suite_operability", 7},
+        {"restart_attempts", "x"}, {"restart_delay_s", "x"},
+        {"idle_timeout_s", "x"}, {"stop_grace_s", "x"},
+        {"log_level", 8}, {"global_settings_path", 9},
+        {"local_settings_path", 10}};
+    runner::from_json(wrong_spec, hostile);
+    NX_CHECK(hostile.app == "app");
+    NX_CHECK(hostile.args.size() == 2);
+    NX_CHECK(hostile.env.size() == 2);
+    NX_CHECK(hostile.cpus.size() == 2);
+    NX_CHECK(hostile.restart_attempts == 3);
+    NX_CHECK(hostile.log_level == logging::LogLevel::Warning);
 
     runner::Suite_app_metadata app_metadata{};
     app_metadata.app = "app";
@@ -379,6 +400,19 @@ void test_enums_and_serialization() {
     runner::from_json(nlohmann::json::array(), hostile_status);
     NX_CHECK(hostile_status.state == runner::Suite_state::Degraded);
     NX_CHECK(hostile_status.apps.size() == 1);
+
+    NX_CHECK(!manifest.to_string().empty());
+    NX_CHECK(!app_metadata.to_string().empty());
+    NX_CHECK(!metadata.to_string().empty());
+    NX_CHECK(!suite_exit.to_string().empty());
+    NX_CHECK(!status.to_string().empty());
+    NX_CHECK(!app_status.to_string().empty());
+    NX_CHECK(!std::format("{}", manifest).empty());
+    NX_CHECK(!std::format("{}", app_metadata).empty());
+    NX_CHECK(!std::format("{}", metadata).empty());
+    NX_CHECK(!std::format("{}", suite_exit).empty());
+    NX_CHECK(!std::format("{}", status).empty());
+    NX_CHECK(!std::format("{}", app_status).empty());
 }
 
 void test_manifest_validation() {
@@ -437,6 +471,111 @@ void test_manifest_validation() {
     NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
                          core::ErrorCode::InvalidArgument));
 
+    bad = manifest;
+    bad.log_level = static_cast<logging::LogLevel>(0x7f);
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.suite_id = "bad/id";
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.run_dir = std::string("/tmp/\0bad", 9);
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.global_settings_path = "relative";
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.suite_restart_attempts = 1001;
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.suite_restart_delay_s = 86401;
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.resize(257, manifest.apps.front());
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().app = ".suite";
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().command = std::string("a\0b", 3);
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().args = {std::string("a\0b", 3)};
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().env = {{"", "x"}};
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().env = {{"A=B", "x"}};
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().env = {{"A", std::string("x\0y", 3)}};
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().log_level = static_cast<logging::LogLevel>(0x7f);
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().restart_attempts = 1001;
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().idle_timeout_s = 86401;
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().stop_grace_s = 86401;
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().global_settings_path = "relative";
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().cpus = {0, 0};
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.run_dir = "/" + std::string(510, 'r');
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.artifacts_path = "/" + std::string(510, 'a');
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
+                         core::ErrorCode::InvalidArgument));
+
     const std::string path = root + "/manifest.json";
     NX_CHECK(write_manifest(path, manifest));
     runner::Suite_manifest loaded{};
@@ -475,6 +614,48 @@ void test_manifest_validation() {
         runner::load_suite_manifest(root + "/bad_runner_cpus.json", loaded),
         core::ErrorCode::InvalidArgument));
 
+    int case_index = 0;
+    auto rejected = [&](const nlohmann::json& candidate) {
+        ++case_index;
+        const std::string case_path =
+            root + "/loader_case_" + std::to_string(case_index) + ".json";
+        if (!runner::write_json_file(case_path, candidate).has_value()) {
+            return false;
+        }
+        return failed_with(runner::load_suite_manifest(case_path, loaded),
+                           core::ErrorCode::InvalidArgument);
+    };
+
+    NX_CHECK(rejected(nlohmann::json::array()));
+    runner::to_json(document, manifest);
+    document["log_level"] = 7;
+    NX_CHECK(rejected(document));
+    runner::to_json(document, manifest);
+    document["runner_control_cpus"] = nlohmann::json::array({-1});
+    NX_CHECK(rejected(document));
+    runner::to_json(document, manifest);
+    document["runner_logger_cpus"] =
+        nlohmann::json::array({std::uint64_t{4294967296ULL}});
+    NX_CHECK(rejected(document));
+    runner::to_json(document, manifest);
+    document.erase("apps");
+    NX_CHECK(rejected(document));
+    runner::to_json(document, manifest);
+    document["apps"] = nlohmann::json::object();
+    NX_CHECK(rejected(document));
+    runner::to_json(document, manifest);
+    document["apps"] = nlohmann::json::array({42});
+    NX_CHECK(rejected(document));
+    runner::to_json(document, manifest);
+    document["apps"][0].erase("impact_on_app_suite_operability");
+    NX_CHECK(rejected(document));
+    runner::to_json(document, manifest);
+    document["apps"][0]["impact_on_app_suite_operability"] = 3;
+    NX_CHECK(rejected(document));
+    runner::to_json(document, manifest);
+    document["apps"][0]["log_level"] = "chatty";
+    NX_CHECK(rejected(document));
+
     runner::Suite_status missing{};
     NX_CHECK(runner::suite_status(root + "/missing_suite", missing).has_value());
     NX_CHECK(missing.state == runner::Suite_state::Unknown);
@@ -509,6 +690,11 @@ void test_start_status_stop() {
         NX_CHECK(file_exists(app.instance_dir + "/settings/logging.json"));
     }
 
+    // A second start while the supervisor is alive is rejected.
+    std::string duplicate_dir;
+    NX_CHECK(failed_with(runner::start_suite(manifest, duplicate_dir),
+                         core::ErrorCode::Conflict));
+
     NX_CHECK(wait_until(
         [&] {
             const runner::Suite_status current = read_status(suite_dir);
@@ -537,6 +723,112 @@ void test_start_status_stop() {
     NX_CHECK(find_app(status, "alpha").state == runner::App_state::Stopped);
     NX_CHECK(file_exists(suite_dir + "/suite-exit.json"));
     NX_CHECK(runner::stop_suite(suite_dir, 0).has_value());
+
+    remove_tree(root);
+    remove_tree(artifacts);
+}
+
+void test_suite_edge_paths() {
+    runner::Suite_status status{};
+    NX_CHECK(failed_with(runner::stop_suite(""),
+                         core::ErrorCode::InvalidArgument));
+    NX_CHECK(failed_with(runner::suite_status("", status),
+                         core::ErrorCode::InvalidArgument));
+
+    const std::string directory = unique_dir("suite_edges");
+    std::error_code error;
+    std::filesystem::create_directories(directory, error);
+    NX_CHECK(failed_with(runner::stop_suite(directory),
+                         core::ErrorCode::InvalidArgument));
+    NX_CHECK(runner::suite_status(directory, status).has_value());
+    NX_CHECK(status.state == runner::Suite_state::Unknown);
+
+    const std::string root = unique_dir("suite_edges_root");
+    const std::string artifacts = unique_dir("suite_edges_artifacts");
+    std::filesystem::create_directories(root, error);
+    runner::Suite_metadata metadata{};
+    metadata.suite_id = "edges";
+    metadata.run_dir = root;
+    metadata.artifacts_path = artifacts;
+    metadata.pid = 999999;
+    runner::Suite_app_metadata app{};
+    app.app = "alpha";
+    app.instance = "1";
+    app.instance_dir = root + "/alpha/1";
+    app.stop_grace_s = 0;
+    metadata.apps.push_back(app);
+    nlohmann::json metadata_json;
+    runner::to_json(metadata_json, metadata);
+    NX_CHECK(runner::write_json_file(directory + "/suite.json", metadata_json)
+                 .has_value());
+    NX_CHECK(runner::suite_status(directory, status).has_value());
+    NX_CHECK(status.state == runner::Suite_state::Unknown);
+    NX_CHECK(status.apps.size() == 1);
+    NX_CHECK(runner::stop_suite(directory).has_value());
+    NX_CHECK(file_exists(directory + "/suite-exit.json"));
+    NX_CHECK(runner::stop_suite(directory).has_value());
+
+    // Stale metadata with a dead supervisor is replaced by a new start.
+    runner::Suite_manifest manifest = base_manifest(root, artifacts);
+    manifest.suite_id = "stale";
+    manifest.apps.push_back(
+        app_spec("alpha", "1", "/bin/sh",
+                 runner::Impact_on_app_suite_operability::Degrade));
+    manifest.apps.front().args = {"-c", "exec sleep 60"};
+    const std::string stale_dir = root + "/.suite/stale";
+    std::filesystem::create_directories(stale_dir, error);
+    runner::Suite_metadata stale{};
+    stale.suite_id = "stale";
+    stale.run_dir = root;
+    stale.artifacts_path = artifacts;
+    stale.pid = 999999;
+    nlohmann::json stale_json;
+    runner::to_json(stale_json, stale);
+    NX_CHECK(runner::write_json_file(stale_dir + "/suite.json", stale_json)
+                 .has_value());
+    std::string started_dir;
+    NX_CHECK(runner::start_suite(manifest, started_dir).has_value());
+    NX_CHECK(started_dir == stale_dir);
+    NX_CHECK(runner::stop_suite(started_dir, 1).has_value());
+
+    // A target below /proc cannot be created.
+    runner::Suite_manifest denied = manifest;
+    denied.run_dir =
+        "/proc/nexigen_suite_denied_" +
+        std::to_string(static_cast<long long>(::getpid()));
+    std::string denied_dir;
+    NX_CHECK(failed_with(runner::start_suite(denied, denied_dir),
+                         core::ErrorCode::SystemError));
+
+    // The Runner facade rejects an invalid manifest before forking.
+    runner::Runner suite_runner;
+    runner::Suite_manifest invalid_manifest{};
+    std::string invalid_dir;
+    NX_CHECK(failed_with(
+        suite_runner.start_suite(invalid_manifest, invalid_dir),
+        core::ErrorCode::InvalidArgument));
+
+    remove_tree(directory);
+    remove_tree(root);
+    remove_tree(artifacts);
+}
+
+void test_relative_manifest_path() {
+    const std::string root = unique_dir("relative_manifest");
+    const std::string artifacts = unique_dir("relative_artifacts");
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    runner::Suite_manifest manifest = two_app_manifest(root, artifacts);
+    manifest.manifest_path = root + "/manifest.json";
+    NX_CHECK(write_manifest(manifest.manifest_path, manifest));
+
+    char previous[4096]{};
+    NX_CHECK(::getcwd(previous, sizeof(previous)) != nullptr);
+    NX_CHECK(::chdir(root.c_str()) == 0);
+    runner::Suite_manifest loaded{};
+    NX_CHECK(runner::load_suite_manifest("manifest.json", loaded).has_value());
+    NX_CHECK(loaded.manifest_path == root + "/manifest.json");
+    NX_CHECK(::chdir(previous) == 0);
 
     remove_tree(root);
     remove_tree(artifacts);
@@ -987,6 +1279,8 @@ int main() {
     run_suite("enums_serialization", test_enums_and_serialization);
     run_suite("manifest_validation", test_manifest_validation);
     run_suite("start_status_stop", test_start_status_stop);
+    run_suite("suite_edge_paths", test_suite_edge_paths);
+    run_suite("relative_manifest", test_relative_manifest_path);
     run_suite("env_affinity_level", test_env_affinity_and_log_level);
     run_suite("settings_precedence", test_settings_precedence);
     run_suite("not_impact_retries", test_not_impact_retries_new_attempts);

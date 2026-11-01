@@ -11,9 +11,15 @@
 #include <unordered_map>
 #include <vector>
 
+#include <nexigen/core/result.hpp>
 #include <nexigen/hub/model.hpp>
 
 namespace nexigen::hub {
+
+/// Control-plane diagnostic callback. It must not throw and should be cheap;
+/// the hub passes preformatted messages once per failed refresh or stream.
+using Diagnostic_sink = void (*)(void* context,
+                                 std::string_view message) noexcept;
 
 /// Per-stream capacity and read bounds.
 struct Stream_limits {
@@ -39,9 +45,14 @@ public:
     Stream_manager(const Stream_manager&) = delete;
     Stream_manager& operator=(const Stream_manager&) = delete;
 
+    /// Install a callback for stream open/stat/read failures. Passing nullptr
+    /// (the default) keeps diagnostics silent.
+    void set_diagnostic_sink(Diagnostic_sink sink, void* context) noexcept;
+
     /// Reconcile tailers with the current tree. New streams are opened and
-    /// seeded from the bounded file tail; removed streams are closed.
-    void sync(const Hub_tree& tree) noexcept;
+    /// seeded from the bounded file tail; removed streams are closed. Returns
+    /// `SystemError` when at least one tailer could not be opened or refreshed.
+    core::Status sync(const Hub_tree& tree) noexcept;
 
     /// Read bounded chunks from all tailers and fan records/gaps out to
     /// subscribers. Runs on the hub control loop.
@@ -96,7 +107,8 @@ private:
         bool overflow{false};
     };
 
-    void open_tailer(Tailer& tailer) noexcept;
+    [[nodiscard]] bool open_tailer(Tailer& tailer) noexcept;
+    void report(std::string_view message) const noexcept;
     void poll_tailer(Tailer& tailer) noexcept;
     void emit(Tailer& tailer, std::string_view line, bool truncated) noexcept;
     void dispatch(const Stream_record& record) noexcept;
@@ -110,6 +122,8 @@ private:
     std::unordered_map<std::string, Tailer> tailers_{};
     std::unordered_map<std::uint64_t, Subscriber> subscribers_{};
     std::uint64_t next_subscriber_id_{1};
+    Diagnostic_sink diagnostic_sink_{nullptr};
+    void* diagnostic_context_{nullptr};
 };
 
 } // namespace nexigen::hub

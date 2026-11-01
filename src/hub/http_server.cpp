@@ -40,7 +40,6 @@ namespace {
 
 constexpr std::size_t max_request_line_bytes = 4U * 1024U;
 constexpr std::size_t max_header_bytes = 8U * 1024U;
-constexpr std::size_t max_url_bytes = 64U * 1024U;
 constexpr std::size_t max_request_bytes =
     max_request_line_bytes + max_header_bytes + 4U;
 constexpr std::size_t max_client_output_bytes = 1U * 1024U * 1024U;
@@ -90,6 +89,64 @@ constexpr std::uint64_t refresh_interval_ns = 1ULL * 1'000'000'000ULL;
            text.compare(0, prefix.size(), prefix) == 0;
 }
 
+[[nodiscard]] char ascii_lower(char value) noexcept {
+    return value >= 'A' && value <= 'Z'
+               ? static_cast<char>(value - 'A' + 'a')
+               : value;
+}
+
+[[nodiscard]] bool equals_ignore_case(std::string_view left,
+                                      std::string_view right) noexcept {
+    if (left.size() != right.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        if (ascii_lower(left[index]) != ascii_lower(right[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] std::string_view trim_header(std::string_view text) noexcept {
+    while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) {
+        text.remove_prefix(1);
+    }
+    while (!text.empty() && (text.back() == ' ' || text.back() == '\t')) {
+        text.remove_suffix(1);
+    }
+    return text;
+}
+
+/// Case-insensitive header lookup. Returns a view into `request` or an empty
+/// view when the header is absent. Only the header block is inspected, so a
+/// body or a differently named header cannot produce a false match.
+[[nodiscard]] std::string_view header_value(std::string_view request,
+                                            std::string_view name) noexcept {
+    std::size_t position = request.find("\r\n");
+    if (position == std::string_view::npos) {
+        return {};
+    }
+    position += 2;
+    while (position < request.size()) {
+        std::size_t line_end = request.find("\r\n", position);
+        if (line_end == std::string_view::npos) {
+            line_end = request.size();
+        }
+        const std::string_view line = request.substr(position, line_end - position);
+        if (line.empty()) {
+            break;
+        }
+        const std::size_t colon = line.find(':');
+        if (colon != std::string_view::npos &&
+            equals_ignore_case(trim_header(line.substr(0, colon)), name)) {
+            return trim_header(line.substr(colon + 1));
+        }
+        position = line_end + 2;
+    }
+    return {};
+}
+
 [[nodiscard]] std::string sse_record(const Stream_record& record) {
     nlohmann::json document;
     to_json(document, record);
@@ -127,9 +184,26 @@ struct Http_server::Impl {
     std::uint16_t port{0};
     std::unordered_map<int, Client> clients{};
     std::uint64_t last_refresh_ns{0};
+    Diagnostic_sink diagnostic_sink{nullptr};
+    void* diagnostic_context{nullptr};
 
-    Impl(Discovery& discovery_ref, Stream_manager& streaming_ref) noexcept
-        : discovery(discovery_ref), streaming(streaming_ref) {}
+    void set_diagnostic_sink(Diagnostic_sink sink, void* context) noexcept {
+        diagnostic_sink = sink;
+        diagnostic_context = context;
+        streaming.set_diagnostic_sink(sink, context);
+    }
+
+    void report(std::string_view message) const noexcept {
+        if (diagnostic_sink != nullptr) {
+            diagnostic_sink(diagnostic_context, message);
+        }
+    }
+
+    Impl(Discovery& discovery_ref, Stream_manager& streaming_ref,
+         Diagnostic_sink sink, void* context) noexcept
+        : discovery(discovery_ref), streaming(streaming_ref) {
+        set_diagnostic_sink(sink, context);
+    }
 
     ~Impl() {
         for (auto& [fd, client] : clients) {
@@ -239,7 +313,10 @@ struct Http_server::Impl {
                                           discovery.inotify_fd(),
                                           &inotify_event));
         }
-        streaming.sync(discovery.tree());
+        const core::Status synced = streaming.sync(discovery.tree());
+        if (!synced) {
+            report("event=hub_sync_failed phase=start");
+        }
         last_refresh_ns = monotonic_now_ns();
         return {};
     }
@@ -375,16 +452,10 @@ struct Http_server::Impl {
     void start_sse(Client& client, std::string_view path,
                    std::string_view last_event_id) noexcept {
         const std::size_t query_start = path.find('?');
-        const std::string_view route = path.substr(0, query_start);
         const std::string_view query =
             query_start == std::string_view::npos
                 ? std::string_view{}
                 : path.substr(query_start + 1);
-        if (route != "/api/events") {
-            respond_json(client, 404, "Not Found", {{"error", "not found"}},
-                         false);
-            return;
-        }
         const std::string tree_topic = query_value(query, "tree");
         const std::string stream = query_value(query, "stream");
         if (tree_topic != "1" && !stream.empty() &&
@@ -460,11 +531,6 @@ struct Http_server::Impl {
         const std::string_view path =
             first_line.substr(first_space + 1, second_space - first_space - 1);
         const std::string_view version = first_line.substr(second_space + 1);
-        if (path.size() > max_url_bytes) {
-            respond_json(client, 400, "Bad Request",
-                         {{"error", "URL too large"}}, false);
-            return;
-        }
         if (version != "HTTP/1.1" && version != "HTTP/1.0") {
             respond_json(client, 400, "Bad Request", {{"error", "bad version"}},
                          false);
@@ -553,19 +619,8 @@ struct Http_server::Impl {
             return;
         }
         if (route == "/api/events") {
-            std::string last_event_id;
-            const std::size_t last_pos = request.find("Last-Event-ID: ");
-            const std::size_t last_pos_lower = request.find("last-event-id: ");
-            const std::size_t position =
-                last_pos != std::string_view::npos ? last_pos : last_pos_lower;
-            if (position != std::string_view::npos) {
-                const std::size_t value_start = position + 15U;
-                const std::size_t value_end = request.find("\r\n", value_start);
-                if (value_end != std::string_view::npos) {
-                    last_event_id = std::string(
-                        request.substr(value_start, value_end - value_start));
-                }
-            }
+            const std::string last_event_id(
+                header_value(request, "Last-Event-ID"));
             start_sse(client, path, last_event_id);
             return;
         }
@@ -636,9 +691,8 @@ struct Http_server::Impl {
             }
             const std::string request = client.input.substr(0, header_end + 4);
             client.input.erase(0, header_end + 4);
-            const bool keep_alive =
-                request.find("Connection: close") == std::string::npos &&
-                request.find("connection: close") == std::string::npos;
+            const bool keep_alive = !equals_ignore_case(
+                header_value(request, "Connection"), "close");
             handle_request(client, request, keep_alive);
             if (client.sse) {
                 break;
@@ -706,17 +760,28 @@ struct Http_server::Impl {
         }
     }
 
+    void try_rescan() noexcept {
+        const core::Status rescanned = discovery.rescan();
+        if (!rescanned) {
+            report(std::format("event=discovery_rescan_failed code={}",
+                               core::to_string(rescanned.error())));
+        }
+        const core::Status synced = streaming.sync(discovery.tree());
+        if (!synced) {
+            report(std::format("event=hub_sync_failed code={}",
+                               core::to_string(synced.error())));
+        }
+    }
+
     void timers() noexcept {
         const std::uint64_t now = monotonic_now_ns();
         if (now - last_refresh_ns >= refresh_interval_ns) {
             last_refresh_ns = now;
-            static_cast<void>(discovery.rescan());
-            streaming.sync(discovery.tree());
+            try_rescan();
         }
         if (discovery.dirty()) {
             discovery.clear_dirty();
-            static_cast<void>(discovery.rescan());
-            streaming.sync(discovery.tree());
+            try_rescan();
         }
         for (auto& [fd, client] : clients) {
             static_cast<void>(fd);
@@ -781,10 +846,16 @@ struct Http_server::Impl {
     }
 };
 
-Http_server::Http_server(Discovery& discovery, Stream_manager& streaming)
-    : impl_(std::make_unique<Impl>(discovery, streaming)) {}
+Http_server::Http_server(Discovery& discovery, Stream_manager& streaming,
+                         Diagnostic_sink sink, void* context)
+    : impl_(std::make_unique<Impl>(discovery, streaming, sink, context)) {}
 
 Http_server::~Http_server() = default;
+
+void Http_server::set_diagnostic_sink(Diagnostic_sink sink,
+                                      void* context) noexcept {
+    impl_->set_diagnostic_sink(sink, context);
+}
 
 core::Status Http_server::start(std::string_view listen) noexcept {
     return impl_->start(listen);

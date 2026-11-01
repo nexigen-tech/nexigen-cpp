@@ -25,6 +25,7 @@
 #include <nexigen/chrono/time_format.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/runner/instance_lifecycle.hpp>
+#include <nexigen/runner/runner_logging.hpp>
 
 namespace nexigen::runner {
 
@@ -33,6 +34,11 @@ namespace {
 /// Maximum length accepted for the instance directory. The logging settings
 /// loader caps `log_root_directory` at 511 bytes, so the directory must fit.
 constexpr std::size_t max_instance_dir_bytes = 511;
+
+void report_write_failure(std::string_view path, int error) noexcept {
+    warn_runner(std::format("event=json_write_failed path={} errno={}", path,
+                            error));
+}
 
 [[nodiscard]] bool read_string(const nlohmann::json& document, const char* key,
                                std::string& target) noexcept {
@@ -318,6 +324,7 @@ core::Status write_json_file(std::string_view path,
     const int fd = ::open(temporary.c_str(),
                           O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     if (fd < 0) {
+        report_write_failure(target, errno);
         return std::unexpected(core::ErrorCode::SystemError);
     }
 
@@ -329,18 +336,24 @@ core::Status write_json_file(std::string_view path,
             if (count < 0 && errno == EINTR) {
                 continue;
             }
+            const int error = errno;
             static_cast<void>(::close(fd));
             static_cast<void>(::unlink(temporary.c_str()));
+            report_write_failure(target, error);
             return std::unexpected(core::ErrorCode::SystemError);
         }
         written += static_cast<std::size_t>(count);
     }
     if (::close(fd) != 0) {
+        const int error = errno;
         static_cast<void>(::unlink(temporary.c_str()));
+        report_write_failure(target, error);
         return std::unexpected(core::ErrorCode::SystemError);
     }
     if (::rename(temporary.c_str(), target.c_str()) != 0) {
+        const int error = errno;
         static_cast<void>(::unlink(temporary.c_str()));
+        report_write_failure(target, error);
         return std::unexpected(core::ErrorCode::SystemError);
     }
     return {};

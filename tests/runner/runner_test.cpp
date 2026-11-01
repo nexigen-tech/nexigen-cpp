@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <sched.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -36,6 +37,7 @@
 namespace core = nexigen::core;
 namespace runner = nexigen::runner;
 namespace app = nexigen::app;
+namespace logging = nexigen::logging;
 
 namespace {
 
@@ -148,6 +150,23 @@ runner::Exit_metadata read_exit(const std::string& directory) {
 app::Run_identity identity_for(const std::string& root) {
     return app::Run_identity{
         "run-1", root, "test_app", "instance-1", root + "/test_app/instance-1"};
+}
+
+std::optional<std::uint32_t> first_allowed_cpu() {
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    if (::sched_getaffinity(0, sizeof(mask), &mask) != 0) {
+        return std::nullopt;
+    }
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+    for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+        if (CPU_ISSET(cpu, &mask) != 0) {
+            return static_cast<std::uint32_t>(cpu);
+        }
+    }
+#pragma GCC diagnostic pop
+    return std::nullopt;
 }
 
 // --- Compile-time contracts ---
@@ -410,6 +429,36 @@ void test_json_file_io() {
                          core::ErrorCode::InvalidArgument));
     NX_CHECK(failed_with(runner::read_json_file(directory + "/missing.json"),
                          core::ErrorCode::SystemError));
+    NX_CHECK(failed_with(runner::read_json_file(directory),
+                         core::ErrorCode::SystemError));
+
+    // Write failures are reported and keep the error contract.
+    NX_CHECK(failed_with(runner::write_json_file(
+                             directory + "/missing/state.json", document),
+                         core::ErrorCode::SystemError));
+
+    const std::string missing = unique_dir("json_missing");
+    NX_CHECK(failed_with(runner::write_resource_json(missing, {}),
+                         core::ErrorCode::SystemError));
+    NX_CHECK(failed_with(runner::write_exit_json(missing, {}),
+                         core::ErrorCode::SystemError));
+
+    NX_CHECK(failed_with(runner::create_instance_dir(""),
+                         core::ErrorCode::InvalidArgument));
+    NX_CHECK(failed_with(runner::create_instance_dir("relative"),
+                         core::ErrorCode::InvalidArgument));
+    NX_CHECK(failed_with(runner::create_artifact_dir(""),
+                         core::ErrorCode::InvalidArgument));
+    NX_CHECK(failed_with(
+        runner::create_artifact_dir("/proc/nexigen_artifact_denied"),
+        core::ErrorCode::SystemError));
+    NX_CHECK(failed_with(runner::create_instance_dir("/proc/self"),
+                         core::ErrorCode::SystemError));
+    NX_CHECK(failed_with(runner::generate_settings("relative", {}),
+                         core::ErrorCode::InvalidArgument));
+    NX_CHECK(failed_with(
+        runner::generate_settings("/proc/nexigen_settings_denied", {}),
+        core::ErrorCode::SystemError));
 
     const app::Run_identity identity{
         "run-1", directory, "app", "instance-1", directory};
@@ -851,6 +900,134 @@ void test_sigkill_after_grace() {
 }
 
 // --- Error and unknown paths ---
+// --- Start options validation and the suite-style settings path ---
+void test_start_options() {
+    const std::string root = unique_dir("options");
+    const std::string artifacts = unique_dir("options_artifacts");
+    const std::string settings = unique_dir("options_settings");
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    std::filesystem::create_directories(settings, error);
+    const app::Run_identity identity = identity_for(root);
+    const std::vector<std::string> command{"/bin/true"};
+    runner::Runner runner;
+
+    auto invalid = [&](const runner::Start_options& options) {
+        return failed_with(runner.start(identity, command, 0, options),
+                           core::ErrorCode::InvalidArgument);
+    };
+
+    runner::Start_options bad;
+    bad.artifact_dir = "relative/artifacts";
+    NX_CHECK(invalid(bad));
+    bad = {};
+    bad.artifact_dir = "/" + std::string(600, 'a');
+    NX_CHECK(invalid(bad));
+    bad = {};
+    bad.global_settings_dir = "relative";
+    NX_CHECK(invalid(bad));
+    bad = {};
+    bad.local_settings_dir = "relative";
+    NX_CHECK(invalid(bad));
+    bad = {};
+    bad.env = {{"", "value"}};
+    NX_CHECK(invalid(bad));
+    bad = {};
+    bad.env = {{"A=B", "value"}};
+    NX_CHECK(invalid(bad));
+    bad = {};
+    bad.env = {{std::string("A\0B", 3), "value"}};
+    NX_CHECK(invalid(bad));
+    bad = {};
+    bad.cpus = {99999};
+    NX_CHECK(invalid(bad));
+    if (const auto cpu = first_allowed_cpu(); cpu.has_value()) {
+        bad = {};
+        bad.cpus = {*cpu, *cpu};
+        NX_CHECK(invalid(bad));
+    }
+
+    runner::Start_options options;
+    options.artifact_dir = artifacts;
+    options.global_settings_dir = settings;
+    options.local_settings_dir = settings;
+    options.log_level = logging::LogLevel::Warning;
+    options.env = {{"NEXIGEN_TEST_OPTION", "yes"}};
+    if (const auto cpu = first_allowed_cpu(); cpu.has_value()) {
+        options.cpus = {*cpu};
+    }
+    NX_CHECK(!options.to_string().empty());
+    const std::vector<std::string> child_command{
+        "/bin/sh", "-c", "echo \"option=$NEXIGEN_TEST_OPTION\"; exec sleep 60"};
+    NX_CHECK(runner.start(identity, child_command, 0, options).has_value());
+    NX_CHECK(wait_until(
+        [&] {
+            return contains(read_text(artifacts + "/stdout.log"),
+                            "option=yes");
+        },
+        3000));
+    NX_CHECK(runner.stop(identity.instance_dir, 2).has_value());
+    for (const auto* name : {"logging.json", "metrics.json", "tracing.json",
+                             "chrono.json"}) {
+        struct stat status_info {};
+        NX_CHECK(::stat((identity.instance_dir + "/settings/" + name).c_str(),
+                        &status_info) == 0);
+    }
+
+    reap_supervisors();
+    remove_tree(root);
+    remove_tree(artifacts);
+    remove_tree(settings);
+}
+
+// --- Stop and status edge conditions ---
+void test_lifecycle_edges() {
+    runner::Runner runner;
+    std::string state;
+
+    NX_CHECK(failed_with(runner.stop("", 0), core::ErrorCode::InvalidArgument));
+    NX_CHECK(failed_with(runner.status("", state),
+                         core::ErrorCode::InvalidArgument));
+
+    const std::string root = unique_dir("edges");
+    NX_CHECK(runner::create_instance_dir(root).has_value());
+
+    // resource.json with a non-positive PID is rejected by stop and reported
+    // as unknown by status.
+    runner::Resource_metadata invalid_resource{};
+    invalid_resource.pid = 0;
+    NX_CHECK(runner::write_resource_json(root, invalid_resource).has_value());
+    NX_CHECK(failed_with(runner.stop(root, 0),
+                         core::ErrorCode::InvalidArgument));
+    NX_CHECK(runner.status(root, state).has_value());
+    NX_CHECK(state == "unknown");
+
+    // A dead PID without exit.json becomes exited, and stop writes the
+    // fallback completion record.
+    runner::Resource_metadata dead_resource{};
+    dead_resource.pid = 999999;
+    dead_resource.start_time_mono_ns = 1;
+    NX_CHECK(runner::write_resource_json(root, dead_resource).has_value());
+    NX_CHECK(runner.status(root, state).has_value());
+    NX_CHECK(state == "exited");
+    NX_CHECK(runner.stop(root, 0).has_value());
+    const runner::Exit_metadata fallback = read_exit(root);
+    NX_CHECK(fallback.terminated_by == runner::Terminated_by::Unknown);
+
+    // An exit record with a missing resource directory is a successful no-op.
+    const std::string completed = unique_dir("edges_completed");
+    NX_CHECK(runner::create_instance_dir(completed).has_value());
+    runner::Exit_metadata exit_metadata{};
+    exit_metadata.exit_code = 0;
+    exit_metadata.terminated_by = runner::Terminated_by::Self;
+    NX_CHECK(runner::write_exit_json(completed, exit_metadata).has_value());
+    NX_CHECK(runner.stop(completed, 0).has_value());
+
+    reap_supervisors();
+    remove_tree(root);
+    remove_tree(completed);
+}
+
 void test_error_paths() {
     runner::Runner runner;
 
@@ -907,8 +1084,44 @@ void test_error_paths() {
         NX_CHECK(state == "exited");
     }
 
+    // Trailing slashes are normalized before the layout is created.
+    app::Run_identity padded = identity_for(root);
+    padded.instance_dir = root + "/test_app/instance-padded///";
+    NX_CHECK(runner.start(padded, command, 0).has_value());
+
+    // An instance directory beyond the path budget is rejected.
+    app::Run_identity too_long = identity_for(root);
+    too_long.instance_dir = "/" + std::string(600, 'x');
+    NX_CHECK(failed_with(runner.start(too_long, command, 0),
+                         core::ErrorCode::InvalidArgument));
+
+    const std::string task_root = unique_dir("errors_io");
+    NX_CHECK(runner::create_instance_dir(task_root + "/test_app/instance-1")
+                 .has_value());
+    std::error_code io_error;
+    std::filesystem::create_directories(
+        task_root + "/test_app/instance-1/stdout.log", io_error);
+    app::Run_identity stdout_blocked{
+        "run-1", task_root, "test_app", "instance-1",
+        task_root + "/test_app/instance-1"};
+    NX_CHECK(failed_with(runner.start(stdout_blocked, command, 0),
+                         core::ErrorCode::SystemError));
+
+    const std::string stderr_root = unique_dir("errors_io2");
+    NX_CHECK(runner::create_instance_dir(stderr_root + "/test_app/instance-1")
+                 .has_value());
+    std::filesystem::create_directories(
+        stderr_root + "/test_app/instance-1/stderr.log", io_error);
+    app::Run_identity stderr_blocked{
+        "run-1", stderr_root, "test_app", "instance-1",
+        stderr_root + "/test_app/instance-1"};
+    NX_CHECK(failed_with(runner.start(stderr_blocked, command, 0),
+                         core::ErrorCode::SystemError));
+
     reap_supervisors();
     remove_tree(root);
+    remove_tree(task_root);
+    remove_tree(stderr_root);
 }
 
 } // namespace
@@ -928,6 +1141,8 @@ int main() {
     run_suite("session_isolation", test_runner_session_isolation);
     run_suite("idle_timeout", test_idle_timeout);
     run_suite("sigkill_after_grace", test_sigkill_after_grace);
+    run_suite("start_options", test_start_options);
+    run_suite("lifecycle_edges", test_lifecycle_edges);
     run_suite("error_paths", test_error_paths);
 
     std::printf("total: %d checks, %d failed\n", g_checks, g_failures);

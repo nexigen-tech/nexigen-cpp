@@ -75,7 +75,7 @@ def collect_line_counts(build_dir: str, source_dir: str, gcov: str) -> dict:
     return counts
 
 
-def summarize(counts: dict, source_dir: str) -> tuple[int, int]:
+def summarize(counts: dict, source_dir: str) -> tuple[int, int, dict[str, list[int]]]:
     source_dir = os.path.realpath(source_dir)
     def module_of(path: str) -> str:
         rel = os.path.realpath(path)[len(source_dir) + 1:]
@@ -130,7 +130,7 @@ def summarize(counts: dict, source_dir: str) -> tuple[int, int]:
     print("-" * 42)
     print(f"{'TOTAL':14} {overall_hit:8d} {overall_total:8d} "
           f"{percent(overall_hit, overall_total):7.1f}%\n")
-    return overall_hit, overall_total
+    return overall_hit, overall_total, totals
 
 
 def main() -> int:
@@ -140,6 +140,14 @@ def main() -> int:
     parser.add_argument("--gcov", default="gcov")
     parser.add_argument("--clean-only", action="store_true")
     parser.add_argument("--fail-under", type=float, default=0.0)
+    parser.add_argument(
+        "--module-fail-under",
+        action="append",
+        default=[],
+        metavar="MODULE=PERCENT",
+        help="fail when one module's line coverage is below PERCENT "
+             "(repeatable, for example runner=90)",
+    )
     args = parser.parse_args()
     build_dir = os.path.realpath(args.build_dir)
 
@@ -148,14 +156,41 @@ def main() -> int:
         print(f"coverage: removed {removed} .gcda counter file(s)")
         return 0
 
+    module_gates: list[tuple[str, float]] = []
+    for entry in args.module_fail_under:
+        name, separator, value = entry.partition("=")
+        if not separator or not name or not value:
+            raise SystemExit(
+                f"coverage: invalid --module-fail-under '{entry}' "
+                "(expected MODULE=PERCENT)")
+        try:
+            module_gates.append((name, float(value)))
+        except ValueError as error:
+            raise SystemExit(
+                f"coverage: invalid percentage in --module-fail-under '{entry}'"
+            ) from error
+
     counts = collect_line_counts(build_dir, args.source_dir, args.gcov)
-    hit, total = summarize(counts, args.source_dir)
+    hit, total, modules = summarize(counts, args.source_dir)
+    failed = False
     if args.fail_under > 0.0:
         coverage = 100.0 * hit / total if total else 0.0
         if coverage < args.fail_under:
             print(f"coverage: {coverage:.1f}% is below the required {args.fail_under:.1f}%")
-            return 1
-    return 0
+            failed = True
+    for name, threshold in module_gates:
+        values = modules.get(name)
+        if values is None or values[0] == 0:
+            print(f"coverage: module '{name}' is missing from the report")
+            failed = True
+            continue
+        module_total, module_hit = values[0], values[1]
+        coverage = 100.0 * module_hit / module_total
+        if coverage < threshold:
+            print(f"coverage: module '{name}' is {coverage:.1f}%, "
+                  f"below the required {threshold:.1f}%")
+            failed = True
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

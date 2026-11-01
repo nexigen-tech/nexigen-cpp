@@ -26,6 +26,11 @@ set(NEXIGEN_COVERAGE_FAIL_UNDER "0" CACHE STRING
 option(NEXIGEN_STRICT_LATENCY_TESTS
     "Enable ns-class latency gates in Release/RelWithDebInfo tests" ON)
 
+# Portable distributions must not assume the build host's instruction set.
+# The default keeps the native tuning used on dedicated HIL hardware.
+option(NEXIGEN_NATIVE_ARCH
+    "Use -march=native/-mtune=native in Release/RelWithDebInfo builds" ON)
+
 if(NEXIGEN_ENABLE_COVERAGE AND (NEXIGEN_ENABLE_ASAN OR NEXIGEN_ENABLE_TSAN))
     message(FATAL_ERROR "❌ Coverage cannot be combined with ASan/TSan in one build.")
 endif()
@@ -47,6 +52,9 @@ if(NEXIGEN_ENABLE_COVERAGE)
     message(STATUS "📊 Coverage instrumentation enabled (--coverage)")
     target_compile_options(nexigen_options INTERFACE --coverage)
     target_link_options(nexigen_options INTERFACE --coverage)
+    # Forked runner children flush gcov counters before `_exit()`/`execvp()`.
+    target_compile_definitions(nexigen_options INTERFACE
+        NEXIGEN_ENABLE_COVERAGE=1)
 endif()
 
 # Настраиваем пути к заголовочным файлам
@@ -70,7 +78,8 @@ if(NOT nlohmann_json_FOUND)
     set(JSON_Install OFF CACHE INTERNAL "")
     FetchContent_Declare(nlohmann_json
         SYSTEM
-        URL https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz)
+        URL https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz
+        URL_HASH SHA256=4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187)
     FetchContent_MakeAvailable(nlohmann_json)
 endif()
 
@@ -356,6 +365,8 @@ if(NEXIGEN_ENABLE_COVERAGE)
                 --source-dir ${CMAKE_CURRENT_SOURCE_DIR}
                 --gcov ${GCOV_EXECUTABLE}
                 --fail-under ${NEXIGEN_COVERAGE_FAIL_UNDER}
+                --module-fail-under runner=90
+                --module-fail-under hub=90
         DEPENDS
             nexigen_core_tests
             nexigen_chrono_tests

@@ -117,6 +117,8 @@ record to stay exact under any thread interleaving.
 cmake -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
 # Release (production: -O3 -march=native + LTO, latency gates active)
 cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release
+# Portable Release: -O3 + LTO without host-specific -march/-mtune
+cmake -B build/portable -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEXIGEN_NATIVE_ARCH=OFF
 # Shared CI runners: optimized code without the ns-class gate
 cmake -B build/release-ci -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DNEXIGEN_STRICT_LATENCY_TESTS=OFF
@@ -133,38 +135,44 @@ cmake --build <dir> && ctest --test-dir <dir> --output-on-failure
 `NEXIGEN_STRICT_LATENCY_TESTS` (default `ON`) controls the ns-class gates in
 Release and RelWithDebInfo. CI disables them because shared runners cannot
 guarantee the 20 ns budget; run the default on dedicated hardware before a
-performance-sensitive release.
+performance-sensitive release. `NEXIGEN_NATIVE_ARCH` (default `ON`) adds
+`-march=native`/`-mtune=native`; set it to `OFF` for binaries that must run on
+other x86-64 hosts.
 
 Coverage instrumentation and the aggregated report target:
 
 ```bash
 cmake -B build/coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_COVERAGE=ON
 cmake --build build/coverage --target coverage
-# optional gate: -DNEXIGEN_COVERAGE_FAIL_UNDER=85
+# optional overall gate: -DNEXIGEN_COVERAGE_FAIL_UNDER=90
 ```
 
 `coverage` cleans `.gcda`, builds and runs the eleven unit-test binaries, and prints
 line coverage per module via `cmake/coverage_report.py` (stdlib only). CLI smoke
 tests are excluded because they exercise subprocesses rather than instrumented
-library code. The target is mutually exclusive with ASan/TSan.
+library code. The target is mutually exclusive with ASan/TSan, enforces
+`runner >= 90` and `hub >= 90`, and flushes gcov counters from forked runner
+supervisors before `_exit()`/`exec`, so control-plane work is measured.
 
-Current unit-test line coverage is **86.2–86.3%** (≈9 950 / 11 532 lines):
+Current unit-test line coverage is **94.2%** (≈10 970 / 11 645 lines):
 
 | Scope | Coverage |
 |---|---:|
-| Original seven modules | 95.9% (7 327 / 7 639) |
-| `runner` | 58.4–58.7% (≈1 380 / 2 363) |
-| `hub` | 80.6–80.8% (≈1 235 / 1 530) |
+| Original seven modules | 95.9% (7 329 / 7 639) |
+| `runner` | 90.5% (≈2 168 / 2 395) |
+| `hub` | 91.6% (≈1 476 / 1 611) |
 
-The project target is **≥95%**. CI enforces an interim **≥85%** gate
-(`-DNEXIGEN_COVERAGE_FAIL_UNDER=85`) until runner/hub coverage is raised. Remaining
-uncovered lines are concentrated in platform-specific calibration branches, sink
-open/read failure paths, `std::to_chars` error arms, and runner/hub control-plane
-branches. The measured baseline and the P1/P2 backlog are recorded in
+The project target is **≥95%**. CI enforces an overall **≥90%** gate
+(`-DNEXIGEN_COVERAGE_FAIL_UNDER=90`) plus the 90% runner and hub module gates.
+Remaining uncovered lines are concentrated in platform-specific calibration
+branches, sink open/read failure paths, `std::to_chars` error arms, and
+retry/fork failure arms that cannot be triggered without fault injection. The
+measured baseline and the P2/P3 backlog are recorded in
 [`project-analysis.md`](project-analysis.md).
 
-All four GCC modes must report `100% tests passed` with no sanitizer diagnostics;
-the Clang job must do the same under `-Werror`. TSan and ASan are mutually exclusive.
+All five GCC modes (Debug, Release, portable Release, TSan, ASan) must report
+`100% tests passed` with no sanitizer diagnostics; the Clang job must do the same
+under `-Werror`. TSan and ASan are mutually exclusive.
 GitHub Actions runs the same matrix, plus the coverage gate and OpenSpec
 validation, from `.github/workflows/ci.yml`. Tests are zero-dependency harnesses
 (`NX_CHECK` / `run_suite`, arena `operator new` counter + `mallinfo2` delta for

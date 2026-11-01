@@ -12,13 +12,23 @@ function(nexigen_set_optimizations target_name)
         target_compile_options(${target_name} INTERFACE
             $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:
                 -O3
-                -march=native       # Оптимизация под инструкции конкретного CPU машины
-                -mtune=native
                 -fno-signed-zeros   # Ускорение математических операций с плавающей точкой
                 -fno-trapping-math
                 -fomit-frame-pointer
             >
         )
+
+        # Host-specific tuning is useful for dedicated HIL hardware but makes
+        # binaries non-portable. NEXIGEN_NATIVE_ARCH=OFF keeps the Release
+        # pipeline above and omits only these two flags.
+        if(NEXIGEN_NATIVE_ARCH)
+            target_compile_options(${target_name} INTERFACE
+                $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:
+                    -march=native
+                    -mtune=native
+                >
+            )
+        endif()
     endif()
 
     # Включаем Link-Time Optimization (LTO / IPO) для Release-сборок

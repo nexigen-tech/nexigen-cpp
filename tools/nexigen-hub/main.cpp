@@ -37,6 +37,12 @@ maximum line 1 MiB. The hub is read-only and serves an embedded web UI.
 )");
 }
 
+void hub_diagnostic(void* context, std::string_view message) noexcept {
+    static_cast<void>(context);
+    std::fprintf(stderr, "nexigen-hub: %.*s\n",
+                 static_cast<int>(message.size()), message.data());
+}
+
 [[nodiscard]] bool parse_u64(std::string_view text, std::uint64_t& out) noexcept {
     if (text.empty()) {
         return false;
@@ -149,7 +155,7 @@ int main(int argc, char* argv[]) {
     limits.ring_bytes = static_cast<std::size_t>(ring_bytes);
     limits.max_line_bytes = static_cast<std::size_t>(max_line_bytes);
     hub::Stream_manager streaming(limits);
-    hub::Http_server server(discovery, streaming);
+    hub::Http_server server(discovery, streaming, hub_diagnostic, nullptr);
     const core::Status started = server.start(listen);
     if (!started) {
         std::fprintf(stderr, "nexigen-hub: listen failed: %s\n",

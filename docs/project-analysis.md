@@ -290,3 +290,31 @@ P1 was implemented in `openspec/changes/improve-distribution`:
 
 P2 remains: runner/hub coverage, control-plane error logging, FetchContent hash,
 portable Release mode, and HTTP edge hardening.
+
+## 10. P2 completion notes (2026-11-01)
+
+P2 was implemented in
+`openspec/changes/archive/2026-11-01-improve-runtime-reliability`:
+
+- **Coverage:** forked runner supervisors and pre-`exec` children flush gcov
+  counters, so control-plane work is measured instead of discarded. The report
+  now shows **94.2%** overall (10 971 / 11 645), with `runner` at **90.5%** and
+  `hub` at **91.6%**. The `coverage` target enforces `runner >= 90` and
+  `hub >= 90`; CI raises its overall gate to 90%.
+- **Control-plane diagnostics:** `Http_server` and `Stream_manager` accept a
+  function-pointer diagnostic sink. Discovery rescan failures, tailer
+  open/stat/read failures, and `sync()` failures are reported; `nexigen-hub`
+  forwards them to stderr. Runner JSON state-write failures are reported at the
+  `write_json_file` choke point through `warn_runner`.
+- **HTTP edges:** `Last-Event-ID` and `Connection` are parsed with a
+  case-insensitive header helper that trims whitespace and cannot match a
+  similarly named header. Malformed request lines, versions, oversized inputs,
+  invalid `limit`/`since` values, invalid escapes, and non-GET methods have
+  regression coverage.
+- **Reproducible and portable builds:** the `nlohmann/json` archive is pinned
+  with its SHA-256 digest. `-DNEXIGEN_NATIVE_ARCH=OFF` removes
+  `-march=native`/`-mtune=native` while keeping `-O3` and LTO; CI builds and
+  tests that mode.
+- **Remaining:** the project-wide 95% target is within reach but not yet
+  enforced; the P3 items (HTTP fuzzing, long-function splits, tidiness checks)
+  remain open.

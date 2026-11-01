@@ -13,10 +13,13 @@
 #include <sched.h>
 #include <unistd.h>
 
+#include <nlohmann/json.hpp>
+
 #include "../support/test_temp.hpp"
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/logging_settings.hpp>
+#include <nexigen/runner/instance_lifecycle.hpp>
 #include <nexigen/runner/runner_logging.hpp>
 
 namespace core = nexigen::core;
@@ -218,6 +221,82 @@ void test_affinity_and_logger_mask() {
     remove_tree(directory);
 }
 
+void test_state_write_warning() {
+    runner::shutdown_runner_logging();
+    const std::string directory = unique_dir("writefail");
+    std::error_code error;
+    std::filesystem::create_directories(directory + "/state.json", error);
+    const logging::Logging_settings settings{};
+    NX_CHECK(runner::init_runner_logging(directory, settings,
+                                         logging::LogLevel::Info)
+                 .has_value());
+    nlohmann::json document;
+    document["state"] = "running";
+    const core::Status written =
+        runner::write_json_file(directory + "/state.json", document);
+    NX_CHECK(!written.has_value());
+    NX_CHECK(runner::flush_runner_logging().has_value());
+    const std::string text = read_text(directory + "/runner.jsonl");
+    NX_CHECK(contains(text, "json_write_failed"));
+    NX_CHECK(contains(text, "state.json"));
+    runner::shutdown_runner_logging();
+    remove_tree(directory);
+}
+
+void test_inactive_and_invalid_config() {
+    runner::shutdown_runner_logging();
+    NX_CHECK(runner::flush_runner_logging().has_value());
+    runner::log_runner(logging::LogLevel::Info, "inactive");
+    runner::warn_runner("inactive-warning");
+    NX_CHECK(runner::runner_logging_path().empty());
+    NX_CHECK(runner::runner_logging_writer_mask() == 0);
+    NX_CHECK(!runner::resume_runner_logging().has_value());
+
+    const std::array<std::uint32_t, 1> invalid{99999};
+    NX_CHECK(!runner::apply_runner_affinity(invalid).has_value());
+    const int cpu = first_allowed_cpu();
+    if (cpu >= 0) {
+        const std::array<std::uint32_t, 2> duplicate{
+            static_cast<std::uint32_t>(cpu),
+            static_cast<std::uint32_t>(cpu)};
+        NX_CHECK(!runner::apply_runner_affinity(duplicate).has_value());
+    }
+
+    const std::string directory = unique_dir("invalid_config");
+    logging::Logging_settings settings{};
+    settings.global_loaded = true;
+    settings.options.flush_cpu_affinity = {
+        static_cast<std::uint64_t>(UINT32_MAX) + 1ULL};
+    NX_CHECK(runner::init_runner_logging(directory, settings,
+                                         logging::LogLevel::Info)
+                 .has_value());
+    runner::shutdown_runner_logging();
+
+    settings.options.flush_cpu_affinity = {99999ULL};
+    NX_CHECK(runner::init_runner_logging(directory, settings,
+                                         logging::LogLevel::Info)
+                 .has_value());
+    runner::shutdown_runner_logging();
+
+    if (cpu >= 0) {
+        settings.options.flush_cpu_affinity = {
+            static_cast<std::uint64_t>(cpu),
+            static_cast<std::uint64_t>(cpu)};
+        NX_CHECK(runner::init_runner_logging(directory, settings,
+                                             logging::LogLevel::Info)
+                     .has_value());
+        runner::shutdown_runner_logging();
+        settings.options.flush_cpu_affinity = {
+            static_cast<std::uint64_t>(cpu)};
+        NX_CHECK(runner::init_runner_logging(directory, settings,
+                                             logging::LogLevel::Info)
+                     .has_value());
+        NX_CHECK(runner::runner_logging_writer_mask() == (1ULL << cpu));
+        runner::shutdown_runner_logging();
+    }
+    remove_tree(directory);
+}
+
 } // namespace
 
 int main() {
@@ -226,6 +305,8 @@ int main() {
     run_suite("global_settings", test_global_settings_loader);
     run_suite("fallback_directory", test_fallback_directory);
     run_suite("affinity_logger_mask", test_affinity_and_logger_mask);
+    run_suite("state_write_warning", test_state_write_warning);
+    run_suite("inactive_invalid_config", test_inactive_and_invalid_config);
 
     std::printf("total: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

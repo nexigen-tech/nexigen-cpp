@@ -257,7 +257,12 @@ core::Status Discovery::initialize(
 
 core::Status Discovery::rescan() noexcept {
     Hub_tree next{};
+    bool failed = false;
     for (const Run_root& root : roots_) {
+        if (!is_directory(root.path)) {
+            failed = true;
+            continue;
+        }
         Hub_run run{};
         if (scan_run(root, run)) {
             next.runs.push_back(std::move(run));
@@ -272,7 +277,8 @@ core::Status Discovery::rescan() noexcept {
         ++revision_;
         rebuild_watches();
     }
-    return {};
+    return failed ? core::Status{std::unexpected(core::ErrorCode::SystemError)}
+                  : core::Status{};
 }
 
 void Discovery::handle_inotify() noexcept {

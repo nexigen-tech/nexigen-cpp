@@ -32,12 +32,20 @@
 #include <nexigen/runner/runner.hpp>
 #include <nexigen/runner/runner_logging.hpp>
 
+#include "coverage_flush.hpp"
+
 namespace nexigen::runner {
 
 namespace {
 
 constexpr std::size_t max_instance_dir_bytes = 511;
 constexpr std::uint64_t nanoseconds_per_second = 1'000'000'000ULL;
+
+/// Flush coverage counters before a forked child leaves the process image.
+[[noreturn]] void child_exit(int code) noexcept {
+    detail::coverage_flush();
+    _exit(code);
+}
 constexpr std::uint64_t timeout_grace_seconds = 5;
 constexpr std::uint64_t stop_settle_seconds = 5;
 constexpr std::uint64_t poll_interval_ms = 20;
@@ -625,7 +633,7 @@ core::Status Runner::start(const app::Run_identity& identity,
                                     core::ErrorCode::SystemError)};
             static_cast<void>(write_all(pipe_fds[1], &report, sizeof(report)));
             static_cast<void>(::close(pipe_fds[1]));
-            _exit(1);
+            child_exit(1);
         }
 
         const pid_t child = ::fork();
@@ -637,7 +645,7 @@ core::Status Runner::start(const app::Run_identity& identity,
             static_cast<void>(::close(pipe_fds[1]));
             static_cast<void>(::close(setup_pipe[0]));
             static_cast<void>(::close(setup_pipe[1]));
-            _exit(1);
+            child_exit(1);
         }
 
         if (child == 0) {
@@ -650,7 +658,7 @@ core::Status Runner::start(const app::Run_identity& identity,
                                                 sizeof(setup_status));
                 static_cast<void>(written);
                 static_cast<void>(::close(setup_pipe[1]));
-                _exit(126);
+                child_exit(126);
             };
             if (::setsid() < 0) {
                 fail_setup(1);
@@ -713,8 +721,9 @@ core::Status Runner::start(const app::Run_identity& identity,
             static_cast<void>(ready_written);
             static_cast<void>(::close(setup_pipe[1]));
 
+            detail::coverage_flush();
             ::execvp(argv[0], argv.data());
-            _exit(127);
+            child_exit(127);
         }
 
         // --- Supervisor parent of the application child ---
@@ -742,7 +751,7 @@ core::Status Runner::start(const app::Run_identity& identity,
                                     core::ErrorCode::SystemError)};
             static_cast<void>(write_all(pipe_fds[1], &report, sizeof(report)));
             static_cast<void>(::close(pipe_fds[1]));
-            _exit(1);
+            child_exit(1);
         }
 
         metadata.pid = child;
@@ -757,7 +766,7 @@ core::Status Runner::start(const app::Run_identity& identity,
                                     core::ErrorCode::SystemError)};
             static_cast<void>(write_all(pipe_fds[1], &report, sizeof(report)));
             static_cast<void>(::close(pipe_fds[1]));
-            _exit(1);
+            child_exit(1);
         }
 
         Start_report report{metadata.pid, 0};
@@ -782,7 +791,7 @@ core::Status Runner::start(const app::Run_identity& identity,
         const Exit_metadata exit_metadata = Exit_metadata::from_child_status(
             child, child_status, uptime, terminated_by);
         static_cast<void>(write_exit_json(instance_dir, exit_metadata));
-        _exit(0);
+        child_exit(0);
     }
 
     // --- Start caller ---

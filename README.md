@@ -32,6 +32,14 @@ cmake --build build/release
 ctest --test-dir build/release --output-on-failure
 ```
 
+Distribution artifacts can disable host-specific tuning while keeping `-O3` and
+LTO:
+
+```bash
+cmake -B build/portable -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DNEXIGEN_NATIVE_ARCH=OFF
+```
+
 Release and RelWithDebInfo enable the ns-class latency gates by default. They are
 meaningful only on dedicated hardware; shared CI runners configure with
 `-DNEXIGEN_STRICT_LATENCY_TESTS=OFF` and still exercise the optimized code.
@@ -52,9 +60,10 @@ cmake --build build/asan
 ctest --test-dir build/asan --output-on-failure
 ```
 
-All four GCC modes must report `100% tests passed`. TSan and ASan are mutually exclusive —
-enabling both at once is a configure-time error. The same matrix runs in GitHub
-Actions via [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+All five GCC modes (Debug, Release, portable Release, TSan, ASan) must report
+`100% tests passed`. TSan and ASan are mutually exclusive — enabling both at once
+is a configure-time error. The same matrix runs in GitHub Actions via
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 Clang is supported when paired with a C++23 standard library (`std::expected` is
 required; an older libstdc++ fails even with a modern Clang):
@@ -77,23 +86,25 @@ cmake --build build/coverage --target coverage
 
 The target cleans old `.gcda` counters, builds and runs the eleven
 `nexigen_*_tests` unit binaries (CLI smoke tests are excluded), and prints line
-coverage per module. Add `-DNEXIGEN_COVERAGE_FAIL_UNDER=85` to fail the target below
-the requested percentage. Coverage cannot be combined with ASan/TSan.
+coverage per module. Add `-DNEXIGEN_COVERAGE_FAIL_UNDER=90` to fail the target below
+the requested percentage; the target also enforces `runner >= 90` and `hub >= 90`.
+Coverage cannot be combined with ASan/TSan. Forked runner supervisors flush gcov
+counters before `_exit()`/`exec`, so control-plane work is measured too.
 
-Current unit-test line coverage is **86.2–86.3%** (≈9 950 / 11 532):
+Current unit-test line coverage is **94.2%** (≈10 970 / 11 645):
 
 | Module | Coverage |
 |---|---:|
 | core, diagnostics | 100.0% |
-| chrono, metrics | 96.1–96.2% |
+| chrono, metrics | 96.2% |
 | app | 95.8% |
-| logging, tracing | 95.3% |
-| hub | 80.6–80.8% |
-| runner | 58.4–58.7% |
+| logging, tracing | 95.3–95.5% |
+| hub | 91.6% |
+| runner | 90.5% |
 
-The project target is **≥95%**. CI currently enforces an interim **≥85%** gate so
-the newest subsystems cannot regress while their coverage is raised. The per-module
-breakdown and the remaining backlog are tracked in
+The project target is **≥95%**. CI enforces a **≥90%** overall gate plus the
+90% runner/hub module gates so the newest subsystems cannot regress. The
+per-module breakdown and the remaining backlog are tracked in
 [`docs/project-analysis.md`](docs/project-analysis.md).
 
 ### Install and consume
@@ -361,8 +372,8 @@ int main() {
 
 ### Running the `nexigen::logging` unit tests
 
-All four build modes must report `100% tests passed` (the numeric ≤ 20 ns latency gate is
-Release-only; correctness runs everywhere).
+All five GCC build modes (including portable Release) must report `100% tests passed`
+(the numeric ≤ 20 ns latency gate is Release-only; correctness runs everywhere).
 
 Debug (development: `-g`, assertions, no numeric gates):
 
