@@ -201,7 +201,7 @@ struct Fixture {
         write_text(attempt_dir + "/metrics.jsonl", "");
         write_text(attempt_dir + "/traces.jsonl", "");
         write_text(attempt_dir + "/chrono.jsonl", "");
-        write_text(artifacts + "/runner.jsonl", "{\"event\":\"suite_started\"}\n");
+        write_text(artifacts + "/hil/runner.jsonl", "{\"event\":\"suite_started\"}\n");
     }
 
     ~Fixture() {
@@ -430,6 +430,7 @@ void test_discovery() {
     NX_CHECK(suite.apps[0].instances.size() == 1);
     NX_CHECK(suite.apps[0].instances[0].attempts.size() == 1);
     NX_CHECK(suite.runner_log.id == "run-1:hil:suite:runner:0:runner");
+    NX_CHECK(suite.runner_log.path == fixture.artifacts + "/hil/runner.jsonl");
     NX_CHECK(hub::all_streams(tree).size() == 7);
     NX_CHECK(hub::find_stream(tree, stream_id(fixture, "stdout")) != nullptr);
 

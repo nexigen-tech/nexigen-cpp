@@ -392,7 +392,8 @@ void Discovery::scan_suite(const RunRoot& root, const std::string& suite_dir,
         out.runner_log.id = stream_id(root.key, out.suite_id, "suite", "runner",
                                       0, StreamKind::Runner);
         out.runner_log.kind = StreamKind::Runner;
-        out.runner_log.path = join(out.artifacts_path, "runner.jsonl");
+        out.runner_log.path =
+            join(join(out.artifacts_path, out.suite_id), "runner.jsonl");
     }
 
     runner::SuiteState recorded_state = runner::SuiteState::Unknown;
