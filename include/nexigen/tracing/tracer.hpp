@@ -135,7 +135,7 @@ public:
         // (6) Configured span-rate budget: rejected before any queue
         // interaction; rate_limited counts exactly the rejected spans.
         if (provider.rate_policy_enabled()) {
-            auto& state = provider.state_[static_cast<std::size_t>(slot)];
+            auto& state = provider.state(static_cast<std::size_t>(slot));
             const std::uint64_t ns = start.nanoseconds();
             if (state.window_start_ns != 0ULL &&
                 ns - state.window_start_ns >= provider.rate_window_ns()) {

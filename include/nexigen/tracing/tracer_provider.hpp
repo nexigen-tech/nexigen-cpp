@@ -52,6 +52,7 @@
 
 #include <nexigen/chrono/stamp_source.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/shard_pool.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
 #include <nexigen/tracing/concepts/tracer_concept.hpp>
 #include <nexigen/tracing/detail/active_span_stack.hpp>
@@ -216,30 +217,15 @@ public:
     /// counter. Sampling-filtered spans never appear here.
     [[nodiscard]] DroppedStats dropped() const noexcept {
         DroppedStats aggregate{};
-        for (const ShardState& state : state_) {
-            aggregate.rate_limited += state.rate_limited.load(std::memory_order_relaxed);
-            aggregate.buffer_full += state.buffer_full.load(std::memory_order_relaxed);
-        }
-        aggregate.slot_exhausted = exhausted_.slot_exhausted.load(std::memory_order_relaxed);
+        aggregate.rate_limited = pool_.rate_limited_total();
+        aggregate.buffer_full = pool_.buffer_full_total();
+        aggregate.slot_exhausted = pool_.slot_exhausted();
         return aggregate;
     }
 
     /// Snapshot pending-record count across all shards (diagnostics).
-    [[nodiscard]] std::size_t ring_size() const noexcept {
-        std::size_t pending = 0;
-        for (const auto& shard : shards_) {
-            pending += shard.size();
-        }
-        return pending;
-    }
-    [[nodiscard]] bool ring_empty() const noexcept {
-        for (const auto& shard : shards_) {
-            if (!shard.is_empty()) {
-                return false;
-            }
-        }
-        return true;
-    }
+    [[nodiscard]] std::size_t ring_size() const noexcept { return pool_.ring_size(); }
+    [[nodiscard]] bool ring_empty() const noexcept { return pool_.ring_empty(); }
 
     /// Worker startup snapshot (pollable; spec "Worker affinity matches the
     /// configured mask" / "Pin failures are visible without stopping the
@@ -279,45 +265,16 @@ private:
     static constexpr std::uint8_t control_enabled_bit = 0x1U;
     static constexpr std::uint8_t control_sampling_shift = 1U;
 
-    /// First call per (thread, this): claim a slot; later calls read the
-    /// thread_local cache. A 4-entry inline map keyed by provider address
-    /// (logging Producer pattern). Beyond MaxThreads distinct threads: the
-    /// shared exhaustion counter bumps (the ONLY shared atomic RMW on a drop
-    /// path) and the caller drops.
+    /// Slot claim (TLS-cached; the pool re-validates stale entries after a
+    /// provider destroyed/re-created at the same address). Returns -1 when the
+    /// pool is exhausted (already counted, never blocks).
     [[nodiscard]] std::int8_t this_thread_slot() noexcept {
-        struct Entry {
-            const void* owner{nullptr};
-            std::int32_t slot{-1};
-        };
-        thread_local Entry tls[4]{}; // 4 distinct providers per thread
-        for (const Entry& entry : tls) {
-            if (entry.owner == this) {
-                return static_cast<std::int8_t>(entry.slot); // TLS only
-            }
-        }
-        const std::uint32_t claimed =
-            registration_.next_slot.fetch_add(1U, std::memory_order_relaxed);
-        if (claimed >= MaxThreads) {
-            exhausted_.slot_exhausted.fetch_add(1U, std::memory_order_relaxed);
-            return -1; // dropped: no slot (never blocks)
-        }
-        // Publish the high-water mark (release): the worker's acquire-load
-        // of active() must not order before the slot it will drain exists.
-        std::uint32_t current = registration_.active.load(std::memory_order_relaxed);
-        while (claimed + 1U > current &&
-               !registration_.active.compare_exchange_weak(
-                   current, claimed + 1U, std::memory_order_release,
-                   std::memory_order_relaxed)) {
-            // bounded: current strictly increases per retry
-        }
-        for (Entry& entry : tls) {
-            if (entry.owner == nullptr) {
-                entry.owner = this;
-                entry.slot = static_cast<std::int32_t>(claimed);
-                break;
-            }
-        }
-        return static_cast<std::int8_t>(claimed);
+        return static_cast<std::int8_t>(pool_.claim_slot());
+    }
+
+    /// Per-shard accounting cell for the rate budget (friend access).
+    [[nodiscard]] core::ShardPoolState& state(std::size_t slot) noexcept {
+        return pool_.state(slot);
     }
 
     /// INLINE end-of-span path (design D8): end stamp, one SPSC try_push
@@ -328,8 +285,8 @@ private:
         if (slot >= 0) {
             const std::size_t index = static_cast<std::size_t>(slot);
             record.end = stamps_[index].sample();
-            if (!shards_[index].try_push(record)) {
-                ShardState& state = state_[index];
+            if (!pool_.ring(index).try_push(record)) {
+                core::ShardPoolState& state = pool_.state(index);
                 state.buffer_full.store(
                     state.buffer_full.load(std::memory_order_relaxed) + 1U,
                     std::memory_order_relaxed);
@@ -347,17 +304,12 @@ private:
     }
     [[nodiscard]] std::uint64_t rate_window_ns() const noexcept { return policy_.window_ns; }
 
-    /// Consumer-only round-robin cursor (the worker is the sole pop() caller).
-    std::uint32_t drain_shard_{};
-    std::uint32_t drain_shard_pops_{};
-
     // -- cold-path machinery (out-of-line; provider.cpp instantiates) ------
 
-    /// Consumer end: round-robin across the registered shards with a
-    /// 16-record per-shard per-sweep slice (one flooded shard cannot starve
-    /// the others); BufferEmpty when every registered shard is momentarily
-    /// empty. Consumer thread only.
-    [[nodiscard]] core::Status pop(Record& out) noexcept;
+    /// Consumer end: delegates to the pool's round-robin drain (16-record
+    /// per-shard per-sweep slice; BufferEmpty when every registered shard is
+    /// momentarily empty). Consumer thread only.
+    [[nodiscard]] core::Status pop(Record& out) noexcept { return pool_.pop(out); }
 
     /// The background consumer body: self-pin (failures into start_), sink
     /// start, drain loop with idle backoff (64 failed sweeps → 200 µs
@@ -370,42 +322,15 @@ private:
 
     // -- state (design D5 layout) ------------------------------------------
 
-    /// Shard pool: slot s's producer end is touched ONLY by its owner
+    /// Shard pool: one SPSC ring + accounting cell per thread, slot
+    /// registration, exhaustion, and the consumer drain (core/
+    /// shard_pool.hpp). Slot s's producer end is touched ONLY by its owner
     /// thread; the single consumer drains all.
-    alignas(64) std::array<core::SpscRingBuffer<SpanRecord, ShardCapacity>, MaxThreads>
-        shards_{};
+    core::ShardPool<SpanRecord, ShardCapacity, MaxThreads> pool_{};
 
     /// One stamp source PER SLOT: single-writer per slot keeps sampling
     /// race-free with zero atomics (design D6/D8).
     std::array<chrono::StampSource, MaxThreads> stamps_{};
-
-    /// Per-shard accounting + throttle window: the two counters are written
-    /// ONLY by the slot's owner (relaxed store of prev+1 — never a contended
-    /// RMW); the window fields are plain single-writer state. One cache line
-    /// per shard.
-    struct alignas(64) ShardState {
-        std::atomic<std::uint64_t> rate_limited{}; ///< owner stores, others load
-        std::atomic<std::uint64_t> buffer_full{};  ///< owner stores, others load
-        std::uint64_t window_start_ns{};           ///< owner-only plain state
-        std::uint64_t tokens_used{};               ///< owner-only plain state
-        std::uint8_t pad_[32]{};
-    };
-    static_assert(sizeof(ShardState) % 64 == 0, "shard state owns whole lines");
-    ShardState state_[MaxThreads]{};
-
-    /// Slot registration (D13): next_slot relaxed fetch_add; active released
-    /// max-store so the consumer observes slots it may drain.
-    struct alignas(64) RegistrationCell {
-        std::atomic<std::uint32_t> next_slot{}; ///< relaxed fetch_add
-        std::atomic<std::uint32_t> active{};    ///< release fetch_max (CAS loop)
-        std::uint8_t pad_[56]{};
-    } registration_{};
-
-    /// Pool-exhaustion counter (relaxed; misconfiguration diagnostics).
-    struct alignas(64) ExhaustedCell {
-        std::atomic<std::uint64_t> slot_exhausted{};
-        std::uint8_t pad_[56]{};
-    } exhausted_{};
 
     /// Runtime control (D9): bit0 enabled, bits 1-2 sampling, rest reserved.
     /// ONE relaxed load per span start; relaxed stores on change.
@@ -477,8 +402,6 @@ private:
     std::jthread worker_{};
 
     // Layout self-verification (design D5): the cells own whole cache lines.
-    static_assert(sizeof(RegistrationCell) == 64);
-    static_assert(sizeof(ExhaustedCell) == 64);
     static_assert(sizeof(ControlCell) == 64);
     static_assert(sizeof(StartCell) == 64);
     static_assert(sizeof(FlushCell) == 64);
@@ -583,27 +506,6 @@ TracerProvider<ShardCapacity, MaxThreads>::get_tracer(std::string_view scope_nam
         }
     }
     return std::unexpected(core::ErrorCode::BufferFull);
-}
-
-template <std::size_t ShardCapacity, std::size_t MaxThreads>
-core::Status TracerProvider<ShardCapacity, MaxThreads>::pop(Record& out) noexcept {
-    const std::uint32_t active = registration_.active.load(std::memory_order_acquire);
-    bool deferred = false; // a shard was skipped at its 16-record slice
-    for (std::uint32_t tried = 0U; tried < active; ++tried) {
-        const std::uint32_t shard = drain_shard_;
-        if (drain_shard_pops_ >= 16U) {
-            deferred = true;
-        } else if (shards_[shard].try_pop(out)) {
-            ++drain_shard_pops_;
-            return {};
-        }
-        drain_shard_ = active == 0U ? 0U : (shard + 1U) % active;
-        drain_shard_pops_ = 0U;
-    }
-    if (deferred) {
-        return pop(out); // one retry: budgets reset, real records surface
-    }
-    return std::unexpected(core::ErrorCode::BufferEmpty);
 }
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
