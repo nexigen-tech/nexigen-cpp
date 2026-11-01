@@ -54,6 +54,7 @@ enum class MetricKind : std::uint8_t {
     DescriptiveStatistics,
     ExplicitHistogram,
     ExponentialHistogram,
+    State,
 };
 
 /// Canonical enumerator spelling. The default arm makes a garbage-cast value
@@ -90,6 +91,7 @@ enum class MetricKind : std::uint8_t {
         case MetricKind::DescriptiveStatistics:  return "DescriptiveStatistics";
         case MetricKind::ExplicitHistogram:      return "ExplicitHistogram";
         case MetricKind::ExponentialHistogram:   return "ExponentialHistogram";
+        case MetricKind::State:                  return "State";
         default:                                return "Unknown";
     }
 }
@@ -121,6 +123,7 @@ enum class MetricKind : std::uint8_t {
     if (name == "DescriptiveStatistics") { out = MetricKind::DescriptiveStatistics; return true; }
     if (name == "ExplicitHistogram")     { out = MetricKind::ExplicitHistogram;     return true; }
     if (name == "ExponentialHistogram")  { out = MetricKind::ExponentialHistogram;  return true; }
+    if (name == "State")                 { out = MetricKind::State;                 return true; }
     return false;
 }
 

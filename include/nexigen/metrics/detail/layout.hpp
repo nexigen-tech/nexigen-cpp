@@ -17,6 +17,7 @@ inline constexpr std::size_t instrument_alignment = 64;
 /// Upper bounds (bytes) for one instrument object, worst-case instantiation.
 inline constexpr std::size_t max_counter_size = 2560;
 inline constexpr std::size_t max_gauge_size = 2560;
+inline constexpr std::size_t max_state_size = 256;
 inline constexpr std::size_t max_statistics_size = 8192;
 inline constexpr std::size_t max_explicit_histogram_size = 49152;
 inline constexpr std::size_t max_exponential_histogram_size = 147456;

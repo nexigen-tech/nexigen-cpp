@@ -42,6 +42,7 @@ std::size_t MetricProvider::kind_index(MetricKind kind) noexcept {
         case MetricKind::DescriptiveStatistics: return 2;
         case MetricKind::ExplicitHistogram:     return 3;
         case MetricKind::ExponentialHistogram:  return 4;
+        case MetricKind::State:                 return 5;
     }
     return 0;
 }
@@ -53,6 +54,7 @@ std::size_t MetricProvider::kind_object_size(MetricKind kind) noexcept {
         case MetricKind::DescriptiveStatistics: return detail::max_statistics_size;
         case MetricKind::ExplicitHistogram:     return detail::max_explicit_histogram_size;
         case MetricKind::ExponentialHistogram:  return detail::max_exponential_histogram_size;
+        case MetricKind::State:                 return detail::max_state_size;
     }
     return 0;
 }
@@ -60,8 +62,9 @@ std::size_t MetricProvider::kind_object_size(MetricKind kind) noexcept {
 MetricProvider::MetricProvider(const MetricProviderConfig& config, detail::SinkBinding binding)
     : config_(config), binding_(binding) {
     const std::uint32_t capacities[kind_count] = {
-        config_.max_counters, config_.max_gauges, config_.max_statistics,
-        config_.max_explicit_histograms, config_.max_exponential_histograms};
+        config_.max_counters, config_.max_gauges, config_.max_states,
+        config_.max_statistics, config_.max_explicit_histograms,
+        config_.max_exponential_histograms};
 
     // One aligned block: slot tables, object arenas, meter table, meter arena
     // and the harvest buffer.

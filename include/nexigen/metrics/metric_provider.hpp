@@ -43,6 +43,7 @@ struct MetricProviderConfig {
     std::uint32_t max_meters{16};
     std::uint32_t max_counters{64};
     std::uint32_t max_gauges{64};
+    std::uint32_t max_states{16};
     std::uint32_t max_statistics{32};
     std::uint32_t max_explicit_histograms{16};
     std::uint32_t max_exponential_histograms{8};
@@ -139,7 +140,7 @@ private:
         std::uint32_t slot_max{0};
     };
 
-    static constexpr std::size_t kind_count = 5;
+    static constexpr std::size_t kind_count = 6;
 
     /// Reserve a registry slot for a new instrument.
     [[nodiscard]] core::Status reserve_slot(MetricKind kind, std::size_t object_size,
@@ -234,6 +235,17 @@ Meter::create_gauge(std::string_view name) {
     using Instrument = Gauge<ValueType, Concurrency, Access, Reset>;
     return create_instrument<Instrument>(
         MetricKind::Gauge, name, Concurrency, Access, Reset,
+        [](void* object) -> Instrument* {
+            return new (object) Instrument(MeterPasskey{});
+        });
+}
+
+template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
+core::Result<StateGauge<Concurrency, Access, Reset>*>
+Meter::create_state(std::string_view name) {
+    using Instrument = StateGauge<Concurrency, Access, Reset>;
+    return create_instrument<Instrument>(
+        MetricKind::State, name, Concurrency, Access, Reset,
         [](void* object) -> Instrument* {
             return new (object) Instrument(MeterPasskey{});
         });

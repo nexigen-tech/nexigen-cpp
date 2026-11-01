@@ -30,6 +30,7 @@
 #include <nexigen/metrics/gauge.hpp>
 #include <nexigen/metrics/metric_snapshot.hpp>
 #include <nexigen/metrics/policy_enums.hpp>
+#include <nexigen/metrics/state_gauge.hpp>
 
 namespace nexigen::metrics {
 
@@ -73,6 +74,13 @@ public:
               ResetPolicy Reset = ResetPolicy::Cumulative>
     [[nodiscard]] core::Result<Gauge<ValueType, Concurrency, Access, Reset>*>
     create_gauge(std::string_view name);
+
+    /// Create a state gauge (a current named state, string-valued).
+    template <ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,
+              AccessPolicy Access = AccessPolicy::Readable,
+              ResetPolicy Reset = ResetPolicy::Cumulative>
+    [[nodiscard]] core::Result<StateGauge<Concurrency, Access, Reset>*>
+    create_state(std::string_view name);
 
     /// Create a descriptive-statistics instrument.
     template <ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,

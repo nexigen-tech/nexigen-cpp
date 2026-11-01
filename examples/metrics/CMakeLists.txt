@@ -9,4 +9,5 @@ nexigen_add_example(ex_counters_and_gauges ex_counters_and_gauges.cpp nexigen::m
 nexigen_add_example(ex_descriptive_statistics ex_descriptive_statistics.cpp nexigen::metrics)
 nexigen_add_example(ex_histograms ex_histograms.cpp nexigen::metrics)
 nexigen_add_example(ex_metric_provider_and_sinks ex_metric_provider_and_sinks.cpp nexigen::metrics)
+nexigen_add_example(ex_state_gauge ex_state_gauge.cpp nexigen::metrics)
 

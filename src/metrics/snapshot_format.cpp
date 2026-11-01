@@ -55,6 +55,10 @@ std::string HistogramSnapshot::to_string() const {
            ", buckets=" + std::to_string(bucket_count) + ")";
 }
 
+std::string StateValue::to_string() const {
+    return "StateValue(value=" + std::string(detail::view_name(value)) + ")";
+}
+
 std::string MetricRecord::to_string() const {
     std::string out = "MetricRecord(";
     out += identity.to_string();
@@ -70,6 +74,9 @@ std::string MetricRecord::to_string() const {
             break;
         case MetricKind::DescriptiveStatistics:
             out += statistics.to_string();
+            break;
+        case MetricKind::State:
+            out += state.to_string();
             break;
         default:
             out += histogram.to_string();
@@ -92,6 +99,7 @@ std::string to_string(const MetricIdentity& identity) { return identity.to_strin
 std::string to_string(const ScalarValue& value) { return value.to_string(); }
 std::string to_string(const StatisticsSnapshot& snapshot) { return snapshot.to_string(); }
 std::string to_string(const HistogramSnapshot& snapshot) { return snapshot.to_string(); }
+std::string to_string(const StateValue& value) { return value.to_string(); }
 std::string to_string(const MetricRecord& record) { return record.to_string(); }
 std::string to_string(const MetricBatchSnapshot& batch) { return batch.to_string(); }
 
@@ -292,6 +300,24 @@ void from_json(const nlohmann::json& j, HistogramSnapshot& out) noexcept {
     }
 }
 
+void to_json(nlohmann::json& j, const StateValue& value) {
+    j = nlohmann::json{{"value", std::string(detail::view_name(value.value))}};
+}
+
+void from_json(const nlohmann::json& j, StateValue& out) noexcept {
+    if (!j.is_object()) {
+        return;
+    }
+    const auto it = j.find("value");
+    if (it == j.end() || !it->is_string()) {
+        return;
+    }
+    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
+    if (text != nullptr) {
+        static_cast<void>(detail::copy_name(out.value, std::string_view(*text)));
+    }
+}
+
 void to_json(nlohmann::json& j, const MetricRecord& record) {
     j = nlohmann::json{
         {"identity", record.identity},
@@ -308,6 +334,9 @@ void to_json(nlohmann::json& j, const MetricRecord& record) {
             break;
         case MetricKind::DescriptiveStatistics:
             j["statistics"] = record.statistics;
+            break;
+        case MetricKind::State:
+            j["state"] = record.state;
             break;
         default:
             j["histogram"] = record.histogram;
@@ -351,6 +380,13 @@ void from_json(const nlohmann::json& j, MetricRecord& out) noexcept {
             const auto stats_it = j.find("statistics");
             if (stats_it != j.end()) {
                 from_json(*stats_it, out.statistics);
+            }
+            break;
+        }
+        case MetricKind::State: {
+            const auto state_it = j.find("state");
+            if (state_it != j.end()) {
+                from_json(*state_it, out.state);
             }
             break;
         }
@@ -425,6 +461,7 @@ std::string nexigen::metrics::MetricProviderConfig::to_string() const {
            ", max_meters=" + std::to_string(max_meters) +
            ", max_counters=" + std::to_string(max_counters) +
            ", max_gauges=" + std::to_string(max_gauges) +
+           ", max_states=" + std::to_string(max_states) +
            ", max_statistics=" + std::to_string(max_statistics) +
            ", max_explicit_histograms=" + std::to_string(max_explicit_histograms) +
            ", max_exponential_histograms=" + std::to_string(max_exponential_histograms) + ")";
@@ -441,6 +478,7 @@ void to_json(nlohmann::json& j, const MetricProviderConfig& config) {
         {"max_meters", config.max_meters},
         {"max_counters", config.max_counters},
         {"max_gauges", config.max_gauges},
+        {"max_states", config.max_states},
         {"max_statistics", config.max_statistics},
         {"max_explicit_histograms", config.max_explicit_histograms},
         {"max_exponential_histograms", config.max_exponential_histograms},
@@ -473,6 +511,7 @@ void from_json(const nlohmann::json& j, MetricProviderConfig& out) noexcept {
     unsigned_number("max_meters", out.max_meters);
     unsigned_number("max_counters", out.max_counters);
     unsigned_number("max_gauges", out.max_gauges);
+    unsigned_number("max_states", out.max_states);
     unsigned_number("max_statistics", out.max_statistics);
     unsigned_number("max_explicit_histograms", out.max_explicit_histograms);
     unsigned_number("max_exponential_histograms", out.max_exponential_histograms);

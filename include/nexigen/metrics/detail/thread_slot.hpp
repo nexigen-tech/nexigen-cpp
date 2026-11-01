@@ -44,6 +44,7 @@ inline constexpr std::size_t slot_kind_count = 5;
         case MetricKind::DescriptiveStatistics: return 2;
         case MetricKind::ExplicitHistogram:     return 3;
         case MetricKind::ExponentialHistogram:  return 4;
+        case MetricKind::State:                 return 0; // State never shards; the slot space is unused
     }
     return 0;
 }

@@ -34,6 +34,11 @@ namespace nexigen::metrics {
 /// stored buffer holds one more byte for the NUL).
 inline constexpr std::size_t max_name_length = 63;
 
+/// Maximum length of a state value (a current named state such as a mode or
+/// enum spelling); the stored buffer holds one more byte for the NUL. Mirrors
+/// max_name_length.
+inline constexpr std::size_t max_state_length = 63;
+
 /// Maximum number of buckets carried by a histogram snapshot.
 inline constexpr std::size_t max_snapshot_buckets = 256;
 
@@ -135,6 +140,15 @@ struct HistogramSnapshot {
     [[nodiscard]] std::string to_string() const;
 };
 
+/// A current named state value: a bounded NUL-terminated string, last-writer-
+/// wins. The payload is inline so the record stays fixed-size and trivially
+/// copyable.
+struct StateValue {
+    char value[max_state_length + 1]{};
+
+    [[nodiscard]] std::string to_string() const;
+};
+
 /// One harvested metric: identity, classification and the kind-specific
 /// payload (a union sized to the largest variant; `kind` selects the member).
 struct MetricRecord {
@@ -147,6 +161,7 @@ struct MetricRecord {
         ScalarValue scalar{};
         StatisticsSnapshot statistics;
         HistogramSnapshot histogram;
+        StateValue state;
     };
 
     [[nodiscard]] std::string to_string() const;
@@ -172,6 +187,7 @@ static_assert(std::is_trivially_copyable_v<MetricIdentity>);
 static_assert(std::is_trivially_copyable_v<ScalarValue>);
 static_assert(std::is_trivially_copyable_v<StatisticsSnapshot>);
 static_assert(std::is_trivially_copyable_v<HistogramSnapshot>);
+static_assert(std::is_trivially_copyable_v<StateValue>);
 static_assert(std::is_trivially_copyable_v<MetricRecord>);
 static_assert(std::is_trivially_copyable_v<MetricBatchSnapshot>);
 
@@ -181,6 +197,7 @@ static_assert(std::is_trivially_copyable_v<MetricBatchSnapshot>);
 [[nodiscard]] std::string to_string(const ScalarValue& value);
 [[nodiscard]] std::string to_string(const StatisticsSnapshot& snapshot);
 [[nodiscard]] std::string to_string(const HistogramSnapshot& snapshot);
+[[nodiscard]] std::string to_string(const StateValue& value);
 [[nodiscard]] std::string to_string(const MetricRecord& record);
 [[nodiscard]] std::string to_string(const MetricBatchSnapshot& batch);
 
@@ -200,6 +217,9 @@ void from_json(const nlohmann::json& j, StatisticsSnapshot& out) noexcept;
 
 void to_json(nlohmann::json& j, const HistogramSnapshot& snapshot);
 void from_json(const nlohmann::json& j, HistogramSnapshot& out) noexcept;
+
+void to_json(nlohmann::json& j, const StateValue& value);
+void from_json(const nlohmann::json& j, StateValue& out) noexcept;
 
 void to_json(nlohmann::json& j, const MetricRecord& record);
 void from_json(const nlohmann::json& j, MetricRecord& out) noexcept;
@@ -241,6 +261,15 @@ template <>
 struct std::formatter<nexigen::metrics::HistogramSnapshot> : std::formatter<std::string_view> {
     template <class Ctx>
     auto format(const nexigen::metrics::HistogramSnapshot& value, Ctx& ctx) const {
+        const std::string text = value.to_string();
+        return std::formatter<std::string_view>::format(text, ctx);
+    }
+};
+
+template <>
+struct std::formatter<nexigen::metrics::StateValue> : std::formatter<std::string_view> {
+    template <class Ctx>
+    auto format(const nexigen::metrics::StateValue& value, Ctx& ctx) const {
         const std::string text = value.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

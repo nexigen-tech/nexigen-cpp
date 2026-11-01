@@ -8,7 +8,7 @@ Defines the policy vocabulary shared by every metrics instrument — concurrency
 
 ### Requirement: Policy enum catalogue
 
-`nexigen::metrics` SHALL define four distinct scoped enum types with a fixed `std::uint8_t` underlying type: `ConcurrencyPolicy` (`SingleThreaded`, `MultiThreaded`), `AccessPolicy` (`Readable`, `WriteOnly`), `ResetPolicy` (`Cumulative`, `ResetOnRead`), and `MetricKind` (`Counter`, `Gauge`, `DescriptiveStatistics`, `ExplicitHistogram`, `ExponentialHistogram`). Numeric values are append-only and stable.
+`nexigen::metrics` SHALL define four distinct scoped enum types with a fixed `std::uint8_t` underlying type: `ConcurrencyPolicy` (`SingleThreaded`, `MultiThreaded`), `AccessPolicy` (`Readable`, `WriteOnly`), `ResetPolicy` (`Cumulative`, `ResetOnRead`), and `MetricKind` (`Counter`, `Gauge`, `DescriptiveStatistics`, `ExplicitHistogram`, `ExponentialHistogram`, `State`). Numeric values are append-only and stable.
 
 #### Scenario: Enumerator sets are complete
 
@@ -42,7 +42,7 @@ Each policy enum SHALL provide `[[nodiscard]] constexpr std::string_view to_stri
 #### Scenario: MetricKind name mapping
 
 - **WHEN** `to_string` is called with every `MetricKind` enumerator and each result is parsed back with `from_string`
-- **THEN** the renders are exactly `"Counter"`, `"Gauge"`, `"DescriptiveStatistics"`, `"ExplicitHistogram"`, and `"ExponentialHistogram"`, and each round-trips
+- **THEN** the renders are exactly `"Counter"`, `"Gauge"`, `"DescriptiveStatistics"`, `"ExplicitHistogram"`, `"ExponentialHistogram"`, and `"State"`, and each round-trips
 
 #### Scenario: Unknown values render safely
 
