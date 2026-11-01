@@ -1023,6 +1023,7 @@ does this for you):
 ./build/debug/examples/diagnostics/ex_stopwatch_histogram
 ./build/debug/examples/app/ex_app_lifecycle
 ./build/debug/examples/app/ex_app_cli_settings
+./build/debug/examples/suite/ex_suite_app
 ```
 
 * **`ex_spsc_ring_buffer`** — a two-thread telemetry pipeline over
@@ -1117,6 +1118,13 @@ does this for you):
   The example-local `--fail-demo` token (stripped before the standard parser) writes
   one malformed settings file so the run fails through the real settings-loading path
   — a diagnostic on stderr and a non-zero exit, for exercising the failure branch.
+* **`ex_suite_app`** — the configurable multi-application suite demonstration
+  application: one binary whose role (`worker`/`degrade`/`failure`) and crash intervals
+  come from environment variables, launched under `nexigen-run` from a suite manifest.
+  Each instance writes all four telemetry streams and records one instrument of every
+  metric kind (`ResetOnRead` with a one-second collection cadence and ~1–2 logs/s); the
+  `degrade` role exits non-zero on its interval and the `failure` role aborts (SIGABRT).
+  See the suite runner below for the orchestrated scenario.
 
 ### Command-line settings example: runner and cleanup
 
@@ -1149,6 +1157,41 @@ Set `BUILD_DIR` to point the runner at a non-default build tree.
 The test configuration also registers `ex_app_cli_settings_help`, an
 argument-driven smoke variant that runs `ex_app_cli_settings --help` and passes
 when the command-line usage is printed and the exit status is 0.
+
+### Suite demonstration: runner and cleanup
+
+`examples/suite/run_suite_demo.sh` builds (when needed) and starts a three-application
+suite through `nexigen-run`: a `worker` (`not_impact`) that runs until stopped, a
+`degrade` instance that exits non-zero every `NEXIGEN_DEMO_EXIT_AFTER_S` seconds
+(default 60) and is retried until its per-application budget is exhausted (suite becomes
+`degraded`), and a `failure` instance that aborts every `NEXIGEN_DEMO_ABORT_AFTER_S`
+seconds (default 300), triggering a whole-suite restart and, after the shared budget,
+suite failure:
+
+```bash
+./examples/suite/run_suite_demo.sh
+./build/tools/nexigen-run status --config /tmp/opencode/nexigen-suite-demo/suite.json
+./build/tools/nexigen-run stop --config /tmp/opencode/nexigen-suite-demo/suite.json
+```
+
+The script generates the manifest, the run/control files, the per-attempt artifact
+directories and `runner.jsonl` under the demo root (`/tmp/opencode/nexigen-suite-demo` by
+default, overridable via `NEXIGEN_DEMO_ROOT`). Observe the timeline with
+`nexigen-run status --json` and `runner.jsonl` (`retry_scheduled`, `suite_restart`);
+`suite-exit.json` records the final `failed` outcome with reason `restart_exhausted`, and
+each instance's `exit.json` records an exit code for the degrade instance and a signal for
+the failure instance.
+
+`examples/suite/clean_suite_demo.sh` removes the demo root idempotently:
+
+```bash
+./examples/suite/clean_suite_demo.sh
+```
+
+Set `BUILD_DIR` to point the runner at a non-default build tree. The interval knobs
+`NEXIGEN_DEMO_EXIT_AFTER_S`, `NEXIGEN_DEMO_ABORT_AFTER_S`, `NEXIGEN_DEMO_RESTART_ATTEMPTS`,
+`NEXIGEN_DEMO_RESTART_DELAY_S`, `NEXIGEN_DEMO_SUITE_RESTART_ATTEMPTS` and
+`NEXIGEN_DEMO_SUITE_RESTART_DELAY_S` compress the scenario for a quick smoke run.
 
 Every example is also registered as a CTest smoke test (label `examples`): each must run
 to completion and exit with status 0.

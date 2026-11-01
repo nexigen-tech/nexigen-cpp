@@ -1,0 +1,6 @@
+{
+  "initial_log_level": "info",
+  "spsc_ring_buffer_capacity": 128,
+  "message_capacity": 128,
+  "max_producer_threads": 32
+}
