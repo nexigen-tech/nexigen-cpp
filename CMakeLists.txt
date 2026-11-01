@@ -280,6 +280,22 @@ target_compile_definitions(nexigen_runner PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOU
 target_link_libraries(nexigen_runner PUBLIC nexigen_core nexigen_app PRIVATE Threads::Threads)
 
 # =============================================================================
+# nexigen::hub — read-only observatory library.
+# =============================================================================
+file(GLOB NEXIGEN_HUB_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/hub/*.cpp")
+
+add_library(nexigen_hub STATIC ${NEXIGEN_HUB_SOURCES})
+add_library(nexigen::hub ALIAS nexigen_hub)
+
+target_include_directories(nexigen_hub PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_compile_definitions(nexigen_hub PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+target_link_libraries(nexigen_hub PUBLIC nexigen_core nexigen_runner PRIVATE Threads::Threads)
+
+# =============================================================================
 # Опции сборки: юнит-тесты и runnable-примеры (включены по умолчанию).
 # enable_testing() поднимаем на уровень обеих веток: ctest должен видеть
 # примеры даже при -DNEXIGEN_BUILD_TESTS=OFF.

@@ -5,3 +5,10 @@ target_link_libraries(nexigen-run PRIVATE nexigen_runner nexigen_app Threads::Th
 add_test(NAME nexigen_run_help COMMAND nexigen-run --help)
 set_tests_properties(nexigen_run_help PROPERTIES
     TIMEOUT 60 LABELS "tools")
+# nexigen-hub — local observatory CLI.
+add_executable(nexigen-hub nexigen-hub/main.cpp)
+target_link_libraries(nexigen-hub PRIVATE nexigen_hub Threads::Threads)
+
+add_test(NAME nexigen_hub_help COMMAND nexigen-hub --help)
+set_tests_properties(nexigen_hub_help PROPERTIES
+    TIMEOUT 60 LABELS "tools")

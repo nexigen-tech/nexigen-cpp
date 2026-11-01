@@ -98,3 +98,14 @@ add_test(NAME nexigen_run_cli_tests
          COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/runner/cli_test.sh
                  $<TARGET_FILE:nexigen-run>)
 set_tests_properties(nexigen_run_cli_tests PROPERTIES TIMEOUT 300)
+
+add_executable(nexigen_hub_tests hub/hub_test.cpp)
+target_link_libraries(nexigen_hub_tests PRIVATE nexigen_hub Threads::Threads)
+
+add_test(NAME nexigen_hub_tests COMMAND nexigen_hub_tests)
+set_tests_properties(nexigen_hub_tests PROPERTIES TIMEOUT 600)
+
+add_test(NAME nexigen_hub_cli_tests
+         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hub/hub_cli_test.sh
+                 $<TARGET_FILE:nexigen-hub>)
+set_tests_properties(nexigen_hub_cli_tests PROPERTIES TIMEOUT 120)

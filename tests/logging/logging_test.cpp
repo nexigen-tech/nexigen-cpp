@@ -2106,6 +2106,7 @@ void test_spsc_shard_ring() {
         constexpr std::uint64_t total = 10'000;
         std::atomic<std::uint64_t> accepted{0};
         std::atomic<std::uint64_t> popped{0};
+        std::atomic<bool> producer_done{false};
         std::uint64_t last = 0;
         bool order_ok = true;
 
@@ -2113,10 +2114,15 @@ void test_spsc_shard_ring() {
             for (std::uint64_t i = 0; i < total; ++i) {
                 if (ring.try_push(i)) { accepted.fetch_add(1, std::memory_order_relaxed); }
             }
+            producer_done.store(true, std::memory_order_release);
         });
         std::jthread consumer([&] {
             std::uint64_t v = 0;
-            while (popped.load(std::memory_order_relaxed) < accepted.load(std::memory_order_relaxed)) {
+            for (;;) {
+                const bool done = producer_done.load(std::memory_order_acquire) &&
+                                  popped.load(std::memory_order_relaxed) >=
+                                      accepted.load(std::memory_order_relaxed);
+                if (done) { break; }
                 if (ring.try_pop(v)) {
                     if (popped.load(std::memory_order_relaxed) > 0 && v <= last) { order_ok = false; }
                     last = v;
@@ -2125,15 +2131,9 @@ void test_spsc_shard_ring() {
             }
         });
         producer.join();
-        // Wait for consumer to drain all accepted records.
-        while (popped.load(std::memory_order_relaxed) < accepted.load(std::memory_order_relaxed)) {
-            std::uint64_t v = 0;
-            if (ring.try_pop(v)) {
-                if (popped.load(std::memory_order_relaxed) > 0 && v <= last) { order_ok = false; }
-                last = v;
-                popped.fetch_add(1, std::memory_order_relaxed);
-            }
-        }
+        // The consumer drains until it has observed every accepted record;
+        // joining it before reading last/order_ok avoids a race with the
+        // consumer's updates.
         consumer.join();
         NX_CHECK(order_ok);
         NX_CHECK(popped.load() == accepted.load());
