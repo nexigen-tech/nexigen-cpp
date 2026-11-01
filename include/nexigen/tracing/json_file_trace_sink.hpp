@@ -89,7 +89,7 @@ inline void from_json(const nlohmann::json& j, RotationPolicy& out) noexcept {
 
 /// File sink configuration (value type, full serialization trio; body in
 /// src/tracing/sink_format.cpp).
-struct JsonFileTraceSink_config {
+struct JsonFileTraceSinkConfig {
     std::string path{};               ///< file (None) or filename prefix.
     RotationPolicy rotation{RotationPolicy::None};
     std::uint64_t max_spans_per_window{0}; ///< 0 = unlimited.
@@ -100,12 +100,12 @@ struct JsonFileTraceSink_config {
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] std::string to_string(const JsonFileTraceSink_config& config);
+[[nodiscard]] std::string to_string(const JsonFileTraceSinkConfig& config);
 
 /// ADL JSON (cold path, full round-trip under JSON_NOEXCEPTION=1); bodies in
 /// src/tracing/sink_format.cpp.
-void to_json(nlohmann::json& j, const JsonFileTraceSink_config& config);
-void from_json(const nlohmann::json& j, JsonFileTraceSink_config& out) noexcept;
+void to_json(nlohmann::json& j, const JsonFileTraceSinkConfig& config);
+void from_json(const nlohmann::json& j, JsonFileTraceSinkConfig& out) noexcept;
 
 /// The JSONL trace sink. All state is consumer-thread plain state (the
 /// provider's single worker is the only caller).
@@ -113,7 +113,7 @@ class JsonFileTraceSink {
 public:
     /// The path/prefix is captured at construction (configuration time);
     /// the file itself opens at start().
-    explicit JsonFileTraceSink(const JsonFileTraceSink_config& config) noexcept
+    explicit JsonFileTraceSink(const JsonFileTraceSinkConfig& config) noexcept
         : rotation_(config.rotation),
           max_per_window_(config.max_spans_per_window),
           window_ns_(config.window_ns) {
@@ -246,7 +246,7 @@ private:
         if (policy == RotationPolicy::None) {
             return 0;
         }
-        const chrono::Civil_time civil = chrono::civil_from_utc_ns(utc_ns);
+        const chrono::CivilTime civil = chrono::civil_from_utc_ns(utc_ns);
         const std::int64_t days = chrono::days_from_utc_ns(utc_ns);
         if (policy == RotationPolicy::Hourly) {
             return days * 24 + civil.hour;
@@ -309,7 +309,7 @@ private:
 
     /// The drop-summary line (exact count, valid JSON).
     [[nodiscard]] core::Status write_drop_summary() noexcept {
-        detail::Fixed_writer writer{scratch_, detail::json_scratch_capacity};
+        detail::FixedWriter writer{scratch_, detail::json_scratch_capacity};
         static_cast<void>(writer.append_sv("{\"drop_summary\":{\"dropped\":"));
         static_cast<void>(writer.append_u64(dropped_in_window_));
         static_cast<void>(writer.append_sv("}}\n"));
@@ -377,10 +377,10 @@ struct std::formatter<nexigen::tracing::RotationPolicy> : std::formatter<std::st
     }
 };
 template <>
-struct std::formatter<nexigen::tracing::JsonFileTraceSink_config>
+struct std::formatter<nexigen::tracing::JsonFileTraceSinkConfig>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::tracing::JsonFileTraceSink_config& config, Ctx& ctx) const {
+    auto format(const nexigen::tracing::JsonFileTraceSinkConfig& config, Ctx& ctx) const {
         const std::string text = config.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

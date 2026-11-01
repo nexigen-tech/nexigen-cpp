@@ -71,18 +71,18 @@ using CommandLineResult = core::Result<CommandLineOptions, CommandLineError>;
 
 /// Map the two directories to the four fixed global/local file pairs. An
 /// empty directory leaves that source pair empty (disabled).
-[[nodiscard]] AppSettingsPaths make_app_settings_paths(
+[[nodiscard]] SettingsPaths make_app_settings_paths(
     const CommandLineOptions& options) noexcept;
 
 /// Apply the CLI log level to already-loaded settings. The CLI wins over
 /// global/local/environment sources; an absent level preserves the loaded one.
-void apply_to(const CommandLineOptions& options, AppSettings& settings) noexcept;
+void apply_to(const CommandLineOptions& options, Settings& settings) noexcept;
 
 /// Map paths, load all four subsystems, then apply the CLI log level even when
 /// loading reports a diagnostic. Returns InvalidArgument when both directories
 /// are empty, so a manually built options value cannot load built-in defaults.
 [[nodiscard]] core::Status load_app_settings(
-    const CommandLineOptions& options, AppSettings& out) noexcept;
+    const CommandLineOptions& options, Settings& out) noexcept;
 
 /// Static usage text naming every option, the accepted level spellings and the
 /// four fixed file names. The caller prints it; this function never fails.

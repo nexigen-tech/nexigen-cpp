@@ -58,7 +58,7 @@ namespace nexigen::logging::concepts {
 /// nexigen::core::Status; no virtual anywhere.
 template <class T>
 concept Logger = requires(T t, const T ct, LogLevel lv) {
-    /// Runtime threshold control (see detail::Level_control, design D2).
+    /// Runtime threshold control (see detail::LevelControl, design D2).
     { t.set_level(lv) } noexcept -> std::same_as<void>;
     { ct.level() } noexcept -> std::same_as<LogLevel>;
 

@@ -72,7 +72,7 @@ struct TelemetryPaths {
 /// Settings convenience overload: reads `sink.path` from each subsystem.
 [[nodiscard]] inline core::Status resolve_telemetry_paths(
     const RunIdentity& identity, const MetricsSettings& metrics,
-    const TracingSettings& tracing, const chrono::Chrono_settings& chrono,
+    const TracingSettings& tracing, const chrono::Settings& chrono,
     TelemetryPaths& out) noexcept {
     return resolve_telemetry_paths(identity, metrics.sink.path, tracing.sink.path,
                                    chrono.sink.path, out);

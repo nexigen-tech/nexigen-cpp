@@ -145,13 +145,13 @@ constexpr std::size_t max_path_bytes = 511;
 [[nodiscard]] core::Status write_suite_settings(
     std::string_view instance_dir, std::string_view stream_root,
     const StartOptions& options, const app::RunIdentity& identity) noexcept {
-    app::AppSettings settings{};
+    app::Settings settings{};
     if (!options.global_settings_dir.empty() ||
         !options.local_settings_dir.empty()) {
-        app::AppSettingsPaths paths{};
+        app::SettingsPaths paths{};
         auto make_pair = [](std::string_view global, std::string_view local,
                             const char* name) {
-            logging::Settings_paths entry{};
+            logging::SettingsPaths entry{};
             if (!global.empty()) {
                 entry.global_file = std::string(global) + "/" + name;
             }
@@ -236,15 +236,15 @@ constexpr std::size_t max_path_bytes = 511;
 /// Wait for the child while enforcing the optional idle timeout. When the
 /// deadline expires, run the same SIGTERM → grace → SIGKILL sequence as
 /// `Runner::stop`.
-struct Supervise_result {
+struct SuperviseResult {
     bool reaped{false};
     bool runner_stopped{false};
 };
 
-[[nodiscard]] Supervise_result supervise_child(
+[[nodiscard]] SuperviseResult supervise_child(
     pid_t child, std::uint64_t timeout_s, std::uint64_t start_mono_ns,
     int& status) noexcept {
-    Supervise_result result;
+    SuperviseResult result;
     if (timeout_s == 0) {
         // No deadline: block in waitpid until the child terminates.
         for (;;) {
@@ -362,7 +362,7 @@ void reap_child(pid_t child) noexcept {
     }
 }
 
-struct Start_layout {
+struct StartLayout {
     app::RunIdentity resolved{};
     std::string instance_dir{};
     std::string stream_root{};
@@ -371,7 +371,7 @@ struct Start_layout {
 
 [[nodiscard]] core::Status resolve_start_layout(
     const app::RunIdentity& identity, const StartOptions& options,
-    Start_layout& out) noexcept {
+    StartLayout& out) noexcept {
     app::RunIdentity resolved = identity;
     if (resolved.instance_dir.empty()) {
         if (resolved.run_dir.empty() || resolved.app_name.empty() ||
@@ -413,7 +413,7 @@ struct Start_layout {
 }
 
 [[nodiscard]] core::Status prepare_start_layout(
-    const Start_layout& layout, const StartOptions& options) noexcept {
+    const StartLayout& layout, const StartOptions& options) noexcept {
     const core::Status created = create_instance_dir(layout.instance_dir);
     if (!created) {
         return created;
@@ -480,7 +480,7 @@ struct Start_layout {
         stdout_fd = -1;
         return std::unexpected(core::ErrorCode::SystemError);
     }
-    if (core::detail::fault(core::detail::Fault_point::Runner_open_null)) {
+    if (core::detail::fault(core::detail::FaultPoint::Runner_open_null)) {
         static_cast<void>(::close(stdout_fd));
         static_cast<void>(::close(stderr_fd));
         stdout_fd = -1;
@@ -498,7 +498,7 @@ struct Start_layout {
     return {};
 }
 
-struct Supervisor_context {
+struct SupervisorContext {
     int report_fd{-1};
     int stdout_fd{-1};
     int stderr_fd{-1};
@@ -512,7 +512,7 @@ struct Supervisor_context {
     ResourceMetadata metadata{};
 };
 
-[[noreturn]] void run_instance_supervisor(Supervisor_context& context) noexcept {
+[[noreturn]] void run_instance_supervisor(SupervisorContext& context) noexcept {
     static_cast<void>(reset_runner_affinity());
     static_cast<void>(::setsid());
     redirect_to_null(context.null_fd);
@@ -670,7 +670,7 @@ struct Supervisor_context {
     static_cast<void>(::close(context.report_fd));
 
     int child_status = 0;
-    const Supervise_result supervised = supervise_child(
+    const SuperviseResult supervised = supervise_child(
         child, context.timeout_s, context.metadata.start_time_mono_ns,
         child_status);
     const std::uint64_t end_ns = monotonic_now_ns();
@@ -720,7 +720,7 @@ core::Status Runner::start(const app::RunIdentity& identity,
         return options_valid;
     }
 
-    Start_layout layout;
+    StartLayout layout;
     const core::Status resolved_status =
         resolve_start_layout(identity, options, layout);
     if (!resolved_status) {
@@ -751,7 +751,7 @@ core::Status Runner::start(const app::RunIdentity& identity,
         ResourceMetadata::from_identity(layout.resolved, 0, 0);
 
     int pipe_fds[2]{-1, -1};
-    if (core::detail::fault(core::detail::Fault_point::Runner_pipe2) ||
+    if (core::detail::fault(core::detail::FaultPoint::Runner_pipe2) ||
         ::pipe2(pipe_fds, O_CLOEXEC) != 0) {
         static_cast<void>(::close(stdout_fd));
         static_cast<void>(::close(stderr_fd));
@@ -759,7 +759,7 @@ core::Status Runner::start(const app::RunIdentity& identity,
         return std::unexpected(core::ErrorCode::SystemError);
     }
 
-    Supervisor_context context;
+    SupervisorContext context;
     context.report_fd = pipe_fds[1];
     context.stdout_fd = stdout_fd;
     context.stderr_fd = stderr_fd;
@@ -775,7 +775,7 @@ core::Status Runner::start(const app::RunIdentity& identity,
     }
 
     const pid_t supervisor =
-        core::detail::fault(core::detail::Fault_point::Runner_fork)
+        core::detail::fault(core::detail::FaultPoint::Runner_fork)
             ? -1
             : ::fork();
     if (supervisor < 0) {

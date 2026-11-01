@@ -70,7 +70,7 @@ void expect(bool condition, const char* what) {
 
 int main() {
     metrics::NullMetricSink sink;
-    metrics::MetricProvider_config config{};
+    metrics::MetricProviderConfig config{};
     config.collect_interval = std::chrono::nanoseconds{0}; // no background thread
     metrics::MetricProvider provider{config, sink};
     expect(provider.startup_status().has_value(), "provider startup");

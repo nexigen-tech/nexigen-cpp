@@ -27,18 +27,18 @@
 namespace nexigen::metrics {
 
 /// File sink configuration: the path and whether batches are appended.
-struct JsonFileMetricSink_config {
+struct JsonFileMetricSinkConfig {
     std::string path{};
     bool append{true};
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
-        return "JsonFileMetricSink_config(path=" + path + ", append=" + (append ? "true" : "false") + ")";
+        return "JsonFileMetricSinkConfig(path=" + path + ", append=" + (append ? "true" : "false") + ")";
     }
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const JsonFileMetricSink_config& config) {
+[[nodiscard]] inline std::string to_string(const JsonFileMetricSinkConfig& config) {
     return config.to_string();
 }
 
@@ -47,7 +47,7 @@ class JsonFileMetricSink {
 public:
     /// Open the file. An unopenable path leaves the sink without a
     /// descriptor; on_batch then reports SystemError.
-    explicit JsonFileMetricSink(const JsonFileMetricSink_config& config) noexcept {
+    explicit JsonFileMetricSink(const JsonFileMetricSinkConfig& config) noexcept {
         const int flags = O_WRONLY | O_CREAT | O_CLOEXEC | (config.append ? O_APPEND : O_TRUNC);
         fd_ = ::open(config.path.c_str(), flags, 0644);
     }
@@ -84,7 +84,7 @@ public:
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
-        detail::Fixed_writer writer{scratch_, detail::json_scratch_capacity};
+        detail::FixedWriter writer{scratch_, detail::json_scratch_capacity};
         // UTC ISO-8601 stamp of this collection window.
         char stamp[31];
         chrono::format_utc_iso8601_ns(batch.utc_ns, stamp);
@@ -215,11 +215,11 @@ private:
 [[nodiscard]] inline std::string to_string(const JsonFileMetricSink& sink) { return sink.to_string(); }
 
 /// Configuration JSON (cold path).
-inline void to_json(nlohmann::json& j, const JsonFileMetricSink_config& config) {
+inline void to_json(nlohmann::json& j, const JsonFileMetricSinkConfig& config) {
     j = nlohmann::json{{"path", config.path}, {"append", config.append}};
 }
 
-inline void from_json(const nlohmann::json& j, JsonFileMetricSink_config& out) noexcept {
+inline void from_json(const nlohmann::json& j, JsonFileMetricSinkConfig& out) noexcept {
     if (!j.is_object()) {
         return;
     }
@@ -249,10 +249,10 @@ static_assert(concepts::MetricSink<JsonFileMetricSink>,
 
 /// The configuration formats as its diagnostic string (mandate 11).
 template <>
-struct std::formatter<nexigen::metrics::JsonFileMetricSink_config>
+struct std::formatter<nexigen::metrics::JsonFileMetricSinkConfig>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::metrics::JsonFileMetricSink_config& config, Ctx& ctx) const {
+    auto format(const nexigen::metrics::JsonFileMetricSinkConfig& config, Ctx& ctx) const {
         const std::string text = config.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

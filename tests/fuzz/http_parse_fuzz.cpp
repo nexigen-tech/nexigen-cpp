@@ -16,10 +16,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data,
     }
     const std::string_view input(reinterpret_cast<const char*>(data), size);
 
-    hub_detail::Request_line line;
-    const hub_detail::Request_line_error error =
+    hub_detail::RequestLine line;
+    const hub_detail::RequestLineError error =
         hub_detail::parse_request_line(input, line);
-    if (error == hub_detail::Request_line_error::None) {
+    if (error == hub_detail::RequestLineError::None) {
         if (line.method != "GET" ||
             (line.version != "HTTP/1.0" && line.version != "HTTP/1.1")) {
             __builtin_trap();

@@ -1,6 +1,6 @@
 // nexigen::metrics — bounds-checked JSON writer (design D13).
 //
-// Fixed_writer stages into caller-owned fixed storage: every append is
+// FixedWriter stages into caller-owned fixed storage: every append is
 // bounds-checked, a rejected append marks overflow and the caller skips the
 // record. No reallocation, no exceptions, no allocation.
 //
@@ -17,9 +17,9 @@
 namespace nexigen::metrics::detail {
 
 /// Bounds-checked appender over caller memory.
-class Fixed_writer {
+class FixedWriter {
 public:
-    Fixed_writer(char* buf, std::size_t cap) noexcept : buf_(buf), cap_(cap) {}
+    FixedWriter(char* buf, std::size_t cap) noexcept : buf_(buf), cap_(cap) {}
 
     bool append_char(char c) noexcept;
     bool append_sv(std::string_view sv) noexcept;

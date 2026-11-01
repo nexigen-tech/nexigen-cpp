@@ -54,17 +54,17 @@ class Infrastructure;
 template <class Policy>
 concept InfrastructurePolicy = requires(
     std::optional<typename Policy::Logger>& logger,
-    std::optional<typename Policy::Metrics_sink>& metrics_sink,
-    std::optional<typename Policy::Trace_sink>& trace_sink,
-    std::optional<typename Policy::Chrono_sink>& chrono_sink,
-    const logging::Logging_settings& logging_settings,
+    std::optional<typename Policy::MetricsSink>& metrics_sink,
+    std::optional<typename Policy::TraceSink>& trace_sink,
+    std::optional<typename Policy::ChronoSink>& chrono_sink,
+    const logging::Settings& logging_settings,
     const MetricsSettings& metrics_settings,
     const TracingSettings& tracing_settings,
-    const chrono::Chrono_settings& chrono_settings) {
+    const chrono::Settings& chrono_settings) {
     typename Policy::Logger;
-    typename Policy::Metrics_sink;
-    typename Policy::Trace_sink;
-    typename Policy::Chrono_sink;
+    typename Policy::MetricsSink;
+    typename Policy::TraceSink;
+    typename Policy::ChronoSink;
     { Policy::emplace_logger(logger, logging_settings) } noexcept -> std::same_as<core::Status>;
     { Policy::emplace_metrics_sink(metrics_sink, metrics_settings) } noexcept
         -> std::same_as<core::Status>;
@@ -144,21 +144,21 @@ private:
 };
 
 /// Bridges the application logger to the chrono worker's module-local log hook
-/// (chrono must not depend on logging): maps Clock_log_level to LogLevel and
+/// (chrono must not depend on logging): maps ClockLogLevel to LogLevel and
 /// forwards a pre-formatted message through the logger.
 template <class Logger>
 struct ChronoLoggerBridge {
     Logger* logger{nullptr};
 
-    void log(chrono::Clock_log_level level, std::string_view message) noexcept {
+    void log(chrono::ClockLogLevel level, std::string_view message) noexcept {
         switch (level) {
-            case chrono::Clock_log_level::info:
+            case chrono::ClockLogLevel::info:
                 logger->info("{}", message);
                 break;
-            case chrono::Clock_log_level::warning:
+            case chrono::ClockLogLevel::warning:
                 logger->warning("{}", message);
                 break;
-            case chrono::Clock_log_level::error:
+            case chrono::ClockLogLevel::error:
                 logger->error("{}", message);
                 break;
         }
@@ -171,23 +171,23 @@ template <class Policy, std::size_t Tracer_capacity, std::size_t Tracer_threads>
 class Infrastructure {
 public:
     using Logger = typename Policy::Logger;
-    using Metrics_sink = typename Policy::Metrics_sink;
-    using Trace_sink = typename Policy::Trace_sink;
-    using Chrono_sink = typename Policy::Chrono_sink;
-    using Tracer_provider = tracing::TracerProvider<Tracer_capacity, Tracer_threads>;
-    using Tracer_type = tracing::Tracer<Tracer_capacity, Tracer_threads>;
+    using MetricsSink = typename Policy::MetricsSink;
+    using TraceSink = typename Policy::TraceSink;
+    using ChronoSink = typename Policy::ChronoSink;
+    using TracerProvider = tracing::TracerProvider<Tracer_capacity, Tracer_threads>;
+    using TracerType = tracing::Tracer<Tracer_capacity, Tracer_threads>;
 
     static_assert(InfrastructurePolicy<Policy>,
-                  "Policy must declare Logger/Metrics_sink/Trace_sink/Chrono_sink and static "
+                  "Policy must declare Logger/MetricsSink/TraceSink/ChronoSink and static "
                   "emplace hooks");
     static_assert(logging::concepts::Logger<Logger>,
                   "Policy::Logger must satisfy nexigen::logging::concepts::Logger");
-    static_assert(metrics::concepts::MetricSink<Metrics_sink>,
-                  "Policy::Metrics_sink must satisfy metrics::concepts::MetricSink");
-    static_assert(tracing::concepts::TraceSink<Trace_sink>,
-                  "Policy::Trace_sink must satisfy tracing::concepts::TraceSink");
-    static_assert(chrono::concepts::ChronoSink<Chrono_sink>,
-                  "Policy::Chrono_sink must satisfy chrono::concepts::ChronoSink");
+    static_assert(metrics::concepts::MetricSink<MetricsSink>,
+                  "Policy::MetricsSink must satisfy metrics::concepts::MetricSink");
+    static_assert(tracing::concepts::TraceSink<TraceSink>,
+                  "Policy::TraceSink must satisfy tracing::concepts::TraceSink");
+    static_assert(chrono::concepts::ChronoSink<ChronoSink>,
+                  "Policy::ChronoSink must satisfy chrono::concepts::ChronoSink");
 
     Infrastructure(const Infrastructure&) = delete;
     Infrastructure& operator=(const Infrastructure&) = delete;
@@ -203,7 +203,7 @@ public:
     /// Claim signal ownership, block SIGINT/SIGTERM, build the policy
     /// components and providers, start the watcher. Idempotent on this
     /// instance; Conflict when another infrastructure owns the signals.
-    [[nodiscard]] core::Status initialize(const AppSettings& settings) noexcept {
+    [[nodiscard]] core::Status initialize(const Settings& settings) noexcept {
         if (initialized_) {
             return {};
         }
@@ -281,11 +281,11 @@ public:
     /// while `loaded` keeps the best-effort settings and diagnostics. Help is a
     /// caller action and is rejected as an initialization input.
     [[nodiscard]] core::Status initialize(const CommandLineOptions& options,
-                                          AppSettings& loaded) noexcept {
+                                          Settings& loaded) noexcept {
         if (options.help) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        AppSettings settings{};
+        Settings settings{};
         const core::Status status = load_app_settings(options, settings);
         loaded = std::move(settings);
         if (!status) {
@@ -404,7 +404,7 @@ public:
     /// Precondition: initialized successfully.
     [[nodiscard]] Logger& logger() noexcept { return *logger_; }
     [[nodiscard]] metrics::MetricProvider& metrics() noexcept { return *metrics_; }
-    [[nodiscard]] Tracer_provider& tracer() noexcept { return *tracer_; }
+    [[nodiscard]] TracerProvider& tracer() noexcept { return *tracer_; }
     [[nodiscard]] chrono::ChronoProvider& chrono() noexcept { return *chrono_; }
 
     /// Thin factory conveniences; NotInitialized before initialize().
@@ -416,7 +416,7 @@ public:
         return metrics_->get_meter(name, version);
     }
 
-    [[nodiscard]] core::Result<Tracer_type*> tracer_for(std::string_view scope) noexcept {
+    [[nodiscard]] core::Result<TracerType*> tracer_for(std::string_view scope) noexcept {
         if (!tracer_) {
             return std::unexpected(core::ErrorCode::NotInitialized);
         }
@@ -450,11 +450,11 @@ private:
     // chrono sink, and the logger all outlive the chrono worker.
     std::optional<Logger> logger_{};
     detail::ChronoLoggerBridge<Logger> chrono_logger_bridge_{};
-    std::optional<Metrics_sink> metrics_sink_{};
+    std::optional<MetricsSink> metrics_sink_{};
     std::optional<metrics::MetricProvider> metrics_{};
-    std::optional<Trace_sink> trace_sink_{};
-    std::optional<Tracer_provider> tracer_{};
-    std::optional<Chrono_sink> chrono_sink_{};
+    std::optional<TraceSink> trace_sink_{};
+    std::optional<TracerProvider> tracer_{};
+    std::optional<ChronoSink> chrono_sink_{};
     std::optional<chrono::ChronoProvider> chrono_{};
     detail::SignalWatcher signals_{};
 

@@ -18,7 +18,7 @@
 namespace nexigen::chrono {
 
 /// Broken-down UTC time.
-struct Civil_time {
+struct CivilTime {
     std::int64_t year{};
     std::uint8_t month{};     ///< 1..12
     std::uint8_t day{};       ///< 1..31
@@ -48,14 +48,14 @@ struct Civil_time {
     }
 };
 
-/// Free helper (mandate 9): mirrors Civil_time::to_string for generic call sites.
-[[nodiscard]] inline std::string to_string(const Civil_time& ct) { return ct.to_string(); }
+/// Free helper (mandate 9): mirrors CivilTime::to_string for generic call sites.
+[[nodiscard]] inline std::string to_string(const CivilTime& ct) { return ct.to_string(); }
 
 /// Days since 1970-01-01 (floor division: negative utc_ns maps correctly).
 [[nodiscard]] std::int64_t days_from_utc_ns(std::int64_t utc_ns) noexcept;
 
 /// Full UTC decomposition of a nanosecond timestamp.
-[[nodiscard]] Civil_time civil_from_utc_ns(std::int64_t utc_ns) noexcept;
+[[nodiscard]] CivilTime civil_from_utc_ns(std::int64_t utc_ns) noexcept;
 
 /// Format exactly "YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ" (always 30 chars + NUL)
 /// into buf. Years outside 0..9999 clamp to the field width (never overflow

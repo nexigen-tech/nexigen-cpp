@@ -24,19 +24,19 @@
 namespace nexigen::chrono {
 
 /// File sink configuration: the path and whether snapshots are appended.
-struct JsonFileChronoSink_config {
+struct JsonFileChronoSinkConfig {
     std::string path{};
     bool append{true};
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
-        return "JsonFileChronoSink_config(path=" + path +
+        return "JsonFileChronoSinkConfig(path=" + path +
                ", append=" + (append ? "true" : "false") + ")";
     }
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const JsonFileChronoSink_config& config) {
+[[nodiscard]] inline std::string to_string(const JsonFileChronoSinkConfig& config) {
     return config.to_string();
 }
 
@@ -45,7 +45,7 @@ class JsonFileChronoSink {
 public:
     /// Open the file. An unopenable path leaves the sink without a descriptor;
     /// on_snapshot then reports SystemError.
-    explicit JsonFileChronoSink(const JsonFileChronoSink_config& config) noexcept {
+    explicit JsonFileChronoSink(const JsonFileChronoSinkConfig& config) noexcept {
         const int flags = O_WRONLY | O_CREAT | O_CLOEXEC | (config.append ? O_APPEND : O_TRUNC);
         fd_ = ::open(config.path.c_str(), flags, 0644);
     }
@@ -77,7 +77,7 @@ public:
     }
 
     /// Write one snapshot as a single JSON line.
-    [[nodiscard]] core::Status on_snapshot(const Chrono_snapshot& snapshot) noexcept {
+    [[nodiscard]] core::Status on_snapshot(const Snapshot& snapshot) noexcept {
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -163,11 +163,11 @@ private:
 [[nodiscard]] inline std::string to_string(const JsonFileChronoSink& sink) { return sink.to_string(); }
 
 /// Configuration JSON (cold path).
-inline void to_json(nlohmann::json& j, const JsonFileChronoSink_config& config) {
+inline void to_json(nlohmann::json& j, const JsonFileChronoSinkConfig& config) {
     j = nlohmann::json{{"path", config.path}, {"append", config.append}};
 }
 
-inline void from_json(const nlohmann::json& j, JsonFileChronoSink_config& out) noexcept {
+inline void from_json(const nlohmann::json& j, JsonFileChronoSinkConfig& out) noexcept {
     if (!j.is_object()) {
         return;
     }
@@ -197,10 +197,10 @@ static_assert(concepts::ChronoSink<JsonFileChronoSink>,
 
 /// The configuration formats as its diagnostic string (mandate 11).
 template <>
-struct std::formatter<nexigen::chrono::JsonFileChronoSink_config>
+struct std::formatter<nexigen::chrono::JsonFileChronoSinkConfig>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::chrono::JsonFileChronoSink_config& config, Ctx& ctx) const {
+    auto format(const nexigen::chrono::JsonFileChronoSinkConfig& config, Ctx& ctx) const {
         const std::string text = config.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

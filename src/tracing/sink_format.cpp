@@ -44,20 +44,20 @@ void to_json(nlohmann::json& j, const ConsoleTraceSink& sink) {
     j = nlohmann::json{{"type", "ConsoleTraceSink"}, {"fd", sink.descriptor()}};
 }
 
-// --- JsonFileTraceSink_config -----------------------------------------------
+// --- JsonFileTraceSinkConfig -----------------------------------------------
 
-std::string JsonFileTraceSink_config::to_string() const {
-    return "JsonFileTraceSink_config(path=" + path +
+std::string JsonFileTraceSinkConfig::to_string() const {
+    return "JsonFileTraceSinkConfig(path=" + path +
            ", rotation=" + std::string(tracing::to_string(rotation)) +
            ", max_spans_per_window=" + std::to_string(max_spans_per_window) +
            ", window_ns=" + std::to_string(window_ns) + ")";
 }
 
-std::string to_string(const JsonFileTraceSink_config& config) {
+std::string to_string(const JsonFileTraceSinkConfig& config) {
     return config.to_string();
 }
 
-void to_json(nlohmann::json& j, const JsonFileTraceSink_config& config) {
+void to_json(nlohmann::json& j, const JsonFileTraceSinkConfig& config) {
     j = nlohmann::json{
         {"path", config.path},
         {"rotation", config.rotation},
@@ -66,7 +66,7 @@ void to_json(nlohmann::json& j, const JsonFileTraceSink_config& config) {
     };
 }
 
-void from_json(const nlohmann::json& j, JsonFileTraceSink_config& out) noexcept {
+void from_json(const nlohmann::json& j, JsonFileTraceSinkConfig& out) noexcept {
     if (!j.is_object()) {
         return;
     }
@@ -92,7 +92,7 @@ void from_json(const nlohmann::json& j, JsonFileTraceSink_config& out) noexcept 
 
 std::string_view JsonFileTraceSink::window_filename(std::int64_t utc_ns) noexcept {
     // Label: Hourly "YYYYMMDDTHH", Daily "YYYYMMDD" (fixed-width digits).
-    const chrono::Civil_time civil = chrono::civil_from_utc_ns(utc_ns);
+    const chrono::CivilTime civil = chrono::civil_from_utc_ns(utc_ns);
     char label[16];
     std::size_t label_len = 0;
     append_padded(label, label_len, civil.year, 4U);
@@ -128,7 +128,7 @@ core::Status JsonFileTraceSink::write_record_line(const SpanRecord& record,
     chrono::format_utc_iso8601_ns(utc_ns, start_stamp);
     chrono::format_utc_iso8601_ns(end_utc_ns, end_stamp);
 
-    detail::Fixed_writer writer{scratch_, detail::json_scratch_capacity};
+    detail::FixedWriter writer{scratch_, detail::json_scratch_capacity};
     static_cast<void>(writer.append_sv("{\"trace_id\":\""));
     static_cast<void>(writer.append_hex16(record.trace_id.value()));
     static_cast<void>(writer.append_sv("\",\"span_id\":\""));
@@ -227,21 +227,21 @@ void to_json(nlohmann::json& j, const JsonFileTraceSink& sink) {
     };
 }
 
-// --- ChromeTraceSink_config -------------------------------------------------
+// --- ChromeTraceSinkConfig -------------------------------------------------
 
-std::string ChromeTraceSink_config::to_string() const {
-    return "ChromeTraceSink_config(path=" + path + ")";
+std::string ChromeTraceSinkConfig::to_string() const {
+    return "ChromeTraceSinkConfig(path=" + path + ")";
 }
 
-std::string to_string(const ChromeTraceSink_config& config) {
+std::string to_string(const ChromeTraceSinkConfig& config) {
     return config.to_string();
 }
 
-void to_json(nlohmann::json& j, const ChromeTraceSink_config& config) {
+void to_json(nlohmann::json& j, const ChromeTraceSinkConfig& config) {
     j = nlohmann::json{{"path", config.path}};
 }
 
-void from_json(const nlohmann::json& j, ChromeTraceSink_config& out) noexcept {
+void from_json(const nlohmann::json& j, ChromeTraceSinkConfig& out) noexcept {
     if (!j.is_object()) {
         return;
     }

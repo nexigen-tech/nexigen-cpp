@@ -31,22 +31,22 @@
 namespace nexigen::app {
 namespace {
 
-enum class File_read : std::uint8_t { Absent, Ok, Failed };
+enum class FileRead : std::uint8_t { Absent, Ok, Failed };
 
-[[nodiscard]] File_read read_settings_file(std::string_view path,
+[[nodiscard]] FileRead read_settings_file(std::string_view path,
                                            std::string& out) noexcept {
     if (path.empty()) {
-        return File_read::Absent;
+        return FileRead::Absent;
     }
     const std::string path_buf{path};
     const int fd = ::open(path_buf.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
-        return errno == ENOENT ? File_read::Absent : File_read::Failed;
+        return errno == ENOENT ? FileRead::Absent : FileRead::Failed;
     }
     struct stat st {};
     if (::fstat(fd, &st) != 0 || st.st_size < 0) {
         static_cast<void>(::close(fd));
-        return File_read::Failed;
+        return FileRead::Failed;
     }
     out.resize(static_cast<std::size_t>(st.st_size));
     std::size_t offset = 0;
@@ -58,18 +58,18 @@ enum class File_read : std::uint8_t { Absent, Ok, Failed };
             break;
         } else if (errno != EINTR) {
             static_cast<void>(::close(fd));
-            return File_read::Failed;
+            return FileRead::Failed;
         }
     }
     out.resize(offset);
     static_cast<void>(::close(fd));
-    return File_read::Ok;
+    return FileRead::Ok;
 }
 
-void add_diagnostic(std::vector<Settings_diagnostic>& diagnostics,
-                    logging::Settings_source source, std::string field,
+void add_diagnostic(std::vector<logging::SettingsDiagnostic>& diagnostics,
+                    logging::SettingsSource source, std::string field,
                     std::string message) {
-    diagnostics.push_back(Settings_diagnostic{source, std::move(field), std::move(message)});
+    diagnostics.push_back(logging::SettingsDiagnostic{source, std::move(field), std::move(message)});
 }
 
 [[nodiscard]] bool unsigned_value(const nlohmann::json& value, std::uint64_t& out) noexcept {
@@ -92,8 +92,8 @@ void add_diagnostic(std::vector<Settings_diagnostic>& diagnostics,
 
 /// Read a JSON key into a uint64 target when present and valid.
 void read_uint(const nlohmann::json& document, const char* key, std::uint64_t max_value,
-               std::uint64_t& target, std::vector<Settings_diagnostic>& diagnostics,
-               logging::Settings_source source) {
+               std::uint64_t& target, std::vector<logging::SettingsDiagnostic>& diagnostics,
+               logging::SettingsSource source) {
     const auto it = document.find(key);
     if (it == document.end()) {
         return;
@@ -111,8 +111,8 @@ void read_uint(const nlohmann::json& document, const char* key, std::uint64_t ma
 }
 
 void read_sink_string(const nlohmann::json& sink, const char* key, std::string& target,
-                      std::vector<Settings_diagnostic>& diagnostics,
-                      logging::Settings_source source) {
+                      std::vector<logging::SettingsDiagnostic>& diagnostics,
+                      logging::SettingsSource source) {
     const auto it = sink.find(key);
     if (it == sink.end()) {
         return;
@@ -128,8 +128,8 @@ void read_sink_string(const nlohmann::json& sink, const char* key, std::string& 
 }
 
 void read_sink_bool(const nlohmann::json& sink, const char* key, bool& target,
-                    std::vector<Settings_diagnostic>& diagnostics,
-                    logging::Settings_source source) {
+                    std::vector<logging::SettingsDiagnostic>& diagnostics,
+                    logging::SettingsSource source) {
     const auto it = sink.find(key);
     if (it == sink.end()) {
         return;
@@ -142,8 +142,8 @@ void read_sink_bool(const nlohmann::json& sink, const char* key, bool& target,
 }
 
 void read_sink_uint(const nlohmann::json& sink, const char* key, std::uint64_t& target,
-                    std::vector<Settings_diagnostic>& diagnostics,
-                    logging::Settings_source source) {
+                    std::vector<logging::SettingsDiagnostic>& diagnostics,
+                    logging::SettingsSource source) {
     const auto it = sink.find(key);
     if (it == sink.end()) {
         return;
@@ -160,8 +160,8 @@ void read_sink_uint(const nlohmann::json& sink, const char* key, std::uint64_t& 
 /// Locate the optional sink object. Returns nullptr when absent or invalid;
 /// an invalid value is reported once and leaves the previous sink intact.
 [[nodiscard]] const nlohmann::json* find_sink(const nlohmann::json& document,
-                                              std::vector<Settings_diagnostic>& diagnostics,
-                                              logging::Settings_source source) {
+                                              std::vector<logging::SettingsDiagnostic>& diagnostics,
+                                              logging::SettingsSource source) {
     const auto it = document.find("sink");
     if (it == document.end()) {
         return nullptr;
@@ -209,22 +209,22 @@ std::string TracingSettings::to_string() const {
     return out;
 }
 
-std::string AppSettingsPaths::to_string() const {
-    return "AppSettingsPaths(logging=" + logging.to_string() +
+std::string SettingsPaths::to_string() const {
+    return "SettingsPaths(logging=" + logging.to_string() +
            ", metrics=" + metrics.to_string() + ", tracing=" + tracing.to_string() +
            ", chrono=" + chrono.to_string() + ")";
 }
 
-std::string AppSettings::to_string() const {
-    return "AppSettings(logging=" + logging.to_string() +
+std::string Settings::to_string() const {
+    return "Settings(logging=" + logging.to_string() +
            ", metrics=" + metrics.to_string() + ", tracing=" + tracing.to_string() +
            ", chrono=" + chrono.to_string() + ")";
 }
 
 void to_json(nlohmann::json& j, const MetricsSettings& settings) {
-    const metrics::MetricProvider_config& options = settings.options;
+    const metrics::MetricProviderConfig& options = settings.options;
     nlohmann::json diagnostics = nlohmann::json::array();
-    for (const Settings_diagnostic& diag : settings.diagnostics) {
+    for (const logging::SettingsDiagnostic& diag : settings.diagnostics) {
         nlohmann::json entry;
         to_json(entry, diag);
         diagnostics.push_back(std::move(entry));
@@ -245,9 +245,9 @@ void to_json(nlohmann::json& j, const MetricsSettings& settings) {
 }
 
 void to_json(nlohmann::json& j, const TracingSettings& settings) {
-    const tracing::TracerProvider_config& options = settings.options;
+    const tracing::TracerProviderConfig& options = settings.options;
     nlohmann::json diagnostics = nlohmann::json::array();
-    for (const Settings_diagnostic& diag : settings.diagnostics) {
+    for (const logging::SettingsDiagnostic& diag : settings.diagnostics) {
         nlohmann::json entry;
         to_json(entry, diag);
         diagnostics.push_back(std::move(entry));
@@ -267,7 +267,7 @@ void to_json(nlohmann::json& j, const TracingSettings& settings) {
                        {"diagnostics", std::move(diagnostics)}};
 }
 
-void to_json(nlohmann::json& j, const AppSettingsPaths& paths) {
+void to_json(nlohmann::json& j, const SettingsPaths& paths) {
     j = nlohmann::json{{"logging", nlohmann::json{{"global_file", paths.logging.global_file},
                                                   {"local_file", paths.logging.local_file}}},
                        {"metrics", nlohmann::json{{"global_file", paths.metrics.global_file},
@@ -278,7 +278,7 @@ void to_json(nlohmann::json& j, const AppSettingsPaths& paths) {
                                                  {"local_file", paths.chrono.local_file}}}};
 }
 
-void to_json(nlohmann::json& j, const AppSettings& settings) {
+void to_json(nlohmann::json& j, const Settings& settings) {
     nlohmann::json logging_json;
     to_json(logging_json, settings.logging);
     nlohmann::json metrics_json;
@@ -295,7 +295,7 @@ void to_json(nlohmann::json& j, const AppSettings& settings) {
 
 namespace {
 
-void merge_metrics_sink(const nlohmann::json& document, logging::Settings_source source,
+void merge_metrics_sink(const nlohmann::json& document, logging::SettingsSource source,
                         MetricsSettings& out) {
     const nlohmann::json* const sink = find_sink(document, out.diagnostics, source);
     if (sink == nullptr) {
@@ -305,7 +305,7 @@ void merge_metrics_sink(const nlohmann::json& document, logging::Settings_source
     read_sink_bool(*sink, "append", out.sink.append, out.diagnostics, source);
 }
 
-void merge_tracing_sink(const nlohmann::json& document, logging::Settings_source source,
+void merge_tracing_sink(const nlohmann::json& document, logging::SettingsSource source,
                         TracingSettings& out) {
     const nlohmann::json* const sink = find_sink(document, out.diagnostics, source);
     if (sink == nullptr) {
@@ -335,7 +335,7 @@ void merge_tracing_sink(const nlohmann::json& document, logging::Settings_source
 }
 
 void merge_metrics_document(const nlohmann::json& document,
-                            logging::Settings_source source,
+                            logging::SettingsSource source,
                             MetricsSettings& out) {
     if (!document.is_object()) {
         add_diagnostic(out.diagnostics, source, "", "document is not a JSON object");
@@ -374,7 +374,7 @@ void merge_metrics_document(const nlohmann::json& document,
 }
 
 void merge_tracing_document(const nlohmann::json& document,
-                            logging::Settings_source source,
+                            logging::SettingsSource source,
                             TracingSettings& out) {
     if (!document.is_object()) {
         add_diagnostic(out.diagnostics, source, "", "document is not a JSON object");
@@ -419,7 +419,7 @@ void apply_metrics_environment(MetricsSettings& out) {
             parsed <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
             out.options.collect_interval = std::chrono::nanoseconds{static_cast<std::int64_t>(parsed)};
         } else {
-            add_diagnostic(out.diagnostics, logging::Settings_source::Environment,
+            add_diagnostic(out.diagnostics, logging::SettingsSource::Environment,
                            "collect_interval_ns", "expected a non-negative nanosecond count");
         }
     }
@@ -429,7 +429,7 @@ void apply_metrics_environment(MetricsSettings& out) {
         if (parse_u64(value, parsed)) {
             out.options.core_mask = parsed;
         } else {
-            add_diagnostic(out.diagnostics, logging::Settings_source::Environment, "core_mask",
+            add_diagnostic(out.diagnostics, logging::SettingsSource::Environment, "core_mask",
                            "expected a non-negative integer mask");
         }
     }
@@ -442,7 +442,7 @@ void apply_tracing_environment(TracingSettings& out) {
         if (parse_u64(value, parsed)) {
             out.options.core_mask = parsed;
         } else {
-            add_diagnostic(out.diagnostics, logging::Settings_source::Environment, "core_mask",
+            add_diagnostic(out.diagnostics, logging::SettingsSource::Environment, "core_mask",
                            "expected a non-negative integer mask");
         }
     }
@@ -452,7 +452,7 @@ void apply_tracing_environment(TracingSettings& out) {
         if (parse_u64(value, parsed) && parsed >= 1ULL && parsed <= 64ULL) {
             out.options.max_tracers = static_cast<std::uint32_t>(parsed);
         } else {
-            add_diagnostic(out.diagnostics, logging::Settings_source::Environment, "max_tracers",
+            add_diagnostic(out.diagnostics, logging::SettingsSource::Environment, "max_tracers",
                            "expected an integer in 1..64");
         }
     }
@@ -462,7 +462,7 @@ void apply_tracing_environment(TracingSettings& out) {
         if (parse_u64(value, parsed)) {
             out.options.max_spans_per_window = parsed;
         } else {
-            add_diagnostic(out.diagnostics, logging::Settings_source::Environment,
+            add_diagnostic(out.diagnostics, logging::SettingsSource::Environment,
                            "max_spans_per_window", "expected a non-negative integer");
         }
     }
@@ -472,7 +472,7 @@ void apply_tracing_environment(TracingSettings& out) {
         if (parse_u64(value, parsed)) {
             out.options.window_ns = parsed;
         } else {
-            add_diagnostic(out.diagnostics, logging::Settings_source::Environment, "window_ns",
+            add_diagnostic(out.diagnostics, logging::SettingsSource::Environment, "window_ns",
                            "expected a non-negative integer");
         }
     }
@@ -480,49 +480,49 @@ void apply_tracing_environment(TracingSettings& out) {
 
 } // namespace
 
-core::Status load_metrics_settings(const Settings_paths& paths,
+core::Status load_metrics_settings(const logging::SettingsPaths& paths,
                                    MetricsSettings& out) noexcept {
     out = MetricsSettings{};
     bool invalid = false;
     bool system_error = false;
     std::string text;
 
-    File_read read = read_settings_file(paths.global_file, text);
-    if (read == File_read::Ok) {
+    FileRead read = read_settings_file(paths.global_file, text);
+    if (read == FileRead::Ok) {
         out.global_loaded = true;
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, logging::Settings_source::Global, "",
+            add_diagnostic(out.diagnostics, logging::SettingsSource::Global, "",
                            "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
-            merge_metrics_document(document, logging::Settings_source::Global, out);
+            merge_metrics_document(document, logging::SettingsSource::Global, out);
             invalid = invalid || out.diagnostics.size() != before;
         }
-    } else if (read == File_read::Failed) {
+    } else if (read == FileRead::Failed) {
         system_error = true;
-        add_diagnostic(out.diagnostics, logging::Settings_source::Global, "",
+        add_diagnostic(out.diagnostics, logging::SettingsSource::Global, "",
                        "file exists but could not be read");
     }
 
     text.clear();
     read = read_settings_file(paths.local_file, text);
-    if (read == File_read::Ok) {
+    if (read == FileRead::Ok) {
         out.local_loaded = true;
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, logging::Settings_source::Local, "",
+            add_diagnostic(out.diagnostics, logging::SettingsSource::Local, "",
                            "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
-            merge_metrics_document(document, logging::Settings_source::Local, out);
+            merge_metrics_document(document, logging::SettingsSource::Local, out);
             invalid = invalid || out.diagnostics.size() != before;
         }
-    } else if (read == File_read::Failed) {
+    } else if (read == FileRead::Failed) {
         system_error = true;
-        add_diagnostic(out.diagnostics, logging::Settings_source::Local, "",
+        add_diagnostic(out.diagnostics, logging::SettingsSource::Local, "",
                        "file exists but could not be read");
     }
 
@@ -539,49 +539,49 @@ core::Status load_metrics_settings(const Settings_paths& paths,
     return {};
 }
 
-core::Status load_tracing_settings(const Settings_paths& paths,
+core::Status load_tracing_settings(const logging::SettingsPaths& paths,
                                    TracingSettings& out) noexcept {
     out = TracingSettings{};
     bool invalid = false;
     bool system_error = false;
     std::string text;
 
-    File_read read = read_settings_file(paths.global_file, text);
-    if (read == File_read::Ok) {
+    FileRead read = read_settings_file(paths.global_file, text);
+    if (read == FileRead::Ok) {
         out.global_loaded = true;
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, logging::Settings_source::Global, "",
+            add_diagnostic(out.diagnostics, logging::SettingsSource::Global, "",
                            "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
-            merge_tracing_document(document, logging::Settings_source::Global, out);
+            merge_tracing_document(document, logging::SettingsSource::Global, out);
             invalid = invalid || out.diagnostics.size() != before;
         }
-    } else if (read == File_read::Failed) {
+    } else if (read == FileRead::Failed) {
         system_error = true;
-        add_diagnostic(out.diagnostics, logging::Settings_source::Global, "",
+        add_diagnostic(out.diagnostics, logging::SettingsSource::Global, "",
                        "file exists but could not be read");
     }
 
     text.clear();
     read = read_settings_file(paths.local_file, text);
-    if (read == File_read::Ok) {
+    if (read == FileRead::Ok) {
         out.local_loaded = true;
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, logging::Settings_source::Local, "",
+            add_diagnostic(out.diagnostics, logging::SettingsSource::Local, "",
                            "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
-            merge_tracing_document(document, logging::Settings_source::Local, out);
+            merge_tracing_document(document, logging::SettingsSource::Local, out);
             invalid = invalid || out.diagnostics.size() != before;
         }
-    } else if (read == File_read::Failed) {
+    } else if (read == FileRead::Failed) {
         system_error = true;
-        add_diagnostic(out.diagnostics, logging::Settings_source::Local, "",
+        add_diagnostic(out.diagnostics, logging::SettingsSource::Local, "",
                        "file exists but could not be read");
     }
 
@@ -598,9 +598,9 @@ core::Status load_tracing_settings(const Settings_paths& paths,
     return {};
 }
 
-core::Status load_app_settings(const AppSettingsPaths& paths,
-                               AppSettings& out) noexcept {
-    out = AppSettings{};
+core::Status load_app_settings(const SettingsPaths& paths,
+                               Settings& out) noexcept {
+    out = Settings{};
     const core::Status logging_status =
         logging::load_logging_settings(paths.logging, out.logging);
     const core::Status metrics_status = load_metrics_settings(paths.metrics, out.metrics);

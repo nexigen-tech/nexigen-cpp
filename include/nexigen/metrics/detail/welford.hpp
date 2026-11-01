@@ -16,7 +16,7 @@
 namespace nexigen::metrics::detail {
 
 /// Plain moment state (the observable summary shape).
-struct Welford_state {
+struct WelfordState {
     std::uint64_t count{0};
     double mean{0.0};
     double m2{0.0};
@@ -25,7 +25,7 @@ struct Welford_state {
 };
 
 /// Population standard deviation of a moment state.
-[[nodiscard]] inline double population_std(const Welford_state& state) noexcept {
+[[nodiscard]] inline double population_std(const WelfordState& state) noexcept {
     if (state.count == 0U) {
         return 0.0;
     }
@@ -34,7 +34,7 @@ struct Welford_state {
 
 /// Fold one sample into a moment state (Welford). The caller owns the state;
 /// no allocation, no locks.
-inline void welford_add(Welford_state& state, double value) noexcept {
+inline void welford_add(WelfordState& state, double value) noexcept {
     if (state.count == 0U) {
         state.count = 1U;
         state.mean = value;
@@ -57,15 +57,15 @@ inline void welford_add(Welford_state& state, double value) noexcept {
 }
 
 /// Merge two moment states (Chan et al. parallel merge).
-[[nodiscard]] inline Welford_state welford_merge(const Welford_state& a,
-                                                  const Welford_state& b) noexcept {
+[[nodiscard]] inline WelfordState welford_merge(const WelfordState& a,
+                                                  const WelfordState& b) noexcept {
     if (a.count == 0U) {
         return b;
     }
     if (b.count == 0U) {
         return a;
     }
-    Welford_state out{};
+    WelfordState out{};
     out.count = a.count + b.count;
     const double n = static_cast<double>(out.count);
     const double delta = b.mean - a.mean;

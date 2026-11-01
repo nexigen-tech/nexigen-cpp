@@ -261,7 +261,7 @@ void test_harness() {
 
 /// Complete conforming surface: the positive reference for the concept.
 struct Full_logger_model {
-    detail::Level_control levels_{};
+    detail::LevelControl levels_{};
     LogLevel last_level{LogLevel::Verbose};
     int calls{0};
 
@@ -363,13 +363,13 @@ static_assert(!concepts::Logger<Info_needs_location_model>);
 
 // --- levels suite (task 2.3 / spec logging/log-level, logging/logger-concept).
 void test_levels() {
-    detail::Level_control ctl{};
+    detail::LevelControl ctl{};
     NX_CHECK(ctl.level() == LogLevel::Info); // declared default threshold
     ctl.set_level(LogLevel::Warning);
     NX_CHECK(ctl.level() == LogLevel::Warning);
     ctl.set_level(LogLevel::Off);
     NX_CHECK(ctl.level() == LogLevel::Off);
-    detail::Level_control tuned{LogLevel::Debug}; // explicit initial level
+    detail::LevelControl tuned{LogLevel::Debug}; // explicit initial level
     NX_CHECK(tuned.level() == LogLevel::Debug);
 
     // Runtime naming mirrors the constexpr table (pinned above at compile time).
@@ -397,7 +397,7 @@ void test_levels() {
     // must only ever observe one of them. TSan must call this race-free.
     // Initial level is one of the two alternates so the reader can never see
     // the untouched default (Info) before the setter's first store.
-    detail::Level_control live{LogLevel::Debug};
+    detail::LevelControl live{LogLevel::Debug};
     int bad = 0;
     std::jthread setter([&live] {
         for (int i = 0; i < 200'000; ++i) {
@@ -442,7 +442,7 @@ void test_record() {
     NX_CHECK(rendered("v {} {}", 42, 3.5) == std::format("v {} {}", 42, 3.5));
     NX_CHECK(rendered("Level is {}", LogLevel::Warning) == "Level is warning");
     NX_CHECK(rendered("ec {}", ErrorCode::BufferFull) == "ec BufferFull");
-    NX_CHECK(rendered("rot {}", Rotation_schedule::Daily) == "rot daily");
+    NX_CHECK(rendered("rot {}", RotationSchedule::Daily) == "rot daily");
     NX_CHECK(rendered("t {}", Timestamp{1234ULL}) == "t 1234");
     NX_CHECK(rendered("Прямой вызов метода debug. Давление: {:.4f}", 0.0025) ==
              "Прямой вызов метода debug. Давление: 0.0025");
@@ -1127,9 +1127,9 @@ void test_json() {
         std::string_view(huge_fn, sizeof huge_fn - 1), "m", scratch);
     NX_CHECK(over == 0);
 
-    // Fixed_writer unit: rejects writes that would exceed the small buffer.
+    // FixedWriter unit: rejects writes that would exceed the small buffer.
     char small_[64];
-    detail::Fixed_writer w(small_, sizeof small_);
+    detail::FixedWriter w(small_, sizeof small_);
     NX_CHECK(w.append_sv(std::string_view(small_, 0))); // empty ok
     NX_CHECK(!w.append_sv(std::string_view(huge_fn, 100)));
     NX_CHECK(!w.ok());
@@ -1171,29 +1171,29 @@ void test_affinity() {
 
 // --- rotation suite (task 5.5 / spec logging/file-logger rotation).
 void test_rotation() {
-    using detail::Rotation_kind;
+    using detail::RotationKind;
     constexpr std::int64_t hour_end_ns = 1'784'851'199'999'999'999LL; // 2026-07-23T23:59:59.999999999Z
     constexpr std::int64_t next_hour_ns = hour_end_ns + 1;            // 2026-07-24T00:00:00Z
     constexpr std::int64_t ns_hour = 3'600'000'000'000LL;
 
     // Keys move exactly at boundaries.
-    NX_CHECK(detail::period_key(Rotation_kind::Hourly, 0, hour_end_ns)
-             == detail::period_key(Rotation_kind::Hourly, 0, hour_end_ns));
-    NX_CHECK(detail::period_key(Rotation_kind::Hourly, 0, next_hour_ns)
-             == detail::period_key(Rotation_kind::Hourly, 0, hour_end_ns) + 1);
+    NX_CHECK(detail::period_key(RotationKind::Hourly, 0, hour_end_ns)
+             == detail::period_key(RotationKind::Hourly, 0, hour_end_ns));
+    NX_CHECK(detail::period_key(RotationKind::Hourly, 0, next_hour_ns)
+             == detail::period_key(RotationKind::Hourly, 0, hour_end_ns) + 1);
     // next_hour_ns lands on 07-24T00:00:00Z — already the next DAY as well.
-    NX_CHECK(detail::period_key(Rotation_kind::Daily, 0, next_hour_ns)
-             == detail::period_key(Rotation_kind::Daily, 0, hour_end_ns) + 1);
-    NX_CHECK(detail::period_key(Rotation_kind::Daily, 0, hour_end_ns + ns_hour)
-             == detail::period_key(Rotation_kind::Daily, 0, hour_end_ns) + 1);
+    NX_CHECK(detail::period_key(RotationKind::Daily, 0, next_hour_ns)
+             == detail::period_key(RotationKind::Daily, 0, hour_end_ns) + 1);
+    NX_CHECK(detail::period_key(RotationKind::Daily, 0, hour_end_ns + ns_hour)
+             == detail::period_key(RotationKind::Daily, 0, hour_end_ns) + 1);
 
     char label[64]{};
-    NX_CHECK(detail::period_label(Rotation_kind::Hourly, 0, hour_end_ns, label) == 13);
+    NX_CHECK(detail::period_label(RotationKind::Hourly, 0, hour_end_ns, label) == 13);
     NX_CHECK(std::strcmp(label, "2026-07-23T23") == 0);
-    NX_CHECK(detail::period_label(Rotation_kind::Daily, 0, hour_end_ns, label) == 10);
+    NX_CHECK(detail::period_label(RotationKind::Daily, 0, hour_end_ns, label) == 10);
     NX_CHECK(std::strcmp(label, "2026-07-23") == 0);
     // Leap day label
-    NX_CHECK(detail::period_label(Rotation_kind::Daily, 0, 1'709'164'800'000'000'000LL, label) == 10);
+    NX_CHECK(detail::period_label(RotationKind::Daily, 0, 1'709'164'800'000'000'000LL, label) == 10);
     NX_CHECK(std::strcmp(label, "2024-02-29") == 0);
     // Custom key/label: 250 ms windows (epoch-anchored, so align the probe
     // to the window start to exercise the boundary itself).
@@ -1201,19 +1201,19 @@ void test_rotation() {
     constexpr std::int64_t t = 1'784'850'120'321'841'133LL;
     const std::int64_t idx0 = static_cast<std::int64_t>(static_cast<std::uint64_t>(t) / custom);
     const std::int64_t t0a = t - static_cast<std::int64_t>(static_cast<std::uint64_t>(t) % custom);
-    NX_CHECK(detail::period_key(Rotation_kind::Custom, custom, t) == idx0);
-    NX_CHECK(detail::period_key(Rotation_kind::Custom, custom, t0a) == idx0);
-    NX_CHECK(detail::period_key(Rotation_kind::Custom, custom, t0a + static_cast<std::int64_t>(custom) - 1) == idx0);
-    NX_CHECK(detail::period_key(Rotation_kind::Custom, custom, t0a + static_cast<std::int64_t>(custom)) == idx0 + 1);
-    const std::size_t llen = detail::period_label(Rotation_kind::Custom, custom, t, label);
+    NX_CHECK(detail::period_key(RotationKind::Custom, custom, t) == idx0);
+    NX_CHECK(detail::period_key(RotationKind::Custom, custom, t0a) == idx0);
+    NX_CHECK(detail::period_key(RotationKind::Custom, custom, t0a + static_cast<std::int64_t>(custom) - 1) == idx0);
+    NX_CHECK(detail::period_key(RotationKind::Custom, custom, t0a + static_cast<std::int64_t>(custom)) == idx0 + 1);
+    const std::size_t llen = detail::period_label(RotationKind::Custom, custom, t, label);
     char expect_label[64];
     const int epos = std::snprintf(expect_label, sizeof expect_label, "epoch-%lld",
                                    static_cast<long long>(idx0));
     NX_CHECK(epos > 0);
     NX_CHECK(std::strcmp(label, expect_label) == 0 && std::strlen(label) == llen);
     // None: key 0, no label.
-    NX_CHECK(detail::period_key(detail::Rotation_kind::None, 0, t) == 0);
-    NX_CHECK(detail::period_label(detail::Rotation_kind::None, 0, t, label) == 0);
+    NX_CHECK(detail::period_key(detail::RotationKind::None, 0, t) == 0);
+    NX_CHECK(detail::period_label(detail::RotationKind::None, 0, t, label) == 0);
 
     // Filesystem switch: two 1 ms custom windows land in distinct directories,
     // sentinel lines round-trip, and the whole sequence allocates nothing.
@@ -1224,10 +1224,10 @@ void test_rotation() {
     const std::string_view base_dir(base);
     constexpr std::uint64_t fast_period = 1'000'000ULL; // 1 ms
 
-    detail::Rotation_scratch sc{};
+    detail::RotationScratch sc{};
     int fd = -1;
     // warm-up open first so any lazy libc setup happens outside the measured window
-    NX_CHECK(detail::open_period(detail::Rotation_kind::Custom, fast_period, t, base_dir,
+    NX_CHECK(detail::open_period(detail::RotationKind::Custom, fast_period, t, base_dir,
                                  "warm.jsonl", sc, fd).has_value());
     NX_CHECK(fd >= 0);
     ::close(fd);
@@ -1236,7 +1236,7 @@ void test_rotation() {
     const std::size_t heap_b = heap_in_use();
 
     int fd1 = -1;
-    NX_CHECK(detail::open_period(detail::Rotation_kind::Custom, fast_period, t, base_dir,
+    NX_CHECK(detail::open_period(detail::RotationKind::Custom, fast_period, t, base_dir,
                                  "app.jsonl", sc, fd1).has_value());
     NX_CHECK(fd1 >= 0);
     char path1[560];
@@ -1246,7 +1246,7 @@ void test_rotation() {
     ::close(fd1);
 
     int fd2 = -1;
-    NX_CHECK(detail::open_period(detail::Rotation_kind::Custom, fast_period, t + 2'000'000,
+    NX_CHECK(detail::open_period(detail::RotationKind::Custom, fast_period, t + 2'000'000,
                                  base_dir, "app.jsonl", sc, fd2).has_value());
     NX_CHECK(fd2 >= 0);
     char path2[560];
@@ -1273,8 +1273,8 @@ void test_rotation() {
     NX_CHECK(read_first_line(path2, got) == 2 && std::strcmp(got, "b\n") == 0);
 
     // Error paths: empty base rejected; a non-directory component maps to SystemError.
-    NX_CHECK(!detail::open_period(detail::Rotation_kind::Hourly, 0, t, "", "app.jsonl", sc, fd).has_value());
-    const Status bad = detail::open_period(detail::Rotation_kind::Hourly, 0, t, "/etc/hostname",
+    NX_CHECK(!detail::open_period(detail::RotationKind::Hourly, 0, t, "", "app.jsonl", sc, fd).has_value());
+    const Status bad = detail::open_period(detail::RotationKind::Hourly, 0, t, "/etc/hostname",
                                            "app.jsonl", sc, fd);
     NX_CHECK(!bad.has_value());
     NX_CHECK(bad.error() == ErrorCode::SystemError);
@@ -1335,14 +1335,14 @@ void test_file_logger() {
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; // 70 a's
     static FileLogger<64, 128> flv{};
     {
-        FileLogger_config bad{};
+        FileLoggerConfig bad{};
         bad.base_dir = "";                       // required
         is_invalid(flv.initialize(bad));
         bad.base_dir = flbase;
-        bad.rotation = Rotation_config{Rotation_schedule::Custom, 0ULL}; // zero period
+        bad.rotation = RotationConfig{RotationSchedule::Custom, 0ULL}; // zero period
         is_invalid(flv.initialize(bad));
-        bad.rotation = Rotation_config{Rotation_schedule::Hourly, 0ULL};
-        bad.throttle = Throttle_config{true, 5ULL, 0ULL};                  // zero window
+        bad.rotation = RotationConfig{RotationSchedule::Hourly, 0ULL};
+        bad.throttle = ThrottleConfig{true, 5ULL, 0ULL};                  // zero window
         is_invalid(flv.initialize(bad));
         bad.throttle = {};
         bad.file_name = std::string_view(long_name, sizeof long_name - 1); // > 63
@@ -1353,11 +1353,11 @@ void test_file_logger() {
     // --- (b) happy path, Rotation::None: one fixed file, structural schema.
     static FileLogger<256, 128> flh{};
     {
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "unit";
         cfg.base_dir = flbase;
         cfg.file_name = "app.jsonl";
-        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.rotation.kind = RotationSchedule::None;
         NX_CHECK(flh.initialize(cfg).has_value());
         wait_writer(flh);
         NX_CHECK(flh.writer_start_code() == ErrorCode::Ok);
@@ -1409,11 +1409,11 @@ void test_file_logger() {
     // --- (c) flush surfaces a real write failure: /dev/full answers ENOSPC.
     static FileLogger<64, 128> fld{};
     {
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "dev";
         cfg.base_dir = "/dev";           // mkdirat -> EEXIST (ignored)
         cfg.file_name = "full";          // character device that fails every write
-        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.rotation.kind = RotationSchedule::None;
         NX_CHECK(fld.initialize(cfg).has_value());
         wait_writer(fld);
         fld.info("into the void"); // accepted wait-free regardless of the eventual write failure
@@ -1427,20 +1427,20 @@ void test_file_logger() {
     {
         alignas(64) static char thr_base[512];
         std::snprintf(thr_base, sizeof thr_base, "%.500s/thr", flbase);
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "thr";
         cfg.base_dir = thr_base;
         cfg.file_name = "thr.jsonl";
-        cfg.rotation.kind = Rotation_schedule::None;
-        cfg.throttle = Throttle_config{true, 3ULL, 200'000'000ULL}; // 3 per 200 ms
+        cfg.rotation.kind = RotationSchedule::None;
+        cfg.throttle = ThrottleConfig{true, 3ULL, 200'000'000ULL}; // 3 per 200 ms
         NX_CHECK(flt.initialize(cfg).has_value());
         wait_writer(flt);
 
-        const Dropped_stats thr_before = flt.dropped();
+        const DroppedStats thr_before = flt.dropped();
         for (int i = 0; i < 10; ++i) {
             flt.info("thr user");
         }
-        const Dropped_stats thr_after = flt.dropped();
+        const DroppedStats thr_after = flt.dropped();
         const std::uint64_t rl = thr_after.rate_limited - thr_before.rate_limited;
         const int ok = 10 - static_cast<int>(rl);
         NX_CHECK(ok == 3);
@@ -1490,11 +1490,11 @@ void test_file_logger() {
 
         alignas(64) static char rot_base[512];
         std::snprintf(rot_base, sizeof rot_base, "%.500s/rot", flbase);
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "rot";
         cfg.base_dir = rot_base;
         cfg.file_name = "app.jsonl";
-        cfg.rotation.kind = Rotation_schedule::Custom;
+        cfg.rotation.kind = RotationSchedule::Custom;
         cfg.rotation.custom_ns = 150'000'000ULL; // 150 ms windows
         cfg.core_mask = target;
         NX_CHECK(flr.initialize(cfg).has_value());
@@ -1550,11 +1550,11 @@ void test_file_logger() {
     {
         alignas(64) static char soak_base[512];
         std::snprintf(soak_base, sizeof soak_base, "%.500s/soak", flbase);
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "soak";
         cfg.base_dir = soak_base;
         cfg.file_name = "soak.jsonl";
-        cfg.rotation.kind = Rotation_schedule::None; // clean accounting (no summaries)
+        cfg.rotation.kind = RotationSchedule::None; // clean accounting (no summaries)
         NX_CHECK(fls.initialize(cfg).has_value());
         wait_writer(fls);
 
@@ -1650,11 +1650,11 @@ void test_composite() {
     {
         static CompositeLogger<ConsoleLogger<64, 128>, FileLogger<64, 128>> comp{};
         NX_CHECK(comp.get<0>().initialize(CompConsole::Config{}).has_value());
-        FileLogger_config fcfg{};
+        FileLoggerConfig fcfg{};
         fcfg.app_name = "comp";
         fcfg.base_dir = comp_base;
         fcfg.file_name = "comp.jsonl";
-        fcfg.rotation.kind = Rotation_schedule::None;
+        fcfg.rotation.kind = RotationSchedule::None;
         NX_CHECK(comp.get<CompFile>().initialize(fcfg).has_value());
         for (int i = 0; i < 5000 && (!comp.get<0>().writer_started() ||
                                       !comp.get<1>().writer_started()); ++i) {
@@ -1742,13 +1742,13 @@ void test_composite() {
         using Inner = CompositeLogger<NullLogger, FileLogger<32, 128>>;
         static CompositeLogger<Inner, FileLogger<32, 128>> outer{};
 
-        FileLogger_config a_cfg{};
+        FileLoggerConfig a_cfg{};
         a_cfg.app_name = "nest";
         a_cfg.base_dir = nest_a;
         a_cfg.file_name = "leaf.jsonl";
-        a_cfg.rotation.kind = Rotation_schedule::None;
+        a_cfg.rotation.kind = RotationSchedule::None;
         NX_CHECK(outer.get<0>().get<NestFile>().initialize(a_cfg).has_value());
-        FileLogger_config b_cfg = a_cfg;
+        FileLoggerConfig b_cfg = a_cfg;
         b_cfg.base_dir = nest_b;
         NX_CHECK(outer.get<NestFile>().initialize(b_cfg).has_value());
         for (int i = 0; i < 5000 && (!outer.get<0>().get<NestFile>().writer_started() ||
@@ -1791,13 +1791,13 @@ void test_composite() {
     static_cast<void>(::mkdir(thr_dir, 0755));
     {
         static CompositeLogger<FileLogger<16, 128>, NullLogger> mixed{};
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "mix";
         cfg.base_dir = thr_dir;
         cfg.file_name = "mix.jsonl";
         cfg.initial_level = LogLevel::Verbose;
-        cfg.rotation.kind = Rotation_schedule::None;
-        cfg.throttle = Throttle_config{true, 1ULL, 1'000'000'000ULL}; // 1 record / 1 s
+        cfg.rotation.kind = RotationSchedule::None;
+        cfg.throttle = ThrottleConfig{true, 1ULL, 1'000'000'000ULL}; // 1 record / 1 s
         NX_CHECK(mixed.get<0>().initialize(cfg).has_value());
         for (int i = 0; i < 5000 && !mixed.get<0>().writer_started(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1827,12 +1827,12 @@ void test_composite() {
     // flush answers OK.
     {
         static CompositeLogger<FileLogger<16, 128>, NullLogger> void_comp{};
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "void";
         cfg.base_dir = "/dev"; // mkdirat EEXIST-tolerated; /dev/full fails writes
         cfg.file_name = "full";
         cfg.initial_level = LogLevel::Verbose;
-        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.rotation.kind = RotationSchedule::None;
         NX_CHECK(void_comp.get<0>().initialize(cfg).has_value());
         for (int i = 0; i < 5000 && !void_comp.get<0>().writer_started(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1849,7 +1849,7 @@ void test_composite() {
 }
 
 // --- enum vocabulary suites (change add-serialization-and-wait-free-logging,
-// tasks 2.2/2.3): LogLevel + Rotation_schedule from_string / to_json /
+// tasks 2.2/2.3): LogLevel + RotationSchedule from_string / to_json /
 // from_json / std::formatter. Cold-path JSON allocations live within the arena.
 
 void test_enum_vocab() {
@@ -1892,36 +1892,36 @@ void test_enum_vocab() {
     NX_CHECK(std::format("[{:*>8}]", LogLevel::Info) == "[****info]");
     static_assert(std::formattable<const LogLevel&, char>);
 
-    // Rotation_schedule vocabulary (task 2.3) — detail::Rotation_kind alias.
-    const Rotation_schedule kinds[] = {Rotation_schedule::None, Rotation_schedule::Hourly,
-                                       Rotation_schedule::Daily, Rotation_schedule::Custom};
-    for (const Rotation_schedule k : kinds) {
-        Rotation_schedule parsed = Rotation_schedule::None;
+    // RotationSchedule vocabulary (task 2.3) — detail::RotationKind alias.
+    const RotationSchedule kinds[] = {RotationSchedule::None, RotationSchedule::Hourly,
+                                       RotationSchedule::Daily, RotationSchedule::Custom};
+    for (const RotationSchedule k : kinds) {
+        RotationSchedule parsed = RotationSchedule::None;
         NX_CHECK(detail::from_string(detail::to_string(k), parsed));
         NX_CHECK(parsed == k);
         nlohmann::json j;
         detail::to_json(j, k);
         NX_CHECK(j.is_string());
-        Rotation_schedule back = Rotation_schedule::Custom;
+        RotationSchedule back = RotationSchedule::Custom;
         detail::from_json(j, back);
         NX_CHECK(back == k);
     }
-    NX_CHECK(std::format("rotate={}", Rotation_schedule::Daily) == "rotate=daily");
-    NX_CHECK(std::format("[{:*>8}]", Rotation_schedule::Hourly) == "[**hourly]");
-    Rotation_schedule keep = Rotation_schedule::Hourly;
+    NX_CHECK(std::format("rotate={}", RotationSchedule::Daily) == "rotate=daily");
+    NX_CHECK(std::format("[{:*>8}]", RotationSchedule::Hourly) == "[**hourly]");
+    RotationSchedule keep = RotationSchedule::Hourly;
     detail::from_json(nlohmann::json("weekly"), keep);
-    NX_CHECK(keep == Rotation_schedule::Hourly);
+    NX_CHECK(keep == RotationSchedule::Hourly);
     detail::from_json(nlohmann::json(7), keep);
-    NX_CHECK(keep == Rotation_schedule::Hourly);
+    NX_CHECK(keep == RotationSchedule::Hourly);
 
     std::printf("enum_vocab: levels x7 + schedules x4 round-tripped, hostile inputs "
                 "silent, formatters verified\n");
 }
 
-// --- config vocabulary suite (task 3.3): Dropped_stats / Throttle_config /
-// Rotation_config / FileLogger_config / ConsoleLogger::Config to_string.
+// --- config vocabulary suite (task 3.3): DroppedStats / ThrottleConfig /
+// RotationConfig / FileLoggerConfig / ConsoleLogger::Config to_string.
 void test_config_strings() {
-    const Throttle_config throttle{.enabled = true, .max_records_per_window = 1000,
+    const ThrottleConfig throttle{.enabled = true, .max_records_per_window = 1000,
                                    .window_ns = 1'000'000'000ULL};
     std::string s = throttle.to_string();
     NX_CHECK(s.find("enabled=true") != std::string::npos);
@@ -1929,14 +1929,14 @@ void test_config_strings() {
     NX_CHECK(s.find("window_ns=1000000000") != std::string::npos);
     NX_CHECK(to_string(throttle) == s);
 
-    const Rotation_config rotation{.kind = Rotation_schedule::Custom, .custom_ns = 42ULL};
+    const RotationConfig rotation{.kind = RotationSchedule::Custom, .custom_ns = 42ULL};
     s = rotation.to_string();
     NX_CHECK(s.find("custom") != std::string::npos);
     NX_CHECK(s.find("custom_ns=42") != std::string::npos);
     NX_CHECK(to_string(rotation) == s);
 
-    // Populated FileLogger_config renders every field (Cyrillic app included).
-    const FileLogger_config cfg{
+    // Populated FileLoggerConfig renders every field (Cyrillic app included).
+    const FileLoggerConfig cfg{
         .app_name = "ХилСимулятор",
         .base_dir = "/var/log/nexigen",
         .file_name = "sim.jsonl",
@@ -1957,7 +1957,7 @@ void test_config_strings() {
     NX_CHECK(s.find("core_mask=3") != std::string::npos);
     NX_CHECK(to_string(cfg) == s);
 
-    const Dropped_stats stats{.rate_limited = 7, .buffer_full = 9};
+    const DroppedStats stats{.rate_limited = 7, .buffer_full = 9};
     s = stats.to_string();
     NX_CHECK(s.find("rate_limited=7") != std::string::npos);
     NX_CHECK(s.find("buffer_full=9") != std::string::npos);
@@ -2386,7 +2386,7 @@ void test_producer_edge_cases() {
     {
         static detail::Producer<64, 127, 1> prod{};
         NX_CHECK(prod.initialize().has_value());
-        prod.configure_throttle(Throttle_config{true, 2ULL, 1'000'000'000ULL}); // 2 per second
+        prod.configure_throttle(ThrottleConfig{true, 2ULL, 1'000'000'000ULL}); // 2 per second
         for (int i = 0; i < 5; ++i) {
             prod.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
         }
@@ -2405,14 +2405,14 @@ void test_producer_edge_cases() {
             }
         }
         NX_CHECK(found);
-        prod.configure_throttle(Throttle_config{}); // reset
+        prod.configure_throttle(ThrottleConfig{}); // reset
     }
 
     // Summary with both rate_limited and buffer_full.
     {
         static detail::Producer<4, 128, 1> prod2{};
         NX_CHECK(prod2.initialize().has_value());
-        prod2.configure_throttle(Throttle_config{true, 2ULL, 1'000'000'000ULL});
+        prod2.configure_throttle(ThrottleConfig{true, 2ULL, 1'000'000'000ULL});
         // 2 accepted (throttle budget), the remaining 4 are rate_limited
         // before the ring push (the throttle owns the excess, so buffer_full
         // stays zero for this producer).
@@ -2435,7 +2435,7 @@ void test_producer_edge_cases() {
             }
         }
         NX_CHECK(found);
-        prod2.configure_throttle(Throttle_config{});
+        prod2.configure_throttle(ThrottleConfig{});
     }
 
     // Flush with no drops: no summary emitted.
@@ -2524,12 +2524,12 @@ void test_stress() {
     // NOTHING drops (spec 7.1 acceptance), the flush barrier drains the pool.
     static FileLogger<1024, 128> fl{};
     {
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "stress";
         cfg.base_dir = stress_base;
         cfg.file_name = "stress.jsonl";
         cfg.initial_level = LogLevel::Verbose;
-        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.rotation.kind = RotationSchedule::None;
         NX_CHECK(fl.initialize(cfg).has_value());
         for (int i = 0; i < 5000 && !fl.writer_started(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2618,12 +2618,12 @@ void test_stress() {
     static_cast<void>(::mkdir(comp_stress, 0755));
     {
         static CompositeLogger<NullLogger, FileLogger<64, 128>> comp{};
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "cstress";
         cfg.base_dir = comp_stress;
         cfg.file_name = "c.jsonl";
         cfg.initial_level = LogLevel::Verbose;
-        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.rotation.kind = RotationSchedule::None;
         NX_CHECK(comp.get<1>().initialize(cfg).has_value());
         for (int i = 0; i < 5000 && !comp.get<1>().writer_started(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2670,12 +2670,12 @@ struct has_from_json<
     T, std::void_t<decltype(from_json(std::declval<const nlohmann::json&>(),
                                       std::declval<T&>()))>> : std::true_type {};
 
-static_assert(!has_from_json<Logging_settings>::value,
-              "Logging_settings is factory/IO-bound: to_json only");
-static_assert(has_from_json<Settings_diagnostic>::value,
-              "Settings_diagnostic must round-trip through JSON");
-static_assert(has_from_json<Settings_paths>::value,
-              "Settings_paths must round-trip through JSON");
+static_assert(!has_from_json<Settings>::value,
+              "Settings is factory/IO-bound: to_json only");
+static_assert(has_from_json<SettingsDiagnostic>::value,
+              "SettingsDiagnostic must round-trip through JSON");
+static_assert(has_from_json<SettingsPaths>::value,
+              "SettingsPaths must round-trip through JSON");
 
 struct Env_guard {
     std::string name;
@@ -2771,38 +2771,38 @@ std::size_t total_lines(const std::vector<std::string>& files) {
 // --- settings vocabulary (spec logging/logging-settings "Settings diagnostics
 // are serializable"): enum trio, JSON round-trips, formatters, no from_json.
 void test_settings_vocabulary() {
-    NX_CHECK(to_string(Settings_source::Global) == "global");
-    NX_CHECK(to_string(Settings_source::Local) == "local");
-    NX_CHECK(to_string(Settings_source::Environment) == "environment");
-    NX_CHECK(to_string(Settings_source::Computed) == "computed");
-    Settings_source source = Settings_source::Computed;
+    NX_CHECK(to_string(SettingsSource::Global) == "global");
+    NX_CHECK(to_string(SettingsSource::Local) == "local");
+    NX_CHECK(to_string(SettingsSource::Environment) == "environment");
+    NX_CHECK(to_string(SettingsSource::Computed) == "computed");
+    SettingsSource source = SettingsSource::Computed;
     NX_CHECK(from_string("local", source));
-    NX_CHECK(source == Settings_source::Local);
+    NX_CHECK(source == SettingsSource::Local);
     NX_CHECK(!from_string("bogus", source));
-    NX_CHECK(source == Settings_source::Local);
+    NX_CHECK(source == SettingsSource::Local);
     nlohmann::json source_json;
-    to_json(source_json, Settings_source::Environment);
+    to_json(source_json, SettingsSource::Environment);
     NX_CHECK(source_json == "environment");
     from_json(nlohmann::json("global"), source);
-    NX_CHECK(source == Settings_source::Global);
+    NX_CHECK(source == SettingsSource::Global);
     from_json(nlohmann::json(7), source);
-    NX_CHECK(source == Settings_source::Global);
-    NX_CHECK(std::format("{}", Settings_source::Computed) == "computed");
+    NX_CHECK(source == SettingsSource::Global);
+    NX_CHECK(std::format("{}", SettingsSource::Computed) == "computed");
 
-    const Settings_paths paths{"/tmp/global.json", "/tmp/local.json"};
+    const SettingsPaths paths{"/tmp/global.json", "/tmp/local.json"};
     const std::string paths_text = paths.to_string();
     NX_CHECK(paths_text.find("/tmp/global.json") != std::string::npos);
     NX_CHECK(paths_text.find("/tmp/local.json") != std::string::npos);
     NX_CHECK(to_string(paths) == paths_text);
     nlohmann::json paths_json;
     to_json(paths_json, paths);
-    Settings_paths paths_back{};
+    SettingsPaths paths_back{};
     from_json(paths_json, paths_back);
     NX_CHECK(paths_back.global_file == paths.global_file);
     NX_CHECK(paths_back.local_file == paths.local_file);
     NX_CHECK(std::format("{}", paths) == paths_text);
 
-    const Settings_diagnostic diag{Settings_source::Local, "app_name",
+    const SettingsDiagnostic diag{SettingsSource::Local, "app_name",
                                    "expected at most 63 bytes"};
     const std::string diag_text = diag.to_string();
     NX_CHECK(diag_text.find("local") != std::string::npos);
@@ -2810,14 +2810,14 @@ void test_settings_vocabulary() {
     NX_CHECK(to_string(diag) == diag_text);
     nlohmann::json diag_json;
     to_json(diag_json, diag);
-    Settings_diagnostic diag_back{};
+    SettingsDiagnostic diag_back{};
     from_json(diag_json, diag_back);
-    NX_CHECK(diag_back.source == Settings_source::Local);
+    NX_CHECK(diag_back.source == SettingsSource::Local);
     NX_CHECK(diag_back.field == "app_name");
     NX_CHECK(diag_back.message == "expected at most 63 bytes");
     NX_CHECK(std::format("{}", diag) == diag_text);
 
-    Logging_settings settings{};
+    Settings settings{};
     settings.global_loaded = true;
     settings.ring_capacity_set = true;
     settings.diagnostics.push_back(diag);
@@ -2860,8 +2860,8 @@ void test_logging_settings_loader() {
 
     // Explicit paths only: both empty -> defaults, no diagnostics.
     {
-        Logging_settings out{};
-        NX_CHECK(load_logging_settings(Settings_paths{}, out).has_value());
+        Settings out{};
+        NX_CHECK(load_logging_settings(SettingsPaths{}, out).has_value());
         NX_CHECK(!out.global_loaded && !out.local_loaded);
         NX_CHECK(!out.ring_capacity_set && !out.max_threads_set);
         NX_CHECK(out.diagnostics.empty());
@@ -2884,8 +2884,8 @@ void test_logging_settings_loader() {
                R"("message_capacity":64})");
 
     {
-        Logging_settings out{};
-        NX_CHECK(load_logging_settings(Settings_paths{global_path, local_path}, out)
+        Settings out{};
+        NX_CHECK(load_logging_settings(SettingsPaths{global_path, local_path}, out)
                      .has_value());
         NX_CHECK(out.global_loaded && out.local_loaded);
         NX_CHECK(out.options.log_root_directory == "/tmp/opencode/global-logs");
@@ -2907,8 +2907,8 @@ void test_logging_settings_loader() {
     affinity_env.set("0,2-3");
     message_env.set("256");
     {
-        Logging_settings out{};
-        NX_CHECK(load_logging_settings(Settings_paths{global_path, local_path}, out)
+        Settings out{};
+        NX_CHECK(load_logging_settings(SettingsPaths{global_path, local_path}, out)
                      .has_value());
         NX_CHECK(out.options.initial_log_level == LogLevel::Error);
         NX_CHECK(out.options.app_name == "env-app");
@@ -2924,9 +2924,9 @@ void test_logging_settings_loader() {
 
     // Missing local file: no diagnostic, global still applies.
     {
-        Logging_settings out{};
+        Settings out{};
         NX_CHECK(load_logging_settings(
-                     Settings_paths{global_path, "/tmp/opencode/does-not-exist.json"},
+                     SettingsPaths{global_path, "/tmp/opencode/does-not-exist.json"},
                      out)
                      .has_value());
         NX_CHECK(out.global_loaded && !out.local_loaded);
@@ -2937,16 +2937,16 @@ void test_logging_settings_loader() {
     // Malformed local JSON: diagnostic, global values retained, InvalidArgument.
     write_text(local_path, R"({"initial_log_level":)");
     {
-        Logging_settings out{};
+        Settings out{};
         const Status status =
-            load_logging_settings(Settings_paths{global_path, local_path}, out);
+            load_logging_settings(SettingsPaths{global_path, local_path}, out);
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == ErrorCode::InvalidArgument);
         NX_CHECK(out.options.initial_log_level == LogLevel::Warning);
         NX_CHECK(out.local_loaded);
         bool malformed_seen = false;
-        for (const Settings_diagnostic& diag : out.diagnostics) {
-            if (diag.source == Settings_source::Local &&
+        for (const SettingsDiagnostic& diag : out.diagnostics) {
+            if (diag.source == SettingsSource::Local &&
                 diag.message.find("malformed") != std::string::npos) {
                 malformed_seen = true;
             }
@@ -2957,15 +2957,15 @@ void test_logging_settings_loader() {
     // Wrong type: diagnostic names the field, previous value survives.
     write_text(local_path, R"({"max_file_size_bytes":"huge"})");
     {
-        Logging_settings out{};
+        Settings out{};
         const Status status =
-            load_logging_settings(Settings_paths{global_path, local_path}, out);
+            load_logging_settings(SettingsPaths{global_path, local_path}, out);
         NX_CHECK(!status.has_value());
         NX_CHECK(out.options.max_file_size_bytes == 1234ULL);
         bool field_seen = false;
-        for (const Settings_diagnostic& diag : out.diagnostics) {
+        for (const SettingsDiagnostic& diag : out.diagnostics) {
             if (diag.field == "max_file_size_bytes" &&
-                diag.source == Settings_source::Local) {
+                diag.source == SettingsSource::Local) {
                 field_seen = true;
             }
         }
@@ -2975,16 +2975,16 @@ void test_logging_settings_loader() {
     // Invalid enum keeps the previous valid value.
     write_text(local_path, R"({"initial_log_level":"chatty"})");
     {
-        Logging_settings out{};
-        NX_CHECK(!load_logging_settings(Settings_paths{global_path, local_path}, out)
+        Settings out{};
+        NX_CHECK(!load_logging_settings(SettingsPaths{global_path, local_path}, out)
                       .has_value());
         NX_CHECK(out.options.initial_log_level == LogLevel::Warning);
     }
 
     // Global app_name is ignored; local-only rule.
     {
-        Logging_settings out{};
-        NX_CHECK(load_logging_settings(Settings_paths{global_path, ""}, out).has_value());
+        Settings out{};
+        NX_CHECK(load_logging_settings(SettingsPaths{global_path, ""}, out).has_value());
         NX_CHECK(out.options.app_name == "nexigen_app");
     }
 
@@ -2992,17 +2992,17 @@ void test_logging_settings_loader() {
     {
         write_text(local_path, R"({"spsc_ring_buffer_capacity":0,)"
                                R"("max_producer_threads":"many"})");
-        Logging_settings out{};
-        NX_CHECK(!load_logging_settings(Settings_paths{"", local_path}, out).has_value());
+        Settings out{};
+        NX_CHECK(!load_logging_settings(SettingsPaths{"", local_path}, out).has_value());
         NX_CHECK(out.ring_capacity_set);
         NX_CHECK(out.max_threads_set);
     }
 
     // Unreadable supplied path (a directory) -> SystemError.
     {
-        Logging_settings out{};
+        Settings out{};
         const Status status =
-            load_logging_settings(Settings_paths{"/tmp/opencode", ""}, out);
+            load_logging_settings(SettingsPaths{"/tmp/opencode", ""}, out);
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == ErrorCode::SystemError);
         NX_CHECK(!out.diagnostics.empty());
@@ -3011,9 +3011,9 @@ void test_logging_settings_loader() {
     // Invalid environment affinity is a diagnostic, not a crash.
     affinity_env.set("3-1");
     {
-        Logging_settings out{};
-        NX_CHECK(!load_logging_settings(Settings_paths{}, out).has_value());
-        NX_CHECK(out.diagnostics.back().source == Settings_source::Environment);
+        Settings out{};
+        NX_CHECK(!load_logging_settings(SettingsPaths{}, out).has_value());
+        NX_CHECK(out.diagnostics.back().source == SettingsSource::Environment);
     }
     affinity_env.clear();
 
@@ -3024,7 +3024,7 @@ void test_logging_settings_loader() {
     threads_env.set("4");
     overflow_env.set("overwrite_oldest");
     {
-        Logging_settings out{};
+        Settings out{};
         NX_CHECK(load_logging_settings({global_path, ""}, out).has_value());
         NX_CHECK(out.options.log_root_directory == "/tmp/env-valid");
         NX_CHECK(out.options.max_file_size_bytes == 123ULL);
@@ -3037,11 +3037,11 @@ void test_logging_settings_loader() {
 
     // Diagnostics rendering with multiple entries (separator branch).
     {
-        Logging_settings out{};
+        Settings out{};
         out.diagnostics.push_back(
-            {Settings_source::Local, "a", "first"});
+            {SettingsSource::Local, "a", "first"});
         out.diagnostics.push_back(
-            {Settings_source::Local, "b", "second"});
+            {SettingsSource::Local, "b", "second"});
         NX_CHECK(out.to_string().find("; ") != std::string::npos);
         nlohmann::json json;
         to_json(json, out);
@@ -3050,12 +3050,12 @@ void test_logging_settings_loader() {
 
     // Hostile readers for paths/diagnostics.
     {
-        Settings_paths keep{"g", "l"};
+        SettingsPaths keep{"g", "l"};
         from_json(nlohmann::json(42), keep);
         NX_CHECK(keep.global_file == "g");
         from_json(nlohmann::json{{"global_file", 7}}, keep);
         NX_CHECK(keep.global_file == "g");
-        Settings_diagnostic diag_keep{Settings_source::Local, "f", "m"};
+        SettingsDiagnostic diag_keep{SettingsSource::Local, "f", "m"};
         from_json(nlohmann::json{{"source", 7}, {"field", 7}, {"message", 7}},
                   diag_keep);
         NX_CHECK(diag_keep.field == "f");
@@ -3063,9 +3063,9 @@ void test_logging_settings_loader() {
 
     // apply_to rejects an oversized root directory.
     {
-        Logging_settings oversized{};
+        Settings oversized{};
         oversized.options.log_root_directory = std::string(512, 'x');
-        FileLogger_config config{};
+        FileLoggerConfig config{};
         NX_CHECK(!apply_to(oversized, config).has_value());
     }
 
@@ -3077,7 +3077,7 @@ void test_logging_settings_loader() {
 
 // --- apply/capacity (spec: merged settings apply, explicit limits only).
 void test_logging_settings_apply() {
-    Logging_settings settings{};
+    Settings settings{};
     settings.options.initial_log_level = LogLevel::Warning;
     settings.options.app_name = "hil";
     settings.options.log_root_directory = "/var/log/hil";
@@ -3085,7 +3085,7 @@ void test_logging_settings_apply() {
     settings.options.flush_cpu_affinity = {1ULL, 3ULL};
     settings.options.spam_protection.max_messages_per_sec_per_shard = 500U;
 
-    FileLogger_config cfg{};
+    FileLoggerConfig cfg{};
     NX_CHECK(apply_to(settings, cfg).has_value());
     NX_CHECK(cfg.app_name == "hil");
     NX_CHECK(cfg.base_dir == "/var/log/hil");
@@ -3111,12 +3111,12 @@ void test_logging_settings_apply() {
     // Capacity check: explicit overflow rejected, defaults ignored.
     settings.ring_capacity_set = true;
     settings.options.spsc_ring_buffer_capacity = 1024U;
-    std::vector<Settings_diagnostic> diagnostics;
+    std::vector<SettingsDiagnostic> diagnostics;
     const Status too_big = check_capacity<128, 32, 128>(settings, &diagnostics);
     NX_CHECK(!too_big.has_value());
     NX_CHECK(too_big.error() == ErrorCode::InvalidArgument);
     NX_CHECK(diagnostics.size() == 1U);
-    NX_CHECK(diagnostics.front().source == Settings_source::Computed);
+    NX_CHECK(diagnostics.front().source == SettingsSource::Computed);
     NX_CHECK(diagnostics.front().message.find("1024") != std::string::npos);
     NX_CHECK(diagnostics.front().message.find("128") != std::string::npos);
 
@@ -3148,10 +3148,10 @@ void test_logging_settings_apply() {
     NX_CHECK(diagnostics.empty());
     settings.options.message_capacity = 128U;
 
-    // initialize(Logging_settings) runs the check before touching the worker.
+    // initialize(Settings) runs the check before touching the worker.
     {
         static FileLogger<64, 128, 1> too_small{};
-        Logging_settings oversized{};
+        Settings oversized{};
         oversized.ring_capacity_set = true;
         oversized.options.spsc_ring_buffer_capacity = 128U;
         const Status status = too_small.initialize(oversized);
@@ -3164,7 +3164,7 @@ void test_logging_settings_apply() {
         static FileLogger<64, 128, 1> from_settings{};
         const std::string dir = unique_path("settings_apply");
         static_cast<void>(::mkdir(dir.c_str(), 0755));
-        Logging_settings loaded{};
+        Settings loaded{};
         loaded.options.app_name = "from-settings";
         loaded.options.log_root_directory = dir;
         loaded.options.initial_log_level = LogLevel::Info;
@@ -3184,11 +3184,11 @@ void test_file_size_rotation() {
     static_cast<void>(::mkdir(base.c_str(), 0755));
     {
         static FileLogger<64, 128, 1> logger{};
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "size";
         cfg.base_dir = base;
         cfg.file_name = "sz.jsonl";
-        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.rotation.kind = RotationSchedule::None;
         cfg.max_file_size_bytes = 300ULL;
         NX_CHECK(logger.initialize(cfg).has_value());
         for (int i = 0; i < 10; ++i) {
@@ -3208,11 +3208,11 @@ void test_file_size_rotation() {
         const std::string zero_dir = unique_path("settings_size_zero");
         static_cast<void>(::mkdir(zero_dir.c_str(), 0755));
         static FileLogger<64, 128, 1> logger{};
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "size";
         cfg.base_dir = zero_dir;
         cfg.file_name = "sz.jsonl";
-        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.rotation.kind = RotationSchedule::None;
         cfg.max_file_size_bytes = 0ULL;
         NX_CHECK(logger.initialize(cfg).has_value());
         for (int i = 0; i < 10; ++i) {
@@ -3231,11 +3231,11 @@ void test_file_size_rotation() {
         const std::string tiny_dir = unique_path("settings_size_tiny");
         static_cast<void>(::mkdir(tiny_dir.c_str(), 0755));
         static FileLogger<64, 128, 1> logger{};
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "size";
         cfg.base_dir = tiny_dir;
         cfg.file_name = "sz.jsonl";
-        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.rotation.kind = RotationSchedule::None;
         cfg.max_file_size_bytes = 1ULL;
         NX_CHECK(logger.initialize(cfg).has_value());
         logger.info("one line larger than the limit");
@@ -3251,11 +3251,11 @@ void test_file_size_rotation() {
         static_cast<void>(::mkdir(old_dir.c_str(), 0755));
         write_text(old_dir + "/sz.jsonl", std::string(1000, 'x'));
         static FileLogger<64, 128, 1> logger{};
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         cfg.app_name = "size";
         cfg.base_dir = old_dir;
         cfg.file_name = "sz.jsonl";
-        cfg.rotation.kind = Rotation_schedule::None;
+        cfg.rotation.kind = RotationSchedule::None;
         cfg.max_file_size_bytes = 300ULL;
         NX_CHECK(logger.initialize(cfg).has_value());
         logger.info("next segment please");
@@ -3267,11 +3267,11 @@ void test_file_size_rotation() {
 
     // Segment path builder: naming rules (unit-level).
     {
-        detail::Rotation_scratch scratch{};
+        detail::RotationScratch scratch{};
         int fd = -1;
         const std::string dir = unique_path("settings_segment_paths");
         static_cast<void>(::mkdir(dir.c_str(), 0755));
-        NX_CHECK(detail::open_segment(detail::Rotation_kind::None, 0, 0, dir, "app.jsonl", 2U,
+        NX_CHECK(detail::open_segment(detail::RotationKind::None, 0, 0, dir, "app.jsonl", 2U,
                                       scratch, fd)
                      .has_value());
         NX_CHECK(fd >= 0);
@@ -3279,14 +3279,14 @@ void test_file_size_rotation() {
             static_cast<void>(::close(fd));
         }
         NX_CHECK(std::string(scratch.file).find("app.2.jsonl") != std::string::npos);
-        NX_CHECK(detail::open_segment(detail::Rotation_kind::None, 0, 0, dir, "noext", 3U,
+        NX_CHECK(detail::open_segment(detail::RotationKind::None, 0, 0, dir, "noext", 3U,
                                       scratch, fd)
                      .has_value());
         if (fd >= 0) {
             static_cast<void>(::close(fd));
         }
         NX_CHECK(std::string(scratch.file).find("noext.3") != std::string::npos);
-        NX_CHECK(!detail::open_segment(detail::Rotation_kind::None, 0, 0, "", "app.jsonl", 1U,
+        NX_CHECK(!detail::open_segment(detail::RotationKind::None, 0, 0, "", "app.jsonl", 1U,
                                        scratch, fd)
                       .has_value());
     }
@@ -3337,7 +3337,7 @@ void test_logging_settings_full_coverage() {
                R"("max_messages_per_sec_per_shard":30,"max_bytes_per_sec_per_shard":40,)"
                R"("max_total_bytes_per_sec":50,"bypass_min_level":"error"}})");
     {
-        Logging_settings out{};
+        Settings out{};
         NX_CHECK(load_logging_settings({global_path, local_path}, out).has_value());
         NX_CHECK(out.options.log_root_directory == "/tmp/full");
         NX_CHECK(out.options.app_name == "full-local");
@@ -3368,7 +3368,7 @@ void test_logging_settings_full_coverage() {
                R"("worker_poll_interval_us":"x","sync_flush_on_critical":1,)"
                R"("spam_protection":7})");
     {
-        Logging_settings out{};
+        Settings out{};
         NX_CHECK(!load_logging_settings({"", local_path}, out).has_value());
         NX_CHECK(out.diagnostics.size() >= 9U);
         NX_CHECK(out.ring_capacity_set);
@@ -3384,7 +3384,7 @@ void test_logging_settings_full_coverage() {
                R"("max_bytes_per_sec_per_shard":"x",)"
                R"("max_total_bytes_per_sec":"x","bypass_min_level":"chatty"}})");
     {
-        Logging_settings out{};
+        Settings out{};
         NX_CHECK(!load_logging_settings({"", local_path}, out).has_value());
         NX_CHECK(out.diagnostics.size() >= 8U);
     }
@@ -3392,19 +3392,19 @@ void test_logging_settings_full_coverage() {
     // Non-object document and malformed JSON (global and local).
     write_text(global_path, R"([])");
     {
-        Logging_settings out{};
+        Settings out{};
         NX_CHECK(!load_logging_settings({global_path, ""}, out).has_value());
         NX_CHECK(!out.diagnostics.empty());
     }
     write_text(global_path, "{");
     {
-        Logging_settings out{};
+        Settings out{};
         NX_CHECK(!load_logging_settings({global_path, ""}, out).has_value());
     }
 
     // A directory path is unreadable on both sources.
     {
-        Logging_settings out{};
+        Settings out{};
         const Status global_status = load_logging_settings({"/tmp/opencode", ""}, out);
         NX_CHECK(!global_status.has_value());
         NX_CHECK(global_status.error() == ErrorCode::SystemError);
@@ -3425,7 +3425,7 @@ void test_logging_settings_full_coverage() {
     threads_env.set("0");
     overflow_env.set("x");
     {
-        Logging_settings out{};
+        Settings out{};
         NX_CHECK(!load_logging_settings({global_path, ""}, out).has_value());
         NX_CHECK(out.diagnostics.size() >= 6U);
     }
@@ -3437,7 +3437,7 @@ void test_logging_settings_full_coverage() {
         "", ",", "1-", "-2", "3-1", "64", "1,,2", " 1"};
     for (const std::string_view token : invalid_affinity) {
         affinity_env.set(std::string(token).c_str());
-        Logging_settings out{};
+        Settings out{};
         const Status status = load_logging_settings({global_path, ""}, out);
         if (token.empty()) {
             NX_CHECK(status.has_value()); // empty env is ignored
@@ -3447,7 +3447,7 @@ void test_logging_settings_full_coverage() {
     }
     affinity_env.set("0-63");
     {
-        Logging_settings out{};
+        Settings out{};
         NX_CHECK(load_logging_settings({global_path, ""}, out).has_value());
         NX_CHECK(out.options.flush_cpu_affinity.size() == 64U);
         NX_CHECK(out.options.flush_cpu_affinity.front() == 0U);
@@ -3473,16 +3473,16 @@ void test_spam_window_and_rotation_errors() {
         NX_CHECK(st.repeat_count == 1);
     }
     {
-        detail::Rotation_scratch scratch{};
+        detail::RotationScratch scratch{};
         int fd = -1;
-        NX_CHECK(!detail::open_period(detail::Rotation_kind::None, 0, 0, "", "f",
+        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0, "", "f",
                                       scratch, fd).has_value());
-        NX_CHECK(!detail::open_period(detail::Rotation_kind::None, 0, 0, "/tmp",
+        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0, "/tmp",
                                       std::string(256, 'x'), scratch, fd).has_value());
-        NX_CHECK(!detail::open_period(detail::Rotation_kind::None, 0, 0,
+        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0,
                                       std::string(512, 'b'), "f", scratch, fd)
                       .has_value());
-        NX_CHECK(!detail::open_period(detail::Rotation_kind::None, 0, 0,
+        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0,
                                       "/proc/nexigen-nope", "f", scratch, fd)
                       .has_value());
     }

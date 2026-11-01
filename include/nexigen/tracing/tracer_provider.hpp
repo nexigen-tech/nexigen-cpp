@@ -69,7 +69,7 @@ namespace nexigen::tracing {
 /// src/tracing/record_format.cpp): CPU affinity of the background consumer,
 /// the effective tracer pool size, and the optional span-rate budget (two
 /// zeros = unlimited).
-struct TracerProvider_config {
+struct TracerProviderConfig {
     std::uint64_t core_mask{0};            ///< worker pin (0 = OS placement).
     std::uint32_t max_tracers{16};         ///< effective pool limit (≤ 64).
     std::uint64_t max_spans_per_window{0}; ///< 0 = no rate limiting.
@@ -80,17 +80,17 @@ struct TracerProvider_config {
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] std::string to_string(const TracerProvider_config& config);
+[[nodiscard]] std::string to_string(const TracerProviderConfig& config);
 
 /// ADL JSON (cold path, full round-trip under JSON_NOEXCEPTION=1).
-void to_json(nlohmann::json& j, const TracerProvider_config& config);
-void from_json(const nlohmann::json& j, TracerProvider_config& out) noexcept;
+void to_json(nlohmann::json& j, const TracerProviderConfig& config);
+void from_json(const nlohmann::json& j, TracerProviderConfig& out) noexcept;
 
 /// Snapshot of dropped-span accounting (spec "Drop visibility"): the three
 /// drop causes counted separately; readable from any thread at any time as
 /// a relaxed aggregate observation, never as synchronization. Sampling-
 /// filtered spans are NOT counted (a decision is not a failure).
-struct Dropped_stats {
+struct DroppedStats {
     std::uint64_t rate_limited{};   ///< Rejected by the span-rate budget.
     std::uint64_t buffer_full{};    ///< Rejected by a full shard ring.
     std::uint64_t slot_exhausted{}; ///< Dropped: no free shard slot.
@@ -104,18 +104,18 @@ struct Dropped_stats {
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] std::string to_string(const Dropped_stats& stats);
+[[nodiscard]] std::string to_string(const DroppedStats& stats);
 
 /// ADL JSON (cold path, full round-trip — the snapshot is a value type).
-void to_json(nlohmann::json& j, const Dropped_stats& stats);
-void from_json(const nlohmann::json& j, Dropped_stats& out) noexcept;
+void to_json(nlohmann::json& j, const DroppedStats& stats);
+void from_json(const nlohmann::json& j, DroppedStats& out) noexcept;
 
 namespace detail {
 
 /// Type-erased sink binding: plain function pointers, no virtual dispatch,
 /// no RTTI (metrics D13 pattern). Created once by the provider's templated
 /// constructor; the sink MUST outlive the provider (documented contract).
-struct Sink_binding {
+struct SinkBinding {
     void* self{nullptr};
     core::Status (*start)(void*) noexcept{nullptr};
     core::Status (*on_span)(void*, const SpanRecord&) noexcept{nullptr};
@@ -140,9 +140,9 @@ public:
     /// provider. Construction itself performs NO heap allocation (all
     /// storage is inline in the object); the worker launches in initialize().
     template <concepts::TraceSink Sink>
-    TracerProvider(const TracerProvider_config& config, Sink& sink) noexcept
+    TracerProvider(const TracerProviderConfig& config, Sink& sink) noexcept
         : TracerProvider(config,
-                         detail::Sink_binding{
+                         detail::SinkBinding{
                              static_cast<void*>(&sink),
                              [](void* self) noexcept -> core::Status {
                                  return static_cast<Sink*>(self)->start();
@@ -214,8 +214,8 @@ public:
     /// Third-thread snapshot diagnostics (never synchronization): the
     /// relaxed per-cause aggregate over all shards + the shared exhaustion
     /// counter. Sampling-filtered spans never appear here.
-    [[nodiscard]] Dropped_stats dropped() const noexcept {
-        Dropped_stats aggregate{};
+    [[nodiscard]] DroppedStats dropped() const noexcept {
+        DroppedStats aggregate{};
         for (const Shard_state& state : state_) {
             aggregate.rate_limited += state.rate_limited.load(std::memory_order_relaxed);
             aggregate.buffer_full += state.buffer_full.load(std::memory_order_relaxed);
@@ -269,8 +269,8 @@ private:
     friend class ScopedSpan<ShardCapacity, Max_threads>;
 
     /// Hidden common constructor: config + type-erased binding.
-    TracerProvider(const TracerProvider_config& config,
-                   detail::Sink_binding binding) noexcept;
+    TracerProvider(const TracerProviderConfig& config,
+                   detail::SinkBinding binding) noexcept;
 
     // -- hot-path machinery (inline; used by Tracer/ScopedSpan) -----------
 
@@ -445,8 +445,8 @@ private:
         bool enabled{false};
     } policy_{};
 
-    TracerProvider_config config_{};
-    detail::Sink_binding binding_{};
+    TracerProviderConfig config_{};
+    detail::SinkBinding binding_{};
 
     /// Tracer pool: compile-time capacity; the EFFECTIVE limit is
     /// min(config.max_tracers, tracer_pool_capacity) — the configuration
@@ -489,7 +489,7 @@ private:
 
 template <std::size_t ShardCapacity, std::size_t Max_threads>
 TracerProvider<ShardCapacity, Max_threads>::TracerProvider(
-    const TracerProvider_config& config, detail::Sink_binding binding) noexcept
+    const TracerProviderConfig& config, detail::SinkBinding binding) noexcept
     : config_(config), binding_(binding) {
     policy_.enabled = config.max_spans_per_window != 0ULL && config.window_ns != 0ULL;
     policy_.max_spans_per_window = config.max_spans_per_window;
@@ -731,18 +731,18 @@ std::string TracerProvider<ShardCapacity, Max_threads>::to_string() const {
 /// The configuration and the drop snapshot format as their diagnostic
 /// strings (mandate 11).
 template <>
-struct std::formatter<nexigen::tracing::TracerProvider_config>
+struct std::formatter<nexigen::tracing::TracerProviderConfig>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::tracing::TracerProvider_config& config, Ctx& ctx) const {
+    auto format(const nexigen::tracing::TracerProviderConfig& config, Ctx& ctx) const {
         const std::string text = config.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }
 };
 template <>
-struct std::formatter<nexigen::tracing::Dropped_stats> : std::formatter<std::string_view> {
+struct std::formatter<nexigen::tracing::DroppedStats> : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::tracing::Dropped_stats& stats, Ctx& ctx) const {
+    auto format(const nexigen::tracing::DroppedStats& stats, Ctx& ctx) const {
         const std::string text = stats.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

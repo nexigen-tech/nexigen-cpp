@@ -17,7 +17,7 @@ constexpr std::string_view hex_digits = "0123456789abcdef";
     return hex_digits[static_cast<std::size_t>(b & 0x0FU)];
 }
 
-void append_escape_byte(Fixed_writer& w, std::uint8_t b) noexcept {
+void append_escape_byte(FixedWriter& w, std::uint8_t b) noexcept {
     switch (b) {
         case '"':  w.append_char('\\'); w.append_char('"');  return;
         case '\\': w.append_char('\\'); w.append_char('\\'); return;
@@ -42,7 +42,7 @@ void append_escape_byte(Fixed_writer& w, std::uint8_t b) noexcept {
 
 } // namespace
 
-bool Fixed_writer::append_char(char c) noexcept {
+bool FixedWriter::append_char(char c) noexcept {
     if (!ok_ || len_ >= cap_) {
         ok_ = false;
         return false;
@@ -51,7 +51,7 @@ bool Fixed_writer::append_char(char c) noexcept {
     return true;
 }
 
-bool Fixed_writer::append_sv(std::string_view sv) noexcept {
+bool FixedWriter::append_sv(std::string_view sv) noexcept {
     if (!ok_ || sv.size() > cap_ - len_) {
         ok_ = false;
         return false;
@@ -62,7 +62,7 @@ bool Fixed_writer::append_sv(std::string_view sv) noexcept {
     return true;
 }
 
-bool Fixed_writer::append_u64(std::uint64_t value) noexcept {
+bool FixedWriter::append_u64(std::uint64_t value) noexcept {
     char digits[24];
     const auto result = std::to_chars(digits, digits + sizeof(digits), value);
     if (result.ec != std::errc{}) {
@@ -72,7 +72,7 @@ bool Fixed_writer::append_u64(std::uint64_t value) noexcept {
     return append_sv(std::string_view(digits, static_cast<std::size_t>(result.ptr - digits)));
 }
 
-bool Fixed_writer::append_i64(std::int64_t value) noexcept {
+bool FixedWriter::append_i64(std::int64_t value) noexcept {
     char digits[24];
     const auto result = std::to_chars(digits, digits + sizeof(digits), value);
     if (result.ec != std::errc{}) {
@@ -82,7 +82,7 @@ bool Fixed_writer::append_i64(std::int64_t value) noexcept {
     return append_sv(std::string_view(digits, static_cast<std::size_t>(result.ptr - digits)));
 }
 
-bool Fixed_writer::append_double(double value) noexcept {
+bool FixedWriter::append_double(double value) noexcept {
     char digits[40];
     const auto result = std::to_chars(digits, digits + sizeof(digits), value);
     if (result.ec != std::errc{}) {
@@ -92,7 +92,7 @@ bool Fixed_writer::append_double(double value) noexcept {
     return append_sv(std::string_view(digits, static_cast<std::size_t>(result.ptr - digits)));
 }
 
-bool Fixed_writer::append_escaped(std::string_view sv) noexcept {
+bool FixedWriter::append_escaped(std::string_view sv) noexcept {
     for (const char c : sv) {
         append_escape_byte(*this, static_cast<std::uint8_t>(c));
         if (!ok_) {

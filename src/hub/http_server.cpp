@@ -182,7 +182,7 @@ struct HttpServer::Impl {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
 
-        if (core::detail::fault(core::detail::Fault_point::Hub_socket)) {
+        if (core::detail::fault(core::detail::FaultPoint::Hub_socket)) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         listen_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
@@ -193,7 +193,7 @@ struct HttpServer::Impl {
         int enabled = 1;
         static_cast<void>(::setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR,
                                         &enabled, sizeof(enabled)));
-        if (core::detail::fault(core::detail::Fault_point::Hub_bind) ||
+        if (core::detail::fault(core::detail::FaultPoint::Hub_bind) ||
             ::bind(listen_fd, reinterpret_cast<sockaddr*>(&address),
                    sizeof(address)) != 0 ||
             ::listen(listen_fd, 128) != 0) {
@@ -206,10 +206,10 @@ struct HttpServer::Impl {
             port = ntohs(bound.sin_port);
         }
 
-        epoll_fd = core::detail::fault(core::detail::Fault_point::Hub_epoll)
+        epoll_fd = core::detail::fault(core::detail::FaultPoint::Hub_epoll)
                        ? -1
                        : ::epoll_create1(EPOLL_CLOEXEC);
-        event_fd = core::detail::fault(core::detail::Fault_point::Hub_eventfd)
+        event_fd = core::detail::fault(core::detail::FaultPoint::Hub_eventfd)
                        ? -1
                        : ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
         if (epoll_fd < 0 || event_fd < 0) {
@@ -510,21 +510,21 @@ struct HttpServer::Impl {
 
     void handle_request(Client& client, std::string_view request,
                         bool keep_alive) noexcept {
-        detail::Request_line parsed;
+        detail::RequestLine parsed;
         switch (detail::parse_request_line(request, parsed)) {
-            case detail::Request_line_error::BadRequest:
+            case detail::RequestLineError::BadRequest:
                 respond_json(client, 400, "Bad Request",
                              {{"error", "bad request"}}, false);
                 return;
-            case detail::Request_line_error::BadVersion:
+            case detail::RequestLineError::BadVersion:
                 respond_json(client, 400, "Bad Request",
                              {{"error", "bad version"}}, false);
                 return;
-            case detail::Request_line_error::MethodNotAllowed:
+            case detail::RequestLineError::MethodNotAllowed:
                 respond_json(client, 405, "Method Not Allowed",
                              {{"error", "read only"}}, false);
                 return;
-            case detail::Request_line_error::None:
+            case detail::RequestLineError::None:
                 break;
         }
         const std::string_view path = parsed.path;

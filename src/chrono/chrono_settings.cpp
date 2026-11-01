@@ -30,22 +30,22 @@
 namespace nexigen::chrono {
 namespace {
 
-enum class File_read : std::uint8_t { Absent, Ok, Failed };
+enum class FileRead : std::uint8_t { Absent, Ok, Failed };
 
-[[nodiscard]] File_read read_settings_file(std::string_view path,
+[[nodiscard]] FileRead read_settings_file(std::string_view path,
                                            std::string& out) noexcept {
     if (path.empty()) {
-        return File_read::Absent;
+        return FileRead::Absent;
     }
     const std::string path_buf{path};
     const int fd = ::open(path_buf.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
-        return errno == ENOENT ? File_read::Absent : File_read::Failed;
+        return errno == ENOENT ? FileRead::Absent : FileRead::Failed;
     }
     struct stat st {};
     if (::fstat(fd, &st) != 0 || st.st_size < 0) {
         static_cast<void>(::close(fd));
-        return File_read::Failed;
+        return FileRead::Failed;
     }
     out.resize(static_cast<std::size_t>(st.st_size));
     std::size_t offset = 0;
@@ -57,19 +57,19 @@ enum class File_read : std::uint8_t { Absent, Ok, Failed };
             break;
         } else if (errno != EINTR) {
             static_cast<void>(::close(fd));
-            return File_read::Failed;
+            return FileRead::Failed;
         }
     }
     out.resize(offset);
     static_cast<void>(::close(fd));
-    return File_read::Ok;
+    return FileRead::Ok;
 }
 
-void add_diagnostic(std::vector<Chrono_settings_diagnostic>& diagnostics,
-                    Chrono_settings_source source, std::string field,
+void add_diagnostic(std::vector<SettingsDiagnostic>& diagnostics,
+                    SettingsSource source, std::string field,
                     std::string message) {
     diagnostics.push_back(
-        Chrono_settings_diagnostic{source, std::move(field), std::move(message)});
+        SettingsDiagnostic{source, std::move(field), std::move(message)});
 }
 
 [[nodiscard]] bool unsigned_value(const nlohmann::json& value, std::uint64_t& out) noexcept {
@@ -92,8 +92,8 @@ void add_diagnostic(std::vector<Chrono_settings_diagnostic>& diagnostics,
 
 /// Read a JSON key into a uint64 target when present and valid.
 void read_uint(const nlohmann::json& document, const char* key, std::uint64_t max_value,
-               std::uint64_t& target, std::vector<Chrono_settings_diagnostic>& diagnostics,
-               Chrono_settings_source source) {
+               std::uint64_t& target, std::vector<SettingsDiagnostic>& diagnostics,
+               SettingsSource source) {
     const auto it = document.find(key);
     if (it == document.end()) {
         return;
@@ -113,8 +113,8 @@ void read_uint(const nlohmann::json& document, const char* key, std::uint64_t ma
 /// Locate the optional sink object. Returns nullptr when absent or invalid;
 /// an invalid value is reported once and leaves the previous sink intact.
 [[nodiscard]] const nlohmann::json* find_sink(
-    const nlohmann::json& document, std::vector<Chrono_settings_diagnostic>& diagnostics,
-    Chrono_settings_source source) {
+    const nlohmann::json& document, std::vector<SettingsDiagnostic>& diagnostics,
+    SettingsSource source) {
     const auto it = document.find("sink");
     if (it == document.end()) {
         return nullptr;
@@ -127,8 +127,8 @@ void read_uint(const nlohmann::json& document, const char* key, std::uint64_t ma
 }
 
 void read_sink_string(const nlohmann::json& sink, const char* key, std::string& target,
-                      std::vector<Chrono_settings_diagnostic>& diagnostics,
-                      Chrono_settings_source source) {
+                      std::vector<SettingsDiagnostic>& diagnostics,
+                      SettingsSource source) {
     const auto it = sink.find(key);
     if (it == sink.end()) {
         return;
@@ -144,8 +144,8 @@ void read_sink_string(const nlohmann::json& sink, const char* key, std::string& 
 }
 
 void read_sink_bool(const nlohmann::json& sink, const char* key, bool& target,
-                    std::vector<Chrono_settings_diagnostic>& diagnostics,
-                    Chrono_settings_source source) {
+                    std::vector<SettingsDiagnostic>& diagnostics,
+                    SettingsSource source) {
     const auto it = sink.find(key);
     if (it == sink.end()) {
         return;
@@ -159,18 +159,18 @@ void read_sink_bool(const nlohmann::json& sink, const char* key, bool& target,
 
 } // namespace
 
-std::string Chrono_settings_paths::to_string() const {
-    return "Chrono_settings_paths(global_file=" + global_file +
+std::string SettingsPaths::to_string() const {
+    return "SettingsPaths(global_file=" + global_file +
            ", local_file=" + local_file + ")";
 }
 
-std::string Chrono_settings_diagnostic::to_string() const {
-    return "Chrono_settings_diagnostic(source=" + std::string(nexigen::chrono::to_string(source)) +
+std::string SettingsDiagnostic::to_string() const {
+    return "SettingsDiagnostic(source=" + std::string(nexigen::chrono::to_string(source)) +
            ", field=" + field + ", message=" + message + ")";
 }
 
-std::string Chrono_settings::to_string() const {
-    std::string out = "Chrono_settings(global_loaded=" +
+std::string Settings::to_string() const {
+    std::string out = "Settings(global_loaded=" +
                       std::string(global_loaded ? "true" : "false") +
                       ", local_loaded=" + std::string(local_loaded ? "true" : "false") +
                       ", options=" + nexigen::chrono::to_string(options) +
@@ -186,11 +186,11 @@ std::string Chrono_settings::to_string() const {
     return out;
 }
 
-void to_json(nlohmann::json& j, const Chrono_settings_paths& paths) {
+void to_json(nlohmann::json& j, const SettingsPaths& paths) {
     j = nlohmann::json{{"global_file", paths.global_file}, {"local_file", paths.local_file}};
 }
 
-void from_json(const nlohmann::json& j, Chrono_settings_paths& out) noexcept {
+void from_json(const nlohmann::json& j, SettingsPaths& out) noexcept {
     if (!j.is_object()) {
         return;
     }
@@ -210,13 +210,13 @@ void from_json(const nlohmann::json& j, Chrono_settings_paths& out) noexcept {
     }
 }
 
-void to_json(nlohmann::json& j, const Chrono_settings_diagnostic& diag) {
+void to_json(nlohmann::json& j, const SettingsDiagnostic& diag) {
     j = nlohmann::json{{"source", std::string(to_string(diag.source))},
                        {"field", diag.field},
                        {"message", diag.message}};
 }
 
-void from_json(const nlohmann::json& j, Chrono_settings_diagnostic& out) noexcept {
+void from_json(const nlohmann::json& j, SettingsDiagnostic& out) noexcept {
     if (!j.is_object()) {
         return;
     }
@@ -243,10 +243,10 @@ void from_json(const nlohmann::json& j, Chrono_settings_diagnostic& out) noexcep
     }
 }
 
-void to_json(nlohmann::json& j, const Chrono_settings& settings) {
-    const ChronoProvider_config& options = settings.options;
+void to_json(nlohmann::json& j, const Settings& settings) {
+    const ChronoProviderConfig& options = settings.options;
     nlohmann::json diagnostics = nlohmann::json::array();
-    for (const Chrono_settings_diagnostic& diag : settings.diagnostics) {
+    for (const SettingsDiagnostic& diag : settings.diagnostics) {
         nlohmann::json entry;
         to_json(entry, diag);
         diagnostics.push_back(std::move(entry));
@@ -262,8 +262,8 @@ void to_json(nlohmann::json& j, const Chrono_settings& settings) {
 
 namespace {
 
-void merge_document(const nlohmann::json& document, Chrono_settings_source source,
-                    Chrono_settings& out) {
+void merge_document(const nlohmann::json& document, SettingsSource source,
+                    Settings& out) {
     if (!document.is_object()) {
         add_diagnostic(out.diagnostics, source, "", "document is not a JSON object");
         return;
@@ -295,7 +295,7 @@ void merge_document(const nlohmann::json& document, Chrono_settings_source sourc
     return value == nullptr ? std::string_view{} : std::string_view{value};
 }
 
-void apply_environment(Chrono_settings& out) {
+void apply_environment(Settings& out) {
     std::string_view value = env_value("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS");
     if (!value.empty()) {
         std::uint64_t parsed = 0;
@@ -304,7 +304,7 @@ void apply_environment(Chrono_settings& out) {
             out.options.collect_interval =
                 std::chrono::nanoseconds{static_cast<std::int64_t>(parsed)};
         } else {
-            add_diagnostic(out.diagnostics, Chrono_settings_source::Environment,
+            add_diagnostic(out.diagnostics, SettingsSource::Environment,
                            "collect_interval_ns", "expected a non-negative nanosecond count");
         }
     }
@@ -314,7 +314,7 @@ void apply_environment(Chrono_settings& out) {
         if (parse_u64(value, parsed)) {
             out.options.core_mask = parsed;
         } else {
-            add_diagnostic(out.diagnostics, Chrono_settings_source::Environment, "core_mask",
+            add_diagnostic(out.diagnostics, SettingsSource::Environment, "core_mask",
                            "expected a non-negative integer mask");
         }
     }
@@ -322,49 +322,49 @@ void apply_environment(Chrono_settings& out) {
 
 } // namespace
 
-core::Status load_chrono_settings(const Chrono_settings_paths& paths,
-                                  Chrono_settings& out) noexcept {
-    out = Chrono_settings{};
+core::Status load_chrono_settings(const SettingsPaths& paths,
+                                  Settings& out) noexcept {
+    out = Settings{};
     bool invalid = false;
     bool system_error = false;
     std::string text;
 
-    File_read read = read_settings_file(paths.global_file, text);
-    if (read == File_read::Ok) {
+    FileRead read = read_settings_file(paths.global_file, text);
+    if (read == FileRead::Ok) {
         out.global_loaded = true;
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, Chrono_settings_source::Global, "",
+            add_diagnostic(out.diagnostics, SettingsSource::Global, "",
                            "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
-            merge_document(document, Chrono_settings_source::Global, out);
+            merge_document(document, SettingsSource::Global, out);
             invalid = invalid || out.diagnostics.size() != before;
         }
-    } else if (read == File_read::Failed) {
+    } else if (read == FileRead::Failed) {
         system_error = true;
-        add_diagnostic(out.diagnostics, Chrono_settings_source::Global, "",
+        add_diagnostic(out.diagnostics, SettingsSource::Global, "",
                        "file exists but could not be read");
     }
 
     text.clear();
     read = read_settings_file(paths.local_file, text);
-    if (read == File_read::Ok) {
+    if (read == FileRead::Ok) {
         out.local_loaded = true;
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, Chrono_settings_source::Local, "",
+            add_diagnostic(out.diagnostics, SettingsSource::Local, "",
                            "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
-            merge_document(document, Chrono_settings_source::Local, out);
+            merge_document(document, SettingsSource::Local, out);
             invalid = invalid || out.diagnostics.size() != before;
         }
-    } else if (read == File_read::Failed) {
+    } else if (read == FileRead::Failed) {
         system_error = true;
-        add_diagnostic(out.diagnostics, Chrono_settings_source::Local, "",
+        add_diagnostic(out.diagnostics, SettingsSource::Local, "",
                        "file exists but could not be read");
     }
 
@@ -381,7 +381,7 @@ core::Status load_chrono_settings(const Chrono_settings_paths& paths,
     return {};
 }
 
-core::Status apply_to(const Chrono_settings& settings, ChronoProvider_config& out) noexcept {
+core::Status apply_to(const Settings& settings, ChronoProviderConfig& out) noexcept {
     out = settings.options;
     return {};
 }

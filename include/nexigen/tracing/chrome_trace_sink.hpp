@@ -41,7 +41,7 @@ namespace nexigen::tracing {
 
 /// Chrome sink configuration (value type, full serialization trio; body in
 /// src/tracing/sink_format.cpp).
-struct ChromeTraceSink_config {
+struct ChromeTraceSinkConfig {
     std::string path{}; ///< the trace file to (re)create at start().
 
     /// Cold-path diagnostic (mandate 9).
@@ -49,16 +49,16 @@ struct ChromeTraceSink_config {
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] std::string to_string(const ChromeTraceSink_config& config);
+[[nodiscard]] std::string to_string(const ChromeTraceSinkConfig& config);
 
 /// ADL JSON (cold path, full round-trip); bodies in sink_format.cpp.
-void to_json(nlohmann::json& j, const ChromeTraceSink_config& config);
-void from_json(const nlohmann::json& j, ChromeTraceSink_config& out) noexcept;
+void to_json(nlohmann::json& j, const ChromeTraceSinkConfig& config);
+void from_json(const nlohmann::json& j, ChromeTraceSinkConfig& out) noexcept;
 
 /// The Chrome Trace Event sink.
 class ChromeTraceSink {
 public:
-    explicit ChromeTraceSink(const ChromeTraceSink_config& config) noexcept
+    explicit ChromeTraceSink(const ChromeTraceSinkConfig& config) noexcept
         : config_(config) {}
 
     ChromeTraceSink(const ChromeTraceSink&) = delete;
@@ -108,7 +108,7 @@ public:
                 : 0ULL;
         const std::uint64_t dur_us = record.duration_ns() / 1000U;
 
-        detail::Fixed_writer writer{scratch_, detail::json_scratch_capacity};
+        detail::FixedWriter writer{scratch_, detail::json_scratch_capacity};
         if (!first_event_) {
             static_cast<void>(writer.append_char(','));
         }
@@ -220,7 +220,7 @@ private:
         return true;
     }
 
-    ChromeTraceSink_config config_;
+    ChromeTraceSinkConfig config_;
     std::uint64_t pid_{};      ///< cached at start()
     std::uint64_t base_ns_{};  ///< first drained span's start (mono ns)
     bool base_set_{false};
@@ -245,10 +245,10 @@ static_assert(concepts::TraceSink<ChromeTraceSink>,
 /// The configuration and the live sink format as their diagnostic texts
 /// (mandate 11).
 template <>
-struct std::formatter<nexigen::tracing::ChromeTraceSink_config>
+struct std::formatter<nexigen::tracing::ChromeTraceSinkConfig>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::tracing::ChromeTraceSink_config& config, Ctx& ctx) const {
+    auto format(const nexigen::tracing::ChromeTraceSinkConfig& config, Ctx& ctx) const {
         const std::string text = config.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

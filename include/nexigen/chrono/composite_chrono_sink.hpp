@@ -124,7 +124,7 @@ public:
     }
 
     /// Deliver the snapshot to every member; the first failure is returned.
-    [[nodiscard]] core::Status on_snapshot(const Chrono_snapshot& snapshot) noexcept {
+    [[nodiscard]] core::Status on_snapshot(const Snapshot& snapshot) noexcept {
         core::Status result{};
         for_each([&snapshot, &result](auto& sink) noexcept {
             result = combine(result, sink.on_snapshot(snapshot));

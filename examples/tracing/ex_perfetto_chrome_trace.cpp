@@ -69,13 +69,13 @@ int main() {
     // The provider owns ~10 MiB of pre-allocated shards: static STORAGE
     // (never the stack — documented rule) with an explicitly controlled
     // lifetime, so the shutdown drain runs exactly once below.
-    tracing::ChromeTraceSink_config sink_config{};
+    tracing::ChromeTraceSinkConfig sink_config{};
     sink_config.path = trace_path;
     static tracing::ChromeTraceSink chrome_sink{sink_config};
     using Provider = tracing::TracerProvider<1024, 32>;
     alignas(Provider) static unsigned char provider_storage[sizeof(Provider)]{};
     auto* provider = new (static_cast<void*>(provider_storage))
-        Provider(tracing::TracerProvider_config{}, chrome_sink);
+        Provider(tracing::TracerProviderConfig{}, chrome_sink);
 
     if (!provider->initialize().has_value()) {
         return report("provider initialization failed");

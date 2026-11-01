@@ -139,7 +139,7 @@ int main() {
     // --- Provider: no background harvester, the example reads the histogram
     // directly. The null sink keeps the pipeline inactive (cold path only).
     metrics::NullMetricSink sink;
-    metrics::MetricProvider_config config{};
+    metrics::MetricProviderConfig config{};
     config.collect_interval = std::chrono::nanoseconds{0};
     metrics::MetricProvider provider{config, sink};
     expect(provider.startup_status().has_value(), "provider startup");

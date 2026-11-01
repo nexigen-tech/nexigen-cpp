@@ -1,7 +1,7 @@
 // nexigen::tracing — bounds-checked JSON writer (design D2/D11; mirrors the
-// logging/metrics Fixed_writer policy).
+// logging/metrics FixedWriter policy).
 //
-// Fixed_writer stages into caller-owned fixed storage: every append is
+// FixedWriter stages into caller-owned fixed storage: every append is
 // bounds-checked, a rejected append marks overflow, the caller skips the
 // record. No reallocation, no exceptions, no allocation.
 //
@@ -19,9 +19,9 @@ namespace nexigen::tracing::detail {
 
 /// Bounds-checked appender over caller memory. `ok()` goes false permanently
 /// on the first overflow attempt; nothing else changes (no UB, no writes).
-class Fixed_writer {
+class FixedWriter {
 public:
-    Fixed_writer(char* buf, std::size_t cap) noexcept : buf_(buf), cap_(cap) {}
+    FixedWriter(char* buf, std::size_t cap) noexcept : buf_(buf), cap_(cap) {}
 
     bool append_char(char c) noexcept;
     bool append_sv(std::string_view sv) noexcept;

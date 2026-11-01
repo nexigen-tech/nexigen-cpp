@@ -58,8 +58,8 @@ struct alignas(64) Stats_bank {
     std::atomic<double> maximum{0.0};
 
     /// Read the bank into a plain moment state (harvester side).
-    [[nodiscard]] Welford_state load_state() const noexcept {
-        Welford_state state{};
+    [[nodiscard]] WelfordState load_state() const noexcept {
+        WelfordState state{};
         state.count = count.load(std::memory_order_relaxed);
         state.mean = mean.load(std::memory_order_relaxed);
         state.m2 = m2.load(std::memory_order_relaxed);
@@ -167,7 +167,7 @@ public:
         StatisticsSnapshot snapshot{};
         snapshot.ignored_samples = ignored_.load(std::memory_order_relaxed);
         snapshot.dropped_samples = dropped_.load(std::memory_order_relaxed);
-        const detail::Welford_state state = take_state();
+        const detail::WelfordState state = take_state();
         snapshot.count = state.count;
         snapshot.min = state.min;
         snapshot.max = state.max;
@@ -192,7 +192,7 @@ public:
 
     /// Cold-path diagnostic (mandate 9). Never resets a window.
     [[nodiscard]] std::string to_string() const {
-        const detail::Welford_state state = observe_state();
+        const detail::WelfordState state = observe_state();
         std::string out = "DescriptiveStatistics(kind=";
         out += std::string(metrics::to_string(kind));
         out += ", concurrency=" + std::string(metrics::to_string(concurrency));
@@ -228,7 +228,7 @@ private:
 
     static void harvest_thunk(void* object, MetricRecord& record) noexcept {
         const auto& self = *static_cast<const DescriptiveStatistics*>(object);
-        const detail::Welford_state state = self.take_state();
+        const detail::WelfordState state = self.take_state();
         record.statistics.ignored_samples = self.ignored_.load(std::memory_order_relaxed);
         record.statistics.dropped_samples = self.dropped_.load(std::memory_order_relaxed);
         record.statistics.count = state.count;
@@ -243,8 +243,8 @@ private:
     }
 
     /// Non-destructive summary (never clears a window).
-    [[nodiscard]] detail::Welford_state observe_state() const noexcept {
-        detail::Welford_state total{};
+    [[nodiscard]] detail::WelfordState observe_state() const noexcept {
+        detail::WelfordState total{};
         if constexpr (Concurrency == ConcurrencyPolicy::SingleThreaded) {
             return cell_;
         } else {
@@ -256,12 +256,12 @@ private:
     }
 
     /// Window-consuming summary: ResetOnRead clears what it reports.
-    [[nodiscard]] detail::Welford_state take_state() const noexcept {
-        detail::Welford_state total{};
+    [[nodiscard]] detail::WelfordState take_state() const noexcept {
+        detail::WelfordState total{};
         if constexpr (Concurrency == ConcurrencyPolicy::SingleThreaded) {
             if constexpr (Reset == ResetPolicy::ResetOnRead) {
-                const detail::Welford_state state = cell_;
-                cell_ = detail::Welford_state{};
+                const detail::WelfordState state = cell_;
+                cell_ = detail::WelfordState{};
                 return state;
             } else {
                 return cell_;
@@ -275,7 +275,7 @@ private:
     }
 
     /// Read one slot without touching its window.
-    [[nodiscard]] detail::Welford_state peek_slot(std::size_t index) const noexcept {
+    [[nodiscard]] detail::WelfordState peek_slot(std::size_t index) const noexcept {
         auto& slot = slots_[index];
         for (int attempt = 0; attempt < detail::stats_handshake_attempts; ++attempt) {
             const std::uint32_t before = slot.seq.load(std::memory_order_acquire);
@@ -283,7 +283,7 @@ private:
                 continue; // a producer is mid-record
             }
             const std::uint8_t bank = slot.active.load(std::memory_order_relaxed);
-            const detail::Welford_state state = slot.bank[bank].load_state();
+            const detail::WelfordState state = slot.bank[bank].load_state();
             // Keep the bank reads inside the checked window: compiler barrier
             // only (x86 TSO already orders loads; design D9).
             std::atomic_signal_fence(std::memory_order_acq_rel);
@@ -291,11 +291,11 @@ private:
                 return state;
             }
         }
-        return detail::Welford_state{}; // deferred to the next window
+        return detail::WelfordState{}; // deferred to the next window
     }
 
     /// Read one slot; ResetOnRead swaps the active bank and clears it.
-    [[nodiscard]] detail::Welford_state take_slot(std::size_t index) const noexcept {
+    [[nodiscard]] detail::WelfordState take_slot(std::size_t index) const noexcept {
         auto& slot = slots_[index];
         if constexpr (Reset == ResetPolicy::ResetOnRead) {
             const std::uint8_t current = slot.active.load(std::memory_order_relaxed);
@@ -311,7 +311,7 @@ private:
                 if ((before & 1U) != 0U) {
                     continue;
                 }
-                const detail::Welford_state state = slot.bank[taken].load_state();
+                const detail::WelfordState state = slot.bank[taken].load_state();
                 // Keep the bank reads inside the checked window: compiler
                 // barrier only (x86 TSO already orders loads; design D9).
                 std::atomic_signal_fence(std::memory_order_acq_rel);
@@ -323,7 +323,7 @@ private:
             // Deferred to a later window: the bank is left untouched, so the
             // racing record completes into it and is read exactly once at the
             // swap that takes this bank again (no loss, no double count).
-            return detail::Welford_state{};
+            return detail::WelfordState{};
         } else {
             return peek_slot(index);
         }
@@ -332,7 +332,7 @@ private:
     /// Identity of the owning registry slot (set by the Meter at creation).
     const MetricIdentity* identity_{nullptr};
 
-    mutable detail::Welford_state cell_{};                  // SingleThreaded
+    mutable detail::WelfordState cell_{};                  // SingleThreaded
     mutable detail::Stats_slot slots_[detail::shard_count]{}; // MultiThreaded
     std::atomic<std::uint64_t> ignored_{0};
     std::atomic<std::uint64_t> dropped_{0};

@@ -52,8 +52,8 @@ std::int64_t days_from_utc_ns(std::int64_t utc_ns) noexcept {
     return floordiv(utc_ns, ns_per_day);
 }
 
-Civil_time civil_from_utc_ns(std::int64_t utc_ns) noexcept {
-    Civil_time ct{};
+CivilTime civil_from_utc_ns(std::int64_t utc_ns) noexcept {
+    CivilTime ct{};
     const std::int64_t days = days_from_utc_ns(utc_ns);
     const std::int64_t sec_of_day = floordiv(utc_ns - days * ns_per_day, ns_per_sec);
     const std::uint32_t ns_in_sec =
@@ -67,7 +67,7 @@ Civil_time civil_from_utc_ns(std::int64_t utc_ns) noexcept {
 }
 
 void format_utc_iso8601_ns(std::int64_t utc_ns, char (&buf)[31]) noexcept {
-    const Civil_time ct = civil_from_utc_ns(utc_ns);
+    const CivilTime ct = civil_from_utc_ns(utc_ns);
     std::size_t pos = 0;
     // Year: the int64-ns domain reaches roughly 1678..2262 — always 4 digits;
     // clamp defensively so a hostile input can never shift the field layout.

@@ -1,7 +1,7 @@
 // nexigen::chrono — persisted UTC-offset snapshot (change
 // add-chrono-clock-service; spec chrono/chrono-snapshot).
 //
-// Chrono_snapshot is a 16-byte, trivially copyable value: the monotonic-raw
+// Snapshot is a 16-byte, trivially copyable value: the monotonic-raw
 // stamp (the series key) plus the signed UTC offset (realtime − monotonic_raw)
 // sampled at that instant. Post-hoc readers re-bind a monotonic event to the
 // wall clock as stamp + realtime_offset_ns.
@@ -24,7 +24,7 @@ namespace nexigen::chrono {
 
 /// One UTC-offset snapshot: the monotonic-raw series key and its wall-clock
 /// offset at that instant.
-struct Chrono_snapshot {
+struct Snapshot {
     chrono::Timestamp stamp{};          ///< monotonic-raw nanoseconds (series key)
     std::int64_t realtime_offset_ns{0}; ///< realtime − monotonic_raw (signed)
 
@@ -32,24 +32,24 @@ struct Chrono_snapshot {
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] std::string to_string(const Chrono_snapshot& snapshot);
+[[nodiscard]] std::string to_string(const Snapshot& snapshot);
 
 // --- nlohmann::json (cold path). Readers are strictly non-throwing under
 // JSON_NOEXCEPTION=1. Definitions live in src/chrono/chrono_snapshot.cpp.
-void to_json(nlohmann::json& j, const Chrono_snapshot& snapshot);
-void from_json(const nlohmann::json& j, Chrono_snapshot& out) noexcept;
+void to_json(nlohmann::json& j, const Snapshot& snapshot);
+void from_json(const nlohmann::json& j, Snapshot& out) noexcept;
 
-static_assert(sizeof(Chrono_snapshot) == 16, "snapshot must stay two register-sized fields");
-static_assert(std::is_trivially_copyable_v<Chrono_snapshot>,
+static_assert(sizeof(Snapshot) == 16, "snapshot must stay two register-sized fields");
+static_assert(std::is_trivially_copyable_v<Snapshot>,
               "snapshot must be trivially copyable");
 
 } // namespace nexigen::chrono
 
-/// Chrono_snapshot formats as its diagnostic string (mandate 11).
+/// Snapshot formats as its diagnostic string (mandate 11).
 template <>
-struct std::formatter<nexigen::chrono::Chrono_snapshot> : std::formatter<std::string_view> {
+struct std::formatter<nexigen::chrono::Snapshot> : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::chrono::Chrono_snapshot& snapshot, Ctx& ctx) const {
+    auto format(const nexigen::chrono::Snapshot& snapshot, Ctx& ctx) const {
         const std::string text = snapshot.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

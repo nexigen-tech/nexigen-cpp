@@ -94,7 +94,7 @@ int main(int argc, char** argv) {
     static tracing::CompositeTraceSink<tracing::ConsoleTraceSink, Timeline_sink> sink{
         tracing::ConsoleTraceSink{1}, Timeline_sink{}};
     static tracing::TracerProvider<1024, 32> provider{
-        tracing::TracerProvider_config{}, sink};
+        tracing::TracerProviderConfig{}, sink};
 
     if (!provider.initialize().has_value()) {
         return report("provider initialization failed");

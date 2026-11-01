@@ -21,7 +21,7 @@ namespace nexigen::runner {
 /// pipeline. An empty path leaves defaults (no file loaded).
 [[nodiscard]] core::Status load_runner_logging_settings(
     std::string_view global_settings_path,
-    logging::Logging_settings& out) noexcept;
+    logging::Settings& out) noexcept;
 
 /// Initialize the process-local runner logger. `level` is the already-resolved
 /// effective level; `logger_cpus`, when non-empty, overrides the file's
@@ -29,7 +29,7 @@ namespace nexigen::runner {
 /// `<cwd>/.nexigen-run`.
 [[nodiscard]] core::Status init_runner_logging(
     std::string_view primary_dir,
-    const logging::Logging_settings& settings,
+    const logging::Settings& settings,
     logging::LogLevel level,
     std::span<const std::uint32_t> logger_cpus = {}) noexcept;
 

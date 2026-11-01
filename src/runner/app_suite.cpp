@@ -829,7 +829,7 @@ core::Status load_suite_manifest(std::string_view path,
 
 namespace {
 
-struct Runtime_app {
+struct RuntimeApp {
     AppSpec spec{};
     std::string instance_dir{};
     std::string artifact_dir{};
@@ -843,7 +843,7 @@ struct Runtime_app {
     bool launch_failed{false};
 };
 
-struct Runtime_suite {
+struct RuntimeSuite {
     const SuiteManifest* manifest{nullptr};
     std::string suite_dir{};
     std::string state_path{};
@@ -854,7 +854,7 @@ struct Runtime_suite {
     bool suite_restart_pending{false};
     std::uint64_t next_suite_restart_ns{0};
     std::uint64_t start_mono_ns{0};
-    std::vector<Runtime_app> apps{};
+    std::vector<RuntimeApp> apps{};
     bool dirty{false};
 };
 
@@ -894,7 +894,7 @@ void reap_supervisors() noexcept {
     return true;
 }
 
-void write_suite_status(Runtime_suite& suite) {
+void write_suite_status(RuntimeSuite& suite) {
     SuiteStatus status{};
     status.state = suite.state;
     status.suite_id = suite.manifest->suite_id;
@@ -902,7 +902,7 @@ void write_suite_status(Runtime_suite& suite) {
     status.artifacts_path = suite.manifest->artifacts_path;
     status.suite_restarts_used = suite.suite_restarts_used;
     status.apps.reserve(suite.apps.size());
-    for (const Runtime_app& app : suite.apps) {
+    for (const RuntimeApp& app : suite.apps) {
         SuiteAppStatus entry{};
         entry.app = app.spec.app;
         entry.instance = app.spec.instance;
@@ -918,7 +918,7 @@ void write_suite_status(Runtime_suite& suite) {
     static_cast<void>(write_json_file(suite.state_path, document));
 }
 
-void write_suite_exit(Runtime_suite& suite, SuiteState state,
+void write_suite_exit(RuntimeSuite& suite, SuiteState state,
                       std::string_view reason) {
     suite.state = state;
     SuiteExit exit{};
@@ -944,8 +944,8 @@ void write_suite_exit(Runtime_suite& suite, SuiteState state,
     return command;
 }
 
-void stop_all(Runtime_suite& suite) {
-    for (Runtime_app& app : suite.apps) {
+void stop_all(RuntimeSuite& suite) {
+    for (RuntimeApp& app : suite.apps) {
         if (app.state == AppState::Running ||
             app.state == AppState::Restarting || app.child_pid > 0 ||
             app.supervisor_pid > 0) {
@@ -961,7 +961,7 @@ void stop_all(Runtime_suite& suite) {
     reap_supervisors();
 }
 
-[[nodiscard]] bool launch_app(Runtime_suite& suite, Runtime_app& app) {
+[[nodiscard]] bool launch_app(RuntimeSuite& suite, RuntimeApp& app) {
     ++app.attempt;
     app.artifact_dir = attempt_dir_path(
         suite.manifest->artifacts_path, suite.manifest->suite_id,
@@ -1012,7 +1012,7 @@ void stop_all(Runtime_suite& suite) {
     return true;
 }
 
-void schedule_retry_or_fail(Runtime_suite& suite, Runtime_app& app) {
+void schedule_retry_or_fail(RuntimeSuite& suite, RuntimeApp& app) {
     if (app.restarts_used < app.spec.restart_attempts) {
         ++app.restarts_used;
         app.state = AppState::Restarting;
@@ -1039,9 +1039,9 @@ void schedule_retry_or_fail(Runtime_suite& suite, Runtime_app& app) {
     suite.dirty = true;
 }
 
-void finish_failed(Runtime_suite& suite) {
+void finish_failed(RuntimeSuite& suite) {
     stop_all(suite);
-    for (Runtime_app& app : suite.apps) {
+    for (RuntimeApp& app : suite.apps) {
         if (app.state != AppState::Failed) {
             app.state = AppState::Stopped;
         }
@@ -1054,7 +1054,7 @@ void finish_failed(Runtime_suite& suite) {
     child_exit(0);
 }
 
-void trigger_suite_restart(Runtime_suite& suite) {
+void trigger_suite_restart(RuntimeSuite& suite) {
     if (suite.suite_restarts_used >=
         suite.manifest->suite_restart_attempts) {
         finish_failed(suite);
@@ -1067,7 +1067,7 @@ void trigger_suite_restart(Runtime_suite& suite) {
                            suite.manifest->suite_restart_attempts,
                            suite.manifest->suite_restart_delay_s));
     stop_all(suite);
-    for (Runtime_app& app : suite.apps) {
+    for (RuntimeApp& app : suite.apps) {
         app.state = AppState::Restarting;
         app.restarts_used = 0;
         app.exit_consumed = false;
@@ -1085,7 +1085,7 @@ void trigger_suite_restart(Runtime_suite& suite) {
     write_suite_status(suite);
 }
 
-void handle_abnormal(Runtime_suite& suite, Runtime_app& app) {
+void handle_abnormal(RuntimeSuite& suite, RuntimeApp& app) {
     if (app.spec.impact == ImpactOnAppSuiteOperability::Failure) {
         trigger_suite_restart(suite);
         return;
@@ -1093,15 +1093,15 @@ void handle_abnormal(Runtime_suite& suite, Runtime_app& app) {
     schedule_retry_or_fail(suite, app);
 }
 
-void launch_all(Runtime_suite& suite) {
-    for (Runtime_app& app : suite.apps) {
+void launch_all(RuntimeSuite& suite) {
+    for (RuntimeApp& app : suite.apps) {
         static_cast<void>(launch_app(suite, app));
     }
 }
 
-void apply_launch_failures(Runtime_suite& suite) {
+void apply_launch_failures(RuntimeSuite& suite) {
     bool failure_impact_failed = false;
-    for (const Runtime_app& app : suite.apps) {
+    for (const RuntimeApp& app : suite.apps) {
         if (app.launch_failed &&
             app.spec.impact == ImpactOnAppSuiteOperability::Failure) {
             failure_impact_failed = true;
@@ -1112,7 +1112,7 @@ void apply_launch_failures(Runtime_suite& suite) {
         trigger_suite_restart(suite);
         return;
     }
-    for (Runtime_app& app : suite.apps) {
+    for (RuntimeApp& app : suite.apps) {
         if (app.launch_failed) {
             app.launch_failed = false;
             schedule_retry_or_fail(suite, app);
@@ -1120,13 +1120,13 @@ void apply_launch_failures(Runtime_suite& suite) {
     }
 }
 
-[[noreturn]] void finish_suite_stop(Runtime_suite& suite,
+[[noreturn]] void finish_suite_stop(RuntimeSuite& suite,
                                     const SuiteManifest& manifest) {
     log_runner(logging::LogLevel::Info,
                std::format("event=stop_requested suite={}",
                            manifest.suite_id));
     stop_all(suite);
-    for (Runtime_app& app : suite.apps) {
+    for (RuntimeApp& app : suite.apps) {
         app.state = AppState::Stopped;
     }
     write_suite_exit(suite, SuiteState::Stopped, "operator_stop");
@@ -1137,7 +1137,7 @@ void apply_launch_failures(Runtime_suite& suite) {
     child_exit(0);
 }
 
-[[nodiscard]] bool advance_suite_restart(Runtime_suite& suite,
+[[nodiscard]] bool advance_suite_restart(RuntimeSuite& suite,
                                          const SuiteManifest& manifest,
                                          std::uint64_t now) {
     if (!suite.suite_restart_pending) {
@@ -1153,7 +1153,7 @@ void apply_launch_failures(Runtime_suite& suite) {
                    std::format("event=suite_restart suite={} used={} limit={}",
                                manifest.suite_id, suite.suite_restarts_used,
                                manifest.suite_restart_attempts));
-        for (const Runtime_app& app : suite.apps) {
+        for (const RuntimeApp& app : suite.apps) {
             log_runner(logging::LogLevel::Info,
                        std::format("event=app_launch app={} instance={} "
                                    "attempt={} pid={} state={}",
@@ -1168,7 +1168,7 @@ void apply_launch_failures(Runtime_suite& suite) {
 
 /// Advance one application state machine. Returns true when an abnormal exit
 /// scheduled a suite-wide restart, so the caller stops scanning this tick.
-[[nodiscard]] bool advance_app(Runtime_suite& suite, Runtime_app& app,
+[[nodiscard]] bool advance_app(RuntimeSuite& suite, RuntimeApp& app,
                                std::uint64_t now) {
     if (app.state == AppState::Running) {
         ExitMetadata exit{};
@@ -1233,7 +1233,7 @@ void run_suite_supervisor(const SuiteManifest& manifest,
                      "supervisor is unpinned\n");
     }
 
-    Runtime_suite suite{};
+    RuntimeSuite suite{};
     suite.manifest = &manifest;
     suite.suite_dir = suite_dir;
     suite.state_path = join_path(suite_dir, "suite-state.json");
@@ -1275,7 +1275,7 @@ void run_suite_supervisor(const SuiteManifest& manifest,
 
     suite.apps.reserve(manifest.apps.size());
     for (const AppSpec& app : manifest.apps) {
-        Runtime_app runtime{};
+        RuntimeApp runtime{};
         runtime.spec = app;
         runtime.instance_dir =
             manifest.run_dir + "/" + app.app + "/" + app.instance;
@@ -1289,12 +1289,12 @@ void run_suite_supervisor(const SuiteManifest& manifest,
     static_cast<void>(write_all(report_fd, &report, sizeof(report)));
     static_cast<void>(::close(report_fd));
 
-    logging::Logging_settings log_settings{};
+    logging::Settings log_settings{};
     const core::Status settings_status = load_runner_logging_settings(
         manifest.global_settings_path, log_settings);
     if (!settings_status) {
         warn_runner("event=logging_settings_invalid detail=using defaults");
-        log_settings = logging::Logging_settings{};
+        log_settings = logging::Settings{};
     }
     const logging::LogLevel log_level =
         manifest.log_level.value_or(
@@ -1312,7 +1312,7 @@ void run_suite_supervisor(const SuiteManifest& manifest,
     log_runner(logging::LogLevel::Info,
                std::format("event=suite_started suite={} apps={}",
                            manifest.suite_id, suite.apps.size()));
-    for (const Runtime_app& app : suite.apps) {
+    for (const RuntimeApp& app : suite.apps) {
         log_runner(app.state == AppState::Failed
                        ? logging::LogLevel::Warning
                        : logging::LogLevel::Info,
@@ -1338,7 +1338,7 @@ void run_suite_supervisor(const SuiteManifest& manifest,
             continue;
         }
 
-        for (Runtime_app& app : suite.apps) {
+        for (RuntimeApp& app : suite.apps) {
             if (advance_app(suite, app, now)) {
                 break;
             }

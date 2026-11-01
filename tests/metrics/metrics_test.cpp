@@ -437,7 +437,7 @@ void test_concepts() {
 // --- registry and factory hierarchy (spec metrics/metric-provider).
 void test_registry() {
     metrics::NullMetricSink sink;
-    metrics::MetricProvider_config config{};
+    metrics::MetricProviderConfig config{};
     config.max_counters = 2;
     config.max_meters = 2;
     metrics::MetricProvider provider{config, sink};
@@ -509,7 +509,7 @@ void test_registry() {
 // --- counters (spec metrics/counter-gauge).
 void test_counter() {
     metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProvider_config{}, sink};
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
     NX_CHECK(meter.has_value());
     if (!meter) { return; }
@@ -603,7 +603,7 @@ void test_counter() {
 // --- gauges (spec metrics/counter-gauge).
 void test_gauge() {
     metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProvider_config{}, sink};
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
     NX_CHECK(meter.has_value());
     if (!meter) { return; }
@@ -669,7 +669,7 @@ void test_gauge() {
 // --- descriptive statistics (spec metrics/descriptive-statistics).
 void test_statistics() {
     metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProvider_config{}, sink};
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
     NX_CHECK(meter.has_value());
     if (!meter) { return; }
@@ -718,9 +718,9 @@ void test_statistics() {
     NX_CHECK((*windowed)->read().count == 1U);
 
     // The Welford core (design D9): the merge matches the single pass.
-    metrics::detail::Welford_state whole{};
-    metrics::detail::Welford_state part_a{};
-    metrics::detail::Welford_state part_b{};
+    metrics::detail::WelfordState whole{};
+    metrics::detail::WelfordState part_a{};
+    metrics::detail::WelfordState part_b{};
     for (std::size_t i = 0; i < 8; ++i) {
         metrics::detail::welford_add(whole, fixture[i]);
         (i < 4 ? part_a : part_b) = (i < 4) ? part_a : part_b;
@@ -730,7 +730,7 @@ void test_statistics() {
             metrics::detail::welford_add(part_b, fixture[i]);
         }
     }
-    const metrics::detail::Welford_state combined =
+    const metrics::detail::WelfordState combined =
         metrics::detail::welford_merge(part_a, part_b);
     NX_CHECK(combined.count == whole.count);
     NX_CHECK(std::abs(combined.mean - whole.mean) < 1e-12);
@@ -749,7 +749,7 @@ void test_statistics() {
 // --- explicit-bucket histogram (spec metrics/explicit-histogram).
 void test_explicit_histogram() {
     metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProvider_config{}, sink};
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
     NX_CHECK(meter.has_value());
     if (!meter) { return; }
@@ -812,7 +812,7 @@ void test_explicit_histogram() {
 // --- exponential histogram (spec metrics/exponential-histogram).
 void test_exponential_histogram() {
     metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProvider_config{}, sink};
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
     NX_CHECK(meter.has_value());
     if (!meter) { return; }
@@ -1076,7 +1076,7 @@ void test_composite_injection() {
                                  metrics::NullMetricSink>
         composite{metrics::ConsoleMetricSink{console_fd},
                   metrics::JsonFileMetricSink{
-                      metrics::JsonFileMetricSink_config{std::string(json_path), false}},
+                      metrics::JsonFileMetricSinkConfig{std::string(json_path), false}},
                   metrics::NullMetricSink{}};
 
     // Typed and indexed access name the same member.
@@ -1101,7 +1101,7 @@ void test_composite_injection() {
                                  metrics::NullMetricSink>
         flaky{metrics::ConsoleMetricSink{-1},
               metrics::JsonFileMetricSink{
-                  metrics::JsonFileMetricSink_config{std::string(json2_path), false}},
+                  metrics::JsonFileMetricSinkConfig{std::string(json2_path), false}},
               metrics::NullMetricSink{}};
     const Status flaky_status = flaky.on_batch(batch);
     NX_CHECK(!flaky_status.has_value());
@@ -1133,7 +1133,7 @@ void test_composite_injection() {
 // window sum over concurrent polls equals the recorded count exactly.
 void test_reset_window_race() {
     metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProvider_config{}, sink};
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("race", "1.0");
     NX_CHECK(meter.has_value());
     if (!meter) {
@@ -1453,7 +1453,7 @@ void test_serialization() {
 // "Multi-threaded statistics merging"; task 7.2).
 void test_slot_exhaustion() {
     metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProvider_config{}, sink};
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("exhaust", "1.0");
     NX_CHECK(meter.has_value());
     if (!meter) {
@@ -1490,7 +1490,7 @@ void test_slot_exhaustion() {
 // task 10.1).
 void test_registry_zero_alloc() {
     Recording_sink recorder;
-    metrics::MetricProvider_config config{};
+    metrics::MetricProviderConfig config{};
     config.max_meters = 2;
     config.max_counters = 8;
     config.max_gauges = 4;
@@ -1544,7 +1544,7 @@ void test_registry_zero_alloc() {
 // --- Provider configuration and lifecycle (spec metrics/metric-provider
 // "Provider configuration serialization" + liveness; task 10.3).
 void test_provider_config() {
-    metrics::MetricProvider_config config{};
+    metrics::MetricProviderConfig config{};
     config.collect_interval = std::chrono::nanoseconds{10'000'000}; // 10 ms
     config.core_mask = 0x3;
     config.max_meters = 7;
@@ -1554,7 +1554,7 @@ void test_provider_config() {
     nlohmann::json j = config;
     NX_CHECK(j["collect_interval_ns"] == 10'000'000);
     NX_CHECK(j["core_mask"] == 0x3);
-    metrics::MetricProvider_config back{};
+    metrics::MetricProviderConfig back{};
     metrics::from_json(j, back);
     NX_CHECK(back.collect_interval == std::chrono::nanoseconds{10'000'000});
     NX_CHECK(back.core_mask == 0x3U);
@@ -1569,7 +1569,7 @@ void test_provider_config() {
 
     // InvalidArgument / NotInitialized paths.
     metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProvider_config{}, sink};
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> bad = provider.get_meter("", "1.0");
     NX_CHECK(!bad.has_value() && bad.error() == ErrorCode::InvalidArgument);
 
@@ -1577,7 +1577,7 @@ void test_provider_config() {
     static constexpr std::size_t storage_size = sizeof(metrics::MetricProvider);
     alignas(metrics::MetricProvider) static unsigned char storage[storage_size]{};
     auto* transient = ::new (static_cast<void*>(storage))
-        metrics::MetricProvider(metrics::MetricProvider_config{}, sink);
+        metrics::MetricProvider(metrics::MetricProviderConfig{}, sink);
     const Result<metrics::Meter*> before = transient->get_meter("live", "1.0");
     NX_CHECK(before.has_value());
     transient->~MetricProvider();
@@ -1683,7 +1683,7 @@ void test_sinks_json() {
     };
 
     {
-        metrics::JsonFileMetricSink_config config{std::string(path), false};
+        metrics::JsonFileMetricSinkConfig config{std::string(path), false};
         metrics::JsonFileMetricSink sink{config};
         NX_CHECK(sink.is_open());
         metrics::MetricRecord records[1]{};
@@ -1727,7 +1727,7 @@ void test_sinks_json() {
         }
 
         // Append ordering: a second sink appends one more line.
-        metrics::JsonFileMetricSink_config appended{std::string(path), true};
+        metrics::JsonFileMetricSinkConfig appended{std::string(path), true};
         metrics::JsonFileMetricSink append_sink{appended};
         NX_CHECK(append_sink.on_batch(batch).has_value());
         NX_CHECK(append_sink.flush().has_value());
@@ -1738,7 +1738,7 @@ void test_sinks_json() {
         nlohmann::json sink_json = sink;
         NX_CHECK(sink_json.is_object());
         nlohmann::json config_json = config;
-        metrics::JsonFileMetricSink_config config_back{};
+        metrics::JsonFileMetricSinkConfig config_back{};
         metrics::from_json(config_json, config_back);
         NX_CHECK(config_back.path == config.path && config_back.append == config.append);
         NX_CHECK(metrics::to_string(config) == config.to_string());
@@ -1747,7 +1747,7 @@ void test_sinks_json() {
 
     // Open failure surfaces through Status without emitting invalid JSON.
     {
-        metrics::JsonFileMetricSink_config broken_config{
+        metrics::JsonFileMetricSinkConfig broken_config{
             "/nonexistent-nexigen-dir/telemetry.jsonl", false};
         metrics::JsonFileMetricSink broken{broken_config};
         NX_CHECK(!broken.is_open());
@@ -1775,7 +1775,7 @@ void test_sinks_json() {
 // (32-thread exactness, reset-window exactness, >32-thread fallback).
 void test_explicit_histogram_mt() {
     metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProvider_config{}, sink};
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("explicit", "1.0");
     NX_CHECK(meter.has_value());
     if (!meter) {
@@ -1911,7 +1911,7 @@ void test_explicit_histogram_mt() {
 // --- Exponential histogram: ST extras (task 9.2/9.3) and the MT suites.
 void test_exponential_histogram_mt() {
     metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProvider_config{}, sink};
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("exponential", "1.0");
     NX_CHECK(meter.has_value());
     if (!meter) {
@@ -2117,7 +2117,7 @@ void test_latency() {
     NX_CHECK(true);
 #else
     metrics::NullMetricSink sink;
-    metrics::MetricProvider_config config{};
+    metrics::MetricProviderConfig config{};
     config.collect_interval = std::chrono::nanoseconds{0};
     metrics::MetricProvider provider{config, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("bench", "1.0");
@@ -2288,7 +2288,7 @@ void test_provider_harvester() {
     {
         Spacing_sink sink;
         sink.expect_cpu(first_cpu);
-        metrics::MetricProvider_config config{};
+        metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{10'000'000};
         config.core_mask = std::uint64_t{1} << first_cpu;
         {
@@ -2328,7 +2328,7 @@ void test_provider_harvester() {
     // Zero interval disables background collection entirely (task 12.1).
     {
         Spacing_sink sink;
-        metrics::MetricProvider_config config{};
+        metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         metrics::MetricProvider provider{config, sink};
         const Result<metrics::Meter*> meter = provider.get_meter("manual", "1.0");
@@ -2351,7 +2351,7 @@ void test_provider_harvester() {
     // startup_status reports SystemError for a failing mask (task 12.1).
     if (denied_cpu >= 0) {
         Spacing_sink sink;
-        metrics::MetricProvider_config config{};
+        metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         config.core_mask = std::uint64_t{1} << denied_cpu;
         metrics::MetricProvider provider{config, sink};
@@ -2363,7 +2363,7 @@ void test_provider_harvester() {
     // Zero mask inherits the process affinity and reports success.
     {
         Spacing_sink sink;
-        metrics::MetricProvider_config config{};
+        metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         config.core_mask = 0;
         metrics::MetricProvider provider{config, sink};
@@ -2375,7 +2375,7 @@ void test_provider_harvester() {
     // (task 12.2).
     {
         Recording_sink recorder;
-        metrics::MetricProvider_config config{};
+        metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         metrics::MetricProvider provider{config, recorder};
         const Result<metrics::Meter*> meter = provider.get_meter("control", "1.0");
@@ -2425,7 +2425,7 @@ void test_provider_harvester() {
         static constexpr std::size_t storage_size = sizeof(metrics::MetricProvider);
         alignas(metrics::MetricProvider) static unsigned char storage[storage_size]{};
         auto* transient = ::new (static_cast<void*>(storage))
-            metrics::MetricProvider(metrics::MetricProvider_config{}, sink);
+            metrics::MetricProvider(metrics::MetricProviderConfig{}, sink);
         static_cast<void>(transient->get_meter("doomed", "1.0"));
         transient->~MetricProvider();
         const Result<metrics::Meter*> stale = transient->get_meter("doomed", "1.0");
@@ -2439,7 +2439,7 @@ void test_provider_harvester() {
 // concurrent harvests never observe half-built instruments (TSan-clean).
 void test_registration_race() {
     metrics::NullMetricSink sink;
-    metrics::MetricProvider_config config{};
+    metrics::MetricProviderConfig config{};
     config.collect_interval = std::chrono::nanoseconds{1'000'000}; // 1 ms
     config.max_counters = 32;
     metrics::MetricProvider provider{config, sink};
@@ -2498,7 +2498,7 @@ void test_registration_race() {
 // every MetricKind, escaping classes, numeric boundaries, batch edge cases.
 void test_writer_bounds_full() {
     char small[3]{};
-    metrics::detail::Fixed_writer writer{small, sizeof small};
+    metrics::detail::FixedWriter writer{small, sizeof small};
     NX_CHECK(writer.append_char('a'));
     NX_CHECK(writer.append_sv("bc"));
     NX_CHECK(!writer.append_char('d')); // full
@@ -2510,7 +2510,7 @@ void test_writer_bounds_full() {
     NX_CHECK(!writer.append_escaped("x"));
 
     char buffer[128]{};
-    metrics::detail::Fixed_writer all{buffer, sizeof buffer};
+    metrics::detail::FixedWriter all{buffer, sizeof buffer};
     NX_CHECK(all.append_u64(std::numeric_limits<std::uint64_t>::max()));
     NX_CHECK(all.append_i64(std::numeric_limits<std::int64_t>::min()));
     NX_CHECK(all.append_double(-0.0));
@@ -2518,7 +2518,7 @@ void test_writer_bounds_full() {
     NX_CHECK(all.ok());
 
     char tiny[4]{};
-    metrics::detail::Fixed_writer escaped{tiny, sizeof tiny};
+    metrics::detail::FixedWriter escaped{tiny, sizeof tiny};
     NX_CHECK(!escaped.append_escaped("\x01")); // escape expansion overflows
     NX_CHECK(!escaped.ok());
 }
@@ -2567,7 +2567,7 @@ void test_sink_kind_matrix() {
     ::close(made);
     {
         metrics::JsonFileMetricSink sink{
-            metrics::JsonFileMetricSink_config{std::string(path), false}};
+            metrics::JsonFileMetricSinkConfig{std::string(path), false}};
         NX_CHECK(sink.is_open());
         NX_CHECK(sink.on_batch(batch).has_value());
         NX_CHECK(sink.flush().has_value());
@@ -2594,7 +2594,7 @@ void test_sink_kind_matrix() {
     escaped[0].scalar.counter = 1;
     {
         metrics::JsonFileMetricSink sink{
-            metrics::JsonFileMetricSink_config{std::string(path), false}};
+            metrics::JsonFileMetricSinkConfig{std::string(path), false}};
         NX_CHECK(sink.on_batch(make_batch(escaped, 1)).has_value());
         NX_CHECK(sink.flush().has_value());
         std::ifstream input(path);
@@ -2608,7 +2608,7 @@ void test_sink_kind_matrix() {
     // Batch edge cases: null records, empty batch, overflow (BufferFull).
     {
         metrics::JsonFileMetricSink sink{
-            metrics::JsonFileMetricSink_config{std::string(path), false}};
+            metrics::JsonFileMetricSinkConfig{std::string(path), false}};
         metrics::MetricBatchSnapshot null_batch{};
         null_batch.records = nullptr;
         null_batch.record_count = 1;
@@ -2653,7 +2653,7 @@ void test_sink_kind_matrix() {
     // Failed open: on_batch and flush both report SystemError.
     {
         metrics::JsonFileMetricSink broken{
-            metrics::JsonFileMetricSink_config{"/nonexistent-nexigen/x.jsonl", false}};
+            metrics::JsonFileMetricSinkConfig{"/nonexistent-nexigen/x.jsonl", false}};
         NX_CHECK(!broken.is_open());
         NX_CHECK(!broken.on_batch(batch).has_value());
         NX_CHECK(!broken.flush().has_value());
@@ -2762,11 +2762,11 @@ void test_snapshot_serialization_full() {
         NX_CHECK(batch.to_string().find("records=1") != std::string::npos);
     }
     {
-        metrics::MetricProvider_config config{};
+        metrics::MetricProviderConfig config{};
         config.max_counters = 12;
         nlohmann::json json;
         metrics::to_json(json, config);
-        metrics::MetricProvider_config back{};
+        metrics::MetricProviderConfig back{};
         metrics::from_json(json, back);
         NX_CHECK(back.max_counters == 12U);
         NX_CHECK(config.to_string().find("max_counters=12") != std::string::npos);
@@ -2777,7 +2777,7 @@ void test_snapshot_serialization_full() {
         std::snprintf(keep.meter_name, sizeof(keep.meter_name), "keep");
         metrics::from_json(nlohmann::json(42), keep);
         NX_CHECK(std::string_view(keep.meter_name) == "keep");
-        metrics::MetricProvider_config config_keep{};
+        metrics::MetricProviderConfig config_keep{};
         config_keep.max_counters = 1;
         metrics::from_json(nlohmann::json::array(), config_keep);
         NX_CHECK(config_keep.max_counters == 1U);
@@ -2814,7 +2814,7 @@ void test_snapshot_serialization_full() {
         batch_keep.record_count = 1;
         metrics::from_json(nlohmann::json{{"record_count", "x"}}, batch_keep);
         NX_CHECK(batch_keep.record_count == 1U);
-        metrics::MetricProvider_config config_keep2{};
+        metrics::MetricProviderConfig config_keep2{};
         config_keep2.max_gauges = 4;
         metrics::from_json(nlohmann::json{{"max_gauges", "x"}}, config_keep2);
         NX_CHECK(config_keep2.max_gauges == 4U);

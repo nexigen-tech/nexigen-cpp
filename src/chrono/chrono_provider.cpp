@@ -13,7 +13,7 @@
 
 namespace nexigen::chrono {
 
-ChronoProvider::ChronoProvider(const ChronoProvider_config& config, detail::Sink_binding binding)
+ChronoProvider::ChronoProvider(const ChronoProviderConfig& config, detail::SinkBinding binding)
     : config_(config), binding_(binding) {
     // The background worker is started by start(), not by construction, so the
     // caller can bind a logger first (two-phase lifecycle).
@@ -52,7 +52,7 @@ core::Status ChronoProvider::snapshot_now() noexcept {
     }
     const std::int64_t rt_ns = static_cast<std::int64_t>(realtime.tv_sec) * 1'000'000'000LL +
                                static_cast<std::int64_t>(realtime.tv_nsec);
-    const Chrono_snapshot snapshot{*stamp, rt_ns - static_cast<std::int64_t>(stamp->nanoseconds())};
+    const Snapshot snapshot{*stamp, rt_ns - static_cast<std::int64_t>(stamp->nanoseconds())};
 
     if (binding_.on_snapshot == nullptr) {
         return {};
@@ -93,14 +93,14 @@ void ChronoProvider::snapshot_loop(std::stop_token stop) noexcept {
         const core::Status pinned = detail::pin_self(config_.core_mask);
         if (!pinned) {
             startup_error_.store(pinned.error(), std::memory_order_release);
-            log(Clock_log_level::warning, "chrono worker: affinity pin failed");
+            log(ClockLogLevel::warning, "chrono worker: affinity pin failed");
         }
     }
     std::uint64_t mask = 0;
     if (detail::self_affinity(mask)) {
         worker_mask_.store(mask, std::memory_order_relaxed);
     }
-    log(Clock_log_level::info, "chrono worker started");
+    log(ClockLogLevel::info, "chrono worker started");
 
     auto next = std::chrono::steady_clock::now() + config_.collect_interval;
     while (!stop.stop_requested()) {
@@ -113,7 +113,7 @@ void ChronoProvider::snapshot_loop(std::stop_token stop) noexcept {
         }
         const core::Status delivered = snapshot_now();
         if (!delivered) {
-            log(Clock_log_level::warning, "chrono worker: snapshot delivery failed");
+            log(ClockLogLevel::warning, "chrono worker: snapshot delivery failed");
         }
         next += config_.collect_interval;
         const auto now = std::chrono::steady_clock::now();
@@ -121,27 +121,27 @@ void ChronoProvider::snapshot_loop(std::stop_token stop) noexcept {
             next = now + config_.collect_interval; // do not chase a backlog
         }
     }
-    log(Clock_log_level::info, "chrono worker stopped");
+    log(ClockLogLevel::info, "chrono worker stopped");
 }
 
-// --- ChronoProvider_config serialization (cold path).
+// --- ChronoProviderConfig serialization (cold path).
 
-std::string ChronoProvider_config::to_string() const {
-    return "ChronoProvider_config(collect_interval_ns=" +
+std::string ChronoProviderConfig::to_string() const {
+    return "ChronoProviderConfig(collect_interval_ns=" +
            std::to_string(collect_interval.count()) +
            ", core_mask=0x" + std::to_string(core_mask) + ")";
 }
 
-std::string to_string(const ChronoProvider_config& config) { return config.to_string(); }
+std::string to_string(const ChronoProviderConfig& config) { return config.to_string(); }
 
-void to_json(nlohmann::json& j, const ChronoProvider_config& config) {
+void to_json(nlohmann::json& j, const ChronoProviderConfig& config) {
     j = nlohmann::json{
         {"collect_interval_ns", config.collect_interval.count()},
         {"core_mask", config.core_mask},
     };
 }
 
-void from_json(const nlohmann::json& j, ChronoProvider_config& out) noexcept {
+void from_json(const nlohmann::json& j, ChronoProviderConfig& out) noexcept {
     if (!j.is_object()) {
         return;
     }

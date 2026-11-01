@@ -76,7 +76,7 @@ namespace nexigen::logging {
 /// Snapshot of dropped-record accounting (spec logging/multi-producer: the
 /// three drop causes are counted separately; third threads may read it
 /// anytime as a cross-shard aggregate).
-struct Dropped_stats {
+struct DroppedStats {
     std::uint64_t rate_limited{};   ///< Rejected by the throttle window (D9).
     std::uint64_t buffer_full{};    ///< Rejected by a full shard ring.
     std::uint64_t slot_exhausted{}; ///< Dropped: no free shard slot (D6).
@@ -87,7 +87,7 @@ struct Dropped_stats {
 
     /// Cold-path diagnostic (mandate 9): per-cause counts + total.
     [[nodiscard]] std::string to_string() const {
-        return "Dropped_stats(rate_limited=" + std::to_string(rate_limited) +
+        return "DroppedStats(rate_limited=" + std::to_string(rate_limited) +
                ", buffer_full=" + std::to_string(buffer_full) +
                ", slot_exhausted=" + std::to_string(slot_exhausted) +
                ", total=" + std::to_string(total()) + ")";
@@ -95,7 +95,7 @@ struct Dropped_stats {
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const Dropped_stats& stats) {
+[[nodiscard]] inline std::string to_string(const DroppedStats& stats) {
     return stats.to_string();
 }
 
@@ -115,21 +115,21 @@ namespace detail {
 /// Window throttle parameters (design D9; spec logging/file-logger).
 /// Validation belongs to FileLogger::initialize; configure_throttle copies
 /// as-is and only enables when max/window are non-zero.
-struct Throttle_config {
+struct ThrottleConfig {
     bool enabled{false};
     std::uint64_t max_records_per_window{0}; ///< accepted budget per window
     std::uint64_t window_ns{0};              ///< window length, monotonic domain
 
     /// Cold-path diagnostic (mandate 9): full policy dump.
     [[nodiscard]] std::string to_string() const {
-        return "Throttle_config(enabled=" + std::string(enabled ? "true" : "false") +
+        return "ThrottleConfig(enabled=" + std::string(enabled ? "true" : "false") +
                ", max_records_per_window=" + std::to_string(max_records_per_window) +
                ", window_ns=" + std::to_string(window_ns) + ")";
     }
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const Throttle_config& cfg) {
+[[nodiscard]] inline std::string to_string(const ThrottleConfig& cfg) {
     return cfg.to_string();
 }
 
@@ -155,7 +155,7 @@ class Producer {
     std::array<chrono::Stamp_source, MaxThreads> stamps_{};
 
     /// Shared runtime threshold (relaxed cell, own cache line).
-    Level_control level_{};
+    LevelControl level_{};
 
     /// Slot registration: next_slot is bumped with one relaxed fetch_add per
     /// (thread, producer) — never on the steady path; `active` is published
@@ -339,7 +339,7 @@ public:
             }
         }
     }
-    using record_type = Record; ///< consumed by detail::Async_worker/Sink APIs
+    using record_type = Record; ///< consumed by detail::AsyncWorker/Sink APIs
 
     Producer() noexcept = default;
     Producer(const Producer&) = delete;
@@ -381,7 +381,7 @@ public:
     }
 
     /// Cold path (before the worker starts): install throttle policy.
-    void configure_throttle(const Throttle_config& cfg) noexcept {
+    void configure_throttle(const ThrottleConfig& cfg) noexcept {
         policy_.enabled = cfg.enabled && cfg.max_records_per_window != 0ULL &&
                           cfg.window_ns != 0ULL;
         policy_.max_records_per_window = cfg.max_records_per_window;
@@ -509,8 +509,8 @@ public:
 
     /// Third-thread snapshot diagnostics (never hot-path synchronization):
     /// relaxed aggregate over all shards + the shared exhaustion counter.
-    [[nodiscard]] Dropped_stats dropped() const noexcept {
-        Dropped_stats agg{};
+    [[nodiscard]] DroppedStats dropped() const noexcept {
+        DroppedStats agg{};
         for (const Shard_state& st : state_) {
             agg.rate_limited += st.rate_limited.load(std::memory_order_relaxed);
             agg.buffer_full += st.buffer_full.load(std::memory_order_relaxed);

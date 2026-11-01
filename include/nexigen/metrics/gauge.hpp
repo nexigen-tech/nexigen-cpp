@@ -47,10 +47,10 @@ struct alignas(64) Gauge_shard {
 
 /// Gauge storage selected by the concurrency policy.
 template <typename ValueType, ConcurrencyPolicy Concurrency, ResetPolicy Reset>
-class Gauge_storage;
+class GaugeStorage;
 
 template <typename ValueType, ResetPolicy Reset>
-class Gauge_storage<ValueType, ConcurrencyPolicy::SingleThreaded, Reset> {
+class GaugeStorage<ValueType, ConcurrencyPolicy::SingleThreaded, Reset> {
 public:
     void set(ValueType value) noexcept { cell_ = value; }
     void add(ValueType delta) noexcept { cell_ = static_cast<ValueType>(cell_ + delta); }
@@ -72,7 +72,7 @@ private:
 };
 
 template <typename ValueType, ResetPolicy Reset>
-class Gauge_storage<ValueType, ConcurrencyPolicy::MultiThreaded, Reset> {
+class GaugeStorage<ValueType, ConcurrencyPolicy::MultiThreaded, Reset> {
 public:
     void set(ValueType value) noexcept {
         // Move the aggregate to `value`: apply the difference to the caller's
@@ -222,7 +222,7 @@ private:
     /// Identity of the owning registry slot (set by the Meter at creation).
     const MetricIdentity* identity_{nullptr};
 
-    detail::Gauge_storage<ValueType, Concurrency, Reset> storage_{};
+    detail::GaugeStorage<ValueType, Concurrency, Reset> storage_{};
 };
 
 static_assert(sizeof(Gauge<double, ConcurrencyPolicy::MultiThreaded, AccessPolicy::Readable,

@@ -20,19 +20,19 @@
 namespace nexigen::app {
 namespace {
 
-enum class Value_kind : std::uint8_t { Global, Local, Log_level };
+enum class ValueKind : std::uint8_t { Global, Local, Log_level };
 
-struct Option_spec {
+struct OptionSpec {
     std::string_view long_name;
     std::string_view short_name;
-    Value_kind kind;
+    ValueKind kind;
 };
 
 // The registered short names are mutually non-prefixing, so declaration order is unambiguous.
-constexpr Option_spec kOptions[] = {
-    {"--global-settings", "-gs", Value_kind::Global},
-    {"--local-settings", "-ls", Value_kind::Local},
-    {"--log-level", "-lgl", Value_kind::Log_level},
+constexpr OptionSpec kOptions[] = {
+    {"--global-settings", "-gs", ValueKind::Global},
+    {"--local-settings", "-ls", ValueKind::Local},
+    {"--log-level", "-lgl", ValueKind::Log_level},
 };
 
 struct Collected {
@@ -53,17 +53,17 @@ void add_diagnostic(std::vector<CommandLineDiagnostic>& diagnostics,
     diagnostics.push_back(CommandLineDiagnostic{std::string(option), std::string(message)});
 }
 
-void store_value(Collected& collected, Value_kind kind, std::string_view value) {
+void store_value(Collected& collected, ValueKind kind, std::string_view value) {
     switch (kind) {
-        case Value_kind::Global:
+        case ValueKind::Global:
             collected.global_settings_dir = value;
             collected.global_supplied = true;
             break;
-        case Value_kind::Local:
+        case ValueKind::Local:
             collected.local_settings_dir = value;
             collected.local_supplied = true;
             break;
-        case Value_kind::Log_level:
+        case ValueKind::Log_level:
             collected.log_level = value;
             collected.log_level_supplied = true;
             break;
@@ -95,7 +95,7 @@ void parse_long(std::string_view token, std::span<const std::string_view> args,
     const std::size_t equals = token.find('=');
     const std::string_view name =
         equals == std::string_view::npos ? token : token.substr(0, equals);
-    for (const Option_spec& spec : kOptions) {
+    for (const OptionSpec& spec : kOptions) {
         if (name != spec.long_name) {
             continue;
         }
@@ -115,7 +115,7 @@ void parse_long(std::string_view token, std::span<const std::string_view> args,
 void parse_short(std::string_view token, std::span<const std::string_view> args,
                  std::size_t& index, Collected& collected,
                  std::vector<CommandLineDiagnostic>& diagnostics) {
-    for (const Option_spec& spec : kOptions) {
+    for (const OptionSpec& spec : kOptions) {
         if (token == spec.short_name) {
             std::string_view value;
             if (take_next_value(args, index, spec.short_name, diagnostics, value)) {
@@ -430,9 +430,9 @@ CommandLineResult parse_command_line(
     return finish_parse(std::move(collected), std::move(diagnostics));
 }
 
-AppSettingsPaths make_app_settings_paths(
+SettingsPaths make_app_settings_paths(
     const CommandLineOptions& options) noexcept {
-    AppSettingsPaths paths{};
+    SettingsPaths paths{};
     paths.logging.global_file = join_path(options.global_settings_dir, "logging.json");
     paths.logging.local_file = join_path(options.local_settings_dir, "logging.json");
     paths.metrics.global_file = join_path(options.global_settings_dir, "metrics.json");
@@ -444,18 +444,18 @@ AppSettingsPaths make_app_settings_paths(
     return paths;
 }
 
-void apply_to(const CommandLineOptions& options, AppSettings& settings) noexcept {
+void apply_to(const CommandLineOptions& options, Settings& settings) noexcept {
     if (options.log_level.has_value()) {
         settings.logging.options.initial_log_level = *options.log_level;
     }
 }
 
 core::Status load_app_settings(const CommandLineOptions& options,
-                               AppSettings& out) noexcept {
+                               Settings& out) noexcept {
     if (options.global_settings_dir.empty() && options.local_settings_dir.empty()) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    const AppSettingsPaths paths = make_app_settings_paths(options);
+    const SettingsPaths paths = make_app_settings_paths(options);
     const core::Status status = nexigen::app::load_app_settings(paths, out);
     apply_to(options, out);
     return status;

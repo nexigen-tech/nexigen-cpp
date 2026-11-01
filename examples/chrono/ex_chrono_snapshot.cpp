@@ -17,14 +17,14 @@ int main() {
     using namespace nexigen;
 
     const std::string path = "/tmp/ex_chrono_snapshot.jsonl";
-    chrono::JsonFileChronoSink_config sink_config{path, /*append=*/false};
+    chrono::JsonFileChronoSinkConfig sink_config{path, /*append=*/false};
     chrono::JsonFileChronoSink sink{sink_config};
     if (!sink.is_open()) {
         std::fprintf(stderr, "failed to open %s\n", path.c_str());
         return 1;
     }
 
-    chrono::ChronoProvider_config config{};
+    chrono::ChronoProviderConfig config{};
     config.collect_interval = std::chrono::milliseconds{10};
     {
         chrono::ChronoProvider provider{config, sink};

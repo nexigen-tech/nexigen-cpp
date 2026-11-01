@@ -415,11 +415,11 @@ void from_json(const nlohmann::json& j, MetricBatchSnapshot& out) noexcept {
 
 } // namespace nexigen::metrics
 
-// --- MetricProvider_config (design D2: record/batch/config serialization
+// --- MetricProviderConfig (design D2: record/batch/config serialization
 // lives in this unit).
 
-std::string nexigen::metrics::MetricProvider_config::to_string() const {
-    return "MetricProvider_config(collect_interval_ns=" +
+std::string nexigen::metrics::MetricProviderConfig::to_string() const {
+    return "MetricProviderConfig(collect_interval_ns=" +
            std::to_string(collect_interval.count()) +
            ", core_mask=0x" + std::to_string(core_mask) +
            ", max_meters=" + std::to_string(max_meters) +
@@ -432,9 +432,9 @@ std::string nexigen::metrics::MetricProvider_config::to_string() const {
 
 namespace nexigen::metrics {
 
-std::string to_string(const MetricProvider_config& config) { return config.to_string(); }
+std::string to_string(const MetricProviderConfig& config) { return config.to_string(); }
 
-void to_json(nlohmann::json& j, const MetricProvider_config& config) {
+void to_json(nlohmann::json& j, const MetricProviderConfig& config) {
     j = nlohmann::json{
         {"collect_interval_ns", config.collect_interval.count()},
         {"core_mask", config.core_mask},
@@ -447,7 +447,7 @@ void to_json(nlohmann::json& j, const MetricProvider_config& config) {
     };
 }
 
-void from_json(const nlohmann::json& j, MetricProvider_config& out) noexcept {
+void from_json(const nlohmann::json& j, MetricProviderConfig& out) noexcept {
     if (!j.is_object()) {
         return;
     }

@@ -14,21 +14,21 @@
 
 namespace nexigen::chrono {
 
-std::string Chrono_snapshot::to_string() const {
-    return "Chrono_snapshot(stamp_ns=" + std::to_string(stamp.nanoseconds()) +
+std::string Snapshot::to_string() const {
+    return "Snapshot(stamp_ns=" + std::to_string(stamp.nanoseconds()) +
            ", realtime_offset_ns=" + std::to_string(realtime_offset_ns) + ")";
 }
 
-std::string to_string(const Chrono_snapshot& snapshot) { return snapshot.to_string(); }
+std::string to_string(const Snapshot& snapshot) { return snapshot.to_string(); }
 
-void to_json(nlohmann::json& j, const Chrono_snapshot& snapshot) {
+void to_json(nlohmann::json& j, const Snapshot& snapshot) {
     j = nlohmann::json{
         {"stamp_ns", snapshot.stamp.nanoseconds()},
         {"realtime_offset_ns", snapshot.realtime_offset_ns},
     };
 }
 
-void from_json(const nlohmann::json& j, Chrono_snapshot& out) noexcept {
+void from_json(const nlohmann::json& j, Snapshot& out) noexcept {
     if (!j.is_object()) {
         return;
     }

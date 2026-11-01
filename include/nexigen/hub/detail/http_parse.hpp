@@ -118,21 +118,21 @@ namespace nexigen::hub::detail {
     return {};
 }
 
-struct Request_line {
+struct RequestLine {
     std::string_view method{};
     std::string_view path{};
     std::string_view version{};
 };
 
-enum class Request_line_error : std::uint8_t {
+enum class RequestLineError : std::uint8_t {
     None,
     BadRequest,
     BadVersion,
     MethodNotAllowed,
 };
 
-[[nodiscard]] inline Request_line_error parse_request_line(
-    std::string_view request, Request_line& out) noexcept {
+[[nodiscard]] inline RequestLineError parse_request_line(
+    std::string_view request, RequestLine& out) noexcept {
     const std::size_t first_line_end = request.find("\r\n");
     const std::string_view first_line = request.substr(0, first_line_end);
     const std::size_t first_space = first_line.find(' ');
@@ -142,19 +142,19 @@ enum class Request_line_error : std::uint8_t {
             : first_line.find(' ', first_space + 1);
     if (first_space == std::string_view::npos ||
         second_space == std::string_view::npos) {
-        return Request_line_error::BadRequest;
+        return RequestLineError::BadRequest;
     }
     out.method = first_line.substr(0, first_space);
     out.path =
         first_line.substr(first_space + 1, second_space - first_space - 1);
     out.version = first_line.substr(second_space + 1);
     if (out.version != "HTTP/1.1" && out.version != "HTTP/1.0") {
-        return Request_line_error::BadVersion;
+        return RequestLineError::BadVersion;
     }
     if (out.method != "GET") {
-        return Request_line_error::MethodNotAllowed;
+        return RequestLineError::MethodNotAllowed;
     }
-    return Request_line_error::None;
+    return RequestLineError::None;
 }
 
 } // namespace nexigen::hub::detail

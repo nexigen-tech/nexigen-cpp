@@ -28,34 +28,34 @@ namespace tracing = nexigen::tracing;
 
 struct Simple_policy {
     using Logger = logging::ConsoleLogger<>;
-    using Metrics_sink = metrics::ConsoleMetricSink;
-    using Trace_sink = tracing::ConsoleTraceSink;
-    using Chrono_sink = chrono::NullChronoSink;
+    using MetricsSink = metrics::ConsoleMetricSink;
+    using TraceSink = tracing::ConsoleTraceSink;
+    using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(
         std::optional<Logger>& out,
-        const logging::Logging_settings&) noexcept {
+        const logging::Settings&) noexcept {
         out.emplace();
-        return out->initialize(logging::ConsoleLogger_config{});
+        return out->initialize(logging::ConsoleLoggerConfig{});
     }
 
     static core::Status emplace_metrics_sink(
-        std::optional<Metrics_sink>& out,
+        std::optional<MetricsSink>& out,
         const app::MetricsSettings&) noexcept {
         out.emplace();
         return {};
     }
 
     static core::Status emplace_trace_sink(
-        std::optional<Trace_sink>& out,
+        std::optional<TraceSink>& out,
         const app::TracingSettings&) noexcept {
         out.emplace(1);
         return {};
     }
 
     static core::Status emplace_chrono_sink(
-        std::optional<Chrono_sink>& out,
-        const chrono::Chrono_settings&) noexcept {
+        std::optional<ChronoSink>& out,
+        const chrono::Settings&) noexcept {
         out.emplace();
         return {};
     }
@@ -75,7 +75,7 @@ int main() {
     }
     auto infra = std::move(*created);
 
-    if (!infra->initialize(app::AppSettings{}).has_value()) {
+    if (!infra->initialize(app::Settings{}).has_value()) {
         return fail("Infrastructure::initialize failed");
     }
 

@@ -23,7 +23,7 @@ constexpr std::string_view hex_digits = "0123456789abcdef";
 
 /// Escape one byte: returns true if it was a special that consumed the
 /// caller's switch (kept inline in append_escaped for clarity of the table).
-void append_escape_byte(Fixed_writer& w, std::uint8_t b) noexcept {
+void append_escape_byte(FixedWriter& w, std::uint8_t b) noexcept {
     switch (b) {
         case '"':  w.append_char('\\'); w.append_char('"');  return;
         case '\\': w.append_char('\\'); w.append_char('\\'); return;
@@ -48,7 +48,7 @@ void append_escape_byte(Fixed_writer& w, std::uint8_t b) noexcept {
 
 } // namespace
 
-bool Fixed_writer::append_char(char c) noexcept {
+bool FixedWriter::append_char(char c) noexcept {
     if (!ok_ || len_ >= cap_) {
         ok_ = false;
         return false;
@@ -57,7 +57,7 @@ bool Fixed_writer::append_char(char c) noexcept {
     return true;
 }
 
-bool Fixed_writer::append_sv(std::string_view sv) noexcept {
+bool FixedWriter::append_sv(std::string_view sv) noexcept {
     if (!ok_ || sv.size() > cap_ - len_) {
         ok_ = false;
         return false;
@@ -68,7 +68,7 @@ bool Fixed_writer::append_sv(std::string_view sv) noexcept {
     return true;
 }
 
-bool Fixed_writer::append_u64(std::uint64_t value) noexcept {
+bool FixedWriter::append_u64(std::uint64_t value) noexcept {
     char digits[20];
     std::size_t n = 0;
     do {
@@ -83,7 +83,7 @@ bool Fixed_writer::append_u64(std::uint64_t value) noexcept {
     return true;
 }
 
-bool Fixed_writer::append_escaped(std::string_view sv) noexcept {
+bool FixedWriter::append_escaped(std::string_view sv) noexcept {
     for (const char c : sv) {
         append_escape_byte(*this, static_cast<std::uint8_t>(c));
         if (!ok_) {
@@ -101,7 +101,7 @@ std::size_t format_json_line(std::int64_t utc_ns, LogLevel level, std::string_vi
     char ts[31];
     chrono::format_utc_iso8601_ns(utc_ns, ts);
 
-    Fixed_writer w{scratch, json_scratch_capacity};
+    FixedWriter w{scratch, json_scratch_capacity};
     static_cast<void>(w.append_sv("{\"timestamp\":\""sv));
     static_cast<void>(w.append_sv(std::string_view(ts, 30)));
     static_cast<void>(w.append_sv("\",\"level\":\""sv));

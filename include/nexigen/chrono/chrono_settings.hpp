@@ -4,8 +4,8 @@
 // COLD PATH ONLY. `load_chrono_settings` runs once before real-time
 // execution: it reads an explicitly supplied global JSON file, then an
 // explicitly supplied local JSON file, then applies environment overrides,
-// merging field by field into a ChronoProvider_config. Every problem becomes a
-// Chrono_settings_diagnostic; a bad value leaves the previous/default value in
+// merging field by field into a ChronoProviderConfig. Every problem becomes a
+// SettingsDiagnostic; a bad value leaves the previous/default value in
 // place so the caller can still initialize a provider.
 //
 // Module independence: chrono defines its own path/diagnostic vocabulary
@@ -28,37 +28,37 @@
 namespace nexigen::chrono {
 
 /// Which source produced a value or a diagnostic.
-enum class Chrono_settings_source : std::uint8_t {
+enum class SettingsSource : std::uint8_t {
     Global,      ///< Global JSON file.
     Local,       ///< Local JSON file.
     Environment, ///< NEXIGEN_CHRONO_* override.
     Computed,    ///< Derived check.
 };
 
-[[nodiscard]] constexpr std::string_view to_string(Chrono_settings_source src) noexcept {
+[[nodiscard]] constexpr std::string_view to_string(SettingsSource src) noexcept {
     switch (src) {
-        case Chrono_settings_source::Global:      return "global";
-        case Chrono_settings_source::Local:       return "local";
-        case Chrono_settings_source::Environment: return "environment";
-        case Chrono_settings_source::Computed:    return "computed";
+        case SettingsSource::Global:      return "global";
+        case SettingsSource::Local:       return "local";
+        case SettingsSource::Environment: return "environment";
+        case SettingsSource::Computed:    return "computed";
         default:                                  return "Unknown";
     }
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name,
-                                         Chrono_settings_source& out) noexcept {
-    if (name == "global")      { out = Chrono_settings_source::Global; return true; }
-    if (name == "local")       { out = Chrono_settings_source::Local; return true; }
-    if (name == "environment") { out = Chrono_settings_source::Environment; return true; }
-    if (name == "computed")    { out = Chrono_settings_source::Computed; return true; }
+                                         SettingsSource& out) noexcept {
+    if (name == "global")      { out = SettingsSource::Global; return true; }
+    if (name == "local")       { out = SettingsSource::Local; return true; }
+    if (name == "environment") { out = SettingsSource::Environment; return true; }
+    if (name == "computed")    { out = SettingsSource::Computed; return true; }
     return false;
 }
 
-inline void to_json(nlohmann::json& j, const Chrono_settings_source src) {
+inline void to_json(nlohmann::json& j, const SettingsSource src) {
     j = std::string(to_string(src));
 }
 
-inline void from_json(const nlohmann::json& j, Chrono_settings_source& out) noexcept {
+inline void from_json(const nlohmann::json& j, SettingsSource& out) noexcept {
     const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
     if (name != nullptr) {
         static_cast<void>(from_string(std::string_view(*name), out));
@@ -67,99 +67,99 @@ inline void from_json(const nlohmann::json& j, Chrono_settings_source& out) noex
 
 /// Explicit source paths. An empty path disables that source; the loader never
 /// consults implicit locations (/etc, XDG, executable directory).
-struct Chrono_settings_paths {
+struct SettingsPaths {
     std::string global_file{};
     std::string local_file{};
 
     [[nodiscard]] std::string to_string() const;
 };
-[[nodiscard]] inline std::string to_string(const Chrono_settings_paths& paths) {
+[[nodiscard]] inline std::string to_string(const SettingsPaths& paths) {
     return paths.to_string();
 }
 
 /// One best-effort finding: which source, which field, what went wrong.
-struct Chrono_settings_diagnostic {
-    Chrono_settings_source source{Chrono_settings_source::Global};
+struct SettingsDiagnostic {
+    SettingsSource source{SettingsSource::Global};
     std::string field{};
     std::string message{};
 
     [[nodiscard]] std::string to_string() const;
 };
-[[nodiscard]] inline std::string to_string(const Chrono_settings_diagnostic& diag) {
+[[nodiscard]] inline std::string to_string(const SettingsDiagnostic& diag) {
     return diag.to_string();
 }
 
 /// Merged result of one load. `global_loaded`/`local_loaded` report file
 /// presence, not success; `diagnostics` carries every non-fatal problem.
-struct Chrono_settings {
-    ChronoProvider_config options{};             ///< Provider configuration.
-    JsonFileChronoSink_config sink{};            ///< File-sink path and append flag.
+struct Settings {
+    ChronoProviderConfig options{};             ///< Provider configuration.
+    JsonFileChronoSinkConfig sink{};            ///< File-sink path and append flag.
     bool global_loaded{false};
     bool local_loaded{false};
-    std::vector<Chrono_settings_diagnostic> diagnostics{};
+    std::vector<SettingsDiagnostic> diagnostics{};
 
     [[nodiscard]] std::string to_string() const;
 };
-[[nodiscard]] inline std::string to_string(const Chrono_settings& settings) {
+[[nodiscard]] inline std::string to_string(const Settings& settings) {
     return settings.to_string();
 }
 
 // --- cold-path ADL serialization (bodies in src/chrono/chrono_settings.cpp)
-void to_json(nlohmann::json& j, const Chrono_settings_paths& paths);
-void from_json(const nlohmann::json& j, Chrono_settings_paths& out) noexcept;
+void to_json(nlohmann::json& j, const SettingsPaths& paths);
+void from_json(const nlohmann::json& j, SettingsPaths& out) noexcept;
 
-void to_json(nlohmann::json& j, const Chrono_settings_diagnostic& diag);
-void from_json(const nlohmann::json& j, Chrono_settings_diagnostic& out) noexcept;
+void to_json(nlohmann::json& j, const SettingsDiagnostic& diag);
+void from_json(const nlohmann::json& j, SettingsDiagnostic& out) noexcept;
 
-void to_json(nlohmann::json& j, const Chrono_settings& settings);
-// Deliberately no from_json(Chrono_settings&): reconstructed by the loader.
+void to_json(nlohmann::json& j, const Settings& settings);
+// Deliberately no from_json(Settings&): reconstructed by the loader.
 
 /// Read, merge and validate settings. `out` is always populated best-effort.
 /// Returns Ok when no diagnostic was recorded, InvalidArgument when a value /
 /// type / JSON problem was recorded, and SystemError when a supplied file
 /// exists but cannot be read. Missing files are not errors.
-[[nodiscard]] core::Status load_chrono_settings(const Chrono_settings_paths& paths,
-                                                Chrono_settings& out) noexcept;
+[[nodiscard]] core::Status load_chrono_settings(const SettingsPaths& paths,
+                                                Settings& out) noexcept;
 
 /// Map merged settings into a provider construction config.
-[[nodiscard]] core::Status apply_to(const Chrono_settings& settings,
-                                    ChronoProvider_config& out) noexcept;
+[[nodiscard]] core::Status apply_to(const Settings& settings,
+                                    ChronoProviderConfig& out) noexcept;
 
 } // namespace nexigen::chrono
 
 template <>
-struct std::formatter<nexigen::chrono::Chrono_settings_source>
+struct std::formatter<nexigen::chrono::SettingsSource>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::chrono::Chrono_settings_source src, Ctx& ctx) const {
+    constexpr auto format(const nexigen::chrono::SettingsSource src, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(
             nexigen::chrono::to_string(src), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::chrono::Chrono_settings_paths>
+struct std::formatter<nexigen::chrono::SettingsPaths>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::chrono::Chrono_settings_paths& paths, Ctx& ctx) const {
+    constexpr auto format(const nexigen::chrono::SettingsPaths& paths, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(paths.to_string(), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::chrono::Chrono_settings_diagnostic>
+struct std::formatter<nexigen::chrono::SettingsDiagnostic>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::chrono::Chrono_settings_diagnostic& diag, Ctx& ctx) const {
+    constexpr auto format(const nexigen::chrono::SettingsDiagnostic& diag, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(diag.to_string(), ctx);
     }
 };
 
 template <>
-struct std::formatter<nexigen::chrono::Chrono_settings>
+struct std::formatter<nexigen::chrono::Settings>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    constexpr auto format(const nexigen::chrono::Chrono_settings& settings, Ctx& ctx) const {
+    constexpr auto format(const nexigen::chrono::Settings& settings, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(settings.to_string(), ctx);
     }
 };

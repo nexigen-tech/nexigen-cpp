@@ -126,7 +126,7 @@ template <std::size_t MessageCapacity, class T>
 /// needs a compile-time format_string; we hold a runtime pointer, so writes
 /// flow through this sink: bytes up to `left` land in the caller buffer, the
 /// rest are discarded into a one-byte spill. Never allocates.)
-struct Bounded_sink {
+struct BoundedSink {
     using value_type        = char;
     using difference_type   = std::ptrdiff_t;
     using reference         = char&;
@@ -137,12 +137,12 @@ struct Bounded_sink {
     char spill{};
 
     [[nodiscard]] char& operator*() noexcept { return left > 0U ? *p : spill; }
-    Bounded_sink& operator++() noexcept {
+    BoundedSink& operator++() noexcept {
         if (left > 0U) { ++p; --left; }
         return *this;
     }
-    Bounded_sink operator++(int) noexcept {
-        const Bounded_sink copy = *this;
+    BoundedSink operator++(int) noexcept {
+        const BoundedSink copy = *this;
         ++*this;
         return copy;
     }
@@ -162,8 +162,8 @@ template <std::size_t MessageCapacity, class... Args, std::size_t... I>
     return std::apply(
         [&](Args&... live) noexcept -> std::size_t {
             const auto fargs = std::make_format_args(live...);
-            Bounded_sink sink{.p = out, .left = cap};
-            const Bounded_sink end = std::vformat_to(sink, std::string_view(fmt), fargs);
+            BoundedSink sink{.p = out, .left = cap};
+            const BoundedSink end = std::vformat_to(sink, std::string_view(fmt), fargs);
             return static_cast<std::size_t>(end.p - out);
         },
         values);

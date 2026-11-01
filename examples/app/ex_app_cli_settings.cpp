@@ -99,31 +99,31 @@ constexpr std::string_view kChronoSettings = R"({
 /// Stateless policy: all four sinks write into the fixed output directory.
 struct Cli_file_policy {
     using Logger = logging::FileLogger<>;
-    using Metrics_sink = metrics::JsonFileMetricSink;
-    using Trace_sink = tracing::JsonFileTraceSink;
-    using Chrono_sink = chrono::JsonFileChronoSink;
+    using MetricsSink = metrics::JsonFileMetricSink;
+    using TraceSink = tracing::JsonFileTraceSink;
+    using ChronoSink = chrono::JsonFileChronoSink;
 
     static core::Status emplace_logger(
         std::optional<Logger>& out,
-        const logging::Logging_settings& settings) noexcept {
+        const logging::Settings& settings) noexcept {
         const core::Status capacity =
             logging::check_capacity<Logger::capacity(), Logger::max_threads(), 128>(settings);
         if (!capacity) {
             return capacity;
         }
-        logging::FileLogger_config config{};
+        logging::FileLoggerConfig config{};
         const core::Status applied = logging::apply_to(settings, config);
         if (!applied) {
             return applied;
         }
         // One plain app.jsonl at the output root: no hourly subdirectories.
-        config.rotation.kind = logging::Rotation_schedule::None;
+        config.rotation.kind = logging::RotationSchedule::None;
         out.emplace();
         return out->initialize(config);
     }
 
     static core::Status emplace_metrics_sink(
-        std::optional<Metrics_sink>& out,
+        std::optional<MetricsSink>& out,
         const app::MetricsSettings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -133,7 +133,7 @@ struct Cli_file_policy {
     }
 
     static core::Status emplace_trace_sink(
-        std::optional<Trace_sink>& out,
+        std::optional<TraceSink>& out,
         const app::TracingSettings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -143,8 +143,8 @@ struct Cli_file_policy {
     }
 
     static core::Status emplace_chrono_sink(
-        std::optional<Chrono_sink>& out,
-        const chrono::Chrono_settings& settings) noexcept {
+        std::optional<ChronoSink>& out,
+        const chrono::Settings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -253,7 +253,7 @@ bool strip_token(std::vector<std::string_view>& args, std::string_view token) {
     return found;
 }
 
-void print_loaded_diagnostics(const app::AppSettings& loaded) {
+void print_loaded_diagnostics(const app::Settings& loaded) {
     for (const auto& diagnostic : loaded.logging.diagnostics) {
         print_error("logging: " + diagnostic.to_string());
     }
@@ -410,7 +410,7 @@ int main(int argc, char* argv[]) {
     }
     auto infra = std::move(*created);
 
-    app::AppSettings loaded{};
+    app::Settings loaded{};
     const core::Status initialized = infra->initialize(options, loaded);
     if (!initialized) {
         print_loaded_diagnostics(loaded);

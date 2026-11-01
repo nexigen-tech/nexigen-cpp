@@ -27,20 +27,20 @@ using detail::sleep_ms;
 
 namespace {
 
-using Runner_file_logger = logging::FileLogger<64, 256, 4>;
+using RunnerFileLogger = logging::FileLogger<64, 256, 4>;
 
-struct Logging_state {
-    std::unique_ptr<Runner_file_logger> logger{};
+struct LoggingState {
+    std::unique_ptr<RunnerFileLogger> logger{};
     std::string base_dir{};
-    logging::Logging_settings settings{};
+    logging::Settings settings{};
     logging::LogLevel level{logging::LogLevel::Info};
     std::vector<std::uint32_t> logger_cpus{};
     std::uint64_t logger_mask{0};
     bool configured{false};
 };
 
-Logging_state& state() {
-    static Logging_state instance{};
+LoggingState& state() {
+    static LoggingState instance{};
     return instance;
 }
 
@@ -92,7 +92,7 @@ void warn_stderr(std::string_view message) noexcept {
 
 [[nodiscard]] std::uint64_t resolve_logger_mask(
     std::span<const std::uint32_t> logger_cpus,
-    const logging::Logging_settings& settings) noexcept {
+    const logging::Settings& settings) noexcept {
     if (!logger_cpus.empty()) {
         if (!valid_cpu_list(logger_cpus, 64U)) {
             warn_stderr("runner_logger_cpus is invalid; logger affinity disabled");
@@ -120,7 +120,7 @@ void warn_stderr(std::string_view message) noexcept {
     return mask_from_cpus(cpus);
 }
 
-void stop_logger(Logging_state& current) noexcept {
+void stop_logger(LoggingState& current) noexcept {
     if (current.logger) {
         static_cast<void>(current.logger->flush());
         current.logger.reset();
@@ -129,7 +129,7 @@ void stop_logger(Logging_state& current) noexcept {
 }
 
 [[nodiscard]] core::Status start_logger(
-    Logging_state& current, std::string_view base_dir) noexcept {
+    LoggingState& current, std::string_view base_dir) noexcept {
     const core::Status created = create_artifact_dir(base_dir);
     if (!created) {
         return created;
@@ -137,14 +137,14 @@ void stop_logger(Logging_state& current) noexcept {
     if (::access(std::string(base_dir).c_str(), W_OK | X_OK) != 0) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
-    auto logger = std::make_unique<Runner_file_logger>();
-    logging::FileLogger_config config{};
+    auto logger = std::make_unique<RunnerFileLogger>();
+    logging::FileLoggerConfig config{};
     config.app_name = "nexigen-run";
     config.base_dir = base_dir;
     config.file_name = "runner.jsonl";
     config.initial_level = current.level;
     config.core_mask = current.logger_mask;
-    config.rotation.kind = logging::Rotation_schedule::None;
+    config.rotation.kind = logging::RotationSchedule::None;
     config.max_file_size_bytes =
         current.settings.global_loaded
             ? current.settings.options.max_file_size_bytes
@@ -180,12 +180,12 @@ void stop_logger(Logging_state& current) noexcept {
 
 core::Status load_runner_logging_settings(
     std::string_view global_settings_path,
-    logging::Logging_settings& out) noexcept {
-    out = logging::Logging_settings{};
+    logging::Settings& out) noexcept {
+    out = logging::Settings{};
     if (global_settings_path.empty()) {
         return {};
     }
-    logging::Settings_paths paths{};
+    logging::SettingsPaths paths{};
     paths.global_file =
         std::string(global_settings_path) + "/logging.json";
     return logging::load_logging_settings(paths, out);
@@ -193,12 +193,12 @@ core::Status load_runner_logging_settings(
 
 core::Status init_runner_logging(
     std::string_view primary_dir,
-    const logging::Logging_settings& settings,
+    const logging::Settings& settings,
     logging::LogLevel level,
     std::span<const std::uint32_t> logger_cpus) noexcept {
     shutdown_runner_logging();
 
-    Logging_state& current = state();
+    LoggingState& current = state();
     current.settings = settings;
     current.level = level;
     current.logger_cpus.assign(logger_cpus.begin(), logger_cpus.end());
@@ -227,12 +227,12 @@ core::Status init_runner_logging(
 }
 
 void suspend_runner_logging() noexcept {
-    Logging_state& current = state();
+    LoggingState& current = state();
     stop_logger(current);
 }
 
 core::Status resume_runner_logging() noexcept {
-    Logging_state& current = state();
+    LoggingState& current = state();
     if (!current.configured || current.base_dir.empty()) {
         return std::unexpected(core::ErrorCode::NotInitialized);
     }
@@ -240,7 +240,7 @@ core::Status resume_runner_logging() noexcept {
 }
 
 core::Status flush_runner_logging() noexcept {
-    Logging_state& current = state();
+    LoggingState& current = state();
     if (!current.logger) {
         return {};
     }
@@ -248,7 +248,7 @@ core::Status flush_runner_logging() noexcept {
 }
 
 void log_runner(logging::LogLevel level, std::string_view message) noexcept {
-    Logging_state& current = state();
+    LoggingState& current = state();
     if (!current.logger) {
         return;
     }
@@ -256,7 +256,7 @@ void log_runner(logging::LogLevel level, std::string_view message) noexcept {
 }
 
 void warn_runner(std::string_view message) noexcept {
-    Logging_state& current = state();
+    LoggingState& current = state();
     if (current.logger) {
         current.logger->log(logging::LogLevel::Warning, "{}", message);
     } else {
@@ -269,7 +269,7 @@ bool runner_logging_active() noexcept {
 }
 
 std::string runner_logging_path() {
-    const Logging_state& current = state();
+    const LoggingState& current = state();
     if (!current.logger) {
         return {};
     }
@@ -277,16 +277,16 @@ std::string runner_logging_path() {
 }
 
 std::uint64_t runner_logging_writer_mask() noexcept {
-    const Logging_state& current = state();
+    const LoggingState& current = state();
     return current.logger ? current.logger->writer_mask() : 0;
 }
 
 void shutdown_runner_logging() noexcept {
-    Logging_state& current = state();
+    LoggingState& current = state();
     stop_logger(current);
     current.configured = false;
     current.base_dir.clear();
-    current.settings = logging::Logging_settings{};
+    current.settings = logging::Settings{};
     current.logger_cpus.clear();
 }
 

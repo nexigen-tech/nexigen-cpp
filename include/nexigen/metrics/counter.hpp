@@ -54,10 +54,10 @@ static_assert(sizeof(Counter_shard) == 64, "a counter shard owns exactly one cac
 
 /// Counter storage selected by the concurrency policy.
 template <ConcurrencyPolicy Concurrency, ResetPolicy Reset>
-class Counter_storage;
+class CounterStorage;
 
 template <ResetPolicy Reset>
-class Counter_storage<ConcurrencyPolicy::SingleThreaded, Reset> {
+class CounterStorage<ConcurrencyPolicy::SingleThreaded, Reset> {
 public:
     void add(std::uint64_t delta) noexcept { cell_.value += delta; }
 
@@ -78,7 +78,7 @@ private:
 };
 
 template <ResetPolicy Reset>
-class Counter_storage<ConcurrencyPolicy::MultiThreaded, Reset> {
+class CounterStorage<ConcurrencyPolicy::MultiThreaded, Reset> {
 public:
     void add(std::uint64_t delta) noexcept {
         shards_[detail::thread_slot(MetricKind::Counter)].value.fetch_add(delta, std::memory_order_relaxed);
@@ -200,7 +200,7 @@ private:
     /// Identity of the owning registry slot (set by the Meter at creation).
     const MetricIdentity* identity_{nullptr};
 
-    detail::Counter_storage<Concurrency, Reset> storage_{};
+    detail::CounterStorage<Concurrency, Reset> storage_{};
 };
 
 static_assert(sizeof(Counter<ConcurrencyPolicy::MultiThreaded, AccessPolicy::Readable,

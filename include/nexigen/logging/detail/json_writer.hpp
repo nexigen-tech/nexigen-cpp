@@ -1,7 +1,7 @@
 // nexigen::logging — strict JSON line formatter (design.md D12, spec
 // logging/file-logger "Strict JSON record schema").
 //
-// Fixed_writer stages into caller-owned fixed storage: every append is
+// FixedWriter stages into caller-owned fixed storage: every append is
 // bounds-checked, a rejected append marks overflow, the caller skips the
 // record. No reallocation, no exceptions.
 //
@@ -29,9 +29,9 @@ namespace nexigen::logging::detail {
 
 /// Bounds-checked appender over caller memory. `ok()` goes false permanently
 /// on the first overflow attempt; nothing else changes (no UB, no writes).
-class Fixed_writer {
+class FixedWriter {
 public:
-    Fixed_writer(char* buf, std::size_t cap) noexcept : buf_(buf), cap_(cap) {}
+    FixedWriter(char* buf, std::size_t cap) noexcept : buf_(buf), cap_(cap) {}
 
     bool append_char(char c) noexcept;
     bool append_sv(std::string_view sv) noexcept;

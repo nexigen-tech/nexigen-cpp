@@ -18,8 +18,8 @@
 namespace {
 
 using nexigen::logging::FileLogger;
-using nexigen::logging::Logging_settings;
-using nexigen::logging::Settings_paths;
+using nexigen::logging::Settings;
+using nexigen::logging::SettingsPaths;
 using nexigen::logging::load_logging_settings;
 
 constexpr std::string_view k_root = "/tmp/nexigen-examples-logging-settings-simple";
@@ -59,9 +59,9 @@ int main() {
                R"({"app_name":"ex-logging-settings-simple",)"
                R"("initial_log_level":"debug"})");
 
-    Logging_settings settings{};
+    Settings settings{};
     const auto loaded =
-        load_logging_settings(Settings_paths{global_path, local_path}, settings);
+        load_logging_settings(SettingsPaths{global_path, local_path}, settings);
     for (const auto& diagnostic : settings.diagnostics) {
         std::fprintf(stderr, "%s\n", diagnostic.to_string().c_str());
     }

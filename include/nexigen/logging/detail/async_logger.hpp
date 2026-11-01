@@ -60,7 +60,7 @@ namespace nexigen::logging::detail {
 /// void handle(const Producer::record_type&) noexcept;
 /// core::Status synchronize() noexcept; void stop() noexcept.
 template <class Producer, class Sink>
-class Async_worker {
+class AsyncWorker {
     using record_type = typename Producer::record_type;
 
     static constexpr std::uint64_t idle_spin_budget = 64;    ///< failed pops before sleeping
@@ -165,11 +165,11 @@ class Async_worker {
     }
 
 public:
-    Async_worker() noexcept = default;
-    Async_worker(const Async_worker&) = delete;
-    Async_worker& operator=(const Async_worker&) = delete;
-    Async_worker(Async_worker&&) = delete;
-    Async_worker& operator=(Async_worker&&) = delete;
+    AsyncWorker() noexcept = default;
+    AsyncWorker(const AsyncWorker&) = delete;
+    AsyncWorker& operator=(const AsyncWorker&) = delete;
+    AsyncWorker(AsyncWorker&&) = delete;
+    AsyncWorker& operator=(AsyncWorker&&) = delete;
 
     /// Start the background consumer. The Producer must outlive the worker
     /// (it is a member of the same logger object). core_mask pins the worker

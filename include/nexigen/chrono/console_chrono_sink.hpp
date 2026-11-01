@@ -32,7 +32,7 @@ public:
     explicit ConsoleChronoSink(int descriptor = STDOUT_FILENO) noexcept : fd_(descriptor) {}
 
     /// Render and write one snapshot.
-    [[nodiscard]] core::Status on_snapshot(const Chrono_snapshot& snapshot) noexcept {
+    [[nodiscard]] core::Status on_snapshot(const Snapshot& snapshot) noexcept {
         len_ = 0;
         append_str("stamp_ns=");
         append_u64(snapshot.stamp.nanoseconds());

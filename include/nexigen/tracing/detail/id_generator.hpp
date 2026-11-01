@@ -63,9 +63,9 @@ inline std::atomic<std::uint64_t> seed_counter{0};
 }
 
 /// Non-zero wait-free id source (one xorshift64* round per call).
-class Id_generator {
+class IdGenerator {
 public:
-    Id_generator() noexcept {
+    IdGenerator() noexcept {
         // Seed once per thread on first use (cold): the injective (tid,
         // counter) pairing through splitmix64, forced odd (nonzero).
         state_ = splitmix64(seed_input()) | 1ULL;
@@ -88,7 +88,7 @@ private:
 
 /// The thread's own generator (created on first use, alive for the thread).
 [[nodiscard]] inline std::uint64_t next_id() noexcept {
-    thread_local Id_generator generator{};
+    thread_local IdGenerator generator{};
     return generator.next();
 }
 

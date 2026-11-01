@@ -171,11 +171,11 @@ std::optional<std::uint32_t> first_allowed_cpu() {
 }
 
 #if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
-core::detail::Fault_point g_fault_point =
-    core::detail::Fault_point::Runner_pipe2;
+core::detail::FaultPoint g_fault_point =
+    core::detail::FaultPoint::Runner_pipe2;
 bool g_fault_enabled = false;
 
-bool test_fault_hook(core::detail::Fault_point point) noexcept {
+bool test_fault_hook(core::detail::FaultPoint point) noexcept {
     return g_fault_enabled && point == g_fault_point;
 }
 #endif
@@ -1100,7 +1100,7 @@ void test_fault_injection() {
 
     core::detail::set_fault_hook(test_fault_hook);
     runner::Runner launcher;
-    auto run_fault = [&](core::detail::Fault_point point) {
+    auto run_fault = [&](core::detail::FaultPoint point) {
         g_fault_point = point;
         g_fault_enabled = true;
         const core::Status status = launcher.start(identity, command, 0);
@@ -1108,11 +1108,11 @@ void test_fault_injection() {
         return status;
     };
 
-    NX_CHECK(failed_with(run_fault(core::detail::Fault_point::Runner_pipe2),
+    NX_CHECK(failed_with(run_fault(core::detail::FaultPoint::Runner_pipe2),
                          core::ErrorCode::SystemError));
-    NX_CHECK(failed_with(run_fault(core::detail::Fault_point::Runner_fork),
+    NX_CHECK(failed_with(run_fault(core::detail::FaultPoint::Runner_fork),
                          core::ErrorCode::SystemError));
-    NX_CHECK(failed_with(run_fault(core::detail::Fault_point::Runner_open_null),
+    NX_CHECK(failed_with(run_fault(core::detail::FaultPoint::Runner_open_null),
                          core::ErrorCode::SystemError));
     core::detail::set_fault_hook(nullptr);
 

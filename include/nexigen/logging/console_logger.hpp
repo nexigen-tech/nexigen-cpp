@@ -3,7 +3,7 @@
 // design D6/D7; spec logging/console-logger).
 //
 // Pipeline: detail::Producer (per-thread wait-free shard writes) +
-// detail::Async_worker (std::jthread drain loop). Records carry a DEFERRED
+// detail::AsyncWorker (std::jthread drain loop). Records carry a DEFERRED
 // format: the consumer renders each pack into the sink's pre-allocated line
 // scratch (std::vformat_to via the record's type-erased callback), formats
 // the plain line, and writes it with raw ::write() to fd 1 / fd 2 —
@@ -60,7 +60,7 @@ namespace nexigen::logging::detail {
 /// Consumer-thread writer for the console: renders each record's deferred
 /// format into fixed scratch, formats a plain line, writes it to the routed
 /// fd, tolerates partial writes/EINTR.
-class Console_sink {
+class ConsoleSink {
     static constexpr std::size_t line_capacity = 512;
     static constexpr std::size_t msg_capacity = 256;
 
@@ -150,7 +150,7 @@ public:
 namespace nexigen::logging {
 
 /// Construction-time configuration shared by every ConsoleLogger instantiation.
-struct ConsoleLogger_config {
+struct ConsoleLoggerConfig {
     LogLevel initial_level{LogLevel::Info};
 
     /// Cold-path diagnostic (mandate 9): the configured initial threshold.
@@ -160,7 +160,7 @@ struct ConsoleLogger_config {
 
     /// Free form via ADL (nested types are non-deducible for template
     /// helpers; a class-scope friend is the standard discovery route).
-    [[nodiscard]] friend std::string to_string(const ConsoleLogger_config& cfg) {
+    [[nodiscard]] friend std::string to_string(const ConsoleLoggerConfig& cfg) {
         return cfg.to_string();
     }
 };
@@ -175,10 +175,10 @@ class ConsoleLogger {
     using Producer = detail::Producer<ShardCapacity, MessageCapacity, MaxThreads>;
 
     Producer producer_{};
-    detail::Async_worker<Producer, detail::Console_sink> worker_{};
+    detail::AsyncWorker<Producer, detail::ConsoleSink> worker_{};
 
 public:
-    using Config = ConsoleLogger_config;
+    using Config = ConsoleLoggerConfig;
 
     ConsoleLogger() noexcept = default;
     ConsoleLogger(const ConsoleLogger&) = delete;
@@ -204,7 +204,7 @@ public:
     /// Initialize from merged global/local settings (spec logging/logging-settings).
     /// The console sink is deliberately unpinned, so only the initial level and
     /// the explicit capacity check apply.
-    [[nodiscard]] core::Status initialize(const Logging_settings& settings) noexcept {
+    [[nodiscard]] core::Status initialize(const Settings& settings) noexcept {
         const core::Status capacity = check_capacity<ShardCapacity, MaxThreads, MessageCapacity>(settings);
         if (!capacity) {
             return capacity;
@@ -255,7 +255,7 @@ public:
     [[nodiscard]] core::Status flush() noexcept { return worker_.flush(); }
 
     /// Third-thread diagnostics (snapshots, not hot-path synchronization).
-    [[nodiscard]] Dropped_stats dropped() const noexcept { return producer_.dropped(); }
+    [[nodiscard]] DroppedStats dropped() const noexcept { return producer_.dropped(); }
     [[nodiscard]] std::size_t pending() const noexcept { return producer_.ring_size(); }
     [[nodiscard]] bool writer_started() const noexcept { return worker_.writer_started(); }
 
@@ -280,8 +280,8 @@ template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t Ma
 /// Apply merged settings to a console logger config (spec logging/logging-settings
 /// "Merged settings apply to logger configuration"): the console sink carries
 /// only an initial level today.
-[[nodiscard]] inline core::Status apply_to(const Logging_settings& settings,
-                                           ConsoleLogger_config& out) noexcept {
+[[nodiscard]] inline core::Status apply_to(const Settings& settings,
+                                           ConsoleLoggerConfig& out) noexcept {
     out.initial_level = settings.options.initial_log_level;
     return {};
 }

@@ -10,7 +10,7 @@
 
 namespace nexigen::core::detail {
 
-enum class Fault_point : std::uint8_t {
+enum class FaultPoint : std::uint8_t {
     Runner_pipe2,
     Runner_fork,
     Runner_open_null,
@@ -22,27 +22,27 @@ enum class Fault_point : std::uint8_t {
 
 #if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
 
-using Fault_hook = bool (*)(Fault_point point) noexcept;
+using FaultHook = bool (*)(FaultPoint point) noexcept;
 
-inline Fault_hook g_fault_hook = nullptr;
+inline FaultHook g_fault_hook = nullptr;
 
-inline void set_fault_hook(Fault_hook hook) noexcept {
+inline void set_fault_hook(FaultHook hook) noexcept {
     g_fault_hook = hook;
 }
 
-[[nodiscard]] inline bool fault(Fault_point point) noexcept {
+[[nodiscard]] inline bool fault(FaultPoint point) noexcept {
     return g_fault_hook != nullptr && g_fault_hook(point);
 }
 
 #else
 
-using Fault_hook = bool (*)(Fault_point point) noexcept;
+using FaultHook = bool (*)(FaultPoint point) noexcept;
 
-constexpr bool fault(Fault_point) noexcept {
+constexpr bool fault(FaultPoint) noexcept {
     return false;
 }
 
-inline void set_fault_hook(Fault_hook) noexcept {}
+inline void set_fault_hook(FaultHook) noexcept {}
 
 #endif
 

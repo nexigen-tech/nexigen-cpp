@@ -61,9 +61,9 @@ void format_hex16(std::uint64_t value, char (&out)[16]) noexcept {
 /// interned here (first-fit by content, capped, never allocating) and the
 /// pointers stay stable for the process lifetime. Distinct texts beyond the
 /// cap leave the field unchanged — a documented bound, cold-path only.
-class Location_intern {
+class LocationIntern {
 public:
-    Location_intern() noexcept {
+    LocationIntern() noexcept {
         for (std::size_t i = 0; i < slot_count_max; ++i) {
             slots_[i] = storage_.data() + i * slot_capacity;
         }
@@ -99,8 +99,8 @@ private:
     std::size_t used_{0};
 };
 
-Location_intern& location_intern() noexcept {
-    static Location_intern table{};
+LocationIntern& location_intern() noexcept {
+    static LocationIntern table{};
     return table;
 }
 
@@ -416,7 +416,7 @@ void from_json(const nlohmann::json& j, SpanRecord& out) noexcept {
         const auto* const text = file->get_ptr<const nlohmann::json::string_t*>();
         if (text != nullptr) {
             // Restored location text is interned into stable process-static
-            // storage (see Location_intern): pointers stay valid, texts that
+            // storage (see LocationIntern): pointers stay valid, texts that
             // do not fit leave the field unchanged.
             const char* const interned = location_intern().intern(std::string_view(*text));
             if (interned != nullptr) {
@@ -462,20 +462,20 @@ void from_json(const nlohmann::json& j, SpanRecord& out) noexcept {
     }
 }
 
-// --- TracerProvider_config / Dropped_stats (declared in tracer_provider.hpp;
+// --- TracerProviderConfig / DroppedStats (declared in tracer_provider.hpp;
 
 // bodies here so the hot headers stay free of cold serialization machinery).
 
-std::string TracerProvider_config::to_string() const {
-    return "TracerProvider_config(core_mask=0x" + std::to_string(core_mask) +
+std::string TracerProviderConfig::to_string() const {
+    return "TracerProviderConfig(core_mask=0x" + std::to_string(core_mask) +
            ", max_tracers=" + std::to_string(max_tracers) +
            ", max_spans_per_window=" + std::to_string(max_spans_per_window) +
            ", window_ns=" + std::to_string(window_ns) + ")";
 }
 
-std::string to_string(const TracerProvider_config& config) { return config.to_string(); }
+std::string to_string(const TracerProviderConfig& config) { return config.to_string(); }
 
-void to_json(nlohmann::json& j, const TracerProvider_config& config) {
+void to_json(nlohmann::json& j, const TracerProviderConfig& config) {
     j = nlohmann::json{
         {"core_mask", config.core_mask},
         {"max_tracers", config.max_tracers},
@@ -484,7 +484,7 @@ void to_json(nlohmann::json& j, const TracerProvider_config& config) {
     };
 }
 
-void from_json(const nlohmann::json& j, TracerProvider_config& out) noexcept {
+void from_json(const nlohmann::json& j, TracerProviderConfig& out) noexcept {
     if (!j.is_object()) {
         return;
     }
@@ -506,16 +506,16 @@ void from_json(const nlohmann::json& j, TracerProvider_config& out) noexcept {
     }
 }
 
-std::string Dropped_stats::to_string() const {
-    return "Dropped_stats(rate_limited=" + std::to_string(rate_limited) +
+std::string DroppedStats::to_string() const {
+    return "DroppedStats(rate_limited=" + std::to_string(rate_limited) +
            ", buffer_full=" + std::to_string(buffer_full) +
            ", slot_exhausted=" + std::to_string(slot_exhausted) +
            ", total=" + std::to_string(total()) + ")";
 }
 
-std::string to_string(const Dropped_stats& stats) { return stats.to_string(); }
+std::string to_string(const DroppedStats& stats) { return stats.to_string(); }
 
-void to_json(nlohmann::json& j, const Dropped_stats& stats) {
+void to_json(nlohmann::json& j, const DroppedStats& stats) {
     j = nlohmann::json{
         {"rate_limited", stats.rate_limited},
         {"buffer_full", stats.buffer_full},
@@ -523,7 +523,7 @@ void to_json(nlohmann::json& j, const Dropped_stats& stats) {
     };
 }
 
-void from_json(const nlohmann::json& j, Dropped_stats& out) noexcept {
+void from_json(const nlohmann::json& j, DroppedStats& out) noexcept {
     if (!j.is_object()) {
         return;
     }

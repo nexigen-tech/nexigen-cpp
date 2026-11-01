@@ -159,7 +159,7 @@ public:
         // (7) Ids and parent: explicit parent wins over the stack; an empty
         // stack is a fresh root; depth == max_span_depth records as a
         // BOUNDED ROOT (fresh trace id, zero parent, no push — design D7).
-        detail::Active_span_stack& stack = detail::active_span_stack();
+        detail::ActiveSpanStack& stack = detail::active_span_stack();
         const bool can_push = stack.depth() < detail::max_span_depth;
         TraceId trace_id{};
         SpanId parent_span_id{};
@@ -168,7 +168,7 @@ public:
             parent_span_id = parent->span_id;
         } else if (!can_push) {
             trace_id = TraceId::generate(); // bounded root
-        } else if (const detail::Active_frame* top = stack.top(); top != nullptr) {
+        } else if (const detail::ActiveFrame* top = stack.top(); top != nullptr) {
             trace_id = top->trace_id; // inherit the active trace
             parent_span_id = top->span_id;
         } else {
@@ -178,7 +178,7 @@ public:
         // A sampled span pushes ITS OWN frame (explicit-parent children
         // become the local parent for subsequent same-thread spans).
         const std::uint8_t stack_index = can_push
-                                             ? stack.push(detail::Active_frame{trace_id,
+                                             ? stack.push(detail::ActiveFrame{trace_id,
                                                                                 span_id})
                                              : detail::max_span_depth;
 

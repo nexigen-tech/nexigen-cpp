@@ -109,12 +109,12 @@ int main() {
     std::error_code cleanup_ec;
     std::filesystem::remove_all(std::string(k_base_dir), cleanup_ec);
 
-    nexigen::logging::FileLogger_config file_config{};
+    nexigen::logging::FileLoggerConfig file_config{};
     file_config.app_name = k_app_name;
     file_config.base_dir = k_base_dir;
     file_config.file_name = k_file_name;
     file_config.initial_level = LogLevel::Info;
-    file_config.rotation.kind = nexigen::logging::Rotation_schedule::Hourly;
+    file_config.rotation.kind = nexigen::logging::RotationSchedule::Hourly;
     file_config.core_mask = 0x1;
     file_config.throttle.enabled = true;
     file_config.throttle.max_records_per_window = 4096;

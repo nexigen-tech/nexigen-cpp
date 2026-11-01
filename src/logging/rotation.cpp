@@ -107,61 +107,61 @@ std::size_t put_epoch_label(std::int64_t value, char (&buf)[64]) noexcept {
 
 } // namespace
 
-std::int64_t period_key(Rotation_kind kind, std::uint64_t custom_ns,
+std::int64_t period_key(RotationKind kind, std::uint64_t custom_ns,
                         std::int64_t utc_ns) noexcept {
     switch (kind) {
-        case Rotation_kind::Hourly: {
+        case RotationKind::Hourly: {
             // Same civil decomposition the labels use, so key changes and
             // visible boundaries cannot disagree.
-            const chrono::Civil_time ct = chrono::civil_from_utc_ns(utc_ns);
+            const chrono::CivilTime ct = chrono::civil_from_utc_ns(utc_ns);
             return chrono::days_from_utc_ns(utc_ns) * 24 + static_cast<std::int64_t>(ct.hour);
         }
-        case Rotation_kind::Daily:
+        case RotationKind::Daily:
             return chrono::days_from_utc_ns(utc_ns);
-        case Rotation_kind::Custom: {
+        case RotationKind::Custom: {
             if (custom_ns == 0ULL) {
                 return 0; // config error is surfaced at initialize(); stay monotone
             }
             const std::uint64_t u = static_cast<std::uint64_t>(utc_ns); // UTC >= epoch in practice
             return static_cast<std::int64_t>(u / custom_ns);
         }
-        case Rotation_kind::None:
+        case RotationKind::None:
         default:
             return 0;
     }
 }
 
-std::size_t period_label(Rotation_kind kind, std::uint64_t custom_ns,
+std::size_t period_label(RotationKind kind, std::uint64_t custom_ns,
                          std::int64_t utc_ns, char (&buf)[64]) noexcept {
     buf[0] = '\0';
     switch (kind) {
-        case Rotation_kind::Hourly:
-        case Rotation_kind::Daily: {
+        case RotationKind::Hourly:
+        case RotationKind::Daily: {
             char iso[31];
             chrono::format_utc_iso8601_ns(utc_ns, iso);
             // Hourly: "YYYY-MM-DDTHH" (13 chars); Daily: "YYYY-MM-DD" (10).
-            const std::size_t len = (kind == Rotation_kind::Hourly) ? 13U : 10U;
+            const std::size_t len = (kind == RotationKind::Hourly) ? 13U : 10U;
             std::memcpy(buf, iso, len);
             buf[len] = '\0';
             return len;
         }
-        case Rotation_kind::Custom:
+        case RotationKind::Custom:
             return put_epoch_label(period_key(kind, custom_ns, utc_ns), buf);
-        case Rotation_kind::None:
+        case RotationKind::None:
         default:
             return 0;
     }
 }
 
-core::Status open_period(Rotation_kind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
+core::Status open_period(RotationKind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
                          std::string_view base_dir, std::string_view file_name,
-                         Rotation_scratch& scratch, int& fd_out) noexcept {
+                         RotationScratch& scratch, int& fd_out) noexcept {
     return open_segment(kind, custom_ns, utc_ns, base_dir, file_name, 0U, scratch, fd_out);
 }
 
-core::Status open_segment(Rotation_kind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
+core::Status open_segment(RotationKind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
                           std::string_view base_dir, std::string_view file_name,
-                          std::uint64_t segment, Rotation_scratch& scratch,
+                          std::uint64_t segment, RotationScratch& scratch,
                           int& fd_out) noexcept {
     fd_out = -1;
     if (base_dir.empty() || file_name.empty() || base_dir.size() > 511 ||
@@ -193,7 +193,7 @@ core::Status open_segment(Rotation_kind kind, std::uint64_t custom_ns, std::int6
     if (!put(base_dir, scratch.dir, pos)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    if (kind != Rotation_kind::None) {
+    if (kind != RotationKind::None) {
         char label[64];
         const std::size_t label_len = period_label(kind, custom_ns, utc_ns, label);
         if (label_len == 0U || !put("/"sv, scratch.dir, pos) ||

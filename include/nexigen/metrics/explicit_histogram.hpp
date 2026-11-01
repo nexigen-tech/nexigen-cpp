@@ -149,7 +149,7 @@ struct alignas(64) Histogram_slot {
 inline constexpr int histogram_handshake_attempts = 64;
 
 /// Merged view of one or more banks.
-struct Histogram_merge {
+struct HistogramMerge {
     std::uint64_t buckets[max_explicit_bounds + 1]{};
     std::uint64_t total{0};
     double sum{0.0};
@@ -227,7 +227,7 @@ public:
     /// Current snapshot (bucket counts, summary, percentiles). Available only
     /// for Readable instruments.
     [[nodiscard]] HistogramSnapshot read() const requires (Access == AccessPolicy::Readable) {
-        detail::Histogram_merge merged{};
+        detail::HistogramMerge merged{};
         if constexpr (Concurrency == ConcurrencyPolicy::SingleThreaded) {
             const detail::Histogram_bank::View cell_view = cell_.load_view();
             if (Reset == ResetPolicy::ResetOnRead) {
@@ -390,7 +390,7 @@ private:
     /// sequence proves no producer is mid-record. A stalled slot is deferred
     /// to a later window with its contents untouched, so every record lands
     /// in exactly one window.
-    void merge_slot(std::size_t index, detail::Histogram_merge& merged) const noexcept {
+    void merge_slot(std::size_t index, detail::HistogramMerge& merged) const noexcept {
         auto& slot = slots_[index];
         const bool consuming = (Reset == ResetPolicy::ResetOnRead);
         std::size_t bank_index = slot.active.load(std::memory_order_relaxed);

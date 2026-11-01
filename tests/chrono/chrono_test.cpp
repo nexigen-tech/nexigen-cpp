@@ -59,7 +59,7 @@ static_assert(std::is_trivially_copyable_v<nexigen::chrono::Timestamp>);
 using namespace nexigen::core;   // test TU: exercise the error model unqualified
 using namespace nexigen::chrono; // test TU: exercise the API unqualified
 
-// Loader-produced Chrono_settings have no from_json; pin that contract.
+// Loader-produced Settings have no from_json; pin that contract.
 template <class T, class = void>
 struct has_from_json : std::false_type {};
 template <class T>
@@ -67,7 +67,7 @@ struct has_from_json<
     T, std::void_t<decltype(from_json(std::declval<const nlohmann::json&>(),
                                       std::declval<T&>()))>> : std::true_type {};
 
-static_assert(!has_from_json<Chrono_settings>::value);
+static_assert(!has_from_json<Settings>::value);
 
 namespace {
 
@@ -115,8 +115,8 @@ void operator delete[](void* ptr, std::size_t) noexcept { static_cast<void>(ptr)
 // because the primary template is a member of nexigen::chrono.
 struct Boottime_component {};
 template <>
-inline constexpr nexigen::chrono::Clock_id
-    nexigen::chrono::clock_domain<Boottime_component> = nexigen::chrono::Clock_id::boottime;
+inline constexpr nexigen::chrono::ClockId
+    nexigen::chrono::clock_domain<Boottime_component> = nexigen::chrono::ClockId::boottime;
 
 namespace {
 
@@ -303,7 +303,7 @@ void test_time_format() {
     format_utc_iso8601_ns(-1LL, buf); // pre-epoch floor division
     NX_CHECK(std::strcmp(buf, "1969-12-31T23:59:59.999999999Z") == 0);
 
-    const Civil_time ct = civil_from_utc_ns(1'784'850'120'321'841'133LL);
+    const CivilTime ct = civil_from_utc_ns(1'784'850'120'321'841'133LL);
     NX_CHECK(ct.year == 2026 && ct.month == 7 && ct.day == 23);
     NX_CHECK(ct.hour == 23 && ct.minute == 42 && ct.second == 0);
     NX_CHECK(ct.nanosecond == 321'841'133U);
@@ -315,7 +315,7 @@ void test_time_format() {
     }
 
     // A negative civil year keeps its sign instead of zero-padding.
-    Civil_time pre{};
+    CivilTime pre{};
     pre.year = -1;
     pre.month = 1;
     pre.day = 1;
@@ -324,7 +324,7 @@ void test_time_format() {
 
 // --- diagnostics suite (change add-serialization-and-wait-free-logging, task
 // 3.2): universal to_string() const + free helper for Timestamp, Stamp_source,
-// Civil_time. Cold-path strings land in the bump arena; member==free always.
+// CivilTime. Cold-path strings land in the bump arena; member==free always.
 
 void test_diag_strings() {
     // Timestamp: ns count rendered (sec.ns9) and exact.
@@ -352,8 +352,8 @@ void test_diag_strings() {
     NX_CHECK(post.find("mono_anchor_ns=") != std::string::npos);
     NX_CHECK(to_string(src) == post);
 
-    // Civil_time: full field decomposition renders.
-    const Civil_time ct = civil_from_utc_ns(1'784'850'120'321'841'133LL);
+    // CivilTime: full field decomposition renders.
+    const CivilTime ct = civil_from_utc_ns(1'784'850'120'321'841'133LL);
     const std::string ct_dump = ct.to_string();
     NX_CHECK(ct_dump.find("2026-07-23") != std::string::npos);
     NX_CHECK(ct_dump.find("23:42:00") != std::string::npos);
@@ -361,11 +361,11 @@ void test_diag_strings() {
     NX_CHECK(ct_dump.find("UTC") != std::string::npos);
     NX_CHECK(to_string(ct) == ct_dump);
 
-    std::printf("diag_strings: Timestamp/Stamp_source/Civil_time dumps verified\n");
+    std::printf("diag_strings: Timestamp/Stamp_source/CivilTime dumps verified\n");
 }
 
-// --- clock service suites (change add-chrono-clock-service): Clock_id,
-// Chrono_snapshot, sinks, ChronoProvider, Chrono_settings.
+// --- clock service suites (change add-chrono-clock-service): ClockId,
+// Snapshot, sinks, ChronoProvider, Settings.
 
 [[nodiscard]] bool write_file(const char* path, std::string_view content) {
     const int fd = ::open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
@@ -394,14 +394,14 @@ void test_diag_strings() {
 
 /// Records every snapshot and the worker's observed affinity at delivery.
 struct Recording_sink {
-    std::vector<Chrono_snapshot> snapshots{};
+    std::vector<Snapshot> snapshots{};
     int expected_cpu{-1};
     std::vector<bool> affinity_ok{};
     Status snapshot_status{};
     Status flush_status{};
     int flushes{0};
 
-    Status on_snapshot(const Chrono_snapshot& snapshot) noexcept {
+    Status on_snapshot(const Snapshot& snapshot) noexcept {
         snapshots.push_back(snapshot);
         cpu_set_t set;
         CPU_ZERO(&set);
@@ -420,7 +420,7 @@ struct Recording_sink {
 
 struct Count_sink {
     int count{0};
-    Status on_snapshot(const Chrono_snapshot&) noexcept {
+    Status on_snapshot(const Snapshot&) noexcept {
         ++count;
         return {};
     }
@@ -429,130 +429,130 @@ struct Count_sink {
 };
 
 struct Fail_sink {
-    Status on_snapshot(const Chrono_snapshot&) noexcept {
+    Status on_snapshot(const Snapshot&) noexcept {
         return std::unexpected(ErrorCode::SystemError);
     }
     Status flush() noexcept { return std::unexpected(ErrorCode::SystemError); }
     std::string to_string() const { return "Fail_sink()"; }
 };
 
-/// Records the Clock_log_level diagnostics a worker emits through a logger.
+/// Records the ClockLogLevel diagnostics a worker emits through a logger.
 struct Recording_clock_logger {
-    std::vector<std::pair<Clock_log_level, std::string>> messages{};
-    void log(Clock_log_level level, std::string_view message) noexcept {
+    std::vector<std::pair<ClockLogLevel, std::string>> messages{};
+    void log(ClockLogLevel level, std::string_view message) noexcept {
         messages.push_back({level, std::string(message)});
     }
 };
 
 void test_clock_id() {
     // Three base domains only.
-    NX_CHECK(to_string(Clock_id::monotonic_raw) == "monotonic_raw");
-    NX_CHECK(to_string(Clock_id::boottime) == "boottime");
-    NX_CHECK(to_string(Clock_id::realtime) == "realtime");
+    NX_CHECK(to_string(ClockId::monotonic_raw) == "monotonic_raw");
+    NX_CHECK(to_string(ClockId::boottime) == "boottime");
+    NX_CHECK(to_string(ClockId::realtime) == "realtime");
 
     // to_string / from_string round-trip for every value.
-    for (const Clock_id id : {Clock_id::monotonic_raw, Clock_id::boottime, Clock_id::realtime}) {
-        Clock_id back{};
+    for (const ClockId id : {ClockId::monotonic_raw, ClockId::boottime, ClockId::realtime}) {
+        ClockId back{};
         NX_CHECK(from_string(to_string(id), back));
         NX_CHECK(back == id);
     }
 
     // Unknown spelling leaves the out-parameter unchanged.
-    Clock_id out = Clock_id::realtime;
+    ClockId out = ClockId::realtime;
     NX_CHECK(!from_string("bogus", out));
-    NX_CHECK(out == Clock_id::realtime);
+    NX_CHECK(out == ClockId::realtime);
     NX_CHECK(!from_string("Unknown", out)); // "Unknown" is a rendering, not an enumerator
 
     // JSON round-trip and non-string rejection under JSON_NOEXCEPTION=1.
-    for (const Clock_id id : {Clock_id::monotonic_raw, Clock_id::boottime, Clock_id::realtime}) {
+    for (const ClockId id : {ClockId::monotonic_raw, ClockId::boottime, ClockId::realtime}) {
         nlohmann::json j;
         to_json(j, id);
         NX_CHECK(j.is_string());
-        Clock_id back{};
+        ClockId back{};
         from_json(j, back);
         NX_CHECK(back == id);
     }
-    Clock_id untouched = Clock_id::realtime;
+    ClockId untouched = ClockId::realtime;
     from_json(nlohmann::json{42}, untouched);
-    NX_CHECK(untouched == Clock_id::realtime);
+    NX_CHECK(untouched == ClockId::realtime);
 
     // Formatter matches to_string.
-    NX_CHECK(std::format("{}", Clock_id::monotonic_raw) ==
-             std::string(to_string(Clock_id::monotonic_raw)));
+    NX_CHECK(std::format("{}", ClockId::monotonic_raw) ==
+             std::string(to_string(ClockId::monotonic_raw)));
 
     // Compile-time domain declaration: default is monotonic_raw; a component
     // may specialize (Boottime_component declares boottime at global scope).
-    NX_CHECK(clock_domain<int> == Clock_id::monotonic_raw);
-    NX_CHECK(clock_domain<Boottime_component> == Clock_id::boottime);
+    NX_CHECK(clock_domain<int> == ClockId::monotonic_raw);
+    NX_CHECK(clock_domain<Boottime_component> == ClockId::boottime);
 }
 
 void test_enum_contracts() {
     // Rendering an out-of-range enumerator is well-defined ("Unknown").
-    NX_CHECK(to_string(static_cast<Clock_id>(0x7f)) == "Unknown");
+    NX_CHECK(to_string(static_cast<ClockId>(0x7f)) == "Unknown");
 
-    // Chrono_settings_source: all values round-trip; unknown spellings are
+    // SettingsSource: all values round-trip; unknown spellings are
     // rejected without touching the out-parameter.
-    for (const Chrono_settings_source src :
-         {Chrono_settings_source::Global, Chrono_settings_source::Local,
-          Chrono_settings_source::Environment, Chrono_settings_source::Computed}) {
-        Chrono_settings_source back{};
+    for (const SettingsSource src :
+         {SettingsSource::Global, SettingsSource::Local,
+          SettingsSource::Environment, SettingsSource::Computed}) {
+        SettingsSource back{};
         NX_CHECK(from_string(to_string(src), back));
         NX_CHECK(back == src);
     }
-    NX_CHECK(to_string(Chrono_settings_source::Environment) == "environment");
-    NX_CHECK(to_string(Chrono_settings_source::Computed) == "computed");
-    NX_CHECK(to_string(static_cast<Chrono_settings_source>(0x7f)) == "Unknown");
-    Chrono_settings_source source = Chrono_settings_source::Local;
+    NX_CHECK(to_string(SettingsSource::Environment) == "environment");
+    NX_CHECK(to_string(SettingsSource::Computed) == "computed");
+    NX_CHECK(to_string(static_cast<SettingsSource>(0x7f)) == "Unknown");
+    SettingsSource source = SettingsSource::Local;
     NX_CHECK(!from_string("bogus", source));
-    NX_CHECK(source == Chrono_settings_source::Local);
+    NX_CHECK(source == SettingsSource::Local);
 
     // JSON source: strings round-trip; non-strings are ignored.
     {
         nlohmann::json j = "environment";
-        Chrono_settings_source parsed = Chrono_settings_source::Global;
+        SettingsSource parsed = SettingsSource::Global;
         from_json(j, parsed);
-        NX_CHECK(parsed == Chrono_settings_source::Environment);
+        NX_CHECK(parsed == SettingsSource::Environment);
         to_json(j, parsed);
         NX_CHECK(j == "environment");
         from_json(nlohmann::json{42}, parsed);
-        NX_CHECK(parsed == Chrono_settings_source::Environment);
+        NX_CHECK(parsed == SettingsSource::Environment);
         NX_CHECK(std::format("{}", parsed) == "environment");
     }
 
-    // Clock_log_level: every name, unknown handling, JSON trio and formatter.
-    for (const Clock_log_level level :
-         {Clock_log_level::info, Clock_log_level::warning, Clock_log_level::error}) {
-        Clock_log_level back{};
+    // ClockLogLevel: every name, unknown handling, JSON trio and formatter.
+    for (const ClockLogLevel level :
+         {ClockLogLevel::info, ClockLogLevel::warning, ClockLogLevel::error}) {
+        ClockLogLevel back{};
         NX_CHECK(from_string(to_string(level), back));
         NX_CHECK(back == level);
         nlohmann::json j;
         to_json(j, level);
         NX_CHECK(j == std::string(to_string(level)));
-        Clock_log_level parsed = Clock_log_level::info;
+        ClockLogLevel parsed = ClockLogLevel::info;
         from_json(j, parsed);
         NX_CHECK(parsed == level);
     }
-    Clock_log_level level = Clock_log_level::info;
+    ClockLogLevel level = ClockLogLevel::info;
     NX_CHECK(!from_string("bogus", level));
-    NX_CHECK(level == Clock_log_level::info);
+    NX_CHECK(level == ClockLogLevel::info);
     from_json(nlohmann::json{42}, level);
-    NX_CHECK(level == Clock_log_level::info);
-    NX_CHECK(to_string(static_cast<Clock_log_level>(0x7f)) == "Unknown");
-    NX_CHECK(std::format("{}", Clock_log_level::error) == "error");
+    NX_CHECK(level == ClockLogLevel::info);
+    NX_CHECK(to_string(static_cast<ClockLogLevel>(0x7f)) == "Unknown");
+    NX_CHECK(std::format("{}", ClockLogLevel::error) == "error");
 }
 
 void test_snapshot() {
     // Register-sized, trivially copyable.
-    static_assert(sizeof(Chrono_snapshot) == 16);
-    static_assert(std::is_trivially_copyable_v<Chrono_snapshot>);
+    static_assert(sizeof(Snapshot) == 16);
+    static_assert(std::is_trivially_copyable_v<Snapshot>);
 
     // Construct / read-back.
-    const Chrono_snapshot original{Timestamp{1'000'000'000ULL}, 42};
+    const Snapshot original{Timestamp{1'000'000'000ULL}, 42};
     NX_CHECK(original.stamp.nanoseconds() == 1'000'000'000ULL);
     NX_CHECK(original.realtime_offset_ns == 42);
 
     // Copy preserves the value.
-    const Chrono_snapshot copy = original;
+    const Snapshot copy = original;
     NX_CHECK(copy.stamp == original.stamp);
     NX_CHECK(copy.realtime_offset_ns == original.realtime_offset_ns);
 
@@ -561,10 +561,10 @@ void test_snapshot() {
              1'000'000'042LL);
 
     // Serialization round-trips, including a negative offset.
-    const Chrono_snapshot negative{Timestamp{5ULL}, -7};
+    const Snapshot negative{Timestamp{5ULL}, -7};
     nlohmann::json j;
     to_json(j, negative);
-    Chrono_snapshot back{};
+    Snapshot back{};
     from_json(j, back);
     NX_CHECK(back.stamp == negative.stamp);
     NX_CHECK(back.realtime_offset_ns == -7);
@@ -580,7 +580,7 @@ void test_snapshot() {
 void test_snapshot_edges() {
     // from_json: non-object and mistyped members leave the snapshot unchanged;
     // absent members preserve the existing field.
-    Chrono_snapshot out{Timestamp{7ULL}, -9};
+    Snapshot out{Timestamp{7ULL}, -9};
     from_json(nlohmann::json::array(), out);
     NX_CHECK(out.stamp.nanoseconds() == 7ULL);
     NX_CHECK(out.realtime_offset_ns == -9);
@@ -608,7 +608,7 @@ void test_sinks() {
     // Null sink: no-op, no allocation, diagnostics contract.
     {
         NullChronoSink sink;
-        NX_CHECK(sink.on_snapshot(Chrono_snapshot{}).has_value());
+        NX_CHECK(sink.on_snapshot(Snapshot{}).has_value());
         NX_CHECK(sink.flush().has_value());
         NX_CHECK(sink.to_string() == "NullChronoSink()");
         NX_CHECK(to_string(sink) == sink.to_string());
@@ -625,7 +625,7 @@ void test_sinks() {
         NX_CHECK(::pipe(fds) == 0);
         {
             ConsoleChronoSink sink{fds[1]};
-            NX_CHECK(sink.on_snapshot(Chrono_snapshot{Timestamp{1000ULL}, 500}).has_value());
+            NX_CHECK(sink.on_snapshot(Snapshot{Timestamp{1000ULL}, 500}).has_value());
             NX_CHECK(sink.flush().has_value());
             NX_CHECK(sink.descriptor() == fds[1]);
             NX_CHECK(sink.to_string().find("fd=") != std::string::npos);
@@ -641,7 +641,7 @@ void test_sinks() {
     }
     {
         ConsoleChronoSink bad{-1};
-        NX_CHECK(!bad.on_snapshot(Chrono_snapshot{}).has_value());
+        NX_CHECK(!bad.on_snapshot(Snapshot{}).has_value());
     }
 
     // JSON-file sink: JSON-lines output, append, flush, config round-trip,
@@ -652,19 +652,19 @@ void test_sinks() {
     ::close(mfd);
     ::unlink(tmpl); // the sink re-creates it
     {
-        JsonFileChronoSink_config config;
+        JsonFileChronoSinkConfig config;
         config.path = tmpl;
         config.append = true;
         JsonFileChronoSink sink{config};
         NX_CHECK(sink.is_open());
-        NX_CHECK(sink.on_snapshot(Chrono_snapshot{Timestamp{111ULL}, 222}).has_value());
-        NX_CHECK(sink.on_snapshot(Chrono_snapshot{Timestamp{333ULL}, -444}).has_value());
+        NX_CHECK(sink.on_snapshot(Snapshot{Timestamp{111ULL}, 222}).has_value());
+        NX_CHECK(sink.on_snapshot(Snapshot{Timestamp{333ULL}, -444}).has_value());
         NX_CHECK(sink.flush().has_value());
 
         // Config serialization round-trip.
         nlohmann::json j;
         to_json(j, config);
-        JsonFileChronoSink_config back{};
+        JsonFileChronoSinkConfig back{};
         from_json(j, back);
         NX_CHECK(back.path == config.path);
         NX_CHECK(back.append == config.append);
@@ -705,11 +705,11 @@ void test_sinks() {
     }
     ::unlink(tmpl);
     {
-        JsonFileChronoSink_config bad;
+        JsonFileChronoSinkConfig bad;
         bad.path = "/nonexistent_dir_nexigen/no_file.jsonl";
         JsonFileChronoSink sink{bad};
         NX_CHECK(!sink.is_open());
-        NX_CHECK(!sink.on_snapshot(Chrono_snapshot{}).has_value());
+        NX_CHECK(!sink.on_snapshot(Snapshot{}).has_value());
         NX_CHECK(!sink.flush().has_value());
     }
 
@@ -717,7 +717,7 @@ void test_sinks() {
     {
         CompositeChronoSink<Count_sink, Count_sink, Count_sink> comp{
             Count_sink{}, Count_sink{}, Count_sink{}};
-        NX_CHECK(comp.on_snapshot(Chrono_snapshot{}).has_value());
+        NX_CHECK(comp.on_snapshot(Snapshot{}).has_value());
         NX_CHECK(comp.get<0>().count == 1);
         NX_CHECK(comp.get<1>().count == 1);
         NX_CHECK(comp.get<2>().count == 1);
@@ -727,7 +727,7 @@ void test_sinks() {
         // First failure does not starve the rest.
         CompositeChronoSink<Fail_sink, Count_sink, Count_sink> comp{
             Fail_sink{}, Count_sink{}, Count_sink{}};
-        const Status s = comp.on_snapshot(Chrono_snapshot{});
+        const Status s = comp.on_snapshot(Snapshot{});
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::SystemError);
         NX_CHECK(comp.get<1>().count == 1);
@@ -746,13 +746,13 @@ void test_sinks() {
 void test_sink_edges() {
     // Config: append=false rendering, JSON edge cases and formatter.
     {
-        JsonFileChronoSink_config config;
+        JsonFileChronoSinkConfig config;
         config.path = "/tmp/nexigen_chrono_sink_edges.jsonl";
         config.append = false;
         NX_CHECK(config.to_string().find("append=false") != std::string::npos);
         NX_CHECK(std::format("{}", config) == config.to_string());
 
-        JsonFileChronoSink_config out;
+        JsonFileChronoSinkConfig out;
         out.path = "/keep";
         out.append = true;
         from_json(nlohmann::json::array(), out);
@@ -772,12 +772,12 @@ void test_sink_edges() {
     NX_CHECK(write_file(tmpl, "stale-content-that-must-disappear"));
     ::close(mfd);
     {
-        JsonFileChronoSink_config config;
+        JsonFileChronoSinkConfig config;
         config.path = tmpl;
         config.append = false;
         JsonFileChronoSink sink{config};
         NX_CHECK(sink.is_open());
-        NX_CHECK(sink.on_snapshot(Chrono_snapshot{Timestamp{5ULL}, 6}).has_value());
+        NX_CHECK(sink.on_snapshot(Snapshot{Timestamp{5ULL}, 6}).has_value());
         NX_CHECK(sink.flush().has_value());
     }
     {
@@ -789,29 +789,29 @@ void test_sink_edges() {
 
     // fsync failure: /dev/null opens but cannot be synced.
     {
-        JsonFileChronoSink_config config;
+        JsonFileChronoSinkConfig config;
         config.path = "/dev/null";
         config.append = false;
         JsonFileChronoSink sink{config};
         NX_CHECK(sink.is_open());
-        NX_CHECK(sink.on_snapshot(Chrono_snapshot{}).has_value());
+        NX_CHECK(sink.on_snapshot(Snapshot{}).has_value());
         NX_CHECK(!sink.flush().has_value());
     }
 
     // Write failure: /dev/full reports ENOSPC on every write.
     {
-        JsonFileChronoSink_config config;
+        JsonFileChronoSinkConfig config;
         config.path = "/dev/full";
         config.append = false;
         JsonFileChronoSink sink{config};
         NX_CHECK(sink.is_open());
-        NX_CHECK(!sink.on_snapshot(Chrono_snapshot{}).has_value());
+        NX_CHECK(!sink.on_snapshot(Snapshot{}).has_value());
     }
     {
         const int fd = ::open("/dev/full", O_WRONLY | O_CLOEXEC);
         NX_CHECK(fd >= 0);
         ConsoleChronoSink sink{fd};
-        NX_CHECK(!sink.on_snapshot(Chrono_snapshot{}).has_value());
+        NX_CHECK(!sink.on_snapshot(Snapshot{}).has_value());
         ::close(fd);
     }
 }
@@ -819,14 +819,14 @@ void test_sink_edges() {
 void test_provider() {
     // Config serialization round-trip + diagnostics.
     {
-        ChronoProvider_config config;
+        ChronoProviderConfig config;
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         config.core_mask = 0x3;
         nlohmann::json j;
         to_json(j, config);
         NX_CHECK(j["collect_interval_ns"] == 1'000'000);
         NX_CHECK(j["core_mask"] == 0x3);
-        ChronoProvider_config back{};
+        ChronoProviderConfig back{};
         from_json(j, back);
         NX_CHECK(back.collect_interval == config.collect_interval);
         NX_CHECK(back.core_mask == 0x3);
@@ -838,7 +838,7 @@ void test_provider() {
     // and reports a sane monotonic/offset pair.
     {
         NullChronoSink sink;
-        ChronoProvider_config config{}; // zero interval: no background worker
+        ChronoProviderConfig config{}; // zero interval: no background worker
         ChronoProvider provider{config, sink};
         NX_CHECK(provider.startup_status().has_value());
         const std::size_t before = g_alloc_used;
@@ -849,7 +849,7 @@ void test_provider() {
     }
     {
         Recording_sink sink;
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         ChronoProvider provider{config, sink};
         NX_CHECK(provider.snapshot_now().has_value());
         NX_CHECK(sink.snapshots.size() == 1U);
@@ -867,7 +867,7 @@ void test_provider() {
     // Zero interval disables background delivery; destructor drains + flushes.
     {
         Recording_sink sink;
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         {
             ChronoProvider provider{config, sink};
@@ -882,7 +882,7 @@ void test_provider() {
     // idempotent; a zero interval makes start() a no-op.
     {
         Recording_sink sink;
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{5'000'000}; // 5 ms
         {
             ChronoProvider provider{config, sink};
@@ -896,7 +896,7 @@ void test_provider() {
     }
     {
         Recording_sink sink;
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0}; // zero interval
         {
             ChronoProvider provider{config, sink};
@@ -911,7 +911,7 @@ void test_provider() {
     {
         Recording_clock_logger logger;
         NullChronoSink sink;
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000}; // 1 ms
         {
             ChronoProvider provider{config, sink};
@@ -923,7 +923,7 @@ void test_provider() {
     {
         Recording_clock_logger logger;
         NullChronoSink sink;
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         {
             ChronoProvider provider{config, sink};
@@ -936,7 +936,7 @@ void test_provider() {
     // Background worker honors the period.
     {
         Recording_sink sink;
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{10'000'000}; // 10 ms
         {
             ChronoProvider provider{config, sink};
@@ -966,7 +966,7 @@ void test_provider() {
     {
         Recording_sink sink;
         sink.expected_cpu = first_cpu;
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000}; // 1 ms
         config.core_mask = std::uint64_t{1} << first_cpu;
         {
@@ -989,7 +989,7 @@ void test_provider() {
     }
     if (denied_cpu >= 0) {
         Recording_sink sink;
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         config.core_mask = std::uint64_t{1} << denied_cpu;
         ChronoProvider provider{config, sink};
@@ -1003,7 +1003,7 @@ void test_provider() {
     }
     {
         Recording_sink sink;
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         config.core_mask = 0;
         ChronoProvider provider{config, sink};
@@ -1016,7 +1016,7 @@ void test_provider() {
         Recording_sink sink;
         sink.snapshot_status = std::unexpected(ErrorCode::SystemError);
         sink.flush_status = std::unexpected(ErrorCode::SystemError);
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         ChronoProvider provider{config, sink};
         const Status snap = provider.snapshot_now();
         NX_CHECK(!snap.has_value());
@@ -1032,7 +1032,7 @@ void test_provider() {
     {
         Recording_clock_logger logger;
         Fail_sink sink;
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         {
             ChronoProvider provider{config, sink};
@@ -1041,7 +1041,7 @@ void test_provider() {
         }
         bool warned = false;
         for (const auto& [level, message] : logger.messages) {
-            if (level == Clock_log_level::warning &&
+            if (level == ClockLogLevel::warning &&
                 message.find("delivery failed") != std::string::npos) {
                 warned = true;
             }
@@ -1054,7 +1054,7 @@ void test_provider() {
     {
         struct Slow_sink {
             std::atomic<int> count{0};
-            Status on_snapshot(const Chrono_snapshot&) noexcept {
+            Status on_snapshot(const Snapshot&) noexcept {
                 std::this_thread::sleep_for(std::chrono::milliseconds{5});
                 count.fetch_add(1, std::memory_order_relaxed);
                 return {};
@@ -1063,7 +1063,7 @@ void test_provider() {
             std::string to_string() const { return "Slow_sink()"; }
         };
         Slow_sink sink;
-        ChronoProvider_config config{};
+        ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1};
         {
             ChronoProvider provider{config, sink};
@@ -1075,7 +1075,7 @@ void test_provider() {
 }
 
 void test_provider_config_edges() {
-    ChronoProvider_config config;
+    ChronoProviderConfig config;
     config.collect_interval = std::chrono::nanoseconds{5};
     config.core_mask = 7;
 
@@ -1146,8 +1146,8 @@ void test_settings() {
     NX_CHECK(write_file(global_path, "{\"collect_interval_ns\": 1000000, \"core_mask\": 3}"));
     NX_CHECK(write_file(local_path, "{\"collect_interval_ns\": 2000000}"));
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1160,8 +1160,8 @@ void test_settings() {
     // Environment has highest priority.
     ::setenv("NEXIGEN_CHRONO_CORE_MASK", "5", 1);
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1172,8 +1172,8 @@ void test_settings() {
     // Malformed local JSON: InvalidArgument, global still applies, diagnostic.
     NX_CHECK(write_file(local_path, "{ not json"));
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         const Status s = load_chrono_settings(paths, settings);
@@ -1186,8 +1186,8 @@ void test_settings() {
     // Invalid value keeps the previous valid value.
     NX_CHECK(write_file(local_path, "{\"collect_interval_ns\": \"abc\"}"));
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         const Status s = load_chrono_settings(paths, settings);
@@ -1197,8 +1197,8 @@ void test_settings() {
 
     // Empty paths yield defaults with no diagnostics.
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
         NX_CHECK(!settings.global_loaded && !settings.local_loaded);
         NX_CHECK(settings.options.collect_interval == std::chrono::nanoseconds{0});
@@ -1208,8 +1208,8 @@ void test_settings() {
 
     // Missing files are not errors and produce no diagnostics.
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = "/tmp/nexigen_chrono_nonexistent.json";
         paths.local_file = "/tmp/nexigen_chrono_also_nonexistent.json";
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1219,10 +1219,10 @@ void test_settings() {
 
     // apply_to maps every field.
     {
-        Chrono_settings settings;
+        Settings settings;
         settings.options.collect_interval = std::chrono::nanoseconds{3'000'000};
         settings.options.core_mask = 0x7;
-        ChronoProvider_config config;
+        ChronoProviderConfig config;
         NX_CHECK(apply_to(settings, config).has_value());
         NX_CHECK(config.collect_interval == settings.options.collect_interval);
         NX_CHECK(config.core_mask == 0x7);
@@ -1230,7 +1230,7 @@ void test_settings() {
 
     // Settings and diagnostic serialization.
     {
-        Chrono_settings settings;
+        Settings settings;
         settings.options.collect_interval = std::chrono::nanoseconds{1};
         settings.options.core_mask = 0x3;
         nlohmann::json j;
@@ -1239,21 +1239,21 @@ void test_settings() {
         NX_CHECK(j["collect_interval_ns"] == 1);
         NX_CHECK(std::format("{}", settings) == settings.to_string());
 
-        Chrono_settings_diagnostic diag{Chrono_settings_source::Local, "core_mask", "bad"};
+        SettingsDiagnostic diag{SettingsSource::Local, "core_mask", "bad"};
         nlohmann::json dj;
         to_json(dj, diag);
-        Chrono_settings_diagnostic back{};
+        SettingsDiagnostic back{};
         from_json(dj, back);
-        NX_CHECK(back.source == Chrono_settings_source::Local);
+        NX_CHECK(back.source == SettingsSource::Local);
         NX_CHECK(back.field == "core_mask");
         NX_CHECK(back.message == "bad");
 
-        Chrono_settings_paths paths;
+        SettingsPaths paths;
         paths.global_file = "/a";
         paths.local_file = "/b";
         nlohmann::json pj;
         to_json(pj, paths);
-        Chrono_settings_paths pback{};
+        SettingsPaths pback{};
         from_json(pj, pback);
         NX_CHECK(pback.global_file == "/a" && pback.local_file == "/b");
     }
@@ -1278,8 +1278,8 @@ void test_settings_sink() {
     NX_CHECK(write_file(local_path.c_str(),
                         R"({"sink":{"path":"/tmp/local-chrono.jsonl"}})"));
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1290,8 +1290,8 @@ void test_settings_sink() {
 
     // Without a local sink block the global path and append flag are retained.
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = "";
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1302,8 +1302,8 @@ void test_settings_sink() {
     // Provider environment overrides do not touch the sink.
     ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "42", 1);
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1315,12 +1315,12 @@ void test_settings_sink() {
 
     // Serialization carries the sink; apply_to ignores it.
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
-        NX_CHECK(settings.to_string().find("sink=JsonFileChronoSink_config") !=
+        NX_CHECK(settings.to_string().find("sink=JsonFileChronoSinkConfig") !=
                  std::string::npos);
         NX_CHECK(std::format("{}", settings) == settings.to_string());
         nlohmann::json j;
@@ -1328,7 +1328,7 @@ void test_settings_sink() {
         NX_CHECK(j["sink"]["path"] == "/tmp/local-chrono.jsonl");
         NX_CHECK(j["sink"]["append"] == false);
 
-        ChronoProvider_config config;
+        ChronoProviderConfig config;
         NX_CHECK(apply_to(settings, config).has_value());
         NX_CHECK(config.collect_interval == settings.options.collect_interval);
         NX_CHECK(config.core_mask == settings.options.core_mask);
@@ -1338,8 +1338,8 @@ void test_settings_sink() {
     NX_CHECK(write_file(global_path.c_str(), "{}"));
     NX_CHECK(write_file(local_path.c_str(), "{}"));
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1351,8 +1351,8 @@ void test_settings_sink() {
     // An empty path is accepted as unconfigured, not a diagnostic.
     NX_CHECK(write_file(global_path.c_str(), R"({"sink":{"path":""}})"));
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
         NX_CHECK(settings.sink.path.empty());
@@ -1364,8 +1364,8 @@ void test_settings_sink() {
                         R"({"sink":{"path":"/tmp/keep-chrono.jsonl"}})"));
     NX_CHECK(write_file(local_path.c_str(), R"({"sink":{"path":3}})"));
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(!load_chrono_settings(paths, settings).has_value());
@@ -1377,8 +1377,8 @@ void test_settings_sink() {
     // A non-object sink keeps the whole previous sink and reports "sink".
     NX_CHECK(write_file(local_path.c_str(), R"({"sink":[]})"));
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(!load_chrono_settings(paths, settings).has_value());
@@ -1396,14 +1396,14 @@ void test_settings_edges() {
 
     // Diagnostics and paths render through member/free/formatter.
     {
-        Chrono_settings_diagnostic diag{Chrono_settings_source::Computed, "field", "message"};
+        SettingsDiagnostic diag{SettingsSource::Computed, "field", "message"};
         const std::string text = diag.to_string();
         NX_CHECK(text.find("source=computed") != std::string::npos);
         NX_CHECK(text.find("field=field") != std::string::npos);
         NX_CHECK(to_string(diag) == text);
         NX_CHECK(std::format("{}", diag) == text);
 
-        Chrono_settings_paths paths;
+        SettingsPaths paths;
         paths.global_file = "/global";
         paths.local_file = "/local";
         NX_CHECK(paths.to_string().find("/global") != std::string::npos);
@@ -1412,13 +1412,13 @@ void test_settings_edges() {
 
     // Settings render loaded flags and a multi-entry diagnostic list.
     {
-        Chrono_settings settings;
+        Settings settings;
         settings.global_loaded = true;
         settings.local_loaded = true;
         settings.options.collect_interval = std::chrono::nanoseconds{4};
         settings.options.core_mask = 2;
-        settings.diagnostics.push_back({Chrono_settings_source::Global, "a", "b"});
-        settings.diagnostics.push_back({Chrono_settings_source::Local, "c", "d"});
+        settings.diagnostics.push_back({SettingsSource::Global, "a", "b"});
+        settings.diagnostics.push_back({SettingsSource::Local, "c", "d"});
         const std::string text = settings.to_string();
         NX_CHECK(text.find("global_loaded=true") != std::string::npos);
         NX_CHECK(text.find("local_loaded=true") != std::string::npos);
@@ -1432,7 +1432,7 @@ void test_settings_edges() {
 
     // from_json edge cases: non-objects and mistyped members are ignored.
     {
-        Chrono_settings_paths paths;
+        SettingsPaths paths;
         paths.global_file = "/keep";
         from_json(nlohmann::json::array(), paths);
         NX_CHECK(paths.global_file == "/keep");
@@ -1443,19 +1443,19 @@ void test_settings_edges() {
         NX_CHECK(paths.global_file == "/keep");
         NX_CHECK(paths.local_file.empty());
 
-        Chrono_settings_diagnostic diag{Chrono_settings_source::Local, "keep", "keep"};
+        SettingsDiagnostic diag{SettingsSource::Local, "keep", "keep"};
         from_json(nlohmann::json::array(), diag);
-        NX_CHECK(diag.source == Chrono_settings_source::Local);
+        NX_CHECK(diag.source == SettingsSource::Local);
         from_json(nlohmann::json{{"source", 1}, {"field", 2}, {"message", 3}}, diag);
-        NX_CHECK(diag.source == Chrono_settings_source::Local);
+        NX_CHECK(diag.source == SettingsSource::Local);
         NX_CHECK(diag.field == "keep");
         NX_CHECK(diag.message == "keep");
         from_json(nlohmann::json::object(), diag);
-        NX_CHECK(diag.source == Chrono_settings_source::Local);
+        NX_CHECK(diag.source == SettingsSource::Local);
         NX_CHECK(diag.field == "keep");
         NX_CHECK(diag.message == "keep");
         from_json(nlohmann::json{{"source", "bogus"}}, diag);
-        NX_CHECK(diag.source == Chrono_settings_source::Local);
+        NX_CHECK(diag.source == SettingsSource::Local);
     }
 
     const char* global_path = "/tmp/nexigen_chrono_edge_global.json";
@@ -1465,8 +1465,8 @@ void test_settings_edges() {
     NX_CHECK(write_file(global_path, "[]"));
     NX_CHECK(write_file(local_path, "\"not-an-object\""));
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         const Status s = load_chrono_settings(paths, settings);
@@ -1481,8 +1481,8 @@ void test_settings_edges() {
 
     // A directory opens but cannot be read: SystemError, not "absent".
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = "/tmp";
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
@@ -1494,21 +1494,21 @@ void test_settings_edges() {
 
     // The same failure on the local source (the global path succeeded).
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.local_file = "/tmp";
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::SystemError);
         NX_CHECK(settings.diagnostics.size() == 1U);
-        NX_CHECK(settings.diagnostics[0].source == Chrono_settings_source::Local);
+        NX_CHECK(settings.diagnostics[0].source == SettingsSource::Local);
     }
 
     // Malformed JSON in the global file is a diagnostic and InvalidArgument.
     NX_CHECK(write_file(global_path, "{ not json"));
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
@@ -1526,8 +1526,8 @@ void test_settings_edges() {
         NX_CHECK(write_file(unreadable_path, "{}"));
         NX_CHECK(::chmod(unreadable_path, 0) == 0);
         {
-            Chrono_settings settings;
-            Chrono_settings_paths paths;
+            Settings settings;
+            SettingsPaths paths;
             paths.global_file = unreadable_path;
             const Status s = load_chrono_settings(paths, settings);
             NX_CHECK(!s.has_value());
@@ -1540,33 +1540,33 @@ void test_settings_edges() {
     // Environment interval: valid, invalid and > INT64_MAX.
     ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "4242", 1);
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
         NX_CHECK(settings.options.collect_interval == std::chrono::nanoseconds{4242});
     }
     ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "-1", 1);
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::InvalidArgument);
         NX_CHECK(settings.diagnostics.size() == 1U);
-        NX_CHECK(settings.diagnostics[0].source == Chrono_settings_source::Environment);
+        NX_CHECK(settings.diagnostics[0].source == SettingsSource::Environment);
     }
     ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "9223372036854775808", 1);
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::InvalidArgument);
     }
     ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "12abc", 1);
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::InvalidArgument);
@@ -1576,8 +1576,8 @@ void test_settings_edges() {
     // Environment core mask: invalid spelling is a diagnostic.
     ::setenv("NEXIGEN_CHRONO_CORE_MASK", "not-a-number", 1);
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::InvalidArgument);
@@ -1588,8 +1588,8 @@ void test_settings_edges() {
     // JSON range checks: interval above INT64_MAX and a max-width core mask.
     NX_CHECK(write_file(global_path, "{\"collect_interval_ns\": 9223372036854775808}"));
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
@@ -1597,8 +1597,8 @@ void test_settings_edges() {
     }
     NX_CHECK(write_file(global_path, "{\"core_mask\": 18446744073709551615}"));
     {
-        Chrono_settings settings;
-        Chrono_settings_paths paths;
+        Settings settings;
+        SettingsPaths paths;
         paths.global_file = global_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
         NX_CHECK(settings.options.core_mask == std::numeric_limits<std::uint64_t>::max());

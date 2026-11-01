@@ -234,7 +234,7 @@ struct alignas(64) Exponential_bank {
 
     /// Fold one bank view into the merged frame (rebase onto the merged
     /// scale, folding out-of-window buckets into the edge buckets).
-    static void merge_view(const View& view, struct Exponential_merge& merged,
+    static void merge_view(const View& view, struct ExponentialMerge& merged,
                            std::int32_t merged_scale) noexcept;
 
     /// Fold one sample in (exclusive slot — single writer).
@@ -322,7 +322,7 @@ struct alignas(64) Exponential_slot {
 inline constexpr int exponential_handshake_attempts = 64;
 
 /// Merged view of the exponential buckets at a common scale.
-struct Exponential_merge {
+struct ExponentialMerge {
     std::uint64_t buckets[max_exponential_buckets]{};
     std::uint64_t total{0};
     std::uint64_t zeros{0};
@@ -337,7 +337,7 @@ struct Exponential_merge {
 /// Fold one bank view into the merged frame: rebase the bank's index space
 /// onto the merged scale (finer banks shift down, the scale-0 fallback up),
 /// folding out-of-window buckets into the edge buckets.
-inline void Exponential_bank::merge_view(const View& view, Exponential_merge& merged,
+inline void Exponential_bank::merge_view(const View& view, ExponentialMerge& merged,
                                          std::int32_t merged_scale) noexcept {
     if (view.base_index == unanchored_index) {
         return;
@@ -464,7 +464,7 @@ public:
             }
         }
 
-        detail::Exponential_merge merged{};
+        detail::ExponentialMerge merged{};
         merged.scale = merged_scale;
         merged.base = compute_merged_base(merged_scale);
         if constexpr (Concurrency == ConcurrencyPolicy::SingleThreaded) {
@@ -647,7 +647,7 @@ private:
     }
 
     /// Merge one bank without consuming it (Cumulative paths).
-    void merge_bank(detail::Exponential_bank& bank, detail::Exponential_merge& merged,
+    void merge_bank(detail::Exponential_bank& bank, detail::ExponentialMerge& merged,
                     std::int32_t merged_scale) const noexcept {
         detail::Exponential_bank::merge_view(bank.load_view(), merged, merged_scale);
     }
@@ -657,7 +657,7 @@ private:
     /// sequence proves no producer is mid-record. A stalled slot is deferred
     /// to a later window with its contents untouched, so every record lands
     /// in exactly one window.
-    void merge_slot(std::size_t index, detail::Exponential_merge& merged,
+    void merge_slot(std::size_t index, detail::ExponentialMerge& merged,
                     std::int32_t merged_scale) const noexcept {
         auto& slot = slots_[index];
         const bool consuming = (Reset == ResetPolicy::ResetOnRead);

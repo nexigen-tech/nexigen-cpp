@@ -134,27 +134,27 @@ static_assert(logging::concepts::Logger<Flush_fail_logger>);
 
 struct Test_policy {
     using Logger = Capture_logger;
-    using Metrics_sink = metrics::NullMetricSink;
-    using Trace_sink = tracing::NullTraceSink;
-    using Chrono_sink = chrono::NullChronoSink;
+    using MetricsSink = metrics::NullMetricSink;
+    using TraceSink = tracing::NullTraceSink;
+    using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
-                                       const logging::Logging_settings&) noexcept {
+                                       const logging::Settings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
                                              const app::MetricsSettings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
                                            const app::TracingSettings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
-                                            const chrono::Chrono_settings&) noexcept {
+    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+                                            const chrono::Settings&) noexcept {
         out.emplace();
         return {};
     }
@@ -164,22 +164,22 @@ struct Test_policy {
 /// every sink from the settings value and never uses a hard-coded path.
 struct Resolved_path_policy {
     using Logger = logging::FileLogger<>;
-    using Metrics_sink = metrics::JsonFileMetricSink;
-    using Trace_sink = tracing::JsonFileTraceSink;
-    using Chrono_sink = chrono::JsonFileChronoSink;
+    using MetricsSink = metrics::JsonFileMetricSink;
+    using TraceSink = tracing::JsonFileTraceSink;
+    using ChronoSink = chrono::JsonFileChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
-                                       const logging::Logging_settings& settings) noexcept {
-        logging::FileLogger_config config{};
+                                       const logging::Settings& settings) noexcept {
+        logging::FileLoggerConfig config{};
         const core::Status applied = logging::apply_to(settings, config);
         if (!applied) {
             return applied;
         }
-        config.rotation.kind = logging::Rotation_schedule::None;
+        config.rotation.kind = logging::RotationSchedule::None;
         out.emplace();
         return out->initialize(config);
     }
-    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
                                              const app::MetricsSettings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -187,7 +187,7 @@ struct Resolved_path_policy {
         out.emplace(settings.sink);
         return {};
     }
-    static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
                                            const app::TracingSettings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -195,8 +195,8 @@ struct Resolved_path_policy {
         out.emplace(settings.sink);
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
-                                            const chrono::Chrono_settings& settings) noexcept {
+    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+                                            const chrono::Settings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -207,26 +207,26 @@ struct Resolved_path_policy {
 
 struct Fail_logger_policy {
     using Logger = Capture_logger;
-    using Metrics_sink = metrics::NullMetricSink;
-    using Trace_sink = tracing::NullTraceSink;
-    using Chrono_sink = chrono::NullChronoSink;
+    using MetricsSink = metrics::NullMetricSink;
+    using TraceSink = tracing::NullTraceSink;
+    using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>&,
-                                       const logging::Logging_settings&) noexcept {
+                                       const logging::Settings&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
                                              const app::MetricsSettings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
                                            const app::TracingSettings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
-                                            const chrono::Chrono_settings&) noexcept {
+    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+                                            const chrono::Settings&) noexcept {
         out.emplace();
         return {};
     }
@@ -234,26 +234,26 @@ struct Fail_logger_policy {
 
 struct Fail_metrics_policy {
     using Logger = Capture_logger;
-    using Metrics_sink = metrics::NullMetricSink;
-    using Trace_sink = tracing::NullTraceSink;
-    using Chrono_sink = chrono::NullChronoSink;
+    using MetricsSink = metrics::NullMetricSink;
+    using TraceSink = tracing::NullTraceSink;
+    using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
-                                       const logging::Logging_settings&) noexcept {
+                                       const logging::Settings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>&,
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>&,
                                              const app::MetricsSettings&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
                                            const app::TracingSettings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
-                                            const chrono::Chrono_settings&) noexcept {
+    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+                                            const chrono::Settings&) noexcept {
         out.emplace();
         return {};
     }
@@ -261,26 +261,26 @@ struct Fail_metrics_policy {
 
 struct Fail_trace_policy {
     using Logger = Capture_logger;
-    using Metrics_sink = metrics::NullMetricSink;
-    using Trace_sink = tracing::NullTraceSink;
-    using Chrono_sink = chrono::NullChronoSink;
+    using MetricsSink = metrics::NullMetricSink;
+    using TraceSink = tracing::NullTraceSink;
+    using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
-                                       const logging::Logging_settings&) noexcept {
+                                       const logging::Settings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
                                              const app::MetricsSettings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_trace_sink(std::optional<Trace_sink>&,
+    static core::Status emplace_trace_sink(std::optional<TraceSink>&,
                                            const app::TracingSettings&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
-                                            const chrono::Chrono_settings&) noexcept {
+    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+                                            const chrono::Settings&) noexcept {
         out.emplace();
         return {};
     }
@@ -288,27 +288,27 @@ struct Fail_trace_policy {
 
 struct Flush_fail_policy {
     using Logger = Flush_fail_logger;
-    using Metrics_sink = metrics::NullMetricSink;
-    using Trace_sink = tracing::NullTraceSink;
-    using Chrono_sink = chrono::NullChronoSink;
+    using MetricsSink = metrics::NullMetricSink;
+    using TraceSink = tracing::NullTraceSink;
+    using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
-                                       const logging::Logging_settings&) noexcept {
+                                       const logging::Settings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
                                              const app::MetricsSettings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
                                            const app::TracingSettings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>& out,
-                                            const chrono::Chrono_settings&) noexcept {
+    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+                                            const chrono::Settings&) noexcept {
         out.emplace();
         return {};
     }
@@ -316,27 +316,27 @@ struct Flush_fail_policy {
 
 struct Fail_chrono_policy {
     using Logger = Capture_logger;
-    using Metrics_sink = metrics::NullMetricSink;
-    using Trace_sink = tracing::NullTraceSink;
-    using Chrono_sink = chrono::NullChronoSink;
+    using MetricsSink = metrics::NullMetricSink;
+    using TraceSink = tracing::NullTraceSink;
+    using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
-                                       const logging::Logging_settings&) noexcept {
+                                       const logging::Settings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_metrics_sink(std::optional<Metrics_sink>& out,
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
                                              const app::MetricsSettings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_trace_sink(std::optional<Trace_sink>& out,
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
                                            const app::TracingSettings&) noexcept {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<Chrono_sink>&,
-                                            const chrono::Chrono_settings&) noexcept {
+    static core::Status emplace_chrono_sink(std::optional<ChronoSink>&,
+                                            const chrono::Settings&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 };
@@ -360,12 +360,12 @@ struct has_from_json<
 
 static_assert(!has_from_json<app::MetricsSettings>::value);
 static_assert(!has_from_json<app::TracingSettings>::value);
-static_assert(!has_from_json<app::AppSettingsPaths>::value);
-static_assert(!has_from_json<app::AppSettings>::value);
+static_assert(!has_from_json<app::SettingsPaths>::value);
+static_assert(!has_from_json<app::Settings>::value);
 static_assert(has_from_json<app::CommandLineOptions>::value);
 static_assert(has_from_json<app::CommandLineDiagnostic>::value);
 static_assert(has_from_json<app::CommandLineError>::value);
-static_assert(has_from_json<app::Settings_paths>::value);
+static_assert(has_from_json<logging::SettingsPaths>::value);
 
 // Design D9: the sink member does not turn settings into a polymorphic or
 // move-only type; they stay ordinary copyable/movable value types.
@@ -377,7 +377,7 @@ constexpr bool is_plain_value_type =
 
 static_assert(is_plain_value_type<app::MetricsSettings>);
 static_assert(is_plain_value_type<app::TracingSettings>);
-static_assert(is_plain_value_type<chrono::Chrono_settings>);
+static_assert(is_plain_value_type<chrono::Settings>);
 
 struct Env_guard {
     std::string name;
@@ -532,12 +532,12 @@ void test_settings_loaders() {
 
     // Unreadable supplied path (a directory) -> SystemError.
     NX_CHECK(!app::load_tracing_settings({"/tmp/opencode", ""}, tracing).has_value());
-    NX_CHECK(tracing.diagnostics.back().source == logging::Settings_source::Global);
+    NX_CHECK(tracing.diagnostics.back().source == logging::SettingsSource::Global);
 
     // Aggregation: clean logging (empty paths) + one unreadable metrics pair.
     write_text(metrics_local, R"({"core_mask":1})");
-    app::AppSettings app_settings{};
-    app::AppSettingsPaths paths{};
+    app::Settings app_settings{};
+    app::SettingsPaths paths{};
     paths.metrics.global_file = "/tmp/opencode";
     NX_CHECK(!app::load_app_settings(paths, app_settings).has_value());
     NX_CHECK(app_settings.tracing.options.max_tracers == 16U); // defaults still populated
@@ -579,7 +579,7 @@ void test_settings_loaders() {
         app::MetricsSettings metrics_serialized{};
         metrics_serialized.global_loaded = true;
         metrics_serialized.diagnostics.push_back(
-            {logging::Settings_source::Local, "core_mask", "bad"});
+            {logging::SettingsSource::Local, "core_mask", "bad"});
         NX_CHECK(metrics_serialized.to_string().find("bad") != std::string::npos);
         nlohmann::json serialized_json;
         app::to_json(serialized_json, metrics_serialized);
@@ -587,7 +587,7 @@ void test_settings_loaders() {
         app::TracingSettings tracing_serialized{};
         tracing_serialized.local_loaded = true;
         tracing_serialized.diagnostics.push_back(
-            {logging::Settings_source::Global, "max_tracers", "bad"});
+            {logging::SettingsSource::Global, "max_tracers", "bad"});
         NX_CHECK(tracing_serialized.to_string().find("bad") != std::string::npos);
         app::to_json(serialized_json, tracing_serialized);
         NX_CHECK(serialized_json["diagnostics"].size() == 1U);
@@ -613,10 +613,10 @@ void test_settings_loaders() {
     {
         write_text(metrics_local, R"({"core_mask":"x"})");
         write_text(tracing_local, R"({"max_tracers":0})");
-        app::AppSettingsPaths aggregate_paths{};
+        app::SettingsPaths aggregate_paths{};
         aggregate_paths.metrics = {metrics_global, metrics_local};
         aggregate_paths.tracing = {tracing_global, tracing_local};
-        app::AppSettings out{};
+        app::Settings out{};
         const core::Status status = app::load_app_settings(aggregate_paths, out);
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == core::ErrorCode::InvalidArgument);
@@ -693,9 +693,9 @@ void test_settings_sink() {
                      .has_value());
         NX_CHECK(app::load_tracing_settings({tracing_global, tracing_local}, tracing)
                      .has_value());
-        NX_CHECK(metrics.to_string().find("sink=JsonFileMetricSink_config") !=
+        NX_CHECK(metrics.to_string().find("sink=JsonFileMetricSinkConfig") !=
                  std::string::npos);
-        NX_CHECK(tracing.to_string().find("sink=JsonFileTraceSink_config") !=
+        NX_CHECK(tracing.to_string().find("sink=JsonFileTraceSinkConfig") !=
                  std::string::npos);
         NX_CHECK(std::format("{}", metrics) == metrics.to_string());
         NX_CHECK(std::format("{}", tracing) == tracing.to_string());
@@ -710,8 +710,8 @@ void test_settings_sink() {
         NX_CHECK(json["sink"]["max_spans_per_window"] == 10U);
         NX_CHECK(json["sink"]["window_ns"] == 100U);
 
-        // AppSettings carries both sink objects through its members.
-        app::AppSettings aggregate{};
+        // Settings carries both sink objects through its members.
+        app::Settings aggregate{};
         aggregate.metrics = metrics;
         aggregate.tracing = tracing;
         app::to_json(json, aggregate);
@@ -938,7 +938,7 @@ void test_telemetry_layout() {
     {
         app::MetricsSettings metrics{};
         app::TracingSettings tracing{};
-        chrono::Chrono_settings chrono{};
+        chrono::Settings chrono{};
         metrics.sink.path = "/settings/metrics.jsonl";
         tracing.sink.path = "";
         chrono.sink.path = "/settings/chrono.jsonl";
@@ -1035,8 +1035,8 @@ void test_telemetry_layout_infrastructure() {
     const app::RunIdentity identity = app::load_run_identity();
     NX_CHECK(identity.instance_dir == instance_dir);
 
-    app::AppSettings settings{};
-    NX_CHECK(app::load_app_settings(app::AppSettingsPaths{}, settings).has_value());
+    app::Settings settings{};
+    NX_CHECK(app::load_app_settings(app::SettingsPaths{}, settings).has_value());
     settings.logging.options.log_root_directory = instance_dir;
     settings.logging.options.app_name = "layout-app";
 
@@ -1129,8 +1129,8 @@ void test_infrastructure_lifecycle() {
     NX_CHECK(!app->tracer_for("sim").has_value());
     NX_CHECK(app->tracer_for("sim").error() == core::ErrorCode::NotInitialized);
 
-    NX_CHECK(app->initialize(app::AppSettings{}).has_value());
-    NX_CHECK(app->initialize(app::AppSettings{}).has_value()); // idempotent
+    NX_CHECK(app->initialize(app::Settings{}).has_value());
+    NX_CHECK(app->initialize(app::Settings{}).has_value()); // idempotent
 
     g_log_lines.clear();
     app->logger().info("lifecycle record");
@@ -1180,7 +1180,7 @@ void test_infrastructure_failures() {
     auto bool_app = make_test_infra<Test_policy>();
     NX_CHECK(bool_app != nullptr);
     if (bool_app) {
-        NX_CHECK(bool_app->initialize(app::AppSettings{}).has_value());
+        NX_CHECK(bool_app->initialize(app::Settings{}).has_value());
         NX_CHECK(bool_app->run([] { return false; }) ==
                  app::InfrastructureStopReason::Requested);
         NX_CHECK(bool_app->shutdown().has_value());
@@ -1189,31 +1189,31 @@ void test_infrastructure_failures() {
     auto fail_logger = make_test_infra<Fail_logger_policy>();
     NX_CHECK(fail_logger != nullptr);
     if (fail_logger) {
-        NX_CHECK(!fail_logger->initialize(app::AppSettings{}).has_value());
+        NX_CHECK(!fail_logger->initialize(app::Settings{}).has_value());
         NX_CHECK(fail_logger->shutdown().has_value());
     }
     auto fail_metrics = make_test_infra<Fail_metrics_policy>();
     NX_CHECK(fail_metrics != nullptr);
     if (fail_metrics) {
-        NX_CHECK(!fail_metrics->initialize(app::AppSettings{}).has_value());
+        NX_CHECK(!fail_metrics->initialize(app::Settings{}).has_value());
         NX_CHECK(fail_metrics->shutdown().has_value());
     }
     auto fail_trace = make_test_infra<Fail_trace_policy>();
     NX_CHECK(fail_trace != nullptr);
     if (fail_trace) {
-        NX_CHECK(!fail_trace->initialize(app::AppSettings{}).has_value());
+        NX_CHECK(!fail_trace->initialize(app::Settings{}).has_value());
         NX_CHECK(fail_trace->shutdown().has_value());
     }
     auto fail_chrono = make_test_infra<Fail_chrono_policy>();
     NX_CHECK(fail_chrono != nullptr);
     if (fail_chrono) {
-        NX_CHECK(!fail_chrono->initialize(app::AppSettings{}).has_value());
+        NX_CHECK(!fail_chrono->initialize(app::Settings{}).has_value());
         NX_CHECK(fail_chrono->shutdown().has_value());
     }
     auto flush_fail = make_test_infra<Flush_fail_policy>();
     NX_CHECK(flush_fail != nullptr);
     if (flush_fail) {
-        NX_CHECK(flush_fail->initialize(app::AppSettings{}).has_value());
+        NX_CHECK(flush_fail->initialize(app::Settings{}).has_value());
         const core::Status status = flush_fail->shutdown();
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == core::ErrorCode::SystemError);
@@ -1226,7 +1226,7 @@ void test_infrastructure_signals() {
     if (!int_app) {
         return;
     }
-    NX_CHECK(int_app->initialize(app::AppSettings{}).has_value());
+    NX_CHECK(int_app->initialize(app::Settings{}).has_value());
     g_log_lines.clear();
     std::atomic<bool> running{false};
     std::jthread raiser{[&running] {
@@ -1255,7 +1255,7 @@ void test_infrastructure_signals() {
     if (!term_app) {
         return;
     }
-    NX_CHECK(term_app->initialize(app::AppSettings{}).has_value());
+    NX_CHECK(term_app->initialize(app::Settings{}).has_value());
     std::atomic<bool> term_running{false};
     std::jthread term_raiser{[&term_running] {
         while (!term_running.load(std::memory_order_acquire)) {
@@ -1278,7 +1278,7 @@ void test_infrastructure_tick_allocation() {
     if (!infra) {
         return;
     }
-    NX_CHECK(infra->initialize(app::AppSettings{}).has_value());
+    NX_CHECK(infra->initialize(app::Settings{}).has_value());
     int ticks = 0;
     [[maybe_unused]] const std::size_t before = ::mallinfo2().uordblks;
     const app::InfrastructureStopReason reason = infra->run([&] {
@@ -1433,22 +1433,22 @@ void test_app_settings_full_coverage() {
     tracers_env.clear(); spans_env.clear(); window_env.clear();
 
     // Serialization of all four aggregate types.
-    app::AppSettings aggregate{};
+    app::Settings aggregate{};
     aggregate.metrics = app::MetricsSettings{};
     aggregate.tracing = app::TracingSettings{};
-    aggregate.logging = logging::Logging_settings{};
+    aggregate.logging = logging::Settings{};
     const std::string metrics_text = aggregate.metrics.to_string();
     NX_CHECK(metrics_text.find("MetricsSettings") != std::string::npos);
     NX_CHECK(std::format("{}", aggregate.metrics) == metrics_text);
     const std::string tracing_text = aggregate.tracing.to_string();
     NX_CHECK(tracing_text.find("TracingSettings") != std::string::npos);
     NX_CHECK(std::format("{}", aggregate.tracing) == tracing_text);
-    const app::AppSettingsPaths path_texts{
+    const app::SettingsPaths path_texts{
         {"g-log", "l-log"}, {"g-met", "l-met"}, {"g-tra", "l-tra"}};
     NX_CHECK(path_texts.to_string().find("g-met") != std::string::npos);
     NX_CHECK(std::format("{}", path_texts).find("g-tra") != std::string::npos);
-    NX_CHECK(aggregate.to_string().find("AppSettings") != std::string::npos);
-    NX_CHECK(std::format("{}", aggregate).find("Logging_settings") != std::string::npos);
+    NX_CHECK(aggregate.to_string().find("Settings") != std::string::npos);
+    NX_CHECK(std::format("{}", aggregate).find("Settings") != std::string::npos);
     nlohmann::json json;
     app::to_json(json, aggregate);
     NX_CHECK(json.contains("logging") && json.contains("metrics") && json.contains("tracing"));
@@ -1456,9 +1456,9 @@ void test_app_settings_full_coverage() {
     NX_CHECK(json["metrics"]["global_file"] == "g-met");
 
     // Aggregate worst status: clean logging + unreadable metrics.
-    app::AppSettingsPaths worst{};
+    app::SettingsPaths worst{};
     worst.metrics.global_file = "/tmp/opencode";
-    app::AppSettings loaded{};
+    app::Settings loaded{};
     const core::Status worst_status = app::load_app_settings(worst, loaded);
     NX_CHECK(!worst_status.has_value());
     NX_CHECK(worst_status.error() == core::ErrorCode::SystemError);
@@ -1476,23 +1476,23 @@ void test_infrastructure_conflict() {
     if (!first || !second) {
         return;
     }
-    NX_CHECK(first->initialize(app::AppSettings{}).has_value());
-    const core::Status conflict = second->initialize(app::AppSettings{});
+    NX_CHECK(first->initialize(app::Settings{}).has_value());
+    const core::Status conflict = second->initialize(app::Settings{});
     NX_CHECK(!conflict.has_value());
     NX_CHECK(conflict.error() == core::ErrorCode::Conflict);
     NX_CHECK(first->shutdown().has_value());
-    NX_CHECK(second->initialize(app::AppSettings{}).has_value());
+    NX_CHECK(second->initialize(app::Settings{}).has_value());
     NX_CHECK(second->shutdown().has_value());
 
     // A failed initialization releases ownership for the next infrastructure.
     auto failing = make_test_infra<Fail_logger_policy>();
     NX_CHECK(failing != nullptr);
     if (failing) {
-        NX_CHECK(!failing->initialize(app::AppSettings{}).has_value());
+        NX_CHECK(!failing->initialize(app::Settings{}).has_value());
         auto after_failure = make_test_infra<Test_policy>();
         NX_CHECK(after_failure != nullptr);
         if (after_failure) {
-            NX_CHECK(after_failure->initialize(app::AppSettings{}).has_value());
+            NX_CHECK(after_failure->initialize(app::Settings{}).has_value());
             NX_CHECK(after_failure->shutdown().has_value());
         }
     }
@@ -1502,8 +1502,8 @@ void test_infrastructure_conflict() {
     auto trace_second = make_test_infra<Fail_trace_policy>();
     NX_CHECK(trace_first != nullptr && trace_second != nullptr);
     if (trace_first && trace_second) {
-        NX_CHECK(trace_first->initialize(app::AppSettings{}).has_value());
-        const core::Status policy_conflict = trace_second->initialize(app::AppSettings{});
+        NX_CHECK(trace_first->initialize(app::Settings{}).has_value());
+        const core::Status policy_conflict = trace_second->initialize(app::Settings{});
         NX_CHECK(!policy_conflict.has_value());
         NX_CHECK(policy_conflict.error() == core::ErrorCode::Conflict);
         NX_CHECK(trace_first->shutdown().has_value());
@@ -1516,7 +1516,7 @@ void test_infrastructure_stop_and_mask() {
         auto first = make_test_infra<Test_policy>();
         NX_CHECK(first != nullptr);
         if (first) {
-            NX_CHECK(first->initialize(app::AppSettings{}).has_value());
+            NX_CHECK(first->initialize(app::Settings{}).has_value());
             first->request_stop(app::InfrastructureStopReason::None);
             NX_CHECK(!first->stop_requested());
             first->request_stop(app::InfrastructureStopReason::Requested);
@@ -1529,7 +1529,7 @@ void test_infrastructure_stop_and_mask() {
         auto second = make_test_infra<Test_policy>();
         NX_CHECK(second != nullptr);
         if (second) {
-            NX_CHECK(second->initialize(app::AppSettings{}).has_value());
+            NX_CHECK(second->initialize(app::Settings{}).has_value());
             second->request_stop(app::InfrastructureStopReason::Sigint);
             second->request_stop(app::InfrastructureStopReason::Requested);
             NX_CHECK(second->stop_reason() == app::InfrastructureStopReason::Sigint);
@@ -1542,7 +1542,7 @@ void test_infrastructure_stop_and_mask() {
     if (!masked) {
         return;
     }
-    NX_CHECK(masked->initialize(app::AppSettings{}).has_value());
+    NX_CHECK(masked->initialize(app::Settings{}).has_value());
     std::atomic<bool> both_blocked{false};
     std::jthread probe{[&] {
         sigset_t current;
@@ -1847,7 +1847,7 @@ void test_command_line_mapping() {
     app::CommandLineOptions options{};
     options.global_settings_dir = "/etc/nexigen";
     options.local_settings_dir = "./hil-config";
-    app::AppSettingsPaths paths = app::make_app_settings_paths(options);
+    app::SettingsPaths paths = app::make_app_settings_paths(options);
     NX_CHECK(paths.logging.global_file == "/etc/nexigen/logging.json");
     NX_CHECK(paths.logging.local_file == "./hil-config/logging.json");
     NX_CHECK(paths.metrics.global_file == "/etc/nexigen/metrics.json");
@@ -1873,7 +1873,7 @@ void test_command_line_mapping() {
     NX_CHECK(paths.chrono.global_file.empty());
     NX_CHECK(paths.logging.local_file == "./hil-config/logging.json");
 
-    app::AppSettings settings{};
+    app::Settings settings{};
     settings.logging.options.initial_log_level = logging::LogLevel::Debug;
     options.log_level = logging::LogLevel::Warning;
     app::apply_to(options, settings);
@@ -2040,7 +2040,7 @@ void test_command_line_loading() {
     app::CommandLineOptions options{};
     options.global_settings_dir = global_dir;
     options.log_level = logging::LogLevel::Warning;
-    app::AppSettings loaded{};
+    app::Settings loaded{};
     core::Status status = app::load_app_settings(options, loaded);
     NX_CHECK(status.has_value());
     NX_CHECK(loaded.logging.global_loaded);
@@ -2056,7 +2056,7 @@ void test_command_line_loading() {
 
     // A bad file is best-effort: the CLI level still wins and diagnostics stay.
     write_text(global_dir + "/logging.json", "{");
-    app::AppSettings failed{};
+    app::Settings failed{};
     status = app::load_app_settings(options, failed);
     NX_CHECK(!status.has_value());
     if (!status.has_value()) {
@@ -2067,7 +2067,7 @@ void test_command_line_loading() {
 
     // Manually built options with no directory cannot load built-in defaults.
     app::CommandLineOptions empty{};
-    app::AppSettings untouched{};
+    app::Settings untouched{};
     status = app::load_app_settings(empty, untouched);
     NX_CHECK(!status.has_value());
     if (!status.has_value()) {
@@ -2077,7 +2077,7 @@ void test_command_line_loading() {
     // Local-only options leave the global source disabled.
     app::CommandLineOptions local_only{};
     local_only.local_settings_dir = local_dir;
-    app::AppSettings local_loaded{};
+    app::Settings local_loaded{};
     status = app::load_app_settings(local_only, local_loaded);
     NX_CHECK(status.has_value());
     NX_CHECK(!local_loaded.logging.global_loaded);
@@ -2104,7 +2104,7 @@ void test_command_line_infrastructure() {
     auto infra = make_test_infra<Test_policy>();
     NX_CHECK(infra != nullptr);
     if (infra) {
-        app::AppSettings loaded{};
+        app::Settings loaded{};
         const core::Status status = infra->initialize(options, loaded);
         NX_CHECK(status.has_value());
         NX_CHECK(loaded.logging.global_loaded);
@@ -2120,7 +2120,7 @@ void test_command_line_infrastructure() {
     auto failing = make_test_infra<Test_policy>();
     NX_CHECK(failing != nullptr);
     if (failing) {
-        app::AppSettings failed{};
+        app::Settings failed{};
         const core::Status status = failing->initialize(options, failed);
         NX_CHECK(!status.has_value());
         if (!status.has_value()) {
@@ -2141,7 +2141,7 @@ void test_command_line_infrastructure() {
     if (help_infra) {
         app::CommandLineOptions help_options{};
         help_options.help = true;
-        app::AppSettings help_loaded{};
+        app::Settings help_loaded{};
         const core::Status status = help_infra->initialize(help_options, help_loaded);
         NX_CHECK(!status.has_value());
         if (!status.has_value()) {
@@ -2156,7 +2156,7 @@ void test_command_line_infrastructure() {
     NX_CHECK(empty_infra != nullptr);
     if (empty_infra) {
         app::CommandLineOptions empty{};
-        app::AppSettings empty_loaded{};
+        app::Settings empty_loaded{};
         const core::Status status = empty_infra->initialize(empty, empty_loaded);
         NX_CHECK(!status.has_value());
         if (!status.has_value()) {
@@ -2170,7 +2170,7 @@ void test_command_line_infrastructure() {
     auto direct = make_test_infra<Test_policy>();
     NX_CHECK(direct != nullptr);
     if (direct) {
-        NX_CHECK(direct->initialize(app::AppSettings{}).has_value());
+        NX_CHECK(direct->initialize(app::Settings{}).has_value());
         NX_CHECK(direct->shutdown().has_value());
     }
 

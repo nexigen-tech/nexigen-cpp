@@ -15,7 +15,7 @@ int main() {
     logger.info("installed consumer {}", 1);
 
     nexigen::metrics::NullMetricSink sink{};
-    nexigen::metrics::MetricProvider_config config{};
+    nexigen::metrics::MetricProviderConfig config{};
     config.collect_interval = std::chrono::nanoseconds{0};
     nexigen::metrics::MetricProvider provider{config, sink};
 

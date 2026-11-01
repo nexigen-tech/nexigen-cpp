@@ -29,19 +29,19 @@ namespace nexigen::tracing::detail {
 inline constexpr std::uint8_t max_span_depth = 16;
 
 /// One active-span frame: enough to parent the next same-thread span.
-struct Active_frame {
+struct ActiveFrame {
     TraceId trace_id{};
     SpanId span_id{};
 
     /// Field-wise equality (propagation comparisons; == included).
-    [[nodiscard]] constexpr bool operator==(const Active_frame&) const = default;
+    [[nodiscard]] constexpr bool operator==(const ActiveFrame&) const = default;
 };
 
 /// The owning thread's active-span stack (fixed storage, index truncation).
-class Active_span_stack {
+class ActiveSpanStack {
 public:
     /// Current stack top; nullptr when empty (the next span is a root).
-    [[nodiscard]] const Active_frame* top() const noexcept {
+    [[nodiscard]] const ActiveFrame* top() const noexcept {
         return depth_ == 0U ? nullptr : &frames_[static_cast<std::size_t>(depth_) - 1U];
     }
 
@@ -51,7 +51,7 @@ public:
     /// Push a frame; returns its index (0..max_span_depth-1), or the sentinel
     /// max_span_depth when the stack is full — the caller then records the
     /// span as a bounded root and no frame is stored.
-    std::uint8_t push(const Active_frame& frame) noexcept {
+    std::uint8_t push(const ActiveFrame& frame) noexcept {
         if (depth_ >= max_span_depth) {
             return max_span_depth; // sentinel: bounded root, no push
         }
@@ -72,14 +72,14 @@ public:
     void clear() noexcept { depth_ = 0U; }
 
 private:
-    Active_frame frames_[max_span_depth]{};
+    ActiveFrame frames_[max_span_depth]{};
     std::uint8_t depth_{0};
 };
 
 /// The thread's own stack (function-local thread_local: created on first
 /// use, alive for the thread, never a cross-thread object).
-[[nodiscard]] inline Active_span_stack& active_span_stack() noexcept {
-    thread_local Active_span_stack stack{};
+[[nodiscard]] inline ActiveSpanStack& active_span_stack() noexcept {
+    thread_local ActiveSpanStack stack{};
     return stack;
 }
 

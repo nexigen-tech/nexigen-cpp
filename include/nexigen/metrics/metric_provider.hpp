@@ -36,7 +36,7 @@ namespace nexigen::metrics {
 
 /// Provider configuration: collection period, CPU affinity and registry
 /// capacities. A zero collect_interval disables the background thread.
-struct MetricProvider_config {
+struct MetricProviderConfig {
     std::chrono::nanoseconds collect_interval{0};
     std::uint64_t core_mask{0};
     std::uint32_t max_meters{16};
@@ -51,18 +51,18 @@ struct MetricProvider_config {
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] std::string to_string(const MetricProvider_config& config);
+[[nodiscard]] std::string to_string(const MetricProviderConfig& config);
 
 /// Provider config JSON (cold path). Declared in this namespace so the
 /// overloads are findable by ADL; definitions live in
 /// src/metrics/snapshot_format.cpp (design D2).
-void to_json(nlohmann::json& j, const MetricProvider_config& config);
-void from_json(const nlohmann::json& j, MetricProvider_config& out) noexcept;
+void to_json(nlohmann::json& j, const MetricProviderConfig& config);
+void from_json(const nlohmann::json& j, MetricProviderConfig& out) noexcept;
 
 namespace detail {
 
 /// Type-erased sink binding: plain function pointers, no virtual dispatch.
-struct Sink_binding {
+struct SinkBinding {
     void* self{nullptr};
     core::Status (*on_batch)(void*, const MetricBatchSnapshot&) noexcept {nullptr};
     core::Status (*flush)(void*) noexcept {nullptr};
@@ -76,9 +76,9 @@ public:
     /// Bind a sink and start the provider. The sink MUST outlive the
     /// provider.
     template <concepts::MetricSink Sink>
-    MetricProvider(const MetricProvider_config& config, Sink& sink)
+    MetricProvider(const MetricProviderConfig& config, Sink& sink)
         : MetricProvider(config,
-                         detail::Sink_binding{
+                         detail::SinkBinding{
                              static_cast<void*>(&sink),
                              [](void* self, const MetricBatchSnapshot& batch) noexcept -> core::Status {
                                  return static_cast<Sink*>(self)->on_batch(batch);
@@ -114,10 +114,10 @@ public:
 private:
     friend class Meter;
 
-    MetricProvider(const MetricProvider_config& config, detail::Sink_binding binding);
+    MetricProvider(const MetricProviderConfig& config, detail::SinkBinding binding);
 
     /// One registry slot: identity, classification and the harvest hooks.
-    struct Slot_meta {
+    struct SlotMeta {
         MetricIdentity identity{};
         MetricKind kind{MetricKind::Counter};
         ConcurrencyPolicy concurrency{ConcurrencyPolicy::SingleThreaded};
@@ -130,8 +130,8 @@ private:
     };
 
     /// One instrument kind: its slot table and its object arena.
-    struct Kind_pool {
-        Slot_meta* meta{nullptr};
+    struct KindPool {
+        SlotMeta* meta{nullptr};
         std::byte* arena{nullptr};
         std::size_t arena_size{0};
         std::size_t used{0};
@@ -147,7 +147,7 @@ private:
                                             ResetPolicy reset,
                                             void (*harvest)(void*, MetricRecord&) noexcept,
                                             void (*destroy)(void*) noexcept, void*& object_out,
-                                            Slot_meta*& meta_out);
+                                            SlotMeta*& meta_out);
 
     /// True when the meter already owns an instrument with that name.
     [[nodiscard]] bool has_duplicate(const MetricIdentity& meter_identity,
@@ -159,12 +159,12 @@ private:
     static std::size_t kind_index(MetricKind kind) noexcept;
     static std::size_t kind_object_size(MetricKind kind) noexcept;
 
-    MetricProvider_config config_{};
-    detail::Sink_binding binding_{};
+    MetricProviderConfig config_{};
+    detail::SinkBinding binding_{};
 
     std::byte* block_{nullptr};
     std::size_t block_size_{0};
-    Kind_pool pools_[kind_count]{};
+    KindPool pools_[kind_count]{};
 
     Meter** meters_{nullptr};
     std::size_t meter_capacity_{0};
@@ -201,7 +201,7 @@ Meter::create_counter(std::string_view name) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     void* object = nullptr;
-    MetricProvider::Slot_meta* meta = nullptr;
+    MetricProvider::SlotMeta* meta = nullptr;
     using Instrument = Counter<Concurrency, Access, Reset>;
     const core::Status reserved =
         provider_->reserve_slot(MetricKind::Counter, sizeof(Instrument), identity, Concurrency,
@@ -226,7 +226,7 @@ Meter::create_gauge(std::string_view name) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     void* object = nullptr;
-    MetricProvider::Slot_meta* meta = nullptr;
+    MetricProvider::SlotMeta* meta = nullptr;
     using Instrument = Gauge<ValueType, Concurrency, Access, Reset>;
     const core::Status reserved =
         provider_->reserve_slot(MetricKind::Gauge, sizeof(Instrument), identity, Concurrency, Access,
@@ -251,7 +251,7 @@ Meter::create_statistics(std::string_view name) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     void* object = nullptr;
-    MetricProvider::Slot_meta* meta = nullptr;
+    MetricProvider::SlotMeta* meta = nullptr;
     using Instrument = DescriptiveStatistics<Concurrency, Access, Reset>;
     const core::Status reserved =
         provider_->reserve_slot(MetricKind::DescriptiveStatistics, sizeof(Instrument), identity,
@@ -287,7 +287,7 @@ Meter::create_explicit_histogram(std::string_view name, std::span<const double> 
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     void* object = nullptr;
-    MetricProvider::Slot_meta* meta = nullptr;
+    MetricProvider::SlotMeta* meta = nullptr;
     using Instrument = ExplicitBucketHistogram<Concurrency, Access, Reset>;
     const core::Status reserved =
         provider_->reserve_slot(MetricKind::ExplicitHistogram, sizeof(Instrument), identity,
@@ -316,7 +316,7 @@ Meter::create_exponential_histogram(std::string_view name, std::int32_t scale) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     void* object = nullptr;
-    MetricProvider::Slot_meta* meta = nullptr;
+    MetricProvider::SlotMeta* meta = nullptr;
     using Instrument = ExponentialHistogram<Concurrency, Access, Reset>;
     const core::Status reserved =
         provider_->reserve_slot(MetricKind::ExponentialHistogram, sizeof(Instrument), identity,
@@ -334,9 +334,9 @@ Meter::create_exponential_histogram(std::string_view name, std::int32_t scale) {
 
 /// The configuration formats as its diagnostic string (mandate 11).
 template <>
-struct std::formatter<nexigen::metrics::MetricProvider_config> : std::formatter<std::string_view> {
+struct std::formatter<nexigen::metrics::MetricProviderConfig> : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::metrics::MetricProvider_config& config, Ctx& ctx) const {
+    auto format(const nexigen::metrics::MetricProviderConfig& config, Ctx& ctx) const {
         const std::string text = config.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

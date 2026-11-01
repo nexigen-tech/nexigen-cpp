@@ -6,7 +6,7 @@
 // thread's OWN shard — never blocking, never allocating, bounded steps).
 // Everything expensive and OS-touching — UTC calibration, DEFERRED FORMAT
 // RENDERING, JSON escaping, directory rotation, fsync, and CPU affinity —
-// lives on one background std::jthread (detail::Async_worker) that pins
+// lives on one background std::jthread (detail::AsyncWorker) that pins
 // itself first thing (core_mask != 0) and then round-robin drains ALL
 // producer shards in batches into "<base_dir>/<period-label>/<file_name>".
 //
@@ -65,7 +65,7 @@
 namespace nexigen::logging::detail {
 
 /// Consumer-thread writer: JSON lines to the active rotated descriptor.
-class File_sink {
+class FileSink {
 public:
     /// Fixed-footprint snapshot of the validated config (copied at
     /// initialize() — the logger never holds caller string_views at runtime).
@@ -76,15 +76,15 @@ public:
         std::size_t base_len = 0;
         char file_name[64]{};
         std::size_t file_name_len = 0;
-        Rotation_kind kind = Rotation_kind::Hourly;
+        RotationKind kind = RotationKind::Hourly;
         std::uint64_t custom_ns = 0;
         std::uint64_t max_file_size_bytes = 0;
     };
 
-    explicit File_sink(Settings settings) noexcept : settings_{settings} {}
+    explicit FileSink(Settings settings) noexcept : settings_{settings} {}
 
-    File_sink(const File_sink&) = delete;
-    File_sink& operator=(const File_sink&) = delete;
+    FileSink(const FileSink&) = delete;
+    FileSink& operator=(const FileSink&) = delete;
 
     /// Worker-thread cold start: UTC offset sample + open the period that
     /// covers "now". Failure keeps the worker running but is reported in the
@@ -117,7 +117,7 @@ public:
     void handle(Record& rec) noexcept {
         const std::int64_t utc =
             chrono::utc_from_mono_ns(rec.stamp.nanoseconds(), utc_offset_ns_);
-        if (settings_.kind != Rotation_kind::None) {
+        if (settings_.kind != RotationKind::None) {
             const std::int64_t key = period_key(settings_.kind, settings_.custom_ns, utc);
             if (key != active_key_) {
                 last_utc_ns_ = utc;
@@ -252,7 +252,7 @@ private:
     std::uint64_t bytes_written_ = 0;    ///< active segment size (writer-only)
     std::uint64_t malformed_ = 0;        ///< formatter overflow skips (diagnostic)
     std::uint8_t pending_write_error_ = 0;
-    Rotation_scratch paths_{};           ///< pre-allocated path buffers (D11)
+    RotationScratch paths_{};           ///< pre-allocated path buffers (D11)
     static constexpr std::size_t msg_capacity = 512;
     char msg_[msg_capacity]{};           ///< pre-allocated render scratch (design D7)
     alignas(64) char line_[json_scratch_capacity]{}; ///< JSON staging scratch (D12)
@@ -263,42 +263,42 @@ private:
 namespace nexigen::logging {
 
 /// Public vocabulary aliases (policy structs live in detail with the machine).
-using Throttle_config = detail::Throttle_config;
-using Rotation_schedule = detail::Rotation_kind;
+using ThrottleConfig = detail::ThrottleConfig;
+using RotationSchedule = detail::RotationKind;
 
 /// Rotation policy: None (single fixed directory), Hourly, Daily, or Custom
 /// epoch-anchored windows of custom_ns.
-struct Rotation_config {
-    Rotation_schedule kind{Rotation_schedule::Hourly};
+struct RotationConfig {
+    RotationSchedule kind{RotationSchedule::Hourly};
     std::uint64_t custom_ns{0}; ///< required when kind == Custom
 
     /// Cold-path diagnostic (mandate 9): schedule + custom period.
     [[nodiscard]] std::string to_string() const {
-        return "Rotation_config(kind=" + std::string(detail::to_string(kind)) +
+        return "RotationConfig(kind=" + std::string(detail::to_string(kind)) +
                ", custom_ns=" + std::to_string(custom_ns) + ")";
     }
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const Rotation_config& cfg) {
+[[nodiscard]] inline std::string to_string(const RotationConfig& cfg) {
     return cfg.to_string();
 }
 
 /// Construction-time configuration. All views are copied into fixed buffers
 /// during initialize(); lengths beyond the buffers are rejected.
-struct FileLogger_config {
+struct FileLoggerConfig {
     std::string_view app_name{"nexigen"};       ///< JSON "app" field (≤ 63 B)
     std::string_view base_dir{};                ///< required, ≤ 511 B
     std::string_view file_name{"app.jsonl"};    ///< ≤ 63 B
     LogLevel initial_level{LogLevel::Info};
-    Throttle_config throttle{};
-    Rotation_config rotation{};
+    ThrottleConfig throttle{};
+    RotationConfig rotation{};
     std::uint64_t core_mask{0};                 ///< 0 == leave OS placement
     std::uint64_t max_file_size_bytes{0};       ///< 0 == no size-based rotation
 
     /// Cold-path diagnostic (mandate 9): every policy field, sub-structs inlined.
     [[nodiscard]] std::string to_string() const {
-        std::string out = "FileLogger_config(app=";
+        std::string out = "FileLoggerConfig(app=";
         out += std::string(app_name);
         out += ", base_dir=" + std::string(base_dir);
         out += ", file_name=" + std::string(file_name);
@@ -312,7 +312,7 @@ struct FileLogger_config {
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const FileLogger_config& cfg) {
+[[nodiscard]] inline std::string to_string(const FileLoggerConfig& cfg) {
     return cfg.to_string();
 }
 
@@ -324,7 +324,7 @@ class FileLogger {
     using Producer = detail::Producer<ShardCapacity, MessageCapacity, MaxThreads>;
 
     Producer producer_{};
-    detail::Async_worker<Producer, detail::File_sink> worker_{};
+    detail::AsyncWorker<Producer, detail::FileSink> worker_{};
 
 public:
     FileLogger() noexcept = default;
@@ -340,7 +340,7 @@ public:
     /// Initialization phase (pre real-time): validate config, copy it into
     /// fixed storage, calibrate clocks, start the pinned writer. Invalid
     /// configuration returns InvalidArgument WITHOUT starting the worker.
-    [[nodiscard]] core::Status initialize(const FileLogger_config& cfg) noexcept {
+    [[nodiscard]] core::Status initialize(const FileLoggerConfig& cfg) noexcept {
         if (cfg.base_dir.empty() || cfg.base_dir.size() > 511 ||
             cfg.base_dir.find('\0') != std::string_view::npos ||
             cfg.file_name.empty() || cfg.file_name.size() > 63 ||
@@ -349,11 +349,11 @@ public:
             cfg.app_name.find('\0') != std::string_view::npos ||
             (cfg.throttle.enabled &&
              (cfg.throttle.max_records_per_window == 0ULL || cfg.throttle.window_ns == 0ULL)) ||
-            (cfg.rotation.kind == Rotation_schedule::Custom && cfg.rotation.custom_ns == 0ULL)) {
+            (cfg.rotation.kind == RotationSchedule::Custom && cfg.rotation.custom_ns == 0ULL)) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
 
-        detail::File_sink::Settings settings{};
+        detail::FileSink::Settings settings{};
         copy_into(cfg.app_name, settings.app, settings.app_len);
         copy_into(cfg.base_dir, settings.base_dir, settings.base_len);
         copy_into(cfg.file_name, settings.file_name, settings.file_name_len);
@@ -374,12 +374,12 @@ public:
     /// "Merged settings apply to logger configuration"). Runs the explicit
     /// capacity check and maps every supported option; string views inside the
     /// temporary config alias `settings` for the duration of this call only.
-    [[nodiscard]] core::Status initialize(const Logging_settings& settings) noexcept {
+    [[nodiscard]] core::Status initialize(const Settings& settings) noexcept {
         const core::Status capacity = check_capacity<ShardCapacity, MaxThreads, MessageCapacity>(settings);
         if (!capacity) {
             return capacity;
         }
-        FileLogger_config cfg{};
+        FileLoggerConfig cfg{};
         const core::Status applied = apply_to(settings, cfg);
         if (!applied) {
             return applied;
@@ -427,7 +427,7 @@ public:
     [[nodiscard]] core::Status flush() noexcept { return worker_.flush(); }
 
     /// Drop accounting snapshot (third-thread safe).
-    [[nodiscard]] Dropped_stats dropped() const noexcept { return producer_.dropped(); }
+    [[nodiscard]] DroppedStats dropped() const noexcept { return producer_.dropped(); }
     [[nodiscard]] std::size_t pending() const noexcept { return producer_.ring_size(); }
 
     /// Writer start-phase snapshots (design D15 verification surface):

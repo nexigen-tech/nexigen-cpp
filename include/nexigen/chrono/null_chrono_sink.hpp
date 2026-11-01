@@ -16,7 +16,7 @@ namespace nexigen::chrono {
 /// A sink that discards every snapshot.
 class NullChronoSink {
 public:
-    [[nodiscard]] core::Status on_snapshot(const Chrono_snapshot&) noexcept { return {}; }
+    [[nodiscard]] core::Status on_snapshot(const Snapshot&) noexcept { return {}; }
 
     [[nodiscard]] core::Status flush() noexcept { return {}; }
 

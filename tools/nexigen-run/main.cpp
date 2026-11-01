@@ -76,7 +76,7 @@ NEXIGEN_INSTANCE_ID, and NEXIGEN_INSTANCE_DIR are start-time defaults.
 
 struct Cli_log_target {
     std::string primary_dir{};
-    logging::Logging_settings settings{};
+    logging::Settings settings{};
     logging::LogLevel level{logging::LogLevel::Info};
     std::vector<std::uint32_t> control_cpus{};
     std::vector<std::uint32_t> logger_cpus{};
@@ -110,7 +110,7 @@ struct Cli_log_target {
     if (!loaded) {
         runner::warn_runner(
             "event=logging_settings_invalid detail=using defaults");
-        target.settings = logging::Logging_settings{};
+        target.settings = logging::Settings{};
     }
     target.level = manifest.log_level.value_or(
         target.settings.global_loaded
@@ -137,7 +137,7 @@ struct Cli_log_target {
     if (!loaded) {
         runner::warn_runner(
             "event=logging_settings_invalid detail=using defaults");
-        target.settings = logging::Logging_settings{};
+        target.settings = logging::Settings{};
     }
     target.level = target.settings.global_loaded
                        ? target.settings.options.initial_log_level

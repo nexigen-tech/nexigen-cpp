@@ -88,7 +88,7 @@ class NullTracer {
 public:
     /// The null guard: all operations are no-ops reporting rejection; the
     /// type has no state and a trivial destructor (spec "zero-instruction").
-    class Null_span {
+    class NullSpan {
     public:
         [[nodiscard]] bool set_attribute(std::string_view, int) const noexcept {
             return false;
@@ -113,12 +113,12 @@ public:
         [[nodiscard]] bool end() const noexcept { return false; }
         [[nodiscard]] SpanContext context() const noexcept { return {}; }
         /// Cold-path diagnostic (mandate 9).
-        [[nodiscard]] std::string to_string() const { return "NullTracer::Null_span"; }
+        [[nodiscard]] std::string to_string() const { return "NullTracer::NullSpan"; }
     };
 
     /// Returns the state-free null guard; the arguments are discarded
     /// without evaluation side effects (no ids, no stamps, no TLS).
-    [[nodiscard]] Null_span start_span(std::string_view, SpanKind,
+    [[nodiscard]] NullSpan start_span(std::string_view, SpanKind,
                                        const SpanContext* = nullptr,
                                        std::source_location = std::source_location::current())
         const noexcept {
@@ -131,7 +131,7 @@ public:
 
 /// Free helpers (mandate 9): mirror the members.
 [[nodiscard]] inline std::string to_string(const NullTracer&) { return "NullTracer()"; }
-[[nodiscard]] inline std::string to_string(const NullTracer::Null_span& span) {
+[[nodiscard]] inline std::string to_string(const NullTracer::NullSpan& span) {
     return span.to_string();
 }
 
@@ -140,13 +140,13 @@ public:
 inline void to_json(nlohmann::json& j, const NullTracer&) {
     j = nlohmann::json{{"type", "NullTracer"}};
 }
-inline void to_json(nlohmann::json& j, const NullTracer::Null_span&) {
-    j = nlohmann::json{{"type", "NullTracer::Null_span"}};
+inline void to_json(nlohmann::json& j, const NullTracer::NullSpan&) {
+    j = nlohmann::json{{"type", "NullTracer::NullSpan"}};
 }
 
 static_assert(concepts::Tracer<NullTracer>,
               "NullTracer must satisfy the Tracer contract");
-static_assert(std::is_trivially_destructible_v<NullTracer::Null_span>,
+static_assert(std::is_trivially_destructible_v<NullTracer::NullSpan>,
               "the null guard must be trivially destructible (zero-instruction path)");
 
 } // namespace nexigen::tracing
@@ -161,10 +161,10 @@ struct std::formatter<nexigen::tracing::NullTracer> : std::formatter<std::string
     }
 };
 template <>
-struct std::formatter<nexigen::tracing::NullTracer::Null_span>
+struct std::formatter<nexigen::tracing::NullTracer::NullSpan>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::tracing::NullTracer::Null_span& span, Ctx& ctx) const {
+    auto format(const nexigen::tracing::NullTracer::NullSpan& span, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(span.to_string(), ctx);
     }
 };

@@ -100,7 +100,7 @@ class CompositeLogger final {
     }
 
     std::tuple<Loggers...> members_{};
-    detail::Level_control level_{};
+    detail::LevelControl level_{};
 
 public:
     static constexpr std::size_t size = sizeof...(Loggers);

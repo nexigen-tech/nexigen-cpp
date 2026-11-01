@@ -121,12 +121,12 @@ int main() {
     metrics::CompositeMetricSink<metrics::ConsoleMetricSink, metrics::JsonFileMetricSink,
                                  metrics::NullMetricSink>
         composite{metrics::ConsoleMetricSink{STDOUT_FILENO},
-                  metrics::JsonFileMetricSink{metrics::JsonFileMetricSink_config{path, false}},
+                  metrics::JsonFileMetricSink{metrics::JsonFileMetricSinkConfig{path, false}},
                   metrics::NullMetricSink{}};
     expect(composite.get<metrics::JsonFileMetricSink>().is_open(), "JSONL sink opened its file");
 
     const std::uint64_t core_mask = derive_core_mask();
-    metrics::MetricProvider_config config{};
+    metrics::MetricProviderConfig config{};
     config.collect_interval = std::chrono::nanoseconds{50'000'000}; // 50 ms
     config.core_mask = core_mask;
     std::printf("== HIL telemetry pipeline (core_mask=0x%llx) ==\n",

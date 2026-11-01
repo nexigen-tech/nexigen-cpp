@@ -1,7 +1,7 @@
 // nexigen::logging — runnable global/local settings loader example.
 //
 // Writes a temporary global/local JSON pair, layers environment overrides on
-// top, loads the merged `Logging_settings`, applies them to a `FileLogger`,
+// top, loads the merged `Settings`, applies them to a `FileLogger`,
 // logs, flushes, and verifies its own JSON-lines output on the cold path.
 // Initialization and flush are checked via has_value() / .error() — never
 // value().
@@ -21,8 +21,8 @@ namespace {
 
 using nexigen::logging::FileLogger;
 using nexigen::logging::LogLevel;
-using nexigen::logging::Logging_settings;
-using nexigen::logging::Settings_paths;
+using nexigen::logging::Settings;
+using nexigen::logging::SettingsPaths;
 using nexigen::logging::load_logging_settings;
 
 constexpr std::string_view k_root = "/tmp/nexigen-examples-logging-settings";
@@ -110,8 +110,8 @@ int main() {
     static_cast<void>(::setenv("NEXIGEN_LOG_LEVEL", "debug", 1));
     static_cast<void>(::setenv("NEXIGEN_LOG_CPU_AFFINITY", "0", 1));
 
-    Logging_settings settings{};
-    const auto loaded = load_logging_settings(Settings_paths{std::string(k_global),
+    Settings settings{};
+    const auto loaded = load_logging_settings(SettingsPaths{std::string(k_global),
                                                              std::string(k_local)},
                                               settings);
     print_line(std::format("load status: {}",
@@ -125,7 +125,7 @@ int main() {
     }
 
     if (!logger.initialize(settings).has_value()) {
-        print_line("FileLogger::initialize(Logging_settings) failed");
+        print_line("FileLogger::initialize(Settings) failed");
         return 1;
     }
 

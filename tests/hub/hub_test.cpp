@@ -120,11 +120,11 @@ bool diagnostic_contains(const Diagnostic_capture& capture,
 }
 
 #if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
-core::detail::Fault_point g_hub_fault_point =
-    core::detail::Fault_point::Hub_socket;
+core::detail::FaultPoint g_hub_fault_point =
+    core::detail::FaultPoint::Hub_socket;
 bool g_hub_fault_enabled = false;
 
-bool hub_fault_hook(core::detail::Fault_point point) noexcept {
+bool hub_fault_hook(core::detail::FaultPoint point) noexcept {
     return g_hub_fault_enabled && point == g_hub_fault_point;
 }
 #endif
@@ -1119,10 +1119,10 @@ void test_http_fault_injection() {
     hub::StreamManager streaming;
 
     core::detail::set_fault_hook(hub_fault_hook);
-    for (const auto point : {core::detail::Fault_point::Hub_socket,
-                             core::detail::Fault_point::Hub_bind,
-                             core::detail::Fault_point::Hub_epoll,
-                             core::detail::Fault_point::Hub_eventfd}) {
+    for (const auto point : {core::detail::FaultPoint::Hub_socket,
+                             core::detail::FaultPoint::Hub_bind,
+                             core::detail::FaultPoint::Hub_epoll,
+                             core::detail::FaultPoint::Hub_eventfd}) {
         g_hub_fault_point = point;
         g_hub_fault_enabled = true;
         hub::HttpServer server(discovery, streaming);

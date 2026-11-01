@@ -99,7 +99,7 @@ int first_allowed_cpu() {
 void test_init_level_and_file() {
     runner::shutdown_runner_logging();
     const std::string directory = unique_dir("basic");
-    const logging::Logging_settings settings{};
+    const logging::Settings settings{};
     NX_CHECK(runner::init_runner_logging(directory, settings,
                                         logging::LogLevel::Info)
                  .has_value());
@@ -122,7 +122,7 @@ void test_reinit() {
     runner::shutdown_runner_logging();
     const std::string first = unique_dir("reinit1");
     const std::string second = unique_dir("reinit2");
-    const logging::Logging_settings settings{};
+    const logging::Settings settings{};
     NX_CHECK(runner::init_runner_logging(first, settings,
                                         logging::LogLevel::Info)
                  .has_value());
@@ -149,7 +149,7 @@ void test_global_settings_loader() {
                            std::ios::binary | std::ios::trunc);
         file << R"({"initial_log_level":"debug","flush_cpu_affinity":[0],"max_file_size_bytes":4096})";
     }
-    logging::Logging_settings settings{};
+    logging::Settings settings{};
     NX_CHECK(runner::load_runner_logging_settings(directory, settings).has_value());
     NX_CHECK(settings.global_loaded);
     NX_CHECK(settings.options.initial_log_level == logging::LogLevel::Debug);
@@ -161,10 +161,10 @@ void test_global_settings_loader() {
                            std::ios::binary | std::ios::trunc);
         file << "{bad json";
     }
-    logging::Logging_settings invalid{};
+    logging::Settings invalid{};
     NX_CHECK(!runner::load_runner_logging_settings(directory, invalid).has_value());
 
-    logging::Logging_settings absent{};
+    logging::Settings absent{};
     NX_CHECK(runner::load_runner_logging_settings("", absent).has_value());
     NX_CHECK(!absent.global_loaded);
     remove_tree(directory);
@@ -178,7 +178,7 @@ void test_fallback_directory() {
     char previous[4096]{};
     NX_CHECK(::getcwd(previous, sizeof(previous)) != nullptr);
     NX_CHECK(::chdir(directory.c_str()) == 0);
-    const logging::Logging_settings settings{};
+    const logging::Settings settings{};
     NX_CHECK(runner::init_runner_logging(
                  "/proc/nexigen_runner_log_denied", settings,
                  logging::LogLevel::Info)
@@ -212,7 +212,7 @@ void test_affinity_and_logger_mask() {
     NX_CHECK(runner::reset_runner_affinity().has_value());
 
     const std::string directory = unique_dir("mask");
-    const logging::Logging_settings settings{};
+    const logging::Settings settings{};
     NX_CHECK(runner::init_runner_logging(directory, settings,
                                         logging::LogLevel::Info, requested)
                  .has_value());
@@ -226,7 +226,7 @@ void test_state_write_warning() {
     const std::string directory = unique_dir("writefail");
     std::error_code error;
     std::filesystem::create_directories(directory + "/state.json", error);
-    const logging::Logging_settings settings{};
+    const logging::Settings settings{};
     NX_CHECK(runner::init_runner_logging(directory, settings,
                                          logging::LogLevel::Info)
                  .has_value());
@@ -263,7 +263,7 @@ void test_inactive_and_invalid_config() {
     }
 
     const std::string directory = unique_dir("invalid_config");
-    logging::Logging_settings settings{};
+    logging::Settings settings{};
     settings.global_loaded = true;
     settings.options.flush_cpu_affinity = {
         static_cast<std::uint64_t>(UINT32_MAX) + 1ULL};

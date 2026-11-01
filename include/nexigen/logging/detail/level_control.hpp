@@ -1,6 +1,6 @@
 // nexigen::logging — shared atomic level-control cell (design.md D2).
 //
-// Every concrete logger composes exactly one Level_control; this is where the
+// Every concrete logger composes exactly one LevelControl; this is where the
 // "dynamic runtime control" requirement lives. Both edges are single
 // relaxed-atomic operations:
 //   - level()  : one relaxed load + caller's compare — the whole filtered-call
@@ -29,7 +29,7 @@
 namespace nexigen::logging::detail {
 
 /// Cache-line-padded runtime threshold shared by all concrete loggers.
-class Level_control {
+class LevelControl {
     static_assert(std::atomic<LogLevel>::is_always_lock_free,
                   "LogLevel atomics must be lock-free");
 
@@ -39,16 +39,16 @@ class Level_control {
     } cell_{};
 
 public:
-    constexpr Level_control() noexcept = default;
+    constexpr LevelControl() noexcept = default;
 
     /// Start at a non-default threshold (config-driven construction time).
-    explicit constexpr Level_control(LogLevel initial) noexcept
+    explicit constexpr LevelControl(LogLevel initial) noexcept
         : cell_{.level = initial} {}
 
-    Level_control(const Level_control&) = delete;
-    Level_control& operator=(const Level_control&) = delete;
-    Level_control(Level_control&&) = delete;
-    Level_control& operator=(Level_control&&) = delete;
+    LevelControl(const LevelControl&) = delete;
+    LevelControl& operator=(const LevelControl&) = delete;
+    LevelControl(LevelControl&&) = delete;
+    LevelControl& operator=(LevelControl&&) = delete;
 
     /// Producer/agent edge: publish a new threshold. Relaxed store — the new
     /// value becomes visible with no ordering obligations (see header).
@@ -62,6 +62,6 @@ public:
     }
 };
 
-static_assert(sizeof(Level_control) == 64, "level control must own one cache line");
+static_assert(sizeof(LevelControl) == 64, "level control must own one cache line");
 
 } // namespace nexigen::logging::detail

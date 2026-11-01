@@ -17,7 +17,7 @@ namespace nexigen::chrono::concepts {
 
 /// A chrono sink: snapshot delivery + flush, no virtual dispatch required.
 template <class T>
-concept ChronoSink = requires(T& sink, const Chrono_snapshot& snapshot) {
+concept ChronoSink = requires(T& sink, const Snapshot& snapshot) {
     { sink.on_snapshot(snapshot) } -> std::same_as<core::Status>;
     { sink.flush() } -> std::same_as<core::Status>;
 };

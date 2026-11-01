@@ -120,12 +120,12 @@ int main() {
     std::error_code cleanup_ec;
     std::filesystem::remove_all(std::string(k_base_dir), cleanup_ec);
 
-    nexigen::logging::FileLogger_config config{};
+    nexigen::logging::FileLoggerConfig config{};
     config.app_name = k_app_name;
     config.base_dir = k_base_dir;
     config.file_name = k_file_name;
     config.initial_level = LogLevel::Debug;
-    config.rotation.kind = nexigen::logging::Rotation_schedule::Hourly;
+    config.rotation.kind = nexigen::logging::RotationSchedule::Hourly;
     config.core_mask = 0x1; // request core 0 for the background JSON writer
     config.throttle.enabled = true;
     config.throttle.max_records_per_window = 4096;

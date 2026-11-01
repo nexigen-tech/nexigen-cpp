@@ -15,7 +15,7 @@
 // composite trees set thresholds across all members, and NullLogger answers
 // like everyone else.
 //
-// Level storage reuses detail::Level_control so the object is layout-identical
+// Level storage reuses detail::LevelControl so the object is layout-identical
 // to the async loggers' control cell: swapping sinks in templated call sites
 // never changes the memory footprint story.
 //
@@ -96,7 +96,7 @@ public:
     }
 
 private:
-    detail::Level_control levels_{};
+    detail::LevelControl levels_{};
 };
 
 /// Free helper (mandate 9): mirrors the member.

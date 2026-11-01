@@ -57,7 +57,7 @@ std::size_t MetricProvider::kind_object_size(MetricKind kind) noexcept {
     return 0;
 }
 
-MetricProvider::MetricProvider(const MetricProvider_config& config, detail::Sink_binding binding)
+MetricProvider::MetricProvider(const MetricProviderConfig& config, detail::SinkBinding binding)
     : config_(config), binding_(binding) {
     const std::uint32_t capacities[kind_count] = {
         config_.max_counters, config_.max_gauges, config_.max_statistics,
@@ -67,7 +67,7 @@ MetricProvider::MetricProvider(const MetricProvider_config& config, detail::Sink
     // and the harvest buffer.
     std::size_t total = 0;
     for (std::size_t i = 0; i < kind_count; ++i) {
-        total += detail::align_up(static_cast<std::size_t>(capacities[i]) * sizeof(Slot_meta));
+        total += detail::align_up(static_cast<std::size_t>(capacities[i]) * sizeof(SlotMeta));
         total += detail::align_up(static_cast<std::size_t>(capacities[i]) * kind_object_size(
                                      static_cast<MetricKind>(i)));
     }
@@ -85,11 +85,11 @@ MetricProvider::MetricProvider(const MetricProvider_config& config, detail::Sink
     std::size_t offset = 0;
     for (std::size_t i = 0; i < kind_count; ++i) {
         const std::size_t meta_bytes =
-            detail::align_up(static_cast<std::size_t>(capacities[i]) * sizeof(Slot_meta));
+            detail::align_up(static_cast<std::size_t>(capacities[i]) * sizeof(SlotMeta));
         const std::size_t arena_bytes =
             detail::align_up(static_cast<std::size_t>(capacities[i]) * kind_object_size(
                                  static_cast<MetricKind>(i)));
-        pools_[i].meta = reinterpret_cast<Slot_meta*>(block_ + offset);
+        pools_[i].meta = reinterpret_cast<SlotMeta*>(block_ + offset);
         std::memset(static_cast<void*>(pools_[i].meta), 0, meta_bytes);
         offset += meta_bytes;
         pools_[i].arena = block_ + offset;
@@ -148,7 +148,7 @@ MetricProvider::~MetricProvider() {
     // Destroy the instruments, then release the single allocation.
     for (auto& pool : pools_) {
         for (std::uint32_t i = 0; i < pool.slot_max; ++i) {
-            Slot_meta& meta = pool.meta[i];
+            SlotMeta& meta = pool.meta[i];
             if (meta.occupied && meta.destroy != nullptr) {
                 meta.destroy(meta.object);
                 meta.object = nullptr;
@@ -225,7 +225,7 @@ core::Status MetricProvider::reserve_slot(MetricKind kind, std::size_t object_si
                                            ResetPolicy reset,
                                            void (*harvest)(void*, MetricRecord&) noexcept,
                                            void (*destroy)(void*) noexcept, void*& object_out,
-                                           Slot_meta*& meta_out) {
+                                           SlotMeta*& meta_out) {
     if (!alive_.load(std::memory_order_acquire)) {
         return std::unexpected(core::ErrorCode::NotInitialized);
     }
@@ -233,8 +233,8 @@ core::Status MetricProvider::reserve_slot(MetricKind kind, std::size_t object_si
     if (has_duplicate(identity, detail::view_name(identity.metric_name))) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    Kind_pool& pool = pools_[kind_index(kind)];
-    Slot_meta* meta = nullptr;
+    KindPool& pool = pools_[kind_index(kind)];
+    SlotMeta* meta = nullptr;
     for (std::uint32_t i = 0; i < pool.slot_max; ++i) {
         if (!pool.meta[i].occupied) {
             meta = &pool.meta[i];
@@ -268,7 +268,7 @@ bool MetricProvider::has_duplicate(const MetricIdentity& meter_identity,
                                    std::string_view name) const noexcept {
     for (const auto& pool : pools_) {
         for (std::uint32_t i = 0; i < pool.slot_max; ++i) {
-            const Slot_meta& meta = pool.meta[i];
+            const SlotMeta& meta = pool.meta[i];
             if (!meta.occupied) {
                 continue;
             }
@@ -294,7 +294,7 @@ core::Status MetricProvider::collect_now() noexcept {
     std::uint32_t count = 0;
     for (auto& pool : pools_) {
         for (std::uint32_t i = 0; i < pool.slot_max; ++i) {
-            Slot_meta& meta = pool.meta[i];
+            SlotMeta& meta = pool.meta[i];
             if (!meta.occupied || meta.harvest == nullptr) {
                 continue;
             }
