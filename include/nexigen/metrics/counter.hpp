@@ -42,15 +42,15 @@ class MeterPasskey;
 namespace detail {
 
 /// Single-threaded counter cell: plain storage, one cache line.
-struct alignas(64) Counter_cell {
+struct alignas(64) CounterCell {
     std::uint64_t value{0};
 };
 
 /// Multi-threaded counter shard: 64-byte aligned atomic cell.
-struct alignas(64) Counter_shard {
+struct alignas(64) CounterShard {
     std::atomic<std::uint64_t> value{0};
 };
-static_assert(sizeof(Counter_shard) == 64, "a counter shard owns exactly one cache line");
+static_assert(sizeof(CounterShard) == 64, "a counter shard owns exactly one cache line");
 
 /// Counter storage selected by the concurrency policy.
 template <ConcurrencyPolicy Concurrency, ResetPolicy Reset>
@@ -74,7 +74,7 @@ public:
     }
 
 private:
-    mutable Counter_cell cell_{};
+    mutable CounterCell cell_{};
 };
 
 template <ResetPolicy Reset>
@@ -105,7 +105,7 @@ public:
     }
 
 private:
-    mutable Counter_shard shards_[shard_count]{};
+    mutable CounterShard shards_[shard_count]{};
 };
 
 } // namespace detail

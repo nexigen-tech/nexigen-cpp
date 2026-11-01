@@ -982,7 +982,7 @@ void test_parent_stack() {
 // are compile law).
 
 /// Complete conforming tracer surface (the positive reference).
-struct Full_tracer_model {
+struct FullTracerModel {
     struct Guard {
         bool set_attribute(std::string_view, int) noexcept { return false; }
         bool set_attribute(std::string_view, std::int64_t) noexcept { return false; }
@@ -999,19 +999,19 @@ struct Full_tracer_model {
                      std::source_location = std::source_location::current()) noexcept {
         return {};
     }
-    std::string to_string() const { return "Full_tracer_model"; }
+    std::string to_string() const { return "FullTracerModel"; }
 };
-static_assert(tracing::concepts::Tracer<Full_tracer_model>);
+static_assert(tracing::concepts::Tracer<FullTracerModel>);
 
 /// start_span omitted entirely.
-struct No_start_span_model {
+struct NoStartSpanModel {
     std::string to_string() const { return "no-start"; }
 };
-static_assert(!tracing::concepts::Tracer<No_start_span_model>);
+static_assert(!tracing::concepts::Tracer<NoStartSpanModel>);
 
 /// The returned guard has no end() — the guard concept fails, and with it
 /// the tracer concept.
-struct Guard_without_end_model {
+struct GuardWithoutEndModel {
     struct Guard {
         bool set_attribute(std::string_view, int) noexcept { return false; }
         bool set_attribute(std::string_view, std::int64_t) noexcept { return false; }
@@ -1029,10 +1029,10 @@ struct Guard_without_end_model {
     }
     std::string to_string() const { return "guard-without-end"; }
 };
-static_assert(!tracing::concepts::Tracer<Guard_without_end_model>);
+static_assert(!tracing::concepts::Tracer<GuardWithoutEndModel>);
 
 /// The tracer has no to_string() diagnostic.
-struct Tracer_without_to_string_model {
+struct TracerWithoutToStringModel {
     struct Guard {
         bool set_attribute(std::string_view, int) noexcept { return false; }
         bool set_attribute(std::string_view, std::int64_t) noexcept { return false; }
@@ -1050,45 +1050,45 @@ struct Tracer_without_to_string_model {
         return {};
     }
 };
-static_assert(!tracing::concepts::Tracer<Tracer_without_to_string_model>);
+static_assert(!tracing::concepts::Tracer<TracerWithoutToStringModel>);
 
 /// Complete conforming sink surface (the positive reference).
-struct Full_sink_model {
+struct FullSinkModel {
     core::Status start() noexcept { return {}; }
     core::Status on_span(const tracing::SpanRecord&) noexcept { return {}; }
     core::Status flush() noexcept { return {}; }
     void stop() noexcept {}
-    std::string to_string() const { return "Full_sink_model"; }
+    std::string to_string() const { return "FullSinkModel"; }
 };
-static_assert(tracing::concepts::TraceSink<Full_sink_model>);
+static_assert(tracing::concepts::TraceSink<FullSinkModel>);
 
 /// flush omitted entirely.
-struct Sink_without_flush_model {
+struct SinkWithoutFlushModel {
     core::Status start() noexcept { return {}; }
     core::Status on_span(const tracing::SpanRecord&) noexcept { return {}; }
     void stop() noexcept {}
     std::string to_string() const { return "no-flush"; }
 };
-static_assert(!tracing::concepts::TraceSink<Sink_without_flush_model>);
+static_assert(!tracing::concepts::TraceSink<SinkWithoutFlushModel>);
 
 /// on_span is NOT noexcept — a throwing delivery fails the contract.
-struct Throwing_on_span_model {
+struct ThrowingOnSpanModel {
     core::Status start() noexcept { return {}; }
     core::Status on_span(const tracing::SpanRecord&) { return {}; } // no noexcept
     core::Status flush() noexcept { return {}; }
     void stop() noexcept {}
     std::string to_string() const { return "throwing"; }
 };
-static_assert(!tracing::concepts::TraceSink<Throwing_on_span_model>);
+static_assert(!tracing::concepts::TraceSink<ThrowingOnSpanModel>);
 
 /// stop omitted entirely.
-struct Sink_without_stop_model {
+struct SinkWithoutStopModel {
     core::Status start() noexcept { return {}; }
     core::Status on_span(const tracing::SpanRecord&) noexcept { return {}; }
     core::Status flush() noexcept { return {}; }
     std::string to_string() const { return "no-stop"; }
 };
-static_assert(!tracing::concepts::TraceSink<Sink_without_stop_model>);
+static_assert(!tracing::concepts::TraceSink<SinkWithoutStopModel>);
 
 // Positive pins for the shipped null types (spec scenarios).
 static_assert(tracing::concepts::Tracer<tracing::NullTracer>);
@@ -1304,20 +1304,20 @@ constexpr const char* sink_tmp_dir = "/tmp/opencode/nexigen-tracing-tests";
 }
 
 /// A sink whose on_span always fails (composite no-starvation fixture).
-struct Failing_on_span_sink {
+struct FailingOnSpanSink {
     core::Status start() noexcept { return {}; }
     core::Status on_span(const tracing::SpanRecord&) noexcept {
         return std::unexpected(core::ErrorCode::SystemError);
     }
     core::Status flush() noexcept { return {}; }
     void stop() noexcept {}
-    std::string to_string() const { return "Failing_on_span_sink"; }
+    std::string to_string() const { return "FailingOnSpanSink"; }
 };
-static_assert(tracing::concepts::TraceSink<Failing_on_span_sink>);
+static_assert(tracing::concepts::TraceSink<FailingOnSpanSink>);
 
 /// A copyable counting sink (composite no-starvation proof: the member
 /// inside the composite counts its own deliveries).
-struct Counting_sink {
+struct CountingSink {
     int deliveries{0};
     core::Status start() noexcept { return {}; }
     core::Status on_span(const tracing::SpanRecord&) noexcept {
@@ -1326,14 +1326,14 @@ struct Counting_sink {
     }
     core::Status flush() noexcept { return {}; }
     void stop() noexcept {}
-    std::string to_string() const { return "Counting_sink"; }
+    std::string to_string() const { return "CountingSink"; }
 };
-static_assert(tracing::concepts::TraceSink<Counting_sink>);
+static_assert(tracing::concepts::TraceSink<CountingSink>);
 
 } // namespace
 
 // --- test sinks (design D14): pre-allocated static storage, no allocation
-// on the consumer path. One global record buffer serves every Recording_sink
+// on the consumer path. One global record buffer serves every RecordingSink
 // (suites run sequentially; instances carve disjoint base offsets so two
 // sinks can coexist within a suite).
 namespace {
@@ -1346,7 +1346,7 @@ std::size_t g_sink_record_next = 0; // bump cursor; only consumer threads write
 /// Captures every delivered record (bounded; over-capacity counted) plus the
 /// delivering worker's identity and affinity — the worker-pinning proof
 /// surface for the provider suite.
-struct Recording_sink {
+struct RecordingSink {
     std::size_t base{0};
     std::size_t count{0};
     std::atomic<std::uint64_t> over_capacity{0};
@@ -1356,7 +1356,7 @@ struct Recording_sink {
     std::atomic<bool> stopped{false};
     std::atomic<int> flush_calls{0};
 
-    Recording_sink() noexcept { base = g_sink_record_next; }
+    RecordingSink() noexcept { base = g_sink_record_next; }
 
     core::Status start() noexcept {
         started.store(true, std::memory_order_relaxed);
@@ -1391,7 +1391,7 @@ struct Recording_sink {
 
     /// Cold-path diagnostic (mandate 9; part of the TraceSink contract).
     [[nodiscard]] std::string to_string() const {
-        return "Recording_sink(count=" + std::to_string(count) + ")";
+        return "RecordingSink(count=" + std::to_string(count) + ")";
     }
 
     /// Read-back AFTER a flush barrier or provider destruction (the release
@@ -1406,14 +1406,14 @@ struct Recording_sink {
 };
 
 /// A sink whose flush always fails (error propagation through the barrier).
-struct Failing_flush_sink {
+struct FailingFlushSink {
     core::Status start() noexcept { return {}; }
     core::Status on_span(const tracing::SpanRecord&) noexcept { return {}; }
     core::Status flush() noexcept {
         return std::unexpected(core::ErrorCode::SystemError);
     }
     void stop() noexcept {}
-    std::string to_string() const { return "Failing_flush_sink"; }
+    std::string to_string() const { return "FailingFlushSink"; }
 };
 
 } // namespace
@@ -1977,8 +1977,8 @@ void test_sinks() {
 
         // A failing FIRST member does not starve the rest; the composite
         // surfaces the first error after all members were attempted.
-        tracing::CompositeTraceSink<Failing_on_span_sink, Counting_sink> mixed{
-            Failing_on_span_sink{}, Counting_sink{}};
+        tracing::CompositeTraceSink<FailingOnSpanSink, CountingSink> mixed{
+            FailingOnSpanSink{}, CountingSink{}};
         NX_CHECK(mixed.start().has_value());
         const core::Status failed = mixed.on_span(
             crafted_record(mono_for_utc(hour_mid_utc(0)), "no-starve"));
@@ -2043,7 +2043,7 @@ void test_scoped_span() {
     using Provider = tracing::TracerProvider<1024, 4>;
     using tracing::SpanRecord;
 
-    Recording_sink sink{};
+    RecordingSink sink{};
     alignas(Provider) static std::byte storage[sizeof(Provider)];
     auto* provider = new (static_cast<void*>(storage))
         Provider(tracing::TracerProviderConfig{}, sink);
@@ -2517,7 +2517,7 @@ void test_scoped_span() {
 void test_latency() {
     using Bench_provider = tracing::TracerProvider<1024, 1>;
 #if defined(__x86_64__)
-    // Max_threads=1 keeps the bench pool a single ring: the gate measures
+    // MaxThreads=1 keeps the bench pool a single ring: the gate measures
     // the start+enqueue path of ONE producer exactly like the logging gate.
     tracing::NullTraceSink null_sink{};
     alignas(Bench_provider) static std::byte bench_storage[sizeof(Bench_provider)];
@@ -2845,7 +2845,7 @@ void test_provider() {
                 core = 1ULL << bit;
             }
         }
-        Recording_sink sink{};
+        RecordingSink sink{};
         tracing::TracerProviderConfig config{};
         config.core_mask = core;
         alignas(Provider) static std::byte storage[sizeof(Provider)];
@@ -2873,7 +2873,7 @@ void test_provider() {
     {
         std::uint64_t main_mask = 0ULL;
         NX_CHECK(tracing::detail::self_affinity(main_mask).has_value());
-        Recording_sink sink{};
+        RecordingSink sink{};
         alignas(Provider) static std::byte storage[sizeof(Provider)];
         auto* provider = new (static_cast<void*>(storage))
             Provider(tracing::TracerProviderConfig{}, sink);
@@ -2906,7 +2906,7 @@ void test_provider() {
             });
             probe.join();
         }
-        Recording_sink sink{};
+        RecordingSink sink{};
         tracing::TracerProviderConfig config{};
         const std::uint64_t rejected = failing.load(std::memory_order_relaxed);
         config.core_mask = rejected != 0ULL ? rejected : 1ULL; // pinnable fallback
@@ -2939,7 +2939,7 @@ void test_provider() {
     // construction, so the assertions check ORDER, not queueing luck.
     {
         using Stress_provider = tracing::TracerProvider<1024, 32>;
-        Recording_sink sink{};
+        RecordingSink sink{};
         alignas(Stress_provider) static std::byte storage[sizeof(Stress_provider)];
         auto* provider = new (static_cast<void*>(storage))
             Stress_provider(tracing::TracerProviderConfig{}, sink);
@@ -3004,7 +3004,7 @@ void test_provider() {
     // drop visibly"): sequential short-lived threads claim slots 0..31, the
     // 33rd lands in slot_exhausted.
     {
-        Recording_sink sink{};
+        RecordingSink sink{};
         alignas(Provider) static std::byte storage[sizeof(Provider)];
         auto* provider = new (static_cast<void*>(storage))
             Provider(tracing::TracerProviderConfig{}, sink);
@@ -3038,7 +3038,7 @@ void test_provider() {
     // window) per span. One producer thread per provider is the deployment
     // model the design assumes.
     {
-        Recording_sink sink{};
+        RecordingSink sink{};
         alignas(Provider) static std::byte storage[sizeof(Provider)];
         auto* provider = new (static_cast<void*>(storage))
             Provider(tracing::TracerProviderConfig{}, sink);
@@ -3066,7 +3066,7 @@ void test_provider() {
     // budget counts rate_limited"): budget 2 per 1 s window, on a dedicated
     // producer thread (same TLS-slot reasoning as above).
     {
-        Recording_sink sink{};
+        RecordingSink sink{};
         tracing::TracerProviderConfig config{};
         config.max_spans_per_window = 2;
         config.window_ns = 1'000'000'000;
@@ -3102,7 +3102,7 @@ void test_provider() {
     {
         // Durability: spans ended, flush, sink saw every record AND its own
         // flush() ran before flush() returned.
-        Recording_sink sink{};
+        RecordingSink sink{};
         alignas(Provider) static std::byte storage[sizeof(Provider)];
         auto* provider = new (static_cast<void*>(storage))
             Provider(tracing::TracerProviderConfig{}, sink);
@@ -3121,7 +3121,7 @@ void test_provider() {
         std::destroy_at(provider);
 
         // Error propagation: a failing sink flush surfaces as SystemError.
-        Failing_flush_sink failing{};
+        FailingFlushSink failing{};
         alignas(Provider) static std::byte storage2[sizeof(Provider)];
         auto* provider2 = new (static_cast<void*>(storage2))
             Provider(tracing::TracerProviderConfig{}, failing);
@@ -3138,7 +3138,7 @@ void test_provider() {
     // Shutdown drain: destruction loses no accepted record (spec "Destruction
     // does not lose accepted records") — no flush() call before destruction.
     {
-        Recording_sink sink{};
+        RecordingSink sink{};
         alignas(Provider) static std::byte storage[sizeof(Provider)];
         auto* provider = new (static_cast<void*>(storage))
             Provider(tracing::TracerProviderConfig{}, sink);

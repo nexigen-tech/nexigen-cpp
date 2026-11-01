@@ -2,7 +2,7 @@
 // feeding an explicit-bucket histogram, rendered on the console.
 //
 // One demonstration:
-//   1. A calibrated nexigen::chrono::Stamp_source clocks both the probes and
+//   1. A calibrated nexigen::chrono::StampSource clocks both the probes and
 //      the measured ticks (hot path: sample() only, no syscall).
 //   2. Two ScopedStopwatch probes establish the light/heavy payload envelope;
 //      geometric bucket bounds are derived from it so the histogram stays
@@ -133,7 +133,7 @@ int main() {
     using nexigen::diagnostics::Stopwatch;
 
     // --- Calibrated clock: one TSC<->ns calibration for every stamp below.
-    nexigen::chrono::Stamp_source stamps{};
+    nexigen::chrono::StampSource stamps{};
     expect(stamps.calibrate().has_value(), "stamp source calibrated");
 
     // --- Provider: no background harvester, the example reads the histogram

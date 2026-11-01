@@ -67,7 +67,7 @@ class AsyncWorker {
     static constexpr std::uint64_t flush_sleep_budget = 50'000; ///< * 200 us ~ 10 s escape hatch
 
     /// Flush sequencing + last synchronize error: one private cache line.
-    struct alignas(64) Flush_cell {
+    struct alignas(64) FlushCell {
         std::atomic<std::uint64_t> requested{}; ///< flushing threads fetch_add (release)
         std::atomic<std::uint64_t> drained{};   ///< worker store after sync (release)
         std::atomic<std::uint8_t> sync_error{}; ///< ErrorCode+1, 0 == clean
@@ -75,7 +75,7 @@ class AsyncWorker {
     } flush_{};
 
     /// Worker start state: one line, read by initialize-time pollers only.
-    struct alignas(64) Start_cell {
+    struct alignas(64) StartCell {
         std::atomic<bool> launched{};            ///< set (release) once the jthread exists
         std::atomic<bool> started{};             ///< set (release) after the start sequence ran
         std::atomic<std::uint8_t> code{};        ///< first start-phase ErrorCode snapshot

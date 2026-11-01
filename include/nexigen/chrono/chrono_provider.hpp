@@ -101,7 +101,7 @@ namespace concepts {
 /// std::string_view) noexcept member. The application bridges a
 /// nexigen::logging logger to this contract.
 template <class T>
-concept Clock_logger = requires(T& logger, ClockLogLevel level, std::string_view message) {
+concept ClockLogger = requires(T& logger, ClockLogLevel level, std::string_view message) {
     { logger.log(level, message) } noexcept -> std::same_as<void>;
 };
 
@@ -164,7 +164,7 @@ public:
 
     /// Bind a logger and start the background snapshot worker. The logger MUST
     /// outlive the provider (the worker logs through it until it stops).
-    template <concepts::Clock_logger Logger>
+    template <concepts::ClockLogger Logger>
     [[nodiscard]] core::Status start(Logger& logger) noexcept {
         log_binding_ = detail::LogBinding{
             static_cast<void*>(&logger),

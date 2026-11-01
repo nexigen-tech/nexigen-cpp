@@ -59,14 +59,14 @@ class alignas(64) SpscRingBuffer {
 
     /// Producer-owned cache line: tail is written only by the producer thread;
     /// head_cache is its private mirror of the consumer's head (plain data).
-    struct alignas(64) Producer_cell {
+    struct alignas(64) ProducerCell {
         std::atomic<std::size_t> tail{0}; ///< One past the newest stored element.
         std::size_t head_cache{0};        ///< Producer's cached view of consumer head.
     } producer_{};
 
     /// Consumer-owned cache line: head is written only by the consumer thread;
     /// tail_cache is its private mirror of the producer's tail (plain data).
-    struct alignas(64) Consumer_cell {
+    struct alignas(64) ConsumerCell {
         std::atomic<std::size_t> head{0}; ///< Oldest not-yet-consumed element.
         std::size_t tail_cache{0};        ///< Consumer's cached view of producer tail.
     } consumer_{};
@@ -79,10 +79,10 @@ class alignas(64) SpscRingBuffer {
     // Layout self-verification: if a refactor ever collapses the two index
     // cells onto one cache line, fail compilation instead of silently
     // reintroducing false sharing.
-    static_assert(alignof(Producer_cell) == 64, "producer cell must own a cache line");
-    static_assert(alignof(Consumer_cell) == 64, "consumer cell must own a cache line");
-    static_assert(sizeof(Producer_cell) % 64 == 0, "producer cell must be a whole number of lines");
-    static_assert(sizeof(Consumer_cell) % 64 == 0, "consumer cell must be a whole number of lines");
+    static_assert(alignof(ProducerCell) == 64, "producer cell must own a cache line");
+    static_assert(alignof(ConsumerCell) == 64, "consumer cell must own a cache line");
+    static_assert(sizeof(ProducerCell) % 64 == 0, "producer cell must be a whole number of lines");
+    static_assert(sizeof(ConsumerCell) % 64 == 0, "consumer cell must be a whole number of lines");
 
 public:
     SpscRingBuffer() = default;

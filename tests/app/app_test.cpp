@@ -78,7 +78,7 @@ void run_suite(const char* name, void (*body)()) {
 // --- capture logger (test-only: formats immediately into a global vector) ---
 std::vector<std::string> g_log_lines;
 
-class Capture_logger {
+class CaptureLogger {
 public:
     void set_level(logging::LogLevel level) noexcept { level_ = level; }
     [[nodiscard]] logging::LogLevel level() const noexcept { return level_; }
@@ -121,19 +121,19 @@ private:
     logging::LogLevel level_{logging::LogLevel::Info};
 };
 
-static_assert(logging::concepts::Logger<Capture_logger>);
+static_assert(logging::concepts::Logger<CaptureLogger>);
 
-class Flush_fail_logger : public Capture_logger {
+class FlushFailLogger : public CaptureLogger {
 public:
     [[nodiscard]] core::Status flush() noexcept {
         return std::unexpected(core::ErrorCode::SystemError);
     }
 };
 
-static_assert(logging::concepts::Logger<Flush_fail_logger>);
+static_assert(logging::concepts::Logger<FlushFailLogger>);
 
-struct Test_policy {
-    using Logger = Capture_logger;
+struct TestPolicy {
+    using Logger = CaptureLogger;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
     using ChronoSink = chrono::NullChronoSink;
@@ -162,7 +162,7 @@ struct Test_policy {
 
 /// File-backed policy used by the telemetry-layout integration test. It reads
 /// every sink from the settings value and never uses a hard-coded path.
-struct Resolved_path_policy {
+struct ResolvedPathPolicy {
     using Logger = logging::FileLogger<>;
     using MetricsSink = metrics::JsonFileMetricSink;
     using TraceSink = tracing::JsonFileTraceSink;
@@ -205,8 +205,8 @@ struct Resolved_path_policy {
     }
 };
 
-struct Fail_logger_policy {
-    using Logger = Capture_logger;
+struct FailLoggerPolicy {
+    using Logger = CaptureLogger;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
     using ChronoSink = chrono::NullChronoSink;
@@ -232,8 +232,8 @@ struct Fail_logger_policy {
     }
 };
 
-struct Fail_metrics_policy {
-    using Logger = Capture_logger;
+struct FailMetricsPolicy {
+    using Logger = CaptureLogger;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
     using ChronoSink = chrono::NullChronoSink;
@@ -259,8 +259,8 @@ struct Fail_metrics_policy {
     }
 };
 
-struct Fail_trace_policy {
-    using Logger = Capture_logger;
+struct FailTracePolicy {
+    using Logger = CaptureLogger;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
     using ChronoSink = chrono::NullChronoSink;
@@ -286,8 +286,8 @@ struct Fail_trace_policy {
     }
 };
 
-struct Flush_fail_policy {
-    using Logger = Flush_fail_logger;
+struct FlushFailPolicy {
+    using Logger = FlushFailLogger;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
     using ChronoSink = chrono::NullChronoSink;
@@ -314,8 +314,8 @@ struct Flush_fail_policy {
     }
 };
 
-struct Fail_chrono_policy {
-    using Logger = Capture_logger;
+struct FailChronoPolicy {
+    using Logger = CaptureLogger;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
     using ChronoSink = chrono::NullChronoSink;
@@ -342,10 +342,10 @@ struct Fail_chrono_policy {
 };
 
 template <class Policy>
-using Test_infra = app::Infrastructure<Policy, 64, 4>;
+using TestInfra = app::Infrastructure<Policy, 64, 4>;
 
 template <class Policy>
-[[nodiscard]] std::unique_ptr<Test_infra<Policy>> make_test_infra() {
+[[nodiscard]] std::unique_ptr<TestInfra<Policy>> make_test_infra() {
     auto created = app::make_infrastructure<Policy, 64, 4>();
     NX_CHECK(created.has_value());
     return created.has_value() ? std::move(*created) : nullptr;
@@ -379,19 +379,19 @@ static_assert(is_plain_value_type<app::MetricsSettings>);
 static_assert(is_plain_value_type<app::TracingSettings>);
 static_assert(is_plain_value_type<chrono::Settings>);
 
-struct Env_guard {
+struct EnvGuard {
     std::string name;
     bool had{false};
     std::string saved;
 
-    explicit Env_guard(const char* variable) : name(variable) {
+    explicit EnvGuard(const char* variable) : name(variable) {
         const char* const value = std::getenv(variable);
         had = value != nullptr;
         if (had) {
             saved = value;
         }
     }
-    ~Env_guard() {
+    ~EnvGuard() {
         if (had) {
             static_cast<void>(::setenv(name.c_str(), saved.c_str(), 1));
         } else {
@@ -467,12 +467,12 @@ void test_stop_reason() {
 }
 
 void test_settings_loaders() {
-    Env_guard interval_env{"NEXIGEN_METRICS_COLLECT_INTERVAL_NS"};
-    Env_guard metrics_mask_env{"NEXIGEN_METRICS_CORE_MASK"};
-    Env_guard trace_mask_env{"NEXIGEN_TRACING_CORE_MASK"};
-    Env_guard tracers_env{"NEXIGEN_TRACING_MAX_TRACERS"};
-    Env_guard spans_env{"NEXIGEN_TRACING_MAX_SPANS_PER_WINDOW"};
-    Env_guard window_env{"NEXIGEN_TRACING_WINDOW_NS"};
+    EnvGuard interval_env{"NEXIGEN_METRICS_COLLECT_INTERVAL_NS"};
+    EnvGuard metrics_mask_env{"NEXIGEN_METRICS_CORE_MASK"};
+    EnvGuard trace_mask_env{"NEXIGEN_TRACING_CORE_MASK"};
+    EnvGuard tracers_env{"NEXIGEN_TRACING_MAX_TRACERS"};
+    EnvGuard spans_env{"NEXIGEN_TRACING_MAX_SPANS_PER_WINDOW"};
+    EnvGuard window_env{"NEXIGEN_TRACING_WINDOW_NS"};
     interval_env.clear();
     metrics_mask_env.clear();
     trace_mask_env.clear();
@@ -629,12 +629,12 @@ void test_settings_loaders() {
 }
 
 void test_settings_sink() {
-    Env_guard interval_env{"NEXIGEN_METRICS_COLLECT_INTERVAL_NS"};
-    Env_guard metrics_mask_env{"NEXIGEN_METRICS_CORE_MASK"};
-    Env_guard trace_mask_env{"NEXIGEN_TRACING_CORE_MASK"};
-    Env_guard tracers_env{"NEXIGEN_TRACING_MAX_TRACERS"};
-    Env_guard spans_env{"NEXIGEN_TRACING_MAX_SPANS_PER_WINDOW"};
-    Env_guard window_env{"NEXIGEN_TRACING_WINDOW_NS"};
+    EnvGuard interval_env{"NEXIGEN_METRICS_COLLECT_INTERVAL_NS"};
+    EnvGuard metrics_mask_env{"NEXIGEN_METRICS_CORE_MASK"};
+    EnvGuard trace_mask_env{"NEXIGEN_TRACING_CORE_MASK"};
+    EnvGuard tracers_env{"NEXIGEN_TRACING_MAX_TRACERS"};
+    EnvGuard spans_env{"NEXIGEN_TRACING_MAX_SPANS_PER_WINDOW"};
+    EnvGuard window_env{"NEXIGEN_TRACING_WINDOW_NS"};
     interval_env.clear();
     metrics_mask_env.clear();
     trace_mask_env.clear();
@@ -811,11 +811,11 @@ void test_settings_sink() {
 }
 
 void test_telemetry_layout() {
-    Env_guard run_id_env{"NEXIGEN_RUN_ID"};
-    Env_guard run_dir_env{"NEXIGEN_RUN_DIR"};
-    Env_guard app_name_env{"NEXIGEN_APP_NAME"};
-    Env_guard instance_id_env{"NEXIGEN_INSTANCE_ID"};
-    Env_guard instance_dir_env{"NEXIGEN_INSTANCE_DIR"};
+    EnvGuard run_id_env{"NEXIGEN_RUN_ID"};
+    EnvGuard run_dir_env{"NEXIGEN_RUN_DIR"};
+    EnvGuard app_name_env{"NEXIGEN_APP_NAME"};
+    EnvGuard instance_id_env{"NEXIGEN_INSTANCE_ID"};
+    EnvGuard instance_dir_env{"NEXIGEN_INSTANCE_DIR"};
     run_id_env.clear();
     run_dir_env.clear();
     app_name_env.clear();
@@ -1018,11 +1018,11 @@ void test_telemetry_layout() {
 }
 
 void test_telemetry_layout_infrastructure() {
-    Env_guard run_id_env{"NEXIGEN_RUN_ID"};
-    Env_guard run_dir_env{"NEXIGEN_RUN_DIR"};
-    Env_guard app_name_env{"NEXIGEN_APP_NAME"};
-    Env_guard instance_id_env{"NEXIGEN_INSTANCE_ID"};
-    Env_guard instance_dir_env{"NEXIGEN_INSTANCE_DIR"};
+    EnvGuard run_id_env{"NEXIGEN_RUN_ID"};
+    EnvGuard run_dir_env{"NEXIGEN_RUN_DIR"};
+    EnvGuard app_name_env{"NEXIGEN_APP_NAME"};
+    EnvGuard instance_id_env{"NEXIGEN_INSTANCE_ID"};
+    EnvGuard instance_dir_env{"NEXIGEN_INSTANCE_DIR"};
     run_id_env.set("run-layout");
     run_dir_env.set("/tmp/opencode");
     app_name_env.set("layout-app");
@@ -1051,7 +1051,7 @@ void test_telemetry_layout_infrastructure() {
     settings.tracing.sink.path = resolved.traces;
     settings.chrono.sink.path = resolved.chrono;
 
-    auto infra = make_test_infra<Resolved_path_policy>();
+    auto infra = make_test_infra<ResolvedPathPolicy>();
     NX_CHECK(infra != nullptr);
     if (infra == nullptr) {
         return;
@@ -1118,7 +1118,7 @@ void test_telemetry_layout_infrastructure() {
 }
 
 void test_infrastructure_lifecycle() {
-    auto app = make_test_infra<Test_policy>();
+    auto app = make_test_infra<TestPolicy>();
     NX_CHECK(app != nullptr);
     if (!app) {
         return;
@@ -1177,7 +1177,7 @@ void test_infrastructure_lifecycle() {
 }
 
 void test_infrastructure_failures() {
-    auto bool_app = make_test_infra<Test_policy>();
+    auto bool_app = make_test_infra<TestPolicy>();
     NX_CHECK(bool_app != nullptr);
     if (bool_app) {
         NX_CHECK(bool_app->initialize(app::Settings{}).has_value());
@@ -1186,31 +1186,31 @@ void test_infrastructure_failures() {
         NX_CHECK(bool_app->shutdown().has_value());
     }
 
-    auto fail_logger = make_test_infra<Fail_logger_policy>();
+    auto fail_logger = make_test_infra<FailLoggerPolicy>();
     NX_CHECK(fail_logger != nullptr);
     if (fail_logger) {
         NX_CHECK(!fail_logger->initialize(app::Settings{}).has_value());
         NX_CHECK(fail_logger->shutdown().has_value());
     }
-    auto fail_metrics = make_test_infra<Fail_metrics_policy>();
+    auto fail_metrics = make_test_infra<FailMetricsPolicy>();
     NX_CHECK(fail_metrics != nullptr);
     if (fail_metrics) {
         NX_CHECK(!fail_metrics->initialize(app::Settings{}).has_value());
         NX_CHECK(fail_metrics->shutdown().has_value());
     }
-    auto fail_trace = make_test_infra<Fail_trace_policy>();
+    auto fail_trace = make_test_infra<FailTracePolicy>();
     NX_CHECK(fail_trace != nullptr);
     if (fail_trace) {
         NX_CHECK(!fail_trace->initialize(app::Settings{}).has_value());
         NX_CHECK(fail_trace->shutdown().has_value());
     }
-    auto fail_chrono = make_test_infra<Fail_chrono_policy>();
+    auto fail_chrono = make_test_infra<FailChronoPolicy>();
     NX_CHECK(fail_chrono != nullptr);
     if (fail_chrono) {
         NX_CHECK(!fail_chrono->initialize(app::Settings{}).has_value());
         NX_CHECK(fail_chrono->shutdown().has_value());
     }
-    auto flush_fail = make_test_infra<Flush_fail_policy>();
+    auto flush_fail = make_test_infra<FlushFailPolicy>();
     NX_CHECK(flush_fail != nullptr);
     if (flush_fail) {
         NX_CHECK(flush_fail->initialize(app::Settings{}).has_value());
@@ -1221,7 +1221,7 @@ void test_infrastructure_failures() {
 }
 
 void test_infrastructure_signals() {
-    auto int_app = make_test_infra<Test_policy>();
+    auto int_app = make_test_infra<TestPolicy>();
     NX_CHECK(int_app != nullptr);
     if (!int_app) {
         return;
@@ -1250,7 +1250,7 @@ void test_infrastructure_signals() {
     }
     NX_CHECK(logged == 1);
 
-    auto term_app = make_test_infra<Test_policy>();
+    auto term_app = make_test_infra<TestPolicy>();
     NX_CHECK(term_app != nullptr);
     if (!term_app) {
         return;
@@ -1273,7 +1273,7 @@ void test_infrastructure_signals() {
 }
 
 void test_infrastructure_tick_allocation() {
-    auto infra = make_test_infra<Test_policy>();
+    auto infra = make_test_infra<TestPolicy>();
     NX_CHECK(infra != nullptr);
     if (!infra) {
         return;
@@ -1296,12 +1296,12 @@ void test_infrastructure_tick_allocation() {
 }
 
 void test_app_settings_full_coverage() {
-    Env_guard interval_env{"NEXIGEN_METRICS_COLLECT_INTERVAL_NS"};
-    Env_guard metrics_mask_env{"NEXIGEN_METRICS_CORE_MASK"};
-    Env_guard trace_mask_env{"NEXIGEN_TRACING_CORE_MASK"};
-    Env_guard tracers_env{"NEXIGEN_TRACING_MAX_TRACERS"};
-    Env_guard spans_env{"NEXIGEN_TRACING_MAX_SPANS_PER_WINDOW"};
-    Env_guard window_env{"NEXIGEN_TRACING_WINDOW_NS"};
+    EnvGuard interval_env{"NEXIGEN_METRICS_COLLECT_INTERVAL_NS"};
+    EnvGuard metrics_mask_env{"NEXIGEN_METRICS_CORE_MASK"};
+    EnvGuard trace_mask_env{"NEXIGEN_TRACING_CORE_MASK"};
+    EnvGuard tracers_env{"NEXIGEN_TRACING_MAX_TRACERS"};
+    EnvGuard spans_env{"NEXIGEN_TRACING_MAX_SPANS_PER_WINDOW"};
+    EnvGuard window_env{"NEXIGEN_TRACING_WINDOW_NS"};
     interval_env.clear(); metrics_mask_env.clear(); trace_mask_env.clear();
     tracers_env.clear(); spans_env.clear(); window_env.clear();
 
@@ -1470,8 +1470,8 @@ void test_app_settings_full_coverage() {
 }
 
 void test_infrastructure_conflict() {
-    auto first = make_test_infra<Test_policy>();
-    auto second = make_test_infra<Test_policy>();
+    auto first = make_test_infra<TestPolicy>();
+    auto second = make_test_infra<TestPolicy>();
     NX_CHECK(first != nullptr && second != nullptr);
     if (!first || !second) {
         return;
@@ -1485,11 +1485,11 @@ void test_infrastructure_conflict() {
     NX_CHECK(second->shutdown().has_value());
 
     // A failed initialization releases ownership for the next infrastructure.
-    auto failing = make_test_infra<Fail_logger_policy>();
+    auto failing = make_test_infra<FailLoggerPolicy>();
     NX_CHECK(failing != nullptr);
     if (failing) {
         NX_CHECK(!failing->initialize(app::Settings{}).has_value());
-        auto after_failure = make_test_infra<Test_policy>();
+        auto after_failure = make_test_infra<TestPolicy>();
         NX_CHECK(after_failure != nullptr);
         if (after_failure) {
             NX_CHECK(after_failure->initialize(app::Settings{}).has_value());
@@ -1498,8 +1498,8 @@ void test_infrastructure_conflict() {
     }
 
     // Different policies still conflict on the process-global guard.
-    auto trace_first = make_test_infra<Test_policy>();
-    auto trace_second = make_test_infra<Fail_trace_policy>();
+    auto trace_first = make_test_infra<TestPolicy>();
+    auto trace_second = make_test_infra<FailTracePolicy>();
     NX_CHECK(trace_first != nullptr && trace_second != nullptr);
     if (trace_first && trace_second) {
         NX_CHECK(trace_first->initialize(app::Settings{}).has_value());
@@ -1513,7 +1513,7 @@ void test_infrastructure_conflict() {
 
 void test_infrastructure_stop_and_mask() {
     {
-        auto first = make_test_infra<Test_policy>();
+        auto first = make_test_infra<TestPolicy>();
         NX_CHECK(first != nullptr);
         if (first) {
             NX_CHECK(first->initialize(app::Settings{}).has_value());
@@ -1526,7 +1526,7 @@ void test_infrastructure_stop_and_mask() {
         }
     }
     {
-        auto second = make_test_infra<Test_policy>();
+        auto second = make_test_infra<TestPolicy>();
         NX_CHECK(second != nullptr);
         if (second) {
             NX_CHECK(second->initialize(app::Settings{}).has_value());
@@ -1537,7 +1537,7 @@ void test_infrastructure_stop_and_mask() {
         }
     }
 
-    auto masked = make_test_infra<Test_policy>();
+    auto masked = make_test_infra<TestPolicy>();
     NX_CHECK(masked != nullptr);
     if (!masked) {
         return;
@@ -1623,11 +1623,11 @@ void test_command_line_parser() {
     }
 
     // Every canonical level spelling.
-    struct Level_case {
+    struct LevelCase {
         std::string_view name;
         logging::LogLevel level;
     };
-    constexpr Level_case kLevels[] = {
+    constexpr LevelCase kLevels[] = {
         {"verbose", logging::LogLevel::Verbose},
         {"debug", logging::LogLevel::Debug},
         {"info", logging::LogLevel::Info},
@@ -1636,7 +1636,7 @@ void test_command_line_parser() {
         {"fatal", logging::LogLevel::Fatal},
         {"off", logging::LogLevel::Off},
     };
-    for (const Level_case& level : kLevels) {
+    for (const LevelCase& level : kLevels) {
         auto parsed = parse_args({"-gs", "/etc/nexigen", "-lgl", level.name});
         NX_CHECK(parsed.has_value());
         if (parsed.has_value()) {
@@ -2027,7 +2027,7 @@ void test_command_line_serialization() {
 }
 
 void test_command_line_loading() {
-    Env_guard log_level_env{"NEXIGEN_LOG_LEVEL"};
+    EnvGuard log_level_env{"NEXIGEN_LOG_LEVEL"};
     log_level_env.clear();
 
     const std::string global_dir = unique_path("app_cli_global");
@@ -2090,7 +2090,7 @@ void test_command_line_loading() {
 }
 
 void test_command_line_infrastructure() {
-    Env_guard log_level_env{"NEXIGEN_LOG_LEVEL"};
+    EnvGuard log_level_env{"NEXIGEN_LOG_LEVEL"};
     log_level_env.clear();
 
     const std::string dir = unique_path("app_cli_infra");
@@ -2101,7 +2101,7 @@ void test_command_line_infrastructure() {
     options.global_settings_dir = dir;
     options.log_level = logging::LogLevel::Warning;
 
-    auto infra = make_test_infra<Test_policy>();
+    auto infra = make_test_infra<TestPolicy>();
     NX_CHECK(infra != nullptr);
     if (infra) {
         app::Settings loaded{};
@@ -2117,7 +2117,7 @@ void test_command_line_infrastructure() {
     // Fail fast on a loader error; loaded keeps best-effort data and a later
     // explicit initialize(loaded) opts into degraded startup.
     write_text(dir + "/logging.json", "{");
-    auto failing = make_test_infra<Test_policy>();
+    auto failing = make_test_infra<TestPolicy>();
     NX_CHECK(failing != nullptr);
     if (failing) {
         app::Settings failed{};
@@ -2136,7 +2136,7 @@ void test_command_line_infrastructure() {
     }
 
     // Help is a caller action, not an initialization request.
-    auto help_infra = make_test_infra<Test_policy>();
+    auto help_infra = make_test_infra<TestPolicy>();
     NX_CHECK(help_infra != nullptr);
     if (help_infra) {
         app::CommandLineOptions help_options{};
@@ -2152,7 +2152,7 @@ void test_command_line_infrastructure() {
     }
 
     // A manually built options value with no directory is rejected too.
-    auto empty_infra = make_test_infra<Test_policy>();
+    auto empty_infra = make_test_infra<TestPolicy>();
     NX_CHECK(empty_infra != nullptr);
     if (empty_infra) {
         app::CommandLineOptions empty{};
@@ -2167,7 +2167,7 @@ void test_command_line_infrastructure() {
     }
 
     // The pre-existing settings overload remains unchanged.
-    auto direct = make_test_infra<Test_policy>();
+    auto direct = make_test_infra<TestPolicy>();
     NX_CHECK(direct != nullptr);
     if (direct) {
         NX_CHECK(direct->initialize(app::Settings{}).has_value());

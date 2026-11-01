@@ -97,7 +97,7 @@ constexpr std::string_view kChronoSettings = R"({
 )";
 
 /// Stateless policy: all four sinks write into the fixed output directory.
-struct Cli_file_policy {
+struct CliFilePolicy {
     using Logger = logging::FileLogger<>;
     using MetricsSink = metrics::JsonFileMetricSink;
     using TraceSink = tracing::JsonFileTraceSink;
@@ -404,7 +404,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    auto created = app::make_infrastructure<Cli_file_policy, 256, 8>();
+    auto created = app::make_infrastructure<CliFilePolicy, 256, 8>();
     if (!created.has_value()) {
         return fail("make_infrastructure failed");
     }
@@ -433,12 +433,12 @@ int main(int argc, char* argv[]) {
     // The instruments are MultiThreaded: a background harvester runs every
     // collect_interval, and single-threaded storage must not be harvested
     // concurrently with recording (README hot-path rules).
-    using Counter_type = metrics::Counter<metrics::ConcurrencyPolicy::MultiThreaded,
+    using CounterType = metrics::Counter<metrics::ConcurrencyPolicy::MultiThreaded,
                                          metrics::AccessPolicy::Readable>;
-    using Gauge_type = metrics::Gauge<std::int64_t, metrics::ConcurrencyPolicy::MultiThreaded,
+    using GaugeType = metrics::Gauge<std::int64_t, metrics::ConcurrencyPolicy::MultiThreaded,
                                       metrics::AccessPolicy::Readable>;
-    Counter_type* counter = nullptr;
-    Gauge_type* gauge = nullptr;
+    CounterType* counter = nullptr;
+    GaugeType* gauge = nullptr;
     {
         auto startup = (*tracer)->start_span("startup", tracing::SpanKind::Internal);
         static_cast<void>(startup.set_attribute(

@@ -439,8 +439,8 @@ void test_stopwatch_clock_sources() {
         prev_interval = one;
     }
 
-    // Explicit Stamp_source stamps drive the same semantics (spec scenario).
-    nexigen::chrono::Stamp_source source{};
+    // Explicit StampSource stamps drive the same semantics (spec scenario).
+    nexigen::chrono::StampSource source{};
     NX_CHECK(source.calibrate().has_value());
     Stopwatch calibrated{&source};
     NX_CHECK(calibrated.source() == &source);
@@ -568,7 +568,7 @@ void test_guard_lifecycle() {
     // default-clock fallback"): every call form resolves to its clear
     // overload — proven by the source/budget readbacks — and reports at
     // destruction.
-    nexigen::chrono::Stamp_source src{};
+    nexigen::chrono::StampSource src{};
     NX_CHECK(src.calibrate().has_value());
     std::uint64_t out = 0;
     int sink_calls = 0;
@@ -660,7 +660,7 @@ void test_guard_allocation_free_hot_path() {
     // Guard lifecycles allocate nothing (spec "Guard lifecycle allocates
     // nothing"): the arena bump-counter must not move across repeated
     // construct/check/destruct cycles with both destination kinds.
-    nexigen::chrono::Stamp_source src{};
+    nexigen::chrono::StampSource src{};
     NX_CHECK(src.calibrate().has_value());
     const std::size_t arena_before = g_alloc_used;
     std::uint64_t out = 0;
@@ -775,7 +775,7 @@ template <class F>
     std::printf("  latency medians not gated under instrumented build\n");
     NX_CHECK(true);
 #else
-    nexigen::chrono::Stamp_source calibrated{};
+    nexigen::chrono::StampSource calibrated{};
     NX_CHECK(calibrated.calibrate().has_value());
 
     constexpr int batches = 21;
@@ -792,7 +792,7 @@ template <class F>
         },
         batches, ops);
 
-    // start() + stop() on the calibrated Stamp_source (~3-5 ns/sample).
+    // start() + stop() on the calibrated StampSource (~3-5 ns/sample).
     Stopwatch cal_sw{&calibrated};
     const double cal_start_stop = median_ns_per_op(
         [&cal_sw](int n) {
@@ -859,7 +859,7 @@ template <class F>
     std::printf("  guard latency medians not gated under instrumented build\n");
     NX_CHECK(true);
 #else
-    nexigen::chrono::Stamp_source calibrated{};
+    nexigen::chrono::StampSource calibrated{};
     NX_CHECK(calibrated.calibrate().has_value());
 
     constexpr int batches = 21;

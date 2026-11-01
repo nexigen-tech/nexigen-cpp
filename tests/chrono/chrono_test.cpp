@@ -113,10 +113,10 @@ void operator delete[](void* ptr, std::size_t) noexcept { static_cast<void>(ptr)
 // A component that declares a non-default clock domain (spec chrono/clock-id
 // "Compile-time domain declaration"); the specialization lives at global scope
 // because the primary template is a member of nexigen::chrono.
-struct Boottime_component {};
+struct BoottimeComponent {};
 template <>
 inline constexpr nexigen::chrono::ClockId
-    nexigen::chrono::clock_domain<Boottime_component> = nexigen::chrono::ClockId::boottime;
+    nexigen::chrono::clock_domain<BoottimeComponent> = nexigen::chrono::ClockId::boottime;
 
 namespace {
 
@@ -198,7 +198,7 @@ void test_timestamp() {
 // --- stamp suite (moved from tests/logging/logging_test.cpp; task 3.2 /
 // logging design D6 / spec chrono/stamp-source).
 void test_stamp() {
-    Stamp_source src{};
+    StampSource src{};
     NX_CHECK(src.calibrate().has_value());
 
     // Non-decreasing per source object (spec scenario "Stamps are
@@ -223,7 +223,7 @@ void test_stamp() {
                 static_cast<double>(delta_ns) / 1'000'000.0);
 
     // Independent sources keep independent clamps (each logger owns one).
-    Stamp_source other{};
+    StampSource other{};
     NX_CHECK(other.calibrate().has_value());
     NX_CHECK(other.sample() >= a); // both monotonic on the same clock domain
 }
@@ -323,7 +323,7 @@ void test_time_format() {
 }
 
 // --- diagnostics suite (change add-serialization-and-wait-free-logging, task
-// 3.2): universal to_string() const + free helper for Timestamp, Stamp_source,
+// 3.2): universal to_string() const + free helper for Timestamp, StampSource,
 // CivilTime. Cold-path strings land in the bump arena; member==free always.
 
 void test_diag_strings() {
@@ -337,8 +337,8 @@ void test_diag_strings() {
     // A full nine-digit fraction skips the left-pad branch.
     NX_CHECK(Timestamp{123'456'789ULL}.to_string().find(".123456789") != std::string::npos);
 
-    // Stamp_source: uncalibrated state is identifiable before calibrate().
-    Stamp_source src{};
+    // StampSource: uncalibrated state is identifiable before calibrate().
+    StampSource src{};
     const std::string pre = src.to_string();
     NX_CHECK(pre.find("calibrated=false") != std::string::npos);
     NX_CHECK(to_string(src) == pre);
@@ -361,7 +361,7 @@ void test_diag_strings() {
     NX_CHECK(ct_dump.find("UTC") != std::string::npos);
     NX_CHECK(to_string(ct) == ct_dump);
 
-    std::printf("diag_strings: Timestamp/Stamp_source/CivilTime dumps verified\n");
+    std::printf("diag_strings: Timestamp/StampSource/CivilTime dumps verified\n");
 }
 
 // --- clock service suites (change add-chrono-clock-service): ClockId,
@@ -393,7 +393,7 @@ void test_diag_strings() {
 }
 
 /// Records every snapshot and the worker's observed affinity at delivery.
-struct Recording_sink {
+struct RecordingSink {
     std::vector<Snapshot> snapshots{};
     int expected_cpu{-1};
     std::vector<bool> affinity_ok{};
@@ -418,26 +418,26 @@ struct Recording_sink {
     }
 };
 
-struct Count_sink {
+struct CountSink {
     int count{0};
     Status on_snapshot(const Snapshot&) noexcept {
         ++count;
         return {};
     }
     Status flush() noexcept { return {}; }
-    std::string to_string() const { return "Count_sink(count=" + std::to_string(count) + ")"; }
+    std::string to_string() const { return "CountSink(count=" + std::to_string(count) + ")"; }
 };
 
-struct Fail_sink {
+struct FailSink {
     Status on_snapshot(const Snapshot&) noexcept {
         return std::unexpected(ErrorCode::SystemError);
     }
     Status flush() noexcept { return std::unexpected(ErrorCode::SystemError); }
-    std::string to_string() const { return "Fail_sink()"; }
+    std::string to_string() const { return "FailSink()"; }
 };
 
 /// Records the ClockLogLevel diagnostics a worker emits through a logger.
-struct Recording_clock_logger {
+struct RecordingClockLogger {
     std::vector<std::pair<ClockLogLevel, std::string>> messages{};
     void log(ClockLogLevel level, std::string_view message) noexcept {
         messages.push_back({level, std::string(message)});
@@ -481,9 +481,9 @@ void test_clock_id() {
              std::string(to_string(ClockId::monotonic_raw)));
 
     // Compile-time domain declaration: default is monotonic_raw; a component
-    // may specialize (Boottime_component declares boottime at global scope).
+    // may specialize (BoottimeComponent declares boottime at global scope).
     NX_CHECK(clock_domain<int> == ClockId::monotonic_raw);
-    NX_CHECK(clock_domain<Boottime_component> == ClockId::boottime);
+    NX_CHECK(clock_domain<BoottimeComponent> == ClockId::boottime);
 }
 
 void test_enum_contracts() {
@@ -715,8 +715,8 @@ void test_sinks() {
 
     // Composite sink: fan-out, first-failure aggregation, typed/indexed access.
     {
-        CompositeChronoSink<Count_sink, Count_sink, Count_sink> comp{
-            Count_sink{}, Count_sink{}, Count_sink{}};
+        CompositeChronoSink<CountSink, CountSink, CountSink> comp{
+            CountSink{}, CountSink{}, CountSink{}};
         NX_CHECK(comp.on_snapshot(Snapshot{}).has_value());
         NX_CHECK(comp.get<0>().count == 1);
         NX_CHECK(comp.get<1>().count == 1);
@@ -725,8 +725,8 @@ void test_sinks() {
     }
     {
         // First failure does not starve the rest.
-        CompositeChronoSink<Fail_sink, Count_sink, Count_sink> comp{
-            Fail_sink{}, Count_sink{}, Count_sink{}};
+        CompositeChronoSink<FailSink, CountSink, CountSink> comp{
+            FailSink{}, CountSink{}, CountSink{}};
         const Status s = comp.on_snapshot(Snapshot{});
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::SystemError);
@@ -736,9 +736,9 @@ void test_sinks() {
         NX_CHECK(!fs.has_value());
     }
     {
-        CompositeChronoSink<NullChronoSink, Count_sink> typed{NullChronoSink{}, Count_sink{}};
+        CompositeChronoSink<NullChronoSink, CountSink> typed{NullChronoSink{}, CountSink{}};
         NX_CHECK(typed.get<NullChronoSink>().to_string() == "NullChronoSink()");
-        NX_CHECK(typed.get<Count_sink>().count == 0);
+        NX_CHECK(typed.get<CountSink>().count == 0);
         NX_CHECK(typed.get<1>().count == 0);
     }
 }
@@ -848,7 +848,7 @@ void test_provider() {
         NX_CHECK(g_alloc_used == before); // steady-state sampling allocates nothing
     }
     {
-        Recording_sink sink;
+        RecordingSink sink;
         ChronoProviderConfig config{};
         ChronoProvider provider{config, sink};
         NX_CHECK(provider.snapshot_now().has_value());
@@ -866,7 +866,7 @@ void test_provider() {
 
     // Zero interval disables background delivery; destructor drains + flushes.
     {
-        Recording_sink sink;
+        RecordingSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         {
@@ -881,7 +881,7 @@ void test_provider() {
     // Deferred start: construction does not start the worker; start() is
     // idempotent; a zero interval makes start() a no-op.
     {
-        Recording_sink sink;
+        RecordingSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{5'000'000}; // 5 ms
         {
@@ -895,7 +895,7 @@ void test_provider() {
         NX_CHECK(sink.snapshots.size() >= 1U); // worker delivered after start()
     }
     {
-        Recording_sink sink;
+        RecordingSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0}; // zero interval
         {
@@ -909,7 +909,7 @@ void test_provider() {
 
     // Worker logging: start(Logger&) binds a logger; start() runs silent.
     {
-        Recording_clock_logger logger;
+        RecordingClockLogger logger;
         NullChronoSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000}; // 1 ms
@@ -921,7 +921,7 @@ void test_provider() {
         NX_CHECK(!logger.messages.empty());
     }
     {
-        Recording_clock_logger logger;
+        RecordingClockLogger logger;
         NullChronoSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
@@ -935,7 +935,7 @@ void test_provider() {
 
     // Background worker honors the period.
     {
-        Recording_sink sink;
+        RecordingSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{10'000'000}; // 10 ms
         {
@@ -964,7 +964,7 @@ void test_provider() {
     }
     NX_CHECK(first_cpu >= 0);
     {
-        Recording_sink sink;
+        RecordingSink sink;
         sink.expected_cpu = first_cpu;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000}; // 1 ms
@@ -988,7 +988,7 @@ void test_provider() {
         NX_CHECK(affinity_ok);
     }
     if (denied_cpu >= 0) {
-        Recording_sink sink;
+        RecordingSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         config.core_mask = std::uint64_t{1} << denied_cpu;
@@ -1002,7 +1002,7 @@ void test_provider() {
         NX_CHECK(startup.error() == ErrorCode::SystemError);
     }
     {
-        Recording_sink sink;
+        RecordingSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         config.core_mask = 0;
@@ -1013,7 +1013,7 @@ void test_provider() {
     // Control plane: flush-failure propagation and usability after a failed
     // snapshot.
     {
-        Recording_sink sink;
+        RecordingSink sink;
         sink.snapshot_status = std::unexpected(ErrorCode::SystemError);
         sink.flush_status = std::unexpected(ErrorCode::SystemError);
         ChronoProviderConfig config{};
@@ -1030,8 +1030,8 @@ void test_provider() {
 
     // Worker delivery failures are logged as warnings.
     {
-        Recording_clock_logger logger;
-        Fail_sink sink;
+        RecordingClockLogger logger;
+        FailSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         {
@@ -1052,7 +1052,7 @@ void test_provider() {
     // A sink slower than the period rebases the schedule instead of chasing
     // the backlog.
     {
-        struct Slow_sink {
+        struct SlowSink {
             std::atomic<int> count{0};
             Status on_snapshot(const Snapshot&) noexcept {
                 std::this_thread::sleep_for(std::chrono::milliseconds{5});
@@ -1060,9 +1060,9 @@ void test_provider() {
                 return {};
             }
             Status flush() noexcept { return {}; }
-            std::string to_string() const { return "Slow_sink()"; }
+            std::string to_string() const { return "SlowSink()"; }
         };
-        Slow_sink sink;
+        SlowSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1};
         {

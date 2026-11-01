@@ -8,7 +8,7 @@
 // the 320-byte record into the calling thread's private shard through the
 // provider's INLINE finish_span (no indirect call, no lock, no allocation).
 //
-// HOT PATH (design D8 accounting): end() = branch + one Stamp_source sample
+// HOT PATH (design D8 accounting): end() = branch + one StampSource sample
 // + one SPSC try_push + one TLS truncation ≈ well under the 20 ns budget.
 // set_attribute/set_status = branch + fixed-offset stores, no atomic.
 //
@@ -37,13 +37,13 @@ namespace nexigen::tracing {
 
 class SpanPasskey; // defined in tracer.hpp; the by-ref parameter below keeps
                    // this header self-contained (no include cycle)
-template <std::size_t ShardCapacity, std::size_t Max_threads>
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
 class TracerProvider;
-template <std::size_t ShardCapacity, std::size_t Max_threads>
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
 class Tracer;
 
 /// The RAII span guard. Constructed only by Tracer::start_span.
-template <std::size_t ShardCapacity, std::size_t Max_threads>
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
 class ScopedSpan {
 public:
     ScopedSpan(const ScopedSpan&) = delete;
@@ -144,17 +144,17 @@ private:
     // Only a Tracer (which alone can mint a SpanPasskey) constructs guards;
     // the passkey parameter is by reference so this header needs only a
     // forward declaration (tracer.hpp includes this header, not vice versa).
-    friend class Tracer<ShardCapacity, Max_threads>;
+    friend class Tracer<ShardCapacity, MaxThreads>;
 
     /// Inactive guard: the disabled/dropped/rejected/dead short-circuit.
-    ScopedSpan(const SpanPasskey&, TracerProvider<ShardCapacity, Max_threads>*,
+    ScopedSpan(const SpanPasskey&, TracerProvider<ShardCapacity, MaxThreads>*,
                core::ErrorCode start_error) noexcept
         : owner_(nullptr), error_(start_error) {}
 
     /// Active guard: the D8 pipeline's results. The record is zeroed and
     /// filled INLINE in this constructor so start_span can return it as a
     /// prvalue (C++17 guaranteed elision — no copy, no move, one fill).
-    ScopedSpan(const SpanPasskey&, TracerProvider<ShardCapacity, Max_threads>* owner,
+    ScopedSpan(const SpanPasskey&, TracerProvider<ShardCapacity, MaxThreads>* owner,
                std::int8_t slot, std::uint8_t stack_index, SamplingDecision sampled,
                const TraceId& trace_id, const SpanId& span_id, const SpanId& parent_span_id,
                SpanKind kind, const chrono::Timestamp& start, std::uint32_t thread_id,
@@ -200,7 +200,7 @@ private:
     }
 
     SpanRecord record_{};                              ///< the inline payload
-    TracerProvider<ShardCapacity, Max_threads>* owner_{}; ///< null = inactive
+    TracerProvider<ShardCapacity, MaxThreads>* owner_{}; ///< null = inactive
     std::int8_t slot_{};                               ///< shard index
     std::uint8_t stack_index_{};                       ///< frame index / sentinel
     bool ended_{};                                     ///< exactly-once guard

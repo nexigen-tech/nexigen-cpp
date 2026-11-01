@@ -260,7 +260,7 @@ void test_harness() {
     { log(LogLevel::Error, f, std::forward<A>(a)...); }
 
 /// Complete conforming surface: the positive reference for the concept.
-struct Full_logger_model {
+struct FullLoggerModel {
     detail::LevelControl levels_{};
     LogLevel last_level{LogLevel::Verbose};
     int calls{0};
@@ -279,18 +279,18 @@ struct Full_logger_model {
     }
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(concepts::Logger<Full_logger_model>);
+static_assert(concepts::Logger<FullLoggerModel>);
 
-struct No_fatal_model { // fatal omitted entirely
+struct NoFatalModel { // fatal omitted entirely
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
     template <class... A> void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
     NX_CONV_5()
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(!concepts::Logger<No_fatal_model>);
+static_assert(!concepts::Logger<NoFatalModel>);
 
-struct No_flush_model { // flush omitted entirely
+struct NoFlushModel { // flush omitted entirely
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
     template <class... A> void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
@@ -300,9 +300,9 @@ struct No_flush_model { // flush omitted entirely
         log(LogLevel::Fatal, f, std::forward<A>(a)...);
     }
 };
-static_assert(!concepts::Logger<No_flush_model>);
+static_assert(!concepts::Logger<NoFlushModel>);
 
-struct Level_nonconst_model { // level() loses const
+struct LevelNonconstModel { // level() loses const
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() noexcept { return LogLevel::Info; }
     template <class... A> void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
@@ -313,9 +313,9 @@ struct Level_nonconst_model { // level() loses const
     }
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(!concepts::Logger<Level_nonconst_model>);
+static_assert(!concepts::Logger<LevelNonconstModel>);
 
-struct Log_not_noexcept_model { // log() loses noexcept
+struct LogNotNoexceptModel { // log() loses noexcept
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
     template <class... A>
@@ -326,9 +326,9 @@ struct Log_not_noexcept_model { // log() loses noexcept
     void fatal(detail::format_param_t<A...>, A&&...) noexcept {}
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(!concepts::Logger<Log_not_noexcept_model>);
+static_assert(!concepts::Logger<LogNotNoexceptModel>);
 
-struct Log_returns_status_model { // old surface: log() returns Status, not void
+struct LogReturnsStatusModel { // old surface: log() returns Status, not void
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
     [[nodiscard]] Status log(LogLevel, FormatWithLocation<>) noexcept { return {}; }
@@ -340,9 +340,9 @@ struct Log_returns_status_model { // old surface: log() returns Status, not void
     template <class... A> void fatal(detail::format_param_t<A...>, A&&...) noexcept {}
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(!concepts::Logger<Log_returns_status_model>);
+static_assert(!concepts::Logger<LogReturnsStatusModel>);
 
-struct Info_needs_location_model { // info() demands an explicit location arg
+struct InfoNeedsLocationModel { // info() demands an explicit location arg
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
     template <class... A> void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
@@ -357,7 +357,7 @@ struct Info_needs_location_model { // info() demands an explicit location arg
     template <class... A> void fatal(detail::format_param_t<A...>, A&&...) noexcept {}
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(!concepts::Logger<Info_needs_location_model>);
+static_assert(!concepts::Logger<InfoNeedsLocationModel>);
 
 #undef NX_CONV_5
 
@@ -378,7 +378,7 @@ void test_levels() {
 
     // Positive fixture exercises the concept surface, incl. literal convenience
     // calls with implicit caller-site capture (spec logger-concept).
-    Full_logger_model model{};
+    FullLoggerModel model{};
     model.info("hello");
     NX_CHECK(model.last_level == LogLevel::Info);
     NX_CHECK(model.calls == 1);
@@ -2677,19 +2677,19 @@ static_assert(has_from_json<SettingsDiagnostic>::value,
 static_assert(has_from_json<SettingsPaths>::value,
               "SettingsPaths must round-trip through JSON");
 
-struct Env_guard {
+struct EnvGuard {
     std::string name;
     bool had{false};
     std::string saved;
 
-    explicit Env_guard(const char* variable_name) : name(variable_name) {
+    explicit EnvGuard(const char* variable_name) : name(variable_name) {
         const char* const value = std::getenv(variable_name);
         had = value != nullptr;
         if (had) {
             saved = value;
         }
     }
-    ~Env_guard() {
+    ~EnvGuard() {
         if (had) {
             static_cast<void>(::setenv(name.c_str(), saved.c_str(), 1));
         } else {
@@ -2839,15 +2839,15 @@ void test_settings_vocabulary() {
 // --- loader (spec: explicit paths, precedence, local-only app_name, env,
 // best-effort diagnostics, explicit presence flags).
 void test_logging_settings_loader() {
-    Env_guard level_env{"NEXIGEN_LOG_LEVEL"};
-    Env_guard dir_env{"NEXIGEN_LOG_DIR"};
-    Env_guard app_env{"NEXIGEN_LOG_APP_NAME"};
-    Env_guard size_env{"NEXIGEN_LOG_MAX_FILE_SIZE_BYTES"};
-    Env_guard affinity_env{"NEXIGEN_LOG_CPU_AFFINITY"};
-    Env_guard ring_env{"NEXIGEN_LOG_RING_CAPACITY"};
-    Env_guard threads_env{"NEXIGEN_LOG_MAX_PRODUCER_THREADS"};
-    Env_guard overflow_env{"NEXIGEN_LOG_OVERFLOW_POLICY"};
-    Env_guard message_env{"NEXIGEN_LOG_MESSAGE_CAPACITY"};
+    EnvGuard level_env{"NEXIGEN_LOG_LEVEL"};
+    EnvGuard dir_env{"NEXIGEN_LOG_DIR"};
+    EnvGuard app_env{"NEXIGEN_LOG_APP_NAME"};
+    EnvGuard size_env{"NEXIGEN_LOG_MAX_FILE_SIZE_BYTES"};
+    EnvGuard affinity_env{"NEXIGEN_LOG_CPU_AFFINITY"};
+    EnvGuard ring_env{"NEXIGEN_LOG_RING_CAPACITY"};
+    EnvGuard threads_env{"NEXIGEN_LOG_MAX_PRODUCER_THREADS"};
+    EnvGuard overflow_env{"NEXIGEN_LOG_OVERFLOW_POLICY"};
+    EnvGuard message_env{"NEXIGEN_LOG_MESSAGE_CAPACITY"};
     level_env.clear();
     dir_env.clear();
     app_env.clear();
@@ -3311,14 +3311,14 @@ int null_loop(int iterations) noexcept {
 // every valid/invalid field branch, affinity grammar, env failures,
 // unreadable files and serialization.
 void test_logging_settings_full_coverage() {
-    Env_guard level_env{"NEXIGEN_LOG_LEVEL"};
-    Env_guard dir_env{"NEXIGEN_LOG_DIR"};
-    Env_guard app_env{"NEXIGEN_LOG_APP_NAME"};
-    Env_guard size_env{"NEXIGEN_LOG_MAX_FILE_SIZE_BYTES"};
-    Env_guard affinity_env{"NEXIGEN_LOG_CPU_AFFINITY"};
-    Env_guard ring_env{"NEXIGEN_LOG_RING_CAPACITY"};
-    Env_guard threads_env{"NEXIGEN_LOG_MAX_PRODUCER_THREADS"};
-    Env_guard overflow_env{"NEXIGEN_LOG_OVERFLOW_POLICY"};
+    EnvGuard level_env{"NEXIGEN_LOG_LEVEL"};
+    EnvGuard dir_env{"NEXIGEN_LOG_DIR"};
+    EnvGuard app_env{"NEXIGEN_LOG_APP_NAME"};
+    EnvGuard size_env{"NEXIGEN_LOG_MAX_FILE_SIZE_BYTES"};
+    EnvGuard affinity_env{"NEXIGEN_LOG_CPU_AFFINITY"};
+    EnvGuard ring_env{"NEXIGEN_LOG_RING_CAPACITY"};
+    EnvGuard threads_env{"NEXIGEN_LOG_MAX_PRODUCER_THREADS"};
+    EnvGuard overflow_env{"NEXIGEN_LOG_OVERFLOW_POLICY"};
     level_env.clear(); dir_env.clear(); app_env.clear(); size_env.clear();
     affinity_env.clear(); ring_env.clear(); threads_env.clear(); overflow_env.clear();
 

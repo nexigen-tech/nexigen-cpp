@@ -46,7 +46,7 @@ namespace detail {
 inline constexpr std::size_t max_explicit_bounds = 64;
 
 /// One histogram bank: bucket counts plus the running summary.
-struct alignas(64) Histogram_bank {
+struct alignas(64) HistogramBank {
     /// Plain copy of one bank's contents (harvest side).
     struct View {
         std::uint64_t buckets[max_explicit_bounds + 1]{};
@@ -140,8 +140,8 @@ struct alignas(64) Histogram_bank {
 };
 
 /// A recording slot: double-buffered banks plus the sequence handshake.
-struct alignas(64) Histogram_slot {
-    Histogram_bank bank[2];
+struct alignas(64) HistogramSlot {
+    HistogramBank bank[2];
     std::atomic<std::uint32_t> seq{0};
     std::atomic<std::uint8_t> active{0};
 };
@@ -157,7 +157,7 @@ struct HistogramMerge {
     double maximum{0.0};
     bool empty{true};
 
-    void absorb_view(const detail::Histogram_bank::View& view) noexcept {
+    void absorb_view(const detail::HistogramBank::View& view) noexcept {
         for (std::size_t i = 0; i < max_explicit_bounds + 1U; ++i) {
             buckets[i] += view.buckets[i];
         }
@@ -229,7 +229,7 @@ public:
     [[nodiscard]] HistogramSnapshot read() const requires (Access == AccessPolicy::Readable) {
         detail::HistogramMerge merged{};
         if constexpr (Concurrency == ConcurrencyPolicy::SingleThreaded) {
-            const detail::Histogram_bank::View cell_view = cell_.load_view();
+            const detail::HistogramBank::View cell_view = cell_.load_view();
             if (Reset == ResetPolicy::ResetOnRead) {
                 cell_.clear();
             }
@@ -404,7 +404,7 @@ private:
             if ((before & 1U) != 0U) {
                 continue; // a producer is mid-record
             }
-            const detail::Histogram_bank::View view = slot.bank[bank_index].load_view();
+            const detail::HistogramBank::View view = slot.bank[bank_index].load_view();
             // Keep the bank reads inside the checked window: compiler barrier
             // only (x86 TSO already orders loads; design D9).
             std::atomic_signal_fence(std::memory_order_acq_rel);
@@ -427,9 +427,9 @@ private:
     double bounds_[detail::max_explicit_bounds]{};
     std::uint32_t bound_count_{0};
 
-    mutable detail::Histogram_bank cell_{};                      // SingleThreaded
-    mutable detail::Histogram_slot slots_[detail::shard_count]{}; // MultiThreaded
-    mutable detail::Histogram_bank fallback_{};                   // shared overflow cell
+    mutable detail::HistogramBank cell_{};                      // SingleThreaded
+    mutable detail::HistogramSlot slots_[detail::shard_count]{}; // MultiThreaded
+    mutable detail::HistogramBank fallback_{};                   // shared overflow cell
     std::atomic<std::uint64_t> ignored_{0};
 };
 

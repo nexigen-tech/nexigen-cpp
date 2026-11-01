@@ -185,7 +185,7 @@ void run_suite(const char* suite_name, void (*body)())
 }
 
 /// A sink that records what it receives (used by the provider suites).
-class Recording_sink {
+class RecordingSink {
 public:
     [[nodiscard]] core::Status on_batch(const metrics::MetricBatchSnapshot& batch) noexcept {
         ++batches_;
@@ -356,14 +356,14 @@ void test_policy_format() {
 // --- concepts (spec metrics/metric-concepts).
 namespace probes {
 
-struct Missing_kind {
+struct MissingKind {
     [[maybe_unused]] static constexpr metrics::ConcurrencyPolicy concurrency = metrics::ConcurrencyPolicy::SingleThreaded;
     [[maybe_unused]] static constexpr metrics::AccessPolicy access = metrics::AccessPolicy::Readable;
     [[maybe_unused]] static constexpr metrics::ResetPolicy reset = metrics::ResetPolicy::Cumulative;
     [[nodiscard]] std::string to_string() const { return "probe"; }
 };
 
-struct Wrong_kind_type {
+struct WrongKindType {
     static constexpr int kind = 0;
     [[maybe_unused]] static constexpr metrics::ConcurrencyPolicy concurrency = metrics::ConcurrencyPolicy::SingleThreaded;
     [[maybe_unused]] static constexpr metrics::AccessPolicy access = metrics::AccessPolicy::Readable;
@@ -381,15 +381,15 @@ struct Conforming {
     [[nodiscard]] metrics::MetricRecord snapshot() const { return {}; }
 };
 
-struct Not_a_sink {};
+struct NotASink {};
 
 } // namespace probes
 
 static_assert(metrics::concepts::Metric<probes::Conforming>);
-static_assert(!metrics::concepts::Metric<probes::Missing_kind>);
-static_assert(!metrics::concepts::Metric<probes::Wrong_kind_type>);
+static_assert(!metrics::concepts::Metric<probes::MissingKind>);
+static_assert(!metrics::concepts::Metric<probes::WrongKindType>);
 static_assert(metrics::concepts::ReadableMetric<probes::Conforming>);
-static_assert(!metrics::concepts::MetricSink<probes::Not_a_sink>);
+static_assert(!metrics::concepts::MetricSink<probes::NotASink>);
 static_assert(metrics::concepts::MetricSink<metrics::NullMetricSink>);
 static_assert(metrics::concepts::MetricSink<metrics::ConsoleMetricSink>);
 static_assert(metrics::concepts::MetricSink<metrics::JsonFileMetricSink>);
@@ -1007,7 +1007,7 @@ void test_exponential_histogram() {
 namespace {
 
 /// Minimal movable sink probe: counts deliveries and can be told to fail.
-struct Probe_sink {
+struct ProbeSink {
     int batches{0};
     int flushes{0};
     core::Status batch_status{};
@@ -1022,7 +1022,7 @@ struct Probe_sink {
         return flush_status;
     }
 };
-static_assert(metrics::concepts::MetricSink<Probe_sink>);
+static_assert(metrics::concepts::MetricSink<ProbeSink>);
 
 } // namespace
 
@@ -1109,7 +1109,7 @@ void test_composite_injection() {
     NX_CHECK(line_count(json2_path) == 1);
 
     // Aggregated flush and exact delivery counts over probes.
-    metrics::CompositeMetricSink<Probe_sink, Probe_sink> probes{Probe_sink{}, Probe_sink{}};
+    metrics::CompositeMetricSink<ProbeSink, ProbeSink> probes{ProbeSink{}, ProbeSink{}};
     probes.get<0>().batch_status = std::unexpected(ErrorCode::InvalidArgument);
     probes.get<1>().flush_status = std::unexpected(ErrorCode::SystemError);
     const Status probe_batch = probes.on_batch(batch);
@@ -1489,7 +1489,7 @@ void test_slot_exhaustion() {
 // (spec metrics/metric-provider "Pre-allocated aligned metric registry";
 // task 10.1).
 void test_registry_zero_alloc() {
-    Recording_sink recorder;
+    RecordingSink recorder;
     metrics::MetricProviderConfig config{};
     config.max_meters = 2;
     config.max_counters = 8;
@@ -2222,7 +2222,7 @@ void test_latency() {
 namespace {
 
 /// Sink that timestamps every batch and records the worker's affinity.
-class Spacing_sink {
+class SpacingSink {
 public:
     struct Sample {
         double ns;
@@ -2286,7 +2286,7 @@ void test_provider_harvester() {
     NX_CHECK(first_cpu >= 0);
 
     {
-        Spacing_sink sink;
+        SpacingSink sink;
         sink.expect_cpu(first_cpu);
         metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{10'000'000};
@@ -2327,7 +2327,7 @@ void test_provider_harvester() {
 
     // Zero interval disables background collection entirely (task 12.1).
     {
-        Spacing_sink sink;
+        SpacingSink sink;
         metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         metrics::MetricProvider provider{config, sink};
@@ -2350,7 +2350,7 @@ void test_provider_harvester() {
 
     // startup_status reports SystemError for a failing mask (task 12.1).
     if (denied_cpu >= 0) {
-        Spacing_sink sink;
+        SpacingSink sink;
         metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         config.core_mask = std::uint64_t{1} << denied_cpu;
@@ -2362,7 +2362,7 @@ void test_provider_harvester() {
 
     // Zero mask inherits the process affinity and reports success.
     {
-        Spacing_sink sink;
+        SpacingSink sink;
         metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         config.core_mask = 0;
@@ -2374,7 +2374,7 @@ void test_provider_harvester() {
     // propagation, collection-error Status arms, and usability after failure
     // (task 12.2).
     {
-        Recording_sink recorder;
+        RecordingSink recorder;
         metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         metrics::MetricProvider provider{config, recorder};

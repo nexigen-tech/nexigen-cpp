@@ -16,7 +16,7 @@
 //   3. thread id      : thread_local cached SYS_gettid, syscall on first use
 //                       per thread only (D5)
 //   4. stamp          : the SHARD's calibrated TSC source (design D6: one
-//                       Stamp_source per slot keeps sampling single-writer,
+//                       StampSource per slot keeps sampling single-writer,
 //                       so re-anchoring/monotonic clamp stay race-free with
 //                       no atomics)
 //   5. (throttle)     : windowed budget in shard-owned plain state; enabled/
@@ -152,7 +152,7 @@ class Producer {
 
     /// One stamp source PER SLOT (design D6): sample() writes last_ns_/anchors,
     /// so single-writer per slot keeps the clock race-free with zero atomics.
-    std::array<chrono::Stamp_source, MaxThreads> stamps_{};
+    std::array<chrono::StampSource, MaxThreads> stamps_{};
 
     /// Shared runtime threshold (relaxed cell, own cache line).
     LevelControl level_{};
@@ -161,7 +161,7 @@ class Producer {
     /// (thread, producer) — never on the steady path; `active` is published
     /// with a release max-store so the consumer's acquire-load sees every
     /// slot it may drain. The max-store is a bounded CAS loop: cold path only.
-    struct alignas(64) Registration_cell {
+    struct alignas(64) RegistrationCell {
         std::atomic<std::uint32_t> next_slot{}; ///< relaxed fetch_add
         std::atomic<std::uint32_t> active{};    ///< release fetch_max (CAS loop)
         std::uint8_t pad_[56]{};
@@ -171,19 +171,19 @@ class Producer {
     /// ONLY by the slot's owner (relaxed store of prev+1 — never a contended
     /// RMW) and read relaxed by diagnostics; the window fields are plain
     /// single-writer state. One cache line per shard, no false sharing.
-    struct alignas(64) Shard_state {
+    struct alignas(64) ShardState {
         std::atomic<std::uint64_t> rate_limited{}; ///< owner stores, others load
         std::atomic<std::uint64_t> buffer_full{};  ///< owner stores, others load
         std::uint64_t window_start_ns{};           ///< owner-only plain state
         std::uint64_t tokens_used{};               ///< owner-only plain state
         std::uint8_t pad_[32]{};
     };
-    static_assert(sizeof(Shard_state) % 64 == 0, "shard state owns whole lines");
-    Shard_state state_[MaxThreads];
+    static_assert(sizeof(ShardState) % 64 == 0, "shard state owns whole lines");
+    ShardState state_[MaxThreads];
 
     /// Pool-exhaustion counter: the ONLY shared atomic RMW on a drop path,
     /// reached only by misconfigured threads beyond MaxThreads.
-    struct alignas(64) Exhausted_cell {
+    struct alignas(64) ExhaustedCell {
         std::atomic<std::uint64_t> slot_exhausted{};
         std::uint8_t pad_[56]{};
     } exhausted_{};
@@ -268,7 +268,7 @@ class Producer {
     /// (retry safety — spec logging/multi-producer "Failed summary push
     /// preserves counters"). Includes all four causes.
     void emit_summary_if_needed(std::size_t slot, const chrono::Timestamp stamp) noexcept {
-        Shard_state& st = state_[slot];
+        ShardState& st = state_[slot];
         const std::uint64_t rl = st.rate_limited.load(std::memory_order_relaxed);
         const std::uint64_t bf = st.buffer_full.load(std::memory_order_relaxed);
         const std::uint64_t se = exhausted_.slot_exhausted.load(std::memory_order_relaxed);
@@ -418,7 +418,7 @@ public:
         const std::uint32_t tid = cached_thread_id();
         const chrono::Timestamp stamp = stamps_[static_cast<std::size_t>(slot)].sample();
 
-        Shard_state& st = state_[static_cast<std::size_t>(slot)];
+        ShardState& st = state_[static_cast<std::size_t>(slot)];
         if (policy_.enabled) {
             // Windowed budget (design D9): shard-owned plain state, one
             // unsigned compare per steady call; transitions (rare) catch up
@@ -511,7 +511,7 @@ public:
     /// relaxed aggregate over all shards + the shared exhaustion counter.
     [[nodiscard]] DroppedStats dropped() const noexcept {
         DroppedStats agg{};
-        for (const Shard_state& st : state_) {
+        for (const ShardState& st : state_) {
             agg.rate_limited += st.rate_limited.load(std::memory_order_relaxed);
             agg.buffer_full += st.buffer_full.load(std::memory_order_relaxed);
         }

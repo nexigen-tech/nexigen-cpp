@@ -26,7 +26,7 @@ namespace logging = nexigen::logging;
 namespace metrics = nexigen::metrics;
 namespace tracing = nexigen::tracing;
 
-struct Simple_policy {
+struct SimplePolicy {
     using Logger = logging::ConsoleLogger<>;
     using MetricsSink = metrics::ConsoleMetricSink;
     using TraceSink = tracing::ConsoleTraceSink;
@@ -69,7 +69,7 @@ int fail(std::string_view message) {
 } // namespace
 
 int main() {
-    auto created = app::make_infrastructure<Simple_policy, 256, 8>();
+    auto created = app::make_infrastructure<SimplePolicy, 256, 8>();
     if (!created.has_value()) {
         return fail("make_infrastructure failed");
     }

@@ -165,7 +165,7 @@ inline constexpr std::size_t boundary_master_size = std::size_t{1} << boundary_m
 }
 
 /// One exponential bank: buckets, window and running summary.
-struct alignas(64) Exponential_bank {
+struct alignas(64) ExponentialBank {
     /// Plain copy of one bank's contents (harvest side).
     struct View {
         std::uint64_t buckets[max_exponential_buckets]{};
@@ -313,8 +313,8 @@ struct alignas(64) Exponential_bank {
 };
 
 /// A recording slot: double-buffered banks plus the sequence handshake.
-struct alignas(64) Exponential_slot {
-    Exponential_bank bank[2];
+struct alignas(64) ExponentialSlot {
+    ExponentialBank bank[2];
     std::atomic<std::uint32_t> seq{0};
     std::atomic<std::uint8_t> active{0};
 };
@@ -337,7 +337,7 @@ struct ExponentialMerge {
 /// Fold one bank view into the merged frame: rebase the bank's index space
 /// onto the merged scale (finer banks shift down, the scale-0 fallback up),
 /// folding out-of-window buckets into the edge buckets.
-inline void Exponential_bank::merge_view(const View& view, ExponentialMerge& merged,
+inline void ExponentialBank::merge_view(const View& view, ExponentialMerge& merged,
                                          std::int32_t merged_scale) noexcept {
     if (view.base_index == unanchored_index) {
         return;
@@ -421,7 +421,7 @@ public:
         } else {
             const std::uint8_t slot = detail::thread_slot(MetricKind::ExponentialHistogram);
             if (slot == detail::fallback_slot) {
-                // Shared fallback shard (beyond Max_threads): bucketed at the
+                // Shared fallback shard (beyond MaxThreads): bucketed at the
                 // fixed scale-0 window [base, base + 256) octaves, with
                 // extreme octaves folded into the edge buckets.
                 const std::int64_t position =
@@ -468,11 +468,11 @@ public:
         merged.scale = merged_scale;
         merged.base = compute_merged_base(merged_scale);
         if constexpr (Concurrency == ConcurrencyPolicy::SingleThreaded) {
-            const detail::Exponential_bank::View cell_view = cell_.load_view();
+            const detail::ExponentialBank::View cell_view = cell_.load_view();
             if (Reset == ResetPolicy::ResetOnRead) {
                 cell_.clear();
             }
-            detail::Exponential_bank::merge_view(cell_view, merged, merged_scale);
+            detail::ExponentialBank::merge_view(cell_view, merged, merged_scale);
         } else {
             for (std::size_t i = 0; i < detail::shard_count; ++i) {
                 merge_slot(i, merged, merged_scale);
@@ -482,7 +482,7 @@ public:
         const bool consuming = (Reset == ResetPolicy::ResetOnRead);
         // The shared fallback shard lives in a fixed scale-0 window and is
         // rebased onto the merged frame by merge_bank.
-        detail::Exponential_bank::merge_view(consuming ? fallback_.take_view()
+        detail::ExponentialBank::merge_view(consuming ? fallback_.take_view()
                                                         : fallback_.load_view(),
                                              merged, merged_scale);
         const std::uint64_t zeros = consuming
@@ -585,7 +585,7 @@ private:
     }
 
     /// Map the value into the bank's window, coarsening when it does not fit.
-    void apply_to_bank(detail::Exponential_bank& bank, double value) const noexcept {
+    void apply_to_bank(detail::ExponentialBank& bank, double value) const noexcept {
         for (int guard = 0; guard < 64; ++guard) {
             const std::int32_t scale = bank.effective_scale.load(std::memory_order_relaxed);
             const std::int64_t base = bank.base_index.load(std::memory_order_relaxed);
@@ -614,7 +614,7 @@ private:
     /// The lowest bucket index in play, expressed at the merged scale.
     [[nodiscard]] std::int64_t compute_merged_base(std::int32_t merged_scale) const noexcept {
         std::int64_t lowest = detail::unanchored_index;
-        const auto consider = [&](const detail::Exponential_bank& bank) {
+        const auto consider = [&](const detail::ExponentialBank& bank) {
             const std::int64_t base = bank.base_index.load(std::memory_order_relaxed);
             if (base == detail::unanchored_index) {
                 return;
@@ -639,7 +639,7 @@ private:
         // The fallback cell's fixed scale-0 frame only anchors the merged
         // window when no recorded slot provides a base; otherwise its counts
         // fold into the edge buckets of the slots' window (documented
-        // precision degradation beyond Max_threads).
+        // precision degradation beyond MaxThreads).
         if (lowest == detail::unanchored_index) {
             consider(fallback_);
         }
@@ -647,9 +647,9 @@ private:
     }
 
     /// Merge one bank without consuming it (Cumulative paths).
-    void merge_bank(detail::Exponential_bank& bank, detail::ExponentialMerge& merged,
+    void merge_bank(detail::ExponentialBank& bank, detail::ExponentialMerge& merged,
                     std::int32_t merged_scale) const noexcept {
-        detail::Exponential_bank::merge_view(bank.load_view(), merged, merged_scale);
+        detail::ExponentialBank::merge_view(bank.load_view(), merged, merged_scale);
     }
 
     /// Merge one slot under the seq handshake (design D9): the bank is copied
@@ -672,7 +672,7 @@ private:
             if ((before & 1U) != 0U) {
                 continue; // a producer is mid-record
             }
-            const detail::Exponential_bank::View view = slot.bank[bank_index].load_view();
+            const detail::ExponentialBank::View view = slot.bank[bank_index].load_view();
             // Keep the bank reads inside the checked window: compiler barrier
             // only (x86 TSO already orders loads; design D9).
             std::atomic_signal_fence(std::memory_order_acq_rel);
@@ -682,7 +682,7 @@ private:
                     // bank, and the stable check proved no straggler is live.
                     slot.bank[bank_index].clear();
                 }
-                detail::Exponential_bank::merge_view(view, merged, merged_scale);
+                detail::ExponentialBank::merge_view(view, merged, merged_scale);
                 return;
             }
         }
@@ -730,9 +730,9 @@ private:
 
     std::int32_t scale_{0};
 
-    mutable detail::Exponential_bank cell_{};                    // SingleThreaded
-    mutable detail::Exponential_slot slots_[detail::shard_count]{}; // MultiThreaded
-    mutable detail::Exponential_bank fallback_{};               // shared >32-thread cell
+    mutable detail::ExponentialBank cell_{};                    // SingleThreaded
+    mutable detail::ExponentialSlot slots_[detail::shard_count]{}; // MultiThreaded
+    mutable detail::ExponentialBank fallback_{};               // shared >32-thread cell
     mutable std::atomic<std::uint64_t> ignored_{0};
     mutable std::atomic<std::uint64_t> zero_count_{0};
 };

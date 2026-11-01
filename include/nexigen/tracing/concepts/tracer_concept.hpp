@@ -5,7 +5,7 @@
 // conforming types satisfy them at compile time (static_assert), defective
 // probes fail them at compile time — no base class, no virtual dispatch.
 //
-// The guard half of the Tracer contract is itself a concept (Span_guard):
+// The guard half of the Tracer contract is itself a concept (SpanGuard):
 // start_span must return an RAII guard providing wait-free
 // set_attribute/set_status, idempotent end(), context() and a cold
 // to_string(). ScopedSpan<...> (the concrete guard) and NullTracer's null
@@ -38,7 +38,7 @@ namespace nexigen::tracing::concepts {
 /// Wait-free updates return bool (true = applied); end() returns bool
 /// (true = this call ended the span); context() is the handoff snapshot.
 template <class G>
-concept Span_guard = requires(G& guard) {
+concept SpanGuard = requires(G& guard) {
     { guard.set_attribute(std::string_view{}, int{}) } -> std::same_as<bool>;
     { guard.set_attribute(std::string_view{}, std::int64_t{}) } -> std::same_as<bool>;
     { guard.set_attribute(std::string_view{}, std::uint64_t{}) } -> std::same_as<bool>;
@@ -58,8 +58,8 @@ template <class T>
 concept Tracer = requires(T& tracer, std::string_view name, SpanKind kind,
                           const SpanContext* parent,
                           std::source_location location) {
-    { tracer.start_span(name, kind, parent, location) } -> Span_guard;
-    { tracer.start_span(name, kind) } -> Span_guard;
+    { tracer.start_span(name, kind, parent, location) } -> SpanGuard;
+    { tracer.start_span(name, kind) } -> SpanGuard;
     { tracer.to_string() } -> std::same_as<std::string>;
 };
 

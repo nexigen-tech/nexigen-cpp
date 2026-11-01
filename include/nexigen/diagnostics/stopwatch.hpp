@@ -4,7 +4,7 @@
 // Stopwatch measures wall intervals in the raw monotonic domain with a fully
 // pinned layout: one cache line, trivially copyable, no atomics, no locks, no
 // heap. Every sampling operation costs exactly one stamp — Timestamp::now()
-// (~20-25 ns vDSO) by default, or a caller-owned nexigen::chrono::Stamp_source
+// (~20-25 ns vDSO) by default, or a caller-owned nexigen::chrono::StampSource
 // (~3-5 ns calibrated TSC) when injected at construction. Samples of either
 // source are monotone by contract, so NO second monotonic clamp is kept here
 // (design D3): elapsed arithmetic is plain unsigned subtraction and can never
@@ -19,7 +19,7 @@
 // under the noexcept void signatures a transition commits only on a good
 // sample — state and counters never lie, is_running() and frozen readings
 // make the failure observable, and no fabricated value ever reaches the
-// caller. Stamp_source::sample() self-falls-back internally and never fails,
+// caller. StampSource::sample() self-falls-back internally and never fails,
 // so a calibrated-source stopwatch exercises no failure branch on x86-64.
 //
 // Serialization (mandate 9): cold-path member + free to_string() renders the
@@ -79,13 +79,13 @@ public:
     /// (CLOCK_MONOTONIC_RAW).
     Stopwatch() noexcept = default;
 
-    /// Calibrated-TSC domain: every stamp rides the caller-owned Stamp_source
+    /// Calibrated-TSC domain: every stamp rides the caller-owned StampSource
     /// (borrowed, NOT owned — it must outlive this stopwatch). A null pointer
     /// selects the default clock domain.
-    explicit Stopwatch(chrono::Stamp_source* source) noexcept : source_{source} {}
+    explicit Stopwatch(chrono::StampSource* source) noexcept : source_{source} {}
 
     /// The injected stamp source (nullptr = the default clock domain).
-    [[nodiscard]] constexpr chrono::Stamp_source* source() const noexcept { return source_; }
+    [[nodiscard]] constexpr chrono::StampSource* source() const noexcept { return source_; }
 
     // -- State control (design D4; spec "Stopwatch state machine ...")
 
@@ -277,7 +277,7 @@ private:
     std::uint64_t last_lap_ns_{};        ///< Most recent lap duration.
     std::uint64_t min_lap_ns_{no_lap_value}; ///< Shortest lap (sentinel = none).
     std::uint64_t max_lap_ns_{};         ///< Longest lap.
-    chrono::Stamp_source* source_{};     ///< Borrowed sampler; null = default.
+    chrono::StampSource* source_{};     ///< Borrowed sampler; null = default.
     std::uint32_t lap_count_{};          ///< Laps since the last reset.
     StopwatchState state_{};             ///< The lifecycle state (Idle).
 };

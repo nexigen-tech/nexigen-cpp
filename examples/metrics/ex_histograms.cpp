@@ -2,7 +2,7 @@
 // spec metrics/examples "Histogram example").
 //
 // Measures simulated real-time task durations from multiple threads with
-// per-producer nexigen::chrono::Stamp_source clocks and records them into
+// per-producer nexigen::chrono::StampSource clocks and records them into
 // both histogram families:
 //   1. ExplicitBucketHistogram with caller-defined latency upper bounds
 //      {10, 25, 50, 100, 250, 500, 1000} ns.
@@ -96,7 +96,7 @@ int main() {
     }
 
     // --- Measure simulated task durations from multiple threads. Each
-    // producer owns a calibrated Stamp_source (hot path: sample() only) and
+    // producer owns a calibrated StampSource (hot path: sample() only) and
     // simulates workloads whose spin counts span orders of magnitude.
     std::printf("== Measured task durations ==\n");
     std::atomic<int> calibration_failures{0};
@@ -105,7 +105,7 @@ int main() {
         producers.reserve(worker_count);
         for (int w = 0; w < worker_count; ++w) {
             producers.emplace_back([&] {
-                nexigen::chrono::Stamp_source stamps{};
+                nexigen::chrono::StampSource stamps{};
                 if (!stamps.calibrate().has_value()) {
                     calibration_failures.fetch_add(1, std::memory_order_relaxed);
                 }

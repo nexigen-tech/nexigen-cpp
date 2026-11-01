@@ -20,7 +20,7 @@
 // construction sample leaves the guard unanchored and a failed destruction or
 // check sample delivers/reports nothing rather than fabricating a measurement.
 // The default-clock path can only fail through the practically-impossible
-// Timestamp::now() error; a Stamp_source::sample() guard has no failure branch
+// Timestamp::now() error; a StampSource::sample() guard has no failure branch
 // at all on x86-64.
 //
 // Diagnostics (design D9; mandate 9): inline member + free to_string() and a
@@ -81,7 +81,7 @@ public:
           sink_{detail::OutRefSink{&out_ns}} {}
 
     /// (3) Calibrated source + out-ref destination, optional default budget.
-    ScopedStopwatch(chrono::Stamp_source* source, std::uint64_t& out_ns,
+    ScopedStopwatch(chrono::StampSource* source, std::uint64_t& out_ns,
                     std::uint64_t budget_ns = 0U) noexcept
         : anchor_ns_{anchor_for_(source)},
           source_{source},
@@ -124,7 +124,7 @@ public:
 
     /// (6) Calibrated source + callable sink, optional default budget.
     template <class S = Sink>
-    ScopedStopwatch(chrono::Stamp_source* source, S&& sink,
+    ScopedStopwatch(chrono::StampSource* source, S&& sink,
                     std::uint64_t budget_ns = 0U) noexcept(
         std::is_nothrow_constructible_v<Sink, S&&>)
         : anchor_ns_{anchor_for_(source)},
@@ -181,7 +181,7 @@ public:
     }
 
     /// The injected stamp source (nullptr = the default clock domain).
-    [[nodiscard]] constexpr chrono::Stamp_source* source() const noexcept {
+    [[nodiscard]] constexpr chrono::StampSource* source() const noexcept {
         return source_;
     }
 
@@ -204,7 +204,7 @@ private:
     /// The start sample for a fresh guard; 0 = uncommitted (design D3 — a
     /// genuine monotonic stamp is never 0, so 0 is the failure witness).
     [[nodiscard]] static std::uint64_t anchor_for_(
-        chrono::Stamp_source* source) noexcept {
+        chrono::StampSource* source) noexcept {
         if (source != nullptr) { return source->sample().nanoseconds(); }
         const core::Result<chrono::Timestamp> stamp = chrono::Timestamp::now();
         return stamp ? stamp->nanoseconds() : 0U;
@@ -226,7 +226,7 @@ private:
     /// ~40–56 B with the common reference-capturing sink (N = 8). No
     /// alignas(64): ephemeral per-scope stack object, single-thread domain.
     std::uint64_t anchor_ns_;             ///< Start sample (0 = uncommitted).
-    chrono::Stamp_source* source_;        ///< Borrowed sampler; null = default.
+    chrono::StampSource* source_;        ///< Borrowed sampler; null = default.
     std::uint64_t default_budget_;        ///< Stored budget (0 = none).
     Sink sink_;                           ///< Borrowed/stored destination.
     bool reported_{false};                ///< Belt for exactly-once delivery.
@@ -239,9 +239,9 @@ private:
 ScopedStopwatch(std::uint64_t&) -> ScopedStopwatch<detail::OutRefSink>;
 ScopedStopwatch(std::uint64_t&, std::uint64_t)
     -> ScopedStopwatch<detail::OutRefSink>;
-ScopedStopwatch(chrono::Stamp_source*, std::uint64_t&)
+ScopedStopwatch(chrono::StampSource*, std::uint64_t&)
     -> ScopedStopwatch<detail::OutRefSink>;
-ScopedStopwatch(chrono::Stamp_source*, std::uint64_t&, std::uint64_t)
+ScopedStopwatch(chrono::StampSource*, std::uint64_t&, std::uint64_t)
     -> ScopedStopwatch<detail::OutRefSink>;
 
 // The sink flavors deduce the callable type (stored inline by value for
@@ -251,9 +251,9 @@ ScopedStopwatch(Sink&&) -> ScopedStopwatch<Sink>;
 template <class Sink>
 ScopedStopwatch(Sink&&, std::uint64_t) -> ScopedStopwatch<Sink>;
 template <class Sink>
-ScopedStopwatch(chrono::Stamp_source*, Sink&&) -> ScopedStopwatch<Sink>;
+ScopedStopwatch(chrono::StampSource*, Sink&&) -> ScopedStopwatch<Sink>;
 template <class Sink>
-ScopedStopwatch(chrono::Stamp_source*, Sink&&, std::uint64_t)
+ScopedStopwatch(chrono::StampSource*, Sink&&, std::uint64_t)
     -> ScopedStopwatch<Sink>;
 
 /// Free helper (mandate 9): mirrors the guard's member rendering.

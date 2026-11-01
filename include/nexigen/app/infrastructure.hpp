@@ -46,8 +46,8 @@
 
 namespace nexigen::app {
 
-template <class Policy, std::size_t Tracer_capacity = 1024,
-          std::size_t Tracer_threads = 32>
+template <class Policy, std::size_t TracerCapacity = 1024,
+          std::size_t TracerThreads = 32>
 class Infrastructure;
 
 /// Stateless policy contract: component types plus static emplacement hooks.
@@ -167,15 +167,15 @@ struct ChronoLoggerBridge {
 
 } // namespace detail
 
-template <class Policy, std::size_t Tracer_capacity, std::size_t Tracer_threads>
+template <class Policy, std::size_t TracerCapacity, std::size_t TracerThreads>
 class Infrastructure {
 public:
     using Logger = typename Policy::Logger;
     using MetricsSink = typename Policy::MetricsSink;
     using TraceSink = typename Policy::TraceSink;
     using ChronoSink = typename Policy::ChronoSink;
-    using TracerProvider = tracing::TracerProvider<Tracer_capacity, Tracer_threads>;
-    using TracerType = tracing::Tracer<Tracer_capacity, Tracer_threads>;
+    using TracerProvider = tracing::TracerProvider<TracerCapacity, TracerThreads>;
+    using TracerType = tracing::Tracer<TracerCapacity, TracerThreads>;
 
     static_assert(InfrastructurePolicy<Policy>,
                   "Policy must declare Logger/MetricsSink/TraceSink/ChronoSink and static "
@@ -467,12 +467,12 @@ private:
 
 /// Heap-only factory: the private constructor makes automatic/static
 /// Infrastructure objects impossible. Allocation failure is a SystemError.
-template <class Policy, std::size_t Tracer_capacity = 1024,
-          std::size_t Tracer_threads = 32>
+template <class Policy, std::size_t TracerCapacity = 1024,
+          std::size_t TracerThreads = 32>
 [[nodiscard]] core::Result<std::unique_ptr<
-    Infrastructure<Policy, Tracer_capacity, Tracer_threads>>>
+    Infrastructure<Policy, TracerCapacity, TracerThreads>>>
 make_infrastructure() noexcept {
-    using Type = Infrastructure<Policy, Tracer_capacity, Tracer_threads>;
+    using Type = Infrastructure<Policy, TracerCapacity, TracerThreads>;
     Type* const raw = new (std::nothrow) Type{};
     if (raw == nullptr) {
         return std::unexpected(core::ErrorCode::SystemError);

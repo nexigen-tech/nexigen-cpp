@@ -143,6 +143,9 @@ jobs:
       - name: Check Result::value ban
         run: python3 cmake/check_result_value.py
 
+      - name: Check PascalCase type naming
+        run: python3 cmake/check_naming.py
+
       - name: Configure
         run: |
           cmake -S . -B build/coverage -G Ninja \

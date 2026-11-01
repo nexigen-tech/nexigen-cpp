@@ -35,7 +35,7 @@ namespace core = nexigen::core;
 
 /// Records every drained span for the final verification pass (the public
 /// TraceSink contract; runs on the provider's background consumer).
-class Timeline_sink {
+class TimelineSink {
 public:
     core::Status start() noexcept { return {}; }
     core::Status on_span(const tracing::SpanRecord& record) noexcept {
@@ -45,7 +45,7 @@ public:
     core::Status flush() noexcept { return {}; }
     void stop() noexcept {}
     std::string to_string() const {
-        return "Timeline_sink(records=" + std::to_string(records_.size()) + ")";
+        return "TimelineSink(records=" + std::to_string(records_.size()) + ")";
     }
 
     /// The drained records (read after a flush barrier).
@@ -91,8 +91,8 @@ int main(int argc, char** argv) {
 
     // The provider owns ~10 MiB of pre-allocated shards (default template
     // parameters): static storage, never the stack (documented rule).
-    static tracing::CompositeTraceSink<tracing::ConsoleTraceSink, Timeline_sink> sink{
-        tracing::ConsoleTraceSink{1}, Timeline_sink{}};
+    static tracing::CompositeTraceSink<tracing::ConsoleTraceSink, TimelineSink> sink{
+        tracing::ConsoleTraceSink{1}, TimelineSink{}};
     static tracing::TracerProvider<1024, 32> provider{
         tracing::TracerProviderConfig{}, sink};
 

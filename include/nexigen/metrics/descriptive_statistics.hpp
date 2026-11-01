@@ -22,7 +22,7 @@
 //
 // Threads beyond the 32-slot pool cannot use the single-writer protocol:
 // their samples are dropped and counted in dropped_samples, so no loss is
-// silent. Max_threads = 32 is the documented exactness capacity.
+// silent. MaxThreads = 32 is the documented exactness capacity.
 #pragma once
 
 #include <atomic>
@@ -50,7 +50,7 @@ class MeterPasskey;
 namespace detail {
 
 /// One Welford bank: relaxed-atomic fields, single writer per slot.
-struct alignas(64) Stats_bank {
+struct alignas(64) StatsBank {
     std::atomic<std::uint64_t> count{0};
     std::atomic<double> mean{0.0};
     std::atomic<double> m2{0.0};
@@ -106,8 +106,8 @@ struct alignas(64) Stats_bank {
 };
 
 /// A recording slot: double-buffered banks plus the sequence handshake.
-struct alignas(64) Stats_slot {
-    Stats_bank bank[2];
+struct alignas(64) StatsSlot {
+    StatsBank bank[2];
     std::atomic<std::uint32_t> seq{0};
     std::atomic<std::uint8_t> active{0};
 };
@@ -333,7 +333,7 @@ private:
     const MetricIdentity* identity_{nullptr};
 
     mutable detail::WelfordState cell_{};                  // SingleThreaded
-    mutable detail::Stats_slot slots_[detail::shard_count]{}; // MultiThreaded
+    mutable detail::StatsSlot slots_[detail::shard_count]{}; // MultiThreaded
     std::atomic<std::uint64_t> ignored_{0};
     std::atomic<std::uint64_t> dropped_{0};
 };

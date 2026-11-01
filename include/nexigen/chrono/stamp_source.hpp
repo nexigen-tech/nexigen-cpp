@@ -43,13 +43,13 @@ namespace nexigen::chrono {
 
 /// Producer-owned monotonic nanosecond clock. class (not struct): the fields
 /// are implementation state; sample()/calibrate() are the whole interface.
-class alignas(64) Stamp_source {
+class alignas(64) StampSource {
 public:
-    Stamp_source() noexcept = default;
-    Stamp_source(const Stamp_source&) = delete;
-    Stamp_source& operator=(const Stamp_source&) = delete;
-    Stamp_source(Stamp_source&&) = delete;
-    Stamp_source& operator=(Stamp_source&&) = delete;
+    StampSource() noexcept = default;
+    StampSource(const StampSource&) = delete;
+    StampSource& operator=(const StampSource&) = delete;
+    StampSource(StampSource&&) = delete;
+    StampSource& operator=(StampSource&&) = delete;
 
     /// Cold path (initialize time): sample the tick↔nanosecond scale.
     /// Returns SystemError if either clock read fails. Non-x86: verifies the
@@ -86,8 +86,8 @@ public:
     /// quiescent diagnostics only, never between sample() calls of another
     /// thread, and never on the sampling hot path (allocates a std::string).
     [[nodiscard]] std::string to_string() const {
-        std::string out = calibrated_ ? "Stamp_source(calibrated=true, "
-                                      : "Stamp_source(calibrated=false, ";
+        std::string out = calibrated_ ? "StampSource(calibrated=true, "
+                                      : "StampSource(calibrated=false, ";
         out += "tsc_anchor=" + std::to_string(tsc_anchor_);
         out += ", mono_anchor_ns=" + std::to_string(mono_anchor_ns_);
         out += ", scale_ns_x2^20=" + std::to_string(scale_);
@@ -126,7 +126,7 @@ private:
     bool calibrated_{};
 };
 
-static_assert(sizeof(Stamp_source) <= 64, "stamp source must own one cache line");
+static_assert(sizeof(StampSource) <= 64, "stamp source must own one cache line");
 
 /// Snapshot the offset such that utc_ns ≈ monotonic_ns + offset (logging
 /// design D10). Cold path (initialize / rotation boundary / flush hook): two
@@ -141,8 +141,8 @@ static_assert(sizeof(Stamp_source) <= 64, "stamp source must own one cache line"
     return static_cast<std::int64_t>(mono_ns) + offset_ns;
 }
 
-/// Free helper (mandate 9): mirrors Stamp_source::to_string for generic call sites.
-[[nodiscard]] inline std::string to_string(const Stamp_source& source) {
+/// Free helper (mandate 9): mirrors StampSource::to_string for generic call sites.
+[[nodiscard]] inline std::string to_string(const StampSource& source) {
     return source.to_string();
 }
 

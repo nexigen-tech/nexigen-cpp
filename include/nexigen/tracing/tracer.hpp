@@ -22,7 +22,7 @@
 //                        + release high-water publish, cold); steady state
 //                        is TLS only
 //   4. thread id       : thread_local cached SYS_gettid
-//   5. start stamp     : the SLOT's single-writer Stamp_source (one rdtsc +
+//   5. start stamp     : the SLOT's single-writer StampSource (one rdtsc +
 //                        fixed-point multiply — a clock_gettime per span
 //                        cannot fit the budget)
 //   6. rate budget     : shard-owned plain window state; a rejected span
@@ -57,7 +57,7 @@
 
 namespace nexigen::tracing {
 
-template <std::size_t ShardCapacity, std::size_t Max_threads>
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
 class TracerProvider; // forward: the factory owns and creates tracers
 
 /// Construction guard: only a Tracer may create spans. The tag carries no
@@ -80,7 +80,7 @@ public:
 /// A named span factory handle. Created by TracerProvider::get_tracer; the
 /// handle stays valid until the provider's destruction (dead-handle use
 /// fails with NotInitialized through start_span's error surface).
-template <std::size_t ShardCapacity, std::size_t Max_threads>
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
 class Tracer {
 public:
     Tracer(const Tracer&) = delete;
@@ -91,17 +91,17 @@ public:
     /// Start a span: the whole D8 pipeline, inline, noexcept. `parent`
     /// overrides the thread's active stack (cross-thread linking); without
     /// it the stack top parents the span automatically.
-    [[nodiscard]] ScopedSpan<ShardCapacity, Max_threads>
+    [[nodiscard]] ScopedSpan<ShardCapacity, MaxThreads>
     start_span(std::string_view name, SpanKind kind, const SpanContext* parent = nullptr,
                std::source_location location = std::source_location::current()) noexcept {
-        using Provider = TracerProvider<ShardCapacity, Max_threads>;
+        using Provider = TracerProvider<ShardCapacity, MaxThreads>;
         Provider& provider = *provider_;
 
         // (1) Liveness: a handle used after its provider died reports
         // NotInitialized through the guard's error surface (no memory error:
         // the provider storage is still mapped — documented contract).
         if (!provider.alive_.load(std::memory_order_acquire)) {
-            return ScopedSpan<ShardCapacity, Max_threads>{
+            return ScopedSpan<ShardCapacity, MaxThreads>{
                 SpanPasskey{}, nullptr, core::ErrorCode::NotInitialized};
         }
 
@@ -111,17 +111,17 @@ public:
         const SamplingDecision sampling =
             static_cast<SamplingDecision>((control >> 1U) & 0x3U);
         if ((control & 0x1U) == 0U || sampling == SamplingDecision::Drop) {
-            return ScopedSpan<ShardCapacity, Max_threads>{
+            return ScopedSpan<ShardCapacity, MaxThreads>{
                 SpanPasskey{}, nullptr, core::ErrorCode::Ok};
         }
 
         // (3) Shard slot: TLS steady-state; the claim is cold.
         const std::int8_t slot = provider.this_thread_slot();
         if (slot < 0) {
-            // Beyond Max_threads distinct producers: dropped and counted
+            // Beyond MaxThreads distinct producers: dropped and counted
             // (slot_exhausted), never blocked (spec "Threads beyond the pool
             // drop visibly").
-            return ScopedSpan<ShardCapacity, Max_threads>{
+            return ScopedSpan<ShardCapacity, MaxThreads>{
                 SpanPasskey{}, nullptr, core::ErrorCode::Ok};
         }
 
@@ -150,7 +150,7 @@ public:
                 state.rate_limited.store(
                     state.rate_limited.load(std::memory_order_relaxed) + 1U,
                     std::memory_order_relaxed);
-                return ScopedSpan<ShardCapacity, Max_threads>{
+                return ScopedSpan<ShardCapacity, MaxThreads>{
                     SpanPasskey{}, nullptr, core::ErrorCode::Ok};
             }
             ++state.tokens_used;
@@ -185,7 +185,7 @@ public:
         // (8) Construct the guard as a PRVALUE (C++17 guaranteed elision —
         // constructed directly in the caller's storage, no copy, no move)
         // with the record filled inline by the constructor.
-        return ScopedSpan<ShardCapacity, Max_threads>{
+        return ScopedSpan<ShardCapacity, MaxThreads>{
             SpanPasskey{}, &provider, slot, stack_index, sampling, trace_id, span_id,
             parent_span_id, kind, start, tid, name, location};
     }
@@ -201,16 +201,16 @@ public:
     }
 
 private:
-    friend class TracerProvider<ShardCapacity, Max_threads>;
-    friend class ScopedSpan<ShardCapacity, Max_threads>;
+    friend class TracerProvider<ShardCapacity, MaxThreads>;
+    friend class ScopedSpan<ShardCapacity, MaxThreads>;
 
     /// Factory-only construction: the provider (the befriended factory)
     /// placement-constructs tracers into its pre-allocated pool. No
     /// SpanPasskey here — the passkey guards SPAN construction by a Tracer.
-    Tracer(TracerProvider<ShardCapacity, Max_threads>* provider, const char* name) noexcept
+    Tracer(TracerProvider<ShardCapacity, MaxThreads>* provider, const char* name) noexcept
         : provider_(provider), name_(name) {}
 
-    TracerProvider<ShardCapacity, Max_threads>* provider_{};
+    TracerProvider<ShardCapacity, MaxThreads>* provider_{};
     const char* name_{}; ///< points into the provider's pool slot storage
 };
 

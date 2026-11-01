@@ -2,12 +2,12 @@
 // per-thread SPSC shard pool, runtime control, and the background consumer
 // (design D5/D9/D10/D12; spec tracing/tracer-provider).
 //
-// TracerProvider<ShardCapacity = 1024, Max_threads = 32> owns the ENTIRE
+// TracerProvider<ShardCapacity = 1024, MaxThreads = 32> owns the ENTIRE
 // tracing memory footprint inline (one allocation when the provider object
 // itself is created — alignof == 64, so plain new already goes through
 // C++17 aligned allocation and every member lands cache-aligned):
-//   shards_    Max_threads × SpscRingBuffer<SpanRecord, ShardCapacity>
-//   stamps_    one single-writer Stamp_source PER SLOT (design D8: one rdtsc
+//   shards_    MaxThreads × SpscRingBuffer<SpanRecord, ShardCapacity>
+//   stamps_    one single-writer StampSource PER SLOT (design D8: one rdtsc
 //              + fixed-point multiply per sample; re-anchoring stays
 //              race-free with zero atomics)
 //   state_     per-shard owner-written drop/throttle cells (rate_limited,
@@ -126,11 +126,11 @@ struct SinkBinding {
 } // namespace detail
 
 /// The registry root and the only source of tracers.
-template <std::size_t ShardCapacity = 1024, std::size_t Max_threads = 32>
+template <std::size_t ShardCapacity = 1024, std::size_t MaxThreads = 32>
 class alignas(64) TracerProvider {
     static_assert(ShardCapacity >= 1 && (ShardCapacity & (ShardCapacity - 1)) == 0,
                   "shard capacity must be a positive power of two");
-    static_assert(Max_threads >= 1, "shard pool must hold at least one slot");
+    static_assert(MaxThreads >= 1, "shard pool must hold at least one slot");
 
 public:
     using Record = SpanRecord;
@@ -180,7 +180,7 @@ public:
     /// the same handle, new names claim a pool slot (BufferFull when the
     /// configured pool is exhausted). Zero heap allocation. Control plane:
     /// the registry mutex (D12).
-    [[nodiscard]] core::Result<Tracer<ShardCapacity, Max_threads>*>
+    [[nodiscard]] core::Result<Tracer<ShardCapacity, MaxThreads>*>
     get_tracer(std::string_view scope_name);
 
     /// Control plane: enable/disable and sampling decision (D9) — relaxed
@@ -216,7 +216,7 @@ public:
     /// counter. Sampling-filtered spans never appear here.
     [[nodiscard]] DroppedStats dropped() const noexcept {
         DroppedStats aggregate{};
-        for (const Shard_state& state : state_) {
+        for (const ShardState& state : state_) {
             aggregate.rate_limited += state.rate_limited.load(std::memory_order_relaxed);
             aggregate.buffer_full += state.buffer_full.load(std::memory_order_relaxed);
         }
@@ -258,15 +258,15 @@ public:
     /// Compile-time capacities.
     [[nodiscard]] static constexpr std::size_t capacity() noexcept { return ShardCapacity; }
     [[nodiscard]] static constexpr std::size_t max_threads() noexcept {
-        return Max_threads;
+        return MaxThreads;
     }
 
     /// Cold-path diagnostic (mandate 9): configuration and live state.
     [[nodiscard]] std::string to_string() const;
 
 private:
-    friend class Tracer<ShardCapacity, Max_threads>;
-    friend class ScopedSpan<ShardCapacity, Max_threads>;
+    friend class Tracer<ShardCapacity, MaxThreads>;
+    friend class ScopedSpan<ShardCapacity, MaxThreads>;
 
     /// Hidden common constructor: config + type-erased binding.
     TracerProvider(const TracerProviderConfig& config,
@@ -281,7 +281,7 @@ private:
 
     /// First call per (thread, this): claim a slot; later calls read the
     /// thread_local cache. A 4-entry inline map keyed by provider address
-    /// (logging Producer pattern). Beyond Max_threads distinct threads: the
+    /// (logging Producer pattern). Beyond MaxThreads distinct threads: the
     /// shared exhaustion counter bumps (the ONLY shared atomic RMW on a drop
     /// path) and the caller drops.
     [[nodiscard]] std::int8_t this_thread_slot() noexcept {
@@ -297,7 +297,7 @@ private:
         }
         const std::uint32_t claimed =
             registration_.next_slot.fetch_add(1U, std::memory_order_relaxed);
-        if (claimed >= Max_threads) {
+        if (claimed >= MaxThreads) {
             exhausted_.slot_exhausted.fetch_add(1U, std::memory_order_relaxed);
             return -1; // dropped: no slot (never blocks)
         }
@@ -329,7 +329,7 @@ private:
             const std::size_t index = static_cast<std::size_t>(slot);
             record.end = stamps_[index].sample();
             if (!shards_[index].try_push(record)) {
-                Shard_state& state = state_[index];
+                ShardState& state = state_[index];
                 state.buffer_full.store(
                     state.buffer_full.load(std::memory_order_relaxed) + 1U,
                     std::memory_order_relaxed);
@@ -372,44 +372,44 @@ private:
 
     /// Shard pool: slot s's producer end is touched ONLY by its owner
     /// thread; the single consumer drains all.
-    alignas(64) std::array<core::SpscRingBuffer<SpanRecord, ShardCapacity>, Max_threads>
+    alignas(64) std::array<core::SpscRingBuffer<SpanRecord, ShardCapacity>, MaxThreads>
         shards_{};
 
     /// One stamp source PER SLOT: single-writer per slot keeps sampling
     /// race-free with zero atomics (design D6/D8).
-    std::array<chrono::Stamp_source, Max_threads> stamps_{};
+    std::array<chrono::StampSource, MaxThreads> stamps_{};
 
     /// Per-shard accounting + throttle window: the two counters are written
     /// ONLY by the slot's owner (relaxed store of prev+1 — never a contended
     /// RMW); the window fields are plain single-writer state. One cache line
     /// per shard.
-    struct alignas(64) Shard_state {
+    struct alignas(64) ShardState {
         std::atomic<std::uint64_t> rate_limited{}; ///< owner stores, others load
         std::atomic<std::uint64_t> buffer_full{};  ///< owner stores, others load
         std::uint64_t window_start_ns{};           ///< owner-only plain state
         std::uint64_t tokens_used{};               ///< owner-only plain state
         std::uint8_t pad_[32]{};
     };
-    static_assert(sizeof(Shard_state) % 64 == 0, "shard state owns whole lines");
-    Shard_state state_[Max_threads]{};
+    static_assert(sizeof(ShardState) % 64 == 0, "shard state owns whole lines");
+    ShardState state_[MaxThreads]{};
 
     /// Slot registration (D13): next_slot relaxed fetch_add; active released
     /// max-store so the consumer observes slots it may drain.
-    struct alignas(64) Registration_cell {
+    struct alignas(64) RegistrationCell {
         std::atomic<std::uint32_t> next_slot{}; ///< relaxed fetch_add
         std::atomic<std::uint32_t> active{};    ///< release fetch_max (CAS loop)
         std::uint8_t pad_[56]{};
     } registration_{};
 
     /// Pool-exhaustion counter (relaxed; misconfiguration diagnostics).
-    struct alignas(64) Exhausted_cell {
+    struct alignas(64) ExhaustedCell {
         std::atomic<std::uint64_t> slot_exhausted{};
         std::uint8_t pad_[56]{};
     } exhausted_{};
 
     /// Runtime control (D9): bit0 enabled, bits 1-2 sampling, rest reserved.
     /// ONE relaxed load per span start; relaxed stores on change.
-    struct alignas(64) Control_cell {
+    struct alignas(64) ControlCell {
         std::atomic<std::uint8_t> state{
             static_cast<std::uint8_t>(control_enabled_bit |
                                       (static_cast<std::uint8_t>(
@@ -419,7 +419,7 @@ private:
     } control_{};
 
     /// Worker startup snapshot: one-shot release/acquire publication.
-    struct alignas(64) Start_cell {
+    struct alignas(64) StartCell {
         std::atomic<bool> launched{};       ///< set (release) once the jthread exists
         std::atomic<bool> started{};        ///< set (release) after the start sequence
         std::atomic<std::uint8_t> code{};   ///< first start-phase ErrorCode snapshot
@@ -430,7 +430,7 @@ private:
     /// Flush handshake (D10): requested fetch_add(release) by the flushing
     /// thread; drained store(release) by the worker after sink flush;
     /// sync_error explains the last publication.
-    struct alignas(64) Flush_cell {
+    struct alignas(64) FlushCell {
         std::atomic<std::uint64_t> requested{};
         std::atomic<std::uint64_t> drained{};
         std::atomic<std::uint8_t> sync_error{}; ///< ErrorCode+1, 0 == clean
@@ -460,7 +460,7 @@ private:
         // 8-aligned — fits the slot's alignment without a separate arena.
     };
     alignas(64) std::array<std::byte, tracer_pool_capacity *
-                                             (sizeof(TracerSlot) + sizeof(Tracer<ShardCapacity, Max_threads>))>
+                                             (sizeof(TracerSlot) + sizeof(Tracer<ShardCapacity, MaxThreads>))>
         tracer_storage_{};
     std::size_t tracer_limit_{0};
 
@@ -477,18 +477,18 @@ private:
     std::jthread worker_{};
 
     // Layout self-verification (design D5): the cells own whole cache lines.
-    static_assert(sizeof(Registration_cell) == 64);
-    static_assert(sizeof(Exhausted_cell) == 64);
-    static_assert(sizeof(Control_cell) == 64);
-    static_assert(sizeof(Start_cell) == 64);
-    static_assert(sizeof(Flush_cell) == 64);
+    static_assert(sizeof(RegistrationCell) == 64);
+    static_assert(sizeof(ExhaustedCell) == 64);
+    static_assert(sizeof(ControlCell) == 64);
+    static_assert(sizeof(StartCell) == 64);
+    static_assert(sizeof(FlushCell) == 64);
 };
 
 // --- out-of-line cold members (definitions; provider.cpp explicitly
 // instantiates the default parameters). --------------------------------------
 
-template <std::size_t ShardCapacity, std::size_t Max_threads>
-TracerProvider<ShardCapacity, Max_threads>::TracerProvider(
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+TracerProvider<ShardCapacity, MaxThreads>::TracerProvider(
     const TracerProviderConfig& config, detail::SinkBinding binding) noexcept
     : config_(config), binding_(binding) {
     policy_.enabled = config.max_spans_per_window != 0ULL && config.window_ns != 0ULL;
@@ -499,8 +499,8 @@ TracerProvider<ShardCapacity, Max_threads>::TracerProvider(
                         : tracer_pool_capacity;
 }
 
-template <std::size_t ShardCapacity, std::size_t Max_threads>
-core::Status TracerProvider<ShardCapacity, Max_threads>::initialize() noexcept {
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+core::Status TracerProvider<ShardCapacity, MaxThreads>::initialize() noexcept {
     if (start_.launched.load(std::memory_order_acquire)) {
         return {}; // idempotent: already initialized
     }
@@ -515,8 +515,8 @@ core::Status TracerProvider<ShardCapacity, Max_threads>::initialize() noexcept {
     return {};
 }
 
-template <std::size_t ShardCapacity, std::size_t Max_threads>
-TracerProvider<ShardCapacity, Max_threads>::~TracerProvider() {
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+TracerProvider<ShardCapacity, MaxThreads>::~TracerProvider() {
     if (worker_.joinable()) {
         // consume_loop's shutdown path drains every accepted record, then
         // publishes + stops the sink, all while this object is still whole
@@ -543,9 +543,9 @@ TracerProvider<ShardCapacity, Max_threads>::~TracerProvider() {
     alive_.store(false, std::memory_order_release);
 }
 
-template <std::size_t ShardCapacity, std::size_t Max_threads>
-core::Result<Tracer<ShardCapacity, Max_threads>*>
-TracerProvider<ShardCapacity, Max_threads>::get_tracer(std::string_view scope_name) {
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+core::Result<Tracer<ShardCapacity, MaxThreads>*>
+TracerProvider<ShardCapacity, MaxThreads>::get_tracer(std::string_view scope_name) {
     if (!alive_.load(std::memory_order_acquire)) {
         return std::unexpected(core::ErrorCode::NotInitialized);
     }
@@ -556,15 +556,15 @@ TracerProvider<ShardCapacity, Max_threads>::get_tracer(std::string_view scope_na
     // One tracer slot = name storage + the Tracer object, carved out of the
     // single inline block.
     constexpr std::size_t slot_stride =
-        (sizeof(TracerSlot) + alignof(Tracer<ShardCapacity, Max_threads>) - 1U) /
-            alignof(Tracer<ShardCapacity, Max_threads>) *
-            alignof(Tracer<ShardCapacity, Max_threads>) +
-        sizeof(Tracer<ShardCapacity, Max_threads>);
+        (sizeof(TracerSlot) + alignof(Tracer<ShardCapacity, MaxThreads>) - 1U) /
+            alignof(Tracer<ShardCapacity, MaxThreads>) *
+            alignof(Tracer<ShardCapacity, MaxThreads>) +
+        sizeof(Tracer<ShardCapacity, MaxThreads>);
     for (std::size_t i = 0; i < tracer_limit_; ++i) {
         auto* const slot = reinterpret_cast<TracerSlot*>(tracer_storage_.data() +
                                                           i * slot_stride);
         if (slot->occupied && std::string_view(slot->name) == scope_name) {
-            return reinterpret_cast<Tracer<ShardCapacity, Max_threads>*>(
+            return reinterpret_cast<Tracer<ShardCapacity, MaxThreads>*>(
                 reinterpret_cast<std::byte*>(slot) + sizeof(TracerSlot));
         }
     }
@@ -578,15 +578,15 @@ TracerProvider<ShardCapacity, Max_threads>::get_tracer(std::string_view scope_na
             slot->name[scope_name.size()] = '\0';
             slot->occupied = true;
             auto* const tracer = new (reinterpret_cast<std::byte*>(slot) + sizeof(TracerSlot))
-                Tracer<ShardCapacity, Max_threads>(this, slot->name);
+                Tracer<ShardCapacity, MaxThreads>(this, slot->name);
             return tracer;
         }
     }
     return std::unexpected(core::ErrorCode::BufferFull);
 }
 
-template <std::size_t ShardCapacity, std::size_t Max_threads>
-core::Status TracerProvider<ShardCapacity, Max_threads>::pop(Record& out) noexcept {
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+core::Status TracerProvider<ShardCapacity, MaxThreads>::pop(Record& out) noexcept {
     const std::uint32_t active = registration_.active.load(std::memory_order_acquire);
     bool deferred = false; // a shard was skipped at its 16-record slice
     for (std::uint32_t tried = 0U; tried < active; ++tried) {
@@ -606,8 +606,8 @@ core::Status TracerProvider<ShardCapacity, Max_threads>::pop(Record& out) noexce
     return std::unexpected(core::ErrorCode::BufferEmpty);
 }
 
-template <std::size_t ShardCapacity, std::size_t Max_threads>
-void TracerProvider<ShardCapacity, Max_threads>::consume_loop(
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+void TracerProvider<ShardCapacity, MaxThreads>::consume_loop(
     std::stop_token stop) noexcept {
     // Start sequence ON the worker (design D10): self-pin first so no
     // scheduling window can run the body off-core; snapshot the resulting
@@ -676,8 +676,8 @@ void TracerProvider<ShardCapacity, Max_threads>::consume_loop(
     }
 }
 
-template <std::size_t ShardCapacity, std::size_t Max_threads>
-void TracerProvider<ShardCapacity, Max_threads>::publish_sync(
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+void TracerProvider<ShardCapacity, MaxThreads>::publish_sync(
     std::uint64_t sequence) noexcept {
     core::Status sync{};
     if (binding_.flush != nullptr) {
@@ -690,8 +690,8 @@ void TracerProvider<ShardCapacity, Max_threads>::publish_sync(
     flush_.drained.store(sequence, std::memory_order_release);
 }
 
-template <std::size_t ShardCapacity, std::size_t Max_threads>
-core::Status TracerProvider<ShardCapacity, Max_threads>::flush() noexcept {
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+core::Status TracerProvider<ShardCapacity, MaxThreads>::flush() noexcept {
     if (!start_.launched.load(std::memory_order_acquire)) {
         return std::unexpected(core::ErrorCode::NotInitialized); // not initialized
     }
@@ -711,11 +711,11 @@ core::Status TracerProvider<ShardCapacity, Max_threads>::flush() noexcept {
     return {};
 }
 
-template <std::size_t ShardCapacity, std::size_t Max_threads>
-std::string TracerProvider<ShardCapacity, Max_threads>::to_string() const {
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+std::string TracerProvider<ShardCapacity, MaxThreads>::to_string() const {
     std::string out = "TracerProvider(shard_capacity=";
     out += std::to_string(ShardCapacity);
-    out += ", max_threads=" + std::to_string(Max_threads);
+    out += ", max_threads=" + std::to_string(MaxThreads);
     out += ", core_mask=0x" + std::to_string(config_.core_mask);
     out += ", tracer_limit=" + std::to_string(tracer_limit_);
     out += ", enabled=" + std::string(is_enabled() ? "true" : "false");

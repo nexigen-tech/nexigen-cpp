@@ -97,18 +97,18 @@ bool contains(std::string_view text, std::string_view needle) {
     return text.find(needle) != std::string_view::npos;
 }
 
-struct Diagnostic_capture {
+struct DiagnosticCapture {
     mutable std::mutex mutex{};
     std::vector<std::string> messages{};
 };
 
 void capture_diagnostic(void* context, std::string_view message) noexcept {
-    auto* capture = static_cast<Diagnostic_capture*>(context);
+    auto* capture = static_cast<DiagnosticCapture*>(context);
     const std::lock_guard<std::mutex> lock(capture->mutex);
     capture->messages.emplace_back(message);
 }
 
-bool diagnostic_contains(const Diagnostic_capture& capture,
+bool diagnostic_contains(const DiagnosticCapture& capture,
                          std::string_view needle) {
     const std::lock_guard<std::mutex> lock(capture.mutex);
     for (const std::string& message : capture.messages) {
@@ -837,7 +837,7 @@ void test_streaming() {
 
     // A missing stream is reported through the diagnostic sink and makes sync
     // fail without disturbing other tailers.
-    Diagnostic_capture capture;
+    DiagnosticCapture capture;
     hub::StreamManager diagnosed;
     diagnosed.set_diagnostic_sink(capture_diagnostic, &capture);
     hub::HubTree missing_tree{};
@@ -863,7 +863,7 @@ void test_streaming() {
     // A file that disappears after being tailed is reported on the next poll.
     const std::string transient = fixture.attempt_dir + "/transient.jsonl";
     write_text(transient, "x\n");
-    Diagnostic_capture stat_capture;
+    DiagnosticCapture stat_capture;
     hub::StreamManager transient_streams;
     transient_streams.set_diagnostic_sink(capture_diagnostic, &stat_capture);
     hub::HubTree transient_tree{};
@@ -888,7 +888,7 @@ void test_streaming() {
 
     // A directory used as a stream path opens but fails to read; both the
     // initial seed and the poll path report the read error.
-    Diagnostic_capture read_capture;
+    DiagnosticCapture read_capture;
     hub::StreamManager directory_streams;
     directory_streams.set_diagnostic_sink(capture_diagnostic, &read_capture);
     hub::HubTree directory_tree{};
@@ -954,7 +954,7 @@ void test_http_start_errors() {
     // the listener from starting.
     std::error_code remove_error;
     std::filesystem::remove(fixture.attempt_dir + "/traces.jsonl", remove_error);
-    Diagnostic_capture capture;
+    DiagnosticCapture capture;
     hub::StreamManager late;
     hub::HttpServer with_failure(discovery, late, capture_diagnostic, &capture);
     NX_CHECK(with_failure.start("127.0.0.1:0").has_value());
@@ -1152,7 +1152,7 @@ void test_http_server() {
     hub::StreamManager streaming;
     NX_CHECK(streaming.sync(discovery.tree()).has_value());
     streaming.poll();
-    Diagnostic_capture capture;
+    DiagnosticCapture capture;
     hub::HttpServer server(discovery, streaming, capture_diagnostic, &capture);
     NX_CHECK(server.start("127.0.0.1:0").has_value());
     std::atomic<bool> stop{false};

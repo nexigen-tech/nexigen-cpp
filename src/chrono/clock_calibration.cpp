@@ -1,7 +1,7 @@
 // nexigen::chrono — cold-path clock calibration (logging design.md D6/D10,
 // relocated out of src/logging/ by the extract-chrono-module change).
 //
-// Stamp_source::calibrate(): sample the tick<->nanosecond scale once at
+// StampSource::calibrate(): sample the tick<->nanosecond scale once at
 // logger initialization. Sleeps ~2 ms, so it lives in the compiled library
 // (never inline, never on a hot path): the producer only ever runs the
 // multiply-shift conversion and the rare re-anchor that stamp_source.hpp
@@ -23,7 +23,7 @@
 
 namespace nexigen::chrono {
 
-core::Status Stamp_source::calibrate() noexcept {
+core::Status StampSource::calibrate() noexcept {
 #if defined(__x86_64__)    // Anchor pair: ticks first, then the clock — the constant sub-microsecond
     // lag this introduces is absorbed by the per-source monotonic clamp.
     const std::uint64_t t1 = __rdtsc();

@@ -41,7 +41,7 @@ namespace detail {
 
 /// Multi-threaded gauge shard: 64-byte aligned atomic cell.
 template <typename ValueType>
-struct alignas(64) Gauge_shard {
+struct alignas(64) GaugeShard {
     std::atomic<ValueType> value{0};
 };
 
@@ -109,7 +109,7 @@ public:
     }
 
 private:
-    mutable Gauge_shard<ValueType> shards_[shard_count]{};
+    mutable GaugeShard<ValueType> shards_[shard_count]{};
 };
 
 } // namespace detail

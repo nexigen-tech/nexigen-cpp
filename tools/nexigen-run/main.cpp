@@ -74,7 +74,7 @@ NEXIGEN_INSTANCE_ID, and NEXIGEN_INSTANCE_DIR are start-time defaults.
            identity.instance_id;
 }
 
-struct Cli_log_target {
+struct CliLogTarget {
     std::string primary_dir{};
     logging::Settings settings{};
     logging::LogLevel level{logging::LogLevel::Info};
@@ -90,17 +90,17 @@ struct Cli_log_target {
     return std::string(buffer);
 }
 
-[[nodiscard]] Cli_log_target fallback_log_target() {
-    Cli_log_target target{};
+[[nodiscard]] CliLogTarget fallback_log_target() {
+    CliLogTarget target{};
     const std::string cwd = working_directory();
     target.primary_dir =
         (cwd.empty() ? std::string("/tmp") : cwd) + "/.nexigen-run";
     return target;
 }
 
-[[nodiscard]] Cli_log_target manifest_log_target(
+[[nodiscard]] CliLogTarget manifest_log_target(
     const runner::SuiteManifest& manifest) {
-    Cli_log_target target{};
+    CliLogTarget target{};
     target.primary_dir =
         manifest.artifacts_path + "/" + manifest.suite_id;
     target.control_cpus = manifest.runner_control_cpus;
@@ -120,7 +120,7 @@ struct Cli_log_target {
 }
 
 [[nodiscard]] bool suite_dir_log_target(std::string_view suite_dir,
-                                        Cli_log_target& target) {
+                                        CliLogTarget& target) {
     const std::string directory(suite_dir);
     const core::Result<nlohmann::json> document =
         runner::read_json_file(directory + "/suite.json");
@@ -145,7 +145,7 @@ struct Cli_log_target {
     return true;
 }
 
-void activate_logging(const Cli_log_target& target) {
+void activate_logging(const CliLogTarget& target) {
     const core::Status initialized = runner::init_runner_logging(
         target.primary_dir, target.settings, target.level,
         std::span<const std::uint32_t>(target.logger_cpus.data(),
@@ -156,7 +156,7 @@ void activate_logging(const Cli_log_target& target) {
     }
 }
 
-void apply_control_affinity(const Cli_log_target& target) {
+void apply_control_affinity(const CliLogTarget& target) {
     const core::Status applied = runner::apply_runner_affinity(
         std::span<const std::uint32_t>(target.control_cpus.data(),
                                        target.control_cpus.size()),
@@ -294,7 +294,7 @@ int cmd_start(int argc, char* argv[]) {
         runner::SuiteManifest manifest{};
         const core::Status loaded = runner::load_suite_manifest(config, manifest);
         if (!loaded) {
-            const Cli_log_target target = fallback_log_target();
+            const CliLogTarget target = fallback_log_target();
             activate_logging(target);
             log_command("start", "suite", config, "error",
                         std::string(core::to_string(loaded.error())));
@@ -303,7 +303,7 @@ int cmd_start(int argc, char* argv[]) {
                          std::string(core::to_string(loaded.error())).c_str());
             return exit_failure;
         }
-        const Cli_log_target log_target = manifest_log_target(manifest);
+        const CliLogTarget log_target = manifest_log_target(manifest);
         apply_control_affinity(log_target);
         std::string target;
         runner::Runner suite_runner;
@@ -343,7 +343,7 @@ int cmd_start(int argc, char* argv[]) {
     const std::string target = derived_instance_dir(identity);
     runner::Runner runner;
     const core::Status status = runner.start(identity, command, timeout_s);
-    const Cli_log_target log_target = fallback_log_target();
+    const CliLogTarget log_target = fallback_log_target();
     activate_logging(log_target);
     if (!status) {
         log_command("start", "single", target, "error",
@@ -429,7 +429,7 @@ int cmd_stop(int argc, char* argv[]) {
 
     if (!config.empty() || !suite_dir.empty()) {
         std::string target = suite_dir;
-        Cli_log_target log_target = fallback_log_target();
+        CliLogTarget log_target = fallback_log_target();
         if (!config.empty()) {
             runner::SuiteManifest manifest{};
             const core::Status loaded =
@@ -485,7 +485,7 @@ int cmd_stop(int argc, char* argv[]) {
         return exit_usage;
     }
 
-    const Cli_log_target log_target = fallback_log_target();
+    const CliLogTarget log_target = fallback_log_target();
     activate_logging(log_target);
     runner::Runner runner;
     const core::Status status = runner.stop(instance_dir, grace_s);
@@ -566,7 +566,7 @@ int cmd_status(int argc, char* argv[]) {
 
     if (!config.empty() || !suite_dir.empty()) {
         std::string target = suite_dir;
-        Cli_log_target log_target = fallback_log_target();
+        CliLogTarget log_target = fallback_log_target();
         if (!config.empty()) {
             runner::SuiteManifest manifest{};
             const core::Status loaded =
@@ -626,7 +626,7 @@ int cmd_status(int argc, char* argv[]) {
         return exit_usage;
     }
 
-    const Cli_log_target log_target = fallback_log_target();
+    const CliLogTarget log_target = fallback_log_target();
     activate_logging(log_target);
     runner::Runner runner;
     std::string state;
