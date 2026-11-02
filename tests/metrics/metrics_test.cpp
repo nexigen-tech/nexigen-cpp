@@ -1206,7 +1206,7 @@ void test_composite_injection() {
                                  metrics::NullMetricSink>
         composite{metrics::ConsoleMetricSink{console_fd},
                   metrics::JsonFileMetricSink{
-                      metrics::JsonFileMetricSinkConfig{std::string(json_path), false}},
+                      metrics::JsonFileMetricSinkConfig{std::string(json_path), "", false}},
                   metrics::NullMetricSink{}};
 
     // Typed and indexed access name the same member.
@@ -1231,7 +1231,7 @@ void test_composite_injection() {
                                  metrics::NullMetricSink>
         flaky{metrics::ConsoleMetricSink{-1},
               metrics::JsonFileMetricSink{
-                  metrics::JsonFileMetricSinkConfig{std::string(json2_path), false}},
+                  metrics::JsonFileMetricSinkConfig{std::string(json2_path), "", false}},
               metrics::NullMetricSink{}};
     const Status flaky_status = flaky.on_batch(batch);
     NX_CHECK(!flaky_status.has_value());
@@ -1813,7 +1813,7 @@ void test_sinks_json() {
     };
 
     {
-        metrics::JsonFileMetricSinkConfig config{std::string(path), false};
+        metrics::JsonFileMetricSinkConfig config{std::string(path), "", false};
         metrics::JsonFileMetricSink sink{config};
         NX_CHECK(sink.is_open());
         metrics::MetricRecord records[1]{};
@@ -1857,7 +1857,7 @@ void test_sinks_json() {
         }
 
         // Append ordering: a second sink appends one more line.
-        metrics::JsonFileMetricSinkConfig appended{std::string(path), true};
+        metrics::JsonFileMetricSinkConfig appended{std::string(path), "", true};
         metrics::JsonFileMetricSink append_sink{appended};
         NX_CHECK(append_sink.on_batch(batch).has_value());
         NX_CHECK(append_sink.flush().has_value());
@@ -1878,7 +1878,7 @@ void test_sinks_json() {
     // Open failure surfaces through Status without emitting invalid JSON.
     {
         metrics::JsonFileMetricSinkConfig broken_config{
-            "/nonexistent-nexigen-dir/telemetry.jsonl", false};
+            "/nonexistent-nexigen-dir/telemetry.jsonl", "", false};
         metrics::JsonFileMetricSink broken{broken_config};
         NX_CHECK(!broken.is_open());
         metrics::MetricBatchSnapshot empty{};
@@ -2700,7 +2700,7 @@ void test_sink_kind_matrix() {
     ::close(made);
     {
         metrics::JsonFileMetricSink sink{
-            metrics::JsonFileMetricSinkConfig{std::string(path), false}};
+            metrics::JsonFileMetricSinkConfig{std::string(path), "", false}};
         NX_CHECK(sink.is_open());
         NX_CHECK(sink.on_batch(batch).has_value());
         NX_CHECK(sink.flush().has_value());
@@ -2732,7 +2732,7 @@ void test_sink_kind_matrix() {
     escaped[0].scalar.counter = 1;
     {
         metrics::JsonFileMetricSink sink{
-            metrics::JsonFileMetricSinkConfig{std::string(path), false}};
+            metrics::JsonFileMetricSinkConfig{std::string(path), "", false}};
         NX_CHECK(sink.on_batch(make_batch(escaped, 1)).has_value());
         NX_CHECK(sink.flush().has_value());
         std::ifstream input(path);
@@ -2746,7 +2746,7 @@ void test_sink_kind_matrix() {
     // Batch edge cases: null records, empty batch, overflow (BufferFull).
     {
         metrics::JsonFileMetricSink sink{
-            metrics::JsonFileMetricSinkConfig{std::string(path), false}};
+            metrics::JsonFileMetricSinkConfig{std::string(path), "", false}};
         metrics::MetricBatchSnapshot null_batch{};
         null_batch.records = nullptr;
         null_batch.record_count = 1;
@@ -2791,7 +2791,7 @@ void test_sink_kind_matrix() {
     // Failed open: on_batch and flush both report SystemError.
     {
         metrics::JsonFileMetricSink broken{
-            metrics::JsonFileMetricSinkConfig{"/nonexistent-nexigen/x.jsonl", false}};
+            metrics::JsonFileMetricSinkConfig{"/nonexistent-nexigen/x.jsonl", "", false}};
         NX_CHECK(!broken.is_open());
         NX_CHECK(!broken.on_batch(batch).has_value());
         NX_CHECK(!broken.flush().has_value());

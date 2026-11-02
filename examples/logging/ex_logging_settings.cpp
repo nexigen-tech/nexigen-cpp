@@ -28,7 +28,6 @@ using nexigen::logging::load_logging_settings;
 constexpr std::string_view k_root = "/tmp/nexigen-examples-logging-settings";
 constexpr std::string_view k_global = "/tmp/nexigen-examples-logging-settings/global.json";
 constexpr std::string_view k_local = "/tmp/nexigen-examples-logging-settings/local.json";
-constexpr std::string_view k_app_name = "ex-logging-settings";
 
 /// Static storage: FileLogger owns non-movable shard rings and a worker.
 FileLogger<> logger{};
@@ -64,7 +63,6 @@ bool verify_log_file(const std::string& path) {
     }
     std::size_t lines = 0;
     bool level_ok = false;
-    bool app_ok = false;
     std::string line;
     while (std::getline(in, line)) {
         if (line.empty()) {
@@ -72,11 +70,9 @@ bool verify_log_file(const std::string& path) {
         }
         ++lines;
         level_ok = level_ok || line.find("\"level\":\"debug\"") != std::string::npos;
-        app_ok = app_ok || line.find(std::format("\"app\":\"{}\"", k_app_name)) !=
-                                std::string::npos;
     }
     print_line(std::format("verified {} line(s) in {}", lines, path));
-    return lines >= 2U && level_ok && app_ok;
+    return lines >= 2U && level_ok;
 }
 
 } // namespace
@@ -90,11 +86,9 @@ int main() {
         return 1;
     }
 
-    // Global file: machine-wide policy. `app_name` here is ignored by design
-    // (local-only field) and demonstrated as such below.
+    // Global file: machine-wide policy.
     write_file(k_global,
                std::format(R"({{"log_root_directory":"{}",)"
-                           R"("app_name":"must-be-ignored",)"
                            R"("initial_log_level":"info",)"
                            R"("max_file_size_bytes":4096,)"
                            R"("flush_cpu_affinity":[0]}})",
@@ -102,9 +96,7 @@ int main() {
     // Local file: per-application override.
     write_file(k_local,
                std::format(R"({{"initial_log_level":"warning",)"
-                           R"("app_name":"{}",)"
-                           R"("spsc_ring_buffer_capacity":64}})",
-                           k_app_name));
+                           R"("spsc_ring_buffer_capacity":64}})"));
 
     // Environment overrides are the highest-priority layer.
     static_cast<void>(::setenv("NEXIGEN_LOG_LEVEL", "debug", 1));

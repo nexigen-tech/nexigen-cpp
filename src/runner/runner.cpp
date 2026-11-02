@@ -144,7 +144,7 @@ constexpr std::size_t max_path_bytes = 511;
 
 [[nodiscard]] core::Status write_suite_settings(
     std::string_view instance_dir, std::string_view stream_root,
-    const StartOptions& options, const app::RunIdentity& identity) noexcept {
+    const StartOptions& options) noexcept {
     app::Settings settings{};
     if (!options.global_settings_dir.empty() ||
         !options.local_settings_dir.empty()) {
@@ -181,10 +181,6 @@ constexpr std::size_t max_path_bytes = 511;
     }
 
     settings.logging.options.log_root_directory = std::string(stream_root);
-    settings.logging.options.app_name =
-        (!identity.app_name.empty() && identity.app_name.size() <= 63)
-            ? identity.app_name
-            : "nexigen";
     if (options.log_level.has_value()) {
         settings.logging.options.initial_log_level = *options.log_level;
     }
@@ -370,15 +366,15 @@ struct StartLayout {
 };
 
 [[nodiscard]] core::Status resolve_start_layout(
-    const app::RunIdentity& identity, const StartOptions& options,
-    StartLayout& out) noexcept {
+    const app::RunIdentity& identity, std::string_view app_name,
+    const StartOptions& options, StartLayout& out) noexcept {
     app::RunIdentity resolved = identity;
     if (resolved.instance_dir.empty()) {
-        if (resolved.run_dir.empty() || resolved.app_name.empty() ||
+        if (resolved.run_dir.empty() || app_name.empty() ||
             resolved.instance_id.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        resolved.instance_dir = resolved.run_dir + "/" + resolved.app_name +
+        resolved.instance_dir = resolved.run_dir + "/" + std::string(app_name) +
                                 "/" + resolved.instance_id;
     }
     while (resolved.instance_dir.size() > 1 &&
@@ -440,7 +436,7 @@ struct StartLayout {
     const core::Status settings_status =
         suite_settings
             ? write_suite_settings(layout.instance_dir, layout.stream_root,
-                                   options, layout.resolved)
+                                   options)
             : generate_settings(layout.instance_dir, resolved_paths);
     if (!settings_status) {
         return settings_status;
@@ -598,8 +594,6 @@ struct SupervisorContext {
         static_cast<void>(
             ::setenv("NEXIGEN_RUN_DIR", resolved.run_dir.c_str(), 1));
         static_cast<void>(
-            ::setenv("NEXIGEN_APP_NAME", resolved.app_name.c_str(), 1));
-        static_cast<void>(
             ::setenv("NEXIGEN_INSTANCE_ID", resolved.instance_id.c_str(), 1));
         static_cast<void>(::setenv("NEXIGEN_INSTANCE_DIR",
                                    context.instance_dir->c_str(), 1));
@@ -703,12 +697,14 @@ std::string StartOptions::to_string() const {
 }
 
 core::Status Runner::start(const app::RunIdentity& identity,
+                           std::string_view app_name,
                            const std::vector<std::string>& command,
                            std::uint64_t timeout_s) {
-    return start(identity, command, timeout_s, StartOptions{});
+    return start(identity, app_name, command, timeout_s, StartOptions{});
 }
 
 core::Status Runner::start(const app::RunIdentity& identity,
+                           std::string_view app_name,
                            const std::vector<std::string>& command,
                            std::uint64_t timeout_s,
                            const StartOptions& options) {
@@ -722,7 +718,7 @@ core::Status Runner::start(const app::RunIdentity& identity,
 
     StartLayout layout;
     const core::Status resolved_status =
-        resolve_start_layout(identity, options, layout);
+        resolve_start_layout(identity, app_name, options, layout);
     if (!resolved_status) {
         return resolved_status;
     }
@@ -741,14 +737,19 @@ core::Status Runner::start(const app::RunIdentity& identity,
     }
 
     std::vector<const char*> argv;
-    argv.reserve(command.size() + 1);
+    argv.reserve(command.size() + 3);
     for (const std::string& argument : command) {
         argv.push_back(argument.c_str());
+    }
+    const std::string app_name_arg{app_name};
+    if (!app_name_arg.empty()) {
+        argv.push_back("--app-name");
+        argv.push_back(app_name_arg.c_str());
     }
     argv.push_back(nullptr);
 
     ResourceMetadata metadata =
-        ResourceMetadata::from_identity(layout.resolved, 0, 0);
+        ResourceMetadata::from_identity(layout.resolved, app_name, 0, 0);
 
     int pipe_fds[2]{-1, -1};
     if (core::detail::fault(core::detail::FaultPoint::Runner_pipe2) ||

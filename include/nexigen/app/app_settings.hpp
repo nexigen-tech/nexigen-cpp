@@ -37,6 +37,7 @@ struct AppSettingsPaths {
 
 /// One merged value consumed by Infrastructure::initialize.
 struct Settings {
+    std::string app_name{};  ///< Application name for telemetry (supplied from the CLI).
     logging::Settings logging{};
     metrics::Settings metrics{};
     tracing::Settings tracing{};

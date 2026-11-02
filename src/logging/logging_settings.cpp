@@ -103,10 +103,9 @@ void add_diagnostic(Settings& settings, core::SettingsSource source,
 
 /// Validate every known field of one document, keep only the valid ones in
 /// `clean`, and leave the rest to the existing LoggerOptions from_json so the
-/// field mapping stays in one place. `allow_app_name` is false for the global
-/// source (app_name is local-only and is silently ignored there).
+/// field mapping stays in one place.
 void sanitize_document(const nlohmann::json& document, core::SettingsSource source,
-                       bool allow_app_name, Settings& settings,
+                       Settings& settings,
                        nlohmann::json& clean) {
     clean = nlohmann::json::object();
     if (!document.is_object()) {
@@ -122,17 +121,6 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
         } else {
             add_diagnostic(settings, source, "log_root_directory",
                            "expected a non-empty string of at most 511 bytes without NUL");
-        }
-    }
-
-    it = document.find("app_name");
-    if (it != document.end() && allow_app_name) {
-        std::string value;
-        if (plain_string(*it, 63, true, value)) {
-            clean["app_name"] = value;
-        } else {
-            add_diagnostic(settings, source, "app_name",
-                           "expected a non-empty string of at most 63 bytes without NUL");
         }
     }
 
@@ -397,16 +385,6 @@ void apply_environment(Settings& settings) noexcept {
         }
     }
 
-    value = env("NEXIGEN_LOG_APP_NAME");
-    if (!value.empty()) {
-        if (value.size() <= 63 && value.find('\0') == std::string_view::npos) {
-            settings.options.app_name = std::string(value);
-        } else {
-            add_diagnostic(settings, core::SettingsSource::Environment, "app_name",
-                           "expected at most 63 bytes without NUL");
-        }
-    }
-
     value = env("NEXIGEN_LOG_MAX_FILE_SIZE_BYTES");
     if (!value.empty()) {
         std::uint64_t parsed = 0;
@@ -539,7 +517,7 @@ core::Status load_logging_settings(const core::SettingsPaths& paths,
         } else {
             const std::size_t before = out.diagnostics.size();
             nlohmann::json clean;
-            sanitize_document(document, core::SettingsSource::Global, false, out, clean);
+            sanitize_document(document, core::SettingsSource::Global, out, clean);
             from_json(clean, out.options);
             if (out.diagnostics.size() != before) {
                 invalid = true;
@@ -562,7 +540,7 @@ core::Status load_logging_settings(const core::SettingsPaths& paths,
         } else {
             const std::size_t before = out.diagnostics.size();
             nlohmann::json clean;
-            sanitize_document(document, core::SettingsSource::Local, true, out, clean);
+            sanitize_document(document, core::SettingsSource::Local, out, clean);
             from_json(clean, out.options);
             if (out.diagnostics.size() != before) {
                 invalid = true;
@@ -592,9 +570,7 @@ core::Status load_logging_settings(const core::SettingsPaths& paths,
 core::Status apply_to(const Settings& settings, FileLoggerConfig& out) noexcept {
     const LoggerOptions& options = settings.options;
     if (options.log_root_directory.empty() || options.log_root_directory.size() > 511 ||
-        options.log_root_directory.find('\0') != std::string::npos ||
-        options.app_name.empty() || options.app_name.size() > 63 ||
-        options.app_name.find('\0') != std::string::npos) {
+        options.log_root_directory.find('\0') != std::string::npos) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 
@@ -607,7 +583,6 @@ core::Status apply_to(const Settings& settings, FileLoggerConfig& out) noexcept 
     }
 
     out = FileLoggerConfig{};
-    out.app_name = options.app_name;
     out.base_dir = options.log_root_directory;
     out.initial_level = options.initial_log_level;
     out.max_file_size_bytes = options.max_file_size_bytes;

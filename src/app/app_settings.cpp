@@ -23,7 +23,8 @@ std::string AppSettingsPaths::to_string() const {
 }
 
 std::string Settings::to_string() const {
-    return "Settings(logging=" + logging.to_string() +
+    return "Settings(app_name=\"" + app_name +
+           "\", logging=" + logging.to_string() +
            ", metrics=" + metrics.to_string() + ", tracing=" + tracing.to_string() +
            ", chrono=" + chrono.to_string() + ")";
 }
@@ -48,7 +49,8 @@ void to_json(nlohmann::json& j, const Settings& settings) {
     to_json(tracing_json, settings.tracing);
     nlohmann::json chrono_json;
     to_json(chrono_json, settings.chrono);
-    j = nlohmann::json{{"logging", std::move(logging_json)},
+    j = nlohmann::json{{"app_name", settings.app_name},
+                       {"logging", std::move(logging_json)},
                        {"metrics", std::move(metrics_json)},
                        {"tracing", std::move(tracing_json)},
                        {"chrono", std::move(chrono_json)}};

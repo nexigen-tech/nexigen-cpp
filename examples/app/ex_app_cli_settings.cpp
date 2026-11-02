@@ -105,7 +105,8 @@ struct CliFilePolicy {
 
     static core::Status emplace_logger(
         std::optional<Logger>& out,
-        const logging::Settings& settings) noexcept {
+        const logging::Settings& settings,
+        std::string_view app_name) noexcept {
         const core::Status capacity =
             logging::check_capacity<Logger::capacity(), Logger::max_threads(), 128>(settings);
         if (!capacity) {
@@ -116,6 +117,7 @@ struct CliFilePolicy {
         if (!applied) {
             return applied;
         }
+        config.app_name = app_name;
         // One plain app.jsonl at the output root: no hourly subdirectories.
         config.rotation.kind = logging::RotationSchedule::None;
         out.emplace();
@@ -124,21 +126,27 @@ struct CliFilePolicy {
 
     static core::Status emplace_metrics_sink(
         std::optional<MetricsSink>& out,
-        const metrics::Settings& settings) noexcept {
+        const metrics::Settings& settings,
+        std::string_view app_name) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        out.emplace(settings.sink);
+        metrics::JsonFileMetricSinkConfig config = settings.sink;
+        config.app_name = std::string(app_name);
+        out.emplace(config);
         return {};
     }
 
     static core::Status emplace_trace_sink(
         std::optional<TraceSink>& out,
-        const tracing::Settings& settings) noexcept {
+        const tracing::Settings& settings,
+        std::string_view app_name) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        out.emplace(settings.sink);
+        tracing::JsonFileTraceSinkConfig config = settings.sink;
+        config.app_name = std::string(app_name);
+        out.emplace(config);
         return {};
     }
 

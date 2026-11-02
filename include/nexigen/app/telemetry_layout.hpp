@@ -27,7 +27,6 @@ namespace nexigen::app {
 struct RunIdentity {
     std::string run_id{};         ///< NEXIGEN_RUN_ID
     std::string run_dir{};        ///< NEXIGEN_RUN_DIR
-    std::string app_name{};       ///< NEXIGEN_APP_NAME
     std::string instance_id{};    ///< NEXIGEN_INSTANCE_ID
     std::string instance_dir{};   ///< NEXIGEN_INSTANCE_DIR or derived <run_dir>/<app_name>/<instance_id>
 
@@ -50,11 +49,17 @@ struct TelemetryPaths {
     return paths.to_string();
 }
 
-/// Read NEXIGEN_RUN_ID, NEXIGEN_RUN_DIR, NEXIGEN_APP_NAME,
-/// NEXIGEN_INSTANCE_ID, and NEXIGEN_INSTANCE_DIR. When the instance directory
-/// is absent and the three derivation inputs are present, derive it as
-/// `<run_dir>/<app_name>/<instance_id>`. Never consults CWD, hostname, or PID.
+/// Read NEXIGEN_RUN_ID, NEXIGEN_RUN_DIR,
+/// NEXIGEN_INSTANCE_ID, and NEXIGEN_INSTANCE_DIR. The application name is not
+/// part of run identity and is supplied separately. Never consults CWD,
+/// hostname, or PID.
 [[nodiscard]] RunIdentity load_run_identity() noexcept;
+
+/// Derive the instance directory as `<run_dir>/<app_name>/<instance_id>` from a
+/// separately supplied application name.
+[[nodiscard]] std::string derive_instance_dir(std::string_view run_dir,
+                                              std::string_view app_name,
+                                              std::string_view instance_id);
 
 /// Validate present ids (1..128 bytes, [A-Za-z0-9._-], no "."/".."/"..")
 /// and present directories (POSIX absolute). A completely empty identity is

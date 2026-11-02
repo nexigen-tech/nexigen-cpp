@@ -51,7 +51,6 @@ void from_json(const nlohmann::json& j, SpamProtectionConfig& out) noexcept {
 void to_json(nlohmann::json& j, const LoggerOptions& opts) {
     j = nlohmann::json{
         {"log_root_directory", opts.log_root_directory},
-        {"app_name", opts.app_name},
         {"initial_log_level", std::string(to_string(opts.initial_log_level))},
         {"max_file_size_bytes", opts.max_file_size_bytes},
         {"spsc_ring_buffer_capacity", opts.spsc_ring_buffer_capacity},
@@ -69,8 +68,6 @@ void from_json(const nlohmann::json& j, LoggerOptions& out) noexcept {
     if (!j.is_object()) { return; }
     auto it = j.find("log_root_directory");
     if (it != j.end() && it->is_string()) { out.log_root_directory = it->get<std::string>(); }
-    it = j.find("app_name");
-    if (it != j.end() && it->is_string()) { out.app_name = it->get<std::string>(); }
     it = j.find("initial_log_level");
     if (it != j.end() && it->is_string()) {
         static_cast<void>(from_string(std::string_view(*it->get_ptr<const nlohmann::json::string_t*>()),
@@ -121,7 +118,6 @@ std::string SpamProtectionConfig::to_string() const {
 
 std::string LoggerOptions::to_string() const {
     return "LoggerOptions(log_root_directory=" + log_root_directory +
-           ", app_name=" + app_name +
            ", initial_log_level=" + std::string(nexigen::logging::to_string(initial_log_level)) +
            ", max_file_size_bytes=" + std::to_string(max_file_size_bytes) +
            ", spsc_ring_buffer_capacity=" + std::to_string(spsc_ring_buffer_capacity) +

@@ -56,8 +56,7 @@ int main() {
                std::string(R"({"log_root_directory":")") + std::string(k_root) +
                    R"(","initial_log_level":"info","max_file_size_bytes":4096})");
     write_file(local_path,
-               R"({"app_name":"ex-logging-settings-simple",)"
-               R"("initial_log_level":"debug"})");
+               R"({"initial_log_level":"debug"})");
 
     Settings settings{};
     const auto loaded =
@@ -74,13 +73,12 @@ int main() {
     }
 
     logger.debug("initialized from global.json + local.json");
-    logger.info("application is {}", std::string_view{settings.options.app_name});
+    logger.info("settings merged successfully");
     if (!logger.flush().has_value()) {
         return fail("flush failed");
     }
 
-    std::printf("ex_logging_settings_simple: OK (app=%s, level=%s)\n",
-                settings.options.app_name.c_str(),
+    std::printf("ex_logging_settings_simple: OK (level=%s)\n",
                 std::string(nexigen::logging::to_string(logger.level())).c_str());
     return 0;
 }

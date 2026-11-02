@@ -115,7 +115,6 @@ struct SpamProtectionConfig {
 /// Unified runtime configuration for the async logging engine.
 struct LoggerOptions {
     std::string log_root_directory{"./logs"};
-    std::string app_name{"nexigen_app"};
     LogLevel initial_log_level{LogLevel::Info};
     std::uint64_t max_file_size_bytes{104857600ULL}; ///< 0 = no limit.
     std::uint32_t spsc_ring_buffer_capacity{65536U}; ///< rounded up via bit_ceil.

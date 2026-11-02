@@ -45,15 +45,16 @@ NEXIGEN_INSTANCE_ID, and NEXIGEN_INSTANCE_DIR are start-time defaults.
 )");
 }
 
-[[nodiscard]] std::string derived_instance_dir(const app::RunIdentity& identity) {
+[[nodiscard]] std::string derived_instance_dir(const app::RunIdentity& identity,
+                                              std::string_view app_name) {
     if (!identity.instance_dir.empty()) {
         return identity.instance_dir;
     }
-    if (identity.run_dir.empty() || identity.app_name.empty() ||
+    if (identity.run_dir.empty() || app_name.empty() ||
         identity.instance_id.empty()) {
         return {};
     }
-    return identity.run_dir + "/" + identity.app_name + "/" +
+    return identity.run_dir + "/" + std::string(app_name) + "/" +
            identity.instance_id;
 }
 
@@ -310,9 +311,6 @@ int cmd_start(int argc, char* argv[]) {
     if (!run_id.empty()) {
         identity.run_id = run_id;
     }
-    if (!app_name.empty()) {
-        identity.app_name = app_name;
-    }
     if (!instance_id.empty()) {
         identity.instance_id = instance_id;
     }
@@ -323,9 +321,9 @@ int cmd_start(int argc, char* argv[]) {
         identity.instance_dir = instance_dir;
     }
 
-    const std::string target = derived_instance_dir(identity);
+    const std::string target = derived_instance_dir(identity, app_name);
     runner::Runner runner;
-    const core::Status status = runner.start(identity, command, timeout_s);
+    const core::Status status = runner.start(identity, app_name, command, timeout_s);
     const CliLogTarget log_target = fallback_log_target();
     activate_logging(log_target);
     if (!status) {

@@ -91,6 +91,7 @@ inline void from_json(const nlohmann::json& j, RotationPolicy& out) noexcept {
 /// src/tracing/sink_format.cpp).
 struct JsonFileTraceSinkConfig {
     std::string path{};               ///< file (None) or filename prefix.
+    std::string app_name{};           ///< application name for the "app" field.
     RotationPolicy rotation{RotationPolicy::None};
     std::uint64_t max_spans_per_window{0}; ///< 0 = unlimited.
     std::uint64_t window_ns{0};            ///< 0 = unlimited.
@@ -118,6 +119,12 @@ public:
           max_per_window_(config.max_spans_per_window),
           window_ns_(config.window_ns) {
         copy_path(config.path);
+        const std::size_t take =
+            config.app_name.size() < 63 ? config.app_name.size() : 63;
+        for (std::size_t i = 0; i < take; ++i) {
+            app_[i] = config.app_name[i];
+        }
+        app_len_ = take;
     }
 
     JsonFileTraceSink(const JsonFileTraceSink&) = delete;
@@ -132,8 +139,9 @@ public:
           window_start_utc_(other.window_start_utc_), window_key_(other.window_key_),
           tokens_used_(other.tokens_used_),
           dropped_in_window_(other.dropped_in_window_), fd_(other.fd_),
-          path_len_(other.path_len_) {
+          path_len_(other.path_len_), app_len_(other.app_len_) {
         std::memcpy(path_, other.path_, sizeof(path_));
+        std::memcpy(app_, other.app_, sizeof(app_));
         other.fd_ = -1;
     }
     JsonFileTraceSink& operator=(JsonFileTraceSink&&) = delete; // stateful sink:
@@ -348,7 +356,9 @@ private:
     std::uint64_t dropped_in_window_{0};
     int fd_{-1};
     std::size_t path_len_{0};
+    std::size_t app_len_{0};
     char path_[path_capacity + 32]{};   ///< the configured prefix/file path
+    char app_[64]{};                    ///< the configured application name
     char file_[path_capacity + 32]{};   ///< per-window filename build buffer
     char scratch_[detail::json_scratch_capacity]{};
 };

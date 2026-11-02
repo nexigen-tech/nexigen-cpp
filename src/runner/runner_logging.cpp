@@ -32,6 +32,7 @@ using RunnerFileLogger = logging::FileLogger<64, 256, 4>;
 struct LoggingState {
     std::unique_ptr<RunnerFileLogger> logger{};
     std::string base_dir{};
+    std::string runner_name{"nexigen-run"};
     logging::Settings settings{};
     logging::LogLevel level{logging::LogLevel::Info};
     std::vector<std::uint32_t> logger_cpus{};
@@ -139,7 +140,7 @@ void stop_logger(LoggingState& current) noexcept {
     }
     auto logger = std::make_unique<RunnerFileLogger>();
     logging::FileLoggerConfig config{};
-    config.app_name = "nexigen-run";
+    config.app_name = current.runner_name;
     config.base_dir = base_dir;
     config.file_name = "runner.jsonl";
     config.initial_level = current.level;
@@ -195,12 +196,15 @@ core::Status init_runner_logging(
     std::string_view primary_dir,
     const logging::Settings& settings,
     logging::LogLevel level,
-    std::span<const std::uint32_t> logger_cpus) noexcept {
+    std::span<const std::uint32_t> logger_cpus,
+    std::string_view runner_name) noexcept {
     shutdown_runner_logging();
 
     LoggingState& current = state();
     current.settings = settings;
     current.level = level;
+    current.runner_name =
+        runner_name.empty() ? std::string("nexigen-run") : std::string(runner_name);
     current.logger_cpus.assign(logger_cpus.begin(), logger_cpus.end());
     current.logger_mask = resolve_logger_mask(logger_cpus, settings);
 
@@ -286,6 +290,7 @@ void shutdown_runner_logging() noexcept {
     stop_logger(current);
     current.configured = false;
     current.base_dir.clear();
+    current.runner_name = "nexigen-run";
     current.settings = logging::Settings{};
     current.logger_cpus.clear();
 }

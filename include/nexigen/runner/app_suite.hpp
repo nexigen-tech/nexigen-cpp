@@ -132,6 +132,7 @@ struct AppSpec {
 struct SuiteManifest {
     std::uint32_t version{0};
     std::string suite_id{};
+    std::string runner_name{};
     std::string run_id{};
     std::string run_dir{};
     std::string global_settings_path{};
@@ -160,6 +161,7 @@ struct SuiteAppMetadata {
 /// Suite resource record (`suite.json`).
 struct SuiteMetadata {
     std::string suite_id{};
+    std::string runner_name{};
     std::string run_id{};
     std::string run_dir{};
     std::string global_settings_path{};

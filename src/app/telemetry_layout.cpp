@@ -44,20 +44,6 @@ namespace {
     return !path.empty() && path.front() == '/';
 }
 
-[[nodiscard]] std::string derive_instance_dir(std::string_view run_dir,
-                                              std::string_view app_name,
-                                              std::string_view instance_id) {
-    std::string out{run_dir};
-    while (!out.empty() && out.back() == '/') {
-        out.pop_back();
-    }
-    out += '/';
-    out += app_name;
-    out += '/';
-    out += instance_id;
-    return out;
-}
-
 [[nodiscard]] std::string choose_path(const RunIdentity& identity,
                                       std::string_view explicit_path,
                                       std::string_view filename) {
@@ -93,9 +79,23 @@ void read_string_field(const nlohmann::json& j, const char* key,
 
 } // namespace
 
+[[nodiscard]] std::string derive_instance_dir(std::string_view run_dir,
+                                              std::string_view app_name,
+                                              std::string_view instance_id) {
+    std::string out{run_dir};
+    while (!out.empty() && out.back() == '/') {
+        out.pop_back();
+    }
+    out += '/';
+    out += app_name;
+    out += '/';
+    out += instance_id;
+    return out;
+}
+
 std::string RunIdentity::to_string() const {
     return "RunIdentity(run_id=" + run_id + ", run_dir=" + run_dir +
-           ", app_name=" + app_name + ", instance_id=" + instance_id +
+           ", instance_id=" + instance_id +
            ", instance_dir=" + instance_dir + ")";
 }
 
@@ -108,22 +108,13 @@ RunIdentity load_run_identity() noexcept {
     RunIdentity identity;
     identity.run_id = std::string(env_value("NEXIGEN_RUN_ID"));
     identity.run_dir = std::string(env_value("NEXIGEN_RUN_DIR"));
-    identity.app_name = std::string(env_value("NEXIGEN_APP_NAME"));
     identity.instance_id = std::string(env_value("NEXIGEN_INSTANCE_ID"));
     identity.instance_dir = std::string(env_value("NEXIGEN_INSTANCE_DIR"));
-    if (identity.instance_dir.empty() && !identity.run_dir.empty() &&
-        !identity.app_name.empty() && !identity.instance_id.empty()) {
-        identity.instance_dir =
-            derive_instance_dir(identity.run_dir, identity.app_name, identity.instance_id);
-    }
     return identity;
 }
 
 core::Status validate_run_identity(const RunIdentity& identity) noexcept {
     if (!identity.run_id.empty() && !safe_id(identity.run_id)) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    if (!identity.app_name.empty() && !safe_id(identity.app_name)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     if (!identity.instance_id.empty() && !safe_id(identity.instance_id)) {
@@ -158,7 +149,6 @@ core::Status resolve_telemetry_paths(const RunIdentity& identity,
 void to_json(nlohmann::json& j, const RunIdentity& identity) {
     j = nlohmann::json{{"run_id", identity.run_id},
                        {"run_dir", identity.run_dir},
-                       {"app_name", identity.app_name},
                        {"instance_id", identity.instance_id},
                        {"instance_dir", identity.instance_dir}};
 }
@@ -166,7 +156,6 @@ void to_json(nlohmann::json& j, const RunIdentity& identity) {
 void from_json(const nlohmann::json& j, RunIdentity& identity) noexcept {
     read_string_field(j, "run_id", identity.run_id);
     read_string_field(j, "run_dir", identity.run_dir);
-    read_string_field(j, "app_name", identity.app_name);
     read_string_field(j, "instance_id", identity.instance_id);
     read_string_field(j, "instance_dir", identity.instance_dir);
 }

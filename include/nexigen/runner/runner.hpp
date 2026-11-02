@@ -54,6 +54,7 @@ public:
     /// `timeout_s` starts the same stop sequence as `stop` on expiry.
     [[nodiscard]] core::Status start(
         const app::RunIdentity& identity,
+        std::string_view app_name,
         const std::vector<std::string>& command,
         std::uint64_t timeout_s = 0);
 
@@ -62,6 +63,7 @@ public:
     /// settings merge, and `env`/`cpus` apply to the child before `exec`.
     [[nodiscard]] core::Status start(
         const app::RunIdentity& identity,
+        std::string_view app_name,
         const std::vector<std::string>& command,
         std::uint64_t timeout_s,
         const StartOptions& options);

@@ -31,7 +31,8 @@ namespace nexigen::runner {
     std::string_view primary_dir,
     const logging::Settings& settings,
     logging::LogLevel level,
-    std::span<const std::uint32_t> logger_cpus = {}) noexcept;
+    std::span<const std::uint32_t> logger_cpus = {},
+    std::string_view runner_name = {}) noexcept;
 
 /// Flush and destroy the logger so no worker thread survives a fork.
 void suspend_runner_logging() noexcept;

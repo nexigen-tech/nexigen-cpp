@@ -1980,7 +1980,6 @@ void test_logger_options() {
     // Defaults: every field carries its documented value.
     const LoggerOptions o{};
     NX_CHECK(o.log_root_directory == "./logs");
-    NX_CHECK(o.app_name == "nexigen_app");
     NX_CHECK(o.initial_log_level == LogLevel::Info);
     NX_CHECK(o.max_file_size_bytes == 104857600ULL);
     NX_CHECK(o.spsc_ring_buffer_capacity == 65536U);
@@ -2006,7 +2005,6 @@ void test_logger_options() {
     // to_string renders every field.
     const std::string s = o.to_string();
     NX_CHECK(s.find("log_root_directory") != std::string::npos);
-    NX_CHECK(s.find("app_name") != std::string::npos);
     NX_CHECK(s.find("message_capacity") != std::string::npos);
     NX_CHECK(s.find("overflow_policy") != std::string::npos);
     NX_CHECK(s.find("spam_protection") != std::string::npos);
@@ -2025,16 +2023,13 @@ void test_logger_options() {
     nlohmann::json j;
     to_json(j, o);
     NX_CHECK(j.is_object());
-    NX_CHECK(j["app_name"] == "nexigen_app");
     NX_CHECK(j["overflow_policy"] == "drop_newest");
     NX_CHECK(j["spam_protection"]["bypass_min_level"] == "fatal");
     LoggerOptions back{};
     back.log_root_directory = "/tmp/x";
-    back.app_name = "old";
     back.initial_log_level = LogLevel::Fatal;
     from_json(j, back);
     NX_CHECK(back.log_root_directory == "./logs");
-    NX_CHECK(back.app_name == "nexigen_app");
     NX_CHECK(back.initial_log_level == LogLevel::Info);
     NX_CHECK(back.spsc_ring_buffer_capacity == 65536U);
     NX_CHECK(back.message_capacity == 128U);
@@ -2061,7 +2056,7 @@ void test_logger_options() {
     NX_CHECK(keep.log_root_directory == "/keep");
 
     // std::formatter<LoggerOptions>.
-    NX_CHECK(std::format("{}", o).find("nexigen_app") != std::string::npos);
+    NX_CHECK(std::format("{}", o).find("log_root_directory") != std::string::npos);
     NX_CHECK(std::format("[{:*>20}]", OverflowPolicy::OverwriteOldest).find("overwrite_oldest") != std::string::npos);
 
     std::printf("logger_options: defaults, bit_ceil, JSON round-trip, formatter verified\n");
@@ -2824,12 +2819,10 @@ void test_settings_vocabulary() {
     const std::string settings_text = settings.to_string();
     NX_CHECK(settings_text.find("global_loaded=true") != std::string::npos);
     NX_CHECK(settings_text.find("ring_capacity_set=true") != std::string::npos);
-    NX_CHECK(settings_text.find("nexigen_app") != std::string::npos);
     NX_CHECK(to_string(settings) == settings_text);
     nlohmann::json settings_json;
     to_json(settings_json, settings);
     NX_CHECK(settings_json["global_loaded"] == true);
-    NX_CHECK(settings_json["options"]["app_name"] == "nexigen_app");
     NX_CHECK(settings_json["diagnostics"].size() == 1U);
     NX_CHECK(std::format("{}", settings) == settings_text);
 
@@ -2841,7 +2834,6 @@ void test_settings_vocabulary() {
 void test_logging_settings_loader() {
     EnvGuard level_env{"NEXIGEN_LOG_LEVEL"};
     EnvGuard dir_env{"NEXIGEN_LOG_DIR"};
-    EnvGuard app_env{"NEXIGEN_LOG_APP_NAME"};
     EnvGuard size_env{"NEXIGEN_LOG_MAX_FILE_SIZE_BYTES"};
     EnvGuard affinity_env{"NEXIGEN_LOG_CPU_AFFINITY"};
     EnvGuard ring_env{"NEXIGEN_LOG_RING_CAPACITY"};
@@ -2850,7 +2842,6 @@ void test_logging_settings_loader() {
     EnvGuard message_env{"NEXIGEN_LOG_MESSAGE_CAPACITY"};
     level_env.clear();
     dir_env.clear();
-    app_env.clear();
     size_env.clear();
     affinity_env.clear();
     ring_env.clear();
@@ -2866,20 +2857,17 @@ void test_logging_settings_loader() {
         NX_CHECK(!out.ring_capacity_set && !out.max_threads_set);
         NX_CHECK(out.diagnostics.empty());
         NX_CHECK(out.options.log_root_directory == "./logs");
-        NX_CHECK(out.options.app_name == "nexigen_app");
     }
 
     const std::string global_path = unique_path("settings_global");
     const std::string local_path = unique_path("settings_local");
     write_text(global_path,
                R"({"log_root_directory":"/tmp/opencode/global-logs",)"
-               R"("app_name":"global-app",)"
                R"("initial_log_level":"warning",)"
                R"("max_file_size_bytes":1234,)"
                R"("flush_cpu_affinity":[1,3]})");
     write_text(local_path,
                R"({"initial_log_level":"debug",)"
-               R"("app_name":"hil-runner",)"
                R"("spsc_ring_buffer_capacity":16,)"
                R"("message_capacity":64})");
 
@@ -2889,7 +2877,6 @@ void test_logging_settings_loader() {
                      .has_value());
         NX_CHECK(out.global_loaded && out.local_loaded);
         NX_CHECK(out.options.log_root_directory == "/tmp/opencode/global-logs");
-        NX_CHECK(out.options.app_name == "hil-runner"); // local wins
         NX_CHECK(out.options.initial_log_level == LogLevel::Debug);
         NX_CHECK(out.options.max_file_size_bytes == 1234ULL);
         NX_CHECK(out.options.flush_cpu_affinity ==
@@ -2901,9 +2888,8 @@ void test_logging_settings_loader() {
         NX_CHECK(out.diagnostics.empty());
     }
 
-    // Environment overrides: highest priority; app name and affinity grammar.
+    // Environment overrides: highest priority; affinity grammar.
     level_env.set("error");
-    app_env.set("env-app");
     affinity_env.set("0,2-3");
     message_env.set("256");
     {
@@ -2911,14 +2897,12 @@ void test_logging_settings_loader() {
         NX_CHECK(load_logging_settings(core::SettingsPaths{global_path, local_path}, out)
                      .has_value());
         NX_CHECK(out.options.initial_log_level == LogLevel::Error);
-        NX_CHECK(out.options.app_name == "env-app");
         NX_CHECK(out.options.flush_cpu_affinity ==
                  std::vector<std::uint64_t>({0U, 2U, 3U}));
         NX_CHECK(out.options.message_capacity == 256U);
         NX_CHECK(out.message_capacity_set);
     }
     level_env.clear();
-    app_env.clear();
     message_env.clear();
     affinity_env.clear();
 
@@ -2979,13 +2963,6 @@ void test_logging_settings_loader() {
         NX_CHECK(!load_logging_settings(core::SettingsPaths{global_path, local_path}, out)
                       .has_value());
         NX_CHECK(out.options.initial_log_level == LogLevel::Warning);
-    }
-
-    // Global app_name is ignored; local-only rule.
-    {
-        Settings out{};
-        NX_CHECK(load_logging_settings(core::SettingsPaths{global_path, ""}, out).has_value());
-        NX_CHECK(out.options.app_name == "nexigen_app");
     }
 
     // Explicit capacity flags are set even when validation fails.
@@ -3079,7 +3056,6 @@ void test_logging_settings_loader() {
 void test_logging_settings_apply() {
     Settings settings{};
     settings.options.initial_log_level = LogLevel::Warning;
-    settings.options.app_name = "hil";
     settings.options.log_root_directory = "/var/log/hil";
     settings.options.max_file_size_bytes = 4096ULL;
     settings.options.flush_cpu_affinity = {1ULL, 3ULL};
@@ -3087,7 +3063,6 @@ void test_logging_settings_apply() {
 
     FileLoggerConfig cfg{};
     NX_CHECK(apply_to(settings, cfg).has_value());
-    NX_CHECK(cfg.app_name == "hil");
     NX_CHECK(cfg.base_dir == "/var/log/hil");
     NX_CHECK(cfg.initial_level == LogLevel::Warning);
     NX_CHECK(cfg.max_file_size_bytes == 4096ULL);
@@ -3099,10 +3074,6 @@ void test_logging_settings_apply() {
     settings.options.flush_cpu_affinity.clear();
     NX_CHECK(apply_to(settings, cfg).has_value());
     NX_CHECK(cfg.core_mask == 0ULL);
-
-    settings.options.app_name = std::string(64, 'a');
-    NX_CHECK(!apply_to(settings, cfg).has_value());
-    settings.options.app_name = "hil";
 
     ConsoleLogger<>::Config console_cfg{};
     NX_CHECK(apply_to(settings, console_cfg).has_value());
@@ -3165,7 +3136,6 @@ void test_logging_settings_apply() {
         const std::string dir = unique_path("settings_apply");
         static_cast<void>(::mkdir(dir.c_str(), 0755));
         Settings loaded{};
-        loaded.options.app_name = "from-settings";
         loaded.options.log_root_directory = dir;
         loaded.options.initial_log_level = LogLevel::Info;
         loaded.options.max_file_size_bytes = 0ULL;
@@ -3313,13 +3283,12 @@ int null_loop(int iterations) noexcept {
 void test_logging_settings_full_coverage() {
     EnvGuard level_env{"NEXIGEN_LOG_LEVEL"};
     EnvGuard dir_env{"NEXIGEN_LOG_DIR"};
-    EnvGuard app_env{"NEXIGEN_LOG_APP_NAME"};
     EnvGuard size_env{"NEXIGEN_LOG_MAX_FILE_SIZE_BYTES"};
     EnvGuard affinity_env{"NEXIGEN_LOG_CPU_AFFINITY"};
     EnvGuard ring_env{"NEXIGEN_LOG_RING_CAPACITY"};
     EnvGuard threads_env{"NEXIGEN_LOG_MAX_PRODUCER_THREADS"};
     EnvGuard overflow_env{"NEXIGEN_LOG_OVERFLOW_POLICY"};
-    level_env.clear(); dir_env.clear(); app_env.clear(); size_env.clear();
+    level_env.clear(); dir_env.clear(); size_env.clear();
     affinity_env.clear(); ring_env.clear(); threads_env.clear(); overflow_env.clear();
 
     const std::string global_path = unique_path("full_settings_global");
@@ -3327,7 +3296,7 @@ void test_logging_settings_full_coverage() {
 
     // All fields valid, including the nested spam config.
     write_text(local_path,
-               R"({"log_root_directory":"/tmp/full","app_name":"full-local",)"
+               R"({"log_root_directory":"/tmp/full",)"
                R"("initial_log_level":"warning","max_file_size_bytes":42,)"
                R"("spsc_ring_buffer_capacity":64,"max_producer_threads":8,)"
                R"("overflow_policy":"overwrite_oldest","flush_cpu_affinity":[0,63],)"
@@ -3340,7 +3309,6 @@ void test_logging_settings_full_coverage() {
         Settings out{};
         NX_CHECK(load_logging_settings({global_path, local_path}, out).has_value());
         NX_CHECK(out.options.log_root_directory == "/tmp/full");
-        NX_CHECK(out.options.app_name == "full-local");
         NX_CHECK(out.options.initial_log_level == LogLevel::Warning);
         NX_CHECK(out.options.max_file_size_bytes == 42ULL);
         NX_CHECK(out.options.spsc_ring_buffer_capacity == 64U);
@@ -3354,14 +3322,12 @@ void test_logging_settings_full_coverage() {
         NX_CHECK(out.options.spam_protection.bypass_min_level == LogLevel::Error);
         nlohmann::json json;
         to_json(json, out);
-        NX_CHECK(json["options"]["app_name"] == "full-local");
         NX_CHECK(json["diagnostics"].is_array());
-        NX_CHECK(std::format("{}", out).find("full-local") != std::string::npos);
     }
 
     // Every field invalid: one diagnostic per field, values retained.
     write_text(local_path,
-               R"({"log_root_directory":5,"app_name":"",)"
+               R"({"log_root_directory":5,)"
                R"("initial_log_level":7,"max_file_size_bytes":"x",)"
                R"("spsc_ring_buffer_capacity":0,"max_producer_threads":4294967296,)"
                R"("overflow_policy":7,"flush_cpu_affinity":"x",)"
@@ -3415,11 +3381,10 @@ void test_logging_settings_full_coverage() {
 
     // Environment failures for every variable.
     write_text(global_path,
-               R"({"log_root_directory":"/tmp/env","app_name":"env-name",)"
+               R"({"log_root_directory":"/tmp/env",)"
                R"("initial_log_level":"info"})");
     level_env.set("chatty");
     dir_env.set(std::string(512, 'd').c_str());
-    app_env.set(std::string(64, 'a').c_str());
     size_env.set("x");
     ring_env.set("0");
     threads_env.set("0");
@@ -3429,7 +3394,7 @@ void test_logging_settings_full_coverage() {
         NX_CHECK(!load_logging_settings({global_path, ""}, out).has_value());
         NX_CHECK(out.diagnostics.size() >= 6U);
     }
-    level_env.clear(); dir_env.clear(); app_env.clear(); size_env.clear();
+    level_env.clear(); dir_env.clear(); size_env.clear();
     ring_env.clear(); threads_env.clear(); overflow_env.clear();
 
     // Affinity grammar: invalid tokens fail, valid list expands.

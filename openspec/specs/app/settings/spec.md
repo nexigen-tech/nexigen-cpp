@@ -20,6 +20,25 @@ The system SHALL provide `Settings` with `logging`, `metrics`, `tracing`, and `c
 - **WHEN** logging loads cleanly but a metrics file cannot be read
 - **THEN** `load_app_settings` returns `SystemError` while still populating every subsystem it could read
 
+### Requirement: Application name is app-level
+
+`Settings` SHALL carry an `app_name` member holding the application's telemetry name, supplied by the caller (from the command line) and applied to the logger, metrics sink, and trace sink during initialization. A default-constructed `Settings` SHALL leave `app_name` empty; an empty `app_name` SHALL mean no application identity is imposed.
+
+#### Scenario: App name is set on the aggregate
+
+- **WHEN** a populated `Settings` carries a non-empty `app_name`
+- **THEN** the member equals the supplied value and `to_string()` names it
+
+#### Scenario: Empty app name is allowed
+
+- **WHEN** `Settings` is default-constructed
+- **THEN** `app_name` is empty and no application identity is imposed
+
+#### Scenario: App name renders and serializes
+
+- **WHEN** a `Settings` with a non-empty `app_name` is rendered with `to_string()`, `std::format("{}", settings)`, and `to_json`
+- **THEN** the text and JSON include the `app_name` value, and the formatter output equals `to_string()`
+
 ### Requirement: App settings are serializable
 
 `AppSettingsPaths` and `Settings` SHALL provide member and free `to_string()` and a `std::formatter` specialization. `AppSettingsPaths` SHALL provide non-throwing ADL `to_json`/`from_json`; the aggregate `Settings` SHALL provide `to_json` only and SHALL NOT provide `from_json`, because it is reconstructed by the loader. `Settings` serialization SHALL include the `metrics`, `tracing`, and `chrono` members, whose own serialization is provided by their modules.

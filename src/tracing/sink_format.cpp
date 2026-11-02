@@ -47,7 +47,7 @@ void to_json(nlohmann::json& j, const ConsoleTraceSink& sink) {
 // --- JsonFileTraceSinkConfig -----------------------------------------------
 
 std::string JsonFileTraceSinkConfig::to_string() const {
-    return "JsonFileTraceSinkConfig(path=" + path +
+    return "JsonFileTraceSinkConfig(path=" + path + ", app_name=" + app_name +
            ", rotation=" + std::string(tracing::to_string(rotation)) +
            ", max_spans_per_window=" + std::to_string(max_spans_per_window) +
            ", window_ns=" + std::to_string(window_ns) + ")";
@@ -60,6 +60,7 @@ std::string to_string(const JsonFileTraceSinkConfig& config) {
 void to_json(nlohmann::json& j, const JsonFileTraceSinkConfig& config) {
     j = nlohmann::json{
         {"path", config.path},
+        {"app_name", config.app_name},
         {"rotation", config.rotation},
         {"max_spans_per_window", config.max_spans_per_window},
         {"window_ns", config.window_ns},
@@ -73,6 +74,10 @@ void from_json(const nlohmann::json& j, JsonFileTraceSinkConfig& out) noexcept {
     const auto path = j.find("path");
     if (path != j.end() && path->is_string()) {
         out.path = path->get<std::string>();
+    }
+    const auto app_name = j.find("app_name");
+    if (app_name != j.end() && app_name->is_string()) {
+        out.app_name = app_name->get<std::string>();
     }
     const auto rotation = j.find("rotation");
     if (rotation != j.end()) {
@@ -129,7 +134,9 @@ core::Status JsonFileTraceSink::write_record_line(const SpanRecord& record,
     chrono::format_utc_iso8601_ns(end_utc_ns, end_stamp);
 
     detail::FixedWriter writer{scratch_, detail::json_scratch_capacity};
-    static_cast<void>(writer.append_sv("{\"trace_id\":\""));
+    static_cast<void>(writer.append_sv("{\"app\":\""));
+    static_cast<void>(writer.append_escaped(std::string_view(app_, app_len_)));
+    static_cast<void>(writer.append_sv("\",\"trace_id\":\""));
     static_cast<void>(writer.append_hex16(record.trace_id.value()));
     static_cast<void>(writer.append_sv("\",\"span_id\":\""));
     static_cast<void>(writer.append_hex16(record.span_id.value()));

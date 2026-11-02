@@ -20,7 +20,7 @@
 namespace nexigen::app {
 namespace {
 
-enum class ValueKind : std::uint8_t { Global, Local, Log_level };
+enum class ValueKind : std::uint8_t { Global, Local, Log_level, App_name };
 
 struct OptionSpec {
     std::string_view long_name;
@@ -33,12 +33,14 @@ constexpr OptionSpec kOptions[] = {
     {"--global-settings", "-gs", ValueKind::Global},
     {"--local-settings", "-ls", ValueKind::Local},
     {"--log-level", "-lgl", ValueKind::Log_level},
+    {"--app-name", "-an", ValueKind::App_name},
 };
 
 struct Collected {
     std::string global_settings_dir{};
     std::string local_settings_dir{};
     std::string log_level{};
+    std::string app_name{};
     bool global_supplied{false};
     bool local_supplied{false};
     bool log_level_supplied{false};
@@ -66,6 +68,9 @@ void store_value(Collected& collected, ValueKind kind, std::string_view value) {
         case ValueKind::Log_level:
             collected.log_level = value;
             collected.log_level_supplied = true;
+            break;
+        case ValueKind::App_name:
+            collected.app_name = value;
             break;
     }
 }
@@ -179,6 +184,7 @@ void parse_short(std::string_view token, std::span<const std::string_view> args,
 
     options.global_settings_dir = std::move(collected.global_settings_dir);
     options.local_settings_dir = std::move(collected.local_settings_dir);
+    options.app_name = std::move(collected.app_name);
     return options;
 }
 
@@ -200,6 +206,7 @@ constexpr std::string_view kUsage =
     "  -gs, --global-settings <absolute-dir>  global settings directory\n"
     "  -ls, --local-settings <relative-dir>   local settings directory\n"
     "  -lgl, --log-level <level>              verbose|debug|info|warning|error|fatal|off\n"
+    "  -an, --app-name <name>                application name for telemetry\n"
     "  -h, --help                             show this help\n"
     "Value forms: --name value, --name=value, -name value, -namevalue, -name=value.\n"
     "Use -- to end option parsing; positional arguments are rejected.\n"
@@ -219,7 +226,8 @@ std::string CommandLineOptions::to_string() const {
         level = std::string(logging::to_string(*log_level));
     }
     return "CommandLineOptions(global_settings_dir=\"" + global_settings_dir +
-           "\", local_settings_dir=\"" + local_settings_dir + "\", log_level=" + level +
+           "\", local_settings_dir=\"" + local_settings_dir + "\", app_name=\"" +
+           app_name + "\", log_level=" + level +
            ", help=" + std::string(help ? "true" : "false") + ")";
 }
 
@@ -269,6 +277,7 @@ void to_json(nlohmann::json& j, const CommandLineOptions& options) {
     }
     j = nlohmann::json{{"global_settings_dir", options.global_settings_dir},
                        {"local_settings_dir", options.local_settings_dir},
+                       {"app_name", options.app_name},
                        {"log_level", std::move(level)},
                        {"help", options.help}};
 }
@@ -292,6 +301,13 @@ void from_json(const nlohmann::json& j, CommandLineOptions& options) noexcept {
             return;
         }
         parsed.local_settings_dir = it->get<std::string>();
+    }
+    it = j.find("app_name");
+    if (it != j.end()) {
+        if (!it->is_string()) {
+            return;
+        }
+        parsed.app_name = it->get<std::string>();
     }
     it = j.find("log_level");
     if (it != j.end()) {
@@ -445,6 +461,7 @@ AppSettingsPaths make_app_settings_paths(
 }
 
 void apply_to(const CommandLineOptions& options, Settings& settings) noexcept {
+    settings.app_name = options.app_name;
     if (options.log_level.has_value()) {
         settings.logging.options.initial_log_level = *options.log_level;
     }

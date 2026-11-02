@@ -406,6 +406,7 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
     j = nlohmann::json{
         {"version", manifest.version},
         {"suite_id", manifest.suite_id},
+        {"runner_name", manifest.runner_name},
         {"run_id", manifest.run_id},
         {"run_dir", manifest.run_dir},
         {"global_settings_path", manifest.global_settings_path},
@@ -423,6 +424,7 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
 void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
     static_cast<void>(read_u32(j, "version", manifest.version));
     static_cast<void>(read_string(j, "suite_id", manifest.suite_id));
+    static_cast<void>(read_string(j, "runner_name", manifest.runner_name));
     static_cast<void>(read_string(j, "run_id", manifest.run_id));
     static_cast<void>(read_string(j, "run_dir", manifest.run_dir));
     static_cast<void>(read_string(j, "global_settings_path",
@@ -474,6 +476,7 @@ void to_json(nlohmann::json& j, const SuiteMetadata& metadata) {
     }
     j = nlohmann::json{
         {"suite_id", metadata.suite_id},
+        {"runner_name", metadata.runner_name},
         {"run_id", metadata.run_id},
         {"run_dir", metadata.run_dir},
         {"global_settings_path", metadata.global_settings_path},
@@ -490,6 +493,7 @@ void to_json(nlohmann::json& j, const SuiteMetadata& metadata) {
 
 void from_json(const nlohmann::json& j, SuiteMetadata& metadata) noexcept {
     static_cast<void>(read_string(j, "suite_id", metadata.suite_id));
+    static_cast<void>(read_string(j, "runner_name", metadata.runner_name));
     static_cast<void>(read_string(j, "run_id", metadata.run_id));
     static_cast<void>(read_string(j, "run_dir", metadata.run_dir));
     static_cast<void>(read_string(j, "global_settings_path",
@@ -984,11 +988,11 @@ void stop_all(RuntimeSuite& suite) {
     options.cpus = app.spec.cpus;
 
     const app::RunIdentity identity{suite.manifest->run_id,
-                                     suite.manifest->run_dir, app.spec.app,
+                                     suite.manifest->run_dir,
                                      app.spec.instance, app.instance_dir};
     const std::vector<std::string> command = command_vector(app.spec);
     Runner runner;
-    const core::Status started = runner.start(identity, command,
+    const core::Status started = runner.start(identity, app.spec.app, command,
                                               app.spec.idle_timeout_s,
                                               options);
     if (!started) {
@@ -1243,6 +1247,7 @@ void run_suite_supervisor(const SuiteManifest& manifest,
 
     SuiteMetadata metadata{};
     metadata.suite_id = manifest.suite_id;
+    metadata.runner_name = manifest.runner_name;
     metadata.run_id = manifest.run_id;
     metadata.run_dir = manifest.run_dir;
     metadata.global_settings_path = manifest.global_settings_path;
@@ -1305,7 +1310,8 @@ void run_suite_supervisor(const SuiteManifest& manifest,
         join_path(manifest.artifacts_path, manifest.suite_id), log_settings,
         log_level,
         std::span<const std::uint32_t>(manifest.runner_logger_cpus.data(),
-                                       manifest.runner_logger_cpus.size()));
+                                       manifest.runner_logger_cpus.size()),
+        manifest.runner_name);
     if (!log_status) {
         warn_runner("event=logging_unavailable detail=runner.jsonl not writable");
     }

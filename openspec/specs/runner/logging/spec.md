@@ -8,7 +8,7 @@ Defines how `nexigen-run` records its own CLI and suite-supervisor diagnostics i
 
 ### Requirement: Runner diagnostics use the project file logger
 
-`nexigen-run` SHALL write its own diagnostics through `nexigen::logging::FileLogger` with app name `nexigen-run`, file name `runner.jsonl`, and scheduled rotation disabled. The output SHALL be append-only JSON lines, and it SHALL NOT contain application log records. Size-based segmentation MAY occur only when global logging settings supply a non-zero maximum file size.
+`nexigen-run` SHALL write its own diagnostics through `nexigen::logging::FileLogger` with the application name taken from the manifest `runner_name` (default `nexigen-run` when absent), file name `runner.jsonl`, and scheduled rotation disabled. The output SHALL be append-only JSON lines, and it SHALL NOT contain application log records. Size-based segmentation MAY occur only when global logging settings supply a non-zero maximum file size.
 
 #### Scenario: Suite run writes runner.jsonl
 
@@ -80,7 +80,7 @@ The runner SHALL select its level in this order: suite-level `log_level`; otherw
 
 ### Requirement: Global logging settings supply operational fields
 
-When `<global_settings_path>/logging.json` is readable, the runner SHALL use its `initial_log_level` as the level fallback, its `flush_cpu_affinity` as the logger-worker affinity fallback, its `max_file_size_bytes` for size segmentation, and its throttle settings. Path, file name, app name, and scheduled rotation SHALL remain runner-specific. An invalid or unreadable file SHALL produce a warning and SHALL NOT fail the command.
+When `<global_settings_path>/logging.json` is readable, the runner SHALL use its `initial_log_level` as the level fallback, its `flush_cpu_affinity` as the logger-worker affinity fallback, its `max_file_size_bytes` for size segmentation, and its throttle settings. Path, file name, and scheduled rotation SHALL remain runner-specific. An invalid or unreadable file SHALL produce a warning and SHALL NOT fail the command.
 
 #### Scenario: Operational fields are applied
 
@@ -99,8 +99,8 @@ When `<global_settings_path>/logging.json` is readable, the runner SHALL use its
 
 #### Scenario: Runner identity is not overridden by the file
 
-- **WHEN** the global file names a different app or log root
-- **THEN** `runner.jsonl` remains under the runner path with app name `nexigen-run`
+- **WHEN** the manifest sets `runner_name` and the global file is read
+- **THEN** `runner.jsonl` carries the `runner_name` value as its app field, unaffected by any logging setting
 
 ### Requirement: Manifest configures runner thread affinity
 

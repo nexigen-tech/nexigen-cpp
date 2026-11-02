@@ -38,6 +38,7 @@ struct CommandLineDiagnostic {
 struct CommandLineOptions {
     std::string global_settings_dir{};
     std::string local_settings_dir{};
+    std::string app_name{};
     std::optional<logging::LogLevel> log_level{};
     bool help{false};
 

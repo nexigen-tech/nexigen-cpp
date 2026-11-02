@@ -1806,7 +1806,7 @@ void test_sinks() {
         NX_CHECK(std::format("{:*<8}", tracing::RotationPolicy::Hourly) == "Hourly**");
 
         // The config round-trips every field under JSON_NOEXCEPTION=1.
-        const tracing::JsonFileTraceSinkConfig config{"/tmp/x.jsonl",
+        const tracing::JsonFileTraceSinkConfig config{"/tmp/x.jsonl", "controller",
                                                        tracing::RotationPolicy::Hourly,
                                                        100, 500'000'000};
         NX_CHECK(config.to_string() == tracing::to_string(config));
@@ -1815,6 +1815,7 @@ void test_sinks() {
         tracing::JsonFileTraceSinkConfig parsed_config{};
         nlohmann::from_json(j, parsed_config);
         NX_CHECK(parsed_config.path == config.path);
+        NX_CHECK(parsed_config.app_name == config.app_name);
         NX_CHECK(parsed_config.rotation == config.rotation);
         NX_CHECK(parsed_config.max_spans_per_window == 100);
         NX_CHECK(parsed_config.window_ns == 500'000'000);

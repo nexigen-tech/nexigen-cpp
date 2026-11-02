@@ -956,10 +956,9 @@ void test_env_affinity_and_log_level() {
         app_spec("envapp", "1", "/bin/sh",
                  runner::ImpactOnAppSuiteOperability::Not_impact);
     spec.args = {"-c",
-                 "echo SUITE_ENV=$SUITE_ENV; echo APP=$NEXIGEN_APP_NAME; "
+                 "echo SUITE_ENV=$SUITE_ENV; "
                  "echo LEVEL=$NEXIGEN_LOG_LEVEL; exec sleep 60"};
     spec.env = {{"SUITE_ENV", "visible"},
-                {"NEXIGEN_APP_NAME", "spoofed"},
                 {"NEXIGEN_LOG_LEVEL", "debug"}};
     spec.cpus = {0};
     spec.log_level = logging::LogLevel::Error;
@@ -979,7 +978,6 @@ void test_env_affinity_and_log_level() {
         [&] {
             const std::string output = read_text(app.artifact_dir + "/stdout.log");
             return contains(output, "SUITE_ENV=visible") &&
-                   contains(output, "APP=envapp") &&
                    contains(output, "LEVEL=error");
         },
         5000));
@@ -1324,13 +1322,13 @@ void test_setup_failure() {
     manifest.apps.push_back(spec);
 
     const app::RunIdentity identity{manifest.run_id, manifest.run_dir,
-                                     "setup", "1", root + "/setup/1"};
+                                     "1", root + "/setup/1"};
     runner::StartOptions options{};
     options.artifact_dir =
         "/proc/nexigen_suite_denied_" +
         std::to_string(static_cast<long long>(::getpid()));
     runner::Runner runner;
-    NX_CHECK(failed_with(runner.start(identity, {"/bin/true"}, 0, options),
+    NX_CHECK(failed_with(runner.start(identity, "setup", {"/bin/true"}, 0, options),
                          core::ErrorCode::SystemError));
     NX_CHECK(!file_exists(root + "/setup/1/resource.json"));
 

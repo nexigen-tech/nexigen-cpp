@@ -60,15 +60,17 @@ concept InfrastructurePolicy = requires(
     const logging::Settings& logging_settings,
     const metrics::Settings& metrics_settings,
     const tracing::Settings& tracing_settings,
-    const chrono::Settings& chrono_settings) {
+    const chrono::Settings& chrono_settings,
+    std::string_view app_name) {
     typename Policy::Logger;
     typename Policy::MetricsSink;
     typename Policy::TraceSink;
     typename Policy::ChronoSink;
-    { Policy::emplace_logger(logger, logging_settings) } noexcept -> std::same_as<core::Status>;
-    { Policy::emplace_metrics_sink(metrics_sink, metrics_settings) } noexcept
+    { Policy::emplace_logger(logger, logging_settings, app_name) } noexcept
         -> std::same_as<core::Status>;
-    { Policy::emplace_trace_sink(trace_sink, tracing_settings) } noexcept
+    { Policy::emplace_metrics_sink(metrics_sink, metrics_settings, app_name) } noexcept
+        -> std::same_as<core::Status>;
+    { Policy::emplace_trace_sink(trace_sink, tracing_settings, app_name) } noexcept
         -> std::same_as<core::Status>;
     { Policy::emplace_chrono_sink(chrono_sink, chrono_settings) } noexcept
         -> std::same_as<core::Status>;
@@ -241,7 +243,8 @@ public:
         }
         chrono_.emplace(settings.chrono.options, *chrono_sink_);
 
-        if (const core::Status status = Policy::emplace_logger(logger_, settings.logging);
+        if (const core::Status status =
+                Policy::emplace_logger(logger_, settings.logging, settings.app_name);
             !status || !logger_) {
             return fail(status ? std::unexpected(core::ErrorCode::InvalidArgument) : status);
         }
@@ -251,14 +254,14 @@ public:
         }
 
         if (const core::Status status =
-                Policy::emplace_metrics_sink(metrics_sink_, settings.metrics);
+                Policy::emplace_metrics_sink(metrics_sink_, settings.metrics, settings.app_name);
             !status || !metrics_sink_) {
             return fail(status ? std::unexpected(core::ErrorCode::InvalidArgument) : status);
         }
         metrics_.emplace(settings.metrics.options, *metrics_sink_);
 
         if (const core::Status status =
-                Policy::emplace_trace_sink(trace_sink_, settings.tracing);
+                Policy::emplace_trace_sink(trace_sink_, settings.tracing, settings.app_name);
             !status || !trace_sink_) {
             return fail(status ? std::unexpected(core::ErrorCode::InvalidArgument) : status);
         }

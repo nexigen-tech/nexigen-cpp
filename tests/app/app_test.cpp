@@ -139,17 +139,17 @@ struct TestPolicy {
     using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
-                                       const logging::Settings&) noexcept {
+                                       const logging::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&) noexcept {
+                                             const metrics::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
-                                           const tracing::Settings&) noexcept {
+                                           const tracing::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
@@ -169,30 +169,38 @@ struct ResolvedPathPolicy {
     using ChronoSink = chrono::JsonFileChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
-                                       const logging::Settings& settings) noexcept {
+                                       const logging::Settings& settings,
+                                       std::string_view app_name) noexcept {
         logging::FileLoggerConfig config{};
         const core::Status applied = logging::apply_to(settings, config);
         if (!applied) {
             return applied;
         }
+        config.app_name = app_name;
         config.rotation.kind = logging::RotationSchedule::None;
         out.emplace();
         return out->initialize(config);
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings& settings) noexcept {
+                                             const metrics::Settings& settings,
+                                             std::string_view app_name) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        out.emplace(settings.sink);
+        metrics::JsonFileMetricSinkConfig config = settings.sink;
+        config.app_name = std::string(app_name);
+        out.emplace(config);
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
-                                           const tracing::Settings& settings) noexcept {
+                                           const tracing::Settings& settings,
+                                           std::string_view app_name) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        out.emplace(settings.sink);
+        tracing::JsonFileTraceSinkConfig config = settings.sink;
+        config.app_name = std::string(app_name);
+        out.emplace(config);
         return {};
     }
     static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
@@ -212,16 +220,16 @@ struct FailLoggerPolicy {
     using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>&,
-                                       const logging::Settings&) noexcept {
+                                       const logging::Settings&, std::string_view) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&) noexcept {
+                                             const metrics::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
-                                           const tracing::Settings&) noexcept {
+                                           const tracing::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
@@ -239,16 +247,16 @@ struct FailMetricsPolicy {
     using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
-                                       const logging::Settings&) noexcept {
+                                       const logging::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>&,
-                                             const metrics::Settings&) noexcept {
+                                             const metrics::Settings&, std::string_view) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
-                                           const tracing::Settings&) noexcept {
+                                           const tracing::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
@@ -266,17 +274,17 @@ struct FailTracePolicy {
     using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
-                                       const logging::Settings&) noexcept {
+                                       const logging::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&) noexcept {
+                                             const metrics::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>&,
-                                           const tracing::Settings&) noexcept {
+                                           const tracing::Settings&, std::string_view) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
@@ -293,17 +301,17 @@ struct FlushFailPolicy {
     using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
-                                       const logging::Settings&) noexcept {
+                                       const logging::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&) noexcept {
+                                             const metrics::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
-                                           const tracing::Settings&) noexcept {
+                                           const tracing::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
@@ -321,17 +329,17 @@ struct FailChronoPolicy {
     using ChronoSink = chrono::NullChronoSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
-                                       const logging::Settings&) noexcept {
+                                       const logging::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&) noexcept {
+                                             const metrics::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
-                                           const tracing::Settings&) noexcept {
+                                           const tracing::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
@@ -813,12 +821,10 @@ void test_settings_sink() {
 void test_telemetry_layout() {
     EnvGuard run_id_env{"NEXIGEN_RUN_ID"};
     EnvGuard run_dir_env{"NEXIGEN_RUN_DIR"};
-    EnvGuard app_name_env{"NEXIGEN_APP_NAME"};
     EnvGuard instance_id_env{"NEXIGEN_INSTANCE_ID"};
     EnvGuard instance_dir_env{"NEXIGEN_INSTANCE_DIR"};
     run_id_env.clear();
     run_dir_env.clear();
-    app_name_env.clear();
     instance_id_env.clear();
     instance_dir_env.clear();
 
@@ -827,44 +833,30 @@ void test_telemetry_layout() {
         const app::RunIdentity empty = app::load_run_identity();
         NX_CHECK(empty.run_id.empty());
         NX_CHECK(empty.run_dir.empty());
-        NX_CHECK(empty.app_name.empty());
         NX_CHECK(empty.instance_id.empty());
         NX_CHECK(empty.instance_dir.empty());
         NX_CHECK(app::validate_run_identity(empty).has_value());
     }
 
     // Partial environment preserves only the supplied fields.
-    app_name_env.set("controller");
     instance_id_env.set("i42");
     {
         const app::RunIdentity partial = app::load_run_identity();
         NX_CHECK(partial.run_id.empty());
         NX_CHECK(partial.run_dir.empty());
-        NX_CHECK(partial.app_name == "controller");
         NX_CHECK(partial.instance_id == "i42");
         NX_CHECK(partial.instance_dir.empty());
     }
 
-    // Complete environment derives the instance directory.
-    run_id_env.set("r1");
-    run_dir_env.set("/var/nexigen/runs/r1");
-    {
-        const app::RunIdentity derived = app::load_run_identity();
-        NX_CHECK(derived.run_id == "r1");
-        NX_CHECK(derived.run_dir == "/var/nexigen/runs/r1");
-        NX_CHECK(derived.instance_dir == "/var/nexigen/runs/r1/controller/i42");
-        NX_CHECK(app::validate_run_identity(derived).has_value());
-    }
+    // The instance directory is derived from a separately supplied app name.
+    NX_CHECK(app::derive_instance_dir("/var/nexigen/runs/r1", "controller", "i42") ==
+             "/var/nexigen/runs/r1/controller/i42");
 
     // A trailing slash on the run directory does not double the separator.
-    run_dir_env.set("/var/nexigen/runs/r1/");
-    {
-        const app::RunIdentity derived = app::load_run_identity();
-        NX_CHECK(derived.instance_dir == "/var/nexigen/runs/r1/controller/i42");
-    }
-    run_dir_env.set("/var/nexigen/runs/r1");
+    NX_CHECK(app::derive_instance_dir("/var/nexigen/runs/r1/", "controller", "i42") ==
+             "/var/nexigen/runs/r1/controller/i42");
 
-    // An explicit instance directory wins over derivation.
+    // An explicit instance directory is read as-is.
     instance_dir_env.set("/tmp/explicit-instance");
     {
         const app::RunIdentity explicit_identity = app::load_run_identity();
@@ -873,18 +865,11 @@ void test_telemetry_layout() {
     instance_dir_env.clear();
 
     // Validation: safe ids and absolute directories pass.
-    const app::RunIdentity valid{"r1", "/var/nexigen/runs/r1", "controller", "i42",
+    const app::RunIdentity valid{"r1", "/var/nexigen/runs/r1", "i42",
                                   "/var/nexigen/runs/r1/controller/i42"};
     NX_CHECK(app::validate_run_identity(valid).has_value());
 
     // Unsafe ids and relative directories are rejected.
-    {
-        app::RunIdentity bad = valid;
-        bad.app_name = "con/troller";
-        const core::Status status = app::validate_run_identity(bad);
-        NX_CHECK(!status.has_value());
-        NX_CHECK(status.error() == core::ErrorCode::InvalidArgument);
-    }
     {
         app::RunIdentity bad = valid;
         bad.instance_id = "i..42";
@@ -976,7 +961,7 @@ void test_telemetry_layout() {
     {
         const std::string missing =
             unique_path("telemetry_layout_missing") + "/controller/i1";
-        app::RunIdentity absent{"r1", "/tmp", "controller", "i1", missing};
+        app::RunIdentity absent{"r1", "/tmp", "i1", missing};
         app::TelemetryPaths paths{};
         NX_CHECK(app::resolve_telemetry_paths(absent, "", "", "", paths).has_value());
         NX_CHECK(paths.metrics == missing + "/metrics.jsonl");
@@ -990,7 +975,7 @@ void test_telemetry_layout() {
         app::RunIdentity back{};
         app::from_json(json, back);
         NX_CHECK(back.run_id == valid.run_id && back.run_dir == valid.run_dir);
-        NX_CHECK(back.app_name == valid.app_name && back.instance_id == valid.instance_id);
+        NX_CHECK(back.instance_id == valid.instance_id);
         NX_CHECK(back.instance_dir == valid.instance_dir);
         NX_CHECK(std::format("{}", valid) == valid.to_string());
         NX_CHECK(app::to_string(valid) == valid.to_string());
@@ -1020,12 +1005,10 @@ void test_telemetry_layout() {
 void test_telemetry_layout_infrastructure() {
     EnvGuard run_id_env{"NEXIGEN_RUN_ID"};
     EnvGuard run_dir_env{"NEXIGEN_RUN_DIR"};
-    EnvGuard app_name_env{"NEXIGEN_APP_NAME"};
     EnvGuard instance_id_env{"NEXIGEN_INSTANCE_ID"};
     EnvGuard instance_dir_env{"NEXIGEN_INSTANCE_DIR"};
     run_id_env.set("run-layout");
     run_dir_env.set("/tmp/opencode");
-    app_name_env.set("layout-app");
     instance_id_env.set("i1");
 
     const std::string instance_dir = unique_path("telemetry_instance");
@@ -1038,7 +1021,7 @@ void test_telemetry_layout_infrastructure() {
     app::Settings settings{};
     NX_CHECK(app::load_app_settings(app::AppSettingsPaths{}, settings).has_value());
     settings.logging.options.log_root_directory = instance_dir;
-    settings.logging.options.app_name = "layout-app";
+    settings.app_name = "layout-app";
 
     app::TelemetryPaths resolved{};
     NX_CHECK(app::resolve_telemetry_paths(identity, settings.metrics, settings.tracing,

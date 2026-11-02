@@ -11,6 +11,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 #include <fcntl.h>
 #include <string>
 #include <string_view>
@@ -29,11 +30,13 @@ namespace nexigen::metrics {
 /// File sink configuration: the path and whether batches are appended.
 struct JsonFileMetricSinkConfig {
     std::string path{};
+    std::string app_name{};
     bool append{true};
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
-        return "JsonFileMetricSinkConfig(path=" + path + ", append=" + (append ? "true" : "false") + ")";
+        return "JsonFileMetricSinkConfig(path=" + path + ", app_name=" + app_name +
+               ", append=" + (append ? "true" : "false") + ")";
     }
 };
 
@@ -50,6 +53,12 @@ public:
     explicit JsonFileMetricSink(const JsonFileMetricSinkConfig& config) noexcept {
         const int flags = O_WRONLY | O_CREAT | O_CLOEXEC | (config.append ? O_APPEND : O_TRUNC);
         fd_ = ::open(config.path.c_str(), flags, 0644);
+        const std::size_t take =
+            config.app_name.size() < 63 ? config.app_name.size() : 63;
+        for (std::size_t i = 0; i < take; ++i) {
+            app_[i] = config.app_name[i];
+        }
+        app_len_ = take;
     }
 
     JsonFileMetricSink(const JsonFileMetricSink&) = delete;
@@ -57,7 +66,9 @@ public:
 
     /// Move transfers the descriptor and leaves the source closed (fd = -1),
     /// so the destructors can never double-close (design D3).
-    JsonFileMetricSink(JsonFileMetricSink&& other) noexcept : fd_(other.fd_) {
+    JsonFileMetricSink(JsonFileMetricSink&& other) noexcept
+        : fd_(other.fd_), app_len_(other.app_len_) {
+        std::memcpy(app_, other.app_, sizeof(app_));
         other.fd_ = -1;
     }
 
@@ -66,6 +77,8 @@ public:
             if (fd_ >= 0) {
                 ::close(fd_);
             }
+            app_len_ = other.app_len_;
+            std::memcpy(app_, other.app_, sizeof(app_));
             fd_ = other.fd_;
             other.fd_ = -1;
         }
@@ -93,6 +106,8 @@ public:
         }
         static_cast<void>(writer.append_sv("{\"timestamp\":\""));
         static_cast<void>(writer.append_sv(stamp_text_));
+        static_cast<void>(writer.append_sv("\",\"app\":\""));
+        static_cast<void>(writer.append_escaped(std::string_view(app_, app_len_)));
         static_cast<void>(writer.append_sv("\",\"records\":["));
         for (std::uint32_t i = 0; i < batch.record_count; ++i) {
             if (batch.records == nullptr) {
@@ -220,6 +235,8 @@ private:
     }
 
     int fd_{-1};
+    char app_[64]{};
+    std::size_t app_len_{0};
     char stamp_text_[32]{};
     char scratch_[detail::json_scratch_capacity]{};
 };
@@ -229,7 +246,8 @@ private:
 
 /// Configuration JSON (cold path).
 inline void to_json(nlohmann::json& j, const JsonFileMetricSinkConfig& config) {
-    j = nlohmann::json{{"path", config.path}, {"append", config.append}};
+    j = nlohmann::json{{"path", config.path}, {"app_name", config.app_name},
+                       {"append", config.append}};
 }
 
 inline void from_json(const nlohmann::json& j, JsonFileMetricSinkConfig& out) noexcept {
@@ -241,6 +259,13 @@ inline void from_json(const nlohmann::json& j, JsonFileMetricSinkConfig& out) no
         const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
         if (text != nullptr) {
             out.path = std::string(*text);
+        }
+    }
+    const auto app_it = j.find("app_name");
+    if (app_it != j.end() && app_it->is_string()) {
+        const auto* const text = app_it->get_ptr<const nlohmann::json::string_t*>();
+        if (text != nullptr) {
+            out.app_name = std::string(*text);
         }
     }
     const auto append_it = j.find("append");

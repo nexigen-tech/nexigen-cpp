@@ -148,9 +148,11 @@ runner::ExitMetadata read_exit(const std::string& directory) {
     return metadata;
 }
 
+constexpr std::string_view k_test_app = "test_app";
+
 app::RunIdentity identity_for(const std::string& root) {
     return app::RunIdentity{
-        "run-1", root, "test_app", "instance-1", root + "/test_app/instance-1"};
+        "run-1", root, "instance-1", root + "/test_app/instance-1"};
 }
 
 std::optional<std::uint32_t> first_allowed_cpu() {
@@ -229,10 +231,10 @@ void test_terminated_by() {
 // --- ResourceMetadata ---
 void test_resource_metadata() {
     const app::RunIdentity identity{
-        "run-1", "/runs/run-1", "app", "instance-1",
+        "run-1", "/runs/run-1", "instance-1",
         "/runs/run-1/app/instance-1"};
     const runner::ResourceMetadata metadata =
-        runner::ResourceMetadata::from_identity(identity, 12345, 67890);
+        runner::ResourceMetadata::from_identity(identity, "app", 12345, 67890);
 
     NX_CHECK(metadata.run_id == "run-1");
     NX_CHECK(metadata.app_name == "app");
@@ -504,9 +506,9 @@ void test_json_file_io() {
     }
 
     const app::RunIdentity identity{
-        "run-1", directory, "app", "instance-1", directory};
+        "run-1", directory, "instance-1", directory};
     const runner::ResourceMetadata resource =
-        runner::ResourceMetadata::from_identity(identity, 4242, 4343);
+        runner::ResourceMetadata::from_identity(identity, "app", 4242, 4343);
     NX_CHECK(runner::write_resource_json(directory, resource).has_value());
     const auto resource_document =
         runner::read_json_file(directory + "/resource.json");
@@ -548,7 +550,7 @@ void test_start_status_stop() {
         "echo hello-out; echo hello-err >&2; exec sleep 60"};
 
     runner::Runner runner;
-    const core::Status started = runner.start(identity, command, 0);
+    const core::Status started = runner.start(identity, k_test_app, command, 0);
     NX_CHECK(started.has_value());
     if (!started) {
         remove_tree(root);
@@ -561,7 +563,7 @@ void test_start_status_stop() {
     NX_CHECK(state == "running");
 
     // A second start on a live instance is rejected without touching it.
-    NX_CHECK(failed_with(runner.start(identity, command, 0),
+    NX_CHECK(failed_with(runner.start(identity, k_test_app, command, 0),
                          core::ErrorCode::Conflict));
 
     const runner::ResourceMetadata metadata =
@@ -631,7 +633,7 @@ void test_self_exit_status() {
         "/bin/sh", "-c", "sleep 1; exit 7"};
 
     runner::Runner runner;
-    const core::Status started = runner.start(identity, command, 0);
+    const core::Status started = runner.start(identity, k_test_app, command, 0);
     NX_CHECK(started.has_value());
     if (!started) {
         remove_tree(root);
@@ -668,20 +670,18 @@ void test_env_identity_layout() {
     const std::string root = unique_dir("env");
     NX_CHECK(::setenv("NEXIGEN_RUN_ID", "run-env", 1) == 0);
     NX_CHECK(::setenv("NEXIGEN_RUN_DIR", root.c_str(), 1) == 0);
-    NX_CHECK(::setenv("NEXIGEN_APP_NAME", "env_app", 1) == 0);
     NX_CHECK(::setenv("NEXIGEN_INSTANCE_ID", "env_instance", 1) == 0);
     NX_CHECK(::unsetenv("NEXIGEN_INSTANCE_DIR") == 0);
 
     const app::RunIdentity identity = app::load_run_identity();
     NX_CHECK(identity.run_id == "run-env");
     NX_CHECK(identity.run_dir == root);
-    NX_CHECK(identity.app_name == "env_app");
     NX_CHECK(identity.instance_id == "env_instance");
-    NX_CHECK(identity.instance_dir == root + "/env_app/env_instance");
+    NX_CHECK(identity.instance_dir.empty());
 
     const std::vector<std::string> command{"/bin/true"};
     runner::Runner runner;
-    const core::Status started = runner.start(identity, command, 0);
+    const core::Status started = runner.start(identity, "env_app", command, 0);
     NX_CHECK(started.has_value());
 
     const std::string instance_dir = root + "/env_app/env_instance";
@@ -707,7 +707,6 @@ void test_env_identity_layout() {
 
     static_cast<void>(::unsetenv("NEXIGEN_RUN_ID"));
     static_cast<void>(::unsetenv("NEXIGEN_RUN_DIR"));
-    static_cast<void>(::unsetenv("NEXIGEN_APP_NAME"));
     static_cast<void>(::unsetenv("NEXIGEN_INSTANCE_ID"));
 
     reap_supervisors();
@@ -722,7 +721,7 @@ void test_log_truncation_on_restart() {
 
     const std::vector<std::string> first{
         "/bin/sh", "-c", "echo first-run; exec sleep 60"};
-    NX_CHECK(runner.start(identity, first, 0).has_value());
+    NX_CHECK(runner.start(identity, k_test_app, first, 0).has_value());
     NX_CHECK(wait_until(
         [&] {
             return contains(read_text(identity.instance_dir + "/stdout.log"),
@@ -733,7 +732,7 @@ void test_log_truncation_on_restart() {
 
     const std::vector<std::string> second{
         "/bin/sh", "-c", "echo second-run; exec sleep 60"};
-    NX_CHECK(runner.start(identity, second, 0).has_value());
+    NX_CHECK(runner.start(identity, k_test_app, second, 0).has_value());
     NX_CHECK(wait_until(
         [&] {
             return contains(read_text(identity.instance_dir + "/stdout.log"),
@@ -761,7 +760,7 @@ void test_graceful_sigterm() {
         "trap 'exit 0' TERM; echo trap-ready; while :; do sleep 1; done"};
 
     runner::Runner runner;
-    const core::Status started = runner.start(identity, command, 0);
+    const core::Status started = runner.start(identity, k_test_app, command, 0);
     NX_CHECK(started.has_value());
     if (!started) {
         remove_tree(root);
@@ -813,7 +812,7 @@ void test_runner_session_isolation() {
         static_cast<void>(::setsid());
         runner::Runner launcher_runner;
         const bool ok =
-            launcher_runner.start(identity, command, 0).has_value();
+            launcher_runner.start(identity, k_test_app, command, 0).has_value();
         const char report = ok ? 1 : 0;
         const ssize_t written =
             ::write(report_pipe[1], &report, sizeof(report));
@@ -871,7 +870,7 @@ void test_idle_timeout() {
     const std::vector<std::string> command{"/bin/sh", "-c", "exec sleep 60"};
 
     runner::Runner runner;
-    const core::Status started = runner.start(identity, command, 1);
+    const core::Status started = runner.start(identity, k_test_app, command, 1);
     NX_CHECK(started.has_value());
     if (!started) {
         remove_tree(root);
@@ -909,7 +908,7 @@ void test_sigkill_after_grace() {
         "/bin/sh", "-c", "trap '' TERM; exec sleep 60"};
 
     runner::Runner runner;
-    const core::Status started = runner.start(identity, command, 0);
+    const core::Status started = runner.start(identity, k_test_app, command, 0);
     NX_CHECK(started.has_value());
     if (!started) {
         remove_tree(root);
@@ -956,7 +955,7 @@ void test_start_options() {
     runner::Runner runner;
 
     auto invalid = [&](const runner::StartOptions& options) {
-        return failed_with(runner.start(identity, command, 0, options),
+        return failed_with(runner.start(identity, k_test_app, command, 0, options),
                            core::ErrorCode::InvalidArgument);
     };
 
@@ -1002,7 +1001,7 @@ void test_start_options() {
     NX_CHECK(!options.to_string().empty());
     const std::vector<std::string> child_command{
         "/bin/sh", "-c", "echo \"option=$NEXIGEN_TEST_OPTION\"; exec sleep 60"};
-    NX_CHECK(runner.start(identity, child_command, 0, options).has_value());
+    NX_CHECK(runner.start(identity, k_test_app, child_command, 0, options).has_value());
     NX_CHECK(wait_until(
         [&] {
             return contains(read_text(artifacts + "/stdout.log"),
@@ -1103,7 +1102,7 @@ void test_fault_injection() {
     auto run_fault = [&](core::detail::FaultPoint point) {
         g_fault_point = point;
         g_fault_enabled = true;
-        const core::Status status = launcher.start(identity, command, 0);
+        const core::Status status = launcher.start(identity, k_test_app, command, 0);
         g_fault_enabled = false;
         return status;
     };
@@ -1137,19 +1136,19 @@ void test_error_paths() {
     const std::string root = unique_dir("errors");
     app::RunIdentity identity = identity_for(root);
     const std::vector<std::string> empty_command;
-    NX_CHECK(failed_with(runner.start(identity, empty_command, 0),
+    NX_CHECK(failed_with(runner.start(identity, k_test_app, empty_command, 0),
                          core::ErrorCode::InvalidArgument));
 
     // Empty identity cannot derive an instance directory.
     const app::RunIdentity empty_identity{};
     const std::vector<std::string> command{"/bin/true"};
-    NX_CHECK(failed_with(runner.start(empty_identity, command, 0),
+    NX_CHECK(failed_with(runner.start(empty_identity, "", command, 0),
                          core::ErrorCode::InvalidArgument));
 
     // Relative instance directory.
     app::RunIdentity relative = identity_for(root);
     relative.instance_dir = "relative/path";
-    NX_CHECK(failed_with(runner.start(relative, command, 0),
+    NX_CHECK(failed_with(runner.start(relative, k_test_app, command, 0),
                          core::ErrorCode::InvalidArgument));
 
     // Unwritable parent.
@@ -1157,12 +1156,12 @@ void test_error_paths() {
     denied.instance_dir =
         "/proc/nexigen_runner_denied_" +
         std::to_string(static_cast<long long>(::getpid())) + "/instance";
-    NX_CHECK(failed_with(runner.start(denied, command, 0),
+    NX_CHECK(failed_with(runner.start(denied, k_test_app, command, 0),
                          core::ErrorCode::SystemError));
 
     // Identity derived from the three components when instance_dir is empty.
-    app::RunIdentity derived{"run-2", root, "test_app", "derived", ""};
-    const core::Status derived_start = runner.start(derived, command, 0);
+    app::RunIdentity derived{"run-2", root, "derived", ""};
+    const core::Status derived_start = runner.start(derived, k_test_app, command, 0);
     NX_CHECK(derived_start.has_value());
     if (derived_start) {
         const std::string target = root + "/test_app/derived";
@@ -1180,12 +1179,12 @@ void test_error_paths() {
     // Trailing slashes are normalized before the layout is created.
     app::RunIdentity padded = identity_for(root);
     padded.instance_dir = root + "/test_app/instance-padded///";
-    NX_CHECK(runner.start(padded, command, 0).has_value());
+    NX_CHECK(runner.start(padded, k_test_app, command, 0).has_value());
 
     // An instance directory beyond the path budget is rejected.
     app::RunIdentity too_long = identity_for(root);
     too_long.instance_dir = "/" + std::string(600, 'x');
-    NX_CHECK(failed_with(runner.start(too_long, command, 0),
+    NX_CHECK(failed_with(runner.start(too_long, k_test_app, command, 0),
                          core::ErrorCode::InvalidArgument));
 
     const std::string task_root = unique_dir("errors_io");
@@ -1195,9 +1194,9 @@ void test_error_paths() {
     std::filesystem::create_directories(
         task_root + "/test_app/instance-1/stdout.log", io_error);
     app::RunIdentity stdout_blocked{
-        "run-1", task_root, "test_app", "instance-1",
+        "run-1", task_root, "instance-1",
         task_root + "/test_app/instance-1"};
-    NX_CHECK(failed_with(runner.start(stdout_blocked, command, 0),
+    NX_CHECK(failed_with(runner.start(stdout_blocked, k_test_app, command, 0),
                          core::ErrorCode::SystemError));
 
     const std::string stderr_root = unique_dir("errors_io2");
@@ -1206,9 +1205,9 @@ void test_error_paths() {
     std::filesystem::create_directories(
         stderr_root + "/test_app/instance-1/stderr.log", io_error);
     app::RunIdentity stderr_blocked{
-        "run-1", stderr_root, "test_app", "instance-1",
+        "run-1", stderr_root, "instance-1",
         stderr_root + "/test_app/instance-1"};
-    NX_CHECK(failed_with(runner.start(stderr_blocked, command, 0),
+    NX_CHECK(failed_with(runner.start(stderr_blocked, k_test_app, command, 0),
                          core::ErrorCode::SystemError));
 
     // A stream file that cannot be created fails the preparation phase.
@@ -1218,9 +1217,9 @@ void test_error_paths() {
     std::filesystem::create_directories(
         stream_root + "/test_app/instance-1/app.jsonl", io_error);
     app::RunIdentity stream_blocked{
-        "run-1", stream_root, "test_app", "instance-1",
+        "run-1", stream_root, "instance-1",
         stream_root + "/test_app/instance-1"};
-    NX_CHECK(failed_with(runner.start(stream_blocked, command, 0),
+    NX_CHECK(failed_with(runner.start(stream_blocked, k_test_app, command, 0),
                          core::ErrorCode::SystemError));
 
     reap_supervisors();

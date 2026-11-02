@@ -34,21 +34,24 @@ struct SimplePolicy {
 
     static core::Status emplace_logger(
         std::optional<Logger>& out,
-        const logging::Settings&) noexcept {
+        const logging::Settings&,
+        std::string_view) noexcept {
         out.emplace();
         return out->initialize(logging::ConsoleLoggerConfig{});
     }
 
     static core::Status emplace_metrics_sink(
         std::optional<MetricsSink>& out,
-        const metrics::Settings&) noexcept {
+        const metrics::Settings&,
+        std::string_view) noexcept {
         out.emplace();
         return {};
     }
 
     static core::Status emplace_trace_sink(
         std::optional<TraceSink>& out,
-        const tracing::Settings&) noexcept {
+        const tracing::Settings&,
+        std::string_view) noexcept {
         out.emplace(1);
         return {};
     }

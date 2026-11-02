@@ -119,10 +119,11 @@ std::string ResourceMetadata::to_string() const {
 }
 
 ResourceMetadata ResourceMetadata::from_identity(
-    const app::RunIdentity& identity, std::int32_t pid, std::int32_t ppid) {
+    const app::RunIdentity& identity, std::string_view app_name,
+    std::int32_t pid, std::int32_t ppid) {
     ResourceMetadata metadata;
     metadata.run_id = identity.run_id;
-    metadata.app_name = identity.app_name;
+    metadata.app_name = std::string(app_name);
     metadata.instance_id = identity.instance_id;
     metadata.instance_dir = identity.instance_dir;
     metadata.pid = pid;

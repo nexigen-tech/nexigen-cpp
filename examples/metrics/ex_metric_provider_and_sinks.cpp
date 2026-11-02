@@ -121,7 +121,7 @@ int main() {
     metrics::CompositeMetricSink<metrics::ConsoleMetricSink, metrics::JsonFileMetricSink,
                                  metrics::NullMetricSink>
         composite{metrics::ConsoleMetricSink{STDOUT_FILENO},
-                  metrics::JsonFileMetricSink{metrics::JsonFileMetricSinkConfig{path, false}},
+                  metrics::JsonFileMetricSink{metrics::JsonFileMetricSinkConfig{path, "", false}},
                   metrics::NullMetricSink{}};
     expect(composite.get<metrics::JsonFileMetricSink>().is_open(), "JSONL sink opened its file");
 

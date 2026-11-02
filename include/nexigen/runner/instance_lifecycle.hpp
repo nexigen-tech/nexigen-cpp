@@ -59,11 +59,12 @@ struct ResourceMetadata {
 
     [[nodiscard]] std::string to_string() const;
 
-    /// Build start metadata from an identity. `pid` is the child, `ppid` the
-    /// supervisor; pass 0/0 before the fork if the pids are not known yet.
+    /// Build start metadata from an identity and the application name. `pid` is
+    /// the child, `ppid` the supervisor; pass 0/0 before the fork if the pids
+    /// are not known yet.
     [[nodiscard]] static ResourceMetadata from_identity(
-        const app::RunIdentity& identity, std::int32_t pid,
-        std::int32_t ppid = 0);
+        const app::RunIdentity& identity, std::string_view app_name,
+        std::int32_t pid, std::int32_t ppid = 0);
 };
 
 [[nodiscard]] inline std::string to_string(const ResourceMetadata& metadata) {

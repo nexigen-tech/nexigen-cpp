@@ -49,23 +49,9 @@ Merged settings SHALL follow the precedence built-in defaults, then global file,
 - **WHEN** a file sets `initial_log_level` to `warning` and the corresponding environment override sets `error`
 - **THEN** the merged `initial_log_level` is `error`
 
-### Requirement: App name is a local-only setting
-
-`app_name` SHALL be read only from the local source: the local JSON file or its environment override. A global file containing `app_name` MUST have that field ignored.
-
-#### Scenario: Global app name is ignored
-
-- **WHEN** the global file sets `app_name` to `"global-app"` and the local file does not set it
-- **THEN** the merged `app_name` equals the `LoggerOptions` default, not `"global-app"`
-
-#### Scenario: Local app name wins
-
-- **WHEN** the local file sets `app_name` to `"hil-runner"`
-- **THEN** the merged `app_name` is `"hil-runner"`
-
 ### Requirement: Environment overrides are documented and typed
 
-The system SHALL apply these environment overrides, each parsed with the same validation as the JSON field it replaces: `NEXIGEN_LOG_LEVEL`, `NEXIGEN_LOG_DIR`, `NEXIGEN_LOG_APP_NAME`, `NEXIGEN_LOG_MAX_FILE_SIZE_BYTES`, `NEXIGEN_LOG_CPU_AFFINITY`, `NEXIGEN_LOG_RING_CAPACITY`, `NEXIGEN_LOG_MAX_PRODUCER_THREADS`, `NEXIGEN_LOG_MESSAGE_CAPACITY`, and `NEXIGEN_LOG_OVERFLOW_POLICY`. Unset variables SHALL leave the lower-priority value untouched.
+The system SHALL apply these environment overrides, each parsed with the same validation as the JSON field it replaces: `NEXIGEN_LOG_LEVEL`, `NEXIGEN_LOG_DIR`, `NEXIGEN_LOG_MAX_FILE_SIZE_BYTES`, `NEXIGEN_LOG_CPU_AFFINITY`, `NEXIGEN_LOG_RING_CAPACITY`, `NEXIGEN_LOG_MAX_PRODUCER_THREADS`, `NEXIGEN_LOG_MESSAGE_CAPACITY`, and `NEXIGEN_LOG_OVERFLOW_POLICY`. Unset variables SHALL leave the lower-priority value untouched.
 
 #### Scenario: Level override parses enum names
 
@@ -126,11 +112,11 @@ The loader SHALL be best effort: a missing file, malformed JSON, a field of the 
 
 ### Requirement: Merged settings apply to logger configuration
 
-The system SHALL provide apply helpers that populate a `FileLoggerConfig` and a `ConsoleLogger` configuration from merged settings. The file mapping SHALL transfer the log level, app name, log root directory, maximum file size, and CPU affinity list; the console mapping SHALL transfer the initial level. Returned string views SHALL remain valid while the source `logging::Settings` is alive.
+The system SHALL provide apply helpers that populate a `FileLoggerConfig` and a `ConsoleLogger` configuration from merged settings. The file mapping SHALL transfer the log level, log root directory, maximum file size, and CPU affinity list; the console mapping SHALL transfer the initial level. The application name SHALL be supplied separately through the app layer, not through logging settings. Returned string views SHALL remain valid while the source `logging::Settings` is alive.
 
 #### Scenario: File config receives every mapped field
 
-- **WHEN** merged settings set level `warning`, app `"hil"`, root `/var/log/hil`, max file size `4096`, and affinity `{1, 3}`
+- **WHEN** merged settings set level `warning`, root `/var/log/hil`, max file size `4096`, and affinity `{1, 3}`
 - **THEN** the applied `FileLoggerConfig` carries those values and `core_mask` equals the mask covering cores 1 and 3
 
 #### Scenario: Empty affinity means OS placement
