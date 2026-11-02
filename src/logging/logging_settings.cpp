@@ -95,17 +95,17 @@ enum class FileRead : std::uint8_t { Absent, Ok, Failed };
     return true;
 }
 
-void add_diagnostic(Settings& settings, SettingsSource source,
+void add_diagnostic(Settings& settings, core::SettingsSource source,
                     std::string field, std::string message) {
     settings.diagnostics.push_back(
-        SettingsDiagnostic{source, std::move(field), std::move(message)});
+        core::SettingsDiagnostic{source, std::move(field), std::move(message)});
 }
 
 /// Validate every known field of one document, keep only the valid ones in
 /// `clean`, and leave the rest to the existing LoggerOptions from_json so the
 /// field mapping stays in one place. `allow_app_name` is false for the global
 /// source (app_name is local-only and is silently ignored there).
-void sanitize_document(const nlohmann::json& document, SettingsSource source,
+void sanitize_document(const nlohmann::json& document, core::SettingsSource source,
                        bool allow_app_name, Settings& settings,
                        nlohmann::json& clean) {
     clean = nlohmann::json::object();
@@ -382,7 +382,7 @@ void apply_environment(Settings& settings) noexcept {
         if (from_string(value, level)) {
             settings.options.initial_log_level = level;
         } else {
-            add_diagnostic(settings, SettingsSource::Environment, "initial_log_level",
+            add_diagnostic(settings, core::SettingsSource::Environment, "initial_log_level",
                            "expected one of verbose/debug/info/warning/error/fatal/off");
         }
     }
@@ -392,7 +392,7 @@ void apply_environment(Settings& settings) noexcept {
         if (value.size() <= 511 && value.find('\0') == std::string_view::npos) {
             settings.options.log_root_directory = std::string(value);
         } else {
-            add_diagnostic(settings, SettingsSource::Environment, "log_root_directory",
+            add_diagnostic(settings, core::SettingsSource::Environment, "log_root_directory",
                            "expected a path of at most 511 bytes without NUL");
         }
     }
@@ -402,7 +402,7 @@ void apply_environment(Settings& settings) noexcept {
         if (value.size() <= 63 && value.find('\0') == std::string_view::npos) {
             settings.options.app_name = std::string(value);
         } else {
-            add_diagnostic(settings, SettingsSource::Environment, "app_name",
+            add_diagnostic(settings, core::SettingsSource::Environment, "app_name",
                            "expected at most 63 bytes without NUL");
         }
     }
@@ -413,7 +413,7 @@ void apply_environment(Settings& settings) noexcept {
         if (parse_u64(value, parsed)) {
             settings.options.max_file_size_bytes = parsed;
         } else {
-            add_diagnostic(settings, SettingsSource::Environment,
+            add_diagnostic(settings, core::SettingsSource::Environment,
                            "max_file_size_bytes", "expected a non-negative integer");
         }
     }
@@ -424,7 +424,7 @@ void apply_environment(Settings& settings) noexcept {
         if (parse_affinity(value, cores)) {
             settings.options.flush_cpu_affinity = std::move(cores);
         } else {
-            add_diagnostic(settings, SettingsSource::Environment,
+            add_diagnostic(settings, core::SettingsSource::Environment,
                            "flush_cpu_affinity",
                            "expected a comma-separated list of ids/ranges between 0 and 63");
         }
@@ -437,7 +437,7 @@ void apply_environment(Settings& settings) noexcept {
         if (parse_u32(value, parsed) && parsed > 0U) {
             settings.options.spsc_ring_buffer_capacity = parsed;
         } else {
-            add_diagnostic(settings, SettingsSource::Environment,
+            add_diagnostic(settings, core::SettingsSource::Environment,
                            "spsc_ring_buffer_capacity",
                            "expected a positive 32-bit integer");
         }
@@ -450,7 +450,7 @@ void apply_environment(Settings& settings) noexcept {
         if (parse_u32(value, parsed) && parsed > 0U) {
             settings.options.message_capacity = parsed;
         } else {
-            add_diagnostic(settings, SettingsSource::Environment,
+            add_diagnostic(settings, core::SettingsSource::Environment,
                            "message_capacity",
                            "expected a positive 32-bit integer");
         }
@@ -463,7 +463,7 @@ void apply_environment(Settings& settings) noexcept {
         if (parse_u32(value, parsed) && parsed > 0U) {
             settings.options.max_producer_threads = parsed;
         } else {
-            add_diagnostic(settings, SettingsSource::Environment,
+            add_diagnostic(settings, core::SettingsSource::Environment,
                            "max_producer_threads",
                            "expected a positive 32-bit integer");
         }
@@ -475,23 +475,13 @@ void apply_environment(Settings& settings) noexcept {
         if (from_string(value, policy)) {
             settings.options.overflow_policy = policy;
         } else {
-            add_diagnostic(settings, SettingsSource::Environment, "overflow_policy",
+            add_diagnostic(settings, core::SettingsSource::Environment, "overflow_policy",
                            "expected drop_newest or overwrite_oldest");
         }
     }
 }
 
 } // namespace
-
-std::string SettingsPaths::to_string() const {
-    return "SettingsPaths(global_file=\"" + global_file + "\", local_file=\"" +
-           local_file + "\")";
-}
-
-std::string SettingsDiagnostic::to_string() const {
-    return "SettingsDiagnostic(source=" + std::string(nexigen::logging::to_string(source)) +
-           ", field=" + field + ", message=" + message + ")";
-}
 
 std::string Settings::to_string() const {
     std::string out = "Settings(global_loaded=" +
@@ -514,57 +504,11 @@ std::string Settings::to_string() const {
     return out;
 }
 
-void to_json(nlohmann::json& j, const SettingsPaths& paths) {
-    j = nlohmann::json{{"global_file", paths.global_file},
-                       {"local_file", paths.local_file}};
-}
-
-void from_json(const nlohmann::json& j, SettingsPaths& out) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
-    auto it = j.find("global_file");
-    if (it != j.end() && it->is_string()) {
-        out.global_file = it->get<std::string>();
-    }
-    it = j.find("local_file");
-    if (it != j.end() && it->is_string()) {
-        out.local_file = it->get<std::string>();
-    }
-}
-
-void to_json(nlohmann::json& j, const SettingsDiagnostic& diag) {
-    j = nlohmann::json{{"source", std::string(nexigen::logging::to_string(diag.source))},
-                       {"field", diag.field},
-                       {"message", diag.message}};
-}
-
-void from_json(const nlohmann::json& j, SettingsDiagnostic& out) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
-    auto it = j.find("source");
-    if (it != j.end()) {
-        const auto* const name = string_ptr(*it);
-        if (name != nullptr) {
-            static_cast<void>(from_string(std::string_view(*name), out.source));
-        }
-    }
-    it = j.find("field");
-    if (it != j.end() && it->is_string()) {
-        out.field = it->get<std::string>();
-    }
-    it = j.find("message");
-    if (it != j.end() && it->is_string()) {
-        out.message = it->get<std::string>();
-    }
-}
-
 void to_json(nlohmann::json& j, const Settings& settings) {
     nlohmann::json options;
     to_json(options, settings.options);
     nlohmann::json diagnostics = nlohmann::json::array();
-    for (const SettingsDiagnostic& diag : settings.diagnostics) {
+    for (const core::SettingsDiagnostic& diag : settings.diagnostics) {
         nlohmann::json entry;
         to_json(entry, diag);
         diagnostics.push_back(std::move(entry));
@@ -578,7 +522,7 @@ void to_json(nlohmann::json& j, const Settings& settings) {
                        {"diagnostics", std::move(diagnostics)}};
 }
 
-core::Status load_logging_settings(const SettingsPaths& paths,
+core::Status load_logging_settings(const core::SettingsPaths& paths,
                                    Settings& out) noexcept {
     out = Settings{};
     bool invalid = false;
@@ -591,11 +535,11 @@ core::Status load_logging_settings(const SettingsPaths& paths,
         nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out, SettingsSource::Global, "", "malformed JSON");
+            add_diagnostic(out, core::SettingsSource::Global, "", "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
             nlohmann::json clean;
-            sanitize_document(document, SettingsSource::Global, false, out, clean);
+            sanitize_document(document, core::SettingsSource::Global, false, out, clean);
             from_json(clean, out.options);
             if (out.diagnostics.size() != before) {
                 invalid = true;
@@ -603,7 +547,7 @@ core::Status load_logging_settings(const SettingsPaths& paths,
         }
     } else if (read == FileRead::Failed) {
         system_error = true;
-        add_diagnostic(out, SettingsSource::Global, "",
+        add_diagnostic(out, core::SettingsSource::Global, "",
                        "file exists but could not be read");
     }
 
@@ -614,11 +558,11 @@ core::Status load_logging_settings(const SettingsPaths& paths,
         nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out, SettingsSource::Local, "", "malformed JSON");
+            add_diagnostic(out, core::SettingsSource::Local, "", "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
             nlohmann::json clean;
-            sanitize_document(document, SettingsSource::Local, true, out, clean);
+            sanitize_document(document, core::SettingsSource::Local, true, out, clean);
             from_json(clean, out.options);
             if (out.diagnostics.size() != before) {
                 invalid = true;
@@ -626,7 +570,7 @@ core::Status load_logging_settings(const SettingsPaths& paths,
         }
     } else if (read == FileRead::Failed) {
         system_error = true;
-        add_diagnostic(out, SettingsSource::Local, "",
+        add_diagnostic(out, core::SettingsSource::Local, "",
                        "file exists but could not be read");
     }
 

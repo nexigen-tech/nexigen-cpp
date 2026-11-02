@@ -430,9 +430,9 @@ CommandLineResult parse_command_line(
     return finish_parse(std::move(collected), std::move(diagnostics));
 }
 
-SettingsPaths make_app_settings_paths(
+AppSettingsPaths make_app_settings_paths(
     const CommandLineOptions& options) noexcept {
-    SettingsPaths paths{};
+    AppSettingsPaths paths{};
     paths.logging.global_file = join_path(options.global_settings_dir, "logging.json");
     paths.logging.local_file = join_path(options.local_settings_dir, "logging.json");
     paths.metrics.global_file = join_path(options.global_settings_dir, "metrics.json");
@@ -455,7 +455,7 @@ core::Status load_app_settings(const CommandLineOptions& options,
     if (options.global_settings_dir.empty() && options.local_settings_dir.empty()) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    const SettingsPaths paths = make_app_settings_paths(options);
+    const AppSettingsPaths paths = make_app_settings_paths(options);
     const core::Status status = nexigen::app::load_app_settings(paths, out);
     apply_to(options, out);
     return status;

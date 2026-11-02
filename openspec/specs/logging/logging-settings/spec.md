@@ -107,7 +107,7 @@ The loader SHALL be best effort: a missing file, malformed JSON, a field of the 
 
 ### Requirement: Settings diagnostics are serializable
 
-`Settings_diagnostic` and `Settings_paths` SHALL provide member and free `to_string()`, non-throwing ADL `to_json`/`from_json` under `JSON_NOEXCEPTION=1`, and a `std::formatter` specialization. `Logging_settings` SHALL provide `to_string()`, `to_json`, and a `std::formatter` specialization but SHALL NOT provide `from_json`, because it is reconstructed by the loader rather than deserialized.
+`logging::Settings` SHALL provide member and free `to_string()`, a `std::formatter` specialization, and `to_json`, but SHALL NOT provide `from_json`, because it is reconstructed by the loader rather than deserialized. The shared `SettingsDiagnostic` and `SettingsPaths` serialization contract SHALL be provided by `core/settings-vocabulary`.
 
 #### Scenario: Diagnostic renders its source and field
 
@@ -116,27 +116,27 @@ The loader SHALL be best effort: a missing file, malformed JSON, a field of the 
 
 #### Scenario: Diagnostic JSON round-trips
 
-- **WHEN** a `Settings_diagnostic` passes through `to_json` then `from_json`
+- **WHEN** a `core::SettingsDiagnostic` passes through `to_json` then `from_json`
 - **THEN** the recovered source, field, and message equal the originals under `JSON_NOEXCEPTION=1`
 
 #### Scenario: Settings format through std::format
 
-- **WHEN** `std::format("{}", settings)` is evaluated for a loaded `Logging_settings`
+- **WHEN** `std::format("{}", settings)` is evaluated for a loaded `logging::Settings`
 - **THEN** the result equals `settings.to_string()`
 
 ### Requirement: Merged settings apply to logger configuration
 
-The system SHALL provide apply helpers that populate a `FileLogger_config` and a `ConsoleLogger` configuration from merged settings. The file mapping SHALL transfer the log level, app name, log root directory, maximum file size, and CPU affinity list; the console mapping SHALL transfer the initial level. Returned string views SHALL remain valid while the source `Logging_settings` is alive.
+The system SHALL provide apply helpers that populate a `FileLoggerConfig` and a `ConsoleLogger` configuration from merged settings. The file mapping SHALL transfer the log level, app name, log root directory, maximum file size, and CPU affinity list; the console mapping SHALL transfer the initial level. Returned string views SHALL remain valid while the source `logging::Settings` is alive.
 
 #### Scenario: File config receives every mapped field
 
 - **WHEN** merged settings set level `warning`, app `"hil"`, root `/var/log/hil`, max file size `4096`, and affinity `{1, 3}`
-- **THEN** the applied `FileLogger_config` carries those values and `core_mask` equals the mask covering cores 1 and 3
+- **THEN** the applied `FileLoggerConfig` carries those values and `core_mask` equals the mask covering cores 1 and 3
 
 #### Scenario: Empty affinity means OS placement
 
 - **WHEN** merged `flush_cpu_affinity` is empty
-- **THEN** the applied `FileLogger_config::core_mask` is `0`
+- **THEN** the applied `FileLoggerConfig::core_mask` is `0`
 
 ### Requirement: Explicit compile-time capacity limits are checked
 
@@ -188,7 +188,7 @@ Loading, validation, diagnostics, and config application SHALL execute before lo
 
 ### Requirement: Runnable simple settings example
 
-The project SHALL provide an `ex_logging_settings_simple` executable that demonstrates the shortest loader-to-logger flow: create its own minimal global and local JSON files, load them through explicit `Settings_paths`, initialize a logger from the merged settings, emit a record, flush, and exit 0.
+The project SHALL provide an `ex_logging_settings_simple` executable that demonstrates the shortest loader-to-logger flow: create its own minimal global and local JSON files, load them through explicit `core::SettingsPaths`, initialize a logger from the merged settings, emit a record, flush, and exit 0.
 
 #### Scenario: Example creates its own inputs
 

@@ -2672,10 +2672,10 @@ struct has_from_json<
 
 static_assert(!has_from_json<Settings>::value,
               "Settings is factory/IO-bound: to_json only");
-static_assert(has_from_json<SettingsDiagnostic>::value,
-              "SettingsDiagnostic must round-trip through JSON");
-static_assert(has_from_json<SettingsPaths>::value,
-              "SettingsPaths must round-trip through JSON");
+static_assert(has_from_json<core::SettingsDiagnostic>::value,
+              "core::SettingsDiagnostic must round-trip through JSON");
+static_assert(has_from_json<core::SettingsPaths>::value,
+              "core::SettingsPaths must round-trip through JSON");
 
 struct EnvGuard {
     std::string name;
@@ -2771,38 +2771,38 @@ std::size_t total_lines(const std::vector<std::string>& files) {
 // --- settings vocabulary (spec logging/logging-settings "Settings diagnostics
 // are serializable"): enum trio, JSON round-trips, formatters, no from_json.
 void test_settings_vocabulary() {
-    NX_CHECK(to_string(SettingsSource::Global) == "global");
-    NX_CHECK(to_string(SettingsSource::Local) == "local");
-    NX_CHECK(to_string(SettingsSource::Environment) == "environment");
-    NX_CHECK(to_string(SettingsSource::Computed) == "computed");
-    SettingsSource source = SettingsSource::Computed;
+    NX_CHECK(to_string(core::SettingsSource::Global) == "global");
+    NX_CHECK(to_string(core::SettingsSource::Local) == "local");
+    NX_CHECK(to_string(core::SettingsSource::Environment) == "environment");
+    NX_CHECK(to_string(core::SettingsSource::Computed) == "computed");
+    core::SettingsSource source = core::SettingsSource::Computed;
     NX_CHECK(from_string("local", source));
-    NX_CHECK(source == SettingsSource::Local);
+    NX_CHECK(source == core::SettingsSource::Local);
     NX_CHECK(!from_string("bogus", source));
-    NX_CHECK(source == SettingsSource::Local);
+    NX_CHECK(source == core::SettingsSource::Local);
     nlohmann::json source_json;
-    to_json(source_json, SettingsSource::Environment);
+    to_json(source_json, core::SettingsSource::Environment);
     NX_CHECK(source_json == "environment");
     from_json(nlohmann::json("global"), source);
-    NX_CHECK(source == SettingsSource::Global);
+    NX_CHECK(source == core::SettingsSource::Global);
     from_json(nlohmann::json(7), source);
-    NX_CHECK(source == SettingsSource::Global);
-    NX_CHECK(std::format("{}", SettingsSource::Computed) == "computed");
+    NX_CHECK(source == core::SettingsSource::Global);
+    NX_CHECK(std::format("{}", core::SettingsSource::Computed) == "computed");
 
-    const SettingsPaths paths{"/tmp/global.json", "/tmp/local.json"};
+    const core::SettingsPaths paths{"/tmp/global.json", "/tmp/local.json"};
     const std::string paths_text = paths.to_string();
     NX_CHECK(paths_text.find("/tmp/global.json") != std::string::npos);
     NX_CHECK(paths_text.find("/tmp/local.json") != std::string::npos);
     NX_CHECK(to_string(paths) == paths_text);
     nlohmann::json paths_json;
     to_json(paths_json, paths);
-    SettingsPaths paths_back{};
+    core::SettingsPaths paths_back{};
     from_json(paths_json, paths_back);
     NX_CHECK(paths_back.global_file == paths.global_file);
     NX_CHECK(paths_back.local_file == paths.local_file);
     NX_CHECK(std::format("{}", paths) == paths_text);
 
-    const SettingsDiagnostic diag{SettingsSource::Local, "app_name",
+    const core::SettingsDiagnostic diag{core::SettingsSource::Local, "app_name",
                                    "expected at most 63 bytes"};
     const std::string diag_text = diag.to_string();
     NX_CHECK(diag_text.find("local") != std::string::npos);
@@ -2810,9 +2810,9 @@ void test_settings_vocabulary() {
     NX_CHECK(to_string(diag) == diag_text);
     nlohmann::json diag_json;
     to_json(diag_json, diag);
-    SettingsDiagnostic diag_back{};
+    core::SettingsDiagnostic diag_back{};
     from_json(diag_json, diag_back);
-    NX_CHECK(diag_back.source == SettingsSource::Local);
+    NX_CHECK(diag_back.source == core::SettingsSource::Local);
     NX_CHECK(diag_back.field == "app_name");
     NX_CHECK(diag_back.message == "expected at most 63 bytes");
     NX_CHECK(std::format("{}", diag) == diag_text);
@@ -2861,7 +2861,7 @@ void test_logging_settings_loader() {
     // Explicit paths only: both empty -> defaults, no diagnostics.
     {
         Settings out{};
-        NX_CHECK(load_logging_settings(SettingsPaths{}, out).has_value());
+        NX_CHECK(load_logging_settings(core::SettingsPaths{}, out).has_value());
         NX_CHECK(!out.global_loaded && !out.local_loaded);
         NX_CHECK(!out.ring_capacity_set && !out.max_threads_set);
         NX_CHECK(out.diagnostics.empty());
@@ -2885,7 +2885,7 @@ void test_logging_settings_loader() {
 
     {
         Settings out{};
-        NX_CHECK(load_logging_settings(SettingsPaths{global_path, local_path}, out)
+        NX_CHECK(load_logging_settings(core::SettingsPaths{global_path, local_path}, out)
                      .has_value());
         NX_CHECK(out.global_loaded && out.local_loaded);
         NX_CHECK(out.options.log_root_directory == "/tmp/opencode/global-logs");
@@ -2908,7 +2908,7 @@ void test_logging_settings_loader() {
     message_env.set("256");
     {
         Settings out{};
-        NX_CHECK(load_logging_settings(SettingsPaths{global_path, local_path}, out)
+        NX_CHECK(load_logging_settings(core::SettingsPaths{global_path, local_path}, out)
                      .has_value());
         NX_CHECK(out.options.initial_log_level == LogLevel::Error);
         NX_CHECK(out.options.app_name == "env-app");
@@ -2926,7 +2926,7 @@ void test_logging_settings_loader() {
     {
         Settings out{};
         NX_CHECK(load_logging_settings(
-                     SettingsPaths{global_path, "/tmp/opencode/does-not-exist.json"},
+                     core::SettingsPaths{global_path, "/tmp/opencode/does-not-exist.json"},
                      out)
                      .has_value());
         NX_CHECK(out.global_loaded && !out.local_loaded);
@@ -2939,14 +2939,14 @@ void test_logging_settings_loader() {
     {
         Settings out{};
         const Status status =
-            load_logging_settings(SettingsPaths{global_path, local_path}, out);
+            load_logging_settings(core::SettingsPaths{global_path, local_path}, out);
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == ErrorCode::InvalidArgument);
         NX_CHECK(out.options.initial_log_level == LogLevel::Warning);
         NX_CHECK(out.local_loaded);
         bool malformed_seen = false;
-        for (const SettingsDiagnostic& diag : out.diagnostics) {
-            if (diag.source == SettingsSource::Local &&
+        for (const core::SettingsDiagnostic& diag : out.diagnostics) {
+            if (diag.source == core::SettingsSource::Local &&
                 diag.message.find("malformed") != std::string::npos) {
                 malformed_seen = true;
             }
@@ -2959,13 +2959,13 @@ void test_logging_settings_loader() {
     {
         Settings out{};
         const Status status =
-            load_logging_settings(SettingsPaths{global_path, local_path}, out);
+            load_logging_settings(core::SettingsPaths{global_path, local_path}, out);
         NX_CHECK(!status.has_value());
         NX_CHECK(out.options.max_file_size_bytes == 1234ULL);
         bool field_seen = false;
-        for (const SettingsDiagnostic& diag : out.diagnostics) {
+        for (const core::SettingsDiagnostic& diag : out.diagnostics) {
             if (diag.field == "max_file_size_bytes" &&
-                diag.source == SettingsSource::Local) {
+                diag.source == core::SettingsSource::Local) {
                 field_seen = true;
             }
         }
@@ -2976,7 +2976,7 @@ void test_logging_settings_loader() {
     write_text(local_path, R"({"initial_log_level":"chatty"})");
     {
         Settings out{};
-        NX_CHECK(!load_logging_settings(SettingsPaths{global_path, local_path}, out)
+        NX_CHECK(!load_logging_settings(core::SettingsPaths{global_path, local_path}, out)
                       .has_value());
         NX_CHECK(out.options.initial_log_level == LogLevel::Warning);
     }
@@ -2984,7 +2984,7 @@ void test_logging_settings_loader() {
     // Global app_name is ignored; local-only rule.
     {
         Settings out{};
-        NX_CHECK(load_logging_settings(SettingsPaths{global_path, ""}, out).has_value());
+        NX_CHECK(load_logging_settings(core::SettingsPaths{global_path, ""}, out).has_value());
         NX_CHECK(out.options.app_name == "nexigen_app");
     }
 
@@ -2993,7 +2993,7 @@ void test_logging_settings_loader() {
         write_text(local_path, R"({"spsc_ring_buffer_capacity":0,)"
                                R"("max_producer_threads":"many"})");
         Settings out{};
-        NX_CHECK(!load_logging_settings(SettingsPaths{"", local_path}, out).has_value());
+        NX_CHECK(!load_logging_settings(core::SettingsPaths{"", local_path}, out).has_value());
         NX_CHECK(out.ring_capacity_set);
         NX_CHECK(out.max_threads_set);
     }
@@ -3002,7 +3002,7 @@ void test_logging_settings_loader() {
     {
         Settings out{};
         const Status status =
-            load_logging_settings(SettingsPaths{"/tmp/opencode", ""}, out);
+            load_logging_settings(core::SettingsPaths{"/tmp/opencode", ""}, out);
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == ErrorCode::SystemError);
         NX_CHECK(!out.diagnostics.empty());
@@ -3012,8 +3012,8 @@ void test_logging_settings_loader() {
     affinity_env.set("3-1");
     {
         Settings out{};
-        NX_CHECK(!load_logging_settings(SettingsPaths{}, out).has_value());
-        NX_CHECK(out.diagnostics.back().source == SettingsSource::Environment);
+        NX_CHECK(!load_logging_settings(core::SettingsPaths{}, out).has_value());
+        NX_CHECK(out.diagnostics.back().source == core::SettingsSource::Environment);
     }
     affinity_env.clear();
 
@@ -3039,9 +3039,9 @@ void test_logging_settings_loader() {
     {
         Settings out{};
         out.diagnostics.push_back(
-            {SettingsSource::Local, "a", "first"});
+            {core::SettingsSource::Local, "a", "first"});
         out.diagnostics.push_back(
-            {SettingsSource::Local, "b", "second"});
+            {core::SettingsSource::Local, "b", "second"});
         NX_CHECK(out.to_string().find("; ") != std::string::npos);
         nlohmann::json json;
         to_json(json, out);
@@ -3050,12 +3050,12 @@ void test_logging_settings_loader() {
 
     // Hostile readers for paths/diagnostics.
     {
-        SettingsPaths keep{"g", "l"};
+        core::SettingsPaths keep{"g", "l"};
         from_json(nlohmann::json(42), keep);
         NX_CHECK(keep.global_file == "g");
         from_json(nlohmann::json{{"global_file", 7}}, keep);
         NX_CHECK(keep.global_file == "g");
-        SettingsDiagnostic diag_keep{SettingsSource::Local, "f", "m"};
+        core::SettingsDiagnostic diag_keep{core::SettingsSource::Local, "f", "m"};
         from_json(nlohmann::json{{"source", 7}, {"field", 7}, {"message", 7}},
                   diag_keep);
         NX_CHECK(diag_keep.field == "f");
@@ -3111,12 +3111,12 @@ void test_logging_settings_apply() {
     // Capacity check: explicit overflow rejected, defaults ignored.
     settings.ring_capacity_set = true;
     settings.options.spsc_ring_buffer_capacity = 1024U;
-    std::vector<SettingsDiagnostic> diagnostics;
+    std::vector<core::SettingsDiagnostic> diagnostics;
     const Status too_big = check_capacity<128, 32, 128>(settings, &diagnostics);
     NX_CHECK(!too_big.has_value());
     NX_CHECK(too_big.error() == ErrorCode::InvalidArgument);
     NX_CHECK(diagnostics.size() == 1U);
-    NX_CHECK(diagnostics.front().source == SettingsSource::Computed);
+    NX_CHECK(diagnostics.front().source == core::SettingsSource::Computed);
     NX_CHECK(diagnostics.front().message.find("1024") != std::string::npos);
     NX_CHECK(diagnostics.front().message.find("128") != std::string::npos);
 

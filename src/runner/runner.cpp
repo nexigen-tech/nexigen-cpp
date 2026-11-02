@@ -148,10 +148,10 @@ constexpr std::size_t max_path_bytes = 511;
     app::Settings settings{};
     if (!options.global_settings_dir.empty() ||
         !options.local_settings_dir.empty()) {
-        app::SettingsPaths paths{};
+        app::AppSettingsPaths paths{};
         auto make_pair = [](std::string_view global, std::string_view local,
                             const char* name) {
-            logging::SettingsPaths entry{};
+            core::SettingsPaths entry{};
             if (!global.empty()) {
                 entry.global_file = std::string(global) + "/" + name;
             }

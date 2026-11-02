@@ -65,11 +65,11 @@ enum class FileRead : std::uint8_t { Absent, Ok, Failed };
     return FileRead::Ok;
 }
 
-void add_diagnostic(std::vector<SettingsDiagnostic>& diagnostics,
-                    SettingsSource source, std::string field,
+void add_diagnostic(std::vector<core::SettingsDiagnostic>& diagnostics,
+                    core::SettingsSource source, std::string field,
                     std::string message) {
     diagnostics.push_back(
-        SettingsDiagnostic{source, std::move(field), std::move(message)});
+        core::SettingsDiagnostic{source, std::move(field), std::move(message)});
 }
 
 [[nodiscard]] bool unsigned_value(const nlohmann::json& value, std::uint64_t& out) noexcept {
@@ -92,8 +92,8 @@ void add_diagnostic(std::vector<SettingsDiagnostic>& diagnostics,
 
 /// Read a JSON key into a uint64 target when present and valid.
 void read_uint(const nlohmann::json& document, const char* key, std::uint64_t max_value,
-               std::uint64_t& target, std::vector<SettingsDiagnostic>& diagnostics,
-               SettingsSource source) {
+               std::uint64_t& target, std::vector<core::SettingsDiagnostic>& diagnostics,
+               core::SettingsSource source) {
     const auto it = document.find(key);
     if (it == document.end()) {
         return;
@@ -113,8 +113,8 @@ void read_uint(const nlohmann::json& document, const char* key, std::uint64_t ma
 /// Locate the optional sink object. Returns nullptr when absent or invalid;
 /// an invalid value is reported once and leaves the previous sink intact.
 [[nodiscard]] const nlohmann::json* find_sink(
-    const nlohmann::json& document, std::vector<SettingsDiagnostic>& diagnostics,
-    SettingsSource source) {
+    const nlohmann::json& document, std::vector<core::SettingsDiagnostic>& diagnostics,
+    core::SettingsSource source) {
     const auto it = document.find("sink");
     if (it == document.end()) {
         return nullptr;
@@ -127,8 +127,8 @@ void read_uint(const nlohmann::json& document, const char* key, std::uint64_t ma
 }
 
 void read_sink_string(const nlohmann::json& sink, const char* key, std::string& target,
-                      std::vector<SettingsDiagnostic>& diagnostics,
-                      SettingsSource source) {
+                      std::vector<core::SettingsDiagnostic>& diagnostics,
+                      core::SettingsSource source) {
     const auto it = sink.find(key);
     if (it == sink.end()) {
         return;
@@ -144,8 +144,8 @@ void read_sink_string(const nlohmann::json& sink, const char* key, std::string& 
 }
 
 void read_sink_bool(const nlohmann::json& sink, const char* key, bool& target,
-                    std::vector<SettingsDiagnostic>& diagnostics,
-                    SettingsSource source) {
+                    std::vector<core::SettingsDiagnostic>& diagnostics,
+                    core::SettingsSource source) {
     const auto it = sink.find(key);
     if (it == sink.end()) {
         return;
@@ -158,16 +158,6 @@ void read_sink_bool(const nlohmann::json& sink, const char* key, bool& target,
 }
 
 } // namespace
-
-std::string SettingsPaths::to_string() const {
-    return "SettingsPaths(global_file=" + global_file +
-           ", local_file=" + local_file + ")";
-}
-
-std::string SettingsDiagnostic::to_string() const {
-    return "SettingsDiagnostic(source=" + std::string(nexigen::chrono::to_string(source)) +
-           ", field=" + field + ", message=" + message + ")";
-}
 
 std::string Settings::to_string() const {
     std::string out = "Settings(global_loaded=" +
@@ -186,67 +176,10 @@ std::string Settings::to_string() const {
     return out;
 }
 
-void to_json(nlohmann::json& j, const SettingsPaths& paths) {
-    j = nlohmann::json{{"global_file", paths.global_file}, {"local_file", paths.local_file}};
-}
-
-void from_json(const nlohmann::json& j, SettingsPaths& out) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
-    const auto global_it = j.find("global_file");
-    if (global_it != j.end() && global_it->is_string()) {
-        const auto* const text = global_it->get_ptr<const nlohmann::json::string_t*>();
-        if (text != nullptr) {
-            out.global_file = std::string(*text);
-        }
-    }
-    const auto local_it = j.find("local_file");
-    if (local_it != j.end() && local_it->is_string()) {
-        const auto* const text = local_it->get_ptr<const nlohmann::json::string_t*>();
-        if (text != nullptr) {
-            out.local_file = std::string(*text);
-        }
-    }
-}
-
-void to_json(nlohmann::json& j, const SettingsDiagnostic& diag) {
-    j = nlohmann::json{{"source", std::string(to_string(diag.source))},
-                       {"field", diag.field},
-                       {"message", diag.message}};
-}
-
-void from_json(const nlohmann::json& j, SettingsDiagnostic& out) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
-    const auto source_it = j.find("source");
-    if (source_it != j.end() && source_it->is_string()) {
-        const auto* const text = source_it->get_ptr<const nlohmann::json::string_t*>();
-        if (text != nullptr) {
-            static_cast<void>(from_string(std::string_view(*text), out.source));
-        }
-    }
-    const auto field_it = j.find("field");
-    if (field_it != j.end() && field_it->is_string()) {
-        const auto* const text = field_it->get_ptr<const nlohmann::json::string_t*>();
-        if (text != nullptr) {
-            out.field = std::string(*text);
-        }
-    }
-    const auto message_it = j.find("message");
-    if (message_it != j.end() && message_it->is_string()) {
-        const auto* const text = message_it->get_ptr<const nlohmann::json::string_t*>();
-        if (text != nullptr) {
-            out.message = std::string(*text);
-        }
-    }
-}
-
 void to_json(nlohmann::json& j, const Settings& settings) {
     const ChronoProviderConfig& options = settings.options;
     nlohmann::json diagnostics = nlohmann::json::array();
-    for (const SettingsDiagnostic& diag : settings.diagnostics) {
+    for (const core::SettingsDiagnostic& diag : settings.diagnostics) {
         nlohmann::json entry;
         to_json(entry, diag);
         diagnostics.push_back(std::move(entry));
@@ -262,7 +195,7 @@ void to_json(nlohmann::json& j, const Settings& settings) {
 
 namespace {
 
-void merge_document(const nlohmann::json& document, SettingsSource source,
+void merge_document(const nlohmann::json& document, core::SettingsSource source,
                     Settings& out) {
     if (!document.is_object()) {
         add_diagnostic(out.diagnostics, source, "", "document is not a JSON object");
@@ -304,7 +237,7 @@ void apply_environment(Settings& out) {
             out.options.collect_interval =
                 std::chrono::nanoseconds{static_cast<std::int64_t>(parsed)};
         } else {
-            add_diagnostic(out.diagnostics, SettingsSource::Environment,
+            add_diagnostic(out.diagnostics, core::SettingsSource::Environment,
                            "collect_interval_ns", "expected a non-negative nanosecond count");
         }
     }
@@ -314,7 +247,7 @@ void apply_environment(Settings& out) {
         if (parse_u64(value, parsed)) {
             out.options.core_mask = parsed;
         } else {
-            add_diagnostic(out.diagnostics, SettingsSource::Environment, "core_mask",
+            add_diagnostic(out.diagnostics, core::SettingsSource::Environment, "core_mask",
                            "expected a non-negative integer mask");
         }
     }
@@ -322,7 +255,7 @@ void apply_environment(Settings& out) {
 
 } // namespace
 
-core::Status load_chrono_settings(const SettingsPaths& paths,
+core::Status load_chrono_settings(const core::SettingsPaths& paths,
                                   Settings& out) noexcept {
     out = Settings{};
     bool invalid = false;
@@ -335,16 +268,16 @@ core::Status load_chrono_settings(const SettingsPaths& paths,
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, SettingsSource::Global, "",
+            add_diagnostic(out.diagnostics, core::SettingsSource::Global, "",
                            "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
-            merge_document(document, SettingsSource::Global, out);
+            merge_document(document, core::SettingsSource::Global, out);
             invalid = invalid || out.diagnostics.size() != before;
         }
     } else if (read == FileRead::Failed) {
         system_error = true;
-        add_diagnostic(out.diagnostics, SettingsSource::Global, "",
+        add_diagnostic(out.diagnostics, core::SettingsSource::Global, "",
                        "file exists but could not be read");
     }
 
@@ -355,16 +288,16 @@ core::Status load_chrono_settings(const SettingsPaths& paths,
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, SettingsSource::Local, "",
+            add_diagnostic(out.diagnostics, core::SettingsSource::Local, "",
                            "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
-            merge_document(document, SettingsSource::Local, out);
+            merge_document(document, core::SettingsSource::Local, out);
             invalid = invalid || out.diagnostics.size() != before;
         }
     } else if (read == FileRead::Failed) {
         system_error = true;
-        add_diagnostic(out.diagnostics, SettingsSource::Local, "",
+        add_diagnostic(out.diagnostics, core::SettingsSource::Local, "",
                        "file exists but could not be read");
     }
 

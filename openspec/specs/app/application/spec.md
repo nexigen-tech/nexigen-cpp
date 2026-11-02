@@ -8,7 +8,7 @@ Defines the reusable application lifecycle: ownership and initialization order o
 
 ### Requirement: Initialization follows a fixed order
 
-`Infrastructure::initialize(const App_settings&)` SHALL claim the process-global signal ownership, block `SIGINT`/`SIGTERM`, construct the chrono provider (without starting its worker), create the logger, bind the logger to the chrono provider and start its background worker, construct the metric provider, construct and initialize the tracing provider, and start the signal watcher. A failure at any step SHALL release ownership, tear down partial state, restore the signal mask, and return a `core::Status`.
+`Infrastructure::initialize(const Settings&)` SHALL claim the process-global signal ownership, block `SIGINT`/`SIGTERM`, construct the chrono provider (without starting its worker), create the logger, bind the logger to the chrono provider and start its background worker, construct the metric provider, construct and initialize the tracing provider, and start the signal watcher. A failure at any step SHALL release ownership, tear down partial state, restore the signal mask, and return a `core::Status`.
 
 #### Scenario: Logger is ready before providers start
 
@@ -179,7 +179,7 @@ The system SHALL require a `Policy` with nested `Logger`, `Metrics_sink`, `Trace
 
 ### Requirement: Runnable minimal infrastructure example
 
-The project SHALL provide an `ex_app_lifecycle` executable that uses `Infrastructure` directly in `main` with a stateless policy and **no application class**: create it through `make_infrastructure`, initialize it with default `App_settings`, log, create and record a metric, open and finish a span, take a chrono snapshot, run a few ticks, request a stop, shut down, and exit 0.
+The project SHALL provide an `ex_app_lifecycle` executable that uses `Infrastructure` directly in `main` with a stateless policy and **no application class**: create it through `make_infrastructure`, initialize it with default `Settings`, log, create and record a metric, open and finish a span, take a chrono snapshot, run a few ticks, request a stop, shut down, and exit 0.
 
 #### Scenario: Example exercises logging, metrics and tracing
 
@@ -203,10 +203,10 @@ The project SHALL provide an `ex_app_lifecycle` executable that uses `Infrastruc
 
 ### Requirement: Command-line options initialize the infrastructure
 
-`Infrastructure::initialize(const Command_line_options& options, App_settings& loaded)` SHALL
-map the parsed directories to `App_settings_paths`, call `load_app_settings`, apply the CLI log
+`Infrastructure::initialize(const Command_line_options& options, Settings& loaded)` SHALL
+map the parsed directories to `AppSettingsPaths`, call `load_app_settings`, apply the CLI log
 level to `loaded`, and, only when loading succeeds, call the existing
-`initialize(const App_settings&)` overload. The existing overload SHALL remain unchanged.
+`initialize(const Settings&)` overload. The existing overload SHALL remain unchanged.
 
 #### Scenario: Valid options initialize from loaded settings
 
@@ -217,7 +217,7 @@ level to `loaded`, and, only when loading succeeds, call the existing
 
 #### Scenario: Existing settings overload still works
 
-- **WHEN** application code calls `initialize(const App_settings&)` directly
+- **WHEN** application code calls `initialize(const Settings&)` directly
 - **THEN** it behaves exactly as before, without parsing or loading files
 
 ### Requirement: Settings-loading failures are fail-fast

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Loads explicitly supplied global and local JSON settings for the chrono provider, merges them with documented precedence, and turns the merged result into a `ChronoProvider_config` without touching any hot path.
+Loads explicitly supplied global and local JSON settings for the chrono provider, merges them with documented precedence, and turns the merged result into a `ChronoProviderConfig` without touching any hot path.
 
 ## Requirements
 
@@ -84,21 +84,21 @@ The loader SHALL be best effort: a missing file, malformed JSON, a field of the 
 
 ### Requirement: Settings diagnostics are serializable
 
-`Chrono_settings_paths` and `Chrono_settings_diagnostic` SHALL provide member and free `to_string`, non-throwing ADL `to_json`/`from_json` under `JSON_NOEXCEPTION=1`, and a `std::formatter` specialization. `Chrono_settings` SHALL provide `to_string`, `to_json`, and a `std::formatter` but no `from_json`, because it is reconstructed by the loader.
+`chrono::Settings` SHALL provide member and free `to_string`, a `std::formatter` specialization, and `to_json`, but no `from_json`, because it is reconstructed by the loader. The shared `SettingsPaths` and `SettingsDiagnostic` serialization contract SHALL be provided by `core/settings-vocabulary`.
 
 #### Scenario: Settings format through std::format
 
-- **WHEN** `std::format("{}", settings)` is evaluated for a loaded `Chrono_settings`
+- **WHEN** `std::format("{}", settings)` is evaluated for a loaded `chrono::Settings`
 - **THEN** the result equals `settings.to_string()`
 
 ### Requirement: Merged settings apply to provider configuration
 
-The system SHALL provide an apply helper that populates a `ChronoProvider_config` from merged settings, transferring the collection interval and the core mask.
+The system SHALL provide an apply helper that populates a `ChronoProviderConfig` from merged settings, transferring the collection interval and the core mask.
 
 #### Scenario: Provider config receives every mapped field
 
 - **WHEN** merged settings set an interval of one second and a core mask of `0x3`
-- **THEN** the applied `ChronoProvider_config` carries those values
+- **THEN** the applied `ChronoProviderConfig` carries those values
 
 ### Requirement: Settings loading is cold path only
 
@@ -111,17 +111,17 @@ Loading, validation, diagnostics, and config application SHALL execute before pr
 
 ### Requirement: Chrono settings carry a sink configuration
 
-`Chrono_settings` SHALL contain a `sink` member of type `chrono::JsonFileChronoSink_config`. A default-constructed `sink` SHALL have an empty `path` and `append == true`; an empty `path` SHALL mean "no explicit sink configured" and SHALL NOT be a diagnostic. The chrono `sink` object SHALL read `path` and `append`; keys absent from the object SHALL inherit the current value and unknown keys SHALL be ignored.
+`chrono::Settings` SHALL contain a `sink` member of type `chrono::JsonFileChronoSinkConfig`. A default-constructed `sink` SHALL have an empty `path` and `append == true`; an empty `path` SHALL mean "no explicit sink configured" and SHALL NOT be a diagnostic. The chrono `sink` object SHALL read `path` and `append`; keys absent from the object SHALL inherit the current value and unknown keys SHALL be ignored.
 
 #### Scenario: Sink loads from the local file
 
 - **WHEN** the local chrono file sets `sink.path` to `chrono.jsonl` and `sink.append` to `false`
-- **THEN** the merged `Chrono_settings::sink` carries that path and `append == false`
+- **THEN** the merged `chrono::Settings::sink` carries that path and `append == false`
 
 #### Scenario: Sink loads from the global file
 
 - **WHEN** only the global chrono file sets `sink.path`
-- **THEN** the merged `Chrono_settings::sink` carries the global path
+- **THEN** the merged `chrono::Settings::sink` carries the global path
 
 #### Scenario: Absent sink block leaves an unconfigured sink
 
@@ -154,7 +154,7 @@ The `sink` block SHALL merge field by field through defaults → global file →
 
 ### Requirement: Invalid sink configuration degrades to best effort
 
-A `sink` value that is not an object, a non-string `path`, or a non-boolean `append` SHALL be recorded as a `Chrono_settings_diagnostic` naming the source and field. The loader SHALL keep the last valid or default sink value, SHALL continue loading remaining fields, SHALL NOT open, create, or validate the sink path, and SHALL NOT abort or throw.
+A `sink` value that is not an object, a non-string `path`, or a non-boolean `append` SHALL be recorded as a `core::SettingsDiagnostic` naming the source and field. The loader SHALL keep the last valid or default sink value, SHALL continue loading remaining fields, SHALL NOT open, create, or validate the sink path, and SHALL NOT abort or throw.
 
 #### Scenario: Non-object sink keeps the previous sink
 
@@ -173,19 +173,19 @@ A `sink` value that is not an object, a non-string `path`, or a non-boolean `app
 
 ### Requirement: Sink configuration is part of chrono settings serialization
 
-`Chrono_settings` `to_string()` and `to_json` output SHALL include the full `sink` configuration in addition to provider fields, loaded flags, and diagnostics, and its `std::formatter` rendering SHALL equal `to_string()`. `Chrono_settings` SHALL continue to provide `to_json` only and SHALL NOT provide `from_json`; `apply_to` SHALL leave `ChronoProvider_config` untouched by the sink because sink construction is a separate policy concern.
+`chrono::Settings` `to_string()` and `to_json` output SHALL include the full `sink` configuration in addition to provider fields, loaded flags, and diagnostics, and its `std::formatter` rendering SHALL equal `to_string()`. `chrono::Settings` SHALL continue to provide `to_json` only and SHALL NOT provide `from_json`; `apply_to` SHALL leave `ChronoProviderConfig` untouched by the sink because sink construction is a separate policy concern.
 
 #### Scenario: Chrono sink renders and serializes
 
-- **WHEN** `to_string()`, `std::format("{}", settings)`, and `to_json` are evaluated on a `Chrono_settings` with a configured sink
+- **WHEN** `to_string()`, `std::format("{}", settings)`, and `to_json` are evaluated on a `chrono::Settings` with a configured sink
 - **THEN** the text names the sink path and append flag, the formatted text equals `to_string()`, and the JSON contains the same sink fields
 
 #### Scenario: Applying settings ignores the sink
 
-- **WHEN** `apply_to` maps settings with a configured sink into a `ChronoProvider_config`
+- **WHEN** `apply_to` maps settings with a configured sink into a `ChronoProviderConfig`
 - **THEN** the provider config receives only the provider fields and no sink data
 
 #### Scenario: Loader output still has no from_json
 
-- **WHEN** the test translation unit checks for `from_json` on `Chrono_settings`
+- **WHEN** the test translation unit checks for `from_json` on `chrono::Settings`
 - **THEN** the overload remains absent and a compile-time assertion pins that contract

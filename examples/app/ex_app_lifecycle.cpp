@@ -41,14 +41,14 @@ struct SimplePolicy {
 
     static core::Status emplace_metrics_sink(
         std::optional<MetricsSink>& out,
-        const app::MetricsSettings&) noexcept {
+        const metrics::Settings&) noexcept {
         out.emplace();
         return {};
     }
 
     static core::Status emplace_trace_sink(
         std::optional<TraceSink>& out,
-        const app::TracingSettings&) noexcept {
+        const tracing::Settings&) noexcept {
         out.emplace(1);
         return {};
     }

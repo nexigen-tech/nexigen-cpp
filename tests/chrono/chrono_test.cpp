@@ -58,6 +58,7 @@ static_assert(std::is_trivially_copyable_v<nexigen::chrono::Timestamp>);
 
 using namespace nexigen::core;   // test TU: exercise the error model unqualified
 using namespace nexigen::chrono; // test TU: exercise the API unqualified
+namespace core = nexigen::core;    // also allow explicit core:: qualification in fixtures
 
 // Loader-produced Settings have no from_json; pin that contract.
 template <class T, class = void>
@@ -490,32 +491,32 @@ void test_enum_contracts() {
     // Rendering an out-of-range enumerator is well-defined ("Unknown").
     NX_CHECK(to_string(static_cast<ClockId>(0x7f)) == "Unknown");
 
-    // SettingsSource: all values round-trip; unknown spellings are
+    // core::SettingsSource: all values round-trip; unknown spellings are
     // rejected without touching the out-parameter.
-    for (const SettingsSource src :
-         {SettingsSource::Global, SettingsSource::Local,
-          SettingsSource::Environment, SettingsSource::Computed}) {
-        SettingsSource back{};
+    for (const core::SettingsSource src :
+         {core::SettingsSource::Global, core::SettingsSource::Local,
+          core::SettingsSource::Environment, core::SettingsSource::Computed}) {
+        core::SettingsSource back{};
         NX_CHECK(from_string(to_string(src), back));
         NX_CHECK(back == src);
     }
-    NX_CHECK(to_string(SettingsSource::Environment) == "environment");
-    NX_CHECK(to_string(SettingsSource::Computed) == "computed");
-    NX_CHECK(to_string(static_cast<SettingsSource>(0x7f)) == "Unknown");
-    SettingsSource source = SettingsSource::Local;
+    NX_CHECK(to_string(core::SettingsSource::Environment) == "environment");
+    NX_CHECK(to_string(core::SettingsSource::Computed) == "computed");
+    NX_CHECK(to_string(static_cast<core::SettingsSource>(0x7f)) == "Unknown");
+    core::SettingsSource source = core::SettingsSource::Local;
     NX_CHECK(!from_string("bogus", source));
-    NX_CHECK(source == SettingsSource::Local);
+    NX_CHECK(source == core::SettingsSource::Local);
 
     // JSON source: strings round-trip; non-strings are ignored.
     {
         nlohmann::json j = "environment";
-        SettingsSource parsed = SettingsSource::Global;
+        core::SettingsSource parsed = core::SettingsSource::Global;
         from_json(j, parsed);
-        NX_CHECK(parsed == SettingsSource::Environment);
+        NX_CHECK(parsed == core::SettingsSource::Environment);
         to_json(j, parsed);
         NX_CHECK(j == "environment");
         from_json(nlohmann::json{42}, parsed);
-        NX_CHECK(parsed == SettingsSource::Environment);
+        NX_CHECK(parsed == core::SettingsSource::Environment);
         NX_CHECK(std::format("{}", parsed) == "environment");
     }
 
@@ -1147,7 +1148,7 @@ void test_settings() {
     NX_CHECK(write_file(local_path, "{\"collect_interval_ns\": 2000000}"));
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1161,7 +1162,7 @@ void test_settings() {
     ::setenv("NEXIGEN_CHRONO_CORE_MASK", "5", 1);
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1173,7 +1174,7 @@ void test_settings() {
     NX_CHECK(write_file(local_path, "{ not json"));
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         const Status s = load_chrono_settings(paths, settings);
@@ -1187,7 +1188,7 @@ void test_settings() {
     NX_CHECK(write_file(local_path, "{\"collect_interval_ns\": \"abc\"}"));
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         const Status s = load_chrono_settings(paths, settings);
@@ -1198,7 +1199,7 @@ void test_settings() {
     // Empty paths yield defaults with no diagnostics.
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
         NX_CHECK(!settings.global_loaded && !settings.local_loaded);
         NX_CHECK(settings.options.collect_interval == std::chrono::nanoseconds{0});
@@ -1209,7 +1210,7 @@ void test_settings() {
     // Missing files are not errors and produce no diagnostics.
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = "/tmp/nexigen_chrono_nonexistent.json";
         paths.local_file = "/tmp/nexigen_chrono_also_nonexistent.json";
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1239,21 +1240,21 @@ void test_settings() {
         NX_CHECK(j["collect_interval_ns"] == 1);
         NX_CHECK(std::format("{}", settings) == settings.to_string());
 
-        SettingsDiagnostic diag{SettingsSource::Local, "core_mask", "bad"};
+        core::SettingsDiagnostic diag{core::SettingsSource::Local, "core_mask", "bad"};
         nlohmann::json dj;
         to_json(dj, diag);
-        SettingsDiagnostic back{};
+        core::SettingsDiagnostic back{};
         from_json(dj, back);
-        NX_CHECK(back.source == SettingsSource::Local);
+        NX_CHECK(back.source == core::SettingsSource::Local);
         NX_CHECK(back.field == "core_mask");
         NX_CHECK(back.message == "bad");
 
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = "/a";
         paths.local_file = "/b";
         nlohmann::json pj;
         to_json(pj, paths);
-        SettingsPaths pback{};
+        core::SettingsPaths pback{};
         from_json(pj, pback);
         NX_CHECK(pback.global_file == "/a" && pback.local_file == "/b");
     }
@@ -1279,7 +1280,7 @@ void test_settings_sink() {
                         R"({"sink":{"path":"/tmp/local-chrono.jsonl"}})"));
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1291,7 +1292,7 @@ void test_settings_sink() {
     // Without a local sink block the global path and append flag are retained.
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = "";
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1303,7 +1304,7 @@ void test_settings_sink() {
     ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "42", 1);
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1316,7 +1317,7 @@ void test_settings_sink() {
     // Serialization carries the sink; apply_to ignores it.
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1339,7 +1340,7 @@ void test_settings_sink() {
     NX_CHECK(write_file(local_path.c_str(), "{}"));
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
@@ -1352,7 +1353,7 @@ void test_settings_sink() {
     NX_CHECK(write_file(global_path.c_str(), R"({"sink":{"path":""}})"));
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
         NX_CHECK(settings.sink.path.empty());
@@ -1365,7 +1366,7 @@ void test_settings_sink() {
     NX_CHECK(write_file(local_path.c_str(), R"({"sink":{"path":3}})"));
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(!load_chrono_settings(paths, settings).has_value());
@@ -1378,7 +1379,7 @@ void test_settings_sink() {
     NX_CHECK(write_file(local_path.c_str(), R"({"sink":[]})"));
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(!load_chrono_settings(paths, settings).has_value());
@@ -1396,14 +1397,14 @@ void test_settings_edges() {
 
     // Diagnostics and paths render through member/free/formatter.
     {
-        SettingsDiagnostic diag{SettingsSource::Computed, "field", "message"};
+        core::SettingsDiagnostic diag{core::SettingsSource::Computed, "field", "message"};
         const std::string text = diag.to_string();
         NX_CHECK(text.find("source=computed") != std::string::npos);
         NX_CHECK(text.find("field=field") != std::string::npos);
         NX_CHECK(to_string(diag) == text);
         NX_CHECK(std::format("{}", diag) == text);
 
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = "/global";
         paths.local_file = "/local";
         NX_CHECK(paths.to_string().find("/global") != std::string::npos);
@@ -1417,8 +1418,8 @@ void test_settings_edges() {
         settings.local_loaded = true;
         settings.options.collect_interval = std::chrono::nanoseconds{4};
         settings.options.core_mask = 2;
-        settings.diagnostics.push_back({SettingsSource::Global, "a", "b"});
-        settings.diagnostics.push_back({SettingsSource::Local, "c", "d"});
+        settings.diagnostics.push_back({core::SettingsSource::Global, "a", "b"});
+        settings.diagnostics.push_back({core::SettingsSource::Local, "c", "d"});
         const std::string text = settings.to_string();
         NX_CHECK(text.find("global_loaded=true") != std::string::npos);
         NX_CHECK(text.find("local_loaded=true") != std::string::npos);
@@ -1432,7 +1433,7 @@ void test_settings_edges() {
 
     // from_json edge cases: non-objects and mistyped members are ignored.
     {
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = "/keep";
         from_json(nlohmann::json::array(), paths);
         NX_CHECK(paths.global_file == "/keep");
@@ -1443,19 +1444,19 @@ void test_settings_edges() {
         NX_CHECK(paths.global_file == "/keep");
         NX_CHECK(paths.local_file.empty());
 
-        SettingsDiagnostic diag{SettingsSource::Local, "keep", "keep"};
+        core::SettingsDiagnostic diag{core::SettingsSource::Local, "keep", "keep"};
         from_json(nlohmann::json::array(), diag);
-        NX_CHECK(diag.source == SettingsSource::Local);
+        NX_CHECK(diag.source == core::SettingsSource::Local);
         from_json(nlohmann::json{{"source", 1}, {"field", 2}, {"message", 3}}, diag);
-        NX_CHECK(diag.source == SettingsSource::Local);
+        NX_CHECK(diag.source == core::SettingsSource::Local);
         NX_CHECK(diag.field == "keep");
         NX_CHECK(diag.message == "keep");
         from_json(nlohmann::json::object(), diag);
-        NX_CHECK(diag.source == SettingsSource::Local);
+        NX_CHECK(diag.source == core::SettingsSource::Local);
         NX_CHECK(diag.field == "keep");
         NX_CHECK(diag.message == "keep");
         from_json(nlohmann::json{{"source", "bogus"}}, diag);
-        NX_CHECK(diag.source == SettingsSource::Local);
+        NX_CHECK(diag.source == core::SettingsSource::Local);
     }
 
     const char* global_path = "/tmp/nexigen_chrono_edge_global.json";
@@ -1466,7 +1467,7 @@ void test_settings_edges() {
     NX_CHECK(write_file(local_path, "\"not-an-object\""));
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         const Status s = load_chrono_settings(paths, settings);
@@ -1482,7 +1483,7 @@ void test_settings_edges() {
     // A directory opens but cannot be read: SystemError, not "absent".
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = "/tmp";
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
@@ -1495,20 +1496,20 @@ void test_settings_edges() {
     // The same failure on the local source (the global path succeeded).
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.local_file = "/tmp";
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::SystemError);
         NX_CHECK(settings.diagnostics.size() == 1U);
-        NX_CHECK(settings.diagnostics[0].source == SettingsSource::Local);
+        NX_CHECK(settings.diagnostics[0].source == core::SettingsSource::Local);
     }
 
     // Malformed JSON in the global file is a diagnostic and InvalidArgument.
     NX_CHECK(write_file(global_path, "{ not json"));
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
@@ -1527,7 +1528,7 @@ void test_settings_edges() {
         NX_CHECK(::chmod(unreadable_path, 0) == 0);
         {
             Settings settings;
-            SettingsPaths paths;
+            core::SettingsPaths paths;
             paths.global_file = unreadable_path;
             const Status s = load_chrono_settings(paths, settings);
             NX_CHECK(!s.has_value());
@@ -1541,24 +1542,24 @@ void test_settings_edges() {
     ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "4242", 1);
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
         NX_CHECK(settings.options.collect_interval == std::chrono::nanoseconds{4242});
     }
     ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "-1", 1);
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::InvalidArgument);
         NX_CHECK(settings.diagnostics.size() == 1U);
-        NX_CHECK(settings.diagnostics[0].source == SettingsSource::Environment);
+        NX_CHECK(settings.diagnostics[0].source == core::SettingsSource::Environment);
     }
     ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "9223372036854775808", 1);
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::InvalidArgument);
@@ -1566,7 +1567,7 @@ void test_settings_edges() {
     ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "12abc", 1);
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::InvalidArgument);
@@ -1577,7 +1578,7 @@ void test_settings_edges() {
     ::setenv("NEXIGEN_CHRONO_CORE_MASK", "not-a-number", 1);
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::InvalidArgument);
@@ -1589,7 +1590,7 @@ void test_settings_edges() {
     NX_CHECK(write_file(global_path, "{\"collect_interval_ns\": 9223372036854775808}"));
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
@@ -1598,7 +1599,7 @@ void test_settings_edges() {
     NX_CHECK(write_file(global_path, "{\"core_mask\": 18446744073709551615}"));
     {
         Settings settings;
-        SettingsPaths paths;
+        core::SettingsPaths paths;
         paths.global_file = global_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
         NX_CHECK(settings.options.core_mask == std::numeric_limits<std::uint64_t>::max());

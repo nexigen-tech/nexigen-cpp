@@ -185,7 +185,7 @@ core::Status load_runner_logging_settings(
     if (global_settings_path.empty()) {
         return {};
     }
-    logging::SettingsPaths paths{};
+    core::SettingsPaths paths{};
     paths.global_file =
         std::string(global_settings_path) + "/logging.json";
     return logging::load_logging_settings(paths, out);

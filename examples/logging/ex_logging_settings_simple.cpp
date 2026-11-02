@@ -19,7 +19,7 @@ namespace {
 
 using nexigen::logging::FileLogger;
 using nexigen::logging::Settings;
-using nexigen::logging::SettingsPaths;
+using nexigen::core::SettingsPaths;
 using nexigen::logging::load_logging_settings;
 
 constexpr std::string_view k_root = "/tmp/nexigen-examples-logging-settings-simple";

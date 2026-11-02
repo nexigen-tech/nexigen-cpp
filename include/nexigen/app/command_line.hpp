@@ -71,7 +71,7 @@ using CommandLineResult = core::Result<CommandLineOptions, CommandLineError>;
 
 /// Map the two directories to the four fixed global/local file pairs. An
 /// empty directory leaves that source pair empty (disabled).
-[[nodiscard]] SettingsPaths make_app_settings_paths(
+[[nodiscard]] AppSettingsPaths make_app_settings_paths(
     const CommandLineOptions& options) noexcept;
 
 /// Apply the CLI log level to already-loaded settings. The CLI wins over

@@ -58,8 +58,8 @@ concept InfrastructurePolicy = requires(
     std::optional<typename Policy::TraceSink>& trace_sink,
     std::optional<typename Policy::ChronoSink>& chrono_sink,
     const logging::Settings& logging_settings,
-    const MetricsSettings& metrics_settings,
-    const TracingSettings& tracing_settings,
+    const metrics::Settings& metrics_settings,
+    const tracing::Settings& tracing_settings,
     const chrono::Settings& chrono_settings) {
     typename Policy::Logger;
     typename Policy::MetricsSink;

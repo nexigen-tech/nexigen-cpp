@@ -124,7 +124,7 @@ struct CliFilePolicy {
 
     static core::Status emplace_metrics_sink(
         std::optional<MetricsSink>& out,
-        const app::MetricsSettings& settings) noexcept {
+        const metrics::Settings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -134,7 +134,7 @@ struct CliFilePolicy {
 
     static core::Status emplace_trace_sink(
         std::optional<TraceSink>& out,
-        const app::TracingSettings& settings) noexcept {
+        const tracing::Settings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }

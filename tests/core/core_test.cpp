@@ -20,6 +20,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/settings_vocabulary.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
 
 // Build wiring proof (task 1.1): every consumer TU must see JSON_NOEXCEPTION=1
@@ -498,6 +499,105 @@ void test_error_code_vocabulary() {
     static_assert(std::formattable<const ErrorCode&, char>);
 }
 
+// --- settings vocabulary suite (change refactor-settings-into-subsystem-modules;
+// spec core/settings-vocabulary): SettingsSource text/JSON round-trips, hostile
+// JSON left-unchanged, and SettingsPaths / SettingsDiagnostic round-trips.
+
+void test_settings_vocabulary() {
+    const SettingsSource all_sources[] = {
+        SettingsSource::Global, SettingsSource::Local,
+        SettingsSource::Environment, SettingsSource::Computed,
+    };
+
+    // to_string names each source; from_string recovers it; garbage is "Unknown".
+    NX_CHECK(to_string(SettingsSource::Global) == "global");
+    NX_CHECK(to_string(SettingsSource::Local) == "local");
+    NX_CHECK(to_string(SettingsSource::Environment) == "environment");
+    NX_CHECK(to_string(SettingsSource::Computed) == "computed");
+    NX_CHECK(to_string(static_cast<SettingsSource>(0x7f)) == "Unknown");
+    for (const SettingsSource src : all_sources) {
+        SettingsSource back = SettingsSource::Global;
+        NX_CHECK(from_string(to_string(src), back));
+        NX_CHECK(back == src);
+    }
+    for (std::string_view bad : {"Nope", "", "GLOBAL", "unknown"}) {
+        SettingsSource keep = SettingsSource::Local;
+        NX_CHECK(!from_string(bad, keep));
+        NX_CHECK(keep == SettingsSource::Local);
+    }
+
+    // Enum JSON round-trips; the intermediate value is the canonical name.
+    for (const SettingsSource src : all_sources) {
+        nlohmann::json j;
+        to_json(j, src);
+        NX_CHECK(j.is_string());
+        NX_CHECK(j == std::string(to_string(src)));
+        SettingsSource back = SettingsSource::Computed;
+        from_json(j, back);
+        NX_CHECK(back == src);
+    }
+
+    // Hostile enum JSON leaves the fallback unchanged, never aborts.
+    for (const nlohmann::json& hostile : {nlohmann::json(7),
+                                          nlohmann::json::array(),
+                                          nlohmann::json::object(),
+                                          nlohmann::json(),
+                                          nlohmann::json("Bogus")}) {
+        SettingsSource keep = SettingsSource::Environment;
+        from_json(hostile, keep);
+        NX_CHECK(keep == SettingsSource::Environment);
+    }
+
+    // std::formatter<SettingsSource> delegates to to_string with fill/align.
+    NX_CHECK(std::format("{}", SettingsSource::Computed) == "computed");
+    NX_CHECK(std::format("[{:*>8}]", SettingsSource::Local) == "[***local]");
+    static_assert(std::formattable<const SettingsSource&, char>);
+
+    // SettingsPaths renders and round-trips through JSON.
+    const SettingsPaths paths{"/tmp/global.json", "/tmp/local.json"};
+    const std::string paths_text = paths.to_string();
+    NX_CHECK(paths_text.find("global_file") != std::string::npos);
+    NX_CHECK(paths_text.find("/tmp/global.json") != std::string::npos);
+    NX_CHECK(paths_text.find("/tmp/local.json") != std::string::npos);
+    NX_CHECK(to_string(paths) == paths_text);
+    {
+        nlohmann::json j;
+        to_json(j, paths);
+        SettingsPaths back{};
+        from_json(j, back);
+        NX_CHECK(back.global_file == "/tmp/global.json");
+        NX_CHECK(back.local_file == "/tmp/local.json");
+    }
+    {
+        SettingsPaths keep{"/a", "/b"};
+        from_json(nlohmann::json(42), keep); // non-object leaves unchanged
+        NX_CHECK(keep.global_file == "/a" && keep.local_file == "/b");
+    }
+
+    // SettingsDiagnostic renders and round-trips through JSON.
+    const SettingsDiagnostic diag{SettingsSource::Local, "core_mask", "bad"};
+    const std::string diag_text = diag.to_string();
+    NX_CHECK(diag_text.find("local") != std::string::npos);
+    NX_CHECK(diag_text.find("core_mask") != std::string::npos);
+    NX_CHECK(diag_text.find("bad") != std::string::npos);
+    NX_CHECK(to_string(diag) == diag_text);
+    {
+        nlohmann::json j;
+        to_json(j, diag);
+        SettingsDiagnostic back{};
+        from_json(j, back);
+        NX_CHECK(back.source == SettingsSource::Local);
+        NX_CHECK(back.field == "core_mask");
+        NX_CHECK(back.message == "bad");
+    }
+    {
+        SettingsDiagnostic keep{SettingsSource::Global, "a", "b"};
+        from_json(nlohmann::json::array(), keep);
+        NX_CHECK(keep.source == SettingsSource::Global);
+        NX_CHECK(keep.field == "a" && keep.message == "b");
+    }
+}
+
 void test_spsc_visibility() {
     run_visibility_variant(false); // producer starts first
     run_visibility_variant(true);  // consumer idles first (empty-retry + refresh paths)
@@ -556,6 +656,7 @@ int main()
     run_suite("result", test_result);
     run_suite("json_smoke", test_json_smoke);
     run_suite("ec_vocab", test_error_code_vocabulary);
+    run_suite("settings_vocab", test_settings_vocabulary);
     run_suite("ring_to_string", test_ring_to_string);
     run_suite("spsc_single_threaded", test_spsc_single_threaded);
     run_suite("spsc_stress_1m", test_spsc_stress);

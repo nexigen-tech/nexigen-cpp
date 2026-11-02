@@ -116,7 +116,7 @@ exit with a non-zero status rather than loading built-in defaults.
 
 When directories are supplied, the system SHALL join each directory with the fixed names
 `logging.json`, `metrics.json`, `tracing.json`, and `chrono.json` and populate the corresponding
-`App_settings_paths` global/local pairs. A trailing slash in a directory MUST NOT produce a
+`AppSettingsPaths` global/local pairs. A trailing slash in a directory MUST NOT produce a
 double slash. An absent directory SHALL leave that source pair empty.
 
 #### Scenario: Both directories produce eight paths
@@ -159,7 +159,7 @@ the option is omitted, no override SHALL be recorded.
 
 ### Requirement: CLI log level overrides loaded settings
 
-After settings are loaded, applying the parsed options to `App_settings` SHALL set
+After settings are loaded, applying the parsed options to `Settings` SHALL set
 `logging.options.initial_log_level` to the CLI value when present, overriding global, local, and
 environment sources. When no CLI level is present, the loaded value MUST remain unchanged.
 
@@ -283,5 +283,5 @@ rules, the CLI log-level precedence, and a minimal parse → map → load → ap
 #### Scenario: README shows the complete flow
 
 - **WHEN** a reader opens the `nexigen::app` section
-- **THEN** it shows how to parse arguments, build `App_settings_paths`, load `App_settings`, and
+- **THEN** it shows how to parse arguments, build `AppSettingsPaths`, load `Settings`, and
   apply the CLI log level
