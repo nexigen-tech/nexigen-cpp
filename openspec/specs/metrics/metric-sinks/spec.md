@@ -82,6 +82,11 @@ Defines the sink contract the provider harvests into, plus the null, console, JS
 - **WHEN** a metric or meter name contains quotes, backslashes, or control characters
 - **THEN** the emitted line remains valid JSON and parses back to the original name
 
+#### Scenario: State records serialize their value
+
+- **WHEN** a batch contains a state record
+- **THEN** the emitted record carries `"kind":"State"` and a `"value"` string equal to the recorded state, not a histogram payload
+
 #### Scenario: Multiple batches append
 
 - **WHEN** several batches are written to an append-mode sink

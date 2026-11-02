@@ -79,7 +79,7 @@ The UI SHALL list every discovered stream, show replay records on selection, and
 
 #### Scenario: Text and JSONL render appropriately
 
-- **WHEN** stdout/stderr or a JSONL stream is selected
+- **WHEN** stdout/stderr, or a JSONL stream that is not metrics (app, traces, chrono), is selected
 - **THEN** the viewer renders the line as raw text and preserves JSON formatting for inspection
 
 ### Requirement: Connection and error states are visible
@@ -142,3 +142,32 @@ The UI's embedded script SHALL be valid JavaScript that executes on load: it SHA
 
 - **WHEN** the script bootstraps against a hub with discovered suites
 - **THEN** the run tree is fetched and rendered without requiring the user to select a stream first
+
+### Requirement: Metrics render structured by kind
+
+When a metrics stream is selected, the UI SHALL parse each JSONL batch and render each harvested metric in a compact, kind-specific form rather than the raw JSON object: counters and gauges as a name and value, descriptive statistics as count/min/max/mean/std, histograms as summary percentiles plus a bucket distribution, and state gauges as a name and value.
+
+#### Scenario: Counter and gauge render as name and value
+
+- **WHEN** a metrics batch contains a counter and a gauge
+- **THEN** the viewer shows each as a compact `name = value` line rather than the raw JSON object
+
+#### Scenario: Descriptive statistics render their summary
+
+- **WHEN** a metrics batch contains a descriptive-statistics record
+- **THEN** the viewer shows its count, min, max, mean, and stddev in a compact form
+
+#### Scenario: Histogram renders its summary
+
+- **WHEN** a metrics batch contains a histogram
+- **THEN** the viewer shows its count, min, max, and percentiles in a compact form
+
+#### Scenario: State renders as a name and value
+
+- **WHEN** a metrics batch contains a state gauge
+- **THEN** the viewer shows the state name and its value
+
+#### Scenario: Malformed batch falls back to raw text
+
+- **WHEN** a metrics line cannot be parsed as a batch
+- **THEN** the viewer shows the raw line so it remains inspectable

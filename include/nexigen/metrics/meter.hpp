@@ -65,7 +65,7 @@ public:
               AccessPolicy Access = AccessPolicy::Readable,
               ResetPolicy Reset = ResetPolicy::Cumulative>
     [[nodiscard]] core::Result<Counter<Concurrency, Access, Reset>*>
-    create_counter(std::string_view name);
+    create_counter(std::string_view name, std::string_view unit = {});
 
     /// Create a gauge.
     template <typename ValueType = std::int64_t,
@@ -73,21 +73,21 @@ public:
               AccessPolicy Access = AccessPolicy::Readable,
               ResetPolicy Reset = ResetPolicy::Cumulative>
     [[nodiscard]] core::Result<Gauge<ValueType, Concurrency, Access, Reset>*>
-    create_gauge(std::string_view name);
+    create_gauge(std::string_view name, std::string_view unit = {});
 
     /// Create a state gauge (a current named state, string-valued).
     template <ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,
               AccessPolicy Access = AccessPolicy::Readable,
               ResetPolicy Reset = ResetPolicy::Cumulative>
     [[nodiscard]] core::Result<StateGauge<Concurrency, Access, Reset>*>
-    create_state(std::string_view name);
+    create_state(std::string_view name, std::string_view unit = {});
 
     /// Create a descriptive-statistics instrument.
     template <ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,
               AccessPolicy Access = AccessPolicy::Readable,
               ResetPolicy Reset = ResetPolicy::Cumulative>
     [[nodiscard]] core::Result<DescriptiveStatistics<Concurrency, Access, Reset>*>
-    create_statistics(std::string_view name);
+    create_statistics(std::string_view name, std::string_view unit = {});
 
     /// Create an explicit-bucket histogram. The bounds must be finite and
     /// strictly increasing; an invalid set is rejected with InvalidArgument.
@@ -95,14 +95,16 @@ public:
               AccessPolicy Access = AccessPolicy::Readable,
               ResetPolicy Reset = ResetPolicy::Cumulative>
     [[nodiscard]] core::Result<ExplicitBucketHistogram<Concurrency, Access, Reset>*>
-    create_explicit_histogram(std::string_view name, std::span<const double> bounds);
+    create_explicit_histogram(std::string_view name, std::span<const double> bounds,
+                              std::string_view unit = {});
 
     /// Create an exponential histogram. The scale must be within 0..20.
     template <ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,
               AccessPolicy Access = AccessPolicy::Readable,
               ResetPolicy Reset = ResetPolicy::Cumulative>
     [[nodiscard]] core::Result<ExponentialHistogram<Concurrency, Access, Reset>*>
-    create_exponential_histogram(std::string_view name, std::int32_t scale);
+    create_exponential_histogram(std::string_view name, std::int32_t scale,
+                                 std::string_view unit = {});
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
@@ -121,7 +123,7 @@ private:
     /// invoked on the reserved object and must return the typed pointer.
     template <class Instrument, class Construct>
     core::Result<Instrument*> create_instrument(
-        MetricKind kind, std::string_view name,
+        MetricKind kind, std::string_view name, std::string_view unit,
         ConcurrencyPolicy concurrency, AccessPolicy access, ResetPolicy reset,
         Construct&& construct);
 

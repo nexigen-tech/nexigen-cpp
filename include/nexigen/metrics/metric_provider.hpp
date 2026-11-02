@@ -193,7 +193,7 @@ namespace nexigen::metrics {
 
 template <class Instrument, class Construct>
 core::Result<Instrument*> Meter::create_instrument(
-    MetricKind kind, std::string_view name,
+    MetricKind kind, std::string_view name, std::string_view unit,
     ConcurrencyPolicy concurrency, AccessPolicy access, ResetPolicy reset,
     Construct&& construct) {
     // Publish the slot under the harvest lock (design D11): construction and
@@ -202,6 +202,9 @@ core::Result<Instrument*> Meter::create_instrument(
     MetricIdentity identity{};
     detail::copy_meter_identity(identity, identity_);
     if (!detail::copy_name(identity.metric_name, name)) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (!unit.empty() && !detail::copy_name(identity.unit, unit)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     void* object = nullptr;
@@ -220,10 +223,10 @@ core::Result<Instrument*> Meter::create_instrument(
 
 template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
 core::Result<Counter<Concurrency, Access, Reset>*>
-Meter::create_counter(std::string_view name) {
+Meter::create_counter(std::string_view name, std::string_view unit) {
     using Instrument = Counter<Concurrency, Access, Reset>;
     return create_instrument<Instrument>(
-        MetricKind::Counter, name, Concurrency, Access, Reset,
+        MetricKind::Counter, name, unit, Concurrency, Access, Reset,
         [](void* object) -> Instrument* {
             return new (object) Instrument(MeterPasskey{});
         });
@@ -231,10 +234,10 @@ Meter::create_counter(std::string_view name) {
 
 template <typename ValueType, ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
 core::Result<Gauge<ValueType, Concurrency, Access, Reset>*>
-Meter::create_gauge(std::string_view name) {
+Meter::create_gauge(std::string_view name, std::string_view unit) {
     using Instrument = Gauge<ValueType, Concurrency, Access, Reset>;
     return create_instrument<Instrument>(
-        MetricKind::Gauge, name, Concurrency, Access, Reset,
+        MetricKind::Gauge, name, unit, Concurrency, Access, Reset,
         [](void* object) -> Instrument* {
             return new (object) Instrument(MeterPasskey{});
         });
@@ -242,10 +245,10 @@ Meter::create_gauge(std::string_view name) {
 
 template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
 core::Result<StateGauge<Concurrency, Access, Reset>*>
-Meter::create_state(std::string_view name) {
+Meter::create_state(std::string_view name, std::string_view unit) {
     using Instrument = StateGauge<Concurrency, Access, Reset>;
     return create_instrument<Instrument>(
-        MetricKind::State, name, Concurrency, Access, Reset,
+        MetricKind::State, name, unit, Concurrency, Access, Reset,
         [](void* object) -> Instrument* {
             return new (object) Instrument(MeterPasskey{});
         });
@@ -253,10 +256,10 @@ Meter::create_state(std::string_view name) {
 
 template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
 core::Result<DescriptiveStatistics<Concurrency, Access, Reset>*>
-Meter::create_statistics(std::string_view name) {
+Meter::create_statistics(std::string_view name, std::string_view unit) {
     using Instrument = DescriptiveStatistics<Concurrency, Access, Reset>;
     return create_instrument<Instrument>(
-        MetricKind::DescriptiveStatistics, name, Concurrency, Access, Reset,
+        MetricKind::DescriptiveStatistics, name, unit, Concurrency, Access, Reset,
         [](void* object) -> Instrument* {
             return new (object) Instrument(MeterPasskey{});
         });
@@ -264,7 +267,8 @@ Meter::create_statistics(std::string_view name) {
 
 template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
 core::Result<ExplicitBucketHistogram<Concurrency, Access, Reset>*>
-Meter::create_explicit_histogram(std::string_view name, std::span<const double> bounds) {
+Meter::create_explicit_histogram(std::string_view name, std::span<const double> bounds,
+                                 std::string_view unit) {
     // Validate the bounds before touching the registry (no lock needed — the
     // span is caller-owned and read-only).
     if (bounds.empty() || bounds.size() > detail::max_explicit_bounds) {
@@ -280,7 +284,7 @@ Meter::create_explicit_histogram(std::string_view name, std::span<const double> 
     }
     using Instrument = ExplicitBucketHistogram<Concurrency, Access, Reset>;
     return create_instrument<Instrument>(
-        MetricKind::ExplicitHistogram, name, Concurrency, Access, Reset,
+        MetricKind::ExplicitHistogram, name, unit, Concurrency, Access, Reset,
         [bounds](void* object) -> Instrument* {
             auto* instrument = new (object) Instrument(MeterPasskey{});
             instrument->install_bounds(bounds.data(), static_cast<std::uint32_t>(bounds.size()));
@@ -290,13 +294,14 @@ Meter::create_explicit_histogram(std::string_view name, std::span<const double> 
 
 template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
 core::Result<ExponentialHistogram<Concurrency, Access, Reset>*>
-Meter::create_exponential_histogram(std::string_view name, std::int32_t scale) {
+Meter::create_exponential_histogram(std::string_view name, std::int32_t scale,
+                                    std::string_view unit) {
     if (scale < 0 || scale > detail::max_exponential_scale) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     using Instrument = ExponentialHistogram<Concurrency, Access, Reset>;
     return create_instrument<Instrument>(
-        MetricKind::ExponentialHistogram, name, Concurrency, Access, Reset,
+        MetricKind::ExponentialHistogram, name, unit, Concurrency, Access, Reset,
         [scale](void* object) -> Instrument* {
             return new (object) Instrument(MeterPasskey{}, scale);
         });

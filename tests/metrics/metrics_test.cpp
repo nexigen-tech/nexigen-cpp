@@ -696,7 +696,7 @@ void test_state_gauge() {
 
     // Recording surface: valid set, and empty / over-long rejection with no
     // side effect on the previous value.
-    const auto state = (*meter)->create_state<ST, Readable, Cumulative>("mode");
+    const auto state = (*meter)->create_state<ST, Readable, Cumulative>("mode", "state");
     NX_CHECK(state.has_value());
     if (!state) { return; }
     NX_CHECK((*state)->set("active"));
@@ -713,6 +713,7 @@ void test_state_gauge() {
     const metrics::MetricRecord record = (*state)->snapshot();
     NX_CHECK(record.kind == metrics::MetricKind::State);
     NX_CHECK(metrics::detail::view_name(record.state.value) == "degraded");
+    NX_CHECK(metrics::detail::view_name(record.identity.unit) == "state");
 
     // Single-threaded last-writer-wins.
     (*state)->set("first");
@@ -2669,6 +2670,7 @@ void test_sink_kind_matrix() {
     }
     records[0].kind = metrics::MetricKind::Counter;
     records[0].scalar.counter = std::numeric_limits<std::uint64_t>::max();
+    std::snprintf(records[0].identity.unit, sizeof(records[0].identity.unit), "count");
     records[1].kind = metrics::MetricKind::Gauge;
     records[1].scalar.gauge_int = std::numeric_limits<std::int64_t>::min();
     records[1].scalar.is_double = false;
@@ -2709,6 +2711,8 @@ void test_sink_kind_matrix() {
         NX_CHECK(!parsed.is_discarded());
         NX_CHECK(parsed["records"].size() == 7U);
         NX_CHECK(parsed["records"][0]["value"] == std::numeric_limits<std::uint64_t>::max());
+        NX_CHECK(parsed["records"][0]["unit"] == "count");
+        NX_CHECK(!parsed["records"][1].contains("unit"));
         NX_CHECK(parsed["records"][3].contains("std"));
         NX_CHECK(parsed["records"][4].contains("p999"));
         NX_CHECK(parsed["records"][6]["kind"] == "State");
@@ -2802,12 +2806,14 @@ void test_snapshot_serialization_full() {
     std::snprintf(identity.meter_name, sizeof(identity.meter_name), "meter");
     std::snprintf(identity.meter_version, sizeof(identity.meter_version), "1.0");
     std::snprintf(identity.metric_name, sizeof(identity.metric_name), "metric");
+    std::snprintf(identity.unit, sizeof(identity.unit), "ns");
     {
         nlohmann::json json;
         metrics::to_json(json, identity);
         metrics::MetricIdentity back{};
         metrics::from_json(json, back);
         NX_CHECK(std::string_view(back.meter_name) == "meter");
+        NX_CHECK(std::string_view(back.unit) == "ns");
         NX_CHECK(identity.to_string().find("meter") != std::string::npos);
         NX_CHECK(metrics::to_string(identity) == identity.to_string());
     }

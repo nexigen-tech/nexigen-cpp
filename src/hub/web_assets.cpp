@@ -247,20 +247,21 @@ std::string_view app_js() noexcept {
 
   const renderMetric = (rec) => {
     const name = rec.metric || "?";
+    const unit = (rec.unit && rec.unit.length) ? " " + rec.unit : "";
     switch (rec.kind) {
       case "Counter":
       case "Gauge":
-        return name + " = " + rec.value;
+        return name + " = " + rec.value + unit;
       case "DescriptiveStatistics":
         return name + "  n=" + rec.count + " min=" + fmt(rec.min) +
           " max=" + fmt(rec.max) + " mean=" + fmt(rec.mean) +
-          " std=" + fmt(rec.std);
+          " std=" + fmt(rec.std) + unit;
       case "ExplicitHistogram":
       case "ExponentialHistogram":
         return name + "  n=" + rec.count + " min=" + fmt(rec.min) +
           " max=" + fmt(rec.max) + " p50=" + fmt(rec.p50) +
           " p90=" + fmt(rec.p90) + " p99=" + fmt(rec.p99) +
-          " p99.9=" + fmt(rec.p999);
+          " p99.9=" + fmt(rec.p999) + unit;
       case "State":
         return name + " = " + rec.value;
       default:

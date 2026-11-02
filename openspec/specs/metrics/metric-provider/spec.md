@@ -61,7 +61,7 @@ Metrics SHALL be created exclusively through a `Meter` obtained from `MetricProv
 
 ### Requirement: Meter instrument creation
 
-`Meter` SHALL expose creation methods for counters, gauges, descriptive statistics, explicit-bucket histograms, exponential histograms, and state gauges, each accepting the instrument name and the policy template parameters and creation arguments that determine its behavior. Every creation call SHALL return `core::Result` and never throw.
+`Meter` SHALL expose creation methods for counters, gauges, descriptive statistics, explicit-bucket histograms, exponential histograms, and state gauges, each accepting the instrument name, an optional unit string, and the policy template parameters and creation arguments that determine its behavior. Every creation call SHALL return `core::Result` and never throw.
 
 #### Scenario: Counter and gauge creation
 
@@ -87,6 +87,11 @@ Metrics SHALL be created exclusively through a `Meter` obtained from `MetricProv
 
 - **WHEN** the same name is used for two different instrument kinds under one meter
 - **THEN** the second creation returns `core::ErrorCode::InvalidArgument`
+
+#### Scenario: Unit is declared and stored
+
+- **WHEN** a meter creates an instrument with a non-empty unit string
+- **THEN** a later harvest reports that instrument with the same unit, and an instrument created without a unit reports an empty unit
 
 ### Requirement: Background harvesting and collection period
 
@@ -196,6 +201,11 @@ Destruction SHALL stop and join the harvester, deliver one final collection of p
 
 - **WHEN** a `MetricRecord` for a state gauge carrying a string value is serialized and parsed back
 - **THEN** the string value and the `MetricKind::State` classification survive the round-trip
+
+#### Scenario: Unit round-trips
+
+- **WHEN** a `MetricRecord` whose identity carries a unit is serialized and parsed back
+- **THEN** the unit string survives the round-trip, and an empty unit stays empty
 
 #### Scenario: Batch JSON round-trip
 

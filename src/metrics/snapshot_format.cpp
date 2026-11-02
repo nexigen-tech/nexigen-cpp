@@ -112,6 +112,7 @@ void to_json(nlohmann::json& j, const MetricIdentity& identity) {
         {"meter_name", std::string(detail::view_name(identity.meter_name))},
         {"meter_version", std::string(detail::view_name(identity.meter_version))},
         {"metric_name", std::string(detail::view_name(identity.metric_name))},
+        {"unit", std::string(detail::view_name(identity.unit))},
     };
 }
 
@@ -132,6 +133,7 @@ void from_json(const nlohmann::json& j, MetricIdentity& out) noexcept {
     read(j, "meter_name", out.meter_name);
     read(j, "meter_version", out.meter_version);
     read(j, "metric_name", out.metric_name);
+    read(j, "unit", out.unit);
 }
 
 void to_json(nlohmann::json& j, const ScalarValue& value) {

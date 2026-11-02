@@ -108,6 +108,13 @@ public:
             static_cast<void>(writer.append_escaped(detail::view_name(record.identity.meter_version)));
             static_cast<void>(writer.append_sv("\",\"metric\":\""));
             static_cast<void>(writer.append_escaped(detail::view_name(record.identity.metric_name)));
+            {
+                const std::string_view unit = detail::view_name(record.identity.unit);
+                if (!unit.empty()) {
+                    static_cast<void>(writer.append_sv("\",\"unit\":\""));
+                    static_cast<void>(writer.append_escaped(unit));
+                }
+            }
             static_cast<void>(writer.append_sv("\",\"kind\":\""));
             static_cast<void>(writer.append_escaped(metrics::to_string(record.kind)));
             static_cast<void>(writer.append_sv("\",\"access\":\""));

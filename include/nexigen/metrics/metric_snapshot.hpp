@@ -83,6 +83,7 @@ struct MetricIdentity {
     char meter_name[max_name_length + 1]{};
     char meter_version[max_name_length + 1]{};
     char metric_name[max_name_length + 1]{};
+    char unit[max_name_length + 1]{};
 
     [[nodiscard]] std::string to_string() const;
 };

@@ -71,7 +71,7 @@ public:
 
     /// Copy the current value into `dst` (NUL-terminated); clears it first
     /// under ResetOnRead. Returns the length.
-    std::size_t take(char* dst) const noexcept {
+    std::size_t take(char (&dst)[max_state_length + 1]) const noexcept {
         const std::size_t len = copy(dst);
         if constexpr (Reset == ResetPolicy::ResetOnRead) {
             cell_.value[0] = '\0';
@@ -80,12 +80,12 @@ public:
     }
 
     /// Copy the current value without clearing. Returns the length.
-    std::size_t observe(char* dst) const noexcept { return copy(dst); }
+    std::size_t observe(char (&dst)[max_state_length + 1]) const noexcept { return copy(dst); }
 
 private:
-    std::size_t copy(char* dst) const noexcept {
+    std::size_t copy(char (&dst)[max_state_length + 1]) const noexcept {
         std::size_t len = 0;
-        while (len <= max_state_length && cell_.value[len] != '\0') {
+        while (len < max_state_length && cell_.value[len] != '\0') {
             dst[len] = cell_.value[len];
             ++len;
         }
@@ -107,7 +107,7 @@ public:
         return true;
     }
 
-    std::size_t take(char* dst) const noexcept {
+    std::size_t take(char (&dst)[max_state_length + 1]) const noexcept {
         const std::size_t len = copy_under_seqlock(dst);
         if constexpr (Reset == ResetPolicy::ResetOnRead) {
             clear_under_lock();
@@ -115,10 +115,10 @@ public:
         return len;
     }
 
-    std::size_t observe(char* dst) const noexcept { return copy_under_seqlock(dst); }
+    std::size_t observe(char (&dst)[max_state_length + 1]) const noexcept { return copy_under_seqlock(dst); }
 
 private:
-    std::size_t copy_under_seqlock(char* dst) const noexcept {
+    std::size_t copy_under_seqlock(char (&dst)[max_state_length + 1]) const noexcept {
         for (;;) {
             const std::uint64_t s = shard_.seq.load(std::memory_order_acquire);
             if ((s & 1U) != 0U) {
