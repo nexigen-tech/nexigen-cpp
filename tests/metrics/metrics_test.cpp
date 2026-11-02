@@ -2661,7 +2661,7 @@ void test_sink_kind_matrix() {
         return batch;
     };
 
-    metrics::MetricRecord records[6]{};
+    metrics::MetricRecord records[7]{};
     for (auto& record : records) {
         std::snprintf(record.identity.meter_name, sizeof(record.identity.meter_name), "meter");
         std::snprintf(record.identity.meter_version, sizeof(record.identity.meter_version), "1.0");
@@ -2688,7 +2688,9 @@ void test_sink_kind_matrix() {
     records[4].histogram.p999 = 4.0;
     records[5].kind = metrics::MetricKind::ExponentialHistogram;
     records[5].histogram = records[4].histogram;
-    const metrics::MetricBatchSnapshot batch = make_batch(records, 6);
+    records[6].kind = metrics::MetricKind::State;
+    std::snprintf(records[6].state.value, sizeof(records[6].state.value), "degraded");
+    const metrics::MetricBatchSnapshot batch = make_batch(records, 7);
 
     char path[] = "/tmp/nexigen_metrics_kinds_XXXXXX";
     const int made = ::mkstemp(path);
@@ -2705,10 +2707,13 @@ void test_sink_kind_matrix() {
         NX_CHECK(static_cast<bool>(std::getline(input, line)));
         const nlohmann::json parsed = nlohmann::json::parse(line, nullptr, false);
         NX_CHECK(!parsed.is_discarded());
-        NX_CHECK(parsed["records"].size() == 6U);
+        NX_CHECK(parsed["records"].size() == 7U);
         NX_CHECK(parsed["records"][0]["value"] == std::numeric_limits<std::uint64_t>::max());
         NX_CHECK(parsed["records"][3].contains("std"));
         NX_CHECK(parsed["records"][4].contains("p999"));
+        NX_CHECK(parsed["records"][6]["kind"] == "State");
+        NX_CHECK(parsed["records"][6]["value"] == "degraded");
+        NX_CHECK(!parsed["records"][6].contains("count"));
     }
 
     // Escaping classes in every escaped field.

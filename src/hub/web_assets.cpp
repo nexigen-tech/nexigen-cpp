@@ -239,6 +239,42 @@ std::string_view app_js() noexcept {
     if (followEl.checked) viewerEl.scrollTop = viewerEl.scrollHeight;
   };
 
+  const fmt = (v) => {
+    if (typeof v !== "number") return String(v);
+    if (Number.isInteger(v)) return String(v);
+    return String(Number(v.toPrecision(4)));
+  };
+
+  const renderMetric = (rec) => {
+    const name = rec.metric || "?";
+    switch (rec.kind) {
+      case "Counter":
+      case "Gauge":
+        return name + " = " + rec.value;
+      case "DescriptiveStatistics":
+        return name + "  n=" + rec.count + " min=" + fmt(rec.min) +
+          " max=" + fmt(rec.max) + " mean=" + fmt(rec.mean) +
+          " std=" + fmt(rec.std);
+      case "ExplicitHistogram":
+      case "ExponentialHistogram":
+        return name + "  n=" + rec.count + " min=" + fmt(rec.min) +
+          " max=" + fmt(rec.max) + " p50=" + fmt(rec.p50) +
+          " p90=" + fmt(rec.p90) + " p99=" + fmt(rec.p99) +
+          " p99.9=" + fmt(rec.p999);
+      case "State":
+        return name + " = " + rec.value;
+      default:
+        return name + " (kind=" + rec.kind + ")";
+    }
+  };
+
+  const renderMetricsLine = (line) => {
+    let batch;
+    try { batch = JSON.parse(line); } catch (err) { return null; }
+    if (!batch || !Array.isArray(batch.records)) return null;
+    return batch.records.map(renderMetric);
+  };
+
   const closeSource = () => {
     if (source) { source.close(); source = null; }
   };
@@ -264,7 +300,14 @@ std::string_view app_js() noexcept {
       if (record.sequence <= lastSequence) return;
       lastSequence = record.sequence;
       cursorEl.textContent = "seq " + lastSequence;
-      appendLine(record.line);
+      const lines = (selected && selected.kind === "metrics")
+        ? renderMetricsLine(record.line)
+        : null;
+      if (lines) {
+        for (const line of lines) appendLine(line);
+      } else {
+        appendLine(record.line);
+      }
       setConnection(true, "live");
     });
     source.addEventListener("snapshot_begin", () => {

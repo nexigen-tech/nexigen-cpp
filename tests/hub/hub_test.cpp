@@ -1148,6 +1148,10 @@ void test_web_assets() {
     // "connecting" (spec hub/web-ui "Embedded script parses and bootstraps").
     NX_CHECK(contains(hub::app_js(), "(() => {"));
     NX_CHECK(contains(hub::app_js(), "})();"));
+    // Structured metric rendering (spec hub/web-ui "Metrics render structured
+    // by kind"): the formatter and its batch parser must be present.
+    NX_CHECK(contains(hub::app_js(), "renderMetric"));
+    NX_CHECK(contains(hub::app_js(), "renderMetricsLine"));
 }
 
 void test_http_server() {

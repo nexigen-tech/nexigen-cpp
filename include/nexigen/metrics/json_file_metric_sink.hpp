@@ -139,6 +139,12 @@ public:
                     static_cast<void>(writer.append_sv(",\"std\":"));
                     static_cast<void>(writer.append_double(record.statistics.stddev));
                     break;
+                case MetricKind::State:
+                    static_cast<void>(writer.append_sv("\",\"value\":\""));
+                    static_cast<void>(writer.append_escaped(
+                        detail::view_name(record.state.value)));
+                    static_cast<void>(writer.append_sv("\""));
+                    break;
                 default:
                     static_cast<void>(writer.append_sv("\",\"count\":"));
                     static_cast<void>(writer.append_u64(record.histogram.count));
