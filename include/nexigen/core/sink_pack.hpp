@@ -51,6 +51,8 @@ namespace nexigen::core::sink_pack {
 template <class... Sinks>
 class Fanout {
 protected:
+    /// Compile-time index of the first member whose type is T; the sentinel
+    /// `sizeof...(Sinks)` marks an absent type (pair with exactly_one<T>()).
     template <class T>
     [[nodiscard]] static constexpr std::size_t find_index() noexcept {
         const std::array<bool, sizeof...(Sinks)> matches{std::is_same_v<T, Sinks>...};
@@ -63,6 +65,8 @@ protected:
         return found;
     }
 
+    /// True when type T appears exactly once in the pack — the compile-time
+    /// gate behind type-based get<T>() (absent or duplicated types fail it).
     template <class T>
     [[nodiscard]] static constexpr bool exactly_one() noexcept {
         const std::array<bool, sizeof...(Sinks)> matches{std::is_same_v<T, Sinks>...};
@@ -75,6 +79,8 @@ protected:
         return hits == 1U;
     }
 
+    /// Invoke fn against every member in pack order (index 0 first), never
+    /// short-circuiting — the non-const delivery path.
     template <typename Fn>
     void for_each(Fn&& fn) noexcept {
         std::apply([&fn](Sinks&... sink) {
@@ -83,6 +89,8 @@ protected:
         }, members_);
     }
 
+    /// Invoke fn against every member in pack order (index 0 first), never
+    /// short-circuiting — the const delivery path.
     template <typename Fn>
     void for_each(Fn&& fn) const noexcept {
         std::apply([&fn](const Sinks&... sink) {
@@ -91,9 +99,13 @@ protected:
         }, members_);
     }
 
+    /// Heterogeneous member storage in pack order (the tuple the fold
+    /// expressions and both access forms resolve against).
     std::tuple<Sinks...> members_{};
 
 public:
+    /// Static pack length; inherited by every composite (their to_json
+    /// reports it verbatim and type access bounds itself with it).
     static constexpr std::size_t size = sizeof...(Sinks);
 
     /// Default construction — only for default-constructible member packs
@@ -121,6 +133,7 @@ public:
         static_assert(Index < sizeof...(Sinks), "index beyond the member pack");
         return std::get<Index>(members_);
     }
+    /// Const member access by index.
     template <std::size_t Index>
     [[nodiscard]] decltype(auto) get() const noexcept {
         static_assert(Index < sizeof...(Sinks), "index beyond the member pack");
@@ -134,6 +147,7 @@ public:
                       "type absent or duplicated — get<Index>() for duplicates");
         return std::get<find_index<T>()>(members_);
     }
+    /// Const member access by type (must be unique in the pack).
     template <class T>
     [[nodiscard]] const T& get() const noexcept {
         static_assert(exactly_one<T>(),

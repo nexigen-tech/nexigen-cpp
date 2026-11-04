@@ -6,10 +6,10 @@ The backbone of the **nexigen** ecosystem — an ultra-high performance C++23 co
 * **Real-Time Ready:** Strictly zero-lock (lock-free / wait-free primitives) implementation within critical execution data paths (hot paths).
 * **Deep OS Integration:** Direct interaction with low-level Linux system calls (`epoll`, `signalfd`, `inotify`, POSIX signals, and high-resolution timers).
 * **Zero-Cost Abstractions:** O3, native architecture deployment (`-march=native`), and Link-Time Optimization (LTO) for bare-metal execution speed.
-* **Spec-Driven:** 59 capabilities and 1 103 executable scenarios validated on every change; GCC and Clang both build under `-Werror`.
+* **Spec-Driven:** 66 capabilities and 1 267 executable scenarios validated on every change; GCC and Clang both build under `-Werror`.
 
 ## 🛠️ Core Components
-* **`core`** — wait-free SPSC ring buffers, the `Result`/`Status` error model, and JSON vocabularies.
+* **`core`** — wait-free SPSC ring buffers, the `Result`/`Status` error model, and JSON vocabularies; plus the shared observability plumbing in one place (`sink_pack::Fanout` fan-out scaffold, `sink_io` file-descriptor path, `settings_io` loader vocabulary, `affinity` pinning).
 * **`chrono`** — monotonic timestamps, the calibrated TSC `Stamp_source`, UTC formatting, and the clock service.
 * **`logging`** — asynchronous sharded loggers (console, file, composite, null) with anti-spam and JSONL output.
 * **`metrics`** — wait-free counters, gauges, statistics, and histograms with background harvesting and sinks.
@@ -91,16 +91,19 @@ the requested percentage; the target also enforces `runner >= 90` and `hub >= 90
 Coverage cannot be combined with ASan/TSan. Forked runner supervisors flush gcov
 counters before `_exit()`/`exec`, so control-plane work is measured too.
 
-Current unit-test line coverage is **95.2%** (≈11 191 / 11 753):
+Current unit-test line coverage is **95.3%** (≈10 735 / 11 268):
 
 | Module | Coverage |
 |---|---:|
-| core, diagnostics | 100.0% |
-| chrono, metrics | 96.1–96.2% |
-| app | 95.8% |
-| logging, tracing | 95.2–95.5% |
+| diagnostics | 100.0% |
+| core | 97.5% |
+| metrics | 96.8% |
+| chrono | 96.3% |
+| tracing | 96.2% |
+| logging | 95.4% |
 | hub | 95.2% |
-| runner | 93.0% |
+| app | 94.7% |
+| runner | 92.3% |
 
 The project target is **≥95%** and CI enforces it
 (`-DNEXIGEN_COVERAGE_FAIL_UNDER=95`) together with the 90% runner/hub module
