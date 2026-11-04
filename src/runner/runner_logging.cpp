@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <format>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -283,14 +284,12 @@ void shutdown_runner_logging() noexcept {
 }
 
 core::Status apply_runner_thread_spec(
-    const core::ThreadSpec& spec, std::string_view context) noexcept {
+    const core::ThreadSpec& spec, core::ThreadApplyReport& report,
+    std::string_view context) noexcept {
     static_cast<void>(context);
+    report = core::ThreadApplyReport{};
     if (!has_thread_request(spec)) {
         return {};
-    }
-    const core::Status valid = spec.validate();
-    if (!valid) {
-        return valid;
     }
     core::ThreadSpec effective = spec;
     if (!online_cpu_set(effective.cpus())) {
@@ -300,7 +299,6 @@ core::Status apply_runner_thread_spec(
         warn_stderr("runner control CPU set is invalid; affinity disabled");
         effective.set_cpus(core::CpuSet{});
     }
-    core::ThreadApplyReport report{};
     const core::Status applied = core::apply_thread_spec_self(effective, report);
     if (!applied) {
         return applied;
@@ -309,6 +307,39 @@ core::Status apply_runner_thread_spec(
         return std::unexpected(report.first_error());
     }
     return {};
+}
+
+core::Status apply_runner_thread_spec(
+    const core::ThreadSpec& spec, std::string_view context) noexcept {
+    core::ThreadApplyReport report{};
+    return apply_runner_thread_spec(spec, report, context);
+}
+
+std::string describe_thread_apply_report(const core::ThreadApplyReport& report) {
+    const auto joined = [](std::uint32_t mask) {
+        std::string out;
+        const auto add = [&out](std::string_view label) {
+            if (!out.empty()) {
+                out += ',';
+            }
+            out += label;
+        };
+        if ((mask & core::ThreadApplyReport::name_mask) != 0U) {
+            add("name");
+        }
+        if ((mask & core::ThreadApplyReport::affinity_mask) != 0U) {
+            add("affinity");
+        }
+        if ((mask & core::ThreadApplyReport::scheduler_mask) != 0U) {
+            add("scheduler");
+        }
+        return out.empty() ? std::string("none") : out;
+    };
+    return std::format("requested={} applied={} failed={} rollback_failed={} "
+                       "first_error={}",
+                       joined(report.requested()), joined(report.applied()),
+                       joined(report.failed()), joined(report.rollback_failed()),
+                       core::to_string(report.first_error()));
 }
 
 core::Status apply_runner_affinity(

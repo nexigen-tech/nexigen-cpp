@@ -62,10 +62,22 @@ void warn_runner(std::string_view message) noexcept;
 /// Flush and destroy the logger; idempotent.
 void shutdown_runner_logging() noexcept;
 
+/// Apply a full thread spec on the calling thread before its control loop,
+/// exposing the per-attribute application report for diagnostics.
+[[nodiscard]] core::Status apply_runner_thread_spec(
+    const core::ThreadSpec& spec,
+    core::ThreadApplyReport& report,
+    std::string_view context = {}) noexcept;
+
 /// Apply a full thread spec on the calling thread before its control loop.
 [[nodiscard]] core::Status apply_runner_thread_spec(
     const core::ThreadSpec& spec,
     std::string_view context = {}) noexcept;
+
+/// Human-readable per-attribute rendering of a thread apply report for
+/// operator-facing warnings (name/affinity/scheduler + first error).
+[[nodiscard]] std::string describe_thread_apply_report(
+    const core::ThreadApplyReport& report);
 
 /// Legacy CPU-list adapter; empty means "leave untouched".
 [[nodiscard]] core::Status apply_runner_affinity(

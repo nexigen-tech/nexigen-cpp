@@ -144,11 +144,13 @@ struct CliLogTarget {
 }
 
 [[nodiscard]] core::Status apply_control_affinity(const CliLogTarget& target) {
+    core::ThreadApplyReport report{};
     const core::Status applied = runner::apply_runner_thread_spec(
-        target.control_thread, "cli-control");
+        target.control_thread, report, "cli-control");
     if (!applied) {
-        runner::warn_runner(
-            "event=affinity_warning thread=control detail=invalid or rejected");
+        runner::warn_runner(std::format(
+            "event=thread_spec_warning thread=control detail={}",
+            runner::describe_thread_apply_report(report)));
         if (target.control_thread.apply_mode() == core::ThreadApplyMode::Required) {
             return applied;
         }

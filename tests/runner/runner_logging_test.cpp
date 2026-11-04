@@ -296,6 +296,64 @@ void test_inactive_and_invalid_config() {
     remove_tree(directory);
 }
 
+void test_thread_spec_report_diagnostics() {
+    // describe_thread_apply_report renders masks to attribute labels, no
+    // syscalls required: build a report from JSON and check the labels.
+    {
+        nlohmann::json j = nlohmann::json{
+            {"requested", 7U},
+            {"applied", 3U},
+            {"failed", 4U},
+            {"rollback_failed", 0U},
+            {"first_error", "SystemError"},
+        };
+        core::ThreadApplyReport report{};
+        core::from_json(j, report);
+        const std::string text = runner::describe_thread_apply_report(report);
+        NX_CHECK(contains(text, "requested=name,affinity,scheduler"));
+        NX_CHECK(contains(text, "applied=name,affinity"));
+        NX_CHECK(contains(text, "failed=scheduler"));
+        NX_CHECK(contains(text, "first_error=SystemError"));
+    }
+
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    // BestEffort: name + affinity apply, scheduler fails; the report reflects the
+    // partial application and the diagnostic names the scheduler attribute.
+    {
+        using nexigen::core::fault_injection::FaultPoint;
+        const int cpu = first_allowed_cpu();
+        if (cpu >= 0 && cpu < 64) {
+            core::ThreadSpec spec{};
+            spec.set_cpus(core::CpuSet::from_core_mask(1ULL << cpu));
+            NX_CHECK(spec.set_name("rt-diag").has_value());
+            NX_CHECK(spec.set_scheduler(core::SchedulingPolicy::FIFO, 1)
+                         .has_value());
+            const auto hook = [](FaultPoint point) noexcept {
+                return point == FaultPoint::Thread_set_scheduler;
+            };
+            nexigen::core::fault_injection::set_fault_hook(hook);
+            core::ThreadApplyReport report{};
+            core::Status status{};
+            std::jthread worker([&] {
+                status = runner::apply_runner_thread_spec(spec, report, "test");
+            });
+            worker.join();
+            nexigen::core::fault_injection::set_fault_hook(nullptr);
+            NX_CHECK(!status.has_value());
+            NX_CHECK(report.applied() ==
+                     (core::ThreadApplyReport::name_mask |
+                      core::ThreadApplyReport::affinity_mask));
+            NX_CHECK(report.failed() == core::ThreadApplyReport::scheduler_mask);
+            NX_CHECK(report.first_error() == core::ErrorCode::SystemError);
+            const std::string text =
+                runner::describe_thread_apply_report(report);
+            NX_CHECK(contains(text, "failed=scheduler"));
+            NX_CHECK(!contains(text, "failed=name,affinity"));
+        }
+    }
+#endif
+}
+
 } // namespace
 
 int main() {
@@ -306,6 +364,7 @@ int main() {
     run_suite("affinity_logger_mask", test_affinity_and_logger_mask);
     run_suite("state_write_warning", test_state_write_warning);
     run_suite("inactive_invalid_config", test_inactive_and_invalid_config);
+    run_suite("thread_spec_report", test_thread_spec_report_diagnostics);
 
     std::printf("total: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

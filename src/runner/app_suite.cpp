@@ -1273,12 +1273,14 @@ void run_suite_supervisor(const SuiteManifest& manifest,
                           const std::string& suite_dir,
                           int report_fd) {
     static_cast<void>(reset_runner_affinity());
-    const core::Status control_pin =
-        apply_runner_thread_spec(manifest.runner_control_thread, "suite-supervisor");
+    core::ThreadApplyReport control_report{};
+    const core::Status control_pin = apply_runner_thread_spec(
+        manifest.runner_control_thread, control_report, "suite-supervisor");
     if (!control_pin) {
+        const std::string detail = describe_thread_apply_report(control_report);
         std::fprintf(stderr,
-                     "nexigen-run: runner_control_cpus is invalid; suite "
-                     "supervisor is unpinned\n");
+                     "nexigen-run: control thread spec application failed: %s\n",
+                     detail.c_str());
         if (manifest.runner_control_thread.apply_mode() ==
             core::ThreadApplyMode::Required) {
             child_exit(1); // no application has been launched at this point
