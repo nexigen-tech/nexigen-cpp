@@ -249,7 +249,7 @@ timestamp format `YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ`; `<rendered message>` produced
 
 ### Requirement: Runnable file logger example
 
-The project SHALL provide an `ex_file_logger` executable that initializes a `FileLogger` from a complete `FileLogger_config` (application name, base directory `/tmp/nexigen-examples-logs`, file name, hourly rotation, a non-zero CPU core mask, and an enabled throttle budget), logs through the variadic API, flushes, and exits 0.
+The project SHALL provide an `ex_file_logger` executable that initializes a `FileLogger` from a complete `FileLogger_config` (application name, base directory `/tmp/nexigen-examples-logs`, file name, hourly rotation, a pinned worker CPU set, and an enabled throttle budget), logs through the variadic API, flushes, and exits 0.
 
 #### Scenario: Configured JSONL file is produced
 
@@ -259,11 +259,11 @@ The project SHALL provide an `ex_file_logger` executable that initializes a `Fil
 #### Scenario: Configuration is inspectable
 
 - **WHEN** the example renders `FileLogger_config::to_string()`
-- **THEN** the text names the application, base directory, file name, initial level, throttle policy, rotation schedule, and core mask
+- **THEN** the text names the application, base directory, file name, initial level, throttle policy, rotation schedule, and worker thread spec
 
 #### Scenario: Affinity outcome is reported
 
-- **WHEN** initialization starts the writer with the configured core mask
+- **WHEN** initialization starts the writer with the configured worker CPU set
 - **THEN** the example reports the writer's effective mask or start failure code without hiding pinning problems
 
 #### Scenario: UTF-8 messages survive the pipeline

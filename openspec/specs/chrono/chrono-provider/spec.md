@@ -108,7 +108,7 @@ The provider SHALL expose `snapshot_now() noexcept -> core::Status`, `flush() no
 
 #### Scenario: Startup status reports success by default
 
-- **WHEN** the provider starts with a zero core mask and a healthy sink
+- **WHEN** the provider starts with an empty worker CPU set and a healthy sink
 - **THEN** `startup_status()` returns success
 
 ### Requirement: Provider shutdown
@@ -207,4 +207,4 @@ through it. The worker SHALL start and run normally without a bound logger. A
 #### Scenario: Provider renders configuration and state
 
 - **WHEN** `to_string()` and `std::format("{}", provider)` are evaluated on a started provider
-- **THEN** the member text names the interval and core mask and reflects the startup status, and the formatter renders the same text
+- **THEN** the member text names the interval and worker thread spec and reflects the startup status, and the formatter renders the same text

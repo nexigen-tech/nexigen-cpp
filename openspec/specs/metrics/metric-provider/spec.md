@@ -167,7 +167,7 @@ The provider SHALL expose `collect_now() noexcept -> core::Status`, `flush() noe
 
 #### Scenario: Startup status reports success by default
 
-- **WHEN** the provider starts with a zero core mask and a healthy sink
+- **WHEN** the provider starts with an empty worker CPU set and a healthy sink
 - **THEN** `startup_status()` returns success
 
 ### Requirement: Provider shutdown

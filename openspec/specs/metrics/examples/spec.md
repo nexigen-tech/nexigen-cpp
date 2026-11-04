@@ -93,7 +93,7 @@ The project SHALL provide four self-contained executables under `examples/metric
 
 #### Scenario: Background harvesting honors interval and affinity
 
-- **WHEN** the provider runs with a periodic `collect_interval` (e.g. 50 ms) and a non-zero `core_mask`
+- **WHEN** the provider runs with a periodic `collect_interval` (e.g. 50 ms) and a non-empty worker CPU set
 - **THEN** batches arrive periodically, background sink callbacks run on the harvester, and `startup_status()` reports pinning success
 
 #### Scenario: JSONL telemetry is written and read back
