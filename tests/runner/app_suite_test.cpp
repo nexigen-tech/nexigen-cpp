@@ -56,6 +56,12 @@ void run_suite(const char* name, void (*body)()) {
                 g_failures - before_failures);
 }
 
+[[nodiscard]] core::CpuSet invalid_cpu_set() {
+    core::CpuSet cpus{};
+    static_cast<void>(cpus.add(1023));
+    return cpus;
+}
+
 std::string unique_dir(std::string_view tag) {
     static int counter = 0;
     ++counter;
@@ -250,7 +256,8 @@ void test_enums_and_serialization() {
         "app", "1", "/bin/true", runner::ImpactOnAppSuiteOperability::Failure);
     spec.args = {"--a", "b"};
     spec.env = {{"A", "1"}, {"B", "2"}};
-    spec.cpus = {0, 2};
+    spec.cpus = core::CpuSet::from_core_mask(1ULL);
+    NX_CHECK(spec.cpus.add(64).has_value());
     spec.restart_attempts = 3;
     spec.restart_delay_s = 4;
     spec.log_level = logging::LogLevel::Warning;
@@ -263,7 +270,7 @@ void test_enums_and_serialization() {
     NX_CHECK(spec_round.app == "app");
     NX_CHECK(spec_round.args.size() == 2 && spec_round.args[1] == "b");
     NX_CHECK(spec_round.env.size() == 2);
-    NX_CHECK(spec_round.cpus.size() == 2 && spec_round.cpus[1] == 2);
+    NX_CHECK(spec_round.cpus.count() == 2U && spec_round.cpus.contains(64U));
     NX_CHECK(spec_round.log_level == logging::LogLevel::Warning);
     NX_CHECK(!spec.to_string().empty());
     NX_CHECK(!std::format("{}", spec).empty());
@@ -278,8 +285,11 @@ void test_enums_and_serialization() {
     manifest.suite_restart_attempts = 2;
     manifest.suite_restart_delay_s = 3;
     manifest.manifest_path = "/etc/nexigen/suite.json";
-    manifest.runner_control_cpus = {0, 1};
-    manifest.runner_logger_cpus = {2};
+    manifest.runner_control_thread.set_cpus(core::CpuSet::from_core_mask(3));
+    NX_CHECK(manifest.runner_control_thread.set_name("control").has_value());
+    NX_CHECK(manifest.runner_control_thread.set_scheduler(core::SchedulingPolicy::Other, 0).has_value());
+    manifest.runner_control_thread.set_apply_mode(core::ThreadApplyMode::Required);
+    manifest.runner_logger_thread.set_cpus(core::CpuSet::from_core_mask(2));
     manifest.apps.push_back(spec);
     nlohmann::json manifest_json;
     runner::to_json(manifest_json, manifest);
@@ -287,8 +297,10 @@ void test_enums_and_serialization() {
     runner::from_json(manifest_json, manifest_round);
     NX_CHECK(manifest_round.suite_id == "s");
     NX_CHECK(manifest_round.log_level == logging::LogLevel::Debug);
-    NX_CHECK(manifest_round.runner_control_cpus.size() == 2);
-    NX_CHECK(manifest_round.runner_logger_cpus.size() == 1);
+    NX_CHECK(manifest_round.runner_control_thread.cpus().count() == 2U);
+    NX_CHECK(manifest_round.runner_control_thread.name() == "control");
+    NX_CHECK(manifest_round.runner_control_thread.scheduler_configured());
+    NX_CHECK(manifest_round.runner_logger_thread.cpus().count() == 1U);
     NX_CHECK(manifest_round.apps.size() == 1);
 
     runner::SuiteStatus status{};
@@ -330,7 +342,7 @@ void test_enums_and_serialization() {
     NX_CHECK(hostile.app == "app");
     NX_CHECK(hostile.args.size() == 2);
     NX_CHECK(hostile.env.size() == 2);
-    NX_CHECK(hostile.cpus.size() == 2);
+    NX_CHECK(hostile.cpus.count() == 2U);
     NX_CHECK(hostile.restart_attempts == 3);
     NX_CHECK(hostile.log_level == logging::LogLevel::Warning);
 
@@ -339,6 +351,9 @@ void test_enums_and_serialization() {
                       hostile);
     runner::from_json(nlohmann::json{{"cpus", nlohmann::json::array({-1})}},
                       hostile);
+    runner::from_json(nlohmann::json{{"cpus", nlohmann::json::array({0, 0})}},
+                      hostile);
+    NX_CHECK(hostile.cpus.count() == 2U); // duplicates leave the old set intact
     runner::from_json(
         nlohmann::json{{"cpus", nlohmann::json::array(
                                      {std::uint64_t{4294967296ULL}})}},
@@ -372,8 +387,8 @@ void test_enums_and_serialization() {
     metadata.start_time_rfc3339 = "2026-11-01T00:00:00.000000000Z";
     metadata.start_time_mono_ns = 123;
     metadata.manifest_path = "/etc/nexigen/suite.json";
-    metadata.runner_control_cpus = {0};
-    metadata.runner_logger_cpus = {1};
+    metadata.runner_control_thread.set_cpus(core::CpuSet::from_core_mask(1));
+    metadata.runner_logger_thread.set_cpus(core::CpuSet::from_core_mask(2));
     metadata.apps.push_back(app_metadata);
     nlohmann::json metadata_json;
     runner::to_json(metadata_json, metadata);
@@ -382,8 +397,25 @@ void test_enums_and_serialization() {
     NX_CHECK(metadata_round.pid == 42);
     NX_CHECK(metadata_round.apps.size() == 1);
     NX_CHECK(metadata_round.artifacts_path == "/artifacts");
-    NX_CHECK(metadata_round.runner_control_cpus.size() == 1);
-    NX_CHECK(metadata_round.runner_logger_cpus.size() == 1);
+    NX_CHECK(metadata_round.runner_control_thread.cpus().count() == 1U);
+    NX_CHECK(metadata_round.runner_logger_thread.cpus().count() == 1U);
+
+    // Legacy persisted lists remain compatibility inputs for both manifest and
+    // suite metadata; canonical specs are emitted by the new writer instead.
+    nlohmann::json legacy_manifest_json;
+    legacy_manifest_json["runner_control_cpus"] = {0U, 1U};
+    legacy_manifest_json["runner_logger_cpus"] = {2U};
+    runner::SuiteManifest legacy_manifest{};
+    runner::from_json(legacy_manifest_json, legacy_manifest);
+    NX_CHECK(legacy_manifest.runner_control_thread.cpus().count() == 2U);
+    NX_CHECK(legacy_manifest.runner_logger_thread.cpus().contains(2U));
+    nlohmann::json legacy_metadata_json;
+    legacy_metadata_json["runner_control_cpus"] = {0U};
+    legacy_metadata_json["runner_logger_cpus"] = {1U};
+    runner::SuiteMetadata legacy_metadata{};
+    runner::from_json(legacy_metadata_json, legacy_metadata);
+    NX_CHECK(legacy_metadata.runner_control_thread.cpus().contains(0U));
+    NX_CHECK(legacy_metadata.runner_logger_thread.cpus().contains(1U));
 
     runner::SuiteExit suite_exit{};
     suite_exit.state = runner::SuiteState::Failed;
@@ -501,15 +533,15 @@ void test_manifest_validation() {
                          core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.apps.front().cpus = {99999};
+    static_cast<void>(bad.apps.front().cpus.add(1023));
     NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
                          core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.runner_control_cpus = {99999};
+    bad.runner_control_thread.set_cpus(invalid_cpu_set());
     NX_CHECK(runner::validate_suite_manifest(bad).has_value());
     bad = manifest;
-    bad.runner_logger_cpus = {99999};
+    bad.runner_logger_thread.set_cpus(invalid_cpu_set());
     NX_CHECK(runner::validate_suite_manifest(bad).has_value());
 
     bad = manifest;
@@ -608,7 +640,7 @@ void test_manifest_validation() {
                          core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.apps.front().cpus = {0, 0};
+    static_cast<void>(bad.apps.front().cpus.add(1023));
     NX_CHECK(failed_with(runner::validate_suite_manifest(bad),
                          core::ErrorCode::InvalidArgument));
 
@@ -960,7 +992,7 @@ void test_env_affinity_and_log_level() {
                  "echo LEVEL=$NEXIGEN_LOG_LEVEL; exec sleep 60"};
     spec.env = {{"SUITE_ENV", "visible"},
                 {"NEXIGEN_LOG_LEVEL", "debug"}};
-    spec.cpus = {0};
+    spec.cpus = core::CpuSet::from_core_mask(1ULL);
     spec.log_level = logging::LogLevel::Error;
     manifest.apps.push_back(spec);
 
@@ -1227,8 +1259,8 @@ void test_runner_logging_and_affinity() {
     }
     runner::SuiteManifest manifest = base_manifest(root, artifacts);
     manifest.log_level = logging::LogLevel::Debug;
-    manifest.runner_control_cpus = {static_cast<std::uint32_t>(cpu)};
-    manifest.runner_logger_cpus = {static_cast<std::uint32_t>(cpu)};
+    manifest.runner_control_thread.set_cpus(core::CpuSet::from_core_mask(1ULL << cpu));
+    manifest.runner_logger_thread.set_cpus(core::CpuSet::from_core_mask(1ULL << cpu));
     runner::AppSpec spec =
         app_spec("logged", "1", "/bin/sh",
                  runner::ImpactOnAppSuiteOperability::Not_impact);
@@ -1251,8 +1283,8 @@ void test_runner_logging_and_affinity() {
         5000));
 
     const runner::SuiteMetadata metadata = read_metadata(suite_dir);
-    NX_CHECK(metadata.runner_control_cpus.size() == 1);
-    NX_CHECK(metadata.runner_logger_cpus.size() == 1);
+    NX_CHECK(metadata.runner_control_thread.cpus().count() == 1U);
+    NX_CHECK(metadata.runner_logger_thread.cpus().count() == 1U);
     NX_CHECK(metadata.pid > 0);
 
     cpu_set_t control_mask;
@@ -1289,12 +1321,56 @@ void test_runner_logging_and_affinity() {
     remove_tree(artifacts);
 }
 
+void test_required_affinity_failure() {
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    const int cpu = first_allowed_cpu();
+    NX_CHECK(cpu >= 0);
+    if (cpu < 0) {
+        return;
+    }
+    auto fail_affinity = [](nexigen::core::fault_injection::FaultPoint point) noexcept {
+        return point == nexigen::core::fault_injection::FaultPoint::Thread_set_affinity;
+    };
+
+    for (int logger_case = 0; logger_case < 2; ++logger_case) {
+        const std::string root = unique_dir("required_affinity");
+        const std::string artifacts = unique_dir("required_affinity_artifacts");
+        runner::SuiteManifest manifest = base_manifest(root, artifacts);
+        core::ThreadSpec spec{};
+        spec.set_cpus(core::CpuSet::from_core_mask(1ULL << cpu));
+        spec.set_apply_mode(core::ThreadApplyMode::Required);
+        if (logger_case == 0) {
+            manifest.runner_control_thread = spec;
+        } else {
+            manifest.runner_logger_thread = spec;
+        }
+        runner::AppSpec spec_app = app_spec(
+            "must_not_start", "1", "/bin/sh",
+            runner::ImpactOnAppSuiteOperability::Not_impact);
+        spec_app.args = {"-c", "exec sleep 60"};
+        manifest.apps.push_back(spec_app);
+
+        nexigen::core::fault_injection::set_fault_hook(fail_affinity);
+        std::string suite_dir;
+        const core::Status started = runner::start_suite(manifest, suite_dir);
+        nexigen::core::fault_injection::set_fault_hook(nullptr);
+        NX_CHECK(!started.has_value());
+        NX_CHECK(started.error() == core::ErrorCode::SystemError);
+        NX_CHECK(!file_exists(suite_dir + "/suite.json"));
+        remove_tree(root);
+        remove_tree(artifacts);
+    }
+#else
+    std::printf("required_affinity_failure: fault injection disabled; skipped\n");
+#endif
+}
+
 void test_invalid_affinity_nonfatal() {
     const std::string root = unique_dir("bad_affinity");
     const std::string artifacts = unique_dir("bad_affinity_artifacts");
     runner::SuiteManifest manifest = base_manifest(root, artifacts);
-    manifest.runner_control_cpus = {99999};
-    manifest.runner_logger_cpus = {99999};
+    manifest.runner_control_thread.set_cpus(invalid_cpu_set());
+    manifest.runner_logger_thread.set_cpus(invalid_cpu_set());
     runner::AppSpec spec =
         app_spec("bad_pin", "1", "/bin/sh",
                  runner::ImpactOnAppSuiteOperability::Not_impact);
@@ -1400,6 +1476,7 @@ int main() {
     run_suite("clean_exit_is_final", test_clean_exit_is_final);
     run_suite("runner_logging_affinity", test_runner_logging_and_affinity);
     run_suite("invalid_affinity", test_invalid_affinity_nonfatal);
+    run_suite("required_affinity_failure", test_required_affinity_failure);
     run_suite("setup_failure", test_setup_failure);
     run_suite("forced_stop", test_forced_stop);
 

@@ -292,6 +292,13 @@ public:
             }
         }
         metrics_.emplace(settings.metrics.options, *metrics_sink_);
+        if (settings.metrics.options.worker_thread.apply_mode() ==
+            core::ThreadApplyMode::Required) {
+            const core::Status startup = metrics_->startup_status();
+            if (!startup) {
+                return fail(startup);
+            }
+        }
 
         {
             const core::Status status =

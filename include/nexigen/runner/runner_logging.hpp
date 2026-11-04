@@ -12,6 +12,7 @@
 #include <string_view>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/logging/log_level.hpp>
 #include <nexigen/logging/logging_settings.hpp>
 
@@ -24,20 +25,20 @@ namespace nexigen::runner {
     logging::Settings& out) noexcept;
 
 /// Initialize the process-local runner logger. `level` is the already-resolved
-/// effective level; `logger_cpus`, when non-empty, overrides the file's
-/// `flush_cpu_affinity`. The primary directory is tried first, then
+/// effective level; an explicit `logger_thread` overrides the file's worker
+/// affinity. The primary directory is tried first, then
 /// `<cwd>/.nexigen-run`.
 [[nodiscard]] core::Status init_runner_logging(
     std::string_view primary_dir,
     const logging::Settings& settings,
     logging::LogLevel level,
-    std::span<const std::uint32_t> logger_cpus = {},
+    const core::ThreadSpec& logger_thread = {},
     std::string_view runner_name = {}) noexcept;
 
 /// Flush and destroy the logger so no worker thread survives a fork.
 void suspend_runner_logging() noexcept;
 
-/// Recreate the logger with the stored directory/settings/level/CPU list.
+/// Recreate the logger with the stored directory/settings/level/thread spec.
 [[nodiscard]] core::Status resume_runner_logging() noexcept;
 
 /// Flush accepted records. Returns success when logging is inactive.
@@ -61,7 +62,12 @@ void warn_runner(std::string_view message) noexcept;
 /// Flush and destroy the logger; idempotent.
 void shutdown_runner_logging() noexcept;
 
-/// Pin the calling thread to `cpus`; empty means "leave untouched".
+/// Apply a full thread spec on the calling thread before its control loop.
+[[nodiscard]] core::Status apply_runner_thread_spec(
+    const core::ThreadSpec& spec,
+    std::string_view context = {}) noexcept;
+
+/// Legacy CPU-list adapter; empty means "leave untouched".
 [[nodiscard]] core::Status apply_runner_affinity(
     std::span<const std::uint32_t> cpus,
     std::string_view context = {}) noexcept;

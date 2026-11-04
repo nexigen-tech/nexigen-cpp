@@ -32,7 +32,7 @@ The manifest SHALL be a JSON object with `version: 1`, `suite_id`, `run_id`, abs
 
 ### Requirement: Suite manifest is validated before launch
 
-Manifest validation SHALL complete before any process starts. A malformed document, wrong `version`, missing required field, empty `apps`, duplicate `(app, instance)`, unsafe `suite_id`/`app`/`instance`, relative `run_dir` or `artifacts_path`, non-absolute `global_settings_path`, absolute or `..`-containing `local_settings_path`, unknown impact value, unknown log level, negative count or delay, or CPU index outside the online set MUST return `InvalidArgument` and start nothing.
+Manifest validation SHALL complete before any process starts. A malformed document, wrong `version`, missing required field, empty `apps`, duplicate `(app, instance)`, unsafe `suite_id`/`app`/`instance`, relative `run_dir` or `artifacts_path`, non-absolute `global_settings_path`, absolute or `..`-containing `local_settings_path`, unknown impact value, unknown log level, negative count or delay, or invalid application CPU set MUST return `InvalidArgument` and start nothing. Application `cpus` SHALL parse into the shared `CpuSet` representation; duplicate, offline, negative, and unrepresentable IDs SHALL be rejected before launch.
 
 #### Scenario: Duplicate application identity is rejected
 
@@ -63,6 +63,11 @@ Manifest validation SHALL complete before any process starts. A malformed docume
 
 - **WHEN** `cpus` contains a negative index, a duplicate, or an index greater than or equal to the online CPU count
 - **THEN** validation fails with `InvalidArgument`
+
+#### Scenario: CPU above 63 is not rejected merely for its width
+
+- **WHEN** `cpus` contains an online, permitted CPU above 63
+- **THEN** validation accepts it and preserves it in the application's `CpuSet`
 
 #### Scenario: Validation failure starts nothing
 
@@ -244,7 +249,7 @@ Suite `stop` SHALL request a final stop, send SIGTERM to every application group
 
 ### Requirement: Manifest launch settings reach each child
 
-Each manifest application SHALL be launched with exactly its `args`, its `env` additions, an idle timeout of `idle_timeout_s`, and CPU affinity restricted to `cpus` when that list is non-empty. Identity variables `NEXIGEN_*` SHALL take precedence over manifest `env`. An affinity request the kernel rejects SHALL be reported as that application's launch failure.
+Each manifest application SHALL be launched with exactly its `args`, its `env` additions, an idle timeout of `idle_timeout_s`, and CPU affinity restricted to its `CpuSet` when non-empty. Identity variables `NEXIGEN_*` SHALL take precedence over manifest `env`. An affinity request the kernel rejects SHALL be reported as that application's launch failure. Runner SHALL apply the supplied set without calculating scheduling policy or priority.
 
 #### Scenario: Arguments are passed exactly
 
@@ -263,8 +268,8 @@ Each manifest application SHALL be launched with exactly its `args`, its `env` a
 
 #### Scenario: CPU affinity is restricted
 
-- **WHEN** an entry supplies a non-empty `cpus` list
-- **THEN** the child's allowed CPU set equals that list
+- **WHEN** an entry supplies a non-empty CPU set
+- **THEN** the child's allowed CPU set equals that set
 
 #### Scenario: Rejected affinity is a launch failure
 

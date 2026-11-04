@@ -64,6 +64,7 @@
 #include <utility>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/worker_tuning.hpp>
 #include <nexigen/logging/detail/affinity.hpp>
 
@@ -96,11 +97,11 @@ class AsyncWorker {
         std::atomic<bool> started{};             ///< set (release) after the start sequence ran
         std::atomic<std::uint8_t> code{};        ///< first start-phase ErrorCode snapshot
         std::atomic<std::uint64_t> mask{};       ///< post-pin affinity as the worker sees it
-        std::uint8_t pad_[48]{};
+        core::ThreadApplyReport thread_report{}; ///< written before started (release)
     } start_{};
 
     Producer* producer_{};             ///< owned by the logger; stable address
-    std::uint64_t core_mask_ = 0;      ///< set by start() before the thread exists
+    core::ThreadSpec thread_spec_{};   ///< copied by start() before the thread exists
     WorkerTuning tuning_{};            ///< set_tuning() before start(); read by the worker only
     std::optional<Sink> sink_{};       ///< constructed by start()
     std::jthread thread_{};            ///< LAST member: joins before sink_/producer_ die
@@ -112,16 +113,18 @@ class AsyncWorker {
         // start (fd/rotation/open). First error wins the code snapshot; a
         // failure never prevents the logging loop from running.
         std::uint8_t first_error = 0U;
+        const core::Status attributes =
+            core::apply_thread_spec_self(thread_spec_, start_.thread_report);
+        first_error = static_cast<std::uint8_t>(start_.thread_report.first_error());
+        if (!attributes && thread_spec_.apply_mode() == core::ThreadApplyMode::Required) {
+            start_.code.store(first_error, std::memory_order_relaxed);
+            start_.started.store(true, std::memory_order_release);
+            return; // required failure: no sink start and no main loop
+        }
         if (!sink_.has_value()) {
             return;
         }
         Sink& sink = *sink_;
-        if (core_mask_ != 0ULL) {
-            const core::Status pinned = pin_self(core_mask_);
-            if (!pinned) {
-                first_error = static_cast<std::uint8_t>(pinned.error());
-            }
-        }
         const std::uint64_t poll_max_us = WorkerTuning::clamp_poll_us(tuning_.poll_interval_us);
         const std::uint64_t spin_budget = tuning_.spin_budget;
         WorkerTuning::apply_timer_slack(poll_max_us);
@@ -206,19 +209,37 @@ public:
     void set_tuning(const WorkerTuning& tuning) noexcept { tuning_ = tuning; }
 
     /// Start the background consumer. The Producer must outlive the worker
-    /// (it is a member of the same logger object). core_mask pins the worker
-    /// (0 = leave OS placement). Sink is constructed in place from sink_args.
+    /// (it is a member of the same logger object). thread_spec is applied by
+    /// the worker itself (empty = inherited attributes). Sink is constructed in place from sink_args.
     /// Returns OK once the thread exists; the pin/sink start results land in
     /// the snapshot cell (writer_started()/writer_code()/writer_mask()).
     template <class... Args>
         requires std::constructible_from<Sink, Args...>
-    [[nodiscard]] core::Status start(Producer& producer, std::uint64_t core_mask,
+    [[nodiscard]] core::Status start(Producer& producer, const core::ThreadSpec& thread_spec,
                                      Args&&... sink_args) noexcept {
+        const core::Status valid = thread_spec.validate();
+        if (!valid) {
+            return valid;
+        }
         producer_ = &producer;
-        core_mask_ = core_mask;
+        thread_spec_ = thread_spec;
         sink_.emplace(std::forward<Args>(sink_args)...);
         thread_ = std::jthread([this](std::stop_token st) { run(st); });
         start_.launched.store(true, std::memory_order_release);
+        if (thread_spec_.apply_mode() == core::ThreadApplyMode::Required) {
+            while (!start_.started.load(std::memory_order_acquire)) {
+                std::this_thread::sleep_for(std::chrono::microseconds(200));
+            }
+            const core::ErrorCode attribute_error = start_.thread_report.first_error();
+            if (attribute_error != core::ErrorCode::Ok) {
+                thread_.request_stop();
+                thread_.join();
+                sink_.reset(); // sink.start() never ran on this path
+                start_.launched.store(false, std::memory_order_release);
+                start_.started.store(false, std::memory_order_release);
+                return std::unexpected(attribute_error);
+            }
+        }
         return {};
     }
 
@@ -254,6 +275,10 @@ public:
     }
     [[nodiscard]] core::ErrorCode writer_start_code() const noexcept {
         return static_cast<core::ErrorCode>(start_.code.load(std::memory_order_relaxed));
+    }
+    /// Immutable thread-attribute application report, valid after writer_started().
+    [[nodiscard]] const core::ThreadApplyReport& writer_thread_report() const noexcept {
+        return start_.thread_report;
     }
     /// Post-start affinity mask as the worker itself observed it (design D15
     /// verification surface: the test compares this against the configured

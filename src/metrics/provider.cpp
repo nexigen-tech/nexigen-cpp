@@ -119,10 +119,19 @@ MetricProvider::MetricProvider(const MetricProviderConfig& config, detail::SinkB
         utc_offset_ns_ = offset_ns;
     }
 
-    if (config_.collect_interval > std::chrono::nanoseconds{0}) {
+    const core::Status valid_thread = config_.worker_thread.validate();
+    if (!valid_thread) {
+        startup_error_.store(valid_thread.error(), std::memory_order_relaxed);
+        startup_published_.store(true, std::memory_order_release);
+    } else if (config_.collect_interval > std::chrono::nanoseconds{0}) {
         harvester_ = std::jthread([this](std::stop_token stop) {
             harvest_loop(stop);
         });
+        if (config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
+            while (!startup_published_.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+        }
     }
 }
 
@@ -369,7 +378,7 @@ core::Status MetricProvider::startup_status() const noexcept {
 std::string MetricProvider::to_string() const {
     std::string out = "MetricProvider(collect_interval_ns=" +
                       std::to_string(config_.collect_interval.count()) +
-                      ", core_mask=0x" + std::to_string(config_.core_mask) +
+                      ", worker_thread=" + config_.worker_thread.to_string() +
                       ", meters=" + std::to_string(meter_capacity_) +
                       ", records=" + std::to_string(record_capacity_) +
                       ", block_bytes=" + std::to_string(block_size_) + ")";
@@ -377,13 +386,15 @@ std::string MetricProvider::to_string() const {
 }
 
 void MetricProvider::harvest_loop(std::stop_token stop) noexcept {
-    // Pin this thread before the first batch: the harvester must not preempt
-    // the real-time threads.
-    if (config_.core_mask != 0U) {
-        const core::Status pinned = detail::pin_self(config_.core_mask);
-        if (!pinned) {
-            startup_error_.store(pinned.error(), std::memory_order_release);
-        }
+    // Apply the copied worker attributes before the first batch. Best effort
+    // publishes partial application and continues; Required returns before the
+    // fixed-rate loop, leaving startup_status() as the failure surface.
+    const core::Status attributes =
+        core::apply_thread_spec_self(config_.worker_thread, worker_thread_report_);
+    startup_error_.store(worker_thread_report_.first_error(), std::memory_order_relaxed);
+    startup_published_.store(true, std::memory_order_release);
+    if (!attributes && config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
+        return;
     }
 
     auto next = std::chrono::steady_clock::now() + config_.collect_interval;

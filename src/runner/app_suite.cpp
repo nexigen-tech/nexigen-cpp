@@ -240,6 +240,38 @@ constexpr std::uint64_t suite_poll_interval_ms = 100;
     return true;
 }
 
+[[nodiscard]] bool read_cpu_set(const nlohmann::json& document,
+                                 const char* key, core::CpuSet& target) noexcept {
+    if (!document.is_object()) {
+        return false;
+    }
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return false;
+    }
+    return core::parse_cpu_set_json(*it, target);
+}
+
+void read_legacy_runner_cpus(const nlohmann::json& document,
+                              const char* key, core::ThreadSpec& target) noexcept {
+    std::vector<std::uint32_t> values;
+    if (!read_cpu_array(document, key, values)) {
+        return;
+    }
+    const core::Result<core::CpuSet> converted = core::CpuSet::from_cpus(values);
+    if (converted) {
+        target.set_cpus(*converted);
+    }
+}
+
+void read_canonical_thread(const nlohmann::json& document,
+                           const char* key, core::ThreadSpec& target) noexcept {
+    const auto it = document.find(key);
+    if (it != document.end()) {
+        static_cast<void>(core::parse_thread_spec_json(*it, target));
+    }
+}
+
 [[nodiscard]] bool read_env_object(const nlohmann::json& document,
                                    const char* key,
                                    std::vector<std::pair<std::string, std::string>>& target) noexcept {
@@ -272,7 +304,7 @@ std::string AppSpec::to_string() const {
         "idle_timeout_s={}, stop_grace_s={}, restart_attempts={}, "
         "restart_delay_s={}, impact={}, global_settings_path={}, "
         "local_settings_path={}, log_level={})",
-        app, instance, command, args.size(), env.size(), cpus.size(),
+        app, instance, command, args.size(), env.size(), cpus.count(),
         idle_timeout_s, stop_grace_s, restart_attempts, restart_delay_s,
         nexigen::runner::to_string(impact), global_settings_path,
         local_settings_path,
@@ -388,7 +420,7 @@ void from_json(const nlohmann::json& j, AppSpec& spec) noexcept {
     static_cast<void>(read_string(j, "command", spec.command));
     static_cast<void>(read_string_array(j, "args", spec.args));
     static_cast<void>(read_env_object(j, "env", spec.env));
-    static_cast<void>(read_cpu_array(j, "cpus", spec.cpus));
+    static_cast<void>(read_cpu_set(j, "cpus", spec.cpus));
     static_cast<void>(read_u64(j, "idle_timeout_s", spec.idle_timeout_s));
     static_cast<void>(read_u64(j, "stop_grace_s", spec.stop_grace_s));
     static_cast<void>(read_u32(j, "restart_attempts", spec.restart_attempts));
@@ -420,8 +452,8 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
         {"suite_restart_attempts", manifest.suite_restart_attempts},
         {"suite_restart_delay_s", manifest.suite_restart_delay_s},
         {"manifest_path", manifest.manifest_path},
-        {"runner_control_cpus", manifest.runner_control_cpus},
-        {"runner_logger_cpus", manifest.runner_logger_cpus},
+        {"runner_control_thread", manifest.runner_control_thread},
+        {"runner_logger_thread", manifest.runner_logger_thread},
         {"apps", std::move(apps)},
     };
 }
@@ -442,10 +474,10 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
     static_cast<void>(read_u64(j, "suite_restart_delay_s",
                                manifest.suite_restart_delay_s));
     static_cast<void>(read_string(j, "manifest_path", manifest.manifest_path));
-    static_cast<void>(read_cpu_array(j, "runner_control_cpus",
-                                     manifest.runner_control_cpus));
-    static_cast<void>(read_cpu_array(j, "runner_logger_cpus",
-                                     manifest.runner_logger_cpus));
+    read_legacy_runner_cpus(j, "runner_control_cpus", manifest.runner_control_thread);
+    read_legacy_runner_cpus(j, "runner_logger_cpus", manifest.runner_logger_thread);
+    read_canonical_thread(j, "runner_control_thread", manifest.runner_control_thread);
+    read_canonical_thread(j, "runner_logger_thread", manifest.runner_logger_thread);
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
         std::vector<AppSpec> apps;
         apps.reserve(it->size());
@@ -491,8 +523,8 @@ void to_json(nlohmann::json& j, const SuiteMetadata& metadata) {
         {"start_time_mono_ns", metadata.start_time_mono_ns},
         {"proc_start_ticks", metadata.proc_start_ticks},
         {"manifest_path", metadata.manifest_path},
-        {"runner_control_cpus", metadata.runner_control_cpus},
-        {"runner_logger_cpus", metadata.runner_logger_cpus},
+        {"runner_control_thread", metadata.runner_control_thread},
+        {"runner_logger_thread", metadata.runner_logger_thread},
         {"apps", std::move(apps)},
     };
 }
@@ -514,10 +546,10 @@ void from_json(const nlohmann::json& j, SuiteMetadata& metadata) noexcept {
     static_cast<void>(read_u64(j, "proc_start_ticks",
                                metadata.proc_start_ticks));
     static_cast<void>(read_string(j, "manifest_path", metadata.manifest_path));
-    static_cast<void>(read_cpu_array(j, "runner_control_cpus",
-                                     metadata.runner_control_cpus));
-    static_cast<void>(read_cpu_array(j, "runner_logger_cpus",
-                                     metadata.runner_logger_cpus));
+    read_legacy_runner_cpus(j, "runner_control_cpus", metadata.runner_control_thread);
+    read_legacy_runner_cpus(j, "runner_logger_cpus", metadata.runner_logger_thread);
+    read_canonical_thread(j, "runner_control_thread", metadata.runner_control_thread);
+    read_canonical_thread(j, "runner_logger_thread", metadata.runner_logger_thread);
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
         std::vector<SuiteAppMetadata> apps;
         apps.reserve(it->size());
@@ -707,16 +739,11 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
              has_parent_segment(app.local_settings_path))) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        for (std::size_t cpu_index = 0; cpu_index < app.cpus.size(); ++cpu_index) {
-            if (app.cpus[cpu_index] >= static_cast<std::uint32_t>(online) ||
-                app.cpus[cpu_index] >=
-                    static_cast<std::uint32_t>(CPU_SETSIZE)) {
+        for (std::uint32_t cpu = 0; cpu <= core::CpuSet::max_cpu_id; ++cpu) {
+            if (app.cpus.contains(cpu) &&
+                (cpu >= static_cast<std::uint32_t>(online) ||
+                 cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
                 return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
-            for (std::size_t previous = 0; previous < cpu_index; ++previous) {
-                if (app.cpus[previous] == app.cpus[cpu_index]) {
-                    return std::unexpected(core::ErrorCode::InvalidArgument);
-                }
             }
         }
 
@@ -787,6 +814,15 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
     if (!valid_cpu_array(document, "runner_control_cpus") ||
         !valid_cpu_array(document, "runner_logger_cpus")) {
         return false;
+    }
+    for (const char* key : {"runner_control_thread", "runner_logger_thread"}) {
+        const auto it = document.find(key);
+        if (it != document.end()) {
+            core::ThreadSpec spec{};
+            if (!core::parse_thread_spec_json(*it, spec)) {
+                return false;
+            }
+        }
     }
     const auto apps = document.find("apps");
     if (apps == document.end() || !apps->is_array()) {
@@ -1238,11 +1274,15 @@ void run_suite_supervisor(const SuiteManifest& manifest,
                           int report_fd) {
     static_cast<void>(reset_runner_affinity());
     const core::Status control_pin =
-        apply_runner_affinity(manifest.runner_control_cpus, "suite-supervisor");
+        apply_runner_thread_spec(manifest.runner_control_thread, "suite-supervisor");
     if (!control_pin) {
         std::fprintf(stderr,
                      "nexigen-run: runner_control_cpus is invalid; suite "
                      "supervisor is unpinned\n");
+        if (manifest.runner_control_thread.apply_mode() ==
+            core::ThreadApplyMode::Required) {
+            child_exit(1); // no application has been launched at this point
+        }
     }
 
     RuntimeSuite suite{};
@@ -1267,8 +1307,8 @@ void run_suite_supervisor(const SuiteManifest& manifest,
     // supervisor records its own starttime ticks while alive right here.
     metadata.proc_start_ticks = detail::proc_start_ticks(metadata.pid);
     metadata.manifest_path = manifest.manifest_path;
-    metadata.runner_control_cpus = manifest.runner_control_cpus;
-    metadata.runner_logger_cpus = manifest.runner_logger_cpus;
+    metadata.runner_control_thread = manifest.runner_control_thread;
+    metadata.runner_logger_thread = manifest.runner_logger_thread;
     metadata.apps.reserve(manifest.apps.size());
     for (const AppSpec& app : manifest.apps) {
         SuiteAppMetadata entry{};
@@ -1322,8 +1362,7 @@ void run_suite_supervisor(const SuiteManifest& manifest,
     const core::Status log_status = init_runner_logging(
         join_path(manifest.artifacts_path, manifest.suite_id), log_settings,
         log_level,
-        std::span<const std::uint32_t>(manifest.runner_logger_cpus.data(),
-                                       manifest.runner_logger_cpus.size()),
+        manifest.runner_logger_thread,
         manifest.runner_name);
     if (!log_status) {
         warn_runner("event=logging_unavailable detail=runner.jsonl not writable");
@@ -1378,6 +1417,27 @@ core::Status start_suite(const SuiteManifest& manifest,
     const core::Status valid = validate_suite_manifest(manifest);
     if (!valid) {
         return valid;
+    }
+    // Required attributes are validated and exercised on a short-lived probe
+    // before any directory, supervisor, or application is created. The actual
+    // control/logger threads apply the same immutable spec again on startup.
+    const auto preflight = [](const core::ThreadSpec& spec) -> core::Status {
+        if (spec.apply_mode() != core::ThreadApplyMode::Required) {
+            return {};
+        }
+        core::Status applied{};
+        core::ThreadApplyReport report{};
+        std::jthread probe([&] { applied = core::apply_thread_spec_self(spec, report); });
+        probe.join();
+        return applied;
+    };
+    if (const core::Status control = preflight(manifest.runner_control_thread);
+        !control) {
+        return control;
+    }
+    if (const core::Status logger = preflight(manifest.runner_logger_thread);
+        !logger) {
+        return logger;
     }
 
     const std::string suite_dir =

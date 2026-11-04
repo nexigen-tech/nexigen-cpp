@@ -115,15 +115,11 @@ constexpr std::size_t max_path_bytes = 511;
         if (online <= 0) {
             online = static_cast<long>(CPU_SETSIZE);
         }
-        for (std::size_t index = 0; index < options.cpus.size(); ++index) {
-            if (options.cpus[index] >= static_cast<std::uint32_t>(online) ||
-                options.cpus[index] >= static_cast<std::uint32_t>(CPU_SETSIZE)) {
+        for (std::uint32_t cpu = 0; cpu <= core::CpuSet::max_cpu_id; ++cpu) {
+            if (options.cpus.contains(cpu) &&
+                (cpu >= static_cast<std::uint32_t>(online) ||
+                 cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
                 return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
-            for (std::size_t previous = 0; previous < index; ++previous) {
-                if (options.cpus[previous] == options.cpus[index]) {
-                    return std::unexpected(core::ErrorCode::InvalidArgument);
-                }
             }
         }
     }
@@ -494,7 +490,7 @@ struct StartLayout {
         stdout_fd = -1;
         return std::unexpected(core::ErrorCode::SystemError);
     }
-    if (core::detail::fault(core::detail::FaultPoint::Runner_open_null)) {
+    if (core::fault_injection::fault(core::fault_injection::FaultPoint::Runner_open_null)) {
         static_cast<void>(::close(stdout_fd));
         static_cast<void>(::close(stderr_fd));
         stdout_fd = -1;
@@ -591,13 +587,8 @@ struct SupervisorContext {
 
         if (!context.options->cpus.empty()) {
             cpu_set_t mask;
-            CPU_ZERO(&mask);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wsign-conversion"
-            for (const std::uint32_t cpu : context.options->cpus) {
-                CPU_SET(cpu, &mask);
-            }
-#pragma GCC diagnostic pop
+            core::thread_management_detail::fill_native_cpu_set(
+                context.options->cpus, mask);
             if (::sched_setaffinity(0, sizeof(mask), &mask) != 0) {
                 fail_setup(2);
             }
@@ -742,7 +733,7 @@ std::string StartOptions::to_string() const {
         artifact_dir, global_settings_dir, local_settings_dir,
         log_level.has_value() ? std::string(logging::to_string(*log_level))
                               : std::string("inherit"),
-        env.size(), cpus.size());
+        env.size(), cpus.count());
 }
 
 core::Status Runner::start(const app::RunIdentity& identity,
@@ -801,7 +792,7 @@ core::Status Runner::start(const app::RunIdentity& identity,
         ResourceMetadata::from_identity(layout.resolved, app_name, 0, 0);
 
     int pipe_fds[2]{-1, -1};
-    if (core::detail::fault(core::detail::FaultPoint::Runner_pipe2) ||
+    if (core::fault_injection::fault(core::fault_injection::FaultPoint::Runner_pipe2) ||
         ::pipe2(pipe_fds, O_CLOEXEC) != 0) {
         static_cast<void>(::close(stdout_fd));
         static_cast<void>(::close(stderr_fd));
@@ -825,7 +816,7 @@ core::Status Runner::start(const app::RunIdentity& identity,
     }
 
     const pid_t supervisor =
-        core::detail::fault(core::detail::FaultPoint::Runner_fork)
+        core::fault_injection::fault(core::fault_injection::FaultPoint::Runner_fork)
             ? -1
             : ::fork();
     if (supervisor < 0) {

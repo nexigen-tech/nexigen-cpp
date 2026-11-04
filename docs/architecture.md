@@ -44,7 +44,10 @@ heap-only service owned by the application (not a base class). It owns the logge
 metric/tracing sinks and providers in a lifetime-safe order, loads per-subsystem
 settings pairs, claims process-global signal ownership, blocks `SIGINT`/`SIGTERM`
 before any worker starts, runs a `signalfd` watcher, and shuts down through one flush
-path that logs the stop reason. `make_infrastructure<Policy>()` is the only
+path that logs the stop reason. A required worker-thread attribute failure follows
+the same reverse-order rollback as existing initialization failures; explicit
+best-effort partial application remains non-fatal and visible in worker reports.
+`make_infrastructure<Policy>()` is the only
 construction path; a second initialized infrastructure receives
 `ErrorCode::Conflict`. The hot path is unchanged: `run()` performs one acquire load
 per tick, and the watcher only records a reason. Dependency arrows stay one-way:
@@ -76,8 +79,15 @@ depend on `core`/`chrono`/`runner` in one direction only.
    (`thread_local` slot registration) with `std::atomic` and explicit memory
    orders; shared atomic state is `alignas(64)` to kill false sharing.
 6. **Linux high-resolution time & affinity** — `nexigen::chrono` calibrates the
-   TSC against `CLOCK_MONOTONIC_RAW`; background workers pin themselves with
-   `pthread_setaffinity_np` over a `uint64_t` core mask.
+   TSC against `CLOCK_MONOTONIC_RAW`; background workers pin themselves through
+   the shared cold-path CPU machinery. `core::CpuSet` represents up to 1024 CPUs
+   inline; `core::affinity` retains the legacy uint64 mask adapter for callers
+   that only need CPUs 0–63. `ThreadSpec` adds a 15-byte name, Other/FIFO/RR
+   policy and priority, and best-effort/required application. Workers apply a
+   copied spec to themselves before sink startup; a required failure restores
+   earlier changes and prevents the main loop, while a best-effort failure is
+   exposed in `ThreadApplyReport` without stopping the worker. Reports are
+   published once through release/acquire startup readiness, never per record.
 7. **Deferred formatting** — variadic format arguments are packed cold-side;
    never format on a producer hot path.
 8. **Naming** — PascalCase types, `snake_case` functions/fields, trailing
@@ -188,6 +198,11 @@ Optional verification depth:
   `nexigen_http_parse_fuzz`, a libFuzzer harness over the pure helpers in
   `include/nexigen/hub/detail/http_parse.hpp`. CI runs a 20 000-iteration smoke
   over `tests/fuzz/corpus/http_parse`.
+- `NEXIGEN_RT_INTEGRATION_TESTS=1 ./tests/nexigen_core_tests` enables the
+  `rt_integration_opt_in` suite on an explicitly configured RT host with
+  `CAP_SYS_NICE`. It verifies real thread names, affinity, FIFO and RR priority.
+  Without the variable the suite prints a skip and requires no root or
+  `CAP_SYS_NICE`; ordinary CI therefore stays unprivileged.
 
 All five GCC modes (Debug, Release, portable Release, TSan, ASan) must report
 `100% tests passed` with no sanitizer diagnostics; the Clang job must do the same

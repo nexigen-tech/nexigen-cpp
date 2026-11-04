@@ -48,6 +48,10 @@ struct Settings {
     bool ring_capacity_set{false};
     bool max_threads_set{false};
     bool message_capacity_set{false};
+    /// Canonical worker_thread presence. Console consumes canonical attributes
+    /// but never inherits the legacy file-only affinity list.
+    bool worker_thread_set{false};
+    bool worker_cpus_set{false};
     std::vector<core::SettingsDiagnostic> diagnostics{};
 
     [[nodiscard]] std::string to_string() const;
@@ -67,10 +71,9 @@ void to_json(nlohmann::json& j, const Settings& settings);
 [[nodiscard]] core::Status load_logging_settings(const core::SettingsPaths& paths,
                                                  Settings& out) noexcept;
 
-/// Map merged settings into a file logger construction config. String views in
-/// `out` alias `settings.options` storage: `settings` must outlive `out` and
-/// the subsequent initialize() call. Returns InvalidArgument when a mapped
-/// value violates the file logger's fixed-buffer limits.
+/// Map merged settings into a file logger construction config. Returns
+/// InvalidArgument when a mapped value violates the file logger's fixed-buffer
+/// limits; the destination owns its strings.
 [[nodiscard]] core::Status apply_to(const Settings& settings,
                                     FileLoggerConfig& out) noexcept;
 

@@ -459,11 +459,11 @@ void from_json(const nlohmann::json& j, MetricBatchSnapshot& out) noexcept {
 
 std::string nexigen::metrics::MetricProviderConfig::to_string() const {
     return std::format(
-        "MetricProviderConfig(collect_interval_ns={}, core_mask=0x{:x}, "
+        "MetricProviderConfig(collect_interval_ns={}, worker_thread={}, "
         "max_meters={}, max_counters={}, max_gauges={}, max_states={}, "
         "max_statistics={}, max_explicit_histograms={}, "
         "max_exponential_histograms={})",
-        collect_interval.count(), core_mask, max_meters, max_counters,
+        collect_interval.count(), worker_thread.to_string(), max_meters, max_counters,
         max_gauges, max_states, max_statistics, max_explicit_histograms,
         max_exponential_histograms);
 }
@@ -475,7 +475,7 @@ std::string to_string(const MetricProviderConfig& config) { return config.to_str
 void to_json(nlohmann::json& j, const MetricProviderConfig& config) {
     j = nlohmann::json{
         {"collect_interval_ns", config.collect_interval.count()},
-        {"core_mask", config.core_mask},
+        {"worker_thread", config.worker_thread},
         {"max_meters", config.max_meters},
         {"max_counters", config.max_counters},
         {"max_gauges", config.max_gauges},
@@ -507,7 +507,11 @@ void from_json(const nlohmann::json& j, MetricProviderConfig& out) noexcept {
     out.collect_interval = std::chrono::nanoseconds{interval};
     const auto mask_it = j.find("core_mask");
     if (mask_it != j.end() && mask_it->is_number_unsigned()) {
-        out.core_mask = mask_it->get<std::uint64_t>();
+        out.worker_thread.set_cpus(core::CpuSet::from_core_mask(mask_it->get<std::uint64_t>()));
+    }
+    const auto worker_it = j.find("worker_thread");
+    if (worker_it != j.end()) {
+        static_cast<void>(core::parse_thread_spec_json(*worker_it, out.worker_thread));
     }
     unsigned_number("max_meters", out.max_meters);
     unsigned_number("max_counters", out.max_counters);

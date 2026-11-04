@@ -8,8 +8,8 @@
 //
 // The provider binds a MetricSink (type-erased through plain function
 // pointers — no virtual dispatch, no RTTI) and runs a std::jthread harvester
-// that delivers a batch every collect_interval. The harvester pins itself to
-// the configured core mask before the first batch, so collection and sink I/O
+// that delivers a batch every collect_interval. The harvester applies its
+// copied worker ThreadSpec before the first batch, so collection and sink I/O
 // never preempt the real-time threads.
 #pragma once
 
@@ -26,6 +26,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/metrics/concepts/metric_sink_concept.hpp>
 #include <nexigen/metrics/detail/instrument_helpers.hpp>
 #include <nexigen/metrics/detail/layout.hpp>
@@ -39,7 +40,7 @@ namespace nexigen::metrics {
 /// capacities. A zero collect_interval disables the background thread.
 struct MetricProviderConfig {
     std::chrono::nanoseconds collect_interval{0};
-    std::uint64_t core_mask{0};
+    core::ThreadSpec worker_thread{};
     std::uint32_t max_meters{16};
     std::uint32_t max_counters{64};
     std::uint32_t max_gauges{64};
@@ -109,6 +110,12 @@ public:
 
     /// Result of the provider's startup steps (affinity pinning, ...).
     [[nodiscard]] core::Status startup_status() const noexcept;
+
+    /// Immutable worker-attribute report, valid after startup publication.
+    [[nodiscard]] const core::ThreadApplyReport& worker_thread_report() const noexcept {
+        static_cast<void>(startup_published_.load(std::memory_order_acquire));
+        return worker_thread_report_;
+    }
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const;
@@ -183,6 +190,8 @@ private:
     std::condition_variable_any wake_cv_{};
     std::atomic<bool> alive_{true};
     std::atomic<core::ErrorCode> startup_error_{core::ErrorCode::Ok};
+    core::ThreadApplyReport worker_thread_report_{};
+    std::atomic<bool> startup_published_{false};
     std::int64_t utc_offset_ns_{0};
 };
 

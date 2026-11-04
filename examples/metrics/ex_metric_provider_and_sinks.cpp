@@ -3,7 +3,7 @@
 // example").
 //
 // End-to-end HIL telemetry pipeline:
-//   1. MetricProvider with a periodic 50 ms collect_interval and a core_mask
+//   1. MetricProvider with a periodic 50 ms collect_interval and a worker ThreadSpec
 //      pinning the background harvester (derived from the process's allowed
 //      CPU set so pinning succeeds in containers and CI).
 //   2. CompositeMetricSink<ConsoleMetricSink, JsonFileMetricSink,
@@ -72,7 +72,7 @@ void expect(bool condition, const char* what) {
     }
 }
 
-/// A core_mask pinning the harvester to one permitted CPU (design D7): derived
+/// Legacy mask conversion for the harvester ThreadSpec (design D7): derived
 /// from the process's allowed set so pthread_setaffinity_np succeeds anywhere.
 [[nodiscard]] std::uint64_t derive_core_mask() noexcept {
     cpu_set_t allowed;
@@ -128,7 +128,7 @@ int main() {
     const std::uint64_t core_mask = derive_core_mask();
     metrics::MetricProviderConfig config{};
     config.collect_interval = std::chrono::nanoseconds{50'000'000}; // 50 ms
-    config.core_mask = core_mask;
+    config.worker_thread.set_cpus(core::CpuSet::from_core_mask(core_mask));
     std::printf("== HIL telemetry pipeline (core_mask=0x%llx) ==\n",
                 static_cast<unsigned long long>(core_mask));
 

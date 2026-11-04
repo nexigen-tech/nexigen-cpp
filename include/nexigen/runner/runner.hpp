@@ -17,6 +17,7 @@
 
 #include <nexigen/app/telemetry_layout.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/logging/log_level.hpp>
 #include <nexigen/runner/app_suite.hpp>
 #include <nexigen/runner/instance_lifecycle.hpp>
@@ -32,7 +33,7 @@ struct StartOptions {
     std::string local_settings_dir{};    ///< Absolute directory or empty.
     std::optional<logging::LogLevel> log_level{}; ///< Empty = keep settings value.
     std::vector<std::pair<std::string, std::string>> env{}; ///< Child-only env.
-    std::vector<std::uint32_t> cpus{};   ///< Empty = unrestricted.
+    core::CpuSet cpus{};                 ///< Empty = unrestricted.
 
     [[nodiscard]] std::string to_string() const;
 };

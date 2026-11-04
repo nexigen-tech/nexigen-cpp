@@ -35,8 +35,7 @@ struct LoggingState {
     std::string runner_name{"nexigen-run"};
     logging::Settings settings{};
     logging::LogLevel level{logging::LogLevel::Info};
-    std::vector<std::uint32_t> logger_cpus{};
-    std::uint64_t logger_mask{0};
+    core::ThreadSpec logger_thread{};
     bool configured{false};
 };
 
@@ -63,62 +62,47 @@ void warn_stderr(std::string_view message) noexcept {
     return std::string(buffer) + "/.nexigen-run";
 }
 
-[[nodiscard]] bool valid_cpu_list(
-    std::span<const std::uint32_t> cpus, std::uint32_t limit) noexcept {
+[[nodiscard]] bool has_thread_request(const core::ThreadSpec& spec) noexcept {
+    return !spec.cpus().empty() || !spec.name().empty() ||
+           spec.scheduler_configured() ||
+           spec.apply_mode() == core::ThreadApplyMode::Required;
+}
+
+[[nodiscard]] bool online_cpu_set(const core::CpuSet& cpus) noexcept {
     const auto online = static_cast<std::uint32_t>(online_cpus());
-    const std::uint32_t effective_limit = limit < online ? limit : online;
-    for (std::size_t index = 0; index < cpus.size(); ++index) {
-        if (cpus[index] >= effective_limit) {
+    for (std::uint32_t cpu = 0; cpu <= core::CpuSet::max_cpu_id; ++cpu) {
+        if (cpus.contains(cpu) &&
+            (cpu >= online || cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
             return false;
-        }
-        for (std::size_t previous = 0; previous < index; ++previous) {
-            if (cpus[previous] == cpus[index]) {
-                return false;
-            }
         }
     }
     return true;
 }
 
-[[nodiscard]] std::uint64_t mask_from_cpus(
-    std::span<const std::uint32_t> cpus) noexcept {
-    std::uint64_t mask = 0;
-    for (const std::uint32_t cpu : cpus) {
-        if (cpu < 64U) {
-            mask |= (1ULL << cpu);
-        }
-    }
-    return mask;
-}
-
-[[nodiscard]] std::uint64_t resolve_logger_mask(
-    std::span<const std::uint32_t> logger_cpus,
+[[nodiscard]] core::Result<core::ThreadSpec> resolve_logger_thread(
+    const core::ThreadSpec& requested,
     const logging::Settings& settings) noexcept {
-    if (!logger_cpus.empty()) {
-        if (!valid_cpu_list(logger_cpus, 64U)) {
-            warn_stderr("runner_logger_cpus is invalid; logger affinity disabled");
-            return 0;
+    core::ThreadSpec resolved = has_thread_request(requested)
+                                    ? requested
+                                    : (settings.global_loaded
+                                           ? settings.options.worker_thread
+                                           : core::ThreadSpec{});
+    const core::Status valid = resolved.validate();
+    if (!valid) {
+        if (resolved.apply_mode() == core::ThreadApplyMode::Required) {
+            return std::unexpected(valid.error());
         }
-        return mask_from_cpus(logger_cpus);
+        warn_stderr("logger thread spec is invalid; worker attributes disabled");
+        return core::ThreadSpec{};
     }
-    if (!settings.global_loaded ||
-        settings.options.flush_cpu_affinity.empty()) {
-        return 0;
-    }
-    std::vector<std::uint32_t> cpus;
-    cpus.reserve(settings.options.flush_cpu_affinity.size());
-    for (const std::uint64_t core : settings.options.flush_cpu_affinity) {
-        if (core > UINT32_MAX) {
-            warn_stderr("flush_cpu_affinity is invalid; logger affinity disabled");
-            return 0;
+    if (!online_cpu_set(resolved.cpus())) {
+        if (resolved.apply_mode() == core::ThreadApplyMode::Required) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        cpus.push_back(static_cast<std::uint32_t>(core));
+        warn_stderr("logger CPU set is invalid; affinity disabled");
+        resolved.set_cpus(core::CpuSet{});
     }
-    if (!valid_cpu_list(cpus, 64U)) {
-        warn_stderr("flush_cpu_affinity is invalid; logger affinity disabled");
-        return 0;
-    }
-    return mask_from_cpus(cpus);
+    return resolved;
 }
 
 void stop_logger(LoggingState& current) noexcept {
@@ -126,7 +110,6 @@ void stop_logger(LoggingState& current) noexcept {
         static_cast<void>(current.logger->flush());
         current.logger.reset();
     }
-    current.logger_mask = 0;
 }
 
 [[nodiscard]] core::Status start_logger(
@@ -144,7 +127,7 @@ void stop_logger(LoggingState& current) noexcept {
     config.base_dir = base_dir;
     config.file_name = "runner.jsonl";
     config.initial_level = current.level;
-    config.core_mask = current.logger_mask;
+    config.worker_thread = current.logger_thread;
     config.rotation.kind = logging::RotationSchedule::None;
     config.max_file_size_bytes =
         current.settings.global_loaded
@@ -196,7 +179,7 @@ core::Status init_runner_logging(
     std::string_view primary_dir,
     const logging::Settings& settings,
     logging::LogLevel level,
-    std::span<const std::uint32_t> logger_cpus,
+    const core::ThreadSpec& logger_thread,
     std::string_view runner_name) noexcept {
     shutdown_runner_logging();
 
@@ -205,8 +188,12 @@ core::Status init_runner_logging(
     current.level = level;
     current.runner_name =
         runner_name.empty() ? std::string("nexigen-run") : std::string(runner_name);
-    current.logger_cpus.assign(logger_cpus.begin(), logger_cpus.end());
-    current.logger_mask = resolve_logger_mask(logger_cpus, settings);
+    const core::Result<core::ThreadSpec> resolved =
+        resolve_logger_thread(logger_thread, settings);
+    if (!resolved) {
+        return std::unexpected(resolved.error());
+    }
+    current.logger_thread = *resolved;
 
     core::Status primary = start_logger(current, primary_dir);
     if (primary) {
@@ -292,37 +279,50 @@ void shutdown_runner_logging() noexcept {
     current.base_dir.clear();
     current.runner_name = "nexigen-run";
     current.settings = logging::Settings{};
-    current.logger_cpus.clear();
+    current.logger_thread = core::ThreadSpec{};
+}
+
+core::Status apply_runner_thread_spec(
+    const core::ThreadSpec& spec, std::string_view context) noexcept {
+    static_cast<void>(context);
+    if (!has_thread_request(spec)) {
+        return {};
+    }
+    const core::Status valid = spec.validate();
+    if (!valid) {
+        return valid;
+    }
+    core::ThreadSpec effective = spec;
+    if (!online_cpu_set(effective.cpus())) {
+        if (effective.apply_mode() == core::ThreadApplyMode::Required) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        warn_stderr("runner control CPU set is invalid; affinity disabled");
+        effective.set_cpus(core::CpuSet{});
+    }
+    core::ThreadApplyReport report{};
+    const core::Status applied = core::apply_thread_spec_self(effective, report);
+    if (!applied) {
+        return applied;
+    }
+    if (report.first_error() != core::ErrorCode::Ok) {
+        return std::unexpected(report.first_error());
+    }
+    return {};
 }
 
 core::Status apply_runner_affinity(
     std::span<const std::uint32_t> cpus, std::string_view context) noexcept {
-    static_cast<void>(context);
     if (cpus.empty()) {
         return {};
     }
-    const auto online = static_cast<std::uint32_t>(online_cpus());
-    cpu_set_t mask;
-    CPU_ZERO(&mask);
-    for (std::size_t index = 0; index < cpus.size(); ++index) {
-        if (cpus[index] >= online ||
-            cpus[index] >= static_cast<std::uint32_t>(CPU_SETSIZE)) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        for (std::size_t previous = 0; previous < index; ++previous) {
-            if (cpus[previous] == cpus[index]) {
-                return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
-        }
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wsign-conversion"
-        CPU_SET(cpus[index], &mask);
-#pragma GCC diagnostic pop
+    const core::Result<core::CpuSet> converted = core::CpuSet::from_cpus(cpus);
+    if (!converted) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    if (::sched_setaffinity(0, sizeof(mask), &mask) != 0) {
-        return std::unexpected(core::ErrorCode::SystemError);
-    }
-    return {};
+    core::ThreadSpec spec{};
+    spec.set_cpus(*converted);
+    return apply_runner_thread_spec(spec, context);
 }
 
 core::Status reset_runner_affinity() noexcept {

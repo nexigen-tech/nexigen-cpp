@@ -19,19 +19,35 @@ Provides the persistent sink: an asynchronous wait-free file logger that emits s
 
 - **WHEN** the writer thread is stalled mid-`write` or mid-rotation while producers keep logging
 - **THEN** producer calls still complete in bounded time (drops counted, not returned) and never block, spin, yield, sleep, or lock
+
 ### Requirement: Background writer CPU core affinity
 
-`FileLogger` configuration SHALL accept a target CPU core id or core mask. The background writer thread MUST pin itself to the specified core(s) at startup via `pthread_setaffinity_np` (`cpu_set_t`), so formatting and disk I/O never preempt real-time simulation threads. Pinning failure SHALL be reported through the logger's status surface rather than ignored.
+`FileLoggerConfig` SHALL carry a `ThreadSpec` for its background writer instead of a uint64 core mask. The writer SHALL apply that spec to itself before opening/starting the sink and before its drain loop, supporting CPUs above 63, naming, and Other/FIFO/RR scheduling. An empty CPU set SHALL preserve inherited affinity. Best-effort failures SHALL remain visible in the startup report without stopping the writer; a `Required` failure SHALL make `initialize()` fail before the drain loop starts and SHALL roll back the partially initialized worker.
 
 #### Scenario: Pinned writer reports the configured mask
 
-- **WHEN** a `FileLogger` is configured with core id N and started, and the writer thread's affinity is queried with `pthread_getaffinity_np`
-- **THEN** the active mask equals the configured core set
+- **WHEN** a logger is configured with valid CPUs, a name, and scheduler attributes
+- **THEN** the writer applies them before its first file write and its startup report records the result
+
+#### Scenario: CPU above 63 is supported
+
+- **WHEN** the writer spec contains a permitted CPU above 63
+- **THEN** that CPU is applied without conversion to a uint64 mask
+
+#### Scenario: Best-effort failure remains non-fatal and visible
+
+- **WHEN** a requested affinity or RT scheduler operation is rejected under `BestEffort`
+- **THEN** `writer_start_code()`/the thread report exposes the failure and the writer continues draining with the successfully applied attributes
+
+#### Scenario: Required failure rolls back initialization
+
+- **WHEN** any requested attribute fails under `Required`
+- **THEN** `initialize()` returns `SystemError`, the worker is stopped and joined before its drain loop, the sink is not started, and destruction or reinitialization is safe
 
 #### Scenario: Unpinned configuration is valid
 
-- **WHEN** no core is configured
-- **THEN** the logger starts and operates with default OS placement
+- **WHEN** no CPU set is configured
+- **THEN** the logger starts with inherited affinity and no pinning call is required to succeed
 
 ### Requirement: Hot-path rate limiting
 
@@ -51,6 +67,7 @@ Provides the persistent sink: an asynchronous wait-free file logger that emits s
 
 - **WHEN** the throttle check executes on an accepted call
 - **THEN** it performs only shard-local reads and monotonic-time comparisons — no mutex, no spin, no shared atomic RMW, no syscall beyond the record's own timestamping
+
 ### Requirement: Automatic dropped-record summary
 
 Whenever records have been dropped (by throttling or ring overflow) and logging resumes in the next allowed window, `FileLogger` SHALL automatically emit a warning-level diagnostic line into the file reporting the exact counts dropped since the previous summary, distinguishing rate-limited from buffer-full drops. The summary consumes no rate-limit allowance of the following window's user traffic and adds no measurable latency to the call that triggers it.
@@ -64,6 +81,7 @@ Whenever records have been dropped (by throttling or ring overflow) and logging 
 
 - **WHEN** logging proceeds with zero drops
 - **THEN** no diagnostic lines are emitted
+
 ### Requirement: Background writer uses the shared idle-backoff policy
 
 `FileLogger`'s background writer SHALL poll its shard rings, and when idle SHALL apply `core::WorkerTuning`: a short spin budget, then a sleep that doubles from 100 µs up to the configured ceiling (never waking more often than the ceiling), with its timer slack widened to half the ceiling so idle writers pinned to a shared core coalesce. Producers SHALL never wait on this; the first record after idle is drained within the backoff floor, and `flush()` still completes within the poll ceiling.
@@ -162,6 +180,7 @@ timestamp format `YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ`; `<rendered message>` produced
 
 - **WHEN** a format string or argument contains Cyrillic UTF-8 text
 - **THEN** the file line round-trips the same UTF-8 bytes inside valid JSON (no loss or corruption)
+
 ### Requirement: Nanosecond UTC timestamps via calibrated clocks
 
 `FileLogger` SHALL calibrate the offset between `CLOCK_REALTIME` and `CLOCK_MONOTONIC_RAW` at initialization through `nexigen::chrono`'s UTC-offset calibration, and the writer thread SHALL convert each record's monotonic timestamp through that calibration to produce the UTC ISO-8601 value with nanosecond digits using `nexigen::chrono`'s time formatting, without calling `CLOCK_REALTIME` on the hot path.
@@ -211,12 +230,17 @@ timestamp format `YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ`; `<rendered message>` produced
 
 ### Requirement: File logger vocabulary diagnostic strings
 
-`Throttle_config`, `Rotation_config`, `FileLogger_config`, and `Dropped_stats` SHALL each provide a cold-path `std::string to_string() const` (plus matching free `to_string(const T&)`) rendering every field (enabled flag, budgets and windows, schedule and custom period, app/base_dir/file_name/level/max_file_size_bytes/core_mask/worker_poll_interval_us, per-cause drop totals) for configuration dumps and test evidence.
+`Throttle_config`, `Rotation_config`, `FileLogger_config`, and `Dropped_stats` SHALL each provide a cold-path `std::string to_string() const` (plus matching free `to_string(const T&)`) rendering every field (enabled flag, budgets and windows, schedule and custom period, app/base_dir/file_name/level/max_file_size_bytes/worker_thread/worker_poll_interval_us, per-cause drop totals) for configuration dumps and test evidence. `FileLoggerConfig` SHALL also provide non-throwing JSON round-trip and formatter coverage for its thread spec.
 
 #### Scenario: Config dump is complete
 
 - **WHEN** `to_string()` is called on a populated `FileLogger_config`
-- **THEN** the returned string contains the app name, base directory, file name, level name, maximum file size, throttle window, rotation schedule name, core mask, and the worker poll interval
+- **THEN** the returned string contains the app name, base directory, file name, level name, maximum file size, throttle window, rotation schedule name, worker thread spec, and worker poll interval
+
+#### Scenario: Config thread spec round-trips
+
+- **WHEN** a config whose worker uses a name, a CPU above 63, and RR priority is serialized and parsed under `JSON_NOEXCEPTION=1`
+- **THEN** every worker attribute is recovered and `std::format("{}", config)` equals `to_string()`
 
 #### Scenario: Drop snapshot renders
 

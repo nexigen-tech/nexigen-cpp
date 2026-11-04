@@ -33,6 +33,7 @@
 #include <nexigen/chrono/chrono_snapshot.hpp>
 #include <nexigen/chrono/concepts/chrono_sink_concept.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/thread_management.hpp>
 
 namespace nexigen::chrono {
 
@@ -81,7 +82,7 @@ inline void from_json(const nlohmann::json& j, ClockLogLevel& out) noexcept {
 /// collect_interval disables the background thread.
 struct ChronoProviderConfig {
     std::chrono::nanoseconds collect_interval{0};
-    std::uint64_t core_mask{0};
+    core::ThreadSpec worker_thread{};
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const;
@@ -157,7 +158,27 @@ public:
             return {}; // already started
         }
         if (config_.collect_interval > std::chrono::nanoseconds{0}) {
+            const core::Status valid_thread = config_.worker_thread.validate();
+            if (!valid_thread) {
+                return valid_thread;
+            }
+            startup_published_.store(false, std::memory_order_relaxed);
             worker_ = std::jthread([this](std::stop_token stop) { snapshot_loop(stop); });
+            if (config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
+                while (!startup_published_.load(std::memory_order_acquire)) {
+                    std::this_thread::yield();
+                }
+                const core::ErrorCode attribute_error = worker_thread_report_.first_error();
+                if (attribute_error != core::ErrorCode::Ok) {
+                    worker_.request_stop();
+                    {
+                        std::lock_guard<std::mutex> lock(wake_mutex_);
+                        wake_cv_.notify_all();
+                    }
+                    worker_.join();
+                    return std::unexpected(attribute_error);
+                }
+            }
         }
         return {};
     }
@@ -196,6 +217,11 @@ public:
     /// The post-pin affinity mask as the worker observed it (0 before start).
     [[nodiscard]] std::uint64_t worker_mask() const noexcept;
 
+    [[nodiscard]] const core::ThreadApplyReport& worker_thread_report() const noexcept {
+        static_cast<void>(startup_published_.load(std::memory_order_acquire));
+        return worker_thread_report_;
+    }
+
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const;
 
@@ -225,6 +251,8 @@ private:
     // worker's hot cells (mandate 5).
     alignas(64) std::atomic<std::uint64_t> worker_mask_{0};
     alignas(64) std::atomic<core::ErrorCode> startup_error_{core::ErrorCode::Ok};
+    core::ThreadApplyReport worker_thread_report_{};
+    std::atomic<bool> startup_published_{false};
 };
 
 } // namespace nexigen::chrono

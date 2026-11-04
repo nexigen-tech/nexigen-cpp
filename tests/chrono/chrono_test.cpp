@@ -822,24 +822,24 @@ void test_provider() {
     {
         ChronoProviderConfig config;
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
-        config.core_mask = 0x3;
+        config.worker_thread.set_cpus(core::CpuSet::from_core_mask(0x3));
         nlohmann::json j;
         to_json(j, config);
         NX_CHECK(j["collect_interval_ns"] == 1'000'000);
-        NX_CHECK(j["core_mask"] == 0x3);
+        NX_CHECK(j["worker_thread"]["cpus"].size() == 2U);
         ChronoProviderConfig back{};
         from_json(j, back);
         NX_CHECK(back.collect_interval == config.collect_interval);
-        NX_CHECK(back.core_mask == 0x3);
-        NX_CHECK(config.to_string().find("core_mask=0x3") != std::string::npos);
+        NX_CHECK(back.worker_thread.cpus() == core::CpuSet::from_core_mask(0x3));
+        NX_CHECK(config.to_string().find("worker_thread=") != std::string::npos);
         // Real hex render (P2-17): decimal 10 → `0xa`, never the old
         // "0x<decimal>" artifact.
         {
             ChronoProviderConfig hex_probe{};
-            hex_probe.core_mask = 0xA;
+            hex_probe.worker_thread.set_cpus(core::CpuSet::from_core_mask(0xA));
             const std::string hex_text = hex_probe.to_string();
-            NX_CHECK(hex_text.find("core_mask=0xa") != std::string::npos);
-            NX_CHECK(hex_text.find("core_mask=0x10") == std::string::npos);
+            NX_CHECK(hex_text.find("worker_thread=") != std::string::npos);
+            NX_CHECK(hex_text.find("core_mask=") == std::string::npos);
         }
         NX_CHECK(std::format("{}", config) == config.to_string());
     }
@@ -999,7 +999,7 @@ void test_provider() {
         sink.expected_cpu = first_cpu;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000}; // 1 ms
-        config.core_mask = std::uint64_t{1} << first_cpu;
+        config.worker_thread.set_cpus(core::CpuSet::from_core_mask(std::uint64_t{1} << first_cpu));
         {
             ChronoProvider provider{config, sink};
             NX_CHECK(provider.startup_status().has_value());
@@ -1008,6 +1008,9 @@ void test_provider() {
                 std::this_thread::sleep_for(std::chrono::milliseconds{1});
             }
             NX_CHECK(provider.worker_mask() == (std::uint64_t{1} << first_cpu));
+            NX_CHECK((provider.worker_thread_report().applied() &
+                      core::ThreadApplyReport::affinity_mask) != 0U);
+            NX_CHECK(provider.worker_thread_report().failed() == 0U);
             std::this_thread::sleep_for(std::chrono::milliseconds{30});
         }
         // Every background snapshot ran on the pinned core (the final drain on
@@ -1022,7 +1025,7 @@ void test_provider() {
         RecordingSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
-        config.core_mask = std::uint64_t{1} << denied_cpu;
+        config.worker_thread.set_cpus(core::CpuSet::from_core_mask(std::uint64_t{1} << denied_cpu));
         ChronoProvider provider{config, sink};
         NX_CHECK(provider.start().has_value());
         for (int i = 0; i < 200 && provider.startup_status().has_value(); ++i) {
@@ -1036,7 +1039,7 @@ void test_provider() {
         RecordingSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
-        config.core_mask = 0;
+        config.worker_thread = core::ThreadSpec{};
         ChronoProvider provider{config, sink};
         NX_CHECK(provider.startup_status().has_value());
     }
@@ -1108,29 +1111,115 @@ void test_provider() {
 void test_provider_config_edges() {
     ChronoProviderConfig config;
     config.collect_interval = std::chrono::nanoseconds{5};
-    config.core_mask = 7;
+    config.worker_thread.set_cpus(core::CpuSet::from_core_mask(7));
 
     // Non-object and empty-object documents leave the config untouched.
     from_json(nlohmann::json::array(), config);
     NX_CHECK(config.collect_interval == std::chrono::nanoseconds{5});
-    NX_CHECK(config.core_mask == 7);
+    NX_CHECK(config.worker_thread.cpus() == core::CpuSet::from_core_mask(7));
     from_json(nlohmann::json::object(), config);
     NX_CHECK(config.collect_interval == std::chrono::nanoseconds{5});
-    NX_CHECK(config.core_mask == 7);
+    NX_CHECK(config.worker_thread.cpus() == core::CpuSet::from_core_mask(7));
 
     // Mistyped and negative members are ignored individually.
     from_json(nlohmann::json{{"collect_interval_ns", -1}, {"core_mask", "bad"}}, config);
     NX_CHECK(config.collect_interval == std::chrono::nanoseconds{5});
-    NX_CHECK(config.core_mask == 7);
+    NX_CHECK(config.worker_thread.cpus() == core::CpuSet::from_core_mask(7));
     from_json(nlohmann::json{{"collect_interval_ns", "bad"}}, config);
     NX_CHECK(config.collect_interval == std::chrono::nanoseconds{5});
     from_json(nlohmann::json{{"core_mask", -1}}, config);
-    NX_CHECK(config.core_mask == 7);
+    NX_CHECK(config.worker_thread.cpus() == core::CpuSet::from_core_mask(7));
 
     // Valid members replace the previous values.
     from_json(nlohmann::json{{"collect_interval_ns", 9}, {"core_mask", 3ULL}}, config);
     NX_CHECK(config.collect_interval == std::chrono::nanoseconds{9});
-    NX_CHECK(config.core_mask == 3);
+    NX_CHECK(config.worker_thread.cpus() == core::CpuSet::from_core_mask(3));
+}
+
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+bool chrono_fail_point(nexigen::core::fault_injection::FaultPoint point) noexcept {
+    return point == nexigen::core::fault_injection::FaultPoint::Thread_set_affinity ||
+           point == nexigen::core::fault_injection::FaultPoint::Thread_set_scheduler;
+}
+#endif
+
+void test_chrono_required_thread_failure() {
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    cpu_set_t allowed;
+    CPU_ZERO(&allowed);
+    NX_CHECK(::sched_getaffinity(0, sizeof(allowed), &allowed) == 0);
+    int first_cpu = -1;
+    for (int cpu = 0; cpu < 64 && first_cpu < 0; ++cpu) {
+        if (CPU_ISSET(static_cast<std::size_t>(cpu), &allowed)) {
+            first_cpu = cpu;
+        }
+    }
+    NX_CHECK(first_cpu >= 0);
+
+    // Required failure joins the worker; the same provider can start again.
+    {
+        RecordingSink sink;
+        ChronoProviderConfig config{};
+        config.collect_interval = std::chrono::nanoseconds{1'000'000};
+        config.worker_thread.set_cpus(
+            core::CpuSet::from_core_mask(std::uint64_t{1} << first_cpu));
+        NX_CHECK(config.worker_thread.set_name("chrono-worker").has_value());
+        config.worker_thread.set_apply_mode(core::ThreadApplyMode::Required);
+        ChronoProvider provider{config, sink};
+        nexigen::core::fault_injection::set_fault_hook(chrono_fail_point);
+        const Status failed = provider.start();
+        nexigen::core::fault_injection::set_fault_hook(nullptr);
+        NX_CHECK(!failed.has_value());
+        NX_CHECK(failed.error() == ErrorCode::SystemError);
+        NX_CHECK(!provider.startup_status().has_value());
+        NX_CHECK(provider.worker_thread_report().failed() ==
+                 core::ThreadApplyReport::affinity_mask);
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        NX_CHECK(sink.snapshots.empty());
+
+        NX_CHECK(provider.start().has_value());
+        std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        NX_CHECK(!sink.snapshots.empty());
+    }
+
+    // Best effort exposes a scheduler failure but keeps snapshots flowing.
+    {
+        RecordingSink sink;
+        ChronoProviderConfig config{};
+        config.collect_interval = std::chrono::nanoseconds{1'000'000};
+        NX_CHECK(config.worker_thread.set_scheduler(core::SchedulingPolicy::FIFO, 1).has_value());
+        config.worker_thread.set_apply_mode(core::ThreadApplyMode::BestEffort);
+        ChronoProvider provider{config, sink};
+        nexigen::core::fault_injection::set_fault_hook(chrono_fail_point);
+        NX_CHECK(provider.start().has_value());
+        for (int i = 0; i < 100 && provider.startup_status().has_value(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        }
+        nexigen::core::fault_injection::set_fault_hook(nullptr);
+        NX_CHECK(!provider.startup_status().has_value());
+        NX_CHECK(provider.worker_thread_report().failed() ==
+                 core::ThreadApplyReport::scheduler_mask);
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        NX_CHECK(!sink.snapshots.empty());
+    }
+
+    // Zero interval skips worker creation and attribute application.
+    {
+        RecordingSink sink;
+        ChronoProviderConfig config{};
+        config.collect_interval = std::chrono::nanoseconds{0};
+        NX_CHECK(config.worker_thread.set_scheduler(core::SchedulingPolicy::FIFO, 1).has_value());
+        config.worker_thread.set_apply_mode(core::ThreadApplyMode::Required);
+        ChronoProvider provider{config, sink};
+        nexigen::core::fault_injection::set_fault_hook(chrono_fail_point);
+        NX_CHECK(provider.start().has_value());
+        nexigen::core::fault_injection::set_fault_hook(nullptr);
+        NX_CHECK(provider.worker_thread_report().requested() == 0U);
+        NX_CHECK(sink.snapshots.empty());
+    }
+#else
+    std::printf("chrono_required_thread_failure: fault injection disabled; skipped\n");
+#endif
 }
 
 void test_affinity_edges() {
@@ -1169,6 +1258,59 @@ void test_affinity_edges() {
     }
 }
 
+void test_chrono_worker_thread_settings() {
+    char global_path[256];
+    char local_path[256];
+    std::snprintf(global_path, sizeof global_path,
+                  "/tmp/opencode/chrono-worker-global-%d.json", ::getpid());
+    std::snprintf(local_path, sizeof local_path,
+                  "/tmp/opencode/chrono-worker-local-%d.json", ::getpid());
+    NX_CHECK(write_file(global_path,
+                        R"({"collect_interval_ns":1000000,"core_mask":5,)"
+                        R"("worker_thread":{"name":"chrono-worker","policy":"rr",)"
+                        R"("priority":40,"mode":"required"}})"));
+    NX_CHECK(write_file(local_path, R"({"worker_thread":{"cpus":[64,65]}})"));
+
+    Settings merged{};
+    NX_CHECK(load_chrono_settings({global_path, local_path}, merged).has_value());
+    NX_CHECK(merged.options.worker_thread.name() == "chrono-worker");
+    NX_CHECK(merged.options.worker_thread.policy() == core::SchedulingPolicy::RR);
+    NX_CHECK(merged.options.worker_thread.priority() == 40);
+    NX_CHECK(merged.options.worker_thread.apply_mode() == core::ThreadApplyMode::Required);
+    NX_CHECK(merged.options.worker_thread.cpus().contains(64U));
+    NX_CHECK(merged.options.worker_thread.cpus().contains(65U));
+    NX_CHECK(merged.options.worker_thread.cpus().count() == 2U);
+    ChronoProviderConfig config{};
+    NX_CHECK(apply_to(merged, config).has_value());
+    NX_CHECK(config.collect_interval == std::chrono::nanoseconds{1'000'000});
+    NX_CHECK(config.worker_thread == merged.options.worker_thread);
+
+    NX_CHECK(write_file(local_path, R"({"worker_thread":{"cpus":[]}})"));
+    NX_CHECK(load_chrono_settings({global_path, local_path}, merged).has_value());
+    NX_CHECK(merged.options.worker_thread.cpus().empty());
+    NX_CHECK(merged.options.worker_thread.name() == "chrono-worker");
+
+    NX_CHECK(::setenv("NEXIGEN_CHRONO_CORE_MASK", "3", 1) == 0);
+    NX_CHECK(load_chrono_settings({global_path, local_path}, merged).has_value());
+    NX_CHECK(merged.options.worker_thread.cpus() == core::CpuSet::from_core_mask(3));
+    NX_CHECK(merged.options.worker_thread.name() == "chrono-worker");
+    NX_CHECK(::unsetenv("NEXIGEN_CHRONO_CORE_MASK") == 0);
+
+    nlohmann::json json;
+    to_json(json, merged);
+    NX_CHECK(json.contains("worker_thread"));
+    NX_CHECK(!json.contains("core_mask"));
+    NX_CHECK(json["worker_thread"]["name"] == "chrono-worker");
+
+    NX_CHECK(write_file(local_path, R"({"worker_thread":{"cpus":[64,64]}})"));
+    NX_CHECK(!load_chrono_settings({global_path, local_path}, merged).has_value());
+    NX_CHECK(write_file(local_path, R"({"worker_thread":{"policy":"fifo","priority":0}})"));
+    NX_CHECK(!load_chrono_settings({global_path, local_path}, merged).has_value());
+
+    static_cast<void>(std::remove(global_path));
+    static_cast<void>(std::remove(local_path));
+}
+
 void test_settings() {
     const char* global_path = "/tmp/nexigen_chrono_global.json";
     const char* local_path = "/tmp/nexigen_chrono_local.json";
@@ -1184,7 +1326,7 @@ void test_settings() {
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
         NX_CHECK(settings.global_loaded && settings.local_loaded);
         NX_CHECK(settings.options.collect_interval == std::chrono::nanoseconds{2000000});
-        NX_CHECK(settings.options.core_mask == 0x3);
+        NX_CHECK(settings.options.worker_thread.cpus() == core::CpuSet::from_core_mask(0x3));
         NX_CHECK(settings.diagnostics.empty());
     }
 
@@ -1196,7 +1338,7 @@ void test_settings() {
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
-        NX_CHECK(settings.options.core_mask == 5);
+        NX_CHECK(settings.options.worker_thread.cpus() == core::CpuSet::from_core_mask(5));
     }
     ::unsetenv("NEXIGEN_CHRONO_CORE_MASK");
 
@@ -1239,7 +1381,7 @@ void test_settings() {
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
         NX_CHECK(!settings.global_loaded && !settings.local_loaded);
         NX_CHECK(settings.options.collect_interval == std::chrono::nanoseconds{0});
-        NX_CHECK(settings.options.core_mask == 0);
+        NX_CHECK(settings.options.worker_thread.cpus().empty());
         NX_CHECK(settings.diagnostics.empty());
     }
 
@@ -1258,21 +1400,21 @@ void test_settings() {
     {
         Settings settings;
         settings.options.collect_interval = std::chrono::nanoseconds{3'000'000};
-        settings.options.core_mask = 0x7;
+        settings.options.worker_thread.set_cpus(core::CpuSet::from_core_mask(0x7));
         ChronoProviderConfig config;
         NX_CHECK(apply_to(settings, config).has_value());
         NX_CHECK(config.collect_interval == settings.options.collect_interval);
-        NX_CHECK(config.core_mask == 0x7);
+        NX_CHECK(config.worker_thread.cpus() == core::CpuSet::from_core_mask(0x7));
     }
 
     // Settings and diagnostic serialization.
     {
         Settings settings;
         settings.options.collect_interval = std::chrono::nanoseconds{1};
-        settings.options.core_mask = 0x3;
+        settings.options.worker_thread.set_cpus(core::CpuSet::from_core_mask(0x3));
         nlohmann::json j;
         to_json(j, settings);
-        NX_CHECK(j["core_mask"] == 0x3);
+        NX_CHECK(j["worker_thread"]["cpus"].size() == 2U);
         NX_CHECK(j["collect_interval_ns"] == 1);
         NX_CHECK(std::format("{}", settings) == settings.to_string());
 
@@ -1368,7 +1510,7 @@ void test_settings_sink() {
         ChronoProviderConfig config;
         NX_CHECK(apply_to(settings, config).has_value());
         NX_CHECK(config.collect_interval == settings.options.collect_interval);
-        NX_CHECK(config.core_mask == settings.options.core_mask);
+        NX_CHECK(config.worker_thread == settings.options.worker_thread);
     }
 
     // Absent sink blocks leave the sink unconfigured.
@@ -1459,7 +1601,7 @@ void test_settings_edges() {
         settings.global_loaded = true;
         settings.local_loaded = true;
         settings.options.collect_interval = std::chrono::nanoseconds{4};
-        settings.options.core_mask = 2;
+        settings.options.worker_thread.set_cpus(core::CpuSet::from_core_mask(2));
         settings.diagnostics.push_back({core::SettingsSource::Global, "a", "b"});
         settings.diagnostics.push_back({core::SettingsSource::Local, "c", "d"});
         const std::string text = settings.to_string();
@@ -1644,7 +1786,7 @@ void test_settings_edges() {
         core::SettingsPaths paths;
         paths.global_file = global_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
-        NX_CHECK(settings.options.core_mask == std::numeric_limits<std::uint64_t>::max());
+        NX_CHECK(settings.options.worker_thread.cpus() == core::CpuSet::from_core_mask(std::numeric_limits<std::uint64_t>::max()));
     }
 
     ::unlink(global_path);
@@ -1669,7 +1811,9 @@ int main()
     run_suite("provider", test_provider);
     run_suite("provider_config_edges", test_provider_config_edges);
     run_suite("affinity_edges", test_affinity_edges);
+    run_suite("chrono_required_thread_failure", test_chrono_required_thread_failure);
     run_suite("settings", test_settings);
+    run_suite("chrono_worker_thread_settings", test_chrono_worker_thread_settings);
     run_suite("settings_sink", test_settings_sink);
     run_suite("settings_edges", test_settings_edges);
 

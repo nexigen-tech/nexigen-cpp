@@ -7,7 +7,7 @@
 // Everything expensive and OS-touching — UTC calibration, DEFERRED FORMAT
 // RENDERING, JSON escaping, directory rotation, fsync, and CPU affinity —
 // lives on one background std::jthread (detail::AsyncWorker) that pins
-// itself first thing (core_mask != 0) and then round-robin drains ALL
+// itself first thing (worker_thread) and then round-robin drains ALL
 // producer shards in batches into "<base_dir>/<period-label>/<file_name>".
 //
 // Drop story (spec): over-throttle -> rate-limited counter; ring-full ->
@@ -287,13 +287,13 @@ struct RotationConfig {
 /// Construction-time configuration. All views are copied into fixed buffers
 /// during initialize(); lengths beyond the buffers are rejected.
 struct FileLoggerConfig {
-    std::string_view app_name{"nexigen"};       ///< JSON "app" field (≤ 63 B)
-    std::string_view base_dir{};                ///< required, ≤ 511 B
-    std::string_view file_name{"app.jsonl"};    ///< ≤ 63 B
+    std::string app_name{"nexigen"};            ///< JSON "app" field (≤ 63 B)
+    std::string base_dir{};                     ///< required, ≤ 511 B
+    std::string file_name{"app.jsonl"};         ///< ≤ 63 B
     LogLevel initial_level{LogLevel::Info};
     ThrottleConfig throttle{};
     RotationConfig rotation{};
-    std::uint64_t core_mask{0};                 ///< 0 == leave OS placement
+    core::ThreadSpec worker_thread{};           ///< empty = inherited worker attributes
     std::uint64_t max_file_size_bytes{0};       ///< 0 == no size-based rotation
     /// Ceiling of the worker's idle sleep (backoff grows up to it); clamped to
     /// [50, 100000] us. Larger = fewer wake-ups, but the shard rings must absorb
@@ -310,7 +310,7 @@ struct FileLoggerConfig {
         out += ", max_file_size_bytes=" + std::to_string(max_file_size_bytes);
         out += ", throttle=" + throttle.to_string();
         out += ", rotation=" + rotation.to_string();
-        out += ", core_mask=" + std::to_string(core_mask);
+        out += ", worker_thread=" + worker_thread.to_string();
         out += ", worker_poll_interval_us=" + std::to_string(worker_poll_interval_us) + ")";
         return out;
     }
@@ -320,6 +320,10 @@ struct FileLoggerConfig {
 [[nodiscard]] inline std::string to_string(const FileLoggerConfig& cfg) {
     return cfg.to_string();
 }
+
+/// Cold-path JSON round-trip; bodies live in logger_options_format.cpp.
+void to_json(nlohmann::json& j, const FileLoggerConfig& cfg);
+void from_json(const nlohmann::json& j, FileLoggerConfig& out) noexcept;
 
 /// Asynchronous wait-free JSON-lines file logger supporting multiple
 /// producer threads via per-thread SPSC shards (spec logging/multi-producer).
@@ -357,6 +361,10 @@ public:
             (cfg.rotation.kind == RotationSchedule::Custom && cfg.rotation.custom_ns == 0ULL)) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
+        const core::Status valid_thread = cfg.worker_thread.validate();
+        if (!valid_thread) {
+            return valid_thread;
+        }
 
         detail::FileSink::Settings settings{};
         copy_into(cfg.app_name, settings.app, settings.app_len);
@@ -373,7 +381,7 @@ public:
             return calibrated;
         }
         worker_.set_tuning(detail::WorkerTuning{.poll_interval_us = cfg.worker_poll_interval_us});
-        return worker_.start(producer_, cfg.core_mask, settings);
+        return worker_.start(producer_, cfg.worker_thread, settings);
     }
 
     /// Initialize from merged global/local settings (spec logging/logging-settings
@@ -437,10 +445,12 @@ public:
     [[nodiscard]] std::size_t pending() const noexcept { return producer_.ring_size(); }
 
     /// Writer start-phase snapshots (design D15 verification surface):
-    /// poll writer_started(), then compare writer_mask() against the
-    /// configured core_mask and read the start ErrorCode.
+    /// poll writer_started(), then inspect the thread report and start ErrorCode.
     [[nodiscard]] bool writer_started() const noexcept { return worker_.writer_started(); }
     [[nodiscard]] core::ErrorCode writer_start_code() const noexcept { return worker_.writer_start_code(); }
+    [[nodiscard]] const core::ThreadApplyReport& writer_thread_report() const noexcept {
+        return worker_.writer_thread_report();
+    }
     [[nodiscard]] std::uint64_t writer_mask() const noexcept { return worker_.writer_mask(); }
 
     /// Cold-path diagnostic (mandate 9): threshold + shard-pool snapshot

@@ -52,6 +52,7 @@
 
 #include <nexigen/chrono/stamp_source.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/shard_pool.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
 #include <nexigen/core/worker_tuning.hpp>
@@ -72,7 +73,7 @@ namespace nexigen::tracing {
 /// the effective tracer pool size, and the optional span-rate budget (two
 /// zeros = unlimited).
 struct TracerProviderConfig {
-    std::uint64_t core_mask{0};            ///< worker pin (0 = OS placement).
+    core::ThreadSpec worker_thread{};      ///< empty = inherited worker attributes.
     std::uint32_t max_tracers{16};         ///< effective pool limit (≤ 64).
     std::uint64_t max_spans_per_window{0}; ///< 0 = no rate limiting.
     std::uint64_t window_ns{0};            ///< 0 = no rate limiting.
@@ -252,6 +253,9 @@ public:
     [[nodiscard]] std::uint64_t worker_mask() const noexcept {
         return start_.mask.load(std::memory_order_relaxed);
     }
+    [[nodiscard]] const core::ThreadApplyReport& worker_thread_report() const noexcept {
+        return start_.thread_report;
+    }
 
     /// Compile-time capacities.
     [[nodiscard]] static constexpr std::size_t capacity() noexcept { return ShardCapacity; }
@@ -361,7 +365,7 @@ private:
         std::atomic<bool> started{};        ///< set (release) after the start sequence
         std::atomic<std::uint8_t> code{};   ///< first start-phase ErrorCode snapshot
         std::atomic<std::uint64_t> mask{};  ///< post-pin affinity as the worker sees it
-        std::uint8_t pad_[48]{};
+        core::ThreadApplyReport thread_report{}; ///< written before started (release)
     } start_{};
 
     /// Flush handshake (D10): requested fetch_add(release) by the flushing
@@ -415,7 +419,7 @@ private:
 
     // Layout self-verification (design D5): the cells own whole cache lines.
     static_assert(sizeof(ControlCell) == 64);
-    static_assert(sizeof(StartCell) == 64);
+    static_assert(sizeof(StartCell) == 128);
     static_assert(sizeof(FlushCell) == 64);
 };
 
@@ -439,6 +443,10 @@ core::Status TracerProvider<ShardCapacity, MaxThreads>::initialize() noexcept {
     if (start_.launched.load(std::memory_order_acquire)) {
         return {}; // idempotent: already initialized
     }
+    const core::Status valid_thread = config_.worker_thread.validate();
+    if (!valid_thread) {
+        return valid_thread;
+    }
     for (auto& stamp : stamps_) {
         const core::Status calibrated = stamp.calibrate();
         if (!calibrated) {
@@ -447,6 +455,19 @@ core::Status TracerProvider<ShardCapacity, MaxThreads>::initialize() noexcept {
     }
     worker_ = std::jthread([this](std::stop_token stop) { consume_loop(stop); });
     start_.launched.store(true, std::memory_order_release);
+    if (config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
+        while (!start_.started.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::microseconds(200));
+        }
+        const core::ErrorCode attribute_error = start_.thread_report.first_error();
+        if (attribute_error != core::ErrorCode::Ok) {
+            worker_.request_stop();
+            worker_.join();
+            start_.launched.store(false, std::memory_order_release);
+            start_.started.store(false, std::memory_order_release);
+            return std::unexpected(attribute_error);
+        }
+    }
     return {};
 }
 
@@ -459,7 +480,9 @@ TracerProvider<ShardCapacity, MaxThreads>::~TracerProvider() {
         // declared last so it joins before the pool dies anyway).
         worker_.request_stop();
         worker_.join();
-    } else if (binding_.on_span != nullptr) {
+    } else if (binding_.on_span != nullptr &&
+               !(config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required &&
+                 start_.thread_report.first_error() != core::ErrorCode::Ok)) {
         // Never initialized: no worker ever touched the sink — drain inline
         // on the destroying thread so accepted records are not lost (no
         // concurrent consumer exists by construction).
@@ -528,11 +551,13 @@ void TracerProvider<ShardCapacity, MaxThreads>::consume_loop(
     // mask for third-thread verification; then the sink's cold start. First
     // error wins the code snapshot; a failure never stops the pipeline.
     std::uint8_t first_error = 0U;
-    if (config_.core_mask != 0ULL) {
-        const core::Status pinned = detail::pin_self(config_.core_mask);
-        if (!pinned) {
-            first_error = static_cast<std::uint8_t>(pinned.error());
-        }
+    const core::Status attributes =
+        core::apply_thread_spec_self(config_.worker_thread, start_.thread_report);
+    first_error = static_cast<std::uint8_t>(start_.thread_report.first_error());
+    if (!attributes && config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
+        start_.code.store(first_error, std::memory_order_relaxed);
+        start_.started.store(true, std::memory_order_release);
+        return; // required failure: no sink start and no drain loop
     }
     std::uint64_t mask_now = 0ULL;
     static_cast<void>(detail::self_affinity(mask_now));
@@ -634,7 +659,7 @@ std::string TracerProvider<ShardCapacity, MaxThreads>::to_string() const {
     std::string out = "TracerProvider(shard_capacity=";
     out += std::to_string(ShardCapacity);
     out += ", max_threads=" + std::to_string(MaxThreads);
-    out += ", core_mask=0x" + std::to_string(config_.core_mask);
+    out += ", worker_thread=" + config_.worker_thread.to_string();
     out += ", worker_poll_interval_us=" + std::to_string(config_.worker_poll_interval_us);
     out += ", tracer_limit=" + std::to_string(tracer_limit_);
     out += ", enabled=" + std::string(is_enabled() ? "true" : "false");

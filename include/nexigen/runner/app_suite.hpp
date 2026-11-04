@@ -16,6 +16,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/logging/log_level.hpp>
 
 namespace nexigen::runner {
@@ -115,7 +116,7 @@ struct AppSpec {
     std::string command{};
     std::vector<std::string> args{};
     std::vector<std::pair<std::string, std::string>> env{};
-    std::vector<std::uint32_t> cpus{};
+    core::CpuSet cpus{};
     std::uint64_t idle_timeout_s{0};
     std::uint64_t stop_grace_s{5};
     std::uint32_t restart_attempts{0};
@@ -141,8 +142,8 @@ struct SuiteManifest {
     std::uint32_t suite_restart_attempts{0};
     std::uint64_t suite_restart_delay_s{5};
     std::string manifest_path{};
-    std::vector<std::uint32_t> runner_control_cpus{};
-    std::vector<std::uint32_t> runner_logger_cpus{};
+    core::ThreadSpec runner_control_thread{};
+    core::ThreadSpec runner_logger_thread{};
     std::vector<AppSpec> apps{};
 
     [[nodiscard]] std::string to_string() const;
@@ -174,8 +175,8 @@ struct SuiteMetadata {
     /// 0 = unknown (legacy pid-only checks).
     std::uint64_t proc_start_ticks{0};
     std::string manifest_path{};
-    std::vector<std::uint32_t> runner_control_cpus{};
-    std::vector<std::uint32_t> runner_logger_cpus{};
+    core::ThreadSpec runner_control_thread{};
+    core::ThreadSpec runner_logger_thread{};
     std::vector<SuiteAppMetadata> apps{};
 
     [[nodiscard]] std::string to_string() const;

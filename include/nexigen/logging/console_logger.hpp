@@ -152,12 +152,14 @@ namespace nexigen::logging {
 /// Construction-time configuration shared by every ConsoleLogger instantiation.
 struct ConsoleLoggerConfig {
     LogLevel initial_level{LogLevel::Info};
+    core::ThreadSpec worker_thread{}; ///< empty = inherited worker attributes
     /// Ceiling of the worker's idle sleep; clamped to [50, 100000] us.
     std::uint32_t worker_poll_interval_us{detail::WorkerTuning::default_poll_interval_us};
 
     /// Cold-path diagnostic (mandate 9): initial threshold + worker poll ceiling.
     [[nodiscard]] std::string to_string() const {
         return "ConsoleLogger::Config(level=" + std::string(logging::to_string(initial_level)) +
+               ", worker_thread=" + worker_thread.to_string() +
                ", worker_poll_interval_us=" + std::to_string(worker_poll_interval_us) + ")";
     }
 
@@ -167,6 +169,10 @@ struct ConsoleLoggerConfig {
         return cfg.to_string();
     }
 };
+
+/// Cold-path JSON round-trip; bodies live in logger_options_format.cpp.
+void to_json(nlohmann::json& j, const ConsoleLoggerConfig& cfg);
+void from_json(const nlohmann::json& j, ConsoleLoggerConfig& out) noexcept;
 
 /// Asynchronous wait-free console logger supporting multiple producer threads
 /// via per-thread SPSC shards. Template parameters fix the per-shard capacity,
@@ -201,8 +207,12 @@ public:
         if (!calibrated) {
             return calibrated;
         }
+        const core::Status valid_thread = cfg.worker_thread.validate();
+        if (!valid_thread) {
+            return valid_thread;
+        }
         worker_.set_tuning(detail::WorkerTuning{.poll_interval_us = cfg.worker_poll_interval_us});
-        return worker_.start(producer_, 0ULL); // consoles are not pinned (D15)
+        return worker_.start(producer_, cfg.worker_thread);
     }
 
     /// Initialize from merged global/local settings (spec logging/logging-settings).
@@ -215,6 +225,12 @@ public:
         }
         Config cfg{};
         cfg.initial_level = settings.options.initial_log_level;
+        if (settings.worker_thread_set) {
+            cfg.worker_thread = settings.options.worker_thread;
+            if (!settings.worker_cpus_set) {
+                cfg.worker_thread.set_cpus(core::CpuSet{});
+            }
+        }
         cfg.worker_poll_interval_us = settings.options.worker_poll_interval_us;
         return initialize(cfg);
     }
@@ -263,6 +279,12 @@ public:
     [[nodiscard]] DroppedStats dropped() const noexcept { return producer_.dropped(); }
     [[nodiscard]] std::size_t pending() const noexcept { return producer_.ring_size(); }
     [[nodiscard]] bool writer_started() const noexcept { return worker_.writer_started(); }
+    [[nodiscard]] core::ErrorCode writer_start_code() const noexcept {
+        return worker_.writer_start_code();
+    }
+    [[nodiscard]] const core::ThreadApplyReport& writer_thread_report() const noexcept {
+        return worker_.writer_thread_report();
+    }
 
     /// Cold-path diagnostic (mandate 9): threshold + shard-pool snapshot
     /// (capacity, registered producers, pending, per-cause drops).
@@ -288,6 +310,12 @@ template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t Ma
 [[nodiscard]] inline core::Status apply_to(const Settings& settings,
                                            ConsoleLoggerConfig& out) noexcept {
     out.initial_level = settings.options.initial_log_level;
+    if (settings.worker_thread_set) {
+        out.worker_thread = settings.options.worker_thread;
+        if (!settings.worker_cpus_set) {
+            out.worker_thread.set_cpus(core::CpuSet{});
+        }
+    }
     out.worker_poll_interval_us = settings.options.worker_poll_interval_us;
     return {};
 }

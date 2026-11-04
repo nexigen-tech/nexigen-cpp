@@ -126,7 +126,7 @@ int main() {
     config.file_name = k_file_name;
     config.initial_level = LogLevel::Debug;
     config.rotation.kind = nexigen::logging::RotationSchedule::Hourly;
-    config.core_mask = 0x1; // request core 0 for the background JSON writer
+    config.worker_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(0x1)); // request core 0 for the background JSON writer
     config.throttle.enabled = true;
     config.throttle.max_records_per_window = 4096;
     config.throttle.window_ns = 1'000'000'000; // 1 s window

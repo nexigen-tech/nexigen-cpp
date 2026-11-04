@@ -26,8 +26,8 @@ nexigen-run stop /var/run/nexigen/app/1
   "log_level": "info",
   "suite_restart_attempts": 2,
   "suite_restart_delay_s": 10,
-  "runner_control_cpus": [0, 1],
-  "runner_logger_cpus": [2],
+  "runner_control_thread": {"name": "suite-control", "cpus": [0, 1], "mode": "best_effort"},
+  "runner_logger_thread": {"name": "runner-logger", "cpus": [2], "mode": "best_effort"},
   "apps": [
     {
       "app": "plant",
@@ -62,8 +62,8 @@ nexigen-run stop /var/run/nexigen/app/1
 | `log_level` | no | Suite-wide `verbose`, `debug`, `info`, `warning`, `error`, `fatal`, or `off`. |
 | `suite_restart_attempts` | no | Whole-suite relaunches for `failure` applications. Default `0`. |
 | `suite_restart_delay_s` | no | Pause before a whole-suite relaunch. Default `5`. |
-| `runner_control_cpus` | no | CPU list for the CLI/suite-supervisor control thread; empty = OS placement. |
-| `runner_logger_cpus` | no | CPU list for the runner logger worker; empty = `flush_cpu_affinity` from `logging.json`, then OS placement. |
+| `runner_control_thread` | no | Thread spec (`name`, `cpus`, `policy`, `priority`, `mode`) for the CLI/suite-supervisor control thread. |
+| `runner_logger_thread` | no | Thread spec for the runner logger worker; defaults to `worker_thread` or legacy `flush_cpu_affinity` from `logging.json`. |
 | `apps` | yes | 1–256 application entries. |
 
 ### Application fields
@@ -191,7 +191,7 @@ same file-level fallback. Per-application `log_level` does not affect the
 runner.
 
 Operational logger fields from `logging.json` are honored when the file loads:
-`flush_cpu_affinity` (logger-worker fallback), `max_file_size_bytes` (size
+`worker_thread` or legacy `flush_cpu_affinity` (logger-worker fallback), `max_file_size_bytes` (size
 segmentation), and `spam_protection` (throttle). Path, file name, app name, and
 scheduled rotation remain runner-specific: `runner.jsonl`, app `nexigen-run`,
 and `RotationConfig::None`. Without a file, the runner uses no size limit and
@@ -211,18 +211,33 @@ flushed.
 
 ```json
 {
-  "runner_control_cpus": [0, 1],
-  "runner_logger_cpus": [2]
+  "runner_control_thread": {
+    "name": "suite-control",
+    "cpus": [0, 1],
+    "policy": "other",
+    "priority": 0,
+    "mode": "best_effort"
+  },
+  "runner_logger_thread": {
+    "name": "runner-logger",
+    "cpus": [2, 64],
+    "policy": "rr",
+    "priority": 40,
+    "mode": "required"
+  }
 }
 ```
 
-- `runner_control_cpus` pins the CLI and suite-supervisor control thread.
-- `runner_logger_cpus` pins the logger worker; if empty, the file's
-  `flush_cpu_affinity` is used. The FileLogger worker accepts cores `0–63`;
-  higher values are a warning and leave it unpinned.
-- Empty lists mean OS placement.
-- Duplicate, out-of-range, or kernel-rejected affinity is a warning; the
-  command and suite continue, and that thread is simply unpinned.
+- Each spec accepts `name` (up to 15 bytes), `cpus` (0–1023), `policy`
+  (`other`, `fifo`, `rr`), `priority`, and `mode` (`best_effort` or `required`).
+  Empty `cpus` means inherited placement. Legacy `runner_control_cpus` and
+  `runner_logger_cpus` arrays remain valid inputs and normalize to best-effort specs.
+- The control spec is applied on the CLI/suite-supervisor calling thread; the
+  logger spec is applied by the FileLogger worker before its first write.
+- Best-effort failures are warnings/partial startup reports and do not stop
+  supervision. Required failures abort initialization before applications are
+  launched; there is no silent fallback to `other` or an unpinned worker.
+- Application processes and per-instance supervisors do not inherit the runner
 - Application processes and per-instance supervisors do not inherit the runner
   pin. Forked children reset to all online CPUs, and an application with
   explicit `cpus` applies that list afterwards.

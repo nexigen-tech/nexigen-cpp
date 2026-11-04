@@ -115,7 +115,7 @@ int main() {
     file_config.file_name = k_file_name;
     file_config.initial_level = LogLevel::Info;
     file_config.rotation.kind = nexigen::logging::RotationSchedule::Hourly;
-    file_config.core_mask = 0x1;
+    file_config.worker_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(0x1));
     file_config.throttle.enabled = true;
     file_config.throttle.max_records_per_window = 4096;
     file_config.throttle.window_ns = 1'000'000'000;

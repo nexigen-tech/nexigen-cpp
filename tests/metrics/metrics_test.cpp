@@ -58,6 +58,7 @@
 #include <nexigen/metrics/metric_provider.hpp>
 #include <nexigen/metrics/detail/json_writer.hpp>
 #include <nexigen/metrics/metric_snapshot.hpp>
+#include <nexigen/metrics/metrics_settings.hpp>
 #include <nexigen/metrics/null_metric_sink.hpp>
 #include <nexigen/metrics/policy_enums.hpp>
 #include <nexigen/metrics/state_gauge.hpp>
@@ -1756,18 +1757,18 @@ void test_registry_zero_alloc() {
 void test_provider_config() {
     metrics::MetricProviderConfig config{};
     config.collect_interval = std::chrono::nanoseconds{10'000'000}; // 10 ms
-    config.core_mask = 0x3;
+    config.worker_thread.set_cpus(core::CpuSet::from_core_mask(0x3));
     config.max_meters = 7;
     config.max_counters = 9;
 
     // JSON round-trip: the interval serializes in nanoseconds.
     nlohmann::json j = config;
     NX_CHECK(j["collect_interval_ns"] == 10'000'000);
-    NX_CHECK(j["core_mask"] == 0x3);
+    NX_CHECK(j["worker_thread"]["cpus"].size() == 2U);
     metrics::MetricProviderConfig back{};
     metrics::from_json(j, back);
     NX_CHECK(back.collect_interval == std::chrono::nanoseconds{10'000'000});
-    NX_CHECK(back.core_mask == 0x3U);
+    NX_CHECK(back.worker_thread.cpus() == core::CpuSet::from_core_mask(0x3));
     NX_CHECK(back.max_meters == 7U && back.max_counters == 9U);
     NX_CHECK(back.max_gauges == 64U); // untouched fields keep defaults
 
@@ -1776,19 +1777,18 @@ void test_provider_config() {
     // the former "0x10" decimal-in-hex-prefix artifact.
     {
         metrics::MetricProviderConfig hex_probe{};
-        hex_probe.core_mask = 0xA; // decimal 10
+        hex_probe.worker_thread.set_cpus(core::CpuSet::from_core_mask(0xA));
         const std::string probe_text = hex_probe.to_string();
-        NX_CHECK(probe_text.find("core_mask=0xa") != std::string::npos);
-        NX_CHECK(probe_text.find("core_mask=0x10") == std::string::npos);
-        hex_probe.core_mask =
-            0xFFFFFFFF00000000ULL; // 64-bit mask renders fully
-        NX_CHECK(hex_probe.to_string().find("core_mask=0xffffffff00000000") !=
+        NX_CHECK(probe_text.find("worker_thread=") != std::string::npos);
+        NX_CHECK(probe_text.find("priority=99") == std::string::npos);
+        hex_probe.worker_thread.set_cpus(core::CpuSet::from_core_mask(0xFFFFFFFF00000000ULL));
+        NX_CHECK(hex_probe.to_string().find("worker_thread=") !=
                  std::string::npos);
     }
     NX_CHECK(metrics::to_string(config) == config.to_string());
     NX_CHECK(std::format("{}", config) == config.to_string());
     NX_CHECK(config.to_string().find("collect_interval_ns=10000000") != std::string::npos);
-    NX_CHECK(config.to_string().find("core_mask=") != std::string::npos);
+    NX_CHECK(config.to_string().find("worker_thread=") != std::string::npos);
 
     // InvalidArgument / NotInitialized paths.
     metrics::NullMetricSink sink;
@@ -2488,6 +2488,128 @@ private:
 
 } // namespace
 
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+bool metrics_fail_scheduler(nexigen::core::fault_injection::FaultPoint point) noexcept {
+    return point == nexigen::core::fault_injection::FaultPoint::Thread_set_scheduler;
+}
+#endif
+
+void test_provider_required_thread_failure() {
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    // Required constructor startup publishes the failure synchronously and
+    // never enters the harvest loop.
+    {
+        SpacingSink sink;
+        metrics::MetricProviderConfig config{};
+        config.collect_interval = std::chrono::nanoseconds{1'000'000};
+        NX_CHECK(config.worker_thread.set_scheduler(core::SchedulingPolicy::FIFO, 1).has_value());
+        config.worker_thread.set_apply_mode(core::ThreadApplyMode::Required);
+        nexigen::core::fault_injection::set_fault_hook(metrics_fail_scheduler);
+        metrics::MetricProvider provider{config, sink};
+        nexigen::core::fault_injection::set_fault_hook(nullptr);
+        const Status startup = provider.startup_status();
+        NX_CHECK(!startup.has_value());
+        NX_CHECK(startup.error() == ErrorCode::SystemError);
+        NX_CHECK(provider.worker_thread_report().failed() ==
+                 core::ThreadApplyReport::scheduler_mask);
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        NX_CHECK(sink.samples_ns_.empty()); // no background harvest ran
+    }
+
+    // Best effort exposes the same failure but keeps periodic collection.
+    {
+        SpacingSink sink;
+        metrics::MetricProviderConfig config{};
+        config.collect_interval = std::chrono::nanoseconds{1'000'000};
+        NX_CHECK(config.worker_thread.set_scheduler(core::SchedulingPolicy::FIFO, 1).has_value());
+        config.worker_thread.set_apply_mode(core::ThreadApplyMode::BestEffort);
+        nexigen::core::fault_injection::set_fault_hook(metrics_fail_scheduler);
+        metrics::MetricProvider provider{config, sink};
+        Status startup{};
+        for (int i = 0; i < 100 && startup.has_value(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+            startup = provider.startup_status();
+        }
+        nexigen::core::fault_injection::set_fault_hook(nullptr);
+        NX_CHECK(!startup.has_value());
+        NX_CHECK(startup.error() == ErrorCode::SystemError);
+        NX_CHECK(provider.worker_thread_report().failed() ==
+                 core::ThreadApplyReport::scheduler_mask);
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        NX_CHECK(!sink.samples_ns_.empty());
+    }
+
+    // Disabled harvesting performs no application even with a required spec.
+    {
+        SpacingSink sink;
+        metrics::MetricProviderConfig config{};
+        config.collect_interval = std::chrono::nanoseconds{0};
+        NX_CHECK(config.worker_thread.set_scheduler(core::SchedulingPolicy::FIFO, 1).has_value());
+        config.worker_thread.set_apply_mode(core::ThreadApplyMode::Required);
+        nexigen::core::fault_injection::set_fault_hook(metrics_fail_scheduler);
+        metrics::MetricProvider provider{config, sink};
+        nexigen::core::fault_injection::set_fault_hook(nullptr);
+        NX_CHECK(provider.startup_status().has_value());
+        NX_CHECK(provider.worker_thread_report().requested() == 0U);
+    }
+#else
+    std::printf("provider_required_thread_failure: fault injection disabled; skipped\n");
+#endif
+}
+
+void test_metrics_worker_thread_settings() {
+    char global_path[256];
+    char local_path[256];
+    std::snprintf(global_path, sizeof global_path,
+                  "/tmp/opencode/metrics-worker-global-%d.json", ::getpid());
+    std::snprintf(local_path, sizeof local_path,
+                  "/tmp/opencode/metrics-worker-local-%d.json", ::getpid());
+    auto write = [](const char* path, std::string_view text) {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << text;
+        NX_CHECK(file.good());
+    };
+    write(global_path,
+          R"({"core_mask":5,"worker_thread":{"name":"metrics-worker",)"
+          R"("policy":"fifo","priority":30,"mode":"required"}})");
+    write(local_path, R"({"worker_thread":{"cpus":[64,65]}})");
+
+    metrics::Settings merged{};
+    NX_CHECK(load_metrics_settings({global_path, local_path}, merged).has_value());
+    NX_CHECK(merged.options.worker_thread.name() == "metrics-worker");
+    NX_CHECK(merged.options.worker_thread.policy() == core::SchedulingPolicy::FIFO);
+    NX_CHECK(merged.options.worker_thread.priority() == 30);
+    NX_CHECK(merged.options.worker_thread.apply_mode() == core::ThreadApplyMode::Required);
+    NX_CHECK(merged.options.worker_thread.cpus().count() == 2U);
+    NX_CHECK(merged.options.worker_thread.cpus().contains(64U));
+    NX_CHECK(merged.options.worker_thread.cpus().contains(65U));
+
+    write(local_path, R"({"worker_thread":{"cpus":[]}})");
+    NX_CHECK(load_metrics_settings({global_path, local_path}, merged).has_value());
+    NX_CHECK(merged.options.worker_thread.cpus().empty());
+    NX_CHECK(merged.options.worker_thread.name() == "metrics-worker");
+
+    NX_CHECK(::setenv("NEXIGEN_METRICS_CORE_MASK", "3", 1) == 0);
+    NX_CHECK(load_metrics_settings({global_path, local_path}, merged).has_value());
+    NX_CHECK(merged.options.worker_thread.cpus() == core::CpuSet::from_core_mask(3));
+    NX_CHECK(merged.options.worker_thread.name() == "metrics-worker");
+    NX_CHECK(::unsetenv("NEXIGEN_METRICS_CORE_MASK") == 0);
+
+    nlohmann::json json;
+    to_json(json, merged);
+    NX_CHECK(json.contains("worker_thread"));
+    NX_CHECK(!json.contains("core_mask"));
+    NX_CHECK(json["worker_thread"]["name"] == "metrics-worker");
+
+    write(local_path, R"({"worker_thread":{"cpus":[64,64]}})");
+    NX_CHECK(!load_metrics_settings({global_path, local_path}, merged).has_value());
+    write(local_path, R"({"worker_thread":{"policy":"fifo","priority":0}})");
+    NX_CHECK(!load_metrics_settings({global_path, local_path}, merged).has_value());
+
+    static_cast<void>(std::remove(global_path));
+    static_cast<void>(std::remove(local_path));
+}
+
 void test_provider_harvester() {
     // 10 ms fixed-rate spacing, worker pinning, and background delivery
     // (task 12.1). Documented tolerance: the fixed-rate loop may drift under
@@ -2513,7 +2635,7 @@ void test_provider_harvester() {
         sink.expect_cpu(first_cpu);
         metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{10'000'000};
-        config.core_mask = std::uint64_t{1} << first_cpu;
+        config.worker_thread.set_cpus(core::CpuSet::from_core_mask(std::uint64_t{1} << first_cpu));
         {
             metrics::MetricProvider provider{config, sink};
             NX_CHECK(provider.startup_status().has_value());
@@ -2527,6 +2649,9 @@ void test_provider_harvester() {
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds{120});
+            NX_CHECK((provider.worker_thread_report().applied() &
+                      core::ThreadApplyReport::affinity_mask) != 0U);
+            NX_CHECK(provider.worker_thread_report().failed() == 0U);
         } // destructor: stop, join, final harvest + flush
         NX_CHECK(sink.samples_ns_.size() >= 3U); // periodic batches arrived
         bool spacing_ok = true;
@@ -2576,7 +2701,7 @@ void test_provider_harvester() {
         SpacingSink sink;
         metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
-        config.core_mask = std::uint64_t{1} << denied_cpu;
+        config.worker_thread.set_cpus(core::CpuSet::from_core_mask(std::uint64_t{1} << denied_cpu));
         metrics::MetricProvider provider{config, sink};
         const Status startup = provider.startup_status();
         NX_CHECK(!startup.has_value());
@@ -2588,7 +2713,7 @@ void test_provider_harvester() {
         SpacingSink sink;
         metrics::MetricProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
-        config.core_mask = 0;
+        config.worker_thread = core::ThreadSpec{};
         metrics::MetricProvider provider{config, sink};
         NX_CHECK(provider.startup_status().has_value());
     }
@@ -3107,6 +3232,8 @@ int main()
     run_suite("sink_kind_matrix", test_sink_kind_matrix);
     run_suite("snapshot_serialization_full", test_snapshot_serialization_full);
     run_suite("provider_harvester", test_provider_harvester);
+    run_suite("provider_required_thread_failure", test_provider_required_thread_failure);
+    run_suite("metrics_worker_thread_settings", test_metrics_worker_thread_settings);
     run_suite("registration_race", test_registration_race);
     run_suite("reset_window_race", test_reset_window_race);
     run_suite("get_meter_harvest_race", test_get_meter_harvest_race);

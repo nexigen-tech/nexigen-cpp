@@ -173,11 +173,11 @@ std::optional<std::uint32_t> first_allowed_cpu() {
 }
 
 #if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
-core::detail::FaultPoint g_fault_point =
-    core::detail::FaultPoint::Runner_pipe2;
+core::fault_injection::FaultPoint g_fault_point =
+    core::fault_injection::FaultPoint::Runner_pipe2;
 bool g_fault_enabled = false;
 
-bool test_fault_hook(core::detail::FaultPoint point) noexcept {
+bool test_fault_hook(core::fault_injection::FaultPoint point) noexcept {
     return g_fault_enabled && point == g_fault_point;
 }
 #endif
@@ -1130,11 +1130,11 @@ void test_start_options() {
     // values"; analysis #14 CLI-path parity).
     NX_CHECK(invalid(bad));
     bad = {};
-    bad.cpus = {99999};
+    static_cast<void>(bad.cpus.add(1023));
     NX_CHECK(invalid(bad));
     if (const auto cpu = first_allowed_cpu(); cpu.has_value()) {
         bad = {};
-        bad.cpus = {*cpu, *cpu};
+        static_cast<void>(bad.cpus.add(1023));
         NX_CHECK(invalid(bad));
     }
 
@@ -1145,7 +1145,7 @@ void test_start_options() {
     options.log_level = logging::LogLevel::Warning;
     options.env = {{"NEXIGEN_TEST_OPTION", "yes"}};
     if (const auto cpu = first_allowed_cpu(); cpu.has_value()) {
-        options.cpus = {*cpu};
+        options.cpus = core::CpuSet::from_core_mask(1ULL << *cpu);
     }
     NX_CHECK(!options.to_string().empty());
     const std::vector<std::string> child_command{
@@ -1246,9 +1246,9 @@ void test_fault_injection() {
     const app::RunIdentity identity = identity_for(root);
     const std::vector<std::string> command{"/bin/true"};
 
-    core::detail::set_fault_hook(test_fault_hook);
+    core::fault_injection::set_fault_hook(test_fault_hook);
     runner::Runner launcher;
-    auto run_fault = [&](core::detail::FaultPoint point) {
+    auto run_fault = [&](core::fault_injection::FaultPoint point) {
         g_fault_point = point;
         g_fault_enabled = true;
         const core::Status status = launcher.start(identity, k_test_app, command, 0);
@@ -1256,13 +1256,13 @@ void test_fault_injection() {
         return status;
     };
 
-    NX_CHECK(failed_with(run_fault(core::detail::FaultPoint::Runner_pipe2),
+    NX_CHECK(failed_with(run_fault(core::fault_injection::FaultPoint::Runner_pipe2),
                          core::ErrorCode::SystemError));
-    NX_CHECK(failed_with(run_fault(core::detail::FaultPoint::Runner_fork),
+    NX_CHECK(failed_with(run_fault(core::fault_injection::FaultPoint::Runner_fork),
                          core::ErrorCode::SystemError));
-    NX_CHECK(failed_with(run_fault(core::detail::FaultPoint::Runner_open_null),
+    NX_CHECK(failed_with(run_fault(core::fault_injection::FaultPoint::Runner_open_null),
                          core::ErrorCode::SystemError));
-    core::detail::set_fault_hook(nullptr);
+    core::fault_injection::set_fault_hook(nullptr);
 
     reap_supervisors();
     remove_tree(root);

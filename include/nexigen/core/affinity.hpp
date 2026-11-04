@@ -34,21 +34,13 @@
 #include <sched.h>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/thread_management.hpp>
 
 namespace nexigen::core::affinity {
 
 namespace {
 
 constexpr std::size_t mask_bits = 8U * sizeof(std::uint64_t); // 64 representable cores
-
-void mask_to_cpuset(std::uint64_t mask, cpu_set_t& set) noexcept {
-    CPU_ZERO(&set);
-    for (std::size_t bit = 0; bit < mask_bits; ++bit) {
-        if ((mask & (1ULL << bit)) != 0ULL) {
-            CPU_SET(bit, &set);
-        }
-    }
-}
 
 std::uint64_t cpuset_to_mask(const cpu_set_t& set) noexcept {
     std::uint64_t mask = 0ULL;
@@ -70,7 +62,7 @@ std::uint64_t cpuset_to_mask(const cpu_set_t& set) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     cpu_set_t set{};
-    mask_to_cpuset(core_mask, set);
+    thread_management_detail::fill_native_cpu_set(CpuSet::from_core_mask(core_mask), set);
     if (::pthread_setaffinity_np(::pthread_self(), sizeof(set), &set) != 0) {
         return std::unexpected(core::ErrorCode::SystemError);
     }

@@ -38,6 +38,8 @@
 #include <nexigen/core/sink_io.hpp>
 #include <nexigen/core/sink_pack.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
+#include <nexigen/core/thread_management.hpp>
+#include <nexigen/core/detail/fault_injection.hpp>
 
 // Build wiring proof (task 1.1): every consumer TU must see JSON_NOEXCEPTION=1
 // before <nlohmann/json.hpp> (it is already included above via the nexigen::core
@@ -1207,6 +1209,564 @@ void test_affinity_core() {
     NX_CHECK(nexigen::core::affinity::pin_self(original).has_value());
 }
 
+// --- CpuSet value semantics (add-rt-thread-management).
+
+static_assert(sizeof(nexigen::core::CpuSet) == 128);
+static_assert(alignof(nexigen::core::CpuSet) == 64);
+static_assert(nexigen::core::CpuSet::from_core_mask(1ULL << 63U).contains(63U));
+static_assert(nexigen::core::CpuSet{}.empty());
+static_assert(sizeof(nexigen::core::ThreadSpec) == 192);
+static_assert(alignof(nexigen::core::ThreadSpec) == 64);
+static_assert(sizeof(nexigen::core::ThreadApplyReport) == 64);
+static_assert(alignof(nexigen::core::ThreadApplyReport) == 64);
+static_assert(nexigen::core::to_string(nexigen::core::SchedulingPolicy::FIFO) == "fifo");
+static_assert(nexigen::core::to_string(nexigen::core::ThreadApplyMode::Required) == "required");
+
+void test_cpu_set() {
+    CpuSet empty{};
+    NX_CHECK(empty.empty());
+    NX_CHECK(empty.count() == 0U);
+    NX_CHECK(empty.to_string() == "[]");
+    NX_CHECK(to_string(empty) == empty.to_string());
+
+    // Legacy masks convert exactly, including the top representable bit.
+    const CpuSet legacy = CpuSet::from_core_mask((1ULL << 0U) | (1ULL << 3U) |
+                                                 (1ULL << 63U));
+    NX_CHECK(legacy.count() == 3U);
+    NX_CHECK(legacy.contains(0U) && legacy.contains(3U) && legacy.contains(63U));
+    NX_CHECK(!legacy.contains(1U) && !legacy.contains(64U));
+
+    // IDs above 63 are first-class; the highest structural ID is valid even on
+    // a host that has no such online CPU (availability is an apply-time issue).
+    const std::uint32_t ids[] = {2U, 64U, 130U, 1023U};
+    const Result<CpuSet> converted = CpuSet::from_cpus(ids);
+    NX_CHECK(converted.has_value());
+    if (converted) {
+        NX_CHECK(converted->count() == 4U);
+        NX_CHECK(converted->contains(2U) && converted->contains(64U));
+        NX_CHECK(converted->contains(130U) && converted->contains(1023U));
+    }
+    NX_CHECK(!CpuSet{}.contains(1024U));
+
+    CpuSet ranges{};
+    for (const std::int64_t id : {0, 2, 3, 4, 70}) {
+        NX_CHECK(ranges.add(id).has_value());
+    }
+    NX_CHECK(ranges.count() == 5U);
+    NX_CHECK(ranges.to_string() == "0,2-4,70");
+
+    // Invalid input is rejected instead of truncated or silently deduplicated.
+    NX_CHECK(!ranges.add(-1).has_value());
+    NX_CHECK(ranges.add(-1).error() == ErrorCode::InvalidArgument);
+    NX_CHECK(!ranges.add(1024).has_value());
+    NX_CHECK(ranges.add(1024).error() == ErrorCode::InvalidArgument);
+    NX_CHECK(!ranges.add(2).has_value());
+    NX_CHECK(ranges.add(2).error() == ErrorCode::InvalidArgument);
+    NX_CHECK(ranges.count() == 5U); // failed insertion leaves the set intact
+
+    const std::uint32_t duplicate[] = {8U, 8U};
+    const Result<CpuSet> rejected_duplicate = CpuSet::from_cpus(duplicate);
+    NX_CHECK(!rejected_duplicate.has_value());
+    NX_CHECK(rejected_duplicate.error() == ErrorCode::InvalidArgument);
+    const std::uint32_t too_large[] = {1024U};
+    const Result<CpuSet> rejected_large = CpuSet::from_cpus(too_large);
+    NX_CHECK(!rejected_large.has_value());
+    NX_CHECK(rejected_large.error() == ErrorCode::InvalidArgument);
+}
+
+void test_thread_spec() {
+    ThreadSpec spec{};
+    NX_CHECK(spec.cpus().empty());
+    NX_CHECK(spec.name().empty());
+    NX_CHECK(spec.policy() == SchedulingPolicy::Other);
+    NX_CHECK(spec.priority() == 0);
+    NX_CHECK(spec.apply_mode() == ThreadApplyMode::BestEffort);
+    NX_CHECK(!spec.scheduler_configured());
+    NX_CHECK(spec.validate().has_value()); // default preserves inherited attributes
+
+    // Explicit Other,0 is distinct from an unconfigured default scheduler.
+    NX_CHECK(spec.set_scheduler(SchedulingPolicy::Other, 0).has_value());
+    NX_CHECK(spec.scheduler_configured());
+    NX_CHECK(spec.policy() == SchedulingPolicy::Other && spec.priority() == 0);
+    NX_CHECK(spec.validate().has_value());
+    spec.clear_scheduler();
+    NX_CHECK(!spec.scheduler_configured());
+
+    NX_CHECK(spec.set_scheduler(SchedulingPolicy::FIFO, 1).has_value());
+    NX_CHECK(spec.validate().has_value());
+    NX_CHECK(spec.set_scheduler(SchedulingPolicy::RR, 99).has_value());
+    NX_CHECK(spec.validate().has_value());
+    NX_CHECK(!spec.set_scheduler(SchedulingPolicy::FIFO, 0).has_value());
+    NX_CHECK(!spec.set_scheduler(SchedulingPolicy::RR, 100).has_value());
+    NX_CHECK(!spec.set_scheduler(SchedulingPolicy::Other, 1).has_value());
+    NX_CHECK(!spec.set_scheduler(static_cast<SchedulingPolicy>(77), 1).has_value());
+    NX_CHECK(spec.policy() == SchedulingPolicy::RR && spec.priority() == 99);
+    NX_CHECK(spec.scheduler_configured()); // rejected setters leave state intact
+
+    spec.set_apply_mode(ThreadApplyMode::Required);
+    NX_CHECK(spec.apply_mode() == ThreadApplyMode::Required);
+    NX_CHECK(spec.validate().has_value());
+    spec.set_apply_mode(static_cast<ThreadApplyMode>(88));
+    NX_CHECK(!spec.validate().has_value());
+    NX_CHECK(spec.validate().error() == ErrorCode::InvalidArgument);
+    spec.set_apply_mode(ThreadApplyMode::BestEffort);
+
+    NX_CHECK(spec.set_name("").has_value());
+    NX_CHECK(spec.name().empty());
+    NX_CHECK(spec.set_name("123456789012345").has_value());
+    NX_CHECK(spec.name() == "123456789012345");
+    NX_CHECK(spec.name().size() == 15U);
+    NX_CHECK(!spec.set_name("1234567890123456").has_value());
+    NX_CHECK(spec.set_name("1234567890123456").error() == ErrorCode::InvalidArgument);
+    NX_CHECK(spec.name() == "123456789012345"); // no truncation on failure
+    const std::string_view embedded_nul("ab\0cd", 5);
+    NX_CHECK(!spec.set_name(embedded_nul).has_value());
+    NX_CHECK(spec.name() == "123456789012345");
+
+    const CpuSet cpus = CpuSet::from_core_mask(1ULL << 2U);
+    spec.set_cpus(cpus);
+    NX_CHECK(spec.cpus() == cpus);
+
+    for (const auto policy : {SchedulingPolicy::Other, SchedulingPolicy::FIFO,
+                              SchedulingPolicy::RR}) {
+        SchedulingPolicy recovered = SchedulingPolicy::Other;
+        NX_CHECK(from_string(to_string(policy), recovered));
+        NX_CHECK(recovered == policy);
+    }
+    SchedulingPolicy unknown_policy = SchedulingPolicy::RR;
+    NX_CHECK(!from_string("deadline", unknown_policy));
+    NX_CHECK(unknown_policy == SchedulingPolicy::RR);
+    for (const auto mode : {ThreadApplyMode::BestEffort, ThreadApplyMode::Required}) {
+        ThreadApplyMode recovered = ThreadApplyMode::BestEffort;
+        NX_CHECK(from_string(to_string(mode), recovered));
+        NX_CHECK(recovered == mode);
+    }
+    ThreadApplyMode unknown_mode = ThreadApplyMode::Required;
+    NX_CHECK(!from_string("optional", unknown_mode));
+    NX_CHECK(unknown_mode == ThreadApplyMode::Required);
+}
+
+void test_thread_serialization() {
+    const std::uint32_t ids[] = {0U, 2U, 3U, 4U, 70U};
+    const Result<CpuSet> made = CpuSet::from_cpus(ids);
+    NX_CHECK(made.has_value());
+    const CpuSet cpus = *made;
+    NX_CHECK(std::format("{}", cpus) == cpus.to_string());
+    const nlohmann::json cpu_json = cpus;
+    NX_CHECK(cpu_json.is_array() && cpu_json.size() == 5U);
+    NX_CHECK(cpu_json[4].get<std::uint32_t>() == 70U);
+    CpuSet cpu_back{};
+    from_json(cpu_json, cpu_back);
+    NX_CHECK(cpu_back == cpus);
+    for (const nlohmann::json& bad : {
+             nlohmann::json{-1}, nlohmann::json{2, 2}, nlohmann::json{1024},
+             nlohmann::json{"70"}, nlohmann::json{1, nullptr},
+             nlohmann::json::object(), nlohmann::json(4)}) {
+        CpuSet unchanged = cpus;
+        from_json(bad, unchanged);
+        NX_CHECK(unchanged == cpus);
+    }
+
+    for (const auto policy : {SchedulingPolicy::Other, SchedulingPolicy::FIFO,
+                              SchedulingPolicy::RR}) {
+        NX_CHECK(std::format("{}", policy) == to_string(policy));
+        const nlohmann::json j = policy;
+        SchedulingPolicy back = SchedulingPolicy::Other;
+        from_json(j, back);
+        NX_CHECK(back == policy);
+    }
+    SchedulingPolicy bad_policy = SchedulingPolicy::RR;
+    from_json(nlohmann::json("deadline"), bad_policy);
+    NX_CHECK(bad_policy == SchedulingPolicy::RR);
+    from_json(nlohmann::json(3), bad_policy);
+    NX_CHECK(bad_policy == SchedulingPolicy::RR);
+    for (const auto mode : {ThreadApplyMode::BestEffort, ThreadApplyMode::Required}) {
+        NX_CHECK(std::format("{}", mode) == to_string(mode));
+        const nlohmann::json j = mode;
+        ThreadApplyMode back = ThreadApplyMode::BestEffort;
+        from_json(j, back);
+        NX_CHECK(back == mode);
+    }
+    ThreadApplyMode bad_mode = ThreadApplyMode::Required;
+    from_json(nlohmann::json("optional"), bad_mode);
+    NX_CHECK(bad_mode == ThreadApplyMode::Required);
+
+    ThreadSpec spec{};
+    NX_CHECK(spec.set_name("worker").has_value());
+    spec.set_cpus(cpus);
+    NX_CHECK(spec.set_scheduler(SchedulingPolicy::RR, 40).has_value());
+    spec.set_apply_mode(ThreadApplyMode::Required);
+    const std::string rendered = spec.to_string();
+    NX_CHECK(rendered.find("name=worker") != std::string::npos);
+    NX_CHECK(rendered.find("0,2-4,70") != std::string::npos);
+    NX_CHECK(rendered.find("policy=rr") != std::string::npos);
+    NX_CHECK(rendered.find("mode=required") != std::string::npos);
+    NX_CHECK(to_string(spec) == rendered);
+    NX_CHECK(std::format("{}", spec) == rendered);
+
+    const nlohmann::json spec_json = spec;
+    NX_CHECK(spec_json["policy"] == "rr");
+    NX_CHECK(spec_json["priority"] == 40);
+    NX_CHECK(spec_json["mode"] == "required");
+    ThreadSpec spec_back{};
+    from_json(spec_json, spec_back);
+    NX_CHECK(spec_back == spec);
+    NX_CHECK(spec_back.scheduler_configured());
+
+    ThreadSpec default_spec{};
+    const nlohmann::json default_json = default_spec;
+    NX_CHECK(default_json.find("policy") == default_json.end());
+    NX_CHECK(default_json.find("priority") == default_json.end());
+    ThreadSpec default_back{};
+    from_json(default_json, default_back);
+    NX_CHECK(!default_back.scheduler_configured());
+    NX_CHECK(default_back == default_spec);
+
+    ThreadSpec explicit_other{};
+    NX_CHECK(explicit_other.set_scheduler(SchedulingPolicy::Other, 0).has_value());
+    ThreadSpec other_back{};
+    from_json(nlohmann::json(explicit_other), other_back);
+    NX_CHECK(other_back.scheduler_configured());
+    NX_CHECK(other_back == explicit_other);
+
+    for (const nlohmann::json& bad : {
+             nlohmann::json{{"policy", "deadline"}},
+             nlohmann::json{{"policy", 7}},
+             nlohmann::json{{"policy", "fifo"}, {"priority", 0}},
+             nlohmann::json{{"policy", "rr"}, {"priority", 100}},
+             nlohmann::json{{"priority", -1}},
+             nlohmann::json{{"name", "1234567890123456"}},
+             nlohmann::json{{"mode", "optional"}},
+             nlohmann::json{{"cpus", nlohmann::json{64, 64}}},
+             nlohmann::json(7)}) {
+        ThreadSpec unchanged = spec;
+        from_json(bad, unchanged);
+        NX_CHECK(unchanged == spec);
+    }
+}
+
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+nexigen::core::fault_injection::FaultPoint g_thread_calls[32]{};
+std::size_t g_thread_call_count = 0;
+std::uint32_t g_thread_fault_mask = 0;
+
+bool record_thread_fault(nexigen::core::fault_injection::FaultPoint point) noexcept {
+    if (g_thread_call_count < 32U) {
+        g_thread_calls[g_thread_call_count++] = point;
+    }
+    const auto bit = 1U << static_cast<std::uint32_t>(point);
+    return (g_thread_fault_mask & bit) != 0U;
+}
+
+void reset_thread_faults() {
+    g_thread_call_count = 0;
+    g_thread_fault_mask = 0;
+    nexigen::core::fault_injection::set_fault_hook(record_thread_fault);
+}
+
+[[nodiscard]] bool saw_thread_call(nexigen::core::fault_injection::FaultPoint point) {
+    for (std::size_t i = 0; i < g_thread_call_count; ++i) {
+        if (g_thread_calls[i] == point) {
+            return true;
+        }
+    }
+    return false;
+}
+#endif
+
+void test_thread_apply_failure_modes() {
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    using nexigen::core::fault_injection::FaultPoint;
+    std::uint64_t original = 0;
+    NX_CHECK(nexigen::core::affinity::self_affinity(original).has_value());
+    const std::uint64_t core = first_core_of(original);
+    NX_CHECK(core < 64U);
+
+    auto make_spec = [&] {
+        ThreadSpec spec{};
+        spec.set_cpus(CpuSet::from_core_mask(1ULL << core));
+        NX_CHECK(spec.set_name("rt-fault-test").has_value());
+        NX_CHECK(spec.set_scheduler(SchedulingPolicy::FIFO, 1).has_value());
+        return spec;
+    };
+
+    // Required: affinity succeeds, FIFO returns EPERM, and the earlier changes
+    // are restored in reverse order before the error is returned.
+    {
+        ThreadSpec spec = make_spec();
+        spec.set_apply_mode(ThreadApplyMode::Required);
+        reset_thread_faults();
+        g_thread_fault_mask = 1U << static_cast<std::uint32_t>(FaultPoint::Thread_set_scheduler);
+        ThreadApplyReport report{};
+        bool ok = true;
+        std::uint64_t before_mask = 0;
+        std::uint64_t after_mask = 0;
+        char before_name[16]{};
+        char after_name[16]{};
+        std::jthread worker([&] {
+            static_cast<void>(nexigen::core::affinity::self_affinity(before_mask));
+            static_cast<void>(::pthread_getname_np(::pthread_self(), before_name,
+                                                   sizeof(before_name)));
+            ok = apply_thread_spec_self(spec, report).has_value();
+            static_cast<void>(nexigen::core::affinity::self_affinity(after_mask));
+            static_cast<void>(::pthread_getname_np(::pthread_self(), after_name,
+                                                   sizeof(after_name)));
+        });
+        worker.join();
+        NX_CHECK(!ok);
+        NX_CHECK(report.first_error() == ErrorCode::SystemError);
+        NX_CHECK(report.applied() ==
+                 (ThreadApplyReport::name_mask | ThreadApplyReport::affinity_mask));
+        NX_CHECK(report.failed() == ThreadApplyReport::scheduler_mask);
+        NX_CHECK(report.rollback_failed() == 0U);
+        NX_CHECK(before_mask == after_mask);
+        NX_CHECK(std::string_view(before_name) == std::string_view(after_name));
+        NX_CHECK(g_thread_call_count == 6U);
+        if (g_thread_call_count == 6U) {
+            NX_CHECK(g_thread_calls[0] == FaultPoint::Thread_snapshot);
+            NX_CHECK(g_thread_calls[1] == FaultPoint::Thread_set_name);
+            NX_CHECK(g_thread_calls[2] == FaultPoint::Thread_set_affinity);
+            NX_CHECK(g_thread_calls[3] == FaultPoint::Thread_set_scheduler);
+            NX_CHECK(g_thread_calls[4] == FaultPoint::Thread_restore_affinity);
+            NX_CHECK(g_thread_calls[5] == FaultPoint::Thread_restore_name);
+        }
+    }
+
+    // Best effort: the same EPERM is visible but leaves the successful
+    // name/affinity changes in place and does not invoke rollback.
+    {
+        ThreadSpec spec = make_spec();
+        reset_thread_faults();
+        g_thread_fault_mask = 1U << static_cast<std::uint32_t>(FaultPoint::Thread_set_scheduler);
+        ThreadApplyReport report{};
+        bool ok = false;
+        std::uint64_t after_mask = 0;
+        char after_name[16]{};
+        std::jthread worker([&] {
+            ok = apply_thread_spec_self(spec, report).has_value();
+            static_cast<void>(nexigen::core::affinity::self_affinity(after_mask));
+            static_cast<void>(::pthread_getname_np(::pthread_self(), after_name,
+                                                   sizeof(after_name)));
+        });
+        worker.join();
+        NX_CHECK(ok);
+        NX_CHECK(after_mask == (1ULL << core));
+        NX_CHECK(std::string_view(after_name) == "rt-fault-test");
+        NX_CHECK(report.failed() == ThreadApplyReport::scheduler_mask);
+        NX_CHECK(report.applied() ==
+                 (ThreadApplyReport::name_mask | ThreadApplyReport::affinity_mask));
+        NX_CHECK(report.rollback_failed() == 0U);
+        NX_CHECK(!saw_thread_call(FaultPoint::Thread_restore_affinity));
+        NX_CHECK(!saw_thread_call(FaultPoint::Thread_restore_name));
+    }
+
+    // Independent best-effort failures do not prevent later operations.
+    {
+        ThreadSpec spec = make_spec();
+        reset_thread_faults();
+        g_thread_fault_mask =
+            (1U << static_cast<std::uint32_t>(FaultPoint::Thread_set_name)) |
+            (1U << static_cast<std::uint32_t>(FaultPoint::Thread_set_affinity)) |
+            (1U << static_cast<std::uint32_t>(FaultPoint::Thread_set_scheduler));
+        ThreadApplyReport report{};
+        NX_CHECK(apply_thread_spec_self(spec, report).has_value());
+        NX_CHECK(report.failed() == report.requested());
+        NX_CHECK(report.applied() == 0U);
+        NX_CHECK(saw_thread_call(FaultPoint::Thread_set_name));
+        NX_CHECK(saw_thread_call(FaultPoint::Thread_set_affinity));
+        NX_CHECK(saw_thread_call(FaultPoint::Thread_set_scheduler));
+    }
+
+    // A rollback failure is explicit rather than being reported as a clean
+    // restoration. The worker exits immediately so no affinity cleanup is needed.
+    {
+        ThreadSpec spec = make_spec();
+        spec.set_apply_mode(ThreadApplyMode::Required);
+        reset_thread_faults();
+        g_thread_fault_mask =
+            (1U << static_cast<std::uint32_t>(FaultPoint::Thread_set_scheduler)) |
+            (1U << static_cast<std::uint32_t>(FaultPoint::Thread_restore_affinity));
+        ThreadApplyReport report{};
+        bool ok = true;
+        std::jthread worker([&] { ok = apply_thread_spec_self(spec, report).has_value(); });
+        worker.join();
+        NX_CHECK(!ok);
+        NX_CHECK(report.rollback_failed() == ThreadApplyReport::affinity_mask);
+        NX_CHECK(report.first_error() == ErrorCode::SystemError);
+    }
+
+    // Snapshot and default-spec paths: a snapshot error changes nothing, while
+    // a default spec performs no attribute operation at all.
+    {
+        ThreadSpec spec = make_spec();
+        spec.set_apply_mode(ThreadApplyMode::Required);
+        reset_thread_faults();
+        g_thread_fault_mask = 1U << static_cast<std::uint32_t>(FaultPoint::Thread_snapshot);
+        ThreadApplyReport report{};
+        NX_CHECK(!apply_thread_spec_self(spec, report).has_value());
+        NX_CHECK(report.first_error() == ErrorCode::SystemError);
+        NX_CHECK(!saw_thread_call(FaultPoint::Thread_set_name));
+
+        reset_thread_faults();
+        ThreadSpec defaults{};
+        NX_CHECK(apply_thread_spec_self(defaults, report).has_value());
+        NX_CHECK(g_thread_call_count == 0U);
+    }
+    nexigen::core::fault_injection::set_fault_hook(nullptr);
+#else
+    std::printf("thread_apply_failure_modes: fault injection disabled; skipped\n");
+#endif
+}
+
+void test_thread_apply() {
+    ThreadApplyReport report{};
+    ThreadSpec defaults{};
+    NX_CHECK(apply_thread_spec_self(defaults, report).has_value());
+    NX_CHECK(report.requested() == 0U && report.applied() == 0U);
+    NX_CHECK(report.complete() && report.first_error() == ErrorCode::Ok);
+
+    ThreadSpec invalid{};
+    invalid.set_apply_mode(static_cast<ThreadApplyMode>(99));
+    NX_CHECK(!apply_thread_spec_self(invalid, report).has_value());
+    NX_CHECK(report.first_error() == ErrorCode::InvalidArgument);
+    NX_CHECK(report.applied() == 0U && report.failed() == 0U);
+
+    std::uint64_t original = 0;
+    NX_CHECK(nexigen::core::affinity::self_affinity(original).has_value());
+    const std::uint64_t core = first_core_of(original);
+    NX_CHECK(core < 64U);
+
+    ThreadSpec spec{};
+    spec.set_cpus(CpuSet::from_core_mask(1ULL << core));
+    NX_CHECK(spec.set_name("rt-apply-test").has_value());
+    NX_CHECK(spec.set_scheduler(SchedulingPolicy::Other, 0).has_value());
+    spec.set_apply_mode(ThreadApplyMode::Required);
+
+    bool applied = false;
+    bool first_work_saw_attributes = false;
+    std::uint64_t observed_mask = 0;
+    int observed_policy = -1;
+    char observed_name[16]{};
+    std::jthread worker([&] {
+        applied = apply_thread_spec_self(spec, report).has_value();
+        // First "work" after application: every requested attribute is already
+        // visible on this same thread, with no parent-side pinning window.
+        first_work_saw_attributes =
+            ::pthread_getname_np(::pthread_self(), observed_name,
+                                 sizeof(observed_name)) == 0 &&
+            nexigen::core::affinity::self_affinity(observed_mask).has_value();
+        observed_policy = ::sched_getscheduler(0);
+    });
+    worker.join();
+    NX_CHECK(applied);
+    NX_CHECK(first_work_saw_attributes);
+    NX_CHECK(observed_mask == (1ULL << core));
+    NX_CHECK(std::string_view(observed_name) == "rt-apply-test");
+    NX_CHECK(observed_policy == SCHED_OTHER);
+    NX_CHECK(report.requested() ==
+             (ThreadApplyReport::name_mask | ThreadApplyReport::affinity_mask |
+              ThreadApplyReport::scheduler_mask));
+    NX_CHECK(report.applied() == report.requested());
+    NX_CHECK(report.failed() == 0U && report.rollback_failed() == 0U);
+    NX_CHECK(report.complete());
+}
+
+void test_thread_report_and_publication() {
+    ThreadApplyReport partial{};
+    const nlohmann::json input{
+        {"requested", 7U}, {"applied", 3U}, {"failed", 4U},
+        {"rollback_failed", 0U}, {"first_error", "SystemError"}};
+    from_json(input, partial);
+    NX_CHECK(partial.requested() == 7U && partial.applied() == 3U);
+    NX_CHECK(partial.failed() == 4U && partial.rollback_failed() == 0U);
+    NX_CHECK(partial.first_error() == ErrorCode::SystemError);
+    NX_CHECK(!partial.complete());
+    const std::string rendered = partial.to_string();
+    NX_CHECK(rendered.find("applied=3") != std::string::npos);
+    NX_CHECK(rendered.find("failed=4") != std::string::npos);
+    NX_CHECK(rendered.find("first_error=SystemError") != std::string::npos);
+    NX_CHECK(to_string(partial) == rendered);
+    NX_CHECK(std::format("{}", partial) == rendered);
+    const nlohmann::json output = partial;
+    ThreadApplyReport recovered{};
+    from_json(output, recovered);
+    NX_CHECK(recovered == partial);
+    for (const nlohmann::json& bad : {
+             nlohmann::json{{"applied", -1}},
+             nlohmann::json{{"failed", "4"}},
+             nlohmann::json{{"first_error", "Missing"}},
+             nlohmann::json{{"first_error", 4}},
+             nlohmann::json(9)}) {
+        ThreadApplyReport unchanged = partial;
+        from_json(bad, unchanged);
+        NX_CHECK(unchanged == partial);
+    }
+
+    // Startup publication pattern used by every worker integration: the report
+    // is written once, then readiness is released. An acquiring reader sees the
+    // complete immutable snapshot; there is no per-record atomic traffic.
+    struct StartCell {
+        ThreadApplyReport report{};
+        std::atomic<bool> ready{false};
+    } start{};
+    std::uint64_t original = 0;
+    NX_CHECK(nexigen::core::affinity::self_affinity(original).has_value());
+    ThreadSpec spec{};
+    spec.set_cpus(CpuSet::from_core_mask(1ULL << first_core_of(original)));
+    std::jthread producer([&] {
+        static_cast<void>(apply_thread_spec_self(spec, start.report));
+        start.ready.store(true, std::memory_order_release);
+    });
+    while (!start.ready.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
+    producer.join();
+    NX_CHECK(start.report.complete());
+    NX_CHECK(start.report.applied() == ThreadApplyReport::affinity_mask);
+    NX_CHECK(start.report.first_error() == ErrorCode::Ok);
+}
+
+void test_rt_integration_opt_in() {
+    if (std::getenv("NEXIGEN_RT_INTEGRATION_TESTS") == nullptr) {
+        std::printf("rt_integration: skipped (set NEXIGEN_RT_INTEGRATION_TESTS=1 "
+                    "on a CAP_SYS_NICE RT host to enable)\n");
+        return;
+    }
+    std::uint64_t original = 0;
+    NX_CHECK(nexigen::core::affinity::self_affinity(original).has_value());
+    const std::uint64_t core = first_core_of(original);
+    NX_CHECK(core < 64U);
+    for (const auto policy : {SchedulingPolicy::FIFO, SchedulingPolicy::RR}) {
+        ThreadSpec spec{};
+        spec.set_cpus(CpuSet::from_core_mask(1ULL << core));
+        NX_CHECK(spec.set_name("rt-live").has_value());
+        NX_CHECK(spec.set_scheduler(policy, 1).has_value());
+        spec.set_apply_mode(ThreadApplyMode::Required);
+
+        ThreadApplyReport report{};
+        bool applied = false;
+        std::uint64_t observed_mask = 0;
+        int observed_policy = -1;
+        sched_param observed_param{};
+        char observed_name[16]{};
+        std::jthread worker([&] {
+            applied = apply_thread_spec_self(spec, report).has_value();
+            static_cast<void>(nexigen::core::affinity::self_affinity(observed_mask));
+            observed_policy = ::sched_getscheduler(0);
+            static_cast<void>(::sched_getparam(0, &observed_param));
+            static_cast<void>(::pthread_getname_np(::pthread_self(), observed_name,
+                                                   sizeof(observed_name)));
+        });
+        worker.join();
+        NX_CHECK(applied); // requires CAP_SYS_NICE only when explicitly enabled
+        NX_CHECK(report.complete());
+        NX_CHECK(observed_mask == (1ULL << core));
+        NX_CHECK(std::string_view(observed_name) == "rt-live");
+        NX_CHECK(observed_policy == (policy == SchedulingPolicy::FIFO ? SCHED_FIFO : SCHED_RR));
+        NX_CHECK(observed_param.sched_priority == 1);
+    }
+}
+
 } // namespace
 
 int main()
@@ -1223,6 +1783,13 @@ int main()
     run_suite("sink_pack", test_sink_pack);
     run_suite("sink_io", test_sink_io);
     run_suite("affinity_core", test_affinity_core);
+    run_suite("cpu_set", test_cpu_set);
+    run_suite("thread_spec", test_thread_spec);
+    run_suite("thread_serialization", test_thread_serialization);
+    run_suite("thread_apply", test_thread_apply);
+    run_suite("thread_apply_failure_modes", test_thread_apply_failure_modes);
+    run_suite("thread_report_and_publication", test_thread_report_and_publication);
+    run_suite("rt_integration_opt_in", test_rt_integration_opt_in);
 
     const int failures = g_failures;
     std::printf("total: %d checks, %d failed\n", g_checks, failures);

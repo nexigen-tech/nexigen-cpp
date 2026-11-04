@@ -46,22 +46,37 @@ Defines the clock service: a `ChronoProvider` that samples the base clock domain
 
 ### Requirement: CPU core affinity
 
-When `ChronoProvider_config::core_mask` is non-zero, the background snapshot worker SHALL pin itself to exactly those CPU cores with `pthread_setaffinity_np` before delivering any snapshot, so snapshot sampling and sink I/O cannot preempt unpinned real-time threads. A zero mask SHALL leave affinity unchanged.
+`ChronoProviderConfig` SHALL carry a `ThreadSpec` for the existing snapshot worker instead of a uint64 core mask. When `start()` launches a worker, it SHALL apply the spec to itself before delivering any snapshot, supporting CPUs above 63, naming, and Other/FIFO/RR scheduling. An empty CPU set SHALL leave affinity unchanged. Best-effort failures SHALL remain visible without stopping delivery; a `Required` failure SHALL make `start()` fail before the snapshot loop and leave no running worker. A zero interval SHALL retain deferred/no-worker behavior.
 
 #### Scenario: Worker affinity is applied
 
-- **WHEN** the provider starts with a non-zero mask containing permitted CPUs and the worker's actual affinity is read back with `pthread_getaffinity_np`
-- **THEN** the worker's mask equals the configured mask
+- **WHEN** the provider starts with valid worker attributes
+- **THEN** the worker's name, affinity, policy, and priority are applied before its first snapshot
 
 #### Scenario: Invalid mask is visible without stopping delivery
 
-- **WHEN** the configured mask contains no permitted CPU or `pthread_setaffinity_np` fails
-- **THEN** `startup_status()` reports `core::ErrorCode::SystemError`, the worker still runs unpinned, and snapshots still flow
+- **WHEN** an affinity or scheduler request fails under `BestEffort`
+- **THEN** `startup_status()`/the thread report exposes the failure, the worker still runs with any applied attributes, and snapshots flow
+
+#### Scenario: Required failure prevents snapshot delivery
+
+- **WHEN** an attribute request fails under `Required`
+- **THEN** `start()` returns `SystemError`, no snapshot loop runs, the worker is joined, and provider destruction is safe
+
+#### Scenario: CPU above 63 is supported
+
+- **WHEN** the worker spec contains a permitted CPU above 63
+- **THEN** the snapshot worker uses it without truncating to a uint64 mask
 
 #### Scenario: Zero mask leaves affinity alone
 
-- **WHEN** the provider starts with `core_mask == 0`
-- **THEN** the worker inherits the process affinity and no pinning call is required to succeed
+- **WHEN** the worker CPU set is empty
+- **THEN** the worker inherits process affinity and no pinning call is required to succeed
+
+#### Scenario: Zero interval applies no attributes
+
+- **WHEN** `collect_interval` is zero and `start()` is called
+- **THEN** no worker is created and no thread-attribute operation occurs
 
 ### Requirement: Snapshot content
 
@@ -173,12 +188,12 @@ through it. The worker SHALL start and run normally without a bound logger. A
 
 ### Requirement: Provider configuration serialization
 
-`ChronoProvider_config` SHALL implement `to_string() const` plus a free `to_string(const T&)`, non-throwing `to_json`/`from_json` for its complete visible state under `JSON_NOEXCEPTION=1`, and a `std::formatter` specialization.
+`ChronoProvider_config` SHALL implement `to_string() const` plus a free `to_string(const T&)`, non-throwing `to_json`/`from_json` for its complete visible state under `JSON_NOEXCEPTION=1`, and a `std::formatter` specialization, including the complete worker thread spec.
 
 #### Scenario: Configuration JSON round-trip
 
-- **WHEN** a `ChronoProvider_config` with an interval and a core mask is serialized and parsed back
-- **THEN** the JSON carries the interval in nanoseconds and the mask, and the parsed configuration compares equal to the original
+- **WHEN** a `ChronoProvider_config` with an interval and a named FIFO worker on a CPU above 63 is serialized and parsed back
+- **THEN** the JSON carries the interval in nanoseconds and every worker attribute, and the parsed configuration compares equal to the original
 
 #### Scenario: Configuration renders and formats
 

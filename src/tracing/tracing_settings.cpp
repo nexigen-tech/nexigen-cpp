@@ -77,7 +77,7 @@ void to_json(nlohmann::json& j, const Settings& settings) {
     }
     j = nlohmann::json{{"global_loaded", settings.global_loaded},
                        {"local_loaded", settings.local_loaded},
-                       {"core_mask", options.core_mask},
+                       {"worker_thread", options.worker_thread},
                        {"max_tracers", options.max_tracers},
                        {"max_spans_per_window", options.max_spans_per_window},
                        {"window_ns", options.window_ns},
@@ -129,10 +129,22 @@ void merge_tracing_document(const nlohmann::json& document,
         add_diagnostic(out.diagnostics, source, "", "document is not a JSON object");
         return;
     }
-    std::uint64_t core_mask = out.options.core_mask;
+    std::uint64_t core_mask = 0;
     read_uint(document, "core_mask", std::numeric_limits<std::uint64_t>::max(), core_mask,
               out.diagnostics, source);
-    out.options.core_mask = core_mask;
+    if (document.contains("core_mask")) {
+        out.options.worker_thread.set_cpus(core::CpuSet::from_core_mask(core_mask));
+    }
+    const auto worker = document.find("worker_thread");
+    if (worker != document.end()) {
+        core::ThreadSpec parsed = out.options.worker_thread;
+        if (core::parse_thread_spec_json(*worker, parsed)) {
+            out.options.worker_thread = parsed;
+        } else {
+            add_diagnostic(out.diagnostics, source, "worker_thread",
+                           "expected valid name/cpus/policy/priority/mode fields");
+        }
+    }
 
     std::uint64_t max_tracers = out.options.max_tracers;
     const std::size_t before_tracers = out.diagnostics.size();
@@ -170,7 +182,7 @@ void apply_tracing_environment(Settings& out) {
     if (!value.empty()) {
         std::uint64_t parsed = 0;
         if (parse_u64(value, parsed)) {
-            out.options.core_mask = parsed;
+            out.options.worker_thread.set_cpus(core::CpuSet::from_core_mask(parsed));
         } else {
             add_diagnostic(out.diagnostics, core::SettingsSource::Environment, "core_mask",
                            "expected a non-negative integer mask");

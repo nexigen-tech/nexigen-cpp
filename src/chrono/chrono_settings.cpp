@@ -68,7 +68,7 @@ void to_json(nlohmann::json& j, const Settings& settings) {
     j = nlohmann::json{{"global_loaded", settings.global_loaded},
                        {"local_loaded", settings.local_loaded},
                        {"collect_interval_ns", options.collect_interval.count()},
-                       {"core_mask", options.core_mask},
+                       {"worker_thread", options.worker_thread},
                        {"sink", nlohmann::json{{"path", settings.sink.path},
                                                {"append", settings.sink.append}}},
                        {"diagnostics", std::move(diagnostics)}};
@@ -92,10 +92,22 @@ void merge_document(const nlohmann::json& document, core::SettingsSource source,
         out.options.collect_interval =
             std::chrono::nanoseconds{static_cast<std::int64_t>(interval)};
     }
-    std::uint64_t core_mask = out.options.core_mask;
+    std::uint64_t core_mask = 0;
     read_uint(document, "core_mask", std::numeric_limits<std::uint64_t>::max(), core_mask,
               out.diagnostics, source);
-    out.options.core_mask = core_mask;
+    if (document.contains("core_mask")) {
+        out.options.worker_thread.set_cpus(core::CpuSet::from_core_mask(core_mask));
+    }
+    const auto worker = document.find("worker_thread");
+    if (worker != document.end()) {
+        core::ThreadSpec parsed = out.options.worker_thread;
+        if (core::parse_thread_spec_json(*worker, parsed)) {
+            out.options.worker_thread = parsed;
+        } else {
+            add_diagnostic(out.diagnostics, source, "worker_thread",
+                           "expected valid name/cpus/policy/priority/mode fields");
+        }
+    }
 
     const nlohmann::json* const sink = find_sink(document, out.diagnostics, source);
     if (sink != nullptr) {
@@ -126,7 +138,7 @@ void apply_environment(Settings& out) {
     if (!value.empty()) {
         std::uint64_t parsed = 0;
         if (parse_u64(value, parsed)) {
-            out.options.core_mask = parsed;
+            out.options.worker_thread.set_cpus(core::CpuSet::from_core_mask(parsed));
         } else {
             add_diagnostic(out.diagnostics, core::SettingsSource::Environment, "core_mask",
                            "expected a non-negative integer mask");

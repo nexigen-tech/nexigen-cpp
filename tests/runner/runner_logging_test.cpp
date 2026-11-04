@@ -153,7 +153,7 @@ void test_global_settings_loader() {
     NX_CHECK(runner::load_runner_logging_settings(directory, settings).has_value());
     NX_CHECK(settings.global_loaded);
     NX_CHECK(settings.options.initial_log_level == logging::LogLevel::Debug);
-    NX_CHECK(settings.options.flush_cpu_affinity.size() == 1);
+    NX_CHECK(settings.options.worker_thread.cpus().count() == 1U);
     NX_CHECK(settings.options.max_file_size_bytes == 4096ULL);
 
     {
@@ -213,8 +213,10 @@ void test_affinity_and_logger_mask() {
 
     const std::string directory = unique_dir("mask");
     const logging::Settings settings{};
+    core::ThreadSpec logger_thread{};
+    logger_thread.set_cpus(core::CpuSet::from_core_mask(1ULL << core));
     NX_CHECK(runner::init_runner_logging(directory, settings,
-                                        logging::LogLevel::Info, requested)
+                                         logging::LogLevel::Info, logger_thread)
                  .has_value());
     NX_CHECK(runner::runner_logging_writer_mask() == (1ULL << core));
     runner::shutdown_runner_logging();
@@ -265,29 +267,26 @@ void test_inactive_and_invalid_config() {
     const std::string directory = unique_dir("invalid_config");
     logging::Settings settings{};
     settings.global_loaded = true;
-    settings.options.flush_cpu_affinity = {
-        static_cast<std::uint64_t>(UINT32_MAX) + 1ULL};
+    settings.options.worker_thread = core::ThreadSpec{};
     NX_CHECK(runner::init_runner_logging(directory, settings,
                                          logging::LogLevel::Info)
                  .has_value());
     runner::shutdown_runner_logging();
 
-    settings.options.flush_cpu_affinity = {99999ULL};
+    settings.options.worker_thread = core::ThreadSpec{};
     NX_CHECK(runner::init_runner_logging(directory, settings,
                                          logging::LogLevel::Info)
                  .has_value());
     runner::shutdown_runner_logging();
 
     if (cpu >= 0) {
-        settings.options.flush_cpu_affinity = {
-            static_cast<std::uint64_t>(cpu),
-            static_cast<std::uint64_t>(cpu)};
+        settings.options.worker_thread = core::ThreadSpec{};
         NX_CHECK(runner::init_runner_logging(directory, settings,
                                              logging::LogLevel::Info)
                      .has_value());
         runner::shutdown_runner_logging();
-        settings.options.flush_cpu_affinity = {
-            static_cast<std::uint64_t>(cpu)};
+        settings.options.worker_thread.set_cpus(
+            core::CpuSet::from_core_mask(1ULL << cpu));
         NX_CHECK(runner::init_runner_logging(directory, settings,
                                              logging::LogLevel::Info)
                      .has_value());

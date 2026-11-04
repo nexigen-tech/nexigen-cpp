@@ -168,26 +168,39 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
         }
     }
 
+    it = document.find("core_mask");
+    if (it != document.end()) {
+        std::uint64_t value = 0;
+        if (unsigned_value(*it, value)) {
+            clean["core_mask"] = value;
+        } else {
+            add_diagnostic(settings, source, "core_mask", "expected a non-negative 64-bit mask");
+        }
+    }
+
     it = document.find("flush_cpu_affinity");
     if (it != document.end()) {
-        bool valid = it->is_array();
-        std::vector<std::uint64_t> cores;
-        if (valid) {
-            cores.reserve(it->size());
-            for (const auto& item : *it) {
-                std::uint64_t core = 0;
-                if (!unsigned_value(item, core) || core > 63ULL) {
-                    valid = false;
-                    break;
-                }
-                cores.push_back(core);
-            }
-        }
-        if (valid) {
-            clean["flush_cpu_affinity"] = cores;
+        core::CpuSet cpus{};
+        if (core::parse_cpu_set_json(*it, cpus)) {
+            clean["flush_cpu_affinity"] = *it;
         } else {
             add_diagnostic(settings, source, "flush_cpu_affinity",
-                           "expected an array of CPU ids between 0 and 63");
+                            "expected a unique array of CPU ids between 0 and 1023");
+        }
+    }
+
+    it = document.find("worker_thread");
+    if (it != document.end()) {
+        core::ThreadSpec worker = settings.options.worker_thread;
+        settings.worker_thread_set = true;
+        if (it->contains("cpus")) {
+            settings.worker_cpus_set = true;
+        }
+        if (core::parse_thread_spec_json(*it, worker)) {
+            clean["worker_thread"] = *it;
+        } else {
+            add_diagnostic(settings, source, "worker_thread",
+                            "expected valid name/cpus/policy/priority/mode fields");
         }
     }
 
@@ -288,10 +301,10 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
     return true;
 }
 
-/// "0,2-3" -> {0, 2, 3}. Rejects empty tokens, inverted ranges and ids > 63.
-[[nodiscard]] bool parse_affinity(std::string_view text,
-                                  std::vector<std::uint64_t>& out) noexcept {
-    out.clear();
+/// "0,2-3" -> CpuSet{0, 2, 3}. Rejects empty tokens, inverted ranges,
+/// duplicates, and ids above 1023.
+[[nodiscard]] bool parse_affinity(std::string_view text, core::CpuSet& out) noexcept {
+    out = core::CpuSet{};
     std::size_t pos = 0;
     while (pos <= text.size()) {
         const std::size_t comma = text.find(',', pos);
@@ -314,11 +327,13 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
                 return false;
             }
         }
-        if (last > 63ULL) {
+        if (last > core::CpuSet::max_cpu_id) {
             return false;
         }
-        for (std::uint64_t core = first; core <= last; ++core) {
-            out.push_back(core);
+        for (std::uint64_t cpu = first; cpu <= last; ++cpu) {
+            if (!out.add(static_cast<std::int64_t>(cpu))) {
+                return false;
+            }
         }
         if (comma == std::string_view::npos) {
             break;
@@ -368,13 +383,13 @@ void apply_environment(Settings& settings) noexcept {
 
     value = env("NEXIGEN_LOG_CPU_AFFINITY");
     if (!value.empty()) {
-        std::vector<std::uint64_t> cores;
-        if (parse_affinity(value, cores)) {
-            settings.options.flush_cpu_affinity = std::move(cores);
+        core::CpuSet cpus{};
+        if (parse_affinity(value, cpus)) {
+            settings.options.worker_thread.set_cpus(cpus);
         } else {
             add_diagnostic(settings, core::SettingsSource::Environment,
                            "flush_cpu_affinity",
-                           "expected a comma-separated list of ids/ranges between 0 and 63");
+                           "expected a unique comma-separated list of ids/ranges between 0 and 1023");
         }
     }
 
@@ -544,19 +559,11 @@ core::Status apply_to(const Settings& settings, FileLoggerConfig& out) noexcept 
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 
-    std::uint64_t core_mask = 0;
-    for (const std::uint64_t core : options.flush_cpu_affinity) {
-        if (core > 63ULL) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        core_mask |= (1ULL << core);
-    }
-
     out = FileLoggerConfig{};
     out.base_dir = options.log_root_directory;
     out.initial_level = options.initial_log_level;
     out.max_file_size_bytes = options.max_file_size_bytes;
-    out.core_mask = core_mask;
+    out.worker_thread = options.worker_thread;
     out.worker_poll_interval_us = options.worker_poll_interval_us;
 
     const std::uint64_t per_second =

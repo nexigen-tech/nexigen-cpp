@@ -30,6 +30,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/logging/log_level.hpp>
 
 namespace nexigen::logging {
@@ -122,7 +123,7 @@ struct LoggerOptions {
     std::uint32_t message_capacity{128U}; ///< inline argument blob capacity (max bytes per record).
     std::uint32_t max_producer_threads{64U};
     OverflowPolicy overflow_policy{OverflowPolicy::DropNewest};
-    std::vector<std::uint64_t> flush_cpu_affinity{};   ///< empty = OS placement.
+    core::ThreadSpec worker_thread{};            ///< canonical file-writer attributes.
     std::uint32_t worker_poll_interval_us{1000U};     ///< 1 ms.
     bool sync_flush_on_critical{true};
     SpamProtectionConfig spam_protection{};

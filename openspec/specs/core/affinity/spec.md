@@ -41,14 +41,14 @@ The system SHALL provide one query function that reads the calling thread's curr
 
 ### Requirement: Single implementation behind module shims
 
-`nexigen::core::affinity` SHALL be the only pthread-affinity implementation of the uint64-mask contract; the chrono, logging, metrics, and tracing `detail/affinity` declarations SHALL be forward-only shims (include core + using-declarations, the `fixed_writer` shim precedent), and no module unit SHALL keep a private `cpu_set_t`-converting copy. The runner's validated CPU-list surface (`apply_runner_affinity`/`reset_runner_affinity`) is a distinct contract and SHALL stay in runner.
+`nexigen::core::affinity` SHALL remain the compatibility implementation of the uint64-mask contract and SHALL delegate CPU-set conversion/application to the shared `core/thread-management` machinery. The chrono, logging, metrics, and tracing `detail/affinity` declarations SHALL remain forward-only shims, and no module unit SHALL keep a private `cpu_set_t`-converting copy. Runner CPU lists and thread specs SHALL use the same public CPU vocabulary rather than a third representation.
 
 #### Scenario: Audit finds one implementation and four forwarders
 
-- **WHEN** the affinity-related units are audited (`src/{chrono,logging,metrics,tracing}/affinity.cpp`, `include/nexigen/*/detail/affinity.hpp`)
-- **THEN** the four module source files no longer exist, each module header forwards to the shared core implementation, and the only affinity conversion code lives in `nexigen::core::affinity` (runner's distinct surface untouched)
+- **WHEN** the affinity-related units are audited
+- **THEN** legacy pin/query behavior is preserved, each module header forwards to core, and only the shared core machinery converts CPU values for operating-system calls
 
 #### Scenario: Existing call sites and suites unchanged
 
-- **WHEN** the four modules' worker/pinning suites run against the migrated tree
-- **THEN** `detail::pin_self`/`detail::self_affinity` calls behave identically to the pre-migration behavior (same statuses for zero mask, pin, and query), with no test edits beyond none required
+- **WHEN** legacy `detail::pin_self`/`detail::self_affinity` calls are exercised
+- **THEN** zero-mask rejection, calling-thread pinning, low-64-bit readback, and error mapping behave as before, including for workers not yet migrated by a caller

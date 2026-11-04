@@ -470,10 +470,10 @@ void from_json(const nlohmann::json& j, SpanRecord& out) noexcept {
 // bodies here so the hot headers stay free of cold serialization machinery).
 
 std::string TracerProviderConfig::to_string() const {
-    return std::format("TracerProviderConfig(core_mask=0x{:x}, "
+    return std::format("TracerProviderConfig(worker_thread={}, "
                        "max_tracers={}, max_spans_per_window={}, "
                        "window_ns={}, worker_poll_interval_us={})",
-                       core_mask, max_tracers, max_spans_per_window,
+                       worker_thread.to_string(), max_tracers, max_spans_per_window,
                        window_ns, worker_poll_interval_us);
 }
 
@@ -481,7 +481,7 @@ std::string to_string(const TracerProviderConfig& config) { return config.to_str
 
 void to_json(nlohmann::json& j, const TracerProviderConfig& config) {
     j = nlohmann::json{
-        {"core_mask", config.core_mask},
+        {"worker_thread", config.worker_thread},
         {"max_tracers", config.max_tracers},
         {"max_spans_per_window", config.max_spans_per_window},
         {"window_ns", config.window_ns},
@@ -495,7 +495,11 @@ void from_json(const nlohmann::json& j, TracerProviderConfig& out) noexcept {
     }
     const auto core_mask = j.find("core_mask");
     if (core_mask != j.end() && core_mask->is_number_unsigned()) {
-        out.core_mask = core_mask->get<std::uint64_t>();
+        out.worker_thread.set_cpus(core::CpuSet::from_core_mask(core_mask->get<std::uint64_t>()));
+    }
+    const auto worker = j.find("worker_thread");
+    if (worker != j.end()) {
+        static_cast<void>(core::parse_thread_spec_json(*worker, out.worker_thread));
     }
     const auto max_tracers = j.find("max_tracers");
     if (max_tracers != j.end() && max_tracers->is_number_unsigned()) {

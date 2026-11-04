@@ -213,6 +213,42 @@ struct ResolvedPathPolicy {
     }
 };
 
+struct RtPolicy {
+    using Logger = logging::FileLogger<128, 128>;
+    using MetricsSink = metrics::NullMetricSink;
+    using TraceSink = tracing::NullTraceSink;
+    using ChronoSink = chrono::NullChronoSink;
+
+    static core::Status emplace_logger(std::optional<Logger>& out,
+                                       const logging::Settings& settings,
+                                       std::string_view app_name) noexcept {
+        logging::FileLoggerConfig config{};
+        const core::Status applied = logging::apply_to(settings, config);
+        if (!applied) {
+            return applied;
+        }
+        config.app_name = app_name;
+        config.rotation.kind = logging::RotationSchedule::None;
+        out.emplace();
+        return out->initialize(config);
+    }
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
+                                             const metrics::Settings&, std::string_view) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
+                                           const tracing::Settings&, std::string_view) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+                                            const chrono::Settings&) noexcept {
+        out.emplace();
+        return {};
+    }
+};
+
 struct FailLoggerPolicy {
     using Logger = CaptureLogger;
     using MetricsSink = metrics::NullMetricSink;
@@ -505,18 +541,18 @@ void test_settings_loaders() {
     metrics::Settings metrics{};
     NX_CHECK(metrics::load_metrics_settings({metrics_global, metrics_local}, metrics).has_value());
     NX_CHECK(metrics.global_loaded && metrics.local_loaded);
-    NX_CHECK(metrics.options.core_mask == 1ULL);
+    NX_CHECK(metrics.options.worker_thread.cpus() == core::CpuSet::from_core_mask(1ULL));
     NX_CHECK(metrics.options.max_counters == 128U);
     NX_CHECK(metrics.options.collect_interval == std::chrono::nanoseconds{50'000'000});
 
     metrics_mask_env.set("4");
     NX_CHECK(metrics::load_metrics_settings({metrics_global, metrics_local}, metrics).has_value());
-    NX_CHECK(metrics.options.core_mask == 4ULL);
+    NX_CHECK(metrics.options.worker_thread.cpus() == core::CpuSet::from_core_mask(4ULL));
     metrics_mask_env.clear();
 
     write_text(metrics_local, "{");
     NX_CHECK(!metrics::load_metrics_settings({metrics_global, metrics_local}, metrics).has_value());
-    NX_CHECK(metrics.options.core_mask == 1ULL); // global survived
+    NX_CHECK(metrics.options.worker_thread.cpus() == core::CpuSet::from_core_mask(1ULL)); // global survived
     NX_CHECK(!metrics.diagnostics.empty());
 
     write_text(metrics_local, R"({"max_counters":"many"})");
@@ -524,7 +560,7 @@ void test_settings_loaders() {
 
     tracing::Settings tracing{};
     NX_CHECK(tracing::load_tracing_settings({tracing_global, tracing_local}, tracing).has_value());
-    NX_CHECK(tracing.options.core_mask == 2ULL);
+    NX_CHECK(tracing.options.worker_thread.cpus() == core::CpuSet::from_core_mask(2ULL));
     NX_CHECK(tracing.options.max_tracers == 16U);
     NX_CHECK(tracing.options.max_spans_per_window == 100ULL);
     NX_CHECK(tracing.options.window_ns == 1000ULL);
@@ -590,11 +626,11 @@ void test_settings_loaders() {
     NX_CHECK(app::load_app_settings(paths, app_settings).has_value());
 
     const std::string text = app_settings.metrics.to_string();
-    NX_CHECK(text.find("core_mask=0x1") != std::string::npos);
+    NX_CHECK(text.find("worker_thread=") != std::string::npos);
     NX_CHECK(std::format("{}", app_settings.metrics) == text);
     nlohmann::json json;
     metrics::to_json(json, app_settings.metrics);
-    NX_CHECK(json["core_mask"] == 1U);
+    NX_CHECK(json["worker_thread"]["cpus"][0] == 0U);
     NX_CHECK(app_settings.tracing.to_string().find("max_tracers") != std::string::npos);
 
     // Malformed JSON and non-object documents on both subsystems.
@@ -1236,6 +1272,88 @@ void test_infrastructure_failures() {
     }
 }
 
+void test_infrastructure_required_thread_rollback() {
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    cpu_set_t allowed;
+    CPU_ZERO(&allowed);
+    NX_CHECK(::sched_getaffinity(0, sizeof(allowed), &allowed) == 0);
+    int first_cpu = -1;
+    for (int cpu = 0; cpu < 64 && first_cpu < 0; ++cpu) {
+        if (CPU_ISSET(static_cast<std::size_t>(cpu), &allowed)) {
+            first_cpu = cpu;
+        }
+    }
+    NX_CHECK(first_cpu >= 0);
+
+    auto settings_for = [&](int failed_worker) {
+        app::Settings settings{};
+        settings.app_name = "rt-test";
+        settings.logging.options.log_root_directory = "/tmp/opencode/app-rt-logs";
+        auto configure = [&](core::ThreadSpec& spec) {
+            spec.set_cpus(core::CpuSet::from_core_mask(std::uint64_t{1} << first_cpu));
+            spec.set_apply_mode(core::ThreadApplyMode::Required);
+        };
+        if (failed_worker == 0) {
+            configure(settings.logging.options.worker_thread);
+        } else if (failed_worker == 1) {
+            settings.chrono.options.collect_interval = std::chrono::nanoseconds{1'000'000};
+            configure(settings.chrono.options.worker_thread);
+        } else if (failed_worker == 2) {
+            settings.metrics.options.collect_interval = std::chrono::nanoseconds{1'000'000};
+            configure(settings.metrics.options.worker_thread);
+        } else {
+            configure(settings.tracing.options.worker_thread);
+        }
+        return settings;
+    };
+
+    for (int failed_worker = 0; failed_worker < 4; ++failed_worker) {
+        auto infra = make_test_infra<RtPolicy>();
+        NX_CHECK(infra != nullptr);
+        if (!infra) {
+            continue;
+        }
+        app::Settings settings = settings_for(failed_worker);
+        auto fail_affinity = [](nexigen::core::fault_injection::FaultPoint point) noexcept {
+            return point == nexigen::core::fault_injection::FaultPoint::Thread_set_affinity;
+        };
+        nexigen::core::fault_injection::set_fault_hook(fail_affinity);
+        const core::Status failed = infra->initialize(settings);
+        nexigen::core::fault_injection::set_fault_hook(nullptr);
+        NX_CHECK(!failed.has_value());
+        NX_CHECK(failed.error() == core::ErrorCode::SystemError);
+        NX_CHECK(infra->shutdown().has_value()); // rollback is idempotent
+
+        // Signal ownership and component state were released, so the same
+        // settings succeed once the injected error is removed.
+        NX_CHECK(infra->initialize(settings).has_value());
+        NX_CHECK(infra->shutdown().has_value());
+    }
+
+    // Explicit best effort does not roll back partial startup.
+    {
+        auto infra = make_test_infra<RtPolicy>();
+        NX_CHECK(infra != nullptr);
+        if (infra) {
+            app::Settings settings{};
+            settings.app_name = "best-effort-test";
+            settings.logging.options.log_root_directory = "/tmp/opencode/app-rt-logs";
+            settings.logging.options.worker_thread.set_cpus(
+                core::CpuSet::from_core_mask(std::uint64_t{1} << first_cpu));
+            auto fail_affinity = [](nexigen::core::fault_injection::FaultPoint point) noexcept {
+                return point == nexigen::core::fault_injection::FaultPoint::Thread_set_affinity;
+            };
+            nexigen::core::fault_injection::set_fault_hook(fail_affinity);
+            NX_CHECK(infra->initialize(settings).has_value());
+            nexigen::core::fault_injection::set_fault_hook(nullptr);
+            NX_CHECK(infra->shutdown().has_value());
+        }
+    }
+#else
+    std::printf("infrastructure_required_thread_rollback: fault injection disabled; skipped\n");
+#endif
+}
+
 void test_infrastructure_signals() {
     auto int_app = make_test_infra<TestPolicy>();
     NX_CHECK(int_app != nullptr);
@@ -1339,7 +1457,7 @@ void test_app_settings_full_coverage() {
         metrics::Settings metrics{};
         NX_CHECK(metrics::load_metrics_settings({metrics_global, ""}, metrics).has_value());
         NX_CHECK(metrics.options.collect_interval == std::chrono::nanoseconds{123456});
-        NX_CHECK(metrics.options.core_mask == 3ULL);
+        NX_CHECK(metrics.options.worker_thread.cpus() == core::CpuSet::from_core_mask(3ULL));
         NX_CHECK(metrics.options.max_meters == 1U);
         NX_CHECK(metrics.options.max_counters == 2U);
         NX_CHECK(metrics.options.max_gauges == 3U);
@@ -1348,7 +1466,7 @@ void test_app_settings_full_coverage() {
         NX_CHECK(metrics.options.max_exponential_histograms == 6U);
         tracing::Settings tracing{};
         NX_CHECK(tracing::load_tracing_settings({tracing_global, ""}, tracing).has_value());
-        NX_CHECK(tracing.options.core_mask == 7ULL);
+        NX_CHECK(tracing.options.worker_thread.cpus() == core::CpuSet::from_core_mask(7ULL));
         NX_CHECK(tracing.options.max_tracers == 64U);
         NX_CHECK(tracing.options.max_spans_per_window == 77ULL);
         NX_CHECK(tracing.options.window_ns == 88ULL);
@@ -1425,8 +1543,8 @@ void test_app_settings_full_coverage() {
         NX_CHECK(metrics::load_metrics_settings({"", ""}, metrics).has_value());
         NX_CHECK(tracing::load_tracing_settings({"", ""}, tracing).has_value());
         NX_CHECK(metrics.options.collect_interval == std::chrono::nanoseconds{50'000'000});
-        NX_CHECK(metrics.options.core_mask == 9ULL);
-        NX_CHECK(tracing.options.core_mask == 10ULL);
+        NX_CHECK(metrics.options.worker_thread.cpus() == core::CpuSet::from_core_mask(9ULL));
+        NX_CHECK(tracing.options.worker_thread.cpus() == core::CpuSet::from_core_mask(10ULL));
         NX_CHECK(tracing.options.max_tracers == 32U);
         NX_CHECK(tracing.options.max_spans_per_window == 100ULL);
         NX_CHECK(tracing.options.window_ns == 200ULL);
@@ -2254,6 +2372,7 @@ int main() {
     run_suite("telemetry_infra", test_telemetry_layout_infrastructure);
     run_suite("lifecycle", test_infrastructure_lifecycle);
     run_suite("failures", test_infrastructure_failures);
+    run_suite("required_thread_rollback", test_infrastructure_required_thread_rollback);
     run_suite("conflict", test_infrastructure_conflict);
     run_suite("stop_and_mask", test_infrastructure_stop_and_mask);
     run_suite("signals", test_infrastructure_signals);

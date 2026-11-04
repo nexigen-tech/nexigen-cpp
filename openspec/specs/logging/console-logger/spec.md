@@ -19,6 +19,7 @@ Provides an asynchronous console sink: accepted records are handed to a bounded 
 
 - **WHEN** a series of records from one thread is accepted and the logger is flushed
 - **THEN** the writer emits one line per record in that thread's enqueued order, each terminated by a newline
+
 ### Requirement: Background writer uses the shared idle-backoff policy
 
 `ConsoleLogger`'s background writer SHALL poll its shard rings, and when idle SHALL apply `core::WorkerTuning`: a short spin budget, then a sleep that doubles from 100 µs up to the configured ceiling, with its timer slack widened to half the ceiling. Producers SHALL never wait on this, and `flush()` still completes within the poll ceiling.
@@ -86,12 +87,17 @@ Each console line SHALL contain the record's timestamp, lowercase severity name,
 
 ### Requirement: Console logger diagnostic strings
 
-`ConsoleLogger::Config` and `ConsoleLogger` SHALL each provide a cold-path `std::string to_string() const` (plus the matching free `to_string(const T&)`): the Config dump names its initial level and worker poll interval; the logger dump reports level, shard capacity, aggregated pending records, and drop totals as a third-thread snapshot.
+`ConsoleLogger::Config` and `ConsoleLogger` SHALL each provide a cold-path `std::string to_string() const` (plus the matching free `to_string(const T&)`): the Config dump names its initial level, worker thread spec, and worker poll interval; the logger dump reports level, shard capacity, aggregated pending records, and drop totals as a third-thread snapshot. The config SHALL provide non-throwing JSON round-trip and formatter support for the thread spec.
 
 #### Scenario: Config and logger render
 
 - **WHEN** `to_string()` is called on a `ConsoleLogger::Config` at `Debug` and on its running logger
-- **THEN** the Config string names `debug` (and any non-default poll interval), and the logger string names the level, capacity, pending, and dropped counters
+- **THEN** the Config string names `debug`, the worker spec, and any non-default poll interval, and the logger string names the level, capacity, pending, and dropped counters
+
+#### Scenario: Config JSON and formatter preserve the worker spec
+
+- **WHEN** a config with a named worker on a CPU above 63 is serialized and parsed under `JSON_NOEXCEPTION=1`
+- **THEN** the worker spec round-trips and `std::format("{}", config)` equals the config's `to_string()`
 
 ### Requirement: Runnable console logger example
 
@@ -116,3 +122,22 @@ The project SHALL provide an `ex_console_logger` executable that initializes a d
 
 - **WHEN** the example prints `dropped().to_string()` and the logger's `to_string()` after flushing
 - **THEN** the text reports the drop counters and the logger's level, capacity, pending count, and drop totals
+
+### Requirement: Console writer accepts a thread specification
+
+`ConsoleLoggerConfig` SHALL carry an optional `ThreadSpec` for its existing writer. The writer SHALL apply it before the drain loop without changing stream routing, backoff, or flush behavior. An omitted/default spec SHALL preserve inherited affinity and scheduling; legacy file-logger affinity settings SHALL NOT implicitly pin the console writer.
+
+#### Scenario: Console writer applies valid attributes
+
+- **WHEN** a console config supplies a name, CPUs, and FIFO/RR attributes
+- **THEN** their application follows the common required/best-effort contract before the first console line
+
+#### Scenario: Default console behavior is unchanged
+
+- **WHEN** no worker thread spec is supplied
+- **THEN** the console writer starts with inherited attributes and performs no new steady-state work
+
+#### Scenario: Required failure prevents console output
+
+- **WHEN** a required attribute cannot be applied
+- **THEN** console initialization fails and its writer does not enter the output loop

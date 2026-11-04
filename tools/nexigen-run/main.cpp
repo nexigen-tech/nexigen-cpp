@@ -62,8 +62,8 @@ struct CliLogTarget {
     std::string primary_dir{};
     logging::Settings settings{};
     logging::LogLevel level{logging::LogLevel::Info};
-    std::vector<std::uint32_t> control_cpus{};
-    std::vector<std::uint32_t> logger_cpus{};
+    core::ThreadSpec control_thread{};
+    core::ThreadSpec logger_thread{};
 };
 
 [[nodiscard]] std::string working_directory() {
@@ -87,8 +87,8 @@ struct CliLogTarget {
     CliLogTarget target{};
     target.primary_dir =
         manifest.artifacts_path + "/" + manifest.suite_id;
-    target.control_cpus = manifest.runner_control_cpus;
-    target.logger_cpus = manifest.runner_logger_cpus;
+    target.control_thread = manifest.runner_control_thread;
+    target.logger_thread = manifest.runner_logger_thread;
     const core::Status loaded = runner::load_runner_logging_settings(
         manifest.global_settings_path, target.settings);
     if (!loaded) {
@@ -114,8 +114,8 @@ struct CliLogTarget {
     runner::SuiteMetadata metadata{};
     runner::from_json(*document, metadata);
     target.primary_dir = metadata.artifacts_path + "/" + metadata.suite_id;
-    target.control_cpus = metadata.runner_control_cpus;
-    target.logger_cpus = metadata.runner_logger_cpus;
+    target.control_thread = metadata.runner_control_thread;
+    target.logger_thread = metadata.runner_logger_thread;
     const core::Status loaded = runner::load_runner_logging_settings(
         metadata.global_settings_path, target.settings);
     if (!loaded) {
@@ -129,26 +129,31 @@ struct CliLogTarget {
     return true;
 }
 
-void activate_logging(const CliLogTarget& target) {
+[[nodiscard]] core::Status activate_logging(const CliLogTarget& target) {
     const core::Status initialized = runner::init_runner_logging(
         target.primary_dir, target.settings, target.level,
-        std::span<const std::uint32_t>(target.logger_cpus.data(),
-                                       target.logger_cpus.size()));
+        target.logger_thread);
     if (!initialized) {
         runner::warn_runner(
             "event=logging_unavailable detail=runner.jsonl not writable");
+        if (target.logger_thread.apply_mode() == core::ThreadApplyMode::Required) {
+            return initialized;
+        }
     }
+    return {};
 }
 
-void apply_control_affinity(const CliLogTarget& target) {
-    const core::Status applied = runner::apply_runner_affinity(
-        std::span<const std::uint32_t>(target.control_cpus.data(),
-                                       target.control_cpus.size()),
-        "cli-control");
+[[nodiscard]] core::Status apply_control_affinity(const CliLogTarget& target) {
+    const core::Status applied = runner::apply_runner_thread_spec(
+        target.control_thread, "cli-control");
     if (!applied) {
         runner::warn_runner(
             "event=affinity_warning thread=control detail=invalid or rejected");
+        if (target.control_thread.apply_mode() == core::ThreadApplyMode::Required) {
+            return applied;
+        }
     }
+    return {};
 }
 
 void log_command(std::string_view command, std::string_view mode,
@@ -330,17 +335,23 @@ int cmd_start(int argc, char* argv[]) {
         const core::Status loaded = runner::load_suite_manifest(config, manifest);
         if (!loaded) {
             const CliLogTarget target = fallback_log_target();
-            activate_logging(target);
+            static_cast<void>(activate_logging(target));
             return cli_fail("start", "suite", config,
                             std::string(core::to_string(loaded.error())),
                             "manifest failed");
         }
         const CliLogTarget log_target = manifest_log_target(manifest);
-        apply_control_affinity(log_target);
+        if (!apply_control_affinity(log_target)) {
+            return cli_fail("start", "suite", config,
+                            "required control attributes failed", "affinity failed");
+        }
         std::string target;
         runner::Runner suite_runner;
         const core::Status started = suite_runner.start_suite(manifest, target);
-        activate_logging(log_target);
+        if (!activate_logging(log_target)) {
+            return cli_fail("start", "suite", target,
+                            "required logger attributes failed", "logger start failed");
+        }
         if (!started) {
             return cli_fail("start", "suite", target,
                             std::string(core::to_string(started.error())),
@@ -367,7 +378,7 @@ int cmd_start(int argc, char* argv[]) {
     runner::Runner runner;
     const core::Status status = runner.start(identity, app_name, command, timeout_s);
     const CliLogTarget log_target = fallback_log_target();
-    activate_logging(log_target);
+    static_cast<void>(activate_logging(log_target));
     if (!status) {
         return cli_fail("start", "single", target,
                         std::string(core::to_string(status.error())),
@@ -445,7 +456,7 @@ int cmd_stop(int argc, char* argv[]) {
             const core::Status loaded =
                 runner::load_suite_manifest(config, manifest);
             if (!loaded) {
-                activate_logging(log_target);
+                static_cast<void>(activate_logging(log_target));
                 return cli_fail("stop", "suite", config,
                                 std::string(core::to_string(loaded.error())),
                                 "manifest failed");
@@ -453,7 +464,7 @@ int cmd_stop(int argc, char* argv[]) {
             target = runner::suite_dir_path(manifest.run_dir, manifest.suite_id);
             log_target = manifest_log_target(manifest);
         } else if (!suite_dir_log_target(target, log_target)) {
-            activate_logging(log_target);
+            static_cast<void>(activate_logging(log_target));
             log_command("stop", "suite", target, "error",
                         "suite metadata unreadable");
             finish_logging();
@@ -467,8 +478,8 @@ int cmd_stop(int argc, char* argv[]) {
             print_usage(stderr);
             return exit_usage;
         }
-        activate_logging(log_target);
-        apply_control_affinity(log_target);
+        static_cast<void>(activate_logging(log_target));
+        static_cast<void>(apply_control_affinity(log_target));
         const std::optional<std::uint64_t> override =
             grace_set ? std::optional<std::uint64_t>(grace_s) : std::nullopt;
         const core::Status status = runner::stop_suite(target, override);
@@ -487,7 +498,7 @@ int cmd_stop(int argc, char* argv[]) {
     }
 
     const CliLogTarget log_target = fallback_log_target();
-    activate_logging(log_target);
+    static_cast<void>(activate_logging(log_target));
     runner::Runner runner;
     const core::Status status = runner.stop(instance_dir, grace_s);
     if (!status) {
@@ -560,7 +571,7 @@ int cmd_status(int argc, char* argv[]) {
             const core::Status loaded =
                 runner::load_suite_manifest(config, manifest);
             if (!loaded) {
-                activate_logging(log_target);
+                static_cast<void>(activate_logging(log_target));
                 return cli_fail("status", "suite", config,
                                 std::string(core::to_string(loaded.error())),
                                 "manifest failed");
@@ -573,8 +584,8 @@ int cmd_status(int argc, char* argv[]) {
         }
         runner::SuiteStatus status{};
         const core::Status queried = runner::suite_status(target, status);
-        activate_logging(log_target);
-        apply_control_affinity(log_target);
+        static_cast<void>(activate_logging(log_target));
+        static_cast<void>(apply_control_affinity(log_target));
         if (!queried) {
             return cli_fail("status", "suite", target,
                             std::string(core::to_string(queried.error())),
@@ -609,7 +620,7 @@ int cmd_status(int argc, char* argv[]) {
     }
 
     const CliLogTarget log_target = fallback_log_target();
-    activate_logging(log_target);
+    static_cast<void>(activate_logging(log_target));
     runner::Runner runner;
     std::string state;
     const core::Status status = runner.status(instance_dir, state);

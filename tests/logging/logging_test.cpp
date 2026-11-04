@@ -1528,13 +1528,16 @@ void test_file_logger() {
         cfg.file_name = "app.jsonl";
         cfg.rotation.kind = RotationSchedule::Custom;
         cfg.rotation.custom_ns = 150'000'000ULL; // 150 ms windows
-        cfg.core_mask = target;
+        cfg.worker_thread.set_cpus(core::CpuSet::from_core_mask(target));
         NX_CHECK(flr.initialize(cfg).has_value());
         wait_writer(flr);
         NX_CHECK(flr.writer_start_code() == ErrorCode::Ok);
         if (target != 0ULL) {
             // spec: pinned writer reports the configured mask
             NX_CHECK(flr.writer_mask() == target);
+            NX_CHECK((flr.writer_thread_report().applied() &
+                      core::ThreadApplyReport::affinity_mask) != 0U);
+            NX_CHECK(flr.writer_thread_report().failed() == 0U);
         } else {
             std::printf("rotation test: single permitted core, mask assertion skipped\n");
         }
@@ -1968,16 +1971,20 @@ void test_config_strings() {
     NX_CHECK(to_string(rotation) == s);
 
     // Populated FileLoggerConfig renders every field (Cyrillic app included).
-    const FileLoggerConfig cfg{
+    FileLoggerConfig cfg{
         .app_name = "ХилСимулятор",
         .base_dir = "/var/log/nexigen",
         .file_name = "sim.jsonl",
         .initial_level = LogLevel::Debug,
         .throttle = throttle,
         .rotation = rotation,
-        .core_mask = 3ULL,
+        .worker_thread = core::ThreadSpec{},
         .max_file_size_bytes = 8192ULL,
     };
+    NX_CHECK(cfg.worker_thread.set_name("file-worker").has_value());
+    cfg.worker_thread.set_cpus(core::CpuSet::from_core_mask(1ULL << 6U));
+    NX_CHECK(cfg.worker_thread.set_scheduler(core::SchedulingPolicy::RR, 40).has_value());
+    cfg.worker_thread.set_apply_mode(core::ThreadApplyMode::Required);
     s = cfg.to_string();
     NX_CHECK(s.find("ХилСимулятор") != std::string::npos);
     NX_CHECK(s.find("/var/log/nexigen") != std::string::npos);
@@ -1986,8 +1993,19 @@ void test_config_strings() {
     NX_CHECK(s.find("max_records_per_window=1000") != std::string::npos);
     NX_CHECK(s.find("max_file_size_bytes=8192") != std::string::npos);
     NX_CHECK(s.find("custom_ns=42") != std::string::npos);
-    NX_CHECK(s.find("core_mask=3") != std::string::npos);
+    NX_CHECK(s.find("worker_thread=") != std::string::npos);
+    NX_CHECK(s.find("file-worker") != std::string::npos);
+    NX_CHECK(s.find("policy=rr") != std::string::npos);
     NX_CHECK(to_string(cfg) == s);
+    NX_CHECK(std::format("{}", cfg) == s);
+    FileLoggerConfig cfg_back{};
+    from_json(nlohmann::json(cfg), cfg_back);
+    NX_CHECK(cfg_back.app_name == cfg.app_name);
+    NX_CHECK(cfg_back.base_dir == cfg.base_dir);
+    NX_CHECK(cfg_back.file_name == cfg.file_name);
+    NX_CHECK(cfg_back.worker_thread == cfg.worker_thread);
+    NX_CHECK(cfg_back.rotation.custom_ns == cfg.rotation.custom_ns);
+    NX_CHECK(cfg_back.throttle.max_records_per_window == cfg.throttle.max_records_per_window);
 
     const DroppedStats stats{.rate_limited = 7, .buffer_full = 9};
     s = stats.to_string();
@@ -1996,10 +2014,18 @@ void test_config_strings() {
     NX_CHECK(s.find("total=16") != std::string::npos);
     NX_CHECK(to_string(stats) == s);
 
-    const ConsoleLogger<>::Config console_cfg{.initial_level = LogLevel::Warning};
+    ConsoleLogger<>::Config console_cfg{.initial_level = LogLevel::Warning};
+    console_cfg.worker_thread.set_cpus(core::CpuSet::from_core_mask(1ULL << 6U));
+    NX_CHECK(console_cfg.worker_thread.set_name("console-worker").has_value());
     s = console_cfg.to_string();
     NX_CHECK(s.find("warning") != std::string::npos);
+    NX_CHECK(s.find("console-worker") != std::string::npos);
     NX_CHECK(to_string(console_cfg) == s); // ADL friend form
+    NX_CHECK(std::format("{}", console_cfg) == s);
+    ConsoleLogger<>::Config console_back{};
+    from_json(nlohmann::json(console_cfg), console_back);
+    NX_CHECK(console_back.initial_level == console_cfg.initial_level);
+    NX_CHECK(console_back.worker_thread == console_cfg.worker_thread);
 
     std::printf("config_strings: throttle/rotation/filelogger/dropped/console-config "
                 "dumps render every field\n");
@@ -2018,7 +2044,7 @@ void test_logger_options() {
     NX_CHECK(o.message_capacity == 128U);
     NX_CHECK(o.max_producer_threads == 64U);
     NX_CHECK(o.overflow_policy == OverflowPolicy::DropNewest);
-    NX_CHECK(o.flush_cpu_affinity.empty());
+    NX_CHECK(o.worker_thread.cpus().empty());
     NX_CHECK(o.worker_poll_interval_us == 1000U);
     NX_CHECK(o.sync_flush_on_critical == true);
     NX_CHECK(o.spam_protection.enable_repeat_suppression == true);
@@ -2031,12 +2057,12 @@ void test_logger_options() {
     custom.spsc_ring_buffer_capacity = 1000U;
     NX_CHECK(std::bit_ceil(custom.spsc_ring_buffer_capacity) == 1024U);
 
-    // to_string renders every field (incl. flush_cpu_affinity — analysis #18).
+    // to_string renders every field (including the worker thread spec).
     const std::string s = o.to_string();
     NX_CHECK(s.find("log_root_directory") != std::string::npos);
     NX_CHECK(s.find("message_capacity") != std::string::npos);
     NX_CHECK(s.find("overflow_policy") != std::string::npos);
-    NX_CHECK(s.find("flush_cpu_affinity") != std::string::npos);
+    NX_CHECK(s.find("worker_thread") != std::string::npos);
     NX_CHECK(s.find("spam_protection") != std::string::npos);
     NX_CHECK(to_string(o) == s);
 
@@ -2233,7 +2259,7 @@ void test_flush_summary_race() {
     NX_CHECK(prod.initialize().has_value());
 
     detail::AsyncWorker<P, LinesSink<RecordT>> worker{};
-    NX_CHECK(worker.start(prod, 0ULL, g_flush_race_arena,
+    NX_CHECK(worker.start(prod, core::ThreadSpec{}, g_flush_race_arena,
                           sizeof g_flush_race_arena)
                  .has_value());
     for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
@@ -2296,7 +2322,7 @@ void test_spam_config_race() {
     NX_CHECK(prod.initialize().has_value());
 
     detail::AsyncWorker<P, LinesSink<RecordT>> worker{};
-    NX_CHECK(worker.start(prod, 0ULL, g_spam_race_arena,
+    NX_CHECK(worker.start(prod, core::ThreadSpec{}, g_spam_race_arena,
                           sizeof g_spam_race_arena)
                  .has_value());
     for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
@@ -2395,7 +2421,7 @@ void test_shutdown_drain_race() {
     pool.reserve(producers);
     {
         detail::AsyncWorker<P, CountSink> worker{};
-        NX_CHECK(worker.start(prod, 0ULL, &sink_received).has_value());
+        NX_CHECK(worker.start(prod, core::ThreadSpec{}, &sink_received).has_value());
         for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -2468,7 +2494,7 @@ void test_drop_visibility() {
 
         char arena[4096]{};
         detail::AsyncWorker<P, LinesSink<LogRecord<128>>> worker{};
-        NX_CHECK(worker.start(prod, 0ULL, arena, sizeof arena).has_value());
+        NX_CHECK(worker.start(prod, core::ThreadSpec{}, arena, sizeof arena).has_value());
         for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -2502,7 +2528,7 @@ void test_drop_visibility() {
 
         char arena[4096]{};
         detail::AsyncWorker<detail::Producer<2, 128, 1>, LinesSink<LogRecord<128>>> worker{};
-        NX_CHECK(worker.start(prod2, 0ULL, arena, sizeof arena).has_value());
+        NX_CHECK(worker.start(prod2, core::ThreadSpec{}, arena, sizeof arena).has_value());
         for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -2548,7 +2574,7 @@ void test_drop_visibility() {
 
         char arena[4096]{};
         detail::AsyncWorker<detail::Producer<4, 128, 2>, LinesSink<LogRecord<128>>> worker{};
-        NX_CHECK(worker.start(prod3, 0ULL, arena, sizeof arena).has_value());
+        NX_CHECK(worker.start(prod3, core::ThreadSpec{}, arena, sizeof arena).has_value());
         for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -2578,7 +2604,7 @@ void test_producer_edge_cases() {
         NX_CHECK(prod.dropped().rate_limited == 3);
         char arena[2048]{};
         detail::AsyncWorker<detail::Producer<64, 127, 1>, LinesSink<LogRecord<127>>> worker{};
-        NX_CHECK(worker.start(prod, 0ULL, arena, sizeof arena).has_value());
+        NX_CHECK(worker.start(prod, core::ThreadSpec{}, arena, sizeof arena).has_value());
         for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -2607,7 +2633,7 @@ void test_producer_edge_cases() {
         NX_CHECK(prod2.dropped().buffer_full == 0);
         char arena[2048]{};
         detail::AsyncWorker<detail::Producer<4, 128, 1>, LinesSink<LogRecord<128>>> worker{};
-        NX_CHECK(worker.start(prod2, 0ULL, arena, sizeof arena).has_value());
+        NX_CHECK(worker.start(prod2, core::ThreadSpec{}, arena, sizeof arena).has_value());
         for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -2627,7 +2653,7 @@ void test_producer_edge_cases() {
         prod3.emit(LogLevel::Info, "clean");
         char arena[2048]{};
         detail::AsyncWorker<detail::Producer<16, 128, 1>, LinesSink<LogRecord<128>>> worker{};
-        NX_CHECK(worker.start(prod3, 0ULL, arena, sizeof arena).has_value());
+        NX_CHECK(worker.start(prod3, core::ThreadSpec{}, arena, sizeof arena).has_value());
         for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -2646,7 +2672,7 @@ void test_producer_edge_cases() {
         prod4.emit(LogLevel::Info, "before flush 1");
         char arena[2048]{};
         detail::AsyncWorker<detail::Producer<16, 128, 1>, LinesSink<LogRecord<128>>> worker{};
-        NX_CHECK(worker.start(prod4, 0ULL, arena, sizeof arena).has_value());
+        NX_CHECK(worker.start(prod4, core::ThreadSpec{}, arena, sizeof arena).has_value());
         for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -3079,8 +3105,8 @@ void test_logging_settings_loader() {
         NX_CHECK(out.options.log_root_directory == "/tmp/opencode/global-logs");
         NX_CHECK(out.options.initial_log_level == LogLevel::Debug);
         NX_CHECK(out.options.max_file_size_bytes == 1234ULL);
-        NX_CHECK(out.options.flush_cpu_affinity ==
-                 std::vector<std::uint64_t>({1U, 3U}));
+        NX_CHECK(out.options.worker_thread.cpus() ==
+                 core::CpuSet::from_core_mask((1ULL << 1U) | (1ULL << 3U)));
         NX_CHECK(out.ring_capacity_set);
         NX_CHECK(!out.max_threads_set);
         NX_CHECK(out.message_capacity_set);
@@ -3097,8 +3123,8 @@ void test_logging_settings_loader() {
         NX_CHECK(load_logging_settings(core::SettingsPaths{global_path, local_path}, out)
                      .has_value());
         NX_CHECK(out.options.initial_log_level == LogLevel::Error);
-        NX_CHECK(out.options.flush_cpu_affinity ==
-                 std::vector<std::uint64_t>({0U, 2U, 3U}));
+        NX_CHECK(out.options.worker_thread.cpus() ==
+                 core::CpuSet::from_core_mask((1ULL << 0U) | (1ULL << 2U) | (1ULL << 3U)));
         NX_CHECK(out.options.message_capacity == 256U);
         NX_CHECK(out.message_capacity_set);
     }
@@ -3306,6 +3332,85 @@ long idle_wakeups(Logger& logger, const Config& cfg, int window_ms) {
 
 } // namespace
 
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+bool logger_fail_scheduler(nexigen::core::fault_injection::FaultPoint point) noexcept {
+    return point == nexigen::core::fault_injection::FaultPoint::Thread_set_scheduler;
+}
+#endif
+
+void test_logger_required_thread_failure() {
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    char base[512];
+    std::snprintf(base, sizeof base, "/tmp/opencode/nexigen-required-%d", ::getpid());
+
+    static FileLogger<128, 128> file_logger{};
+    FileLoggerConfig cfg{};
+    cfg.base_dir = base;
+    cfg.rotation.kind = RotationSchedule::None;
+    NX_CHECK(cfg.worker_thread.set_scheduler(core::SchedulingPolicy::FIFO, 1).has_value());
+    cfg.worker_thread.set_apply_mode(core::ThreadApplyMode::Required);
+    nexigen::core::fault_injection::set_fault_hook(logger_fail_scheduler);
+    const Status file_failed = file_logger.initialize(cfg);
+    nexigen::core::fault_injection::set_fault_hook(nullptr);
+    NX_CHECK(!file_failed.has_value());
+    NX_CHECK(file_failed.error() == ErrorCode::SystemError);
+    NX_CHECK(!file_logger.writer_started());
+    NX_CHECK(file_logger.flush().error() == ErrorCode::NotInitialized);
+
+    // The same object is safely reusable after the joined/reset failure.
+    cfg.worker_thread.clear_scheduler();
+    cfg.worker_thread.set_apply_mode(core::ThreadApplyMode::BestEffort);
+    NX_CHECK(file_logger.initialize(cfg).has_value());
+    for (int i = 0; i < 5000 && !file_logger.writer_started(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    NX_CHECK(file_logger.writer_started());
+    file_logger.info("after required rollback");
+    NX_CHECK(file_logger.flush().has_value());
+
+    // Best effort keeps the worker alive and exposes the partial application.
+    static FileLogger<128, 128> partial_logger{};
+    FileLoggerConfig partial_cfg = cfg;
+    partial_cfg.file_name = "partial.jsonl";
+    NX_CHECK(partial_cfg.worker_thread.set_scheduler(core::SchedulingPolicy::FIFO, 1).has_value());
+    partial_cfg.worker_thread.set_apply_mode(core::ThreadApplyMode::BestEffort);
+    nexigen::core::fault_injection::set_fault_hook(logger_fail_scheduler);
+    NX_CHECK(partial_logger.initialize(partial_cfg).has_value());
+    for (int i = 0; i < 5000 && !partial_logger.writer_started(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    nexigen::core::fault_injection::set_fault_hook(nullptr);
+    NX_CHECK(partial_logger.writer_started());
+    NX_CHECK(partial_logger.writer_start_code() == ErrorCode::SystemError);
+    NX_CHECK(partial_logger.writer_thread_report().failed() ==
+             core::ThreadApplyReport::scheduler_mask);
+    NX_CHECK(partial_logger.flush().has_value());
+
+    static ConsoleLogger<32, 128> console_logger{};
+    ConsoleLoggerConfig console_cfg{};
+    NX_CHECK(console_cfg.worker_thread.set_scheduler(core::SchedulingPolicy::FIFO, 1).has_value());
+    console_cfg.worker_thread.set_apply_mode(core::ThreadApplyMode::Required);
+    nexigen::core::fault_injection::set_fault_hook(logger_fail_scheduler);
+    const Status console_failed = console_logger.initialize(console_cfg);
+    nexigen::core::fault_injection::set_fault_hook(nullptr);
+    NX_CHECK(!console_failed.has_value());
+    NX_CHECK(console_failed.error() == ErrorCode::SystemError);
+    NX_CHECK(!console_logger.writer_started());
+    NX_CHECK(console_logger.flush().error() == ErrorCode::NotInitialized);
+
+    console_cfg.worker_thread.clear_scheduler();
+    console_cfg.worker_thread.set_apply_mode(core::ThreadApplyMode::BestEffort);
+    NX_CHECK(console_logger.initialize(console_cfg).has_value());
+    for (int i = 0; i < 5000 && !console_logger.writer_started(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    NX_CHECK(console_logger.writer_started());
+    NX_CHECK(console_logger.flush().has_value());
+#else
+    std::printf("logger_required_thread_failure: fault injection disabled; skipped\n");
+#endif
+}
+
 void test_worker_idle_tuning() {
     char base[512];
     std::snprintf(base, sizeof base, "/tmp/opencode/nexigen-idle-%d", ::getpid());
@@ -3357,13 +3462,85 @@ void test_worker_idle_tuning() {
     }
 }
 
+void test_logging_worker_thread_settings() {
+    const std::string global_path = unique_path("worker_thread_global");
+    const std::string local_path = unique_path("worker_thread_local");
+    EnvGuard affinity_env{"NEXIGEN_LOG_CPU_AFFINITY"};
+    affinity_env.clear();
+
+    // Legacy file affinity reaches FileLogger but does not implicitly pin Console.
+    write_text(global_path, R"({"flush_cpu_affinity":[1,3]})");
+    write_text(local_path, "{}");
+    {
+        Settings out{};
+        NX_CHECK(load_logging_settings({global_path, local_path}, out).has_value());
+        FileLoggerConfig file_cfg{};
+        ConsoleLoggerConfig console_cfg{};
+        NX_CHECK(apply_to(out, file_cfg).has_value());
+        NX_CHECK(apply_to(out, console_cfg).has_value());
+        NX_CHECK(file_cfg.worker_thread.cpus().contains(1U));
+        NX_CHECK(file_cfg.worker_thread.cpus().contains(3U));
+        NX_CHECK(console_cfg.worker_thread.cpus().empty());
+    }
+
+    // Canonical local fields override legacy placement while inheriting the
+    // global scheduler/name/mode. No FIFO/RR operation is performed here.
+    write_text(global_path,
+               R"({"flush_cpu_affinity":[1,3],)"
+               R"("worker_thread":{"name":"file-worker","policy":"rr",)"
+               R"("priority":40,"mode":"required"}})");
+    write_text(local_path, R"({"worker_thread":{"cpus":[64,65]}})");
+    Settings merged{};
+    NX_CHECK(load_logging_settings({global_path, local_path}, merged).has_value());
+    NX_CHECK(merged.options.worker_thread.name() == "file-worker");
+    NX_CHECK(merged.options.worker_thread.policy() == core::SchedulingPolicy::RR);
+    NX_CHECK(merged.options.worker_thread.priority() == 40);
+    NX_CHECK(merged.options.worker_thread.apply_mode() == core::ThreadApplyMode::Required);
+    NX_CHECK(merged.options.worker_thread.cpus().count() == 2U);
+    NX_CHECK(merged.options.worker_thread.cpus().contains(64U));
+    NX_CHECK(merged.options.worker_thread.cpus().contains(65U));
+    NX_CHECK(!merged.options.worker_thread.cpus().contains(1U));
+
+    FileLoggerConfig file_cfg{};
+    ConsoleLoggerConfig console_cfg{};
+    NX_CHECK(apply_to(merged, file_cfg).has_value());
+    NX_CHECK(apply_to(merged, console_cfg).has_value());
+    NX_CHECK(file_cfg.worker_thread == merged.options.worker_thread);
+    NX_CHECK(console_cfg.worker_thread == merged.options.worker_thread);
+
+    // Canonical empty CPUs explicitly clear the lower-priority pin.
+    write_text(local_path, R"({"worker_thread":{"cpus":[]}})");
+    NX_CHECK(load_logging_settings({global_path, local_path}, merged).has_value());
+    NX_CHECK(merged.options.worker_thread.cpus().empty());
+    NX_CHECK(merged.options.worker_thread.policy() == core::SchedulingPolicy::RR);
+
+    // The legacy environment override has higher source priority and changes
+    // only CPUs, preserving the remaining canonical attributes.
+    affinity_env.set("2,70");
+    NX_CHECK(load_logging_settings({global_path, local_path}, merged).has_value());
+    NX_CHECK(merged.options.worker_thread.cpus().contains(2U));
+    NX_CHECK(merged.options.worker_thread.cpus().contains(70U));
+    NX_CHECK(merged.options.worker_thread.cpus().count() == 2U);
+    NX_CHECK(merged.options.worker_thread.name() == "file-worker");
+    affinity_env.clear();
+
+    // Duplicate IDs and invalid scheduling are diagnostics, never truncation.
+    write_text(local_path, R"({"worker_thread":{"cpus":[64,64]}})");
+    NX_CHECK(!load_logging_settings({global_path, local_path}, merged).has_value());
+    write_text(local_path, R"({"worker_thread":{"policy":"fifo","priority":0}})");
+    NX_CHECK(!load_logging_settings({global_path, local_path}, merged).has_value());
+
+    static_cast<void>(std::remove(global_path.c_str()));
+    static_cast<void>(std::remove(local_path.c_str()));
+}
+
 // --- apply/capacity (spec: merged settings apply, explicit limits only).
 void test_logging_settings_apply() {
     Settings settings{};
     settings.options.initial_log_level = LogLevel::Warning;
     settings.options.log_root_directory = "/var/log/hil";
     settings.options.max_file_size_bytes = 4096ULL;
-    settings.options.flush_cpu_affinity = {1ULL, 3ULL};
+    settings.options.worker_thread.set_cpus(core::CpuSet::from_core_mask((1ULL << 1U) | (1ULL << 3U)));
     settings.options.spam_protection.max_messages_per_sec_per_shard = 500U;
     settings.options.worker_poll_interval_us = 5000U;
 
@@ -3373,14 +3550,14 @@ void test_logging_settings_apply() {
     NX_CHECK(cfg.base_dir == "/var/log/hil");
     NX_CHECK(cfg.initial_level == LogLevel::Warning);
     NX_CHECK(cfg.max_file_size_bytes == 4096ULL);
-    NX_CHECK(cfg.core_mask == ((1ULL << 1U) | (1ULL << 3U)));
+    NX_CHECK(cfg.worker_thread.cpus() == core::CpuSet::from_core_mask((1ULL << 1U) | (1ULL << 3U)));
     NX_CHECK(cfg.throttle.enabled);
     NX_CHECK(cfg.throttle.max_records_per_window == 500ULL);
     NX_CHECK(cfg.throttle.window_ns == 1'000'000'000ULL);
 
-    settings.options.flush_cpu_affinity.clear();
+    settings.options.worker_thread.set_cpus(core::CpuSet{});
     NX_CHECK(apply_to(settings, cfg).has_value());
-    NX_CHECK(cfg.core_mask == 0ULL);
+    NX_CHECK(cfg.worker_thread.cpus().empty());
 
     ConsoleLogger<>::Config console_cfg{};
     NX_CHECK(apply_to(settings, console_cfg).has_value());
@@ -3622,7 +3799,7 @@ void test_logging_settings_full_coverage() {
         NX_CHECK(out.options.spsc_ring_buffer_capacity == 64U);
         NX_CHECK(out.options.max_producer_threads == 8U);
         NX_CHECK(out.options.overflow_policy == OverflowPolicy::OverwriteOldest);
-        NX_CHECK(out.options.flush_cpu_affinity == std::vector<std::uint64_t>({0U, 63U}));
+        NX_CHECK(out.options.worker_thread.cpus() == core::CpuSet::from_core_mask((1ULL << 0U) | (1ULL << 63U)));
         NX_CHECK(out.options.worker_poll_interval_us == 250U);
         NX_CHECK(out.options.sync_flush_on_critical == false);
         NX_CHECK(out.options.spam_protection.enable_repeat_suppression == false);
@@ -3653,7 +3830,7 @@ void test_logging_settings_full_coverage() {
     // quota keys from change fix-p2-observability-and-writers no longer
     // produce diagnostics — they are not part of the surface).
     write_text(local_path,
-               R"({"flush_cpu_affinity":[1,64],"spam_protection":{)"
+               R"({"flush_cpu_affinity":[1,1024],"spam_protection":{)"
                R"("enable_repeat_suppression":1,"repeat_suppression_window_ms":"x",)"
                R"("max_messages_per_sec_per_shard":"x",)"
                R"("bypass_min_level":"chatty"}})");
@@ -3707,7 +3884,7 @@ void test_logging_settings_full_coverage() {
 
     // Affinity grammar: invalid tokens fail, valid list expands.
     const std::array<std::string_view, 8> invalid_affinity{
-        "", ",", "1-", "-2", "3-1", "64", "1,,2", " 1"};
+        "", ",", "1-", "-2", "3-1", "1024", "1,,2", " 1"};
     for (const std::string_view token : invalid_affinity) {
         affinity_env.set(std::string(token).c_str());
         Settings out{};
@@ -3722,9 +3899,9 @@ void test_logging_settings_full_coverage() {
     {
         Settings out{};
         NX_CHECK(load_logging_settings({global_path, ""}, out).has_value());
-        NX_CHECK(out.options.flush_cpu_affinity.size() == 64U);
-        NX_CHECK(out.options.flush_cpu_affinity.front() == 0U);
-        NX_CHECK(out.options.flush_cpu_affinity.back() == 63U);
+        NX_CHECK(out.options.worker_thread.cpus().count() == 64U);
+        NX_CHECK(out.options.worker_thread.cpus().contains(0U));
+        NX_CHECK(out.options.worker_thread.cpus().contains(63U));
     }
     affinity_env.clear();
 
@@ -3781,9 +3958,11 @@ int main()
     run_suite("settings_vocabulary", test_settings_vocabulary);
     run_suite("logging_settings_loader", test_logging_settings_loader);
     run_suite("logging_settings_apply", test_logging_settings_apply);
+    run_suite("logging_worker_thread_settings", test_logging_worker_thread_settings);
     run_suite("file_size_rotation", test_file_size_rotation);
     run_suite("settings_full_coverage", test_logging_settings_full_coverage);
     run_suite("worker_idle_tuning", test_worker_idle_tuning);
+    run_suite("logger_required_thread_failure", test_logger_required_thread_failure);
     run_suite("spam_protection", test_spam_protection);
     run_suite("spam_config_race", test_spam_config_race);
     run_suite("shutdown_drain_race", test_shutdown_drain_race);

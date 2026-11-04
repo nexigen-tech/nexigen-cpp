@@ -81,20 +81,24 @@ std::uint64_t ChronoProvider::worker_mask() const noexcept {
 
 std::string ChronoProvider::to_string() const {
     return std::format("ChronoProvider(collect_interval_ns={}, "
-                       "core_mask=0x{:x}, worker_mask=0x{:x})",
-                       config_.collect_interval.count(), config_.core_mask,
+                       "worker_thread={}, worker_mask=0x{:x})",
+                       config_.collect_interval.count(), config_.worker_thread.to_string(),
                        worker_mask());
 }
 
 void ChronoProvider::snapshot_loop(std::stop_token stop) noexcept {
-    // Pin this thread before the first snapshot: the worker must not preempt
-    // the real-time threads.
-    if (config_.core_mask != 0U) {
-        const core::Status pinned = detail::pin_self(config_.core_mask);
-        if (!pinned) {
-            startup_error_.store(pinned.error(), std::memory_order_release);
-            log(ClockLogLevel::warning, "chrono worker: affinity pin failed");
-        }
+    // Apply copied worker attributes before the first snapshot. Required
+    // failure publishes and returns before the fixed-rate loop; BestEffort
+    // publishes the partial state and continues.
+    const core::Status attributes =
+        core::apply_thread_spec_self(config_.worker_thread, worker_thread_report_);
+    startup_error_.store(worker_thread_report_.first_error(), std::memory_order_relaxed);
+    startup_published_.store(true, std::memory_order_release);
+    if (!attributes && config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
+        return;
+    }
+    if (worker_thread_report_.first_error() != core::ErrorCode::Ok) {
+        log(ClockLogLevel::warning, "chrono worker: thread attribute application failed");
     }
     std::uint64_t mask = 0;
     if (detail::self_affinity(mask)) {
@@ -128,8 +132,8 @@ void ChronoProvider::snapshot_loop(std::stop_token stop) noexcept {
 
 std::string ChronoProviderConfig::to_string() const {
     return std::format("ChronoProviderConfig(collect_interval_ns={}, "
-                       "core_mask=0x{:x})",
-                       collect_interval.count(), core_mask);
+                       "worker_thread={})",
+                       collect_interval.count(), worker_thread.to_string());
 }
 
 std::string to_string(const ChronoProviderConfig& config) { return config.to_string(); }
@@ -137,7 +141,7 @@ std::string to_string(const ChronoProviderConfig& config) { return config.to_str
 void to_json(nlohmann::json& j, const ChronoProviderConfig& config) {
     j = nlohmann::json{
         {"collect_interval_ns", config.collect_interval.count()},
-        {"core_mask", config.core_mask},
+        {"worker_thread", config.worker_thread},
     };
 }
 
@@ -154,7 +158,11 @@ void from_json(const nlohmann::json& j, ChronoProviderConfig& out) noexcept {
     }
     const auto mask_it = j.find("core_mask");
     if (mask_it != j.end() && mask_it->is_number_unsigned()) {
-        out.core_mask = mask_it->get<std::uint64_t>();
+        out.worker_thread.set_cpus(core::CpuSet::from_core_mask(mask_it->get<std::uint64_t>()));
+    }
+    const auto worker_it = j.find("worker_thread");
+    if (worker_it != j.end()) {
+        static_cast<void>(core::parse_thread_spec_json(*worker_it, out.worker_thread));
     }
 }
 

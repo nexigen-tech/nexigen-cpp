@@ -185,11 +185,18 @@ Header-only, C++23, no exceptions/RTTI, no heap allocation on hot paths. Link th
 * **`<nexigen/core/sink_io.hpp>`** — `core::sink_io::open_output`/`write_all`/`fsync_fd`,
   the one cold-path file-descriptor path for the JSON/Chrome file sinks
   (EINTR/partial-write retry, close-on-exec, mode 0644, append-vs-truncate parity).
+* **`<nexigen/core/thread_management.hpp>`** — `CpuSet` (fixed 1024-CPU inline
+  value with legacy mask/vector conversion), `ThreadSpec` (name, CPUs,
+  Other/FIFO/RR policy and priority, best-effort/required application), and the
+  cold serialization vocabulary. Defaults preserve inherited attributes; no hot-path
+  storage or allocation is involved. `apply_thread_spec_self` applies a copied spec
+  on the calling worker before its main loop and returns a serializable
+  `ThreadApplyReport`; required failures roll back, best-effort failures remain visible.
 * **`<nexigen/core/affinity.hpp>`** — `core::affinity::pin_self`/`self_affinity`, the
-  one uint64-core-mask thread-affinity surface for all observability modules
+  compatibility uint64-core-mask thread-affinity surface for observability modules
   (calling-thread-only semantics: pin the worker as its first act; zero mask →
-  `InvalidArgument`; cold-path, allocation-free; runner's validated CPU-list API
-  remains in `runner`).
+  `InvalidArgument`; cold-path, allocation-free). CPU conversion delegates to the
+  shared `thread_management.hpp` machinery.
 
 **Serialization contract (all modules):** every public type exposes a cold-path
 `std::string to_string() const` + free `to_string(const T&)`; every enum class exposes
@@ -309,7 +316,7 @@ implicit source-location capture, and `flush() -> Status`). Link `nexigen::loggi
   stderr, via raw `::write` (never `std::cout`/`printf`, which allocate). The consumer renders
   each deferred pack into a pre-allocated line scratch.
 * **`<nexigen/logging/file_logger.hpp>`** — `FileLogger<Shard_capacity = 128, Message_capacity = 128, Max_threads = 32>`:
-  asynchronous wait-free JSON-lines writer with a CPU-pinned worker (`core_mask`), lock-free
+  asynchronous wait-free JSON-lines writer with a configurable worker (`worker_thread`), lock-free
   windowed throttling with per-cause drop counters and automatic drop-summary records, and
   hitch-free Hourly/Daily/Custom directory rotation (`Rotation_schedule` carries the full
   enum vocabulary: `to_string`/`from_string`/JSON/`std::formatter`). `max_file_size_bytes`
@@ -374,7 +381,7 @@ int main() {
     file_cfg.file_name = "sim.jsonl";
     file_cfg.initial_level = LogLevel::Info;
     file_cfg.rotation.kind = Rotation_schedule::Hourly;
-    file_cfg.core_mask = 0x1ULL; // pin the JSON writer thread to core 0
+    file_cfg.worker_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(0x1ULL));
 
     if (!app.get<ConsoleLogger<>>().initialize({}).has_value()) { return 1; }
     if (!app.get<FileLogger<>>().initialize(file_cfg).has_value()) { return 1; }
@@ -496,7 +503,27 @@ Environment overrides: `NEXIGEN_LOG_LEVEL`, `NEXIGEN_LOG_DIR`, `NEXIGEN_LOG_APP_
 `NEXIGEN_LOG_MAX_FILE_SIZE_BYTES`, `NEXIGEN_LOG_CPU_AFFINITY` (`0,2-3`),
 `NEXIGEN_LOG_RING_CAPACITY`, `NEXIGEN_LOG_MAX_PRODUCER_THREADS`,
 `NEXIGEN_LOG_OVERFLOW_POLICY`. Invalid values become diagnostics and leave the previous
-value intact; missing files are not errors. Explicitly configured
+value intact; missing files are not errors. The canonical worker object supports every
+attribute, including CPUs above 63; legacy `core_mask`/`flush_cpu_affinity` and
+`NEXIGEN_LOG_CPU_AFFINITY` remain compatibility inputs. Within one source canonical
+fields override legacy affinity, while the environment retains the highest priority:
+
+```json
+{
+  "worker_thread": {
+    "name": "file-writer",
+    "cpus": [2, 64],
+    "policy": "rr",
+    "priority": 40,
+    "mode": "required"
+  }
+}
+```
+
+`mode` is `best_effort` by default: failures are reported without stopping the worker.
+`required` aborts logger initialization and rolls back the worker. Empty `cpus` preserves
+inherited placement. Console uses only canonical worker attributes and never inherits the
+legacy file-only affinity. Explicitly configured
 `spsc_ring_buffer_capacity`/`max_producer_threads` are checked against the logger's
 compile-time limits; defaults are never checked. `sync_flush_on_critical`,
 `overflow_policy`, and the repeat-suppression/byte-budget part of `SpamProtectionConfig`
@@ -552,7 +579,7 @@ transitively — and include what you use. Deep dive with copy-paste recipes:
   each returning `core::Result<T*>` valid until the provider is destroyed. All
   storage is pre-allocated at construction (one aligned block; zero allocation
   during creation and harvesting). `MetricProvider_config` carries
-  `collect_interval` (ns; `0` disables the background thread), `core_mask`
+  `collect_interval` (ns; `0` disables the background thread), `worker_thread`
   (0 = inherit; the harvester pins itself with `pthread_setaffinity_np`) and the
   per-kind capacities. Control plane: `collect_now()`, `flush()`,
   `startup_status()`.
@@ -634,7 +661,7 @@ brings `nexigen_core` and `nexigen_chrono` transitively.
 * **`<nexigen/tracing/tracer_provider.hpp>`** — the factory root and owner of the
   whole footprint (`~10 MiB` with the defaults — keep it in static or heap
   storage, never on the stack). `TracerProvider<ShardCapacity = 1024,
-  Max_threads = 32>` takes a `TracerProvider_config` (`core_mask`,
+  Max_threads = 32>` takes a `TracerProvider_config` (`worker_thread`,
   `max_tracers`, optional span-rate window) and a sink; `get_tracer(scope)` is
   the only way to obtain a `Tracer`.
 * **`<nexigen/tracing/tracer.hpp>`, `<nexigen/tracing/scoped_span.hpp>`** —
@@ -1087,7 +1114,7 @@ does this for you):
   an `ExponentialHistogram` with automatic base-2 mapping across wide dynamic ranges;
   reports `count`/`sum`/`min`/`max` and `p50`/`p90`/`p99`/`p99.9` for both.
 * **`ex_metric_provider_and_sinks`** — an end-to-end HIL telemetry pipeline: a
-  `MetricProvider` with a 50 ms `collect_interval` and a CPU `core_mask` pinning the
+  `MetricProvider` with a 50 ms `collect_interval` and a CPU `worker_thread` pinning the
   background harvester, a `CompositeMetricSink<ConsoleMetricSink, JsonFileMetricSink,
   NullMetricSink>` over configured members, concurrent producers across every instrument
   kind, and cold-path read-back verification of the JSONL batches written to

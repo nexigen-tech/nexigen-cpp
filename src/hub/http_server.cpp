@@ -240,7 +240,7 @@ struct HttpServer::Impl {
             }
             bind_address_.in6.sin6_family = AF_INET6;
             bind_address_.in6.sin6_port = htons(requested_port);
-            if (core::detail::fault(core::detail::FaultPoint::Hub_socket)) {
+            if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_socket)) {
                 return std::unexpected(core::ErrorCode::SystemError);
             }
             listen_fd = ::socket(AF_INET6,
@@ -256,7 +256,7 @@ struct HttpServer::Impl {
             static_cast<void>(::setsockopt(listen_fd, SOL_SOCKET,
                                            SO_REUSEADDR, &enabled,
                                            sizeof(enabled)));
-            if (core::detail::fault(core::detail::FaultPoint::Hub_bind) ||
+            if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_bind) ||
                 ::bind(listen_fd,
                        reinterpret_cast<sockaddr*>(&bind_address_.in6),
                        sizeof(bind_address_.in6)) != 0 ||
@@ -271,7 +271,7 @@ struct HttpServer::Impl {
                 return std::unexpected(core::ErrorCode::InvalidArgument);
             }
 
-            if (core::detail::fault(core::detail::FaultPoint::Hub_socket)) {
+            if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_socket)) {
                 return std::unexpected(core::ErrorCode::SystemError);
             }
             listen_fd = ::socket(AF_INET,
@@ -284,7 +284,7 @@ struct HttpServer::Impl {
             static_cast<void>(::setsockopt(listen_fd, SOL_SOCKET,
                                            SO_REUSEADDR, &enabled,
                                            sizeof(enabled)));
-            if (core::detail::fault(core::detail::FaultPoint::Hub_bind) ||
+            if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_bind) ||
                 ::bind(listen_fd, reinterpret_cast<sockaddr*>(&address),
                        sizeof(address)) != 0 ||
                 ::listen(listen_fd, 128) != 0) {
@@ -304,10 +304,10 @@ struct HttpServer::Impl {
             }
         }
 
-        epoll_fd = core::detail::fault(core::detail::FaultPoint::Hub_epoll)
+        epoll_fd = core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_epoll)
                        ? -1
                        : ::epoll_create1(EPOLL_CLOEXEC);
-        event_fd = core::detail::fault(core::detail::FaultPoint::Hub_eventfd)
+        event_fd = core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_eventfd)
                        ? -1
                        : ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
         if (epoll_fd < 0 || event_fd < 0) {

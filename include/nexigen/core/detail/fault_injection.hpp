@@ -8,7 +8,7 @@
 
 #include <cstdint>
 
-namespace nexigen::core::detail {
+namespace nexigen::core::fault_injection {
 
 enum class FaultPoint : std::uint8_t {
     Runner_pipe2,
@@ -18,6 +18,13 @@ enum class FaultPoint : std::uint8_t {
     Hub_bind,
     Hub_epoll,
     Hub_eventfd,
+    Thread_set_name,
+    Thread_set_affinity,
+    Thread_set_scheduler,
+    Thread_snapshot,
+    Thread_restore_name,
+    Thread_restore_affinity,
+    Thread_restore_scheduler,
 };
 
 #if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
@@ -46,4 +53,4 @@ inline void set_fault_hook(FaultHook) noexcept {}
 
 #endif
 
-} // namespace nexigen::core::detail
+} // namespace nexigen::core::fault_injection
