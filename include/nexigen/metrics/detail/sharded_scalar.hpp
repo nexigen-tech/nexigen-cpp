@@ -61,6 +61,22 @@ public:
         return total;
     }
 
+    /// Control-plane reassignment (gauge `set`, spec counter-gauge "set
+    /// moving the aggregate to the target value as observed at call
+    /// time"): shard 0 takes the whole target value, every other shard —
+    /// including the shared fallback cell — is zeroed. A racing `add` on
+    /// another shard lands either before that shard's store (then it is
+    /// folded into the reassigned aggregate) or after (then it shows on
+    /// top of the target) — no check-then-act delta that a concurrent
+    /// writer could make stale. `set` stays a bounded control-plane pass;
+    /// the hot `add` path keeps its relaxed `fetch_add` untouched.
+    void assign(ValueType value) noexcept {
+        shards_[0].value.store(value, std::memory_order_relaxed);
+        for (std::size_t i = 1; i < shard_count; ++i) {
+            shards_[i].value.store(ValueType{}, std::memory_order_relaxed);
+        }
+    }
+
 private:
     mutable ScalarShard<ValueType> shards_[shard_count]{};
 };

@@ -79,15 +79,7 @@ inline void from_json(const nlohmann::json& j, StopwatchState& out) noexcept {
 /// parse and fill/align handled by the string_view formatter; context
 /// templated because libstdc++ 15 evaluates formattability against a
 /// substituted context.
-template <>
-struct std::formatter<nexigen::diagnostics::StopwatchState>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::diagnostics::StopwatchState state, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(
-            nexigen::diagnostics::to_string(state), ctx);
-    }
-};
+
 
 namespace nexigen::diagnostics {
 

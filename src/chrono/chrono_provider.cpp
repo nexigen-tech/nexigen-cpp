@@ -80,10 +80,10 @@ std::uint64_t ChronoProvider::worker_mask() const noexcept {
 }
 
 std::string ChronoProvider::to_string() const {
-    return "ChronoProvider(collect_interval_ns=" +
-           std::to_string(config_.collect_interval.count()) +
-           ", core_mask=0x" + std::to_string(config_.core_mask) +
-           ", worker_mask=0x" + std::to_string(worker_mask()) + ")";
+    return std::format("ChronoProvider(collect_interval_ns={}, "
+                       "core_mask=0x{:x}, worker_mask=0x{:x})",
+                       config_.collect_interval.count(), config_.core_mask,
+                       worker_mask());
 }
 
 void ChronoProvider::snapshot_loop(std::stop_token stop) noexcept {
@@ -127,9 +127,9 @@ void ChronoProvider::snapshot_loop(std::stop_token stop) noexcept {
 // --- ChronoProviderConfig serialization (cold path).
 
 std::string ChronoProviderConfig::to_string() const {
-    return "ChronoProviderConfig(collect_interval_ns=" +
-           std::to_string(collect_interval.count()) +
-           ", core_mask=0x" + std::to_string(core_mask) + ")";
+    return std::format("ChronoProviderConfig(collect_interval_ns={}, "
+                       "core_mask=0x{:x})",
+                       collect_interval.count(), core_mask);
 }
 
 std::string to_string(const ChronoProviderConfig& config) { return config.to_string(); }

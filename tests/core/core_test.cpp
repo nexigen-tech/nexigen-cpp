@@ -6,21 +6,37 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <expected>
 #include <format>
+#include <memory>
 #include <new>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <type_traits>
 #include <utility>
+#include <vector>
+
+#include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/serialization_mandate.hpp>
 #include <nexigen/core/settings_vocabulary.hpp>
+#include <nexigen/core/shard_pool.hpp>
+#include <nexigen/core/affinity.hpp>
+#include <nexigen/core/sink_io.hpp>
+#include <nexigen/core/sink_pack.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
 
 // Build wiring proof (task 1.1): every consumer TU must see JSON_NOEXCEPTION=1
@@ -51,6 +67,48 @@ static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::Conflict) == 7
 // Alias identity: Result's default error type IS ErrorCode; Status is the void form.
 static_assert(std::is_same_v<nexigen::core::Result<int>, std::expected<int, nexigen::core::ErrorCode>>);
 static_assert(std::is_same_v<nexigen::core::Status, std::expected<void, nexigen::core::ErrorCode>>);
+
+// --- serialization mandate machinery (change refactor-serialization-
+// mandate, P3-28): a NEW enum + struct reach std::format / to_json /
+// from_json / free to_string with ZERO per-type boilerplate beyond the
+// canonical vocabulary (to_string / from_string / member to_string).
+// The demo types live under nexigen so the generic ADL machinery in
+// nexigen:: is reachable exactly as it will be for real types.
+namespace nexigen {
+namespace mandate_demo {
+
+enum class DemoMode { Idle, Active };
+[[nodiscard]] constexpr std::string_view to_string(DemoMode v) noexcept {
+    return v == DemoMode::Idle ? "idle" : "active";
+}
+[[nodiscard]] constexpr bool from_string(std::string_view name, DemoMode& out) noexcept {
+    if (name == "idle")   { out = DemoMode::Idle;   return true; }
+    if (name == "active") { out = DemoMode::Active; return true; }
+    return false;
+}
+
+struct DemoTag {
+    std::string label{};
+    [[nodiscard]] std::string to_string() const { return "tag(" + label + ")"; }
+};
+
+/// Per-enum JSON pair for the demo scope (change refactor-serialization-
+/// mandate D2 note: enum ADL reaches only the immediate namespace, so each
+/// namespace that owns enums keeps a pair — here one for the demo enum).
+inline void to_json(nlohmann::json& j, const DemoMode value) {
+    j = std::string(to_string(value));
+}
+inline void from_json(const nlohmann::json& j, DemoMode& value) noexcept {
+    if (const auto* const name = j.get_ptr<const nlohmann::json::string_t*>()) {
+        static_cast<void>(from_string(std::string_view(*name), value));
+    }
+}
+
+} // namespace mandate_demo
+} // namespace nexigen
+
+static_assert(nexigen::core::mandate::MandateToString<nexigen::mandate_demo::DemoMode>);
+static_assert(nexigen::core::mandate::MandateToString<nexigen::mandate_demo::DemoTag>);
 
 // --- Compile-time claims (design.md D3/D4): queue layout + capacity predicate.
 static_assert(alignof(nexigen::core::SpscRingBuffer<std::uint64_t, 8>) == 64);
@@ -453,6 +511,25 @@ void test_json_smoke() {
     NX_CHECK(j["answer"].is_number_integer());
     NX_CHECK(j["answer"].get<int>() == 42);
     NX_CHECK(j["answer"].get_ptr<const std::string*>() == nullptr); // wrong type: nullptr, no abort
+
+    // Serialization mandate machinery (change refactor-serialization-
+    // mandate, P3-28): the generic formatter + generic JSON pair serve a
+    // brand-new enum and struct without per-type boilerplate. Calls are
+    // qualified from this GLOBAL test scope (the enclosing-namespace walk
+    // that reaches nexigen:: is a property of nexigen::<module> scopes;
+    // module-level tests inside nexigen::<module> call these unqualified).
+    NX_CHECK(nexigen::to_string(nexigen::mandate_demo::DemoMode::Active) == "active");
+    NX_CHECK(nexigen::to_string(nexigen::mandate_demo::DemoTag{"x"}) == "tag(x)");
+    NX_CHECK(std::format("{}", nexigen::mandate_demo::DemoMode::Idle) == "idle");
+    NX_CHECK(std::format("{}", nexigen::mandate_demo::DemoTag{"x"}) == "tag(x)");
+    // JSON pairs carry per-enum (ADL for enums reaches only the immediate
+    // namespace — the analysis #28 discovery recorded in design D2).
+    nlohmann::json mode;
+    nexigen::mandate_demo::to_json(mode, nexigen::mandate_demo::DemoMode::Active);
+    NX_CHECK(mode.is_string() && mode.get<std::string>() == "active");
+    nexigen::mandate_demo::DemoMode back{nexigen::mandate_demo::DemoMode::Idle};
+    nexigen::mandate_demo::from_json(mode, back);
+    NX_CHECK(back == nexigen::mandate_demo::DemoMode::Active);
 }
 
 void test_error_code_vocabulary() {
@@ -649,6 +726,487 @@ void test_ring_to_string() {
     NX_CHECK(sink < (1ULL << 63U)); // drained value observed post-join
 }
 
+// --- ShardPool TLS-cache bounds (change fix-p1-races-process-correctness,
+// spec logging/multi-producer "Thread-local slot registration", scenario
+// "TLS cache exhaustion drops without burning registration slots"):
+// 8 distinct pools per thread are cached wait-free; a ninth pool takes the
+// counted slot_exhausted drop WITHOUT advancing the registration counter per
+// record (analysis #10: the old size-4 map burned one global slot per emit).
+void test_shard_pool_tls_cache() {
+    using Pool = nexigen::core::ShardPool<std::uint64_t, 8, 16>;
+    std::vector<std::unique_ptr<Pool>> pools;
+    pools.reserve(9);
+    std::vector<std::int32_t> first_slots{};
+    for (std::size_t i = 0; i < 8; ++i) {
+        pools.push_back(std::make_unique<Pool>());
+        const std::int32_t slot = pools.back()->claim_slot();
+        NX_CHECK(slot >= 0);
+        first_slots.push_back(slot);
+    }
+    // Cached steady path: every later call on a cached pool returns the
+    // same slot (thread-local map hit; no shared atomic touched). Slots are
+    // per-pool numbers, so cross-pool equality is expected and irrelevant.
+    bool steady_ok = true;
+    bool whole_values = true;
+    for (std::size_t i = 0; i < 8; ++i) {
+        if (pools[i]->claim_slot() != first_slots[i]) {
+            steady_ok = false;
+        }
+        if (first_slots[i] < 0) {
+            whole_values = false;
+        }
+    }
+    NX_CHECK(steady_ok);
+    NX_CHECK(whole_values);
+
+    // Ninth pool: TLS map full → counted drop (its own counter, fresh 0→1).
+    pools.push_back(std::make_unique<Pool>());
+    NX_CHECK(pools.back()->claim_slot() == -1);
+    NX_CHECK(pools.back()->slot_exhausted() == 1);
+
+    // The critical regression probe: repeated overflow edges (the old
+    // per-record burn path) must NOT advance this pool's registration
+    // high-water mark — it stays 0 while every edge is counted.
+    std::size_t counted_edges = 0;
+    for (std::size_t i = 0; i < 100; ++i) {
+        if (pools.back()->claim_slot() == -1) {
+            ++counted_edges;
+        }
+    }
+    NX_CHECK(counted_edges == 100);
+    NX_CHECK(pools.back()->slot_exhausted() == 101);
+    NX_CHECK(pools.back()->active() == 0);
+
+    // A second thread claiming the same pool takes the NEXT registration
+    // slot of that pool (fetch_add after this thread's first claim) — TSan
+    // must not see any race on the pool machinery. The claim result is read
+    // only after an explicit join (happens-before edge).
+    const std::int32_t observed = [&] {
+        std::int32_t thread_slot = -2;
+        std::jthread claimer([&] {
+            thread_slot = pools.front()->claim_slot();
+        });
+        claimer.join();
+        return thread_slot;
+    }();
+    NX_CHECK(observed == first_slots[0] + 1);
+}
+
+// --- sink_pack suite (dedup-sink-plumbing): the variadic fan-out member
+// pack that composite sinks inherit. Runtime probes via NX_CHECK plus
+// compile-time contract probes via static_assert.
+
+struct FanoutStubAlpha {
+    std::size_t visit{};
+};
+struct FanoutStubBeta {
+    std::size_t visit{};
+};
+struct FanoutStubGamma {
+    std::size_t visit{};
+};
+
+// Non-default-constructible, move-only member (the injection-ctor probe).
+struct FanoutConfiguredSink {
+    int configured{0};
+    int moved_from_marker{0};
+    explicit FanoutConfiguredSink(int value) noexcept : configured(value) {}
+    FanoutConfiguredSink(FanoutConfiguredSink&& other) noexcept
+        : configured(other.configured), moved_from_marker(1) {
+        other.configured = -1;
+    }
+    FanoutConfiguredSink(const FanoutConfiguredSink&) = delete;
+    FanoutConfiguredSink& operator=(const FanoutConfiguredSink&) = delete;
+    FanoutConfiguredSink& operator=(FanoutConfiguredSink&&) = delete;
+};
+
+// Unit probe: a test-only consumer mirroring how real composite sinks
+// consume the pack — public inheritance plus public re-exposure of the
+// protected iteration surface (the same widening idiom diagnostics use).
+template <class... Sinks>
+struct FanoutProbe final : nexigen::core::sink_pack::Fanout<Sinks...> {
+    using nexigen::core::sink_pack::Fanout<Sinks...>::Fanout;
+    using nexigen::core::sink_pack::Fanout<Sinks...>::for_each;
+};
+
+using FanoutABC = FanoutProbe<FanoutStubAlpha, FanoutStubBeta, FanoutStubGamma>;
+
+void test_sink_pack() {
+    // Reference identity: index access and type access return the same member.
+    FanoutABC pack{};
+    NX_CHECK(&pack.template get<0>() == &pack.get<FanoutStubAlpha>());
+    NX_CHECK(&pack.template get<1>() == &pack.get<FanoutStubBeta>());
+    NX_CHECK(&pack.template get<2>() == &pack.get<FanoutStubGamma>());
+    static_assert(FanoutABC::size == 3, "fan-out size must be the pack length");
+
+    // Const surface: same identity, const references returned.
+    const FanoutABC& const_pack = pack;
+    NX_CHECK(&const_pack.template get<0>() == &const_pack.get<FanoutStubAlpha>());
+
+    // Pack-order iteration: the comma-fold visits index 0 first, each member
+    // exactly once ([expr.fold] guarantees left-to-right sequencing).
+    std::size_t order = 0;
+    pack.for_each([&order](auto& member) { member.visit = order++; });
+    NX_CHECK(pack.get<FanoutStubAlpha>().visit == 0);
+    NX_CHECK(pack.get<FanoutStubBeta>().visit == 1);
+    NX_CHECK(pack.get<FanoutStubGamma>().visit == 2);
+
+    // Empty pack: iterable zero times, size 0, default-constructible.
+    FanoutProbe<> empty{};
+    static_assert(nexigen::core::sink_pack::Fanout<>::size == 0);
+    bool visited_empty = false;
+    empty.for_each([&visited_empty](auto&) { visited_empty = true; });
+    NX_CHECK(visited_empty == false);
+
+    // combine(): first failure wins; a later success never masks it;
+    // ok+ok stays ok.
+    const nexigen::core::Status ok{};
+    const nexigen::core::Status failing_x{std::unexpected(nexigen::core::ErrorCode::BufferFull)};
+    const nexigen::core::Status failing_y{std::unexpected(nexigen::core::ErrorCode::SystemError)};
+    NX_CHECK(nexigen::core::sink_pack::combine(nexigen::core::sink_pack::combine(ok, failing_x), failing_y)
+                 == failing_x);
+    NX_CHECK(nexigen::core::sink_pack::combine(ok, ok).has_value());
+    NX_CHECK(!nexigen::core::sink_pack::combine(failing_x, ok).has_value());
+    NX_CHECK((nexigen::core::sink_pack::combine(failing_x, ok).error() == nexigen::core::ErrorCode::BufferFull));
+
+    // Member injection: a non-default-constructible, move-only configured
+    // sink is moved into the tuple and keeps its state.
+    FanoutProbe<FanoutConfiguredSink> configured_pack{FanoutConfiguredSink{77}};
+    NX_CHECK(configured_pack.get<FanoutConfiguredSink>().configured == 77);
+    NX_CHECK(configured_pack.get<0>().configured == 77);
+    NX_CHECK(configured_pack.get<FanoutConfiguredSink>().moved_from_marker == 1);
+
+    // Compile-time contract probes (declaration-level facts that CAN be
+    // probed statically). The negative access case (absent/duplicate type,
+    // out-of-range index) is additionally enforced in CI by an automated
+    // negative-compile probe — body static_asserts are not reachable through
+    // requires-expressions (the declaration substitutes cleanly), so the
+    // recipe style of tests/logging/logging_test.cpp:97 and
+    // tests/tracing/tracing_test.cpp:1220 graduated into a real CTest entry:
+    //
+    //   ctest -R nexigen_sink_pack_negative_compile
+    //
+    // driven by tests/core/negative_compile.sh over
+    // tests/core/neg/sink_pack_negative.cpp (expected: "static assertion
+    // failed" hits — duplicated type, absent type, index beyond the pack).
+    // The script fails the suite if the probe TU ever compiles.
+
+
+    // Default-constructibility gate (declaration-level requires-clauses are
+    // probeable statically): the pack forbids default construction when any
+    // member is non-default-constructible ...
+    static_assert(!std::is_default_constructible_v<nexigen::core::sink_pack::Fanout<FanoutConfiguredSink>>);
+    // ... and keeps it for all-default-constructible packs (the empty pack
+    // included, so the "empty composite satisfies the sink contract" gate
+    // keeps holding).
+    static_assert(std::is_default_constructible_v<nexigen::core::sink_pack::Fanout<
+                      FanoutStubAlpha, FanoutStubBeta, FanoutStubGamma>>);
+    static_assert(std::is_default_constructible_v<nexigen::core::sink_pack::Fanout<>>);
+}
+
+// --- sink_io suite (dedup-sink-plumbing): shared fd plumbing — write loop
+// (partial writes + EINTR retry), open flag parity, fsync mapping.
+
+// Probe storage: static ONLY — the harness replaces global operator new
+// with a finite, monotonic 64 KiB arena, so probe buffers must not touch
+// the heap at all (2 × 192 KiB live in .bss).
+constexpr std::size_t g_sink_io_blob_size = 192U * 1024U;
+alignas(16) char g_sink_io_blob[g_sink_io_blob_size]{};
+alignas(16) char g_sink_io_received[g_sink_io_blob_size]{};
+std::size_t g_sink_io_received_total = 0;
+std::atomic<bool> g_sink_io_atomic_writer_failed{false};
+
+void test_sink_io() {
+    // Invalid descriptor: write_all maps the failure to SystemError and
+    // never reports success.
+    NX_CHECK(!nexigen::core::sink_io::write_all(-1, "x", 1).has_value());
+    NX_CHECK((nexigen::core::sink_io::write_all(-1, "x", 1).error()
+              == nexigen::core::ErrorCode::SystemError));
+    NX_CHECK(!nexigen::core::sink_io::fsync_fd(-1).has_value());
+
+    // Open flag parity. The mode assertion runs under a pinned umask 022
+    // (restored after this subsection): mode bits apply only at first
+    // creation, so the pre-existence fixture can't come from fopen/other
+    // creators with their own default mode.
+    const mode_t previous_umask = ::umask(0022);
+    const mode_t expected_mode = 0644 & ~0022;
+
+    const char* const toggled_path = "/tmp/opencode/nexigen-sink-io-parity.txt";
+    ::unlink(toggled_path); // fresh creation: the 0644 mode is applied here
+
+    const int created =
+        nexigen::core::sink_io::open_output(toggled_path, /*append=*/true);
+    NX_CHECK(created >= 0);
+    NX_CHECK(nexigen::core::sink_io::write_all(created, "hello\n", 6).has_value());
+    {
+        struct stat st {};
+        NX_CHECK(::fstat(created, &st) == 0);
+        NX_CHECK((st.st_mode & 07777U) == expected_mode);
+        NX_CHECK((::fcntl(created, F_GETFD) & FD_CLOEXEC) != 0);
+    }
+    static_cast<void>(::close(created));
+
+    // Truncate policy: pre-existing text replaced entirely.
+    const int truncated =
+        nexigen::core::sink_io::open_output(toggled_path, /*append=*/false);
+    NX_CHECK(truncated >= 0);
+    NX_CHECK(nexigen::core::sink_io::write_all(truncated, "world\n", 6).has_value());
+    static_cast<void>(::close(truncated));
+    {
+        std::FILE* back = std::fopen(toggled_path, "r");
+        char readback[16]{};
+        const std::size_t got = std::fread(readback, 1, sizeof(readback), back);
+        std::fclose(back);
+        NX_CHECK(got == 6 && std::memcmp(readback, "world\n", 6) == 0);
+    }
+
+    // Append policy: pre-existing content preserved, new bytes appended.
+    const int appended =
+        nexigen::core::sink_io::open_output(toggled_path, /*append=*/true);
+    NX_CHECK(appended >= 0);
+    NX_CHECK(nexigen::core::sink_io::write_all(appended, "plus\n", 5).has_value());
+    static_cast<void>(::close(appended));
+    {
+        std::FILE* back = std::fopen(toggled_path, "r");
+        char readback[16]{};
+        const std::size_t got = std::fread(readback, 1, sizeof(readback), back);
+        std::fclose(back);
+        NX_CHECK(got == 11 && std::memcmp(readback, "world\nplus\n", 11) == 0);
+    }
+    std::remove(toggled_path);
+    static_cast<void>(::umask(previous_umask));
+
+    // fsync_fd success on a real file descriptor.
+    {
+        const char* const fsync_path = "/tmp/opencode/nexigen-sink-io-fsync.txt";
+        const int fd = ::open(fsync_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        NX_CHECK(fd >= 0);
+        NX_CHECK(nexigen::core::sink_io::fsync_fd(fd).has_value());
+        static_cast<void>(::close(fd));
+        std::remove(fsync_path);
+    }
+
+    // Full-write loop under partial writes + EINTR: a 192 KiB blob through a
+    // 64 KiB pipe cap on a throttled reader, with an interval timer firing
+    // during blocked writes (SIGALRM handler without SA_RESTART ⇒ real
+    // EINTR returns). The loop must finish exactly, in order, with no loss
+    // and no duplication.
+    //
+    // Storage: file-scope static buffers ONLY — the harness replaces global
+    // operator new with a finite, monotonic 64 KiB arena, so probe buffers
+    // must not touch the heap at all.
+    constexpr std::size_t blob_size = 192U * 1024U;
+    for (std::size_t i = 0; i < blob_size; ++i) {
+        g_sink_io_blob[i] = static_cast<char>((i * 31U + 7U) & 0xFFU);
+    }
+
+    int pipe_fds[2] = {-1, -1};
+    NX_CHECK(::pipe2(pipe_fds, O_CLOEXEC) == 0);
+
+    // SIGPIPE shield: the sink_io contract targets regular files (where
+    // SIGPIPE never fires); the pipe probes below block it around the
+    // writes only, restoring the previous mask afterwards.
+    sigset_t sigpipe_mask{};
+    sigemptyset(&sigpipe_mask);
+    sigaddset(&sigpipe_mask, SIGPIPE);
+    sigset_t old_mask{};
+    ::sigprocmask(SIG_BLOCK, &sigpipe_mask, &old_mask);
+
+    // Interval-timer wiring: a no-op handler, period 1 ms, no SA_RESTART —
+    // so blocked writes genuinely return EINTR and the loop's retry branch
+    // runs (repeatedly; timer disarmed before restore).
+    struct sigaction def_action{};
+    struct sigaction alarm_action{};
+    alarm_action.sa_handler = [](int) {};
+    NX_CHECK(::sigaction(SIGALRM, &alarm_action, &def_action) == 0);
+    struct itimerval stop_timer{};
+    struct itimerval alarm_timer{};
+    alarm_timer.it_value.tv_usec = 1000;  // first tick after 1 ms
+    alarm_timer.it_interval.tv_usec = 1000; // then every 1 ms
+    NX_CHECK(::setitimer(ITIMER_REAL, &alarm_timer, nullptr) == 0);
+
+    // Throttled reader: it polls so it can bail out even if the writer
+    // thread failed, and it tolerates EINTR from the same timer. Works on
+    // the static receive buffer (no heap).
+    g_sink_io_atomic_writer_failed = false;
+    g_sink_io_received_total = 0;
+    std::jthread reader([&]() {
+        char chunk[8192];
+        int polls = 0;
+        while (g_sink_io_received_total < blob_size && polls < 1000) {
+            if (g_sink_io_atomic_writer_failed.load(std::memory_order_relaxed)) {
+                break;
+            }
+            struct pollfd pfd{};
+            pfd.fd = pipe_fds[0];
+            pfd.events = POLLIN;
+            const int ready = ::poll(&pfd, 1, 100);
+            ++polls;
+            if (ready <= 0) {
+                continue;
+            }
+            const ssize_t got = ::read(pipe_fds[0], chunk, sizeof(chunk));
+            if (got > 0) {
+                const std::size_t room = blob_size - g_sink_io_received_total;
+                const std::size_t take = static_cast<std::size_t>(got) < room
+                                             ? static_cast<std::size_t>(got)
+                                             : room;
+                std::memcpy(g_sink_io_received + g_sink_io_received_total, chunk, take);
+                g_sink_io_received_total += take;
+            } else if (got < 0 && errno == EINTR) {
+                continue;
+            } else if (got == 0) {
+                break;
+            }
+        }
+    });
+
+    // The shared loop does the whole 192 KiB in one call.
+    const nexigen::core::Status full_write =
+        nexigen::core::sink_io::write_all(pipe_fds[1], g_sink_io_blob, blob_size);
+    if (!full_write.has_value()) {
+        g_sink_io_atomic_writer_failed.store(true, std::memory_order_relaxed);
+    }
+    NX_CHECK(full_write.has_value());
+    NX_CHECK(!g_sink_io_atomic_writer_failed.load());
+
+    // Disarm the timer and restore the default handler before joining.
+    NX_CHECK(::setitimer(ITIMER_REAL, &stop_timer, nullptr) == 0);
+    NX_CHECK(::sigaction(SIGALRM, &def_action, nullptr) == 0);
+    reader.join();
+
+    // Byte integrity: exactly the original bytes, in order, no loss, no dup.
+    NX_CHECK(g_sink_io_received_total == blob_size);
+    std::size_t mismatches = 0;
+    if (g_sink_io_received_total == blob_size) {
+        for (std::size_t i = 0; i < blob_size; ++i) {
+            if (g_sink_io_received[i] != g_sink_io_blob[i]) {
+                ++mismatches;
+            }
+        }
+    }
+    NX_CHECK(mismatches == 0);
+
+    // Closed-read-end failure probe: with SIGPIPE blocked, write reports
+    // EPIPE — the loop maps any unexpected errno to SystemError.
+    ::close(pipe_fds[0]);
+    const nexigen::core::Status epipe_probe =
+        nexigen::core::sink_io::write_all(pipe_fds[1], "tail", 4);
+    NX_CHECK(!epipe_probe.has_value());
+    NX_CHECK((epipe_probe.error() == nexigen::core::ErrorCode::SystemError));
+    ::close(pipe_fds[1]);
+
+    // Consume the pending SIGPIPE generated by the closed-read-end probe:
+    // it was blocked at delivery time, so it is still queued; restoring the
+    // old mask now would deliver it with the default (lethal) disposition.
+    sigset_t pipe_only{};
+    sigemptyset(&pipe_only);
+    sigaddset(&pipe_only, SIGPIPE);
+    struct timespec reap_timeout{0, 100 * 1000 * 1000}; // 100 ms
+    ::sigtimedwait(&pipe_only, nullptr, &reap_timeout);
+
+    // Restore the previous SIGPIPE mask.
+    ::sigprocmask(SIG_SETMASK, &old_mask, nullptr);
+}
+
+// --- affinity_core suite (dedup-affinity-core): the single thread-affinity
+// implementation in nexigen::core::affinity. Probes are allocation-free
+// (finite arena) and restore the main thread's affinity afterwards.
+
+[[nodiscard]] std::uint64_t first_core_of(std::uint64_t mask) noexcept {
+    for (std::uint64_t bit = 0; bit < 64ULL; ++bit) {
+        if ((mask & (1ULL << bit)) != 0ULL) {
+            return bit;
+        }
+    }
+    return 64ULL; // empty-mask sentinel (should not happen per query contract)
+}
+
+void test_affinity_core() {
+    // Fresh main-thread query: success, non-empty representable mask.
+    std::uint64_t original = 0;
+    NX_CHECK(nexigen::core::affinity::self_affinity(original).has_value());
+    NX_CHECK(original != 0ULL);
+
+    // Zero mask: InvalidArgument, thread state untouched.
+    NX_CHECK(!nexigen::core::affinity::pin_self(0ULL).has_value());
+    NX_CHECK((nexigen::core::affinity::pin_self(0ULL).error()
+              == nexigen::core::ErrorCode::InvalidArgument));
+    std::uint64_t after_zero = 0;
+    NX_CHECK(nexigen::core::affinity::self_affinity(after_zero).has_value());
+    NX_CHECK(after_zero == original);
+
+    const std::uint64_t single = 1ULL << first_core_of(original);
+    NX_CHECK(nexigen::core::affinity::pin_self(single).has_value());
+    std::uint64_t pinned = 0;
+    NX_CHECK(nexigen::core::affinity::self_affinity(pinned).has_value());
+    NX_CHECK(pinned == single); // round-trip pin/query agreement
+
+    // Ungrantable CPU (host with <64 online cores — the usual CI/host case):
+    // the far bit must surface SystemError, not success or an exception.
+    std::uint64_t online_count = 0;
+    for (std::uint64_t bit = 0; bit < 64ULL; ++bit) {
+        if ((original & (1ULL << bit)) != 0ULL) {
+            ++online_count;
+        }
+    }
+    if (online_count < 64ULL) {
+        NX_CHECK(!nexigen::core::affinity::pin_self(1ULL << 63).has_value());
+        NX_CHECK((nexigen::core::affinity::pin_self(1ULL << 63).error()
+                  == nexigen::core::ErrorCode::SystemError));
+        // The failed pin must not have changed the pinned state.
+        std::uint64_t still_pinned = 0;
+        NX_CHECK(nexigen::core::affinity::self_affinity(still_pinned).has_value());
+        NX_CHECK(still_pinned == single);
+    } else {
+        std::printf("affinity_core: host has 64+ online cores; absent-CPU probe skipped\n");
+    }
+
+    // Calling-thread-only: two threads pin DIFFERENT available cores and each
+    // query sees exactly its own (spawn-side pinning must not leak across).
+    std::uint64_t second_bit = 64ULL;
+    for (std::uint64_t bit = first_core_of(original) + 1ULL; bit < 64ULL; ++bit) {
+        if ((original & (1ULL << bit)) != 0ULL) {
+            second_bit = bit;
+            break;
+        }
+    }
+    if (second_bit != 64ULL) {
+        const std::uint64_t core_a = first_core_of(original);
+        const std::uint64_t core_b = second_bit;
+        std::uint64_t seen_a = 0;
+        std::uint64_t seen_b = 0;
+        // Harness counters (g_checks/g_failures) are single-threaded by
+        // design — worker threads only record plain flags/locals; the main
+        // thread asserts after join (happens-before edge).
+        std::atomic<bool> ok_a{false};
+        std::atomic<bool> ok_b{false};
+        std::jthread thread_a([&seen_a, &ok_a, core_a] {
+            ok_a.store(
+                nexigen::core::affinity::pin_self(1ULL << core_a).has_value() &&
+                nexigen::core::affinity::self_affinity(seen_a).has_value(),
+                std::memory_order_relaxed);
+        });
+        std::jthread thread_b([&seen_b, &ok_b, core_b] {
+            ok_b.store(
+                nexigen::core::affinity::pin_self(1ULL << core_b).has_value() &&
+                nexigen::core::affinity::self_affinity(seen_b).has_value(),
+                std::memory_order_relaxed);
+        });
+        thread_a.join();
+        thread_b.join();
+        NX_CHECK(ok_a.load());
+        NX_CHECK(ok_b.load());
+        NX_CHECK(seen_a == (1ULL << core_a));
+        NX_CHECK(seen_b == (1ULL << core_b));
+    } else {
+        std::printf("affinity_core: single-core host; independence probe skipped\n");
+    }
+
+    // Restore the main thread's scheduler view.
+    NX_CHECK(nexigen::core::affinity::pin_self(original).has_value());
+}
+
 } // namespace
 
 int main()
@@ -661,6 +1219,10 @@ int main()
     run_suite("spsc_single_threaded", test_spsc_single_threaded);
     run_suite("spsc_stress_1m", test_spsc_stress);
     run_suite("spsc_visibility", test_spsc_visibility);
+    run_suite("shard_pool_tls_cache", test_shard_pool_tls_cache);
+    run_suite("sink_pack", test_sink_pack);
+    run_suite("sink_io", test_sink_io);
+    run_suite("affinity_core", test_affinity_core);
 
     const int failures = g_failures;
     std::printf("total: %d checks, %d failed\n", g_checks, failures);

@@ -1594,6 +1594,40 @@ void test_sinks() {
                  attrs[3].at("value").get<std::string>() == "hil");
     }
 
+    // ---- Scratch overflow: discards the line and COUNTS it (P2-18) ----
+    {
+        const std::string path = std::string(sink_tmp_dir) + "/jsonl-overflow.jsonl";
+        static_cast<void>(::unlink(path.c_str()));
+        tracing::JsonFileTraceSinkConfig config{};
+        config.path = path;
+        tracing::JsonFileTraceSink sink{config};
+        NX_CHECK(sink.start().has_value());
+
+        tracing::SpanRecord big =
+            crafted_record(mono_for_utc(hour_mid_utc(0)), "overflow-span");
+        // A 9 KiB string-view attribute cannot fit the 8 KiB scratch no
+        // matter the escaping (zero-copy string views are representable):
+        // the writer's ok() turns false.
+        static char huge_payload[9216];
+        for (char& byte : huge_payload) {
+            byte = 'x'; // un-escaped bulk: pure length, no escaping inflation
+        }
+        static_cast<void>(big.attributes[0].store(
+            "payload",
+            std::string_view(huge_payload, sizeof huge_payload)));
+        big.attribute_count = 1;
+        const core::Status overflow = sink.on_span(big);
+        NX_CHECK(!overflow.has_value() &&
+                 overflow.error() == core::ErrorCode::BufferFull);
+        NX_CHECK(sink.to_string().find("discarded_lines=1") !=
+                 std::string::npos);
+        NX_CHECK(sink.flush().has_value()); // no I/O failure hides the discard
+
+        // Nothing partial was written: the file stays empty (or absent).
+        const std::string content = read_file(path.c_str());
+        NX_CHECK(content.empty());
+    }
+
     // ---- JsonFileTraceSink: escaping of quotes/backslashes/control chars.
     {
         const std::string path = std::string(sink_tmp_dir) + "/jsonl-escape.jsonl";

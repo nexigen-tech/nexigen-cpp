@@ -7,6 +7,11 @@
 # 1. CMake & Ninja Build Artifacts
 # =============================================================================
 build/
+# Suffix build trees (sanitizer / release / coverage variants — analysis #26):
+# the `build/` pattern alone does not cover suffixed names.
+build-*/
+# Local runner instance dirs created by CLI smoke tests.
+.nexigen-run/
 out/
 cmake-build-*/
 CMakeFiles/

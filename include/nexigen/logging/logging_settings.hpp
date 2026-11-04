@@ -129,11 +129,4 @@ template <std::size_t ShardCapacity, std::size_t MaxThreads, std::size_t Message
 
 } // namespace nexigen::logging
 
-template <>
-struct std::formatter<nexigen::logging::Settings>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::logging::Settings& settings, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(settings.to_string(), ctx);
-    }
-};
+

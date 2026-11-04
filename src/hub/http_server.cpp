@@ -98,6 +98,13 @@ struct HttpServer::Impl {
     int epoll_fd{-1};
     int event_fd{-1};
     std::uint16_t port{0};
+    /// Bind target prepared before socket creation (IPv4 or IPv6-variant per
+    /// the parsed family; analysis #13).
+    union BindAddress {
+        sockaddr_in in{};
+        sockaddr_in6 in6;
+    };
+    BindAddress bind_address_{};
     std::unordered_map<int, Client> clients{};
     std::uint64_t last_refresh_ns{0};
     DiagnosticSink diagnostic_sink{nullptr};
@@ -155,21 +162,50 @@ struct HttpServer::Impl {
 
     [[nodiscard]] bool parse_listen(std::string_view listen,
                                     std::string& host,
-                                    std::uint16_t& out_port) const {
+                                    std::uint16_t& out_port,
+                                    bool& out_ipv6) const {
+        out_ipv6 = false;
         if (listen.empty()) {
             return false;
         }
-        const std::size_t colon = listen.rfind(':');
-        if (colon == std::string_view::npos || colon == 0 ||
-            colon + 1 >= listen.size()) {
+        // RFC 3986 bracket form: `[<addr>]:<port>` (required for full v6
+        // literals with more than one colon; analysis #13).
+        if (listen.front() == '[') {
+            const std::size_t closing = listen.find(']');
+            if (closing == std::string_view::npos ||
+                closing + 2 >= listen.size() || listen[closing + 1] != ':') {
+                return false;
+            }
+            host = std::string(listen.substr(1, closing - 1));
+            out_ipv6 = true;
+            return parse_port(listen, closing + 2, out_port);
+        }
+        // Bare form: a single colon separates host and port for IPv4 names,
+        // and a ≤1-colon IPv6 literal is unambiguous (e.g. `::1:8080` style
+        // `addr:port` with one colon in the address part — multi-colon
+        // literals must use brackets). Keep the port digits-only rule.
+        const std::size_t colon = listen.find(':');
+        if (colon == std::string_view::npos || colon == 0) {
             return false;
+        }
+        if (listen.find(':', colon + 1) != std::string_view::npos) {
+            return false; // ambiguous multi-colon without brackets
         }
         host = std::string(listen.substr(0, colon));
         if (host == "localhost") {
             host = "127.0.0.1";
         }
+        out_ipv6 = host.find(':') != std::string::npos;
+        return parse_port(listen, colon + 1, out_port);
+    }
+
+    [[nodiscard]] bool parse_port(std::string_view listen, std::size_t begin,
+                                  std::uint16_t& out_port) const {
+        if (begin >= listen.size()) {
+            return false;
+        }
         std::uint64_t port_value = 0;
-        for (std::size_t index = colon + 1; index < listen.size(); ++index) {
+        for (std::size_t index = begin; index < listen.size(); ++index) {
             const char c = listen[index];
             if (c < '0' || c > '9') {
                 return false;
@@ -187,38 +223,85 @@ struct HttpServer::Impl {
     [[nodiscard]] core::Status start(std::string_view listen) noexcept {
         std::string host;
         std::uint16_t requested_port = 0;
-        if (!parse_listen(listen, host, requested_port)) {
+        bool ipv6 = false;
+        if (!parse_listen(listen, host, requested_port, ipv6)) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        sockaddr_in address{};
-        address.sin_family = AF_INET;
-        address.sin_port = htons(requested_port);
-        if (::inet_pton(AF_INET, host.c_str(), &address.sin_addr) != 1) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
+        if (ipv6) {
+            // AF_INET6 listener (analysis #13): a specific v6 address binds
+            // v6-only; the wildcard `::` binds dual-stack (IPV6_V6ONLY=0),
+            // which double-publishes IPv4 traffic on the same port like a
+            // classic `0.0.0.0` listener spanned with IPv6.
+            const bool dual_stack = host == "::";
+            const std::uint32_t v6_only = dual_stack ? 0U : 1U;
+            if (::inet_pton(AF_INET6, host.c_str(),
+                            &bind_address_.in6.sin6_addr) != 1) {
+                return std::unexpected(core::ErrorCode::InvalidArgument);
+            }
+            bind_address_.in6.sin6_family = AF_INET6;
+            bind_address_.in6.sin6_port = htons(requested_port);
+            if (core::detail::fault(core::detail::FaultPoint::Hub_socket)) {
+                return std::unexpected(core::ErrorCode::SystemError);
+            }
+            listen_fd = ::socket(AF_INET6,
+                                 SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
+                                 0);
+            if (listen_fd < 0) {
+                return std::unexpected(core::ErrorCode::SystemError);
+            }
+            int enabled = 1;
+            static_cast<void>(::setsockopt(
+                listen_fd, IPPROTO_IPV6, IPV6_V6ONLY, &v6_only,
+                sizeof(v6_only)));
+            static_cast<void>(::setsockopt(listen_fd, SOL_SOCKET,
+                                           SO_REUSEADDR, &enabled,
+                                           sizeof(enabled)));
+            if (core::detail::fault(core::detail::FaultPoint::Hub_bind) ||
+                ::bind(listen_fd,
+                       reinterpret_cast<sockaddr*>(&bind_address_.in6),
+                       sizeof(bind_address_.in6)) != 0 ||
+                ::listen(listen_fd, 128) != 0) {
+                return std::unexpected(core::ErrorCode::SystemError);
+            }
+        } else {
+            sockaddr_in address{};
+            address.sin_family = AF_INET;
+            address.sin_port = htons(requested_port);
+            if (::inet_pton(AF_INET, host.c_str(), &address.sin_addr) != 1) {
+                return std::unexpected(core::ErrorCode::InvalidArgument);
+            }
+
+            if (core::detail::fault(core::detail::FaultPoint::Hub_socket)) {
+                return std::unexpected(core::ErrorCode::SystemError);
+            }
+            listen_fd = ::socket(AF_INET,
+                                 SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
+                                 0);
+            if (listen_fd < 0) {
+                return std::unexpected(core::ErrorCode::SystemError);
+            }
+            int enabled = 1;
+            static_cast<void>(::setsockopt(listen_fd, SOL_SOCKET,
+                                           SO_REUSEADDR, &enabled,
+                                           sizeof(enabled)));
+            if (core::detail::fault(core::detail::FaultPoint::Hub_bind) ||
+                ::bind(listen_fd, reinterpret_cast<sockaddr*>(&address),
+                       sizeof(address)) != 0 ||
+                ::listen(listen_fd, 128) != 0) {
+                return std::unexpected(core::ErrorCode::SystemError);
+            }
         }
 
-        if (core::detail::fault(core::detail::FaultPoint::Hub_socket)) {
-            return std::unexpected(core::ErrorCode::SystemError);
-        }
-        listen_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
-                             0);
-        if (listen_fd < 0) {
-            return std::unexpected(core::ErrorCode::SystemError);
-        }
-        int enabled = 1;
-        static_cast<void>(::setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR,
-                                        &enabled, sizeof(enabled)));
-        if (core::detail::fault(core::detail::FaultPoint::Hub_bind) ||
-            ::bind(listen_fd, reinterpret_cast<sockaddr*>(&address),
-                   sizeof(address)) != 0 ||
-            ::listen(listen_fd, 128) != 0) {
-            return std::unexpected(core::ErrorCode::SystemError);
-        }
-        sockaddr_in bound{};
+        sockaddr_storage bound{};
         socklen_t bound_length = sizeof(bound);
         if (::getsockname(listen_fd, reinterpret_cast<sockaddr*>(&bound),
                           &bound_length) == 0) {
-            port = ntohs(bound.sin_port);
+            if (bound.ss_family == AF_INET6) {
+                port = ntohs(reinterpret_cast<sockaddr_in6&>(bound)
+                                 .sin6_port);
+            } else if (bound.ss_family == AF_INET) {
+                port = ntohs(reinterpret_cast<sockaddr_in&>(bound).sin_port);
+            }
         }
 
         epoll_fd = core::detail::fault(core::detail::FaultPoint::Hub_epoll)

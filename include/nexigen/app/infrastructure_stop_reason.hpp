@@ -55,12 +55,4 @@ inline void from_json(const nlohmann::json& j, InfrastructureStopReason& out) no
 
 } // namespace nexigen::app
 
-template <>
-struct std::formatter<nexigen::app::InfrastructureStopReason>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::app::InfrastructureStopReason reason, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(
-            nexigen::app::to_string(reason), ctx);
-    }
-};
+

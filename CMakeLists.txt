@@ -101,7 +101,12 @@ endif()
 # nexigen::core — header-only библиотека.
 # Публичные заголовки лежат в include/, компиляции нет: флаги и стандарт
 # наследуются от nexigen_options (единственный источник настроек компилятора).
+# Threads ищем ДО определения целей (change dedup-affinity-core): core-интер-
+# фейс линкует Threads::Threads для affinity-хедера; экспорт безопасен —
+# nexigenConfig.cmake.in уже делает find_dependency(Threads).
 # =============================================================================
+find_package(Threads REQUIRED)
+
 add_library(nexigen_core INTERFACE)
 add_library(nexigen::core ALIAS nexigen_core)
 
@@ -119,13 +124,20 @@ target_link_libraries(nexigen_core INTERFACE
     # after find_dependency, because a FetchContent build cannot export an
     # external target.
     $<BUILD_INTERFACE:nexigen_options>
-    $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
+    $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>
+    # pthread_*affinity_np in core/affinity.hpp (dedup-affinity-core D2):
+    # link-level dependency on the INTERFACE target so core-only consumers
+    # link without per-target wiring.
+    Threads::Threads)
 target_compile_definitions(nexigen_core INTERFACE JSON_NOEXCEPTION=1)
 
 # clock_gettime()/CLOCK_MONOTONIC_RAW на Linux: явно запрашиваем POSIX-объявления,
 # чтобы строгий -std=c++23 (без _GNU_SOURCE) их не скрывал. См. design.md D2
 # (nexigen::chrono/timestamp.hpp наследует это определение через nexigen_core).
 target_compile_definitions(nexigen_core INTERFACE $<$<PLATFORM_ID:Linux>:_POSIX_C_SOURCE=200809L>)
+# core/affinity.hpp: glibc-extensions pthread_*affinity_np (dedup-affinity-core
+# D2); module-level defines (ниже) остаются — повторный #define безвреден.
+target_compile_definitions(nexigen_core INTERFACE $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
 
 # =============================================================================
 # nexigen::chrono — time primitives экосистемы: монотонный Timestamp, калиб-

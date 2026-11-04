@@ -10,6 +10,7 @@
 #pragma GCC diagnostic ignored "-Wnull-dereference"
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/settings_io.hpp>
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/logging/logging_settings.hpp>
 #pragma GCC diagnostic pop
@@ -30,42 +31,12 @@
 namespace nexigen::logging {
 namespace {
 
+// Shared settings-io helpers (change fix-p2-observability-and-writers);
+// Imports stay inside the TU's anonymous namespace.
+using nexigen::core::settings_io::FileRead;
+using nexigen::core::settings_io::read_text_file;
+
 constexpr std::uint64_t kNanoseconds_per_second = 1'000'000'000ULL;
-
-enum class FileRead : std::uint8_t { Absent, Ok, Failed };
-
-[[nodiscard]] FileRead read_settings_file(std::string_view path,
-                                           std::string& out) noexcept {
-    if (path.empty()) {
-        return FileRead::Absent;
-    }
-    const std::string path_buf{path};
-    const int fd = ::open(path_buf.c_str(), O_RDONLY | O_CLOEXEC);
-    if (fd < 0) {
-        return errno == ENOENT ? FileRead::Absent : FileRead::Failed;
-    }
-    struct stat st {};
-    if (::fstat(fd, &st) != 0 || st.st_size < 0) {
-        static_cast<void>(::close(fd));
-        return FileRead::Failed;
-    }
-    out.resize(static_cast<std::size_t>(st.st_size));
-    std::size_t offset = 0;
-    while (offset < out.size()) {
-        const ssize_t got = ::read(fd, out.data() + offset, out.size() - offset);
-        if (got > 0) {
-            offset += static_cast<std::size_t>(got);
-        } else if (got == 0) {
-            break;
-        } else if (errno != EINTR) {
-            static_cast<void>(::close(fd));
-            return FileRead::Failed;
-        }
-    }
-    out.resize(offset);
-    static_cast<void>(::close(fd));
-    return FileRead::Ok;
-}
 
 [[nodiscard]] const nlohmann::json::string_t* string_ptr(const nlohmann::json& value) noexcept {
     return value.get_ptr<const nlohmann::json::string_t*>();
@@ -97,8 +68,10 @@ enum class FileRead : std::uint8_t { Absent, Ok, Failed };
 
 void add_diagnostic(Settings& settings, core::SettingsSource source,
                     std::string field, std::string message) {
-    settings.diagnostics.push_back(
-        core::SettingsDiagnostic{source, std::move(field), std::move(message)});
+    // Delegates to the shared vector helper (change
+    // fix-p2-observability-and-writers): one implementation.
+    nexigen::core::settings_io::add_diagnostic(
+        settings.diagnostics, source, std::move(field), std::move(message));
 }
 
 /// Validate every known field of one document, keep only the valid ones in
@@ -274,10 +247,7 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
                 }
             }
             check_unsigned("repeat_suppression_window_ms", 0xFFFFFFFFULL);
-            check_unsigned("repeat_suppression_max_count", 0xFFFFFFFFULL);
             check_unsigned("max_messages_per_sec_per_shard", 0xFFFFFFFFULL);
-            check_unsigned("max_bytes_per_sec_per_shard", 0xFFFFFFFFFFFFFFFFULL);
-            check_unsigned("max_total_bytes_per_sec", 0xFFFFFFFFFFFFFFFFULL);
 
             const auto bypass = it->find("bypass_min_level");
             if (bypass != it->end()) {
@@ -507,7 +477,7 @@ core::Status load_logging_settings(const core::SettingsPaths& paths,
     bool system_error = false;
 
     std::string text;
-    FileRead read = read_settings_file(paths.global_file, text);
+    FileRead read = read_text_file(paths.global_file, text);
     if (read == FileRead::Ok) {
         out.global_loaded = true;
         nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
@@ -530,7 +500,7 @@ core::Status load_logging_settings(const core::SettingsPaths& paths,
     }
 
     text.clear();
-    read = read_settings_file(paths.local_file, text);
+    read = read_text_file(paths.local_file, text);
     if (read == FileRead::Ok) {
         out.local_loaded = true;
         nlohmann::json document = nlohmann::json::parse(text, nullptr, false);

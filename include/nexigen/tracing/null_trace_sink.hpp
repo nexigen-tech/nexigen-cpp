@@ -50,10 +50,4 @@ static_assert(concepts::TraceSink<NullTraceSink>,
 } // namespace nexigen::tracing
 
 /// The null sink formats as its diagnostic string (mandate 11).
-template <>
-struct std::formatter<nexigen::tracing::NullTraceSink> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::NullTraceSink& sink, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(sink.to_string(), ctx);
-    }
-};
+

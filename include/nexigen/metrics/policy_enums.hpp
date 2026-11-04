@@ -180,34 +180,10 @@ inline void from_json(const nlohmann::json& j, MetricKind& out) noexcept {
 
 /// Policy enums format as their canonical names (mandate 11): the parse and
 /// fill/align handling is delegated to the string-view formatter.
-template <>
-struct std::formatter<nexigen::metrics::ConcurrencyPolicy> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::metrics::ConcurrencyPolicy policy, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::metrics::to_string(policy), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::metrics::AccessPolicy> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::metrics::AccessPolicy policy, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::metrics::to_string(policy), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::metrics::ResetPolicy> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::metrics::ResetPolicy policy, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::metrics::to_string(policy), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::metrics::MetricKind> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::metrics::MetricKind kind, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::metrics::to_string(kind), ctx);
-    }
-};
+
+
+
+

@@ -31,6 +31,8 @@ void print_usage(std::FILE* out) {
     std::fprintf(out, R"(Usage:
   nexigen-hub --run-dir <dir> [--run-dir <dir>...]
               [--listen <host:port>]
+              [--listen [<addr>]:<port>] (IPv6 literal, e.g. [::1]:8080 or
+                                         [::]:8080 for dual-stack)
               [--ring-records <n>] [--ring-bytes <n>]
               [--max-line-bytes <n>]
   nexigen-hub --help
@@ -112,9 +114,28 @@ int main(int argc, char* argv[]) {
         return 2;
     }
 
-    const std::size_t listen_colon = listen.rfind(':');
-    const std::string listen_host =
-        listen_colon == std::string::npos ? listen : listen.substr(0, listen_colon);
+    // Host extraction for the loopback check (analysis #13): strip the RFC
+    // bracket form `[<addr>]:<port>`, otherwise split at the FIRST colon —
+    // the previous `rfind(':')` truncated a bare `::1` into `:` and disabled
+    // the loopback classification exactly when it mattered.
+    std::string listen_host{};
+    if (!listen.empty() && listen.front() == '[') {
+        const std::size_t closing = listen.find(']');
+        listen_host = closing == std::string::npos
+                          ? listen
+                          : listen.substr(1, closing > 1 ? closing - 1 : 0);
+    } else if (const std::size_t colon = listen.find(':');
+               colon != std::string::npos && colon != 0) {
+        listen_host = listen.substr(0, colon);
+        if (listen_host == "localhost") {
+            listen_host = "127.0.0.1";
+        }
+    } else {
+        listen_host = listen;
+    }
+    if (listen_host.empty()) {
+        listen_host = "127.0.0.1"; // server default applied below anyway
+    }
     if (listen_host != "127.0.0.1" && listen_host != "localhost" &&
         listen_host != "::1") {
         std::fprintf(stderr,

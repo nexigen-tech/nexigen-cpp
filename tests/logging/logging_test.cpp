@@ -48,6 +48,7 @@
 #include <nexigen/logging/composite_logger.hpp>
 #include <nexigen/logging/console_logger.hpp>
 #include <nexigen/logging/detail/affinity.hpp>
+#include <nexigen/logging/detail/async_logger.hpp>
 #include <nexigen/logging/detail/json_writer.hpp>
 #include <nexigen/logging/detail/level_control.hpp>
 #include <nexigen/logging/detail/producer.hpp>
@@ -57,8 +58,6 @@
 #include <nexigen/logging/log_record.hpp>
 #include <nexigen/logging/logger_options.hpp>
 #include <nexigen/logging/logging_settings.hpp>
-#include <nexigen/logging/detail/spsc_shard_ring.hpp>
-#include <nexigen/logging/detail/spsc_shard_pool.hpp>
 #include <nexigen/logging/null_logger.hpp>
 
 // --- Compile-time claims (design.md D18): the harness itself is allocation-
@@ -281,6 +280,25 @@ struct FullLoggerModel {
 };
 static_assert(concepts::Logger<FullLoggerModel>);
 
+/// Failing member for the composite flush parity test (analysis #21 /
+/// change fix-p2-observability-and-writers): carries its own error code so
+/// the composite's FIRST-error selection is observable.
+struct FailFlushLogger {
+    core::ErrorCode code{core::ErrorCode::InvalidArgument};
+    void set_level(LogLevel) noexcept {}
+    [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
+    template <class... A>
+    void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
+    NX_CONV_5()
+    template <class... A>
+    void fatal(detail::format_param_t<A...> f, A&&... a) noexcept {
+        log(LogLevel::Fatal, f, std::forward<A>(a)...);
+    }
+    [[nodiscard]] Status flush() noexcept {
+        return std::unexpected(code);
+    }
+};
+
 struct NoFatalModel { // fatal omitted entirely
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
@@ -412,6 +430,20 @@ void test_levels() {
     });
     NX_CHECK(bad == 0); // jthread destructors join both threads
     std::printf("levels: relaxed control smoke clean (bad=%d)\n", bad);
+
+    // Composite flush parity (analysis #21): the FIRST member error wins,
+    // every member still flushed. Members: OK, InvalidArgument (first),
+    // SystemError (second, suppressed in the return) — configured through
+    // the by-index accessors (spec logging/composite-logger).
+    {
+        CompositeLogger<NullLogger, FailFlushLogger, FailFlushLogger>
+            composite{};
+        composite.get<1>().code = core::ErrorCode::InvalidArgument;
+        composite.get<2>().code = core::ErrorCode::SystemError;
+        const core::Status flushed = composite.flush();
+        NX_CHECK(!flushed.has_value());
+        NX_CHECK(flushed.error() == core::ErrorCode::InvalidArgument);
+    }
 }
 
 // --- record suite (tasks 4.2/4.3 / spec logging/log-record): the pack→render
@@ -1991,10 +2023,7 @@ void test_logger_options() {
     NX_CHECK(o.sync_flush_on_critical == true);
     NX_CHECK(o.spam_protection.enable_repeat_suppression == true);
     NX_CHECK(o.spam_protection.repeat_suppression_window_ms == 1000U);
-    NX_CHECK(o.spam_protection.repeat_suppression_max_count == 100000U);
     NX_CHECK(o.spam_protection.max_messages_per_sec_per_shard == 100000U);
-    NX_CHECK(o.spam_protection.max_bytes_per_sec_per_shard == 52428800ULL);
-    NX_CHECK(o.spam_protection.max_total_bytes_per_sec == 209715200ULL);
     NX_CHECK(o.spam_protection.bypass_min_level == LogLevel::Fatal);
 
     // bit_ceil rounding: non-power-of-two capacity rounds up.
@@ -2002,11 +2031,12 @@ void test_logger_options() {
     custom.spsc_ring_buffer_capacity = 1000U;
     NX_CHECK(std::bit_ceil(custom.spsc_ring_buffer_capacity) == 1024U);
 
-    // to_string renders every field.
+    // to_string renders every field (incl. flush_cpu_affinity — analysis #18).
     const std::string s = o.to_string();
     NX_CHECK(s.find("log_root_directory") != std::string::npos);
     NX_CHECK(s.find("message_capacity") != std::string::npos);
     NX_CHECK(s.find("overflow_policy") != std::string::npos);
+    NX_CHECK(s.find("flush_cpu_affinity") != std::string::npos);
     NX_CHECK(s.find("spam_protection") != std::string::npos);
     NX_CHECK(to_string(o) == s);
 
@@ -2060,143 +2090,6 @@ void test_logger_options() {
     NX_CHECK(std::format("[{:*>20}]", OverflowPolicy::OverwriteOldest).find("overwrite_oldest") != std::string::npos);
 
     std::printf("logger_options: defaults, bit_ceil, JSON round-trip, formatter verified\n");
-}
-
-// --- spsc_shard_ring suite (change rework-logging-hot-path-engine, task 2.3 /
-// spec logging/spsc-shard-ring): DropNewest, OverwriteOldest, FIFO, TSan-clean.
-void test_spsc_shard_ring() {
-    // DropNewest: full ring drops incoming, counted; producer never blocks.
-    {
-        detail::SpscShardRing<std::uint64_t, 8> ring{OverflowPolicy::DropNewest};
-        for (std::uint64_t i = 0; i < 8; ++i) {
-            NX_CHECK(ring.try_push(i));
-        }
-        NX_CHECK(ring.is_full());
-        NX_CHECK(!ring.try_push(99)); // dropped
-        NX_CHECK(ring.dropped_count() == 1);
-        std::uint64_t out = 0;
-        for (std::uint64_t i = 0; i < 8; ++i) {
-            NX_CHECK(ring.try_pop(out));
-            NX_CHECK(out == i); // FIFO
-        }
-        NX_CHECK(ring.is_empty());
-        NX_CHECK(!ring.try_pop(out)); // empty
-    }
-
-    // OverwriteOldest: full ring overwrites oldest; counted.
-    {
-        detail::SpscShardRing<std::uint64_t, 4> ring{OverflowPolicy::OverwriteOldest};
-        for (std::uint64_t i = 0; i < 4; ++i) {
-            NX_CHECK(ring.try_push(i));
-        }
-        NX_CHECK(ring.is_full());
-        NX_CHECK(ring.try_push(100)); // overwrites slot 0
-        NX_CHECK(ring.dropped_count() == 1);
-        std::uint64_t out = 0;
-        NX_CHECK(ring.try_pop(out));
-        NX_CHECK(out == 1); // oldest (0) was overwritten
-    }
-
-    // Concurrent producer/consumer: values strictly increasing, no loss.
-    {
-        detail::SpscShardRing<std::uint64_t, 64> ring{OverflowPolicy::DropNewest};
-        constexpr std::uint64_t total = 10'000;
-        std::atomic<std::uint64_t> accepted{0};
-        std::atomic<std::uint64_t> popped{0};
-        std::atomic<bool> producer_done{false};
-        std::uint64_t last = 0;
-        bool order_ok = true;
-
-        std::jthread producer([&] {
-            for (std::uint64_t i = 0; i < total; ++i) {
-                if (ring.try_push(i)) { accepted.fetch_add(1, std::memory_order_relaxed); }
-            }
-            producer_done.store(true, std::memory_order_release);
-        });
-        std::jthread consumer([&] {
-            std::uint64_t v = 0;
-            for (;;) {
-                const bool done = producer_done.load(std::memory_order_acquire) &&
-                                  popped.load(std::memory_order_relaxed) >=
-                                      accepted.load(std::memory_order_relaxed);
-                if (done) { break; }
-                if (ring.try_pop(v)) {
-                    if (popped.load(std::memory_order_relaxed) > 0 && v <= last) { order_ok = false; }
-                    last = v;
-                    popped.fetch_add(1, std::memory_order_relaxed);
-                }
-            }
-        });
-        producer.join();
-        // The consumer drains until it has observed every accepted record;
-        // joining it before reading last/order_ok avoids a race with the
-        // consumer's updates.
-        consumer.join();
-        NX_CHECK(order_ok);
-        NX_CHECK(popped.load() == accepted.load());
-        NX_CHECK(accepted.load() + ring.dropped_count() == total);
-        std::printf("spsc_shard_ring: 10k concurrent, accepted=%llu dropped=%llu\n",
-                    static_cast<unsigned long long>(accepted.load()),
-                    static_cast<unsigned long long>(ring.dropped_count()));
-    }
-
-    // to_string diagnostic.
-    {
-        detail::SpscShardRing<int, 4> ring{OverflowPolicy::DropNewest};
-        const std::string s = ring.to_string();
-        NX_CHECK(s.find("SpscShardRing") != std::string::npos);
-        NX_CHECK(s.find("capacity=4") != std::string::npos);
-        NX_CHECK(to_string(ring) == s);
-    }
-
-    std::printf("spsc_shard_ring: DropNewest, OverwriteOldest, FIFO, concurrent verified\n");
-}
-
-// --- spsc_shard_pool suite (change rework-logging-hot-path-engine, task 3.2 /
-// spec logging/spsc-shard-pool): registration, exhaustion, Draining, pool return.
-void test_spsc_shard_pool() {
-    // Registration: max_threads threads register; extra threads are dropped.
-    {
-        detail::SpscShardPool pool{3};
-        std::int32_t s0 = pool.register_thread();
-        std::int32_t s1 = pool.register_thread();
-        std::int32_t s2 = pool.register_thread();
-        std::int32_t s3 = pool.register_thread(); // exhaustion
-        NX_CHECK(s0 == 0);
-        NX_CHECK(s1 == 1);
-        NX_CHECK(s2 == 2);
-        NX_CHECK(s3 == -1);
-        NX_CHECK(pool.active_count() == 3);
-        NX_CHECK(pool.unregistered_thread_drops() == 1);
-    }
-
-    // Thread exit → Draining → pool return → reusable.
-    {
-        detail::SpscShardPool pool{2};
-        std::int32_t s0 = pool.register_thread();
-        NX_CHECK(s0 == 0);
-        NX_CHECK(pool.shard(0).state.load() == detail::ShardState::Active);
-
-        // Simulate thread exit.
-        pool.mark_draining(0);
-        NX_CHECK(pool.shard(0).state.load() == detail::ShardState::Draining);
-
-        // Consumer drains and releases.
-        pool.release_shard(0);
-        NX_CHECK(pool.shard(0).state.load() == detail::ShardState::Free);
-        NX_CHECK(pool.active_count() == 0);
-    }
-
-    // to_string diagnostic.
-    {
-        detail::SpscShardPool pool{4};
-        const std::string s = pool.to_string();
-        NX_CHECK(s.find("SpscShardPool") != std::string::npos);
-        NX_CHECK(s.find("max_threads=4") != std::string::npos);
-        NX_CHECK(to_string(pool) == s);
-    }
-
-    std::printf("spsc_shard_pool: registration, exhaustion, Draining, pool return verified\n");
 }
 
 // --- spam_protection suite (change rework-logging-hot-path-engine, task 5.3 /
@@ -2272,112 +2165,409 @@ void test_spam_protection() {
     std::printf("spam_protection: repeat suppression, token bucket, bypass, reconfig verified\n");
 }
 
-// --- drop_visibility suite (change ensure-drop-visibility): flush-time
-// summary, all four causes in summary, retry safety.
-void test_drop_visibility() {
-    // Flush-time summary with buffer_full: drops before flush produce a
-    // summary record with exact counts.
-    {
-        static detail::Producer<4, 128, 1> prod{};
-        NX_CHECK(prod.initialize().has_value());
-        // Fill the ring (4 slots), then 2 more are dropped.
-        for (int i = 0; i < 6; ++i) {
-            prod.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
+// --- flush-summary harness (change fix-p0-critical-defects): the flush-time
+// drop summary is synthesized by the AsyncWorker consumer thread and delivered
+// straight to the sink; a foreign (non-owner) thread never pushes into a
+// producer ring (spec logging/multi-producer). The sink collects rendered
+// lines into a caller-owned buffer shared with the test; the barrier's
+// release/acquire on `drained` orders every handle() before flush() returns,
+// and probes read only while the worker is idle or joined.
+template <class RecordT>
+struct LinesSink {
+    LinesSink(char* buffer, std::size_t cap) noexcept
+        : buf_(buffer), cap_(cap) {}
+
+    [[nodiscard]] core::Status start() noexcept { return {}; }
+    void handle(RecordT& rec) noexcept {
+        char msg[256];
+        const std::size_t n = rec.render_into(msg, sizeof msg);
+        if (n == 0U || used_ >= cap_) {
+            return;
         }
-        NX_CHECK(prod.dropped().buffer_full == 2);
-        // Flush-time summary: drain one record to make room, then push summary.
-        LogRecord<128> rec{};
-        NX_CHECK(prod.pop(rec)); // make room for summary
-        prod.flush_drop_summaries();
-        // Drain and verify summary record exists with correct counts.
-        int user_records = 1; // already popped one
-        int summary_records = 0;
-        while (prod.pop(rec)) {
-            char msg[256];
-            const std::size_t n = rec.render_into(msg, sizeof msg);
-            const std::string_view sv(msg, n);
-            if (sv.find("Dropped 2 record(s)") != std::string_view::npos) {
-                ++summary_records;
-                NX_CHECK(sv.find("buffer-full: 2") != std::string_view::npos);
-                NX_CHECK(sv.find("slot-exhausted: 0") != std::string_view::npos);
-                NX_CHECK(sv.find("throttled: 0") != std::string_view::npos);
-            } else {
-                ++user_records;
-            }
+        std::size_t take = n;
+        if (used_ + take > cap_) {
+            take = cap_ - used_;
         }
-        NX_CHECK(summary_records == 1);
-        NX_CHECK(user_records == 4); // 4 accepted user records
+        std::memcpy(buf_ + used_, msg, take);
+        used_ += take;
+        if (used_ < cap_) {
+            buf_[used_++] = '\n';
+        }
+    }
+    [[nodiscard]] core::Status synchronize() noexcept { return {}; }
+    void stop() noexcept {}
+
+    // Barrier-ordered reads (after flush()/join): the zero-padded tail beyond
+    // used_ is safe to scan — find/count over the full buffer cannot match it.
+    [[nodiscard]] bool find(std::string_view text) const noexcept {
+        return std::string_view(buf_, cap_).find(text) != std::string_view::npos;
+    }
+    [[nodiscard]] std::size_t count(std::string_view text) const noexcept {
+        std::size_t hits = 0;
+        const std::string_view view(buf_, cap_);
+        for (std::size_t pos = view.find(text); pos != std::string_view::npos;
+             pos = view.find(text, pos + 1U)) {
+            ++hits;
+        }
+        return hits;
     }
 
-    // Retry safety: summary push fails (ring full), counters preserved,
-    // summary retried at next opportunity.
+private:
+    char* buf_{};
+    std::size_t cap_ = 0;
+    std::size_t used_ = 0;
+};
+
+// --- flush_summary race suite (change fix-p0-critical-defects): the owner
+// thread floods its own shard (buffer-full drops pile up) while three
+// application threads hammer flush() concurrently — every summary comes from
+// the worker (consumer) thread, so the SPSC "only the owner pushes" invariant
+// holds while owners keep emitting. TSan (task 4.2) is the verdict; these
+// assertions only check the final, barrier-ordered visible state.
+char g_flush_race_arena[16384]{};
+
+void test_flush_summary_race() {
+    using P = detail::Producer<4, 128, 4>;
+    using RecordT = LogRecord<128>;
+    P prod{};
+    NX_CHECK(prod.initialize().has_value());
+
+    detail::AsyncWorker<P, LinesSink<RecordT>> worker{};
+    NX_CHECK(worker.start(prod, 0ULL, g_flush_race_arena,
+                          sizeof g_flush_race_arena)
+                 .has_value());
+    for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    NX_CHECK(worker.writer_started());
+
+    std::atomic<bool> stop_flag{false};
+    std::jthread owner([&] {
+        // Waves of 8 emits: the first 4 land in the empty ring, the rest hit
+        // the full ring and are counted as buffer-full drops while flush
+        // loops hammer the barrier.
+        for (int wave = 0; !stop_flag.load(std::memory_order_relaxed); ++wave) {
+            for (int i = 0; i < 8; ++i) {
+                prod.emit(LogLevel::Info, "flood {} {}", wave, i);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+    auto flusher = [&] {
+        while (!stop_flag.load(std::memory_order_relaxed)) {
+            static_cast<void>(worker.flush()); // barriers complete or escape-hatch
+        }
+    };
+    std::jthread f1(flusher);
+    std::jthread f2(flusher);
+    std::jthread f3(flusher);
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    stop_flag.store(true, std::memory_order_release);
+    owner.join();
+    f1.join();
+    f2.join();
+    f3.join();
+
+    NX_CHECK(worker.flush().has_value()); // final barrier: drained + synced
+    // The race kept buffer_full pending through whole waves, so the worker
+    // synthesized summaries into the shared arena — and no thread ever
+    // pushed them into a foreign ring (TSan-clean under task 4.2).
+    const LinesSink<RecordT> probe(g_flush_race_arena, sizeof g_flush_race_arena);
+    NX_CHECK(probe.count("Dropped") >= 1);
+    NX_CHECK(probe.find("buffer-full: "));
+    NX_CHECK(probe.find("flood")); // user records flowed from the flooded owner
+    std::printf("flush_summary_race: concurrent flush vs flooding owner verified\n");
+}
+
+// --- spam-config race suite (change fix-p1-races-process-correctness, spec
+// logging/spam-protection "Dynamic quota updates are race-free"): one thread
+// reconfigures anti-spam quotas while three application threads emit through
+// the real worker. The reconfiguration path is
+// Producer::set_spam_protection_config → SpamProtection::set_config
+// (per-field relaxed stores); producers load the same fields relaxed on
+// every emit. TSan (task 3.4) is the verdict; these assertions only check
+// the barrier-ordered visible end state.
+char g_spam_race_arena[16384]{};
+
+void test_spam_config_race() {
+    using P = detail::Producer<4, 128, 4>;
+    using RecordT = LogRecord<128>;
+    P prod{};
+    NX_CHECK(prod.initialize().has_value());
+
+    detail::AsyncWorker<P, LinesSink<RecordT>> worker{};
+    NX_CHECK(worker.start(prod, 0ULL, g_spam_race_arena,
+                          sizeof g_spam_race_arena)
+                 .has_value());
+    for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    NX_CHECK(worker.writer_started());
+
+    SpamProtectionConfig quota_cfg{};
+    quota_cfg.max_messages_per_sec_per_shard = 5; // tiny quota → throttle waves
+    SpamProtectionConfig open_cfg{};
+    open_cfg.max_messages_per_sec_per_shard = 0;  // no limit
+
+    std::atomic<bool> stop_flag{false};
+    std::jthread reconfigurer([&] {
+        std::uint64_t flips = 0;
+        while (!stop_flag.load(std::memory_order_relaxed)) {
+            prod.set_spam_protection_config(
+                (flips & 1ULL) == 0ULL ? quota_cfg : open_cfg);
+            ++flips;
+            std::this_thread::yield();
+        }
+    });
+    auto emitter = [](detail::Producer<4, 128, 4>& producer,
+                      std::int32_t lane,
+                      std::atomic<bool>& stop) {
+        // Wave pacing (2 records per 2 ms): the 16 KiB shared arena must keep
+        // capacity for the late flush-time summaries, so a 150 ms run stays
+        // inside the render budget while the tiny quota throttles the rest.
+        for (int wave = 0; !stop.load(std::memory_order_relaxed); ++wave) {
+            for (int i = 0; i < 2; ++i) {
+                producer.emit(LogLevel::Info, "spam-race {} {}",
+                              static_cast<std::int64_t>(lane),
+                              static_cast<std::int64_t>(wave * 2 + i));
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    };
+    std::jthread e0(emitter, std::ref(prod), 0, std::ref(stop_flag));
+    std::jthread e1(emitter, std::ref(prod), 1, std::ref(stop_flag));
+    std::jthread e2(emitter, std::ref(prod), 2, std::ref(stop_flag));
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    stop_flag.store(true, std::memory_order_release);
+    e0.join();
+    e1.join();
+    e2.join();
+    reconfigurer.join();
+
+    NX_CHECK(worker.flush().has_value()); // final barrier: drained + synced
+    // Some first-window records were accepted under whichever quota was
+    // published at the time, and the tiny quota made throttling pending —
+    // both show up in the sink stream after the barrier.
+    const LinesSink<RecordT> probe(g_spam_race_arena,
+                                   sizeof g_spam_race_arena);
+    NX_CHECK(probe.count("spam-race") >= 4);
+    NX_CHECK(probe.find("throttled: "));
+
+    std::printf("spam_config_race: reconfiguration vs concurrent emitters "
+                "verified\n");
+}
+
+// --- shutdown drain race (analysis #6 test-gap "destruction-while-running"):
+// the AsyncWorker is destroyed (jthread stop-request → join → final drain)
+// while producer threads are STILL emitting through the pool. The producer
+// workload is finite (bounded per-lane counts), so the shutdown drain stays
+// finite even with emitters racing it, and the destruction order (worker
+// scope exits BEFORE the producer pool's jthreads are joined) makes the
+// stop-under-load real. Consumers reference only the alive producer object;
+// the worker never outlives its own join — TSan is the true verdict, the
+// assertions below check the conservation of accepted + dropped counts.
+
+void test_shutdown_drain_race() {
+    using P = detail::Producer<4, 128, 4>;
+    using RecordT = LogRecord<128>;
+    P prod{};
+    NX_CHECK(prod.initialize().has_value());
+
+    constexpr int producers = 3;
+    constexpr int per_producer = 12'000;
+    std::atomic<int> finished{0};
+    std::size_t drained = 0;
+    struct CountSink {
+        std::atomic<std::uint64_t>* received{nullptr};
+        [[nodiscard]] core::Status start() noexcept { return {}; }
+        void handle(RecordT&) noexcept {
+            received->fetch_add(1, std::memory_order_relaxed);
+        }
+        [[nodiscard]] core::Status synchronize() noexcept { return {}; }
+        void stop() noexcept {}
+    };
+    std::atomic<std::uint64_t> sink_received{0};
+
+    // Declared OUTSIDE the worker block on purpose: the producers outlive
+    // the worker's scope exit, so the destructor's stop-request/join/
+    // final-drain sequence happens while emitters still push.
+    std::vector<std::jthread> pool;
+    pool.reserve(producers);
+    {
+        detail::AsyncWorker<P, CountSink> worker{};
+        NX_CHECK(worker.start(prod, 0ULL, &sink_received).has_value());
+        for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        NX_CHECK(worker.writer_started());
+
+        for (int p = 0; p < producers; ++p) {
+            pool.emplace_back([&, p] {
+                for (int i = 0; i < per_producer; ++i) {
+                    prod.emit(LogLevel::Info, "shutdown-race {} {}", p, i);
+                }
+                finished.fetch_add(1, std::memory_order_relaxed);
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        // Overlap window: let the producers saturate the small shards while
+        // the main thread leaves the scope — the destructor races real
+        // emission.
+        while (finished.load(std::memory_order_relaxed) < 1) {
+            std::this_thread::yield();
+        }
+    } // AsyncWorker destroyed HERE, producers still hammering
+    pool.clear(); // join remaining producers (all finite)
+
+    // All producers must have completed (the join inside the destructor is
+    // not allowed to hang: their workload is finite by construction).
+    NX_CHECK(finished.load() == producers);
+
+    // After the worker is gone the main thread is the only consumer: the
+    // queue tail (records emitted after the final drain observed empty)
+    // drains synchronously and without loss beyond counted drops.
+    RecordT rec{};
+    while (prod.pop(rec)) {
+        ++drained;
+    }
+
+    // Conservation of every emitted record: worker-delivered + main-tail
+    // drained + counted buffer-full drops == total emitted. Nothing else
+    // may appear beside those three outcomes.
+    const std::uint64_t total =
+        static_cast<std::uint64_t>(producers * per_producer);
+    NX_CHECK(sink_received.load() + drained +
+                 prod.dropped().buffer_full == total);
+    NX_CHECK(sink_received.load() >= 1);
+    NX_CHECK(prod.dropped().rate_limited == 0); // throttle config untouched
+
+    std::printf("shutdown_drain_race: destructor join+drain under load "
+                "verified\n");
+}
+
+// --- drop_visibility suite (change ensure-drop-visibility, reworked by
+// fix-p0-critical-defects): worker-synthesized flush-time summary, all four
+// causes in summary, counters reset after a summary carries them.
+void test_drop_visibility() {
+    // Flush-time summary with buffer_full, CROSS-THREAD: the owner thread
+    // filled its shard while the flushing thread is a different one. The
+    // worker synthesizes the summary straight into the sink (no ring push);
+    // exact counts; reported cells reset after the summary.
+    {
+        using P = detail::Producer<4, 128, 1>;
+        static P prod{};
+        NX_CHECK(prod.initialize().has_value());
+        std::jthread t1([&] {
+            // Fill the ring (4 slots), then 2 more are dropped.
+            for (int i = 0; i < 6; ++i) {
+                prod.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
+            }
+        });
+        t1.join();
+        NX_CHECK(prod.dropped().buffer_full == 2);
+
+        char arena[4096]{};
+        detail::AsyncWorker<P, LinesSink<LogRecord<128>>> worker{};
+        NX_CHECK(worker.start(prod, 0ULL, arena, sizeof arena).has_value());
+        for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        NX_CHECK(worker.writer_started());
+        NX_CHECK(worker.flush().has_value()); // synthesize + drain + sync
+        NX_CHECK(prod.ring_empty());          // all accepted records handled
+
+        const LinesSink<LogRecord<128>> probe(arena, sizeof arena);
+        NX_CHECK(probe.count("v ") == 4);                     // 4 user records
+        NX_CHECK(probe.count("Dropped 2 record(s)") == 1);    // exactly one summary
+        NX_CHECK(probe.find("buffer-full: 2"));
+        NX_CHECK(probe.find("slot-exhausted: 0"));
+        NX_CHECK(probe.find("throttled: 0"));
+        NX_CHECK(prod.dropped().buffer_full == 0);            // reported cells reset
+        // A summary-less second flush does not re-report the same counts.
+        NX_CHECK(worker.flush().has_value());
+        NX_CHECK(probe.count("Dropped 2 record(s)") == 1);
+    }
+
+    // Reported cells reset after synthesis; fresh drops accumulate into the
+    // next summary (the previous report is not double-counted).
     {
         static detail::Producer<2, 128, 1> prod2{};
         NX_CHECK(prod2.initialize().has_value());
-        // Fill ring to capacity (2 slots).
         prod2.emit(LogLevel::Info, "a");
         prod2.emit(LogLevel::Info, "b");
         NX_CHECK(prod2.dropped().buffer_full == 0);
-        // 2 more drops (ring full).
         prod2.emit(LogLevel::Info, "c");
         prod2.emit(LogLevel::Info, "d");
         NX_CHECK(prod2.dropped().buffer_full == 2);
-        // Summary push will fail (ring is full with 2 user records).
-        prod2.flush_drop_summaries();
-        // Counters must be preserved (summary push failed).
-        NX_CHECK(prod2.dropped().buffer_full == 2);
-        // Drain one record to make room.
-        LogRecord<128> rec{};
-        NX_CHECK(prod2.pop(rec));
-        // Retry summary: now there's room.
-        prod2.flush_drop_summaries();
-        // Drain and verify summary exists.
-        int summary_count = 0;
-        while (prod2.pop(rec)) {
-            char msg[256];
-            const std::size_t n = rec.render_into(msg, sizeof msg);
-            const std::string_view sv(msg, n);
-            if (sv.find("Dropped 2 record(s)") != std::string_view::npos) {
-                ++summary_count;
-            }
+
+        char arena[4096]{};
+        detail::AsyncWorker<detail::Producer<2, 128, 1>, LinesSink<LogRecord<128>>> worker{};
+        NX_CHECK(worker.start(prod2, 0ULL, arena, sizeof arena).has_value());
+        for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        NX_CHECK(summary_count == 1);
+        NX_CHECK(worker.writer_started());
+        NX_CHECK(worker.flush().has_value());
+        const LinesSink<LogRecord<128>> probe(arena, sizeof arena);
+        NX_CHECK(probe.count("Dropped 2 record(s)") == 1);
+        NX_CHECK(prod2.dropped().buffer_full == 0);
+
+        // The worker keeps draining, so burst extra records through the
+        // small ring (main thread racing the worker): TSan scheduling can
+        // free slots mid-loop, so the staleness bound is a range, not an
+        // exact 2 — whatever pending buffer-full count accumulated (0..~30)
+        // must surface as exactly ONE additional summary at the barrier
+        // below and reset.
+        for (int i = 4; prod2.dropped().buffer_full < 2 && i < 32; ++i) {
+            prod2.emit(LogLevel::Info, "extra {}", i);
+        }
+        const std::uint64_t pending =
+            prod2.dropped().buffer_full; // old 2 drops were already reported
+        NX_CHECK(worker.flush().has_value());
+        if (pending != 0) {
+            // One new summary carries exactly one cause group: "Dropped N
+            // record(s)" prefixed line; no dual-counting ("Dropped 4") may
+            // appear because the first summary's cells were reset.
+            NX_CHECK(probe.count("Dropped") == 2);
+            NX_CHECK(probe.count("Dropped 4") == 0);
+        }
+        NX_CHECK(prod2.dropped().buffer_full == 0);
     }
 
-    // Summary includes slot_exhausted: register beyond pool, then flush.
+    // Summary includes slot_exhausted: register beyond the pool, then flush.
     {
         static detail::Producer<4, 128, 2> prod3{};
         NX_CHECK(prod3.initialize().has_value());
         prod3.emit(LogLevel::Info, "slot0");
         std::jthread t2([&] { prod3.emit(LogLevel::Info, "slot1"); });
         t2.join();
-        // Third thread: slot exhausted.
+        // Third thread: slot exhausted (global counter stays cumulative).
         std::jthread t3([&] { prod3.emit(LogLevel::Info, "overflow"); });
         t3.join();
         NX_CHECK(prod3.dropped().slot_exhausted == 1);
-        prod3.flush_drop_summaries();
-        LogRecord<128> rec{};
-        bool found_summary = false;
-        while (prod3.pop(rec)) {
-            char msg[256];
-            const std::size_t n = rec.render_into(msg, sizeof msg);
-            const std::string_view sv(msg, n);
-            if (sv.find("Dropped") != std::string_view::npos) {
-                found_summary = true;
-                NX_CHECK(sv.find("slot-exhausted: 1") != std::string_view::npos);
-            }
+
+        char arena[4096]{};
+        detail::AsyncWorker<detail::Producer<4, 128, 2>, LinesSink<LogRecord<128>>> worker{};
+        NX_CHECK(worker.start(prod3, 0ULL, arena, sizeof arena).has_value());
+        for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        NX_CHECK(found_summary);
+        NX_CHECK(worker.writer_started());
+        NX_CHECK(worker.flush().has_value());
+        const LinesSink<LogRecord<128>> probe(arena, sizeof arena);
+        NX_CHECK(probe.count("Dropped") == 1);
+        NX_CHECK(probe.find("slot-exhausted: 1"));
     }
 
-    std::printf("drop_visibility: flush-time summary, retry safety, all causes verified\n");
+    std::printf("drop_visibility: worker-synthesized summary, all causes, resets verified\n");
 }
 
 // --- producer_edge_cases suite (coverage gaps in producer.hpp):
 // summary cause combinations, OverwriteOldest in emit, TLS map full,
 // flush with no drops, double flush.
 void test_producer_edge_cases() {
-    // Summary with rate_limited only (throttle, no buffer_full).
+    // Summary with rate_limited only (throttle, no buffer_full): synthesized
+    // by the worker at the flush barrier (no ring push from the flusher).
     {
         static detail::Producer<64, 127, 1> prod{};
         NX_CHECK(prod.initialize().has_value());
@@ -2386,24 +2576,23 @@ void test_producer_edge_cases() {
             prod.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
         }
         NX_CHECK(prod.dropped().rate_limited == 3);
-        prod.flush_drop_summaries();
-        LogRecord<127> rec{};
-        bool found = false;
-        while (prod.pop(rec)) {
-            char msg[256];
-            const std::size_t n = rec.render_into(msg, sizeof msg);
-            const std::string_view sv(msg, n);
-            if (sv.find("Dropped 3 record(s)") != std::string_view::npos) {
-                found = true;
-                NX_CHECK(sv.find("rate-limited: 3") != std::string_view::npos);
-                NX_CHECK(sv.find("buffer-full: 0") != std::string_view::npos);
-            }
+        char arena[2048]{};
+        detail::AsyncWorker<detail::Producer<64, 127, 1>, LinesSink<LogRecord<127>>> worker{};
+        NX_CHECK(worker.start(prod, 0ULL, arena, sizeof arena).has_value());
+        for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        NX_CHECK(found);
+        NX_CHECK(worker.writer_started());
+        NX_CHECK(worker.flush().has_value());
+        const LinesSink<LogRecord<127>> probe(arena, sizeof arena);
+        NX_CHECK(probe.count("Dropped 3 record(s)") == 1);
+        NX_CHECK(probe.find("rate-limited: 3"));
+        NX_CHECK(probe.find("buffer-full: 0"));
+        NX_CHECK(prod.dropped().rate_limited == 0); // reported cell reset
         prod.configure_throttle(ThrottleConfig{}); // reset
     }
 
-    // Summary with both rate_limited and buffer_full.
+    // Summary with both rate_limited and buffer_full causes in one line.
     {
         static detail::Producer<4, 128, 1> prod2{};
         NX_CHECK(prod2.initialize().has_value());
@@ -2416,20 +2605,18 @@ void test_producer_edge_cases() {
         }
         NX_CHECK(prod2.dropped().rate_limited == 4);
         NX_CHECK(prod2.dropped().buffer_full == 0);
-        prod2.flush_drop_summaries();
-        LogRecord<128> rec{};
-        bool found = false;
-        while (prod2.pop(rec)) {
-            char msg[256];
-            const std::size_t n = rec.render_into(msg, sizeof msg);
-            const std::string_view sv(msg, n);
-            if (sv.find("Dropped 4 record(s)") != std::string_view::npos) {
-                found = true;
-                NX_CHECK(sv.find("rate-limited: 4") != std::string_view::npos);
-                NX_CHECK(sv.find("buffer-full: 0") != std::string_view::npos);
-            }
+        char arena[2048]{};
+        detail::AsyncWorker<detail::Producer<4, 128, 1>, LinesSink<LogRecord<128>>> worker{};
+        NX_CHECK(worker.start(prod2, 0ULL, arena, sizeof arena).has_value());
+        for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        NX_CHECK(found);
+        NX_CHECK(worker.writer_started());
+        NX_CHECK(worker.flush().has_value());
+        const LinesSink<LogRecord<128>> probe(arena, sizeof arena);
+        NX_CHECK(probe.count("Dropped 4 record(s)") == 1);
+        NX_CHECK(probe.find("rate-limited: 4"));
+        NX_CHECK(probe.find("buffer-full: 0"));
         prod2.configure_throttle(ThrottleConfig{});
     }
 
@@ -2438,24 +2625,37 @@ void test_producer_edge_cases() {
         static detail::Producer<16, 128, 1> prod3{};
         NX_CHECK(prod3.initialize().has_value());
         prod3.emit(LogLevel::Info, "clean");
-        prod3.flush_drop_summaries();
-        LogRecord<128> rec{};
-        int count = 0;
-        while (prod3.pop(rec)) { ++count; }
-        NX_CHECK(count == 1); // only the user record, no summary
+        char arena[2048]{};
+        detail::AsyncWorker<detail::Producer<16, 128, 1>, LinesSink<LogRecord<128>>> worker{};
+        NX_CHECK(worker.start(prod3, 0ULL, arena, sizeof arena).has_value());
+        for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        NX_CHECK(worker.writer_started());
+        NX_CHECK(worker.flush().has_value());
+        const LinesSink<LogRecord<128>> probe(arena, sizeof arena);
+        NX_CHECK(probe.count("Dropped") == 0);
+        NX_CHECK(probe.count("clean") == 1);
     }
 
-    // Double flush: both complete without deadlock or data loss.
+    // Double flush: both complete without deadlock or data loss; no summary
+    // repeats for a clean producer.
     {
         static detail::Producer<16, 128, 1> prod4{};
         NX_CHECK(prod4.initialize().has_value());
         prod4.emit(LogLevel::Info, "before flush 1");
-        prod4.flush_drop_summaries();
-        prod4.flush_drop_summaries(); // second call is a no-op (no pending drops)
-        LogRecord<128> rec{};
-        int count = 0;
-        while (prod4.pop(rec)) { ++count; }
-        NX_CHECK(count == 1);
+        char arena[2048]{};
+        detail::AsyncWorker<detail::Producer<16, 128, 1>, LinesSink<LogRecord<128>>> worker{};
+        NX_CHECK(worker.start(prod4, 0ULL, arena, sizeof arena).has_value());
+        for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        NX_CHECK(worker.writer_started());
+        NX_CHECK(worker.flush().has_value());
+        NX_CHECK(worker.flush().has_value()); // second barrier is a no-op
+        const LinesSink<LogRecord<128>> probe(arena, sizeof arena);
+        NX_CHECK(probe.count("before flush 1") == 1);
+        NX_CHECK(probe.count("Dropped") == 0);
     }
 
     // Overflow in emit: the engine's fixed policy is DropNewest; ring-full
@@ -3341,18 +3541,18 @@ void test_logging_settings_full_coverage() {
         NX_CHECK(out.max_threads_set);
     }
 
-    // Nested spam fields invalid + affinity id out of range.
+    // Nested spam fields invalid + affinity id out of range (removed
+    // quota keys from change fix-p2-observability-and-writers no longer
+    // produce diagnostics — they are not part of the surface).
     write_text(local_path,
                R"({"flush_cpu_affinity":[1,64],"spam_protection":{)"
                R"("enable_repeat_suppression":1,"repeat_suppression_window_ms":"x",)"
-               R"("repeat_suppression_max_count":"x",)"
                R"("max_messages_per_sec_per_shard":"x",)"
-               R"("max_bytes_per_sec_per_shard":"x",)"
-               R"("max_total_bytes_per_sec":"x","bypass_min_level":"chatty"}})");
+               R"("bypass_min_level":"chatty"}})");
     {
         Settings out{};
         NX_CHECK(!load_logging_settings({"", local_path}, out).has_value());
-        NX_CHECK(out.diagnostics.size() >= 8U);
+        NX_CHECK(out.diagnostics.size() >= 5U);
     }
 
     // Non-object document and malformed JSON (global and local).
@@ -3475,12 +3675,13 @@ int main()
     run_suite("logging_settings_apply", test_logging_settings_apply);
     run_suite("file_size_rotation", test_file_size_rotation);
     run_suite("settings_full_coverage", test_logging_settings_full_coverage);
-    run_suite("spsc_shard_ring", test_spsc_shard_ring);
-    run_suite("spsc_shard_pool", test_spsc_shard_pool);
     run_suite("spam_protection", test_spam_protection);
+    run_suite("spam_config_race", test_spam_config_race);
+    run_suite("shutdown_drain_race", test_shutdown_drain_race);
     run_suite("spam_window_rotation_errors", test_spam_window_and_rotation_errors);
     run_suite("drop_visibility", test_drop_visibility);
     run_suite("producer_edge_cases", test_producer_edge_cases);
+    run_suite("flush_summary_race", test_flush_summary_race);
     run_suite("stress", test_stress);
     // Suites register here as groups 2..8 land (design D18).
     const int failures = g_failures;

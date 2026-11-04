@@ -151,33 +151,3 @@ inline void from_json(const nlohmann::json& j, SettingsDiagnostic& out) noexcept
 
 } // namespace nexigen::core
 
-/// SettingsSource formats as its canonical name (mandate 11).
-template <>
-struct std::formatter<nexigen::core::SettingsSource>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::core::SettingsSource src, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(
-            nexigen::core::to_string(src), ctx);
-    }
-};
-
-/// SettingsPaths formats as its member to_string (mandate 11).
-template <>
-struct std::formatter<nexigen::core::SettingsPaths>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::core::SettingsPaths& paths, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(paths.to_string(), ctx);
-    }
-};
-
-/// SettingsDiagnostic formats as its member to_string (mandate 11).
-template <>
-struct std::formatter<nexigen::core::SettingsDiagnostic>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::core::SettingsDiagnostic& diag, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(diag.to_string(), ctx);
-    }
-};

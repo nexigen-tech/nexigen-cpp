@@ -22,6 +22,7 @@
 
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <nlohmann/json.hpp>
@@ -82,6 +83,20 @@ inline void sleep_ms(std::uint64_t milliseconds) noexcept {
         written += static_cast<std::size_t>(count);
     }
     return true;
+}
+
+/// Handshake/report writes are the one IPC family without a recv-style
+/// MSG_NOSIGNAL (analysis #23): shield the single write from SIGPIPE —
+/// save the old disposition, write, restore. The restore matters because
+/// a `SIG_IGN` disposition would survive `exec` into the launched
+/// application; a handler reset would not.
+[[nodiscard]] inline bool write_all_no_sigpipe(int fd, const void* data,
+                                               std::size_t size) noexcept {
+    void (*const saved)(int) = ::signal(SIGPIPE, SIG_IGN);
+    const bool ok = write_all(fd, data, size);
+    static_cast<void>(
+        ::signal(SIGPIPE, saved == SIG_ERR ? SIG_DFL : saved));
+    return ok;
 }
 
 [[nodiscard]] inline bool read_all(int fd, void* data, std::size_t size) noexcept {
@@ -147,6 +162,91 @@ inline void sleep_ms(std::uint64_t milliseconds) noexcept {
         return true;
     }
     return errno == EPERM;
+}
+
+/// Linux start-ticks of a process: `/proc/<pid>/stat` field 22 (starttime,
+/// clock ticks since boot). 0 = unreadable — the caller falls back to the
+/// legacy pid-only check; a readable value is exact and stable, comparable
+/// ticks-to-ticks without any clock-domain math (PID-recycling protection,
+/// analysis 2026-11-03 #5).
+[[nodiscard]] inline std::uint64_t proc_start_ticks(std::int32_t pid) noexcept {
+    if (pid <= 0) {
+        return 0;
+    }
+    char path[64]{};
+    static_cast<void>(std::snprintf(path, sizeof(path), "/proc/%d/stat", pid));
+    const int fd = ::open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return 0;
+    }
+    char buffer[512]{};
+    const ssize_t count = ::read(fd, buffer, sizeof(buffer) - 1);
+    static_cast<void>(::close(fd));
+    if (count <= 0) {
+        return 0;
+    }
+    buffer[count] = '\0';
+    // comm (field 2) may contain any character; fields continue after the
+    // LAST ')'. Time fields stay stable across all supported kernels.
+    constexpr std::uint32_t starttime_field = 22;
+    // After the paren, field 3 (state) starts; field 22 is the 20th token.
+    constexpr std::uint32_t tokens_before_starttime = starttime_field - 3;
+    const char* const last_paren = std::strrchr(buffer, ')');
+    if (last_paren == nullptr || last_paren[1] != ' ') {
+        return 0;
+    }
+    const char* cursor = last_paren + 2; // first char of field 3 (state)
+    for (std::uint32_t token = 0; token < tokens_before_starttime; ++token) {
+        const char* const separator = std::strchr(cursor, ' ');
+        if (separator == nullptr) {
+            return 0;
+        }
+        cursor = separator + 1;
+    }
+    char* end = nullptr;
+    const long long value = std::strtoll(cursor, &end, 10);
+    if (end == cursor || value <= 0) {
+        return 0;
+    }
+    return static_cast<std::uint64_t>(value);
+}
+
+/// Identity gate before signals (spec runner/process-supervision "Identity is
+/// verified before signals are sent"): true when the recorded anchor matches
+/// the live process. A 0 anchor (pre-anchor writer) or an unreadable /proc
+/// keeps the legacy single-check behavior; only a readable, differing pair
+/// counts as recycled.
+[[nodiscard]] inline bool identity_matches(
+    std::int32_t pid, std::uint64_t recorded_ticks) noexcept {
+    if (pid <= 0 || recorded_ticks == 0) {
+        return true; // legacy resource.json — previous trust level stands
+    }
+    const std::uint64_t live_ticks = proc_start_ticks(pid);
+    return live_ticks == 0 || live_ticks == recorded_ticks;
+}
+
+/// Reap a supervisor child that reported a failed handshake. Bounded
+/// non-blocking drain (the supervisor exits self-terminally after the report
+/// on every failure path); never blocks forever, so a hung supervisor under
+/// fault injection cannot stall the launcher (spec process-supervision "A
+/// failed start reaps the supervisor child").
+inline void reap_failed_supervisor(pid_t supervisor) noexcept {
+    const std::uint64_t deadline =
+        monotonic_now_ns() + 5ULL * nanoseconds_per_second;
+    int status = 0;
+    for (;;) {
+        const pid_t reaped = ::waitpid(supervisor, &status, WNOHANG);
+        if (reaped == supervisor) {
+            return;
+        }
+        if (reaped < 0 && errno != EINTR) {
+            return; // already reaped elsewhere (ECHILD etc.) — done
+        }
+        if (monotonic_now_ns() >= deadline) {
+            return; // abnormal miss: launcher still returns, never blocks
+        }
+        sleep_ms(5);
+    }
 }
 
 // --- nlohmann::json field readers (non-throwing, JSON_NOEXCEPTION-safe) ----

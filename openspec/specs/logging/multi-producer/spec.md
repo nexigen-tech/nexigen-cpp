@@ -21,36 +21,117 @@ Each asynchronous logger SHALL own a pre-allocated array of `SpscShardRing` shar
 
 ### Requirement: Thread-local slot registration
 
-On a thread's first log call against a logger instance, the logger SHALL assign that thread an exclusive shard slot — one bounded atomic fetch-add on a registration counter plus a `thread_local` write — and every later call on that thread SHALL route from the thread-local slot index with no atomic touching any shared index.
+On a thread's first log call against a logger instance, the logger SHALL assign
+that thread an exclusive shard slot — one bounded atomic fetch-add on a
+registration counter plus a `thread_local` write — and every later call on that
+thread SHALL route from the thread-local slot index with no atomic touching any
+shared index. The per-thread cache SHALL hold at least 8 distinct pools, and a
+thread exceeding it SHALL NOT register per record (see scenario).
 
 #### Scenario: Two threads get two distinct shards
 
 - **WHEN** two producer threads log to the same logger instance
-- **THEN** each thread's records land only in its own shard, and a third thread observing the shards sees no interleaved producer inside one shard
+- **THEN** each thread's records land only in its own shard, and a third thread
+  observing the shards sees no interleaved producer inside one shard
 
 #### Scenario: Steady-state path never contends
 
-- **WHEN** N producer threads log accepted records in a measured loop after registration
-- **THEN** no call performs a CAS loop, atomic RMW on a shared write index, mutex, spin, yield, or sleep, and TSan reports no data races
+- **WHEN** N producer threads log accepted records in a measured loop after
+  registration
+- **THEN** no call performs a CAS loop, atomic RMW on a shared write index,
+  mutex, spin, yield, or sleep, and TSan reports no data races
+
+#### Scenario: TLS cache exhaustion drops without burning registration slots
+
+- **WHEN** a thread emits to more distinct pools than its cache holds (e.g. a
+  ninth pool on a thread still using eight earlier pools)
+- **THEN** those pool's edges take the counted `slot_exhausted` drop path, the
+  global registration counter does NOT advance on every record, and previously
+  cached pools on that thread keep their wait-free steady path
 
 #### Scenario: Registration happens once per thread
 
 - **WHEN** one thread issues a million log calls
-- **THEN** exactly one slot registration occurs for that thread on that logger and the remaining calls read only thread-local state
+- **THEN** exactly one slot registration occurs for that thread on that logger
+  and the remaining calls read only thread-local state
 
 ### Requirement: Sharded drop accounting without contention
 
-Ring-full drops SHALL be counted per shard by its own producer (no cross-thread counter on the accepted path) and aggregated by `dropped()` snapshots; over-throttle drops SHALL likewise be per-shard. The aggregate drop story (rate-limited vs buffer-full separation, drop summary lines) is unchanged.
+Ring-full drops SHALL be counted per shard by its own producer with a single
+atomic `fetch_add` on that shard's own state cell (no cross-thread counter on
+the accepted path, no non-atomic read-modify-write); over-throttle drops SHALL
+likewise be per-shard.
 
 #### Scenario: Full shard drops only that shard's producer
 
 - **WHEN** one thread's shard is full while other threads' shards have room
-- **THEN** only the full-shard producer's records are dropped and counted, and the other threads continue accepting
+- **THEN** only the full-shard producer's records are dropped and counted, and
+  the other threads continue accepting
 
 #### Scenario: Snapshot aggregates all shards
 
 - **WHEN** `dropped()` is called from any thread after drops on several shards
-- **THEN** the returned statistics are the sum over all shards for each drop cause (a snapshot, not synchronized linearization)
+- **THEN** the returned statistics are the sum over all shards for each drop
+  cause (a snapshot, not synchronized linearization)
+
+#### Scenario: Consumer is the only resetter of reported cells
+
+- **WHEN** an owner thread commits new drops with `fetch_add` while a snapshot
+  or reset of the same cell happens on the consumer thread
+- **THEN** each increment survives as an atomic update, TSan reports no race,
+  and no reset can observe a torn or self-decremented value
+
+### Requirement: Drop summaries are synthesized by the worker
+
+When an application thread completes the flush control barrier, the background
+worker SHALL synthesize the drop summary for shards with pending drops — same
+text contract, same one-summary-per-flush rule — and deliver it only to the
+sink. The flushing thread and every other non-owner thread SHALL NOT push any
+record into a ring shard they do not own; a shard's ring SHALL be `try_push`-ed
+only by its owner thread, every other ring access being the consumer's `pop`.
+
+#### Scenario: Foreign-thread flush never touches another shard's ring
+
+- **WHEN** a producer thread has pending buffer-full drops and a different
+  application thread (not the ring owner) completes the flush barrier under
+  ThreadSanitizer while the owner keeps logging
+- **THEN** no summary is pushed into the owner's ring by the flushing thread,
+  TSan reports no data race on the shard ring's cells, and the summary appears
+  exactly once in the sink stream after the barrier returns
+
+#### Scenario: Flush-time summary content is unchanged
+
+- **WHEN** records were dropped (rate-limited or buffer-full) before the flush
+  and the flush barrier completes
+- **THEN** the sink stream contains one warning line reporting the exact
+  per-cause counts, followed by the sink synchronization
+
+#### Scenario: No drops means no summary
+
+- **WHEN** the flush barrier completes while all drop cells are zero
+- **THEN** no summary record is added to the sink stream
+
+### Requirement: Reported drop cells reset after synthesis
+
+After the worker synthesizes a flush-time drop summary it SHALL reset exactly
+the per-cause cells (and the throttled counter) whose values that summary
+carried. Drop counters SHALL persist between flush barriers, so drops
+accumulating after one summary are carried by the next one, and a summary
+SHALL NOT repeat counts already carried by an earlier summary when no new
+drops happened in between.
+
+#### Scenario: Reported counters are not re-reported
+
+- **WHEN** a flush barrier reports and resets a shard's pending cells and the
+  owner logs no further drops before a second flush barrier
+- **THEN** the second flush produces no duplicate summary for the same counts
+
+#### Scenario: Drops accumulating after a summary reach the next summary
+
+- **WHEN** the owner thread commits further drops after a flush summary was
+  synthesized and then stops, and a second flush barrier completes
+- **THEN** the second summary reports only the counts accumulated after the
+  first summary
 
 ### Requirement: Consumer drains every active shard
 

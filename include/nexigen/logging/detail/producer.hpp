@@ -176,20 +176,18 @@ class Producer {
     }};
     SpamShardState spam_state_[MaxThreads];
 
-    /// D9 drop summary: push a synthesized Warning record describing exact
-    /// per-cause counts. Called on window transitions, before try_push when
-    /// drops are pending, and at flush. Counters reset only on push success
-    /// (retry safety — spec logging/multi-producer "Failed summary push
-    /// preserves counters"). Includes all four causes.
-    void emit_summary_if_needed(std::size_t slot, const chrono::Timestamp stamp) noexcept {
-        core::ShardPoolState& st = pool_.state(slot);
-        const std::uint64_t rl = st.rate_limited.load(std::memory_order_relaxed);
-        const std::uint64_t bf = st.buffer_full.load(std::memory_order_relaxed);
-        const std::uint64_t se = pool_.slot_exhausted();
-        const std::uint64_t th = spam_state_[slot].throttled_count.load(std::memory_order_relaxed);
-        if ((rl | bf | se | th) == 0ULL) {
-            return;
-        }
+    /// Shared cold-path body (design D9): build the "Dropped N record(s) ..."
+    /// warning summary record from the given counts (spec: same text, all
+    /// four causes). Returns false when the formatting failed (nothing is
+    /// synthesized, cells keep their values). Never touches a ring: ownership
+    /// of the ring push belongs to the caller's domain (owner `try_push` or
+    /// direct sink delivery).
+    [[nodiscard]] static bool compose_summary_record(std::uint64_t rl,
+                                                     std::uint64_t bf,
+                                                     std::uint64_t se,
+                                                     std::uint64_t th,
+                                                     const chrono::Timestamp stamp,
+                                                     Record& rec) noexcept {
         char buf[256];
         const int n = std::snprintf(buf, sizeof buf,
                                     "Dropped %llu record(s) in the last window "
@@ -204,12 +202,11 @@ class Producer {
                                     static_cast<unsigned long long>(se),
                                     static_cast<unsigned long long>(th));
         if (n <= 0) {
-            return;
+            return false;
         }
-        Record rec{};
+        rec = Record{};
         rec.stamp = stamp;
         rec.level = LogLevel::Warning;
-        rec.thread_id = cached_thread_id();
         rec.file_name = "<nexigen-logging>"; // internal synthesis (spec: diagnostic line)
         rec.function_name = "throttle_summary";
         rec.line = 0;
@@ -222,25 +219,82 @@ class Producer {
         rec.arg_length = static_cast<std::uint16_t>(take);
         rec.flags = static_cast<std::uint8_t>(
             n > static_cast<int>(MessageCapacity) ? flag_args_truncated : 0U);
+        return true;
+    }
+
+    /// Owner thread only: zero the summary-backed cells of one slot (the
+    /// cells a summary's counts were composed from, except the global
+    /// slot-exhaustion counter which stays cumulative).
+    void reset_summary_cells(std::size_t slot) noexcept {
+        core::ShardPoolState& st = pool_.state(slot);
+        st.rate_limited.store(0, std::memory_order_relaxed);
+        st.buffer_full.store(0, std::memory_order_relaxed);
+        spam_state_[slot].throttled_count.store(0, std::memory_order_relaxed);
+    }
+
+    /// Owner thread only (its own slot): when drops are pending, pull them
+    /// per-cause and try_push the composed summary into the OWNER'S OWN ring.
+    /// Called on window transitions and before try_push when drops are
+    /// pending. Counters reset only on push success (retry safety — spec
+    /// logging/multi-producer "Failed summary push preserves counters").
+    /// Includes all four causes.
+    void emit_summary_if_needed(std::size_t slot, const chrono::Timestamp stamp) noexcept {
+        core::ShardPoolState& st = pool_.state(slot);
+        const std::uint64_t rl = st.rate_limited.load(std::memory_order_relaxed);
+        const std::uint64_t bf = st.buffer_full.load(std::memory_order_relaxed);
+        const std::uint64_t se = pool_.slot_exhausted();
+        const std::uint64_t th = spam_state_[slot].throttled_count.load(std::memory_order_relaxed);
+        if ((rl | bf | se | th) == 0ULL) {
+            return;
+        }
+        Record rec{};
+        if (!compose_summary_record(rl, bf, se, th, stamp, rec)) {
+            return;
+        }
+        rec.thread_id = cached_thread_id();
         if (pool_.ring(slot).try_push(rec)) {
-            // Reset only on success (retry safety).
-            st.rate_limited.store(0, std::memory_order_relaxed);
-            st.buffer_full.store(0, std::memory_order_relaxed);
-            spam_state_[slot].throttled_count.store(0, std::memory_order_relaxed);
+            reset_summary_cells(slot); // Reset only on success (retry safety).
         }
         // On failure: counters preserved; summary retried at next opportunity.
     }
 
-    /// One relaxed store bump on a shard's own line (owner thread only).
+    /// One relaxed atomic increment on the shard's own line (owner thread
+    /// only). `fetch_add` — not `store(load+1)`: the consumer may reset the
+    /// cell after reporting it (flush-time drop summary), so every increment
+    /// must survive as an atomic RMW.
     static void bump(std::atomic<std::uint64_t>& counter) noexcept {
-        counter.store(counter.load(std::memory_order_relaxed) + 1U, std::memory_order_relaxed);
+        counter.fetch_add(1U, std::memory_order_relaxed);
     }
 
 public:
-    /// Flush-time drop summary (spec: "Flush-time drop summary is emitted"):
-    /// iterate all shards and push a summary for any with pending drops.
-    /// Also checks the global slot_exhausted counter.
-    void flush_drop_summaries() noexcept {
+    /// Worker's own fresh monotonic stamp for synthesized summaries. The
+    /// worker NEVER calls a per-slot `StampSource::sample()`: every
+    /// `stamps_[i]` is producer-owned single-writer state (see
+    /// stamp_source.hpp lines "written exclusively by the producer thread"),
+    /// and a foreign sample() races the owner's `last_ns_` clamp — TSan
+    /// reports exactly that on the multithreaded flush race test. The flush
+    /// answer is a cold path: one `clock_gettime(CLOCK_MONOTONIC_RAW)` read
+    /// (same clock domain as the producer stamps, so the summary stays in
+    /// the same timeline). A clock failure degrades to a zero stamp.
+    [[nodiscard]] static chrono::Timestamp worker_stamp() noexcept {
+        const core::Result<chrono::Timestamp> now = chrono::Timestamp::now();
+        return now ? *now : chrono::Timestamp{};
+    }
+
+    /// Consumer end only (the logging worker): flush-time drop summary
+    /// (spec logging/multi-producer "Drop summaries are synthesized by the
+    /// worker"). Scans all shards relaxed; on the first shard (or the global
+    /// slot-exhaustion counter) with pending drops, builds the same summary
+    /// record the owner would push (stamp read worker-side via
+    /// `worker_stamp()`) and resets exactly the cells reported
+    /// (rate-limited / buffer-full / throttled; the global slot-exhaustion
+    /// counter stays cumulative). NEVER pushes into any ring — a ring slot
+    /// is `try_push`-ed only by its owner (SPSC invariant), and never touches
+    /// producer-owned stamp state — the caller delivers `out` directly to
+    /// its sink. One summary per flush answer is enough; a later flush
+    /// reports fresh drops only.
+    /// Returns true with `out` filled after a summary was synthesized.
+    [[nodiscard]] bool synthesize_flush_summary(Record& out) noexcept {
         const std::uint64_t global_se = pool_.slot_exhausted();
         for (std::size_t i = 0; i < MaxThreads; ++i) {
             const core::ShardPoolState& st = pool_.state(i);
@@ -248,11 +302,18 @@ public:
             const std::uint64_t bf = st.buffer_full.load(std::memory_order_relaxed);
             const std::uint64_t th = spam_state_[i].throttled_count.load(std::memory_order_relaxed);
             if ((rl | bf | th | global_se) != 0ULL) {
-                const chrono::Timestamp stamp = stamps_[i].sample();
-                emit_summary_if_needed(i, stamp);
-                break; // one summary per flush is enough
+                Record rec{};
+                if (!compose_summary_record(rl, bf, global_se, th,
+                                            worker_stamp(), rec)) {
+                    return false;
+                }
+                rec.thread_id = cached_thread_id();
+                out = rec;
+                reset_summary_cells(i);
+                return true; // one summary per flush is enough
             }
         }
+        return false;
     }
     using record_type = Record; ///< consumed by detail::AsyncWorker/Sink APIs
 
@@ -268,9 +329,11 @@ public:
         return MessageCapacity;
     }
 
-    /// Cold-path diagnostic/testing accessor for one shard slot. The engine's
-    /// overflow policy is fixed (DropNewest); per-shard OverwriteOldest lands
-    /// with the SpscShardRing wiring in the follow-up change. Out-of-range
+    /// Cold-path diagnostic/testing accessor for one shard slot. The live
+    /// engine's overflow policy is fixed (DropNewest, counted per-cause in
+    /// `ShardPoolState`); a per-shard OverwriteOldest mode does not exist —
+    /// the unwired duplicate `logging::detail::SpscShardRing` was deleted
+    /// (change fix-p1-races-process-correctness, analysis #7). Out-of-range
     /// indices fall back to slot 0 so tests cannot read out of bounds.
     [[nodiscard]] core::SpscRingBuffer<Record, ShardCapacity>& shard(
         std::size_t index) noexcept {
@@ -303,7 +366,9 @@ public:
         policy_.window_ns = cfg.window_ns;
     }
 
-    /// Wait-free runtime reconfiguration of anti-spam quotas.
+    /// Field-atomic runtime reconfiguration of anti-spam quotas (relaxed
+    /// stores; hot path stays lock-free — see spam_protection.hpp / design
+    /// D5 of change fix-p1-races-process-correctness).
     void set_spam_protection_config(const SpamProtectionConfig& cfg) noexcept {
         spam_.set_config(cfg);
     }

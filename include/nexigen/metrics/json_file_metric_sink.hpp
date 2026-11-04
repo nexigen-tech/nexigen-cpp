@@ -20,6 +20,7 @@
 #include <cerrno>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/sink_io.hpp>
 #include <nexigen/chrono/time_format.hpp>
 #include <nexigen/metrics/concepts/metric_sink_concept.hpp>
 #include <nexigen/metrics/detail/json_writer.hpp>
@@ -50,9 +51,8 @@ class JsonFileMetricSink {
 public:
     /// Open the file. An unopenable path leaves the sink without a
     /// descriptor; on_batch then reports SystemError.
-    explicit JsonFileMetricSink(const JsonFileMetricSinkConfig& config) noexcept {
-        const int flags = O_WRONLY | O_CREAT | O_CLOEXEC | (config.append ? O_APPEND : O_TRUNC);
-        fd_ = ::open(config.path.c_str(), flags, 0644);
+    explicit JsonFileMetricSink(const JsonFileMetricSinkConfig& config) noexcept
+        : fd_(core::sink_io::open_output(config.path, config.append)) {
         const std::size_t take =
             config.app_name.size() < 63 ? config.app_name.size() : 63;
         for (std::size_t i = 0; i < take; ++i) {
@@ -190,10 +190,14 @@ public:
         }
         static_cast<void>(writer.append_sv("]}\n"));
         if (!writer.ok()) {
-            // The batch does not fit the scratch: nothing partial is written.
+            // The batch does not fit the scratch: nothing partial is
+            // written, and the loss is visible (spec metric-sinks
+            // "Scratch overflow discards the batch and counts it" —
+            // analysis #17).
+            ++discarded_batches_;
             return std::unexpected(core::ErrorCode::BufferFull);
         }
-        if (!write_all(writer.size())) {
+        if (!core::sink_io::write_all(fd_, scratch_, writer.size()).has_value()) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         return {};
@@ -204,7 +208,7 @@ public:
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
-        if (::fsync(fd_) != 0) {
+        if (!core::sink_io::fsync_fd(fd_).has_value()) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         return {};
@@ -212,29 +216,17 @@ public:
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
-        return "JsonFileMetricSink(fd=" + std::to_string(fd_) + ")";
+        return "JsonFileMetricSink(fd=" + std::to_string(fd_) +
+               ", discarded_batches=" + std::to_string(discarded_batches_) +
+               ")";
     }
 
     /// True when the file was opened successfully.
     [[nodiscard]] bool is_open() const noexcept { return fd_ >= 0; }
 
 private:
-    [[nodiscard]] bool write_all(std::size_t bytes) noexcept {
-        std::size_t offset = 0;
-        while (offset < bytes) {
-            const ssize_t written = ::write(fd_, scratch_ + offset, bytes - offset);
-            if (written > 0) {
-                offset += static_cast<std::size_t>(written);
-            } else if (written < 0 && errno == EINTR) {
-                continue;
-            } else {
-                return false;
-            }
-        }
-        return true;
-    }
-
     int fd_{-1};
+    std::size_t discarded_batches_{0}; ///< batches over the JSON scratch (P2-18)
     char app_[64]{};
     std::size_t app_len_{0};
     char stamp_text_[32]{};

@@ -96,6 +96,12 @@ public:
 
     template <class Target>
     [[nodiscard]] core::Status start(Target* target, const sigset_t& mask) noexcept {
+        // Double-start guard (app/application "the second call returns
+        // Conflict and installs no watcher"; analysis #22): a second
+        // signalfd would leak a descriptor and a second watcher thread.
+        if (active() || thread_.joinable()) {
+            return std::unexpected(core::ErrorCode::Conflict);
+        }
         fd_ = ::signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK);
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
@@ -233,37 +239,69 @@ public:
             rollback();
             return status;
         };
+        // Shared step guard (analysis #22): every Policy emplace is
+        // "construct a component or fail with the returned status (a plain
+        // null from an invalid-policy stub maps to InvalidArgument)"
+        // followed by rollback — one helper instead of four copies.
+        const auto emplace_checked = [&fail](
+            const core::Status status, const bool constructed) -> core::Status {
+            if (!status) {
+                return fail(status);
+            }
+            if (!constructed) {
+                return fail(std::unexpected(core::ErrorCode::InvalidArgument));
+            }
+            return {};
+        };
 
         // 1. chrono is the time foundation: construct it (deferred worker),
         //    then the logger, then bind the logger and start the chrono worker.
-        if (const core::Status status =
+        {
+            const core::Status status =
                 Policy::emplace_chrono_sink(chrono_sink_, settings.chrono);
-            !status || !chrono_sink_) {
-            return fail(status ? std::unexpected(core::ErrorCode::InvalidArgument) : status);
+            if (const core::Status step =
+                    emplace_checked(status, chrono_sink_.has_value());
+                !step) {
+                return step;
+            }
         }
         chrono_.emplace(settings.chrono.options, *chrono_sink_);
 
-        if (const core::Status status =
+        {
+            const core::Status status =
                 Policy::emplace_logger(logger_, settings.logging, settings.app_name);
-            !status || !logger_) {
-            return fail(status ? std::unexpected(core::ErrorCode::InvalidArgument) : status);
+            if (const core::Status step =
+                    emplace_checked(status, logger_.has_value());
+                !step) {
+                return step;
+            }
         }
         chrono_logger_bridge_.logger = &*logger_;
         if (const core::Status status = chrono_->start(chrono_logger_bridge_); !status) {
             return fail(status);
         }
 
-        if (const core::Status status =
-                Policy::emplace_metrics_sink(metrics_sink_, settings.metrics, settings.app_name);
-            !status || !metrics_sink_) {
-            return fail(status ? std::unexpected(core::ErrorCode::InvalidArgument) : status);
+        {
+            const core::Status status =
+                Policy::emplace_metrics_sink(metrics_sink_, settings.metrics,
+                                             settings.app_name);
+            if (const core::Status step =
+                    emplace_checked(status, metrics_sink_.has_value());
+                !step) {
+                return step;
+            }
         }
         metrics_.emplace(settings.metrics.options, *metrics_sink_);
 
-        if (const core::Status status =
-                Policy::emplace_trace_sink(trace_sink_, settings.tracing, settings.app_name);
-            !status || !trace_sink_) {
-            return fail(status ? std::unexpected(core::ErrorCode::InvalidArgument) : status);
+        {
+            const core::Status status =
+                Policy::emplace_trace_sink(trace_sink_, settings.tracing,
+                                           settings.app_name);
+            if (const core::Status step =
+                    emplace_checked(status, trace_sink_.has_value());
+                !step) {
+                return step;
+            }
         }
         tracer_.emplace(settings.tracing.options, *trace_sink_);
         if (const core::Status status = tracer_->initialize(); !status) {

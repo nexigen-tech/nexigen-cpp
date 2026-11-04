@@ -55,6 +55,10 @@ struct ResourceMetadata {
     std::int32_t ppid{0};              ///< Supervisor process id (the child's parent).
     std::string start_time_rfc3339{};  ///< UTC start instant, ISO-8601.
     std::uint64_t start_time_mono_ns{0}; ///< CLOCK_MONOTONIC_RAW at start.
+    /// Linux `/proc/<pid>/stat` starttime ticks recorded by the runner while
+    /// it owned the child — the stop/status identity anchor (PID-recycling
+    /// defense). 0 = unknown (pre-anchor writers keep the legacy pid check).
+    std::uint64_t proc_start_ticks{0};
     std::string version{"nexigen-cpp"};  ///< nexigen version tag.
 
     [[nodiscard]] std::string to_string() const;
@@ -153,33 +157,8 @@ void from_json(const nlohmann::json& j, TerminatedBy& value) noexcept;
 
 } // namespace nexigen::runner
 
-template <>
-struct std::formatter<nexigen::runner::TerminatedBy>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::TerminatedBy value,
-                          Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(
-            nexigen::runner::to_string(value), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::runner::ResourceMetadata>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::ResourceMetadata& metadata,
-                          Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(metadata.to_string(), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::runner::ExitMetadata>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::ExitMetadata& metadata,
-                          Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(metadata.to_string(), ctx);
-    }
-};
+
+
+

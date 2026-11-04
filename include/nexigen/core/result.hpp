@@ -12,6 +12,15 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <format>
+#include <string_view>
+#include <utility>
+
+// The serialization mandate machinery travels WITH the vocabulary: every
+// module pulls result.hpp, so the generic enum/struct formatters and the
+// generic nexigen::to_json/from_json pair are always in scope where per-type
+// declarations used to be written out (refactor-serialization-mandate).
+#include <nexigen/core/serialization_mandate.hpp>
 #include <expected>
 #include <format>
 #include <string>
@@ -69,9 +78,7 @@ enum class ErrorCode : std::uint8_t {
     return false;
 }
 
-/// ADL JSON writer (cold path only — nlohmann::json is banned on hot paths):
-/// the JSON value is exactly to_string(code). Allocation happens here; never
-/// call from a producer/worker loop.
+/// ADL JSON writer (cold path): the value is exactly to_string(code).
 inline void to_json(nlohmann::json& j, const ErrorCode code) {
     j = std::string(to_string(code));
 }
@@ -98,14 +105,5 @@ using Status = std::expected<void, ErrorCode>;
 
 } // namespace nexigen::core
 
-/// ErrorCode formats as its canonical name (mandate 11): delegates parse and
-/// fill/align handling to the string_view formatter, formats over to_string.
-/// The context is templated: libstdc++ 15 evaluates formattability against a
-/// substituted context, and a hard-coded std::format_context& would not bind.
-template <>
-struct std::formatter<nexigen::core::ErrorCode> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::core::ErrorCode code, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::core::to_string(code), ctx);
-    }
-};
+
+

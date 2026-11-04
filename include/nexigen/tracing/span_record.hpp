@@ -327,13 +327,7 @@ void from_json(const nlohmann::json& j, SpanRecord& out) noexcept;
 } // namespace nexigen::tracing
 
 /// The tag enum formats as its canonical name (mandate 11).
-template <>
-struct std::formatter<nexigen::tracing::SpanAttributeType> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::tracing::SpanAttributeType type, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::tracing::to_string(type), ctx);
-    }
-};
+
 
 /// Attributes format as their diagnostic text (mandate 11).
 template <>

@@ -62,7 +62,7 @@ private:
     [[nodiscard]] bool scan_run(const RunRoot& root, HubRun& out) noexcept;
     void scan_suite(const RunRoot& root, const std::string& suite_dir,
                     HubSuite& out) noexcept;
-    void scan_attempts(std::string_view artifacts_path,
+    void scan_attempts(const RunRoot& root, std::string_view artifacts_path,
                        std::string_view suite_id, std::string_view app,
                        std::string_view instance, std::string_view run_key,
                        HubInstance& out) noexcept;
@@ -78,10 +78,4 @@ private:
 
 } // namespace nexigen::hub
 
-template <>
-struct std::formatter<nexigen::hub::RunRoot> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::hub::RunRoot& value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(value.to_string(), ctx);
-    }
-};
+

@@ -169,6 +169,10 @@ struct SuiteMetadata {
     std::int32_t pid{0};
     std::string start_time_rfc3339{};
     std::uint64_t start_time_mono_ns{0};
+    /// Linux `/proc/<pid>/stat` starttime ticks of the suite supervisor,
+    /// recorded at spawn (PID-recycling identity anchor for suite stop).
+    /// 0 = unknown (legacy pid-only checks).
+    std::uint64_t proc_start_ticks{0};
     std::string manifest_path{};
     std::vector<std::uint32_t> runner_control_cpus{};
     std::vector<std::uint32_t> runner_logger_cpus{};
@@ -280,96 +284,22 @@ void from_json(const nlohmann::json& j, SuiteStatus& status) noexcept;
 
 } // namespace nexigen::runner
 
-template <>
-struct std::formatter<nexigen::runner::ImpactOnAppSuiteOperability>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::ImpactOnAppSuiteOperability value,
-                          Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(
-            nexigen::runner::to_string(value), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::runner::SuiteState>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::SuiteState value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(
-            nexigen::runner::to_string(value), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::runner::AppState>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::AppState value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(
-            nexigen::runner::to_string(value), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::runner::AppSpec>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::AppSpec& value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(value.to_string(), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::runner::SuiteManifest>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::SuiteManifest& value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(value.to_string(), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::runner::SuiteAppMetadata>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::SuiteAppMetadata& value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(value.to_string(), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::runner::SuiteMetadata>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::SuiteMetadata& value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(value.to_string(), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::runner::SuiteExit>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::SuiteExit& value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(value.to_string(), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::runner::SuiteAppStatus>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::SuiteAppStatus& value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(value.to_string(), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::runner::SuiteStatus>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::SuiteStatus& value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(value.to_string(), ctx);
-    }
-};
+
+
+
+
+
+
+
+
+
+

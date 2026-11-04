@@ -20,6 +20,7 @@
 #include <nexigen/chrono/chrono_snapshot.hpp>
 #include <nexigen/chrono/concepts/chrono_sink_concept.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/sink_io.hpp>
 
 namespace nexigen::chrono {
 
@@ -45,10 +46,8 @@ class JsonFileChronoSink {
 public:
     /// Open the file. An unopenable path leaves the sink without a descriptor;
     /// on_snapshot then reports SystemError.
-    explicit JsonFileChronoSink(const JsonFileChronoSinkConfig& config) noexcept {
-        const int flags = O_WRONLY | O_CREAT | O_CLOEXEC | (config.append ? O_APPEND : O_TRUNC);
-        fd_ = ::open(config.path.c_str(), flags, 0644);
-    }
+    explicit JsonFileChronoSink(const JsonFileChronoSinkConfig& config) noexcept
+        : fd_(core::sink_io::open_output(config.path, config.append)) {}
 
     JsonFileChronoSink(const JsonFileChronoSink&) = delete;
     JsonFileChronoSink& operator=(const JsonFileChronoSink&) = delete;
@@ -87,7 +86,7 @@ public:
         append_literal(",\"realtime_offset_ns\":");
         append_i64(snapshot.realtime_offset_ns);
         append_literal("}\n");
-        if (!write_all()) {
+        if (!core::sink_io::write_all(fd_, scratch_, len_).has_value()) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         return {};
@@ -98,7 +97,7 @@ public:
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
-        if (::fsync(fd_) != 0) {
+        if (!core::sink_io::fsync_fd(fd_).has_value()) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         return {};
@@ -137,21 +136,6 @@ private:
         if (result.ec == std::errc{}) {
             append_literal(std::string_view(digits, static_cast<std::size_t>(result.ptr - digits)));
         }
-    }
-
-    [[nodiscard]] bool write_all() noexcept {
-        std::size_t offset = 0;
-        while (offset < len_) {
-            const ssize_t written = ::write(fd_, scratch_ + offset, len_ - offset);
-            if (written > 0) {
-                offset += static_cast<std::size_t>(written);
-            } else if (written < 0 && errno == EINTR) {
-                continue;
-            } else {
-                return false;
-            }
-        }
-        return true;
     }
 
     int fd_{-1};

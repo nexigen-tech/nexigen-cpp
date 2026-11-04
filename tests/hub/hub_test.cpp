@@ -153,7 +153,10 @@ struct Fixture {
 
     explicit Fixture(std::string_view tag) {
         root = unique_dir(tag);
-        artifacts = unique_dir(std::string(tag) + "_artifacts");
+        // Runner-realistic layout (change fix-p0-critical-defects): the
+        // artifacts tree lives inside the run root ("artifacts/"), or the
+        // new containment contract would reject it.
+        artifacts = root + "/artifacts";
         suite_dir = root + "/.suite/hil";
         instance_dir = root + "/alpha/1";
         attempt_dir = artifacts + "/hil/alpha/1/attempt-0001";
@@ -205,8 +208,7 @@ struct Fixture {
     }
 
     ~Fixture() {
-        remove_tree(root);
-        remove_tree(artifacts);
+        remove_tree(root); // artifacts live inside the root now
     }
 };
 
@@ -649,6 +651,167 @@ void test_discovery_states() {
              runner::SuiteState::Running);
 }
 
+// --- Suite-metadata containment (change fix-p0-critical-defects, spec
+// hub/discovery): uncontained suite.json paths degrade gracefully — the
+// suite stays visible with no streams, nothing outside the run root is
+// read, and affected instances report unknown state.
+void test_discovery_containment() {
+    hub::Discovery discovery;
+    Fixture fixture("containment");
+    std::vector<std::string> roots{fixture.root};
+    NX_CHECK(discovery.initialize(roots).has_value());
+
+    // The discovered hostile suite must stay visible while nothing outside
+    // the root is stored in the tree.
+    auto scanned = [&](const hub::HubTree& tree) -> const hub::HubSuite* {
+        if (tree.runs.size() != 1U) {
+            return nullptr;
+        }
+        for (const hub::HubSuite& suite : tree.runs[0].suites) {
+            if (suite.suite_id == "hostile") {
+                return &suite;
+            }
+        }
+        return nullptr;
+    };
+    auto write_hostile = [&](const std::string& name,
+                             runner::SuiteMetadata& metadata) {
+        nlohmann::json json;
+        runner::to_json(json, metadata);
+        make_dirs(fixture.root + "/.suite/" + name);
+        write_json(fixture.root + "/.suite/" + name + "/suite.json", json);
+    };
+    auto remove_hostile = [&](const std::string& name) {
+        remove_tree(fixture.root + "/.suite/" + name);
+    };
+
+    // (a) Absolute external artifacts root (/etc exists and is readable —
+    // only the containment gate stops the hub from listing it).
+    runner::SuiteMetadata metadata{};
+    metadata.suite_id = "hostile";
+    metadata.run_dir = fixture.root;
+    metadata.artifacts_path = "/etc";
+    write_hostile("external", metadata);
+    NX_CHECK(discovery.rescan().has_value());
+    const hub::HubSuite* external_suite = scanned(discovery.tree());
+    NX_CHECK(external_suite != nullptr);
+    if (external_suite != nullptr) {
+        NX_CHECK(external_suite->artifacts_path.empty());
+        NX_CHECK(external_suite->runner_log.id.empty());
+        NX_CHECK(external_suite->runner_log.path.empty());
+        // Only the contained fixture suite exposes streams (6 attempt + 1
+        // runner); the external root contributes none.
+        NX_CHECK(hub::all_streams(discovery.tree()).size() == 7);
+    }
+    remove_hostile("external");
+    NX_CHECK(discovery.rescan().has_value());
+
+    // (b) `..` escape from inside the root: the artifact root is recorded as
+    // a root-relative path that climbs out (`/.suite/../..`), resolving to a
+    // sibling of the unique test root.
+    const std::string escape_anchor = "/tmp/opencode/containment_escape_" +
+                                      std::to_string(static_cast<long long>(
+                                          ::getpid()));
+    metadata.artifacts_path =
+        fixture.root + "/.suite/../../containment_escape_" +
+        std::to_string(static_cast<long long>(::getpid()));
+    make_dirs(escape_anchor);
+    write_hostile("escape", metadata);
+    NX_CHECK(discovery.rescan().has_value());
+    const hub::HubSuite* escape_suite = scanned(discovery.tree());
+    NX_CHECK(escape_suite != nullptr);
+    if (escape_suite != nullptr) {
+        NX_CHECK(escape_suite->artifacts_path.empty());
+        NX_CHECK(escape_suite->runner_log.id.empty());
+        NX_CHECK(escape_suite->runner_log.path.empty());
+        NX_CHECK(hub::all_streams(discovery.tree()).size() == 7);
+    }
+    remove_hostile("escape");
+    remove_tree(escape_anchor);
+    NX_CHECK(discovery.rescan().has_value());
+
+    // (c+d) Hostile app content: an escaped per-app `instance_dir` (/etc)
+    // must not be read and reports unknown state, and an `instance` string
+    // that composes the attempts base outside the root yields no attempts.
+    metadata.artifacts_path = fixture.artifacts;
+    make_dirs(fixture.artifacts + "/hostile/leaker");
+    runner::SuiteAppMetadata leaker{};
+    leaker.app = "leaker";
+    leaker.instance = "../../../../../etc";       // base escapes the root
+    leaker.instance_dir = "/etc";                 // instance_dir outside root
+    metadata.apps.push_back(leaker);
+    write_hostile("hostile", metadata);
+    NX_CHECK(discovery.rescan().has_value());
+    const hub::HubSuite* hostile_suite = scanned(discovery.tree());
+    NX_CHECK(hostile_suite != nullptr);
+    if (hostile_suite != nullptr) {
+        NX_CHECK(hostile_suite->apps.size() == 1);
+        // The contained artifacts root still yields the runner log once
+        // runner.jsonl exists — until then the derived target is missing and
+        // stays empty (spec: missing targets are not read).
+        NX_CHECK(hostile_suite->runner_log.id.empty());
+        if (!hostile_suite->apps.empty() &&
+            !hostile_suite->apps[0].instances.empty()) {
+            NX_CHECK(hostile_suite->apps[0].instances[0].instance_dir.empty());
+            NX_CHECK(hostile_suite->apps[0].instances[0].state ==
+                     runner::AppState::Unknown);
+            NX_CHECK(hostile_suite->apps[0].instances[0].attempts.empty());
+        }
+        // No foreign stream may exist for the hostile app's attempts.
+        for (const hub::HubStream& stream : hub::all_streams(discovery.tree())) {
+            NX_CHECK(stream.id.find(":leaker:") == std::string_view::npos);
+        }
+    }
+
+    // Creating the runner log inside the contained artifacts root attaches
+    // the runner stream on the next scan (derived-path containment positive).
+    write_text(fixture.artifacts + "/hostile/runner.jsonl", "{}\n");
+    NX_CHECK(discovery.rescan().has_value());
+    hostile_suite = scanned(discovery.tree());
+    NX_CHECK(hostile_suite != nullptr);
+    if (hostile_suite != nullptr) {
+        NX_CHECK(hostile_suite->runner_log.id ==
+                 "run-1:hostile:suite:runner:0:runner");
+        NX_CHECK(hostile_suite->runner_log.path ==
+                 fixture.artifacts + "/hostile/runner.jsonl");
+    }
+    remove_hostile("hostile");
+    remove_tree(fixture.artifacts + "/hostile");
+    NX_CHECK(discovery.rescan().has_value());
+
+    // The contained fixture suite still discovers everything (containment
+    // follows the runner-created default per the spec scenario).
+    const hub::HubTree& tree = discovery.tree();
+    NX_CHECK(tree.runs.size() == 1);
+    NX_CHECK(hub::all_streams(tree).size() == 7);
+    NX_CHECK(tree.runs[0].suites[0].runner_log.path ==
+             fixture.artifacts + "/hil/runner.jsonl");
+    NX_CHECK(tree.runs[0].suites[0].apps[0].instances[0].attempts.size() == 1);
+
+    // Missing artifact root is tolerated (retained spec scenario): suite
+    // visible, no streams, no startup failure.
+    runner::SuiteMetadata missing{};
+    missing.suite_id = "missing";
+    missing.run_dir = fixture.root;
+    missing.artifacts_path = fixture.root + "/.suite/no_such_artifacts";
+    write_hostile("missing", missing);
+    NX_CHECK(discovery.rescan().has_value());
+    bool found_missing = false;
+    for (const hub::HubSuite& suite : discovery.tree().runs[0].suites) {
+        if (suite.suite_id == "missing") {
+            found_missing = true;
+            NX_CHECK(suite.apps.empty());
+            NX_CHECK(suite.runner_log.id.empty());
+        }
+    }
+    NX_CHECK(found_missing);
+    NX_CHECK(hub::all_streams(discovery.tree()).size() == 7);
+    remove_hostile("missing");
+
+    std::printf("containment: /etc artifacts, root escape, escaped instance "
+                "state unknown, missing root tolerated\n");
+}
+
 void test_streaming() {
     Fixture fixture("streaming");
     hub::Discovery discovery;
@@ -960,6 +1123,91 @@ void test_http_start_errors() {
     hub::HttpServer with_failure(discovery, late, capture_diagnostic, &capture);
     NX_CHECK(with_failure.start("127.0.0.1:0").has_value());
     NX_CHECK(diagnostic_contains(capture, "event=hub_sync_failed"));
+}
+
+// --- IPv6 listener (change fix-p1-races-process-correctness, spec
+// hub/http-api "HTTP listener is loopback by default"; analysis #13): the
+// bracket form binds AF_INET6 (V6ONLY=1 for a specific address, dual-stack
+// for `::`), a request over `::1` round-trips, and malformed forms fail like
+// their IPv4 counterparts. Gracefully skipped on hosts without IPv6
+// loopback support.
+void test_http_server_ipv6_listen() {
+    Fixture fixture("http_v6");
+    hub::Discovery discovery;
+    std::vector<std::string> roots{fixture.root};
+    NX_CHECK(discovery.initialize(roots).has_value());
+    hub::StreamManager streaming;
+    hub::HttpServer probe_only(discovery, streaming);
+
+    const int probe = ::socket(AF_INET6, SOCK_STREAM, 0);
+    if (probe < 0) {
+        std::printf("http_v6: AF_INET6 unavailable in this environment; "
+                    "skipped\n");
+        remove_tree(fixture.root);
+        return;
+    }
+    static_cast<void>(::close(probe));
+
+    // Malformed IPv6 forms are rejects (multi-colon literals require
+    // brackets; a missing port fails).
+    NX_CHECK(!probe_only.start("[::1]").has_value());
+    NX_CHECK(!probe_only.start("[::1]8080").has_value());
+    NX_CHECK(!probe_only.start("[nope]:8080").has_value());
+    NX_CHECK(!probe_only.start("::").has_value());
+    NX_CHECK(!probe_only.start("::1:8080:9").has_value());
+
+    write_text(fixture.attempt_dir + "/app.jsonl", "hello-v6\n");
+    NX_CHECK(streaming.sync(discovery.tree()).has_value());
+    hub::HttpServer server(discovery, streaming);
+    NX_CHECK(server.start("[::1]:0").has_value());
+    NX_CHECK(server.port() != 0);
+    std::atomic<bool> stop{false};
+    std::thread thread([&] { server.run(&stop); });
+
+    const int fd = ::socket(AF_INET6, SOCK_STREAM, 0);
+    NX_CHECK(fd >= 0);
+    sockaddr_in6 target{};
+    target.sin6_family = AF_INET6;
+    target.sin6_port = htons(server.port());
+    static_cast<void>(::inet_pton(AF_INET6, "::1", &target.sin6_addr));
+    NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&target),
+                       sizeof(target)) == 0);
+    const std::string request =
+        "GET / HTTP/1.1\r\nHost: [::1]\r\nConnection: close\r\n\r\n";
+    static_cast<void>(::send(fd, request.data(), request.size(), 0));
+    std::string text;
+    char buffer[2048];
+    NX_CHECK(wait_until(
+        [&] {
+            const ssize_t count = ::recv(fd, buffer, sizeof(buffer), 0);
+            if (count > 0) {
+                text.append(buffer, static_cast<std::size_t>(count));
+            }
+            return contains(text, "HTTP/1.1");
+        },
+        3000));
+    static_cast<void>(::close(fd));
+
+    stop.store(true);
+    server.stop();
+    thread.join();
+
+    // Wildcard `[::]` binds dual-stack (IPV6_V6ONLY=0): an IPv4 loopback
+    // connection at the same port meets the listening socket (queued by the
+    // backlog, which is exactly what a dual bind promises).
+    hub::HttpServer dual(discovery, streaming);
+    NX_CHECK(dual.start("[::]:0").has_value());
+    NX_CHECK(dual.port() != 0);
+    const int v4fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    NX_CHECK(v4fd >= 0);
+    sockaddr_in v4target{};
+    v4target.sin_family = AF_INET;
+    v4target.sin_port = htons(dual.port());
+    static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &v4target.sin_addr));
+    NX_CHECK(::connect(v4fd, reinterpret_cast<sockaddr*>(&v4target),
+                       sizeof(v4target)) == 0);
+    static_cast<void>(::close(v4fd));
+    dual.stop();
 }
 
 void test_http_sse_gaps() {
@@ -1583,10 +1831,12 @@ void test_http_server() {
 int main() {
     run_suite("model_serialization", test_model_serialization);
     run_suite("discovery", test_discovery);
+    run_suite("discovery_containment", test_discovery_containment);
     run_suite("discovery_states", test_discovery_states);
     run_suite("streaming", test_streaming);
     run_suite("web_assets", test_web_assets);
     run_suite("http_start_errors", test_http_start_errors);
+    run_suite("http_v6", test_http_server_ipv6_listen);
     run_suite("http_sse_gaps", test_http_sse_gaps);
     run_suite("http_fuzz_corpus", test_http_fuzz_corpus);
     run_suite("http_server", test_http_server);

@@ -45,9 +45,12 @@ using detail::enum_from_json;
 using detail::enum_to_json;
 using detail::file_exists;
 using detail::group_alive;
+using detail::identity_matches;
 using detail::monotonic_now_ns;
 using detail::nanoseconds_per_second;
+using detail::proc_start_ticks;
 using detail::process_alive;
+using detail::reap_failed_supervisor;
 using detail::read_all;
 using detail::read_enum;
 using detail::read_i32;
@@ -58,6 +61,7 @@ using detail::sleep_ms;
 using detail::StartReport;
 using detail::utc_now_rfc3339;
 using detail::write_all;
+using detail::write_all_no_sigpipe;
 
 namespace {
 
@@ -298,9 +302,10 @@ std::string SuiteMetadata::to_string() const {
     return std::format(
         "SuiteMetadata(suite_id={}, run_id={}, run_dir={}, "
         "global_settings_path={}, artifacts_path={}, pid={}, "
-        "start_time_rfc3339={}, manifest_path={}, apps={})",
+        "start_time_rfc3339={}, proc_start_ticks={}, "
+        "manifest_path={}, apps={})",
         suite_id, run_id, run_dir, global_settings_path, artifacts_path, pid,
-        start_time_rfc3339, manifest_path, apps.size());
+        start_time_rfc3339, proc_start_ticks, manifest_path, apps.size());
 }
 
 std::string SuiteExit::to_string() const {
@@ -484,6 +489,7 @@ void to_json(nlohmann::json& j, const SuiteMetadata& metadata) {
         {"pid", metadata.pid},
         {"start_time_rfc3339", metadata.start_time_rfc3339},
         {"start_time_mono_ns", metadata.start_time_mono_ns},
+        {"proc_start_ticks", metadata.proc_start_ticks},
         {"manifest_path", metadata.manifest_path},
         {"runner_control_cpus", metadata.runner_control_cpus},
         {"runner_logger_cpus", metadata.runner_logger_cpus},
@@ -505,6 +511,8 @@ void from_json(const nlohmann::json& j, SuiteMetadata& metadata) noexcept {
                                   metadata.start_time_rfc3339));
     static_cast<void>(read_u64(j, "start_time_mono_ns",
                                metadata.start_time_mono_ns));
+    static_cast<void>(read_u64(j, "proc_start_ticks",
+                               metadata.proc_start_ticks));
     static_cast<void>(read_string(j, "manifest_path", metadata.manifest_path));
     static_cast<void>(read_cpu_array(j, "runner_control_cpus",
                                      metadata.runner_control_cpus));
@@ -1255,6 +1263,9 @@ void run_suite_supervisor(const SuiteManifest& manifest,
     metadata.pid = ::getpid();
     metadata.start_time_rfc3339 = utc_now_rfc3339();
     metadata.start_time_mono_ns = suite.start_mono_ns;
+    // Identity anchor for suite stop (PID-recycling protection): the
+    // supervisor records its own starttime ticks while alive right here.
+    metadata.proc_start_ticks = detail::proc_start_ticks(metadata.pid);
     metadata.manifest_path = manifest.manifest_path;
     metadata.runner_control_cpus = manifest.runner_control_cpus;
     metadata.runner_logger_cpus = manifest.runner_logger_cpus;
@@ -1273,7 +1284,8 @@ void run_suite_supervisor(const SuiteManifest& manifest,
     if (!write_json_file(join_path(suite_dir, "suite.json"), metadata_json)) {
         StartReport report{0, static_cast<std::int32_t>(
                                           core::ErrorCode::SystemError)};
-        static_cast<void>(write_all(report_fd, &report, sizeof(report)));
+        static_cast<void>(
+            write_all_no_sigpipe(report_fd, &report, sizeof(report)));
         static_cast<void>(::close(report_fd));
         child_exit(1);
     }
@@ -1291,7 +1303,8 @@ void run_suite_supervisor(const SuiteManifest& manifest,
     write_suite_status(suite);
 
     StartReport report{::getpid(), 0};
-    static_cast<void>(write_all(report_fd, &report, sizeof(report)));
+    static_cast<void>(
+        write_all_no_sigpipe(report_fd, &report, sizeof(report)));
     static_cast<void>(::close(report_fd));
 
     logging::Settings log_settings{};
@@ -1425,8 +1438,10 @@ core::Status start_suite(const SuiteManifest& manifest,
     const bool received = read_all(pipe_fds[0], &report, sizeof(report));
     static_cast<void>(::close(pipe_fds[0]));
     if (!received || report.error != 0 || report.pid <= 0) {
-        int status = 0;
-        static_cast<void>(::waitpid(supervisor, &status, WNOHANG));
+        // Failed start must not leave a zombie supervisor behind (spec
+        // process-supervision "A failed start reaps the supervisor child":
+        // bounded non-blocking drain).
+        reap_failed_supervisor(supervisor);
         return std::unexpected(core::ErrorCode::SystemError);
     }
     return {};
@@ -1481,7 +1496,12 @@ core::Status stop_suite(std::string_view suite_dir,
     }
 
     if (!file_exists(exit_path)) {
-        if (metadata.pid > 0 && process_alive(metadata.pid)) {
+        // Identity gate (spec process-supervision "Identity is verified
+        // before signals are sent"): a recycled PID recorded in suite.json
+        // must not receive a fallback SIGTERM/SIGKILL; the flow continues
+        // into the normal instance-stop + suite finalize path.
+        if (identity_matches(metadata.pid, metadata.proc_start_ticks) &&
+            metadata.pid > 0 && process_alive(metadata.pid)) {
             static_cast<void>(::kill(metadata.pid, SIGTERM));
             const std::uint64_t kill_deadline =
                 monotonic_now_ns() + 2ULL * nanoseconds_per_second;

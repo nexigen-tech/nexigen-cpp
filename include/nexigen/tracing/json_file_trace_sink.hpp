@@ -45,6 +45,7 @@
 #include <nexigen/chrono/time_format.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/sink_io.hpp>
 #include <nexigen/tracing/concepts/tracer_concept.hpp>
 #include <nexigen/tracing/detail/json_writer.hpp>
 #include <nexigen/tracing/span_record.hpp>
@@ -138,7 +139,8 @@ public:
           window_ns_(other.window_ns_), offset_ns_(other.offset_ns_),
           window_start_utc_(other.window_start_utc_), window_key_(other.window_key_),
           tokens_used_(other.tokens_used_),
-          dropped_in_window_(other.dropped_in_window_), fd_(other.fd_),
+          dropped_in_window_(other.dropped_in_window_),
+          discarded_lines_(other.discarded_lines_), fd_(other.fd_),
           path_len_(other.path_len_), app_len_(other.app_len_) {
         std::memcpy(path_, other.path_, sizeof(path_));
         std::memcpy(app_, other.app_, sizeof(app_));
@@ -279,10 +281,9 @@ private:
                 return std::unexpected(core::ErrorCode::InvalidArgument);
             }
         }
-        // window_filename/path_ always keep a trailing NUL in their scratch.
-        // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
-        const int fd = ::open(name.data(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC,
-                              0644);
+        // One cold open at rotation frequency; open_output copies the path
+        // (no reliance on the in-place trailing NUL any more).
+        const int fd = core::sink_io::open_output(name, /*append=*/true);
         if (fd < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -332,18 +333,7 @@ private:
                                                  std::int64_t utc_ns) noexcept;
 
     [[nodiscard]] core::Status write_all(std::size_t bytes) noexcept {
-        std::size_t offset = 0;
-        while (offset < bytes) {
-            const ssize_t written = ::write(fd_, scratch_ + offset, bytes - offset);
-            if (written > 0) {
-                offset += static_cast<std::size_t>(written);
-            } else if (written < 0 && errno == EINTR) {
-                continue;
-            } else {
-                return std::unexpected(core::ErrorCode::SystemError);
-            }
-        }
-        return {};
+        return core::sink_io::write_all(fd_, scratch_, bytes);
     }
 
     RotationPolicy rotation_{RotationPolicy::None};
@@ -354,6 +344,7 @@ private:
     std::int64_t window_key_{-1};        ///< rotation period identity
     std::uint64_t tokens_used_{0};
     std::uint64_t dropped_in_window_{0};
+    std::uint64_t discarded_lines_{0}; ///< lines over the JSON scratch (P2-18)
     int fd_{-1};
     std::size_t path_len_{0};
     std::size_t app_len_{0};
@@ -378,14 +369,7 @@ static_assert(concepts::TraceSink<JsonFileTraceSink>,
 
 /// The policy enum and the configuration format as their canonical/diagnostic
 /// texts (mandate 11).
-template <>
-struct std::formatter<nexigen::tracing::RotationPolicy> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::tracing::RotationPolicy policy, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::tracing::to_string(policy),
-                                                        ctx);
-    }
-};
+
 template <>
 struct std::formatter<nexigen::tracing::JsonFileTraceSinkConfig>
     : std::formatter<std::string_view> {

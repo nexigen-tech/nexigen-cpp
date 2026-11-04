@@ -72,10 +72,13 @@ class GaugeStorage<ValueType, ConcurrencyPolicy::MultiThreaded, Reset>
     : public detail::ShardedScalar<ValueType, MetricKind::Gauge, Reset> {
 public:
     void set(ValueType value) noexcept {
-        // Move the aggregate to `value`: apply the difference to the caller's
-        // own shard (a control-plane operation — one pass over the shards).
-        const ValueType delta = static_cast<ValueType>(value - this->observe());
-        this->add(delta);
+        // Move the aggregate to `value` exactly: reassign the shards (spec
+        // counter-gauge "observed at call time" reading set as a
+        // control-plane reassignment — analysis #19). The former
+        // observe-then-add delta was check-then-act: a concurrent writer
+        // between observe() and add() skewed the final value away from the
+        // target.
+        this->assign(value);
     }
 };
 

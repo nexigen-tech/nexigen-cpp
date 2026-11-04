@@ -10,6 +10,7 @@
 #include <nexigen/metrics/metric_provider.hpp>
 
 #include <algorithm>
+#include <format>
 #include <string>
 
 namespace nexigen::metrics {
@@ -457,16 +458,14 @@ void from_json(const nlohmann::json& j, MetricBatchSnapshot& out) noexcept {
 // lives in this unit).
 
 std::string nexigen::metrics::MetricProviderConfig::to_string() const {
-    return "MetricProviderConfig(collect_interval_ns=" +
-           std::to_string(collect_interval.count()) +
-           ", core_mask=0x" + std::to_string(core_mask) +
-           ", max_meters=" + std::to_string(max_meters) +
-           ", max_counters=" + std::to_string(max_counters) +
-           ", max_gauges=" + std::to_string(max_gauges) +
-           ", max_states=" + std::to_string(max_states) +
-           ", max_statistics=" + std::to_string(max_statistics) +
-           ", max_explicit_histograms=" + std::to_string(max_explicit_histograms) +
-           ", max_exponential_histograms=" + std::to_string(max_exponential_histograms) + ")";
+    return std::format(
+        "MetricProviderConfig(collect_interval_ns={}, core_mask=0x{:x}, "
+        "max_meters={}, max_counters={}, max_gauges={}, max_states={}, "
+        "max_statistics={}, max_explicit_histograms={}, "
+        "max_exponential_histograms={})",
+        collect_interval.count(), core_mask, max_meters, max_counters,
+        max_gauges, max_states, max_statistics, max_explicit_histograms,
+        max_exponential_histograms);
 }
 
 namespace nexigen::metrics {

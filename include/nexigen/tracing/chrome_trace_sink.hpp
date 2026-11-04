@@ -33,6 +33,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/sink_io.hpp>
 #include <nexigen/tracing/concepts/tracer_concept.hpp>
 #include <nexigen/tracing/detail/json_writer.hpp>
 #include <nexigen/tracing/span_record.hpp>
@@ -77,7 +78,8 @@ public:
     /// path surfaces SystemError; nothing partial is written.
     [[nodiscard]] core::Status start() noexcept {
         pid_ = static_cast<std::uint64_t>(::getpid());
-        fd_ = ::open(config_.path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+        // Truncating open (append=false shares the policy with O_TRUNC).
+        fd_ = core::sink_io::open_output(config_.path, /*append=*/false);
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -204,20 +206,11 @@ private:
         return write_bytes(bytes, Length - 1U);
     }
 
-    /// The pointer+length core of the writer.
+    /// The pointer+length core of the writer. Body of the byte-composing
+    /// loop is the shared sink_io implementation; the bool result maps its
+    /// core::Status into this sink's existing bool contract.
     [[nodiscard]] bool write_bytes(const char* bytes, std::size_t length) noexcept {
-        std::size_t offset = 0;
-        while (offset < length) {
-            const ssize_t written = ::write(fd_, bytes + offset, length - offset);
-            if (written > 0) {
-                offset += static_cast<std::size_t>(written);
-            } else if (written < 0 && errno == EINTR) {
-                continue;
-            } else {
-                return false;
-            }
-        }
-        return true;
+        return core::sink_io::write_all(fd_, bytes, length).has_value();
     }
 
     ChromeTraceSinkConfig config_;

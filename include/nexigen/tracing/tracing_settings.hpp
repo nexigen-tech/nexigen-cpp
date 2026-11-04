@@ -53,11 +53,4 @@ void to_json(nlohmann::json& j, const Settings& settings);
 
 } // namespace nexigen::tracing
 
-template <>
-struct std::formatter<nexigen::tracing::Settings>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::tracing::Settings& settings, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(settings.to_string(), ctx);
-    }
-};
+

@@ -666,6 +666,35 @@ void test_gauge() {
     }
     NX_CHECK((*sharded)->read() == 42 + 3'200'000);
 
+    // set() under racing adds (analysis #19 rework): the reassigned target
+    // lands exactly for every set that completes after adds stop, and a
+    // settled final set is exact — the former observe+add delta produced
+    // stale-scaled targets under this race (TSan verdict in 8.3).
+    {
+        std::atomic<bool> stop{false};
+        std::vector<std::jthread> racers;
+        racers.reserve(4);
+        (*sharded)->set(1000);
+        for (int t = 0; t < 4; ++t) {
+            racers.emplace_back([&] {
+                while (!stop.load(std::memory_order_relaxed)) {
+                    (*sharded)->add(1);
+                }
+            });
+        }
+        for (int i = 0; i < 2'000; ++i) {
+            (*sharded)->set(static_cast<std::int64_t>(1'000'000 + i));
+        }
+        stop.store(true, std::memory_order_release);
+        auto joins = std::move(racers);
+        for (auto& racer : joins) {
+            racer.join();
+        }
+        // The final set lands exactly (no adds racing it anymore).
+        (*sharded)->set(777);
+        NX_CHECK((*sharded)->read() == 777);
+    }
+
     // Reset-on-read reports the window activity.
     const auto windowed = (*meter)->create_gauge<std::int64_t, ST, Readable, ResetOnRead>("windowed");
     NX_CHECK(windowed.has_value());
@@ -1347,6 +1376,57 @@ void test_reset_window_race() {
     NX_CHECK(std::abs(merged.stddev - expected_std) < 1e-6);
 }
 
+// --- get_meter races the harvest sweep (change fix-p1-races-process-
+// correctness, spec metrics/metric-provider "Meter publication is serialized
+// with harvesting", analysis #8): four creation threads hammer the identity
+// while another thread spins collect_now() under the harvest mutex. TSan is
+// the verdict; assertions check that racing creators observed ONE published
+// meter for the identity and the lookup stays idempotent afterwards.
+void test_get_meter_harvest_race() {
+    metrics::NullMetricSink sink;
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
+    constexpr int creators = 4;
+    std::atomic<bool> stop{false};
+    std::vector<metrics::Meter*> published(static_cast<std::size_t>(creators),
+                                           nullptr);
+
+    std::jthread harvester([&] {
+        while (!stop.load(std::memory_order_relaxed)) {
+            NX_CHECK(provider.collect_now().has_value());
+            std::this_thread::yield();
+        }
+    });
+    {
+        std::vector<std::jthread> creators_pool;
+        creators_pool.reserve(creators);
+        for (int c = 0; c < creators; ++c) {
+            creators_pool.emplace_back([&, c] {
+                for (int i = 0; i < 200; ++i) {
+                    const Result<metrics::Meter*> meter =
+                        provider.get_meter("engine", "1.0.0");
+                    if (meter.has_value()) {
+                        published[static_cast<std::size_t>(c)] = *meter;
+                    }
+                }
+            });
+        }
+    }
+    stop.store(true, std::memory_order_release);
+    harvester.join();
+
+    // One handle per identity: every racing creator resolved the published
+    // meter (either through lookup or the single serialized creation).
+    const metrics::Meter* first = published.front();
+    NX_CHECK(first != nullptr);
+    for (const metrics::Meter* meter : published) {
+        NX_CHECK(meter == first);
+    }
+    // Late lookup after the sweep stopped remains idempotent.
+    const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0.0");
+    NX_CHECK(meter.has_value());
+    NX_CHECK(meter.has_value() && *meter == first);
+}
+
 // --- Thread slots and CPU affinity (spec metrics/metric-provider design
 // D7; task 5.1). The probe consumes the counter/gauge slot budgets of this
 // process; those instruments stay exact through their shared fallback shard.
@@ -1691,7 +1771,20 @@ void test_provider_config() {
     NX_CHECK(back.max_meters == 7U && back.max_counters == 9U);
     NX_CHECK(back.max_gauges == 64U); // untouched fields keep defaults
 
-    // to_string member/free agreement and std::format equality.
+    // to_string member/free agreement and std::format equality — and the
+    // mask renders in real hex (P2-17): a mask of 10 must read `0xa`, not
+    // the former "0x10" decimal-in-hex-prefix artifact.
+    {
+        metrics::MetricProviderConfig hex_probe{};
+        hex_probe.core_mask = 0xA; // decimal 10
+        const std::string probe_text = hex_probe.to_string();
+        NX_CHECK(probe_text.find("core_mask=0xa") != std::string::npos);
+        NX_CHECK(probe_text.find("core_mask=0x10") == std::string::npos);
+        hex_probe.core_mask =
+            0xFFFFFFFF00000000ULL; // 64-bit mask renders fully
+        NX_CHECK(hex_probe.to_string().find("core_mask=0xffffffff00000000") !=
+                 std::string::npos);
+    }
     NX_CHECK(metrics::to_string(config) == config.to_string());
     NX_CHECK(std::format("{}", config) == config.to_string());
     NX_CHECK(config.to_string().find("collect_interval_ns=10000000") != std::string::npos);
@@ -3016,6 +3109,7 @@ int main()
     run_suite("provider_harvester", test_provider_harvester);
     run_suite("registration_race", test_registration_race);
     run_suite("reset_window_race", test_reset_window_race);
+    run_suite("get_meter_harvest_race", test_get_meter_harvest_race);
     run_suite("slot_exhaustion", test_slot_exhaustion);
     run_suite("explicit_histogram_mt", test_explicit_histogram_mt);
     run_suite("exponential_histogram_mt", test_exponential_histogram_mt);

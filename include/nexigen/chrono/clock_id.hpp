@@ -76,10 +76,4 @@ inline constexpr ClockId clock_domain = ClockId::monotonic_raw;
 /// ClockId formats as its canonical name (mandate 11): parse and fill/align
 /// handled by the string_view formatter; the context is templated because
 /// libstdc++ 15 evaluates formattability against a substituted context.
-template <>
-struct std::formatter<nexigen::chrono::ClockId> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::chrono::ClockId id, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::chrono::to_string(id), ctx);
-    }
-};
+

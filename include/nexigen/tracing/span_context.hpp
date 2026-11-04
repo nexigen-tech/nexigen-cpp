@@ -135,27 +135,4 @@ void from_json(const nlohmann::json& j, SpanContext& out) noexcept;
 /// The identifier types format as their 16-char hex text (mandate 11);
 /// contexts format as their to_string() text. Templated contexts (libstdc++
 /// 15 substituted-formattability evaluation, same note as ErrorCode).
-template <>
-struct std::formatter<nexigen::tracing::TraceId> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::TraceId& id, Ctx& ctx) const {
-        const std::string text = id.to_string();
-        return std::formatter<std::string_view>::format(text, ctx);
-    }
-};
-template <>
-struct std::formatter<nexigen::tracing::SpanId> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::SpanId& id, Ctx& ctx) const {
-        const std::string text = id.to_string();
-        return std::formatter<std::string_view>::format(text, ctx);
-    }
-};
-template <>
-struct std::formatter<nexigen::tracing::SpanContext> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::SpanContext& context, Ctx& ctx) const {
-        const std::string text = context.to_string();
-        return std::formatter<std::string_view>::format(text, ctx);
-    }
-};
+

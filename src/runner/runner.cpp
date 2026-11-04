@@ -40,9 +40,12 @@ namespace nexigen::runner {
 
 using detail::file_exists;
 using detail::group_alive;
+using detail::identity_matches;
 using detail::monotonic_now_ns;
 using detail::nanoseconds_per_second;
 using detail::process_alive;
+using detail::proc_start_ticks;
+using detail::reap_failed_supervisor;
 using detail::read_all;
 using detail::sleep_ms;
 using detail::StartReport;
@@ -101,9 +104,9 @@ constexpr std::size_t max_path_bytes = 511;
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     for (const auto& [key, value] : options.env) {
-        static_cast<void>(value);
         if (key.empty() || key.find('=') != std::string::npos ||
-            key.find('\0') != std::string::npos) {
+            key.find('\0') != std::string::npos ||
+            value.find('\0') != std::string::npos) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
     }
@@ -235,6 +238,12 @@ constexpr std::size_t max_path_bytes = 511;
 struct SuperviseResult {
     bool reaped{false};
     bool runner_stopped{false};
+    /// `status` carries a real waitpid outcome. Only a successful waitpid
+    /// sets this: waitpid errors (ECHILD after a foreign reap, and any
+    /// error ≠ EINTR) leave it false so callers never fabricate a kid exit
+    /// (spec process-supervision "Unreapable child errors do not fabricate
+    /// success"; analysis #6).
+    bool status_valid{false};
 };
 
 [[nodiscard]] SuperviseResult supervise_child(
@@ -247,6 +256,7 @@ struct SuperviseResult {
             const pid_t wait_result = ::waitpid(child, &status, 0);
             if (wait_result == child) {
                 result.reaped = true;
+                result.status_valid = true;
                 break;
             }
             if (wait_result < 0 && errno == EINTR) {
@@ -261,6 +271,7 @@ struct SuperviseResult {
         const pid_t wait_result = ::waitpid(child, &status, WNOHANG);
         if (wait_result == child) {
             result.reaped = true;
+            result.status_valid = true;
             break;
         }
         if (wait_result < 0 && errno != EINTR) {
@@ -280,16 +291,23 @@ struct SuperviseResult {
                         ::waitpid(child, &status, WNOHANG);
                     if (grace_result == child) {
                         result.reaped = true;
+                        result.status_valid = true;
                         break;
                     }
                     sleep_ms(poll_interval_ms);
                 }
                 if (!result.reaped) {
                     static_cast<void>(::kill(-child, SIGKILL));
-                    while (::waitpid(child, &status, 0) < 0 &&
-                           errno == EINTR) {
+                    // Honest-outcome rule (spec process-supervision
+                    // "Unreapable child errors do not fabricate success"):
+                    // an error here (ECHILD — reaped elsewhere; or anything
+                    // ≠ EINTR) must NOT be presented as a reap with the old
+                    // standing status. Only a real waitpid success validates.
+                    const pid_t final_wait = ::waitpid(child, &status, 0);
+                    if (final_wait == child) {
+                        result.reaped = true;
+                        result.status_valid = true;
                     }
-                    result.reaped = true;
                 }
                 break;
             }
@@ -513,9 +531,11 @@ struct SupervisorContext {
     static_cast<void>(::setsid());
     redirect_to_null(context.null_fd);
 
-    // The child signals completion of setsid()/dup2() through this pipe;
-    // resource.json is written only afterwards, so `start` never returns
-    // before the process group exists.
+    // The child reports setup/exec failures through this pipe; a successful
+    // `execvp` consumes the `O_CLOEXEC` fd and the supervisor reads EOF as
+    // success. `resource.json` is written only after the handshake, so
+    // `start` never returns success for a failed launch, and any pre-exec
+    // setup failure is reported before the group exists.
     int setup_pipe[2]{-1, -1};
     if (::pipe2(setup_pipe, O_CLOEXEC) != 0) {
         StartReport report{
@@ -544,9 +564,10 @@ struct SupervisorContext {
         static_cast<void>(::close(setup_pipe[0]));
         static_cast<void>(reset_runner_affinity());
         auto fail_setup = [&](std::int32_t setup_status) {
-            const ssize_t written = ::write(setup_pipe[1], &setup_status,
-                                            sizeof(setup_status));
-            static_cast<void>(written);
+            // SIGPIPE shielded (spec process-supervision; analysis #23 —
+            // the parent may already have closed the pipe on a failure).
+            static_cast<void>(detail::write_all_no_sigpipe(
+                setup_pipe[1], &setup_status, sizeof(setup_status)));
             static_cast<void>(::close(setup_pipe[1]));
             child_exit(126);
         };
@@ -602,24 +623,33 @@ struct SupervisorContext {
                                        context.log_level.c_str(), 1));
         }
 
-        const std::int32_t setup_status = 0;
-        const ssize_t ready_written =
-            ::write(setup_pipe[1], &setup_status, sizeof(setup_status));
-        static_cast<void>(ready_written);
-        static_cast<void>(::close(setup_pipe[1]));
-
         detail::coverage_flush();
         // POSIX declares execvp's `argv` as `char* const[]`, but it never
         // mutates the argument strings. Cast away the inner const once, here,
         // instead of per-element in the argv construction above.
         ::execvp((*context.argv)[0], const_cast<char**>(context.argv->data()));
+        // Exec-correct handshake (spec runner/process-supervision "Setup
+        // handshake completes only after a successful exec"): only failures
+        // write through the pipe; the exec'd image consumes its O_CLOEXEC fd
+        // so the supervisor observes EOF as success. On exec failure the fd
+        // is still ours — report status 4 (exec) before dying.
+        const std::int32_t exec_status = 4;
+        static_cast<void>(detail::write_all_no_sigpipe(
+            setup_pipe[1], &exec_status, sizeof(exec_status)));
+        static_cast<void>(::close(setup_pipe[1]));
         child_exit(127);
     }
 
     // --- Supervisor parent of the application child ---
     static_cast<void>(::close(setup_pipe[1]));
     std::int32_t setup_status = 0;
-    const bool setup_read =
+    // Exec-correct handshake (spec runner/process-supervision): the child
+    // writes a nonzero setup status ONLY on failure (1 setsid, 2 affinity,
+    // 3 setenv, 4 exec); a successful `execvp` closes the child's O_CLOEXEC
+    // fd, so EOF is the success signal. A full 4-byte read therefore always
+    // means a reported setup/exec failure (the `!= 0` check stays as a
+    // protocol belt; zero is never written on purpose).
+    const bool failure_reported =
         read_all(setup_pipe[0], &setup_status, sizeof(setup_status));
     static_cast<void>(::close(setup_pipe[0]));
 
@@ -633,7 +663,7 @@ struct SupervisorContext {
         static_cast<void>(::close(context.stderr_fd));
     }
 
-    if (!setup_read || setup_status != 0) {
+    if (failure_reported || setup_status != 0) {
         static_cast<void>(::kill(-child, SIGKILL));
         reap_child(child);
         StartReport report{
@@ -646,6 +676,11 @@ struct SupervisorContext {
 
     context.metadata.pid = child;
     context.metadata.ppid = ::getpid();
+    // Identity anchor: read the child's starttime ticks while the supervisor
+    // owns it (spec runner/process-supervision "Identity is verified before
+    // signals are sent"; analysis #5 PID-recycling). An unreadable /proc
+    // records 0 and keeps the legacy pid-only stop behavior.
+    context.metadata.proc_start_ticks = detail::proc_start_ticks(child);
     const core::Status resource_status =
         write_resource_json(*context.instance_dir, context.metadata);
     if (!resource_status) {
@@ -676,11 +711,25 @@ struct SupervisorContext {
                  nanoseconds_per_second;
     }
 
-    const TerminatedBy terminated_by = attribution(
-        supervised.runner_stopped, supervised.reaped, child_status);
-    const ExitMetadata exit_metadata = ExitMetadata::from_child_status(
-        child, child_status, uptime, terminated_by);
-    static_cast<void>(write_exit_json(*context.instance_dir, exit_metadata));
+    if (supervised.status_valid) {
+        const TerminatedBy terminated_by =
+            attribution(supervised.runner_stopped, supervised.reaped,
+                        child_status);
+        const ExitMetadata exit_metadata = ExitMetadata::from_child_status(
+            child, child_status, uptime, terminated_by);
+        static_cast<void>(write_exit_json(*context.instance_dir,
+                                         exit_metadata));
+    } else {
+        // Unreapable child (waitpid error ≠ EINTR — analysis #6): the exit
+        // record must not assert a stale/foreign status as a real outcome
+        // (spec process-supervision "Unreapable child errors do not
+        // fabricate success").
+        ExitMetadata unknown_metadata{};
+        unknown_metadata.uptime_s = uptime;
+        unknown_metadata.terminated_by = TerminatedBy::Unknown;
+        static_cast<void>(write_exit_json(*context.instance_dir,
+                                         unknown_metadata));
+    }
     child_exit(0);
 }
 
@@ -804,8 +853,9 @@ core::Status Runner::start(const app::RunIdentity& identity,
     static_cast<void>(::close(pipe_fds[0]));
 
     if (!received || report.error != 0 || report.pid <= 0) {
-        int supervisor_status = 0;
-        static_cast<void>(::waitpid(supervisor, &supervisor_status, WNOHANG));
+        // Failed start must not leave a zombie supervisor behind (spec
+        // process-supervision "A failed start reaps the supervisor child").
+        reap_failed_supervisor(supervisor);
         return std::unexpected(core::ErrorCode::SystemError);
     }
     return {};
@@ -829,7 +879,11 @@ core::Status Runner::stop(std::string_view instance_dir,
 
     if (file_exists(exit_path)) {
         // Idempotent path: nothing to signal, but success still requires the
-        // whole group to be gone, as the stop contract promises.
+        // whole group to be gone, as the stop contract promises. A recycled
+        // PID (identity-gate mismatch) says nothing about THIS instance —
+        // foreign group liveness implies a foreign process, not a stop
+        // failure (spec process-supervision "Identity is verified before
+        // signals are sent").
         const core::Result<nlohmann::json> completed =
             read_json_file(resource_path);
         if (!completed) {
@@ -838,6 +892,8 @@ core::Status Runner::stop(std::string_view instance_dir,
         ResourceMetadata completed_metadata{};
         from_json(*completed, completed_metadata);
         if (completed_metadata.pid > 0 &&
+            identity_matches(completed_metadata.pid,
+                            completed_metadata.proc_start_ticks) &&
             group_alive(completed_metadata.pid)) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -855,6 +911,18 @@ core::Status Runner::stop(std::string_view instance_dir,
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     const std::int32_t pid = resource.pid;
+
+    // Identity gate before the first signal (spec process-supervision
+    // "Identity is verified before signals are sent"; analysis #5): a live
+    // process whose start-ticks differ from resource.json is a recycled PID
+    // — no signal mandate. It follows the dead-instance fallback so stop
+    // still finalizes the instance (terminated_by "unknown") and reports
+    // success without ever touching a foreign process group.
+    if (!identity_matches(pid, resource.proc_start_ticks)) {
+        write_fallback_exit(exit_path, resource, std::nullopt,
+                            TerminatedBy::Unknown);
+        return {};
+    }
 
     if (!process_alive(pid) && !group_alive(pid)) {
         // The supervisor may be in the middle of writing exit.json.
@@ -943,7 +1011,12 @@ core::Status Runner::status(std::string_view instance_dir,
         return {};
     }
 
-    if (process_alive(resource.pid)) {
+    // Identity gate (spec process-supervision "Status reports lifecycle
+    // state"; analysis #5): a live pid whose /proc start-ticks differ from
+    // resource.json is a recycled PID of an unrelated process — not this
+    // instance running. Legacy anchors (0) keep the plain pid check.
+    if (process_alive(resource.pid) &&
+        identity_matches(resource.pid, resource.proc_start_ticks)) {
         state = "running";
         return {};
     }

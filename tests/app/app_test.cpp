@@ -538,6 +538,39 @@ void test_settings_loaders() {
     NX_CHECK(!tracing::load_tracing_settings({tracing_global, tracing_local}, tracing).has_value());
     NX_CHECK(tracing.options.max_tracers == 8U); // global survived
 
+    // Sink-vocabulary text pins (dedup-sink-plumbing): the messages of the
+    // shared settings_io sink reads stay byte-identical, exercised through
+    // both module loaders.
+    write_text(metrics_local, R"({"sink":{"path":1,"append":"x"}})");
+    {
+        metrics::Settings probe{};
+        NX_CHECK(!metrics::load_metrics_settings({metrics_global, metrics_local}, probe).has_value());
+        NX_CHECK(probe.diagnostics.size() == 2U);
+        NX_CHECK(probe.diagnostics[0].field == "sink.path");
+        NX_CHECK(probe.diagnostics[0].message == "expected a string");
+        NX_CHECK(probe.diagnostics[1].field == "sink.append");
+        NX_CHECK(probe.diagnostics[1].message == "expected a boolean");
+    }
+    write_text(metrics_local, R"({"sink":7})");
+    {
+        metrics::Settings probe{};
+        NX_CHECK(!metrics::load_metrics_settings({metrics_global, metrics_local}, probe).has_value());
+        NX_CHECK(probe.diagnostics.size() == 1U);
+        NX_CHECK(probe.diagnostics[0].field == "sink");
+        NX_CHECK(probe.diagnostics[0].message == "expected a JSON object");
+    }
+    write_text(tracing_local, R"({"sink":{"path":[],"max_spans_per_window":"x"}})");
+    {
+        tracing::Settings probe{};
+        NX_CHECK(!tracing::load_tracing_settings({tracing_global, tracing_local}, probe).has_value());
+        NX_CHECK(probe.diagnostics.size() == 2U);
+        NX_CHECK(probe.diagnostics[0].field == "sink.path");
+        NX_CHECK(probe.diagnostics[0].message == "expected a string");
+        NX_CHECK(probe.diagnostics[1].field == "sink.max_spans_per_window");
+        NX_CHECK(probe.diagnostics[1].message == "expected a non-negative integer");
+    }
+    write_text(tracing_local, R"({"max_tracers":16})"); // restore the fixture the later probes assume
+
     // Unreadable supplied path (a directory) -> SystemError.
     NX_CHECK(!tracing::load_tracing_settings({"/tmp/opencode", ""}, tracing).has_value());
     NX_CHECK(tracing.diagnostics.back().source == core::SettingsSource::Global);
@@ -1453,6 +1486,52 @@ void test_app_settings_full_coverage() {
 }
 
 void test_infrastructure_conflict() {
+    // SignalWatcher double-start guard (analysis #22; change
+    // fix-p2-observability-and-writers): a second start on the same
+    // watcher returns Conflict and installs no extra signalfd — the
+    // previous implementation leaked an fd and a thread from every retry
+    // (reachable through the detail API, not through Infrastructure).
+    {
+        sigset_t previous{};
+        sigset_t blocked{};
+        ::sigemptyset(&previous);
+        ::sigemptyset(&blocked);
+        ::sigaddset(&blocked, SIGUSR2);
+        NX_CHECK(::pthread_sigmask(SIG_BLOCK, &blocked, &previous) == 0);
+        std::size_t fds_with_watcher = 0;
+        app::detail::SignalWatcher watcher_probe{};
+        // The watcher never fires (SIGUSR2 stays blocked, nothing raises
+        // it); the target stub only answers the type requirement.
+        struct WatchTarget {
+            void request_stop(
+                app::InfrastructureStopReason) const noexcept {}
+        };
+        const core::Status started = watcher_probe.start<WatchTarget>(
+            nullptr, blocked);
+        NX_CHECK(started.has_value());
+        if (started) {
+            for (const auto& entry :
+                 std::filesystem::directory_iterator("/proc/self/fd")) {
+                static_cast<void>(entry);
+                ++fds_with_watcher;
+            }
+            NX_CHECK(fds_with_watcher >= 1U);
+            const core::Status second_start =
+                watcher_probe.start<WatchTarget>(nullptr, blocked);
+            NX_CHECK(!second_start.has_value());
+            NX_CHECK(second_start.error() == core::ErrorCode::Conflict);
+            std::size_t fds_after_conflict = 0;
+            for (const auto& entry :
+                 std::filesystem::directory_iterator("/proc/self/fd")) {
+                static_cast<void>(entry);
+                ++fds_after_conflict;
+            }
+            NX_CHECK(fds_after_conflict == fds_with_watcher);
+            NX_CHECK(watcher_probe.active());
+            watcher_probe.stop();
+        }
+        NX_CHECK(::pthread_sigmask(SIG_SETMASK, &previous, nullptr) == 0);
+    }
     auto first = make_test_infra<TestPolicy>();
     auto second = make_test_infra<TestPolicy>();
     NX_CHECK(first != nullptr && second != nullptr);

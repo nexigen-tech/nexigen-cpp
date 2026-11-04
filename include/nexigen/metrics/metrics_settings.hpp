@@ -53,11 +53,4 @@ void to_json(nlohmann::json& j, const Settings& settings);
 
 } // namespace nexigen::metrics
 
-template <>
-struct std::formatter<nexigen::metrics::Settings>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::metrics::Settings& settings, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(settings.to_string(), ctx);
-    }
-};
+

@@ -68,4 +68,19 @@ if (cd "$ROOT/fallback_cwd" && "$BIN" start --config "$ROOT/bad.json"); then
 fi
 grep -q "event=command" "$ROOT/fallback_cwd/.nexigen-run/runner.jsonl"
 
+# Failed exec is reported visibly (change fix-p0-critical-defects): the CLI
+# exits nonzero printing `start failed` on stderr, and no resource.json /
+# exit.json is published for the failed start (spec runner/process-supervision
+# "A failed exec fails the start visibly").
+FAIL_DIR="$ROOT/failedstart"
+if "$BIN" start --run-id run-fail --app fail_app --instance 1 \
+        --run-dir "$FAIL_DIR" -- /nonexistent/nexigen/definitely-missing \
+        >"$ROOT/fail.out" 2>"$ROOT/fail.err"; then
+    echo "start of a missing binary unexpectedly succeeded" >&2
+    exit 1
+fi
+grep -q "start failed" "$ROOT/fail.err"
+[ ! -e "$FAIL_DIR/fail_app/1/resource.json" ]
+[ ! -e "$FAIL_DIR/fail_app/1/exit.json" ]
+
 echo "cli checks passed"

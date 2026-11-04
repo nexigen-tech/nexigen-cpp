@@ -64,20 +64,6 @@ void to_json(nlohmann::json& j, const Settings& settings);
 
 } // namespace nexigen::app
 
-template <>
-struct std::formatter<nexigen::app::AppSettingsPaths>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::app::AppSettingsPaths& paths, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(paths.to_string(), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::app::Settings>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::app::Settings& settings, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(settings.to_string(), ctx);
-    }
-};
+
+

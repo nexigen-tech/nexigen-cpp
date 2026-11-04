@@ -132,6 +132,13 @@ class alignas(64) TracerProvider {
     static_assert(ShardCapacity >= 1 && (ShardCapacity & (ShardCapacity - 1)) == 0,
                   "shard capacity must be a positive power of two");
     static_assert(MaxThreads >= 1, "shard pool must hold at least one slot");
+    // Slot invariant (analysis #11; change fix-p1-races-process-correctness):
+    // the claimed int32 slot is narrowed to the int8 span-record field
+    // (`this_thread_slot()`/`std::int8_t slot`), so the pool width must fit a
+    // signed byte — pinned at compile time instead of silently truncating
+    // slots ≥ 128.
+    static_assert(MaxThreads <= 127,
+                  "span-record slot field is int8 (MaxThreads must fit)");
 
 public:
     using Record = SpanRecord;

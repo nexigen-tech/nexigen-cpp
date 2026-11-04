@@ -187,14 +187,19 @@ public:
     /// Control-plane barrier across all members; the last failure surfaces
     /// (an OK from a later member never masks an earlier rejection).
     [[nodiscard]] core::Status flush() noexcept {
-        core::Status last{};
+        // First error wins (parity with CompositeTraceSink — analysis #21):
+        // every member is still flushed (no short-circuiting); later
+        // members' errors are skipped in favor of the first one.
+        core::Status first{};
+        bool have_first = false;
         for_each([&](auto& lg) noexcept {
             const core::Status s = lg.flush();
-            if (!s) {
-                last = s;
+            if (!s && !have_first) {
+                first = s;
+                have_first = true;
             }
         });
-        return last;
+        return first;
     }
 
     /// Cold-path diagnostic (mandate 9): own level + member count, embedding

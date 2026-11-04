@@ -130,9 +130,17 @@ class AsyncWorker {
             }
             // Ring empty at this instant: answer any flush request before
             // going idle. (All records accepted before the request were in
-            // the ring we just observed empty.)
+            // the ring we just observed empty.) The flush-time drop summary
+            // (spec logging/multi-producer "Drop summaries are synthesized
+            // by the worker") is built HERE, on the consumer thread, and
+            // handed straight to the sink: no ring push, no foreign-thread
+            // producer work — a shard's ring is pushed only by its owner.
             const std::uint64_t req = flush_.requested.load(std::memory_order_acquire);
             if (req > flush_.drained.load(std::memory_order_relaxed)) {
+                record_type summary{};
+                if (producer_->synthesize_flush_summary(summary)) {
+                    sink.handle(summary);
+                }
                 publish_sync(req);
             }
             if (++idle < idle_spin_budget) {
@@ -190,13 +198,14 @@ public:
 
     /// Control-plane drain barrier (spec: outside the never-block guarantee).
     /// Waits until everything enqueued before this call is sink-synchronized.
+    /// The flush-time drop summary is synthesized by the worker when it
+    /// answers this barrier (this thread never touches foreign shards:
+    /// spec logging/multi-producer "Drop summaries are synthesized by the
+    /// worker").
     [[nodiscard]] core::Status flush() noexcept {
         if (!start_.launched.load(std::memory_order_acquire)) {
             return std::unexpected(core::ErrorCode::NotInitialized); // not started yet
         }
-        // Flush-time drop summary (spec: "Flush-time drop summary is emitted"):
-        // push summaries for any shards with pending drops before the barrier.
-        producer_->flush_drop_summaries();
         const std::uint64_t seq =
             flush_.requested.fetch_add(1U, std::memory_order_release) + 1U;
         for (std::uint64_t spins = 0;

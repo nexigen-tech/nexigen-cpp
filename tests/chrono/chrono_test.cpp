@@ -832,6 +832,15 @@ void test_provider() {
         NX_CHECK(back.collect_interval == config.collect_interval);
         NX_CHECK(back.core_mask == 0x3);
         NX_CHECK(config.to_string().find("core_mask=0x3") != std::string::npos);
+        // Real hex render (P2-17): decimal 10 → `0xa`, never the old
+        // "0x<decimal>" artifact.
+        {
+            ChronoProviderConfig hex_probe{};
+            hex_probe.core_mask = 0xA;
+            const std::string hex_text = hex_probe.to_string();
+            NX_CHECK(hex_text.find("core_mask=0xa") != std::string::npos);
+            NX_CHECK(hex_text.find("core_mask=0x10") == std::string::npos);
+        }
         NX_CHECK(std::format("{}", config) == config.to_string());
     }
 
@@ -920,6 +929,27 @@ void test_provider() {
             std::this_thread::sleep_for(std::chrono::milliseconds{20});
         } // destructor stops the worker, which logs its shutdown
         NX_CHECK(!logger.messages.empty());
+    }
+    // Double-start guard (spec chrono/chrono-provider "Optional worker
+    // logger", analysis #12): a start(Logger&) on a running provider returns
+    // Conflict and does NOT rebind — the first logger keeps its diagnostics.
+    {
+        RecordingClockLogger first;
+        RecordingClockLogger second;
+        NullChronoSink sink;
+        ChronoProviderConfig config{};
+        config.collect_interval = std::chrono::nanoseconds{1'000'000};
+        {
+            ChronoProvider provider{config, sink};
+            NX_CHECK(provider.start(first).has_value());
+            std::this_thread::sleep_for(std::chrono::milliseconds{5});
+            const core::Status rebound = provider.start(second);
+            NX_CHECK(rebound.has_value() == false &&
+                     rebound.error() == core::ErrorCode::Conflict);
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        } // destructor stops the worker
+        NX_CHECK(!first.messages.empty());
+        NX_CHECK(second.messages.empty()); // never rebound
     }
     {
         RecordingClockLogger logger;
@@ -1194,6 +1224,12 @@ void test_settings() {
         const Status s = load_chrono_settings(paths, settings);
         NX_CHECK(!s.has_value());
         NX_CHECK(settings.options.collect_interval == std::chrono::nanoseconds{1000000});
+        // Pin the exact shared-vocabulary text (dedup-sink-plumbing): the
+        // diagnostic must stay byte-identical after the consolidation.
+        NX_CHECK(settings.diagnostics.size() == 1U);
+        NX_CHECK(settings.diagnostics[0].field == "collect_interval_ns");
+        NX_CHECK(settings.diagnostics[0].message == "expected an integer in range");
+        NX_CHECK(settings.diagnostics[0].source == core::SettingsSource::Local);
     }
 
     // Empty paths yield defaults with no diagnostics.
@@ -1360,10 +1396,11 @@ void test_settings_sink() {
         NX_CHECK(settings.diagnostics.empty());
     }
 
-    // Wrong field types keep the previous value and name sink.<field>.
+    // Wrong field types keep the previous value and name sink.<field>; the
+    // shared-vocabulary texts stay pinned byte-identical (dedup-sink-plumbing).
     NX_CHECK(write_file(global_path.c_str(),
                         R"({"sink":{"path":"/tmp/keep-chrono.jsonl"}})"));
-    NX_CHECK(write_file(local_path.c_str(), R"({"sink":{"path":3}})"));
+    NX_CHECK(write_file(local_path.c_str(), R"({"sink":{"path":3,"append":3}})"));
     {
         Settings settings;
         core::SettingsPaths paths;
@@ -1371,8 +1408,12 @@ void test_settings_sink() {
         paths.local_file = local_path;
         NX_CHECK(!load_chrono_settings(paths, settings).has_value());
         NX_CHECK(settings.sink.path == "/tmp/keep-chrono.jsonl");
-        NX_CHECK(settings.diagnostics.size() == 1U);
+        NX_CHECK(settings.sink.append);
+        NX_CHECK(settings.diagnostics.size() == 2U);
         NX_CHECK(settings.diagnostics[0].field == "sink.path");
+        NX_CHECK(settings.diagnostics[0].message == "expected a string");
+        NX_CHECK(settings.diagnostics[1].field == "sink.append");
+        NX_CHECK(settings.diagnostics[1].message == "expected a boolean");
     }
 
     // A non-object sink keeps the whole previous sink and reports "sink".
@@ -1385,6 +1426,7 @@ void test_settings_sink() {
         NX_CHECK(!load_chrono_settings(paths, settings).has_value());
         NX_CHECK(settings.sink.path == "/tmp/keep-chrono.jsonl");
         NX_CHECK(settings.diagnostics[0].field == "sink");
+        NX_CHECK(settings.diagnostics[0].message == "expected a JSON object");
     }
 
     ::unlink(global_path.c_str());

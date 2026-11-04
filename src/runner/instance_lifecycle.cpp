@@ -113,9 +113,9 @@ std::string ResourceMetadata::to_string() const {
     return std::format(
         "ResourceMetadata(run_id={}, app_name={}, instance_id={}, "
         "instance_dir={}, pid={}, ppid={}, start_time_rfc3339={}, "
-        "start_time_mono_ns={}, version={})",
+        "start_time_mono_ns={}, proc_start_ticks={}, version={})",
         run_id, app_name, instance_id, instance_dir, pid, ppid,
-        start_time_rfc3339, start_time_mono_ns, version);
+        start_time_rfc3339, start_time_mono_ns, proc_start_ticks, version);
 }
 
 ResourceMetadata ResourceMetadata::from_identity(
@@ -143,6 +143,7 @@ void to_json(nlohmann::json& j, const ResourceMetadata& metadata) {
         {"ppid", metadata.ppid},
         {"start_time_rfc3339", metadata.start_time_rfc3339},
         {"start_time_mono_ns", metadata.start_time_mono_ns},
+        {"proc_start_ticks", metadata.proc_start_ticks},
         {"version", metadata.version},
     };
 }
@@ -158,6 +159,8 @@ void from_json(const nlohmann::json& j, ResourceMetadata& metadata) noexcept {
                                   metadata.start_time_rfc3339));
     static_cast<void>(read_u64(j, "start_time_mono_ns",
                                   metadata.start_time_mono_ns));
+    static_cast<void>(read_u64(j, "proc_start_ticks",
+                               metadata.proc_start_ticks));
     static_cast<void>(read_string(j, "version", metadata.version));
 }
 

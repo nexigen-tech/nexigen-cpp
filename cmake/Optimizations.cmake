@@ -31,12 +31,21 @@ function(nexigen_set_optimizations target_name)
         endif()
     endif()
 
-    # Включаем Link-Time Optimization (LTO / IPO) для Release-сборок
+    # Включаем Link-Time Optimization (LTO / IPO) для Release-сборок.
+    # Analysis #15: INTERPROCEDURAL_OPTIMIZATION, поставленный на INTERFACE
+    # цель, ничего не собирает — no-op при честном "🚀 enabled". The
+    # canonical variable applies compile+link LTO to every target created
+    # AFTER this point (nexigen_set_optimizations runs before target
+    # definitions) and honours the Debug/Release split.
     if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
         check_ipo_supported(RESULT lto_supported OUTPUT lto_error)
         if(lto_supported)
+            # The variable must outlive this function scope (function-local
+            # set dies with the call; targets are created after, at TOP
+            # scope): PARENT_SCOPE publishes it precisely where targets
+            # read it at generation time.
+            set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE PARENT_SCOPE)
             message(STATUS "🚀 LTO (Link-Time Optimization) enabled")
-            set_property(TARGET ${target_name} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
         else()
             message(WARNING "LTO is not supported: ${lto_error}")
         endif()

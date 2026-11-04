@@ -160,11 +160,4 @@ struct std::formatter<nexigen::tracing::NullTracer> : std::formatter<std::string
         return std::formatter<std::string_view>::format("NullTracer()", ctx);
     }
 };
-template <>
-struct std::formatter<nexigen::tracing::NullTracer::NullSpan>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::NullTracer::NullSpan& span, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(span.to_string(), ctx);
-    }
-};
+

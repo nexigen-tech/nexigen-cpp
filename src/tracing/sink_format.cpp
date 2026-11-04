@@ -206,7 +206,10 @@ core::Status JsonFileTraceSink::write_record_line(const SpanRecord& record,
     static_cast<void>(writer.append_sv("]}\n"));
     if (!writer.ok()) {
         // The line does not fit the scratch: nothing partial is written
-        // (spec "Open and write failures are visible" — no invalid JSON).
+        // (spec "Open and write failures are visible" — no invalid JSON),
+        // and the loss is counted (spec trace-sinks "Scratch overflow
+        // discards the line and counts it" — analysis #17).
+        ++discarded_lines_;
         return std::unexpected(core::ErrorCode::BufferFull);
     }
     return write_all(writer.size());
@@ -220,6 +223,7 @@ std::string JsonFileTraceSink::to_string() const {
     out += ", max_spans_per_window=" + std::to_string(max_per_window_);
     out += ", window_ns=" + std::to_string(window_ns_);
     out += ", dropped_in_window=" + std::to_string(dropped_in_window_);
+    out += ", discarded_lines=" + std::to_string(discarded_lines_);
     out += ")";
     return out;
 }

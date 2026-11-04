@@ -186,32 +186,5 @@ void from_json(const nlohmann::json& j, GapMarker& value) noexcept;
 
 } // namespace nexigen::hub
 
-template <>
-struct std::formatter<nexigen::hub::StreamKind> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::hub::StreamKind value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(
-            nexigen::hub::to_string(value), ctx);
-    }
-};
 
-#define NEXIGEN_HUB_FORMATTER(Type)                                                        \
-    template <>                                                                            \
-    struct std::formatter<nexigen::hub::Type> : std::formatter<std::string_view> {         \
-        template <class Ctx>                                                               \
-        constexpr auto format(const nexigen::hub::Type& value, Ctx& ctx) const {           \
-            return std::formatter<std::string_view>::format(value.to_string(), ctx);       \
-        }                                                                                  \
-    }
 
-NEXIGEN_HUB_FORMATTER(HubStream);
-NEXIGEN_HUB_FORMATTER(HubAttempt);
-NEXIGEN_HUB_FORMATTER(HubInstance);
-NEXIGEN_HUB_FORMATTER(HubApp);
-NEXIGEN_HUB_FORMATTER(HubSuite);
-NEXIGEN_HUB_FORMATTER(HubRun);
-NEXIGEN_HUB_FORMATTER(HubTree);
-NEXIGEN_HUB_FORMATTER(StreamRecord);
-NEXIGEN_HUB_FORMATTER(GapMarker);
-
-#undef NEXIGEN_HUB_FORMATTER

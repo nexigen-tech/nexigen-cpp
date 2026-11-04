@@ -162,10 +162,19 @@ public:
         return {};
     }
 
-    /// Bind a logger and start the background snapshot worker. The logger MUST
-    /// outlive the provider (the worker logs through it until it stops).
+    /// Bind a logger and start the background snapshot worker. The logger
+    /// MUST outlive the provider (the worker logs through it until it stops).
+    /// Double-start guard (analysis #12; change fix-p1-races-process-
+    /// correctness): while the worker runs, `log_binding_` is written only
+    /// here and read by the worker — a second logger binding would race the
+    /// worker's loads, so a call on a running provider returns `Conflict`
+    /// WITHOUT touching the binding. Rebinding is only possible on a
+    /// provider whose worker is not running.
     template <concepts::ClockLogger Logger>
     [[nodiscard]] core::Status start(Logger& logger) noexcept {
+        if (worker_.joinable()) {
+            return std::unexpected(core::ErrorCode::Conflict);
+        }
         log_binding_ = detail::LogBinding{
             static_cast<void*>(&logger),
             [](void* self, ClockLogLevel level, std::string_view message) noexcept {
@@ -221,13 +230,7 @@ private:
 } // namespace nexigen::chrono
 
 /// ClockLogLevel formats as its canonical name (mandate 11).
-template <>
-struct std::formatter<nexigen::chrono::ClockLogLevel> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::chrono::ClockLogLevel level, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::chrono::to_string(level), ctx);
-    }
-};
+
 
 /// The configuration formats as its diagnostic string (mandate 11).
 template <>

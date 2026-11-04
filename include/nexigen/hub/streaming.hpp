@@ -129,11 +129,4 @@ private:
 
 } // namespace nexigen::hub
 
-template <>
-struct std::formatter<nexigen::hub::StreamLimits>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::hub::StreamLimits& value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(value.to_string(), ctx);
-    }
-};
+

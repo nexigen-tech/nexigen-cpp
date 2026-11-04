@@ -30,12 +30,14 @@
 
 namespace nexigen::core {
 
-/// Per-shard accounting + throttle window. The two counters are written ONLY
-/// by the slot's owner (relaxed store of prev+1 — never a contended RMW); the
-/// window fields are plain single-writer state. One cache line per shard.
+/// Per-shard accounting + throttle window. The two counters commit
+/// increments ONLY by the slot's owner via a single relaxed atomic
+/// `fetch_add` (never `store(load+1)` — the consumer resets cells it has
+/// reported, so each increment must survive as an atomic RMW); the window
+/// fields are plain single-writer state. One cache line per shard.
 struct alignas(64) ShardPoolState {
-    std::atomic<std::uint64_t> rate_limited{}; ///< owner stores, others load
-    std::atomic<std::uint64_t> buffer_full{};  ///< owner stores, others load
+    std::atomic<std::uint64_t> rate_limited{}; ///< owner fetch_add, others load
+    std::atomic<std::uint64_t> buffer_full{};  ///< owner fetch_add, others load
     std::uint64_t window_start_ns{};           ///< owner-only plain state
     std::uint64_t tokens_used{};               ///< owner-only plain state
     std::uint8_t pad_[32]{};
@@ -137,7 +139,11 @@ std::int32_t ShardPool<Record, ShardCapacity, MaxThreads>::claim_slot() noexcept
         const void* owner{nullptr};
         std::int32_t slot{-1};
     };
-    thread_local Entry tls[4]{}; // 4 distinct pools per thread
+    // Per-thread (pool → slot) cache. 8 distinct pools per thread: the
+    // realistic population is logging · metrics · tracing · chrono plus
+    // headroom overflow — analysis #10 showed the old size-4 map pushed 5+-
+    // pool threads into a per-record global-slot burn.
+    thread_local Entry tls[8]{}; // 8 distinct pools per thread
     for (Entry& entry : tls) {
         if (entry.owner == this) {
             // A pool destroyed and re-created at the same address leaves a
@@ -153,6 +159,24 @@ std::int32_t ShardPool<Record, ShardCapacity, MaxThreads>::claim_slot() noexcept
             entry.slot = -1;
             break;
         }
+    }
+    // Overflow guard (spec logging/multi-producer "Thread-local slot
+    // registration", TLS-cache-exhaustion scenario): a thread logged into
+    // more distinct pools than its cache holds must NOT register per record
+    // — the old path burned one global slot number per emit until the pool
+    // was exhausted and every record dropped silently. The counted
+    // slot_exhausted drop is the honest bounded behavior; previously cached
+    // pools on this thread keep their wait-free steady path.
+    bool cache_free = false;
+    for (const Entry& entry : tls) {
+        if (entry.owner == nullptr) {
+            cache_free = true;
+            break;
+        }
+    }
+    if (!cache_free) {
+        exhausted_.slot_exhausted.fetch_add(1U, std::memory_order_relaxed);
+        return -1; // TLS-cache overflow: counted drop (never blocks)
     }
     const std::uint32_t claimed =
         registration_.next_slot.fetch_add(1U, std::memory_order_relaxed);
@@ -176,7 +200,8 @@ std::int32_t ShardPool<Record, ShardCapacity, MaxThreads>::claim_slot() noexcept
             break;
         }
     }
-    // TLS map full: the thread keeps producing but re-registers per call.
+    // Cache slot is guaranteed free here (checked above before touching the
+    // shared registration).
     return static_cast<std::int32_t>(claimed);
 }
 

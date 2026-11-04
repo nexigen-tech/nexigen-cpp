@@ -6,6 +6,16 @@ add_test(NAME nexigen_core_tests COMMAND nexigen_core_tests)
 # Поднять таймаут: 1M-элементный стресс-тест медленно работает под TSan.
 set_tests_properties(nexigen_core_tests PROPERTIES TIMEOUT 600)
 
+# Negative-compile probe (dedup-sink-plumbing, spec core/sink-plumbing):
+# probe TU должен НЕ собраться — static_assert'ы пака обязаны сработать.
+# SCR-файл намеренно вне таргетов (см. tests/core/neg/).
+add_test(NAME nexigen_sink_pack_negative_compile
+         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/core/negative_compile.sh
+                 ${CMAKE_CXX_COMPILER}
+                 ${CMAKE_CURRENT_SOURCE_DIR}/core/neg/sink_pack_negative.cpp
+                 ${PROJECT_SOURCE_DIR}/include)
+set_tests_properties(nexigen_sink_pack_negative_compile PROPERTIES TIMEOUT 120)
+
 # Юнит-тесты nexigen::chrono: один TU (тот же харнес D4): timestamp/stamp/
 # utc_offset/time_format; calibrate() спит ~2 мс — потоки линкуем.
 add_executable(nexigen_chrono_tests chrono/chrono_test.cpp)
@@ -102,10 +112,15 @@ target_link_libraries(nexigen_runner_logging_tests PRIVATE nexigen_runner Thread
 add_test(NAME nexigen_runner_logging_tests COMMAND nexigen_runner_logging_tests)
 set_tests_properties(nexigen_runner_logging_tests PROPERTIES TIMEOUT 300)
 
-add_test(NAME nexigen_run_cli_tests
-         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/runner/cli_test.sh
-                 $<TARGET_FILE:nexigen-run>)
-set_tests_properties(nexigen_run_cli_tests PROPERTIES TIMEOUT 300)
+if(NEXIGEN_BUILD_TOOLS)
+    # The CLI tests drive the real nexigen-run/nexigen-hub binaries, which
+    # exist only when tools are built; tests=ON + tools=OFF must configure
+    # and run the remaining suites (analysis 2026-11-03 #20).
+    add_test(NAME nexigen_run_cli_tests
+             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/runner/cli_test.sh
+                     $<TARGET_FILE:nexigen-run>)
+    set_tests_properties(nexigen_run_cli_tests PROPERTIES TIMEOUT 300)
+endif()
 
 add_executable(nexigen_hub_tests hub/hub_test.cpp)
 target_link_libraries(nexigen_hub_tests PRIVATE nexigen_hub Threads::Threads)
@@ -113,7 +128,9 @@ target_link_libraries(nexigen_hub_tests PRIVATE nexigen_hub Threads::Threads)
 add_test(NAME nexigen_hub_tests COMMAND nexigen_hub_tests)
 set_tests_properties(nexigen_hub_tests PROPERTIES TIMEOUT 600)
 
-add_test(NAME nexigen_hub_cli_tests
-         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hub/hub_cli_test.sh
-                 $<TARGET_FILE:nexigen-hub>)
-set_tests_properties(nexigen_hub_cli_tests PROPERTIES TIMEOUT 120)
+if(NEXIGEN_BUILD_TOOLS)
+    add_test(NAME nexigen_hub_cli_tests
+             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hub/hub_cli_test.sh
+                     $<TARGET_FILE:nexigen-hub>)
+    set_tests_properties(nexigen_hub_cli_tests PROPERTIES TIMEOUT 120)
+endif()

@@ -183,6 +183,16 @@ core::Result<Meter*> MetricProvider::get_meter(std::string_view name, std::strin
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 
+    // Publication is serialized with the harvester (spec metrics/
+    // metric-provider "Meter publication is serialized with harvesting",
+    // analysis #8): lookup, arena bump, and registry insert are one
+    // critical section under the same mutex the harvester holds while
+    // resetting pools — a concurrent sweep can observe either no meter or a
+    // fully constructed one, and two racing creators consume exactly one
+    // arena region. Cold path only; instrument hot paths never touch this
+    // mutex.
+    std::lock_guard<std::mutex> lock(harvest_mutex_);
+
     // Idempotent lookup: the same name+version returns the same handle; the
     // same name with a different version is a conflict.
     for (std::size_t i = 0; i < meter_capacity_; ++i) {

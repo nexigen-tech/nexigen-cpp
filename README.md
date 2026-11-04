@@ -175,6 +175,18 @@ Header-only, C++23, no exceptions/RTTI, no heap allocation on hot paths. Link th
   `size()`/`is_empty()`/`is_full()` are *snapshots* for diagnostics, not
   synchronization, and `to_string()` renders a cold-path capacity/occupancy dump. The
   queue is non-copyable and non-movable: give it static or long-lived object storage.
+* **`<nexigen/core/sink_pack.hpp>`** — `core::sink_pack::Fanout<Sinks...>`, the
+  compile-time fan-out member pack behind the chrono/metrics/tracing composite sinks
+  (one implementation instead of per-module copies; same placement precedent as
+  `fixed_writer.hpp`/`settings_io.hpp`). Callback-free, virtual-free, hot-path free.
+* **`<nexigen/core/sink_io.hpp>`** — `core::sink_io::open_output`/`write_all`/`fsync_fd`,
+  the one cold-path file-descriptor path for the JSON/Chrome file sinks
+  (EINTR/partial-write retry, close-on-exec, mode 0644, append-vs-truncate parity).
+* **`<nexigen/core/affinity.hpp>`** — `core::affinity::pin_self`/`self_affinity`, the
+  one uint64-core-mask thread-affinity surface for all observability modules
+  (calling-thread-only semantics: pin the worker as its first act; zero mask →
+  `InvalidArgument`; cold-path, allocation-free; runner's validated CPU-list API
+  remains in `runner`).
 
 **Serialization contract (all modules):** every public type exposes a cold-path
 `std::string to_string() const` + free `to_string(const T&)`; every enum class exposes

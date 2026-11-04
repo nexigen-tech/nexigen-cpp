@@ -19,10 +19,7 @@ void to_json(nlohmann::json& j, const SpamProtectionConfig& cfg) {
     j = nlohmann::json{
         {"enable_repeat_suppression", cfg.enable_repeat_suppression},
         {"repeat_suppression_window_ms", cfg.repeat_suppression_window_ms},
-        {"repeat_suppression_max_count", cfg.repeat_suppression_max_count},
         {"max_messages_per_sec_per_shard", cfg.max_messages_per_sec_per_shard},
-        {"max_bytes_per_sec_per_shard", cfg.max_bytes_per_sec_per_shard},
-        {"max_total_bytes_per_sec", cfg.max_total_bytes_per_sec},
         {"bypass_min_level", std::string(to_string(cfg.bypass_min_level))},
     };
 }
@@ -33,14 +30,8 @@ void from_json(const nlohmann::json& j, SpamProtectionConfig& out) noexcept {
     if (it != j.end() && it->is_boolean()) { out.enable_repeat_suppression = it->get<bool>(); }
     it = j.find("repeat_suppression_window_ms");
     if (it != j.end() && it->is_number_unsigned()) { out.repeat_suppression_window_ms = it->get<std::uint32_t>(); }
-    it = j.find("repeat_suppression_max_count");
-    if (it != j.end() && it->is_number_unsigned()) { out.repeat_suppression_max_count = it->get<std::uint32_t>(); }
     it = j.find("max_messages_per_sec_per_shard");
     if (it != j.end() && it->is_number_unsigned()) { out.max_messages_per_sec_per_shard = it->get<std::uint32_t>(); }
-    it = j.find("max_bytes_per_sec_per_shard");
-    if (it != j.end() && it->is_number_unsigned()) { out.max_bytes_per_sec_per_shard = it->get<std::uint64_t>(); }
-    it = j.find("max_total_bytes_per_sec");
-    if (it != j.end() && it->is_number_unsigned()) { out.max_total_bytes_per_sec = it->get<std::uint64_t>(); }
     it = j.find("bypass_min_level");
     if (it != j.end() && it->is_string()) {
         static_cast<void>(from_string(std::string_view(*it->get_ptr<const nlohmann::json::string_t*>()),
@@ -109,14 +100,18 @@ std::string SpamProtectionConfig::to_string() const {
     return "SpamProtectionConfig(enable_repeat_suppression=" +
            std::string(enable_repeat_suppression ? "true" : "false") +
            ", repeat_suppression_window_ms=" + std::to_string(repeat_suppression_window_ms) +
-           ", repeat_suppression_max_count=" + std::to_string(repeat_suppression_max_count) +
            ", max_messages_per_sec_per_shard=" + std::to_string(max_messages_per_sec_per_shard) +
-           ", max_bytes_per_sec_per_shard=" + std::to_string(max_bytes_per_sec_per_shard) +
-           ", max_total_bytes_per_sec=" + std::to_string(max_total_bytes_per_sec) +
            ", bypass_min_level=" + std::string(nexigen::logging::to_string(bypass_min_level)) + ")";
 }
 
 std::string LoggerOptions::to_string() const {
+    std::string affinity;
+    for (std::size_t i = 0; i < flush_cpu_affinity.size(); ++i) {
+        affinity += std::to_string(flush_cpu_affinity[i]);
+        if (i + 1 < flush_cpu_affinity.size()) {
+            affinity += ",";
+        }
+    }
     return "LoggerOptions(log_root_directory=" + log_root_directory +
            ", initial_log_level=" + std::string(nexigen::logging::to_string(initial_log_level)) +
            ", max_file_size_bytes=" + std::to_string(max_file_size_bytes) +
@@ -124,6 +119,7 @@ std::string LoggerOptions::to_string() const {
            ", message_capacity=" + std::to_string(message_capacity) +
            ", max_producer_threads=" + std::to_string(max_producer_threads) +
            ", overflow_policy=" + std::string(nexigen::logging::to_string(overflow_policy)) +
+           ", flush_cpu_affinity=[" + affinity + "]" +
            ", worker_poll_interval_us=" + std::to_string(worker_poll_interval_us) +
            ", sync_flush_on_critical=" + std::string(sync_flush_on_critical ? "true" : "false") +
            ", spam_protection=" + spam_protection.to_string() + ")";

@@ -82,6 +82,27 @@ constexpr std::uint32_t watch_mask =
            text.compare(0, prefix.size(), prefix) == 0;
 }
 
+/// Containment predicate for suite-metadata read targets (spec
+/// hub/discovery "Suite-metadata read targets are run-root contained", design
+/// D3): the candidate's real path — resolved with realpath, so symlink hops
+/// count — must lie strictly inside the canonical run root. A missing or
+/// unresolvable path is never contained and must not be opened; not even the
+/// run root itself counts as a read target (nothing below it). The slash
+/// boundary prevents a sibling directory (`/run-1` vs `/run-10`) from
+/// matching as a prefix.
+[[nodiscard]] bool contained(const std::string& root,
+                             std::string_view path) noexcept {
+    if (root.empty() || path.empty()) {
+        return false;
+    }
+    const std::string resolved = canonical_path(path);
+    if (resolved.empty()) {
+        return false;
+    }
+    return starts_with(resolved, root) && resolved.size() > root.size() &&
+           resolved[root.size()] == '/';
+}
+
 [[nodiscard]] std::uint32_t attempt_number(std::string_view name) noexcept {
     if (!starts_with(name, "attempt-") || name.size() <= 8) {
         return 0;
@@ -387,13 +408,23 @@ void Discovery::scan_suite(const RunRoot& root, const std::string& suite_dir,
 
     out.suite_id = metadata.suite_id;
     out.suite_dir = suite_dir;
-    out.artifacts_path = metadata.artifacts_path;
-    if (!out.artifacts_path.empty()) {
-        out.runner_log.id = stream_id(root.key, out.suite_id, "suite", "runner",
-                                      0, StreamKind::Runner);
-        out.runner_log.kind = StreamKind::Runner;
-        out.runner_log.path =
+    // Spec hub/discovery "Suite-metadata read targets are run-root contained"
+    // (design D3): every path that originates in suite.json is proven
+    // contained at tree-build time before it is stored or derived from; uncontained
+    // sources leave the stored path empty, produce no streams, and degrade
+    // gracefully ("Non-contained suite metadata degrades gracefully"). The
+    // runner log is derived from the already-contained artifacts path, so its
+    // own containment check covers hostile `suite_id` content too.
+    if (contained(root.path, metadata.artifacts_path)) {
+        out.artifacts_path = metadata.artifacts_path;
+        const std::string runner_log_path =
             join(join(out.artifacts_path, out.suite_id), "runner.jsonl");
+        if (contained(root.path, runner_log_path)) {
+            out.runner_log.id = stream_id(root.key, out.suite_id, "suite",
+                                          "runner", 0, StreamKind::Runner);
+            out.runner_log.kind = StreamKind::Runner;
+            out.runner_log.path = runner_log_path;
+        }
     }
 
     runner::SuiteState recorded_state = runner::SuiteState::Unknown;
@@ -430,20 +461,27 @@ void Discovery::scan_suite(const RunRoot& root, const std::string& suite_dir,
         }
         HubInstance instance{};
         instance.instance = app_meta.instance;
-        instance.instance_dir = app_meta.instance_dir;
-        instance.state = instance_state(instance.instance_dir);
-
-        if (have_status) {
-            for (const runner::SuiteAppStatus& recorded : status.apps) {
-                if (recorded.app == app_meta.app &&
-                    recorded.instance == app_meta.instance) {
-                    instance.state = recorded.state;
-                    break;
+        // Design D3: a per-app `instance_dir` that resolves outside the run
+        // root is rejected — nothing is stored, no resource.json/exit.json of
+        // the foreign directory is read, and the instance reports unknown
+        // state (recorded suite-state entries of affected instances are not
+        // applied either, per the "Escaped instance directory is rejected"
+        // scenario).
+        if (contained(root.path, app_meta.instance_dir)) {
+            instance.instance_dir = app_meta.instance_dir;
+            instance.state = instance_state(instance.instance_dir);
+            if (have_status) {
+                for (const runner::SuiteAppStatus& recorded : status.apps) {
+                    if (recorded.app == app_meta.app &&
+                        recorded.instance == app_meta.instance) {
+                        instance.state = recorded.state;
+                        break;
+                    }
                 }
             }
         }
-        scan_attempts(metadata.artifacts_path, metadata.suite_id, app_meta.app,
-                      app_meta.instance, root.key, instance);
+        scan_attempts(root, metadata.artifacts_path, metadata.suite_id,
+                      app_meta.app, app_meta.instance, root.key, instance);
         out.apps[index].instances.push_back(std::move(instance));
     }
     for (HubApp& app : out.apps) {
@@ -471,7 +509,8 @@ void Discovery::scan_suite(const RunRoot& root, const std::string& suite_dir,
     }
 }
 
-void Discovery::scan_attempts(std::string_view artifacts_path,
+void Discovery::scan_attempts(const RunRoot& root,
+                              std::string_view artifacts_path,
                               std::string_view suite_id, std::string_view app,
                               std::string_view instance,
                               std::string_view run_key,
@@ -481,6 +520,13 @@ void Discovery::scan_attempts(std::string_view artifacts_path,
     }
     const std::string base =
         join(join(join(artifacts_path, suite_id), app), instance);
+    // Design D3: `app`/`instance` are suite.json content as well, so the
+    // composed base may still escape the run root; containment is proven
+    // before the directory is listed (and a missing base — no attempts yet —
+    // is not contained, which matches the tolerant no-streams behavior).
+    if (!contained(root.path, base)) {
+        return;
+    }
     for (const std::string& name : list_directory(base)) {
         const std::uint32_t attempt = attempt_number(name);
         if (attempt == 0U) {

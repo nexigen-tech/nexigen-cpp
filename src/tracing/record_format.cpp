@@ -10,6 +10,7 @@
 #include <array>
 #include <charconv>
 #include <cstdint>
+#include <format>
 #include <string>
 #include <string_view>
 
@@ -467,10 +468,11 @@ void from_json(const nlohmann::json& j, SpanRecord& out) noexcept {
 // bodies here so the hot headers stay free of cold serialization machinery).
 
 std::string TracerProviderConfig::to_string() const {
-    return "TracerProviderConfig(core_mask=0x" + std::to_string(core_mask) +
-           ", max_tracers=" + std::to_string(max_tracers) +
-           ", max_spans_per_window=" + std::to_string(max_spans_per_window) +
-           ", window_ns=" + std::to_string(window_ns) + ")";
+    return std::format("TracerProviderConfig(core_mask=0x{:x}, "
+                       "max_tracers={}, max_spans_per_window={}, "
+                       "window_ns={})",
+                       core_mask, max_tracers, max_spans_per_window,
+                       window_ns);
 }
 
 std::string to_string(const TracerProviderConfig& config) { return config.to_string(); }

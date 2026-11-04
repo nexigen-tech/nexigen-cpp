@@ -84,10 +84,4 @@ inline void from_json(const nlohmann::json& j, LogLevel& out) noexcept {
 /// LogLevel formats as its canonical lowercase name (mandate 11): parse and
 /// fill/align handled by the string_view formatter; context templated because
 /// libstdc++ 15 evaluates formattability against a substituted context.
-template <>
-struct std::formatter<nexigen::logging::LogLevel> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::logging::LogLevel level, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::logging::to_string(level), ctx);
-    }
-};
+

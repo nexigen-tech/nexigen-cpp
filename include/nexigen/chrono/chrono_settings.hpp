@@ -60,11 +60,4 @@ void to_json(nlohmann::json& j, const Settings& settings);
 
 } // namespace nexigen::chrono
 
-template <>
-struct std::formatter<nexigen::chrono::Settings>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::chrono::Settings& settings, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(settings.to_string(), ctx);
-    }
-};
+

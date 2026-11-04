@@ -101,31 +101,8 @@ void from_json(const nlohmann::json& j, CommandLineError& error) noexcept;
 
 } // namespace nexigen::app
 
-template <>
-struct std::formatter<nexigen::app::CommandLineDiagnostic>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::app::CommandLineDiagnostic& diagnostic,
-                          Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(diagnostic.to_string(), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::app::CommandLineOptions>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::app::CommandLineOptions& options,
-                          Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(options.to_string(), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::app::CommandLineError>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::app::CommandLineError& error, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(error.to_string(), ctx);
-    }
-};
+
+
+

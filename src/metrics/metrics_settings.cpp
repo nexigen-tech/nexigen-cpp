@@ -11,6 +11,7 @@
 #pragma GCC diagnostic ignored "-Wnull-dereference"
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/settings_io.hpp>
 #include <nexigen/metrics/json_file_metric_sink.hpp>
 #include <nexigen/metrics/metric_provider.hpp>
 #include <nexigen/metrics/metrics_settings.hpp>
@@ -34,132 +35,19 @@
 namespace nexigen::metrics {
 namespace {
 
-enum class FileRead : std::uint8_t { Absent, Ok, Failed };
-
-[[nodiscard]] FileRead read_settings_file(std::string_view path,
-                                           std::string& out) noexcept {
-    if (path.empty()) {
-        return FileRead::Absent;
-    }
-    const std::string path_buf{path};
-    const int fd = ::open(path_buf.c_str(), O_RDONLY | O_CLOEXEC);
-    if (fd < 0) {
-        return errno == ENOENT ? FileRead::Absent : FileRead::Failed;
-    }
-    struct stat st {};
-    if (::fstat(fd, &st) != 0 || st.st_size < 0) {
-        static_cast<void>(::close(fd));
-        return FileRead::Failed;
-    }
-    out.resize(static_cast<std::size_t>(st.st_size));
-    std::size_t offset = 0;
-    while (offset < out.size()) {
-        const ssize_t got = ::read(fd, out.data() + offset, out.size() - offset);
-        if (got > 0) {
-            offset += static_cast<std::size_t>(got);
-        } else if (got == 0) {
-            break;
-        } else if (errno != EINTR) {
-            static_cast<void>(::close(fd));
-            return FileRead::Failed;
-        }
-    }
-    out.resize(offset);
-    static_cast<void>(::close(fd));
-    return FileRead::Ok;
-}
-
-void add_diagnostic(std::vector<core::SettingsDiagnostic>& diagnostics,
-                    core::SettingsSource source, std::string field,
-                    std::string message) {
-    diagnostics.push_back(
-        core::SettingsDiagnostic{source, std::move(field), std::move(message)});
-}
-
-[[nodiscard]] bool unsigned_value(const nlohmann::json& value, std::uint64_t& out) noexcept {
-    if (!value.is_number_unsigned()) {
-        return false;
-    }
-    out = value.get<std::uint64_t>();
-    return true;
-}
-
-[[nodiscard]] bool parse_u64(std::string_view text, std::uint64_t& out) noexcept {
-    if (text.empty()) {
-        return false;
-    }
-    const char* const begin = text.data();
-    const char* const end = begin + text.size();
-    const auto result = std::from_chars(begin, end, out);
-    return result.ec == std::errc{} && result.ptr == end;
-}
-
-/// Read a JSON key into a uint64 target when present and valid.
-void read_uint(const nlohmann::json& document, const char* key, std::uint64_t max_value,
-               std::uint64_t& target, std::vector<core::SettingsDiagnostic>& diagnostics,
-               core::SettingsSource source) {
-    const auto it = document.find(key);
-    if (it == document.end()) {
-        return;
-    }
-    std::uint64_t value = 0;
-    if (unsigned_value(*it, value) && value <= max_value) {
-        target = value;
-    } else {
-        add_diagnostic(diagnostics, source, key, "expected an integer in range");
-    }
-}
-
-[[nodiscard]] std::string sink_field(const char* key) {
-    return std::string("sink.") + key;
-}
-
-void read_sink_string(const nlohmann::json& sink, const char* key, std::string& target,
-                      std::vector<core::SettingsDiagnostic>& diagnostics,
-                      core::SettingsSource source) {
-    const auto it = sink.find(key);
-    if (it == sink.end()) {
-        return;
-    }
-    if (!it->is_string()) {
-        add_diagnostic(diagnostics, source, sink_field(key), "expected a string");
-        return;
-    }
-    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
-    if (text != nullptr) {
-        target = std::string(*text);
-    }
-}
-
-void read_sink_bool(const nlohmann::json& sink, const char* key, bool& target,
-                    std::vector<core::SettingsDiagnostic>& diagnostics,
-                    core::SettingsSource source) {
-    const auto it = sink.find(key);
-    if (it == sink.end()) {
-        return;
-    }
-    if (!it->is_boolean()) {
-        add_diagnostic(diagnostics, source, sink_field(key), "expected a boolean");
-        return;
-    }
-    target = it->get<bool>();
-}
-
-/// Locate the optional sink object. Returns nullptr when absent or invalid;
-/// an invalid value is reported once and leaves the previous sink intact.
-[[nodiscard]] const nlohmann::json* find_sink(
-    const nlohmann::json& document, std::vector<core::SettingsDiagnostic>& diagnostics,
-    core::SettingsSource source) {
-    const auto it = document.find("sink");
-    if (it == document.end()) {
-        return nullptr;
-    }
-    if (!it->is_object()) {
-        add_diagnostic(diagnostics, source, "sink", "expected a JSON object");
-        return nullptr;
-    }
-    return &*it;
-}
+// Shared settings-io helpers (change fix-p2-observability-and-writers):
+// one implementation instead of three copies; imports stay inside the TU's
+// anonymous namespace. (dedup-sink-plumbing) the per-key sink reads moved
+// into the shared vocabulary as well.
+using nexigen::core::settings_io::add_diagnostic;
+using nexigen::core::settings_io::FileRead;
+using nexigen::core::settings_io::find_sink;
+using nexigen::core::settings_io::parse_u64;
+using nexigen::core::settings_io::read_sink_bool;
+using nexigen::core::settings_io::read_sink_string;
+using nexigen::core::settings_io::read_text_file;
+using nexigen::core::settings_io::read_uint;
+using nexigen::core::settings_io::unsigned_value;
 
 } // namespace
 
@@ -292,7 +180,7 @@ core::Status load_metrics_settings(const core::SettingsPaths& paths,
     bool system_error = false;
     std::string text;
 
-    FileRead read = read_settings_file(paths.global_file, text);
+    FileRead read = read_text_file(paths.global_file, text);
     if (read == FileRead::Ok) {
         out.global_loaded = true;
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
@@ -312,7 +200,7 @@ core::Status load_metrics_settings(const core::SettingsPaths& paths,
     }
 
     text.clear();
-    read = read_settings_file(paths.local_file, text);
+    read = read_text_file(paths.local_file, text);
     if (read == FileRead::Ok) {
         out.local_loaded = true;
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);

@@ -10,8 +10,10 @@
 //   SingleThreaded — one plain char buffer; single-writer contract as the
 //       counter's (reads must not race recording without a happens-before).
 //   MultiThreaded  — a seqlock (sequence counter + atomic byte cells) with a
-//       writer spinlock: readers are wait-free and never observe a torn value;
-//       writers are serialized (control-plane `set`, bounded spin).
+//       writer spinlock: readers RETRY a torn window (bounded spin) and
+//       never observe torn bytes — they are lock-free under a busy writer,
+//       not wait-free; writers are serialized (control-plane `set`,
+//       bounded spin).
 //
 // ResetPolicy::Cumulative keeps the value until the next set; ResetOnRead
 // reports the value and clears it to empty. Zero heap allocation anywhere.
@@ -200,6 +202,9 @@ public:
     /// clears it). Available only for Readable instruments.
     [[nodiscard]] std::string_view read() const
         requires (Access == AccessPolicy::Readable) {
+        // The view borrows this thread's own scratch (analysis #19): it is
+        // valid until the NEXT read() call on this thread, not for arbitrary
+        // lifetimes — copy if the value must outlive an interleaved read.
         thread_local char buffer[max_state_length + 1];
         const std::size_t len = storage_.take(buffer);
         return std::string_view(buffer, len);

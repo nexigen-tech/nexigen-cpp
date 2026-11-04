@@ -97,18 +97,6 @@ void from_json(const nlohmann::json& j, TelemetryPaths& paths) noexcept;
 
 } // namespace nexigen::app
 
-template <>
-struct std::formatter<nexigen::app::RunIdentity> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::app::RunIdentity& identity, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(identity.to_string(), ctx);
-    }
-};
 
-template <>
-struct std::formatter<nexigen::app::TelemetryPaths> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::app::TelemetryPaths& paths, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(paths.to_string(), ctx);
-    }
-};
+
+

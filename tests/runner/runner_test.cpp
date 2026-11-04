@@ -570,6 +570,9 @@ void test_start_status_stop() {
         read_resource(identity.instance_dir);
     NX_CHECK(metadata.pid > 0);
     NX_CHECK(metadata.ppid > 0);
+    // Identity anchor present on real starts (spec runner/instance-lifecycle
+    // "resource.json captures start-time metadata"; analysis #5).
+    NX_CHECK(metadata.proc_start_ticks > 0);
     NX_CHECK(metadata.app_name == "test_app");
     NX_CHECK(metadata.instance_dir == identity.instance_dir);
     NX_CHECK(::getsid(static_cast<pid_t>(metadata.pid)) !=
@@ -620,6 +623,146 @@ void test_start_status_stop() {
 
     // Atomic writes must not leave scratch files behind.
     NX_CHECK(!has_temporary_files(identity.instance_dir));
+
+    reap_supervisors();
+    remove_tree(root);
+}
+
+// --- Failed exec fails the start visibly (change fix-p0-critical-defects):
+// a nonexistent or unexecutable argv[0] reports SystemError immediately, and
+// the runner publishes neither resource.json nor exit.json (the redirect of
+// stdout/stderr into files must not make the failure invisible).
+void test_failed_exec_visible() {
+    const std::string root = unique_dir("execfail");
+    runner::Runner runner;
+
+    // (a) nonexistent file: every setup step succeeds, `execvp` fails (ENOENT).
+    const app::RunIdentity identity = identity_for(root);
+    const std::vector<std::string> command{
+        "/nonexistent/nexigen/test-binary", "--flag"};
+    NX_CHECK(failed_with(runner.start(identity, "execfail", command, 0),
+                         core::ErrorCode::SystemError));
+    struct stat resource_status {};
+    NX_CHECK(::stat((identity.instance_dir + "/resource.json").c_str(),
+                    &resource_status) != 0);
+    struct stat exit_status {};
+    NX_CHECK(::stat((identity.instance_dir + "/exit.json").c_str(),
+                    &exit_status) != 0);
+
+    // No zombie supervisor remains behind the failed start (spec
+    // process-supervision "A failed start reaps the supervisor child";
+    // analysis #14): the launcher drained it, so a fresh non-blocking probe
+    // finds no pending child — 0 = none, positive = un-reaped zombie.
+    {
+        int orphan_status = 0;
+        errno = 0;
+        const pid_t orphan = ::waitpid(-1, &orphan_status, WNOHANG);
+        NX_CHECK(orphan <= 0);
+    }
+
+    // (b) existing but not executable file: `execvp` fails (EACCES).
+    const std::string blocked = root + "/blocked.sh";
+    {
+        std::ofstream file(blocked, std::ios::binary);
+        NX_CHECK(file.is_open());
+        file << "#!/bin/sh\necho never\n";
+    }
+    NX_CHECK(::chmod(blocked.c_str(), 0444) == 0);
+    app::RunIdentity identity2 = identity_for(root);
+    identity2.instance_dir = root + "/test_app/instance-2";
+    const std::vector<std::string> blocked_command{blocked};
+    NX_CHECK(failed_with(runner.start(identity2, "execacc", blocked_command, 0),
+                         core::ErrorCode::SystemError));
+    struct stat blocked_resource {};
+    NX_CHECK(::stat((identity2.instance_dir + "/resource.json").c_str(),
+                    &blocked_resource) != 0);
+    struct stat blocked_exit {};
+    NX_CHECK(::stat((identity2.instance_dir + "/exit.json").c_str(),
+                    &blocked_exit) != 0);
+    {
+        int orphan_status = 0;
+        errno = 0;
+        const pid_t orphan = ::waitpid(-1, &orphan_status, WNOHANG);
+        NX_CHECK(orphan <= 0);
+    }
+
+    reap_supervisors();
+    remove_tree(root);
+}
+
+// --- PID-recycling identity gate (change fix-p1-races-process-correctness):
+// a resource.json whose proc_start_ticks differs from the live process's
+// /proc starttime is, by the identity contract, a different occupant of that
+// PID slot — stop must signal nobody and finalize the instance as unknown,
+// and status must not report running (spec runner/process-supervision
+// "Identity is verified before signals are sent").
+void test_recycled_pid_identity() {
+    const std::string root = unique_dir("recycle");
+    const app::RunIdentity identity = identity_for(root);
+    const std::vector<std::string> command{
+        "/bin/sh", "-c", "echo started; exec sleep 120"};
+
+    runner::Runner runner;
+    const core::Status started = runner.start(identity, k_test_app, command, 0);
+    NX_CHECK(started.has_value());
+    if (!started) {
+        reap_supervisors();
+        remove_tree(root);
+        return;
+    }
+
+    const runner::ResourceMetadata genuine =
+        read_resource(identity.instance_dir);
+    // Real starts record a positive /proc anchor (analysis #5).
+    NX_CHECK(genuine.proc_start_ticks > 0);
+
+    // Doctor the anchor: positive and differing = foreign occupant.
+    runner::ResourceMetadata recycled{genuine};
+    recycled.proc_start_ticks = genuine.proc_start_ticks + 999999;
+    {
+        nlohmann::json doctored;
+        runner::to_json(doctored, recycled);
+        NX_CHECK(runner::write_json_file(
+                     identity.instance_dir + "/resource.json", doctored)
+                     .has_value());
+    }
+    NX_CHECK(wait_until(
+        [&] {
+            return contains(read_text(identity.instance_dir + "/stdout.log"),
+                            "started");
+        },
+        3000));
+
+    // Status: running only for the verified process.
+    std::string state;
+    NX_CHECK(runner.status(identity.instance_dir, state).has_value());
+    NX_CHECK(state != "running");
+
+    // Stop: mismatch finalizes the instance (unknown), never signals.
+    NX_CHECK(runner.stop(identity.instance_dir, 2).has_value());
+    const runner::ExitMetadata exit_metadata =
+        read_exit(identity.instance_dir);
+    NX_CHECK(exit_metadata.terminated_by == runner::TerminatedBy::Unknown);
+    NX_CHECK(!exit_metadata.exit_code.has_value());
+    NX_CHECK(!exit_metadata.signal.has_value());
+
+    // The unverified live process was NOT signaled — the real child still
+    // runs. Rewind the fallback record (it belongs to the synthetic
+    // mismatch-stop, not to the live instance), restore the genuine anchor
+    // and observe the normal stop contract ("Verified identity is still
+    // signalled").
+    ::unlink((identity.instance_dir + "/exit.json").c_str());
+    {
+        nlohmann::json genuine_json;
+        runner::to_json(genuine_json, genuine);
+        NX_CHECK(runner::write_json_file(
+                     identity.instance_dir + "/resource.json", genuine_json)
+                     .has_value());
+    }
+    NX_CHECK(runner.stop(identity.instance_dir, 2).has_value());
+    const runner::ExitMetadata real_stop = read_exit(identity.instance_dir);
+    NX_CHECK(real_stop.terminated_by == runner::TerminatedBy::Runner);
+    NX_CHECK(real_stop.signal.has_value() || real_stop.exit_code.has_value());
 
     reap_supervisors();
     remove_tree(root);
@@ -981,6 +1124,12 @@ void test_start_options() {
     bad.env = {{std::string("A\0B", 3), "value"}};
     NX_CHECK(invalid(bad));
     bad = {};
+    bad.env = {{"KEY", std::string("value\0split", 12)}};
+    // NUL inside an env VALUE is rejected like keys/suite manifests
+    // (spec process-supervision "Supervisor environment rejects NUL in
+    // values"; analysis #14 CLI-path parity).
+    NX_CHECK(invalid(bad));
+    bad = {};
     bad.cpus = {99999};
     NX_CHECK(invalid(bad));
     if (const auto cpu = first_allowed_cpu(); cpu.has_value()) {
@@ -1239,6 +1388,8 @@ int main() {
     run_suite("generate_settings", test_generate_settings);
     run_suite("json_file_io", test_json_file_io);
     run_suite("start_status_stop", test_start_status_stop);
+    run_suite("failed_exec_visible", test_failed_exec_visible);
+    run_suite("recycled_pid_identity", test_recycled_pid_identity);
     run_suite("self_exit_status", test_self_exit_status);
     run_suite("env_identity_layout", test_env_identity_layout);
     run_suite("log_truncation", test_log_truncation_on_restart);

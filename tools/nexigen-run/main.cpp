@@ -173,6 +173,57 @@ void finish_logging() {
     runner::shutdown_runner_logging();
 }
 
+// Shared CLI report tails (dedup-sink-plumbing): the
+// log_command → finish_logging → fprintf sequence every cmd_* result
+// path repeated verbatim. Byte identity with the pre-helper output is
+// enforced by the runner suites (process-supervision CLI assertions).
+
+/// Failure tail with a core::Status diagnostic and the stderr line's
+/// user-facing phrase (e.g. "start failed"). Returns exit_failure.
+[[nodiscard]] int cli_fail(const char* command, const char* mode,
+                           const std::string& target,
+                           std::string_view diagnostic,
+                           const char* stderr_message) {
+    log_command(command, mode, target, "error", diagnostic);
+    finish_logging();
+    std::fprintf(stderr, "nexigen-run: %s: %.*s\n", stderr_message,
+                 static_cast<int>(diagnostic.size()), diagnostic.data());
+    return exit_failure;
+}
+
+/// Success tail for the target-line verbs ("started", "stopped").
+/// Returns 0.
+[[nodiscard]] int cli_ok(const char* command, const char* mode,
+                         const std::string& target, const char* verb) {
+    log_command(command, mode, target, "ok");
+    finish_logging();
+    std::fprintf(stdout, "%s: %s\n", verb, target.c_str());
+    return 0;
+}
+
+/// The --config / --suite-dir mutual-exclusivity + suite-vs-instance
+/// validation shared by cmd_stop and cmd_status. Returns 0 when the
+/// combination is fine; exit_usage after the matching stderr text
+/// otherwise.
+[[nodiscard]] int suite_target_options_conflict(const std::string& config,
+                                                const std::string& suite_dir,
+                                                bool have_dir) {
+    if (!config.empty() && !suite_dir.empty()) {
+        std::fprintf(stderr,
+                     "nexigen-run: --config and --suite-dir are mutually exclusive\n");
+        print_usage(stderr);
+        return exit_usage;
+    }
+    if ((!config.empty() || !suite_dir.empty()) && have_dir) {
+        std::fprintf(
+            stderr,
+            "nexigen-run: suite options cannot be combined with an instance directory\n");
+        print_usage(stderr);
+        return exit_usage;
+    }
+    return 0;
+}
+
 int cmd_start(int argc, char* argv[]) {
     std::string run_id;
     std::string app_name;
@@ -280,12 +331,9 @@ int cmd_start(int argc, char* argv[]) {
         if (!loaded) {
             const CliLogTarget target = fallback_log_target();
             activate_logging(target);
-            log_command("start", "suite", config, "error",
-                        std::string(core::to_string(loaded.error())));
-            finish_logging();
-            std::fprintf(stderr, "nexigen-run: manifest failed: %s\n",
-                         std::string(core::to_string(loaded.error())).c_str());
-            return exit_failure;
+            return cli_fail("start", "suite", config,
+                            std::string(core::to_string(loaded.error())),
+                            "manifest failed");
         }
         const CliLogTarget log_target = manifest_log_target(manifest);
         apply_control_affinity(log_target);
@@ -294,17 +342,11 @@ int cmd_start(int argc, char* argv[]) {
         const core::Status started = suite_runner.start_suite(manifest, target);
         activate_logging(log_target);
         if (!started) {
-            log_command("start", "suite", target, "error",
-                        std::string(core::to_string(started.error())));
-            finish_logging();
-            std::fprintf(stderr, "nexigen-run: suite start failed: %s\n",
-                         std::string(core::to_string(started.error())).c_str());
-            return exit_failure;
+            return cli_fail("start", "suite", target,
+                            std::string(core::to_string(started.error())),
+                            "suite start failed");
         }
-        log_command("start", "suite", target, "ok");
-        finish_logging();
-        std::fprintf(stdout, "started: %s\n", target.c_str());
-        return 0;
+        return cli_ok("start", "suite", target, "started");
     }
 
     app::RunIdentity identity = app::load_run_identity();
@@ -327,17 +369,11 @@ int cmd_start(int argc, char* argv[]) {
     const CliLogTarget log_target = fallback_log_target();
     activate_logging(log_target);
     if (!status) {
-        log_command("start", "single", target, "error",
-                    std::string(core::to_string(status.error())));
-        finish_logging();
-        std::fprintf(stderr, "nexigen-run: start failed: %s\n",
-                     std::string(core::to_string(status.error())).c_str());
-        return exit_failure;
+        return cli_fail("start", "single", target,
+                        std::string(core::to_string(status.error())),
+                        "start failed");
     }
-    log_command("start", "single", target, "ok");
-    finish_logging();
-    std::fprintf(stdout, "started: %s\n", target.c_str());
-    return 0;
+    return cli_ok("start", "single", target, "started");
 }
 
 int cmd_stop(int argc, char* argv[]) {
@@ -395,17 +431,10 @@ int cmd_stop(int argc, char* argv[]) {
         ++index;
     }
 
-    if (!config.empty() && !suite_dir.empty()) {
-        std::fprintf(stderr,
-                     "nexigen-run: --config and --suite-dir are mutually exclusive\n");
-        print_usage(stderr);
-        return exit_usage;
-    }
-    if ((!config.empty() || !suite_dir.empty()) && have_dir) {
-        std::fprintf(stderr,
-                     "nexigen-run: suite options cannot be combined with an instance directory\n");
-        print_usage(stderr);
-        return exit_usage;
+    const int stop_exclusivity =
+        suite_target_options_conflict(config, suite_dir, have_dir);
+    if (stop_exclusivity != 0) {
+        return stop_exclusivity;
     }
 
     if (!config.empty() || !suite_dir.empty()) {
@@ -417,12 +446,9 @@ int cmd_stop(int argc, char* argv[]) {
                 runner::load_suite_manifest(config, manifest);
             if (!loaded) {
                 activate_logging(log_target);
-                log_command("stop", "suite", config, "error",
-                            std::string(core::to_string(loaded.error())));
-                finish_logging();
-                std::fprintf(stderr, "nexigen-run: manifest failed: %s\n",
-                             std::string(core::to_string(loaded.error())).c_str());
-                return exit_failure;
+                return cli_fail("stop", "suite", config,
+                                std::string(core::to_string(loaded.error())),
+                                "manifest failed");
             }
             target = runner::suite_dir_path(manifest.run_dir, manifest.suite_id);
             log_target = manifest_log_target(manifest);
@@ -447,17 +473,11 @@ int cmd_stop(int argc, char* argv[]) {
             grace_set ? std::optional<std::uint64_t>(grace_s) : std::nullopt;
         const core::Status status = runner::stop_suite(target, override);
         if (!status) {
-            log_command("stop", "suite", target, "error",
-                        std::string(core::to_string(status.error())));
-            finish_logging();
-            std::fprintf(stderr, "nexigen-run: suite stop failed: %s\n",
-                         std::string(core::to_string(status.error())).c_str());
-            return exit_failure;
+            return cli_fail("stop", "suite", target,
+                            std::string(core::to_string(status.error())),
+                            "suite stop failed");
         }
-        log_command("stop", "suite", target, "ok");
-        finish_logging();
-        std::fprintf(stdout, "stopped: %s\n", target.c_str());
-        return 0;
+        return cli_ok("stop", "suite", target, "stopped");
     }
 
     if (!have_dir) {
@@ -471,17 +491,11 @@ int cmd_stop(int argc, char* argv[]) {
     runner::Runner runner;
     const core::Status status = runner.stop(instance_dir, grace_s);
     if (!status) {
-        log_command("stop", "single", instance_dir, "error",
-                    std::string(core::to_string(status.error())));
-        finish_logging();
-        std::fprintf(stderr, "nexigen-run: stop failed: %s\n",
-                     std::string(core::to_string(status.error())).c_str());
-        return exit_failure;
+        return cli_fail("stop", "single", instance_dir,
+                        std::string(core::to_string(status.error())),
+                        "stop failed");
     }
-    log_command("stop", "single", instance_dir, "ok");
-    finish_logging();
-    std::fprintf(stdout, "stopped: %s\n", instance_dir.c_str());
-    return 0;
+    return cli_ok("stop", "single", instance_dir, "stopped");
 }
 
 int cmd_status(int argc, char* argv[]) {
@@ -532,17 +546,10 @@ int cmd_status(int argc, char* argv[]) {
         have_dir = true;
     }
 
-    if (!config.empty() && !suite_dir.empty()) {
-        std::fprintf(stderr,
-                     "nexigen-run: --config and --suite-dir are mutually exclusive\n");
-        print_usage(stderr);
-        return exit_usage;
-    }
-    if ((!config.empty() || !suite_dir.empty()) && have_dir) {
-        std::fprintf(stderr,
-                     "nexigen-run: suite options cannot be combined with an instance directory\n");
-        print_usage(stderr);
-        return exit_usage;
+    const int status_exclusivity =
+        suite_target_options_conflict(config, suite_dir, have_dir);
+    if (status_exclusivity != 0) {
+        return status_exclusivity;
     }
 
     if (!config.empty() || !suite_dir.empty()) {
@@ -554,12 +561,9 @@ int cmd_status(int argc, char* argv[]) {
                 runner::load_suite_manifest(config, manifest);
             if (!loaded) {
                 activate_logging(log_target);
-                log_command("status", "suite", config, "error",
-                            std::string(core::to_string(loaded.error())));
-                finish_logging();
-                std::fprintf(stderr, "nexigen-run: manifest failed: %s\n",
-                             std::string(core::to_string(loaded.error())).c_str());
-                return exit_failure;
+                return cli_fail("status", "suite", config,
+                                std::string(core::to_string(loaded.error())),
+                                "manifest failed");
             }
             target = runner::suite_dir_path(manifest.run_dir, manifest.suite_id);
             log_target = manifest_log_target(manifest);
@@ -572,12 +576,9 @@ int cmd_status(int argc, char* argv[]) {
         activate_logging(log_target);
         apply_control_affinity(log_target);
         if (!queried) {
-            log_command("status", "suite", target, "error",
-                        std::string(core::to_string(queried.error())));
-            finish_logging();
-            std::fprintf(stderr, "nexigen-run: suite status failed: %s\n",
-                         std::string(core::to_string(queried.error())).c_str());
-            return exit_failure;
+            return cli_fail("status", "suite", target,
+                            std::string(core::to_string(queried.error())),
+                            "suite status failed");
         }
         log_command("status", "suite", target, "ok",
                     std::string("state=") +
@@ -613,12 +614,9 @@ int cmd_status(int argc, char* argv[]) {
     std::string state;
     const core::Status status = runner.status(instance_dir, state);
     if (!status) {
-        log_command("status", "single", instance_dir, "error",
-                    std::string(core::to_string(status.error())));
-        finish_logging();
-        std::fprintf(stderr, "nexigen-run: status failed: %s\n",
-                     std::string(core::to_string(status.error())).c_str());
-        return exit_failure;
+        return cli_fail("status", "single", instance_dir,
+                        std::string(core::to_string(status.error())),
+                        "status failed");
     }
     log_command("status", "single", instance_dir, "ok",
                 std::string("state=") + state);

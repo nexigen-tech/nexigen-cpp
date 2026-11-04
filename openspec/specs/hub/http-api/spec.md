@@ -8,7 +8,12 @@ Defines the local HTTP/1.1 API that exposes the hub tree, stream descriptors, re
 
 ### Requirement: HTTP listener is loopback by default
 
-`nexigen-hub` SHALL listen on `127.0.0.1:8080` by default and SHALL accept `--listen <host>:<port>` as an override. It SHALL provide no authentication. Binding to a non-loopback address SHALL be an explicit operator choice and SHALL emit a warning at startup.
+`nexigen-hub` SHALL listen on `127.0.0.1:8080` by default and SHALL accept
+`--listen <host>:<port>` as an override, binding IPv4 literals and `localhost`
+over `AF_INET` exactly as before and IPv6 literals over `AF_INET6` (see the
+address-form scenarios). A binding to a non-loopback address SHALL be an
+explicit operator choice and SHALL emit a no-authentication warning at
+startup. The hub SHALL provide no authentication.
 
 #### Scenario: Default listener is localhost
 
@@ -20,10 +25,33 @@ Defines the local HTTP/1.1 API that exposes the hub tree, stream descriptors, re
 - **WHEN** `--listen 127.0.0.1:9000` is supplied
 - **THEN** the server binds that address and port
 
+#### Scenario: IPv6 address forms bind AF_INET6
+
+- **WHEN** `--listen [::1]:9080` is supplied (full multi-colon literals use the
+  RFC bracket form; a bare `<addr>:<port>` is accepted only when the address
+  part holds at most one colon, and ambiguous forms fail as malformed)
+- **THEN** the server binds the IPv6 loopback on port 9080 and emits no
+  non-loopback warning
+
+#### Scenario: Full-dual-stack wildcard binds both families
+
+- **WHEN** `--listen [::]:8080` (or `--listen ::` with an explicit port form it
+  parses as) is supplied
+- **THEN** the server binds `AF_INET6` with `IPV6_V6ONLY=0` — IPv4 traffic
+  double-publishes on the same port — and emits the non-loopback warning; a
+  specific IPv6 address binds with `IPV6_V6ONLY=1`
+
+#### Scenario: Loopback classification does not truncate IPv6 literals
+
+- **WHEN** `--listen ::1` or `[::1]:PORT` is parsed
+- **THEN** the host reads as `::1` (the loopback set covers `127.0.0.1`,
+  `localhost`, and `::1`) and no non-loopback warning is emitted
+
 #### Scenario: Non-loopback bind warns
 
 - **WHEN** `--listen 0.0.0.0:8080` is supplied
-- **THEN** the server starts and emits a warning that no authentication is configured
+- **THEN** the server starts and emits a warning that no authentication is
+  configured
 
 #### Scenario: Invalid address fails startup
 

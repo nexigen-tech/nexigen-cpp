@@ -106,12 +106,4 @@ struct RotationScratch {
 /// RotationSchedule formats as its canonical lowercase name (mandate 11):
 /// parse/fill/align via the string_view formatter; templated context for
 /// libstdc++ 15's substituted-formattability evaluation.
-template <>
-struct std::formatter<nexigen::logging::detail::RotationKind>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::logging::detail::RotationKind kind, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(
-            nexigen::logging::detail::to_string(kind), ctx);
-    }
-};
+

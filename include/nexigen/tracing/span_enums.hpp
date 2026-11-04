@@ -152,28 +152,10 @@ inline void from_json(const nlohmann::json& j, SamplingDecision& out) noexcept {
 /// Span enums format as their canonical names (mandate 11): parse and
 /// fill/align handled by the string_view formatter; contexts templated because
 /// libstdc++ 15 evaluates formattability against a substituted context.
-template <>
-struct std::formatter<nexigen::tracing::SpanKind> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::tracing::SpanKind kind, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::tracing::to_string(kind), ctx);
-    }
-};
+
 
 /// SpanStatus formats as its canonical name (mandate 11).
-template <>
-struct std::formatter<nexigen::tracing::SpanStatus> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::tracing::SpanStatus status, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::tracing::to_string(status), ctx);
-    }
-};
+
 
 /// SamplingDecision formats as its canonical name (mandate 11).
-template <>
-struct std::formatter<nexigen::tracing::SamplingDecision> : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::tracing::SamplingDecision decision, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(nexigen::tracing::to_string(decision), ctx);
-    }
-};
+

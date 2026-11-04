@@ -87,11 +87,4 @@ public:
 
 } // namespace nexigen::runner
 
-template <>
-struct std::formatter<nexigen::runner::StartOptions>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const nexigen::runner::StartOptions& value, Ctx& ctx) const {
-        return std::formatter<std::string_view>::format(value.to_string(), ctx);
-    }
-};
+
