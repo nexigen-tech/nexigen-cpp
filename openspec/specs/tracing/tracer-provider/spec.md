@@ -55,7 +55,12 @@ Each producer thread SHALL own exactly one exclusive shard acquired through `thr
 
 ### Requirement: CPU-pinned background consumer
 
-`TracerProvider` SHALL run one background consumer worker (`std::jthread`) that self-pins to the configured `core_mask` via `pthread_setaffinity_np` before its first delivery (a zero mask inherits OS placement), drains all registered shards round-robin with a bounded per-sweep slice so one flooded shard cannot starve the others, and delivers each record to the bound sink — while producers never wait on the worker; idle periods use bounded backoff so a pinned core is not burned busy-polling.
+`TracerProvider` SHALL run one background consumer worker (`std::jthread`) that self-pins to the configured `core_mask` via `pthread_setaffinity_np` before its first delivery (a zero mask inherits OS placement), drains all registered shards round-robin with a bounded per-sweep slice so one flooded shard cannot starve the others, and delivers each record to the bound sink — while producers never wait on the worker; idle periods use bounded backoff from `core::WorkerTuning` (a short spin then a sleep that doubles up to the configured `worker_poll_interval_us`, default 1000 µs, with a widened timer slack so co-located consumers coalesce) so a pinned core is not burned busy-polling.
+
+#### Scenario: Idle consumer wake-ups are bounded by the ceiling
+
+- **WHEN** a provider runs idle with the default ceiling
+- **THEN** its consumer thread performs on the order of one wake-up per ceiling interval (≈1 ms), not one per 200 µs, and a raised ceiling reduces the rate proportionally
 
 #### Scenario: Worker affinity matches the configured mask
 
@@ -140,7 +145,7 @@ The provider SHALL expose a `dropped()` snapshot counting each drop cause separa
 
 #### Scenario: Provider config round-trips through JSON
 
-- **WHEN** a configuration (core mask, tracer pool size, span-rate budget) is serialized and parsed back
+- **WHEN** a configuration (core mask, tracer pool size, span-rate budget, worker poll interval) is serialized and parsed back
 - **THEN** every field survives the round-trip under `JSON_NOEXCEPTION=1`, and `std::format` renders the `to_string()` text
 
 #### Scenario: Handles and snapshots render diagnostics

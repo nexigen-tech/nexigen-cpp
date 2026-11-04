@@ -7,10 +7,12 @@
 // Hex contract: identifiers render as zero-padded 16-character lowercase hex
 // (std::to_chars, base 16) in to_string and JSON; from_json accepts any-case
 // hex of at most 16 digits and leaves the value untouched otherwise.
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstdint>
 #include <format>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -470,9 +472,9 @@ void from_json(const nlohmann::json& j, SpanRecord& out) noexcept {
 std::string TracerProviderConfig::to_string() const {
     return std::format("TracerProviderConfig(core_mask=0x{:x}, "
                        "max_tracers={}, max_spans_per_window={}, "
-                       "window_ns={})",
+                       "window_ns={}, worker_poll_interval_us={})",
                        core_mask, max_tracers, max_spans_per_window,
-                       window_ns);
+                       window_ns, worker_poll_interval_us);
 }
 
 std::string to_string(const TracerProviderConfig& config) { return config.to_string(); }
@@ -483,6 +485,7 @@ void to_json(nlohmann::json& j, const TracerProviderConfig& config) {
         {"max_tracers", config.max_tracers},
         {"max_spans_per_window", config.max_spans_per_window},
         {"window_ns", config.window_ns},
+        {"worker_poll_interval_us", config.worker_poll_interval_us},
     };
 }
 
@@ -505,6 +508,12 @@ void from_json(const nlohmann::json& j, TracerProviderConfig& out) noexcept {
     const auto window_ns = j.find("window_ns");
     if (window_ns != j.end() && window_ns->is_number_unsigned()) {
         out.window_ns = window_ns->get<std::uint64_t>();
+    }
+    const auto poll = j.find("worker_poll_interval_us");
+    if (poll != j.end() && poll->is_number_unsigned()) {
+        out.worker_poll_interval_us = static_cast<std::uint32_t>(
+            std::min<std::uint64_t>(poll->get<std::uint64_t>(),
+                                    std::numeric_limits<std::uint32_t>::max()));
     }
 }
 

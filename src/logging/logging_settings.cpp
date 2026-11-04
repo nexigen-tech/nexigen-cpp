@@ -557,6 +557,7 @@ core::Status apply_to(const Settings& settings, FileLoggerConfig& out) noexcept 
     out.initial_level = options.initial_log_level;
     out.max_file_size_bytes = options.max_file_size_bytes;
     out.core_mask = core_mask;
+    out.worker_poll_interval_us = options.worker_poll_interval_us;
 
     const std::uint64_t per_second =
         options.spam_protection.max_messages_per_sec_per_shard;

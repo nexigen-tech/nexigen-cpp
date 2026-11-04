@@ -27,11 +27,11 @@ The system SHALL read tracing settings only from source paths supplied by the ca
 
 ### Requirement: Tracing settings map every provider field
 
-`tracing::Settings` SHALL wrap `tracing::TracerProviderConfig` and read these JSON keys: `core_mask`, `max_tracers`, `max_spans_per_window`, `window_ns`. Defaults SHALL equal the default-constructed `TracerProviderConfig`.
+`tracing::Settings` SHALL wrap `tracing::TracerProviderConfig` and read these JSON keys: `core_mask`, `max_tracers`, `max_spans_per_window`, `window_ns`, `worker_poll_interval_us`. Defaults SHALL equal the default-constructed `TracerProviderConfig`.
 
 #### Scenario: Tracing fields load from the global file
 
-- **WHEN** the global tracing file sets a core mask, tracer limit, and span budget
+- **WHEN** the global tracing file sets a core mask, tracer limit, span budget, and worker poll interval
 - **THEN** the merged `tracing::Settings::options` carries those values and `global_loaded` is true
 
 #### Scenario: Rate budget defaults to unlimited

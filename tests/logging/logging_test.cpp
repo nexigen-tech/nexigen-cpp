@@ -3252,6 +3252,111 @@ void test_logging_settings_loader() {
     std::printf("logging_settings_loader: explicit paths, merge, env, diagnostics verified\n");
 }
 
+// --- worker idle behaviour (spec: poll interval bounds idle wake-ups).
+namespace {
+
+/// Thread ids of this process (cold diagnostic helper).
+std::vector<long> process_tids() {
+    std::vector<long> tids;
+    if (DIR* dir = ::opendir("/proc/self/task")) {
+        while (const dirent* entry = ::readdir(dir)) {
+            if (entry->d_name[0] != '.') {
+                tids.push_back(std::strtol(entry->d_name, nullptr, 10));
+            }
+        }
+        ::closedir(dir);
+    }
+    return tids;
+}
+
+/// voluntary_ctxt_switches of one thread, -1 when unreadable.
+long voluntary_switches(long tid) {
+    std::ifstream status("/proc/self/task/" + std::to_string(tid) + "/status");
+    std::string line;
+    while (std::getline(status, line)) {
+        if (line.rfind("voluntary_ctxt_switches:", 0) == 0) {
+            return std::strtol(line.c_str() + 24, nullptr, 10);
+        }
+    }
+    return -1;
+}
+
+/// Wake-ups of the worker thread (the one thread that appeared after `before`)
+/// over `window_ms` of idleness.
+template <class Logger, class Config>
+long idle_wakeups(Logger& logger, const Config& cfg, int window_ms) {
+    const std::vector<long> before = process_tids();
+    NX_CHECK(logger.initialize(cfg).has_value());
+    for (int i = 0; i < 5000 && !logger.writer_started(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    long worker = -1;
+    for (const long tid : process_tids()) {
+        if (std::find(before.begin(), before.end(), tid) == before.end()) {
+            worker = tid;
+        }
+    }
+    NX_CHECK(worker > 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100)); // let backoff settle
+    const long start = voluntary_switches(worker);
+    std::this_thread::sleep_for(std::chrono::milliseconds(window_ms));
+    const long end = voluntary_switches(worker);
+    return (start < 0 || end < 0) ? -1 : end - start;
+}
+
+} // namespace
+
+void test_worker_idle_tuning() {
+    char base[512];
+    std::snprintf(base, sizeof base, "/tmp/opencode/nexigen-idle-%d", ::getpid());
+
+    // Default (1 ms ceiling + coalescing slack): well below the former
+    // 200 us poll (~2000 wake-ups per 500 ms).
+    {
+        static FileLogger<128, 128> logger{};
+        FileLoggerConfig cfg{};
+        cfg.base_dir = base;
+        cfg.rotation.kind = RotationSchedule::None;
+        const long wakeups = idle_wakeups(logger, cfg, 500);
+        std::printf("worker_idle_tuning: default poll -> %ld wake-ups / 500 ms\n", wakeups);
+        NX_CHECK(wakeups >= 0 && wakeups < 1200);
+    }
+
+    // Raised ceiling: ~30 wake-ups/s expected; flush() still completes and
+    // the record is durable (flush is answered at the next wake-up).
+    {
+        static FileLogger<128, 128> logger{};
+        FileLoggerConfig cfg{};
+        cfg.base_dir = base;
+        cfg.file_name = "tuned.jsonl";
+        cfg.rotation.kind = RotationSchedule::None;
+        cfg.worker_poll_interval_us = 20'000U;
+        const long wakeups = idle_wakeups(logger, cfg, 500);
+        std::printf("worker_idle_tuning: 20 ms poll -> %ld wake-ups / 500 ms\n", wakeups);
+        NX_CHECK(wakeups >= 0 && wakeups < 120);
+
+        logger.info("tuned record {}", 7);
+        const auto t0 = std::chrono::steady_clock::now();
+        NX_CHECK(logger.flush().has_value());
+        const auto waited = std::chrono::steady_clock::now() - t0;
+        NX_CHECK(waited < std::chrono::seconds(2));
+        NX_CHECK(logger.dropped().total() == 0ULL);
+    }
+
+    // Out-of-range ceilings are clamped, never rejected or hung.
+    {
+        static FileLogger<128, 128> logger{};
+        FileLoggerConfig cfg{};
+        cfg.base_dir = base;
+        cfg.file_name = "clamped.jsonl";
+        cfg.rotation.kind = RotationSchedule::None;
+        cfg.worker_poll_interval_us = 0U;
+        NX_CHECK(logger.initialize(cfg).has_value());
+        logger.info("clamped record");
+        NX_CHECK(logger.flush().has_value());
+    }
+}
+
 // --- apply/capacity (spec: merged settings apply, explicit limits only).
 void test_logging_settings_apply() {
     Settings settings{};
@@ -3260,9 +3365,11 @@ void test_logging_settings_apply() {
     settings.options.max_file_size_bytes = 4096ULL;
     settings.options.flush_cpu_affinity = {1ULL, 3ULL};
     settings.options.spam_protection.max_messages_per_sec_per_shard = 500U;
+    settings.options.worker_poll_interval_us = 5000U;
 
     FileLoggerConfig cfg{};
     NX_CHECK(apply_to(settings, cfg).has_value());
+    NX_CHECK(cfg.worker_poll_interval_us == 5000U);
     NX_CHECK(cfg.base_dir == "/var/log/hil");
     NX_CHECK(cfg.initial_level == LogLevel::Warning);
     NX_CHECK(cfg.max_file_size_bytes == 4096ULL);
@@ -3278,6 +3385,7 @@ void test_logging_settings_apply() {
     ConsoleLogger<>::Config console_cfg{};
     NX_CHECK(apply_to(settings, console_cfg).has_value());
     NX_CHECK(console_cfg.initial_level == LogLevel::Warning);
+    NX_CHECK(console_cfg.worker_poll_interval_us == 5000U);
 
     // Capacity check: explicit overflow rejected, defaults ignored.
     settings.ring_capacity_set = true;
@@ -3675,6 +3783,7 @@ int main()
     run_suite("logging_settings_apply", test_logging_settings_apply);
     run_suite("file_size_rotation", test_file_size_rotation);
     run_suite("settings_full_coverage", test_logging_settings_full_coverage);
+    run_suite("worker_idle_tuning", test_worker_idle_tuning);
     run_suite("spam_protection", test_spam_protection);
     run_suite("spam_config_race", test_spam_config_race);
     run_suite("shutdown_drain_race", test_shutdown_drain_race);

@@ -498,10 +498,18 @@ Environment overrides: `NEXIGEN_LOG_LEVEL`, `NEXIGEN_LOG_DIR`, `NEXIGEN_LOG_APP_
 `NEXIGEN_LOG_OVERFLOW_POLICY`. Invalid values become diagnostics and leave the previous
 value intact; missing files are not errors. Explicitly configured
 `spsc_ring_buffer_capacity`/`max_producer_threads` are checked against the logger's
-compile-time limits; defaults are never checked. `worker_poll_interval_us`,
-`sync_flush_on_critical`, `overflow_policy`, and the repeat-suppression/byte-budget part
-of `SpamProtectionConfig` are parsed and merged but not yet enforced by the current
-engine — they land with the runtime-sized `Producer` follow-up.
+compile-time limits; defaults are never checked. `sync_flush_on_critical`,
+`overflow_policy`, and the repeat-suppression/byte-budget part of `SpamProtectionConfig`
+are parsed and merged but not yet enforced by the current engine — they land with the
+runtime-sized `Producer` follow-up.
+
+`worker_poll_interval_us` (default 1000, clamped to 50–100000) is the ceiling of the
+background worker's idle sleep for `FileLogger` and `ConsoleLogger`. After a few failed
+sweeps the worker sleeps 100 µs, doubling up to this ceiling, and raises its own timer
+slack to half of it so idle wake-ups of many loggers pinned to the same core coalesce.
+Raise it to cut context switches on shared logger cores; the shard rings must absorb
+bursts for that long (default shard capacity 128), otherwise records count as
+`buffer_full` drops.
 
 ## 📡 `nexigen::metrics` API
 

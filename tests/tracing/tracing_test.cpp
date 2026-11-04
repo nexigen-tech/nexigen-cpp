@@ -27,6 +27,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
+#include <fstream>
 #include <limits>
 #include <format>
 #include <memory>
@@ -2848,6 +2850,13 @@ void test_provider() {
         nlohmann::from_json(j, back);
         NX_CHECK(back.core_mask == 0x5 && back.max_tracers == 8 &&
                  back.max_spans_per_window == 1000 && back.window_ns == 500'000'000);
+        NX_CHECK(back.worker_poll_interval_us == 1000U); // default round-trips
+        tracing::TracerProviderConfig tuned = config;
+        tuned.worker_poll_interval_us = 7500U;
+        NX_CHECK(tuned.to_string().find("worker_poll_interval_us=7500") != std::string::npos);
+        tracing::TracerProviderConfig tuned_back{};
+        nlohmann::from_json(nlohmann::json(tuned), tuned_back);
+        NX_CHECK(tuned_back.worker_poll_interval_us == 7500U);
         // Hostile JSON leaves values unchanged.
         const tracing::TracerProviderConfig before = back;
         for (const nlohmann::json& bad :
@@ -2866,6 +2875,67 @@ void test_provider() {
         nlohmann::from_json(j_stats, stats_back);
         NX_CHECK(stats_back.rate_limited == 3 && stats_back.buffer_full == 5 &&
                  stats_back.slot_exhausted == 7);
+    }
+
+    // Worker idle behaviour: the poll interval bounds idle wake-ups, and a
+    // flush is still answered at the next wake-up.
+    {
+        auto process_tids = [] {
+            std::vector<long> tids;
+            if (DIR* dir = ::opendir("/proc/self/task")) {
+                while (const dirent* entry = ::readdir(dir)) {
+                    if (entry->d_name[0] != '.') {
+                        tids.push_back(std::strtol(entry->d_name, nullptr, 10));
+                    }
+                }
+                ::closedir(dir);
+            }
+            return tids;
+        };
+        auto voluntary_switches = [](long tid) {
+            std::ifstream status("/proc/self/task/" + std::to_string(tid) + "/status");
+            std::string line;
+            while (std::getline(status, line)) {
+                if (line.rfind("voluntary_ctxt_switches:", 0) == 0) {
+                    return std::strtol(line.c_str() + 24, nullptr, 10);
+                }
+            }
+            return -1L;
+        };
+        auto idle_wakeups = [&](std::uint32_t poll_us, int window_ms) {
+            tracing::NullTraceSink idle_sink{};
+            tracing::TracerProviderConfig config{};
+            config.worker_poll_interval_us = poll_us;
+            alignas(Provider) static std::byte storage[sizeof(Provider)];
+            const std::vector<long> before = process_tids();
+            auto* provider = new (static_cast<void*>(storage)) Provider(config, idle_sink);
+            NX_CHECK(provider->initialize().has_value());
+            for (int spins = 0; spins < 2'000 && !provider->worker_started(); ++spins) {
+                std::this_thread::sleep_for(std::chrono::microseconds(500));
+            }
+            long worker = -1;
+            for (const long tid : process_tids()) {
+                if (std::find(before.begin(), before.end(), tid) == before.end()) {
+                    worker = tid;
+                }
+            }
+            NX_CHECK(worker > 0);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100)); // backoff settles
+            const long start = voluntary_switches(worker);
+            std::this_thread::sleep_for(std::chrono::milliseconds(window_ms));
+            const long end = voluntary_switches(worker);
+            const auto t0 = std::chrono::steady_clock::now();
+            NX_CHECK(provider->flush().has_value());
+            NX_CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(2));
+            std::destroy_at(provider);
+            return (start < 0 || end < 0) ? -1L : end - start;
+        };
+        const long dflt = idle_wakeups(1000U, 500);
+        const long tuned = idle_wakeups(20'000U, 500);
+        std::printf("tracing worker idle: default poll -> %ld, 20 ms poll -> %ld wake-ups / 500 ms\n",
+                    dflt, tuned);
+        NX_CHECK(dflt >= 0 && dflt < 1200); // former 200 us poll: ~2000
+        NX_CHECK(tuned >= 0 && tuned < 120);
     }
 
     // Worker affinity round-trip (spec "Worker affinity matches the

@@ -81,6 +81,7 @@ void to_json(nlohmann::json& j, const Settings& settings) {
                        {"max_tracers", options.max_tracers},
                        {"max_spans_per_window", options.max_spans_per_window},
                        {"window_ns", options.window_ns},
+                       {"worker_poll_interval_us", options.worker_poll_interval_us},
                        {"sink", nlohmann::json{
                                     {"path", settings.sink.path},
                                     {"rotation", std::string(to_string(settings.sink.rotation))},
@@ -151,6 +152,11 @@ void merge_tracing_document(const nlohmann::json& document,
     read_uint(document, "window_ns", std::numeric_limits<std::uint64_t>::max(), window,
               out.diagnostics, source);
     out.options.window_ns = window;
+
+    std::uint64_t poll = out.options.worker_poll_interval_us;
+    read_uint(document, "worker_poll_interval_us", std::numeric_limits<std::uint32_t>::max(),
+              poll, out.diagnostics, source);
+    out.options.worker_poll_interval_us = static_cast<std::uint32_t>(poll);
     merge_tracing_sink(document, source, out);
 }
 

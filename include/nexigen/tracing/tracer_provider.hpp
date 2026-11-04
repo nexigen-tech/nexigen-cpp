@@ -54,6 +54,7 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/shard_pool.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
+#include <nexigen/core/worker_tuning.hpp>
 #include <nexigen/tracing/concepts/tracer_concept.hpp>
 #include <nexigen/tracing/detail/active_span_stack.hpp>
 #include <nexigen/tracing/detail/affinity.hpp>
@@ -75,6 +76,10 @@ struct TracerProviderConfig {
     std::uint32_t max_tracers{16};         ///< effective pool limit (≤ 64).
     std::uint64_t max_spans_per_window{0}; ///< 0 = no rate limiting.
     std::uint64_t window_ns{0};            ///< 0 = no rate limiting.
+    /// Ceiling of the consumer's idle sleep (backoff grows up to it); clamped
+    /// to [50, 100000] us. Larger = fewer wake-ups on a shared pinned core,
+    /// but the shard rings must absorb bursts for that long.
+    std::uint32_t worker_poll_interval_us{core::WorkerTuning::default_poll_interval_us};
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const;
@@ -542,7 +547,10 @@ void TracerProvider<ShardCapacity, MaxThreads>::consume_loop(
     start_.code.store(first_error, std::memory_order_relaxed);
     start_.started.store(true, std::memory_order_release);
 
-    constexpr std::uint64_t idle_spin_budget = 64; // failed sweeps before sleeping
+    // Idle policy shared with the logging consumer (core/worker_tuning.hpp).
+    const core::WorkerTuning tuning{.poll_interval_us = config_.worker_poll_interval_us};
+    const std::uint64_t poll_max_us = core::WorkerTuning::clamp_poll_us(tuning.poll_interval_us);
+    core::WorkerTuning::apply_timer_slack(poll_max_us);
 
     Record record{};
     std::uint64_t idle = 0;
@@ -566,10 +574,11 @@ void TracerProvider<ShardCapacity, MaxThreads>::consume_loop(
         if (request > flush_.drained.load(std::memory_order_relaxed)) {
             publish_sync(request);
         }
-        if (++idle < idle_spin_budget) {
+        if (++idle <= tuning.spin_budget) {
             continue;
         }
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
+        std::this_thread::sleep_for(std::chrono::microseconds(
+            core::WorkerTuning::backoff_us(idle - tuning.spin_budget, poll_max_us)));
     }
 
     // Shutdown: drain what is still queued, synchronize once, publish, then
@@ -626,6 +635,7 @@ std::string TracerProvider<ShardCapacity, MaxThreads>::to_string() const {
     out += std::to_string(ShardCapacity);
     out += ", max_threads=" + std::to_string(MaxThreads);
     out += ", core_mask=0x" + std::to_string(config_.core_mask);
+    out += ", worker_poll_interval_us=" + std::to_string(config_.worker_poll_interval_us);
     out += ", tracer_limit=" + std::to_string(tracer_limit_);
     out += ", enabled=" + std::string(is_enabled() ? "true" : "false");
     out += ", sampling=" + std::string(tracing::to_string(sampling()));

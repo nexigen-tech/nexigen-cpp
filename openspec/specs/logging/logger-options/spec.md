@@ -8,7 +8,7 @@ Defines the unified runtime configuration surface (`LoggerOptions`) and wait-fre
 
 ### Requirement: LoggerOptions defines the engine configuration
 
-The system SHALL provide `LoggerOptions` as the single runtime configuration structure for the async logging engine, applied at initialization.
+The system SHALL provide `LoggerOptions` as the single runtime configuration structure for the async logging engine, applied at initialization. Its `worker_poll_interval_us` field (default `1000`) SHALL be applied by the loggers as the ceiling of the background writer's idle sleep (see `core/worker-tuning`).
 
 #### Scenario: Default-constructed options carry documented defaults
 
@@ -19,6 +19,11 @@ The system SHALL provide `LoggerOptions` as the single runtime configuration str
 
 - **WHEN** `spsc_ring_buffer_capacity` is set to a non-power-of-two value
 - **THEN** the engine uses `std::bit_ceil` of that value as the actual shard capacity
+
+#### Scenario: Poll interval is applied by the loggers
+
+- **WHEN** merged settings set `worker_poll_interval_us` and a logger is initialized from them
+- **THEN** the logger's background writer uses that value as its idle-sleep ceiling (clamped to `[50, 100000]`)
 
 #### Scenario: `to_string` renders every option field
 

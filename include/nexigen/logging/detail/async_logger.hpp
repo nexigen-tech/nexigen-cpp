@@ -18,9 +18,22 @@
 // IDLE BACKOFF: a consumer that busy-polls empty rings re-reads producers'
 // tail cache lines every iteration and slows them down through false sharing
 // — the never-block guarantee is the producers', and burning a pinned core
-// to poll is not free. The loop therefore does ≤ 64 failed sweeps before
-// switching to 200 us sleeps (bounded control-plane latency on the first
-// record after idle; the producers never wait).
+// to poll is not free. The loop therefore does only a few failed sweeps
+// (WorkerTuning::spin_budget) before sleeping, and the sleep grows
+// geometrically (100 us, 200 us, ...) up to WorkerTuning::poll_interval_us
+// (LoggerOptions::worker_poll_interval_us, default 1 ms). Right after
+// activity the worker therefore reacts within ~100 us (bursts still fit the
+// shard rings); a long-idle worker wakes only once per poll interval, which
+// is what keeps many pinned loggers from saturating a shared core with
+// context switches.
+//
+// (Policy implemented by core::WorkerTuning, shared with the tracing consumer.)
+//
+// TIMER SLACK: the worker raises its own timer slack to half the poll
+// interval (never below the kernel's 50 us default). Idle sleeps of many
+// loggers pinned to one core then expire inside shared windows and are
+// coalesced by the kernel into one wake-up burst instead of N separate ones.
+// Slack only delays the worker's own wake-ups; producers never wait.
 //
 // FLUSH HANDSHAKE (two atomics in one padded cell, relaxed/acquire/release
 // as noted; the wait loop is control plane, so sleeping is allowed):
@@ -51,9 +64,13 @@
 #include <utility>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/worker_tuning.hpp>
 #include <nexigen/logging/detail/affinity.hpp>
 
 namespace nexigen::logging::detail {
+
+/// Idle-behaviour knobs live in core (shared with the tracing consumer).
+using core::WorkerTuning;
 
 /// Consumer thread + drain loop + flush handshake over a Sink interface.
 /// Sink contract (duck-typed): core::Status start() noexcept;
@@ -63,7 +80,6 @@ template <class Producer, class Sink>
 class AsyncWorker {
     using record_type = typename Producer::record_type;
 
-    static constexpr std::uint64_t idle_spin_budget = 64;    ///< failed pops before sleeping
     static constexpr std::uint64_t flush_sleep_budget = 50'000; ///< * 200 us ~ 10 s escape hatch
 
     /// Flush sequencing + last synchronize error: one private cache line.
@@ -85,6 +101,7 @@ class AsyncWorker {
 
     Producer* producer_{};             ///< owned by the logger; stable address
     std::uint64_t core_mask_ = 0;      ///< set by start() before the thread exists
+    WorkerTuning tuning_{};            ///< set_tuning() before start(); read by the worker only
     std::optional<Sink> sink_{};       ///< constructed by start()
     std::jthread thread_{};            ///< LAST member: joins before sink_/producer_ die
 
@@ -105,6 +122,10 @@ class AsyncWorker {
                 first_error = static_cast<std::uint8_t>(pinned.error());
             }
         }
+        const std::uint64_t poll_max_us = WorkerTuning::clamp_poll_us(tuning_.poll_interval_us);
+        const std::uint64_t spin_budget = tuning_.spin_budget;
+        WorkerTuning::apply_timer_slack(poll_max_us);
+
         std::uint64_t mask_now = 0ULL;
         static_cast<void>(self_affinity(mask_now));
         start_.mask.store(mask_now, std::memory_order_relaxed);
@@ -143,10 +164,11 @@ class AsyncWorker {
                 }
                 publish_sync(req);
             }
-            if (++idle < idle_spin_budget) {
+            if (++idle <= spin_budget) {
                 continue;
             }
-            std::this_thread::sleep_for(std::chrono::microseconds(200));
+            std::this_thread::sleep_for(
+                std::chrono::microseconds(WorkerTuning::backoff_us(idle - spin_budget, poll_max_us)));
         }
 
         // Shutdown: drain what is still queued, synchronize once, publish,
@@ -178,6 +200,10 @@ public:
     AsyncWorker& operator=(const AsyncWorker&) = delete;
     AsyncWorker(AsyncWorker&&) = delete;
     AsyncWorker& operator=(AsyncWorker&&) = delete;
+
+    /// Idle-behaviour knobs. Must be called BEFORE start() (the worker reads
+    /// them once, on its own thread, after thread creation).
+    void set_tuning(const WorkerTuning& tuning) noexcept { tuning_ = tuning; }
 
     /// Start the background consumer. The Producer must outlive the worker
     /// (it is a member of the same logger object). core_mask pins the worker

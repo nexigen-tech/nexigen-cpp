@@ -295,6 +295,10 @@ struct FileLoggerConfig {
     RotationConfig rotation{};
     std::uint64_t core_mask{0};                 ///< 0 == leave OS placement
     std::uint64_t max_file_size_bytes{0};       ///< 0 == no size-based rotation
+    /// Ceiling of the worker's idle sleep (backoff grows up to it); clamped to
+    /// [50, 100000] us. Larger = fewer wake-ups, but the shard rings must absorb
+    /// bursts for that long. Maps LoggerOptions::worker_poll_interval_us.
+    std::uint32_t worker_poll_interval_us{detail::WorkerTuning::default_poll_interval_us};
 
     /// Cold-path diagnostic (mandate 9): every policy field, sub-structs inlined.
     [[nodiscard]] std::string to_string() const {
@@ -306,7 +310,8 @@ struct FileLoggerConfig {
         out += ", max_file_size_bytes=" + std::to_string(max_file_size_bytes);
         out += ", throttle=" + throttle.to_string();
         out += ", rotation=" + rotation.to_string();
-        out += ", core_mask=" + std::to_string(core_mask) + ")";
+        out += ", core_mask=" + std::to_string(core_mask);
+        out += ", worker_poll_interval_us=" + std::to_string(worker_poll_interval_us) + ")";
         return out;
     }
 };
@@ -367,6 +372,7 @@ public:
         if (!calibrated) {
             return calibrated;
         }
+        worker_.set_tuning(detail::WorkerTuning{.poll_interval_us = cfg.worker_poll_interval_us});
         return worker_.start(producer_, cfg.core_mask, settings);
     }
 

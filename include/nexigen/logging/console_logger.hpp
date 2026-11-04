@@ -152,10 +152,13 @@ namespace nexigen::logging {
 /// Construction-time configuration shared by every ConsoleLogger instantiation.
 struct ConsoleLoggerConfig {
     LogLevel initial_level{LogLevel::Info};
+    /// Ceiling of the worker's idle sleep; clamped to [50, 100000] us.
+    std::uint32_t worker_poll_interval_us{detail::WorkerTuning::default_poll_interval_us};
 
-    /// Cold-path diagnostic (mandate 9): the configured initial threshold.
+    /// Cold-path diagnostic (mandate 9): initial threshold + worker poll ceiling.
     [[nodiscard]] std::string to_string() const {
-        return "ConsoleLogger::Config(level=" + std::string(logging::to_string(initial_level)) + ")";
+        return "ConsoleLogger::Config(level=" + std::string(logging::to_string(initial_level)) +
+               ", worker_poll_interval_us=" + std::to_string(worker_poll_interval_us) + ")";
     }
 
     /// Free form via ADL (nested types are non-deducible for template
@@ -198,12 +201,13 @@ public:
         if (!calibrated) {
             return calibrated;
         }
+        worker_.set_tuning(detail::WorkerTuning{.poll_interval_us = cfg.worker_poll_interval_us});
         return worker_.start(producer_, 0ULL); // consoles are not pinned (D15)
     }
 
     /// Initialize from merged global/local settings (spec logging/logging-settings).
-    /// The console sink is deliberately unpinned, so only the initial level and
-    /// the explicit capacity check apply.
+    /// The console sink is deliberately unpinned, so only the initial level,
+    /// the worker poll interval and the explicit capacity check apply.
     [[nodiscard]] core::Status initialize(const Settings& settings) noexcept {
         const core::Status capacity = check_capacity<ShardCapacity, MaxThreads, MessageCapacity>(settings);
         if (!capacity) {
@@ -211,6 +215,7 @@ public:
         }
         Config cfg{};
         cfg.initial_level = settings.options.initial_log_level;
+        cfg.worker_poll_interval_us = settings.options.worker_poll_interval_us;
         return initialize(cfg);
     }
 
@@ -279,10 +284,11 @@ template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t Ma
 
 /// Apply merged settings to a console logger config (spec logging/logging-settings
 /// "Merged settings apply to logger configuration"): the console sink carries
-/// only an initial level today.
+/// the initial level and the worker poll interval.
 [[nodiscard]] inline core::Status apply_to(const Settings& settings,
                                            ConsoleLoggerConfig& out) noexcept {
     out.initial_level = settings.options.initial_log_level;
+    out.worker_poll_interval_us = settings.options.worker_poll_interval_us;
     return {};
 }
 
