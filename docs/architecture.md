@@ -55,11 +55,14 @@ per tick, and the watcher only records a reason. Dependency arrows stay one-way:
 
 `nexigen::runner` owns detached per-instance and per-suite supervision: instance
 directory layout, generated settings, fork/exec with `setsid`, signal escalation,
-restart policy, and JSON-lines runner logging. `nexigen::hub` is a read-only
-observatory over explicit run roots: inotify discovery, bounded stream rings with
-replay/gap markers, and an epoll HTTP/SSE server with an embedded web UI. Neither
-module adds work to the application tick, producer, snapshot, or sink paths; both
-depend on `core`/`chrono`/`runner` in one direction only.
+restart policy, and JSON-lines runner logging. Control and logger worker threads
+apply a copied `ThreadSpec` and report per-attribute outcomes; warnings render the
+`ThreadApplyReport`, so a best-effort partial application is visible without
+claiming the thread is unpinned. `nexigen::hub` is a read-only observatory over
+explicit run roots: inotify discovery, bounded stream rings with replay/gap
+markers, and an epoll HTTP/SSE server with an embedded web UI. Neither module adds
+work to the application tick, producer, snapshot, or sink paths; both depend on
+`core`/`chrono`/`runner` in one direction only.
 
 ## The hard mandates
 
@@ -88,6 +91,8 @@ depend on `core`/`chrono`/`runner` in one direction only.
    earlier changes and prevents the main loop, while a best-effort failure is
    exposed in `ThreadApplyReport` without stopping the worker. Reports are
    published once through release/acquire startup readiness, never per record.
+   See [`thread-management.md`](thread-management.md) for the type contract and
+   application order.
 7. **Deferred formatting** — variadic format arguments are packed cold-side;
    never format on a producer hot path.
 8. **Naming** — PascalCase types, `snake_case` functions/fields, trailing
@@ -250,8 +255,8 @@ Behaviour is contract-first via [OpenSpec](https://openspec.github.io/openspec/)
 3. `openspec sync` merges the change's capability deltas into
    `openspec/specs/**`; `openspec archive` applies remaining deltas and retires
    the change.
-4. `openspec validate --specs` gates the main-spec corpus (currently 59
-   capabilities / 411 requirements / 1 103 scenarios).
+4. `openspec validate --specs` gates the main-spec corpus (currently 68
+   capabilities / 489 requirements / 1 344 scenarios).
 
 Archived changes live in `openspec/changes/archive/` with their full planning
 history. If code and specs disagree, the spec wins — fix the code or open a

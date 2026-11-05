@@ -6,10 +6,10 @@ The backbone of the **nexigen** ecosystem — an ultra-high performance C++23 co
 * **Real-Time Ready:** Strictly zero-lock (lock-free / wait-free primitives) implementation within critical execution data paths (hot paths).
 * **Deep OS Integration:** Direct interaction with low-level Linux system calls (`epoll`, `signalfd`, `inotify`, POSIX signals, and high-resolution timers).
 * **Zero-Cost Abstractions:** O3, native architecture deployment (`-march=native`), and Link-Time Optimization (LTO) for bare-metal execution speed.
-* **Spec-Driven:** 66 capabilities and 1 267 executable scenarios validated on every change; GCC and Clang both build under `-Werror`.
+* **Spec-Driven:** 68 capabilities and 1 344 executable scenarios validated on every change; GCC and Clang both build under `-Werror`.
 
 ## 🛠️ Core Components
-* **`core`** — wait-free SPSC ring buffers, the `Result`/`Status` error model, and JSON vocabularies; plus the shared observability plumbing in one place (`sink_pack::Fanout` fan-out scaffold, `sink_io` file-descriptor path, `settings_io` loader vocabulary, `affinity` pinning).
+* **`core`** — wait-free SPSC ring buffers, the `Result`/`Status` error model, and JSON vocabularies; plus the shared observability plumbing in one place (`sink_pack::Fanout` fan-out scaffold, `sink_io` file-descriptor path, `settings_io` loader vocabulary, `affinity` pinning) and the cold-path thread vocabulary (`CpuSet`, `ThreadSpec`, `ThreadApplyReport`, `apply_thread_spec_self`).
 * **`chrono`** — monotonic timestamps, the calibrated TSC `Stamp_source`, UTC formatting, and the clock service.
 * **`logging`** — asynchronous sharded loggers (console, file, composite, null) with anti-spam and JSONL output.
 * **`metrics`** — wait-free counters, gauges, statistics, and histograms with background harvesting and sinks.
@@ -192,6 +192,8 @@ Header-only, C++23, no exceptions/RTTI, no heap allocation on hot paths. Link th
   storage or allocation is involved. `apply_thread_spec_self` applies a copied spec
   on the calling worker before its main loop and returns a serializable
   `ThreadApplyReport`; required failures roll back, best-effort failures remain visible.
+  See [`docs/thread-management.md`](docs/thread-management.md) for the full
+  configuration and diagnostics guide.
 * **`<nexigen/core/affinity.hpp>`** — `core::affinity::pin_self`/`self_affinity`, the
   compatibility uint64-core-mask thread-affinity surface for observability modules
   (calling-thread-only semantics: pin the worker as its first act; zero mask →
@@ -949,7 +951,9 @@ signal escalation, restart policy, and JSON-lines runner logging; the
   per-app arguments, restart and impact policy) plus `Suite_status`/`App_state`
   snapshots used by the CLI.
 * **`<nexigen/runner/runner_logging.hpp>`** — the dedicated JSONL runner log
-  that records lifecycle transitions without touching application hot paths.
+  that records lifecycle transitions without touching application hot paths;
+  also the control/logger thread-spec application surface
+  (`apply_runner_thread_spec`, `describe_thread_apply_report`).
 
 ```bash
 nexigen-run start -- /opt/app --flag
@@ -958,7 +962,8 @@ nexigen-run stop /var/run/nexigen/app/1
 ```
 
 Suite manifests, restart semantics, and the full CLI contract are documented in
-[`docs/runner-suite.md`](docs/runner-suite.md).
+[`docs/runner-suite.md`](docs/runner-suite.md); the shared thread vocabulary is in
+[`docs/thread-management.md`](docs/thread-management.md).
 
 ## 📡 `nexigen::hub` API
 

@@ -1,8 +1,9 @@
 # nexigen-cpp — анализ кода
 
 Дата: 2026-11-03 · Ветка: `learning-enhancement` · HEAD: `f00e43f`
+Обновлено: 2026-11-04 (метрики спецификаций; находки — по состоянию на `f00e43f`)
 Uplink: [project-analysis.md](project-analysis.md) (2026-11-01). Связан с записями
-в [TODO.md](../TODO.md) (раздел «Анализ кода»).
+в `TODO.md` (раздел «Анализ кода»).
 
 Методика: параллельное исследование модулей (core/chrono/app/diagnostics,
 logging/metrics/tracing, runner/hub/build) + верификация критических находок по
@@ -21,7 +22,7 @@ bugprone/performance/portability/clang-analyzer, WarningsAsErrors) на
 | Продуктивный код | ~28 500 строк (135 файлов: 99 в `include/`, 36 в `src/`) |
 | Тесты | ~19 900 строк, 11 unit-бинарников + fuzz + CLI-smoke; тест/код ≈ 70% |
 | Покрытие | 95.2% строк (гейты: глобальный 95%, runner/hub 90%), TSC-латенс-ворота ≤ 20 нс в Release |
-| Спецификации | OpenSpec: 59 capabilities, 1 103 сценария |
+| Спецификации | OpenSpec: 68 capabilities, 489 требований, 1 344 сценария (обновлено 2026-11-04) |
 | TODO/FIXME | 0 |
 | clang-tidy | На выборке — **0 предупреждений** |
 

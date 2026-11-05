@@ -1,7 +1,8 @@
 # nexigen-cpp — project analysis
 
-Date: 2026-11-01
-Branch: `learning-enhancement` at `6f2bebf`
+Date: 2026-11-01 (audit snapshot)
+Refreshed: 2026-11-04
+Branch: `learning-enhancement` at `6f2bebf` (audit) / `973b764` (refresh baseline)
 
 > **Status:** P0 items are being implemented in
 > `openspec/changes/improve-quality-gates`. P1 and P2 remain open.
@@ -9,6 +10,7 @@ Branch: `learning-enhancement` at `6f2bebf`
 **Overall assessment: 8/10** — architecturally strong, well-specified project at
 early-production quality. The main risks are process risks rather than runtime
 defects: the coverage gate is broken, CI is absent, and documentation has drifted.
+The documentation drift called out below was addressed in the 2026-11-04 refresh.
 
 This analysis is read-only. It was produced by inspecting the repository and by
 running the coverage build, a Clang build, clang-tidy, a header self-containment
@@ -16,7 +18,30 @@ check, and repeated test runs.
 
 ---
 
-## 1. Metrics
+## 0. Refresh snapshot (2026-11-04)
+
+The findings below remain the 2026-11-01 audit. Quantitative metrics and the spec
+corpus were refreshed after the real-time thread-management and runner-diagnostics
+changes:
+
+| Metric | Value |
+|---|---:|
+| C++ code | 57 337 lines / 172 files |
+| Production code | 30 168 lines (`include/` 18 083, `src/` 11 208, `tools/` 877) |
+| Tests | 23 063 lines / 15 files |
+| Examples | 4 106 lines / 19 files |
+| OpenSpec artifacts | 35 064 lines / 422 files |
+| Main specs | 9 385 lines / 68 capabilities |
+| Requirements / scenarios | 489 / 1 344 |
+| Archived changes | 57 |
+| CTest tests | 36 |
+| Commits | 93 over 12 days (2026-10-24 → 2026-11-04) |
+
+Non-blank C++ lines: 51 743.
+
+---
+
+## 1. Metrics (2026-11-01 audit)
 
 | Metric | Value |
 |---|---:|
@@ -117,9 +142,9 @@ The documented ≥95% target is therefore not met by the two newest subsystems.
 
 ## 4. Specifications and process
 
-- 58 capabilities, 407 requirements, 1 096 scenarios.
-- `openspec validate --specs` — **58 passed, 0 failed**.
-- 31 archived changes with full planning history.
+- 68 capabilities, 489 requirements, 1 344 scenarios (refreshed 2026-11-04).
+- `openspec validate --specs` — **68 passed, 0 failed**.
+- 57 archived changes with full planning history.
 - Spec-to-code-to-test traceability is good: most changes carry verification
   criteria per task.
 - The spec-driven process is the project's main strength.
@@ -167,14 +192,20 @@ Verified with Clang 21.1.8 (the project claims Clang 18+):
 With three `-Wno-error=...` suppressions the build succeeds and all 33 tests
 pass, so the issue is `-Werror` cleanliness rather than portability.
 
-**4. Documentation has drifted**
+**4. Documentation has drifted (addressed in the 2026-11-04 refresh)**
+
+The 2026-11-01 audit found:
 
 - `docs/architecture.md:10-20` — the module map omits `runner` and `hub`.
 - `docs/architecture.md:151` — 43 capabilities / 271 requirements / 671
-  scenarios instead of 58 / 407 / 1 096.
+  scenarios instead of the 2026-11-01 corpus (58 / 407 / 1 096; now
+  68 / 489 / 1 344).
 - README has no sections for `tracing`, `runner`, or `hub`, although the modules
   and their docs exist.
 - README says "All three modes" although there are four configurations.
+
+The refresh updated the module map, README module sections, runner diagnostics,
+and the spec corpus to 68 capabilities / 489 requirements / 1 344 scenarios.
 
 **5. No install/export/package support**
 

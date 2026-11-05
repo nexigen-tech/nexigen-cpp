@@ -200,7 +200,7 @@ no throttle.
 The log contains CLI `command` records and suite-supervisor lifecycle records
 (`suite_started`, `app_launch`, `app_exit`, `retry_scheduled`, `app_failed`,
 `suite_restart`, `stop_requested`, `suite_stopped`, `suite_failed`,
-`affinity_warning`). Logging is best-effort: failures never change command
+`thread_spec_warning`). Logging is best-effort: failures never change command
 results or supervision policy.
 
 The logger worker is flushed and joined before every fork performed after
@@ -208,6 +208,9 @@ initialization, then recreated afterwards. Before `_exit`, accepted records are
 flushed.
 
 ## Runner thread affinity
+
+The shared `CpuSet`/`ThreadSpec` contract and the report semantics are documented
+in [`thread-management.md`](thread-management.md).
 
 ```json
 {
@@ -235,9 +238,16 @@ flushed.
 - The control spec is applied on the CLI/suite-supervisor calling thread; the
   logger spec is applied by the FileLogger worker before its first write.
 - Best-effort failures are warnings/partial startup reports and do not stop
-  supervision. Required failures abort initialization before applications are
-  launched; there is no silent fallback to `other` or an unpinned worker.
-- Application processes and per-instance supervisors do not inherit the runner
+  supervision. The warning is rendered from the resulting `ThreadApplyReport`:
+  it names which of name, affinity, and scheduler were requested, applied, and
+  failed, plus the first error, so a partial application never masquerades as an
+  entirely unpinned or invalid-CPU thread. Required failures abort initialization
+  before applications are launched; there is no silent fallback to `other` or an
+  unpinned worker.
+- The suite supervisor reports its control-thread warning on stderr (it forks
+  before the logger bridge is available); the CLI path records
+  `event=thread_spec_warning thread=control detail=<report>` once the runner log
+  is active.
 - Application processes and per-instance supervisors do not inherit the runner
   pin. Forked children reset to all online CPUs, and an application with
   explicit `cpus` applies that list afterwards.

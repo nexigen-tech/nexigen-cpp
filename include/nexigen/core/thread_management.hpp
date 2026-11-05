@@ -35,7 +35,9 @@ namespace nexigen::core {
 /// configuration errors, never silently deduplicated or truncated.
 class alignas(64) CpuSet {
 public:
+    /// Number of 64-bit words in the fixed 1024-bit bitmask.
     static constexpr std::size_t word_count = 16;
+    /// Highest CPU id representable by this set (1023).
     static constexpr std::uint32_t max_cpu_id = 1023;
 
     constexpr CpuSet() noexcept = default;
@@ -55,11 +57,13 @@ public:
         return {};
     }
 
+    /// Whether `cpu` is a member; ids above 1023 are always absent.
     [[nodiscard]] constexpr bool contains(std::uint32_t cpu) const noexcept {
         return cpu <= max_cpu_id &&
                (words_[cpu / 64U] & (1ULL << (cpu % 64U))) != 0ULL;
     }
 
+    /// Whether no CPU is selected (inherited placement for a `ThreadSpec`).
     [[nodiscard]] constexpr bool empty() const noexcept {
         for (const std::uint64_t word : words_) {
             if (word != 0ULL) {
@@ -69,6 +73,7 @@ public:
         return true;
     }
 
+    /// Number of selected CPUs (population count over all words).
     [[nodiscard]] constexpr std::size_t count() const noexcept {
         std::size_t total = 0;
         for (const std::uint64_t word : words_) {
@@ -139,6 +144,7 @@ public:
         return out;
     }
 
+    /// Bit-exact equality over the full 1024-bit value.
     friend constexpr bool operator==(const CpuSet&, const CpuSet&) noexcept = default;
 
 private:
@@ -197,7 +203,9 @@ class alignas(64) ThreadSpec {
 public:
     constexpr ThreadSpec() noexcept = default;
 
+    /// Replace the requested CPU set; an empty set preserves inherited affinity.
     void set_cpus(const CpuSet& cpus) noexcept { cpus_ = cpus; }
+    /// Requested CPU set; empty means inherited placement.
     [[nodiscard]] constexpr const CpuSet& cpus() const noexcept { return cpus_; }
 
     /// Empty clears the requested name. Linux permits at most 15 name bytes;
@@ -213,6 +221,7 @@ public:
         return {};
     }
 
+    /// Requested thread name; empty means inherited name.
     [[nodiscard]] std::string_view name() const noexcept {
         return std::string_view(name_.data());
     }
@@ -235,17 +244,23 @@ public:
         return {};
     }
 
+    /// Drop an explicit scheduler request, restoring inherited scheduling.
     void clear_scheduler() noexcept {
         policy_ = SchedulingPolicy::Other;
         priority_ = 0;
         scheduler_configured_ = false;
     }
 
+    /// Choose best-effort (report and continue) or required (abort) application.
     void set_apply_mode(ThreadApplyMode mode) noexcept { mode_ = mode; }
 
+    /// Requested scheduling policy; meaningful only when configured.
     [[nodiscard]] constexpr SchedulingPolicy policy() const noexcept { return policy_; }
+    /// Requested real-time priority in 0..99 (0 for Other).
     [[nodiscard]] constexpr std::int32_t priority() const noexcept { return priority_; }
+    /// Best-effort or required application mode.
     [[nodiscard]] constexpr ThreadApplyMode apply_mode() const noexcept { return mode_; }
+    /// Whether `set_scheduler` requested an explicit policy (including Other,0).
     [[nodiscard]] constexpr bool scheduler_configured() const noexcept {
         return scheduler_configured_;
     }
@@ -273,6 +288,7 @@ public:
                (scheduler_configured_ ? std::string("true") : std::string("false")) + ")";
     }
 
+    /// Value equality over all requested attributes (not application state).
     friend constexpr bool operator==(const ThreadSpec&, const ThreadSpec&) noexcept = default;
 
 private:
@@ -468,21 +484,32 @@ inline void fill_native_cpu_set(const CpuSet& cpus, cpu_set_t& native) noexcept 
 /// even when a later Required failure rolled it back.
 class alignas(64) ThreadApplyReport {
 public:
+    /// Bit set in `requested`/`applied`/`failed` for the thread name.
     static constexpr std::uint32_t name_mask = 1U;
+    /// Bit set in `requested`/`applied`/`failed` for CPU affinity.
     static constexpr std::uint32_t affinity_mask = 2U;
+    /// Bit set in `requested`/`applied`/`failed` for scheduling policy/priority.
     static constexpr std::uint32_t scheduler_mask = 4U;
 
+    /// Attributes the spec asked to change.
     [[nodiscard]] constexpr std::uint32_t requested() const noexcept { return requested_; }
+    /// Attributes successfully applied during this attempt (even if later rolled back).
     [[nodiscard]] constexpr std::uint32_t applied() const noexcept { return applied_; }
+    /// Attributes the kernel rejected during this attempt.
     [[nodiscard]] constexpr std::uint32_t failed() const noexcept { return failed_; }
+    /// Applied attributes that could not be restored after a Required failure.
     [[nodiscard]] constexpr std::uint32_t rollback_failed() const noexcept {
         return rollback_failed_;
     }
+    /// First error observed; `Ok` when every requested attribute applied.
     [[nodiscard]] constexpr ErrorCode first_error() const noexcept { return first_error_; }
+    /// Whether no attribute failed and no rollback failed.
     [[nodiscard]] constexpr bool complete() const noexcept {
         return failed_ == 0U && rollback_failed_ == 0U;
     }
 
+    /// Cold-path mask/error rendering; see `nexigen::runner::describe_thread_apply_report`
+    /// for the operator-facing attribute names.
     [[nodiscard]] std::string to_string() const {
         return "ThreadApplyReport(requested=" + std::to_string(requested_) +
                ", applied=" + std::to_string(applied_) +
@@ -491,8 +518,10 @@ public:
                ", first_error=" + std::string(core::to_string(first_error_)) + ")";
     }
 
+    /// Value equality over every mask and the first error.
     friend constexpr bool operator==(const ThreadApplyReport&,
                                      const ThreadApplyReport&) noexcept = default;
+    /// All-or-nothing JSON restore; invalid input leaves the destination untouched.
     friend void from_json(const nlohmann::json&, ThreadApplyReport&) noexcept;
     friend Status apply_thread_spec_self(const ThreadSpec&, ThreadApplyReport&) noexcept;
 
