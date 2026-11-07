@@ -17,6 +17,220 @@
 
 namespace nexigen::logging {
 
+namespace {
+
+// ---- best-effort field readers: missing or wrong-shape leaves `out` ----
+// unchanged. Used by LoggerOptions and SpamProtectionConfig where each
+// field is independent.
+
+void read_string_field(const nlohmann::json& j, const char* key, std::string& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return;
+    }
+    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
+    if (text == nullptr) {
+        return;
+    }
+    out = *text;
+}
+
+void read_u64_field(const nlohmann::json& j, const char* key, std::uint64_t& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return;
+    }
+    if (!it->is_number_unsigned()) {
+        return;
+    }
+    out = it->get<std::uint64_t>();
+}
+
+void read_u32_field(const nlohmann::json& j, const char* key, std::uint32_t& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return;
+    }
+    if (!it->is_number_unsigned()) {
+        return;
+    }
+    out = it->get<std::uint32_t>();
+}
+
+void read_bool_field(const nlohmann::json& j, const char* key, bool& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return;
+    }
+    if (!it->is_boolean()) {
+        return;
+    }
+    out = it->get<bool>();
+}
+
+void read_log_level_field(const nlohmann::json& j, const char* key, LogLevel& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return;
+    }
+    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
+    if (text == nullptr) {
+        return;
+    }
+    static_cast<void>(from_string(std::string_view(*text), out));
+}
+
+void read_overflow_policy_field(const nlohmann::json& j, const char* key,
+                                OverflowPolicy& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return;
+    }
+    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
+    if (text == nullptr) {
+        return;
+    }
+    static_cast<void>(from_string(std::string_view(*text), out));
+}
+
+void read_core_mask_field(const nlohmann::json& j, const char* key,
+                          core::ThreadSpec& worker_thread) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end() || !it->is_number_unsigned()) {
+        return;
+    }
+    worker_thread.set_cpus(core::CpuSet::from_core_mask(it->get<std::uint64_t>()));
+}
+
+void read_flush_cpu_affinity_field(const nlohmann::json& j, const char* key,
+                                   core::ThreadSpec& worker_thread) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return;
+    }
+    core::CpuSet cpus = worker_thread.cpus();
+    if (core::parse_cpu_set_json(*it, cpus)) {
+        worker_thread.set_cpus(cpus);
+    }
+}
+
+void read_worker_thread_field(const nlohmann::json& j, const char* key,
+                              core::ThreadSpec& worker_thread) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return;
+    }
+    static_cast<void>(core::parse_thread_spec_json(*it, worker_thread));
+}
+
+// ---- strict field readers: return false when the key is present but ----
+// malformed. Used by FileLoggerConfig / ConsoleLoggerConfig where a wrong
+// shape aborts the whole object and leaves the caller's `out` untouched.
+
+[[nodiscard]] bool try_read_string_field(const nlohmann::json& j, const char* key,
+                                         std::string& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return true;
+    }
+    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
+    if (text == nullptr) {
+        return false;
+    }
+    out = *text;
+    return true;
+}
+
+[[nodiscard]] bool try_read_u64_field(const nlohmann::json& j, const char* key,
+                                      std::uint64_t& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return true;
+    }
+    if (!it->is_number_unsigned()) {
+        return false;
+    }
+    out = it->get<std::uint64_t>();
+    return true;
+}
+
+[[nodiscard]] bool try_read_bool_field(const nlohmann::json& j, const char* key,
+                                       bool& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return true;
+    }
+    if (!it->is_boolean()) {
+        return false;
+    }
+    out = it->get<bool>();
+    return true;
+}
+
+[[nodiscard]] bool try_read_log_level_field(const nlohmann::json& j, const char* key,
+                                            LogLevel& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return true;
+    }
+    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
+    if (text == nullptr) {
+        return false;
+    }
+    return from_string(std::string_view(*text), out);
+}
+
+[[nodiscard]] bool try_read_rotation_kind_field(const nlohmann::json& j, const char* key,
+                                                RotationSchedule& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return true;
+    }
+    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
+    if (text == nullptr) {
+        return false;
+    }
+    return detail::from_string(std::string_view(*text), out);
+}
+
+[[nodiscard]] bool try_read_worker_thread_field(const nlohmann::json& j, const char* key,
+                                                core::ThreadSpec& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return true;
+    }
+    return core::parse_thread_spec_json(*it, out);
+}
+
+[[nodiscard]] bool try_read_throttle_field(const nlohmann::json& j,
+                                           FileLoggerConfig& out) noexcept {
+    const auto it = j.find("throttle");
+    if (it == j.end()) {
+        return true;
+    }
+    if (!it->is_object()) {
+        return false;
+    }
+    return try_read_bool_field(*it, "enabled", out.throttle.enabled) &&
+           try_read_u64_field(*it, "max_records_per_window", out.throttle.max_records_per_window) &&
+           try_read_u64_field(*it, "window_ns", out.throttle.window_ns);
+}
+
+[[nodiscard]] bool try_read_rotation_field(const nlohmann::json& j,
+                                           FileLoggerConfig& out) noexcept {
+    const auto it = j.find("rotation");
+    if (it == j.end()) {
+        return true;
+    }
+    if (!it->is_object()) {
+        return false;
+    }
+    return try_read_rotation_kind_field(*it, "kind", out.rotation.kind) &&
+           try_read_u64_field(*it, "custom_ns", out.rotation.custom_ns);
+}
+
+} // namespace
+
 void to_json(nlohmann::json& j, const SpamProtectionConfig& cfg) {
     j = nlohmann::json{
         {"enable_repeat_suppression", cfg.enable_repeat_suppression},
@@ -30,24 +244,10 @@ void from_json(const nlohmann::json& j, SpamProtectionConfig& out) noexcept {
     if (!j.is_object()) {
         return;
     }
-    auto it = j.find("enable_repeat_suppression");
-    if (it != j.end() && it->is_boolean()) {
-        out.enable_repeat_suppression = it->get<bool>();
-    }
-    it = j.find("repeat_suppression_window_ms");
-    if (it != j.end() && it->is_number_unsigned()) {
-        out.repeat_suppression_window_ms = it->get<std::uint32_t>();
-    }
-    it = j.find("max_messages_per_sec_per_shard");
-    if (it != j.end() && it->is_number_unsigned()) {
-        out.max_messages_per_sec_per_shard = it->get<std::uint32_t>();
-    }
-    it = j.find("bypass_min_level");
-    if (it != j.end() && it->is_string()) {
-        static_cast<void>(
-            from_string(std::string_view(*it->get_ptr<const nlohmann::json::string_t*>()),
-                        out.bypass_min_level));
-    }
+    read_bool_field(j, "enable_repeat_suppression", out.enable_repeat_suppression);
+    read_u32_field(j, "repeat_suppression_window_ms", out.repeat_suppression_window_ms);
+    read_u32_field(j, "max_messages_per_sec_per_shard", out.max_messages_per_sec_per_shard);
+    read_log_level_field(j, "bypass_min_level", out.bypass_min_level);
 }
 
 void to_json(nlohmann::json& j, const LoggerOptions& opts) {
@@ -70,65 +270,22 @@ void from_json(const nlohmann::json& j, LoggerOptions& out) noexcept {
     if (!j.is_object()) {
         return;
     }
-    auto it = j.find("log_root_directory");
-    if (it != j.end() && it->is_string()) {
-        out.log_root_directory = it->get<std::string>();
-    }
-    it = j.find("initial_log_level");
-    if (it != j.end() && it->is_string()) {
-        static_cast<void>(
-            from_string(std::string_view(*it->get_ptr<const nlohmann::json::string_t*>()),
-                        out.initial_log_level));
-    }
-    it = j.find("max_file_size_bytes");
-    if (it != j.end() && it->is_number_unsigned()) {
-        out.max_file_size_bytes = it->get<std::uint64_t>();
-    }
-    it = j.find("spsc_ring_buffer_capacity");
-    if (it != j.end() && it->is_number_unsigned()) {
-        out.spsc_ring_buffer_capacity = it->get<std::uint32_t>();
-    }
-    it = j.find("message_capacity");
-    if (it != j.end() && it->is_number_unsigned()) {
-        out.message_capacity = it->get<std::uint32_t>();
-    }
-    it = j.find("max_producer_threads");
-    if (it != j.end() && it->is_number_unsigned()) {
-        out.max_producer_threads = it->get<std::uint32_t>();
-    }
-    it = j.find("overflow_policy");
-    if (it != j.end() && it->is_string()) {
-        static_cast<void>(
-            from_string(std::string_view(*it->get_ptr<const nlohmann::json::string_t*>()),
-                        out.overflow_policy));
-    }
+    read_string_field(j, "log_root_directory", out.log_root_directory);
+    read_log_level_field(j, "initial_log_level", out.initial_log_level);
+    read_u64_field(j, "max_file_size_bytes", out.max_file_size_bytes);
+    read_u32_field(j, "spsc_ring_buffer_capacity", out.spsc_ring_buffer_capacity);
+    read_u32_field(j, "message_capacity", out.message_capacity);
+    read_u32_field(j, "max_producer_threads", out.max_producer_threads);
+    read_overflow_policy_field(j, "overflow_policy", out.overflow_policy);
     // Compatibility inputs are applied before the canonical worker object so
     // canonical fields win within this source. Legacy masks/lists affect only
     // CPUs; name, policy, priority, and mode are inherited normally.
-    it = j.find("core_mask");
-    if (it != j.end() && it->is_number_unsigned()) {
-        out.worker_thread.set_cpus(core::CpuSet::from_core_mask(it->get<std::uint64_t>()));
-    }
-    it = j.find("flush_cpu_affinity");
-    if (it != j.end()) {
-        core::CpuSet cpus = out.worker_thread.cpus();
-        if (core::parse_cpu_set_json(*it, cpus)) {
-            out.worker_thread.set_cpus(cpus);
-        }
-    }
-    it = j.find("worker_thread");
-    if (it != j.end()) {
-        static_cast<void>(core::parse_thread_spec_json(*it, out.worker_thread));
-    }
-    it = j.find("worker_poll_interval_us");
-    if (it != j.end() && it->is_number_unsigned()) {
-        out.worker_poll_interval_us = it->get<std::uint32_t>();
-    }
-    it = j.find("sync_flush_on_critical");
-    if (it != j.end() && it->is_boolean()) {
-        out.sync_flush_on_critical = it->get<bool>();
-    }
-    it = j.find("spam_protection");
+    read_core_mask_field(j, "core_mask", out.worker_thread);
+    read_flush_cpu_affinity_field(j, "flush_cpu_affinity", out.worker_thread);
+    read_worker_thread_field(j, "worker_thread", out.worker_thread);
+    read_u32_field(j, "worker_poll_interval_us", out.worker_poll_interval_us);
+    read_bool_field(j, "sync_flush_on_critical", out.sync_flush_on_critical);
+    const auto it = j.find("spam_protection");
     if (it != j.end() && it->is_object()) {
         from_json(*it, out.spam_protection);
     }
@@ -162,97 +319,28 @@ void from_json(const nlohmann::json& j, FileLoggerConfig& out) noexcept {
         return;
     }
     FileLoggerConfig parsed = out;
-    auto read_string = [&](const char* key, std::string& destination) {
-        const auto it = j.find(key);
-        if (it == j.end()) {
-            return true;
-        }
-        const auto* const value = it->get_ptr<const nlohmann::json::string_t*>();
-        if (value == nullptr) {
-            return false;
-        }
-        destination = *value;
-        return true;
-    };
-    auto read_u64 = [&](const char* key, std::uint64_t& destination) {
-        const auto it = j.find(key);
-        if (it == j.end()) {
-            return true;
-        }
-        if (!it->is_number_unsigned()) {
-            return false;
-        }
-        destination = it->get<std::uint64_t>();
-        return true;
-    };
-    if (!read_string("app_name", parsed.app_name) || !read_string("base_dir", parsed.base_dir) ||
-        !read_string("file_name", parsed.file_name)) {
+    if (!try_read_string_field(j, "app_name", parsed.app_name) ||
+        !try_read_string_field(j, "base_dir", parsed.base_dir) ||
+        !try_read_string_field(j, "file_name", parsed.file_name)) {
         return;
     }
-    const auto level = j.find("initial_level");
-    if (level != j.end()) {
-        const auto* const text = level->get_ptr<const nlohmann::json::string_t*>();
-        if (text == nullptr || !from_string(std::string_view(*text), parsed.initial_level)) {
-            return;
-        }
-    }
-    const auto throttle = j.find("throttle");
-    if (throttle != j.end()) {
-        if (!throttle->is_object()) {
-            return;
-        }
-        const auto enabled = throttle->find("enabled");
-        if (enabled != throttle->end()) {
-            if (!enabled->is_boolean()) {
-                return;
-            }
-            parsed.throttle.enabled = enabled->get<bool>();
-        }
-        const auto maximum = throttle->find("max_records_per_window");
-        if (maximum != throttle->end()) {
-            if (!maximum->is_number_unsigned()) {
-                return;
-            }
-            parsed.throttle.max_records_per_window = maximum->get<std::uint64_t>();
-        }
-        const auto window = throttle->find("window_ns");
-        if (window != throttle->end()) {
-            if (!window->is_number_unsigned()) {
-                return;
-            }
-            parsed.throttle.window_ns = window->get<std::uint64_t>();
-        }
-    }
-    const auto rotation = j.find("rotation");
-    if (rotation != j.end()) {
-        if (!rotation->is_object()) {
-            return;
-        }
-        const auto kind = rotation->find("kind");
-        if (kind != rotation->end()) {
-            const auto* const text = kind->get_ptr<const nlohmann::json::string_t*>();
-            if (text == nullptr ||
-                !detail::from_string(std::string_view(*text), parsed.rotation.kind)) {
-                return;
-            }
-        }
-        const auto custom = rotation->find("custom_ns");
-        if (custom != rotation->end()) {
-            if (!custom->is_number_unsigned()) {
-                return;
-            }
-            parsed.rotation.custom_ns = custom->get<std::uint64_t>();
-        }
-    }
-    const auto worker = j.find("worker_thread");
-    if (worker != j.end() && !core::parse_thread_spec_json(*worker, parsed.worker_thread)) {
+    if (!try_read_log_level_field(j, "initial_level", parsed.initial_level)) {
         return;
     }
-    if (!read_u64("max_file_size_bytes", parsed.max_file_size_bytes)) {
+    if (!try_read_throttle_field(j, parsed)) {
+        return;
+    }
+    if (!try_read_rotation_field(j, parsed)) {
+        return;
+    }
+    if (!try_read_worker_thread_field(j, "worker_thread", parsed.worker_thread)) {
+        return;
+    }
+    if (!try_read_u64_field(j, "max_file_size_bytes", parsed.max_file_size_bytes)) {
         return;
     }
     std::uint64_t poll = parsed.worker_poll_interval_us;
-    if (!read_u64("worker_poll_interval_us", poll) || poll > 0xffffffffULL) {
+    if (!try_read_u64_field(j, "worker_poll_interval_us", poll) || poll > 0xffffffffULL) {
         return;
     }
     parsed.worker_poll_interval_us = static_cast<std::uint32_t>(poll);
@@ -272,24 +360,17 @@ void from_json(const nlohmann::json& j, ConsoleLoggerConfig& out) noexcept {
         return;
     }
     ConsoleLoggerConfig parsed = out;
-    const auto level = j.find("initial_level");
-    if (level != j.end()) {
-        const auto* const text = level->get_ptr<const nlohmann::json::string_t*>();
-        if (text == nullptr || !from_string(std::string_view(*text), parsed.initial_level)) {
-            return;
-        }
-    }
-    const auto worker = j.find("worker_thread");
-    if (worker != j.end() && !core::parse_thread_spec_json(*worker, parsed.worker_thread)) {
+    if (!try_read_log_level_field(j, "initial_level", parsed.initial_level)) {
         return;
     }
-    const auto poll = j.find("worker_poll_interval_us");
-    if (poll != j.end()) {
-        if (!poll->is_number_unsigned() || poll->get<std::uint64_t>() > 0xffffffffULL) {
-            return;
-        }
-        parsed.worker_poll_interval_us = poll->get<std::uint32_t>();
+    if (!try_read_worker_thread_field(j, "worker_thread", parsed.worker_thread)) {
+        return;
     }
+    std::uint64_t poll = parsed.worker_poll_interval_us;
+    if (!try_read_u64_field(j, "worker_poll_interval_us", poll) || poll > 0xffffffffULL) {
+        return;
+    }
+    parsed.worker_poll_interval_us = static_cast<std::uint32_t>(poll);
     out = parsed;
 }
 

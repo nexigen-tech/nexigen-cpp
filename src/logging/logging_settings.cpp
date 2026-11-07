@@ -74,6 +74,226 @@ void add_diagnostic(Settings& settings, core::SettingsSource source, std::string
                                                std::move(message));
 }
 
+void sanitize_string_field(const nlohmann::json& document, core::SettingsSource source,
+                           const char* key, std::size_t max_size, bool require_non_empty,
+                           const char* error_message, Settings& settings, nlohmann::json& clean) {
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return;
+    }
+    std::string value;
+    if (plain_string(*it, max_size, require_non_empty, value)) {
+        clean[key] = std::move(value);
+    } else {
+        add_diagnostic(settings, source, key, error_message);
+    }
+}
+
+void sanitize_log_level_field(const nlohmann::json& document, core::SettingsSource source,
+                              const char* key, LogLevel fallback, const char* error_message,
+                              Settings& settings, nlohmann::json& clean) {
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return;
+    }
+    const auto* const text = string_ptr(*it);
+    LogLevel level = fallback;
+    if (text != nullptr && from_string(std::string_view(*text), level)) {
+        clean[key] = *text;
+    } else {
+        add_diagnostic(settings, source, key, error_message);
+    }
+}
+
+void sanitize_unsigned_field(const nlohmann::json& document, core::SettingsSource source,
+                             const char* key, const char* error_message, Settings& settings,
+                             nlohmann::json& clean) {
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return;
+    }
+    std::uint64_t value = 0;
+    if (unsigned_value(*it, value)) {
+        clean[key] = value;
+    } else {
+        add_diagnostic(settings, source, key, error_message);
+    }
+}
+
+void sanitize_positive_u32_field(const nlohmann::json& document, core::SettingsSource source,
+                                 const char* key, bool& set_flag, const char* error_message,
+                                 Settings& settings, nlohmann::json& clean) {
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return;
+    }
+    set_flag = true;
+    std::uint64_t value = 0;
+    if (unsigned_value(*it, value) && value > 0ULL && value <= 0xFFFFFFFFULL) {
+        clean[key] = static_cast<std::uint32_t>(value);
+    } else {
+        add_diagnostic(settings, source, key, error_message);
+    }
+}
+
+void sanitize_bool_field(const nlohmann::json& document, core::SettingsSource source,
+                         const char* key, const char* error_message, Settings& settings,
+                         nlohmann::json& clean) {
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return;
+    }
+    if (it->is_boolean()) {
+        clean[key] = it->get<bool>();
+    } else {
+        add_diagnostic(settings, source, key, error_message);
+    }
+}
+
+void sanitize_overflow_policy_field(const nlohmann::json& document, core::SettingsSource source,
+                                    Settings& settings, nlohmann::json& clean) {
+    const char* key = "overflow_policy";
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return;
+    }
+    const auto* const text = string_ptr(*it);
+    OverflowPolicy policy = settings.options.overflow_policy;
+    if (text != nullptr && from_string(std::string_view(*text), policy)) {
+        clean[key] = *text;
+    } else {
+        add_diagnostic(settings, source, key, "expected drop_newest or overwrite_oldest");
+    }
+}
+
+void sanitize_core_mask_field(const nlohmann::json& document, core::SettingsSource source,
+                              Settings& settings, nlohmann::json& clean) {
+    const char* key = "core_mask";
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return;
+    }
+    std::uint64_t value = 0;
+    if (unsigned_value(*it, value)) {
+        clean[key] = value;
+    } else {
+        add_diagnostic(settings, source, key, "expected a non-negative 64-bit mask");
+    }
+}
+
+void sanitize_flush_cpu_affinity_field(const nlohmann::json& document, core::SettingsSource source,
+                                       Settings& settings, nlohmann::json& clean) {
+    const char* key = "flush_cpu_affinity";
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return;
+    }
+    core::CpuSet cpus{};
+    if (core::parse_cpu_set_json(*it, cpus)) {
+        clean[key] = *it;
+    } else {
+        add_diagnostic(settings, source, key,
+                       "expected a unique array of CPU ids between 0 and 1023");
+    }
+}
+
+void sanitize_worker_thread_field(const nlohmann::json& document, core::SettingsSource source,
+                                  Settings& settings, nlohmann::json& clean) {
+    const char* key = "worker_thread";
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return;
+    }
+    settings.worker_thread_set = true;
+    if (it->contains("cpus")) {
+        settings.worker_cpus_set = true;
+    }
+    core::ThreadSpec worker = settings.options.worker_thread;
+    if (core::parse_thread_spec_json(*it, worker)) {
+        clean[key] = *it;
+    } else {
+        add_diagnostic(settings, source, key,
+                       "expected valid name/cpus/policy/priority/mode fields");
+    }
+}
+
+void sanitize_spam_protection_unsigned_field(const nlohmann::json& parent,
+                                             core::SettingsSource source, const char* key,
+                                             std::uint64_t max_value, bool& valid,
+                                             nlohmann::json& spam, Settings& settings) {
+    const auto entry = parent.find(key);
+    if (entry == parent.end()) {
+        return;
+    }
+    std::uint64_t value = 0;
+    if (unsigned_value(*entry, value) && value <= max_value) {
+        spam[key] = value;
+    } else {
+        valid = false;
+        add_diagnostic(settings, source, std::string("spam_protection.") + key,
+                       "expected a non-negative integer in range");
+    }
+}
+
+void sanitize_spam_protection_bool_field(const nlohmann::json& parent, core::SettingsSource source,
+                                         const char* key, bool& valid, nlohmann::json& spam,
+                                         Settings& settings) {
+    const auto entry = parent.find(key);
+    if (entry == parent.end()) {
+        return;
+    }
+    if (entry->is_boolean()) {
+        spam[key] = entry->get<bool>();
+    } else {
+        valid = false;
+        add_diagnostic(settings, source, std::string("spam_protection.") + key,
+                       "expected a boolean");
+    }
+}
+
+void sanitize_spam_protection_level_field(const nlohmann::json& parent, core::SettingsSource source,
+                                          bool& valid, nlohmann::json& spam, Settings& settings) {
+    const char* key = "bypass_min_level";
+    const auto entry = parent.find(key);
+    if (entry == parent.end()) {
+        return;
+    }
+    const auto* const text = string_ptr(*entry);
+    LogLevel level = settings.options.spam_protection.bypass_min_level;
+    if (text != nullptr && from_string(std::string_view(*text), level)) {
+        spam[key] = *text;
+    } else {
+        valid = false;
+        add_diagnostic(settings, source, std::string("spam_protection.") + key,
+                       "expected a known log level name");
+    }
+}
+
+void sanitize_spam_protection_field(const nlohmann::json& document, core::SettingsSource source,
+                                    Settings& settings, nlohmann::json& clean) {
+    const char* key = "spam_protection";
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return;
+    }
+    if (!it->is_object()) {
+        add_diagnostic(settings, source, key, "expected a JSON object");
+        return;
+    }
+    nlohmann::json spam = nlohmann::json::object();
+    bool valid = true;
+    sanitize_spam_protection_bool_field(*it, source, "enable_repeat_suppression", valid, spam,
+                                        settings);
+    sanitize_spam_protection_unsigned_field(*it, source, "repeat_suppression_window_ms",
+                                            0xFFFFFFFFULL, valid, spam, settings);
+    sanitize_spam_protection_unsigned_field(*it, source, "max_messages_per_sec_per_shard",
+                                            0xFFFFFFFFULL, valid, spam, settings);
+    sanitize_spam_protection_level_field(*it, source, valid, spam, settings);
+    if (valid) {
+        clean[key] = std::move(spam);
+    }
+}
+
 /// Validate every known field of one document, keep only the valid ones in
 /// `clean`, and leave the rest to the existing LoggerOptions from_json so the
 /// field mapping stays in one place.
@@ -85,195 +305,30 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
         return;
     }
 
-    auto it = document.find("log_root_directory");
-    if (it != document.end()) {
-        std::string value;
-        if (plain_string(*it, 511, true, value)) {
-            clean["log_root_directory"] = value;
-        } else {
-            add_diagnostic(settings, source, "log_root_directory",
-                           "expected a non-empty string of at most 511 bytes without NUL");
-        }
-    }
-
-    it = document.find("initial_log_level");
-    if (it != document.end()) {
-        const auto* const text = string_ptr(*it);
-        LogLevel level = settings.options.initial_log_level;
-        if (text != nullptr && from_string(std::string_view(*text), level)) {
-            clean["initial_log_level"] = *text;
-        } else {
-            add_diagnostic(settings, source, "initial_log_level",
-                           "expected one of verbose/debug/info/warning/error/fatal/off");
-        }
-    }
-
-    it = document.find("max_file_size_bytes");
-    if (it != document.end()) {
-        std::uint64_t value = 0;
-        if (unsigned_value(*it, value)) {
-            clean["max_file_size_bytes"] = value;
-        } else {
-            add_diagnostic(settings, source, "max_file_size_bytes",
-                           "expected a non-negative integer");
-        }
-    }
-
-    it = document.find("spsc_ring_buffer_capacity");
-    if (it != document.end()) {
-        settings.ring_capacity_set = true;
-        std::uint64_t value = 0;
-        if (unsigned_value(*it, value) && value > 0ULL && value <= 0xFFFFFFFFULL) {
-            clean["spsc_ring_buffer_capacity"] = static_cast<std::uint32_t>(value);
-        } else {
-            add_diagnostic(settings, source, "spsc_ring_buffer_capacity",
-                           "expected a positive 32-bit integer");
-        }
-    }
-
-    it = document.find("max_producer_threads");
-    if (it != document.end()) {
-        settings.max_threads_set = true;
-        std::uint64_t value = 0;
-        if (unsigned_value(*it, value) && value > 0ULL && value <= 0xFFFFFFFFULL) {
-            clean["max_producer_threads"] = static_cast<std::uint32_t>(value);
-        } else {
-            add_diagnostic(settings, source, "max_producer_threads",
-                           "expected a positive 32-bit integer");
-        }
-    }
-
-    it = document.find("message_capacity");
-    if (it != document.end()) {
-        settings.message_capacity_set = true;
-        std::uint64_t value = 0;
-        if (unsigned_value(*it, value) && value > 0ULL && value <= 0xFFFFFFFFULL) {
-            clean["message_capacity"] = static_cast<std::uint32_t>(value);
-        } else {
-            add_diagnostic(settings, source, "message_capacity",
-                           "expected a positive 32-bit integer");
-        }
-    }
-
-    it = document.find("overflow_policy");
-    if (it != document.end()) {
-        const auto* const text = string_ptr(*it);
-        OverflowPolicy policy = settings.options.overflow_policy;
-        if (text != nullptr && from_string(std::string_view(*text), policy)) {
-            clean["overflow_policy"] = *text;
-        } else {
-            add_diagnostic(settings, source, "overflow_policy",
-                           "expected drop_newest or overwrite_oldest");
-        }
-    }
-
-    it = document.find("core_mask");
-    if (it != document.end()) {
-        std::uint64_t value = 0;
-        if (unsigned_value(*it, value)) {
-            clean["core_mask"] = value;
-        } else {
-            add_diagnostic(settings, source, "core_mask", "expected a non-negative 64-bit mask");
-        }
-    }
-
-    it = document.find("flush_cpu_affinity");
-    if (it != document.end()) {
-        core::CpuSet cpus{};
-        if (core::parse_cpu_set_json(*it, cpus)) {
-            clean["flush_cpu_affinity"] = *it;
-        } else {
-            add_diagnostic(settings, source, "flush_cpu_affinity",
-                           "expected a unique array of CPU ids between 0 and 1023");
-        }
-    }
-
-    it = document.find("worker_thread");
-    if (it != document.end()) {
-        core::ThreadSpec worker = settings.options.worker_thread;
-        settings.worker_thread_set = true;
-        if (it->contains("cpus")) {
-            settings.worker_cpus_set = true;
-        }
-        if (core::parse_thread_spec_json(*it, worker)) {
-            clean["worker_thread"] = *it;
-        } else {
-            add_diagnostic(settings, source, "worker_thread",
-                           "expected valid name/cpus/policy/priority/mode fields");
-        }
-    }
-
-    it = document.find("worker_poll_interval_us");
-    if (it != document.end()) {
-        std::uint64_t value = 0;
-        if (unsigned_value(*it, value) && value <= 0xFFFFFFFFULL) {
-            clean["worker_poll_interval_us"] = static_cast<std::uint32_t>(value);
-        } else {
-            add_diagnostic(settings, source, "worker_poll_interval_us",
-                           "expected a 32-bit unsigned integer");
-        }
-    }
-
-    it = document.find("sync_flush_on_critical");
-    if (it != document.end()) {
-        if (it->is_boolean()) {
-            clean["sync_flush_on_critical"] = it->get<bool>();
-        } else {
-            add_diagnostic(settings, source, "sync_flush_on_critical", "expected a boolean");
-        }
-    }
-
-    it = document.find("spam_protection");
-    if (it != document.end()) {
-        if (!it->is_object()) {
-            add_diagnostic(settings, source, "spam_protection", "expected a JSON object");
-        } else {
-            nlohmann::json spam = nlohmann::json::object();
-            bool valid = true;
-            const auto check_unsigned = [&](const char* key, std::uint64_t max_value) {
-                const auto entry = it->find(key);
-                if (entry == it->end()) {
-                    return;
-                }
-                std::uint64_t value = 0;
-                if (unsigned_value(*entry, value) && value <= max_value) {
-                    spam[key] = value;
-                } else {
-                    valid = false;
-                    add_diagnostic(settings, source, std::string("spam_protection.") + key,
-                                   "expected a non-negative integer in range");
-                }
-            };
-            const auto entry = it->find("enable_repeat_suppression");
-            if (entry != it->end()) {
-                if (entry->is_boolean()) {
-                    spam["enable_repeat_suppression"] = entry->get<bool>();
-                } else {
-                    valid = false;
-                    add_diagnostic(settings, source, "spam_protection.enable_repeat_suppression",
-                                   "expected a boolean");
-                }
-            }
-            check_unsigned("repeat_suppression_window_ms", 0xFFFFFFFFULL);
-            check_unsigned("max_messages_per_sec_per_shard", 0xFFFFFFFFULL);
-
-            const auto bypass = it->find("bypass_min_level");
-            if (bypass != it->end()) {
-                const auto* const text = string_ptr(*bypass);
-                LogLevel level = settings.options.spam_protection.bypass_min_level;
-                if (text != nullptr && from_string(std::string_view(*text), level)) {
-                    spam["bypass_min_level"] = *text;
-                } else {
-                    valid = false;
-                    add_diagnostic(settings, source, "spam_protection.bypass_min_level",
-                                   "expected a known log level name");
-                }
-            }
-            if (valid) {
-                clean["spam_protection"] = std::move(spam);
-            }
-        }
-    }
+    sanitize_string_field(document, source, "log_root_directory", 511, true,
+                          "expected a non-empty string of at most 511 bytes without NUL", settings,
+                          clean);
+    sanitize_log_level_field(
+        document, source, "initial_log_level", settings.options.initial_log_level,
+        "expected one of verbose/debug/info/warning/error/fatal/off", settings, clean);
+    sanitize_unsigned_field(document, source, "max_file_size_bytes",
+                            "expected a non-negative integer", settings, clean);
+    sanitize_positive_u32_field(document, source, "spsc_ring_buffer_capacity",
+                                settings.ring_capacity_set, "expected a positive 32-bit integer",
+                                settings, clean);
+    sanitize_positive_u32_field(document, source, "max_producer_threads", settings.max_threads_set,
+                                "expected a positive 32-bit integer", settings, clean);
+    sanitize_positive_u32_field(document, source, "message_capacity", settings.message_capacity_set,
+                                "expected a positive 32-bit integer", settings, clean);
+    sanitize_overflow_policy_field(document, source, settings, clean);
+    sanitize_core_mask_field(document, source, settings, clean);
+    sanitize_flush_cpu_affinity_field(document, source, settings, clean);
+    sanitize_worker_thread_field(document, source, settings, clean);
+    sanitize_unsigned_field(document, source, "worker_poll_interval_us",
+                            "expected a 32-bit unsigned integer", settings, clean);
+    sanitize_bool_field(document, source, "sync_flush_on_critical", "expected a boolean", settings,
+                        clean);
+    sanitize_spam_protection_field(document, source, settings, clean);
 }
 
 [[nodiscard]] bool parse_u64(std::string_view text, std::uint64_t& out) noexcept {
@@ -337,102 +392,107 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
     return !out.empty();
 }
 
+[[nodiscard]] std::string_view env_value(const char* name) noexcept {
+    const char* const value = std::getenv(name);
+    return value == nullptr ? std::string_view{} : std::string_view{value};
+}
+
+void apply_log_level_env(std::string_view value, Settings& settings) noexcept {
+    if (value.empty()) {
+        return;
+    }
+    LogLevel level = settings.options.initial_log_level;
+    if (from_string(value, level)) {
+        settings.options.initial_log_level = level;
+    } else {
+        add_diagnostic(settings, core::SettingsSource::Environment, "initial_log_level",
+                       "expected one of verbose/debug/info/warning/error/fatal/off");
+    }
+}
+
+void apply_log_dir_env(std::string_view value, Settings& settings) noexcept {
+    if (value.empty()) {
+        return;
+    }
+    if (value.size() <= 511 && value.find('\0') == std::string_view::npos) {
+        settings.options.log_root_directory = std::string(value);
+    } else {
+        add_diagnostic(settings, core::SettingsSource::Environment, "log_root_directory",
+                       "expected a path of at most 511 bytes without NUL");
+    }
+}
+
+void apply_u64_env(std::string_view value, const char* field, std::uint64_t& target,
+                   Settings& settings) noexcept {
+    if (value.empty()) {
+        return;
+    }
+    std::uint64_t parsed = 0;
+    if (parse_u64(value, parsed)) {
+        target = parsed;
+    } else {
+        add_diagnostic(settings, core::SettingsSource::Environment, field,
+                       "expected a non-negative integer");
+    }
+}
+
+void apply_cpu_affinity_env(std::string_view value, Settings& settings) noexcept {
+    if (value.empty()) {
+        return;
+    }
+    core::CpuSet cpus{};
+    if (parse_affinity(value, cpus)) {
+        settings.options.worker_thread.set_cpus(cpus);
+    } else {
+        add_diagnostic(settings, core::SettingsSource::Environment, "flush_cpu_affinity",
+                       "expected a unique comma-separated list of ids/ranges between 0 and 1023");
+    }
+}
+
+void apply_positive_u32_env(std::string_view value, const char* field, bool& set_flag,
+                            std::uint32_t& target, Settings& settings) noexcept {
+    if (value.empty()) {
+        return;
+    }
+    set_flag = true;
+    std::uint32_t parsed = 0;
+    if (parse_u32(value, parsed) && parsed > 0U) {
+        target = parsed;
+    } else {
+        add_diagnostic(settings, core::SettingsSource::Environment, field,
+                       "expected a positive 32-bit integer");
+    }
+}
+
+void apply_overflow_policy_env(std::string_view value, Settings& settings) noexcept {
+    if (value.empty()) {
+        return;
+    }
+    OverflowPolicy policy = settings.options.overflow_policy;
+    if (from_string(value, policy)) {
+        settings.options.overflow_policy = policy;
+    } else {
+        add_diagnostic(settings, core::SettingsSource::Environment, "overflow_policy",
+                       "expected drop_newest or overwrite_oldest");
+    }
+}
+
 void apply_environment(Settings& settings) noexcept {
-    const auto env = [](const char* name) -> std::string_view {
-        const char* const value = std::getenv(name);
-        return value == nullptr ? std::string_view{} : std::string_view{value};
-    };
-
-    std::string_view value = env("NEXIGEN_LOG_LEVEL");
-    if (!value.empty()) {
-        LogLevel level = settings.options.initial_log_level;
-        if (from_string(value, level)) {
-            settings.options.initial_log_level = level;
-        } else {
-            add_diagnostic(settings, core::SettingsSource::Environment, "initial_log_level",
-                           "expected one of verbose/debug/info/warning/error/fatal/off");
-        }
-    }
-
-    value = env("NEXIGEN_LOG_DIR");
-    if (!value.empty()) {
-        if (value.size() <= 511 && value.find('\0') == std::string_view::npos) {
-            settings.options.log_root_directory = std::string(value);
-        } else {
-            add_diagnostic(settings, core::SettingsSource::Environment, "log_root_directory",
-                           "expected a path of at most 511 bytes without NUL");
-        }
-    }
-
-    value = env("NEXIGEN_LOG_MAX_FILE_SIZE_BYTES");
-    if (!value.empty()) {
-        std::uint64_t parsed = 0;
-        if (parse_u64(value, parsed)) {
-            settings.options.max_file_size_bytes = parsed;
-        } else {
-            add_diagnostic(settings, core::SettingsSource::Environment, "max_file_size_bytes",
-                           "expected a non-negative integer");
-        }
-    }
-
-    value = env("NEXIGEN_LOG_CPU_AFFINITY");
-    if (!value.empty()) {
-        core::CpuSet cpus{};
-        if (parse_affinity(value, cpus)) {
-            settings.options.worker_thread.set_cpus(cpus);
-        } else {
-            add_diagnostic(
-                settings, core::SettingsSource::Environment, "flush_cpu_affinity",
-                "expected a unique comma-separated list of ids/ranges between 0 and 1023");
-        }
-    }
-
-    value = env("NEXIGEN_LOG_RING_CAPACITY");
-    if (!value.empty()) {
-        settings.ring_capacity_set = true;
-        std::uint32_t parsed = 0;
-        if (parse_u32(value, parsed) && parsed > 0U) {
-            settings.options.spsc_ring_buffer_capacity = parsed;
-        } else {
-            add_diagnostic(settings, core::SettingsSource::Environment, "spsc_ring_buffer_capacity",
-                           "expected a positive 32-bit integer");
-        }
-    }
-
-    value = env("NEXIGEN_LOG_MESSAGE_CAPACITY");
-    if (!value.empty()) {
-        settings.message_capacity_set = true;
-        std::uint32_t parsed = 0;
-        if (parse_u32(value, parsed) && parsed > 0U) {
-            settings.options.message_capacity = parsed;
-        } else {
-            add_diagnostic(settings, core::SettingsSource::Environment, "message_capacity",
-                           "expected a positive 32-bit integer");
-        }
-    }
-
-    value = env("NEXIGEN_LOG_MAX_PRODUCER_THREADS");
-    if (!value.empty()) {
-        settings.max_threads_set = true;
-        std::uint32_t parsed = 0;
-        if (parse_u32(value, parsed) && parsed > 0U) {
-            settings.options.max_producer_threads = parsed;
-        } else {
-            add_diagnostic(settings, core::SettingsSource::Environment, "max_producer_threads",
-                           "expected a positive 32-bit integer");
-        }
-    }
-
-    value = env("NEXIGEN_LOG_OVERFLOW_POLICY");
-    if (!value.empty()) {
-        OverflowPolicy policy = settings.options.overflow_policy;
-        if (from_string(value, policy)) {
-            settings.options.overflow_policy = policy;
-        } else {
-            add_diagnostic(settings, core::SettingsSource::Environment, "overflow_policy",
-                           "expected drop_newest or overwrite_oldest");
-        }
-    }
+    apply_log_level_env(env_value("NEXIGEN_LOG_LEVEL"), settings);
+    apply_log_dir_env(env_value("NEXIGEN_LOG_DIR"), settings);
+    apply_u64_env(env_value("NEXIGEN_LOG_MAX_FILE_SIZE_BYTES"), "max_file_size_bytes",
+                  settings.options.max_file_size_bytes, settings);
+    apply_cpu_affinity_env(env_value("NEXIGEN_LOG_CPU_AFFINITY"), settings);
+    apply_positive_u32_env(env_value("NEXIGEN_LOG_RING_CAPACITY"), "spsc_ring_buffer_capacity",
+                           settings.ring_capacity_set, settings.options.spsc_ring_buffer_capacity,
+                           settings);
+    apply_positive_u32_env(env_value("NEXIGEN_LOG_MESSAGE_CAPACITY"), "message_capacity",
+                           settings.message_capacity_set, settings.options.message_capacity,
+                           settings);
+    apply_positive_u32_env(env_value("NEXIGEN_LOG_MAX_PRODUCER_THREADS"), "max_producer_threads",
+                           settings.max_threads_set, settings.options.max_producer_threads,
+                           settings);
+    apply_overflow_policy_env(env_value("NEXIGEN_LOG_OVERFLOW_POLICY"), settings);
 }
 
 } // namespace
