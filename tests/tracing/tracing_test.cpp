@@ -2967,7 +2967,8 @@ void test_latency_measured_pass(tracing::TracerProvider<1024, 1>* bench,
                                 double& best_short_ns, double& overhead_ns) {
     alignas(64) static std::uint64_t raw[static_cast<std::size_t>(N)]; // full lifecycle samples
     alignas(64) static std::uint64_t flt[static_cast<std::size_t>(N)]; // short-circuit samples
-    alignas(64) static std::uint64_t ovr[static_cast<std::size_t>(N)]; // rdtsc-pair overhead samples
+    alignas(
+        64) static std::uint64_t ovr[static_cast<std::size_t>(N)]; // rdtsc-pair overhead samples
 
     for (int pass = 0; pass < passes; ++pass) {
         // (a) full span lifecycle: start_span + destruction enqueue, the

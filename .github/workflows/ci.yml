@@ -196,3 +196,21 @@ jobs:
         run: |
           openspec validate --specs
           openspec validate --changes --strict
+
+  complexity:
+    name: Complexity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python and lizard
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends python3 python3-pip
+          python3 -m pip install lizard
+
+      - name: Check cyclomatic complexity (CCN ≤ 15, exclude examples/, filter alignas)
+        run: |
+          cmake -S . -B build/complexity -G Ninja
+          cmake --build build/complexity --target complexity-check

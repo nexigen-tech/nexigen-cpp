@@ -15,6 +15,7 @@ include(CompilerWarnings)
 include(Optimizations)
 include(Sanitizers)
 include(Format)
+include(Complexity)
 
 # Опция покрытия: инструментирует ВСЕ цели и добавляет target `coverage`.
 option(NEXIGEN_ENABLE_COVERAGE "Instrument the build with GCC/Clang --coverage" OFF)
