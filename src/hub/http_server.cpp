@@ -212,18 +212,9 @@ struct HttpServer::Impl {
         return true;
     }
 
-    [[nodiscard]] core::Status start(std::string_view listen) noexcept {
-        std::string host;
-        std::uint16_t requested_port = 0;
-        bool ipv6 = false;
-        if (!parse_listen(listen, host, requested_port, ipv6)) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
+    [[nodiscard]] core::Status bind_listen(const std::string& host, std::uint16_t requested_port,
+                                           bool ipv6) noexcept {
         if (ipv6) {
-            // AF_INET6 listener (analysis #13): a specific v6 address binds
-            // v6-only; the wildcard `::` binds dual-stack (IPV6_V6ONLY=0),
-            // which double-publishes IPv4 traffic on the same port like a
-            // classic `0.0.0.0` listener spanned with IPv6.
             const bool dual_stack = host == "::";
             const std::uint32_t v6_only = dual_stack ? 0U : 1U;
             if (::inet_pton(AF_INET6, host.c_str(), &bind_address_.in6.sin6_addr) != 1) {
@@ -247,33 +238,40 @@ struct HttpServer::Impl {
                 ::bind(listen_fd, reinterpret_cast<sockaddr*>(&bind_address_.in6),
                        sizeof(bind_address_.in6)) != 0 ||
                 ::listen(listen_fd, 128) != 0) {
+                static_cast<void>(::close(listen_fd));
+                listen_fd = -1;
                 return std::unexpected(core::ErrorCode::SystemError);
             }
-        } else {
-            sockaddr_in address{};
-            address.sin_family = AF_INET;
-            address.sin_port = htons(requested_port);
-            if (::inet_pton(AF_INET, host.c_str(), &address.sin_addr) != 1) {
-                return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
-
-            if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_socket)) {
-                return std::unexpected(core::ErrorCode::SystemError);
-            }
-            listen_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-            if (listen_fd < 0) {
-                return std::unexpected(core::ErrorCode::SystemError);
-            }
-            int enabled = 1;
-            static_cast<void>(
-                ::setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled)));
-            if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_bind) ||
-                ::bind(listen_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 ||
-                ::listen(listen_fd, 128) != 0) {
-                return std::unexpected(core::ErrorCode::SystemError);
-            }
+            return {};
         }
 
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_port = htons(requested_port);
+        if (::inet_pton(AF_INET, host.c_str(), &address.sin_addr) != 1) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_socket)) {
+            return std::unexpected(core::ErrorCode::SystemError);
+        }
+        listen_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+        if (listen_fd < 0) {
+            return std::unexpected(core::ErrorCode::SystemError);
+        }
+        int enabled = 1;
+        static_cast<void>(
+            ::setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled)));
+        if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_bind) ||
+            ::bind(listen_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 ||
+            ::listen(listen_fd, 128) != 0) {
+            static_cast<void>(::close(listen_fd));
+            listen_fd = -1;
+            return std::unexpected(core::ErrorCode::SystemError);
+        }
+        return {};
+    }
+
+    void capture_bound_port() noexcept {
         sockaddr_storage bound{};
         socklen_t bound_length = sizeof(bound);
         if (::getsockname(listen_fd, reinterpret_cast<sockaddr*>(&bound), &bound_length) == 0) {
@@ -283,16 +281,32 @@ struct HttpServer::Impl {
                 port = ntohs(reinterpret_cast<sockaddr_in&>(bound).sin_port);
             }
         }
+    }
 
+    [[nodiscard]] core::Status create_epoll_set() noexcept {
         epoll_fd = core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_epoll)
                        ? -1
                        : ::epoll_create1(EPOLL_CLOEXEC);
         event_fd = core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_eventfd)
                        ? -1
                        : ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-        if (epoll_fd < 0 || event_fd < 0) {
-            return std::unexpected(core::ErrorCode::SystemError);
+        if (epoll_fd >= 0 && event_fd >= 0) {
+            return {};
         }
+        static_cast<void>(::close(listen_fd));
+        listen_fd = -1;
+        if (epoll_fd >= 0) {
+            static_cast<void>(::close(epoll_fd));
+            epoll_fd = -1;
+        }
+        if (event_fd >= 0) {
+            static_cast<void>(::close(event_fd));
+            event_fd = -1;
+        }
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+
+    void register_poll_sources() noexcept {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
         epoll_event listen_event{};
@@ -303,7 +317,6 @@ struct HttpServer::Impl {
         event_event.events = EPOLLIN;
         event_event.data.fd = event_fd;
         static_cast<void>(::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, event_fd, &event_event));
-#pragma GCC diagnostic pop
         if (discovery.inotify_fd() >= 0) {
             epoll_event inotify_event{};
             inotify_event.events = EPOLLIN;
@@ -311,12 +324,36 @@ struct HttpServer::Impl {
             static_cast<void>(
                 ::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, discovery.inotify_fd(), &inotify_event));
         }
+#pragma GCC diagnostic pop
+    }
+
+    [[nodiscard]] core::Status initial_sync() noexcept {
         const core::Status synced = streaming.sync(discovery.tree());
         if (!synced) {
             report("event=hub_sync_failed phase=start");
         }
         last_refresh_ns = monotonic_now_ns();
         return {};
+    }
+
+    [[nodiscard]] core::Status start(std::string_view listen) noexcept {
+        std::string host;
+        std::uint16_t requested_port = 0;
+        bool ipv6 = false;
+        if (!parse_listen(listen, host, requested_port, ipv6)) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        const core::Status bound = bind_listen(host, requested_port, ipv6);
+        if (!bound) {
+            return bound;
+        }
+        capture_bound_port();
+        const core::Status created = create_epoll_set();
+        if (!created) {
+            return created;
+        }
+        register_poll_sources();
+        return initial_sync();
     }
 
     void stop() noexcept {
@@ -616,14 +653,8 @@ struct HttpServer::Impl {
         respond_json(client, 404, "Not Found", {{"error", "not found"}}, false);
     }
 
-    void read_client(int fd) noexcept {
-        const auto found = clients.find(fd);
-        if (found == clients.end()) {
-            return;
-        }
-        Client& client = found->second;
+    void drain_input(int fd, Client& client, bool& peer_closed) noexcept {
         std::array<char, 4096> buffer{};
-        bool peer_closed = false;
         for (;;) {
             const ssize_t count = ::recv(fd, buffer.data(), buffer.size(), 0);
             if (count > 0) {
@@ -644,7 +675,9 @@ struct HttpServer::Impl {
             }
             break;
         }
+    }
 
+    void process_requests(Client& client) noexcept {
         while (!client.sse && !client.close_after_write) {
             const std::size_t header_end = client.input.find("\r\n\r\n");
             if (header_end == std::string::npos) {
@@ -670,6 +703,17 @@ struct HttpServer::Impl {
                 break;
             }
         }
+    }
+
+    void read_client(int fd) noexcept {
+        const auto found = clients.find(fd);
+        if (found == clients.end()) {
+            return;
+        }
+        Client& client = found->second;
+        bool peer_closed = false;
+        drain_input(fd, client, peer_closed);
+        process_requests(client);
         if (peer_closed) {
             client.close_after_write = true;
         }
@@ -765,11 +809,63 @@ struct HttpServer::Impl {
         }
     }
 
+    [[nodiscard]] int wait_events(epoll_event* events, int max_events, int timeout_ms) noexcept {
+        return ::epoll_wait(epoll_fd, events, max_events, timeout_ms);
+    }
+
+    [[nodiscard]] bool dispatch_event(const epoll_event& event) noexcept {
+        const int fd = event.data.fd;
+        if (fd == listen_fd) {
+            accept_clients();
+            return false;
+        }
+        if (fd == event_fd) {
+            std::uint64_t value = 0;
+            const ssize_t read_count = ::read(event_fd, &value, sizeof(value));
+            static_cast<void>(read_count);
+            return true;
+        }
+        if (fd == discovery.inotify_fd()) {
+            discovery.handle_inotify();
+            return false;
+        }
+        const std::uint32_t events_mask = event.events;
+        // EPOLLIN and EPOLLOUT may arrive together; handle them independently
+        // so a readable client also drains its pending output this tick. The
+        // handlers no-op when the client was already removed, so the error
+        // check is safe to run last.
+        if ((events_mask & EPOLLIN) != 0U) {
+            read_client(fd);
+        }
+        if ((events_mask & EPOLLOUT) != 0U) {
+            write_client(fd);
+        }
+        if ((events_mask & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
+            close_client(fd);
+        }
+        return false;
+    }
+
+    void drain_client_outputs() noexcept {
+        for (auto& [fd, client] : clients) {
+            static_cast<void>(fd);
+            if (!flush_client(client)) {
+                close_client(fd);
+                break;
+            }
+            if (client.close_after_write && client.output.empty()) {
+                close_client(fd);
+                break;
+            }
+            update_interest(client);
+        }
+    }
+
     void run(std::atomic<bool>* stop_flag) noexcept {
         std::array<epoll_event, 64> events{};
-        while (stop_flag == nullptr || !*stop_flag) {
-            const int count =
-                ::epoll_wait(epoll_fd, events.data(), static_cast<int>(events.size()), 500);
+        bool running = true;
+        while (running && (stop_flag == nullptr || !*stop_flag)) {
+            const int count = wait_events(events.data(), static_cast<int>(events.size()), 500);
             if (count < 0) {
                 if (errno == EINTR) {
                     continue;
@@ -777,50 +873,18 @@ struct HttpServer::Impl {
                 break;
             }
             for (int index = 0; index < count; ++index) {
-                const int fd = events[static_cast<std::size_t>(index)].data.fd;
-                if (fd == listen_fd) {
-                    accept_clients();
-                } else if (fd == event_fd) {
-                    std::uint64_t value = 0;
-                    const ssize_t read_count = ::read(event_fd, &value, sizeof(value));
-                    static_cast<void>(read_count);
-                    return;
-                } else if (fd == discovery.inotify_fd()) {
-                    discovery.handle_inotify();
-                } else {
-                    const std::uint32_t events_mask =
-                        events[static_cast<std::size_t>(index)].events;
-                    // EPOLLIN and EPOLLOUT may arrive together; handle them
-                    // independently so a readable client also drains its
-                    // pending output this tick. The handlers no-op when the
-                    // client was already removed, so the error check is safe
-                    // to run last.
-                    if ((events_mask & EPOLLIN) != 0U) {
-                        read_client(fd);
-                    }
-                    if ((events_mask & EPOLLOUT) != 0U) {
-                        write_client(fd);
-                    }
-                    if ((events_mask & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
-                        close_client(fd);
-                    }
+                if (dispatch_event(events[static_cast<std::size_t>(index)])) {
+                    running = false;
+                    break;
                 }
+            }
+            if (!running) {
+                break;
             }
             timers();
             streaming.poll();
             dispatch_live();
-            for (auto& [fd, client] : clients) {
-                static_cast<void>(fd);
-                if (!flush_client(client)) {
-                    close_client(fd);
-                    break;
-                }
-                if (client.close_after_write && client.output.empty()) {
-                    close_client(fd);
-                    break;
-                }
-                update_interest(client);
-            }
+            drain_client_outputs();
         }
     }
 };

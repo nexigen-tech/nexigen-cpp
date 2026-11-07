@@ -823,13 +823,23 @@ void test_span_record() {
     // record — returns normally, record unchanged.
     {
         const SpanRecord before = record;
-        const std::array<nlohmann::json, 4> hostile{
+        const std::array<nlohmann::json, 5> hostile{
             nlohmann::json(5), nlohmann::json{1, 2}, nlohmann::json(nullptr),
-            nlohmann::json{{"trace_id", 12}, {"kind", 7}, {"name", false}, {"start_ns", "text"}}};
+            nlohmann::json{{"trace_id", 12}, {"kind", 7}, {"name", false}, {"start_ns", "text"}},
+            nlohmann::json{{"name", nullptr}}};
         for (const nlohmann::json& bad : hostile) {
             nlohmann::from_json(bad, record);
             NX_CHECK(std::memcmp(&record, &before, sizeof(SpanRecord)) == 0);
         }
+        // A valid attributes array with only unparseable elements resets the
+        // count but leaves the rest of the record untouched.
+        SpanRecord attr_record = before;
+        nlohmann::from_json(
+            nlohmann::json{
+                {"attributes", nlohmann::json::array({{"key", "x"}, {"type", "Unknown"}})}},
+            attr_record);
+        NX_CHECK(attr_record.attribute_count == 0U);
+        NX_CHECK(attr_record.trace_id == before.trace_id);
     }
 }
 
@@ -2961,6 +2971,12 @@ void test_provider() {
         nlohmann::from_json(j_stats, stats_back);
         NX_CHECK(stats_back.rate_limited == 3 && stats_back.buffer_full == 5 &&
                  stats_back.slot_exhausted == 7);
+        const tracing::DroppedStats stats_before = stats_back;
+        for (const nlohmann::json& bad :
+             {nlohmann::json(1), nlohmann::json{1, 2}, nlohmann::json(nullptr)}) {
+            nlohmann::from_json(bad, stats_back);
+            NX_CHECK(std::memcmp(&stats_back, &stats_before, sizeof(stats_back)) == 0);
+        }
     }
 
     // Worker idle behaviour: the poll interval bounds idle wake-ups, and a

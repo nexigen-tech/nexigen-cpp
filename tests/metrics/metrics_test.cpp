@@ -3162,6 +3162,29 @@ void test_snapshot_serialization_full() {
         NX_CHECK(record.to_string().find("HistogramSnapshot") != std::string::npos);
     }
     {
+        metrics::MetricRecord stats_record{};
+        stats_record.identity = identity;
+        stats_record.kind = metrics::MetricKind::DescriptiveStatistics;
+        stats_record.statistics.count = 1;
+        stats_record.statistics.mean = 2.0;
+        nlohmann::json json;
+        metrics::to_json(json, stats_record);
+        metrics::MetricRecord back{};
+        metrics::from_json(json, back);
+        NX_CHECK(back.kind == metrics::MetricKind::DescriptiveStatistics);
+        NX_CHECK(back.statistics.count == 1U);
+        NX_CHECK(back.statistics.mean == 2.0);
+
+        metrics::MetricRecord state_record{};
+        state_record.identity = identity;
+        state_record.kind = metrics::MetricKind::State;
+        std::snprintf(state_record.state.value, sizeof(state_record.state.value), "up");
+        metrics::to_json(json, state_record);
+        metrics::from_json(json, back);
+        NX_CHECK(back.kind == metrics::MetricKind::State);
+        NX_CHECK(std::string_view(back.state.value) == "up");
+    }
+    {
         metrics::MetricRecord records[1]{};
         records[0].identity = identity;
         metrics::MetricBatchSnapshot batch{};
@@ -3188,6 +3211,12 @@ void test_snapshot_serialization_full() {
         metrics::from_json(json, back);
         NX_CHECK(back.max_counters == 12U);
         NX_CHECK(config.to_string().find("max_counters=12") != std::string::npos);
+
+        nlohmann::json legacy = {{"max_counters", 12U}, {"core_mask", 0x5U}};
+        metrics::MetricProviderConfig legacy_back{};
+        metrics::from_json(legacy, legacy_back);
+        NX_CHECK(legacy_back.max_counters == 12U);
+        NX_CHECK(legacy_back.worker_thread.cpus().contains(0U));
     }
     // Hostile shapes leave targets untouched.
     {

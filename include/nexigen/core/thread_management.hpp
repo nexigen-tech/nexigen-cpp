@@ -396,64 +396,90 @@ inline void to_json(nlohmann::json& j, const ThreadSpec& spec) {
     }
 }
 
+namespace thread_management_detail {
+
+[[nodiscard]] inline bool parse_name(const nlohmann::json& j, ThreadSpec& parsed) noexcept {
+    const auto name = j.find("name");
+    if (name == j.end()) {
+        return true;
+    }
+    const auto* const value = name->get_ptr<const nlohmann::json::string_t*>();
+    if (value == nullptr) {
+        return false;
+    }
+    return parsed.set_name(std::string_view(*value)).has_value();
+}
+
+[[nodiscard]] inline bool parse_cpus(const nlohmann::json& j, ThreadSpec& parsed) noexcept {
+    const auto cpus = j.find("cpus");
+    if (cpus == j.end()) {
+        return true;
+    }
+    CpuSet converted = parsed.cpus();
+    if (!parse_cpu_set_json(*cpus, converted)) {
+        return false;
+    }
+    parsed.set_cpus(converted);
+    return true;
+}
+
+[[nodiscard]] inline bool parse_mode(const nlohmann::json& j, ThreadSpec& parsed) noexcept {
+    const auto mode = j.find("mode");
+    if (mode == j.end()) {
+        return true;
+    }
+    const auto* const value = mode->get_ptr<const nlohmann::json::string_t*>();
+    ThreadApplyMode converted = parsed.apply_mode();
+    if (value == nullptr || !from_string(std::string_view(*value), converted)) {
+        return false;
+    }
+    parsed.set_apply_mode(converted);
+    return true;
+}
+
+[[nodiscard]] inline bool parse_scheduler(const nlohmann::json& j, ThreadSpec& parsed) noexcept {
+    const auto policy = j.find("policy");
+    const auto priority = j.find("priority");
+    if (policy == j.end() && priority == j.end()) {
+        return true;
+    }
+    SchedulingPolicy converted_policy = parsed.policy();
+    std::int64_t converted_priority = parsed.priority();
+    if (policy != j.end()) {
+        const auto* const value = policy->get_ptr<const nlohmann::json::string_t*>();
+        if (value == nullptr || !from_string(std::string_view(*value), converted_policy)) {
+            return false;
+        }
+    }
+    if (priority != j.end()) {
+        if (!priority->is_number_integer() && !priority->is_number_unsigned()) {
+            return false;
+        }
+        if (priority->is_number_unsigned() && priority->get<std::uint64_t>() > 99ULL) {
+            return false;
+        }
+        converted_priority = priority->get<std::int64_t>();
+        if (converted_priority < 0 || converted_priority > 99) {
+            return false;
+        }
+    }
+    return parsed.set_scheduler(converted_policy, static_cast<std::int32_t>(converted_priority))
+        .has_value();
+}
+
+} // namespace thread_management_detail
+
 [[nodiscard]] inline bool parse_thread_spec_json(const nlohmann::json& j,
                                                  ThreadSpec& out) noexcept {
     if (!j.is_object()) {
         return false;
     }
     ThreadSpec parsed = out;
-    const auto name = j.find("name");
-    if (name != j.end()) {
-        const auto* const value = name->get_ptr<const nlohmann::json::string_t*>();
-        if (value == nullptr || !parsed.set_name(std::string_view(*value))) {
-            return false;
-        }
-    }
-    const auto cpus = j.find("cpus");
-    if (cpus != j.end()) {
-        CpuSet converted = parsed.cpus();
-        if (!parse_cpu_set_json(*cpus, converted)) {
-            return false;
-        }
-        parsed.set_cpus(converted);
-    }
-    const auto mode = j.find("mode");
-    if (mode != j.end()) {
-        const auto* const value = mode->get_ptr<const nlohmann::json::string_t*>();
-        ThreadApplyMode converted = parsed.apply_mode();
-        if (value == nullptr || !from_string(std::string_view(*value), converted)) {
-            return false;
-        }
-        parsed.set_apply_mode(converted);
-    }
-
-    const auto policy = j.find("policy");
-    const auto priority = j.find("priority");
-    if (policy != j.end() || priority != j.end()) {
-        SchedulingPolicy converted_policy = parsed.policy();
-        std::int64_t converted_priority = parsed.priority();
-        if (policy != j.end()) {
-            const auto* const value = policy->get_ptr<const nlohmann::json::string_t*>();
-            if (value == nullptr || !from_string(std::string_view(*value), converted_policy)) {
-                return false;
-            }
-        }
-        if (priority != j.end()) {
-            if (!priority->is_number_integer() && !priority->is_number_unsigned()) {
-                return false;
-            }
-            if (priority->is_number_unsigned() && priority->get<std::uint64_t>() > 99ULL) {
-                return false;
-            }
-            converted_priority = priority->get<std::int64_t>();
-            if (converted_priority < 0 || converted_priority > 99) {
-                return false;
-            }
-        }
-        if (!parsed.set_scheduler(converted_policy,
-                                  static_cast<std::int32_t>(converted_priority))) {
-            return false;
-        }
+    if (!thread_management_detail::parse_name(j, parsed) ||
+        !thread_management_detail::parse_cpus(j, parsed) ||
+        !thread_management_detail::parse_mode(j, parsed) ||
+        !thread_management_detail::parse_scheduler(j, parsed)) {
+        return false;
     }
     out = parsed;
     return true;
@@ -481,6 +507,23 @@ inline void fill_native_cpu_set(const CpuSet& cpus, cpu_set_t& native) noexcept 
         }
     }
 }
+#endif
+
+} // namespace thread_management_detail
+
+class ThreadApplyReport;
+
+namespace thread_management_detail {
+
+#if defined(__linux__)
+struct ThreadStateSnapshot;
+
+void record_apply_failure(ThreadApplyReport&, std::uint32_t) noexcept;
+void apply_name(const ThreadSpec&, ThreadApplyReport&) noexcept;
+void apply_affinity(const ThreadSpec&, ThreadApplyReport&) noexcept;
+void apply_scheduler(const ThreadSpec&, ThreadApplyReport&) noexcept;
+void rollback_applied_attributes(const ThreadStateSnapshot&, std::uint32_t,
+                                 ThreadApplyReport&) noexcept;
 #endif
 
 } // namespace thread_management_detail
@@ -529,6 +572,19 @@ public:
     /// All-or-nothing JSON restore; invalid input leaves the destination untouched.
     friend void from_json(const nlohmann::json&, ThreadApplyReport&) noexcept;
     friend Status apply_thread_spec_self(const ThreadSpec&, ThreadApplyReport&) noexcept;
+#if defined(__linux__)
+    friend void thread_management_detail::record_apply_failure(ThreadApplyReport&,
+                                                               std::uint32_t) noexcept;
+    friend void thread_management_detail::apply_name(const ThreadSpec&,
+                                                     ThreadApplyReport&) noexcept;
+    friend void thread_management_detail::apply_affinity(const ThreadSpec&,
+                                                         ThreadApplyReport&) noexcept;
+    friend void thread_management_detail::apply_scheduler(const ThreadSpec&,
+                                                          ThreadApplyReport&) noexcept;
+    friend void thread_management_detail::rollback_applied_attributes(
+        const thread_management_detail::ThreadStateSnapshot&, std::uint32_t,
+        ThreadApplyReport&) noexcept;
+#endif
 
 private:
     std::uint32_t requested_{0};
@@ -676,6 +732,74 @@ struct ThreadStateSnapshot {
     }
 }
 
+[[nodiscard]] inline std::uint32_t compute_requested_mask(const ThreadSpec& spec) noexcept {
+    std::uint32_t requested = 0U;
+    if (!spec.name().empty()) {
+        requested |= ThreadApplyReport::name_mask;
+    }
+    if (!spec.cpus().empty()) {
+        requested |= ThreadApplyReport::affinity_mask;
+    }
+    if (spec.scheduler_configured()) {
+        requested |= ThreadApplyReport::scheduler_mask;
+    }
+    return requested;
+}
+
+inline void record_apply_failure(ThreadApplyReport& report, std::uint32_t mask) noexcept {
+    report.failed_ |= mask;
+    if (report.first_error_ == ErrorCode::Ok) {
+        report.first_error_ = ErrorCode::SystemError;
+    }
+}
+
+inline void apply_name(const ThreadSpec& spec, ThreadApplyReport& report) noexcept {
+    if (set_name(spec.name_c_str()) == 0) {
+        report.applied_ |= ThreadApplyReport::name_mask;
+    } else {
+        record_apply_failure(report, ThreadApplyReport::name_mask);
+    }
+}
+
+inline void apply_affinity(const ThreadSpec& spec, ThreadApplyReport& report) noexcept {
+    cpu_set_t native{};
+    fill_native_cpu_set(spec.cpus(), native);
+    if (set_affinity(native) == 0) {
+        report.applied_ |= ThreadApplyReport::affinity_mask;
+    } else {
+        record_apply_failure(report, ThreadApplyReport::affinity_mask);
+    }
+}
+
+inline void apply_scheduler(const ThreadSpec& spec, ThreadApplyReport& report) noexcept {
+    sched_param scheduler{};
+    scheduler.sched_priority = spec.priority();
+    if (set_scheduler(native_policy(spec.policy()), scheduler) == 0) {
+        report.applied_ |= ThreadApplyReport::scheduler_mask;
+    } else {
+        record_apply_failure(report, ThreadApplyReport::scheduler_mask);
+    }
+}
+
+inline void rollback_applied_attributes(const ThreadStateSnapshot& snapshot, std::uint32_t applied,
+                                        ThreadApplyReport& report) noexcept {
+    if ((applied & ThreadApplyReport::scheduler_mask) != 0U) {
+        if (!restore_scheduler(snapshot)) {
+            report.rollback_failed_ |= ThreadApplyReport::scheduler_mask;
+        }
+    }
+    if ((applied & ThreadApplyReport::affinity_mask) != 0U) {
+        if (!restore_affinity(snapshot)) {
+            report.rollback_failed_ |= ThreadApplyReport::affinity_mask;
+        }
+    }
+    if ((applied & ThreadApplyReport::name_mask) != 0U) {
+        if (!restore_name(snapshot)) {
+            report.rollback_failed_ |= ThreadApplyReport::name_mask;
+        }
+    }
+}
+
 } // namespace thread_management_detail
 #endif
 
@@ -685,23 +809,17 @@ struct ThreadStateSnapshot {
 [[nodiscard]] inline Status apply_thread_spec_self(const ThreadSpec& spec,
                                                    ThreadApplyReport& report) noexcept {
     report = ThreadApplyReport{};
-    if (!spec.name().empty()) {
-        report.requested_ |= ThreadApplyReport::name_mask;
-    }
-    if (!spec.cpus().empty()) {
-        report.requested_ |= ThreadApplyReport::affinity_mask;
-    }
-    if (spec.scheduler_configured()) {
-        report.requested_ |= ThreadApplyReport::scheduler_mask;
-    }
     const Status valid = spec.validate();
     if (!valid) {
         report.first_error_ = valid.error();
         return valid;
     }
+
+    report.requested_ = thread_management_detail::compute_requested_mask(spec);
     if (report.requested_ == 0U) {
         return {};
     }
+
 #if !defined(__linux__)
     report.failed_ = report.requested_;
     report.first_error_ = ErrorCode::SystemError;
@@ -713,59 +831,22 @@ struct ThreadStateSnapshot {
         report.first_error_ = ErrorCode::SystemError;
         return std::unexpected(ErrorCode::SystemError);
     }
-    const bool required = spec.apply_mode() == ThreadApplyMode::Required;
-    auto fail = [&](std::uint32_t mask) {
-        report.failed_ |= mask;
-        if (report.first_error_ == ErrorCode::Ok) {
-            report.first_error_ = ErrorCode::SystemError;
-        }
-    };
 
+    const bool required = spec.apply_mode() == ThreadApplyMode::Required;
     if ((report.requested_ & ThreadApplyReport::name_mask) != 0U) {
-        if (thread_management_detail::set_name(spec.name_c_str()) == 0) {
-            report.applied_ |= ThreadApplyReport::name_mask;
-        } else {
-            fail(ThreadApplyReport::name_mask);
-        }
+        thread_management_detail::apply_name(spec, report);
     }
     if ((!required || report.failed_ == 0U) &&
         (report.requested_ & ThreadApplyReport::affinity_mask) != 0U) {
-        cpu_set_t native{};
-        thread_management_detail::fill_native_cpu_set(spec.cpus(), native);
-        if (thread_management_detail::set_affinity(native) == 0) {
-            report.applied_ |= ThreadApplyReport::affinity_mask;
-        } else {
-            fail(ThreadApplyReport::affinity_mask);
-        }
+        thread_management_detail::apply_affinity(spec, report);
     }
     if ((!required || report.failed_ == 0U) &&
         (report.requested_ & ThreadApplyReport::scheduler_mask) != 0U) {
-        sched_param scheduler{};
-        scheduler.sched_priority = spec.priority();
-        if (thread_management_detail::set_scheduler(
-                thread_management_detail::native_policy(spec.policy()), scheduler) == 0) {
-            report.applied_ |= ThreadApplyReport::scheduler_mask;
-        } else {
-            fail(ThreadApplyReport::scheduler_mask);
-        }
+        thread_management_detail::apply_scheduler(spec, report);
     }
 
     if (required && report.failed_ != 0U) {
-        if ((report.applied_ & ThreadApplyReport::scheduler_mask) != 0U) {
-            if (!thread_management_detail::restore_scheduler(snapshot)) {
-                report.rollback_failed_ |= ThreadApplyReport::scheduler_mask;
-            }
-        }
-        if ((report.applied_ & ThreadApplyReport::affinity_mask) != 0U) {
-            if (!thread_management_detail::restore_affinity(snapshot)) {
-                report.rollback_failed_ |= ThreadApplyReport::affinity_mask;
-            }
-        }
-        if ((report.applied_ & ThreadApplyReport::name_mask) != 0U) {
-            if (!thread_management_detail::restore_name(snapshot)) {
-                report.rollback_failed_ |= ThreadApplyReport::name_mask;
-            }
-        }
+        thread_management_detail::rollback_applied_attributes(snapshot, report.applied_, report);
         return std::unexpected(ErrorCode::SystemError);
     }
     return {};

@@ -15,6 +15,72 @@
 
 namespace nexigen::metrics {
 
+namespace {
+
+/// Read any JSON number into a double target; ignore missing/wrong-type fields.
+void read_number(const nlohmann::json& j, const char* key, double& out) noexcept {
+    const auto it = j.find(key);
+    if (it != j.end() && it->is_number()) {
+        out = it->get<double>();
+    }
+}
+
+/// Read an unsigned JSON number into an integral target; ignore missing/wrong-type fields.
+template <typename T>
+void read_unsigned(const nlohmann::json& j, const char* key, T& out) noexcept {
+    const auto it = j.find(key);
+    if (it != j.end() && it->is_number_unsigned()) {
+        out = static_cast<T>(it->get<std::uint64_t>());
+    }
+}
+
+/// Read a signed JSON number into an integral target; ignore missing/wrong-type fields.
+template <typename T> void read_signed(const nlohmann::json& j, const char* key, T& out) noexcept {
+    const auto it = j.find(key);
+    if (it != j.end() && it->is_number_integer()) {
+        out = static_cast<T>(it->get<std::int64_t>());
+    }
+}
+
+/// Read a JSON boolean into a bool target; ignore missing/wrong-type fields.
+void read_bool(const nlohmann::json& j, const char* key, bool& out) noexcept {
+    const auto it = j.find(key);
+    if (it != j.end() && it->is_boolean()) {
+        out = it->get<bool>();
+    }
+}
+
+/// Read a counter that may be represented as either unsigned or positive signed.
+void read_counter(const nlohmann::json& j, const char* key, std::uint64_t& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return;
+    }
+    if (it->is_number_unsigned()) {
+        out = it->get<std::uint64_t>();
+    } else if (it->is_number_integer()) {
+        const auto signed_value = it->get<std::int64_t>();
+        if (signed_value > 0) {
+            out = static_cast<std::uint64_t>(signed_value);
+        }
+    }
+}
+
+/// Read an enum field by string when present; ignore unknown/missing values.
+template <typename Enum>
+void read_enum(const nlohmann::json& j, const char* key, Enum& out) noexcept {
+    const auto node = j.find(key);
+    if (node == j.end() || !node->is_string()) {
+        return;
+    }
+    const auto* const text = node->get_ptr<const nlohmann::json::string_t*>();
+    if (text != nullptr) {
+        static_cast<void>(metrics::from_string(std::string_view(*text), out));
+    }
+}
+
+} // namespace
+
 // --- member to_string (mandate 9).
 
 std::string MetricIdentity::to_string() const {
@@ -149,36 +215,10 @@ void from_json(const nlohmann::json& j, ScalarValue& out) noexcept {
     if (!j.is_object()) {
         return;
     }
-    const auto number = [&j](const char* key, double& target) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number()) {
-            target = it->get<double>();
-        }
-    };
-    const auto unsigned_number = [&j](const char* key, std::uint64_t& target) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number_unsigned()) {
-            target = it->get<std::uint64_t>();
-        } else if (it != j.end() && it->is_number_integer()) {
-            const auto signed_value = it->get<std::int64_t>();
-            if (signed_value > 0) {
-                target = static_cast<std::uint64_t>(signed_value);
-            }
-        }
-    };
-    const auto signed_number = [&j](const char* key, std::int64_t& target) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number_integer()) {
-            target = it->get<std::int64_t>();
-        }
-    };
-    unsigned_number("counter", out.counter);
-    signed_number("gauge_int", out.gauge_int);
-    number("gauge_double", out.gauge_double);
-    const auto it = j.find("is_double");
-    if (it != j.end() && it->is_boolean()) {
-        out.is_double = it->get<bool>();
-    }
+    read_counter(j, "counter", out.counter);
+    read_signed(j, "gauge_int", out.gauge_int);
+    read_number(j, "gauge_double", out.gauge_double);
+    read_bool(j, "is_double", out.is_double);
 }
 
 void to_json(nlohmann::json& j, const StatisticsSnapshot& snapshot) {
@@ -197,25 +237,13 @@ void from_json(const nlohmann::json& j, StatisticsSnapshot& out) noexcept {
     if (!j.is_object()) {
         return;
     }
-    const auto number = [&j](const char* key, double& target) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number()) {
-            target = it->get<double>();
-        }
-    };
-    const auto unsigned_number = [&j](const char* key, std::uint64_t& target) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number_unsigned()) {
-            target = it->get<std::uint64_t>();
-        }
-    };
-    unsigned_number("count", out.count);
-    number("min", out.min);
-    number("max", out.max);
-    number("mean", out.mean);
-    number("std", out.stddev);
-    unsigned_number("ignored_samples", out.ignored_samples);
-    unsigned_number("dropped_samples", out.dropped_samples);
+    read_unsigned(j, "count", out.count);
+    read_number(j, "min", out.min);
+    read_number(j, "max", out.max);
+    read_number(j, "mean", out.mean);
+    read_number(j, "std", out.stddev);
+    read_unsigned(j, "ignored_samples", out.ignored_samples);
+    read_unsigned(j, "dropped_samples", out.dropped_samples);
 }
 
 void to_json(nlohmann::json& j, const HistogramSnapshot& snapshot) {
@@ -243,41 +271,35 @@ void to_json(nlohmann::json& j, const HistogramSnapshot& snapshot) {
     };
 }
 
-void from_json(const nlohmann::json& j, HistogramSnapshot& out) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
-    const auto number = [&j](const char* key, double& target) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number()) {
-            target = it->get<double>();
-        }
-    };
-    const auto unsigned_number = [&j](const char* key, std::uint64_t& target) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number_unsigned()) {
-            target = it->get<std::uint64_t>();
-        }
-    };
-    unsigned_number("count", out.count);
-    number("sum", out.sum);
-    number("min", out.min);
-    number("max", out.max);
-    unsigned_number("ignored_samples", out.ignored_samples);
-    unsigned_number("zero_count", out.zero_count);
-    number("p50", out.p50);
-    number("p90", out.p90);
-    number("p99", out.p99);
-    number("p99.9", out.p999);
+void read_histogram_fields(const nlohmann::json& j, HistogramSnapshot& out) noexcept {
+    read_unsigned(j, "count", out.count);
+    read_number(j, "sum", out.sum);
+    read_number(j, "min", out.min);
+    read_number(j, "max", out.max);
+    read_unsigned(j, "ignored_samples", out.ignored_samples);
+    read_unsigned(j, "zero_count", out.zero_count);
+    read_number(j, "p50", out.p50);
+    read_number(j, "p90", out.p90);
+    read_number(j, "p99", out.p99);
+    read_number(j, "p99.9", out.p999);
+}
+
+void read_histogram_scale(const nlohmann::json& j, HistogramSnapshot& out) noexcept {
     const auto scale_it = j.find("effective_scale");
     if (scale_it != j.end() && scale_it->is_number_integer()) {
         out.effective_scale = scale_it->get<std::int32_t>();
     }
+}
+
+void read_histogram_bucket_count(const nlohmann::json& j, HistogramSnapshot& out) noexcept {
     const auto count_it = j.find("bucket_count");
     if (count_it != j.end() && count_it->is_number_unsigned()) {
         out.bucket_count = std::min<std::uint32_t>(
             count_it->get<std::uint32_t>(), static_cast<std::uint32_t>(max_snapshot_buckets));
     }
+}
+
+void read_histogram_buckets(const nlohmann::json& j, HistogramSnapshot& out) noexcept {
     const auto lower_it = j.find("buckets_lower");
     if (lower_it != j.end() && lower_it->is_array()) {
         std::uint32_t i = 0;
@@ -300,6 +322,16 @@ void from_json(const nlohmann::json& j, HistogramSnapshot& out) noexcept {
             ++i;
         }
     }
+}
+
+void from_json(const nlohmann::json& j, HistogramSnapshot& out) noexcept {
+    if (!j.is_object()) {
+        return;
+    }
+    read_histogram_fields(j, out);
+    read_histogram_scale(j, out);
+    read_histogram_bucket_count(j, out);
+    read_histogram_buckets(j, out);
 }
 
 void to_json(nlohmann::json& j, const StateValue& value) {
@@ -338,60 +370,62 @@ void to_json(nlohmann::json& j, const MetricRecord& record) {
     }
 }
 
-void from_json(const nlohmann::json& j, MetricRecord& out) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
+void from_json_record_header(const nlohmann::json& j, MetricRecord& out) noexcept {
     const auto it = j.find("identity");
     if (it != j.end()) {
         from_json(*it, out.identity);
     }
-    const auto read_enum = [&j](const char* key, auto& target) {
-        const auto node = j.find(key);
-        if (node == j.end() || !node->is_string()) {
-            return;
-        }
-        const auto* const text = node->get_ptr<const nlohmann::json::string_t*>();
-        if (text != nullptr) {
-            static_cast<void>(metrics::from_string(std::string_view(*text), target));
-        }
-    };
-    read_enum("kind", out.kind);
-    read_enum("concurrency", out.concurrency);
-    read_enum("access", out.access);
-    read_enum("reset", out.reset);
+    read_enum(j, "kind", out.kind);
+    read_enum(j, "concurrency", out.concurrency);
+    read_enum(j, "access", out.access);
+    read_enum(j, "reset", out.reset);
+}
+
+void from_json_payload_scalar(const nlohmann::json& j, MetricRecord& out) noexcept {
+    const auto scalar_it = j.find("scalar");
+    if (scalar_it != j.end()) {
+        from_json(*scalar_it, out.scalar);
+    }
+}
+
+void from_json_payload_statistics(const nlohmann::json& j, MetricRecord& out) noexcept {
+    const auto stats_it = j.find("statistics");
+    if (stats_it != j.end()) {
+        from_json(*stats_it, out.statistics);
+    }
+}
+
+void from_json_payload_state(const nlohmann::json& j, MetricRecord& out) noexcept {
+    const auto state_it = j.find("state");
+    if (state_it != j.end()) {
+        from_json(*state_it, out.state);
+    }
+}
+
+void from_json_payload_histogram(const nlohmann::json& j, MetricRecord& out) noexcept {
+    const auto hist_it = j.find("histogram");
+    if (hist_it != j.end()) {
+        from_json(*hist_it, out.histogram);
+    }
+}
+
+void from_json_payload(const nlohmann::json& j, MetricRecord& out) noexcept {
     // Deserialize into the union member selected by `kind`.
     switch (out.kind) {
         case MetricKind::Counter:
-        case MetricKind::Gauge:   {
-            const auto scalar_it = j.find("scalar");
-            if (scalar_it != j.end()) {
-                from_json(*scalar_it, out.scalar);
-            }
-            break;
-        }
-        case MetricKind::DescriptiveStatistics: {
-            const auto stats_it = j.find("statistics");
-            if (stats_it != j.end()) {
-                from_json(*stats_it, out.statistics);
-            }
-            break;
-        }
-        case MetricKind::State: {
-            const auto state_it = j.find("state");
-            if (state_it != j.end()) {
-                from_json(*state_it, out.state);
-            }
-            break;
-        }
-        default: {
-            const auto hist_it = j.find("histogram");
-            if (hist_it != j.end()) {
-                from_json(*hist_it, out.histogram);
-            }
-            break;
-        }
+        case MetricKind::Gauge:                 from_json_payload_scalar(j, out); break;
+        case MetricKind::DescriptiveStatistics: from_json_payload_statistics(j, out); break;
+        case MetricKind::State:                 from_json_payload_state(j, out); break;
+        default:                                from_json_payload_histogram(j, out); break;
     }
+}
+
+void from_json(const nlohmann::json& j, MetricRecord& out) noexcept {
+    if (!j.is_object()) {
+        return;
+    }
+    from_json_record_header(j, out);
+    from_json_payload(j, out);
 }
 
 void to_json(nlohmann::json& j, const MetricBatchSnapshot& batch) {
@@ -410,22 +444,7 @@ void to_json(nlohmann::json& j, const MetricBatchSnapshot& batch) {
     };
 }
 
-void from_json(const nlohmann::json& j, MetricBatchSnapshot& out) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
-    const auto stamp_it = j.find("stamp_ns");
-    if (stamp_it != j.end() && stamp_it->is_number_unsigned()) {
-        out.stamp = chrono::Timestamp{stamp_it->get<std::uint64_t>()};
-    }
-    const auto utc_it = j.find("utc_ns");
-    if (utc_it != j.end() && utc_it->is_number_integer()) {
-        out.utc_ns = utc_it->get<std::int64_t>();
-    }
-    const auto count_it = j.find("record_count");
-    if (count_it != j.end() && count_it->is_number_unsigned()) {
-        out.record_count = count_it->get<std::uint32_t>();
-    }
+void from_json_records_array(const nlohmann::json& j, MetricBatchSnapshot& out) noexcept {
     const auto records_it = j.find("records");
     if (records_it == j.end() || !records_it->is_array() || out.records == nullptr) {
         return;
@@ -441,6 +460,19 @@ void from_json(const nlohmann::json& j, MetricBatchSnapshot& out) noexcept {
     if (i < out.record_count) {
         out.record_count = i;
     }
+}
+
+void from_json(const nlohmann::json& j, MetricBatchSnapshot& out) noexcept {
+    if (!j.is_object()) {
+        return;
+    }
+    const auto stamp_it = j.find("stamp_ns");
+    if (stamp_it != j.end() && stamp_it->is_number_unsigned()) {
+        out.stamp = chrono::Timestamp{stamp_it->get<std::uint64_t>()};
+    }
+    read_signed(j, "utc_ns", out.utc_ns);
+    read_unsigned(j, "record_count", out.record_count);
+    from_json_records_array(j, out);
 }
 
 } // namespace nexigen::metrics
@@ -482,20 +514,8 @@ void from_json(const nlohmann::json& j, MetricProviderConfig& out) noexcept {
     if (!j.is_object()) {
         return;
     }
-    const auto number = [&j](const char* key, std::int64_t& target) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number_integer()) {
-            target = it->get<std::int64_t>();
-        }
-    };
-    const auto unsigned_number = [&j](const char* key, std::uint32_t& target) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number_unsigned()) {
-            target = it->get<std::uint32_t>();
-        }
-    };
     std::int64_t interval = out.collect_interval.count();
-    number("collect_interval_ns", interval);
+    read_signed(j, "collect_interval_ns", interval);
     out.collect_interval = std::chrono::nanoseconds{interval};
     const auto mask_it = j.find("core_mask");
     if (mask_it != j.end() && mask_it->is_number_unsigned()) {
@@ -505,13 +525,13 @@ void from_json(const nlohmann::json& j, MetricProviderConfig& out) noexcept {
     if (worker_it != j.end()) {
         static_cast<void>(core::parse_thread_spec_json(*worker_it, out.worker_thread));
     }
-    unsigned_number("max_meters", out.max_meters);
-    unsigned_number("max_counters", out.max_counters);
-    unsigned_number("max_gauges", out.max_gauges);
-    unsigned_number("max_states", out.max_states);
-    unsigned_number("max_statistics", out.max_statistics);
-    unsigned_number("max_explicit_histograms", out.max_explicit_histograms);
-    unsigned_number("max_exponential_histograms", out.max_exponential_histograms);
+    read_unsigned(j, "max_meters", out.max_meters);
+    read_unsigned(j, "max_counters", out.max_counters);
+    read_unsigned(j, "max_gauges", out.max_gauges);
+    read_unsigned(j, "max_states", out.max_states);
+    read_unsigned(j, "max_statistics", out.max_statistics);
+    read_unsigned(j, "max_explicit_histograms", out.max_explicit_histograms);
+    read_unsigned(j, "max_exponential_histograms", out.max_exponential_histograms);
 }
 
 } // namespace nexigen::metrics

@@ -107,6 +107,17 @@ LocationIntern& location_intern() noexcept {
     return table;
 }
 
+/// Reads an unsigned JSON number into `out` when present and valid.
+template <typename T>
+[[nodiscard]] bool read_unsigned(const nlohmann::json& j, const char* key, T& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end() || !it->is_number_unsigned()) {
+        return false;
+    }
+    out = static_cast<T>(it->get<std::uint64_t>());
+    return true;
+}
+
 } // namespace
 
 // --- TraceId / SpanId -------------------------------------------------------
@@ -244,6 +255,61 @@ void to_json(nlohmann::json& j, const SpanAttribute& attribute) {
     };
 }
 
+[[nodiscard]] bool parse_attribute_value(const nlohmann::json& value, SpanAttributeType type,
+                                         SpanAttribute& staged,
+                                         std::string_view key_view) noexcept {
+    switch (type) {
+        case SpanAttributeType::Int64: {
+            const auto* const number = value.get_ptr<const nlohmann::json::number_integer_t*>();
+            if (number == nullptr) {
+                return false;
+            }
+            static_cast<void>(staged.store(key_view, static_cast<std::int64_t>(*number)));
+            return true;
+        }
+        case SpanAttributeType::Uint64: {
+            const auto* const number = value.get_ptr<const nlohmann::json::number_unsigned_t*>();
+            if (number == nullptr) {
+                return false;
+            }
+            static_cast<void>(staged.store(key_view, static_cast<std::uint64_t>(*number)));
+            return true;
+        }
+        case SpanAttributeType::Double: {
+            const auto* const number = value.get_ptr<const nlohmann::json::number_float_t*>();
+            if (number == nullptr) {
+                return false;
+            }
+            static_cast<void>(staged.store(key_view, static_cast<double>(*number)));
+            return true;
+        }
+        case SpanAttributeType::Bool: {
+            const auto* const flag = value.get_ptr<const nlohmann::json::boolean_t*>();
+            if (flag == nullptr) {
+                return false;
+            }
+            static_cast<void>(staged.store(key_view, static_cast<bool>(*flag)));
+            return true;
+        }
+        case SpanAttributeType::String: {
+            const auto* const text = value.get_ptr<const nlohmann::json::string_t*>();
+            if (text == nullptr) {
+                return false;
+            }
+            const std::string_view text_view(*text);
+            // Inline-representable strings restore exactly; LONGER strings
+            // are producer-owned views that deserialization cannot rebind —
+            // the attribute stays untouched (documented bound).
+            if (text_view.size() > attribute_inline_text_capacity) {
+                return false;
+            }
+            static_cast<void>(staged.store(key_view, text_view));
+            return true;
+        }
+        default: return false; // unknown tag: untouched
+    }
+}
+
 void from_json(const nlohmann::json& j, SpanAttribute& out) noexcept {
     if (!j.is_object()) {
         return; // wrong shape: untouched
@@ -270,59 +336,11 @@ void from_json(const nlohmann::json& j, SpanAttribute& out) noexcept {
     if (value_field == j.end()) {
         return;
     }
-    const nlohmann::json& value = *value_field;
     // Parse into a staging attribute; commit only on a clean field parse so a
     // wrong-typed value leaves the WHOLE attribute untouched.
     SpanAttribute staged = out;
-    switch (parsed_type) {
-        case SpanAttributeType::Int64: {
-            const auto* const number = value.get_ptr<const nlohmann::json::number_integer_t*>();
-            if (number == nullptr) {
-                return;
-            }
-            static_cast<void>(staged.store(key_view, static_cast<std::int64_t>(*number)));
-            break;
-        }
-        case SpanAttributeType::Uint64: {
-            const auto* const number = value.get_ptr<const nlohmann::json::number_unsigned_t*>();
-            if (number == nullptr) {
-                return;
-            }
-            static_cast<void>(staged.store(key_view, static_cast<std::uint64_t>(*number)));
-            break;
-        }
-        case SpanAttributeType::Double: {
-            const auto* const number = value.get_ptr<const nlohmann::json::number_float_t*>();
-            if (number == nullptr) {
-                return;
-            }
-            static_cast<void>(staged.store(key_view, static_cast<double>(*number)));
-            break;
-        }
-        case SpanAttributeType::Bool: {
-            const auto* const flag = value.get_ptr<const nlohmann::json::boolean_t*>();
-            if (flag == nullptr) {
-                return;
-            }
-            static_cast<void>(staged.store(key_view, static_cast<bool>(*flag)));
-            break;
-        }
-        case SpanAttributeType::String: {
-            const auto* const text = value.get_ptr<const nlohmann::json::string_t*>();
-            if (text == nullptr) {
-                return;
-            }
-            const std::string_view text_view(*text);
-            // Inline-representable strings restore exactly; LONGER strings
-            // are producer-owned views that deserialization cannot rebind —
-            // the attribute stays untouched (documented bound).
-            if (text_view.size() > attribute_inline_text_capacity) {
-                return;
-            }
-            static_cast<void>(staged.store(key_view, text_view));
-            break;
-        }
-        default: return; // unknown tag: untouched
+    if (!parse_attribute_value(*value_field, parsed_type, staged, key_view)) {
+        return;
     }
     out = staged;
 }
@@ -385,10 +403,7 @@ void to_json(nlohmann::json& j, const SpanRecord& record) {
     };
 }
 
-void from_json(const nlohmann::json& j, SpanRecord& out) noexcept {
-    if (!j.is_object()) {
-        return; // scalar/array/null: the record is unchanged
-    }
+void from_json_header(const nlohmann::json& j, SpanRecord& out) noexcept {
     const auto trace = j.find("trace_id");
     if (trace != j.end()) {
         nlohmann::from_json(*trace, out.trace_id);
@@ -409,18 +424,9 @@ void from_json(const nlohmann::json& j, SpanRecord& out) noexcept {
     if (status != j.end()) {
         nlohmann::from_json(*status, out.status);
     }
-    const auto flags = j.find("flags");
-    if (flags != j.end() && flags->is_number_unsigned()) {
-        out.flags = static_cast<std::uint8_t>(flags->get<std::uint64_t>());
-    }
-    const auto attribute_count = j.find("attribute_count");
-    if (attribute_count != j.end() && attribute_count->is_number_unsigned()) {
-        out.attribute_count = static_cast<std::uint8_t>(attribute_count->get<std::uint64_t>());
-    }
-    const auto thread_id = j.find("thread_id");
-    if (thread_id != j.end() && thread_id->is_number_unsigned()) {
-        out.thread_id = static_cast<std::uint32_t>(thread_id->get<std::uint64_t>());
-    }
+    static_cast<void>(read_unsigned(j, "flags", out.flags));
+    static_cast<void>(read_unsigned(j, "attribute_count", out.attribute_count));
+    static_cast<void>(read_unsigned(j, "thread_id", out.thread_id));
     const auto start_ns = j.find("start_ns");
     if (start_ns != j.end() && start_ns->is_number_unsigned()) {
         out.start = chrono::Timestamp{start_ns->get<std::uint64_t>()};
@@ -429,19 +435,26 @@ void from_json(const nlohmann::json& j, SpanRecord& out) noexcept {
     if (end_ns != j.end() && end_ns->is_number_unsigned()) {
         out.end = chrono::Timestamp{end_ns->get<std::uint64_t>()};
     }
+}
+
+void from_json_name(const nlohmann::json& j, SpanRecord& out) noexcept {
     const auto name = j.find("name");
-    if (name != j.end() && name->is_string()) {
-        const auto* const text = name->get_ptr<const nlohmann::json::string_t*>();
-        if (text != nullptr) {
-            const std::size_t take = text->size() <= SpanRecord::name_capacity
-                                         ? text->size()
-                                         : SpanRecord::name_capacity;
-            for (std::size_t i = 0; i < take; ++i) {
-                out.name[i] = (*text)[i];
-            }
-            out.name[take] = '\0';
-        }
+    if (name == j.end() || !name->is_string()) {
+        return;
     }
+    const auto* const text = name->get_ptr<const nlohmann::json::string_t*>();
+    if (text == nullptr) {
+        return;
+    }
+    const std::size_t take =
+        text->size() <= SpanRecord::name_capacity ? text->size() : SpanRecord::name_capacity;
+    for (std::size_t i = 0; i < take; ++i) {
+        out.name[i] = (*text)[i];
+    }
+    out.name[take] = '\0';
+}
+
+void from_json_location(const nlohmann::json& j, SpanRecord& out) noexcept {
     const auto file = j.find("file");
     if (file != j.end() && file->is_string()) {
         const auto* const text = file->get_ptr<const nlohmann::json::string_t*>();
@@ -465,34 +478,42 @@ void from_json(const nlohmann::json& j, SpanRecord& out) noexcept {
             }
         }
     }
-    const auto line = j.find("line");
-    if (line != j.end() && line->is_number_unsigned()) {
-        out.line = static_cast<std::uint32_t>(line->get<std::uint64_t>());
-    }
-    const auto column = j.find("column");
-    if (column != j.end() && column->is_number_unsigned()) {
-        out.column = static_cast<std::uint32_t>(column->get<std::uint64_t>());
-    }
+    static_cast<void>(read_unsigned(j, "line", out.line));
+    static_cast<void>(read_unsigned(j, "column", out.column));
+}
+
+void from_json_attributes(const nlohmann::json& j, SpanRecord& out) noexcept {
     const auto attributes = j.find("attributes");
-    if (attributes != j.end() && attributes->is_array()) {
-        std::uint8_t count = 0;
-        for (const auto& element : *attributes) {
-            if (count >= MaxAttributes) {
-                break;
-            }
-            SpanAttribute staged{};
-            nlohmann::from_json(element, staged);
-            // A parsed attribute always carries a key and the correct tag; a
-            // default-constructed staging slot means the element did not
-            // parse cleanly — skipped without touching the rest.
-            if (staged.key_view().empty() && staged.type == SpanAttributeType::Int64) {
-                continue;
-            }
-            out.attributes[count] = staged;
-            ++count;
-        }
-        out.attribute_count = count;
+    if (attributes == j.end() || !attributes->is_array()) {
+        return;
     }
+    std::uint8_t count = 0;
+    for (const auto& element : *attributes) {
+        if (count >= MaxAttributes) {
+            break;
+        }
+        SpanAttribute staged{};
+        nlohmann::from_json(element, staged);
+        // A parsed attribute always carries a key and the correct tag; a
+        // default-constructed staging slot means the element did not parse
+        // cleanly — skipped without touching the rest.
+        if (staged.key_view().empty() && staged.type == SpanAttributeType::Int64) {
+            continue;
+        }
+        out.attributes[count] = staged;
+        ++count;
+    }
+    out.attribute_count = count;
+}
+
+void from_json(const nlohmann::json& j, SpanRecord& out) noexcept {
+    if (!j.is_object()) {
+        return; // scalar/array/null: the record is unchanged
+    }
+    from_json_header(j, out);
+    from_json_name(j, out);
+    from_json_location(j, out);
+    from_json_attributes(j, out);
 }
 
 // --- TracerProviderConfig / DroppedStats (declared in tracer_provider.hpp;
@@ -533,18 +554,9 @@ void from_json(const nlohmann::json& j, TracerProviderConfig& out) noexcept {
     if (worker != j.end()) {
         static_cast<void>(core::parse_thread_spec_json(*worker, out.worker_thread));
     }
-    const auto max_tracers = j.find("max_tracers");
-    if (max_tracers != j.end() && max_tracers->is_number_unsigned()) {
-        out.max_tracers = static_cast<std::uint32_t>(max_tracers->get<std::uint64_t>());
-    }
-    const auto max_spans = j.find("max_spans_per_window");
-    if (max_spans != j.end() && max_spans->is_number_unsigned()) {
-        out.max_spans_per_window = max_spans->get<std::uint64_t>();
-    }
-    const auto window_ns = j.find("window_ns");
-    if (window_ns != j.end() && window_ns->is_number_unsigned()) {
-        out.window_ns = window_ns->get<std::uint64_t>();
-    }
+    static_cast<void>(read_unsigned(j, "max_tracers", out.max_tracers));
+    static_cast<void>(read_unsigned(j, "max_spans_per_window", out.max_spans_per_window));
+    static_cast<void>(read_unsigned(j, "window_ns", out.window_ns));
     const auto poll = j.find("worker_poll_interval_us");
     if (poll != j.end() && poll->is_number_unsigned()) {
         out.worker_poll_interval_us = static_cast<std::uint32_t>(std::min<std::uint64_t>(
@@ -575,18 +587,9 @@ void from_json(const nlohmann::json& j, DroppedStats& out) noexcept {
     if (!j.is_object()) {
         return;
     }
-    const auto rate_limited = j.find("rate_limited");
-    if (rate_limited != j.end() && rate_limited->is_number_unsigned()) {
-        out.rate_limited = rate_limited->get<std::uint64_t>();
-    }
-    const auto buffer_full = j.find("buffer_full");
-    if (buffer_full != j.end() && buffer_full->is_number_unsigned()) {
-        out.buffer_full = buffer_full->get<std::uint64_t>();
-    }
-    const auto slot_exhausted = j.find("slot_exhausted");
-    if (slot_exhausted != j.end() && slot_exhausted->is_number_unsigned()) {
-        out.slot_exhausted = slot_exhausted->get<std::uint64_t>();
-    }
+    static_cast<void>(read_unsigned(j, "rate_limited", out.rate_limited));
+    static_cast<void>(read_unsigned(j, "buffer_full", out.buffer_full));
+    static_cast<void>(read_unsigned(j, "slot_exhausted", out.slot_exhausted));
 }
 
 } // namespace nexigen::tracing

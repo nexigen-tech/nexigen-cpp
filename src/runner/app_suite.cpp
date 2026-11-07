@@ -79,6 +79,11 @@ constexpr std::uint64_t suite_poll_interval_ms = 100;
 
 // --- small string/path helpers ---------------------------------------------
 
+[[nodiscard]] bool is_allowed_id_char(char c) noexcept {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' ||
+           c == '_' || c == '-';
+}
+
 [[nodiscard]] bool safe_id(std::string_view id) noexcept {
     if (id.empty() || id.size() > 128U) {
         return false;
@@ -87,9 +92,7 @@ constexpr std::uint64_t suite_poll_interval_ms = 100;
         return false;
     }
     for (const char c : id) {
-        const bool allowed = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-                             (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
-        if (!allowed) {
+        if (!is_allowed_id_char(c)) {
             return false;
         }
     }
@@ -1330,29 +1333,30 @@ void apply_launch_failures(RuntimeSuite& suite) {
     return false;
 }
 
-void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suite_dir,
-                          int report_fd) {
-    static_cast<void>(reset_runner_affinity());
-    core::ThreadApplyReport control_report{};
-    const core::Status control_pin = apply_runner_thread_spec(manifest.runner_control_thread,
-                                                              control_report, "suite-supervisor");
-    if (!control_pin) {
-        const std::string detail = describe_thread_apply_report(control_report);
+void advance_suite_apps(RuntimeSuite& suite, std::uint64_t now) {
+    for (RuntimeApp& app : suite.apps) {
+        if (advance_app(suite, app, now)) {
+            break;
+        }
+    }
+}
+
+void apply_suite_control_thread(const SuiteManifest& manifest) noexcept {
+    core::ThreadApplyReport report{};
+    const core::Status status =
+        apply_runner_thread_spec(manifest.runner_control_thread, report, "suite-supervisor");
+    if (!status) {
+        const std::string detail = describe_thread_apply_report(report);
         std::fprintf(stderr, "nexigen-run: control thread spec application failed: %s\n",
                      detail.c_str());
         if (manifest.runner_control_thread.apply_mode() == core::ThreadApplyMode::Required) {
             child_exit(1); // no application has been launched at this point
         }
     }
+}
 
-    RuntimeSuite suite{};
-    suite.manifest = &manifest;
-    suite.suite_dir = suite_dir;
-    suite.state_path = join_path(suite_dir, "suite-state.json");
-    suite.exit_path = join_path(suite_dir, "suite-exit.json");
-    suite.stop_path = join_path(suite_dir, "stop.request");
-    suite.start_mono_ns = monotonic_now_ns();
-
+[[nodiscard]] SuiteMetadata build_suite_metadata(const SuiteManifest& manifest, std::int32_t pid,
+                                                 std::uint64_t start_mono_ns) {
     SuiteMetadata metadata{};
     metadata.suite_id = manifest.suite_id;
     metadata.runner_name = manifest.runner_name;
@@ -1360,12 +1364,12 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
     metadata.run_dir = manifest.run_dir;
     metadata.global_settings_path = manifest.global_settings_path;
     metadata.artifacts_path = manifest.artifacts_path;
-    metadata.pid = ::getpid();
+    metadata.pid = pid;
     metadata.start_time_rfc3339 = utc_now_rfc3339();
-    metadata.start_time_mono_ns = suite.start_mono_ns;
+    metadata.start_time_mono_ns = start_mono_ns;
     // Identity anchor for suite stop (PID-recycling protection): the
     // supervisor records its own starttime ticks while alive right here.
-    metadata.proc_start_ticks = detail::proc_start_ticks(metadata.pid);
+    metadata.proc_start_ticks = detail::proc_start_ticks(pid);
     metadata.manifest_path = manifest.manifest_path;
     metadata.runner_control_thread = manifest.runner_control_thread;
     metadata.runner_logger_thread = manifest.runner_logger_thread;
@@ -1378,6 +1382,11 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
         entry.stop_grace_s = app.stop_grace_s;
         metadata.apps.push_back(std::move(entry));
     }
+    return metadata;
+}
+
+void write_suite_metadata_file(const SuiteMetadata& metadata, const std::string& suite_dir,
+                               int report_fd) {
     nlohmann::json metadata_json;
     to_json(metadata_json, metadata);
     if (!write_json_file(join_path(suite_dir, "suite.json"), metadata_json)) {
@@ -1386,7 +1395,9 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
         static_cast<void>(::close(report_fd));
         child_exit(1);
     }
+}
 
+void initialize_runtime_apps(RuntimeSuite& suite, const SuiteManifest& manifest) {
     suite.apps.reserve(manifest.apps.size());
     for (const AppSpec& app : manifest.apps) {
         RuntimeApp runtime{};
@@ -1394,14 +1405,9 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
         runtime.instance_dir = manifest.run_dir + "/" + app.app + "/" + app.instance;
         suite.apps.push_back(std::move(runtime));
     }
+}
 
-    launch_all(suite);
-    write_suite_status(suite);
-
-    StartReport report{::getpid(), 0};
-    static_cast<void>(write_all_no_sigpipe(report_fd, &report, sizeof(report)));
-    static_cast<void>(::close(report_fd));
-
+void init_suite_logging(const SuiteManifest& manifest) {
     logging::Settings log_settings{};
     const core::Status settings_status =
         load_runner_logging_settings(manifest.global_settings_path, log_settings);
@@ -1418,8 +1424,11 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
     if (!log_status) {
         warn_runner("event=logging_unavailable detail=runner.jsonl not writable");
     }
+}
+
+void log_initial_app_launches(const RuntimeSuite& suite) {
     log_runner(logging::LogLevel::Info, std::format("event=suite_started suite={} apps={}",
-                                                    manifest.suite_id, suite.apps.size()));
+                                                    suite.manifest->suite_id, suite.apps.size()));
     for (const RuntimeApp& app : suite.apps) {
         log_runner(app.state == AppState::Failed ? logging::LogLevel::Warning
                                                  : logging::LogLevel::Info,
@@ -1428,46 +1437,64 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
                                app.spec.app, app.spec.instance, app.attempt, app.child_pid,
                                nexigen::runner::to_string(app.state)));
     }
+}
+
+void supervisor_tick(RuntimeSuite& suite, const SuiteManifest& manifest, std::uint64_t now) {
+    if (file_exists(suite.stop_path)) {
+        finish_suite_stop(suite, manifest);
+    }
+    reap_supervisors();
+
+    if (!advance_suite_restart(suite, manifest, now)) {
+        advance_suite_apps(suite, now);
+    }
+
+    if (suite.dirty) {
+        write_suite_status(suite);
+        suite.dirty = false;
+    }
+}
+
+void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suite_dir,
+                          int report_fd) {
+    static_cast<void>(reset_runner_affinity());
+    apply_suite_control_thread(manifest);
+
+    RuntimeSuite suite{};
+    suite.manifest = &manifest;
+    suite.suite_dir = suite_dir;
+    suite.state_path = join_path(suite_dir, "suite-state.json");
+    suite.exit_path = join_path(suite_dir, "suite-exit.json");
+    suite.stop_path = join_path(suite_dir, "stop.request");
+    suite.start_mono_ns = monotonic_now_ns();
+
+    const SuiteMetadata metadata = build_suite_metadata(manifest, ::getpid(), suite.start_mono_ns);
+    write_suite_metadata_file(metadata, suite_dir, report_fd);
+
+    initialize_runtime_apps(suite, manifest);
+    launch_all(suite);
+    write_suite_status(suite);
+
+    StartReport report{::getpid(), 0};
+    static_cast<void>(write_all_no_sigpipe(report_fd, &report, sizeof(report)));
+    static_cast<void>(::close(report_fd));
+
+    init_suite_logging(manifest);
+    log_initial_app_launches(suite);
 
     apply_launch_failures(suite);
     write_suite_status(suite);
 
     for (;;) {
-        if (file_exists(suite.stop_path)) {
-            finish_suite_stop(suite, manifest);
-        }
-        reap_supervisors();
-
         const std::uint64_t now = monotonic_now_ns();
-        if (advance_suite_restart(suite, manifest, now)) {
-            sleep_ms(suite_poll_interval_ms);
-            continue;
-        }
-
-        for (RuntimeApp& app : suite.apps) {
-            if (advance_app(suite, app, now)) {
-                break;
-            }
-        }
-
-        if (suite.dirty) {
-            write_suite_status(suite);
-            suite.dirty = false;
-        }
+        supervisor_tick(suite, manifest, now);
         sleep_ms(suite_poll_interval_ms);
     }
 }
 
 } // namespace
 
-core::Status start_suite(const SuiteManifest& manifest, std::string& suite_dir_out) {
-    const core::Status valid = validate_suite_manifest(manifest);
-    if (!valid) {
-        return valid;
-    }
-    // Required attributes are validated and exercised on a short-lived probe
-    // before any directory, supervisor, or application is created. The actual
-    // control/logger threads apply the same immutable spec again on startup.
+[[nodiscard]] core::Status preflight_suite_threads(const SuiteManifest& manifest) noexcept {
     const auto preflight = [](const core::ThreadSpec& spec) -> core::Status {
         if (spec.apply_mode() != core::ThreadApplyMode::Required) {
             return {};
@@ -1484,34 +1511,88 @@ core::Status start_suite(const SuiteManifest& manifest, std::string& suite_dir_o
     if (const core::Status logger = preflight(manifest.runner_logger_thread); !logger) {
         return logger;
     }
+    return {};
+}
 
+[[nodiscard]] bool suite_is_running(const SuiteManifest& manifest,
+                                    std::string& existing_suite_dir) {
     const std::string suite_dir = suite_dir_path(manifest.run_dir, manifest.suite_id);
-    suite_dir_out = suite_dir;
-
+    existing_suite_dir = suite_dir;
     const std::string metadata_path = join_path(suite_dir, "suite.json");
     const std::string exit_path = join_path(suite_dir, "suite-exit.json");
-    const std::string stop_path = join_path(suite_dir, "stop.request");
-    if (file_exists(metadata_path) && !file_exists(exit_path)) {
-        SuiteMetadata existing{};
-        const core::Result<nlohmann::json> document = read_json_file(metadata_path);
-        if (document) {
-            from_json(*document, existing);
-            if (process_alive(existing.pid)) {
-                return std::unexpected(core::ErrorCode::Conflict);
-            }
+    if (!file_exists(metadata_path) || file_exists(exit_path)) {
+        return false;
+    }
+    SuiteMetadata existing{};
+    const core::Result<nlohmann::json> document = read_json_file(metadata_path);
+    if (!document) {
+        return false;
+    }
+    from_json(*document, existing);
+    return process_alive(existing.pid);
+}
+
+[[nodiscard]] core::Status create_suite_pipes(int pipe_fds[2]) noexcept {
+    if (::pipe2(pipe_fds, O_CLOEXEC) != 0) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return {};
+}
+
+[[noreturn]] void run_suite_supervisor_child(const SuiteManifest& manifest,
+                                             const std::string& suite_dir, int read_fd,
+                                             int report_fd) noexcept {
+    static_cast<void>(::close(read_fd)); // close the read end inherited from parent
+    static_cast<void>(reset_runner_affinity());
+    static_cast<void>(::setsid());
+    const int null_fd = ::open("/dev/null", O_RDWR | O_CLOEXEC);
+    if (null_fd >= 0) {
+        redirect_to_null_local(null_fd);
+        if (null_fd > STDERR_FILENO) {
+            static_cast<void>(::close(null_fd));
         }
     }
+    run_suite_supervisor(manifest, suite_dir, report_fd);
+    child_exit(0);
+}
 
-    const core::Status created = create_artifact_dir(suite_dir);
-    if (!created) {
+[[nodiscard]] core::Status read_supervisor_start_report(int read_fd, pid_t supervisor) noexcept {
+    StartReport report{};
+    const bool received = read_all(read_fd, &report, sizeof(report));
+    static_cast<void>(::close(read_fd));
+    if (!received || report.error != 0 || report.pid <= 0) {
+        reap_failed_supervisor(supervisor);
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return {};
+}
+
+core::Status start_suite(const SuiteManifest& manifest, std::string& suite_dir_out) {
+    if (const core::Status valid = validate_suite_manifest(manifest); !valid) {
+        return valid;
+    }
+    if (const core::Status threads = preflight_suite_threads(manifest); !threads) {
+        return threads;
+    }
+
+    std::string suite_dir;
+    if (suite_is_running(manifest, suite_dir)) {
+        suite_dir_out = suite_dir;
+        return std::unexpected(core::ErrorCode::Conflict);
+    }
+    suite_dir_out = suite_dir;
+    const std::string exit_path = join_path(suite_dir, "suite-exit.json");
+    const std::string stop_path = join_path(suite_dir, "stop.request");
+
+    if (const core::Status created = create_artifact_dir(suite_dir); !created) {
         return created;
     }
     static_cast<void>(::unlink(exit_path.c_str()));
     static_cast<void>(::unlink(stop_path.c_str()));
 
     int pipe_fds[2]{-1, -1};
-    if (::pipe2(pipe_fds, O_CLOEXEC) != 0) {
-        return std::unexpected(core::ErrorCode::SystemError);
+    if (const core::Status pipes = create_suite_pipes(pipe_fds); !pipes) {
+        return pipes;
     }
 
     const pid_t supervisor = ::fork();
@@ -1522,32 +1603,104 @@ core::Status start_suite(const SuiteManifest& manifest, std::string& suite_dir_o
     }
 
     if (supervisor == 0) {
-        static_cast<void>(::close(pipe_fds[0]));
-        static_cast<void>(reset_runner_affinity());
-        static_cast<void>(::setsid());
-        const int null_fd = ::open("/dev/null", O_RDWR | O_CLOEXEC);
-        if (null_fd >= 0) {
-            redirect_to_null_local(null_fd);
-            if (null_fd > STDERR_FILENO) {
-                static_cast<void>(::close(null_fd));
-            }
-        }
-        run_suite_supervisor(manifest, suite_dir, pipe_fds[1]);
-        child_exit(0);
+        run_suite_supervisor_child(manifest, suite_dir, pipe_fds[0], pipe_fds[1]);
     }
 
     static_cast<void>(::close(pipe_fds[1]));
-    StartReport report{};
-    const bool received = read_all(pipe_fds[0], &report, sizeof(report));
-    static_cast<void>(::close(pipe_fds[0]));
-    if (!received || report.error != 0 || report.pid <= 0) {
-        // Failed start must not leave a zombie supervisor behind (spec
-        // process-supervision "A failed start reaps the supervisor child":
-        // bounded non-blocking drain).
-        reap_failed_supervisor(supervisor);
-        return std::unexpected(core::ErrorCode::SystemError);
+    return read_supervisor_start_report(pipe_fds[0], supervisor);
+}
+
+[[nodiscard]] bool write_stop_request(const std::string& stop_path) noexcept {
+    const int fd = ::open(stop_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd < 0) {
+        return false;
     }
-    return {};
+    static_cast<void>(::close(fd));
+    return true;
+}
+
+[[nodiscard]] std::uint64_t
+effective_stop_grace(const SuiteMetadata& metadata,
+                     const std::optional<std::uint64_t>& grace_override) noexcept {
+    if (grace_override.has_value()) {
+        return *grace_override;
+    }
+    if (metadata.apps.empty()) {
+        return 5;
+    }
+    std::uint64_t grace = metadata.apps.front().stop_grace_s;
+    for (const SuiteAppMetadata& app : metadata.apps) {
+        if (app.stop_grace_s > grace) {
+            grace = app.stop_grace_s;
+        }
+    }
+    return grace;
+}
+
+[[nodiscard]] bool wait_for_suite_exit(const std::string& exit_path,
+                                       std::uint64_t deadline_ns) noexcept {
+    while (monotonic_now_ns() < deadline_ns && !file_exists(exit_path)) {
+        sleep_ms(suite_poll_interval_ms);
+    }
+    return file_exists(exit_path);
+}
+
+void signal_supervisor_with_grace(std::int32_t pid) noexcept {
+    if (pid <= 0 || !process_alive(pid)) {
+        return;
+    }
+    static_cast<void>(::kill(static_cast<pid_t>(pid), SIGTERM));
+    const std::uint64_t kill_deadline = monotonic_now_ns() + 2ULL * nanoseconds_per_second;
+    while (monotonic_now_ns() < kill_deadline && process_alive(pid)) {
+        sleep_ms(suite_poll_interval_ms);
+    }
+    if (process_alive(pid)) {
+        static_cast<void>(::kill(static_cast<pid_t>(pid), SIGKILL));
+    }
+}
+
+void stop_suite_apps(const std::vector<SuiteAppMetadata>& apps,
+                     const std::optional<std::uint64_t>& grace_override) noexcept {
+    for (const SuiteAppMetadata& app : apps) {
+        Runner runner;
+        static_cast<void>(runner.stop(app.instance_dir, grace_override.value_or(app.stop_grace_s)));
+    }
+}
+
+void write_terminal_suite_state(const SuiteMetadata& metadata, const std::string& state_path,
+                                const std::string& exit_path) {
+    SuiteStatus status{};
+    const core::Result<nlohmann::json> existing = read_json_file(state_path);
+    if (existing) {
+        from_json(*existing, status);
+    } else {
+        status.suite_id = metadata.suite_id;
+        status.run_dir = metadata.run_dir;
+        status.artifacts_path = metadata.artifacts_path;
+        status.apps.reserve(metadata.apps.size());
+        for (const SuiteAppMetadata& app : metadata.apps) {
+            SuiteAppStatus entry{};
+            entry.app = app.app;
+            entry.instance = app.instance;
+            entry.instance_dir = app.instance_dir;
+            entry.state = AppState::Stopped;
+            status.apps.push_back(std::move(entry));
+        }
+    }
+    status.state = SuiteState::Stopped;
+    for (SuiteAppStatus& app : status.apps) {
+        app.state = AppState::Stopped;
+    }
+    nlohmann::json status_json;
+    to_json(status_json, status);
+    static_cast<void>(write_json_file(state_path, status_json));
+
+    SuiteExit exit{};
+    exit.state = SuiteState::Stopped;
+    exit.reason = "forced_stop";
+    nlohmann::json exit_json;
+    to_json(exit_json, exit);
+    static_cast<void>(write_json_file(exit_path, exit_json));
 }
 
 core::Status stop_suite(std::string_view suite_dir,
@@ -1572,87 +1725,94 @@ core::Status stop_suite(std::string_view suite_dir,
     SuiteMetadata metadata{};
     from_json(*document, metadata);
 
-    const int fd = ::open(stop_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
-    if (fd < 0) {
+    if (!write_stop_request(stop_path)) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
-    static_cast<void>(::close(fd));
 
-    std::uint64_t grace = 5;
-    if (grace_override.has_value()) {
-        grace = *grace_override;
-    } else if (!metadata.apps.empty()) {
-        grace = metadata.apps.front().stop_grace_s;
-        for (const SuiteAppMetadata& app : metadata.apps) {
-            if (app.stop_grace_s > grace) {
-                grace = app.stop_grace_s;
-            }
-        }
-    }
-
+    const std::uint64_t grace = effective_stop_grace(metadata, grace_override);
     const std::uint64_t deadline =
         monotonic_now_ns() + grace * nanoseconds_per_second + 5ULL * nanoseconds_per_second;
-    while (monotonic_now_ns() < deadline && !file_exists(exit_path)) {
-        sleep_ms(suite_poll_interval_ms);
+    if (wait_for_suite_exit(exit_path, deadline)) {
+        return {};
     }
 
-    if (!file_exists(exit_path)) {
-        // Identity gate (spec process-supervision "Identity is verified
-        // before signals are sent"): a recycled PID recorded in suite.json
-        // must not receive a fallback SIGTERM/SIGKILL; the flow continues
-        // into the normal instance-stop + suite finalize path.
-        if (identity_matches(metadata.pid, metadata.proc_start_ticks) && metadata.pid > 0 &&
-            process_alive(metadata.pid)) {
-            static_cast<void>(::kill(metadata.pid, SIGTERM));
-            const std::uint64_t kill_deadline = monotonic_now_ns() + 2ULL * nanoseconds_per_second;
-            while (monotonic_now_ns() < kill_deadline && process_alive(metadata.pid)) {
-                sleep_ms(suite_poll_interval_ms);
-            }
-            if (process_alive(metadata.pid)) {
-                static_cast<void>(::kill(metadata.pid, SIGKILL));
-            }
-        }
-        for (const SuiteAppMetadata& app : metadata.apps) {
-            Runner runner;
-            static_cast<void>(
-                runner.stop(app.instance_dir, grace_override.value_or(app.stop_grace_s)));
-        }
-
-        SuiteStatus status{};
-        const core::Result<nlohmann::json> existing = read_json_file(state_path);
-        if (existing) {
-            from_json(*existing, status);
-        } else {
-            status.suite_id = metadata.suite_id;
-            status.run_dir = metadata.run_dir;
-            status.artifacts_path = metadata.artifacts_path;
-            status.apps.reserve(metadata.apps.size());
-            for (const SuiteAppMetadata& app : metadata.apps) {
-                SuiteAppStatus entry{};
-                entry.app = app.app;
-                entry.instance = app.instance;
-                entry.instance_dir = app.instance_dir;
-                entry.state = AppState::Stopped;
-                status.apps.push_back(std::move(entry));
-            }
-        }
-        status.state = SuiteState::Stopped;
-        for (SuiteAppStatus& app : status.apps) {
-            app.state = AppState::Stopped;
-        }
-        nlohmann::json status_json;
-        to_json(status_json, status);
-        static_cast<void>(write_json_file(state_path, status_json));
-
-        SuiteExit exit{};
-        exit.state = SuiteState::Stopped;
-        exit.reason = "forced_stop";
-        nlohmann::json exit_json;
-        to_json(exit_json, exit);
-        static_cast<void>(write_json_file(exit_path, exit_json));
+    // Identity gate (spec process-supervision "Identity is verified
+    // before signals are sent"): a recycled PID recorded in suite.json
+    // must not receive a fallback SIGTERM/SIGKILL; the flow continues
+    // into the normal instance-stop + suite finalize path.
+    if (identity_matches(metadata.pid, metadata.proc_start_ticks) && metadata.pid > 0 &&
+        process_alive(metadata.pid)) {
+        signal_supervisor_with_grace(metadata.pid);
     }
-
+    stop_suite_apps(metadata.apps, grace_override);
+    write_terminal_suite_state(metadata, state_path, exit_path);
     return {};
+}
+
+[[nodiscard]] bool load_suite_status_metadata(const std::string& metadata_path,
+                                              SuiteMetadata& out) noexcept {
+    const core::Result<nlohmann::json> document = read_json_file(metadata_path);
+    if (!document) {
+        return false;
+    }
+    from_json(*document, out);
+    return true;
+}
+
+[[nodiscard]] SuiteState derive_suite_state(const std::string& exit_path,
+                                            const SuiteStatus& recorded,
+                                            bool have_recorded) noexcept {
+    const core::Result<nlohmann::json> exit_document = read_json_file(exit_path);
+    if (exit_document) {
+        SuiteExit exit{};
+        from_json(*exit_document, exit);
+        return exit.state;
+    }
+    if (have_recorded) {
+        return recorded.state;
+    }
+    return SuiteState::Unknown;
+}
+
+[[nodiscard]] AppState live_status_to_app_state(std::string_view state, AppState recorded,
+                                                bool have_recorded) noexcept {
+    if (state == "running") {
+        return AppState::Running;
+    }
+    if (state == "stopped") {
+        return AppState::Stopped;
+    }
+    if (state == "exited") {
+        return AppState::Exited;
+    }
+    if (!have_recorded || recorded == AppState::Unknown) {
+        return AppState::Unknown;
+    }
+    return recorded;
+}
+
+[[nodiscard]] SuiteAppStatus merge_app_status(const SuiteAppMetadata& app,
+                                              const SuiteStatus& recorded,
+                                              bool have_recorded) noexcept {
+    SuiteAppStatus entry{};
+    entry.app = app.app;
+    entry.instance = app.instance;
+    entry.instance_dir = app.instance_dir;
+    for (const SuiteAppStatus& recorded_app : recorded.apps) {
+        if (recorded_app.app == app.app && recorded_app.instance == app.instance) {
+            entry = recorded_app;
+            break;
+        }
+    }
+    const bool sticky = entry.state == AppState::Failed || entry.state == AppState::Restarting;
+    if (!sticky) {
+        std::string state;
+        Runner runner;
+        if (runner.status(app.instance_dir, state).has_value()) {
+            entry.state = live_status_to_app_state(state, entry.state, have_recorded);
+        }
+    }
+    return entry;
 }
 
 core::Status suite_status(std::string_view suite_dir, SuiteStatus& out) noexcept {
@@ -1665,12 +1825,10 @@ core::Status suite_status(std::string_view suite_dir, SuiteStatus& out) noexcept
     const std::string state_path = join_path(directory, "suite-state.json");
     const std::string exit_path = join_path(directory, "suite-exit.json");
 
-    const core::Result<nlohmann::json> metadata_document = read_json_file(metadata_path);
-    if (!metadata_document) {
+    SuiteMetadata metadata{};
+    if (!load_suite_status_metadata(metadata_path, metadata)) {
         return {};
     }
-    SuiteMetadata metadata{};
-    from_json(*metadata_document, metadata);
 
     out.suite_id = metadata.suite_id;
     out.run_dir = metadata.run_dir;
@@ -1683,49 +1841,14 @@ core::Status suite_status(std::string_view suite_dir, SuiteStatus& out) noexcept
         have_recorded = true;
     }
 
-    const core::Result<nlohmann::json> exit_document = read_json_file(exit_path);
-    if (exit_document) {
-        SuiteExit exit{};
-        from_json(*exit_document, exit);
-        out.state = exit.state;
-    } else if (have_recorded) {
-        out.state = recorded.state;
-        out.suite_restarts_used = recorded.suite_restarts_used;
-    } else {
-        out.state = SuiteState::Unknown;
-    }
+    out.state = derive_suite_state(exit_path, recorded, have_recorded);
     if (have_recorded) {
         out.suite_restarts_used = recorded.suite_restarts_used;
     }
 
     out.apps.reserve(metadata.apps.size());
     for (const SuiteAppMetadata& app : metadata.apps) {
-        SuiteAppStatus entry{};
-        entry.app = app.app;
-        entry.instance = app.instance;
-        entry.instance_dir = app.instance_dir;
-        for (const SuiteAppStatus& recorded_app : recorded.apps) {
-            if (recorded_app.app == app.app && recorded_app.instance == app.instance) {
-                entry = recorded_app;
-                break;
-            }
-        }
-
-        std::string state;
-        Runner runner;
-        const bool sticky = entry.state == AppState::Failed || entry.state == AppState::Restarting;
-        if (!sticky && runner.status(app.instance_dir, state).has_value()) {
-            if (state == "running") {
-                entry.state = AppState::Running;
-            } else if (state == "stopped") {
-                entry.state = AppState::Stopped;
-            } else if (state == "exited") {
-                entry.state = AppState::Exited;
-            } else if (!have_recorded || entry.state == AppState::Unknown) {
-                entry.state = AppState::Unknown;
-            }
-        }
-        out.apps.push_back(std::move(entry));
+        out.apps.push_back(merge_app_status(app, recorded, have_recorded));
     }
     return {};
 }

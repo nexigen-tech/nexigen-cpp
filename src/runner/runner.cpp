@@ -258,26 +258,30 @@ struct SuperviseResult {
     bool status_valid{false};
 };
 
-[[nodiscard]] SuperviseResult supervise_child(pid_t child, std::uint64_t timeout_s,
-                                              std::uint64_t start_mono_ns, int& status) noexcept {
+[[nodiscard]] SuperviseResult wait_child_blocking(pid_t child, int& status) noexcept {
     SuperviseResult result;
-    if (timeout_s == 0) {
-        // No deadline: block in waitpid until the child terminates.
-        for (;;) {
-            const pid_t wait_result = ::waitpid(child, &status, 0);
-            if (wait_result == child) {
-                result.reaped = true;
-                result.status_valid = true;
-                break;
-            }
-            if (wait_result < 0 && errno == EINTR) {
-                continue;
-            }
+    for (;;) {
+        const pid_t wait_result = ::waitpid(child, &status, 0);
+        if (wait_result == child) {
+            result.reaped = true;
+            result.status_valid = true;
             break;
         }
-        return result;
+        if (wait_result < 0 && errno == EINTR) {
+            continue;
+        }
+        break;
     }
+    return result;
+}
 
+[[nodiscard]] bool send_process_signal(pid_t child, int signal) noexcept {
+    return ::kill(-child, signal) == 0;
+}
+
+[[nodiscard]] SuperviseResult wait_child_deadline(pid_t child, int& status, std::uint64_t timeout_s,
+                                                  std::uint64_t start_mono_ns) noexcept {
+    SuperviseResult result;
     for (;;) {
         const pid_t wait_result = ::waitpid(child, &status, WNOHANG);
         if (wait_result == child) {
@@ -288,42 +292,48 @@ struct SuperviseResult {
         if (wait_result < 0 && errno != EINTR) {
             break;
         }
-        if (timeout_s != 0) {
-            const std::uint64_t now = monotonic_now_ns();
-            if (now != 0 && start_mono_ns != 0 &&
-                now - start_mono_ns >= timeout_s * nanoseconds_per_second) {
-                result.runner_stopped = true;
-                static_cast<void>(::kill(-child, SIGTERM));
-                const std::uint64_t grace_end =
-                    monotonic_now_ns() + timeout_grace_seconds * nanoseconds_per_second;
-                while (monotonic_now_ns() < grace_end) {
-                    const pid_t grace_result = ::waitpid(child, &status, WNOHANG);
-                    if (grace_result == child) {
-                        result.reaped = true;
-                        result.status_valid = true;
-                        break;
-                    }
-                    sleep_ms(poll_interval_ms);
+        const std::uint64_t now = monotonic_now_ns();
+        if (now != 0 && start_mono_ns != 0 &&
+            now - start_mono_ns >= timeout_s * nanoseconds_per_second) {
+            result.runner_stopped = true;
+            static_cast<void>(send_process_signal(child, SIGTERM));
+            const std::uint64_t grace_end =
+                monotonic_now_ns() + timeout_grace_seconds * nanoseconds_per_second;
+            while (monotonic_now_ns() < grace_end) {
+                const pid_t grace_result = ::waitpid(child, &status, WNOHANG);
+                if (grace_result == child) {
+                    result.reaped = true;
+                    result.status_valid = true;
+                    break;
                 }
-                if (!result.reaped) {
-                    static_cast<void>(::kill(-child, SIGKILL));
-                    // Honest-outcome rule (spec process-supervision
-                    // "Unreapable child errors do not fabricate success"):
-                    // an error here (ECHILD — reaped elsewhere; or anything
-                    // ≠ EINTR) must NOT be presented as a reap with the old
-                    // standing status. Only a real waitpid success validates.
-                    const pid_t final_wait = ::waitpid(child, &status, 0);
-                    if (final_wait == child) {
-                        result.reaped = true;
-                        result.status_valid = true;
-                    }
-                }
-                break;
+                sleep_ms(poll_interval_ms);
             }
+            if (!result.reaped) {
+                static_cast<void>(send_process_signal(child, SIGKILL));
+                // Honest-outcome rule (spec process-supervision
+                // "Unreapable child errors do not fabricate success"):
+                // an error here (ECHILD — reaped elsewhere; or anything
+                // ≠ EINTR) must NOT be presented as a reap with the old
+                // standing status. Only a real waitpid success validates.
+                const pid_t final_wait = ::waitpid(child, &status, 0);
+                if (final_wait == child) {
+                    result.reaped = true;
+                    result.status_valid = true;
+                }
+            }
+            break;
         }
         sleep_ms(poll_interval_ms);
     }
     return result;
+}
+
+[[nodiscard]] SuperviseResult supervise_child(pid_t child, std::uint64_t timeout_s,
+                                              std::uint64_t start_mono_ns, int& status) noexcept {
+    if (timeout_s == 0) {
+        return wait_child_blocking(child, status);
+    }
+    return wait_child_deadline(child, status, timeout_s, start_mono_ns);
 }
 
 [[nodiscard]] TerminatedBy attribution(bool runner_stopped, bool reaped, int status) noexcept {
@@ -827,6 +837,53 @@ resolve_stop_state(const std::string& resource_path, const std::string& exit_pat
     return {};
 }
 
+[[nodiscard]] core::Status validate_start_inputs(const std::vector<std::string>& command,
+                                                 const StartOptions& options) noexcept {
+    if (command.empty() || command.front().empty()) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    return validate_start_options(options);
+}
+
+[[nodiscard]] core::Status prepare_instance_layout(const app::RunIdentity& identity,
+                                                   std::string_view app_name,
+                                                   const StartOptions& options,
+                                                   StartLayout& layout) noexcept {
+    const core::Status resolved = resolve_start_layout(identity, app_name, options, layout);
+    if (!resolved) {
+        return resolved;
+    }
+    return prepare_start_layout(layout, options);
+}
+
+[[nodiscard]] std::vector<const char*> build_argv(const std::vector<std::string>& command,
+                                                  const std::string& app_name_arg) noexcept {
+    std::vector<const char*> argv;
+    argv.reserve(command.size() + 3);
+    for (const std::string& argument : command) {
+        argv.push_back(argument.c_str());
+    }
+    if (!app_name_arg.empty()) {
+        argv.push_back("--app-name");
+        argv.push_back(app_name_arg.c_str());
+    }
+    argv.push_back(nullptr);
+    return argv;
+}
+
+[[nodiscard]] core::Status read_start_report(int read_fd, pid_t supervisor) noexcept {
+    StartReport report{};
+    const bool received = read_all(read_fd, &report, sizeof(report));
+    static_cast<void>(::close(read_fd));
+    if (!received || report.error != 0 || report.pid <= 0) {
+        // Failed start must not leave a zombie supervisor behind (spec
+        // process-supervision "A failed start reaps the supervisor child").
+        reap_failed_supervisor(supervisor);
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return {};
+}
+
 } // namespace
 
 std::string StartOptions::to_string() const {
@@ -846,21 +903,13 @@ core::Status Runner::start(const app::RunIdentity& identity, std::string_view ap
 core::Status Runner::start(const app::RunIdentity& identity, std::string_view app_name,
                            const std::vector<std::string>& command, std::uint64_t timeout_s,
                            const StartOptions& options) {
-    if (command.empty() || command.front().empty()) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    const core::Status options_valid = validate_start_options(options);
-    if (!options_valid) {
-        return options_valid;
+    if (const core::Status valid = validate_start_inputs(command, options); !valid) {
+        return valid;
     }
 
     StartLayout layout;
-    const core::Status resolved_status = resolve_start_layout(identity, app_name, options, layout);
-    if (!resolved_status) {
-        return resolved_status;
-    }
-    const core::Status prepared = prepare_start_layout(layout, options);
-    if (!prepared) {
+    if (const core::Status prepared = prepare_instance_layout(identity, app_name, options, layout);
+        !prepared) {
         return prepared;
     }
 
@@ -872,18 +921,8 @@ core::Status Runner::start(const app::RunIdentity& identity, std::string_view ap
         return logs;
     }
 
-    std::vector<const char*> argv;
-    argv.reserve(command.size() + 3);
-    for (const std::string& argument : command) {
-        argv.push_back(argument.c_str());
-    }
     const std::string app_name_arg{app_name};
-    if (!app_name_arg.empty()) {
-        argv.push_back("--app-name");
-        argv.push_back(app_name_arg.c_str());
-    }
-    argv.push_back(nullptr);
-
+    const std::vector<const char*> argv = build_argv(command, app_name_arg);
     ResourceMetadata metadata = ResourceMetadata::from_identity(layout.resolved, app_name, 0, 0);
 
     int pipe_fds[2]{-1, -1};
@@ -933,17 +972,7 @@ core::Status Runner::start(const app::RunIdentity& identity, std::string_view ap
     static_cast<void>(::close(stderr_fd));
     static_cast<void>(::close(null_fd));
 
-    StartReport report{};
-    const bool received = read_all(pipe_fds[0], &report, sizeof(report));
-    static_cast<void>(::close(pipe_fds[0]));
-
-    if (!received || report.error != 0 || report.pid <= 0) {
-        // Failed start must not leave a zombie supervisor behind (spec
-        // process-supervision "A failed start reaps the supervisor child").
-        reap_failed_supervisor(supervisor);
-        return std::unexpected(core::ErrorCode::SystemError);
-    }
-    return {};
+    return read_start_report(pipe_fds[0], supervisor);
 }
 
 core::Status Runner::start_suite(const SuiteManifest& manifest, std::string& suite_dir_out) {
