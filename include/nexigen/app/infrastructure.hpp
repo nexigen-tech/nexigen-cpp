@@ -228,75 +228,17 @@ public:
             return std::unexpected(core::ErrorCode::SystemError);
         }
 
-        const auto fail = [this](core::Status status) noexcept -> core::Status {
-            rollback();
-            return status;
-        };
-        // Shared step guard (analysis #22): every Policy emplace is
-        // "construct a component or fail with the returned status (a plain
-        // null from an invalid-policy stub maps to InvalidArgument)"
-        // followed by rollback — one helper instead of four copies.
-        const auto emplace_checked = [&fail](const core::Status status,
-                                             const bool constructed) -> core::Status {
-            if (!status) {
-                return fail(status);
-            }
-            if (!constructed) {
-                return fail(std::unexpected(core::ErrorCode::InvalidArgument));
-            }
-            return {};
-        };
-
-        // 1. chrono is the time foundation: construct it (deferred worker),
-        //    then the logger, then bind the logger and start the chrono worker.
-        {
-            const core::Status status = Policy::emplace_chrono_sink(chrono_sink_, settings.chrono);
-            if (const core::Status step = emplace_checked(status, chrono_sink_.has_value());
-                !step) {
-                return step;
-            }
+        // Build order: chrono is the time foundation (construct it deferred,
+        // then the logger, then bind the logger and start the chrono worker),
+        // then metrics, then tracing, then the signal watcher.
+        if (const core::Status step = build_time_and_logging(settings); !step) {
+            return step;
         }
-        chrono_.emplace(settings.chrono.options, *chrono_sink_);
-
-        {
-            const core::Status status =
-                Policy::emplace_logger(logger_, settings.logging, settings.app_name);
-            if (const core::Status step = emplace_checked(status, logger_.has_value()); !step) {
-                return step;
-            }
+        if (const core::Status step = build_metrics(settings); !step) {
+            return step;
         }
-        chrono_logger_bridge_.logger = &*logger_;
-        if (const core::Status status = chrono_->start(chrono_logger_bridge_); !status) {
-            return fail(status);
-        }
-
-        {
-            const core::Status status =
-                Policy::emplace_metrics_sink(metrics_sink_, settings.metrics, settings.app_name);
-            if (const core::Status step = emplace_checked(status, metrics_sink_.has_value());
-                !step) {
-                return step;
-            }
-        }
-        metrics_.emplace(settings.metrics.options, *metrics_sink_);
-        if (settings.metrics.options.worker_thread.apply_mode() ==
-            core::ThreadApplyMode::Required) {
-            const core::Status startup = metrics_->startup_status();
-            if (!startup) {
-                return fail(startup);
-            }
-        }
-
-        {
-            const core::Status status =
-                Policy::emplace_trace_sink(trace_sink_, settings.tracing, settings.app_name);
-            if (const core::Status step = emplace_checked(status, trace_sink_.has_value()); !step) {
-                return step;
-            }
-        }
-        tracer_.emplace(settings.tracing.options, *trace_sink_);
-        if (const core::Status status = tracer_->initialize(); !status) {
-            return fail(status);
+        if (const core::Status step = build_tracing(settings); !step) {
+            return step;
         }
 
         if (const core::Status status = signals_.start(this, mask); !status) {
@@ -457,6 +399,84 @@ private:
 
     template <class P, std::size_t C, std::size_t T>
     friend core::Result<std::unique_ptr<Infrastructure<P, C, T>>> make_infrastructure() noexcept;
+
+    /// Roll back a partially built infrastructure and surface the status.
+    [[nodiscard]] core::Status fail(core::Status status) noexcept {
+        rollback();
+        return status;
+    }
+
+    // Shared step guard (analysis #22): every Policy emplace is
+    // "construct a component or fail with the returned status (a plain
+    // null from an invalid-policy stub maps to InvalidArgument)"
+    // followed by rollback — one helper instead of four copies.
+    [[nodiscard]] core::Status emplace_checked(core::Status status, bool constructed) noexcept {
+        if (!status) {
+            return fail(status);
+        }
+        if (!constructed) {
+            return fail(std::unexpected(core::ErrorCode::InvalidArgument));
+        }
+        return {};
+    }
+
+    /// Chrono foundation, logger, bridge, and chrono worker start.
+    [[nodiscard]] core::Status build_time_and_logging(const Settings& settings) noexcept {
+        const core::Status chrono_status =
+            Policy::emplace_chrono_sink(chrono_sink_, settings.chrono);
+        if (const core::Status step = emplace_checked(chrono_status, chrono_sink_.has_value());
+            !step) {
+            return step;
+        }
+        chrono_.emplace(settings.chrono.options, *chrono_sink_);
+
+        const core::Status logger_status =
+            Policy::emplace_logger(logger_, settings.logging, settings.app_name);
+        if (const core::Status step = emplace_checked(logger_status, logger_.has_value()); !step) {
+            return step;
+        }
+        chrono_logger_bridge_.logger = &*logger_;
+        const core::Status started = chrono_->start(chrono_logger_bridge_);
+        if (!started) {
+            return fail(started);
+        }
+        return {};
+    }
+
+    /// Metrics sink and provider, including the Required startup-status gate.
+    [[nodiscard]] core::Status build_metrics(const Settings& settings) noexcept {
+        const core::Status sink_status =
+            Policy::emplace_metrics_sink(metrics_sink_, settings.metrics, settings.app_name);
+        if (const core::Status step = emplace_checked(sink_status, metrics_sink_.has_value());
+            !step) {
+            return step;
+        }
+        metrics_.emplace(settings.metrics.options, *metrics_sink_);
+        if (settings.metrics.options.worker_thread.apply_mode() ==
+            core::ThreadApplyMode::Required) {
+            const core::Status startup = metrics_->startup_status();
+            if (!startup) {
+                return fail(startup);
+            }
+        }
+        return {};
+    }
+
+    /// Trace sink and provider startup.
+    [[nodiscard]] core::Status build_tracing(const Settings& settings) noexcept {
+        const core::Status sink_status =
+            Policy::emplace_trace_sink(trace_sink_, settings.tracing, settings.app_name);
+        if (const core::Status step = emplace_checked(sink_status, trace_sink_.has_value());
+            !step) {
+            return step;
+        }
+        tracer_.emplace(settings.tracing.options, *trace_sink_);
+        const core::Status started = tracer_->initialize();
+        if (!started) {
+            return fail(started);
+        }
+        return {};
+    }
 
     void rollback() noexcept {
         signals_.stop();

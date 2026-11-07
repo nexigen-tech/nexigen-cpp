@@ -22,6 +22,12 @@ namespace {
     return value == nullptr ? std::string_view{} : std::string_view{value};
 }
 
+/// Identifier alphabet: ASCII alphanumerics plus '.', '_' and '-'.
+[[nodiscard]] constexpr bool allowed_id_char(char c) noexcept {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' ||
+           c == '_' || c == '-';
+}
+
 [[nodiscard]] bool safe_id(std::string_view id) noexcept {
     if (id.empty() || id.size() > 128U) {
         return false;
@@ -30,9 +36,7 @@ namespace {
         return false;
     }
     for (const char c : id) {
-        const bool allowed = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-                             (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
-        if (!allowed) {
+        if (!allowed_id_char(c)) {
             return false;
         }
     }

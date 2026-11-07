@@ -347,13 +347,7 @@ public:
     /// fixed storage, calibrate clocks, start the pinned writer. Invalid
     /// configuration returns InvalidArgument WITHOUT starting the worker.
     [[nodiscard]] core::Status initialize(const FileLoggerConfig& cfg) noexcept {
-        if (cfg.base_dir.empty() || cfg.base_dir.size() > 511 ||
-            cfg.base_dir.find('\0') != std::string_view::npos || cfg.file_name.empty() ||
-            cfg.file_name.size() > 63 || cfg.file_name.find('\0') != std::string_view::npos ||
-            cfg.app_name.size() > 63 || cfg.app_name.find('\0') != std::string_view::npos ||
-            (cfg.throttle.enabled &&
-             (cfg.throttle.max_records_per_window == 0ULL || cfg.throttle.window_ns == 0ULL)) ||
-            (cfg.rotation.kind == RotationSchedule::Custom && cfg.rotation.custom_ns == 0ULL)) {
+        if (!valid_config(cfg)) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         const core::Status valid_thread = cfg.worker_thread.validate();
@@ -464,6 +458,28 @@ public:
     }
 
 private:
+    /// Non-empty bounded text with no embedded NUL (directories/file names).
+    [[nodiscard]] static bool valid_path(std::string_view value, std::size_t max) noexcept {
+        return !value.empty() && value.size() <= max && value.find('\0') == std::string_view::npos;
+    }
+
+    /// Bounded text with no embedded NUL; emptiness is allowed.
+    [[nodiscard]] static bool valid_optional_text(std::string_view value,
+                                                  std::size_t max) noexcept {
+        return value.size() <= max && value.find('\0') == std::string_view::npos;
+    }
+
+    /// The complete configuration gate; every rejection maps to InvalidArgument.
+    [[nodiscard]] static bool valid_config(const FileLoggerConfig& cfg) noexcept {
+        const bool throttle_ok =
+            !cfg.throttle.enabled ||
+            (cfg.throttle.max_records_per_window != 0ULL && cfg.throttle.window_ns != 0ULL);
+        const bool rotation_ok =
+            cfg.rotation.kind != RotationSchedule::Custom || cfg.rotation.custom_ns != 0ULL;
+        return valid_path(cfg.base_dir, 511U) && valid_path(cfg.file_name, 63U) &&
+               valid_optional_text(cfg.app_name, 63U) && throttle_ok && rotation_ok;
+    }
+
     template <std::size_t N>
     static void copy_into(std::string_view src, char (&dst)[N], std::size_t& len_out) noexcept {
         const std::size_t take = src.size() < N ? src.size() : N - 1U;

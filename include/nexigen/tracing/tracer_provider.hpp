@@ -323,6 +323,21 @@ private:
     /// sleeps), flush handshake, shutdown drain-on-join + sink stop.
     void consume_loop(std::stop_token stop) noexcept;
 
+    /// Worker startup: self-pin, mask snapshot, sink cold start, publish the
+    /// one-shot snapshot. False means a Required thread spec failed, so no
+    /// sink start and no drain loop follow.
+    [[nodiscard]] bool start_worker() noexcept;
+
+    /// Drain at most one bounded batch (64 records) into the sink.
+    [[nodiscard]] std::size_t deliver_batch(Record& out) noexcept;
+
+    /// Answer a pending flush request while the rings were momentarily empty.
+    void answer_flush() noexcept;
+
+    /// Shutdown: drain everything still queued, publish the final sequence,
+    /// then stop the sink.
+    void shutdown_drain(Record& out) noexcept;
+
     /// Flush publication: synchronize the sink, record the last sync error,
     /// publish the drained sequence (release).
     void publish_sync(std::uint64_t sequence) noexcept;
@@ -532,32 +547,78 @@ TracerProvider<ShardCapacity, MaxThreads>::get_tracer(std::string_view scope_nam
 }
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
-void TracerProvider<ShardCapacity, MaxThreads>::consume_loop(std::stop_token stop) noexcept {
+bool TracerProvider<ShardCapacity, MaxThreads>::start_worker() noexcept {
     // Start sequence ON the worker (design D10): self-pin first so no
     // scheduling window can run the body off-core; snapshot the resulting
     // mask for third-thread verification; then the sink's cold start. First
     // error wins the code snapshot; a failure never stops the pipeline.
-    std::uint8_t first_error = 0U;
     const core::Status attributes =
         core::apply_thread_spec_self(config_.worker_thread, start_.thread_report);
-    first_error = static_cast<std::uint8_t>(start_.thread_report.first_error());
+    const std::uint8_t first_error = static_cast<std::uint8_t>(start_.thread_report.first_error());
     if (!attributes && config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
         start_.code.store(first_error, std::memory_order_relaxed);
         start_.started.store(true, std::memory_order_release);
-        return; // required failure: no sink start and no drain loop
+        return false; // required failure: no sink start and no drain loop
     }
     std::uint64_t mask_now = 0ULL;
     static_cast<void>(detail::self_affinity(mask_now));
     start_.mask.store(mask_now, std::memory_order_relaxed);
 
+    std::uint8_t code = first_error;
     if (binding_.start != nullptr) {
         const core::Status started = binding_.start(binding_.self);
-        if (!started && first_error == 0U) {
-            first_error = static_cast<std::uint8_t>(started.error());
+        if (!started && code == 0U) {
+            code = static_cast<std::uint8_t>(started.error());
         }
     }
-    start_.code.store(first_error, std::memory_order_relaxed);
+    start_.code.store(code, std::memory_order_relaxed);
     start_.started.store(true, std::memory_order_release);
+    return true;
+}
+
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+std::size_t TracerProvider<ShardCapacity, MaxThreads>::deliver_batch(Record& out) noexcept {
+    std::size_t delivered = 0;
+    while (delivered < 64 && pop(out)) { // bounded batch
+        if (binding_.on_span != nullptr) {
+            // Delivery failures never stop the drain: the consumer keeps
+            // serving every shard; a failing sink surfaces its own state
+            // through flush() (sync_error) and its diagnostics.
+            static_cast<void>(binding_.on_span(binding_.self, out));
+        }
+        ++delivered;
+    }
+    return delivered;
+}
+
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+void TracerProvider<ShardCapacity, MaxThreads>::answer_flush() noexcept {
+    const std::uint64_t request = flush_.requested.load(std::memory_order_acquire);
+    if (request > flush_.drained.load(std::memory_order_relaxed)) {
+        publish_sync(request);
+    }
+}
+
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+void TracerProvider<ShardCapacity, MaxThreads>::shutdown_drain(Record& out) noexcept {
+    // Drain what is still queued, synchronize once, publish, then stop the
+    // sink (spec "Destruction does not lose accepted records").
+    while (pop(out)) {
+        if (binding_.on_span != nullptr) {
+            static_cast<void>(binding_.on_span(binding_.self, out));
+        }
+    }
+    publish_sync(flush_.requested.load(std::memory_order_relaxed));
+    if (binding_.stop != nullptr) {
+        binding_.stop(binding_.self);
+    }
+}
+
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+void TracerProvider<ShardCapacity, MaxThreads>::consume_loop(std::stop_token stop) noexcept {
+    if (!start_worker()) {
+        return;
+    }
 
     // Idle policy shared with the logging consumer (core/worker_tuning.hpp).
     const core::WorkerTuning tuning{.poll_interval_us = config_.worker_poll_interval_us};
@@ -567,25 +628,12 @@ void TracerProvider<ShardCapacity, MaxThreads>::consume_loop(std::stop_token sto
     Record record{};
     std::uint64_t idle = 0;
     while (!stop.stop_requested()) {
-        std::size_t delivered = 0;
-        while (delivered < 64 && pop(record)) { // bounded batch
-            if (binding_.on_span != nullptr) {
-                // Delivery failures never stop the drain: the consumer keeps
-                // serving every shard; a failing sink surfaces its own state
-                // through flush() (sync_error) and its diagnostics.
-                static_cast<void>(binding_.on_span(binding_.self, record));
-            }
-            ++delivered;
-        }
-        if (delivered != 0) {
+        if (deliver_batch(record) != 0) {
             idle = 0;
             continue;
         }
         // Momentarily empty: answer any flush request before going idle.
-        const std::uint64_t request = flush_.requested.load(std::memory_order_acquire);
-        if (request > flush_.drained.load(std::memory_order_relaxed)) {
-            publish_sync(request);
-        }
+        answer_flush();
         if (++idle <= tuning.spin_budget) {
             continue;
         }
@@ -593,17 +641,7 @@ void TracerProvider<ShardCapacity, MaxThreads>::consume_loop(std::stop_token sto
             core::WorkerTuning::backoff_us(idle - tuning.spin_budget, poll_max_us)));
     }
 
-    // Shutdown: drain what is still queued, synchronize once, publish, then
-    // stop the sink (spec "Destruction does not lose accepted records").
-    while (pop(record)) {
-        if (binding_.on_span != nullptr) {
-            static_cast<void>(binding_.on_span(binding_.self, record));
-        }
-    }
-    publish_sync(flush_.requested.load(std::memory_order_relaxed));
-    if (binding_.stop != nullptr) {
-        binding_.stop(binding_.self);
-    }
+    shutdown_drain(record);
 }
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
