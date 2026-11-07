@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <unistd.h>
@@ -209,16 +210,85 @@ void finish_logging() {
     return 0;
 }
 
-int cmd_start(int argc, char* argv[]) {
-    std::string run_id;
-    std::string app_name;
-    std::string instance_id;
-    std::string run_dir;
-    std::string instance_dir;
-    std::string config;
+struct Start_args {
+    std::string run_id{};
+    std::string app_name{};
+    std::string instance_id{};
+    std::string run_dir{};
+    std::string instance_dir{};
+    std::string config{};
     std::uint64_t timeout_s = 0;
-    std::vector<std::string> command;
+    std::vector<std::string> command{};
+};
 
+struct Stop_args {
+    std::string instance_dir{};
+    std::string config{};
+    std::string suite_dir{};
+    std::uint64_t grace_s = 5;
+    bool grace_set = false;
+    bool have_dir = false;
+};
+
+struct Status_args {
+    std::string instance_dir{};
+    std::string config{};
+    std::string suite_dir{};
+    bool have_dir = false;
+    bool json_output = false;
+};
+
+enum class Start_scan { Scanned, Missing_value, Unknown };
+
+/// Consume one `--name value` start option. `--timeout` is numeric; every
+/// other option writes a string field. Leaves `index` on the value.
+[[nodiscard]] Start_scan scan_start_value(Start_args& args, std::string_view argument, int argc,
+                                          char* argv[], int& index) {
+    using String_field = std::string Start_args::*;
+    static constexpr std::pair<std::string_view, String_field> string_options[] = {
+        {"--run-id", &Start_args::run_id},
+        {"--app", &Start_args::app_name},
+        {"--instance", &Start_args::instance_id},
+        {"--run-dir", &Start_args::run_dir},
+        {"--instance-dir", &Start_args::instance_dir},
+        {"--config", &Start_args::config},
+    };
+    for (const auto& [name, field] : string_options) {
+        if (argument == name) {
+            if (index + 1 >= argc) {
+                return Start_scan::Missing_value;
+            }
+            args.*field = argv[++index];
+            return Start_scan::Scanned;
+        }
+    }
+    if (argument == "--timeout") {
+        if (index + 1 >= argc || !tools::parse_u64(argv[index + 1], args.timeout_s)) {
+            return Start_scan::Missing_value;
+        }
+        ++index;
+        return Start_scan::Scanned;
+    }
+    return Start_scan::Unknown;
+}
+
+/// Final start-mode validation (the shared command/--config tail).
+[[nodiscard]] int validate_start_args(const Start_args& args) {
+    if (args.command.empty() && args.config.empty()) {
+        std::fprintf(stderr, "nexigen-run: missing command or --config\n");
+        print_usage(stderr);
+        return exit_usage;
+    }
+    if (!args.config.empty() && !args.command.empty()) {
+        std::fprintf(stderr, "nexigen-run: --config cannot be combined with a command\n");
+        print_usage(stderr);
+        return exit_usage;
+    }
+    return 0;
+}
+
+/// Parse `start` arguments. nullopt = parsed; a value is the process exit code.
+[[nodiscard]] std::optional<int> parse_start_args(int argc, char* argv[], Start_args& args) {
     int index = 2;
     bool command_mode = false;
     while (index < argc) {
@@ -232,56 +302,16 @@ int cmd_start(int argc, char* argv[]) {
             command_mode = true;
             break;
         }
-
-        auto take_value = [&](std::string& target) -> bool {
-            if (index + 1 >= argc) {
-                return false;
-            }
-            ++index;
-            target = argv[index];
-            return true;
-        };
-
-        if (argument == "--run-id") {
-            if (!take_value(run_id)) {
-                print_usage(stderr);
-                return exit_usage;
-            }
-        } else if (argument == "--app") {
-            if (!take_value(app_name)) {
-                print_usage(stderr);
-                return exit_usage;
-            }
-        } else if (argument == "--instance") {
-            if (!take_value(instance_id)) {
-                print_usage(stderr);
-                return exit_usage;
-            }
-        } else if (argument == "--run-dir") {
-            if (!take_value(run_dir)) {
-                print_usage(stderr);
-                return exit_usage;
-            }
-        } else if (argument == "--instance-dir") {
-            if (!take_value(instance_dir)) {
-                print_usage(stderr);
-                return exit_usage;
-            }
-        } else if (argument == "--config") {
-            if (!take_value(config)) {
-                print_usage(stderr);
-                return exit_usage;
-            }
-        } else if (argument == "--timeout") {
-            std::string value;
-            if (!take_value(value) || !tools::parse_u64(value, timeout_s)) {
-                print_usage(stderr);
-                return exit_usage;
-            }
-        } else if (argument == "--help") {
+        if (argument == "--help") {
             print_usage(stdout);
             return 0;
-        } else {
+        }
+        const Start_scan scanned = scan_start_value(args, argument, argc, argv, index);
+        if (scanned == Start_scan::Missing_value) {
+            print_usage(stderr);
+            return exit_usage;
+        }
+        if (scanned == Start_scan::Unknown) {
             std::fprintf(stderr, "nexigen-run: unknown option '%s'\n",
                          std::string(argument).c_str());
             print_usage(stderr);
@@ -292,113 +322,44 @@ int cmd_start(int argc, char* argv[]) {
 
     if (command_mode) {
         while (index < argc) {
-            command.emplace_back(argv[index]);
+            args.command.emplace_back(argv[index]);
             ++index;
         }
     }
-    if (command.empty()) {
-        if (config.empty()) {
-            std::fprintf(stderr, "nexigen-run: missing command or --config\n");
-            print_usage(stderr);
-            return exit_usage;
-        }
+    if (const int code = validate_start_args(args); code != 0) {
+        return code;
     }
-
-    if (!config.empty()) {
-        if (!command.empty()) {
-            std::fprintf(stderr, "nexigen-run: --config cannot be combined with a command\n");
-            print_usage(stderr);
-            return exit_usage;
-        }
-        runner::SuiteManifest manifest{};
-        const core::Status loaded = runner::load_suite_manifest(config, manifest);
-        if (!loaded) {
-            const CliLogTarget target = fallback_log_target();
-            static_cast<void>(activate_logging(target));
-            return cli_fail("start", "suite", config, std::string(core::to_string(loaded.error())),
-                            "manifest failed");
-        }
-        const CliLogTarget log_target = manifest_log_target(manifest);
-        if (!apply_control_affinity(log_target)) {
-            return cli_fail("start", "suite", config, "required control attributes failed",
-                            "affinity failed");
-        }
-        std::string target;
-        runner::Runner suite_runner;
-        const core::Status started = suite_runner.start_suite(manifest, target);
-        if (!activate_logging(log_target)) {
-            return cli_fail("start", "suite", target, "required logger attributes failed",
-                            "logger start failed");
-        }
-        if (!started) {
-            return cli_fail("start", "suite", target, std::string(core::to_string(started.error())),
-                            "suite start failed");
-        }
-        return cli_ok("start", "suite", target, "started");
-    }
-
-    app::RunIdentity identity = app::load_run_identity();
-    if (!run_id.empty()) {
-        identity.run_id = run_id;
-    }
-    if (!instance_id.empty()) {
-        identity.instance_id = instance_id;
-    }
-    if (!run_dir.empty()) {
-        identity.run_dir = run_dir;
-    }
-    if (!instance_dir.empty()) {
-        identity.instance_dir = instance_dir;
-    }
-
-    const std::string target = derived_instance_dir(identity, app_name);
-    runner::Runner runner;
-    const core::Status status = runner.start(identity, app_name, command, timeout_s);
-    const CliLogTarget log_target = fallback_log_target();
-    static_cast<void>(activate_logging(log_target));
-    if (!status) {
-        return cli_fail("start", "single", target, std::string(core::to_string(status.error())),
-                        "start failed");
-    }
-    return cli_ok("start", "single", target, "started");
+    return std::nullopt;
 }
 
-int cmd_stop(int argc, char* argv[]) {
-    std::string instance_dir;
-    std::string config;
-    std::string suite_dir;
-    std::uint64_t grace_s = 5;
-    bool grace_set = false;
-    bool have_dir = false;
-
+/// Parse `stop` arguments. nullopt = parsed; a value is the process exit code.
+[[nodiscard]] std::optional<int> parse_stop_args(int argc, char* argv[], Stop_args& args) {
     int index = 2;
     while (index < argc) {
         const std::string_view argument{argv[index]};
         if (argument == "--grace") {
-            std::string value;
             if (index + 1 >= argc) {
                 print_usage(stderr);
                 return exit_usage;
             }
             ++index;
-            value = argv[index];
-            if (!tools::parse_u64(value, grace_s)) {
+            if (!tools::parse_u64(argv[index], args.grace_s)) {
                 print_usage(stderr);
                 return exit_usage;
             }
-            grace_set = true;
+            args.grace_set = true;
         } else if (argument == "--config") {
             if (index + 1 >= argc) {
                 print_usage(stderr);
                 return exit_usage;
             }
-            config = argv[++index];
+            args.config = argv[++index];
         } else if (argument == "--suite-dir") {
             if (index + 1 >= argc) {
                 print_usage(stderr);
                 return exit_usage;
             }
-            suite_dir = argv[++index];
+            args.suite_dir = argv[++index];
         } else if (argument == "--help") {
             print_usage(stdout);
             return 0;
@@ -407,9 +368,9 @@ int cmd_stop(int argc, char* argv[]) {
                          std::string(argument).c_str());
             print_usage(stderr);
             return exit_usage;
-        } else if (!have_dir) {
-            instance_dir = argv[index];
-            have_dir = true;
+        } else if (!args.have_dir) {
+            args.instance_dir = argv[index];
+            args.have_dir = true;
         } else {
             std::fprintf(stderr, "nexigen-run: too many arguments\n");
             print_usage(stderr);
@@ -417,73 +378,11 @@ int cmd_stop(int argc, char* argv[]) {
         }
         ++index;
     }
-
-    const int stop_exclusivity = suite_target_options_conflict(config, suite_dir, have_dir);
-    if (stop_exclusivity != 0) {
-        return stop_exclusivity;
-    }
-
-    if (!config.empty() || !suite_dir.empty()) {
-        std::string target = suite_dir;
-        CliLogTarget log_target = fallback_log_target();
-        if (!config.empty()) {
-            runner::SuiteManifest manifest{};
-            const core::Status loaded = runner::load_suite_manifest(config, manifest);
-            if (!loaded) {
-                static_cast<void>(activate_logging(log_target));
-                return cli_fail("stop", "suite", config,
-                                std::string(core::to_string(loaded.error())), "manifest failed");
-            }
-            target = runner::suite_dir_path(manifest.run_dir, manifest.suite_id);
-            log_target = manifest_log_target(manifest);
-        } else if (!suite_dir_log_target(target, log_target)) {
-            static_cast<void>(activate_logging(log_target));
-            log_command("stop", "suite", target, "error", "suite metadata unreadable");
-            finish_logging();
-            std::fprintf(stderr, "nexigen-run: suite metadata unreadable: %s\n", target.c_str());
-            return exit_failure;
-        }
-        if (target.empty()) {
-            std::fprintf(stderr, "nexigen-run: missing suite directory\n");
-            print_usage(stderr);
-            return exit_usage;
-        }
-        static_cast<void>(activate_logging(log_target));
-        static_cast<void>(apply_control_affinity(log_target));
-        const std::optional<std::uint64_t> override =
-            grace_set ? std::optional<std::uint64_t>(grace_s) : std::nullopt;
-        const core::Status status = runner::stop_suite(target, override);
-        if (!status) {
-            return cli_fail("stop", "suite", target, std::string(core::to_string(status.error())),
-                            "suite stop failed");
-        }
-        return cli_ok("stop", "suite", target, "stopped");
-    }
-
-    if (!have_dir) {
-        std::fprintf(stderr, "nexigen-run: missing instance directory\n");
-        print_usage(stderr);
-        return exit_usage;
-    }
-
-    const CliLogTarget log_target = fallback_log_target();
-    static_cast<void>(activate_logging(log_target));
-    runner::Runner runner;
-    const core::Status status = runner.stop(instance_dir, grace_s);
-    if (!status) {
-        return cli_fail("stop", "single", instance_dir,
-                        std::string(core::to_string(status.error())), "stop failed");
-    }
-    return cli_ok("stop", "single", instance_dir, "stopped");
+    return std::nullopt;
 }
 
-int cmd_status(int argc, char* argv[]) {
-    std::string instance_dir;
-    std::string config;
-    std::string suite_dir;
-    bool have_dir = false;
-    bool json_output = false;
-
+/// Parse `status` arguments. nullopt = parsed; a value is the process exit code.
+[[nodiscard]] std::optional<int> parse_status_args(int argc, char* argv[], Status_args& args) {
     for (int index = 2; index < argc; ++index) {
         const std::string_view argument{argv[index]};
         if (argument == "--help") {
@@ -495,7 +394,7 @@ int cmd_status(int argc, char* argv[]) {
                 print_usage(stderr);
                 return exit_usage;
             }
-            config = argv[++index];
+            args.config = argv[++index];
             continue;
         }
         if (argument == "--suite-dir") {
@@ -503,11 +402,11 @@ int cmd_status(int argc, char* argv[]) {
                 print_usage(stderr);
                 return exit_usage;
             }
-            suite_dir = argv[++index];
+            args.suite_dir = argv[++index];
             continue;
         }
         if (argument == "--json") {
-            json_output = true;
+            args.json_output = true;
             continue;
         }
         if (argument.starts_with("-")) {
@@ -516,84 +415,244 @@ int cmd_status(int argc, char* argv[]) {
             print_usage(stderr);
             return exit_usage;
         }
-        if (have_dir) {
+        if (args.have_dir) {
             std::fprintf(stderr, "nexigen-run: too many arguments\n");
             print_usage(stderr);
             return exit_usage;
         }
-        instance_dir = argv[index];
-        have_dir = true;
+        args.instance_dir = argv[index];
+        args.have_dir = true;
+    }
+    return std::nullopt;
+}
+
+/// Suite-manifest start path.
+[[nodiscard]] int start_suite_process(const std::string& config) {
+    runner::SuiteManifest manifest{};
+    const core::Status loaded = runner::load_suite_manifest(config, manifest);
+    if (!loaded) {
+        const CliLogTarget target = fallback_log_target();
+        static_cast<void>(activate_logging(target));
+        return cli_fail("start", "suite", config, std::string(core::to_string(loaded.error())),
+                        "manifest failed");
+    }
+    const CliLogTarget log_target = manifest_log_target(manifest);
+    if (!apply_control_affinity(log_target)) {
+        return cli_fail("start", "suite", config, "required control attributes failed",
+                        "affinity failed");
+    }
+    std::string target;
+    runner::Runner suite_runner;
+    const core::Status started = suite_runner.start_suite(manifest, target);
+    if (!activate_logging(log_target)) {
+        return cli_fail("start", "suite", target, "required logger attributes failed",
+                        "logger start failed");
+    }
+    if (!started) {
+        return cli_fail("start", "suite", target, std::string(core::to_string(started.error())),
+                        "suite start failed");
+    }
+    return cli_ok("start", "suite", target, "started");
+}
+
+/// Single-instance start path.
+[[nodiscard]] int start_instance(const Start_args& args) {
+    app::RunIdentity identity = app::load_run_identity();
+    if (!args.run_id.empty()) {
+        identity.run_id = args.run_id;
+    }
+    if (!args.instance_id.empty()) {
+        identity.instance_id = args.instance_id;
+    }
+    if (!args.run_dir.empty()) {
+        identity.run_dir = args.run_dir;
+    }
+    if (!args.instance_dir.empty()) {
+        identity.instance_dir = args.instance_dir;
     }
 
-    const int status_exclusivity = suite_target_options_conflict(config, suite_dir, have_dir);
-    if (status_exclusivity != 0) {
-        return status_exclusivity;
+    const std::string target = derived_instance_dir(identity, args.app_name);
+    runner::Runner runner;
+    const core::Status status = runner.start(identity, args.app_name, args.command, args.timeout_s);
+    const CliLogTarget log_target = fallback_log_target();
+    static_cast<void>(activate_logging(log_target));
+    if (!status) {
+        return cli_fail("start", "single", target, std::string(core::to_string(status.error())),
+                        "start failed");
     }
+    return cli_ok("start", "single", target, "started");
+}
 
-    if (!config.empty() || !suite_dir.empty()) {
-        std::string target = suite_dir;
-        CliLogTarget log_target = fallback_log_target();
-        if (!config.empty()) {
-            runner::SuiteManifest manifest{};
-            const core::Status loaded = runner::load_suite_manifest(config, manifest);
-            if (!loaded) {
-                static_cast<void>(activate_logging(log_target));
-                return cli_fail("status", "suite", config,
-                                std::string(core::to_string(loaded.error())), "manifest failed");
-            }
-            target = runner::suite_dir_path(manifest.run_dir, manifest.suite_id);
-            log_target = manifest_log_target(manifest);
-        } else if (!suite_dir_log_target(target, log_target)) {
-            runner::warn_runner("event=suite_metadata_unreadable detail=using fallback log");
+/// Suite stop path (`--config` or `--suite-dir`).
+[[nodiscard]] int stop_suite_process(const Stop_args& args) {
+    std::string target = args.suite_dir;
+    CliLogTarget log_target = fallback_log_target();
+    if (!args.config.empty()) {
+        runner::SuiteManifest manifest{};
+        const core::Status loaded = runner::load_suite_manifest(args.config, manifest);
+        if (!loaded) {
+            static_cast<void>(activate_logging(log_target));
+            return cli_fail("stop", "suite", args.config,
+                            std::string(core::to_string(loaded.error())), "manifest failed");
         }
-        runner::SuiteStatus status{};
-        const core::Status queried = runner::suite_status(target, status);
+        target = runner::suite_dir_path(manifest.run_dir, manifest.suite_id);
+        log_target = manifest_log_target(manifest);
+    } else if (!suite_dir_log_target(target, log_target)) {
         static_cast<void>(activate_logging(log_target));
-        static_cast<void>(apply_control_affinity(log_target));
-        if (!queried) {
-            return cli_fail("status", "suite", target,
-                            std::string(core::to_string(queried.error())), "suite status failed");
-        }
-        log_command("status", "suite", target, "ok",
-                    std::string("state=") + std::string(runner::to_string(status.state)));
-        if (json_output) {
-            nlohmann::json document;
-            runner::to_json(document, status);
-            std::fprintf(stdout, "%s\n", document.dump(2).c_str());
-        } else {
-            std::fprintf(stdout, "suite: %s (restarts used: %u)\n",
-                         std::string(runner::to_string(status.state)).c_str(),
-                         status.suite_restarts_used);
-            for (const runner::SuiteAppStatus& app : status.apps) {
-                std::fprintf(stdout, "  %s/%s: %s attempt=%u artifact=%s\n", app.app.c_str(),
-                             app.instance.c_str(),
-                             std::string(runner::to_string(app.state)).c_str(), app.attempt,
-                             app.artifact_dir.c_str());
-            }
-        }
+        log_command("stop", "suite", target, "error", "suite metadata unreadable");
         finish_logging();
-        return 0;
+        std::fprintf(stderr, "nexigen-run: suite metadata unreadable: %s\n", target.c_str());
+        return exit_failure;
     }
-
-    if (!have_dir) {
-        std::fprintf(stderr, "nexigen-run: missing instance directory\n");
+    if (target.empty()) {
+        std::fprintf(stderr, "nexigen-run: missing suite directory\n");
         print_usage(stderr);
         return exit_usage;
     }
+    static_cast<void>(activate_logging(log_target));
+    static_cast<void>(apply_control_affinity(log_target));
+    const std::optional<std::uint64_t> override =
+        args.grace_set ? std::optional<std::uint64_t>(args.grace_s) : std::nullopt;
+    const core::Status status = runner::stop_suite(target, override);
+    if (!status) {
+        return cli_fail("stop", "suite", target, std::string(core::to_string(status.error())),
+                        "suite stop failed");
+    }
+    return cli_ok("stop", "suite", target, "stopped");
+}
 
+/// Single-instance stop path.
+[[nodiscard]] int stop_instance(const Stop_args& args) {
+    const CliLogTarget log_target = fallback_log_target();
+    static_cast<void>(activate_logging(log_target));
+    runner::Runner runner;
+    const core::Status status = runner.stop(args.instance_dir, args.grace_s);
+    if (!status) {
+        return cli_fail("stop", "single", args.instance_dir,
+                        std::string(core::to_string(status.error())), "stop failed");
+    }
+    return cli_ok("stop", "single", args.instance_dir, "stopped");
+}
+
+/// Suite status path (`--config` or `--suite-dir`).
+[[nodiscard]] int status_suite_process(const Status_args& args) {
+    std::string target = args.suite_dir;
+    CliLogTarget log_target = fallback_log_target();
+    if (!args.config.empty()) {
+        runner::SuiteManifest manifest{};
+        const core::Status loaded = runner::load_suite_manifest(args.config, manifest);
+        if (!loaded) {
+            static_cast<void>(activate_logging(log_target));
+            return cli_fail("status", "suite", args.config,
+                            std::string(core::to_string(loaded.error())), "manifest failed");
+        }
+        target = runner::suite_dir_path(manifest.run_dir, manifest.suite_id);
+        log_target = manifest_log_target(manifest);
+    } else if (!suite_dir_log_target(target, log_target)) {
+        runner::warn_runner("event=suite_metadata_unreadable detail=using fallback log");
+    }
+    runner::SuiteStatus status{};
+    const core::Status queried = runner::suite_status(target, status);
+    static_cast<void>(activate_logging(log_target));
+    static_cast<void>(apply_control_affinity(log_target));
+    if (!queried) {
+        return cli_fail("status", "suite", target, std::string(core::to_string(queried.error())),
+                        "suite status failed");
+    }
+    log_command("status", "suite", target, "ok",
+                std::string("state=") + std::string(runner::to_string(status.state)));
+    if (args.json_output) {
+        nlohmann::json document;
+        runner::to_json(document, status);
+        std::fprintf(stdout, "%s\n", document.dump(2).c_str());
+    } else {
+        std::fprintf(stdout, "suite: %s (restarts used: %u)\n",
+                     std::string(runner::to_string(status.state)).c_str(),
+                     status.suite_restarts_used);
+        for (const runner::SuiteAppStatus& app : status.apps) {
+            std::fprintf(stdout, "  %s/%s: %s attempt=%u artifact=%s\n", app.app.c_str(),
+                         app.instance.c_str(), std::string(runner::to_string(app.state)).c_str(),
+                         app.attempt, app.artifact_dir.c_str());
+        }
+    }
+    finish_logging();
+    return 0;
+}
+
+/// Single-instance status path.
+[[nodiscard]] int status_instance(const Status_args& args) {
     const CliLogTarget log_target = fallback_log_target();
     static_cast<void>(activate_logging(log_target));
     runner::Runner runner;
     std::string state;
-    const core::Status status = runner.status(instance_dir, state);
+    const core::Status status = runner.status(args.instance_dir, state);
     if (!status) {
-        return cli_fail("status", "single", instance_dir,
+        return cli_fail("status", "single", args.instance_dir,
                         std::string(core::to_string(status.error())), "status failed");
     }
-    log_command("status", "single", instance_dir, "ok", std::string("state=") + state);
+    log_command("status", "single", args.instance_dir, "ok", std::string("state=") + state);
     finish_logging();
     std::fprintf(stdout, "%s\n", state.c_str());
     return 0;
+}
+
+int cmd_start(int argc, char* argv[]) {
+    Start_args args{};
+    if (const std::optional<int> code = parse_start_args(argc, argv, args)) {
+        return *code;
+    }
+    if (!args.config.empty()) {
+        return start_suite_process(args.config);
+    }
+    return start_instance(args);
+}
+
+int cmd_stop(int argc, char* argv[]) {
+    Stop_args args{};
+    if (const std::optional<int> code = parse_stop_args(argc, argv, args)) {
+        return *code;
+    }
+
+    const int stop_exclusivity =
+        suite_target_options_conflict(args.config, args.suite_dir, args.have_dir);
+    if (stop_exclusivity != 0) {
+        return stop_exclusivity;
+    }
+
+    if (!args.config.empty() || !args.suite_dir.empty()) {
+        return stop_suite_process(args);
+    }
+
+    if (!args.have_dir) {
+        std::fprintf(stderr, "nexigen-run: missing instance directory\n");
+        print_usage(stderr);
+        return exit_usage;
+    }
+    return stop_instance(args);
+}
+
+int cmd_status(int argc, char* argv[]) {
+    Status_args args{};
+    if (const std::optional<int> code = parse_status_args(argc, argv, args)) {
+        return *code;
+    }
+
+    const int status_exclusivity =
+        suite_target_options_conflict(args.config, args.suite_dir, args.have_dir);
+    if (status_exclusivity != 0) {
+        return status_exclusivity;
+    }
+
+    if (!args.config.empty() || !args.suite_dir.empty()) {
+        return status_suite_process(args);
+    }
+
+    if (!args.have_dir) {
+        std::fprintf(stderr, "nexigen-run: missing instance directory\n");
+        print_usage(stderr);
+        return exit_usage;
+    }
+    return status_instance(args);
 }
 
 } // namespace

@@ -2194,19 +2194,11 @@ void test_explicit_histogram_mt() {
 }
 
 // --- Exponential histogram: ST extras (task 9.2/9.3) and the MT suites.
-void test_exponential_histogram_mt() {
-    metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
-    const Result<metrics::Meter*> meter = provider.get_meter("exponential", "1.0");
-    NX_CHECK(meter.has_value());
-    if (!meter) {
-        return;
-    }
-
+void exp_hist_containment(metrics::Meter& meter) {
     // Containment at the effective scale after coarsening (task 9.2): the
     // reported edges bracket each recorded value in its own bucket.
     const auto contained =
-        (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("contained", 10);
+        meter.create_exponential_histogram<ST, Readable, Cumulative>("contained", 10);
     NX_CHECK(contained.has_value());
     if (contained) {
         for (int k = -3; k <= 3; ++k) {
@@ -2238,20 +2230,24 @@ void test_exponential_histogram_mt() {
         NX_CHECK(bracketed);
         NX_CHECK(strictly_increasing);
     }
+}
 
+void exp_hist_empty(metrics::Meter& meter) {
     // Empty histogram reports zeros (task 9.3).
     const auto empty_hist =
-        (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("empty", 10);
+        meter.create_exponential_histogram<ST, Readable, Cumulative>("empty", 10);
     NX_CHECK(empty_hist.has_value());
     if (empty_hist) {
         const metrics::HistogramSnapshot snapshot = (*empty_hist)->read();
         NX_CHECK(snapshot.count == 0U);
         NX_CHECK(snapshot.p50 == 0.0 && snapshot.p999 == 0.0);
     }
+}
 
+void exp_hist_log_uniform(metrics::Meter& meter) {
     // Log-uniform percentiles land within one bucket width (task 9.3).
     const auto log_uniform =
-        (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("log_uniform", 10);
+        meter.create_exponential_histogram<ST, Readable, Cumulative>("log_uniform", 10);
     NX_CHECK(log_uniform.has_value());
     if (log_uniform) {
         for (int i = 0; i <= 80; ++i) {
@@ -2274,13 +2270,17 @@ void test_exponential_histogram_mt() {
         NX_CHECK(tolerance > 0.0);
         NX_CHECK(std::abs(snapshot.p50 - true_p50) <= tolerance);
     }
+}
 
+/// Returns false when the histogram could not be created; the original
+/// early-return path skipped the remaining multi-thread cases in that case.
+[[nodiscard]] bool exp_hist_sharded(metrics::Meter& meter) {
     // 32 threads x 1M samples: count and bucket totals are exact.
     const auto sharded =
-        (*meter)->create_exponential_histogram<MT, Readable, Cumulative>("sharded", 10);
+        meter.create_exponential_histogram<MT, Readable, Cumulative>("sharded", 10);
     NX_CHECK(sharded.has_value());
     if (!sharded) {
-        return;
+        return false;
     }
     {
         std::vector<std::jthread> workers;
@@ -2303,10 +2303,13 @@ void test_exponential_histogram_mt() {
         NX_CHECK(total == 32'000'000U);
         NX_CHECK(snapshot.sum == 48'000'000.0);
     }
+    return true;
+}
 
+void exp_hist_windowed(metrics::Meter& meter) {
     // Reset-window exactness under concurrent recording (task 9.3).
     const auto windowed =
-        (*meter)->create_exponential_histogram<MT, Readable, ResetOnRead>("windowed_mt", 10);
+        meter.create_exponential_histogram<MT, Readable, ResetOnRead>("windowed_mt", 10);
     NX_CHECK(windowed.has_value());
     if (windowed) {
         std::uint64_t windowed_total = 0;
@@ -2334,11 +2337,13 @@ void test_exponential_histogram_mt() {
         }
         NX_CHECK(windowed_total == 800'000U);
     }
+}
 
+void exp_hist_fallback(metrics::Meter& meter) {
     // >32 threads stay exact through the bucketed fallback shard (task 9.3):
     // bucket totals plus zeros still account for every accepted sample.
     const auto fallback =
-        (*meter)->create_exponential_histogram<MT, Readable, Cumulative>("fallback", 10);
+        meter.create_exponential_histogram<MT, Readable, Cumulative>("fallback", 10);
     NX_CHECK(fallback.has_value());
     if (fallback) {
         std::vector<std::jthread> workers;
@@ -2364,6 +2369,24 @@ void test_exponential_histogram_mt() {
         NX_CHECK(total + snapshot.zero_count == snapshot.count);
         NX_CHECK(snapshot.count == 400'000U + 4'000U);
     }
+}
+
+void test_exponential_histogram_mt() {
+    metrics::NullMetricSink sink;
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
+    const Result<metrics::Meter*> meter = provider.get_meter("exponential", "1.0");
+    NX_CHECK(meter.has_value());
+    if (!meter) {
+        return;
+    }
+    exp_hist_containment(**meter);
+    exp_hist_empty(**meter);
+    exp_hist_log_uniform(**meter);
+    if (!exp_hist_sharded(**meter)) {
+        return;
+    }
+    exp_hist_windowed(**meter);
+    exp_hist_fallback(**meter);
 }
 
 #ifdef NEXIGEN_METRICS_STRICT_LATENCY

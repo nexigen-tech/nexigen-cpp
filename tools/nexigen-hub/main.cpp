@@ -4,6 +4,7 @@
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -47,105 +48,123 @@ void hub_diagnostic(void* context, std::string_view message) noexcept {
     std::fprintf(stderr, "nexigen-hub: %.*s\n", static_cast<int>(message.size()), message.data());
 }
 
-} // namespace
-
-int main(int argc, char* argv[]) {
-    std::vector<std::string> run_dirs;
+struct Hub_options {
+    std::vector<std::string> run_dirs{};
     std::string listen = "127.0.0.1:8080";
     std::uint64_t ring_records = 4096;
     std::uint64_t ring_bytes = 8ULL * 1024ULL * 1024ULL;
     std::uint64_t max_line_bytes = 1ULL * 1024ULL * 1024ULL;
+};
 
+/// Consume the next argv token as a string; false when it is missing.
+[[nodiscard]] bool take_value(int argc, char* argv[], int& index, std::string& target) {
+    if (index + 1 >= argc) {
+        return false;
+    }
+    target = argv[++index];
+    return true;
+}
+
+/// Consume the next argv token as a u64; false when missing or malformed.
+[[nodiscard]] bool take_u64_value(int argc, char* argv[], int& index, std::uint64_t& target) {
+    std::string text;
+    return take_value(argc, argv, index, text) && tools::parse_u64(text, target);
+}
+
+/// Parse argv. Returns std::nullopt to continue, or the process exit code.
+[[nodiscard]] std::optional<int> parse_hub_args(int argc, char* argv[], Hub_options& options) {
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument{argv[index]};
-        auto value = [&](std::string& target) -> bool {
-            if (index + 1 >= argc) {
-                return false;
-            }
-            target = argv[++index];
-            return true;
-        };
         if (argument == "--help" || argument == "-h") {
             print_usage(stdout);
             return 0;
         }
         if (argument == "--run-dir") {
             std::string directory;
-            if (!value(directory)) {
+            if (!take_value(argc, argv, index, directory)) {
                 print_usage(stderr);
                 return 2;
             }
-            run_dirs.push_back(std::move(directory));
-        } else if (argument == "--listen") {
-            if (!value(listen)) {
-                print_usage(stderr);
-                return 2;
-            }
-        } else if (argument == "--ring-records") {
-            std::string text;
-            if (!value(text) || !tools::parse_u64(text, ring_records)) {
-                print_usage(stderr);
-                return 2;
-            }
-        } else if (argument == "--ring-bytes") {
-            std::string text;
-            if (!value(text) || !tools::parse_u64(text, ring_bytes)) {
-                print_usage(stderr);
-                return 2;
-            }
-        } else if (argument == "--max-line-bytes") {
-            std::string text;
-            if (!value(text) || !tools::parse_u64(text, max_line_bytes)) {
-                print_usage(stderr);
-                return 2;
-            }
-        } else {
-            std::fprintf(stderr, "nexigen-hub: unknown option '%s'\n",
-                         std::string(argument).c_str());
-            print_usage(stderr);
-            return 2;
+            options.run_dirs.push_back(std::move(directory));
+            continue;
         }
-    }
-
-    if (run_dirs.empty()) {
-        std::fprintf(stderr, "nexigen-hub: at least one --run-dir is required\n");
+        if (argument == "--listen") {
+            if (!take_value(argc, argv, index, options.listen)) {
+                print_usage(stderr);
+                return 2;
+            }
+            continue;
+        }
+        std::uint64_t* target = nullptr;
+        if (argument == "--ring-records") {
+            target = &options.ring_records;
+        } else if (argument == "--ring-bytes") {
+            target = &options.ring_bytes;
+        } else if (argument == "--max-line-bytes") {
+            target = &options.max_line_bytes;
+        }
+        if (target != nullptr) {
+            if (!take_u64_value(argc, argv, index, *target)) {
+                print_usage(stderr);
+                return 2;
+            }
+            continue;
+        }
+        std::fprintf(stderr, "nexigen-hub: unknown option '%s'\n", std::string(argument).c_str());
         print_usage(stderr);
         return 2;
     }
 
-    // Host extraction for the loopback check (analysis #13): strip the RFC
-    // bracket form `[<addr>]:<port>`, otherwise split at the FIRST colon —
-    // the previous `rfind(':')` truncated a bare `::1` into `:` and disabled
-    // the loopback classification exactly when it mattered.
-    std::string listen_host{};
+    if (options.run_dirs.empty()) {
+        std::fprintf(stderr, "nexigen-hub: at least one --run-dir is required\n");
+        print_usage(stderr);
+        return 2;
+    }
+    return std::nullopt;
+}
+
+/// Host extraction for the loopback check (analysis #13): strip the RFC
+/// bracket form `[<addr>]:<port>`, otherwise split at the FIRST colon — the
+/// previous `rfind(':')` truncated a bare `::1` into `:` and disabled the
+/// loopback classification exactly when it mattered.
+[[nodiscard]] std::string classify_listen_host(std::string_view listen) {
+    std::string host{};
     if (!listen.empty() && listen.front() == '[') {
         const std::size_t closing = listen.find(']');
-        listen_host =
-            closing == std::string::npos ? listen : listen.substr(1, closing > 1 ? closing - 1 : 0);
+        host = closing == std::string_view::npos
+                   ? std::string(listen)
+                   : std::string(listen.substr(1, closing > 1 ? closing - 1 : 0));
     } else if (const std::size_t colon = listen.find(':');
-               colon != std::string::npos && colon != 0) {
-        listen_host = listen.substr(0, colon);
-        if (listen_host == "localhost") {
-            listen_host = "127.0.0.1";
+               colon != std::string_view::npos && colon != 0) {
+        host = std::string(listen.substr(0, colon));
+        if (host == "localhost") {
+            host = "127.0.0.1";
         }
     } else {
-        listen_host = listen;
+        host = std::string(listen);
     }
-    if (listen_host.empty()) {
-        listen_host = "127.0.0.1"; // server default applied below anyway
+    if (host.empty()) {
+        host = "127.0.0.1"; // server default applied below anyway
     }
-    if (listen_host != "127.0.0.1" && listen_host != "localhost" && listen_host != "::1") {
-        std::fprintf(stderr,
-                     "nexigen-hub: warning: listening on non-loopback address "
-                     "'%s' without authentication\n",
-                     listen_host.c_str());
-    }
+    return host;
+}
 
+void warn_if_non_loopback(const std::string& host) {
+    if (host == "127.0.0.1" || host == "localhost" || host == "::1") {
+        return;
+    }
+    std::fprintf(stderr,
+                 "nexigen-hub: warning: listening on non-loopback address "
+                 "'%s' without authentication\n",
+                 host.c_str());
+}
+
+[[nodiscard]] int run_hub(const Hub_options& options) {
     std::signal(SIGINT, stop_handler);
     std::signal(SIGTERM, stop_handler);
 
     hub::Discovery discovery;
-    const core::Status discovered = discovery.initialize(run_dirs);
+    const core::Status discovered = discovery.initialize(options.run_dirs);
     if (!discovered) {
         std::fprintf(stderr, "nexigen-hub: discovery failed: %s\n",
                      std::string(core::to_string(discovered.error())).c_str());
@@ -153,12 +172,12 @@ int main(int argc, char* argv[]) {
     }
 
     hub::StreamLimits limits{};
-    limits.ring_records = static_cast<std::size_t>(ring_records);
-    limits.ring_bytes = static_cast<std::size_t>(ring_bytes);
-    limits.max_line_bytes = static_cast<std::size_t>(max_line_bytes);
+    limits.ring_records = static_cast<std::size_t>(options.ring_records);
+    limits.ring_bytes = static_cast<std::size_t>(options.ring_bytes);
+    limits.max_line_bytes = static_cast<std::size_t>(options.max_line_bytes);
     hub::StreamManager streaming(limits);
     hub::HttpServer server(discovery, streaming, hub_diagnostic, nullptr);
-    const core::Status started = server.start(listen);
+    const core::Status started = server.start(options.listen);
     if (!started) {
         std::fprintf(stderr, "nexigen-hub: listen failed: %s\n",
                      std::string(core::to_string(started.error())).c_str());
@@ -166,10 +185,21 @@ int main(int argc, char* argv[]) {
     }
 
     std::fprintf(stdout, "nexigen-hub: listening on http://%s:%u\n",
-                 listen.substr(0, listen.rfind(':')).c_str(), server.port());
-    std::fprintf(stdout, "nexigen-hub: watching %zu run root(s)\n", run_dirs.size());
+                 options.listen.substr(0, options.listen.rfind(':')).c_str(), server.port());
+    std::fprintf(stdout, "nexigen-hub: watching %zu run root(s)\n", options.run_dirs.size());
     std::fflush(stdout);
 
     server.run(&g_stop);
     return 0;
+}
+
+} // namespace
+
+int main(int argc, char* argv[]) {
+    Hub_options options{};
+    if (const std::optional<int> code = parse_hub_args(argc, argv, options)) {
+        return *code;
+    }
+    warn_if_non_loopback(classify_listen_host(options.listen));
+    return run_hub(options);
 }

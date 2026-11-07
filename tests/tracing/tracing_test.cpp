@@ -2828,7 +2828,7 @@ void test_tracing_required_thread_failure() {
 #endif
 }
 
-void test_provider() {
+void provider_lifecycle() {
     using Provider = tracing::TracerProvider<64, 32>;
     using Big_provider = tracing::TracerProvider<1024, 32>;
 
@@ -2907,6 +2907,11 @@ void test_provider() {
             static_cast<void>(span.end()); // no-op, no crash
         }
     }
+}
+
+void provider_pool_exhaustion() {
+    using Provider = tracing::TracerProvider<64, 32>;
+    tracing::NullTraceSink null_sink{};
 
     // Pool exhaustion: BufferFull at the configured limit, existing usable.
     {
@@ -2930,7 +2935,9 @@ void test_provider() {
         NX_CHECK(!too_long.has_value() && too_long.error() == core::ErrorCode::InvalidArgument);
         std::destroy_at(provider);
     }
+}
 
+void provider_serialization() {
     // Config + DroppedStats trios (spec "Provider serialization surfaces").
     {
         tracing::TracerProviderConfig config{};
@@ -2978,6 +2985,10 @@ void test_provider() {
             NX_CHECK(std::memcmp(&stats_back, &stats_before, sizeof(stats_back)) == 0);
         }
     }
+}
+
+void provider_idle_wakeups() {
+    using Provider = tracing::TracerProvider<64, 32>;
 
     // Worker idle behaviour: the poll interval bounds idle wake-ups, and a
     // flush is still answered at the next wake-up.
@@ -3040,6 +3051,10 @@ void test_provider() {
         NX_CHECK(dflt >= 0 && dflt < 1200); // former 200 us poll: ~2000
         NX_CHECK(tuned >= 0 && tuned < 120);
     }
+}
+
+void provider_affinity() {
+    using Provider = tracing::TracerProvider<64, 32>;
 
     // Worker affinity round-trip (spec "Worker affinity matches the
     // configured mask"): a valid single allowed core, the mask the WORKER
@@ -3096,6 +3111,10 @@ void test_provider() {
         NX_CHECK(provider->worker_mask() == main_mask);
         std::destroy_at(provider);
     }
+}
+
+void provider_pin_failure() {
+    using Provider = tracing::TracerProvider<64, 32>;
 
     // A failing mask surfaces SystemError in the startup snapshot WITHOUT
     // stopping the pipeline (spec "Pin failures are visible"): probe every
@@ -3144,7 +3163,9 @@ void test_provider() {
         sink.reset();
         std::destroy_at(provider);
     }
+}
 
+void provider_stress_fifo() {
     // Per-shard FIFO and fair drain under 32-thread stress (spec): every
     // thread's spans drain in that thread's start order, no thread starved.
     // ShardCapacity 1024 ≥ per-thread span count: drops are impossible by
@@ -3210,6 +3231,10 @@ void test_provider() {
         sink.reset();
         std::destroy_at(provider);
     }
+}
+
+void provider_thread_pool() {
+    using Provider = tracing::TracerProvider<64, 32>;
 
     // The 33rd distinct thread drops visibly (spec "Threads beyond the pool
     // drop visibly"): sequential short-lived threads claim slots 0..31, the
@@ -3237,6 +3262,10 @@ void test_provider() {
         sink.reset();
         std::destroy_at(provider);
     }
+}
+
+void provider_drop_counters() {
+    using Provider = tracing::TracerProvider<64, 32>;
 
     // Exact drop counters, deterministic (never-initialized provider: no
     // consumer exists, so capacity accounting is exact):
@@ -3271,6 +3300,10 @@ void test_provider() {
         NX_CHECK(sink.stopped.load(std::memory_order_relaxed));
         sink.reset();
     }
+}
+
+void provider_rate_budget() {
+    using Provider = tracing::TracerProvider<64, 32>;
 
     // The span-rate budget counts rate_limited exactly (spec "The span-rate
     // budget counts rate_limited"): budget 2 per 1 s window, on a dedicated
@@ -3306,6 +3339,10 @@ void test_provider() {
         sink.reset();
         std::destroy_at(provider);
     }
+}
+
+void provider_flush() {
+    using Provider = tracing::TracerProvider<64, 32>;
 
     // Flush barrier: returns only after drain durability, and sink errors
     // propagate (spec "Flush waits for durability").
@@ -3343,6 +3380,11 @@ void test_provider() {
         NX_CHECK(flushed.error() == core::ErrorCode::SystemError);
         provider2->~TracerProvider();
     }
+}
+
+void provider_shutdown() {
+    using Provider = tracing::TracerProvider<64, 32>;
+    tracing::NullTraceSink null_sink{};
 
     // Shutdown drain: destruction loses no accepted record (spec "Destruction
     // does not lose accepted records") — no flush() call before destruction.
@@ -3374,6 +3416,21 @@ void test_provider() {
         NX_CHECK(flushed.error() == core::ErrorCode::NotInitialized);
         std::destroy_at(provider);
     }
+}
+
+void test_provider() {
+    provider_lifecycle();
+    provider_pool_exhaustion();
+    provider_serialization();
+    provider_idle_wakeups();
+    provider_affinity();
+    provider_pin_failure();
+    provider_stress_fifo();
+    provider_thread_pool();
+    provider_drop_counters();
+    provider_rate_budget();
+    provider_flush();
+    provider_shutdown();
 }
 
 // --- extended trace writer/sink coverage (change improve-test-coverage):

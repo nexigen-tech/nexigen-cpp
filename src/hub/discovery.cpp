@@ -367,42 +367,51 @@ bool Discovery::scan_run(const RunRoot& root, HubRun& out) noexcept {
     return true;
 }
 
-void Discovery::scan_suite(const RunRoot& root, const std::string& suite_dir,
-                           HubSuite& out) noexcept {
+namespace {
+
+/// Read and validate `suite.json`; false when absent/unreadable or empty id.
+[[nodiscard]] bool load_suite_document(const std::string& suite_dir,
+                                       runner::SuiteMetadata& metadata) {
     const core::Result<nlohmann::json> document =
         runner::read_json_file(join(suite_dir, "suite.json"));
     if (!document) {
-        return;
+        return false;
     }
-    runner::SuiteMetadata metadata{};
     runner::from_json(*document, metadata);
-    if (metadata.suite_id.empty()) {
-        return;
-    }
+    return !metadata.suite_id.empty();
+}
 
+/// Fill identity and the contained runner-log stream.
+///
+/// Spec hub/discovery "Suite-metadata read targets are run-root contained"
+/// (design D3): every path that originates in suite.json is proven contained
+/// at tree-build time before it is stored or derived from; uncontained sources
+/// leave the stored path empty, produce no streams, and degrade gracefully
+/// ("Non-contained suite metadata degrades gracefully"). The runner log is
+/// derived from the already-contained artifacts path, so its own containment
+/// check covers hostile `suite_id` content too.
+void apply_suite_streams(const RunRoot& root, const std::string& suite_dir,
+                         const runner::SuiteMetadata& metadata, HubSuite& out) {
     out.suite_id = metadata.suite_id;
     out.suite_dir = suite_dir;
-    // Spec hub/discovery "Suite-metadata read targets are run-root contained"
-    // (design D3): every path that originates in suite.json is proven
-    // contained at tree-build time before it is stored or derived from; uncontained
-    // sources leave the stored path empty, produce no streams, and degrade
-    // gracefully ("Non-contained suite metadata degrades gracefully"). The
-    // runner log is derived from the already-contained artifacts path, so its
-    // own containment check covers hostile `suite_id` content too.
-    if (contained(root.path, metadata.artifacts_path)) {
-        out.artifacts_path = metadata.artifacts_path;
-        const std::string runner_log_path =
-            join(join(out.artifacts_path, out.suite_id), "runner.jsonl");
-        if (contained(root.path, runner_log_path)) {
-            out.runner_log.id =
-                stream_id(root.key, out.suite_id, "suite", "runner", 0, StreamKind::Runner);
-            out.runner_log.kind = StreamKind::Runner;
-            out.runner_log.path = runner_log_path;
-        }
+    if (!contained(root.path, metadata.artifacts_path)) {
+        return;
     }
+    out.artifacts_path = metadata.artifacts_path;
+    const std::string runner_log_path =
+        join(join(out.artifacts_path, out.suite_id), "runner.jsonl");
+    if (contained(root.path, runner_log_path)) {
+        out.runner_log.id =
+            stream_id(root.key, out.suite_id, "suite", "runner", 0, StreamKind::Runner);
+        out.runner_log.kind = StreamKind::Runner;
+        out.runner_log.path = runner_log_path;
+    }
+}
 
+/// Apply suite-state then suite-exit precedence; returns whether state existed.
+[[nodiscard]] bool apply_suite_outcome(const std::string& suite_dir, HubSuite& out,
+                                       runner::SuiteStatus& status) {
     runner::SuiteState recorded_state = runner::SuiteState::Unknown;
-    runner::SuiteStatus status{};
     bool have_status = false;
     if (const core::Result<nlohmann::json> state_document =
             runner::read_json_file(join(suite_dir, "suite-state.json"))) {
@@ -419,44 +428,56 @@ void Discovery::scan_suite(const RunRoot& root, const std::string& suite_dir,
         out.reason = exit.reason;
     }
     out.state = recorded_state;
+    return have_status;
+}
 
-    std::unordered_map<std::string, std::size_t> app_index{};
-    for (const runner::SuiteAppMetadata& app_meta : metadata.apps) {
-        std::size_t index = 0;
-        const auto found = app_index.find(app_meta.app);
-        if (found == app_index.end()) {
-            index = out.apps.size();
-            HubApp app{};
-            app.app = app_meta.app;
-            out.apps.push_back(std::move(app));
-            app_index.emplace(app_meta.app, index);
-        } else {
-            index = found->second;
-        }
-        HubInstance instance{};
-        instance.instance = app_meta.instance;
-        // Design D3: a per-app `instance_dir` that resolves outside the run
-        // root is rejected — nothing is stored, no resource.json/exit.json of
-        // the foreign directory is read, and the instance reports unknown
-        // state (recorded suite-state entries of affected instances are not
-        // applied either, per the "Escaped instance directory is rejected"
-        // scenario).
-        if (contained(root.path, app_meta.instance_dir)) {
-            instance.instance_dir = app_meta.instance_dir;
-            instance.state = instance_state(instance.instance_dir);
-            if (have_status) {
-                for (const runner::SuiteAppStatus& recorded : status.apps) {
-                    if (recorded.app == app_meta.app && recorded.instance == app_meta.instance) {
-                        instance.state = recorded.state;
-                        break;
-                    }
-                }
-            }
-        }
-        scan_attempts(root, metadata.artifacts_path, metadata.suite_id, app_meta.app,
-                      app_meta.instance, root.key, instance);
-        out.apps[index].instances.push_back(std::move(instance));
+/// Find or append the app container; returns its index in out.apps.
+[[nodiscard]] std::size_t upsert_app(HubSuite& out,
+                                     std::unordered_map<std::string, std::size_t>& app_index,
+                                     const std::string& app_name) {
+    const auto found = app_index.find(app_name);
+    if (found != app_index.end()) {
+        return found->second;
     }
+    const std::size_t index = out.apps.size();
+    HubApp app{};
+    app.app = app_name;
+    out.apps.push_back(std::move(app));
+    app_index.emplace(app_name, index);
+    return index;
+}
+
+/// Build one instance with the contained-directory and recorded-state rules.
+///
+/// Design D3: a per-app `instance_dir` that resolves outside the run root is
+/// rejected — nothing is stored, no resource.json/exit.json of the foreign
+/// directory is read, and the instance reports unknown state (recorded
+/// suite-state entries of affected instances are not applied either, per the
+/// "Escaped instance directory is rejected" scenario).
+[[nodiscard]] HubInstance make_suite_instance(const RunRoot& root,
+                                              const runner::SuiteAppMetadata& app_meta,
+                                              bool have_status, const runner::SuiteStatus& status) {
+    HubInstance instance{};
+    instance.instance = app_meta.instance;
+    if (!contained(root.path, app_meta.instance_dir)) {
+        return instance;
+    }
+    instance.instance_dir = app_meta.instance_dir;
+    instance.state = instance_state(instance.instance_dir);
+    if (!have_status) {
+        return instance;
+    }
+    for (const runner::SuiteAppStatus& recorded : status.apps) {
+        if (recorded.app == app_meta.app && recorded.instance == app_meta.instance) {
+            instance.state = recorded.state;
+            break;
+        }
+    }
+    return instance;
+}
+
+/// Aggregate each app's instances into its app-level state.
+void derive_app_states(HubSuite& out) {
     for (HubApp& app : out.apps) {
         std::vector<runner::AppState> states;
         states.reserve(app.instances.size());
@@ -465,20 +486,50 @@ void Discovery::scan_suite(const RunRoot& root, const std::string& suite_dir,
         }
         app.state = combine_app_state(states);
     }
+}
 
-    if (out.state == runner::SuiteState::Unknown) {
-        std::vector<runner::AppState> states;
-        states.reserve(out.apps.size());
-        for (const HubApp& app : out.apps) {
-            states.push_back(app.state);
-        }
-        const runner::AppState combined = combine_app_state(states);
-        if (combined == runner::AppState::Running || combined == runner::AppState::Restarting) {
-            out.state = runner::SuiteState::Running;
-        } else if (combined == runner::AppState::Failed) {
-            out.state = runner::SuiteState::Failed;
-        }
+/// When no recorded suite outcome exists, derive it from the app states.
+void derive_unknown_suite_state(HubSuite& out) {
+    if (out.state != runner::SuiteState::Unknown) {
+        return;
     }
+    std::vector<runner::AppState> states;
+    states.reserve(out.apps.size());
+    for (const HubApp& app : out.apps) {
+        states.push_back(app.state);
+    }
+    const runner::AppState combined = combine_app_state(states);
+    if (combined == runner::AppState::Running || combined == runner::AppState::Restarting) {
+        out.state = runner::SuiteState::Running;
+    } else if (combined == runner::AppState::Failed) {
+        out.state = runner::SuiteState::Failed;
+    }
+}
+
+} // namespace
+
+void Discovery::scan_suite(const RunRoot& root, const std::string& suite_dir,
+                           HubSuite& out) noexcept {
+    runner::SuiteMetadata metadata{};
+    if (!load_suite_document(suite_dir, metadata)) {
+        return;
+    }
+    apply_suite_streams(root, suite_dir, metadata, out);
+
+    runner::SuiteStatus status{};
+    const bool have_status = apply_suite_outcome(suite_dir, out, status);
+
+    std::unordered_map<std::string, std::size_t> app_index{};
+    for (const runner::SuiteAppMetadata& app_meta : metadata.apps) {
+        const std::size_t index = upsert_app(out, app_index, app_meta.app);
+        HubInstance instance = make_suite_instance(root, app_meta, have_status, status);
+        scan_attempts(root, metadata.artifacts_path, metadata.suite_id, app_meta.app,
+                      app_meta.instance, root.key, instance);
+        out.apps[index].instances.push_back(std::move(instance));
+    }
+
+    derive_app_states(out);
+    derive_unknown_suite_state(out);
 }
 
 void Discovery::scan_attempts(const RunRoot& root, std::string_view artifacts_path,

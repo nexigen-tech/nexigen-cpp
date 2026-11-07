@@ -105,6 +105,71 @@ std::size_t put_epoch_label(std::int64_t value, char (&buf)[64]) noexcept {
     return pos;
 }
 
+/// Validate the caller-supplied path inputs once (never NUL-terminated here).
+[[nodiscard]] bool validate_segment_request(std::string_view base_dir,
+                                            std::string_view file_name) noexcept {
+    return !base_dir.empty() && !file_name.empty() && base_dir.size() <= 511U &&
+           file_name.size() <= 255U && base_dir.find('\0') == std::string_view::npos &&
+           file_name.find('\0') == std::string_view::npos;
+}
+
+/// mkdirat with the steady-state EEXIST tolerance; other errno -> SystemError.
+[[nodiscard]] core::Status ensure_directory(const char* path) noexcept {
+    if (::mkdirat(AT_FDCWD, path, 0755) != 0 && errno != EEXIST) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return {};
+}
+
+/// Stage the base directory into scratch.file and create it if missing.
+[[nodiscard]] core::Status prepare_base_directory(std::string_view base_dir,
+                                                  RotationScratch& scratch) noexcept {
+    std::size_t bpos = 0;
+    if (!put(base_dir, scratch.file, bpos)) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    return ensure_directory(scratch.file);
+}
+
+/// Render "<base_dir>[/<label>]" into scratch.dir (label only when rotating).
+[[nodiscard]] core::Status build_rotation_dir(RotationKind kind, std::uint64_t custom_ns,
+                                              std::int64_t utc_ns, std::string_view base_dir,
+                                              RotationScratch& scratch) noexcept {
+    std::size_t pos = 0;
+    if (!put(base_dir, scratch.dir, pos)) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (kind == RotationKind::None) {
+        return {};
+    }
+    char label[64];
+    const std::size_t label_len = period_label(kind, custom_ns, utc_ns, label);
+    if (label_len == 0U || !put("/"sv, scratch.dir, pos) ||
+        !put(std::string_view(label, label_len), scratch.dir, pos)) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    return {};
+}
+
+/// Render "<dir>/<effective_name>" into scratch.file.
+[[nodiscard]] bool build_segment_file(RotationScratch& scratch, const char (&effective_name)[288],
+                                      std::size_t effective_len) noexcept {
+    std::size_t fpos = 0;
+    return put(std::string_view(scratch.dir), scratch.file, fpos) &&
+           put("/"sv, scratch.file, fpos) &&
+           put(std::string_view(effective_name, effective_len), scratch.file, fpos);
+}
+
+/// Open the staged path for append, creating it if absent.
+[[nodiscard]] core::Status open_append(const char* path, int& fd_out) noexcept {
+    const int fd = ::openat(AT_FDCWD, path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0644);
+    if (fd < 0) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    fd_out = fd;
+    return {};
+}
+
 } // namespace
 
 std::int64_t period_key(RotationKind kind, std::uint64_t custom_ns, std::int64_t utc_ns) noexcept {
@@ -158,9 +223,7 @@ core::Status open_segment(RotationKind kind, std::uint64_t custom_ns, std::int64
                           std::string_view base_dir, std::string_view file_name,
                           std::uint64_t segment, RotationScratch& scratch, int& fd_out) noexcept {
     fd_out = -1;
-    if (base_dir.empty() || file_name.empty() || base_dir.size() > 511 || file_name.size() > 255 ||
-        base_dir.find('\0') != std::string_view::npos ||
-        file_name.find('\0') != std::string_view::npos) {
+    if (!validate_segment_request(base_dir, file_name)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 
@@ -173,47 +236,25 @@ core::Status open_segment(RotationKind kind, std::uint64_t custom_ns, std::int64
     // Ensure the base directory itself exists first (fresh deployment root;
     // EEXIST covers steady state). scratch.file is reused for the NUL-staged
     // base path — it is rebuilt in place below anyway.
-    std::size_t bpos = 0;
-    if (!put(base_dir, scratch.file, bpos)) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    if (::mkdirat(AT_FDCWD, scratch.file, 0755) != 0 && errno != EEXIST) {
-        return std::unexpected(core::ErrorCode::SystemError);
+    if (const core::Status base = prepare_base_directory(base_dir, scratch); !base) {
+        return base;
     }
 
     // Directory: base_dir, or base_dir/<label> when rotating.
-    std::size_t pos = 0;
-    if (!put(base_dir, scratch.dir, pos)) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
+    if (const core::Status directory =
+            build_rotation_dir(kind, custom_ns, utc_ns, base_dir, scratch);
+        !directory) {
+        return directory;
     }
-    if (kind != RotationKind::None) {
-        char label[64];
-        const std::size_t label_len = period_label(kind, custom_ns, utc_ns, label);
-        if (label_len == 0U || !put("/"sv, scratch.dir, pos) ||
-            !put(std::string_view(label, label_len), scratch.dir, pos)) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-    }
-
-    if (::mkdirat(AT_FDCWD, scratch.dir, 0755) != 0 && errno != EEXIST) {
-        return std::unexpected(core::ErrorCode::SystemError);
+    if (const core::Status created = ensure_directory(scratch.dir); !created) {
+        return created;
     }
 
     // File: <dir>/<effective_name>, staged in the second fixed buffer.
-    std::size_t fpos = 0;
-    if (!put(std::string_view(scratch.dir), scratch.file, fpos) ||
-        !put("/"sv, scratch.file, fpos) ||
-        !put(std::string_view(effective_name, effective_len), scratch.file, fpos)) {
+    if (!build_segment_file(scratch, effective_name, effective_len)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-
-    const int fd =
-        ::openat(AT_FDCWD, scratch.file, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0644);
-    if (fd < 0) {
-        return std::unexpected(core::ErrorCode::SystemError);
-    }
-    fd_out = fd;
-    return {};
+    return open_append(scratch.file, fd_out);
 }
 
 } // namespace nexigen::logging::detail
