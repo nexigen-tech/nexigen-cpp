@@ -126,6 +126,27 @@ jobs:
       - name: Package smoke test
         run: ./tests/packaging/smoke_test.sh build/clang
 
+  format:
+    name: Formatting
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          python3 -m venv "$RUNNER_TEMP/format-venv"
+          "$RUNNER_TEMP/format-venv/bin/pip" install clang-format==22.1.8
+          echo "$RUNNER_TEMP/format-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Check formatting
+        run: |
+          cmake \
+            -DCLANG_FORMAT="$(command -v clang-format)" \
+            -DSOURCE_DIR="$PWD" \
+            -DFORMAT_MODE=check \
+            -P cmake/RunClangFormat.cmake
+
   coverage:
     name: Coverage
     runs-on: ubuntu-24.04

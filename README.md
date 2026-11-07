@@ -128,6 +128,24 @@ cmake --build build/fuzz --target nexigen_http_parse_fuzz
 ./build/fuzz/nexigen_http_parse_fuzz -runs=20000 tests/fuzz/corpus/http_parse
 ```
 
+### Formatting
+
+C++ sources are formatted with clang-format **22.1.8** using
+[`.clang-format`](.clang-format). CI installs the same version through pip, so a
+local run and the gate produce identical output:
+
+```bash
+python3 -m pip install --user clang-format==22.1.8
+cmake --build build --target format        # rewrite sources in place
+cmake --build build --target format-check  # fail if any file differs
+```
+
+The targets cover `include/`, `src/`, `tests/`, `examples/`, and `tools/`;
+`openspec/` is documentation and is never reformatted. The profile keeps the
+house style: 4-space indentation, attached braces, a 100-column limit, and
+left-aligned pointers/references. Include order is preserved because modules
+deliberately group headers by ownership.
+
 ### Install and consume
 
 `cmake --install` writes headers, static archives, the `nexigen-run`/`nexigen-hub`

@@ -14,6 +14,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
 include(Optimizations)
 include(Sanitizers)
+include(Format)
 
 # Опция покрытия: инструментирует ВСЕ цели и добавляет target `coverage`.
 option(NEXIGEN_ENABLE_COVERAGE "Instrument the build with GCC/Clang --coverage" OFF)

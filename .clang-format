@@ -1,0 +1,36 @@
+# nexigen-cpp C++ formatting policy.
+#
+# The profile tracks the existing house style: 4-space indentation, attached
+# braces, 100-column lines, left-aligned pointers/references, and preserved
+# include order (the modules deliberately group headers by ownership).
+#
+# CI pins clang-format 22.1.8 through the Python package so a local run and the
+# gate produce byte-identical output. Apply with `cmake --build build --target
+# format`; verify with `cmake --build build --target format-check`.
+BasedOnStyle: LLVM
+Standard: Latest
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+AccessModifierOffset: -4
+AlignAfterOpenBracket: Align
+AlignConsecutiveShortCaseStatements:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: true
+  AlignCaseColons: false
+AllowShortBlocksOnASingleLine: Empty
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+BreakBeforeBraces: Attach
+IncludeBlocks: Preserve
+IndentCaseLabels: true
+NamespaceIndentation: None
+PointerAlignment: Left
+ReferenceAlignment: Left
+SortIncludes: Never
+SortUsingDeclarations: Never
+SpacesBeforeTrailingComments: 1

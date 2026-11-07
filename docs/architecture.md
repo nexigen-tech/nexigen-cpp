@@ -193,6 +193,14 @@ The Clang CI job runs `.clang-tidy` (`bugprone-*`, `performance-*`,
 excluding the intentional-padding check) over every `src/*.cpp` translation
 unit with warnings treated as errors.
 
+Formatting is a separate gate: `.clang-format` (clang-format 22.1.8, pinned in
+CI through the Python package) defines the house style for every `.cpp`/`.hpp`
+file under `include/`, `src/`, `tests/`, `examples/`, and `tools/`;
+`cmake --build <build-dir> --target format` rewrites files in place and
+`format-check` fails on any drift. Include order is intentionally preserved: the
+modules group headers by ownership, and alphabetising them would obscure that
+structure.
+
 Optional verification depth:
 
 - `-DNEXIGEN_ENABLE_FAULT_INJECTION=ON` enables test-only cold-path hooks for
