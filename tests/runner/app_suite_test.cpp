@@ -618,6 +618,30 @@ void test_manifest_validation() {
     bad.artifacts_path = "/" + std::string(510, 'a');
     NX_CHECK(failed_with(runner::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
+    bad = manifest;
+    bad.artifacts_path = std::string("/tmp/\0bad", 9);
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.global_settings_path = std::string("/tmp/\0bad", 9);
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().instance = "bad/instance";
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().restart_delay_s = 86401;
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().env = {{std::string("A\0B", 3), "x"}};
+    NX_CHECK(failed_with(runner::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.back().env = {{"C", "d"}};
+    NX_CHECK(runner::validate_suite_manifest(bad).has_value());
+
     const std::string path = root + "/manifest.json";
     NX_CHECK(write_manifest(path, manifest));
     runner::SuiteManifest loaded{};

@@ -615,115 +615,226 @@ std::string attempt_dir_path(std::string_view artifacts_path, std::string_view s
 
 // --- validation ------------------------------------------------------------
 
-core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
-    auto valid_level = [](const std::optional<logging::LogLevel>& level) {
-        if (!level.has_value()) {
-            return true;
-        }
-        switch (*level) {
-            case logging::LogLevel::Verbose:
-            case logging::LogLevel::Debug:
-            case logging::LogLevel::Info:
-            case logging::LogLevel::Warning:
-            case logging::LogLevel::Error:
-            case logging::LogLevel::Fatal:
-            case logging::LogLevel::Off:     return true;
-            default:                         return false;
-        }
-    };
-    if (manifest.version != 1U) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    if (!valid_level(manifest.log_level)) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    if (!safe_id(manifest.suite_id) || !absolute_path(manifest.run_dir) ||
-        !absolute_path(manifest.artifacts_path)) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    if (manifest.run_dir.find('\0') != std::string::npos ||
-        manifest.artifacts_path.find('\0') != std::string::npos ||
-        manifest.global_settings_path.find('\0') != std::string::npos) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    if (!manifest.global_settings_path.empty() && !absolute_path(manifest.global_settings_path)) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    if (manifest.suite_restart_attempts > max_restart_attempts ||
-        manifest.suite_restart_delay_s > max_delay_seconds) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    if (manifest.apps.empty() || manifest.apps.size() > max_apps) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
+namespace {
 
+[[nodiscard]] core::Status invalid_argument() noexcept {
+    return std::unexpected(core::ErrorCode::InvalidArgument);
+}
+
+[[nodiscard]] bool is_valid_log_level(const std::optional<logging::LogLevel>& level) noexcept {
+    if (!level.has_value()) {
+        return true;
+    }
+    switch (*level) {
+        case logging::LogLevel::Verbose:
+        case logging::LogLevel::Debug:
+        case logging::LogLevel::Info:
+        case logging::LogLevel::Warning:
+        case logging::LogLevel::Error:
+        case logging::LogLevel::Fatal:
+        case logging::LogLevel::Off:     return true;
+        default:                         return false;
+    }
+}
+
+[[nodiscard]] long online_cpu_count() noexcept {
     long online = ::sysconf(_SC_NPROCESSORS_ONLN);
     if (online <= 0) {
         online = static_cast<long>(CPU_SETSIZE);
     }
+    return online;
+}
 
-    for (std::size_t index = 0; index < manifest.apps.size(); ++index) {
-        const AppSpec& app = manifest.apps[index];
-        if (!safe_id(app.app) || !safe_id(app.instance) || app.app == ".suite" ||
-            app.command.empty() || app.command.find('\0') != std::string::npos) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        for (const std::string& argument : app.args) {
-            if (argument.find('\0') != std::string::npos) {
-                return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
-        }
-        for (const auto& [key, value] : app.env) {
-            if (key.empty() || key.find('=') != std::string::npos ||
-                key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
-                return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
-        }
-        if (app.impact != ImpactOnAppSuiteOperability::Failure &&
-            app.impact != ImpactOnAppSuiteOperability::Degrade &&
-            app.impact != ImpactOnAppSuiteOperability::Not_impact) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        if (!valid_level(app.log_level)) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        if (app.restart_attempts > max_restart_attempts ||
-            app.restart_delay_s > max_delay_seconds || app.idle_timeout_s > max_delay_seconds ||
-            app.stop_grace_s > max_delay_seconds) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        if (!app.global_settings_path.empty() && !absolute_path(app.global_settings_path)) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        if (!app.local_settings_path.empty() && (absolute_path(app.local_settings_path) ||
-                                                 has_parent_segment(app.local_settings_path))) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        for (std::uint32_t cpu = 0; cpu <= core::CpuSet::max_cpu_id; ++cpu) {
-            if (app.cpus.contains(cpu) && (cpu >= static_cast<std::uint32_t>(online) ||
-                                           cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
-                return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
-        }
+[[nodiscard]] core::Status
+validate_suite_version_and_log_level(const SuiteManifest& manifest) noexcept {
+    if (manifest.version != 1U) {
+        return invalid_argument();
+    }
+    if (!is_valid_log_level(manifest.log_level)) {
+        return invalid_argument();
+    }
+    return {};
+}
 
-        const std::string instance_dir = manifest.run_dir + "/" + app.app + "/" + app.instance;
-        if (instance_dir.size() > max_path_bytes) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        const std::string attempt_dir =
-            attempt_dir_path(manifest.artifacts_path, manifest.suite_id, app.app, app.instance, 1);
-        if (attempt_dir.size() > max_path_bytes) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
+[[nodiscard]] core::Status validate_suite_paths(const SuiteManifest& manifest) noexcept {
+    if (!safe_id(manifest.suite_id) || !absolute_path(manifest.run_dir) ||
+        !absolute_path(manifest.artifacts_path)) {
+        return invalid_argument();
+    }
+    if (manifest.run_dir.find('\0') != std::string::npos ||
+        manifest.artifacts_path.find('\0') != std::string::npos ||
+        manifest.global_settings_path.find('\0') != std::string::npos) {
+        return invalid_argument();
+    }
+    if (!manifest.global_settings_path.empty() && !absolute_path(manifest.global_settings_path)) {
+        return invalid_argument();
+    }
+    return {};
+}
 
+[[nodiscard]] core::Status validate_suite_restart_budgets(const SuiteManifest& manifest) noexcept {
+    if (manifest.suite_restart_attempts > max_restart_attempts ||
+        manifest.suite_restart_delay_s > max_delay_seconds) {
+        return invalid_argument();
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_suite_header_and_paths(const SuiteManifest& manifest) noexcept {
+    if (const core::Status status = validate_suite_version_and_log_level(manifest); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_suite_paths(manifest); !status) {
+        return status;
+    }
+    return validate_suite_restart_budgets(manifest);
+}
+
+[[nodiscard]] core::Status validate_app_count(const SuiteManifest& manifest) noexcept {
+    if (manifest.apps.empty() || manifest.apps.size() > max_apps) {
+        return invalid_argument();
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_app_identity_and_command(const AppSpec& app) noexcept {
+    if (!safe_id(app.app) || !safe_id(app.instance) || app.app == ".suite" || app.command.empty() ||
+        app.command.find('\0') != std::string::npos) {
+        return invalid_argument();
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_app_arguments(const AppSpec& app) noexcept {
+    for (const std::string& argument : app.args) {
+        if (argument.find('\0') != std::string::npos) {
+            return invalid_argument();
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status
+validate_app_environment(const std::vector<std::pair<std::string, std::string>>& env) noexcept {
+    for (const auto& [key, value] : env) {
+        if (key.empty() || key.find('=') != std::string::npos ||
+            key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
+            return invalid_argument();
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_app_impact_and_log_level(const AppSpec& app) noexcept {
+    if (app.impact != ImpactOnAppSuiteOperability::Failure &&
+        app.impact != ImpactOnAppSuiteOperability::Degrade &&
+        app.impact != ImpactOnAppSuiteOperability::Not_impact) {
+        return invalid_argument();
+    }
+    if (!is_valid_log_level(app.log_level)) {
+        return invalid_argument();
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_app_timeouts(const AppSpec& app) noexcept {
+    if (app.restart_attempts > max_restart_attempts || app.restart_delay_s > max_delay_seconds ||
+        app.idle_timeout_s > max_delay_seconds || app.stop_grace_s > max_delay_seconds) {
+        return invalid_argument();
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_app_settings_paths(const AppSpec& app) noexcept {
+    if (!app.global_settings_path.empty() && !absolute_path(app.global_settings_path)) {
+        return invalid_argument();
+    }
+    if (!app.local_settings_path.empty() &&
+        (absolute_path(app.local_settings_path) || has_parent_segment(app.local_settings_path))) {
+        return invalid_argument();
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_app_cpu_set(const AppSpec& app, long online) noexcept {
+    for (std::uint32_t cpu = 0; cpu <= core::CpuSet::max_cpu_id; ++cpu) {
+        if (app.cpus.contains(cpu) && (cpu >= static_cast<std::uint32_t>(online) ||
+                                       cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
+            return invalid_argument();
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_app_paths(const AppSpec& app,
+                                              const SuiteManifest& manifest) noexcept {
+    const std::string instance_dir = manifest.run_dir + "/" + app.app + "/" + app.instance;
+    if (instance_dir.size() > max_path_bytes) {
+        return invalid_argument();
+    }
+    const std::string attempt_dir =
+        attempt_dir_path(manifest.artifacts_path, manifest.suite_id, app.app, app.instance, 1);
+    if (attempt_dir.size() > max_path_bytes) {
+        return invalid_argument();
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_app_spec(const AppSpec& app, const SuiteManifest& manifest,
+                                             long online) noexcept {
+    if (const core::Status status = validate_app_identity_and_command(app); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_app_arguments(app); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_app_environment(app.env); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_app_impact_and_log_level(app); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_app_timeouts(app); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_app_settings_paths(app); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_app_cpu_set(app, online); !status) {
+        return status;
+    }
+    return validate_app_paths(app, manifest);
+}
+
+[[nodiscard]] core::Status
+validate_unique_app_instances(const std::vector<AppSpec>& apps) noexcept {
+    for (std::size_t index = 0; index < apps.size(); ++index) {
+        const AppSpec& app = apps[index];
         for (std::size_t other = 0; other < index; ++other) {
-            if (manifest.apps[other].app == app.app &&
-                manifest.apps[other].instance == app.instance) {
-                return std::unexpected(core::ErrorCode::InvalidArgument);
+            if (apps[other].app == app.app && apps[other].instance == app.instance) {
+                return invalid_argument();
             }
         }
     }
     return {};
+}
+
+} // namespace
+
+core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
+    if (const core::Status status = validate_suite_header_and_paths(manifest); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_app_count(manifest); !status) {
+        return status;
+    }
+    const long online = online_cpu_count();
+    for (const AppSpec& app : manifest.apps) {
+        if (const core::Status status = validate_app_spec(app, manifest, online); !status) {
+            return status;
+        }
+    }
+    return validate_unique_app_instances(manifest.apps);
 }
 
 [[nodiscard]] bool json_enum_fields_valid(const nlohmann::json& document) {
