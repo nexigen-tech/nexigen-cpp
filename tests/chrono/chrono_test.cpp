@@ -835,7 +835,7 @@ void test_sink_edges() {
     }
 }
 
-void test_provider() {
+void test_provider_config_roundtrip() {
     // Config serialization round-trip + diagnostics.
     {
         ChronoProviderConfig config;
@@ -861,7 +861,9 @@ void test_provider() {
         }
         NX_CHECK(std::format("{}", config) == config.to_string());
     }
+}
 
+void test_provider_manual_snapshot() {
     // Manual snapshot is deterministic, allocation-free on the steady path,
     // and reports a sane monotonic/offset pair.
     {
@@ -890,7 +892,9 @@ void test_provider() {
         NX_CHECK(wall < 4'100'000'000'000'000'000LL);
         NX_CHECK(provider.to_string().find("ChronoProvider") != std::string::npos);
     }
+}
 
+void test_provider_destructor_drain() {
     // Zero interval disables background delivery; destructor drains + flushes.
     {
         RecordingSink sink;
@@ -904,7 +908,9 @@ void test_provider() {
         NX_CHECK(sink.snapshots.size() == 1U);
         NX_CHECK(sink.flushes >= 1);
     }
+}
 
+void test_provider_deferred_start() {
     // Deferred start: construction does not start the worker; start() is
     // idempotent; a zero interval makes start() a no-op.
     {
@@ -933,7 +939,9 @@ void test_provider() {
         }
         NX_CHECK(sink.snapshots.size() == 1U); // only the destructor's final snapshot
     }
+}
 
+void test_provider_worker_logging() {
     // Worker logging: start(Logger&) binds a logger; start() runs silent.
     {
         RecordingClockLogger logger;
@@ -979,7 +987,9 @@ void test_provider() {
         }
         NX_CHECK(logger.messages.empty()); // no logging calls
     }
+}
 
+void test_provider_worker_period() {
     // Background worker honors the period.
     {
         RecordingSink sink;
@@ -992,7 +1002,9 @@ void test_provider() {
         } // destructor joins the worker before the sink is read again
         NX_CHECK(sink.snapshots.size() >= 3U);
     }
+}
 
+void test_provider_affinity() {
     // CPU affinity: the worker pins itself; startup_status reports failure for
     // a denied core; zero mask inherits process affinity.
     cpu_set_t allowed;
@@ -1059,7 +1071,9 @@ void test_provider() {
         ChronoProvider provider{config, sink};
         NX_CHECK(provider.startup_status().has_value());
     }
+}
 
+void test_provider_control_plane() {
     // Control plane: flush-failure propagation and usability after a failed
     // snapshot.
     {
@@ -1077,7 +1091,9 @@ void test_provider() {
         sink.snapshot_status = {};
         NX_CHECK(provider.snapshot_now().has_value());
     }
+}
 
+void test_provider_delivery_warnings() {
     // Worker delivery failures are logged as warnings.
     {
         RecordingClockLogger logger;
@@ -1098,7 +1114,9 @@ void test_provider() {
         }
         NX_CHECK(warned);
     }
+}
 
+void test_provider_slow_sink() {
     // A sink slower than the period rebases the schedule instead of chasing
     // the backlog.
     {
@@ -1122,6 +1140,28 @@ void test_provider() {
         }
         NX_CHECK(sink.count.load(std::memory_order_relaxed) >= 2);
     }
+}
+
+void test_provider() {
+    test_provider_config_roundtrip();
+
+    test_provider_manual_snapshot();
+
+    test_provider_destructor_drain();
+
+    test_provider_deferred_start();
+
+    test_provider_worker_logging();
+
+    test_provider_worker_period();
+
+    test_provider_affinity();
+
+    test_provider_control_plane();
+
+    test_provider_delivery_warnings();
+
+    test_provider_slow_sink();
 }
 
 void test_provider_config_edges() {

@@ -1337,6 +1337,31 @@ void test_web_assets() {
     NX_CHECK(contains(hub::app_js(), "renderMetricsLine"));
 }
 
+std::string test_http_server_request(std::uint16_t port, std::string_view method,
+                                     std::string_view path, std::string_view extra_headers);
+std::string test_http_server_raw(std::uint16_t port, std::string_view payload);
+std::string test_http_server_sse_with_header(const Fixture& fixture, std::uint16_t port,
+                                             std::string_view header);
+template <class Request>
+void test_http_server_routes(const Fixture& fixture, const Request& request);
+template <class Raw> void test_http_server_malformed(const Raw& raw);
+template <class Request> void test_http_server_methods(const Request& request);
+template <class Request, class Raw>
+void test_http_server_query_escape(const Fixture& fixture, const Request& request, const Raw& raw);
+void test_http_server_keep_alive(std::uint16_t port);
+void test_http_server_sse_live(const Fixture& fixture, std::uint16_t port);
+void test_http_server_tree_topic(const Fixture& fixture, std::uint16_t port);
+void test_http_server_all_stream_sse(std::uint16_t port);
+void test_http_server_cursor_resume(const Fixture& fixture, std::uint16_t port);
+template <class Raw, class Sse>
+void test_http_server_header_case(const Fixture& fixture, const Raw& raw,
+                                  const Sse& sse_with_header);
+template <class Request>
+void test_http_server_failure_report(const Fixture& fixture, DiagnosticCapture& capture,
+                                     const Request& request);
+void test_http_server_shutdown(std::atomic<bool>& stop, hub::HttpServer& server,
+                               std::thread& thread);
+
 void test_http_server() {
     Fixture fixture("http");
     hub::Discovery discovery;
@@ -1355,6 +1380,45 @@ void test_http_server() {
 
     auto request = [&](std::string_view method, std::string_view path,
                        std::string_view extra_headers = {}) {
+        return test_http_server_request(port, method, path, extra_headers);
+    };
+
+    auto raw = [&](std::string_view payload) { return test_http_server_raw(port, payload); };
+
+    test_http_server_routes(fixture, request);
+
+    test_http_server_malformed(raw);
+
+    test_http_server_methods(request);
+
+    test_http_server_query_escape(fixture, request, raw);
+
+    test_http_server_keep_alive(port);
+
+    test_http_server_sse_live(fixture, port);
+
+    test_http_server_tree_topic(fixture, port);
+
+    test_http_server_all_stream_sse(port);
+
+    test_http_server_cursor_resume(fixture, port);
+
+    // Header names are case-insensitive, values tolerate whitespace, and a
+    // similarly named header is not treated as the cursor.
+    auto sse_with_header = [&](std::string_view header) {
+        return test_http_server_sse_with_header(fixture, port, header);
+    };
+
+    test_http_server_header_case(fixture, raw, sse_with_header);
+
+    test_http_server_failure_report(fixture, capture, request);
+
+    test_http_server_shutdown(stop, server, thread);
+}
+
+std::string test_http_server_request(std::uint16_t port, std::string_view method,
+                                     std::string_view path, std::string_view extra_headers) {
+    {
         const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         NX_CHECK(fd >= 0);
         sockaddr_in address{};
@@ -1375,9 +1439,11 @@ void test_http_server() {
         }
         static_cast<void>(::close(fd));
         return response;
-    };
+    }
+}
 
-    auto raw = [&](std::string_view payload) {
+std::string test_http_server_raw(std::uint16_t port, std::string_view payload) {
+    {
         const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         NX_CHECK(fd >= 0);
         sockaddr_in address{};
@@ -1398,8 +1464,11 @@ void test_http_server() {
         }
         static_cast<void>(::close(fd));
         return response;
-    };
+    }
+}
 
+template <class Request>
+void test_http_server_routes(const Fixture& fixture, const Request& request) {
     NX_CHECK(contains(request("GET", "/api/health"), "\"status\":\"ok\""));
     NX_CHECK(contains(request("GET", "/api/tree"), "\"suite_id\":\"hil\""));
     NX_CHECK(contains(request("GET", "/api/streams"), "run-1:hil:alpha:1:1:app"));
@@ -1412,18 +1481,25 @@ void test_http_server() {
     NX_CHECK(contains(request("GET", "/api/missing"), "404"));
     NX_CHECK(contains(request("GET", "/" + std::string(5000, 'a')), "400"));
     NX_CHECK(contains(request("GET", "/api/health", std::string(9000, 'x')), "400"));
+}
 
+template <class Raw> void test_http_server_malformed(const Raw& raw) {
     // Malformed request lines and unsupported versions get a bounded 400.
     NX_CHECK(contains(raw("GET\r\n\r\n"), "400"));
     NX_CHECK(contains(raw("GET /api/health HTTP/2.0\r\n\r\n"), "400"));
     NX_CHECK(contains(raw("GET /api/health\r\n\r\n"), "400"));
     NX_CHECK(contains(raw(std::string(13000, 'x')), "400"));
+}
 
+template <class Request> void test_http_server_methods(const Request& request) {
     // Every non-GET method is rejected without reaching a route.
     for (const std::string_view method : {"POST", "PUT", "DELETE", "PATCH"}) {
         NX_CHECK(contains(request(method, "/api/tree"), "405"));
     }
+}
 
+template <class Request, class Raw>
+void test_http_server_query_escape(const Fixture& fixture, const Request& request, const Raw& raw) {
     // Invalid query and escape values fall back to defaults or a 404.
     NX_CHECK(contains(
         request("GET", "/api/streams/" + stream_id(fixture, "app") + "/recent?limit=abc"), "200"));
@@ -1449,7 +1525,9 @@ void test_http_server() {
                           "&since=not-a-number HTTP/1.1\r\n"
                           "Host: localhost\r\n\r\n"),
                       "event: snapshot_end"));
+}
 
+void test_http_server_keep_alive(std::uint16_t port) {
     // HTTP/1.1 keep-alive serves two requests on one connection.
     {
         const int keep_fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -1505,7 +1583,9 @@ void test_http_server() {
         NX_CHECK(contains(second_response, "HTTP/1.1 200 OK"));
         static_cast<void>(::close(keep_fd));
     }
+}
 
+void test_http_server_sse_live(const Fixture& fixture, std::uint16_t port) {
     // SSE snapshot headers and boundary over a raw socket.
     const int sse_fd = ::socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in address{};
@@ -1543,7 +1623,9 @@ void test_http_server() {
         },
         3000));
     static_cast<void>(::close(sse_fd));
+}
 
+void test_http_server_tree_topic(const Fixture& fixture, std::uint16_t port) {
     // Tree topic emits the current snapshot.
     {
         const int tree_fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -1587,7 +1669,9 @@ void test_http_server() {
             5000));
         static_cast<void>(::close(tree_fd));
     }
+}
 
+void test_http_server_all_stream_sse(std::uint16_t port) {
     // All-stream SSE includes records from discovered streams.
     {
         const int all_fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -1617,7 +1701,9 @@ void test_http_server() {
         NX_CHECK(contains(all_text, "event: record"));
         static_cast<void>(::close(all_fd));
     }
+}
 
+void test_http_server_cursor_resume(const Fixture& fixture, std::uint16_t port) {
     // Last-Event-ID resumes a stream cursor.
     {
         const int cursor_fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -1651,10 +1737,11 @@ void test_http_server() {
         NX_CHECK(contains(cursor_text, "\"sequence\":2"));
         static_cast<void>(::close(cursor_fd));
     }
+}
 
-    // Header names are case-insensitive, values tolerate whitespace, and a
-    // similarly named header is not treated as the cursor.
-    auto sse_with_header = [&](std::string_view header) {
+std::string test_http_server_sse_with_header(const Fixture& fixture, std::uint16_t port,
+                                             std::string_view header) {
+    {
         const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         NX_CHECK(fd >= 0);
         sockaddr_in sse_address{};
@@ -1684,8 +1771,12 @@ void test_http_server() {
             3000));
         static_cast<void>(::close(fd));
         return response;
-    };
+    }
+}
 
+template <class Raw, class Sse>
+void test_http_server_header_case(const Fixture& fixture, const Raw& raw,
+                                  const Sse& sse_with_header) {
     const std::vector<std::string> cursor_headers{
         "last-event-id: " + stream_id(fixture, "app") + ":2\r\n",
         "LAST-EVENT-ID: " + stream_id(fixture, "app") + ":2\r\n",
@@ -1705,14 +1796,21 @@ void test_http_server() {
     const std::string connection_close = raw("GET /api/health HTTP/1.1\r\nHost: localhost\r\n"
                                              "Connection: CLOSE\r\n\r\n");
     NX_CHECK(contains(connection_close, "200"));
+}
 
+template <class Request>
+void test_http_server_failure_report(const Fixture& fixture, DiagnosticCapture& capture,
+                                     const Request& request) {
     // A disappearing run root is reported as a failed refresh while the
     // listener keeps serving.
     remove_tree(fixture.root);
     NX_CHECK(wait_until(
         [&] { return diagnostic_contains(capture, "event=discovery_rescan_failed"); }, 4000));
     NX_CHECK(contains(request("GET", "/api/health"), "200"));
+}
 
+void test_http_server_shutdown(std::atomic<bool>& stop, hub::HttpServer& server,
+                               std::thread& thread) {
     stop.store(true);
     server.stop();
     thread.join();

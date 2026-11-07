@@ -356,16 +356,10 @@ void test_span_enums() {
     NX_CHECK(std::format("{:6}", SpanStatus::Unset) == "Unset ");
 }
 
-// --- ids_and_context suite (task 3.1 / spec tracing/span-context): nonzero
-// and distinct generation (single + 32 concurrent threads), wait-free
-// allocation-free loops, the zero sentinel, 16-char hex round-trips,
-// cross-thread copy equality through the core SPSC queue, member/free
-// to_string agreement, and std::format equality.
-void test_ids_and_context() {
+void test_ids_and_context_sentinels() {
     using tracing::TraceId;
     using tracing::SpanId;
     using tracing::SpanContext;
-
     // Zero sentinel: default reads as unset; explicit values preserved.
     NX_CHECK(TraceId{}.is_unset());
     NX_CHECK(SpanId{}.is_unset());
@@ -374,7 +368,12 @@ void test_ids_and_context() {
     NX_CHECK(TraceId{7} == TraceId{7});
     NX_CHECK(TraceId{7} < TraceId{8});
     NX_CHECK(SpanId{9} != SpanId{10});
+}
 
+void test_ids_and_context_uniqueness() {
+    using tracing::TraceId;
+    using tracing::SpanId;
+    using tracing::SpanContext;
     // Nonzero, distinct generation on this thread; value-safe wrappers.
     std::array<TraceId, 64> trace_ids{};
     std::array<SpanId, 64> span_ids{};
@@ -390,7 +389,12 @@ void test_ids_and_context() {
             NX_CHECK(span_ids[i] != span_ids[j]);
         }
     }
+}
 
+void test_ids_and_context_alloc_free() {
+    using tracing::TraceId;
+    using tracing::SpanId;
+    using tracing::SpanContext;
     // Wait-free + allocation-free: a large batch with both counters armed.
     {
         const std::size_t arena_before = arena_used();
@@ -404,7 +408,12 @@ void test_ids_and_context() {
         NX_CHECK(arena_used() == arena_before);
         NX_CHECK(heap_in_use() == heap_before);
     }
+}
 
+void test_ids_and_context_concurrent() {
+    using tracing::TraceId;
+    using tracing::SpanId;
+    using tracing::SpanContext;
     // 32 concurrent generating threads: no zero, no duplicates across the
     // observed window. Buckets are PRE-RESERVED before spawning so the
     // workers themselves never allocate; dedup runs after the join.
@@ -447,7 +456,12 @@ void test_ids_and_context() {
         const auto dup = std::adjacent_find(flat.begin(), flat.end());
         NX_CHECK(dup == flat.end()); // no id generated twice across threads
     }
+}
 
+void test_ids_and_context_hex_json() {
+    using tracing::TraceId;
+    using tracing::SpanId;
+    using tracing::SpanContext;
     // 16-char zero-padded lowercase hex rendering + JSON round-trips.
     {
         const TraceId trace{0x0123456789ABCDEFULL};
@@ -481,7 +495,12 @@ void test_ids_and_context() {
             NX_CHECK(sout == span);
         }
     }
+}
 
+void test_ids_and_context_handoff() {
+    using tracing::TraceId;
+    using tracing::SpanId;
+    using tracing::SpanContext;
     // Cross-thread handoff through the core SPSC queue: copy equality.
     {
         core::SpscRingBuffer<SpanContext, 16> queue{};
@@ -504,7 +523,12 @@ void test_ids_and_context() {
         NX_CHECK(queue.try_push(original).has_value());
         receiver.join();
     }
+}
 
+void test_ids_and_context_diagnostics() {
+    using tracing::TraceId;
+    using tracing::SpanId;
+    using tracing::SpanContext;
     // SpanContext diagnostics: member/free agreement, std::format equality.
     {
         const SpanContext ctx{TraceId{0xA}, SpanId{0xB},
@@ -522,6 +546,27 @@ void test_ids_and_context() {
         nlohmann::from_json(j, back);
         NX_CHECK(back == ctx);
     }
+}
+
+// --- ids_and_context suite (task 3.1 / spec tracing/span-context): nonzero
+// and distinct generation (single + 32 concurrent threads), wait-free
+// allocation-free loops, the zero sentinel, 16-char hex round-trips,
+// cross-thread copy equality through the core SPSC queue, member/free
+// to_string agreement, and std::format equality.
+void test_ids_and_context() {
+    test_ids_and_context_sentinels();
+
+    test_ids_and_context_uniqueness();
+
+    test_ids_and_context_alloc_free();
+
+    test_ids_and_context_concurrent();
+
+    test_ids_and_context_hex_json();
+
+    test_ids_and_context_handoff();
+
+    test_ids_and_context_diagnostics();
 }
 
 // --- attributes suite (task 3.2 / spec tracing/span-context "Fixed-size span
@@ -1434,9 +1479,13 @@ struct FailingFlushSink {
 
 } // namespace
 
-void test_sinks() {
-    static_cast<void>(::mkdir(sink_tmp_dir, 0755)); // exists is fine
+/// ISO-8601 shape predicate: YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ (30 chars).
+[[nodiscard]] bool iso_shape(std::string_view s) {
+    return s.size() == 30U && s[4] == '-' && s[7] == '-' && s[10] == 'T' && s[13] == ':' &&
+           s[16] == ':' && s[19] == '.' && s[29] == 'Z';
+}
 
+void test_sinks_console() {
     // ---- ConsoleTraceSink (task 7.1) --------------------------------------
     {
         // Content through a pipe fixture: one line per span carrying ids,
@@ -1520,6 +1569,32 @@ void test_sinks() {
             NX_CHECK(j.at("fd").get<int>() == 2);
         }
     }
+}
+
+// Forward declarations: these helpers are defined after test_sinks() so the
+// file order of the suite's NX_CHECK statements matches the original layout.
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_jsonl_basic(const chrono::CivilTime& now_civil, const HourMidUtc& hour_mid_utc,
+                            const MonoForUtc& mono_for_utc);
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_jsonl_overflow(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc);
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_jsonl_escape(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc);
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_jsonl_rotation(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc);
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_jsonl_rate_limit(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc);
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_jsonl_open_failure(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc);
+void test_sinks_config_diagnostics();
+void test_sinks_chrome();
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_composite(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc);
+
+void test_sinks() {
+    static_cast<void>(::mkdir(sink_tmp_dir, 0755)); // exists is fine
+
+    test_sinks_console();
 
     // Shared UTC facts for the crafted-window tests below.
     std::int64_t utc_offset = 0;
@@ -1540,6 +1615,28 @@ void test_sinks() {
         return static_cast<std::uint64_t>(utc_ns - utc_offset);
     };
 
+    test_sinks_jsonl_basic(now_civil, hour_mid_utc, mono_for_utc);
+
+    test_sinks_jsonl_overflow(hour_mid_utc, mono_for_utc);
+
+    test_sinks_jsonl_escape(hour_mid_utc, mono_for_utc);
+
+    test_sinks_jsonl_rotation(hour_mid_utc, mono_for_utc);
+
+    test_sinks_jsonl_rate_limit(hour_mid_utc, mono_for_utc);
+
+    test_sinks_jsonl_open_failure(hour_mid_utc, mono_for_utc);
+
+    test_sinks_config_diagnostics();
+
+    test_sinks_chrome();
+
+    test_sinks_composite(hour_mid_utc, mono_for_utc);
+}
+
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_jsonl_basic(const chrono::CivilTime& now_civil, const HourMidUtc& hour_mid_utc,
+                            const MonoForUtc& mono_for_utc) {
     // ---- JsonFileTraceSink: one parseable object per line (task 7.2) ----
     {
         const std::string path = std::string(sink_tmp_dir) + "/jsonl-basic.jsonl";
@@ -1584,10 +1681,6 @@ void test_sinks() {
         // ISO-8601 shape: YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ (30 chars).
         const std::string start_iso = parsed.at("start").get<std::string>();
         const std::string end_iso = parsed.at("end").get<std::string>();
-        const auto iso_shape = [](std::string_view s) {
-            return s.size() == 30U && s[4] == '-' && s[7] == '-' && s[10] == 'T' && s[13] == ':' &&
-                   s[16] == ':' && s[19] == '.' && s[29] == 'Z';
-        };
         NX_CHECK(iso_shape(start_iso));
         NX_CHECK(iso_shape(end_iso));
         // The ISO text embeds the crafted civil hour.
@@ -1607,7 +1700,10 @@ void test_sinks() {
         NX_CHECK(attrs[3].at("type").get<std::string>() == "String" &&
                  attrs[3].at("value").get<std::string>() == "hil");
     }
+}
 
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_jsonl_overflow(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc) {
     // ---- Scratch overflow: discards the line and COUNTS it (P2-18) ----
     {
         const std::string path = std::string(sink_tmp_dir) + "/jsonl-overflow.jsonl";
@@ -1637,7 +1733,10 @@ void test_sinks() {
         const std::string content = read_file(path.c_str());
         NX_CHECK(content.empty());
     }
+}
 
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_jsonl_escape(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc) {
     // ---- JsonFileTraceSink: escaping of quotes/backslashes/control chars.
     {
         const std::string path = std::string(sink_tmp_dir) + "/jsonl-escape.jsonl";
@@ -1656,7 +1755,10 @@ void test_sinks() {
         NX_CHECK(parsed.at("name").get<std::string>() == "esc\"ap\\e\nx");
         NX_CHECK(parsed.at("attributes")[3].at("value").get<std::string>() == "tab\tend\"q\\");
     }
+}
 
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_jsonl_rotation(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc) {
     // ---- JsonFileTraceSink: rotation filenames per policy (task 7.2) ----
     {
         // Hourly: two crafted spans in different UTC hours → two files, the
@@ -1729,7 +1831,10 @@ void test_sinks() {
         NX_CHECK(single_content.find("s-one") != std::string::npos);
         NX_CHECK(single_content.find("s-two") != std::string::npos);
     }
+}
 
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_jsonl_rate_limit(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc) {
     // ---- JsonFileTraceSink: the rate-limit drop summary (task 7.2) -----
     {
         const std::string path = std::string(sink_tmp_dir) + "/jsonl-rate.jsonl";
@@ -1792,7 +1897,10 @@ void test_sinks() {
         NX_CHECK(all_content.find("drop_summary") == std::string::npos);
         NX_CHECK(std::count(all_content.begin(), all_content.end(), '\n') == 10);
     }
+}
 
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_jsonl_open_failure(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc) {
     // ---- JsonFileTraceSink: open failure surfaces (task 7.2) -----------
     {
         tracing::JsonFileTraceSinkConfig config{};
@@ -1808,7 +1916,9 @@ void test_sinks() {
         NX_CHECK(!sink.flush().has_value());
         sink.stop();
     }
+}
 
+void test_sinks_config_diagnostics() {
     // ---- JsonFileTraceSinkConfig + RotationPolicy trios (task 7.2) ----
     {
         // RotationPolicy: names round-trip, out-of-range renders Unknown,
@@ -1870,7 +1980,9 @@ void test_sinks() {
         const nlohmann::json j_live = live;
         NX_CHECK(j_live.at("type").get<std::string>() == "JsonFileTraceSink");
     }
+}
 
+void test_sinks_chrome() {
     // ---- ChromeTraceSink (task 7.3) ---------------------------------------
     {
         const std::string path = std::string(sink_tmp_dir) + "/chrome-trace.json";
@@ -1963,7 +2075,10 @@ void test_sinks() {
         NX_CHECK(!bad_start.has_value());
         NX_CHECK(bad_start.error() == core::ErrorCode::SystemError);
     }
+}
 
+template <typename HourMidUtc, typename MonoForUtc>
+void test_sinks_composite(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc) {
     // ---- CompositeTraceSink (task 7.4) ------------------------------------
     {
         // Every member receives the same record through mixed sink types:
@@ -2049,6 +2164,56 @@ static_assert(!std::is_default_constructible_v<tracing::Tracer<64, 4>>);
 static_assert(!std::is_constructible_v<tracing::Tracer<64, 4>, const char*>);
 static_assert(!std::is_constructible_v<tracing::SpanPasskey>);
 
+// Forward declarations: the scenario helpers are defined after
+// test_scoped_span() so the file order of the suite's NX_CHECK statements
+// matches the original inline layout (same order as the numbered blocks).
+void test_scoped_span_lifecycle(tracing::Tracer<1024, 4>* tracer,
+                                tracing::TracerProvider<1024, 4>* provider, RecordingSink& sink);
+void test_scoped_span_explicit_end(tracing::Tracer<1024, 4>* tracer,
+                                   tracing::TracerProvider<1024, 4>* provider, RecordingSink& sink);
+void test_scoped_span_rejected_updates(tracing::Tracer<1024, 4>* tracer,
+                                       tracing::TracerProvider<1024, 4>* provider,
+                                       RecordingSink& sink);
+void test_scoped_span_attribute_bounds(tracing::Tracer<1024, 4>* tracer,
+                                       tracing::TracerProvider<1024, 4>* provider,
+                                       RecordingSink& sink);
+void test_scoped_span_string_attributes(tracing::Tracer<1024, 4>* tracer,
+                                        tracing::TracerProvider<1024, 4>* provider,
+                                        RecordingSink& sink);
+void test_scoped_span_held_duration(tracing::Tracer<1024, 4>* tracer,
+                                    tracing::TracerProvider<1024, 4>* provider,
+                                    RecordingSink& sink);
+void test_scoped_span_context(tracing::Tracer<1024, 4>* tracer,
+                              tracing::TracerProvider<1024, 4>* provider, RecordingSink& sink);
+void test_scoped_span_parent_chain(tracing::Tracer<1024, 4>* tracer,
+                                   tracing::TracerProvider<1024, 4>* provider, RecordingSink& sink);
+void test_scoped_span_explicit_parent(tracing::Tracer<1024, 4>* tracer,
+                                      tracing::TracerProvider<1024, 4>* provider,
+                                      RecordingSink& sink);
+void test_scoped_span_depth_overflow(tracing::Tracer<1024, 4>* tracer,
+                                     tracing::TracerProvider<1024, 4>* provider,
+                                     RecordingSink& sink);
+void test_scoped_span_end_truncation(tracing::Tracer<1024, 4>* tracer,
+                                     tracing::TracerProvider<1024, 4>* provider,
+                                     RecordingSink& sink);
+void test_scoped_span_cross_thread(tracing::Tracer<1024, 4>* tracer,
+                                   tracing::TracerProvider<1024, 4>* provider, RecordingSink& sink);
+void test_scoped_span_disabled_short_circuit(tracing::Tracer<1024, 4>* tracer,
+                                             tracing::TracerProvider<1024, 4>* provider,
+                                             RecordingSink& sink,
+                                             const tracing::DroppedStats& drops_before);
+void test_scoped_span_sampling_drop(tracing::Tracer<1024, 4>* tracer,
+                                    tracing::TracerProvider<1024, 4>* provider, RecordingSink& sink,
+                                    const tracing::DroppedStats& drops_before);
+void test_scoped_span_serialization(tracing::Tracer<1024, 4>* tracer,
+                                    tracing::TracerProvider<1024, 4>* provider,
+                                    RecordingSink& sink);
+void test_scoped_span_alloc_free(tracing::Tracer<1024, 4>* tracer,
+                                 tracing::TracerProvider<1024, 4>* provider, RecordingSink& sink);
+void test_scoped_span_control_flips(const core::Result<tracing::Tracer<1024, 4>*>& tracer,
+                                    tracing::TracerProvider<1024, 4>* provider,
+                                    RecordingSink& sink);
+
 // --- scoped_span suite (task 6.2 / spec tracing/scoped-span): the RAII
 // lifecycle against a recording sink — exactly-once enqueue, idempotent
 // end(), post-end rejections, bounds, default status, the full parent
@@ -2063,7 +2228,6 @@ void test_scoped_span() {
     // between flushes; a small ring would turn consumer wake latency into
     // buffer_full noise unrelated to what this suite verifies.
     using Provider = tracing::TracerProvider<1024, 4>;
-    using tracing::SpanRecord;
 
     RecordingSink sink{};
     alignas(Provider) static std::byte storage[sizeof(Provider)];
@@ -2074,6 +2238,50 @@ void test_scoped_span() {
     NX_CHECK(tracer.has_value());
 
     std::jthread producer([tracer = *tracer, provider, &sink] {
+        test_scoped_span_lifecycle(tracer, provider, sink);
+
+        test_scoped_span_explicit_end(tracer, provider, sink);
+
+        test_scoped_span_rejected_updates(tracer, provider, sink);
+
+        test_scoped_span_attribute_bounds(tracer, provider, sink);
+
+        test_scoped_span_string_attributes(tracer, provider, sink);
+
+        test_scoped_span_held_duration(tracer, provider, sink);
+
+        test_scoped_span_context(tracer, provider, sink);
+
+        test_scoped_span_parent_chain(tracer, provider, sink);
+
+        test_scoped_span_explicit_parent(tracer, provider, sink);
+
+        test_scoped_span_depth_overflow(tracer, provider, sink);
+
+        test_scoped_span_end_truncation(tracer, provider, sink);
+
+        test_scoped_span_cross_thread(tracer, provider, sink);
+
+        const tracing::DroppedStats drops_before = provider->dropped();
+        test_scoped_span_disabled_short_circuit(tracer, provider, sink, drops_before);
+
+        test_scoped_span_sampling_drop(tracer, provider, sink, drops_before);
+
+        test_scoped_span_serialization(tracer, provider, sink);
+
+        test_scoped_span_alloc_free(tracer, provider, sink);
+    });
+    producer.join();
+
+    test_scoped_span_control_flips(tracer, provider, sink);
+
+    std::destroy_at(provider);
+}
+
+void test_scoped_span_lifecycle(tracing::Tracer<1024, 4>* tracer,
+                                tracing::TracerProvider<1024, 4>* provider, RecordingSink& sink) {
+    using tracing::SpanRecord;
+    {
         // (1) Destruction enqueues exactly one record (name/kind/location).
         {
             std::size_t drained = sink.count;
@@ -2093,7 +2301,14 @@ void test_scoped_span() {
                      std::string_view::npos);
             NX_CHECK(record.line > 0U);
         }
+    }
+}
 
+void test_scoped_span_explicit_end(tracing::Tracer<1024, 4>* tracer,
+                                   tracing::TracerProvider<1024, 4>* provider,
+                                   RecordingSink& sink) {
+    using tracing::SpanRecord;
+    {
         // (2) Explicit end(): enqueues once, destruction does not push a
         // second record, subsequent end() calls are no-ops (spec "Explicit
         // end does not double-enqueue").
@@ -2108,7 +2323,14 @@ void test_scoped_span() {
             NX_CHECK(record.name_view() == "explicit");
             NX_CHECK((record.flags & SpanRecord::flag_ended_explicit) != 0U);
         } // destruction: no second push (count stays 2 through the flush)
+    }
+}
 
+void test_scoped_span_rejected_updates(tracing::Tracer<1024, 4>* tracer,
+                                       tracing::TracerProvider<1024, 4>* provider,
+                                       RecordingSink& sink) {
+    using tracing::SpanRecord;
+    {
         // (3) Post-end updates are rejected, mutate nothing (spec "Updates
         // after end are rejected").
         {
@@ -2123,7 +2345,14 @@ void test_scoped_span() {
             NX_CHECK(record.attributes[0].key_view() == "early");
             NX_CHECK(record.status == tracing::SpanStatus::Unset); // unchanged
         }
+    }
+}
 
+void test_scoped_span_attribute_bounds(tracing::Tracer<1024, 4>* tracer,
+                                       tracing::TracerProvider<1024, 4>* provider,
+                                       RecordingSink& sink) {
+    using tracing::SpanRecord;
+    {
         // (4) Attribute capacity (MaxAttributes = 4) and key bounds rejected
         // without side effects; the first four intact (spec "bounds").
         // NOTE: records enqueue at END — the span is closed before the
@@ -2153,7 +2382,14 @@ void test_scoped_span() {
                      record.attributes[3].value.b);
             NX_CHECK(record.status == tracing::SpanStatus::Ok);
         }
+    }
+}
 
+void test_scoped_span_string_attributes(tracing::Tracer<1024, 4>* tracer,
+                                        tracing::TracerProvider<1024, 4>* provider,
+                                        RecordingSink& sink) {
+    using tracing::SpanRecord;
+    {
         // (5) Default status Unset + inline/view strings land (spec
         // "Attributes and status land in the drained record").
         {
@@ -2172,7 +2408,14 @@ void test_scoped_span() {
             NX_CHECK(record.attributes[1].text_view() ==
                      "a-program-static-view-longer-than-23-bytes");
         }
+    }
+}
 
+void test_scoped_span_held_duration(tracing::Tracer<1024, 4>* tracer,
+                                    tracing::TracerProvider<1024, 4>* provider,
+                                    RecordingSink& sink) {
+    using tracing::SpanRecord;
+    {
         // (6) Construction stamps the start; held duration survives into
         // end-start (spec "Construction stamps the start").
         {
@@ -2184,7 +2427,13 @@ void test_scoped_span() {
             NX_CHECK(record.end > record.start);
             NX_CHECK(record.duration_ns() >= 1'500'000);
         }
+    }
+}
 
+void test_scoped_span_context(tracing::Tracer<1024, 4>* tracer,
+                              tracing::TracerProvider<1024, 4>* provider, RecordingSink& sink) {
+    using tracing::SpanRecord;
+    {
         // (7) context() matches the drained record; sampled reflects the
         // decision at start (spec "Extracted context matches the drained
         // record").
@@ -2198,7 +2447,14 @@ void test_scoped_span() {
             NX_CHECK(ctx.span_id == record.span_id);
             NX_CHECK(ctx.sampled == tracing::SamplingDecision::RecordAndSample);
         }
+    }
+}
 
+void test_scoped_span_parent_chain(tracing::Tracer<1024, 4>* tracer,
+                                   tracing::TracerProvider<1024, 4>* provider,
+                                   RecordingSink& sink) {
+    using tracing::SpanRecord;
+    {
         // (8) Automatic parent chains: nested → child inherits trace and
         // parents to the active span; siblings share the trace and parent
         // (spec "Nested spans chain parent ids" / "Siblings share the trace
@@ -2245,7 +2501,14 @@ void test_scoped_span() {
             NX_CHECK(sib1_rec.parent_span_id == root_id);
             NX_CHECK(sib2_rec.parent_span_id == root_id);
         }
+    }
+}
 
+void test_scoped_span_explicit_parent(tracing::Tracer<1024, 4>* tracer,
+                                      tracing::TracerProvider<1024, 4>* provider,
+                                      RecordingSink& sink) {
+    using tracing::SpanRecord;
+    {
         // (9) Explicit parent overrides the stack; the explicit-parent child
         // becomes the LOCAL parent (spec "Explicit parent overrides the
         // stack" + "The child becomes the local parent").
@@ -2271,7 +2534,14 @@ void test_scoped_span() {
             NX_CHECK(deeper_rec.trace_id == tracing::TraceId{0xABCD});
             NX_CHECK(deeper_rec.parent_span_id == linked_rec.span_id);
         }
+    }
+}
 
+void test_scoped_span_depth_overflow(tracing::Tracer<1024, 4>* tracer,
+                                     tracing::TracerProvider<1024, 4>* provider,
+                                     RecordingSink& sink) {
+    using tracing::SpanRecord;
+    {
         // (10) Depth overflow records as a bounded root: 16 nested spans
         // fill the stack; the 17th gets a FRESH trace id and zero parent
         // (spec "Root spans and depth overflow are bounded"). The guards are
@@ -2314,7 +2584,14 @@ void test_scoped_span() {
                 }
             }
         }
+    }
+}
 
+void test_scoped_span_end_truncation(tracing::Tracer<1024, 4>* tracer,
+                                     tracing::TracerProvider<1024, 4>* provider,
+                                     RecordingSink& sink) {
+    using tracing::SpanRecord;
+    {
         // (11) Explicit end() with active children truncates their frames:
         // the next span parents to the surviving stack top (root here), and
         // the child's later destruction is a coherent no-op (design D7).
@@ -2335,7 +2612,14 @@ void test_scoped_span() {
             NX_CHECK(child_rec.parent_span_id == parent_rec.span_id); // chained before
             NX_CHECK(next_rec.parent_span_id.is_unset());             // stack truncated to root
         }
+    }
+}
 
+void test_scoped_span_cross_thread(tracing::Tracer<1024, 4>* tracer,
+                                   tracing::TracerProvider<1024, 4>* provider,
+                                   RecordingSink& sink) {
+    using tracing::SpanRecord;
+    {
         // (12) Cross-thread context linking through the core SPSC queue
         // (spec "Child links to a context produced on another thread"):
         // this thread hands a live span's context to a worker, which starts
@@ -2368,12 +2652,19 @@ void test_scoped_span() {
             static_cast<void>(live.end());
             NX_CHECK(provider->flush().has_value());
         }
+    }
+}
 
+void test_scoped_span_disabled_short_circuit(tracing::Tracer<1024, 4>* tracer,
+                                             tracing::TracerProvider<1024, 4>* provider,
+                                             RecordingSink& sink,
+                                             const tracing::DroppedStats& drops_before) {
+    using tracing::SpanRecord;
+    {
         // (13) Disabled short-circuit: no record, no stack touch — a span
         // dropped INSIDE an active parent leaves the parent linkable
         // afterwards; drop counters stay zero (spec "Disabled provider emits
         // nothing" + "Dropping is not a drop counter increment").
-        const tracing::DroppedStats drops_before = provider->dropped();
         const std::size_t dbase = sink.count;
         {
             auto parent = tracer->start_span("disable-parent", tracing::SpanKind::Internal);
@@ -2398,7 +2689,14 @@ void test_scoped_span() {
         NX_CHECK(provider->dropped().rate_limited == drops_before.rate_limited);
         NX_CHECK(provider->dropped().buffer_full == drops_before.buffer_full);
         NX_CHECK(provider->dropped().slot_exhausted == drops_before.slot_exhausted);
+    }
+}
 
+void test_scoped_span_sampling_drop(tracing::Tracer<1024, 4>* tracer,
+                                    tracing::TracerProvider<1024, 4>* provider, RecordingSink& sink,
+                                    const tracing::DroppedStats& drops_before) {
+    using tracing::SpanRecord;
+    {
         // (14) Sampling Drop short-circuits per span; flipping back records
         // normally (spec "Sampling Drop short-circuits per span").
         const std::size_t sbase = sink.count;
@@ -2417,7 +2715,16 @@ void test_scoped_span() {
         NX_CHECK(sink.count == sbase + 1);
         NX_CHECK(sink.view()[sbase].name_view() == "recorded");
         NX_CHECK(provider->dropped().total() == drops_before.total()); // still zero
+    }
+}
 
+void test_scoped_span_serialization(tracing::Tracer<1024, 4>* tracer,
+                                    tracing::TracerProvider<1024, 4>* provider,
+                                    RecordingSink& sink) {
+    static_cast<void>(provider);
+    static_cast<void>(sink);
+    using tracing::SpanRecord;
+    {
         // (15) ScopedSpan serialization pins (spec "Guard renders its
         // state"): to_string/formatter agree; to_json serializes live state.
         {
@@ -2436,7 +2743,14 @@ void test_scoped_span() {
             NX_CHECK(j.at("active").get<bool>());
             static_cast<void>(span.end());
         }
+    }
+}
 
+void test_scoped_span_alloc_free(tracing::Tracer<1024, 4>* tracer,
+                                 tracing::TracerProvider<1024, 4>* provider, RecordingSink& sink) {
+    static_cast<void>(sink);
+    using tracing::SpanRecord;
+    {
         // (16) Updates never allocate or block: a tight loop with both
         // counters armed (slot/TLS warmed by everything above).
         {
@@ -2456,9 +2770,12 @@ void test_scoped_span() {
             NX_CHECK(arena_used() == arena_before);
             NX_CHECK(heap_in_use() == heap_before);
         }
-    });
-    producer.join();
+    }
+}
 
+void test_scoped_span_control_flips(const core::Result<tracing::Tracer<1024, 4>*>& tracer,
+                                    tracing::TracerProvider<1024, 4>* provider,
+                                    RecordingSink& sink) {
     // Control flips under concurrency (spec "Control reads need no
     // synchronization"): one thread flips enable/sampling while another
     // records; exactly the active-at-start spans drain. The flush BEFORE
@@ -2510,9 +2827,30 @@ void test_scoped_span() {
         NX_CHECK(sink.count + static_cast<std::size_t>(drops_during) == expected);
         sink.reset();
     }
-
-    std::destroy_at(provider);
 }
+
+// Forward declarations: the latency helpers are defined after
+// test_latency() so the file order of the suite's NX_CHECK statements
+// matches the original inline layout.
+#if defined(__x86_64__)
+void test_latency_setup(std::uint64_t& bench_core, std::size_t& lo, std::size_t& hi, bool& pinned,
+                        cpu_set_t& original_set);
+[[nodiscard]] double
+test_latency_calibration(const core::Result<tracing::Tracer<1024, 1>*>& bench_tracer, int WARMUP);
+template <int N>
+void test_latency_measured_pass(tracing::TracerProvider<1024, 1>* bench,
+                                const core::Result<tracing::Tracer<1024, 1>*>& bench_tracer,
+                                double ns_per_tick, int passes, double& best_lifecycle_ns,
+                                double& best_short_ns, double& overhead_ns);
+void test_latency_report(tracing::TracerProvider<1024, 1>* bench, std::size_t arena_before,
+                         std::size_t heap_before, const tracing::DroppedStats& drops0, int WARMUP,
+                         int passes, int N, double best_lifecycle_ns, double best_short_ns,
+                         double overhead_ns, double ns_per_tick, bool pinned,
+                         const cpu_set_t& original_set);
+#endif
+#if !defined(__x86_64__)
+void test_latency_non_x86();
+#endif
 
 // --- latency suite (task 6.4 / design D14; spec tracing/scoped-span
 // "Sub-20-nanosecond enqueue" + "Disabled and dropped short-circuit"):
@@ -2536,6 +2874,45 @@ void test_latency() {
     std::size_t hi = 0U;             // worker placement (last allowed core)
     bool pinned = false;
     cpu_set_t original_set{};
+    test_latency_setup(bench_core, lo, hi, pinned, original_set);
+
+    tracing::TracerProviderConfig bench_config{};
+    bench_config.worker_thread.set_cpus(core::CpuSet::from_core_mask(bench_core));
+    auto* bench = new (static_cast<void*>(bench_storage)) Bench_provider(bench_config, null_sink);
+    NX_CHECK(bench->initialize().has_value());
+    const auto bench_tracer = bench->get_tracer("latency");
+    NX_CHECK(bench_tracer.has_value());
+
+    constexpr int WARMUP = 2'000;
+    constexpr int N = 10'000;
+    const double ns_per_tick = test_latency_calibration(bench_tracer, WARMUP);
+
+    const std::size_t arena_before = arena_used();
+    const std::size_t heap_before = heap_in_use();
+    const tracing::DroppedStats drops0 = bench->dropped();
+
+    double best_lifecycle_ns = -1.0;
+    double best_short_ns = -1.0;
+    double overhead_ns = 0.0;
+#if defined(NEXIGEN_TRACING_STRICT_LATENCY) && !defined(NX_SANITIZER_BUILD)
+    constexpr int passes = 3;
+#else
+    constexpr int passes = 1;
+#endif
+    test_latency_measured_pass<N>(bench, bench_tracer, ns_per_tick, passes, best_lifecycle_ns,
+                                  best_short_ns, overhead_ns);
+
+    test_latency_report(bench, arena_before, heap_before, drops0, WARMUP, passes, N,
+                        best_lifecycle_ns, best_short_ns, overhead_ns, ns_per_tick, pinned,
+                        original_set);
+#else
+    test_latency_non_x86();
+#endif
+}
+
+#if defined(__x86_64__)
+void test_latency_setup(std::uint64_t& bench_core, std::size_t& lo, std::size_t& hi, bool& pinned,
+                        cpu_set_t& original_set) {
     {
         cpu_set_t allowed{};
         if (::pthread_getaffinity_np(::pthread_self(), sizeof(allowed), &allowed) == 0) {
@@ -2560,20 +2937,10 @@ void test_latency() {
             }
         }
     }
+}
 
-    tracing::TracerProviderConfig bench_config{};
-    bench_config.worker_thread.set_cpus(core::CpuSet::from_core_mask(bench_core));
-    auto* bench = new (static_cast<void*>(bench_storage)) Bench_provider(bench_config, null_sink);
-    NX_CHECK(bench->initialize().has_value());
-    const auto bench_tracer = bench->get_tracer("latency");
-    NX_CHECK(bench_tracer.has_value());
-
-    constexpr int WARMUP = 2'000;
-    constexpr int N = 10'000;
-    alignas(64) static std::uint64_t raw[N]; // full lifecycle samples
-    alignas(64) static std::uint64_t flt[N]; // short-circuit samples
-    alignas(64) static std::uint64_t ovr[N]; // rdtsc-pair overhead samples
-
+[[nodiscard]] double
+test_latency_calibration(const core::Result<tracing::Tracer<1024, 1>*>& bench_tracer, int WARMUP) {
     // Warmup BEFORE the measured window (branch predictors, caches, TLS
     // slot claim, thread id cache, stamp calibration interplay).
     for (int i = 0; i < WARMUP; ++i) {
@@ -2590,19 +2957,18 @@ void test_latency() {
     NX_CHECK(m_start.has_value() && m_end.has_value());
     const double ns_per_tick = static_cast<double>(m_end->nanoseconds() - m_start->nanoseconds()) /
                                static_cast<double>(t_end - t_start);
+    return ns_per_tick;
+}
 
-    const std::size_t arena_before = arena_used();
-    const std::size_t heap_before = heap_in_use();
-    const tracing::DroppedStats drops0 = bench->dropped();
+template <int N>
+void test_latency_measured_pass(tracing::TracerProvider<1024, 1>* bench,
+                                const core::Result<tracing::Tracer<1024, 1>*>& bench_tracer,
+                                double ns_per_tick, int passes, double& best_lifecycle_ns,
+                                double& best_short_ns, double& overhead_ns) {
+    alignas(64) static std::uint64_t raw[static_cast<std::size_t>(N)]; // full lifecycle samples
+    alignas(64) static std::uint64_t flt[static_cast<std::size_t>(N)]; // short-circuit samples
+    alignas(64) static std::uint64_t ovr[static_cast<std::size_t>(N)]; // rdtsc-pair overhead samples
 
-    double best_lifecycle_ns = -1.0;
-    double best_short_ns = -1.0;
-    double overhead_ns = 0.0;
-#if defined(NEXIGEN_TRACING_STRICT_LATENCY) && !defined(NX_SANITIZER_BUILD)
-    constexpr int passes = 3;
-#else
-    constexpr int passes = 1;
-#endif
     for (int pass = 0; pass < passes; ++pass) {
         // (a) full span lifecycle: start_span + destruction enqueue, the
         // provider's worker draining concurrently.
@@ -2643,7 +3009,13 @@ void test_latency() {
             best_short_ns = short_ns;
         }
     }
+}
 
+void test_latency_report(tracing::TracerProvider<1024, 1>* bench, std::size_t arena_before,
+                         std::size_t heap_before, const tracing::DroppedStats& drops0, int WARMUP,
+                         int passes, int N, double best_lifecycle_ns, double best_short_ns,
+                         double overhead_ns, double ns_per_tick, bool pinned,
+                         const cpu_set_t& original_set) {
     // Zero allocation across every measured traffic window.
     NX_CHECK(arena_used() == arena_before);
     NX_CHECK(heap_in_use() == heap_before);
@@ -2680,8 +3052,14 @@ void test_latency() {
         static_cast<void>(
             ::pthread_setaffinity_np(::pthread_self(), sizeof(original_set), &original_set));
     }
-#else
-    // Non-x86: accounting-only run (no rdtsc), bounded-time correctness.
+}
+
+#endif
+
+#if !defined(__x86_64__)
+// Non-x86: accounting-only run (no rdtsc), bounded-time correctness.
+void test_latency_non_x86() {
+    using Bench_provider = tracing::TracerProvider<1024, 1>;
     tracing::NullTraceSink null_sink{};
     alignas(Bench_provider) static std::byte bench_storage[sizeof(Bench_provider)];
     auto* bench = new (static_cast<void*>(bench_storage))
@@ -2695,8 +3073,8 @@ void test_latency() {
     }
     NX_CHECK(bench->flush().has_value());
     std::destroy_at(bench);
-#endif
 }
+#endif
 
 // --- provider suite (tasks 6.1/6.3 / spec tracing/tracer-provider):
 // compile-time shape pins, factory semantics (dedup/distinct/BufferFull),

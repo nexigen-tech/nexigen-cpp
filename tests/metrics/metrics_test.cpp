@@ -1028,16 +1028,11 @@ void test_explicit_histogram() {
     NX_CHECK(j.is_object());
 }
 
-// --- exponential histogram (spec metrics/exponential-histogram).
-void test_exponential_histogram() {
-    metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
-    const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
+void test_exponential_histogram_meter(const Result<metrics::Meter*>& meter) {
     NX_CHECK(meter.has_value());
-    if (!meter) {
-        return;
-    }
+}
 
+void test_exponential_histogram_probes() {
     // The mapping is exact (design D11): every value lands in the bucket whose
     // geometric edges [B(i), B(i+1)) contain it with B(i) = 2^(i / 2^scale)
     // (base = 2^(2^-scale)); the mapping is deterministic and monotonic, and
@@ -1137,18 +1132,22 @@ void test_exponential_histogram() {
             check_value(value, probe, previous, previous_value);
         }
     }
+}
 
+void test_exponential_histogram_exact_powers(std::int32_t scale) {
     // Exact powers of two map to the octave boundary.
-    constexpr std::int32_t scale = 10;
     NX_CHECK(metrics::detail::exponential_index(1.0, scale) == (0LL << scale));
     NX_CHECK(metrics::detail::exponential_index(1024.0, scale) == (10LL << scale));
+}
 
-    const auto histogram =
-        (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("latency", scale);
+void test_exponential_histogram_created(
+    const Result<metrics::ExponentialHistogram<ST, Readable, Cumulative>*>& histogram) {
     NX_CHECK(histogram.has_value());
-    if (!histogram) {
-        return;
-    }
+}
+
+void test_exponential_histogram_snapshot(
+    const Result<metrics::ExponentialHistogram<ST, Readable, Cumulative>*>& histogram,
+    std::int32_t scale) {
     (*histogram)->record(1.0);
     (*histogram)->record(2.0);
     (*histogram)->record(4.0);
@@ -1173,7 +1172,9 @@ void test_exponential_histogram() {
         bucket_total += snapshot.buckets_count[i];
     }
     NX_CHECK(bucket_total + snapshot.zero_count == snapshot.count);
+}
 
+void test_exponential_histogram_wide(const Result<metrics::Meter*>& meter) {
     // A wide range coarsens the resolution but never loses a sample.
     const auto wide = (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("wide", 20);
     NX_CHECK(wide.has_value());
@@ -1191,7 +1192,9 @@ void test_exponential_histogram() {
         }
         NX_CHECK(wide_total == 5U);
     }
+}
 
+void test_exponential_histogram_reanchor(const Result<metrics::Meter*>& meter) {
     // Loss-free coarsening under a low-side re-anchor (design D10): buckets
     // falling outside the re-anchored window fold into the edge buckets.
     const auto reanchor =
@@ -1209,19 +1212,56 @@ void test_exponential_histogram() {
         }
         NX_CHECK(reanchor_total == 3U);
     }
+}
 
+void test_exponential_histogram_invalid_scale(const Result<metrics::Meter*>& meter) {
     // Out-of-range scales are rejected.
     const auto bad = (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("bad", 21);
     NX_CHECK(!bad.has_value() && bad.error() == ErrorCode::InvalidArgument);
     const auto negative =
         (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("neg", -1);
     NX_CHECK(!negative.has_value() && negative.error() == ErrorCode::InvalidArgument);
+}
 
+void test_exponential_histogram_serialization(
+    const Result<metrics::ExponentialHistogram<ST, Readable, Cumulative>*>& histogram) {
     // The serialization surface.
     const std::string text = (*histogram)->to_string();
     NX_CHECK(!text.empty());
     NX_CHECK(metrics::to_string(**histogram) == text);
     NX_CHECK(std::format("{}", **histogram) == text);
+}
+
+// --- exponential histogram (spec metrics/exponential-histogram).
+void test_exponential_histogram() {
+    metrics::NullMetricSink sink;
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
+    const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
+    test_exponential_histogram_meter(meter);
+    if (!meter) {
+        return;
+    }
+
+    test_exponential_histogram_probes();
+
+    constexpr std::int32_t scale = 10;
+    test_exponential_histogram_exact_powers(scale);
+
+    const auto histogram =
+        (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("latency", scale);
+    test_exponential_histogram_created(histogram);
+    if (!histogram) {
+        return;
+    }
+    test_exponential_histogram_snapshot(histogram, scale);
+
+    test_exponential_histogram_wide(meter);
+
+    test_exponential_histogram_reanchor(meter);
+
+    test_exponential_histogram_invalid_scale(meter);
+
+    test_exponential_histogram_serialization(histogram);
 }
 
 // --- Composite member-injection construction (design D3): a composite owns
@@ -1573,6 +1613,117 @@ template <class T>
 concept DeserializableFromJson =
     requires(const nlohmann::json& j, const T& value) { from_json(j, value); };
 
+void test_serialization_format(const metrics::MetricIdentity& identity,
+                               const metrics::ScalarValue& scalar,
+                               const metrics::StatisticsSnapshot& statistics,
+                               const metrics::HistogramSnapshot& histogram) {
+    // Member/free agreement and std::format equality for every type.
+    NX_CHECK(metrics::to_string(identity) == identity.to_string());
+    NX_CHECK(metrics::to_string(scalar) == scalar.to_string());
+    NX_CHECK(metrics::to_string(statistics) == statistics.to_string());
+    NX_CHECK(metrics::to_string(histogram) == histogram.to_string());
+    NX_CHECK(std::format("{}", identity) == identity.to_string());
+    NX_CHECK(std::format("{}", scalar) == scalar.to_string());
+    NX_CHECK(std::format("{}", statistics) == statistics.to_string());
+    NX_CHECK(std::format("{}", histogram) == histogram.to_string());
+    NX_CHECK(!identity.to_string().empty() && !scalar.to_string().empty());
+}
+
+void test_serialization_identity(const metrics::MetricIdentity& identity) {
+    {
+        nlohmann::json j = identity;
+        metrics::MetricIdentity back{};
+        metrics::from_json(j, back);
+        NX_CHECK(metrics::detail::view_name(back.meter_name) == "engine");
+        NX_CHECK(metrics::detail::view_name(back.meter_version) == "1.2.0");
+        NX_CHECK(metrics::detail::view_name(back.metric_name) == "hits");
+    }
+}
+
+void test_serialization_scalar(const metrics::ScalarValue& scalar) {
+    {
+        nlohmann::json j = scalar;
+        metrics::ScalarValue back{};
+        metrics::from_json(j, back);
+        NX_CHECK(back.counter == 7U && back.gauge_int == -3);
+        NX_CHECK(back.gauge_double == 1.5 && back.is_double);
+    }
+}
+
+void test_serialization_statistics(const metrics::StatisticsSnapshot& statistics) {
+    {
+        nlohmann::json j = statistics;
+        metrics::StatisticsSnapshot back{};
+        metrics::from_json(j, back);
+        NX_CHECK(back.count == 8U && back.min == 2.0 && back.max == 9.0);
+        NX_CHECK(back.mean == 5.0 && back.stddev == 2.0);
+        NX_CHECK(back.ignored_samples == 1U && back.dropped_samples == 2U);
+    }
+}
+
+void test_serialization_histogram(const metrics::HistogramSnapshot& histogram) {
+    {
+        nlohmann::json j = histogram;
+        metrics::HistogramSnapshot back{};
+        metrics::from_json(j, back);
+        NX_CHECK(back.count == 3U && back.sum == 7.5 && back.min == 1.5 && back.max == 3.5);
+        NX_CHECK(back.zero_count == 1U && back.effective_scale == 4);
+        NX_CHECK(back.p50 == 2.0 && back.p90 == 3.0 && back.p99 == 3.5 && back.p999 == 3.5);
+        NX_CHECK(back.bucket_count == 3U);
+        NX_CHECK(back.buckets_lower[2] == 4.0 && back.buckets_count[2] == 1U);
+    }
+}
+
+void test_serialization_record(const metrics::MetricRecord& record) {
+    {
+        nlohmann::json j = record;
+        NX_CHECK(j.contains("histogram"));
+        NX_CHECK(!j.contains("scalar")); // only the active union member
+        metrics::MetricRecord back{};
+        metrics::from_json(j, back);
+        NX_CHECK(back.kind == metrics::MetricKind::ExplicitHistogram);
+        NX_CHECK(back.concurrency == MT && back.reset == ResetOnRead);
+        NX_CHECK(back.histogram.count == 3U && back.histogram.sum == 7.5);
+        NX_CHECK(back.histogram.p999 == 3.5 && back.histogram.bucket_count == 3U);
+        NX_CHECK(back.histogram.buckets_count[1] == 1U);
+        NX_CHECK(metrics::detail::view_name(back.identity.metric_name) == "hits");
+    }
+}
+
+void test_serialization_batch(const metrics::MetricRecord& record,
+                              const metrics::MetricIdentity& identity) {
+    // A multi-record MetricBatchSnapshot round-trips count, timestamp and
+    // per-record contents.
+    metrics::MetricRecord records[2]{};
+    records[0] = record;
+    records[1].identity = identity;
+    records[1].kind = metrics::MetricKind::Counter;
+    records[1].scalar.counter = 42;
+    metrics::MetricBatchSnapshot batch{};
+    batch.stamp = chrono::Timestamp{123456789ULL};
+    batch.utc_ns = 1'700'000'000'123'456'789LL;
+    batch.records = records;
+    batch.record_count = 2;
+    batch.record_capacity = 2;
+    {
+        nlohmann::json j = batch;
+        metrics::MetricRecord buffer[2]{};
+        metrics::MetricBatchSnapshot back{};
+        back.records = buffer;
+        back.record_capacity = 2;
+        metrics::from_json(j, back);
+        NX_CHECK(back.record_count == 2U);
+        NX_CHECK(back.stamp.nanoseconds() == 123456789ULL);
+        NX_CHECK(back.utc_ns == 1'700'000'000'123'456'789LL);
+        NX_CHECK(buffer[0].kind == metrics::MetricKind::ExplicitHistogram);
+        NX_CHECK(buffer[0].histogram.count == 3U);
+        NX_CHECK(buffer[1].kind == metrics::MetricKind::Counter);
+        NX_CHECK(buffer[1].scalar.counter == 42U);
+    }
+    NX_CHECK(metrics::to_string(batch) == batch.to_string());
+    NX_CHECK(std::format("{}", batch) == batch.to_string());
+}
+
 // --- Snapshot/record/config serialization (spec metrics/policy-enums
 // "Public type ..."; tasks 4.1/4.2/10.3).
 void test_serialization() {
@@ -1615,51 +1766,13 @@ void test_serialization() {
     histogram.buckets_count[1] = 1;
     histogram.buckets_count[2] = 1;
 
-    // Member/free agreement and std::format equality for every type.
-    NX_CHECK(metrics::to_string(identity) == identity.to_string());
-    NX_CHECK(metrics::to_string(scalar) == scalar.to_string());
-    NX_CHECK(metrics::to_string(statistics) == statistics.to_string());
-    NX_CHECK(metrics::to_string(histogram) == histogram.to_string());
-    NX_CHECK(std::format("{}", identity) == identity.to_string());
-    NX_CHECK(std::format("{}", scalar) == scalar.to_string());
-    NX_CHECK(std::format("{}", statistics) == statistics.to_string());
-    NX_CHECK(std::format("{}", histogram) == histogram.to_string());
-    NX_CHECK(!identity.to_string().empty() && !scalar.to_string().empty());
+    test_serialization_format(identity, scalar, statistics, histogram);
 
     // JSON round-trips of populated snapshots under JSON_NOEXCEPTION=1.
-    {
-        nlohmann::json j = identity;
-        metrics::MetricIdentity back{};
-        metrics::from_json(j, back);
-        NX_CHECK(metrics::detail::view_name(back.meter_name) == "engine");
-        NX_CHECK(metrics::detail::view_name(back.meter_version) == "1.2.0");
-        NX_CHECK(metrics::detail::view_name(back.metric_name) == "hits");
-    }
-    {
-        nlohmann::json j = scalar;
-        metrics::ScalarValue back{};
-        metrics::from_json(j, back);
-        NX_CHECK(back.counter == 7U && back.gauge_int == -3);
-        NX_CHECK(back.gauge_double == 1.5 && back.is_double);
-    }
-    {
-        nlohmann::json j = statistics;
-        metrics::StatisticsSnapshot back{};
-        metrics::from_json(j, back);
-        NX_CHECK(back.count == 8U && back.min == 2.0 && back.max == 9.0);
-        NX_CHECK(back.mean == 5.0 && back.stddev == 2.0);
-        NX_CHECK(back.ignored_samples == 1U && back.dropped_samples == 2U);
-    }
-    {
-        nlohmann::json j = histogram;
-        metrics::HistogramSnapshot back{};
-        metrics::from_json(j, back);
-        NX_CHECK(back.count == 3U && back.sum == 7.5 && back.min == 1.5 && back.max == 3.5);
-        NX_CHECK(back.zero_count == 1U && back.effective_scale == 4);
-        NX_CHECK(back.p50 == 2.0 && back.p90 == 3.0 && back.p99 == 3.5 && back.p999 == 3.5);
-        NX_CHECK(back.bucket_count == 3U);
-        NX_CHECK(back.buckets_lower[2] == 4.0 && back.buckets_count[2] == 1U);
-    }
+    test_serialization_identity(identity);
+    test_serialization_scalar(scalar);
+    test_serialization_statistics(statistics);
+    test_serialization_histogram(histogram);
 
     // A histogram MetricRecord round-trips every payload field.
     metrics::MetricRecord record{};
@@ -1669,50 +1782,9 @@ void test_serialization() {
     record.access = Readable;
     record.reset = ResetOnRead;
     record.histogram = histogram;
-    {
-        nlohmann::json j = record;
-        NX_CHECK(j.contains("histogram"));
-        NX_CHECK(!j.contains("scalar")); // only the active union member
-        metrics::MetricRecord back{};
-        metrics::from_json(j, back);
-        NX_CHECK(back.kind == metrics::MetricKind::ExplicitHistogram);
-        NX_CHECK(back.concurrency == MT && back.reset == ResetOnRead);
-        NX_CHECK(back.histogram.count == 3U && back.histogram.sum == 7.5);
-        NX_CHECK(back.histogram.p999 == 3.5 && back.histogram.bucket_count == 3U);
-        NX_CHECK(back.histogram.buckets_count[1] == 1U);
-        NX_CHECK(metrics::detail::view_name(back.identity.metric_name) == "hits");
-    }
+    test_serialization_record(record);
 
-    // A multi-record MetricBatchSnapshot round-trips count, timestamp and
-    // per-record contents.
-    metrics::MetricRecord records[2]{};
-    records[0] = record;
-    records[1].identity = identity;
-    records[1].kind = metrics::MetricKind::Counter;
-    records[1].scalar.counter = 42;
-    metrics::MetricBatchSnapshot batch{};
-    batch.stamp = chrono::Timestamp{123456789ULL};
-    batch.utc_ns = 1'700'000'000'123'456'789LL;
-    batch.records = records;
-    batch.record_count = 2;
-    batch.record_capacity = 2;
-    {
-        nlohmann::json j = batch;
-        metrics::MetricRecord buffer[2]{};
-        metrics::MetricBatchSnapshot back{};
-        back.records = buffer;
-        back.record_capacity = 2;
-        metrics::from_json(j, back);
-        NX_CHECK(back.record_count == 2U);
-        NX_CHECK(back.stamp.nanoseconds() == 123456789ULL);
-        NX_CHECK(back.utc_ns == 1'700'000'000'123'456'789LL);
-        NX_CHECK(buffer[0].kind == metrics::MetricKind::ExplicitHistogram);
-        NX_CHECK(buffer[0].histogram.count == 3U);
-        NX_CHECK(buffer[1].kind == metrics::MetricKind::Counter);
-        NX_CHECK(buffer[1].scalar.counter == 42U);
-    }
-    NX_CHECK(metrics::to_string(batch) == batch.to_string());
-    NX_CHECK(std::format("{}", batch) == batch.to_string());
+    test_serialization_batch(record, identity);
 
     // Factory-only types are not deserializable (compile-time absence).
     static_assert(!DeserializableFromJson<metrics::Counter<ST, Readable, Cumulative>>);
@@ -1949,14 +2021,133 @@ void test_sinks_null_console() {
     }
 }
 
-// --- JSON-lines file sink (spec metrics/metric-sinks; task 11.2) plus the
-// composite diagnostics surface (task 11.3).
-void test_sinks_json() {
-    char path[] = "/tmp/nexigen_metrics_sink_XXXXXX";
+void test_sinks_json_tempfile(char* path) {
     const int made = ::mkstemp(path);
     NX_CHECK(made >= 0);
     ::close(made);
+}
 
+void test_sinks_json_opened(metrics::JsonFileMetricSink& sink) {
+    {
+        // Kept in its own scope so the assertion text is byte-identical.
+        NX_CHECK(sink.is_open());
+    }
+}
+
+void test_sinks_json_timestamp(const nlohmann::json& parsed);
+void test_sinks_json_records(const nlohmann::json& parsed);
+
+void test_sinks_json_write(const char* path, metrics::JsonFileMetricSink& sink,
+                           const metrics::MetricBatchSnapshot& batch, const auto& read_lines) {
+    {
+        NX_CHECK(sink.on_batch(batch).has_value());
+        NX_CHECK(sink.on_batch(batch).has_value());
+        NX_CHECK(sink.flush().has_value());
+
+        const std::vector<std::string> lines = read_lines(path);
+        NX_CHECK(lines.size() == 2U); // one parseable JSON object per batch
+        for (const std::string& line : lines) {
+            const nlohmann::json parsed = nlohmann::json::parse(line, nullptr, false);
+            NX_CHECK(!parsed.is_discarded() && parsed.is_object());
+            if (parsed.is_object()) {
+                test_sinks_json_timestamp(parsed);
+                test_sinks_json_records(parsed);
+            }
+        }
+    }
+}
+
+void test_sinks_json_timestamp(const nlohmann::json& parsed) {
+    {
+        {
+            {
+                const auto stamp_it = parsed.find("timestamp");
+                NX_CHECK(stamp_it != parsed.end() && stamp_it->is_string());
+                if (stamp_it != parsed.end() && stamp_it->is_string()) {
+                    const std::string stamp = stamp_it->get<std::string>();
+                    NX_CHECK(stamp.size() == 30U); // YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ
+                    NX_CHECK(stamp[10] == 'T' && stamp[19] == '.' && stamp[29] == 'Z');
+                }
+            }
+        }
+    }
+}
+
+void test_sinks_json_records(const nlohmann::json& parsed) {
+    {
+        {
+            {
+                const auto records_it = parsed.find("records");
+                NX_CHECK(records_it != parsed.end() && records_it->is_array());
+                if (records_it != parsed.end() && records_it->is_array() && !records_it->empty()) {
+                    const auto meter_it = (*records_it)[0].find("meter");
+                    NX_CHECK(meter_it != (*records_it)[0].end() && meter_it->is_string());
+                    if (meter_it != (*records_it)[0].end() && meter_it->is_string()) {
+                        // Escaped strings round-trip.
+                        NX_CHECK(meter_it->get<std::string>() == "quote\"slash\\ctrl\x01");
+                    }
+                }
+            }
+        }
+    }
+}
+
+void test_sinks_json_append(const char* path, const metrics::MetricBatchSnapshot& batch,
+                            const auto& read_lines) {
+    {
+        // Append ordering: a second sink appends one more line.
+        metrics::JsonFileMetricSinkConfig appended{std::string(path), "", true};
+        metrics::JsonFileMetricSink append_sink{appended};
+        NX_CHECK(append_sink.on_batch(batch).has_value());
+        NX_CHECK(append_sink.flush().has_value());
+        NX_CHECK(read_lines(path).size() == 3U);
+    }
+}
+
+void test_sinks_json_diagnostics(metrics::JsonFileMetricSink& sink,
+                                 const metrics::JsonFileMetricSinkConfig& config) {
+    {
+        // Diagnostics + config trio; the sink itself is not deserializable.
+        NX_CHECK(metrics::to_string(sink) == sink.to_string());
+        nlohmann::json sink_json = sink;
+        NX_CHECK(sink_json.is_object());
+        nlohmann::json config_json = config;
+        metrics::JsonFileMetricSinkConfig config_back{};
+        metrics::from_json(config_json, config_back);
+        NX_CHECK(config_back.path == config.path && config_back.append == config.append);
+        NX_CHECK(metrics::to_string(config) == config.to_string());
+        NX_CHECK(std::format("{}", config) == config.to_string());
+    }
+}
+
+void test_sinks_json_open_failure() {
+    // Open failure surfaces through Status without emitting invalid JSON.
+    {
+        metrics::JsonFileMetricSinkConfig broken_config{"/nonexistent-nexigen-dir/telemetry.jsonl",
+                                                        "", false};
+        metrics::JsonFileMetricSink broken{broken_config};
+        NX_CHECK(!broken.is_open());
+        metrics::MetricBatchSnapshot empty{};
+        const Status failed = broken.on_batch(empty);
+        NX_CHECK(!failed.has_value());
+        NX_CHECK(failed.error() == ErrorCode::SystemError);
+    }
+}
+
+void test_sinks_json_composite() {
+    // Composite diagnostics surface (task 11.3).
+    {
+        metrics::CompositeMetricSink<metrics::NullMetricSink, metrics::ConsoleMetricSink> composite{
+            metrics::NullMetricSink{}, metrics::ConsoleMetricSink{-1}};
+        NX_CHECK(composite.to_string().find("members=2") != std::string::npos);
+        NX_CHECK(metrics::to_string(composite) == composite.to_string());
+        NX_CHECK(std::format("{}", composite) == composite.to_string());
+        nlohmann::json j = composite;
+        NX_CHECK(j["members"] == 2U);
+    }
+}
+
+void test_sinks_json_file(const char* path) {
     auto read_lines = [](const char* file) {
         std::vector<std::string> lines;
         std::ifstream input(file);
@@ -1972,7 +2163,7 @@ void test_sinks_json() {
     {
         metrics::JsonFileMetricSinkConfig config{std::string(path), "", false};
         metrics::JsonFileMetricSink sink{config};
-        NX_CHECK(sink.is_open());
+        test_sinks_json_opened(sink);
         metrics::MetricRecord records[1]{};
         std::snprintf(records[0].identity.meter_name, sizeof(records[0].identity.meter_name),
                       "quote\"slash\\ctrl\x01");
@@ -1982,93 +2173,29 @@ void test_sinks_json() {
         batch.records = records;
         batch.record_count = 1;
         batch.record_capacity = 1;
-        NX_CHECK(sink.on_batch(batch).has_value());
-        NX_CHECK(sink.on_batch(batch).has_value());
-        NX_CHECK(sink.flush().has_value());
-
-        const std::vector<std::string> lines = read_lines(path);
-        NX_CHECK(lines.size() == 2U); // one parseable JSON object per batch
-        for (const std::string& line : lines) {
-            const nlohmann::json parsed = nlohmann::json::parse(line, nullptr, false);
-            NX_CHECK(!parsed.is_discarded() && parsed.is_object());
-            if (parsed.is_object()) {
-                const auto stamp_it = parsed.find("timestamp");
-                NX_CHECK(stamp_it != parsed.end() && stamp_it->is_string());
-                if (stamp_it != parsed.end() && stamp_it->is_string()) {
-                    const std::string stamp = stamp_it->get<std::string>();
-                    NX_CHECK(stamp.size() == 30U); // YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ
-                    NX_CHECK(stamp[10] == 'T' && stamp[19] == '.' && stamp[29] == 'Z');
-                }
-                const auto records_it = parsed.find("records");
-                NX_CHECK(records_it != parsed.end() && records_it->is_array());
-                if (records_it != parsed.end() && records_it->is_array() && !records_it->empty()) {
-                    const auto meter_it = (*records_it)[0].find("meter");
-                    NX_CHECK(meter_it != (*records_it)[0].end() && meter_it->is_string());
-                    if (meter_it != (*records_it)[0].end() && meter_it->is_string()) {
-                        // Escaped strings round-trip.
-                        NX_CHECK(meter_it->get<std::string>() == "quote\"slash\\ctrl\x01");
-                    }
-                }
-            }
-        }
-
-        // Append ordering: a second sink appends one more line.
-        metrics::JsonFileMetricSinkConfig appended{std::string(path), "", true};
-        metrics::JsonFileMetricSink append_sink{appended};
-        NX_CHECK(append_sink.on_batch(batch).has_value());
-        NX_CHECK(append_sink.flush().has_value());
-        NX_CHECK(read_lines(path).size() == 3U);
-
-        // Diagnostics + config trio; the sink itself is not deserializable.
-        NX_CHECK(metrics::to_string(sink) == sink.to_string());
-        nlohmann::json sink_json = sink;
-        NX_CHECK(sink_json.is_object());
-        nlohmann::json config_json = config;
-        metrics::JsonFileMetricSinkConfig config_back{};
-        metrics::from_json(config_json, config_back);
-        NX_CHECK(config_back.path == config.path && config_back.append == config.append);
-        NX_CHECK(metrics::to_string(config) == config.to_string());
-        NX_CHECK(std::format("{}", config) == config.to_string());
+        test_sinks_json_write(path, sink, batch, read_lines);
+        test_sinks_json_append(path, batch, read_lines);
+        test_sinks_json_diagnostics(sink, config);
     }
+}
 
-    // Open failure surfaces through Status without emitting invalid JSON.
-    {
-        metrics::JsonFileMetricSinkConfig broken_config{"/nonexistent-nexigen-dir/telemetry.jsonl",
-                                                        "", false};
-        metrics::JsonFileMetricSink broken{broken_config};
-        NX_CHECK(!broken.is_open());
-        metrics::MetricBatchSnapshot empty{};
-        const Status failed = broken.on_batch(empty);
-        NX_CHECK(!failed.has_value());
-        NX_CHECK(failed.error() == ErrorCode::SystemError);
-    }
-
-    // Composite diagnostics surface (task 11.3).
-    {
-        metrics::CompositeMetricSink<metrics::NullMetricSink, metrics::ConsoleMetricSink> composite{
-            metrics::NullMetricSink{}, metrics::ConsoleMetricSink{-1}};
-        NX_CHECK(composite.to_string().find("members=2") != std::string::npos);
-        NX_CHECK(metrics::to_string(composite) == composite.to_string());
-        NX_CHECK(std::format("{}", composite) == composite.to_string());
-        nlohmann::json j = composite;
-        NX_CHECK(j["members"] == 2U);
-    }
+// --- JSON-lines file sink (spec metrics/metric-sinks; task 11.2) plus the
+// composite diagnostics surface (task 11.3).
+void test_sinks_json() {
+    char path[] = "/tmp/nexigen_metrics_sink_XXXXXX";
+    test_sinks_json_tempfile(path);
+    test_sinks_json_file(path);
+    test_sinks_json_open_failure();
+    test_sinks_json_composite();
     ::unlink(path);
 }
 
-// --- Explicit histogram: ST extras (task 8.1/8.2) and the MT suites
-// (32-thread exactness, reset-window exactness, >32-thread fallback).
-void test_explicit_histogram_mt() {
-    metrics::NullMetricSink sink;
-    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
-    const Result<metrics::Meter*> meter = provider.get_meter("explicit", "1.0");
+void test_explicit_histogram_mt_meter(const Result<metrics::Meter*>& meter) {
     NX_CHECK(meter.has_value());
-    if (!meter) {
-        return;
-    }
-    const double bounds[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0};
-    const std::span<const double> bounds_view{bounds};
+}
 
+void test_explicit_histogram_mt_filtered(const Result<metrics::Meter*>& meter,
+                                         std::span<const double> bounds_view) {
     // Non-finite samples are ignored visibly (task 8.1).
     const auto filtered =
         (*meter)->create_explicit_histogram<ST, Readable, Cumulative>("filtered", bounds_view);
@@ -2082,7 +2209,10 @@ void test_explicit_histogram_mt() {
         NX_CHECK(snapshot.ignored_samples == 2U);
         NX_CHECK(snapshot.sum == 1.5);
     }
+}
 
+void test_explicit_histogram_mt_empty(const Result<metrics::Meter*>& meter,
+                                      std::span<const double> bounds_view) {
     // Empty histogram reports zeros (task 8.2).
     const auto empty_hist =
         (*meter)->create_explicit_histogram<ST, Readable, Cumulative>("empty", bounds_view);
@@ -2093,7 +2223,10 @@ void test_explicit_histogram_mt() {
         NX_CHECK(snapshot.p50 == 0.0 && snapshot.p90 == 0.0);
         NX_CHECK(snapshot.p99 == 0.0 && snapshot.p999 == 0.0);
     }
+}
 
+void test_explicit_histogram_mt_uniform(const Result<metrics::Meter*>& meter,
+                                        std::span<const double> bounds_view) {
     // Uniform-distribution percentiles land within one bucket width (task 8.2).
     const auto uniform =
         (*meter)->create_explicit_histogram<ST, Readable, Cumulative>("uniform", bounds_view);
@@ -2109,14 +2242,15 @@ void test_explicit_histogram_mt() {
         NX_CHECK(snapshot.p50 <= snapshot.p90 && snapshot.p90 <= snapshot.p99 &&
                  snapshot.p99 <= snapshot.p999);
     }
+}
 
-    // 32 threads x 1M samples: count and every bucket total are exact.
-    const auto sharded =
-        (*meter)->create_explicit_histogram<MT, Readable, Cumulative>("sharded", bounds_view);
+void test_explicit_histogram_mt_sharded_created(
+    const Result<metrics::ExplicitBucketHistogram<MT, Readable, Cumulative>*>& sharded) {
     NX_CHECK(sharded.has_value());
-    if (!sharded) {
-        return;
-    }
+}
+
+void test_explicit_histogram_mt_sharded(
+    const Result<metrics::ExplicitBucketHistogram<MT, Readable, Cumulative>*>& sharded) {
     {
         std::vector<std::jthread> workers;
         workers.reserve(32);
@@ -2134,7 +2268,10 @@ void test_explicit_histogram_mt() {
         NX_CHECK(snapshot.buckets_count[1] == 32'000'000U);
         NX_CHECK(snapshot.sum == 48'000'000.0);
     }
+}
 
+void test_explicit_histogram_mt_windowed(const Result<metrics::Meter*>& meter,
+                                         std::span<const double> bounds_view) {
     // Reset-window exactness under concurrent recording (task 8.2).
     const auto windowed =
         (*meter)->create_explicit_histogram<MT, Readable, ResetOnRead>("windowed_mt", bounds_view);
@@ -2165,7 +2302,10 @@ void test_explicit_histogram_mt() {
         }
         NX_CHECK(windowed_total == 800'000U);
     }
+}
 
+void test_explicit_histogram_mt_fallback(const Result<metrics::Meter*>& meter,
+                                         std::span<const double> bounds_view) {
     // >32 threads stay exact through the shared fallback shard (task 8.2).
     const auto fallback =
         (*meter)->create_explicit_histogram<MT, Readable, Cumulative>("fallback", bounds_view);
@@ -2191,6 +2331,36 @@ void test_explicit_histogram_mt() {
         }
         NX_CHECK(total == 400'000U);
     }
+}
+
+// --- Explicit histogram: ST extras (task 8.1/8.2) and the MT suites
+// (32-thread exactness, reset-window exactness, >32-thread fallback).
+void test_explicit_histogram_mt() {
+    metrics::NullMetricSink sink;
+    metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
+    const Result<metrics::Meter*> meter = provider.get_meter("explicit", "1.0");
+    test_explicit_histogram_mt_meter(meter);
+    if (!meter) {
+        return;
+    }
+    const double bounds[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0};
+    const std::span<const double> bounds_view{bounds};
+
+    test_explicit_histogram_mt_filtered(meter, bounds_view);
+    test_explicit_histogram_mt_empty(meter, bounds_view);
+    test_explicit_histogram_mt_uniform(meter, bounds_view);
+
+    // 32 threads x 1M samples: count and every bucket total are exact.
+    const auto sharded =
+        (*meter)->create_explicit_histogram<MT, Readable, Cumulative>("sharded", bounds_view);
+    test_explicit_histogram_mt_sharded_created(sharded);
+    if (!sharded) {
+        return;
+    }
+    test_explicit_histogram_mt_sharded(sharded);
+
+    test_explicit_histogram_mt_windowed(meter, bounds_view);
+    test_explicit_histogram_mt_fallback(meter, bounds_view);
 }
 
 // --- Exponential histogram: ST extras (task 9.2/9.3) and the MT suites.
@@ -2415,38 +2585,31 @@ template <class F> [[nodiscard]] double median_ns_per_op(F&& body, int batches, 
 } // namespace
 #endif
 
-// --- Hot-path latency gates (spec metrics/counter-gauge etc. "latency gate"
-// scenarios; tasks 6.3/7.3/8.3/9.4). Compiled only under
-// NEXIGEN_METRICS_STRICT_LATENCY (design D16): Debug and sanitizer builds run
-// the correctness-only mode.
-void test_latency() {
 #if !defined(NEXIGEN_METRICS_STRICT_LATENCY) || defined(NX_SANITIZER_BUILD)
+void test_latency_disabled() {
     std::printf("  latency gates compiled out (correctness-only mode)\n");
     NX_CHECK(true);
-#else
-    metrics::NullMetricSink sink;
-    metrics::MetricProviderConfig config{};
-    config.collect_interval = std::chrono::nanoseconds{0};
-    metrics::MetricProvider provider{config, sink};
-    const Result<metrics::Meter*> meter = provider.get_meter("bench", "1.0");
-    NX_CHECK(meter.has_value());
-    if (!meter) {
-        return;
-    }
-    const auto st_counter = (*meter)->create_counter<ST, Readable, Cumulative>("st_inc");
-    const auto mt_counter = (*meter)->create_counter<MT, Readable, Cumulative>("mt_inc");
-    const auto gauge = (*meter)->create_gauge<std::int64_t, MT, Readable, Cumulative>("gauge");
-    const auto stats = (*meter)->create_statistics<MT, Readable, Cumulative>("stats");
-    const auto hist = (*meter)->create_explicit_histogram<MT, Readable, Cumulative>(
-        "hist", std::span<const double>{std::array<double, 2>{1.0, 2.0}});
-    const auto expo = (*meter)->create_exponential_histogram<MT, Readable, Cumulative>("expo", 10);
-    NX_CHECK(st_counter && mt_counter && gauge && stats && hist && expo);
-    if (!st_counter || !mt_counter || !gauge || !stats || !hist || !expo) {
-        return;
-    }
+}
+#endif
 
-    constexpr int batches = 21;
-    constexpr int ops = 100'000;
+#if defined(NEXIGEN_METRICS_STRICT_LATENCY) && !defined(NX_SANITIZER_BUILD)
+void test_latency_meter(const Result<metrics::Meter*>& meter) {
+    NX_CHECK(meter.has_value());
+}
+
+void test_latency_ready(
+    const Result<metrics::Counter<ST, Readable, Cumulative>*>& st_counter,
+    const Result<metrics::Counter<MT, Readable, Cumulative>*>& mt_counter,
+    const Result<metrics::Gauge<std::int64_t, MT, Readable, Cumulative>*>& gauge,
+    const Result<metrics::DescriptiveStatistics<MT, Readable, Cumulative>*>& stats,
+    const Result<metrics::ExplicitBucketHistogram<MT, Readable, Cumulative>*>& hist,
+    const Result<metrics::ExponentialHistogram<MT, Readable, Cumulative>*>& expo) {
+    NX_CHECK(st_counter && mt_counter && gauge && stats && hist && expo);
+}
+
+[[nodiscard]] double
+test_latency_st_inc(const Result<metrics::Counter<ST, Readable, Cumulative>*>& st_counter,
+                    int batches, int ops) {
     const double st_inc = median_ns_per_op(
         [&st_counter](int n) {
             for (int i = 0; i < n; ++i) {
@@ -2455,6 +2618,12 @@ void test_latency() {
             }
         },
         batches, ops);
+    return st_inc;
+}
+
+[[nodiscard]] double
+test_latency_mt_inc(const Result<metrics::Counter<MT, Readable, Cumulative>*>& mt_counter,
+                    int batches, int ops) {
     const double mt_inc = median_ns_per_op(
         [&mt_counter](int n) {
             for (int i = 0; i < n; ++i) {
@@ -2463,6 +2632,12 @@ void test_latency() {
             }
         },
         batches, ops);
+    return mt_inc;
+}
+
+[[nodiscard]] double
+test_latency_gauge_set(const Result<metrics::Gauge<std::int64_t, MT, Readable, Cumulative>*>& gauge,
+                       int batches, int ops) {
     const double gauge_set = median_ns_per_op(
         [&gauge](int n) {
             for (int i = 0; i < n; ++i) {
@@ -2471,6 +2646,12 @@ void test_latency() {
             }
         },
         batches, ops);
+    return gauge_set;
+}
+
+[[nodiscard]] double
+test_latency_gauge_add(const Result<metrics::Gauge<std::int64_t, MT, Readable, Cumulative>*>& gauge,
+                       int batches, int ops) {
     const double gauge_add = median_ns_per_op(
         [&gauge](int n) {
             for (int i = 0; i < n; ++i) {
@@ -2479,6 +2660,12 @@ void test_latency() {
             }
         },
         batches, ops);
+    return gauge_add;
+}
+
+[[nodiscard]] double test_latency_stats_record(
+    const Result<metrics::DescriptiveStatistics<MT, Readable, Cumulative>*>& stats, int batches,
+    int ops) {
     const double stats_record = median_ns_per_op(
         [&stats](int n) {
             for (int i = 0; i < n; ++i) {
@@ -2487,6 +2674,12 @@ void test_latency() {
             }
         },
         batches, ops);
+    return stats_record;
+}
+
+[[nodiscard]] double test_latency_hist_record(
+    const Result<metrics::ExplicitBucketHistogram<MT, Readable, Cumulative>*>& hist, int batches,
+    int ops) {
     const double hist_record = median_ns_per_op(
         [&hist](int n) {
             for (int i = 0; i < n; ++i) {
@@ -2495,6 +2688,12 @@ void test_latency() {
             }
         },
         batches, ops);
+    return hist_record;
+}
+
+[[nodiscard]] double test_latency_exp_record(
+    const Result<metrics::ExponentialHistogram<MT, Readable, Cumulative>*>& expo, int batches,
+    int ops) {
     const double expo_record = median_ns_per_op(
         [&expo](int n) {
             for (int i = 0; i < n; ++i) {
@@ -2503,7 +2702,11 @@ void test_latency() {
             }
         },
         batches, ops);
+    return expo_record;
+}
 
+void test_latency_report(double st_inc, double mt_inc, double gauge_set, double gauge_add,
+                         double stats_record, double hist_record, double expo_record) {
     std::printf("  latency medians (ns/op): st_inc=%.2f mt_inc=%.2f gauge_set=%.2f "
                 "gauge_add=%.2f stats=%.2f hist=%.2f expo=%.2f\n",
                 st_inc, mt_inc, gauge_set, gauge_add, stats_record, hist_record, expo_record);
@@ -2521,6 +2724,54 @@ void test_latency() {
     NX_CHECK(hist_record <= 15.0);  // task 8.3
     NX_CHECK(expo_record <= 15.0);  // task 9.4
 #endif
+}
+
+void test_latency_strict() {
+    metrics::NullMetricSink sink;
+    metrics::MetricProviderConfig config{};
+    config.collect_interval = std::chrono::nanoseconds{0};
+    metrics::MetricProvider provider{config, sink};
+    const Result<metrics::Meter*> meter = provider.get_meter("bench", "1.0");
+    test_latency_meter(meter);
+    if (!meter) {
+        return;
+    }
+    const auto st_counter = (*meter)->create_counter<ST, Readable, Cumulative>("st_inc");
+    const auto mt_counter = (*meter)->create_counter<MT, Readable, Cumulative>("mt_inc");
+    const auto gauge = (*meter)->create_gauge<std::int64_t, MT, Readable, Cumulative>("gauge");
+    const auto stats = (*meter)->create_statistics<MT, Readable, Cumulative>("stats");
+    const auto hist = (*meter)->create_explicit_histogram<MT, Readable, Cumulative>(
+        "hist", std::span<const double>{std::array<double, 2>{1.0, 2.0}});
+    const auto expo = (*meter)->create_exponential_histogram<MT, Readable, Cumulative>("expo", 10);
+    test_latency_ready(st_counter, mt_counter, gauge, stats, hist, expo);
+    if (!st_counter || !mt_counter || !gauge || !stats || !hist || !expo) {
+        return;
+    }
+
+    constexpr int batches = 21;
+    constexpr int ops = 100'000;
+    const double st_inc = test_latency_st_inc(st_counter, batches, ops);
+    const double mt_inc = test_latency_mt_inc(mt_counter, batches, ops);
+    const double gauge_set = test_latency_gauge_set(gauge, batches, ops);
+    const double gauge_add = test_latency_gauge_add(gauge, batches, ops);
+    const double stats_record = test_latency_stats_record(stats, batches, ops);
+    const double hist_record = test_latency_hist_record(hist, batches, ops);
+    const double expo_record = test_latency_exp_record(expo, batches, ops);
+
+    test_latency_report(st_inc, mt_inc, gauge_set, gauge_add, stats_record, hist_record,
+                        expo_record);
+}
+#endif
+
+// --- Hot-path latency gates (spec metrics/counter-gauge etc. "latency gate"
+// scenarios; tasks 6.3/7.3/8.3/9.4). Compiled only under
+// NEXIGEN_METRICS_STRICT_LATENCY (design D16): Debug and sanitizer builds run
+// the correctness-only mode.
+void test_latency() {
+#if !defined(NEXIGEN_METRICS_STRICT_LATENCY) || defined(NX_SANITIZER_BUILD)
+    test_latency_disabled();
+#else
+    test_latency_strict();
 #endif
 }
 
@@ -2693,15 +2944,10 @@ void test_metrics_worker_thread_settings() {
     static_cast<void>(std::remove(local_path));
 }
 
-void test_provider_harvester() {
-    // 10 ms fixed-rate spacing, worker pinning, and background delivery
-    // (task 12.1). Documented tolerance: the fixed-rate loop may drift under
-    // CI scheduling, so every observed gap must stay within [2 ms, 50 ms].
+void test_provider_harvester_cpus(int& first_cpu, int& denied_cpu) {
     cpu_set_t allowed;
     CPU_ZERO(&allowed);
     NX_CHECK(::sched_getaffinity(0, sizeof(allowed), &allowed) == 0);
-    int first_cpu = -1;
-    int denied_cpu = -1;
     for (int cpu = 0; cpu < 64; ++cpu) {
         if (CPU_ISSET(static_cast<std::size_t>(cpu), &allowed)) {
             if (first_cpu < 0) {
@@ -2712,7 +2958,9 @@ void test_provider_harvester() {
         }
     }
     NX_CHECK(first_cpu >= 0);
+}
 
+void test_provider_harvester_spacing(int first_cpu) {
     {
         SpacingSink sink;
         sink.expect_cpu(first_cpu);
@@ -2754,7 +3002,9 @@ void test_provider_harvester() {
         NX_CHECK(affinity_ok);
         NX_CHECK(sink.flushes_ >= 1); // shutdown drain flushed the sink
     }
+}
 
+void test_provider_harvester_manual() {
     // Zero interval disables background collection entirely (task 12.1).
     {
         SpacingSink sink;
@@ -2777,7 +3027,9 @@ void test_provider_harvester() {
         NX_CHECK(collected.has_value());
         NX_CHECK(sink.samples_ns_.size() == 1U);
     }
+}
 
+void test_provider_harvester_denied(int denied_cpu) {
     // startup_status reports SystemError for a failing mask (task 12.1).
     if (denied_cpu >= 0) {
         SpacingSink sink;
@@ -2789,7 +3041,9 @@ void test_provider_harvester() {
         NX_CHECK(!startup.has_value());
         NX_CHECK(startup.error() == ErrorCode::SystemError);
     }
+}
 
+void test_provider_harvester_zero_mask() {
     // Zero mask inherits the process affinity and reports success.
     {
         SpacingSink sink;
@@ -2799,7 +3053,9 @@ void test_provider_harvester() {
         metrics::MetricProvider provider{config, sink};
         NX_CHECK(provider.startup_status().has_value());
     }
+}
 
+void test_provider_harvester_control() {
     // Control plane: one batch with all registered metrics, flush failure
     // propagation, collection-error Status arms, and usability after failure
     // (task 12.2).
@@ -2849,7 +3105,9 @@ void test_provider_harvester() {
         }
         static_cast<void>(batches_before);
     }
+}
 
+void test_provider_harvester_stale() {
     // Handle-lifetime liveness detection (task 12.2): a handle used after its
     // provider's destruction reports NotInitialized.
     {
@@ -2863,6 +3121,27 @@ void test_provider_harvester() {
         const Result<metrics::Meter*> stale = transient->get_meter("doomed", "1.0");
         NX_CHECK(!stale.has_value() && stale.error() == ErrorCode::NotInitialized);
     }
+}
+
+void test_provider_harvester() {
+    // 10 ms fixed-rate spacing, worker pinning, and background delivery
+    // (task 12.1). Documented tolerance: the fixed-rate loop may drift under
+    // CI scheduling, so every observed gap must stay within [2 ms, 50 ms].
+    int first_cpu = -1;
+    int denied_cpu = -1;
+    test_provider_harvester_cpus(first_cpu, denied_cpu);
+
+    test_provider_harvester_spacing(first_cpu);
+
+    test_provider_harvester_manual();
+
+    test_provider_harvester_denied(denied_cpu);
+
+    test_provider_harvester_zero_mask();
+
+    test_provider_harvester_control();
+
+    test_provider_harvester_stale();
 }
 
 // --- Instrument registration races the background harvester safely

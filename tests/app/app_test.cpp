@@ -1718,7 +1718,9 @@ void test_infrastructure_stop_and_mask() {
     NX_CHECK(masked->shutdown().has_value());
 }
 
-void test_command_line_parser() {
+namespace {
+
+void test_command_line_parser_long_options() {
     // Long options: separate and '=' value forms.
     {
         auto parsed =
@@ -1740,7 +1742,9 @@ void test_command_line_parser() {
             NX_CHECK(parsed->local_settings_dir == "./hil-config");
         }
     }
+}
 
+void test_command_line_parser_short_forms() {
     // Multi-character short names: separate, adjacent and '=' value forms.
     {
         auto parsed = parse_args({"-gs", "/etc/nexigen", "-ls", "./hil-config"});
@@ -1766,7 +1770,9 @@ void test_command_line_parser() {
             NX_CHECK(parsed->local_settings_dir == "./hil-config");
         }
     }
+}
 
+void test_command_line_parser_levels() {
     // Log-level short forms.
     for (const std::string_view spelling : {"-lgl info", "-lglinfo", "-lgl=info"}) {
         const std::size_t split = spelling.find(' ');
@@ -1811,7 +1817,9 @@ void test_command_line_parser() {
             NX_CHECK(message_contains(parsed.error(), "off"));
         }
     }
+}
 
+void test_command_line_parser_aliases() {
     // Single-letter aliases are not part of the contract.
     for (const std::string_view alias : {"-g", "-l", "-L"}) {
         auto parsed = parse_args({alias, "/etc/nexigen"});
@@ -1820,7 +1828,9 @@ void test_command_line_parser() {
             NX_CHECK(has_diagnostic(parsed.error(), alias));
         }
     }
+}
 
+void test_command_line_parser_argv0() {
     // argv[0] is the program name and is skipped.
     {
         const char* const argv[] = {"my-app", "--help"};
@@ -1840,7 +1850,9 @@ void test_command_line_parser() {
         auto null_argv = app::parse_command_line(0, nullptr);
         NX_CHECK(!null_argv.has_value());
     }
+}
 
+void test_command_line_parser_help() {
     // Help wins over every other argument and never requires a directory.
     for (const std::string_view help_token : {"-h", "--help"}) {
         auto parsed = parse_args({help_token});
@@ -1856,7 +1868,9 @@ void test_command_line_parser() {
             NX_CHECK(parsed->help);
         }
     }
+}
 
+void test_command_line_parser_terminator() {
     // Terminator: following tokens are positional; a bare terminator is fine.
     {
         auto parsed = parse_args({"--local-settings", "./config", "--"});
@@ -1876,7 +1890,9 @@ void test_command_line_parser() {
             NX_CHECK(has_diagnostic(parsed.error(), "--help"));
         }
     }
+}
 
+void test_command_line_parser_errors() {
     // Unknown, missing, repeated and positional arguments.
     {
         auto parsed = parse_args({"--colour"});
@@ -1922,7 +1938,9 @@ void test_command_line_parser() {
             NX_CHECK(has_diagnostic(parsed.error(), "-"));
         }
     }
+}
 
+void test_command_line_parser_directory_validation() {
     // Directory shape validation and empty values.
     {
         auto parsed = parse_args({"--global-settings", "./config"});
@@ -1959,7 +1977,9 @@ void test_command_line_parser() {
             NX_CHECK(has_diagnostic(parsed.error(), "--local-settings"));
         }
     }
+}
 
+void test_command_line_parser_required_directory() {
     // At least one directory is required, except for help.
     {
         auto parsed = parse_args({});
@@ -1984,7 +2004,9 @@ void test_command_line_parser() {
             NX_CHECK(parsed->global_settings_dir.empty());
         }
     }
+}
 
+void test_command_line_parser_usage() {
     // Usage text names the whole contract.
     const std::string_view usage = app::command_line_usage();
     for (const std::string_view token :
@@ -1993,6 +2015,22 @@ void test_command_line_parser() {
           "chrono.json"}) {
         NX_CHECK(usage.find(token) != std::string_view::npos);
     }
+}
+
+} // namespace
+
+void test_command_line_parser() {
+    test_command_line_parser_long_options();
+    test_command_line_parser_short_forms();
+    test_command_line_parser_levels();
+    test_command_line_parser_aliases();
+    test_command_line_parser_argv0();
+    test_command_line_parser_help();
+    test_command_line_parser_terminator();
+    test_command_line_parser_errors();
+    test_command_line_parser_directory_validation();
+    test_command_line_parser_required_directory();
+    test_command_line_parser_usage();
 }
 
 void test_command_line_mapping() {

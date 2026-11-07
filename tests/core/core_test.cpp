@@ -955,14 +955,16 @@ alignas(16) char g_sink_io_received[g_sink_io_blob_size]{};
 std::size_t g_sink_io_received_total = 0;
 std::atomic<bool> g_sink_io_atomic_writer_failed{false};
 
-void test_sink_io() {
+void test_sink_io_errors() {
     // Invalid descriptor: write_all maps the failure to SystemError and
     // never reports success.
     NX_CHECK(!nexigen::core::sink_io::write_all(-1, "x", 1).has_value());
     NX_CHECK((nexigen::core::sink_io::write_all(-1, "x", 1).error() ==
               nexigen::core::ErrorCode::SystemError));
     NX_CHECK(!nexigen::core::sink_io::fsync_fd(-1).has_value());
+}
 
+void test_sink_io_open_flags() {
     // Open flag parity. The mode assertion runs under a pinned umask 022
     // (restored after this subsection): mode bits apply only at first
     // creation, so the pre-existence fixture can't come from fopen/other
@@ -1011,7 +1013,9 @@ void test_sink_io() {
     }
     std::remove(toggled_path);
     static_cast<void>(::umask(previous_umask));
+}
 
+void test_sink_io_fsync() {
     // fsync_fd success on a real file descriptor.
     {
         const char* const fsync_path = "/tmp/opencode/nexigen-sink-io-fsync.txt";
@@ -1021,7 +1025,9 @@ void test_sink_io() {
         static_cast<void>(::close(fd));
         std::remove(fsync_path);
     }
+}
 
+void test_sink_io_write(int* pipe_fds, sigset_t& old_mask) {
     // Full-write loop under partial writes + EINTR: a 192 KiB blob through a
     // 64 KiB pipe cap on a throttled reader, with an interval timer firing
     // during blocked writes (SIGALRM handler without SA_RESTART ⇒ real
@@ -1036,7 +1042,6 @@ void test_sink_io() {
         g_sink_io_blob[i] = static_cast<char>((i * 31U + 7U) & 0xFFU);
     }
 
-    int pipe_fds[2] = {-1, -1};
     NX_CHECK(::pipe2(pipe_fds, O_CLOEXEC) == 0);
 
     // SIGPIPE shield: the sink_io contract targets regular files (where
@@ -1045,7 +1050,6 @@ void test_sink_io() {
     sigset_t sigpipe_mask{};
     sigemptyset(&sigpipe_mask);
     sigaddset(&sigpipe_mask, SIGPIPE);
-    sigset_t old_mask{};
     ::sigprocmask(SIG_BLOCK, &sigpipe_mask, &old_mask);
 
     // Interval-timer wiring: a no-op handler, period 1 ms, no SA_RESTART —
@@ -1121,7 +1125,9 @@ void test_sink_io() {
         }
     }
     NX_CHECK(mismatches == 0);
+}
 
+void test_sink_io_epipe(int* pipe_fds, const sigset_t& old_mask) {
     // Closed-read-end failure probe: with SIGPIPE blocked, write reports
     // EPIPE — the loop maps any unexpected errno to SystemError.
     ::close(pipe_fds[0]);
@@ -1142,6 +1148,16 @@ void test_sink_io() {
 
     // Restore the previous SIGPIPE mask.
     ::sigprocmask(SIG_SETMASK, &old_mask, nullptr);
+}
+
+void test_sink_io() {
+    test_sink_io_errors();
+    test_sink_io_open_flags();
+    test_sink_io_fsync();
+    int pipe_fds[2] = {-1, -1};
+    sigset_t old_mask{};
+    test_sink_io_write(pipe_fds, old_mask);
+    test_sink_io_epipe(pipe_fds, old_mask);
 }
 
 // --- affinity_core suite (dedup-affinity-core): the single thread-affinity
