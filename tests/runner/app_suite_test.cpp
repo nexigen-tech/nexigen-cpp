@@ -719,6 +719,20 @@ void test_manifest_validation() {
     document["global_settings_path"] = "relative";
     NX_CHECK(rejected(document));
 
+    // Focused json_enum_fields_valid rejection paths for the decomposed helpers.
+    runner::to_json(document, manifest);
+    document["runner_control_thread"] = nlohmann::json{{"cpus", "bad"}};
+    NX_CHECK(rejected(document));
+    runner::to_json(document, manifest);
+    document["runner_logger_thread"] = nlohmann::json{{"policy", "bad"}};
+    NX_CHECK(rejected(document));
+    runner::to_json(document, manifest);
+    document["log_level"] = nlohmann::json::array();
+    NX_CHECK(rejected(document));
+    runner::to_json(document, manifest);
+    document["apps"][0]["log_level"] = nlohmann::json::object();
+    NX_CHECK(rejected(document));
+
     runner::SuiteStatus missing{};
     NX_CHECK(runner::suite_status(root + "/missing_suite", missing).has_value());
     NX_CHECK(missing.state == runner::SuiteState::Unknown);

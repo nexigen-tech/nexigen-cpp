@@ -837,84 +837,106 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
     return validate_unique_app_instances(manifest.apps);
 }
 
-[[nodiscard]] bool json_enum_fields_valid(const nlohmann::json& document) {
-    if (!document.is_object()) {
-        return false;
-    }
-    auto valid_level = [](const nlohmann::json& object, const char* key) -> bool {
-        const auto it = object.find(key);
-        if (it == object.end() || it->is_null()) {
-            return true;
-        }
-        if (!it->is_string()) {
-            return false;
-        }
-        const auto* const name = it->get_ptr<const nlohmann::json::string_t*>();
-        if (name == nullptr) {
-            return false;
-        }
-        logging::LogLevel level = logging::LogLevel::Info;
-        return logging::from_string(std::string_view(*name), level);
-    };
-    if (!valid_level(document, "log_level")) {
-        return false;
-    }
-    auto valid_cpu_array = [](const nlohmann::json& object, const char* key) -> bool {
-        const auto it = object.find(key);
-        if (it == object.end()) {
-            return true;
-        }
-        if (!it->is_array()) {
-            return false;
-        }
-        for (const auto& item : *it) {
-            if (!item.is_number_unsigned()) {
-                return false;
-            }
-            if (item.get<std::uint64_t>() > UINT32_MAX) {
-                return false;
-            }
-        }
+[[nodiscard]] bool valid_json_log_level(const nlohmann::json& object, const char* key) {
+    const auto it = object.find(key);
+    if (it == object.end() || it->is_null()) {
         return true;
-    };
-    if (!valid_cpu_array(document, "runner_control_cpus") ||
-        !valid_cpu_array(document, "runner_logger_cpus")) {
+    }
+    if (!it->is_string()) {
         return false;
     }
-    for (const char* key : {"runner_control_thread", "runner_logger_thread"}) {
-        const auto it = document.find(key);
-        if (it != document.end()) {
-            core::ThreadSpec spec{};
-            if (!core::parse_thread_spec_json(*it, spec)) {
-                return false;
-            }
+    const auto* const name = it->get_ptr<const nlohmann::json::string_t*>();
+    if (name == nullptr) {
+        return false;
+    }
+    logging::LogLevel level = logging::LogLevel::Info;
+    return logging::from_string(std::string_view(*name), level);
+}
+
+[[nodiscard]] bool valid_json_cpu_array(const nlohmann::json& object, const char* key) {
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return true;
+    }
+    if (!it->is_array()) {
+        return false;
+    }
+    for (const auto& item : *it) {
+        if (!item.is_number_unsigned()) {
+            return false;
+        }
+        if (item.get<std::uint64_t>() > UINT32_MAX) {
+            return false;
         }
     }
+    return true;
+}
+
+[[nodiscard]] bool valid_json_thread_spec(const nlohmann::json& object, const char* key) {
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return true;
+    }
+    core::ThreadSpec spec{};
+    return core::parse_thread_spec_json(*it, spec);
+}
+
+[[nodiscard]] bool valid_json_app_entry(const nlohmann::json& entry) {
+    if (!entry.is_object()) {
+        return false;
+    }
+    const auto impact = entry.find("impact_on_app_suite_operability");
+    if (impact == entry.end() || !impact->is_string()) {
+        return false;
+    }
+    const auto* const name = impact->get_ptr<const nlohmann::json::string_t*>();
+    if (name == nullptr) {
+        return false;
+    }
+    ImpactOnAppSuiteOperability parsed = ImpactOnAppSuiteOperability::Degrade;
+    if (!from_string(std::string_view(*name), parsed)) {
+        return false;
+    }
+    return valid_json_log_level(entry, "log_level");
+}
+
+[[nodiscard]] bool valid_json_thread_specs(const nlohmann::json& document) {
+    for (const char* key : {"runner_control_thread", "runner_logger_thread"}) {
+        if (!valid_json_thread_spec(document, key)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool valid_json_apps(const nlohmann::json& document) {
     const auto apps = document.find("apps");
     if (apps == document.end() || !apps->is_array()) {
         return false;
     }
     for (const auto& entry : *apps) {
-        if (!entry.is_object()) {
-            return false;
-        }
-        const auto impact = entry.find("impact_on_app_suite_operability");
-        if (impact == entry.end() || !impact->is_string()) {
-            return false;
-        }
-        const auto* const name = impact->get_ptr<const nlohmann::json::string_t*>();
-        if (name == nullptr) {
-            return false;
-        }
-        ImpactOnAppSuiteOperability parsed = ImpactOnAppSuiteOperability::Degrade;
-        if (!from_string(std::string_view(*name), parsed)) {
-            return false;
-        }
-        if (!valid_level(entry, "log_level")) {
+        if (!valid_json_app_entry(entry)) {
             return false;
         }
     }
     return true;
+}
+
+[[nodiscard]] bool json_enum_fields_valid(const nlohmann::json& document) {
+    if (!document.is_object()) {
+        return false;
+    }
+    if (!valid_json_log_level(document, "log_level")) {
+        return false;
+    }
+    if (!valid_json_cpu_array(document, "runner_control_cpus") ||
+        !valid_json_cpu_array(document, "runner_logger_cpus")) {
+        return false;
+    }
+    if (!valid_json_thread_specs(document)) {
+        return false;
+    }
+    return valid_json_apps(document);
 }
 
 core::Status load_suite_manifest(std::string_view path, SuiteManifest& out) noexcept {

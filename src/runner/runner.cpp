@@ -87,36 +87,66 @@ constexpr std::size_t max_path_bytes = 511;
     return !path.empty() && path.front() == '/';
 }
 
-[[nodiscard]] core::Status validate_start_options(const StartOptions& options) noexcept {
-    if (!options.artifact_dir.empty() &&
-        (!absolute_path(options.artifact_dir) || options.artifact_dir.size() > max_path_bytes)) {
+[[nodiscard]] core::Status validate_artifact_dir(std::string_view artifact_dir) noexcept {
+    if (!artifact_dir.empty() &&
+        (!absolute_path(artifact_dir) || artifact_dir.size() > max_path_bytes)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    if (!options.global_settings_dir.empty() && !absolute_path(options.global_settings_dir)) {
+    return {};
+}
+
+[[nodiscard]] core::Status validate_settings_dirs(std::string_view global_settings_dir,
+                                                  std::string_view local_settings_dir) noexcept {
+    if (!global_settings_dir.empty() && !absolute_path(global_settings_dir)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    if (!options.local_settings_dir.empty() && !absolute_path(options.local_settings_dir)) {
+    if (!local_settings_dir.empty() && !absolute_path(local_settings_dir)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    for (const auto& [key, value] : options.env) {
+    return {};
+}
+
+[[nodiscard]] core::Status
+validate_env_entries(const std::vector<std::pair<std::string, std::string>>& env) noexcept {
+    for (const auto& [key, value] : env) {
         if (key.empty() || key.find('=') != std::string::npos ||
             key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
     }
-    if (!options.cpus.empty()) {
-        long online = ::sysconf(_SC_NPROCESSORS_ONLN);
-        if (online <= 0) {
-            online = static_cast<long>(CPU_SETSIZE);
-        }
-        for (std::uint32_t cpu = 0; cpu <= core::CpuSet::max_cpu_id; ++cpu) {
-            if (options.cpus.contains(cpu) && (cpu >= static_cast<std::uint32_t>(online) ||
-                                               cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
-                return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_cpu_set(const core::CpuSet& cpus) noexcept {
+    if (cpus.empty()) {
+        return {};
+    }
+    long online = ::sysconf(_SC_NPROCESSORS_ONLN);
+    if (online <= 0) {
+        online = static_cast<long>(CPU_SETSIZE);
+    }
+    for (std::uint32_t cpu = 0; cpu <= core::CpuSet::max_cpu_id; ++cpu) {
+        if (cpus.contains(cpu) && (cpu >= static_cast<std::uint32_t>(online) ||
+                                   cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
         }
     }
     return {};
+}
+
+[[nodiscard]] core::Status validate_start_options(const StartOptions& options) noexcept {
+    if (const core::Status status = validate_artifact_dir(options.artifact_dir); !status) {
+        return status;
+    }
+    if (const core::Status status =
+            validate_settings_dirs(options.global_settings_dir, options.local_settings_dir);
+        !status) {
+        return status;
+    }
+    if (const core::Status status = validate_env_entries(options.env); !status) {
+        return status;
+    }
+    return validate_cpu_set(options.cpus);
 }
 
 [[nodiscard]] nlohmann::json logging_document(const logging::LoggerOptions& options,
@@ -485,117 +515,43 @@ struct SupervisorContext {
     ResourceMetadata metadata{};
 };
 
-[[noreturn]] void run_instance_supervisor(SupervisorContext& context) noexcept {
-    static_cast<void>(reset_runner_affinity());
-    static_cast<void>(::setsid());
-    redirect_to_null(context.null_fd);
+[[noreturn]] void report_supervisor_failure(
+    int report_fd,
+    std::int32_t error_code = static_cast<std::int32_t>(core::ErrorCode::SystemError),
+    int exit_code = 1) noexcept {
+    StartReport report{0, error_code};
+    static_cast<void>(write_all(report_fd, &report, sizeof(report)));
+    static_cast<void>(::close(report_fd));
+    child_exit(exit_code);
+}
 
-    // The child reports setup/exec failures through this pipe; a successful
-    // `execvp` consumes the `O_CLOEXEC` fd and the supervisor reads EOF as
-    // success. `resource.json` is written only after the handshake, so
-    // `start` never returns success for a failed launch, and any pre-exec
-    // setup failure is reported before the group exists.
-    int setup_pipe[2]{-1, -1};
+[[nodiscard]] bool setup_exec_pipe(int report_fd, int setup_pipe[2]) noexcept {
     if (::pipe2(setup_pipe, O_CLOEXEC) != 0) {
-        StartReport report{0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
-        static_cast<void>(write_all(context.report_fd, &report, sizeof(report)));
-        static_cast<void>(::close(context.report_fd));
-        child_exit(1);
+        report_supervisor_failure(report_fd);
     }
+    return true;
+}
 
-    const pid_t child = ::fork();
-    if (child < 0) {
-        StartReport report{0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
-        static_cast<void>(write_all(context.report_fd, &report, sizeof(report)));
-        static_cast<void>(::close(context.report_fd));
-        static_cast<void>(::close(setup_pipe[0]));
-        static_cast<void>(::close(setup_pipe[1]));
-        child_exit(1);
-    }
-
-    if (child == 0) {
-        // --- Application child ---
-        static_cast<void>(::close(context.report_fd));
-        static_cast<void>(::close(setup_pipe[0]));
-        static_cast<void>(reset_runner_affinity());
-        auto fail_setup = [&](std::int32_t setup_status) {
-            // SIGPIPE shielded (spec process-supervision; analysis #23 —
-            // the parent may already have closed the pipe on a failure).
-            static_cast<void>(
-                detail::write_all_no_sigpipe(setup_pipe[1], &setup_status, sizeof(setup_status)));
-            static_cast<void>(::close(setup_pipe[1]));
-            child_exit(126);
-        };
-        if (::setsid() < 0) {
-            fail_setup(1);
-        }
-        if (::dup2(context.null_fd, STDIN_FILENO) < 0 ||
-            ::dup2(context.stdout_fd, STDOUT_FILENO) < 0 ||
-            ::dup2(context.stderr_fd, STDERR_FILENO) < 0) {
-            fail_setup(1);
-        }
-        if (context.null_fd > STDERR_FILENO) {
-            static_cast<void>(::close(context.null_fd));
-        }
-        if (context.stdout_fd > STDERR_FILENO) {
-            static_cast<void>(::close(context.stdout_fd));
-        }
-        if (context.stderr_fd > STDERR_FILENO) {
-            static_cast<void>(::close(context.stderr_fd));
-        }
-
-        if (!context.options->cpus.empty()) {
-            cpu_set_t mask;
-            core::thread_management_detail::fill_native_cpu_set(context.options->cpus, mask);
-            if (::sched_setaffinity(0, sizeof(mask), &mask) != 0) {
-                fail_setup(2);
-            }
-        }
-
-        for (const auto& [key, value] : context.options->env) {
-            if (::setenv(key.c_str(), value.c_str(), 1) != 0) {
-                fail_setup(3);
-            }
-        }
-
-        const app::RunIdentity& resolved = *context.resolved;
-        static_cast<void>(::setenv("NEXIGEN_RUN_ID", resolved.run_id.c_str(), 1));
-        static_cast<void>(::setenv("NEXIGEN_RUN_DIR", resolved.run_dir.c_str(), 1));
-        static_cast<void>(::setenv("NEXIGEN_INSTANCE_ID", resolved.instance_id.c_str(), 1));
-        static_cast<void>(::setenv("NEXIGEN_INSTANCE_DIR", context.instance_dir->c_str(), 1));
-        if (!context.log_level.empty()) {
-            static_cast<void>(::setenv("NEXIGEN_LOG_LEVEL", context.log_level.c_str(), 1));
-        }
-
-        detail::coverage_flush();
-        // POSIX declares execvp's `argv` as `char* const[]`, but it never
-        // mutates the argument strings. Cast away the inner const once, here,
-        // instead of per-element in the argv construction above.
-        ::execvp((*context.argv)[0], const_cast<char**>(context.argv->data()));
-        // Exec-correct handshake (spec runner/process-supervision "Setup
-        // handshake completes only after a successful exec"): only failures
-        // write through the pipe; the exec'd image consumes its O_CLOEXEC fd
-        // so the supervisor observes EOF as success. On exec failure the fd
-        // is still ours — report status 4 (exec) before dying.
-        const std::int32_t exec_status = 4;
-        static_cast<void>(
-            detail::write_all_no_sigpipe(setup_pipe[1], &exec_status, sizeof(exec_status)));
-        static_cast<void>(::close(setup_pipe[1]));
-        child_exit(127);
-    }
-
-    // --- Supervisor parent of the application child ---
-    static_cast<void>(::close(setup_pipe[1]));
-    std::int32_t setup_status = 0;
-    // Exec-correct handshake (spec runner/process-supervision): the child
-    // writes a nonzero setup status ONLY on failure (1 setsid, 2 affinity,
-    // 3 setenv, 4 exec); a successful `execvp` closes the child's O_CLOEXEC
-    // fd, so EOF is the success signal. A full 4-byte read therefore always
-    // means a reported setup/exec failure (the `!= 0` check stays as a
-    // protocol belt; zero is never written on purpose).
-    const bool failure_reported = read_all(setup_pipe[0], &setup_status, sizeof(setup_status));
+[[noreturn]] void launch_application_child(SupervisorContext& context, int setup_pipe[2]) {
+    // --- Application child ---
+    static_cast<void>(::close(context.report_fd));
     static_cast<void>(::close(setup_pipe[0]));
-
+    static_cast<void>(reset_runner_affinity());
+    auto fail_setup = [&](std::int32_t setup_status) {
+        // SIGPIPE shielded (spec process-supervision; analysis #23 —
+        // the parent may already have closed the pipe on a failure).
+        static_cast<void>(
+            detail::write_all_no_sigpipe(setup_pipe[1], &setup_status, sizeof(setup_status)));
+        static_cast<void>(::close(setup_pipe[1]));
+        child_exit(126);
+    };
+    if (::setsid() < 0) {
+        fail_setup(1);
+    }
+    if (::dup2(context.null_fd, STDIN_FILENO) < 0 || ::dup2(context.stdout_fd, STDOUT_FILENO) < 0 ||
+        ::dup2(context.stderr_fd, STDERR_FILENO) < 0) {
+        fail_setup(1);
+    }
     if (context.null_fd > STDERR_FILENO) {
         static_cast<void>(::close(context.null_fd));
     }
@@ -606,15 +562,72 @@ struct SupervisorContext {
         static_cast<void>(::close(context.stderr_fd));
     }
 
-    if (failure_reported || setup_status != 0) {
-        static_cast<void>(::kill(-child, SIGKILL));
-        reap_child(child);
-        StartReport report{0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
-        static_cast<void>(write_all(context.report_fd, &report, sizeof(report)));
-        static_cast<void>(::close(context.report_fd));
-        child_exit(1);
+    if (!context.options->cpus.empty()) {
+        cpu_set_t mask;
+        core::thread_management_detail::fill_native_cpu_set(context.options->cpus, mask);
+        if (::sched_setaffinity(0, sizeof(mask), &mask) != 0) {
+            fail_setup(2);
+        }
     }
 
+    for (const auto& [key, value] : context.options->env) {
+        if (::setenv(key.c_str(), value.c_str(), 1) != 0) {
+            fail_setup(3);
+        }
+    }
+
+    const app::RunIdentity& resolved = *context.resolved;
+    static_cast<void>(::setenv("NEXIGEN_RUN_ID", resolved.run_id.c_str(), 1));
+    static_cast<void>(::setenv("NEXIGEN_RUN_DIR", resolved.run_dir.c_str(), 1));
+    static_cast<void>(::setenv("NEXIGEN_INSTANCE_ID", resolved.instance_id.c_str(), 1));
+    static_cast<void>(::setenv("NEXIGEN_INSTANCE_DIR", context.instance_dir->c_str(), 1));
+    if (!context.log_level.empty()) {
+        static_cast<void>(::setenv("NEXIGEN_LOG_LEVEL", context.log_level.c_str(), 1));
+    }
+
+    detail::coverage_flush();
+    // POSIX declares execvp's `argv` as `char* const[]`, but it never
+    // mutates the argument strings. Cast away the inner const once, here,
+    // instead of per-element in the argv construction above.
+    ::execvp((*context.argv)[0], const_cast<char**>(context.argv->data()));
+    // Exec-correct handshake (spec runner/process-supervision "Setup
+    // handshake completes only after a successful exec"): only failures
+    // write through the pipe; the exec'd image consumes its O_CLOEXEC fd
+    // so the supervisor observes EOF as success. On exec failure the fd
+    // is still ours — report status 4 (exec) before dying.
+    const std::int32_t exec_status = 4;
+    static_cast<void>(
+        detail::write_all_no_sigpipe(setup_pipe[1], &exec_status, sizeof(exec_status)));
+    static_cast<void>(::close(setup_pipe[1]));
+    child_exit(127);
+}
+
+[[nodiscard]] bool await_exec_handshake(int setup_read_fd) noexcept {
+    std::int32_t setup_status = 0;
+    // Exec-correct handshake (spec runner/process-supervision): the child
+    // writes a nonzero setup status ONLY on failure (1 setsid, 2 affinity,
+    // 3 setenv, 4 exec); a successful `execvp` closes the child's O_CLOEXEC
+    // fd, so EOF is the success signal. A full 4-byte read therefore always
+    // means a reported setup/exec failure (the `!= 0` check stays as a
+    // protocol belt; zero is never written on purpose).
+    const bool failure_reported = read_all(setup_read_fd, &setup_status, sizeof(setup_status));
+    static_cast<void>(::close(setup_read_fd));
+    return failure_reported || setup_status != 0;
+}
+
+void close_supervisor_fds(int null_fd, int stdout_fd, int stderr_fd) noexcept {
+    if (null_fd > STDERR_FILENO) {
+        static_cast<void>(::close(null_fd));
+    }
+    if (stdout_fd > STDERR_FILENO) {
+        static_cast<void>(::close(stdout_fd));
+    }
+    if (stderr_fd > STDERR_FILENO) {
+        static_cast<void>(::close(stderr_fd));
+    }
+}
+
+[[noreturn]] void finalize_supervision(SupervisorContext& context, pid_t child) noexcept {
     context.metadata.pid = child;
     context.metadata.ppid = ::getpid();
     // Identity anchor: read the child's starttime ticks while the supervisor
@@ -627,10 +640,7 @@ struct SupervisorContext {
     if (!resource_status) {
         static_cast<void>(::kill(-child, SIGKILL));
         reap_child(child);
-        StartReport report{0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
-        static_cast<void>(write_all(context.report_fd, &report, sizeof(report)));
-        static_cast<void>(::close(context.report_fd));
-        child_exit(1);
+        report_supervisor_failure(context.report_fd);
     }
 
     StartReport report{context.metadata.pid, 0};
@@ -664,6 +674,157 @@ struct SupervisorContext {
         static_cast<void>(write_exit_json(*context.instance_dir, unknown_metadata));
     }
     child_exit(0);
+}
+
+[[noreturn]] void run_instance_supervisor(SupervisorContext& context) noexcept {
+    static_cast<void>(reset_runner_affinity());
+    static_cast<void>(::setsid());
+    redirect_to_null(context.null_fd);
+
+    // The child reports setup/exec failures through this pipe; a successful
+    // `execvp` consumes the `O_CLOEXEC` fd and the supervisor reads EOF as
+    // success. `resource.json` is written only after the handshake, so
+    // `start` never returns success for a failed launch, and any pre-exec
+    // setup failure is reported before the group exists.
+    int setup_pipe[2]{-1, -1};
+    static_cast<void>(setup_exec_pipe(context.report_fd, setup_pipe));
+
+    const pid_t child = ::fork();
+    if (child < 0) {
+        static_cast<void>(::close(setup_pipe[0]));
+        static_cast<void>(::close(setup_pipe[1]));
+        report_supervisor_failure(context.report_fd);
+    }
+
+    if (child == 0) {
+        launch_application_child(context, setup_pipe);
+    }
+
+    // --- Supervisor parent of the application child ---
+    static_cast<void>(::close(setup_pipe[1]));
+    const bool failure_reported = await_exec_handshake(setup_pipe[0]);
+    close_supervisor_fds(context.null_fd, context.stdout_fd, context.stderr_fd);
+
+    if (failure_reported) {
+        static_cast<void>(::kill(-child, SIGKILL));
+        reap_child(child);
+        report_supervisor_failure(context.report_fd);
+    }
+
+    finalize_supervision(context, child);
+}
+
+struct StopSignalTarget {
+    ResourceMetadata resource{};
+    std::int32_t pid{0};
+};
+
+[[nodiscard]] std::optional<StopSignalTarget>
+resolve_stop_state(const std::string& resource_path, const std::string& exit_path,
+                   core::Status& early_status) noexcept {
+    if (file_exists(exit_path)) {
+        // Idempotent path: nothing to signal, but success still requires the
+        // whole group to be gone, as the stop contract promises. A recycled
+        // PID (identity-gate mismatch) says nothing about THIS instance —
+        // foreign group liveness implies a foreign process, not a stop
+        // failure (spec process-supervision "Identity is verified before
+        // signals are sent").
+        const core::Result<nlohmann::json> completed = read_json_file(resource_path);
+        if (!completed) {
+            return std::nullopt;
+        }
+        ResourceMetadata completed_metadata{};
+        from_json(*completed, completed_metadata);
+        if (completed_metadata.pid > 0 &&
+            identity_matches(completed_metadata.pid, completed_metadata.proc_start_ticks) &&
+            group_alive(completed_metadata.pid)) {
+            early_status = std::unexpected(core::ErrorCode::SystemError);
+        }
+        return std::nullopt;
+    }
+
+    core::Result<nlohmann::json> resource_document = read_json_file(resource_path);
+    if (!resource_document) {
+        early_status = std::unexpected(resource_document.error());
+        return std::nullopt;
+    }
+    ResourceMetadata resource{};
+    from_json(*resource_document, resource);
+    if (resource.pid <= 0) {
+        early_status = std::unexpected(core::ErrorCode::InvalidArgument);
+        return std::nullopt;
+    }
+    const std::int32_t pid = resource.pid;
+
+    // Identity gate before the first signal (spec process-supervision
+    // "Identity is verified before signals are sent"; analysis #5): a live
+    // process whose start-ticks differ from resource.json is a recycled PID
+    // — no signal mandate. It follows the dead-instance fallback so stop
+    // still finalizes the instance (terminated_by "unknown") and reports
+    // success without ever touching a foreign process group.
+    if (!identity_matches(pid, resource.proc_start_ticks)) {
+        write_fallback_exit(exit_path, resource, std::nullopt, TerminatedBy::Unknown);
+        return std::nullopt;
+    }
+
+    if (!process_alive(pid) && !group_alive(pid)) {
+        // The supervisor may be in the middle of writing exit.json.
+        const std::uint64_t wait_end = monotonic_now_ns() + nanoseconds_per_second;
+        while (monotonic_now_ns() < wait_end && !file_exists(exit_path)) {
+            sleep_ms(poll_interval_ms);
+        }
+        if (!file_exists(exit_path)) {
+            write_fallback_exit(exit_path, resource, std::nullopt, TerminatedBy::Unknown);
+        }
+        return std::nullopt;
+    }
+
+    return StopSignalTarget{resource, pid};
+}
+
+[[nodiscard]] core::Status send_instance_signal(std::int32_t pid, int signal, bool& sent_signal,
+                                                std::optional<std::int32_t>& last_signal) noexcept {
+    if (::kill(-static_cast<pid_t>(pid), signal) == 0) {
+        sent_signal = true;
+        last_signal = signal;
+        return {};
+    }
+    if (errno != ESRCH) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return {};
+}
+
+[[nodiscard]] bool wait_for_exit_or_settle(std::uint64_t deadline_ns, const std::string& exit_path,
+                                           std::int32_t pid) noexcept {
+    while (monotonic_now_ns() < deadline_ns) {
+        if (file_exists(exit_path) && !group_alive(pid)) {
+            return true;
+        }
+        sleep_ms(poll_interval_ms);
+    }
+    return false;
+}
+
+[[nodiscard]] core::Status finalize_stop(const std::string& exit_path, std::int32_t pid,
+                                         const ResourceMetadata& resource, bool sent_signal,
+                                         std::optional<std::int32_t> last_signal) noexcept {
+    if (file_exists(exit_path)) {
+        if (sent_signal) {
+            rewrite_terminated_by(exit_path, TerminatedBy::Runner);
+        }
+        if (group_alive(pid)) {
+            return std::unexpected(core::ErrorCode::SystemError);
+        }
+        return {};
+    }
+
+    write_fallback_exit(exit_path, resource, last_signal,
+                        sent_signal ? TerminatedBy::Runner : TerminatedBy::Unknown);
+    if (group_alive(pid)) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return {};
 }
 
 } // namespace
@@ -797,112 +958,37 @@ core::Status Runner::stop(std::string_view instance_dir, std::uint64_t grace_s) 
     const std::string resource_path = instance_file_path(directory, "resource.json");
     const std::string exit_path = instance_file_path(directory, "exit.json");
 
-    if (file_exists(exit_path)) {
-        // Idempotent path: nothing to signal, but success still requires the
-        // whole group to be gone, as the stop contract promises. A recycled
-        // PID (identity-gate mismatch) says nothing about THIS instance —
-        // foreign group liveness implies a foreign process, not a stop
-        // failure (spec process-supervision "Identity is verified before
-        // signals are sent").
-        const core::Result<nlohmann::json> completed = read_json_file(resource_path);
-        if (!completed) {
-            return {};
-        }
-        ResourceMetadata completed_metadata{};
-        from_json(*completed, completed_metadata);
-        if (completed_metadata.pid > 0 &&
-            identity_matches(completed_metadata.pid, completed_metadata.proc_start_ticks) &&
-            group_alive(completed_metadata.pid)) {
-            return std::unexpected(core::ErrorCode::SystemError);
-        }
-        return {};
-    }
-
-    core::Result<nlohmann::json> resource_document = read_json_file(resource_path);
-    if (!resource_document) {
-        return std::unexpected(resource_document.error());
-    }
-    ResourceMetadata resource{};
-    from_json(*resource_document, resource);
-    if (resource.pid <= 0) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    const std::int32_t pid = resource.pid;
-
-    // Identity gate before the first signal (spec process-supervision
-    // "Identity is verified before signals are sent"; analysis #5): a live
-    // process whose start-ticks differ from resource.json is a recycled PID
-    // — no signal mandate. It follows the dead-instance fallback so stop
-    // still finalizes the instance (terminated_by "unknown") and reports
-    // success without ever touching a foreign process group.
-    if (!identity_matches(pid, resource.proc_start_ticks)) {
-        write_fallback_exit(exit_path, resource, std::nullopt, TerminatedBy::Unknown);
-        return {};
-    }
-
-    if (!process_alive(pid) && !group_alive(pid)) {
-        // The supervisor may be in the middle of writing exit.json.
-        const std::uint64_t wait_end = monotonic_now_ns() + nanoseconds_per_second;
-        while (monotonic_now_ns() < wait_end && !file_exists(exit_path)) {
-            sleep_ms(poll_interval_ms);
-        }
-        if (!file_exists(exit_path)) {
-            write_fallback_exit(exit_path, resource, std::nullopt, TerminatedBy::Unknown);
-        }
-        return {};
+    core::Status early_status{};
+    const std::optional<StopSignalTarget> target =
+        resolve_stop_state(resource_path, exit_path, early_status);
+    if (!target.has_value()) {
+        return early_status;
     }
 
     bool sent_signal = false;
     std::optional<std::int32_t> last_signal;
-    if (::kill(-static_cast<pid_t>(pid), SIGTERM) == 0) {
-        sent_signal = true;
-        last_signal = SIGTERM;
-    } else if (errno != ESRCH) {
-        return std::unexpected(core::ErrorCode::SystemError);
+    if (const core::Status sig_status =
+            send_instance_signal(target->pid, SIGTERM, sent_signal, last_signal);
+        !sig_status) {
+        return sig_status;
     }
 
     const std::uint64_t grace_end = monotonic_now_ns() + grace_s * nanoseconds_per_second;
-    while (monotonic_now_ns() < grace_end) {
-        if (file_exists(exit_path) && !group_alive(pid)) {
-            break;
-        }
-        sleep_ms(poll_interval_ms);
-    }
+    static_cast<void>(wait_for_exit_or_settle(grace_end, exit_path, target->pid));
 
-    if (group_alive(pid) || !file_exists(exit_path)) {
-        if (::kill(-static_cast<pid_t>(pid), SIGKILL) == 0) {
-            sent_signal = true;
-            last_signal = SIGKILL;
-        } else if (errno != ESRCH) {
-            return std::unexpected(core::ErrorCode::SystemError);
+    if (group_alive(target->pid) || !file_exists(exit_path)) {
+        if (const core::Status sig_status =
+                send_instance_signal(target->pid, SIGKILL, sent_signal, last_signal);
+            !sig_status) {
+            return sig_status;
         }
     }
 
     const std::uint64_t settle_end =
         monotonic_now_ns() + stop_settle_seconds * nanoseconds_per_second;
-    while (monotonic_now_ns() < settle_end) {
-        if (file_exists(exit_path) && !group_alive(pid)) {
-            break;
-        }
-        sleep_ms(poll_interval_ms);
-    }
+    static_cast<void>(wait_for_exit_or_settle(settle_end, exit_path, target->pid));
 
-    if (file_exists(exit_path)) {
-        if (sent_signal) {
-            rewrite_terminated_by(exit_path, TerminatedBy::Runner);
-        }
-        if (group_alive(pid)) {
-            return std::unexpected(core::ErrorCode::SystemError);
-        }
-        return {};
-    }
-
-    write_fallback_exit(exit_path, resource, last_signal,
-                        sent_signal ? TerminatedBy::Runner : TerminatedBy::Unknown);
-    if (group_alive(pid)) {
-        return std::unexpected(core::ErrorCode::SystemError);
-    }
-    return {};
+    return finalize_stop(exit_path, target->pid, target->resource, sent_signal, last_signal);
 }
 
 core::Status Runner::status(std::string_view instance_dir, std::string& state) noexcept {
