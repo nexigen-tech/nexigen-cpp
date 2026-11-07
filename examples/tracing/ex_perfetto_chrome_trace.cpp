@@ -63,8 +63,7 @@ int main() {
 
     static_cast<void>(::mkdir(output_dir, 0755)); // exists is fine
     const std::string trace_path = std::string(output_dir) + "/trace_" +
-                                   std::to_string(static_cast<long>(::getpid())) +
-                                   ".json";
+                                   std::to_string(static_cast<long>(::getpid())) + ".json";
 
     // The provider owns ~10 MiB of pre-allocated shards: static STORAGE
     // (never the stack — documented rule) with an explicitly controlled
@@ -89,16 +88,14 @@ int main() {
     // Nested same-thread spans: a step containing a solve, the solve
     // containing a prepare.
     {
-        auto step = (*tracer)->start_span("simulator-step",
-                                          tracing::SpanKind::Internal);
+        auto step = (*tracer)->start_span("simulator-step", tracing::SpanKind::Internal);
         static_cast<void>(step.set_attribute("rate_hz", 1000));
         {
-            auto solve = (*tracer)->start_span("solver-step",
-                                               tracing::SpanKind::Server);
+            auto solve = (*tracer)->start_span("solver-step", tracing::SpanKind::Server);
             static_cast<void>(solve.set_attribute("iterations", 512));
             {
-                auto prepare = (*tracer)->start_span("prepare-matrices",
-                                                     tracing::SpanKind::Internal);
+                auto prepare =
+                    (*tracer)->start_span("prepare-matrices", tracing::SpanKind::Internal);
                 static_cast<void>(prepare);
             }
             std::this_thread::sleep_for(std::chrono::microseconds(300));
@@ -108,18 +105,15 @@ int main() {
     // Concurrent spans on worker threads: two children of one live parent,
     // linked through explicit-parent contexts handed across threads.
     {
-        auto parent = (*tracer)->start_span("concurrent-fanout",
-                                            tracing::SpanKind::Internal);
+        auto parent = (*tracer)->start_span("concurrent-fanout", tracing::SpanKind::Internal);
         const tracing::SpanContext context = parent.context();
         std::jthread left([tracer = *tracer, &context] {
-            auto child = tracer->start_span("worker-left",
-                                            tracing::SpanKind::Client, &context);
+            auto child = tracer->start_span("worker-left", tracing::SpanKind::Client, &context);
             std::this_thread::sleep_for(std::chrono::microseconds(200));
             static_cast<void>(child);
         });
         std::jthread right([tracer = *tracer, &context] {
-            auto child = tracer->start_span("worker-right",
-                                            tracing::SpanKind::Client, &context);
+            auto child = tracer->start_span("worker-right", tracing::SpanKind::Client, &context);
             std::this_thread::sleep_for(std::chrono::microseconds(400));
             static_cast<void>(child);
         });

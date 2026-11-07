@@ -47,7 +47,9 @@ public:
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const MeterPasskey&) { return "MeterPasskey"; }
+[[nodiscard]] inline std::string to_string(const MeterPasskey&) {
+    return "MeterPasskey";
+}
 
 /// A named factory for instruments. Obtain one from MetricProvider::get_meter.
 class Meter {
@@ -122,10 +124,10 @@ private:
     /// install_bounds), and wire the instrument's identity. `construct` is
     /// invoked on the reserved object and must return the typed pointer.
     template <class Instrument, class Construct>
-    core::Result<Instrument*> create_instrument(
-        MetricKind kind, std::string_view name, std::string_view unit,
-        ConcurrencyPolicy concurrency, AccessPolicy access, ResetPolicy reset,
-        Construct&& construct);
+    core::Result<Instrument*> create_instrument(MetricKind kind, std::string_view name,
+                                                std::string_view unit,
+                                                ConcurrencyPolicy concurrency, AccessPolicy access,
+                                                ResetPolicy reset, Construct&& construct);
 
     Meter() = default;
 
@@ -134,7 +136,9 @@ private:
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const Meter& meter) { return meter.to_string(); }
+[[nodiscard]] inline std::string to_string(const Meter& meter) {
+    return meter.to_string();
+}
 
 } // namespace nexigen::metrics
 

@@ -48,16 +48,14 @@ namespace nexigen::core::sink_io {
 /// when the path cannot be opened (callers report their own SystemError).
 [[nodiscard]] inline int open_output(std::string_view path, bool append) noexcept {
     const std::string path_buf{path};
-    const int flags =
-        O_WRONLY | O_CREAT | O_CLOEXEC | (append ? O_APPEND : O_TRUNC);
+    const int flags = O_WRONLY | O_CREAT | O_CLOEXEC | (append ? O_APPEND : O_TRUNC);
     return ::open(path_buf.c_str(), flags, 0644);
 }
 
 /// Complete one write across partial transfers in order. The loop is moved
 /// verbatim from the per-module sink copies (EINTR retry, failure mapping)
 /// and now reports through the project Result vocabulary.
-[[nodiscard]] inline core::Status write_all(int fd, const char* data,
-                                             std::size_t bytes) noexcept {
+[[nodiscard]] inline core::Status write_all(int fd, const char* data, std::size_t bytes) noexcept {
     std::size_t offset = 0;
     while (offset < bytes) {
         const ssize_t written = ::write(fd, data + offset, bytes - offset);

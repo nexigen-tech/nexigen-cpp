@@ -88,11 +88,26 @@ enum class SpanAttributeType : std::uint8_t {
 
 /// Parse a canonical tag name; false leaves the out-parameter unchanged.
 [[nodiscard]] constexpr bool from_string(std::string_view name, SpanAttributeType& out) noexcept {
-    if (name == "Int64")  { out = SpanAttributeType::Int64;  return true; }
-    if (name == "Uint64") { out = SpanAttributeType::Uint64; return true; }
-    if (name == "Double") { out = SpanAttributeType::Double; return true; }
-    if (name == "Bool")   { out = SpanAttributeType::Bool;   return true; }
-    if (name == "String") { out = SpanAttributeType::String; return true; }
+    if (name == "Int64") {
+        out = SpanAttributeType::Int64;
+        return true;
+    }
+    if (name == "Uint64") {
+        out = SpanAttributeType::Uint64;
+        return true;
+    }
+    if (name == "Double") {
+        out = SpanAttributeType::Double;
+        return true;
+    }
+    if (name == "Bool") {
+        out = SpanAttributeType::Bool;
+        return true;
+    }
+    if (name == "String") {
+        out = SpanAttributeType::String;
+        return true;
+    }
     return false;
 }
 
@@ -108,7 +123,7 @@ inline void from_json(const nlohmann::json& j, SpanAttributeType& out) noexcept 
 }
 
 /// Inline bounds (design D5): key and value text capacities.
-inline constexpr std::size_t attribute_key_capacity = 15;  ///< chars, + NUL
+inline constexpr std::size_t attribute_key_capacity = 15;         ///< chars, + NUL
 inline constexpr std::size_t attribute_inline_text_capacity = 23; ///< chars, + length byte
 
 /// Fixed-size trivially copyable tagged-union attribute (design D5 layout,
@@ -123,23 +138,23 @@ struct alignas(8) SpanAttribute {
         struct {
             char text[attribute_inline_text_capacity];
             std::uint8_t length;
-        } inline_text;                                  ///< 24 B, always NUL-safe
+        } inline_text; ///< 24 B, always NUL-safe
         struct {
-            const char* data;                           ///< caller-owned storage
-            std::uint32_t length;                       ///< bytes of text
-        } view;                                         ///< zero-copy, 16 B w/ padding
+            const char* data;     ///< caller-owned storage
+            std::uint32_t length; ///< bytes of text
+        } view;                   ///< zero-copy, 16 B w/ padding
 
         Value() noexcept : i64{} {} // trivial default: Int64 zero
     };
 
-    char key[attribute_key_capacity + 1]{}; ///< inline bounded key + NUL
+    char key[attribute_key_capacity + 1]{};           ///< inline bounded key + NUL
     SpanAttributeType type{SpanAttributeType::Int64}; ///< 1 B tag @16
     /// String-arm discriminator @17 (inside the struct's padding bytes 17..23,
     /// invisible to every design-D5 pin: sizeof 48, offsets 0/16/24): true =
     /// inline_text arm, false = zero-copy view arm. The union alone cannot
     /// distinguish them (the view arm leaves the inline-length byte stale).
     bool text_inline{false};
-    Value value{};                           ///< 24 B, 8-aligned (offset 24)
+    Value value{}; ///< 24 B, 8-aligned (offset 24)
 
     // -- hot-path stores (fixed-offset, no allocation, no lock) -------------
 
@@ -153,7 +168,9 @@ struct alignas(8) SpanAttribute {
     /// Store a key + int64 value; false (attr untouched) when the key is
     /// longer than the inline bound — never truncated.
     [[nodiscard]] bool store(std::string_view key_, std::int64_t v) noexcept {
-        if (!key_fits(key_)) { return false; }
+        if (!key_fits(key_)) {
+            return false;
+        }
         copy_key(key_);
         type = SpanAttributeType::Int64;
         value.i64 = v;
@@ -162,7 +179,9 @@ struct alignas(8) SpanAttribute {
 
     /// Store a key + uint64 value; same rejection contract.
     [[nodiscard]] bool store(std::string_view key_, std::uint64_t v) noexcept {
-        if (!key_fits(key_)) { return false; }
+        if (!key_fits(key_)) {
+            return false;
+        }
         copy_key(key_);
         type = SpanAttributeType::Uint64;
         value.u64 = v;
@@ -171,7 +190,9 @@ struct alignas(8) SpanAttribute {
 
     /// Store a key + double value; same rejection contract.
     [[nodiscard]] bool store(std::string_view key_, double v) noexcept {
-        if (!key_fits(key_)) { return false; }
+        if (!key_fits(key_)) {
+            return false;
+        }
         copy_key(key_);
         type = SpanAttributeType::Double;
         value.f64 = v;
@@ -180,7 +201,9 @@ struct alignas(8) SpanAttribute {
 
     /// Store a key + bool value; same rejection contract.
     [[nodiscard]] bool store(std::string_view key_, bool v) noexcept {
-        if (!key_fits(key_)) { return false; }
+        if (!key_fits(key_)) {
+            return false;
+        }
         copy_key(key_);
         type = SpanAttributeType::Bool;
         value.b = v;
@@ -193,7 +216,9 @@ struct alignas(8) SpanAttribute {
     /// header contract). Returns false (attr untouched) only for an oversized
     /// KEY; any string VALUE length is representable (inline or view).
     [[nodiscard]] bool store(std::string_view key_, std::string_view v) noexcept {
-        if (!key_fits(key_)) { return false; }
+        if (!key_fits(key_)) {
+            return false;
+        }
         copy_key(key_);
         type = SpanAttributeType::String;
         if (v.size() <= attribute_inline_text_capacity) {
@@ -251,21 +276,21 @@ struct alignas(64) SpanRecord {
     /// Span name bound: ≤ 47 chars + NUL (bounded copy, longer names truncated).
     static constexpr std::size_t name_capacity = 47;
 
-    TraceId trace_id{};              ///< causal group (root generates fresh).
-    SpanId span_id{};                ///< this span.
-    SpanId parent_span_id{};         ///< zero = root.
-    SpanKind kind{SpanKind::Internal}; ///< causal role.
-    SpanStatus status{SpanStatus::Unset}; ///< default Unset (spec).
-    std::uint8_t flags{};            ///< flag_ended_explicit etc.
-    std::uint8_t attribute_count{};  ///< ≤ MaxAttributes.
-    std::uint32_t thread_id{};       ///< cached SYS_gettid.
-    chrono::Timestamp start{};       ///< monotonic ns at span start.
-    chrono::Timestamp end{};         ///< monotonic ns at span end.
-    const char* file_name{};         ///< source_location static storage.
-    const char* function_name{};     ///< source_location static storage.
-    std::uint32_t line{};            ///< source_location line.
-    std::uint32_t column{};          ///< source_location column.
-    char name[name_capacity + 1]{};  ///< inline span name + NUL.
+    TraceId trace_id{};                        ///< causal group (root generates fresh).
+    SpanId span_id{};                          ///< this span.
+    SpanId parent_span_id{};                   ///< zero = root.
+    SpanKind kind{SpanKind::Internal};         ///< causal role.
+    SpanStatus status{SpanStatus::Unset};      ///< default Unset (spec).
+    std::uint8_t flags{};                      ///< flag_ended_explicit etc.
+    std::uint8_t attribute_count{};            ///< ≤ MaxAttributes.
+    std::uint32_t thread_id{};                 ///< cached SYS_gettid.
+    chrono::Timestamp start{};                 ///< monotonic ns at span start.
+    chrono::Timestamp end{};                   ///< monotonic ns at span end.
+    const char* file_name{};                   ///< source_location static storage.
+    const char* function_name{};               ///< source_location static storage.
+    std::uint32_t line{};                      ///< source_location line.
+    std::uint32_t column{};                    ///< source_location column.
+    char name[name_capacity + 1]{};            ///< inline span name + NUL.
     SpanAttribute attributes[MaxAttributes]{}; ///< inline attribute array.
 
     /// The span name as a view (bounded copy stored inline).
@@ -328,7 +353,6 @@ void from_json(const nlohmann::json& j, SpanRecord& out) noexcept;
 
 /// The tag enum formats as its canonical name (mandate 11).
 
-
 /// Attributes format as their diagnostic text (mandate 11).
 template <>
 struct std::formatter<nexigen::tracing::SpanAttribute> : std::formatter<std::string_view> {
@@ -340,10 +364,8 @@ struct std::formatter<nexigen::tracing::SpanAttribute> : std::formatter<std::str
 };
 
 /// Records format as their diagnostic text (mandate 11).
-template <>
-struct std::formatter<nexigen::tracing::SpanRecord> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::SpanRecord& record, Ctx& ctx) const {
+template <> struct std::formatter<nexigen::tracing::SpanRecord> : std::formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::tracing::SpanRecord& record, Ctx& ctx) const {
         const std::string text = record.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

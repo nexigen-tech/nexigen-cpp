@@ -66,7 +66,9 @@ void expect(bool condition, const char* what) {
 // impossible for the optimizer to remove.
 [[nodiscard]] std::uint64_t work_units(int units) noexcept {
     volatile std::uint64_t sink = 0;
-    for (int i = 0; i < units * 600; ++i) { sink += static_cast<std::uint64_t>(i); }
+    for (int i = 0; i < units * 600; ++i) {
+        sink += static_cast<std::uint64_t>(i);
+    }
     return sink;
 }
 
@@ -75,21 +77,24 @@ void expect(bool condition, const char* what) {
 void build_bounds(std::uint64_t light_ns, std::uint64_t heavy_ns,
                   std::span<double> bounds) noexcept {
     double low = static_cast<double>(light_ns) * 0.5;
-    if (low < 1.0) { low = 1.0; }
+    if (low < 1.0) {
+        low = 1.0;
+    }
     double high = static_cast<double>(heavy_ns) * 1.5;
-    if (high < low * 4.0) { high = low * 4.0; } // guarantee a usable spread
+    if (high < low * 4.0) {
+        high = low * 4.0;
+    } // guarantee a usable spread
     const double ratio = high / low;
     for (std::size_t i = 0; i < bounds.size(); ++i) {
-        bounds[i] = low * std::pow(ratio, static_cast<double>(i) /
-                                             static_cast<double>(bounds.size() - 1U));
+        bounds[i] =
+            low * std::pow(ratio, static_cast<double>(i) / static_cast<double>(bounds.size() - 1U));
         if (i > 0U && bounds[i] <= bounds[i - 1U]) {
             bounds[i] = bounds[i - 1U] + 1.0; // keep the set strictly increasing
         }
     }
 }
 
-void print_histogram(const metrics::HistogramSnapshot& snapshot,
-                     std::span<const double> bounds) {
+void print_histogram(const metrics::HistogramSnapshot& snapshot, std::span<const double> bounds) {
     std::printf("  count=%llu  sum=%.0f ns  min=%.0f ns  max=%.0f ns  ignored=%llu\n",
                 static_cast<unsigned long long>(snapshot.count), snapshot.sum, snapshot.min,
                 snapshot.max, static_cast<unsigned long long>(snapshot.ignored_samples));
@@ -115,14 +120,11 @@ void print_histogram(const metrics::HistogramSnapshot& snapshot,
         }
 
         const std::uint64_t count = snapshot.buckets_count[i];
-        const unsigned bar_len =
-            peak == 0U ? 0U
-                       : static_cast<unsigned>(count * bar_width / peak);
+        const unsigned bar_len = peak == 0U ? 0U : static_cast<unsigned>(count * bar_width / peak);
         char bar[bar_width + 1U];
         std::fill_n(bar, bar_len, '#');
         bar[bar_len] = '\0';
-        std::printf("  %-20s %8llu  %s\n", label,
-                    static_cast<unsigned long long>(count), bar);
+        std::printf("  %-20s %8llu  %s\n", label, static_cast<unsigned long long>(count), bar);
     }
 }
 
@@ -146,7 +148,9 @@ int main() {
 
     const nexigen::core::Result<metrics::Meter*> meter = provider.get_meter("hil", "1.0");
     expect(meter.has_value(), "get_meter succeeds");
-    if (!meter) { return 1; }
+    if (!meter) {
+        return 1;
+    }
 
     // --- Probe the payload envelope, then derive strictly increasing bounds.
     std::printf("== bucket calibration ==\n");
@@ -171,17 +175,22 @@ int main() {
     for (std::size_t i = 0; i < bucket_count; ++i) {
         std::printf(" %.0f", bounds[i]);
         expect(bounds[i] > 0.0, "every bound is positive");
-        if (i > 0U) { expect(bounds[i] > bounds[i - 1U], "bounds strictly increase"); }
+        if (i > 0U) {
+            expect(bounds[i] > bounds[i - 1U], "bounds strictly increase");
+        }
     }
     std::printf("\n\n");
 
     // --- Histogram created through the only legal path (provider -> meter).
     const auto created =
-        (*meter)->create_explicit_histogram<ConcurrencyPolicy::SingleThreaded,
-                                            AccessPolicy::Readable, ResetPolicy::Cumulative>(
-            "tick_latency_ns", std::span<const double>{bounds, bucket_count});
+        (*meter)
+            ->create_explicit_histogram<ConcurrencyPolicy::SingleThreaded, AccessPolicy::Readable,
+                                        ResetPolicy::Cumulative>(
+                "tick_latency_ns", std::span<const double>{bounds, bucket_count});
     expect(created.has_value(), "explicit histogram created");
-    if (!created) { return 1; }
+    if (!created) {
+        return 1;
+    }
     auto* histogram = *created;
 
     // --- Measure every tick with a ScopedStopwatch and record its elapsed
@@ -191,10 +200,9 @@ int main() {
     run.start();
     for (int tick = 0; tick < tick_count; ++tick) {
         const int units = 100 + (tick * 37) % 2'900;
-        ScopedStopwatch tick_guard{
-            &stamps, [histogram](std::uint64_t elapsed_ns) noexcept {
-                histogram->record(static_cast<double>(elapsed_ns));
-            }};
+        ScopedStopwatch tick_guard{&stamps, [histogram](std::uint64_t elapsed_ns) noexcept {
+                                       histogram->record(static_cast<double>(elapsed_ns));
+                                   }};
         static_cast<void>(work_units(units));
     }
     const std::uint64_t run_ns = run.elapsed_ns();

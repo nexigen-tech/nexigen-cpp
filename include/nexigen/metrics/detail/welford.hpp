@@ -58,7 +58,7 @@ inline void welford_add(WelfordState& state, double value) noexcept {
 
 /// Merge two moment states (Chan et al. parallel merge).
 [[nodiscard]] inline WelfordState welford_merge(const WelfordState& a,
-                                                  const WelfordState& b) noexcept {
+                                                const WelfordState& b) noexcept {
     if (a.count == 0U) {
         return b;
     }

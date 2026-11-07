@@ -51,8 +51,7 @@ void print_line(const std::string& line) {
 
 std::string find_log_file() {
     std::error_code ec;
-    for (const auto& entry :
-         std::filesystem::directory_iterator(std::string(k_base_dir), ec)) {
+    for (const auto& entry : std::filesystem::directory_iterator(std::string(k_base_dir), ec)) {
         if (ec) {
             break;
         }
@@ -120,8 +119,8 @@ int main() {
     file_config.throttle.max_records_per_window = 4096;
     file_config.throttle.window_ns = 1'000'000'000;
 
-    const auto console_started =
-        app.get<ConsoleLogger<>>().initialize(ConsoleLogger<>::Config{.initial_level = LogLevel::Debug});
+    const auto console_started = app.get<ConsoleLogger<>>().initialize(
+        ConsoleLogger<>::Config{.initial_level = LogLevel::Debug});
     if (!console_started.has_value()) {
         print_line(std::format("console initialize failed: {}", console_started.error()));
         return 1;
@@ -166,7 +165,8 @@ int main() {
     }
 
     print_line(std::format("composite: {}", app.to_string()));
-    print_line(std::format("console dropped: {}", app.get<ConsoleLogger<>>().dropped().to_string()));
+    print_line(
+        std::format("console dropped: {}", app.get<ConsoleLogger<>>().dropped().to_string()));
     print_line(std::format("file dropped: {}", app.get<FileLogger<>>().dropped().to_string()));
 
     const std::string path = find_log_file();

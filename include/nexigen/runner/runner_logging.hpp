@@ -20,20 +20,18 @@ namespace nexigen::runner {
 
 /// Load `<global_settings_path>/logging.json` through the logging-settings
 /// pipeline. An empty path leaves defaults (no file loaded).
-[[nodiscard]] core::Status load_runner_logging_settings(
-    std::string_view global_settings_path,
-    logging::Settings& out) noexcept;
+[[nodiscard]] core::Status load_runner_logging_settings(std::string_view global_settings_path,
+                                                        logging::Settings& out) noexcept;
 
 /// Initialize the process-local runner logger. `level` is the already-resolved
 /// effective level; an explicit `logger_thread` overrides the file's worker
 /// affinity. The primary directory is tried first, then
 /// `<cwd>/.nexigen-run`.
-[[nodiscard]] core::Status init_runner_logging(
-    std::string_view primary_dir,
-    const logging::Settings& settings,
-    logging::LogLevel level,
-    const core::ThreadSpec& logger_thread = {},
-    std::string_view runner_name = {}) noexcept;
+[[nodiscard]] core::Status init_runner_logging(std::string_view primary_dir,
+                                               const logging::Settings& settings,
+                                               logging::LogLevel level,
+                                               const core::ThreadSpec& logger_thread = {},
+                                               std::string_view runner_name = {}) noexcept;
 
 /// Flush and destroy the logger so no worker thread survives a fork.
 void suspend_runner_logging() noexcept;
@@ -64,25 +62,21 @@ void shutdown_runner_logging() noexcept;
 
 /// Apply a full thread spec on the calling thread before its control loop,
 /// exposing the per-attribute application report for diagnostics.
-[[nodiscard]] core::Status apply_runner_thread_spec(
-    const core::ThreadSpec& spec,
-    core::ThreadApplyReport& report,
-    std::string_view context = {}) noexcept;
+[[nodiscard]] core::Status apply_runner_thread_spec(const core::ThreadSpec& spec,
+                                                    core::ThreadApplyReport& report,
+                                                    std::string_view context = {}) noexcept;
 
 /// Apply a full thread spec on the calling thread before its control loop.
-[[nodiscard]] core::Status apply_runner_thread_spec(
-    const core::ThreadSpec& spec,
-    std::string_view context = {}) noexcept;
+[[nodiscard]] core::Status apply_runner_thread_spec(const core::ThreadSpec& spec,
+                                                    std::string_view context = {}) noexcept;
 
 /// Human-readable per-attribute rendering of a thread apply report for
 /// operator-facing warnings (name/affinity/scheduler + first error).
-[[nodiscard]] std::string describe_thread_apply_report(
-    const core::ThreadApplyReport& report);
+[[nodiscard]] std::string describe_thread_apply_report(const core::ThreadApplyReport& report);
 
 /// Legacy CPU-list adapter; empty means "leave untouched".
-[[nodiscard]] core::Status apply_runner_affinity(
-    std::span<const std::uint32_t> cpus,
-    std::string_view context = {}) noexcept;
+[[nodiscard]] core::Status apply_runner_affinity(std::span<const std::uint32_t> cpus,
+                                                 std::string_view context = {}) noexcept;
 
 /// Reset the calling thread to all online CPUs. Used in forked children so a
 /// runner control pin never leaks into application processes.

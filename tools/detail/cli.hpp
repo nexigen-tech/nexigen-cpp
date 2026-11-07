@@ -9,8 +9,7 @@ namespace nexigen::tools {
 
 /// Parse an unsigned 64-bit decimal. Returns false on empty input, a
 /// non-digit, or overflow, leaving `out` unchanged on failure.
-[[nodiscard]] inline bool parse_u64(std::string_view text,
-                                    std::uint64_t& out) noexcept {
+[[nodiscard]] inline bool parse_u64(std::string_view text, std::uint64_t& out) noexcept {
     if (text.empty()) {
         return false;
     }

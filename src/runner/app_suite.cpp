@@ -83,15 +83,12 @@ constexpr std::uint64_t suite_poll_interval_ms = 100;
     if (id.empty() || id.size() > 128U) {
         return false;
     }
-    if (id == "." || id == ".." ||
-        id.find("..") != std::string_view::npos) {
+    if (id == "." || id == ".." || id.find("..") != std::string_view::npos) {
         return false;
     }
     for (const char c : id) {
-        const bool allowed = (c >= 'A' && c <= 'Z') ||
-                             (c >= 'a' && c <= 'z') ||
-                             (c >= '0' && c <= '9') || c == '.' ||
-                             c == '_' || c == '-';
+        const bool allowed = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                             (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
         if (!allowed) {
             return false;
         }
@@ -148,15 +145,13 @@ constexpr std::uint64_t suite_poll_interval_ms = 100;
     return std::string(path.substr(0, slash));
 }
 
-[[nodiscard]] std::string join_path(std::string_view left,
-                                    std::string_view right) {
+[[nodiscard]] std::string join_path(std::string_view left, std::string_view right) {
     return std::string(left) + "/" + std::string(right);
 }
 
 // --- JSON helpers ----------------------------------------------------------
 
-[[nodiscard]] bool read_log_level(const nlohmann::json& document,
-                                  const char* key,
+[[nodiscard]] bool read_log_level(const nlohmann::json& document, const char* key,
                                   std::optional<logging::LogLevel>& target) noexcept {
     if (!document.is_object()) {
         return false;
@@ -184,16 +179,14 @@ constexpr std::uint64_t suite_poll_interval_ms = 100;
     return true;
 }
 
-[[nodiscard]] nlohmann::json log_level_json(
-    const std::optional<logging::LogLevel>& level) {
+[[nodiscard]] nlohmann::json log_level_json(const std::optional<logging::LogLevel>& level) {
     if (!level.has_value()) {
         return nullptr;
     }
     return std::string(logging::to_string(*level));
 }
 
-[[nodiscard]] bool read_string_array(const nlohmann::json& document,
-                                     const char* key,
+[[nodiscard]] bool read_string_array(const nlohmann::json& document, const char* key,
                                      std::vector<std::string>& target) noexcept {
     if (!document.is_object()) {
         return false;
@@ -214,8 +207,7 @@ constexpr std::uint64_t suite_poll_interval_ms = 100;
     return true;
 }
 
-[[nodiscard]] bool read_cpu_array(const nlohmann::json& document,
-                                  const char* key,
+[[nodiscard]] bool read_cpu_array(const nlohmann::json& document, const char* key,
                                   std::vector<std::uint32_t>& target) noexcept {
     if (!document.is_object()) {
         return false;
@@ -240,8 +232,8 @@ constexpr std::uint64_t suite_poll_interval_ms = 100;
     return true;
 }
 
-[[nodiscard]] bool read_cpu_set(const nlohmann::json& document,
-                                 const char* key, core::CpuSet& target) noexcept {
+[[nodiscard]] bool read_cpu_set(const nlohmann::json& document, const char* key,
+                                core::CpuSet& target) noexcept {
     if (!document.is_object()) {
         return false;
     }
@@ -252,8 +244,8 @@ constexpr std::uint64_t suite_poll_interval_ms = 100;
     return core::parse_cpu_set_json(*it, target);
 }
 
-void read_legacy_runner_cpus(const nlohmann::json& document,
-                              const char* key, core::ThreadSpec& target) noexcept {
+void read_legacy_runner_cpus(const nlohmann::json& document, const char* key,
+                             core::ThreadSpec& target) noexcept {
     std::vector<std::uint32_t> values;
     if (!read_cpu_array(document, key, values)) {
         return;
@@ -264,17 +256,17 @@ void read_legacy_runner_cpus(const nlohmann::json& document,
     }
 }
 
-void read_canonical_thread(const nlohmann::json& document,
-                           const char* key, core::ThreadSpec& target) noexcept {
+void read_canonical_thread(const nlohmann::json& document, const char* key,
+                           core::ThreadSpec& target) noexcept {
     const auto it = document.find(key);
     if (it != document.end()) {
         static_cast<void>(core::parse_thread_spec_json(*it, target));
     }
 }
 
-[[nodiscard]] bool read_env_object(const nlohmann::json& document,
-                                   const char* key,
-                                   std::vector<std::pair<std::string, std::string>>& target) noexcept {
+[[nodiscard]] bool
+read_env_object(const nlohmann::json& document, const char* key,
+                std::vector<std::pair<std::string, std::string>>& target) noexcept {
     if (!document.is_object()) {
         return false;
     }
@@ -299,29 +291,26 @@ void read_canonical_thread(const nlohmann::json& document,
 } // namespace
 
 std::string AppSpec::to_string() const {
-    return std::format(
-        "AppSpec(app={}, instance={}, command={}, args={}, env={}, cpus={}, "
-        "idle_timeout_s={}, stop_grace_s={}, restart_attempts={}, "
-        "restart_delay_s={}, impact={}, global_settings_path={}, "
-        "local_settings_path={}, log_level={})",
-        app, instance, command, args.size(), env.size(), cpus.count(),
-        idle_timeout_s, stop_grace_s, restart_attempts, restart_delay_s,
-        nexigen::runner::to_string(impact), global_settings_path,
-        local_settings_path,
-        log_level.has_value() ? std::string(logging::to_string(*log_level))
-                              : std::string("inherit"));
+    return std::format("AppSpec(app={}, instance={}, command={}, args={}, env={}, cpus={}, "
+                       "idle_timeout_s={}, stop_grace_s={}, restart_attempts={}, "
+                       "restart_delay_s={}, impact={}, global_settings_path={}, "
+                       "local_settings_path={}, log_level={})",
+                       app, instance, command, args.size(), env.size(), cpus.count(),
+                       idle_timeout_s, stop_grace_s, restart_attempts, restart_delay_s,
+                       nexigen::runner::to_string(impact), global_settings_path,
+                       local_settings_path,
+                       log_level.has_value() ? std::string(logging::to_string(*log_level))
+                                             : std::string("inherit"));
 }
 
 std::string SuiteManifest::to_string() const {
-    return std::format(
-        "SuiteManifest(version={}, suite_id={}, run_id={}, run_dir={}, "
-        "global_settings_path={}, artifacts_path={}, log_level={}, "
-        "suite_restart_attempts={}, suite_restart_delay_s={}, apps={})",
-        version, suite_id, run_id, run_dir, global_settings_path,
-        artifacts_path,
-        log_level.has_value() ? std::string(logging::to_string(*log_level))
-                              : std::string("inherit"),
-        suite_restart_attempts, suite_restart_delay_s, apps.size());
+    return std::format("SuiteManifest(version={}, suite_id={}, run_id={}, run_dir={}, "
+                       "global_settings_path={}, artifacts_path={}, log_level={}, "
+                       "suite_restart_attempts={}, suite_restart_delay_s={}, apps={})",
+                       version, suite_id, run_id, run_dir, global_settings_path, artifacts_path,
+                       log_level.has_value() ? std::string(logging::to_string(*log_level))
+                                             : std::string("inherit"),
+                       suite_restart_attempts, suite_restart_delay_s, apps.size());
 }
 
 std::string SuiteAppMetadata::to_string() const {
@@ -331,13 +320,12 @@ std::string SuiteAppMetadata::to_string() const {
 }
 
 std::string SuiteMetadata::to_string() const {
-    return std::format(
-        "SuiteMetadata(suite_id={}, run_id={}, run_dir={}, "
-        "global_settings_path={}, artifacts_path={}, pid={}, "
-        "start_time_rfc3339={}, proc_start_ticks={}, "
-        "manifest_path={}, apps={})",
-        suite_id, run_id, run_dir, global_settings_path, artifacts_path, pid,
-        start_time_rfc3339, proc_start_ticks, manifest_path, apps.size());
+    return std::format("SuiteMetadata(suite_id={}, run_id={}, run_dir={}, "
+                       "global_settings_path={}, artifacts_path={}, pid={}, "
+                       "start_time_rfc3339={}, proc_start_ticks={}, "
+                       "manifest_path={}, apps={})",
+                       suite_id, run_id, run_dir, global_settings_path, artifacts_path, pid,
+                       start_time_rfc3339, proc_start_ticks, manifest_path, apps.size());
 }
 
 std::string SuiteExit::to_string() const {
@@ -346,19 +334,17 @@ std::string SuiteExit::to_string() const {
 }
 
 std::string SuiteAppStatus::to_string() const {
-    return std::format(
-        "SuiteAppStatus(app={}, instance={}, instance_dir={}, "
-        "artifact_dir={}, attempt={}, state={}, restarts_used={})",
-        app, instance, instance_dir, artifact_dir, attempt,
-        nexigen::runner::to_string(state), restarts_used);
+    return std::format("SuiteAppStatus(app={}, instance={}, instance_dir={}, "
+                       "artifact_dir={}, attempt={}, state={}, restarts_used={})",
+                       app, instance, instance_dir, artifact_dir, attempt,
+                       nexigen::runner::to_string(state), restarts_used);
 }
 
 std::string SuiteStatus::to_string() const {
-    return std::format(
-        "SuiteStatus(state={}, suite_id={}, run_dir={}, artifacts_path={}, "
-        "suite_restarts_used={}, apps={})",
-        nexigen::runner::to_string(state), suite_id, run_dir, artifacts_path,
-        suite_restarts_used, apps.size());
+    return std::format("SuiteStatus(state={}, suite_id={}, run_dir={}, artifacts_path={}, "
+                       "suite_restarts_used={}, apps={})",
+                       nexigen::runner::to_string(state), suite_id, run_dir, artifacts_path,
+                       suite_restarts_used, apps.size());
 }
 
 // --- enum JSON -------------------------------------------------------------
@@ -367,8 +353,7 @@ void to_json(nlohmann::json& j, ImpactOnAppSuiteOperability value) {
     enum_to_json(j, value);
 }
 
-void from_json(const nlohmann::json& j,
-               ImpactOnAppSuiteOperability& value) noexcept {
+void from_json(const nlohmann::json& j, ImpactOnAppSuiteOperability& value) noexcept {
     enum_from_json(j, value);
 }
 
@@ -406,8 +391,7 @@ void to_json(nlohmann::json& j, const AppSpec& spec) {
         {"stop_grace_s", spec.stop_grace_s},
         {"restart_attempts", spec.restart_attempts},
         {"restart_delay_s", spec.restart_delay_s},
-        {"impact_on_app_suite_operability",
-         std::string(to_string(spec.impact))},
+        {"impact_on_app_suite_operability", std::string(to_string(spec.impact))},
         {"global_settings_path", spec.global_settings_path},
         {"local_settings_path", spec.local_settings_path},
         {"log_level", log_level_json(spec.log_level)},
@@ -426,10 +410,8 @@ void from_json(const nlohmann::json& j, AppSpec& spec) noexcept {
     static_cast<void>(read_u32(j, "restart_attempts", spec.restart_attempts));
     static_cast<void>(read_u64(j, "restart_delay_s", spec.restart_delay_s));
     read_enum(j, "impact_on_app_suite_operability", spec.impact);
-    static_cast<void>(read_string(j, "global_settings_path",
-                                  spec.global_settings_path));
-    static_cast<void>(read_string(j, "local_settings_path",
-                                  spec.local_settings_path));
+    static_cast<void>(read_string(j, "global_settings_path", spec.global_settings_path));
+    static_cast<void>(read_string(j, "local_settings_path", spec.local_settings_path));
     static_cast<void>(read_log_level(j, "log_level", spec.log_level));
 }
 
@@ -464,15 +446,11 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
     static_cast<void>(read_string(j, "runner_name", manifest.runner_name));
     static_cast<void>(read_string(j, "run_id", manifest.run_id));
     static_cast<void>(read_string(j, "run_dir", manifest.run_dir));
-    static_cast<void>(read_string(j, "global_settings_path",
-                                  manifest.global_settings_path));
-    static_cast<void>(read_string(j, "artifacts_path",
-                                  manifest.artifacts_path));
+    static_cast<void>(read_string(j, "global_settings_path", manifest.global_settings_path));
+    static_cast<void>(read_string(j, "artifacts_path", manifest.artifacts_path));
     static_cast<void>(read_log_level(j, "log_level", manifest.log_level));
-    static_cast<void>(read_u32(j, "suite_restart_attempts",
-                               manifest.suite_restart_attempts));
-    static_cast<void>(read_u64(j, "suite_restart_delay_s",
-                               manifest.suite_restart_delay_s));
+    static_cast<void>(read_u32(j, "suite_restart_attempts", manifest.suite_restart_attempts));
+    static_cast<void>(read_u64(j, "suite_restart_delay_s", manifest.suite_restart_delay_s));
     static_cast<void>(read_string(j, "manifest_path", manifest.manifest_path));
     read_legacy_runner_cpus(j, "runner_control_cpus", manifest.runner_control_thread);
     read_legacy_runner_cpus(j, "runner_logger_cpus", manifest.runner_logger_thread);
@@ -534,17 +512,12 @@ void from_json(const nlohmann::json& j, SuiteMetadata& metadata) noexcept {
     static_cast<void>(read_string(j, "runner_name", metadata.runner_name));
     static_cast<void>(read_string(j, "run_id", metadata.run_id));
     static_cast<void>(read_string(j, "run_dir", metadata.run_dir));
-    static_cast<void>(read_string(j, "global_settings_path",
-                                  metadata.global_settings_path));
-    static_cast<void>(read_string(j, "artifacts_path",
-                                  metadata.artifacts_path));
+    static_cast<void>(read_string(j, "global_settings_path", metadata.global_settings_path));
+    static_cast<void>(read_string(j, "artifacts_path", metadata.artifacts_path));
     static_cast<void>(read_i32(j, "pid", metadata.pid));
-    static_cast<void>(read_string(j, "start_time_rfc3339",
-                                  metadata.start_time_rfc3339));
-    static_cast<void>(read_u64(j, "start_time_mono_ns",
-                               metadata.start_time_mono_ns));
-    static_cast<void>(read_u64(j, "proc_start_ticks",
-                               metadata.proc_start_ticks));
+    static_cast<void>(read_string(j, "start_time_rfc3339", metadata.start_time_rfc3339));
+    static_cast<void>(read_u64(j, "start_time_mono_ns", metadata.start_time_mono_ns));
+    static_cast<void>(read_u64(j, "proc_start_ticks", metadata.proc_start_ticks));
     static_cast<void>(read_string(j, "manifest_path", metadata.manifest_path));
     read_legacy_runner_cpus(j, "runner_control_cpus", metadata.runner_control_thread);
     read_legacy_runner_cpus(j, "runner_logger_cpus", metadata.runner_logger_thread);
@@ -614,8 +587,7 @@ void from_json(const nlohmann::json& j, SuiteStatus& status) noexcept {
     static_cast<void>(read_string(j, "suite_id", status.suite_id));
     static_cast<void>(read_string(j, "run_dir", status.run_dir));
     static_cast<void>(read_string(j, "artifacts_path", status.artifacts_path));
-    static_cast<void>(read_u32(j, "suite_restarts_used",
-                               status.suite_restarts_used));
+    static_cast<void>(read_u32(j, "suite_restarts_used", status.suite_restarts_used));
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
         std::vector<SuiteAppStatus> apps;
         apps.reserve(it->size());
@@ -630,19 +602,15 @@ void from_json(const nlohmann::json& j, SuiteStatus& status) noexcept {
 
 // --- path contract ---------------------------------------------------------
 
-std::string suite_dir_path(std::string_view run_dir,
-                           std::string_view suite_id) {
+std::string suite_dir_path(std::string_view run_dir, std::string_view suite_id) {
     return std::string(run_dir) + "/.suite/" + std::string(suite_id);
 }
 
-std::string attempt_dir_path(std::string_view artifacts_path,
-                             std::string_view suite_id,
-                             std::string_view app,
-                             std::string_view instance,
+std::string attempt_dir_path(std::string_view artifacts_path, std::string_view suite_id,
+                             std::string_view app, std::string_view instance,
                              std::uint32_t attempt) {
-    return std::string(artifacts_path) + "/" + std::string(suite_id) + "/" +
-           std::string(app) + "/" + std::string(instance) + "/" +
-           std::format("attempt-{:04}", attempt);
+    return std::string(artifacts_path) + "/" + std::string(suite_id) + "/" + std::string(app) +
+           "/" + std::string(instance) + "/" + std::format("attempt-{:04}", attempt);
 }
 
 // --- validation ------------------------------------------------------------
@@ -659,10 +627,8 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
             case logging::LogLevel::Warning:
             case logging::LogLevel::Error:
             case logging::LogLevel::Fatal:
-            case logging::LogLevel::Off:
-                return true;
-            default:
-                return false;
+            case logging::LogLevel::Off:     return true;
+            default:                         return false;
         }
     };
     if (manifest.version != 1U) {
@@ -680,8 +646,7 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
         manifest.global_settings_path.find('\0') != std::string::npos) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    if (!manifest.global_settings_path.empty() &&
-        !absolute_path(manifest.global_settings_path)) {
+    if (!manifest.global_settings_path.empty() && !absolute_path(manifest.global_settings_path)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     if (manifest.suite_restart_attempts > max_restart_attempts ||
@@ -699,9 +664,8 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
 
     for (std::size_t index = 0; index < manifest.apps.size(); ++index) {
         const AppSpec& app = manifest.apps[index];
-        if (!safe_id(app.app) || !safe_id(app.instance) ||
-            app.app == ".suite" || app.command.empty() ||
-            app.command.find('\0') != std::string::npos) {
+        if (!safe_id(app.app) || !safe_id(app.instance) || app.app == ".suite" ||
+            app.command.empty() || app.command.find('\0') != std::string::npos) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         for (const std::string& argument : app.args) {
@@ -711,8 +675,7 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
         }
         for (const auto& [key, value] : app.env) {
             if (key.empty() || key.find('=') != std::string::npos ||
-                key.find('\0') != std::string::npos ||
-                value.find('\0') != std::string::npos) {
+                key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
                 return std::unexpected(core::ErrorCode::InvalidArgument);
             }
         }
@@ -725,36 +688,30 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         if (app.restart_attempts > max_restart_attempts ||
-            app.restart_delay_s > max_delay_seconds ||
-            app.idle_timeout_s > max_delay_seconds ||
+            app.restart_delay_s > max_delay_seconds || app.idle_timeout_s > max_delay_seconds ||
             app.stop_grace_s > max_delay_seconds) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        if (!app.global_settings_path.empty() &&
-            !absolute_path(app.global_settings_path)) {
+        if (!app.global_settings_path.empty() && !absolute_path(app.global_settings_path)) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        if (!app.local_settings_path.empty() &&
-            (absolute_path(app.local_settings_path) ||
-             has_parent_segment(app.local_settings_path))) {
+        if (!app.local_settings_path.empty() && (absolute_path(app.local_settings_path) ||
+                                                 has_parent_segment(app.local_settings_path))) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         for (std::uint32_t cpu = 0; cpu <= core::CpuSet::max_cpu_id; ++cpu) {
-            if (app.cpus.contains(cpu) &&
-                (cpu >= static_cast<std::uint32_t>(online) ||
-                 cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
+            if (app.cpus.contains(cpu) && (cpu >= static_cast<std::uint32_t>(online) ||
+                                           cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
                 return std::unexpected(core::ErrorCode::InvalidArgument);
             }
         }
 
-        const std::string instance_dir =
-            manifest.run_dir + "/" + app.app + "/" + app.instance;
+        const std::string instance_dir = manifest.run_dir + "/" + app.app + "/" + app.instance;
         if (instance_dir.size() > max_path_bytes) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         const std::string attempt_dir =
-            attempt_dir_path(manifest.artifacts_path, manifest.suite_id,
-                             app.app, app.instance, 1);
+            attempt_dir_path(manifest.artifacts_path, manifest.suite_id, app.app, app.instance, 1);
         if (attempt_dir.size() > max_path_bytes) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -773,8 +730,7 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
     if (!document.is_object()) {
         return false;
     }
-    auto valid_level = [](const nlohmann::json& object,
-                          const char* key) -> bool {
+    auto valid_level = [](const nlohmann::json& object, const char* key) -> bool {
         const auto it = object.find(key);
         if (it == object.end() || it->is_null()) {
             return true;
@@ -792,8 +748,7 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
     if (!valid_level(document, "log_level")) {
         return false;
     }
-    auto valid_cpu_array = [](const nlohmann::json& object,
-                              const char* key) -> bool {
+    auto valid_cpu_array = [](const nlohmann::json& object, const char* key) -> bool {
         const auto it = object.find(key);
         if (it == object.end()) {
             return true;
@@ -836,13 +791,11 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
         if (impact == entry.end() || !impact->is_string()) {
             return false;
         }
-        const auto* const name =
-            impact->get_ptr<const nlohmann::json::string_t*>();
+        const auto* const name = impact->get_ptr<const nlohmann::json::string_t*>();
         if (name == nullptr) {
             return false;
         }
-        ImpactOnAppSuiteOperability parsed =
-            ImpactOnAppSuiteOperability::Degrade;
+        ImpactOnAppSuiteOperability parsed = ImpactOnAppSuiteOperability::Degrade;
         if (!from_string(std::string_view(*name), parsed)) {
             return false;
         }
@@ -853,8 +806,7 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
     return true;
 }
 
-core::Status load_suite_manifest(std::string_view path,
-                                 SuiteManifest& out) noexcept {
+core::Status load_suite_manifest(std::string_view path, SuiteManifest& out) noexcept {
     const core::Result<nlohmann::json> document = read_json_file(path);
     if (!document) {
         return std::unexpected(document.error());
@@ -914,12 +866,10 @@ void redirect_to_null_local(int null_fd) noexcept {
 
 void reap_supervisors() noexcept {
     int status = 0;
-    while (::waitpid(-1, &status, WNOHANG) > 0) {
-    }
+    while (::waitpid(-1, &status, WNOHANG) > 0) {}
 }
 
-[[nodiscard]] bool read_exit_metadata(const std::string& instance_dir,
-                                      ExitMetadata& out) noexcept {
+[[nodiscard]] bool read_exit_metadata(const std::string& instance_dir, ExitMetadata& out) noexcept {
     const core::Result<nlohmann::json> document =
         read_json_file(instance_file_path(instance_dir, "exit.json"));
     if (!document) {
@@ -966,8 +916,7 @@ void write_suite_status(RuntimeSuite& suite) {
     static_cast<void>(write_json_file(suite.state_path, document));
 }
 
-void write_suite_exit(RuntimeSuite& suite, SuiteState state,
-                      std::string_view reason) {
+void write_suite_exit(RuntimeSuite& suite, SuiteState state, std::string_view reason) {
     suite.state = state;
     SuiteExit exit{};
     exit.state = state;
@@ -994,12 +943,10 @@ void write_suite_exit(RuntimeSuite& suite, SuiteState state,
 
 void stop_all(RuntimeSuite& suite) {
     for (RuntimeApp& app : suite.apps) {
-        if (app.state == AppState::Running ||
-            app.state == AppState::Restarting || app.child_pid > 0 ||
-            app.supervisor_pid > 0) {
+        if (app.state == AppState::Running || app.state == AppState::Restarting ||
+            app.child_pid > 0 || app.supervisor_pid > 0) {
             Runner runner;
-            static_cast<void>(
-                runner.stop(app.instance_dir, app.spec.stop_grace_s));
+            static_cast<void>(runner.stop(app.instance_dir, app.spec.stop_grace_s));
         }
         const std::int32_t pgid = app.child_pid;
         if (pgid > 0 && group_alive(pgid)) {
@@ -1011,9 +958,8 @@ void stop_all(RuntimeSuite& suite) {
 
 [[nodiscard]] bool launch_app(RuntimeSuite& suite, RuntimeApp& app) {
     ++app.attempt;
-    app.artifact_dir = attempt_dir_path(
-        suite.manifest->artifacts_path, suite.manifest->suite_id,
-        app.spec.app, app.spec.instance, app.attempt);
+    app.artifact_dir = attempt_dir_path(suite.manifest->artifacts_path, suite.manifest->suite_id,
+                                        app.spec.app, app.spec.instance, app.attempt);
 
     StartOptions options{};
     options.artifact_dir = app.artifact_dir;
@@ -1022,23 +968,19 @@ void stop_all(RuntimeSuite& suite) {
                                       : app.spec.global_settings_path;
     if (!app.spec.local_settings_path.empty()) {
         options.local_settings_dir =
-            join_path(directory_of(suite.manifest->manifest_path),
-                      app.spec.local_settings_path);
+            join_path(directory_of(suite.manifest->manifest_path), app.spec.local_settings_path);
     }
-    options.log_level = app.spec.log_level.has_value()
-                            ? app.spec.log_level
-                            : suite.manifest->log_level;
+    options.log_level =
+        app.spec.log_level.has_value() ? app.spec.log_level : suite.manifest->log_level;
     options.env = app.spec.env;
     options.cpus = app.spec.cpus;
 
-    const app::RunIdentity identity{suite.manifest->run_id,
-                                     suite.manifest->run_dir,
-                                     app.spec.instance, app.instance_dir};
+    const app::RunIdentity identity{suite.manifest->run_id, suite.manifest->run_dir,
+                                    app.spec.instance, app.instance_dir};
     const std::vector<std::string> command = command_vector(app.spec);
     Runner runner;
-    const core::Status started = runner.start(identity, app.spec.app, command,
-                                              app.spec.idle_timeout_s,
-                                              options);
+    const core::Status started =
+        runner.start(identity, app.spec.app, command, app.spec.idle_timeout_s, options);
     if (!started) {
         app.state = AppState::Failed;
         app.child_pid = 0;
@@ -1103,8 +1045,7 @@ void finish_failed(RuntimeSuite& suite) {
 }
 
 void trigger_suite_restart(RuntimeSuite& suite) {
-    if (suite.suite_restarts_used >=
-        suite.manifest->suite_restart_attempts) {
+    if (suite.suite_restarts_used >= suite.manifest->suite_restart_attempts) {
         finish_failed(suite);
     }
     ++suite.suite_restarts_used;
@@ -1127,8 +1068,7 @@ void trigger_suite_restart(RuntimeSuite& suite) {
     suite.state = SuiteState::Running;
     suite.suite_restart_pending = true;
     suite.next_suite_restart_ns =
-        monotonic_now_ns() +
-        suite.manifest->suite_restart_delay_s * nanoseconds_per_second;
+        monotonic_now_ns() + suite.manifest->suite_restart_delay_s * nanoseconds_per_second;
     suite.dirty = true;
     write_suite_status(suite);
 }
@@ -1150,8 +1090,7 @@ void launch_all(RuntimeSuite& suite) {
 void apply_launch_failures(RuntimeSuite& suite) {
     bool failure_impact_failed = false;
     for (const RuntimeApp& app : suite.apps) {
-        if (app.launch_failed &&
-            app.spec.impact == ImpactOnAppSuiteOperability::Failure) {
+        if (app.launch_failed && app.spec.impact == ImpactOnAppSuiteOperability::Failure) {
             failure_impact_failed = true;
             break;
         }
@@ -1168,25 +1107,21 @@ void apply_launch_failures(RuntimeSuite& suite) {
     }
 }
 
-[[noreturn]] void finish_suite_stop(RuntimeSuite& suite,
-                                    const SuiteManifest& manifest) {
+[[noreturn]] void finish_suite_stop(RuntimeSuite& suite, const SuiteManifest& manifest) {
     log_runner(logging::LogLevel::Info,
-               std::format("event=stop_requested suite={}",
-                           manifest.suite_id));
+               std::format("event=stop_requested suite={}", manifest.suite_id));
     stop_all(suite);
     for (RuntimeApp& app : suite.apps) {
         app.state = AppState::Stopped;
     }
     write_suite_exit(suite, SuiteState::Stopped, "operator_stop");
     log_runner(logging::LogLevel::Info,
-               std::format("event=suite_stopped suite={} reason=operator_stop",
-                           manifest.suite_id));
+               std::format("event=suite_stopped suite={} reason=operator_stop", manifest.suite_id));
     shutdown_runner_logging();
     child_exit(0);
 }
 
-[[nodiscard]] bool advance_suite_restart(RuntimeSuite& suite,
-                                         const SuiteManifest& manifest,
+[[nodiscard]] bool advance_suite_restart(RuntimeSuite& suite, const SuiteManifest& manifest,
                                          std::uint64_t now) {
     if (!suite.suite_restart_pending) {
         return false;
@@ -1198,15 +1133,13 @@ void apply_launch_failures(RuntimeSuite& suite) {
         static_cast<void>(resume_runner_logging());
         apply_launch_failures(suite);
         log_runner(logging::LogLevel::Info,
-                   std::format("event=suite_restart suite={} used={} limit={}",
-                               manifest.suite_id, suite.suite_restarts_used,
-                               manifest.suite_restart_attempts));
+                   std::format("event=suite_restart suite={} used={} limit={}", manifest.suite_id,
+                               suite.suite_restarts_used, manifest.suite_restart_attempts));
         for (const RuntimeApp& app : suite.apps) {
             log_runner(logging::LogLevel::Info,
                        std::format("event=app_launch app={} instance={} "
                                    "attempt={} pid={} state={}",
-                                   app.spec.app, app.spec.instance, app.attempt,
-                                   app.child_pid,
+                                   app.spec.app, app.spec.instance, app.attempt, app.child_pid,
                                    nexigen::runner::to_string(app.state)));
         }
         write_suite_status(suite);
@@ -1216,24 +1149,21 @@ void apply_launch_failures(RuntimeSuite& suite) {
 
 /// Advance one application state machine. Returns true when an abnormal exit
 /// scheduled a suite-wide restart, so the caller stops scanning this tick.
-[[nodiscard]] bool advance_app(RuntimeSuite& suite, RuntimeApp& app,
-                               std::uint64_t now) {
+[[nodiscard]] bool advance_app(RuntimeSuite& suite, RuntimeApp& app, std::uint64_t now) {
     if (app.state == AppState::Running) {
         ExitMetadata exit{};
         if (read_exit_metadata(app.instance_dir, exit) && !app.exit_consumed) {
             app.exit_consumed = true;
             if (exit.exit_code.has_value()) {
-                log_runner(logging::LogLevel::Info,
-                           std::format("event=app_exit app={} instance={} "
-                                       "attempt={} exit_code={}",
-                                       app.spec.app, app.spec.instance,
-                                       app.attempt, *exit.exit_code));
+                log_runner(logging::LogLevel::Info, std::format("event=app_exit app={} instance={} "
+                                                                "attempt={} exit_code={}",
+                                                                app.spec.app, app.spec.instance,
+                                                                app.attempt, *exit.exit_code));
             } else if (exit.signal.has_value()) {
                 log_runner(logging::LogLevel::Warning,
                            std::format("event=app_exit app={} instance={} "
                                        "attempt={} signal={}",
-                                       app.spec.app, app.spec.instance,
-                                       app.attempt, *exit.signal));
+                                       app.spec.app, app.spec.instance, app.attempt, *exit.signal));
             }
             if (exit.exit_code.has_value() && *exit.exit_code == 0) {
                 app.state = AppState::Exited;
@@ -1243,8 +1173,8 @@ void apply_launch_failures(RuntimeSuite& suite) {
                 return suite.suite_restart_pending;
             }
         }
-    } else if (app.state == AppState::Restarting &&
-               app.next_restart_ns != 0 && now >= app.next_restart_ns) {
+    } else if (app.state == AppState::Restarting && app.next_restart_ns != 0 &&
+               now >= app.next_restart_ns) {
         app.launch_failed = false;
         suspend_runner_logging();
         const bool launched = launch_app(suite, app);
@@ -1254,35 +1184,30 @@ void apply_launch_failures(RuntimeSuite& suite) {
             log_runner(logging::LogLevel::Warning,
                        std::format("event=app_launch_failed app={} "
                                    "instance={} attempt={}",
-                                   app.spec.app, app.spec.instance,
-                                   app.attempt));
+                                   app.spec.app, app.spec.instance, app.attempt));
             schedule_retry_or_fail(suite, app);
         } else {
             log_runner(logging::LogLevel::Info,
                        std::format("event=app_launch app={} instance={} "
                                    "attempt={} pid={} state=running",
-                                   app.spec.app, app.spec.instance, app.attempt,
-                                   app.child_pid));
+                                   app.spec.app, app.spec.instance, app.attempt, app.child_pid));
         }
         suite.dirty = true;
     }
     return false;
 }
 
-void run_suite_supervisor(const SuiteManifest& manifest,
-                          const std::string& suite_dir,
+void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suite_dir,
                           int report_fd) {
     static_cast<void>(reset_runner_affinity());
     core::ThreadApplyReport control_report{};
-    const core::Status control_pin = apply_runner_thread_spec(
-        manifest.runner_control_thread, control_report, "suite-supervisor");
+    const core::Status control_pin = apply_runner_thread_spec(manifest.runner_control_thread,
+                                                              control_report, "suite-supervisor");
     if (!control_pin) {
         const std::string detail = describe_thread_apply_report(control_report);
-        std::fprintf(stderr,
-                     "nexigen-run: control thread spec application failed: %s\n",
+        std::fprintf(stderr, "nexigen-run: control thread spec application failed: %s\n",
                      detail.c_str());
-        if (manifest.runner_control_thread.apply_mode() ==
-            core::ThreadApplyMode::Required) {
+        if (manifest.runner_control_thread.apply_mode() == core::ThreadApplyMode::Required) {
             child_exit(1); // no application has been launched at this point
         }
     }
@@ -1316,18 +1241,15 @@ void run_suite_supervisor(const SuiteManifest& manifest,
         SuiteAppMetadata entry{};
         entry.app = app.app;
         entry.instance = app.instance;
-        entry.instance_dir =
-            manifest.run_dir + "/" + app.app + "/" + app.instance;
+        entry.instance_dir = manifest.run_dir + "/" + app.app + "/" + app.instance;
         entry.stop_grace_s = app.stop_grace_s;
         metadata.apps.push_back(std::move(entry));
     }
     nlohmann::json metadata_json;
     to_json(metadata_json, metadata);
     if (!write_json_file(join_path(suite_dir, "suite.json"), metadata_json)) {
-        StartReport report{0, static_cast<std::int32_t>(
-                                          core::ErrorCode::SystemError)};
-        static_cast<void>(
-            write_all_no_sigpipe(report_fd, &report, sizeof(report)));
+        StartReport report{0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
+        static_cast<void>(write_all_no_sigpipe(report_fd, &report, sizeof(report)));
         static_cast<void>(::close(report_fd));
         child_exit(1);
     }
@@ -1336,8 +1258,7 @@ void run_suite_supervisor(const SuiteManifest& manifest,
     for (const AppSpec& app : manifest.apps) {
         RuntimeApp runtime{};
         runtime.spec = app;
-        runtime.instance_dir =
-            manifest.run_dir + "/" + app.app + "/" + app.instance;
+        runtime.instance_dir = manifest.run_dir + "/" + app.app + "/" + app.instance;
         suite.apps.push_back(std::move(runtime));
     }
 
@@ -1345,41 +1266,33 @@ void run_suite_supervisor(const SuiteManifest& manifest,
     write_suite_status(suite);
 
     StartReport report{::getpid(), 0};
-    static_cast<void>(
-        write_all_no_sigpipe(report_fd, &report, sizeof(report)));
+    static_cast<void>(write_all_no_sigpipe(report_fd, &report, sizeof(report)));
     static_cast<void>(::close(report_fd));
 
     logging::Settings log_settings{};
-    const core::Status settings_status = load_runner_logging_settings(
-        manifest.global_settings_path, log_settings);
+    const core::Status settings_status =
+        load_runner_logging_settings(manifest.global_settings_path, log_settings);
     if (!settings_status) {
         warn_runner("event=logging_settings_invalid detail=using defaults");
         log_settings = logging::Settings{};
     }
-    const logging::LogLevel log_level =
-        manifest.log_level.value_or(
-            log_settings.global_loaded
-                ? log_settings.options.initial_log_level
-                : logging::LogLevel::Info);
-    const core::Status log_status = init_runner_logging(
-        join_path(manifest.artifacts_path, manifest.suite_id), log_settings,
-        log_level,
-        manifest.runner_logger_thread,
-        manifest.runner_name);
+    const logging::LogLevel log_level = manifest.log_level.value_or(
+        log_settings.global_loaded ? log_settings.options.initial_log_level
+                                   : logging::LogLevel::Info);
+    const core::Status log_status =
+        init_runner_logging(join_path(manifest.artifacts_path, manifest.suite_id), log_settings,
+                            log_level, manifest.runner_logger_thread, manifest.runner_name);
     if (!log_status) {
         warn_runner("event=logging_unavailable detail=runner.jsonl not writable");
     }
-    log_runner(logging::LogLevel::Info,
-               std::format("event=suite_started suite={} apps={}",
-                           manifest.suite_id, suite.apps.size()));
+    log_runner(logging::LogLevel::Info, std::format("event=suite_started suite={} apps={}",
+                                                    manifest.suite_id, suite.apps.size()));
     for (const RuntimeApp& app : suite.apps) {
-        log_runner(app.state == AppState::Failed
-                       ? logging::LogLevel::Warning
-                       : logging::LogLevel::Info,
+        log_runner(app.state == AppState::Failed ? logging::LogLevel::Warning
+                                                 : logging::LogLevel::Info,
                    std::format("event=app_launch app={} instance={} attempt={} "
                                "pid={} state={}",
-                               app.spec.app, app.spec.instance, app.attempt,
-                               app.child_pid,
+                               app.spec.app, app.spec.instance, app.attempt, app.child_pid,
                                nexigen::runner::to_string(app.state)));
     }
 
@@ -1414,8 +1327,7 @@ void run_suite_supervisor(const SuiteManifest& manifest,
 
 } // namespace
 
-core::Status start_suite(const SuiteManifest& manifest,
-                         std::string& suite_dir_out) {
+core::Status start_suite(const SuiteManifest& manifest, std::string& suite_dir_out) {
     const core::Status valid = validate_suite_manifest(manifest);
     if (!valid) {
         return valid;
@@ -1433,17 +1345,14 @@ core::Status start_suite(const SuiteManifest& manifest,
         probe.join();
         return applied;
     };
-    if (const core::Status control = preflight(manifest.runner_control_thread);
-        !control) {
+    if (const core::Status control = preflight(manifest.runner_control_thread); !control) {
         return control;
     }
-    if (const core::Status logger = preflight(manifest.runner_logger_thread);
-        !logger) {
+    if (const core::Status logger = preflight(manifest.runner_logger_thread); !logger) {
         return logger;
     }
 
-    const std::string suite_dir =
-        suite_dir_path(manifest.run_dir, manifest.suite_id);
+    const std::string suite_dir = suite_dir_path(manifest.run_dir, manifest.suite_id);
     suite_dir_out = suite_dir;
 
     const std::string metadata_path = join_path(suite_dir, "suite.json");
@@ -1451,8 +1360,7 @@ core::Status start_suite(const SuiteManifest& manifest,
     const std::string stop_path = join_path(suite_dir, "stop.request");
     if (file_exists(metadata_path) && !file_exists(exit_path)) {
         SuiteMetadata existing{};
-        const core::Result<nlohmann::json> document =
-            read_json_file(metadata_path);
+        const core::Result<nlohmann::json> document = read_json_file(metadata_path);
         if (document) {
             from_json(*document, existing);
             if (process_alive(existing.pid)) {
@@ -1531,8 +1439,7 @@ core::Status stop_suite(std::string_view suite_dir,
     SuiteMetadata metadata{};
     from_json(*document, metadata);
 
-    const int fd = ::open(stop_path.c_str(),
-                          O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    const int fd = ::open(stop_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     if (fd < 0) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
@@ -1551,8 +1458,7 @@ core::Status stop_suite(std::string_view suite_dir,
     }
 
     const std::uint64_t deadline =
-        monotonic_now_ns() + grace * nanoseconds_per_second +
-        5ULL * nanoseconds_per_second;
+        monotonic_now_ns() + grace * nanoseconds_per_second + 5ULL * nanoseconds_per_second;
     while (monotonic_now_ns() < deadline && !file_exists(exit_path)) {
         sleep_ms(suite_poll_interval_ms);
     }
@@ -1562,13 +1468,11 @@ core::Status stop_suite(std::string_view suite_dir,
         // before signals are sent"): a recycled PID recorded in suite.json
         // must not receive a fallback SIGTERM/SIGKILL; the flow continues
         // into the normal instance-stop + suite finalize path.
-        if (identity_matches(metadata.pid, metadata.proc_start_ticks) &&
-            metadata.pid > 0 && process_alive(metadata.pid)) {
+        if (identity_matches(metadata.pid, metadata.proc_start_ticks) && metadata.pid > 0 &&
+            process_alive(metadata.pid)) {
             static_cast<void>(::kill(metadata.pid, SIGTERM));
-            const std::uint64_t kill_deadline =
-                monotonic_now_ns() + 2ULL * nanoseconds_per_second;
-            while (monotonic_now_ns() < kill_deadline &&
-                   process_alive(metadata.pid)) {
+            const std::uint64_t kill_deadline = monotonic_now_ns() + 2ULL * nanoseconds_per_second;
+            while (monotonic_now_ns() < kill_deadline && process_alive(metadata.pid)) {
                 sleep_ms(suite_poll_interval_ms);
             }
             if (process_alive(metadata.pid)) {
@@ -1577,14 +1481,12 @@ core::Status stop_suite(std::string_view suite_dir,
         }
         for (const SuiteAppMetadata& app : metadata.apps) {
             Runner runner;
-            static_cast<void>(runner.stop(
-                app.instance_dir,
-                grace_override.value_or(app.stop_grace_s)));
+            static_cast<void>(
+                runner.stop(app.instance_dir, grace_override.value_or(app.stop_grace_s)));
         }
 
         SuiteStatus status{};
-        const core::Result<nlohmann::json> existing =
-            read_json_file(state_path);
+        const core::Result<nlohmann::json> existing = read_json_file(state_path);
         if (existing) {
             from_json(*existing, status);
         } else {
@@ -1620,8 +1522,7 @@ core::Status stop_suite(std::string_view suite_dir,
     return {};
 }
 
-core::Status suite_status(std::string_view suite_dir,
-                          SuiteStatus& out) noexcept {
+core::Status suite_status(std::string_view suite_dir, SuiteStatus& out) noexcept {
     out = SuiteStatus{};
     if (suite_dir.empty()) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -1631,8 +1532,7 @@ core::Status suite_status(std::string_view suite_dir,
     const std::string state_path = join_path(directory, "suite-state.json");
     const std::string exit_path = join_path(directory, "suite-exit.json");
 
-    const core::Result<nlohmann::json> metadata_document =
-        read_json_file(metadata_path);
+    const core::Result<nlohmann::json> metadata_document = read_json_file(metadata_path);
     if (!metadata_document) {
         return {};
     }
@@ -1645,14 +1545,12 @@ core::Status suite_status(std::string_view suite_dir,
 
     SuiteStatus recorded{};
     bool have_recorded = false;
-    if (const core::Result<nlohmann::json> state_document =
-            read_json_file(state_path)) {
+    if (const core::Result<nlohmann::json> state_document = read_json_file(state_path)) {
         from_json(*state_document, recorded);
         have_recorded = true;
     }
 
-    const core::Result<nlohmann::json> exit_document =
-        read_json_file(exit_path);
+    const core::Result<nlohmann::json> exit_document = read_json_file(exit_path);
     if (exit_document) {
         SuiteExit exit{};
         from_json(*exit_document, exit);
@@ -1674,8 +1572,7 @@ core::Status suite_status(std::string_view suite_dir,
         entry.instance = app.instance;
         entry.instance_dir = app.instance_dir;
         for (const SuiteAppStatus& recorded_app : recorded.apps) {
-            if (recorded_app.app == app.app &&
-                recorded_app.instance == app.instance) {
+            if (recorded_app.app == app.app && recorded_app.instance == app.instance) {
                 entry = recorded_app;
                 break;
             }
@@ -1683,8 +1580,7 @@ core::Status suite_status(std::string_view suite_dir,
 
         std::string state;
         Runner runner;
-        const bool sticky = entry.state == AppState::Failed ||
-                            entry.state == AppState::Restarting;
+        const bool sticky = entry.state == AppState::Failed || entry.state == AppState::Restarting;
         if (!sticky && runner.status(app.instance_dir, state).has_value()) {
             if (state == "running") {
                 entry.state = AppState::Running;

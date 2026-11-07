@@ -22,11 +22,11 @@ namespace nexigen::logging::detail {
 
 /// Per-shard anti-spam state (owner-written, consumer-read relaxed).
 struct alignas(64) SpamShardState {
-    std::uint64_t last_hash{0};          ///< hash of previous message identity
-    std::uint32_t repeat_count{0};       ///< consecutive identical messages
-    std::uint64_t repeat_window_start{0};///< monotonic ns of window start
-    std::uint64_t tokens_used{0};        ///< messages in current second
-    std::uint64_t window_start_ns{0};    ///< rate-limit window start
+    std::uint64_t last_hash{0};                    ///< hash of previous message identity
+    std::uint32_t repeat_count{0};                 ///< consecutive identical messages
+    std::uint64_t repeat_window_start{0};          ///< monotonic ns of window start
+    std::uint64_t tokens_used{0};                  ///< messages in current second
+    std::uint64_t window_start_ns{0};              ///< rate-limit window start
     std::atomic<std::uint64_t> throttled_count{0}; ///< rate-limited drops
     std::uint8_t pad_[16]{};
 };
@@ -52,35 +52,31 @@ public:
     /// old-or-new value; a per-field boundary mixture within one emit call is
     /// tolerated and documented in the requirement text.
     void set_config(const SpamProtectionConfig& cfg) noexcept {
-        enable_repeat_suppression_.store(
-            cfg.enable_repeat_suppression, std::memory_order_relaxed);
-        repeat_suppression_window_ms_.store(
-            cfg.repeat_suppression_window_ms, std::memory_order_relaxed);
-        max_messages_per_sec_per_shard_.store(
-            cfg.max_messages_per_sec_per_shard, std::memory_order_relaxed);
-        bypass_min_level_.store(cfg.bypass_min_level,
-                                std::memory_order_relaxed);
+        enable_repeat_suppression_.store(cfg.enable_repeat_suppression, std::memory_order_relaxed);
+        repeat_suppression_window_ms_.store(cfg.repeat_suppression_window_ms,
+                                            std::memory_order_relaxed);
+        max_messages_per_sec_per_shard_.store(cfg.max_messages_per_sec_per_shard,
+                                              std::memory_order_relaxed);
+        bypass_min_level_.store(cfg.bypass_min_level, std::memory_order_relaxed);
     }
 
     /// Snapshot view of the currently published quotas (cold-path diagnostic;
     /// a concurrent set_config yields a per-field valid mixture).
     [[nodiscard]] SpamProtectionConfig config() const noexcept {
         SpamProtectionConfig cfg{};
-        cfg.enable_repeat_suppression =
-            enable_repeat_suppression_.load(std::memory_order_relaxed);
+        cfg.enable_repeat_suppression = enable_repeat_suppression_.load(std::memory_order_relaxed);
         cfg.repeat_suppression_window_ms =
             repeat_suppression_window_ms_.load(std::memory_order_relaxed);
         cfg.max_messages_per_sec_per_shard =
             max_messages_per_sec_per_shard_.load(std::memory_order_relaxed);
-        cfg.bypass_min_level =
-            bypass_min_level_.load(std::memory_order_relaxed);
+        cfg.bypass_min_level = bypass_min_level_.load(std::memory_order_relaxed);
         return cfg;
     }
 
     /// Level 1: repeat suppression. Returns true if the message should be
     /// enqueued (not a repeat). Updates shard state.
     [[nodiscard]] bool check_repeat(SpamShardState& state, std::uint64_t msg_hash,
-                                   std::uint64_t now_ns) noexcept {
+                                    std::uint64_t now_ns) noexcept {
         if (!enable_repeat_suppression_.load(std::memory_order_relaxed)) {
             return true;
         }
@@ -88,8 +84,7 @@ public:
             // Window expiry: force summary and reset.
             const std::uint64_t window_ns =
                 static_cast<std::uint64_t>(
-                    repeat_suppression_window_ms_.load(
-                        std::memory_order_relaxed)) *
+                    repeat_suppression_window_ms_.load(std::memory_order_relaxed)) *
                 1'000'000ULL;
             if (window_ns > 0 && now_ns - state.repeat_window_start >= window_ns) {
                 state.repeat_count = 1;
@@ -111,7 +106,7 @@ public:
 
     /// Check if a repeat summary should be emitted (and get the count).
     [[nodiscard]] bool should_emit_summary(SpamShardState& state,
-                                          std::uint32_t& count_out) noexcept {
+                                           std::uint32_t& count_out) noexcept {
         if (state.repeat_count > 1) {
             count_out = state.repeat_count;
             state.repeat_count = 0;
@@ -122,15 +117,14 @@ public:
 
     /// Level 2: token-bucket rate limiter. Returns true if the message passes.
     [[nodiscard]] bool check_rate_limit(SpamShardState& state, LogLevel level,
-                                       std::uint64_t now_ns) noexcept {
+                                        std::uint64_t now_ns) noexcept {
         // bypass_min_level: always pass.
         if (level >= bypass_min_level_.load(std::memory_order_relaxed)) {
             return true;
         }
         // No limit configured.
         if (const std::uint32_t max_per_second =
-                max_messages_per_sec_per_shard_.load(
-                    std::memory_order_relaxed);
+                max_messages_per_sec_per_shard_.load(std::memory_order_relaxed);
             max_per_second == 0) {
             return true;
         }
@@ -141,8 +135,7 @@ public:
             state.tokens_used = 0;
         }
         if (const std::uint32_t max_per_second =
-                max_messages_per_sec_per_shard_.load(
-                    std::memory_order_relaxed);
+                max_messages_per_sec_per_shard_.load(std::memory_order_relaxed);
             state.tokens_used >= max_per_second) {
             state.throttled_count.fetch_add(1, std::memory_order_relaxed);
             return false; // throttled
@@ -179,10 +172,16 @@ private:
             h *= 1099511628211ULL;
         }
     };
-    if (file != nullptr) { mix(file, std::strlen(file)); }
+    if (file != nullptr) {
+        mix(file, std::strlen(file));
+    }
     mix(reinterpret_cast<const char*>(&line), sizeof line);
-    if (fmt != nullptr) { mix(fmt, std::strlen(fmt)); }
-    if (args != nullptr && args_len > 0) { mix(args, args_len); }
+    if (fmt != nullptr) {
+        mix(fmt, std::strlen(fmt));
+    }
+    if (args != nullptr && args_len > 0) {
+        mix(args, args_len);
+    }
     return h;
 }
 

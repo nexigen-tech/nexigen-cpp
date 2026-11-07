@@ -52,16 +52,20 @@ namespace nexigen::core::mandate {
 /// to_string participates through the `v.to_string()` arm; free/namespace
 /// functions through the plain call arm.
 template <typename T>
-concept MandateToString =
-    (requires(const T& v) { { v.to_string() } -> std::convertible_to<std::string_view>; }) ||
-    (requires(const T& v) { { to_string(v) } -> std::convertible_to<std::string_view>; });
+concept MandateToString = (requires(const T& v) {
+                              { v.to_string() } -> std::convertible_to<std::string_view>;
+                          }) || (requires(const T& v) {
+                              { to_string(v) } -> std::convertible_to<std::string_view>;
+                          });
 
 /// True when an enum resolves its canonical parser: together with the
 /// string mandate this is what JSON serialization dispatches on.
 template <typename T>
-concept MandateFromString =
-    (requires(T& v, std::string_view name) { { from_string(name, v) } -> std::same_as<bool>; }) ||
-    (requires(T& v, std::string_view name) { { from_string(name, v) }; });
+concept MandateFromString = (requires(T& v, std::string_view name) {
+                                { from_string(name, v) } -> std::same_as<bool>;
+                            }) || (requires(T& v, std::string_view name) {
+                                { from_string(name, v) };
+                            });
 
 /// Enum with both vocabulary arms.
 template <typename T>
@@ -70,21 +74,19 @@ concept MandateEnum = std::is_enum_v<T> && MandateToString<T> && MandateFromStri
 /// The one delegate formatter: renders through `to_string(T)`. Because
 /// the ADL supplied candidates include the member through `v.to_string()`
 /// the body dispatches per arm.
-template <MandateToString T>
-struct MandateFormatter : std::formatter<std::string_view> {
-    template <class Ctx>
-    constexpr auto format(const T& value, Ctx& ctx) const {
-        if constexpr (requires { { value.to_string() }; }) {
-            return std::formatter<std::string_view>::format(
-                value.to_string(), ctx);
+template <MandateToString T> struct MandateFormatter : std::formatter<std::string_view> {
+    template <class Ctx> constexpr auto format(const T& value, Ctx& ctx) const {
+        if constexpr (requires {
+                          { value.to_string() };
+                      }) {
+            return std::formatter<std::string_view>::format(value.to_string(), ctx);
         } else {
-            return std::formatter<std::string_view>::format(
-                to_string(value), ctx);
+            return std::formatter<std::string_view>::format(to_string(value), ctx);
         }
     }
 };
 
-} // namespace mandate  // nexigen::core::mandate
+} // namespace nexigen::core::mandate
 
 namespace nexigen {
 
@@ -96,7 +98,9 @@ namespace nexigen {
 /// outrank this template (non-template beats template) — no ambiguity.
 template <nexigen::core::mandate::MandateToString T>
 [[nodiscard]] std::string to_string(const T& value) {
-    if constexpr (requires { { value.to_string() }; }) {
+    if constexpr (requires {
+                      { value.to_string() };
+                  }) {
         return value.to_string();
     } else {
         return std::string(to_string(value)); // strings melt into a view copy
@@ -111,7 +115,6 @@ namespace std {
 /// the whole delegate family (spec core/serialization "Universal
 /// std::formatter" outcome).
 template <nexigen::core::mandate::MandateToString T>
-struct formatter<T>
-    : nexigen::core::mandate::MandateFormatter<T> {};
+struct formatter<T> : nexigen::core::mandate::MandateFormatter<T> {};
 
 } // namespace std

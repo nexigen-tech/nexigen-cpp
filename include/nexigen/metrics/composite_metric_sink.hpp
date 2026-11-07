@@ -91,11 +91,13 @@ template <concepts::MetricSink... Sinks>
 /// reconstructed from JSON — deserialization is deliberately absent.
 template <concepts::MetricSink... Sinks>
 void to_json(nlohmann::json& j, const CompositeMetricSink<Sinks...>& sink) {
-    j = nlohmann::json{{"type", "CompositeMetricSink"}, {"members", CompositeMetricSink<Sinks...>::size}};
+    j = nlohmann::json{{"type", "CompositeMetricSink"},
+                       {"members", CompositeMetricSink<Sinks...>::size}};
     static_cast<void>(sink);
 }
 
-static_assert(concepts::MetricSink<CompositeMetricSink<>>, "empty composite must satisfy the sink contract");
+static_assert(concepts::MetricSink<CompositeMetricSink<>>,
+              "empty composite must satisfy the sink contract");
 
 } // namespace nexigen::metrics
 

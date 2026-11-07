@@ -52,12 +52,10 @@ using nexigen::core::settings_io::unsigned_value;
 } // namespace
 
 std::string Settings::to_string() const {
-    std::string out = "Settings(global_loaded=" +
-                      std::string(global_loaded ? "true" : "false") +
+    std::string out = "Settings(global_loaded=" + std::string(global_loaded ? "true" : "false") +
                       ", local_loaded=" + std::string(local_loaded ? "true" : "false") +
                       ", options=" + nexigen::metrics::to_string(options) +
-                      ", sink=" + nexigen::metrics::to_string(sink) +
-                      ", diagnostics=[";
+                      ", sink=" + nexigen::metrics::to_string(sink) + ", diagnostics=[";
     for (std::size_t i = 0; i < diagnostics.size(); ++i) {
         if (i != 0) {
             out += "; ";
@@ -76,19 +74,19 @@ void to_json(nlohmann::json& j, const Settings& settings) {
         to_json(entry, diag);
         diagnostics.push_back(std::move(entry));
     }
-    j = nlohmann::json{{"global_loaded", settings.global_loaded},
-                       {"local_loaded", settings.local_loaded},
-                       {"collect_interval_ns", options.collect_interval.count()},
-                       {"worker_thread", options.worker_thread},
-                       {"max_meters", options.max_meters},
-                       {"max_counters", options.max_counters},
-                       {"max_gauges", options.max_gauges},
-                       {"max_statistics", options.max_statistics},
-                       {"max_explicit_histograms", options.max_explicit_histograms},
-                       {"max_exponential_histograms", options.max_exponential_histograms},
-                       {"sink", nlohmann::json{{"path", settings.sink.path},
-                                               {"append", settings.sink.append}}},
-                       {"diagnostics", std::move(diagnostics)}};
+    j = nlohmann::json{
+        {"global_loaded", settings.global_loaded},
+        {"local_loaded", settings.local_loaded},
+        {"collect_interval_ns", options.collect_interval.count()},
+        {"worker_thread", options.worker_thread},
+        {"max_meters", options.max_meters},
+        {"max_counters", options.max_counters},
+        {"max_gauges", options.max_gauges},
+        {"max_statistics", options.max_statistics},
+        {"max_explicit_histograms", options.max_explicit_histograms},
+        {"max_exponential_histograms", options.max_exponential_histograms},
+        {"sink", nlohmann::json{{"path", settings.sink.path}, {"append", settings.sink.append}}},
+        {"diagnostics", std::move(diagnostics)}};
 }
 
 namespace {
@@ -103,8 +101,7 @@ void merge_metrics_sink(const nlohmann::json& document, core::SettingsSource sou
     read_sink_bool(*sink, "append", out.sink.append, out.diagnostics, source);
 }
 
-void merge_metrics_document(const nlohmann::json& document,
-                            core::SettingsSource source,
+void merge_metrics_document(const nlohmann::json& document, core::SettingsSource source,
                             Settings& out) {
     if (!document.is_object()) {
         add_diagnostic(out.diagnostics, source, "", "document is not a JSON object");
@@ -117,7 +114,8 @@ void merge_metrics_document(const nlohmann::json& document,
               static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()), interval,
               out.diagnostics, source);
     if (out.diagnostics.size() == before) {
-        out.options.collect_interval = std::chrono::nanoseconds{static_cast<std::int64_t>(interval)};
+        out.options.collect_interval =
+            std::chrono::nanoseconds{static_cast<std::int64_t>(interval)};
     }
     std::uint64_t core_mask = 0;
     read_uint(document, "core_mask", std::numeric_limits<std::uint64_t>::max(), core_mask,
@@ -139,8 +137,8 @@ void merge_metrics_document(const nlohmann::json& document,
     const auto read_u32 = [&](const char* key, std::uint32_t& target) {
         std::uint64_t value = target;
         const std::size_t diagnostics_before = out.diagnostics.size();
-        read_uint(document, key, std::numeric_limits<std::uint32_t>::max(), value,
-                  out.diagnostics, source);
+        read_uint(document, key, std::numeric_limits<std::uint32_t>::max(), value, out.diagnostics,
+                  source);
         if (out.diagnostics.size() == diagnostics_before) {
             target = static_cast<std::uint32_t>(value);
         }
@@ -165,7 +163,8 @@ void apply_metrics_environment(Settings& out) {
         std::uint64_t parsed = 0;
         if (parse_u64(value, parsed) &&
             parsed <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
-            out.options.collect_interval = std::chrono::nanoseconds{static_cast<std::int64_t>(parsed)};
+            out.options.collect_interval =
+                std::chrono::nanoseconds{static_cast<std::int64_t>(parsed)};
         } else {
             add_diagnostic(out.diagnostics, core::SettingsSource::Environment,
                            "collect_interval_ns", "expected a non-negative nanosecond count");
@@ -185,8 +184,7 @@ void apply_metrics_environment(Settings& out) {
 
 } // namespace
 
-core::Status load_metrics_settings(const core::SettingsPaths& paths,
-                                   Settings& out) noexcept {
+core::Status load_metrics_settings(const core::SettingsPaths& paths, Settings& out) noexcept {
     out = Settings{};
     bool invalid = false;
     bool system_error = false;
@@ -198,8 +196,7 @@ core::Status load_metrics_settings(const core::SettingsPaths& paths,
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, core::SettingsSource::Global, "",
-                           "malformed JSON");
+            add_diagnostic(out.diagnostics, core::SettingsSource::Global, "", "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
             merge_metrics_document(document, core::SettingsSource::Global, out);
@@ -218,8 +215,7 @@ core::Status load_metrics_settings(const core::SettingsPaths& paths,
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, core::SettingsSource::Local, "",
-                           "malformed JSON");
+            add_diagnostic(out.diagnostics, core::SettingsSource::Local, "", "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
             merge_metrics_document(document, core::SettingsSource::Local, out);

@@ -24,7 +24,7 @@
 namespace nexigen::chrono {
 
 core::Status StampSource::calibrate() noexcept {
-#if defined(__x86_64__)    // Anchor pair: ticks first, then the clock — the constant sub-microsecond
+#if defined(__x86_64__) // Anchor pair: ticks first, then the clock — the constant sub-microsecond
     // lag this introduces is absorbed by the per-source monotonic clamp.
     const std::uint64_t t1 = __rdtsc();
     const core::Result<Timestamp> m1 = Timestamp::now();

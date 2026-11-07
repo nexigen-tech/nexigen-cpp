@@ -121,8 +121,7 @@ inline constexpr int stats_handshake_attempts = 64;
 
 /// Online moment statistics. Constructible only through a Meter.
 template <ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,
-          AccessPolicy Access = AccessPolicy::Readable,
-          ResetPolicy Reset = ResetPolicy::Cumulative>
+          AccessPolicy Access = AccessPolicy::Readable, ResetPolicy Reset = ResetPolicy::Cumulative>
 class DescriptiveStatistics {
 public:
     static constexpr MetricKind kind = MetricKind::DescriptiveStatistics;
@@ -158,13 +157,15 @@ public:
             target.seq.store(marker + 1U, std::memory_order_seq_cst);
             const std::uint8_t bank = target.active.load(std::memory_order_relaxed);
             target.bank[bank].apply(value);
-            target.seq.store(marker + 2U, std::memory_order_release);   // done
+            target.seq.store(marker + 2U, std::memory_order_release); // done
         }
     }
 
     /// Current summary (or the window summary for ResetOnRead — which also
     /// clears the window). Available only for Readable instruments.
-    [[nodiscard]] StatisticsSnapshot read() const requires (Access == AccessPolicy::Readable) {
+    [[nodiscard]] StatisticsSnapshot read() const
+        requires(Access == AccessPolicy::Readable)
+    {
         StatisticsSnapshot snapshot{};
         snapshot.ignored_samples = ignored_.load(std::memory_order_relaxed);
         snapshot.dropped_samples = dropped_.load(std::memory_order_relaxed);
@@ -178,7 +179,9 @@ public:
     }
 
     /// Full record for this instrument (identity, classification, values).
-    [[nodiscard]] MetricRecord snapshot() const requires (Access == AccessPolicy::Readable) {
+    [[nodiscard]] MetricRecord snapshot() const
+        requires(Access == AccessPolicy::Readable)
+    {
         MetricRecord record = detail::make_record(kind, concurrency, access, reset, identity_);
         record.statistics = read();
         return record;
@@ -202,10 +205,9 @@ public:
     /// construction is Meter-only.
     friend void to_json(nlohmann::json& j, const DescriptiveStatistics& statistics) {
         const StatisticsSnapshot snapshot = statistics.read();
-        j = detail::classification_json(DescriptiveStatistics::kind,
-                                        DescriptiveStatistics::concurrency,
-                                        DescriptiveStatistics::access,
-                                        DescriptiveStatistics::reset);
+        j = detail::classification_json(
+            DescriptiveStatistics::kind, DescriptiveStatistics::concurrency,
+            DescriptiveStatistics::access, DescriptiveStatistics::reset);
         j["statistics"] = snapshot;
     }
 
@@ -317,47 +319,46 @@ private:
     /// Identity of the owning registry slot (set by the Meter at creation).
     const MetricIdentity* identity_{nullptr};
 
-    mutable detail::WelfordState cell_{};                  // SingleThreaded
+    mutable detail::WelfordState cell_{};                    // SingleThreaded
     mutable detail::StatsSlot slots_[detail::shard_count]{}; // MultiThreaded
     std::atomic<std::uint64_t> ignored_{0};
     std::atomic<std::uint64_t> dropped_{0};
 };
 
 static_assert(sizeof(DescriptiveStatistics<ConcurrencyPolicy::MultiThreaded, AccessPolicy::Readable,
-                                            ResetPolicy::ResetOnRead>) <=
+                                           ResetPolicy::ResetOnRead>) <=
                   detail::max_statistics_size,
               "statistics must fit the registry budget");
-static_assert(concepts::Metric<DescriptiveStatistics<ConcurrencyPolicy::SingleThreaded,
-                                                      AccessPolicy::Readable,
-                                                      ResetPolicy::Cumulative>>,
-              "DescriptiveStatistics must satisfy the Metric concept");
-static_assert(concepts::ReadableMetric<DescriptiveStatistics<ConcurrencyPolicy::SingleThreaded,
-                                                              AccessPolicy::Readable,
-                                                              ResetPolicy::Cumulative>>,
-              "a Readable statistics instrument must satisfy the ReadableMetric concept");
-static_assert(!concepts::ReadableMetric<DescriptiveStatistics<ConcurrencyPolicy::SingleThreaded,
-                                                               AccessPolicy::WriteOnly,
-                                                               ResetPolicy::Cumulative>>,
-              "a WriteOnly statistics instrument must NOT satisfy the ReadableMetric concept");
-static_assert(!detail::HasRead<DescriptiveStatistics<ConcurrencyPolicy::SingleThreaded,
-                                                       AccessPolicy::WriteOnly,
-                                                       ResetPolicy::Cumulative>>,
-              "a WriteOnly statistics instrument must not expose read()");
-static_assert(!detail::HasSnapshot<DescriptiveStatistics<ConcurrencyPolicy::SingleThreaded,
-                                                          AccessPolicy::WriteOnly,
-                                                          ResetPolicy::Cumulative>>,
-              "a WriteOnly statistics instrument must not expose snapshot()");
+static_assert(
+    concepts::Metric<DescriptiveStatistics<ConcurrencyPolicy::SingleThreaded,
+                                           AccessPolicy::Readable, ResetPolicy::Cumulative>>,
+    "DescriptiveStatistics must satisfy the Metric concept");
+static_assert(
+    concepts::ReadableMetric<DescriptiveStatistics<
+        ConcurrencyPolicy::SingleThreaded, AccessPolicy::Readable, ResetPolicy::Cumulative>>,
+    "a Readable statistics instrument must satisfy the ReadableMetric concept");
+static_assert(
+    !concepts::ReadableMetric<DescriptiveStatistics<
+        ConcurrencyPolicy::SingleThreaded, AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
+    "a WriteOnly statistics instrument must NOT satisfy the ReadableMetric concept");
+static_assert(
+    !detail::HasRead<DescriptiveStatistics<ConcurrencyPolicy::SingleThreaded,
+                                           AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
+    "a WriteOnly statistics instrument must not expose read()");
+static_assert(
+    !detail::HasSnapshot<DescriptiveStatistics<ConcurrencyPolicy::SingleThreaded,
+                                               AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
+    "a WriteOnly statistics instrument must not expose snapshot()");
 
 /// Free helper (mandate 9): mirrors the member.
 template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::AccessPolicy Access,
           nexigen::metrics::ResetPolicy Reset>
-[[nodiscard]] std::string to_string(
-    const nexigen::metrics::DescriptiveStatistics<Concurrency, Access, Reset>& statistics) {
+[[nodiscard]] std::string
+to_string(const nexigen::metrics::DescriptiveStatistics<Concurrency, Access, Reset>& statistics) {
     return statistics.to_string();
 }
 
 } // namespace nexigen::metrics
-
 
 /// Statistics instruments format as their diagnostic string (mandate 11).
 template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::AccessPolicy Access,
@@ -365,8 +366,9 @@ template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::Acc
 struct std::formatter<nexigen::metrics::DescriptiveStatistics<Concurrency, Access, Reset>>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::metrics::DescriptiveStatistics<Concurrency, Access, Reset>& statistics,
-                Ctx& ctx) const {
+    auto
+    format(const nexigen::metrics::DescriptiveStatistics<Concurrency, Access, Reset>& statistics,
+           Ctx& ctx) const {
         const std::string text = statistics.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

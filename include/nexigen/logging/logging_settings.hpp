@@ -74,54 +74,41 @@ void to_json(nlohmann::json& j, const Settings& settings);
 /// Map merged settings into a file logger construction config. Returns
 /// InvalidArgument when a mapped value violates the file logger's fixed-buffer
 /// limits; the destination owns its strings.
-[[nodiscard]] core::Status apply_to(const Settings& settings,
-                                    FileLoggerConfig& out) noexcept;
+[[nodiscard]] core::Status apply_to(const Settings& settings, FileLoggerConfig& out) noexcept;
 
 /// Check explicitly configured capacities against a logger's compile-time
 /// limits. Defaults that were never explicitly set are not checked. When
 /// `diagnostics` is non-null, a Computed diagnostic is appended on failure.
 template <std::size_t ShardCapacity, std::size_t MaxThreads, std::size_t MessageCapacity>
-[[nodiscard]] core::Status check_capacity(
-    const Settings& settings,
-    std::vector<core::SettingsDiagnostic>* diagnostics = nullptr) noexcept {
+[[nodiscard]] core::Status
+check_capacity(const Settings& settings,
+               std::vector<core::SettingsDiagnostic>* diagnostics = nullptr) noexcept {
     bool ok = true;
-    if (settings.ring_capacity_set &&
-        settings.options.spsc_ring_buffer_capacity > ShardCapacity) {
+    if (settings.ring_capacity_set && settings.options.spsc_ring_buffer_capacity > ShardCapacity) {
         ok = false;
         if (diagnostics != nullptr) {
             diagnostics->push_back(core::SettingsDiagnostic{
-                core::SettingsSource::Computed,
-                "spsc_ring_buffer_capacity",
-                "configured " +
-                    std::to_string(settings.options.spsc_ring_buffer_capacity) +
-                    " exceeds logger shard capacity " +
-                    std::to_string(ShardCapacity)});
+                core::SettingsSource::Computed, "spsc_ring_buffer_capacity",
+                "configured " + std::to_string(settings.options.spsc_ring_buffer_capacity) +
+                    " exceeds logger shard capacity " + std::to_string(ShardCapacity)});
         }
     }
-    if (settings.max_threads_set &&
-        settings.options.max_producer_threads > MaxThreads) {
+    if (settings.max_threads_set && settings.options.max_producer_threads > MaxThreads) {
         ok = false;
         if (diagnostics != nullptr) {
             diagnostics->push_back(core::SettingsDiagnostic{
-                core::SettingsSource::Computed,
-                "max_producer_threads",
-                "configured " +
-                    std::to_string(settings.options.max_producer_threads) +
-                    " exceeds logger producer slots " +
-                    std::to_string(MaxThreads)});
+                core::SettingsSource::Computed, "max_producer_threads",
+                "configured " + std::to_string(settings.options.max_producer_threads) +
+                    " exceeds logger producer slots " + std::to_string(MaxThreads)});
         }
     }
-    if (settings.message_capacity_set &&
-        settings.options.message_capacity > MessageCapacity) {
+    if (settings.message_capacity_set && settings.options.message_capacity > MessageCapacity) {
         ok = false;
         if (diagnostics != nullptr) {
             diagnostics->push_back(core::SettingsDiagnostic{
-                core::SettingsSource::Computed,
-                "message_capacity",
-                "configured " +
-                    std::to_string(settings.options.message_capacity) +
-                    " exceeds logger message capacity " +
-                    std::to_string(MessageCapacity)});
+                core::SettingsSource::Computed, "message_capacity",
+                "configured " + std::to_string(settings.options.message_capacity) +
+                    " exceeds logger message capacity " + std::to_string(MessageCapacity)});
         }
     }
     if (!ok) {
@@ -131,5 +118,3 @@ template <std::size_t ShardCapacity, std::size_t MaxThreads, std::size_t Message
 }
 
 } // namespace nexigen::logging
-
-

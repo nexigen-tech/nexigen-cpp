@@ -25,7 +25,9 @@ public:
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const NullMetricSink&) { return "NullMetricSink()"; }
+[[nodiscard]] inline std::string to_string(const NullMetricSink&) {
+    return "NullMetricSink()";
+}
 
 /// Diagnostic JSON (cold path): the sink is stateless, so it round-trips.
 inline void to_json(nlohmann::json& j, const NullMetricSink&) {
@@ -36,7 +38,8 @@ inline void from_json(const nlohmann::json&, NullMetricSink&) noexcept {
     // Stateless: nothing to restore.
 }
 
-static_assert(concepts::MetricSink<NullMetricSink>, "NullMetricSink must satisfy the sink contract");
+static_assert(concepts::MetricSink<NullMetricSink>,
+              "NullMetricSink must satisfy the sink contract");
 
 } // namespace nexigen::metrics
 

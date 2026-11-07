@@ -87,25 +87,22 @@ int main() {
     }
 
     // Global file: machine-wide policy.
-    write_file(k_global,
-               std::format(R"({{"log_root_directory":"{}",)"
-                           R"("initial_log_level":"info",)"
-                           R"("max_file_size_bytes":4096,)"
-                           R"("flush_cpu_affinity":[0]}})",
-                           k_root));
+    write_file(k_global, std::format(R"({{"log_root_directory":"{}",)"
+                                     R"("initial_log_level":"info",)"
+                                     R"("max_file_size_bytes":4096,)"
+                                     R"("flush_cpu_affinity":[0]}})",
+                                     k_root));
     // Local file: per-application override.
-    write_file(k_local,
-               std::format(R"({{"initial_log_level":"warning",)"
-                           R"("spsc_ring_buffer_capacity":64}})"));
+    write_file(k_local, std::format(R"({{"initial_log_level":"warning",)"
+                                    R"("spsc_ring_buffer_capacity":64}})"));
 
     // Environment overrides are the highest-priority layer.
     static_cast<void>(::setenv("NEXIGEN_LOG_LEVEL", "debug", 1));
     static_cast<void>(::setenv("NEXIGEN_LOG_CPU_AFFINITY", "0", 1));
 
     Settings settings{};
-    const auto loaded = load_logging_settings(SettingsPaths{std::string(k_global),
-                                                             std::string(k_local)},
-                                              settings);
+    const auto loaded =
+        load_logging_settings(SettingsPaths{std::string(k_global), std::string(k_local)}, settings);
     print_line(std::format("load status: {}",
                            loaded.has_value() ? "OK" : nexigen::core::to_string(loaded.error())));
     print_line(settings.to_string());

@@ -39,8 +39,8 @@ namespace {
 std::size_t put_epoch_label(std::int64_t value, char (&buf)[64]) noexcept {
     std::size_t out = 0;
     const bool neg = value < 0;
-    std::uint64_t v = neg ? static_cast<std::uint64_t>(-(value + 1)) + 1ULL
-                          : static_cast<std::uint64_t>(value);
+    std::uint64_t v =
+        neg ? static_cast<std::uint64_t>(-(value + 1)) + 1ULL : static_cast<std::uint64_t>(value);
     char digits[24];
     std::size_t n = 0;
     do {
@@ -107,8 +107,7 @@ std::size_t put_epoch_label(std::int64_t value, char (&buf)[64]) noexcept {
 
 } // namespace
 
-std::int64_t period_key(RotationKind kind, std::uint64_t custom_ns,
-                        std::int64_t utc_ns) noexcept {
+std::int64_t period_key(RotationKind kind, std::uint64_t custom_ns, std::int64_t utc_ns) noexcept {
     switch (kind) {
         case RotationKind::Hourly: {
             // Same civil decomposition the labels use, so key changes and
@@ -116,8 +115,7 @@ std::int64_t period_key(RotationKind kind, std::uint64_t custom_ns,
             const chrono::CivilTime ct = chrono::civil_from_utc_ns(utc_ns);
             return chrono::days_from_utc_ns(utc_ns) * 24 + static_cast<std::int64_t>(ct.hour);
         }
-        case RotationKind::Daily:
-            return chrono::days_from_utc_ns(utc_ns);
+        case RotationKind::Daily:  return chrono::days_from_utc_ns(utc_ns);
         case RotationKind::Custom: {
             if (custom_ns == 0ULL) {
                 return 0; // config error is surfaced at initialize(); stay monotone
@@ -126,17 +124,16 @@ std::int64_t period_key(RotationKind kind, std::uint64_t custom_ns,
             return static_cast<std::int64_t>(u / custom_ns);
         }
         case RotationKind::None:
-        default:
-            return 0;
+        default:                 return 0;
     }
 }
 
-std::size_t period_label(RotationKind kind, std::uint64_t custom_ns,
-                         std::int64_t utc_ns, char (&buf)[64]) noexcept {
+std::size_t period_label(RotationKind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
+                         char (&buf)[64]) noexcept {
     buf[0] = '\0';
     switch (kind) {
         case RotationKind::Hourly:
-        case RotationKind::Daily: {
+        case RotationKind::Daily:  {
             char iso[31];
             chrono::format_utc_iso8601_ns(utc_ns, iso);
             // Hourly: "YYYY-MM-DDTHH" (13 chars); Daily: "YYYY-MM-DD" (10).
@@ -145,11 +142,9 @@ std::size_t period_label(RotationKind kind, std::uint64_t custom_ns,
             buf[len] = '\0';
             return len;
         }
-        case RotationKind::Custom:
-            return put_epoch_label(period_key(kind, custom_ns, utc_ns), buf);
+        case RotationKind::Custom: return put_epoch_label(period_key(kind, custom_ns, utc_ns), buf);
         case RotationKind::None:
-        default:
-            return 0;
+        default:                   return 0;
     }
 }
 
@@ -161,11 +156,9 @@ core::Status open_period(RotationKind kind, std::uint64_t custom_ns, std::int64_
 
 core::Status open_segment(RotationKind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
                           std::string_view base_dir, std::string_view file_name,
-                          std::uint64_t segment, RotationScratch& scratch,
-                          int& fd_out) noexcept {
+                          std::uint64_t segment, RotationScratch& scratch, int& fd_out) noexcept {
     fd_out = -1;
-    if (base_dir.empty() || file_name.empty() || base_dir.size() > 511 ||
-        file_name.size() > 255 ||
+    if (base_dir.empty() || file_name.empty() || base_dir.size() > 511 || file_name.size() > 255 ||
         base_dir.find('\0') != std::string_view::npos ||
         file_name.find('\0') != std::string_view::npos) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -214,8 +207,8 @@ core::Status open_segment(RotationKind kind, std::uint64_t custom_ns, std::int64
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 
-    const int fd = ::openat(AT_FDCWD, scratch.file,
-                            O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0644);
+    const int fd =
+        ::openat(AT_FDCWD, scratch.file, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0644);
     if (fd < 0) {
         return std::unexpected(core::ErrorCode::SystemError);
     }

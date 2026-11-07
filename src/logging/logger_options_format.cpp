@@ -27,17 +27,26 @@ void to_json(nlohmann::json& j, const SpamProtectionConfig& cfg) {
 }
 
 void from_json(const nlohmann::json& j, SpamProtectionConfig& out) noexcept {
-    if (!j.is_object()) { return; }
+    if (!j.is_object()) {
+        return;
+    }
     auto it = j.find("enable_repeat_suppression");
-    if (it != j.end() && it->is_boolean()) { out.enable_repeat_suppression = it->get<bool>(); }
+    if (it != j.end() && it->is_boolean()) {
+        out.enable_repeat_suppression = it->get<bool>();
+    }
     it = j.find("repeat_suppression_window_ms");
-    if (it != j.end() && it->is_number_unsigned()) { out.repeat_suppression_window_ms = it->get<std::uint32_t>(); }
+    if (it != j.end() && it->is_number_unsigned()) {
+        out.repeat_suppression_window_ms = it->get<std::uint32_t>();
+    }
     it = j.find("max_messages_per_sec_per_shard");
-    if (it != j.end() && it->is_number_unsigned()) { out.max_messages_per_sec_per_shard = it->get<std::uint32_t>(); }
+    if (it != j.end() && it->is_number_unsigned()) {
+        out.max_messages_per_sec_per_shard = it->get<std::uint32_t>();
+    }
     it = j.find("bypass_min_level");
     if (it != j.end() && it->is_string()) {
-        static_cast<void>(from_string(std::string_view(*it->get_ptr<const nlohmann::json::string_t*>()),
-                                      out.bypass_min_level));
+        static_cast<void>(
+            from_string(std::string_view(*it->get_ptr<const nlohmann::json::string_t*>()),
+                        out.bypass_min_level));
     }
 }
 
@@ -58,26 +67,40 @@ void to_json(nlohmann::json& j, const LoggerOptions& opts) {
 }
 
 void from_json(const nlohmann::json& j, LoggerOptions& out) noexcept {
-    if (!j.is_object()) { return; }
+    if (!j.is_object()) {
+        return;
+    }
     auto it = j.find("log_root_directory");
-    if (it != j.end() && it->is_string()) { out.log_root_directory = it->get<std::string>(); }
+    if (it != j.end() && it->is_string()) {
+        out.log_root_directory = it->get<std::string>();
+    }
     it = j.find("initial_log_level");
     if (it != j.end() && it->is_string()) {
-        static_cast<void>(from_string(std::string_view(*it->get_ptr<const nlohmann::json::string_t*>()),
-                                      out.initial_log_level));
+        static_cast<void>(
+            from_string(std::string_view(*it->get_ptr<const nlohmann::json::string_t*>()),
+                        out.initial_log_level));
     }
     it = j.find("max_file_size_bytes");
-    if (it != j.end() && it->is_number_unsigned()) { out.max_file_size_bytes = it->get<std::uint64_t>(); }
+    if (it != j.end() && it->is_number_unsigned()) {
+        out.max_file_size_bytes = it->get<std::uint64_t>();
+    }
     it = j.find("spsc_ring_buffer_capacity");
-    if (it != j.end() && it->is_number_unsigned()) { out.spsc_ring_buffer_capacity = it->get<std::uint32_t>(); }
+    if (it != j.end() && it->is_number_unsigned()) {
+        out.spsc_ring_buffer_capacity = it->get<std::uint32_t>();
+    }
     it = j.find("message_capacity");
-    if (it != j.end() && it->is_number_unsigned()) { out.message_capacity = it->get<std::uint32_t>(); }
+    if (it != j.end() && it->is_number_unsigned()) {
+        out.message_capacity = it->get<std::uint32_t>();
+    }
     it = j.find("max_producer_threads");
-    if (it != j.end() && it->is_number_unsigned()) { out.max_producer_threads = it->get<std::uint32_t>(); }
+    if (it != j.end() && it->is_number_unsigned()) {
+        out.max_producer_threads = it->get<std::uint32_t>();
+    }
     it = j.find("overflow_policy");
     if (it != j.end() && it->is_string()) {
-        static_cast<void>(from_string(std::string_view(*it->get_ptr<const nlohmann::json::string_t*>()),
-                                      out.overflow_policy));
+        static_cast<void>(
+            from_string(std::string_view(*it->get_ptr<const nlohmann::json::string_t*>()),
+                        out.overflow_policy));
     }
     // Compatibility inputs are applied before the canonical worker object so
     // canonical fields win within this source. Legacy masks/lists affect only
@@ -98,9 +121,13 @@ void from_json(const nlohmann::json& j, LoggerOptions& out) noexcept {
         static_cast<void>(core::parse_thread_spec_json(*it, out.worker_thread));
     }
     it = j.find("worker_poll_interval_us");
-    if (it != j.end() && it->is_number_unsigned()) { out.worker_poll_interval_us = it->get<std::uint32_t>(); }
+    if (it != j.end() && it->is_number_unsigned()) {
+        out.worker_poll_interval_us = it->get<std::uint32_t>();
+    }
     it = j.find("sync_flush_on_critical");
-    if (it != j.end() && it->is_boolean()) { out.sync_flush_on_critical = it->get<bool>(); }
+    if (it != j.end() && it->is_boolean()) {
+        out.sync_flush_on_critical = it->get<bool>();
+    }
     it = j.find("spam_protection");
     if (it != j.end() && it->is_object()) {
         from_json(*it, out.spam_protection);
@@ -113,15 +140,17 @@ void to_json(nlohmann::json& j, const FileLoggerConfig& cfg) {
         {"base_dir", cfg.base_dir},
         {"file_name", cfg.file_name},
         {"initial_level", std::string(to_string(cfg.initial_level))},
-        {"throttle", {
-            {"enabled", cfg.throttle.enabled},
-            {"max_records_per_window", cfg.throttle.max_records_per_window},
-            {"window_ns", cfg.throttle.window_ns},
-        }},
-        {"rotation", {
-            {"kind", std::string(detail::to_string(cfg.rotation.kind))},
-            {"custom_ns", cfg.rotation.custom_ns},
-        }},
+        {"throttle",
+         {
+             {"enabled", cfg.throttle.enabled},
+             {"max_records_per_window", cfg.throttle.max_records_per_window},
+             {"window_ns", cfg.throttle.window_ns},
+         }},
+        {"rotation",
+         {
+             {"kind", std::string(detail::to_string(cfg.rotation.kind))},
+             {"custom_ns", cfg.rotation.custom_ns},
+         }},
         {"worker_thread", cfg.worker_thread},
         {"max_file_size_bytes", cfg.max_file_size_bytes},
         {"worker_poll_interval_us", cfg.worker_poll_interval_us},
@@ -156,8 +185,7 @@ void from_json(const nlohmann::json& j, FileLoggerConfig& out) noexcept {
         destination = it->get<std::uint64_t>();
         return true;
     };
-    if (!read_string("app_name", parsed.app_name) ||
-        !read_string("base_dir", parsed.base_dir) ||
+    if (!read_string("app_name", parsed.app_name) || !read_string("base_dir", parsed.base_dir) ||
         !read_string("file_name", parsed.file_name)) {
         return;
     }
@@ -203,7 +231,8 @@ void from_json(const nlohmann::json& j, FileLoggerConfig& out) noexcept {
         const auto kind = rotation->find("kind");
         if (kind != rotation->end()) {
             const auto* const text = kind->get_ptr<const nlohmann::json::string_t*>();
-            if (text == nullptr || !detail::from_string(std::string_view(*text), parsed.rotation.kind)) {
+            if (text == nullptr ||
+                !detail::from_string(std::string_view(*text), parsed.rotation.kind)) {
                 return;
             }
         }

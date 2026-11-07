@@ -58,15 +58,14 @@ static_assert(std::is_trivially_copyable_v<nexigen::chrono::Timestamp>);
 
 using namespace nexigen::core;   // test TU: exercise the error model unqualified
 using namespace nexigen::chrono; // test TU: exercise the API unqualified
-namespace core = nexigen::core;    // also allow explicit core:: qualification in fixtures
+namespace core = nexigen::core;  // also allow explicit core:: qualification in fixtures
 
 // Loader-produced Settings have no from_json; pin that contract.
-template <class T, class = void>
-struct has_from_json : std::false_type {};
+template <class T, class = void> struct has_from_json : std::false_type {};
 template <class T>
 struct has_from_json<
-    T, std::void_t<decltype(from_json(std::declval<const nlohmann::json&>(),
-                                      std::declval<T&>()))>> : std::true_type {};
+    T, std::void_t<decltype(from_json(std::declval<const nlohmann::json&>(), std::declval<T&>()))>>
+    : std::true_type {};
 
 static_assert(!has_from_json<Settings>::value);
 
@@ -85,30 +84,44 @@ std::size_t g_alloc_used = 0;
 
 } // namespace
 
-[[noreturn]] void arena_exhausted() { std::abort(); }
+[[noreturn]] void arena_exhausted() {
+    std::abort();
+}
 
 void* operator new(std::size_t size) {
     const std::size_t rounded = (size + 15U) & ~static_cast<std::size_t>(15U);
-    if (g_alloc_used + rounded > sizeof(g_arena)) { arena_exhausted(); }
+    if (g_alloc_used + rounded > sizeof(g_arena)) {
+        arena_exhausted();
+    }
     void* p = g_arena + g_alloc_used;
     g_alloc_used += rounded;
     return p;
 }
 
-void* operator new[](std::size_t size) { return ::operator new(size); }
+void* operator new[](std::size_t size) {
+    return ::operator new(size);
+}
 
-void operator delete(void* ptr) noexcept { static_cast<void>(ptr); }
-void operator delete(void* ptr, std::size_t) noexcept { static_cast<void>(ptr); }
-void operator delete[](void* ptr) noexcept { static_cast<void>(ptr); }
-void operator delete[](void* ptr, std::size_t) noexcept { static_cast<void>(ptr); }
+void operator delete(void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete(void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
 
-#define NX_CHECK(...)                                                                           \
-    do {                                                                                        \
-        ++g_checks;                                                                             \
-        if (!(__VA_ARGS__)) {                                                                   \
-            ++g_failures;                                                                       \
-            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #__VA_ARGS__);        \
-        }                                                                                       \
+#define NX_CHECK(...)                                                                              \
+    do {                                                                                           \
+        ++g_checks;                                                                                \
+        if (!(__VA_ARGS__)) {                                                                      \
+            ++g_failures;                                                                          \
+            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #__VA_ARGS__);            \
+        }                                                                                          \
     } while (false)
 
 // A component that declares a non-default clock domain (spec chrono/clock-id
@@ -116,13 +129,12 @@ void operator delete[](void* ptr, std::size_t) noexcept { static_cast<void>(ptr)
 // because the primary template is a member of nexigen::chrono.
 struct BoottimeComponent {};
 template <>
-inline constexpr nexigen::chrono::ClockId
-    nexigen::chrono::clock_domain<BoottimeComponent> = nexigen::chrono::ClockId::boottime;
+inline constexpr nexigen::chrono::ClockId nexigen::chrono::clock_domain<BoottimeComponent> =
+    nexigen::chrono::ClockId::boottime;
 
 namespace {
 
-void run_suite(const char* suite_name, void (*body)())
-{
+void run_suite(const char* suite_name, void (*body)()) {
     const int checks_before = g_checks;
     const int failures_before = g_failures;
 
@@ -172,15 +184,16 @@ void test_timestamp() {
     NX_CHECK(first.has_value());
 
     volatile std::uint64_t work = 0; // "work performed in between" (spec scenario)
-    for (int i = 0; i < 10'000; ++i) { work += static_cast<std::uint64_t>(i); }
+    for (int i = 0; i < 10'000; ++i) {
+        work += static_cast<std::uint64_t>(i);
+    }
     static_cast<void>(work);
 
     const Result<Timestamp> second = Timestamp::now();
     NX_CHECK(second.has_value());
     if (first.has_value() && second.has_value()) {
         NX_CHECK(*second >= *first); // monotonic: never lower than the previous read
-        NX_CHECK((*second - *first).nanoseconds() ==
-                 second->nanoseconds() - first->nanoseconds());
+        NX_CHECK((*second - *first).nanoseconds() == second->nanoseconds() - first->nanoseconds());
     }
 
     // Repeated reads allocate nothing: the arena bump-counter (operator new
@@ -190,7 +203,9 @@ void test_timestamp() {
     int engaged_reads = 0;
     for (int i = 0; i < 1000; ++i) {
         const Result<Timestamp> r = Timestamp::now();
-        if (r.has_value()) { ++engaged_reads; }
+        if (r.has_value()) {
+            ++engaged_reads;
+        }
     }
     NX_CHECK(engaged_reads == 1000);
     NX_CHECK(g_alloc_used == arena_before);
@@ -208,7 +223,9 @@ void test_stamp() {
     int regressions = 0;
     for (int i = 0; i < 1000; ++i) {
         const Timestamp t = src.sample();
-        if (t < prev) { ++regressions; }
+        if (t < prev) {
+            ++regressions;
+        }
         prev = t;
     }
     NX_CHECK(regressions == 0);
@@ -265,7 +282,9 @@ void test_utc_offset() {
     const std::int64_t u2 = utc_from_mono_ns(mono_a.nanoseconds(), off1);
     NX_CHECK(u1 == u2);
     volatile std::uint64_t spin = 0; // tiny work between stamps
-    for (int i = 0; i < 1000; ++i) { spin += static_cast<std::uint64_t>(i); }
+    for (int i = 0; i < 1000; ++i) {
+        spin += static_cast<std::uint64_t>(i);
+    }
     static_cast<void>(spin);
     const Timestamp mono_b = mono_now_or_zero();
     NX_CHECK(utc_from_mono_ns(mono_b.nanoseconds(), off1) >= u1);
@@ -409,8 +428,7 @@ struct RecordingSink {
         affinity_ok.push_back(
             ::pthread_getaffinity_np(::pthread_self(), sizeof(set), &set) == 0 &&
             (expected_cpu < 0 ||
-             (CPU_COUNT(&set) == 1 &&
-              CPU_ISSET(static_cast<std::size_t>(expected_cpu), &set))));
+             (CPU_COUNT(&set) == 1 && CPU_ISSET(static_cast<std::size_t>(expected_cpu), &set))));
         return snapshot_status;
     }
     Status flush() noexcept {
@@ -430,9 +448,7 @@ struct CountSink {
 };
 
 struct FailSink {
-    Status on_snapshot(const Snapshot&) noexcept {
-        return std::unexpected(ErrorCode::SystemError);
-    }
+    Status on_snapshot(const Snapshot&) noexcept { return std::unexpected(ErrorCode::SystemError); }
     Status flush() noexcept { return std::unexpected(ErrorCode::SystemError); }
     std::string to_string() const { return "FailSink()"; }
 };
@@ -558,7 +574,8 @@ void test_snapshot() {
     NX_CHECK(copy.realtime_offset_ns == original.realtime_offset_ns);
 
     // Re-binding: stamp + offset reproduces wall-clock time.
-    NX_CHECK(static_cast<std::int64_t>(original.stamp.nanoseconds()) + original.realtime_offset_ns ==
+    NX_CHECK(static_cast<std::int64_t>(original.stamp.nanoseconds()) +
+                 original.realtime_offset_ns ==
              1'000'000'042LL);
 
     // Serialization round-trips, including a negative offset.
@@ -681,9 +698,10 @@ void test_sinks() {
         while (pos < content.size()) {
             const std::size_t nl = content.find('\n', pos);
             const std::string_view line(content.data() + pos,
-                                         (nl == std::string::npos ? content.size() : nl) - pos);
+                                        (nl == std::string::npos ? content.size() : nl) - pos);
             if (!line.empty()) {
-                const nlohmann::json parsed = nlohmann::json::parse(std::string(line), nullptr, false);
+                const nlohmann::json parsed =
+                    nlohmann::json::parse(std::string(line), nullptr, false);
                 NX_CHECK(!parsed.is_discarded());
                 if (!parsed.is_discarded() && parsed.is_object()) {
                     if (parsed.value("stamp_ns", 0ULL) == 111ULL) {
@@ -716,8 +734,8 @@ void test_sinks() {
 
     // Composite sink: fan-out, first-failure aggregation, typed/indexed access.
     {
-        CompositeChronoSink<CountSink, CountSink, CountSink> comp{
-            CountSink{}, CountSink{}, CountSink{}};
+        CompositeChronoSink<CountSink, CountSink, CountSink> comp{CountSink{}, CountSink{},
+                                                                  CountSink{}};
         NX_CHECK(comp.on_snapshot(Snapshot{}).has_value());
         NX_CHECK(comp.get<0>().count == 1);
         NX_CHECK(comp.get<1>().count == 1);
@@ -726,8 +744,8 @@ void test_sinks() {
     }
     {
         // First failure does not starve the rest.
-        CompositeChronoSink<FailSink, CountSink, CountSink> comp{
-            FailSink{}, CountSink{}, CountSink{}};
+        CompositeChronoSink<FailSink, CountSink, CountSink> comp{FailSink{}, CountSink{},
+                                                                 CountSink{}};
         const Status s = comp.on_snapshot(Snapshot{});
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::SystemError);
@@ -866,9 +884,8 @@ void test_provider() {
         NX_CHECK(sink.snapshots[0].stamp.nanoseconds() > 0);
         // Re-binding stamp + offset reproduces the wall clock: positive and
         // within a sane range (after 2017, before 2100).
-        const std::int64_t wall =
-            static_cast<std::int64_t>(sink.snapshots[0].stamp.nanoseconds()) +
-            sink.snapshots[0].realtime_offset_ns;
+        const std::int64_t wall = static_cast<std::int64_t>(sink.snapshots[0].stamp.nanoseconds()) +
+                                  sink.snapshots[0].realtime_offset_ns;
         NX_CHECK(wall > 1'500'000'000'000'000'000LL);
         NX_CHECK(wall < 4'100'000'000'000'000'000LL);
         NX_CHECK(provider.to_string().find("ChronoProvider") != std::string::npos);
@@ -944,8 +961,7 @@ void test_provider() {
             NX_CHECK(provider.start(first).has_value());
             std::this_thread::sleep_for(std::chrono::milliseconds{5});
             const core::Status rebound = provider.start(second);
-            NX_CHECK(rebound.has_value() == false &&
-                     rebound.error() == core::ErrorCode::Conflict);
+            NX_CHECK(rebound.has_value() == false && rebound.error() == core::ErrorCode::Conflict);
             std::this_thread::sleep_for(std::chrono::milliseconds{20});
         } // destructor stops the worker
         NX_CHECK(!first.messages.empty());
@@ -1161,8 +1177,7 @@ void test_chrono_required_thread_failure() {
         RecordingSink sink;
         ChronoProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
-        config.worker_thread.set_cpus(
-            core::CpuSet::from_core_mask(std::uint64_t{1} << first_cpu));
+        config.worker_thread.set_cpus(core::CpuSet::from_core_mask(std::uint64_t{1} << first_cpu));
         NX_CHECK(config.worker_thread.set_name("chrono-worker").has_value());
         config.worker_thread.set_apply_mode(core::ThreadApplyMode::Required);
         ChronoProvider provider{config, sink};
@@ -1261,14 +1276,13 @@ void test_affinity_edges() {
 void test_chrono_worker_thread_settings() {
     char global_path[256];
     char local_path[256];
-    std::snprintf(global_path, sizeof global_path,
-                  "/tmp/opencode/chrono-worker-global-%d.json", ::getpid());
-    std::snprintf(local_path, sizeof local_path,
-                  "/tmp/opencode/chrono-worker-local-%d.json", ::getpid());
-    NX_CHECK(write_file(global_path,
-                        R"({"collect_interval_ns":1000000,"core_mask":5,)"
-                        R"("worker_thread":{"name":"chrono-worker","policy":"rr",)"
-                        R"("priority":40,"mode":"required"}})"));
+    std::snprintf(global_path, sizeof global_path, "/tmp/opencode/chrono-worker-global-%d.json",
+                  ::getpid());
+    std::snprintf(local_path, sizeof local_path, "/tmp/opencode/chrono-worker-local-%d.json",
+                  ::getpid());
+    NX_CHECK(write_file(global_path, R"({"collect_interval_ns":1000000,"core_mask":5,)"
+                                     R"("worker_thread":{"name":"chrono-worker","policy":"rr",)"
+                                     R"("priority":40,"mode":"required"}})"));
     NX_CHECK(write_file(local_path, R"({"worker_thread":{"cpus":[64,65]}})"));
 
     Settings merged{};
@@ -1454,8 +1468,7 @@ void test_settings_sink() {
     NX_CHECK(write_file(global_path.c_str(),
                         R"({"collect_interval_ns":1,)"
                         R"("sink":{"path":"/tmp/global-chrono.jsonl","append":false}})"));
-    NX_CHECK(write_file(local_path.c_str(),
-                        R"({"sink":{"path":"/tmp/local-chrono.jsonl"}})"));
+    NX_CHECK(write_file(local_path.c_str(), R"({"sink":{"path":"/tmp/local-chrono.jsonl"}})"));
     {
         Settings settings;
         core::SettingsPaths paths;
@@ -1499,8 +1512,7 @@ void test_settings_sink() {
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
-        NX_CHECK(settings.to_string().find("sink=JsonFileChronoSinkConfig") !=
-                 std::string::npos);
+        NX_CHECK(settings.to_string().find("sink=JsonFileChronoSinkConfig") != std::string::npos);
         NX_CHECK(std::format("{}", settings) == settings.to_string());
         nlohmann::json j;
         to_json(j, settings);
@@ -1540,8 +1552,7 @@ void test_settings_sink() {
 
     // Wrong field types keep the previous value and name sink.<field>; the
     // shared-vocabulary texts stay pinned byte-identical (dedup-sink-plumbing).
-    NX_CHECK(write_file(global_path.c_str(),
-                        R"({"sink":{"path":"/tmp/keep-chrono.jsonl"}})"));
+    NX_CHECK(write_file(global_path.c_str(), R"({"sink":{"path":"/tmp/keep-chrono.jsonl"}})"));
     NX_CHECK(write_file(local_path.c_str(), R"({"sink":{"path":3,"append":3}})"));
     {
         Settings settings;
@@ -1673,8 +1684,7 @@ void test_settings_edges() {
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::SystemError);
         NX_CHECK(settings.diagnostics.size() == 1U);
-        NX_CHECK(settings.diagnostics[0].message.find("could not be read") !=
-                 std::string::npos);
+        NX_CHECK(settings.diagnostics[0].message.find("could not be read") != std::string::npos);
     }
 
     // The same failure on the local source (the global path succeeded).
@@ -1700,8 +1710,7 @@ void test_settings_edges() {
         NX_CHECK(s.error() == ErrorCode::InvalidArgument);
         NX_CHECK(settings.global_loaded);
         NX_CHECK(settings.diagnostics.size() == 1U);
-        NX_CHECK(settings.diagnostics[0].message.find("malformed JSON") !=
-                 std::string::npos);
+        NX_CHECK(settings.diagnostics[0].message.find("malformed JSON") != std::string::npos);
     }
 
     // An unreadable file (EACCES, not ENOENT) is a SystemError. Skip when the
@@ -1786,7 +1795,8 @@ void test_settings_edges() {
         core::SettingsPaths paths;
         paths.global_file = global_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
-        NX_CHECK(settings.options.worker_thread.cpus() == core::CpuSet::from_core_mask(std::numeric_limits<std::uint64_t>::max()));
+        NX_CHECK(settings.options.worker_thread.cpus() ==
+                 core::CpuSet::from_core_mask(std::numeric_limits<std::uint64_t>::max()));
     }
 
     ::unlink(global_path);
@@ -1795,8 +1805,7 @@ void test_settings_edges() {
 
 } // namespace
 
-int main()
-{
+int main() {
     run_suite("timestamp", test_timestamp);
     run_suite("stamp", test_stamp);
     run_suite("utc_offset", test_utc_offset);

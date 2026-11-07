@@ -113,10 +113,8 @@ public:
         return opened;
     }
 
-    template <class Record>
-    void handle(Record& rec) noexcept {
-        const std::int64_t utc =
-            chrono::utc_from_mono_ns(rec.stamp.nanoseconds(), utc_offset_ns_);
+    template <class Record> void handle(Record& rec) noexcept {
+        const std::int64_t utc = chrono::utc_from_mono_ns(rec.stamp.nanoseconds(), utc_offset_ns_);
         if (settings_.kind != RotationKind::None) {
             const std::int64_t key = period_key(settings_.kind, settings_.custom_ns, utc);
             if (key != active_key_) {
@@ -141,9 +139,9 @@ public:
         const std::size_t msg_len = rec.render_into(msg_, msg_capacity);
 
         std::size_t len = format_json_line(
-            utc, rec.level, std::string_view(settings_.app, settings_.app_len),
-            rec.thread_id, std::string_view(rec.file_name), rec.line,
-            std::string_view(rec.function_name), std::string_view(msg_, msg_len), line_);
+            utc, rec.level, std::string_view(settings_.app, settings_.app_len), rec.thread_id,
+            std::string_view(rec.file_name), rec.line, std::string_view(rec.function_name),
+            std::string_view(msg_, msg_len), line_);
         if (len == 0U) {
             ++malformed_; // overflowing/unrepresentable line skipped atomically
             return;       // (never a half-written line in the file)
@@ -191,8 +189,7 @@ private:
         const core::Status opened = open_segment(
             settings_.kind, settings_.custom_ns, last_utc_ns_,
             std::string_view(settings_.base_dir, settings_.base_len),
-            std::string_view(settings_.file_name, settings_.file_name_len), segment_,
-            paths_, fd);
+            std::string_view(settings_.file_name, settings_.file_name_len), segment_, paths_, fd);
         if (!opened) {
             return opened;
         }
@@ -220,7 +217,7 @@ private:
     }
 
     [[nodiscard]] static std::uint64_t file_size(int fd) noexcept {
-        struct stat st {};
+        struct stat st{};
         if (fd < 0 || ::fstat(fd, &st) != 0 || st.st_size < 0) {
             return 0;
         }
@@ -243,18 +240,18 @@ private:
     }
 
     Settings settings_{};
-    int fd_ = -1;                        ///< active period descriptor (consumer-only)
-    int new_fd_ = -1;                    ///< staged fd during a rotation switch
-    std::int64_t active_key_ = 0;        ///< period identity of fd_
-    std::int64_t utc_offset_ns_ = 0;     ///< monotonic -> UTC conversion snapshot
-    std::int64_t last_utc_ns_ = 0;       ///< utc at the current boundary
-    std::uint64_t segment_ = 0;          ///< size-based segment index (writer-only)
-    std::uint64_t bytes_written_ = 0;    ///< active segment size (writer-only)
-    std::uint64_t malformed_ = 0;        ///< formatter overflow skips (diagnostic)
+    int fd_ = -1;                     ///< active period descriptor (consumer-only)
+    int new_fd_ = -1;                 ///< staged fd during a rotation switch
+    std::int64_t active_key_ = 0;     ///< period identity of fd_
+    std::int64_t utc_offset_ns_ = 0;  ///< monotonic -> UTC conversion snapshot
+    std::int64_t last_utc_ns_ = 0;    ///< utc at the current boundary
+    std::uint64_t segment_ = 0;       ///< size-based segment index (writer-only)
+    std::uint64_t bytes_written_ = 0; ///< active segment size (writer-only)
+    std::uint64_t malformed_ = 0;     ///< formatter overflow skips (diagnostic)
     std::uint8_t pending_write_error_ = 0;
-    RotationScratch paths_{};           ///< pre-allocated path buffers (D11)
+    RotationScratch paths_{}; ///< pre-allocated path buffers (D11)
     static constexpr std::size_t msg_capacity = 512;
-    char msg_[msg_capacity]{};           ///< pre-allocated render scratch (design D7)
+    char msg_[msg_capacity]{};                       ///< pre-allocated render scratch (design D7)
     alignas(64) char line_[json_scratch_capacity]{}; ///< JSON staging scratch (D12)
 };
 
@@ -287,14 +284,14 @@ struct RotationConfig {
 /// Construction-time configuration. All views are copied into fixed buffers
 /// during initialize(); lengths beyond the buffers are rejected.
 struct FileLoggerConfig {
-    std::string app_name{"nexigen"};            ///< JSON "app" field (≤ 63 B)
-    std::string base_dir{};                     ///< required, ≤ 511 B
-    std::string file_name{"app.jsonl"};         ///< ≤ 63 B
+    std::string app_name{"nexigen"};    ///< JSON "app" field (≤ 63 B)
+    std::string base_dir{};             ///< required, ≤ 511 B
+    std::string file_name{"app.jsonl"}; ///< ≤ 63 B
     LogLevel initial_level{LogLevel::Info};
     ThrottleConfig throttle{};
     RotationConfig rotation{};
-    core::ThreadSpec worker_thread{};           ///< empty = inherited worker attributes
-    std::uint64_t max_file_size_bytes{0};       ///< 0 == no size-based rotation
+    core::ThreadSpec worker_thread{};     ///< empty = inherited worker attributes
+    std::uint64_t max_file_size_bytes{0}; ///< 0 == no size-based rotation
     /// Ceiling of the worker's idle sleep (backoff grows up to it); clamped to
     /// [50, 100000] us. Larger = fewer wake-ups, but the shard rings must absorb
     /// bursts for that long. Maps LoggerOptions::worker_poll_interval_us.
@@ -351,11 +348,9 @@ public:
     /// configuration returns InvalidArgument WITHOUT starting the worker.
     [[nodiscard]] core::Status initialize(const FileLoggerConfig& cfg) noexcept {
         if (cfg.base_dir.empty() || cfg.base_dir.size() > 511 ||
-            cfg.base_dir.find('\0') != std::string_view::npos ||
-            cfg.file_name.empty() || cfg.file_name.size() > 63 ||
-            cfg.file_name.find('\0') != std::string_view::npos ||
-            cfg.app_name.size() > 63 ||
-            cfg.app_name.find('\0') != std::string_view::npos ||
+            cfg.base_dir.find('\0') != std::string_view::npos || cfg.file_name.empty() ||
+            cfg.file_name.size() > 63 || cfg.file_name.find('\0') != std::string_view::npos ||
+            cfg.app_name.size() > 63 || cfg.app_name.find('\0') != std::string_view::npos ||
             (cfg.throttle.enabled &&
              (cfg.throttle.max_records_per_window == 0ULL || cfg.throttle.window_ns == 0ULL)) ||
             (cfg.rotation.kind == RotationSchedule::Custom && cfg.rotation.custom_ns == 0ULL)) {
@@ -389,7 +384,8 @@ public:
     /// capacity check and maps every supported option; string views inside the
     /// temporary config alias `settings` for the duration of this call only.
     [[nodiscard]] core::Status initialize(const Settings& settings) noexcept {
-        const core::Status capacity = check_capacity<ShardCapacity, MaxThreads, MessageCapacity>(settings);
+        const core::Status capacity =
+            check_capacity<ShardCapacity, MaxThreads, MessageCapacity>(settings);
         if (!capacity) {
             return capacity;
         }
@@ -447,7 +443,9 @@ public:
     /// Writer start-phase snapshots (design D15 verification surface):
     /// poll writer_started(), then inspect the thread report and start ErrorCode.
     [[nodiscard]] bool writer_started() const noexcept { return worker_.writer_started(); }
-    [[nodiscard]] core::ErrorCode writer_start_code() const noexcept { return worker_.writer_start_code(); }
+    [[nodiscard]] core::ErrorCode writer_start_code() const noexcept {
+        return worker_.writer_start_code();
+    }
     [[nodiscard]] const core::ThreadApplyReport& writer_thread_report() const noexcept {
         return worker_.writer_thread_report();
     }
@@ -479,7 +477,8 @@ private:
 
 /// Free helper (mandate 9): mirrors the member.
 template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t MaxThreads>
-[[nodiscard]] std::string to_string(const FileLogger<ShardCapacity, MessageCapacity, MaxThreads>& logger) {
+[[nodiscard]] std::string
+to_string(const FileLogger<ShardCapacity, MessageCapacity, MaxThreads>& logger) {
     return logger.to_string();
 }
 

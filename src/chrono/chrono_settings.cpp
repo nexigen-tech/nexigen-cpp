@@ -41,12 +41,10 @@ using nexigen::core::settings_io::unsigned_value;
 } // namespace
 
 std::string Settings::to_string() const {
-    std::string out = "Settings(global_loaded=" +
-                      std::string(global_loaded ? "true" : "false") +
+    std::string out = "Settings(global_loaded=" + std::string(global_loaded ? "true" : "false") +
                       ", local_loaded=" + std::string(local_loaded ? "true" : "false") +
                       ", options=" + nexigen::chrono::to_string(options) +
-                      ", sink=" + nexigen::chrono::to_string(sink) +
-                      ", diagnostics=[";
+                      ", sink=" + nexigen::chrono::to_string(sink) + ", diagnostics=[";
     for (std::size_t i = 0; i < diagnostics.size(); ++i) {
         if (i != 0) {
             out += "; ";
@@ -65,19 +63,18 @@ void to_json(nlohmann::json& j, const Settings& settings) {
         to_json(entry, diag);
         diagnostics.push_back(std::move(entry));
     }
-    j = nlohmann::json{{"global_loaded", settings.global_loaded},
-                       {"local_loaded", settings.local_loaded},
-                       {"collect_interval_ns", options.collect_interval.count()},
-                       {"worker_thread", options.worker_thread},
-                       {"sink", nlohmann::json{{"path", settings.sink.path},
-                                               {"append", settings.sink.append}}},
-                       {"diagnostics", std::move(diagnostics)}};
+    j = nlohmann::json{
+        {"global_loaded", settings.global_loaded},
+        {"local_loaded", settings.local_loaded},
+        {"collect_interval_ns", options.collect_interval.count()},
+        {"worker_thread", options.worker_thread},
+        {"sink", nlohmann::json{{"path", settings.sink.path}, {"append", settings.sink.append}}},
+        {"diagnostics", std::move(diagnostics)}};
 }
 
 namespace {
 
-void merge_document(const nlohmann::json& document, core::SettingsSource source,
-                    Settings& out) {
+void merge_document(const nlohmann::json& document, core::SettingsSource source, Settings& out) {
     if (!document.is_object()) {
         add_diagnostic(out.diagnostics, source, "", "document is not a JSON object");
         return;
@@ -148,8 +145,7 @@ void apply_environment(Settings& out) {
 
 } // namespace
 
-core::Status load_chrono_settings(const core::SettingsPaths& paths,
-                                  Settings& out) noexcept {
+core::Status load_chrono_settings(const core::SettingsPaths& paths, Settings& out) noexcept {
     out = Settings{};
     bool invalid = false;
     bool system_error = false;
@@ -161,8 +157,7 @@ core::Status load_chrono_settings(const core::SettingsPaths& paths,
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, core::SettingsSource::Global, "",
-                           "malformed JSON");
+            add_diagnostic(out.diagnostics, core::SettingsSource::Global, "", "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
             merge_document(document, core::SettingsSource::Global, out);
@@ -181,8 +176,7 @@ core::Status load_chrono_settings(const core::SettingsPaths& paths,
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, core::SettingsSource::Local, "",
-                           "malformed JSON");
+            add_diagnostic(out.diagnostics, core::SettingsSource::Local, "", "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
             merge_document(document, core::SettingsSource::Local, out);

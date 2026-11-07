@@ -72,7 +72,7 @@ constexpr std::uint64_t kDefaultDegradeSeconds = 60;
 constexpr std::uint64_t kDefaultFailureSeconds = 300;
 
 // Explicit-bucket latency bounds in nanoseconds (1 ms .. 100 ms).
-constexpr double kLatencyBounds[] = {1'000'000.0, 5'000'000.0, 10'000'000.0,
+constexpr double kLatencyBounds[] = {1'000'000.0,  5'000'000.0,  10'000'000.0,
                                      20'000'000.0, 50'000'000.0, 100'000'000.0};
 constexpr std::int32_t kExponentialScale = 10;
 
@@ -128,7 +128,7 @@ DemoConfig load_demo_config() {
 
 std::string_view role_name(DemoRole role) {
     switch (role) {
-        case DemoRole::Worker: return "worker";
+        case DemoRole::Worker:  return "worker";
         case DemoRole::Degrade: return "degrade";
         case DemoRole::Failure: return "failure";
     }
@@ -240,10 +240,8 @@ int fail(std::string_view message) {
     return 1;
 }
 
-template <class Result>
-int fail_status(std::string_view action, const Result& status) {
-    print_error(std::string(action) + " failed: " +
-                std::string(core::to_string(status.error())));
+template <class Result> int fail_status(std::string_view action, const Result& status) {
+    print_error(std::string(action) + " failed: " + std::string(core::to_string(status.error())));
     return 1;
 }
 
@@ -266,14 +264,14 @@ bool prepare_standalone_directories() {
     std::error_code ec;
     std::filesystem::remove_all(std::filesystem::path(kStandaloneOutputDir), ec);
     if (ec) {
-        print_error("cannot clear output directory " + std::string(kStandaloneOutputDir) +
-                    ": " + ec.message());
+        print_error("cannot clear output directory " + std::string(kStandaloneOutputDir) + ": " +
+                    ec.message());
         return false;
     }
     std::filesystem::create_directories(std::filesystem::path(kStandaloneOutputDir), ec);
     if (ec) {
-        print_error("cannot create output directory " + std::string(kStandaloneOutputDir) +
-                    ": " + ec.message());
+        print_error("cannot create output directory " + std::string(kStandaloneOutputDir) + ": " +
+                    ec.message());
         return false;
     }
     std::filesystem::create_directories(std::filesystem::path(kStandaloneSettingsDir), ec);
@@ -395,20 +393,19 @@ int main(int argc, char* argv[]) {
         return fail_status("Infrastructure::meter", meter);
     }
 
-    const auto counter =
-        (*meter)->create_counter<kMultiThreaded, kReadable, kResetOnRead>("ticks");
-    const auto gauge = (*meter)->create_gauge<std::int64_t, kMultiThreaded, kReadable,
-                                             kResetOnRead>("loop_counter");
-    const auto state =
-        (*meter)->create_state<kMultiThreaded, kReadable, kResetOnRead>("role");
+    const auto counter = (*meter)->create_counter<kMultiThreaded, kReadable, kResetOnRead>("ticks");
+    const auto gauge =
+        (*meter)->create_gauge<std::int64_t, kMultiThreaded, kReadable, kResetOnRead>(
+            "loop_counter");
+    const auto state = (*meter)->create_state<kMultiThreaded, kReadable, kResetOnRead>("role");
     const auto statistics =
         (*meter)->create_statistics<kMultiThreaded, kReadable, kResetOnRead>("tick_latency");
-    const auto explicit_hist = (*meter)->create_explicit_histogram<kMultiThreaded, kReadable,
-                                                                   kResetOnRead>(
-        "latency_explicit", std::span<const double>{kLatencyBounds});
-    const auto exp_hist = (*meter)->create_exponential_histogram<kMultiThreaded, kReadable,
-                                                                 kResetOnRead>(
-        "latency_exp", kExponentialScale);
+    const auto explicit_hist =
+        (*meter)->create_explicit_histogram<kMultiThreaded, kReadable, kResetOnRead>(
+            "latency_explicit", std::span<const double>{kLatencyBounds});
+    const auto exp_hist =
+        (*meter)->create_exponential_histogram<kMultiThreaded, kReadable, kResetOnRead>(
+            "latency_exp", kExponentialScale);
     if (!counter || !gauge || !state || !statistics || !explicit_hist || !exp_hist) {
         static_cast<void>(infra->shutdown());
         return fail("one or more instruments could not be created");
@@ -469,7 +466,8 @@ int main(int argc, char* argv[]) {
         if (now >= next_batch) {
             auto batch_span =
                 (*tracer)->start_span("tick-batch", tracing::SpanKind::Producer, &root_ctx);
-            static_cast<void>(batch_span.set_attribute("batch", static_cast<std::int64_t>(batches)));
+            static_cast<void>(
+                batch_span.set_attribute("batch", static_cast<std::int64_t>(batches)));
             static_cast<void>(batch_span.set_attribute("ticks", static_cast<std::int64_t>(ticks)));
             static_cast<void>(batch_span.set_status(tracing::SpanStatus::Ok));
             static_cast<void>(batch_span.end());
@@ -497,8 +495,7 @@ int main(int argc, char* argv[]) {
     }
 
     std::printf("ex_suite_app: %s (ticks=%llu, batches=%llu, reason=%s)\n",
-                std::string(role_name(config.role)).c_str(),
-                static_cast<unsigned long long>(ticks),
+                std::string(role_name(config.role)).c_str(), static_cast<unsigned long long>(ticks),
                 static_cast<unsigned long long>(batches),
                 std::string(app::to_string(reason)).c_str());
 

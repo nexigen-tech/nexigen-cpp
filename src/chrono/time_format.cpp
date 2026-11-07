@@ -24,12 +24,12 @@ void civil_from_days(std::int64_t z, std::int64_t& year, std::uint8_t& month,
                      std::uint8_t& day) noexcept {
     z += 719468;
     const std::int64_t era = (z >= 0 ? z : z - 146096) / 146097;
-    const auto doe = static_cast<std::uint32_t>(z - era * 146097);          // [0, 146096]
+    const auto doe = static_cast<std::uint32_t>(z - era * 146097); // [0, 146096]
     const std::uint32_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    const std::uint32_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);      // [0, 365]
-    const std::uint32_t mp = (5 * doy + 2) / 153;                           // [0, 11]
-    const std::uint32_t d = doy - (153 * mp + 2) / 5 + 1;                   // [1, 31]
-    const std::uint32_t m = (mp < 10) ? (mp + 3u) : (mp - 9u);              // [1, 12]
+    const std::uint32_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    const std::uint32_t mp = (5 * doy + 2) / 153;                      // [0, 11]
+    const std::uint32_t d = doy - (153 * mp + 2) / 5 + 1;              // [1, 31]
+    const std::uint32_t m = (mp < 10) ? (mp + 3u) : (mp - 9u);         // [1, 12]
     const std::int64_t y = static_cast<std::int64_t>(yoe) + era * 400 + (m <= 2 ? 1 : 0);
     year = y;
     month = static_cast<std::uint8_t>(m);

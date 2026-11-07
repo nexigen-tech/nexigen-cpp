@@ -38,8 +38,7 @@ namespace nexigen::diagnostics {
 /// The latest lap: its 1-based number, duration and the snapshot total.
 [[nodiscard]] std::string LapSnapshot::to_string() const {
     return "LapSnapshot(number=" + std::to_string(lap_number) +
-           ", lap_ns=" + std::to_string(lap_ns) +
-           ", total_ns=" + std::to_string(total_ns) +
+           ", lap_ns=" + std::to_string(lap_ns) + ", total_ns=" + std::to_string(total_ns) +
            ", state=" + std::string(nexigen::diagnostics::to_string(state)) + ")";
 }
 

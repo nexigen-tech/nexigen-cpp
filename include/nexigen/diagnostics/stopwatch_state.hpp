@@ -53,9 +53,18 @@ enum class StopwatchState : std::uint8_t {
 /// Parse a canonical PascalCase state name (the exact to_string spelling).
 /// Returns false leaving the out-parameter UNCHANGED otherwise.
 [[nodiscard]] constexpr bool from_string(std::string_view name, StopwatchState& out) noexcept {
-    if (name == "Idle")    { out = StopwatchState::Idle;    return true; }
-    if (name == "Running") { out = StopwatchState::Running; return true; }
-    if (name == "Stopped") { out = StopwatchState::Stopped; return true; }
+    if (name == "Idle") {
+        out = StopwatchState::Idle;
+        return true;
+    }
+    if (name == "Running") {
+        out = StopwatchState::Running;
+        return true;
+    }
+    if (name == "Stopped") {
+        out = StopwatchState::Stopped;
+        return true;
+    }
     return false;
 }
 
@@ -79,7 +88,6 @@ inline void from_json(const nlohmann::json& j, StopwatchState& out) noexcept {
 /// parse and fill/align handled by the string_view formatter; context
 /// templated because libstdc++ 15 evaluates formattability against a
 /// substituted context.
-
 
 namespace nexigen::diagnostics {
 

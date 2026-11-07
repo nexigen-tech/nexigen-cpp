@@ -17,14 +17,12 @@
 namespace nexigen::app {
 
 std::string AppSettingsPaths::to_string() const {
-    return "AppSettingsPaths(logging=" + logging.to_string() +
-           ", metrics=" + metrics.to_string() + ", tracing=" + tracing.to_string() +
-           ", chrono=" + chrono.to_string() + ")";
+    return "AppSettingsPaths(logging=" + logging.to_string() + ", metrics=" + metrics.to_string() +
+           ", tracing=" + tracing.to_string() + ", chrono=" + chrono.to_string() + ")";
 }
 
 std::string Settings::to_string() const {
-    return "Settings(app_name=\"" + app_name +
-           "\", logging=" + logging.to_string() +
+    return "Settings(app_name=\"" + app_name + "\", logging=" + logging.to_string() +
            ", metrics=" + metrics.to_string() + ", tracing=" + tracing.to_string() +
            ", chrono=" + chrono.to_string() + ")";
 }
@@ -56,17 +54,12 @@ void to_json(nlohmann::json& j, const Settings& settings) {
                        {"chrono", std::move(chrono_json)}};
 }
 
-core::Status load_app_settings(const AppSettingsPaths& paths,
-                               Settings& out) noexcept {
+core::Status load_app_settings(const AppSettingsPaths& paths, Settings& out) noexcept {
     out = Settings{};
-    const core::Status logging_status =
-        logging::load_logging_settings(paths.logging, out.logging);
-    const core::Status metrics_status =
-        metrics::load_metrics_settings(paths.metrics, out.metrics);
-    const core::Status tracing_status =
-        tracing::load_tracing_settings(paths.tracing, out.tracing);
-    const core::Status chrono_status =
-        chrono::load_chrono_settings(paths.chrono, out.chrono);
+    const core::Status logging_status = logging::load_logging_settings(paths.logging, out.logging);
+    const core::Status metrics_status = metrics::load_metrics_settings(paths.metrics, out.metrics);
+    const core::Status tracing_status = tracing::load_tracing_settings(paths.tracing, out.tracing);
+    const core::Status chrono_status = chrono::load_chrono_settings(paths.chrono, out.chrono);
 
     if (!logging_status || !metrics_status || !tracing_status || !chrono_status) {
         if ((!logging_status && logging_status.error() == core::ErrorCode::SystemError) ||

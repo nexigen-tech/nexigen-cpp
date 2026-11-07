@@ -57,23 +57,19 @@
 namespace nexigen::logging {
 
 /// Fan-out over heterogeneous conforming loggers, zero virtual dispatch.
-template <concepts::Logger... Loggers>
-class CompositeLogger final {
+template <concepts::Logger... Loggers> class CompositeLogger final {
     static_assert((std::is_default_constructible_v<Loggers> && ...),
                   "composite members must be default-constructible (tuple-built)");
 
-    template <class T>
-    [[nodiscard]] static constexpr std::size_t find_index() noexcept {
+    template <class T> [[nodiscard]] static constexpr std::size_t find_index() noexcept {
         std::size_t found = sizeof...(Loggers); // sentinel: "not present"
         std::size_t i = 0;
-        ((std::is_same_v<T, Loggers> && found == sizeof...(Loggers) ? (found = i) : found,
-          ++i),
+        ((std::is_same_v<T, Loggers> && found == sizeof...(Loggers) ? (found = i) : found, ++i),
          ...);
         return found;
     }
 
-    template <class T>
-    [[nodiscard]] static constexpr bool exactly_one() noexcept {
+    template <class T> [[nodiscard]] static constexpr bool exactly_one() noexcept {
         std::size_t hits = 0;
         ((std::is_same_v<T, Loggers> ? ++hits : hits), ...);
         return hits == 1U;
@@ -83,20 +79,22 @@ class CompositeLogger final {
     /// The static_cast<void> keeps the capture "used" for the empty pack
     /// (Clang -Wunused-lambda-capture: a zero-expansion comma fold never
     /// mentions the operand).
-    template <typename Fn>
-    void for_each(Fn&& fn) noexcept {
-        std::apply([&fn](Loggers&... lg) {
-            static_cast<void>(fn);
-            (fn(lg), ...);
-        }, members_);
+    template <typename Fn> void for_each(Fn&& fn) noexcept {
+        std::apply(
+            [&fn](Loggers&... lg) {
+                static_cast<void>(fn);
+                (fn(lg), ...);
+            },
+            members_);
     }
 
-    template <typename Fn>
-    void for_each(Fn&& fn) const noexcept {
-        std::apply([&fn](const Loggers&... lg) {
-            static_cast<void>(fn);
-            (fn(lg), ...);
-        }, members_);
+    template <typename Fn> void for_each(Fn&& fn) const noexcept {
+        std::apply(
+            [&fn](const Loggers&... lg) {
+                static_cast<void>(fn);
+                (fn(lg), ...);
+            },
+            members_);
     }
 
     std::tuple<Loggers...> members_{};
@@ -112,28 +110,22 @@ public:
     CompositeLogger& operator=(CompositeLogger&&) = delete;
 
     /// Sub-logger access by index (duplicates allowed).
-    template <std::size_t Index>
-    [[nodiscard]] decltype(auto) get() noexcept {
+    template <std::size_t Index> [[nodiscard]] decltype(auto) get() noexcept {
         static_assert(Index < sizeof...(Loggers), "index beyond the member pack");
         return std::get<Index>(members_);
     }
-    template <std::size_t Index>
-    [[nodiscard]] decltype(auto) get() const noexcept {
+    template <std::size_t Index> [[nodiscard]] decltype(auto) get() const noexcept {
         static_assert(Index < sizeof...(Loggers), "index beyond the member pack");
         return std::get<Index>(members_);
     }
 
     /// Sub-logger access by type (must be unique in the pack).
-    template <class T>
-    [[nodiscard]] T& get() noexcept {
-        static_assert(exactly_one<T>(),
-                      "type absent or duplicated — get<Index>() for duplicates");
+    template <class T> [[nodiscard]] T& get() noexcept {
+        static_assert(exactly_one<T>(), "type absent or duplicated — get<Index>() for duplicates");
         return std::get<find_index<T>()>(members_);
     }
-    template <class T>
-    [[nodiscard]] const T& get() const noexcept {
-        static_assert(exactly_one<T>(),
-                      "type absent or duplicated — get<Index>() for duplicates");
+    template <class T> [[nodiscard]] const T& get() const noexcept {
+        static_assert(exactly_one<T>(), "type absent or duplicated — get<Index>() for duplicates");
         return std::get<find_index<T>()>(members_);
     }
 
@@ -154,9 +146,8 @@ public:
         if (active == LogLevel::Off || record_level < active) {
             return; // bounded short-circuit: folds never run (spec)
         }
-        for_each([&](auto& lg) noexcept {
-            lg.log(record_level, fmt, std::forward<Args>(args)...);
-        });
+        for_each(
+            [&](auto& lg) noexcept { lg.log(record_level, fmt, std::forward<Args>(args)...); });
     }
 
     template <class... Args>
@@ -205,9 +196,9 @@ public:
     /// Cold-path diagnostic (mandate 9): own level + member count, embedding
     /// each member's own to_string() via the fold (nested composites recurse).
     [[nodiscard]] std::string to_string() const {
-        std::string out = "CompositeLogger(level=" +
-                          std::string(logging::to_string(level_.level())) +
-                          ", members=" + std::to_string(sizeof...(Loggers));
+        std::string out =
+            "CompositeLogger(level=" + std::string(logging::to_string(level_.level())) +
+            ", members=" + std::to_string(sizeof...(Loggers));
         std::apply(
             [&](const Loggers&... lg) {
                 static_cast<void>(out);

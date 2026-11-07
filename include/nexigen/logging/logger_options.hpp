@@ -37,22 +37,27 @@ namespace nexigen::logging {
 
 /// Overflow policy for a full SPSC shard ring.
 enum class OverflowPolicy : std::uint8_t {
-    DropNewest,    ///< Incoming record is dropped; `buffer_full` counted.
+    DropNewest,      ///< Incoming record is dropped; `buffer_full` counted.
     OverwriteOldest, ///< Oldest unread record is overwritten atomically;
                      ///< `dropped_count_` incremented.
 };
 
 [[nodiscard]] constexpr std::string_view to_string(OverflowPolicy p) noexcept {
     switch (p) {
-        case OverflowPolicy::DropNewest:    return "drop_newest";
+        case OverflowPolicy::DropNewest:      return "drop_newest";
         case OverflowPolicy::OverwriteOldest: return "overwrite_oldest";
-        default:                            return "Unknown";
+        default:                              return "Unknown";
     }
 }
-[[nodiscard]] constexpr bool from_string(std::string_view name,
-                                         OverflowPolicy& out) noexcept {
-    if (name == "drop_newest") { out = OverflowPolicy::DropNewest; return true; }
-    if (name == "overwrite_oldest") { out = OverflowPolicy::OverwriteOldest; return true; }
+[[nodiscard]] constexpr bool from_string(std::string_view name, OverflowPolicy& out) noexcept {
+    if (name == "drop_newest") {
+        out = OverflowPolicy::DropNewest;
+        return true;
+    }
+    if (name == "overwrite_oldest") {
+        out = OverflowPolicy::OverwriteOldest;
+        return true;
+    }
     return false;
 }
 inline void to_json(nlohmann::json& j, const OverflowPolicy& p) {
@@ -67,9 +72,9 @@ inline void from_json(const nlohmann::json& j, OverflowPolicy& out) noexcept {
 
 /// Shard lifecycle state observed by the consumer drain loop.
 enum class ShardState : std::uint8_t {
-    Active,  ///< Slot registered and accepting records.
-    Draining,///< Producer thread exited; consumer must drain then free.
-    Free,    ///< Returned to the free-slot pool.
+    Active,   ///< Slot registered and accepting records.
+    Draining, ///< Producer thread exited; consumer must drain then free.
+    Free,     ///< Returned to the free-slot pool.
 };
 
 [[nodiscard]] constexpr std::string_view to_string(ShardState s) noexcept {
@@ -80,11 +85,19 @@ enum class ShardState : std::uint8_t {
         default:                   return "Unknown";
     }
 }
-[[nodiscard]] constexpr bool from_string(std::string_view name,
-                                         ShardState& out) noexcept {
-    if (name == "active") { out = ShardState::Active; return true; }
-    if (name == "draining") { out = ShardState::Draining; return true; }
-    if (name == "free") { out = ShardState::Free; return true; }
+[[nodiscard]] constexpr bool from_string(std::string_view name, ShardState& out) noexcept {
+    if (name == "active") {
+        out = ShardState::Active;
+        return true;
+    }
+    if (name == "draining") {
+        out = ShardState::Draining;
+        return true;
+    }
+    if (name == "free") {
+        out = ShardState::Free;
+        return true;
+    }
     return false;
 }
 inline void to_json(nlohmann::json& j, const ShardState& s) {
@@ -103,10 +116,10 @@ inline void from_json(const nlohmann::json& j, ShardState& out) noexcept {
 /// protection state and read nowhere — removed (spec logger-options
 /// "SpamProtectionConfig defines anti-spam quotas").
 struct SpamProtectionConfig {
-    bool enable_repeat_suppression{true};                  ///< Level 1 on.
+    bool enable_repeat_suppression{true};                 ///< Level 1 on.
     std::uint32_t repeat_suppression_window_ms{1000};     ///< Collapse window.
     std::uint32_t max_messages_per_sec_per_shard{100000}; ///< 0 = no limit.
-    LogLevel bypass_min_level{LogLevel::Fatal};           ///< Always-pass floor (Fatal = highest before Off).
+    LogLevel bypass_min_level{LogLevel::Fatal}; ///< Always-pass floor (Fatal = highest before Off).
 
     [[nodiscard]] std::string to_string() const;
 };
@@ -123,8 +136,8 @@ struct LoggerOptions {
     std::uint32_t message_capacity{128U}; ///< inline argument blob capacity (max bytes per record).
     std::uint32_t max_producer_threads{64U};
     OverflowPolicy overflow_policy{OverflowPolicy::DropNewest};
-    core::ThreadSpec worker_thread{};            ///< canonical file-writer attributes.
-    std::uint32_t worker_poll_interval_us{1000U};     ///< 1 ms.
+    core::ThreadSpec worker_thread{};             ///< canonical file-writer attributes.
+    std::uint32_t worker_poll_interval_us{1000U}; ///< 1 ms.
     bool sync_flush_on_critical{true};
     SpamProtectionConfig spam_protection{};
 
@@ -149,10 +162,3 @@ void from_json(const nlohmann::json& j, LoggerOptions& out) noexcept;
 
 // --- std::formatter specializations (mandate 11): must live in namespace std,
 //     outside nexigen::logging (same pattern as log_level.hpp).
-
-
-
-
-
-
-

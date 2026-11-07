@@ -9,30 +9,25 @@
 
 namespace hub_detail = nexigen::hub::detail;
 
-extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data,
-                                      std::size_t size) {
+extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     if (size == 0U) {
         return 0;
     }
     const std::string_view input(reinterpret_cast<const char*>(data), size);
 
     hub_detail::RequestLine line;
-    const hub_detail::RequestLineError error =
-        hub_detail::parse_request_line(input, line);
+    const hub_detail::RequestLineError error = hub_detail::parse_request_line(input, line);
     if (error == hub_detail::RequestLineError::None) {
-        if (line.method != "GET" ||
-            (line.version != "HTTP/1.0" && line.version != "HTTP/1.1")) {
+        if (line.method != "GET" || (line.version != "HTTP/1.0" && line.version != "HTTP/1.1")) {
             __builtin_trap();
         }
     }
 
-    for (const std::string_view name :
-         {std::string_view{"Last-Event-ID"}, std::string_view{"Connection"},
-          std::string_view{"Host"}}) {
+    for (const std::string_view name : {std::string_view{"Last-Event-ID"},
+                                        std::string_view{"Connection"}, std::string_view{"Host"}}) {
         const std::string_view value = hub_detail::header_value(input, name);
-        if (!value.empty() &&
-            (value.data() < input.data() ||
-             value.data() + value.size() > input.data() + input.size())) {
+        if (!value.empty() && (value.data() < input.data() ||
+                               value.data() + value.size() > input.data() + input.size())) {
             __builtin_trap();
         }
     }

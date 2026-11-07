@@ -100,10 +100,10 @@ inline void copy_meter_identity(MetricIdentity& to, const MetricIdentity& from) 
 
 /// Scalar payload of a counter or a gauge.
 struct ScalarValue {
-    std::uint64_t counter{0};   ///< Counter total / window delta
-    std::int64_t gauge_int{0};  ///< Gauge<std::int64_t>
-    double gauge_double{0.0};   ///< Gauge<double>
-    bool is_double{false};      ///< true when the gauge carries a double
+    std::uint64_t counter{0};  ///< Counter total / window delta
+    std::int64_t gauge_int{0}; ///< Gauge<std::int64_t>
+    double gauge_double{0.0};  ///< Gauge<double>
+    bool is_double{false};     ///< true when the gauge carries a double
 
     [[nodiscard]] std::string to_string() const;
 };
@@ -242,8 +242,7 @@ struct std::formatter<nexigen::metrics::MetricIdentity> : std::formatter<std::st
 
 template <>
 struct std::formatter<nexigen::metrics::ScalarValue> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::metrics::ScalarValue& value, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::metrics::ScalarValue& value, Ctx& ctx) const {
         const std::string text = value.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }
@@ -267,10 +266,8 @@ struct std::formatter<nexigen::metrics::HistogramSnapshot> : std::formatter<std:
     }
 };
 
-template <>
-struct std::formatter<nexigen::metrics::StateValue> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::metrics::StateValue& value, Ctx& ctx) const {
+template <> struct std::formatter<nexigen::metrics::StateValue> : std::formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::metrics::StateValue& value, Ctx& ctx) const {
         const std::string text = value.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }
@@ -278,8 +275,7 @@ struct std::formatter<nexigen::metrics::StateValue> : std::formatter<std::string
 
 template <>
 struct std::formatter<nexigen::metrics::MetricRecord> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::metrics::MetricRecord& value, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::metrics::MetricRecord& value, Ctx& ctx) const {
         const std::string text = value.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

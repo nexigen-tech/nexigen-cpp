@@ -37,19 +37,39 @@ enum class StreamKind : std::uint8_t {
         case StreamKind::Stdout:  return "stdout";
         case StreamKind::Stderr:  return "stderr";
         case StreamKind::Runner:  return "runner";
-        default:                   return "unknown";
+        default:                  return "unknown";
     }
 }
 
-[[nodiscard]] constexpr bool from_string(std::string_view name,
-                                         StreamKind& out) noexcept {
-    if (name == "app")     { out = StreamKind::App;     return true; }
-    if (name == "metrics") { out = StreamKind::Metrics; return true; }
-    if (name == "traces")  { out = StreamKind::Traces;  return true; }
-    if (name == "chrono")  { out = StreamKind::Chrono;  return true; }
-    if (name == "stdout")  { out = StreamKind::Stdout;  return true; }
-    if (name == "stderr")  { out = StreamKind::Stderr;  return true; }
-    if (name == "runner")  { out = StreamKind::Runner;  return true; }
+[[nodiscard]] constexpr bool from_string(std::string_view name, StreamKind& out) noexcept {
+    if (name == "app") {
+        out = StreamKind::App;
+        return true;
+    }
+    if (name == "metrics") {
+        out = StreamKind::Metrics;
+        return true;
+    }
+    if (name == "traces") {
+        out = StreamKind::Traces;
+        return true;
+    }
+    if (name == "chrono") {
+        out = StreamKind::Chrono;
+        return true;
+    }
+    if (name == "stdout") {
+        out = StreamKind::Stdout;
+        return true;
+    }
+    if (name == "stderr") {
+        out = StreamKind::Stderr;
+        return true;
+    }
+    if (name == "runner") {
+        out = StreamKind::Runner;
+        return true;
+    }
     return false;
 }
 
@@ -145,15 +165,33 @@ struct GapMarker {
 };
 
 // --- free to_string helpers
-[[nodiscard]] inline std::string to_string(const HubStream& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const HubAttempt& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const HubInstance& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const HubApp& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const HubSuite& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const HubRun& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const HubTree& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const StreamRecord& value) { return value.to_string(); }
-[[nodiscard]] inline std::string to_string(const GapMarker& value) { return value.to_string(); }
+[[nodiscard]] inline std::string to_string(const HubStream& value) {
+    return value.to_string();
+}
+[[nodiscard]] inline std::string to_string(const HubAttempt& value) {
+    return value.to_string();
+}
+[[nodiscard]] inline std::string to_string(const HubInstance& value) {
+    return value.to_string();
+}
+[[nodiscard]] inline std::string to_string(const HubApp& value) {
+    return value.to_string();
+}
+[[nodiscard]] inline std::string to_string(const HubSuite& value) {
+    return value.to_string();
+}
+[[nodiscard]] inline std::string to_string(const HubRun& value) {
+    return value.to_string();
+}
+[[nodiscard]] inline std::string to_string(const HubTree& value) {
+    return value.to_string();
+}
+[[nodiscard]] inline std::string to_string(const StreamRecord& value) {
+    return value.to_string();
+}
+[[nodiscard]] inline std::string to_string(const GapMarker& value) {
+    return value.to_string();
+}
 
 // --- cold-path ADL serialization (bodies in src/hub/model.cpp)
 void to_json(nlohmann::json& j, StreamKind value);
@@ -181,10 +219,6 @@ void from_json(const nlohmann::json& j, GapMarker& value) noexcept;
 /// Flatten all streams in a tree (including suite runner logs).
 [[nodiscard]] std::vector<HubStream> all_streams(const HubTree& tree);
 /// Find one stream by id, or nullptr.
-[[nodiscard]] const HubStream* find_stream(const HubTree& tree,
-                                            std::string_view id) noexcept;
+[[nodiscard]] const HubStream* find_stream(const HubTree& tree, std::string_view id) noexcept;
 
 } // namespace nexigen::hub
-
-
-

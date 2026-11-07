@@ -40,9 +40,7 @@ public:
 
     /// Generate the next identifier on THIS thread (design D6: the only id
     /// source; wait-free, allocation-free, never zero).
-    [[nodiscard]] static TraceId generate() noexcept {
-        return TraceId{detail::next_id()};
-    }
+    [[nodiscard]] static TraceId generate() noexcept { return TraceId{detail::next_id()}; }
 
     /// Raw 64-bit count.
     [[nodiscard]] constexpr std::uint64_t value() const noexcept { return value_; }
@@ -71,9 +69,7 @@ public:
     explicit constexpr SpanId(std::uint64_t value) noexcept : value_{value} {}
 
     /// Generate the next identifier on THIS thread (design D6).
-    [[nodiscard]] static SpanId generate() noexcept {
-        return SpanId{detail::next_id()};
-    }
+    [[nodiscard]] static SpanId generate() noexcept { return SpanId{detail::next_id()}; }
 
     /// Raw 64-bit count.
     [[nodiscard]] constexpr std::uint64_t value() const noexcept { return value_; }
@@ -98,8 +94,8 @@ static_assert(sizeof(SpanId) == 8 && std::is_trivially_copyable_v<SpanId>);
 /// The propagable unit: enough state to link a child span to a live parent
 /// across a thread/queue boundary. Trivially copyable, ≤ 24 bytes.
 struct SpanContext {
-    TraceId trace_id{};                    ///< Causal group of the parent span.
-    SpanId span_id{};                      ///< The parent span itself (zero = unset).
+    TraceId trace_id{};                               ///< Causal group of the parent span.
+    SpanId span_id{};                                 ///< The parent span itself (zero = unset).
     SamplingDecision sampled{SamplingDecision::Drop}; ///< Decision made at the parent's start.
 
     /// Total ordering over the three fields; == included (cross-thread copy
@@ -135,4 +131,3 @@ void from_json(const nlohmann::json& j, SpanContext& out) noexcept;
 /// The identifier types format as their 16-char hex text (mandate 11);
 /// contexts format as their to_string() text. Templated contexts (libstdc++
 /// 15 substituted-formattability evaluation, same note as ErrorCode).
-

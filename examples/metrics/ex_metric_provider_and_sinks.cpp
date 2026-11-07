@@ -137,8 +137,7 @@ int main() {
         const core::Status startup = provider.startup_status();
         expect(startup.has_value(), "harvester pinned to the configured core mask");
         if (!startup) {
-            std::fprintf(stderr, "  startup_status error: %d\n",
-                         static_cast<int>(startup.error()));
+            std::fprintf(stderr, "  startup_status error: %d\n", static_cast<int>(startup.error()));
         }
 
         const core::Result<metrics::Meter*> meter = provider.get_meter("hil-rig", "3.1.0");
@@ -161,7 +160,8 @@ int main() {
         expect(events.has_value() && temperature.has_value() && pressure.has_value() &&
                    latency_stats.has_value() && latency_ns.has_value() && latency_wide.has_value(),
                "all instruments created");
-        if (!events || !temperature || !pressure || !latency_stats || !latency_ns || !latency_wide) {
+        if (!events || !temperature || !pressure || !latency_stats || !latency_ns ||
+            !latency_wide) {
             return 1;
         }
 

@@ -25,10 +25,11 @@ namespace nexigen::app {
 /// corresponding variable was unset; a completely empty value is valid and
 /// means "this application does not use the identity contract".
 struct RunIdentity {
-    std::string run_id{};         ///< NEXIGEN_RUN_ID
-    std::string run_dir{};        ///< NEXIGEN_RUN_DIR
-    std::string instance_id{};    ///< NEXIGEN_INSTANCE_ID
-    std::string instance_dir{};   ///< NEXIGEN_INSTANCE_DIR or derived <run_dir>/<app_name>/<instance_id>
+    std::string run_id{};      ///< NEXIGEN_RUN_ID
+    std::string run_dir{};     ///< NEXIGEN_RUN_DIR
+    std::string instance_id{}; ///< NEXIGEN_INSTANCE_ID
+    std::string
+        instance_dir{}; ///< NEXIGEN_INSTANCE_DIR or derived <run_dir>/<app_name>/<instance_id>
 
     [[nodiscard]] std::string to_string() const;
 };
@@ -39,9 +40,9 @@ struct RunIdentity {
 /// Resolved output locations. An empty path means the resolver did not
 /// configure that stream; the application keeps its own policy.
 struct TelemetryPaths {
-    std::string metrics{};   ///< Resolved path for metrics.jsonl, or empty.
-    std::string traces{};    ///< Resolved path for traces.jsonl, or empty.
-    std::string chrono{};    ///< Resolved path for chrono.jsonl, or empty.
+    std::string metrics{}; ///< Resolved path for metrics.jsonl, or empty.
+    std::string traces{};  ///< Resolved path for traces.jsonl, or empty.
+    std::string chrono{};  ///< Resolved path for chrono.jsonl, or empty.
 
     [[nodiscard]] std::string to_string() const;
 };
@@ -57,8 +58,7 @@ struct TelemetryPaths {
 
 /// Derive the instance directory as `<run_dir>/<app_name>/<instance_id>` from a
 /// separately supplied application name.
-[[nodiscard]] std::string derive_instance_dir(std::string_view run_dir,
-                                              std::string_view app_name,
+[[nodiscard]] std::string derive_instance_dir(std::string_view run_dir, std::string_view app_name,
                                               std::string_view instance_id);
 
 /// Validate present ids (1..128 bytes, [A-Za-z0-9._-], no "."/".."/"..")
@@ -69,18 +69,20 @@ struct TelemetryPaths {
 /// Resolve each stream independently: explicit non-empty path, otherwise
 /// `<instance_dir>/<metrics|traces|chrono>.jsonl`, otherwise empty. The
 /// resolver performs no I/O and leaves `out` untouched on invalid identity.
-[[nodiscard]] core::Status resolve_telemetry_paths(
-    const RunIdentity& identity, std::string_view explicit_metrics_path,
-    std::string_view explicit_traces_path, std::string_view explicit_chrono_path,
-    TelemetryPaths& out) noexcept;
+[[nodiscard]] core::Status resolve_telemetry_paths(const RunIdentity& identity,
+                                                   std::string_view explicit_metrics_path,
+                                                   std::string_view explicit_traces_path,
+                                                   std::string_view explicit_chrono_path,
+                                                   TelemetryPaths& out) noexcept;
 
 /// Settings convenience overload: reads `sink.path` from each subsystem.
-[[nodiscard]] inline core::Status resolve_telemetry_paths(
-    const RunIdentity& identity, const metrics::Settings& metrics,
-    const tracing::Settings& tracing, const chrono::Settings& chrono,
-    TelemetryPaths& out) noexcept {
-    return resolve_telemetry_paths(identity, metrics.sink.path, tracing.sink.path,
-                                   chrono.sink.path, out);
+[[nodiscard]] inline core::Status resolve_telemetry_paths(const RunIdentity& identity,
+                                                          const metrics::Settings& metrics,
+                                                          const tracing::Settings& tracing,
+                                                          const chrono::Settings& chrono,
+                                                          TelemetryPaths& out) noexcept {
+    return resolve_telemetry_paths(identity, metrics.sink.path, tracing.sink.path, chrono.sink.path,
+                                   out);
 }
 
 // --- cold-path ADL serialization (bodies in src/app/telemetry_layout.cpp)
@@ -96,7 +98,3 @@ void to_json(nlohmann::json& j, const TelemetryPaths& paths);
 void from_json(const nlohmann::json& j, TelemetryPaths& paths) noexcept;
 
 } // namespace nexigen::app
-
-
-
-

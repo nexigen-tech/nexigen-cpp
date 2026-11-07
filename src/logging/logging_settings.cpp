@@ -66,20 +66,19 @@ constexpr std::uint64_t kNanoseconds_per_second = 1'000'000'000ULL;
     return true;
 }
 
-void add_diagnostic(Settings& settings, core::SettingsSource source,
-                    std::string field, std::string message) {
+void add_diagnostic(Settings& settings, core::SettingsSource source, std::string field,
+                    std::string message) {
     // Delegates to the shared vector helper (change
     // fix-p2-observability-and-writers): one implementation.
-    nexigen::core::settings_io::add_diagnostic(
-        settings.diagnostics, source, std::move(field), std::move(message));
+    nexigen::core::settings_io::add_diagnostic(settings.diagnostics, source, std::move(field),
+                                               std::move(message));
 }
 
 /// Validate every known field of one document, keep only the valid ones in
 /// `clean`, and leave the rest to the existing LoggerOptions from_json so the
 /// field mapping stays in one place.
 void sanitize_document(const nlohmann::json& document, core::SettingsSource source,
-                       Settings& settings,
-                       nlohmann::json& clean) {
+                       Settings& settings, nlohmann::json& clean) {
     clean = nlohmann::json::object();
     if (!document.is_object()) {
         add_diagnostic(settings, source, "", "document is not a JSON object");
@@ -185,7 +184,7 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
             clean["flush_cpu_affinity"] = *it;
         } else {
             add_diagnostic(settings, source, "flush_cpu_affinity",
-                            "expected a unique array of CPU ids between 0 and 1023");
+                           "expected a unique array of CPU ids between 0 and 1023");
         }
     }
 
@@ -200,7 +199,7 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
             clean["worker_thread"] = *it;
         } else {
             add_diagnostic(settings, source, "worker_thread",
-                            "expected valid name/cpus/policy/priority/mode fields");
+                           "expected valid name/cpus/policy/priority/mode fields");
         }
     }
 
@@ -220,16 +219,14 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
         if (it->is_boolean()) {
             clean["sync_flush_on_critical"] = it->get<bool>();
         } else {
-            add_diagnostic(settings, source, "sync_flush_on_critical",
-                           "expected a boolean");
+            add_diagnostic(settings, source, "sync_flush_on_critical", "expected a boolean");
         }
     }
 
     it = document.find("spam_protection");
     if (it != document.end()) {
         if (!it->is_object()) {
-            add_diagnostic(settings, source, "spam_protection",
-                           "expected a JSON object");
+            add_diagnostic(settings, source, "spam_protection", "expected a JSON object");
         } else {
             nlohmann::json spam = nlohmann::json::object();
             bool valid = true;
@@ -243,8 +240,7 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
                     spam[key] = value;
                 } else {
                     valid = false;
-                    add_diagnostic(settings, source,
-                                   std::string("spam_protection.") + key,
+                    add_diagnostic(settings, source, std::string("spam_protection.") + key,
                                    "expected a non-negative integer in range");
                 }
             };
@@ -254,8 +250,7 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
                     spam["enable_repeat_suppression"] = entry->get<bool>();
                 } else {
                     valid = false;
-                    add_diagnostic(settings, source,
-                                   "spam_protection.enable_repeat_suppression",
+                    add_diagnostic(settings, source, "spam_protection.enable_repeat_suppression",
                                    "expected a boolean");
                 }
             }
@@ -270,8 +265,7 @@ void sanitize_document(const nlohmann::json& document, core::SettingsSource sour
                     spam["bypass_min_level"] = *text;
                 } else {
                     valid = false;
-                    add_diagnostic(settings, source,
-                                   "spam_protection.bypass_min_level",
+                    add_diagnostic(settings, source, "spam_protection.bypass_min_level",
                                    "expected a known log level name");
                 }
             }
@@ -376,8 +370,8 @@ void apply_environment(Settings& settings) noexcept {
         if (parse_u64(value, parsed)) {
             settings.options.max_file_size_bytes = parsed;
         } else {
-            add_diagnostic(settings, core::SettingsSource::Environment,
-                           "max_file_size_bytes", "expected a non-negative integer");
+            add_diagnostic(settings, core::SettingsSource::Environment, "max_file_size_bytes",
+                           "expected a non-negative integer");
         }
     }
 
@@ -387,9 +381,9 @@ void apply_environment(Settings& settings) noexcept {
         if (parse_affinity(value, cpus)) {
             settings.options.worker_thread.set_cpus(cpus);
         } else {
-            add_diagnostic(settings, core::SettingsSource::Environment,
-                           "flush_cpu_affinity",
-                           "expected a unique comma-separated list of ids/ranges between 0 and 1023");
+            add_diagnostic(
+                settings, core::SettingsSource::Environment, "flush_cpu_affinity",
+                "expected a unique comma-separated list of ids/ranges between 0 and 1023");
         }
     }
 
@@ -400,8 +394,7 @@ void apply_environment(Settings& settings) noexcept {
         if (parse_u32(value, parsed) && parsed > 0U) {
             settings.options.spsc_ring_buffer_capacity = parsed;
         } else {
-            add_diagnostic(settings, core::SettingsSource::Environment,
-                           "spsc_ring_buffer_capacity",
+            add_diagnostic(settings, core::SettingsSource::Environment, "spsc_ring_buffer_capacity",
                            "expected a positive 32-bit integer");
         }
     }
@@ -413,8 +406,7 @@ void apply_environment(Settings& settings) noexcept {
         if (parse_u32(value, parsed) && parsed > 0U) {
             settings.options.message_capacity = parsed;
         } else {
-            add_diagnostic(settings, core::SettingsSource::Environment,
-                           "message_capacity",
+            add_diagnostic(settings, core::SettingsSource::Environment, "message_capacity",
                            "expected a positive 32-bit integer");
         }
     }
@@ -426,8 +418,7 @@ void apply_environment(Settings& settings) noexcept {
         if (parse_u32(value, parsed) && parsed > 0U) {
             settings.options.max_producer_threads = parsed;
         } else {
-            add_diagnostic(settings, core::SettingsSource::Environment,
-                           "max_producer_threads",
+            add_diagnostic(settings, core::SettingsSource::Environment, "max_producer_threads",
                            "expected a positive 32-bit integer");
         }
     }
@@ -447,16 +438,13 @@ void apply_environment(Settings& settings) noexcept {
 } // namespace
 
 std::string Settings::to_string() const {
-    std::string out = "Settings(global_loaded=" +
-                      std::string(global_loaded ? "true" : "false") +
-                      ", local_loaded=" + std::string(local_loaded ? "true" : "false") +
-                      ", ring_capacity_set=" +
-                      std::string(ring_capacity_set ? "true" : "false") +
-                      ", max_threads_set=" +
-                      std::string(max_threads_set ? "true" : "false") +
-                      ", message_capacity_set=" +
-                      std::string(message_capacity_set ? "true" : "false") +
-                      ", options=" + options.to_string() + ", diagnostics=[";
+    std::string out =
+        "Settings(global_loaded=" + std::string(global_loaded ? "true" : "false") +
+        ", local_loaded=" + std::string(local_loaded ? "true" : "false") +
+        ", ring_capacity_set=" + std::string(ring_capacity_set ? "true" : "false") +
+        ", max_threads_set=" + std::string(max_threads_set ? "true" : "false") +
+        ", message_capacity_set=" + std::string(message_capacity_set ? "true" : "false") +
+        ", options=" + options.to_string() + ", diagnostics=[";
     for (std::size_t i = 0; i < diagnostics.size(); ++i) {
         if (i != 0) {
             out += "; ";
@@ -485,8 +473,7 @@ void to_json(nlohmann::json& j, const Settings& settings) {
                        {"diagnostics", std::move(diagnostics)}};
 }
 
-core::Status load_logging_settings(const core::SettingsPaths& paths,
-                                   Settings& out) noexcept {
+core::Status load_logging_settings(const core::SettingsPaths& paths, Settings& out) noexcept {
     out = Settings{};
     bool invalid = false;
     bool system_error = false;
@@ -510,8 +497,7 @@ core::Status load_logging_settings(const core::SettingsPaths& paths,
         }
     } else if (read == FileRead::Failed) {
         system_error = true;
-        add_diagnostic(out, core::SettingsSource::Global, "",
-                       "file exists but could not be read");
+        add_diagnostic(out, core::SettingsSource::Global, "", "file exists but could not be read");
     }
 
     text.clear();
@@ -533,8 +519,7 @@ core::Status load_logging_settings(const core::SettingsPaths& paths,
         }
     } else if (read == FileRead::Failed) {
         system_error = true;
-        add_diagnostic(out, core::SettingsSource::Local, "",
-                       "file exists but could not be read");
+        add_diagnostic(out, core::SettingsSource::Local, "", "file exists but could not be read");
     }
 
     const std::size_t before_env = out.diagnostics.size();
@@ -566,8 +551,7 @@ core::Status apply_to(const Settings& settings, FileLoggerConfig& out) noexcept 
     out.worker_thread = options.worker_thread;
     out.worker_poll_interval_us = options.worker_poll_interval_us;
 
-    const std::uint64_t per_second =
-        options.spam_protection.max_messages_per_sec_per_shard;
+    const std::uint64_t per_second = options.spam_protection.max_messages_per_sec_per_shard;
     if (per_second != 0ULL) {
         out.throttle.enabled = true;
         out.throttle.max_records_per_window = per_second;

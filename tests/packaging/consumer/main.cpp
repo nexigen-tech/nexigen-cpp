@@ -25,10 +25,10 @@ int main() {
         return 1;
     }
 
-    const auto ticks = (*meter)->create_counter<
-        nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
-        nexigen::metrics::AccessPolicy::Readable,
-        nexigen::metrics::ResetPolicy::Cumulative>("ticks");
+    const auto ticks = (*meter)
+                           ->create_counter<nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
+                                            nexigen::metrics::AccessPolicy::Readable,
+                                            nexigen::metrics::ResetPolicy::Cumulative>("ticks");
     if (!ticks) {
         std::fputs("create_counter failed\n", stderr);
         return 1;
@@ -41,7 +41,6 @@ int main() {
         return 1;
     }
 
-    std::printf("installed consumer: ticks=%llu\n",
-                static_cast<unsigned long long>(value));
+    std::printf("installed consumer: ticks=%llu\n", static_cast<unsigned long long>(value));
     return 0;
 }

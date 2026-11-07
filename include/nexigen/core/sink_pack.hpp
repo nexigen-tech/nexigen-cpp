@@ -35,8 +35,7 @@ namespace nexigen::core::sink_pack {
 
 /// Keep the first failure; a later success never masks it. Free on purpose:
 /// composite bodies call it as `sink_pack::combine(...)` inside folds.
-[[nodiscard]] inline core::Status combine(core::Status accumulated,
-                                           core::Status next) noexcept {
+[[nodiscard]] inline core::Status combine(core::Status accumulated, core::Status next) noexcept {
     if (!accumulated.has_value()) {
         return accumulated;
     }
@@ -48,13 +47,11 @@ namespace nexigen::core::sink_pack {
 /// protected helper methods are moved in verbatim from the per-module
 /// composite headers, so the codegen and the compile-time contract (exact
 /// static_assert texts included) are unchanged.
-template <class... Sinks>
-class Fanout {
+template <class... Sinks> class Fanout {
 protected:
     /// Compile-time index of the first member whose type is T; the sentinel
     /// `sizeof...(Sinks)` marks an absent type (pair with exactly_one<T>()).
-    template <class T>
-    [[nodiscard]] static constexpr std::size_t find_index() noexcept {
+    template <class T> [[nodiscard]] static constexpr std::size_t find_index() noexcept {
         const std::array<bool, sizeof...(Sinks)> matches{std::is_same_v<T, Sinks>...};
         std::size_t found = sizeof...(Sinks); // sentinel: "not present"
         for (std::size_t i = 0; i < sizeof...(Sinks); ++i) {
@@ -67,8 +64,7 @@ protected:
 
     /// True when type T appears exactly once in the pack — the compile-time
     /// gate behind type-based get<T>() (absent or duplicated types fail it).
-    template <class T>
-    [[nodiscard]] static constexpr bool exactly_one() noexcept {
+    template <class T> [[nodiscard]] static constexpr bool exactly_one() noexcept {
         const std::array<bool, sizeof...(Sinks)> matches{std::is_same_v<T, Sinks>...};
         std::size_t hits = 0;
         for (std::size_t i = 0; i < sizeof...(Sinks); ++i) {
@@ -81,22 +77,24 @@ protected:
 
     /// Invoke fn against every member in pack order (index 0 first), never
     /// short-circuiting — the non-const delivery path.
-    template <typename Fn>
-    void for_each(Fn&& fn) noexcept {
-        std::apply([&fn](Sinks&... sink) {
-            static_cast<void>(fn);
-            (fn(sink), ...);
-        }, members_);
+    template <typename Fn> void for_each(Fn&& fn) noexcept {
+        std::apply(
+            [&fn](Sinks&... sink) {
+                static_cast<void>(fn);
+                (fn(sink), ...);
+            },
+            members_);
     }
 
     /// Invoke fn against every member in pack order (index 0 first), never
     /// short-circuiting — the const delivery path.
-    template <typename Fn>
-    void for_each(Fn&& fn) const noexcept {
-        std::apply([&fn](const Sinks&... sink) {
-            static_cast<void>(fn);
-            (fn(sink), ...);
-        }, members_);
+    template <typename Fn> void for_each(Fn&& fn) const noexcept {
+        std::apply(
+            [&fn](const Sinks&... sink) {
+                static_cast<void>(fn);
+                (fn(sink), ...);
+            },
+            members_);
     }
 
     /// Heterogeneous member storage in pack order (the tuple the fold
@@ -111,7 +109,7 @@ public:
     /// Default construction — only for default-constructible member packs
     /// (the constraint keeps this honest at the derived composite surface).
     Fanout() noexcept
-        requires (std::is_default_constructible_v<Sinks> && ...)
+        requires(std::is_default_constructible_v<Sinks> && ...)
         : members_() {}
 
     /// Member-injection construction: configured, possibly
@@ -119,7 +117,7 @@ public:
     /// what makes CompositeX<ConsoleX, JsonFileX, NullX> constructible
     /// around a path-configured file sink.
     explicit Fanout(Sinks... members)
-        requires (sizeof...(Sinks) > 0)
+        requires(sizeof...(Sinks) > 0)
         : members_(std::move(members)...) {}
 
     Fanout(const Fanout&) = delete;
@@ -128,30 +126,24 @@ public:
     Fanout& operator=(Fanout&&) = delete;
 
     /// Member access by index.
-    template <std::size_t Index>
-    [[nodiscard]] decltype(auto) get() noexcept {
+    template <std::size_t Index> [[nodiscard]] decltype(auto) get() noexcept {
         static_assert(Index < sizeof...(Sinks), "index beyond the member pack");
         return std::get<Index>(members_);
     }
     /// Const member access by index.
-    template <std::size_t Index>
-    [[nodiscard]] decltype(auto) get() const noexcept {
+    template <std::size_t Index> [[nodiscard]] decltype(auto) get() const noexcept {
         static_assert(Index < sizeof...(Sinks), "index beyond the member pack");
         return std::get<Index>(members_);
     }
 
     /// Member access by type (must be unique in the pack).
-    template <class T>
-    [[nodiscard]] T& get() noexcept {
-        static_assert(exactly_one<T>(),
-                      "type absent or duplicated — get<Index>() for duplicates");
+    template <class T> [[nodiscard]] T& get() noexcept {
+        static_assert(exactly_one<T>(), "type absent or duplicated — get<Index>() for duplicates");
         return std::get<find_index<T>()>(members_);
     }
     /// Const member access by type (must be unique in the pack).
-    template <class T>
-    [[nodiscard]] const T& get() const noexcept {
-        static_assert(exactly_one<T>(),
-                      "type absent or duplicated — get<Index>() for duplicates");
+    template <class T> [[nodiscard]] const T& get() const noexcept {
+        static_assert(exactly_one<T>(), "type absent or duplicated — get<Index>() for duplicates");
         return std::get<find_index<T>()>(members_);
     }
 };

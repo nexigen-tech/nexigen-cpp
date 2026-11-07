@@ -71,9 +71,18 @@ enum class RotationPolicy : std::uint8_t {
 
 /// Parse a canonical policy name; false leaves the out-parameter unchanged.
 [[nodiscard]] constexpr bool from_string(std::string_view name, RotationPolicy& out) noexcept {
-    if (name == "None")   { out = RotationPolicy::None;   return true; }
-    if (name == "Hourly") { out = RotationPolicy::Hourly; return true; }
-    if (name == "Daily")  { out = RotationPolicy::Daily;  return true; }
+    if (name == "None") {
+        out = RotationPolicy::None;
+        return true;
+    }
+    if (name == "Hourly") {
+        out = RotationPolicy::Hourly;
+        return true;
+    }
+    if (name == "Daily") {
+        out = RotationPolicy::Daily;
+        return true;
+    }
     return false;
 }
 
@@ -91,8 +100,8 @@ inline void from_json(const nlohmann::json& j, RotationPolicy& out) noexcept {
 /// File sink configuration (value type, full serialization trio; body in
 /// src/tracing/sink_format.cpp).
 struct JsonFileTraceSinkConfig {
-    std::string path{};               ///< file (None) or filename prefix.
-    std::string app_name{};           ///< application name for the "app" field.
+    std::string path{};     ///< file (None) or filename prefix.
+    std::string app_name{}; ///< application name for the "app" field.
     RotationPolicy rotation{RotationPolicy::None};
     std::uint64_t max_spans_per_window{0}; ///< 0 = unlimited.
     std::uint64_t window_ns{0};            ///< 0 = unlimited.
@@ -116,12 +125,10 @@ public:
     /// The path/prefix is captured at construction (configuration time);
     /// the file itself opens at start().
     explicit JsonFileTraceSink(const JsonFileTraceSinkConfig& config) noexcept
-        : rotation_(config.rotation),
-          max_per_window_(config.max_spans_per_window),
+        : rotation_(config.rotation), max_per_window_(config.max_spans_per_window),
           window_ns_(config.window_ns) {
         copy_path(config.path);
-        const std::size_t take =
-            config.app_name.size() < 63 ? config.app_name.size() : 63;
+        const std::size_t take = config.app_name.size() < 63 ? config.app_name.size() : 63;
         for (std::size_t i = 0; i < take; ++i) {
             app_[i] = config.app_name[i];
         }
@@ -138,10 +145,9 @@ public:
         : rotation_(other.rotation_), max_per_window_(other.max_per_window_),
           window_ns_(other.window_ns_), offset_ns_(other.offset_ns_),
           window_start_utc_(other.window_start_utc_), window_key_(other.window_key_),
-          tokens_used_(other.tokens_used_),
-          dropped_in_window_(other.dropped_in_window_),
-          discarded_lines_(other.discarded_lines_), fd_(other.fd_),
-          path_len_(other.path_len_), app_len_(other.app_len_) {
+          tokens_used_(other.tokens_used_), dropped_in_window_(other.dropped_in_window_),
+          discarded_lines_(other.discarded_lines_), fd_(other.fd_), path_len_(other.path_len_),
+          app_len_(other.app_len_) {
         std::memcpy(path_, other.path_, sizeof(path_));
         std::memcpy(app_, other.app_, sizeof(app_));
         other.fd_ = -1;
@@ -339,18 +345,18 @@ private:
     RotationPolicy rotation_{RotationPolicy::None};
     std::uint64_t max_per_window_{0};
     std::uint64_t window_ns_{0};
-    std::int64_t offset_ns_{0};          ///< sampled UTC offset
+    std::int64_t offset_ns_{0};                ///< sampled UTC offset
     std::int64_t window_start_utc_{INT64_MIN}; ///< rate-limit window anchor
-    std::int64_t window_key_{-1};        ///< rotation period identity
+    std::int64_t window_key_{-1};              ///< rotation period identity
     std::uint64_t tokens_used_{0};
     std::uint64_t dropped_in_window_{0};
     std::uint64_t discarded_lines_{0}; ///< lines over the JSON scratch (P2-18)
     int fd_{-1};
     std::size_t path_len_{0};
     std::size_t app_len_{0};
-    char path_[path_capacity + 32]{};   ///< the configured prefix/file path
-    char app_[64]{};                    ///< the configured application name
-    char file_[path_capacity + 32]{};   ///< per-window filename build buffer
+    char path_[path_capacity + 32]{}; ///< the configured prefix/file path
+    char app_[64]{};                  ///< the configured application name
+    char file_[path_capacity + 32]{}; ///< per-window filename build buffer
     char scratch_[detail::json_scratch_capacity]{};
 };
 

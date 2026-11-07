@@ -55,13 +55,34 @@ enum class LogLevel : std::uint8_t {
 /// Returns false leaving the out-parameter UNCHANGED otherwise ("Unknown"
 /// is a rendering, not an enumerator).
 [[nodiscard]] constexpr bool from_string(std::string_view name, LogLevel& out) noexcept {
-    if (name == "verbose") { out = LogLevel::Verbose; return true; }
-    if (name == "debug")   { out = LogLevel::Debug; return true; }
-    if (name == "info")    { out = LogLevel::Info; return true; }
-    if (name == "warning") { out = LogLevel::Warning; return true; }
-    if (name == "error")   { out = LogLevel::Error; return true; }
-    if (name == "fatal")   { out = LogLevel::Fatal; return true; }
-    if (name == "off")     { out = LogLevel::Off; return true; }
+    if (name == "verbose") {
+        out = LogLevel::Verbose;
+        return true;
+    }
+    if (name == "debug") {
+        out = LogLevel::Debug;
+        return true;
+    }
+    if (name == "info") {
+        out = LogLevel::Info;
+        return true;
+    }
+    if (name == "warning") {
+        out = LogLevel::Warning;
+        return true;
+    }
+    if (name == "error") {
+        out = LogLevel::Error;
+        return true;
+    }
+    if (name == "fatal") {
+        out = LogLevel::Fatal;
+        return true;
+    }
+    if (name == "off") {
+        out = LogLevel::Off;
+        return true;
+    }
     return false;
 }
 
@@ -84,4 +105,3 @@ inline void from_json(const nlohmann::json& j, LogLevel& out) noexcept {
 /// LogLevel formats as its canonical lowercase name (mandate 11): parse and
 /// fill/align handled by the string_view formatter; context templated because
 /// libstdc++ 15 evaluates formattability against a substituted context.
-

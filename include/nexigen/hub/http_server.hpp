@@ -17,8 +17,8 @@ namespace nexigen::hub {
 /// Foreground HTTP/SSE server. One epoll control loop; no application work.
 class HttpServer {
 public:
-    HttpServer(Discovery& discovery, StreamManager& streaming,
-                DiagnosticSink sink = nullptr, void* context = nullptr);
+    HttpServer(Discovery& discovery, StreamManager& streaming, DiagnosticSink sink = nullptr,
+               void* context = nullptr);
     ~HttpServer();
 
     HttpServer(const HttpServer&) = delete;

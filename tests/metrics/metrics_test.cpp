@@ -67,40 +67,36 @@
 // compile-time read gating are pinned before the first suite runs.
 static_assert(!std::is_constructible_v<nexigen::metrics::MeterPasskey>,
               "the passkey must not be constructible by user code");
-static_assert(!std::is_constructible_v<
-                  nexigen::metrics::Counter<nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
-                                            nexigen::metrics::AccessPolicy::Readable,
-                                            nexigen::metrics::ResetPolicy::Cumulative>>,
-              "a counter must not be constructible outside a Meter");
-static_assert(!std::is_constructible_v<
-                  nexigen::metrics::Gauge<std::int64_t, nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
-                                          nexigen::metrics::AccessPolicy::Readable,
-                                          nexigen::metrics::ResetPolicy::Cumulative>>,
-              "a gauge must not be constructible outside a Meter");
-static_assert(!std::is_constructible_v<
-                  nexigen::metrics::DescriptiveStatistics<
-                      nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
-                      nexigen::metrics::AccessPolicy::Readable,
-                      nexigen::metrics::ResetPolicy::Cumulative>>,
-              "statistics must not be constructible outside a Meter");
-static_assert(!std::is_constructible_v<
-                  nexigen::metrics::ExplicitBucketHistogram<
-                      nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
-                      nexigen::metrics::AccessPolicy::Readable,
-                      nexigen::metrics::ResetPolicy::Cumulative>>,
-              "an explicit histogram must not be constructible outside a Meter");
-static_assert(!std::is_constructible_v<
-                  nexigen::metrics::ExponentialHistogram<
-                      nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
-                      nexigen::metrics::AccessPolicy::Readable,
-                      nexigen::metrics::ResetPolicy::Cumulative>>,
-              "an exponential histogram must not be constructible outside a Meter");
-static_assert(!std::is_constructible_v<
-                  nexigen::metrics::StateGauge<
-                      nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
-                      nexigen::metrics::AccessPolicy::Readable,
-                      nexigen::metrics::ResetPolicy::Cumulative>>,
-              "a state gauge must not be constructible outside a Meter");
+static_assert(
+    !std::is_constructible_v<nexigen::metrics::Counter<
+        nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
+        nexigen::metrics::AccessPolicy::Readable, nexigen::metrics::ResetPolicy::Cumulative>>,
+    "a counter must not be constructible outside a Meter");
+static_assert(
+    !std::is_constructible_v<nexigen::metrics::Gauge<
+        std::int64_t, nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
+        nexigen::metrics::AccessPolicy::Readable, nexigen::metrics::ResetPolicy::Cumulative>>,
+    "a gauge must not be constructible outside a Meter");
+static_assert(
+    !std::is_constructible_v<nexigen::metrics::DescriptiveStatistics<
+        nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
+        nexigen::metrics::AccessPolicy::Readable, nexigen::metrics::ResetPolicy::Cumulative>>,
+    "statistics must not be constructible outside a Meter");
+static_assert(
+    !std::is_constructible_v<nexigen::metrics::ExplicitBucketHistogram<
+        nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
+        nexigen::metrics::AccessPolicy::Readable, nexigen::metrics::ResetPolicy::Cumulative>>,
+    "an explicit histogram must not be constructible outside a Meter");
+static_assert(
+    !std::is_constructible_v<nexigen::metrics::ExponentialHistogram<
+        nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
+        nexigen::metrics::AccessPolicy::Readable, nexigen::metrics::ResetPolicy::Cumulative>>,
+    "an exponential histogram must not be constructible outside a Meter");
+static_assert(
+    !std::is_constructible_v<nexigen::metrics::StateGauge<
+        nexigen::metrics::ConcurrencyPolicy::SingleThreaded,
+        nexigen::metrics::AccessPolicy::Readable, nexigen::metrics::ResetPolicy::Cumulative>>,
+    "a state gauge must not be constructible outside a Meter");
 
 // Sanitizer detection (design D16): under ASan/TSan the numeric latency gate
 // is compiled out — instrumented timings are not representative.
@@ -145,36 +141,49 @@ std::size_t g_alloc_used = 0;
 
 } // namespace
 
-[[noreturn]] void arena_exhausted() { std::abort(); }
+[[noreturn]] void arena_exhausted() {
+    std::abort();
+}
 
 void* operator new(std::size_t size) {
     const std::size_t rounded = (size + 15U) & ~static_cast<std::size_t>(15U);
-    if (g_alloc_used + rounded > sizeof(g_arena)) { arena_exhausted(); }
+    if (g_alloc_used + rounded > sizeof(g_arena)) {
+        arena_exhausted();
+    }
     void* p = g_arena + g_alloc_used;
     g_alloc_used += rounded;
     return p;
 }
 
-void* operator new[](std::size_t size) { return ::operator new(size); }
+void* operator new[](std::size_t size) {
+    return ::operator new(size);
+}
 
-void operator delete(void* ptr) noexcept { static_cast<void>(ptr); }
-void operator delete(void* ptr, std::size_t) noexcept { static_cast<void>(ptr); }
-void operator delete[](void* ptr) noexcept { static_cast<void>(ptr); }
-void operator delete[](void* ptr, std::size_t) noexcept { static_cast<void>(ptr); }
+void operator delete(void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete(void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
 
-#define NX_CHECK(...)                                                                           \
-    do {                                                                                        \
-        ++g_checks;                                                                             \
-        if (!(__VA_ARGS__)) {                                                                   \
-            ++g_failures;                                                                       \
-            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #__VA_ARGS__);        \
-        }                                                                                       \
+#define NX_CHECK(...)                                                                              \
+    do {                                                                                           \
+        ++g_checks;                                                                                \
+        if (!(__VA_ARGS__)) {                                                                      \
+            ++g_failures;                                                                          \
+            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #__VA_ARGS__);            \
+        }                                                                                          \
     } while (false)
 
 namespace {
 
-void run_suite(const char* suite_name, void (*body)())
-{
+void run_suite(const char* suite_name, void (*body)()) {
     const int checks_before = g_checks;
     const int failures_before = g_failures;
 
@@ -365,7 +374,8 @@ void test_policy_format() {
     NX_CHECK(std::format("{}", metrics::ConcurrencyPolicy::SingleThreaded) == "SingleThreaded");
     NX_CHECK(std::format("{}", metrics::AccessPolicy::Readable) == "Readable");
     NX_CHECK(std::format("{}", metrics::ResetPolicy::Cumulative) == "Cumulative");
-    NX_CHECK(std::format("{}", metrics::MetricKind::DescriptiveStatistics) == "DescriptiveStatistics");
+    NX_CHECK(std::format("{}", metrics::MetricKind::DescriptiveStatistics) ==
+             "DescriptiveStatistics");
     NX_CHECK(std::format("{}", metrics::MetricKind::State) == "State");
     // Width and alignment pass through to the string-view formatter.
     NX_CHECK(std::format("{:>20}", metrics::AccessPolicy::WriteOnly) ==
@@ -376,23 +386,28 @@ void test_policy_format() {
 namespace probes {
 
 struct MissingKind {
-    [[maybe_unused]] static constexpr metrics::ConcurrencyPolicy concurrency = metrics::ConcurrencyPolicy::SingleThreaded;
-    [[maybe_unused]] static constexpr metrics::AccessPolicy access = metrics::AccessPolicy::Readable;
+    [[maybe_unused]] static constexpr metrics::ConcurrencyPolicy concurrency =
+        metrics::ConcurrencyPolicy::SingleThreaded;
+    [[maybe_unused]] static constexpr metrics::AccessPolicy access =
+        metrics::AccessPolicy::Readable;
     [[maybe_unused]] static constexpr metrics::ResetPolicy reset = metrics::ResetPolicy::Cumulative;
     [[nodiscard]] std::string to_string() const { return "probe"; }
 };
 
 struct WrongKindType {
     static constexpr int kind = 0;
-    [[maybe_unused]] static constexpr metrics::ConcurrencyPolicy concurrency = metrics::ConcurrencyPolicy::SingleThreaded;
-    [[maybe_unused]] static constexpr metrics::AccessPolicy access = metrics::AccessPolicy::Readable;
+    [[maybe_unused]] static constexpr metrics::ConcurrencyPolicy concurrency =
+        metrics::ConcurrencyPolicy::SingleThreaded;
+    [[maybe_unused]] static constexpr metrics::AccessPolicy access =
+        metrics::AccessPolicy::Readable;
     [[maybe_unused]] static constexpr metrics::ResetPolicy reset = metrics::ResetPolicy::Cumulative;
     [[nodiscard]] std::string to_string() const { return "probe"; }
 };
 
 struct Conforming {
     static constexpr metrics::MetricKind kind = metrics::MetricKind::Counter;
-    static constexpr metrics::ConcurrencyPolicy concurrency = metrics::ConcurrencyPolicy::SingleThreaded;
+    static constexpr metrics::ConcurrencyPolicy concurrency =
+        metrics::ConcurrencyPolicy::SingleThreaded;
     static constexpr metrics::AccessPolicy access = metrics::AccessPolicy::Readable;
     static constexpr metrics::ResetPolicy reset = metrics::ResetPolicy::Cumulative;
     [[nodiscard]] std::string to_string() const { return "probe"; }
@@ -416,41 +431,38 @@ static_assert(metrics::concepts::MetricSink<metrics::JsonFileMetricSink>);
 void test_concepts() {
     // The instruments satisfy the concept in both concurrency modes, and the
     // Readable refinement holds only for Readable instantiations.
-    NX_CHECK((metrics::concepts::Metric<
-              metrics::Counter<metrics::ConcurrencyPolicy::SingleThreaded,
-                               metrics::AccessPolicy::Readable,
-                               metrics::ResetPolicy::Cumulative>>));
-    NX_CHECK((metrics::concepts::Metric<
-              metrics::Counter<metrics::ConcurrencyPolicy::MultiThreaded,
-                               metrics::AccessPolicy::WriteOnly,
-                               metrics::ResetPolicy::ResetOnRead>>));
+    NX_CHECK(
+        (metrics::concepts::Metric<
+            metrics::Counter<metrics::ConcurrencyPolicy::SingleThreaded,
+                             metrics::AccessPolicy::Readable, metrics::ResetPolicy::Cumulative>>));
+    NX_CHECK((metrics::concepts::Metric<metrics::Counter<metrics::ConcurrencyPolicy::MultiThreaded,
+                                                         metrics::AccessPolicy::WriteOnly,
+                                                         metrics::ResetPolicy::ResetOnRead>>));
     NX_CHECK((metrics::concepts::ReadableMetric<
               metrics::Gauge<std::int64_t, metrics::ConcurrencyPolicy::SingleThreaded,
                              metrics::AccessPolicy::Readable, metrics::ResetPolicy::Cumulative>>));
-    NX_CHECK(!(metrics::concepts::ReadableMetric<
-               metrics::Gauge<std::int64_t, metrics::ConcurrencyPolicy::SingleThreaded,
-                              metrics::AccessPolicy::WriteOnly, metrics::ResetPolicy::Cumulative>>));
-    NX_CHECK((metrics::concepts::ReadableMetric<
-              metrics::DescriptiveStatistics<metrics::ConcurrencyPolicy::MultiThreaded,
-                                             metrics::AccessPolicy::Readable,
-                                             metrics::ResetPolicy::ResetOnRead>>));
-    NX_CHECK((metrics::concepts::ReadableMetric<
-              metrics::ExplicitBucketHistogram<metrics::ConcurrencyPolicy::MultiThreaded,
-                                                metrics::AccessPolicy::Readable,
-                                                metrics::ResetPolicy::Cumulative>>));
-    NX_CHECK((metrics::concepts::ReadableMetric<
-              metrics::ExponentialHistogram<metrics::ConcurrencyPolicy::MultiThreaded,
-                                            metrics::AccessPolicy::Readable,
-                                            metrics::ResetPolicy::Cumulative>>));
+    NX_CHECK(
+        !(metrics::concepts::ReadableMetric<
+            metrics::Gauge<std::int64_t, metrics::ConcurrencyPolicy::SingleThreaded,
+                           metrics::AccessPolicy::WriteOnly, metrics::ResetPolicy::Cumulative>>));
+    NX_CHECK((metrics::concepts::ReadableMetric<metrics::DescriptiveStatistics<
+                  metrics::ConcurrencyPolicy::MultiThreaded, metrics::AccessPolicy::Readable,
+                  metrics::ResetPolicy::ResetOnRead>>));
+    NX_CHECK((metrics::concepts::ReadableMetric<metrics::ExplicitBucketHistogram<
+                  metrics::ConcurrencyPolicy::MultiThreaded, metrics::AccessPolicy::Readable,
+                  metrics::ResetPolicy::Cumulative>>));
+    NX_CHECK((metrics::concepts::ReadableMetric<metrics::ExponentialHistogram<
+                  metrics::ConcurrencyPolicy::MultiThreaded, metrics::AccessPolicy::Readable,
+                  metrics::ResetPolicy::Cumulative>>));
 
     // The WriteOnly instantiation exposes no read side at all.
-    NX_CHECK(!(metrics::detail::HasRead<
-               metrics::Counter<metrics::ConcurrencyPolicy::SingleThreaded,
-                                metrics::AccessPolicy::WriteOnly, metrics::ResetPolicy::Cumulative>>));
-    NX_CHECK(!(metrics::detail::HasSnapshot<
-               metrics::ExponentialHistogram<metrics::ConcurrencyPolicy::SingleThreaded,
-                                             metrics::AccessPolicy::WriteOnly,
-                                             metrics::ResetPolicy::Cumulative>>));
+    NX_CHECK(
+        !(metrics::detail::HasRead<
+            metrics::Counter<metrics::ConcurrencyPolicy::SingleThreaded,
+                             metrics::AccessPolicy::WriteOnly, metrics::ResetPolicy::Cumulative>>));
+    NX_CHECK(!(metrics::detail::HasSnapshot<metrics::ExponentialHistogram<
+                   metrics::ConcurrencyPolicy::SingleThreaded, metrics::AccessPolicy::WriteOnly,
+                   metrics::ResetPolicy::Cumulative>>));
 }
 
 // --- registry and factory hierarchy (spec metrics/metric-provider).
@@ -466,7 +478,9 @@ void test_registry() {
     // Meter creation and identity.
     const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.2.0");
     NX_CHECK(meter.has_value());
-    if (!meter) { return; }
+    if (!meter) {
+        return;
+    }
     NX_CHECK(metrics::detail::view_name((*meter)->identity().meter_name) == "engine");
     NX_CHECK(metrics::detail::view_name((*meter)->identity().meter_version) == "1.2.0");
 
@@ -485,9 +499,9 @@ void test_registry() {
     NX_CHECK(!too_long.has_value() && too_long.error() == ErrorCode::InvalidArgument);
 
     // Instrument creation through the meter.
-    const Result<metrics::Counter<metrics::ConcurrencyPolicy::SingleThreaded,
-                                  metrics::AccessPolicy::Readable,
-                                  metrics::ResetPolicy::Cumulative>*>
+    const Result<
+        metrics::Counter<metrics::ConcurrencyPolicy::SingleThreaded,
+                         metrics::AccessPolicy::Readable, metrics::ResetPolicy::Cumulative>*>
         counter = (*meter)->create_counter("hits");
     NX_CHECK(counter.has_value());
     if (counter) {
@@ -497,20 +511,20 @@ void test_registry() {
 
     // Duplicate names inside one meter are rejected (across kinds too).
     const Result<metrics::Gauge<std::int64_t, metrics::ConcurrencyPolicy::SingleThreaded,
-                                 metrics::AccessPolicy::Readable, metrics::ResetPolicy::Cumulative>*>
+                                metrics::AccessPolicy::Readable, metrics::ResetPolicy::Cumulative>*>
         duplicate = (*meter)->create_gauge("hits");
     NX_CHECK(!duplicate.has_value());
     NX_CHECK(duplicate.error() == ErrorCode::InvalidArgument);
 
     // Capacity exhaustion is reported, not fatal.
-    const Result<metrics::Counter<metrics::ConcurrencyPolicy::SingleThreaded,
-                                  metrics::AccessPolicy::Readable,
-                                  metrics::ResetPolicy::Cumulative>*>
+    const Result<
+        metrics::Counter<metrics::ConcurrencyPolicy::SingleThreaded,
+                         metrics::AccessPolicy::Readable, metrics::ResetPolicy::Cumulative>*>
         second = (*meter)->create_counter("hits2");
     NX_CHECK(second.has_value());
-    const Result<metrics::Counter<metrics::ConcurrencyPolicy::SingleThreaded,
-                                  metrics::AccessPolicy::Readable,
-                                  metrics::ResetPolicy::Cumulative>*>
+    const Result<
+        metrics::Counter<metrics::ConcurrencyPolicy::SingleThreaded,
+                         metrics::AccessPolicy::Readable, metrics::ResetPolicy::Cumulative>*>
         third = (*meter)->create_counter("hits3");
     NX_CHECK(!third.has_value());
     NX_CHECK(third.error() == ErrorCode::BufferFull);
@@ -531,13 +545,16 @@ void test_counter() {
     metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
     NX_CHECK(meter.has_value());
-    if (!meter) { return; }
-
+    if (!meter) {
+        return;
+    }
 
     // Single-threaded accumulation.
     const auto counter = (*meter)->create_counter<ST, Readable, Cumulative>("hits");
     NX_CHECK(counter.has_value());
-    if (!counter) { return; }
+    if (!counter) {
+        return;
+    }
     (*counter)->inc();
     (*counter)->inc();
     (*counter)->add(7);
@@ -557,7 +574,9 @@ void test_counter() {
     // Reset-on-read reports window deltas.
     const auto windowed = (*meter)->create_counter<ST, Readable, ResetOnRead>("windowed");
     NX_CHECK(windowed.has_value());
-    if (!windowed) { return; }
+    if (!windowed) {
+        return;
+    }
     (*windowed)->add(5);
     NX_CHECK((*windowed)->read() == 5U);
     NX_CHECK((*windowed)->read() == 0U);
@@ -567,7 +586,9 @@ void test_counter() {
     // Multi-threaded: 32 threads x 1M increments are exact.
     const auto sharded = (*meter)->create_counter<MT, Readable, Cumulative>("sharded");
     NX_CHECK(sharded.has_value());
-    if (!sharded) { return; }
+    if (!sharded) {
+        return;
+    }
     std::vector<std::jthread> workers;
     workers.reserve(32);
     for (int t = 0; t < 32; ++t) {
@@ -585,7 +606,9 @@ void test_counter() {
     // Beyond the 32-slot pool the totals stay exact (shared fallback shard).
     const auto overflow = (*meter)->create_counter<MT, Readable, Cumulative>("overflow");
     NX_CHECK(overflow.has_value());
-    if (!overflow) { return; }
+    if (!overflow) {
+        return;
+    }
     std::vector<std::jthread> many;
     many.reserve(40);
     for (int t = 0; t < 40; ++t) {
@@ -625,13 +648,16 @@ void test_gauge() {
     metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
     NX_CHECK(meter.has_value());
-    if (!meter) { return; }
-
+    if (!meter) {
+        return;
+    }
 
     // Single-threaded int64 and double gauges.
     const auto int_gauge = (*meter)->create_gauge<std::int64_t, ST, Readable, Cumulative>("level");
     NX_CHECK(int_gauge.has_value());
-    if (!int_gauge) { return; }
+    if (!int_gauge) {
+        return;
+    }
     (*int_gauge)->set(10);
     (*int_gauge)->add(5);
     (*int_gauge)->sub(3);
@@ -639,7 +665,9 @@ void test_gauge() {
 
     const auto double_gauge = (*meter)->create_gauge<double, ST, Readable, Cumulative>("ratio");
     NX_CHECK(double_gauge.has_value());
-    if (!double_gauge) { return; }
+    if (!double_gauge) {
+        return;
+    }
     (*double_gauge)->set(1.5);
     (*double_gauge)->add(0.25);
     (*double_gauge)->sub(0.75);
@@ -648,7 +676,9 @@ void test_gauge() {
     // set() moves the aggregate to the target value.
     const auto sharded = (*meter)->create_gauge<std::int64_t, MT, Readable, Cumulative>("sharded");
     NX_CHECK(sharded.has_value());
-    if (!sharded) { return; }
+    if (!sharded) {
+        return;
+    }
     (*sharded)->set(42);
     NX_CHECK((*sharded)->read() == 42);
 
@@ -697,9 +727,12 @@ void test_gauge() {
     }
 
     // Reset-on-read reports the window activity.
-    const auto windowed = (*meter)->create_gauge<std::int64_t, ST, Readable, ResetOnRead>("windowed");
+    const auto windowed =
+        (*meter)->create_gauge<std::int64_t, ST, Readable, ResetOnRead>("windowed");
     NX_CHECK(windowed.has_value());
-    if (!windowed) { return; }
+    if (!windowed) {
+        return;
+    }
     (*windowed)->add(5);
     NX_CHECK((*windowed)->read() == 5);
     (*windowed)->add(3);
@@ -722,13 +755,17 @@ void test_state_gauge() {
     metrics::MetricProvider provider{config, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
     NX_CHECK(meter.has_value());
-    if (!meter) { return; }
+    if (!meter) {
+        return;
+    }
 
     // Recording surface: valid set, and empty / over-long rejection with no
     // side effect on the previous value.
     const auto state = (*meter)->create_state<ST, Readable, Cumulative>("mode", "state");
     NX_CHECK(state.has_value());
-    if (!state) { return; }
+    if (!state) {
+        return;
+    }
     NX_CHECK((*state)->set("active"));
     NX_CHECK((*state)->read() == "active");
     NX_CHECK(!(*state)->set(""));
@@ -758,7 +795,9 @@ void test_state_gauge() {
     // Reset-on-read reports the value and then clears to empty.
     const auto windowed = (*meter)->create_state<ST, Readable, ResetOnRead>("phase");
     NX_CHECK(windowed.has_value());
-    if (!windowed) { return; }
+    if (!windowed) {
+        return;
+    }
     (*windowed)->set("armed");
     NX_CHECK((*windowed)->read() == "armed");
     NX_CHECK((*windowed)->read().empty());
@@ -780,19 +819,27 @@ void test_state_gauge() {
     // values while a reader never observes a torn mix.
     const auto mt = (*meter)->create_state<MT, Readable, Cumulative>("state_mt");
     NX_CHECK(mt.has_value());
-    if (!mt) { return; }
+    if (!mt) {
+        return;
+    }
     const std::string a = std::string(63, 'A');
     const std::string b = std::string(63, 'B');
     std::atomic<bool> stop{false};
     std::jthread writer_a([&] {
-        while (!stop.load(std::memory_order_relaxed)) { (*mt)->set(a); }
+        while (!stop.load(std::memory_order_relaxed)) {
+            (*mt)->set(a);
+        }
     });
     std::jthread writer_b([&] {
-        while (!stop.load(std::memory_order_relaxed)) { (*mt)->set(b); }
+        while (!stop.load(std::memory_order_relaxed)) {
+            (*mt)->set(b);
+        }
     });
     const auto is_clean = [](std::string_view v, char c) {
         for (const char ch : v) {
-            if (ch != c) { return false; }
+            if (ch != c) {
+                return false;
+            }
         }
         return true;
     };
@@ -832,13 +879,16 @@ void test_statistics() {
     metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
     NX_CHECK(meter.has_value());
-    if (!meter) { return; }
-
+    if (!meter) {
+        return;
+    }
 
     // The spec fixture: 2,4,4,4,5,5,7,9 -> mean 5, population std 2.
     const auto stats = (*meter)->create_statistics<ST, Readable, Cumulative>("latency");
     NX_CHECK(stats.has_value());
-    if (!stats) { return; }
+    if (!stats) {
+        return;
+    }
     const double fixture[] = {2, 4, 4, 4, 5, 5, 7, 9};
     for (const double value : fixture) {
         (*stats)->record(value);
@@ -869,7 +919,9 @@ void test_statistics() {
     // Reset-on-read windows report only the interval's samples.
     const auto windowed = (*meter)->create_statistics<ST, Readable, ResetOnRead>("windowed");
     NX_CHECK(windowed.has_value());
-    if (!windowed) { return; }
+    if (!windowed) {
+        return;
+    }
     (*windowed)->record(1.0);
     (*windowed)->record(3.0);
     NX_CHECK((*windowed)->read().count == 2U);
@@ -890,8 +942,7 @@ void test_statistics() {
             metrics::detail::welford_add(part_b, fixture[i]);
         }
     }
-    const metrics::detail::WelfordState combined =
-        metrics::detail::welford_merge(part_a, part_b);
+    const metrics::detail::WelfordState combined = metrics::detail::welford_merge(part_a, part_b);
     NX_CHECK(combined.count == whole.count);
     NX_CHECK(std::abs(combined.mean - whole.mean) < 1e-12);
     NX_CHECK(std::abs(metrics::detail::population_std(combined) -
@@ -912,15 +963,19 @@ void test_explicit_histogram() {
     metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
     NX_CHECK(meter.has_value());
-    if (!meter) { return; }
-
+    if (!meter) {
+        return;
+    }
 
     const double bounds[] = {1.0, 2.0, 4.0};
 
     // The bucket assignment rule: bucket i covers (bounds[i-1], bounds[i]].
-    const auto histogram = (*meter)->create_explicit_histogram<ST, Readable, Cumulative>("size", bounds);
+    const auto histogram =
+        (*meter)->create_explicit_histogram<ST, Readable, Cumulative>("size", bounds);
     NX_CHECK(histogram.has_value());
-    if (!histogram) { return; }
+    if (!histogram) {
+        return;
+    }
     (*histogram)->record(1.0);
     (*histogram)->record(1.5);
     (*histogram)->record(4.0);
@@ -946,16 +1001,20 @@ void test_explicit_histogram() {
     const auto bad = (*meter)->create_explicit_histogram<ST, Readable, Cumulative>("bad", unsorted);
     NX_CHECK(!bad.has_value() && bad.error() == ErrorCode::InvalidArgument);
     const double duplicated[] = {1.0, 1.0};
-    const auto dup = (*meter)->create_explicit_histogram<ST, Readable, Cumulative>("dup", duplicated);
+    const auto dup =
+        (*meter)->create_explicit_histogram<ST, Readable, Cumulative>("dup", duplicated);
     NX_CHECK(!dup.has_value() && dup.error() == ErrorCode::InvalidArgument);
     const double infinite[] = {std::numeric_limits<double>::infinity()};
     const auto inf = (*meter)->create_explicit_histogram<ST, Readable, Cumulative>("inf", infinite);
     NX_CHECK(!inf.has_value() && inf.error() == ErrorCode::InvalidArgument);
 
     // Reset-on-read windows.
-    const auto windowed = (*meter)->create_explicit_histogram<ST, Readable, ResetOnRead>("windowed", bounds);
+    const auto windowed =
+        (*meter)->create_explicit_histogram<ST, Readable, ResetOnRead>("windowed", bounds);
     NX_CHECK(windowed.has_value());
-    if (!windowed) { return; }
+    if (!windowed) {
+        return;
+    }
     (*windowed)->record(1.0);
     NX_CHECK((*windowed)->read().count == 1U);
     NX_CHECK((*windowed)->read().count == 0U);
@@ -975,8 +1034,9 @@ void test_exponential_histogram() {
     metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0");
     NX_CHECK(meter.has_value());
-    if (!meter) { return; }
-
+    if (!meter) {
+        return;
+    }
 
     // The mapping is exact (design D11): every value lands in the bucket whose
     // geometric edges [B(i), B(i+1)) contain it with B(i) = 2^(i / 2^scale)
@@ -992,9 +1052,9 @@ void test_exponential_histogram() {
             remainder += denominator;
             --quotient;
         }
-        return std::ldexp(std::pow(2.0, static_cast<double>(remainder) /
-                                            static_cast<double>(denominator)),
-                          static_cast<int>(quotient));
+        return std::ldexp(
+            std::pow(2.0, static_cast<double>(remainder) / static_cast<double>(denominator)),
+            static_cast<int>(quotient));
     };
     // previous_value guards the monotonic assert: probe values that round
     // together on the subnormal grid are still checked for containment and
@@ -1086,7 +1146,9 @@ void test_exponential_histogram() {
     const auto histogram =
         (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("latency", scale);
     NX_CHECK(histogram.has_value());
-    if (!histogram) { return; }
+    if (!histogram) {
+        return;
+    }
     (*histogram)->record(1.0);
     (*histogram)->record(2.0);
     (*histogram)->record(4.0);
@@ -1094,7 +1156,7 @@ void test_exponential_histogram() {
     (*histogram)->record(-1.0);
     (*histogram)->record(std::nan(""));
     const metrics::HistogramSnapshot snapshot = (*histogram)->read();
-    NX_CHECK(snapshot.count == 4U);   // 1, 2, 4 and the zero
+    NX_CHECK(snapshot.count == 4U); // 1, 2, 4 and the zero
     NX_CHECK(snapshot.zero_count == 1U);
     NX_CHECK(snapshot.ignored_samples == 2U);
     NX_CHECK(std::abs(snapshot.sum - 7.0) < 1e-12);
@@ -1151,7 +1213,8 @@ void test_exponential_histogram() {
     // Out-of-range scales are rejected.
     const auto bad = (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("bad", 21);
     NX_CHECK(!bad.has_value() && bad.error() == ErrorCode::InvalidArgument);
-    const auto negative = (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("neg", -1);
+    const auto negative =
+        (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("neg", -1);
     NX_CHECK(!negative.has_value() && negative.error() == ErrorCode::InvalidArgument);
 
     // The serialization surface.
@@ -1190,13 +1253,16 @@ void test_composite_injection() {
     // A two-record batch for the fan-out checks.
     metrics::MetricRecord records[2]{};
     std::snprintf(records[0].identity.meter_name, sizeof(records[0].identity.meter_name), "engine");
-    std::snprintf(records[0].identity.meter_version, sizeof(records[0].identity.meter_version), "1.2.0");
+    std::snprintf(records[0].identity.meter_version, sizeof(records[0].identity.meter_version),
+                  "1.2.0");
     std::snprintf(records[0].identity.metric_name, sizeof(records[0].identity.metric_name), "hits");
     records[0].kind = metrics::MetricKind::Counter;
     records[0].scalar.counter = 7;
     std::snprintf(records[1].identity.meter_name, sizeof(records[1].identity.meter_name), "engine");
-    std::snprintf(records[1].identity.meter_version, sizeof(records[1].identity.meter_version), "1.2.0");
-    std::snprintf(records[1].identity.metric_name, sizeof(records[1].identity.metric_name), "latency");
+    std::snprintf(records[1].identity.meter_version, sizeof(records[1].identity.meter_version),
+                  "1.2.0");
+    std::snprintf(records[1].identity.metric_name, sizeof(records[1].identity.metric_name),
+                  "latency");
     records[1].kind = metrics::MetricKind::Gauge;
     records[1].scalar.gauge_double = 12.5;
     records[1].scalar.is_double = true;
@@ -1363,9 +1429,8 @@ void test_reset_window_race() {
     NX_CHECK(merged.min == 1.0);
     NX_CHECK(merged.max == static_cast<double>(workers + 1));
     // Threads 0..30 record values 2..32; main records 1.0.
-    const double expected_mean =
-        (1.0 + (2.0 + static_cast<double>(workers + 1)) * workers / 2.0) /
-        static_cast<double>(workers + 1);
+    const double expected_mean = (1.0 + (2.0 + static_cast<double>(workers + 1)) * workers / 2.0) /
+                                 static_cast<double>(workers + 1);
     NX_CHECK(std::abs(merged.mean - expected_mean) < 1e-6);
     double expected_m2 = 0.0;
     expected_m2 += (1.0 - expected_mean) * (1.0 - expected_mean) * per_worker;
@@ -1388,8 +1453,7 @@ void test_get_meter_harvest_race() {
     metrics::MetricProvider provider{metrics::MetricProviderConfig{}, sink};
     constexpr int creators = 4;
     std::atomic<bool> stop{false};
-    std::vector<metrics::Meter*> published(static_cast<std::size_t>(creators),
-                                           nullptr);
+    std::vector<metrics::Meter*> published(static_cast<std::size_t>(creators), nullptr);
 
     std::jthread harvester([&] {
         while (!stop.load(std::memory_order_relaxed)) {
@@ -1403,8 +1467,7 @@ void test_get_meter_harvest_race() {
         for (int c = 0; c < creators; ++c) {
             creators_pool.emplace_back([&, c] {
                 for (int i = 0; i < 200; ++i) {
-                    const Result<metrics::Meter*> meter =
-                        provider.get_meter("engine", "1.0.0");
+                    const Result<metrics::Meter*> meter = provider.get_meter("engine", "1.0.0");
                     if (meter.has_value()) {
                         published[static_cast<std::size_t>(c)] = *meter;
                     }
@@ -1490,7 +1553,8 @@ void test_thread_slots_affinity() {
         const Status pinned = metrics::detail::pin_self(mask);
         std::uint64_t read_back = 0;
         const Status queried = metrics::detail::self_affinity(read_back);
-        affinity_result.store((pinned.has_value() && queried.has_value() && read_back == mask) ? 1 : -1);
+        affinity_result.store(
+            (pinned.has_value() && queried.has_value() && read_back == mask) ? 1 : -1);
     });
     probe.join();
     NX_CHECK(affinity_result.load() == 1);
@@ -1506,9 +1570,8 @@ void test_thread_slots_affinity() {
 // from_json call in the immediate context so a missing overload is a
 // substitution failure rather than a hard error.
 template <class T>
-concept DeserializableFromJson = requires(const nlohmann::json& j, const T& value) {
-    from_json(j, value);
-};
+concept DeserializableFromJson =
+    requires(const nlohmann::json& j, const T& value) { from_json(j, value); };
 
 // --- Snapshot/record/config serialization (spec metrics/policy-enums
 // "Public type ..."; tasks 4.1/4.2/10.3).
@@ -1654,8 +1717,10 @@ void test_serialization() {
     // Factory-only types are not deserializable (compile-time absence).
     static_assert(!DeserializableFromJson<metrics::Counter<ST, Readable, Cumulative>>);
     static_assert(!DeserializableFromJson<metrics::Gauge<std::int64_t, ST, Readable, Cumulative>>);
-    static_assert(!DeserializableFromJson<metrics::DescriptiveStatistics<ST, Readable, Cumulative>>);
-    static_assert(!DeserializableFromJson<metrics::ExplicitBucketHistogram<ST, Readable, Cumulative>>);
+    static_assert(
+        !DeserializableFromJson<metrics::DescriptiveStatistics<ST, Readable, Cumulative>>);
+    static_assert(
+        !DeserializableFromJson<metrics::ExplicitBucketHistogram<ST, Readable, Cumulative>>);
     static_assert(!DeserializableFromJson<metrics::ExponentialHistogram<ST, Readable, Cumulative>>);
     static_assert(!DeserializableFromJson<metrics::CompositeMetricSink<metrics::NullMetricSink>>);
 }
@@ -1782,8 +1847,7 @@ void test_provider_config() {
         NX_CHECK(probe_text.find("worker_thread=") != std::string::npos);
         NX_CHECK(probe_text.find("priority=99") == std::string::npos);
         hex_probe.worker_thread.set_cpus(core::CpuSet::from_core_mask(0xFFFFFFFF00000000ULL));
-        NX_CHECK(hex_probe.to_string().find("worker_thread=") !=
-                 std::string::npos);
+        NX_CHECK(hex_probe.to_string().find("worker_thread=") != std::string::npos);
     }
     NX_CHECK(metrics::to_string(config) == config.to_string());
     NX_CHECK(std::format("{}", config) == config.to_string());
@@ -1838,12 +1902,12 @@ void test_sinks_null_console() {
     NX_CHECK(::pipe(fds) == 0);
     {
         metrics::MetricRecord records[2]{};
-        std::snprintf(records[0].identity.metric_name,
-                      sizeof(records[0].identity.metric_name), "pipe_metric");
+        std::snprintf(records[0].identity.metric_name, sizeof(records[0].identity.metric_name),
+                      "pipe_metric");
         records[0].kind = metrics::MetricKind::Counter;
         records[0].scalar.counter = 7;
-        std::snprintf(records[1].identity.metric_name,
-                      sizeof(records[1].identity.metric_name), "second_metric");
+        std::snprintf(records[1].identity.metric_name, sizeof(records[1].identity.metric_name),
+                      "second_metric");
         records[1].kind = metrics::MetricKind::Gauge;
         records[1].scalar.gauge_int = -11;
         records[1].scalar.is_double = false;
@@ -1910,8 +1974,8 @@ void test_sinks_json() {
         metrics::JsonFileMetricSink sink{config};
         NX_CHECK(sink.is_open());
         metrics::MetricRecord records[1]{};
-        std::snprintf(records[0].identity.meter_name,
-                      sizeof(records[0].identity.meter_name), "quote\"slash\\ctrl\x01");
+        std::snprintf(records[0].identity.meter_name, sizeof(records[0].identity.meter_name),
+                      "quote\"slash\\ctrl\x01");
         records[0].kind = metrics::MetricKind::Counter;
         records[0].scalar.counter = 5;
         metrics::MetricBatchSnapshot batch{};
@@ -1937,8 +2001,7 @@ void test_sinks_json() {
                 }
                 const auto records_it = parsed.find("records");
                 NX_CHECK(records_it != parsed.end() && records_it->is_array());
-                if (records_it != parsed.end() && records_it->is_array() &&
-                    !records_it->empty()) {
+                if (records_it != parsed.end() && records_it->is_array() && !records_it->empty()) {
                     const auto meter_it = (*records_it)[0].find("meter");
                     NX_CHECK(meter_it != (*records_it)[0].end() && meter_it->is_string());
                     if (meter_it != (*records_it)[0].end() && meter_it->is_string()) {
@@ -1970,8 +2033,8 @@ void test_sinks_json() {
 
     // Open failure surfaces through Status without emitting invalid JSON.
     {
-        metrics::JsonFileMetricSinkConfig broken_config{
-            "/nonexistent-nexigen-dir/telemetry.jsonl", "", false};
+        metrics::JsonFileMetricSinkConfig broken_config{"/nonexistent-nexigen-dir/telemetry.jsonl",
+                                                        "", false};
         metrics::JsonFileMetricSink broken{broken_config};
         NX_CHECK(!broken.is_open());
         metrics::MetricBatchSnapshot empty{};
@@ -1993,7 +2056,6 @@ void test_sinks_json() {
     ::unlink(path);
 }
 
-
 // --- Explicit histogram: ST extras (task 8.1/8.2) and the MT suites
 // (32-thread exactness, reset-window exactness, >32-thread fallback).
 void test_explicit_histogram_mt() {
@@ -2008,8 +2070,8 @@ void test_explicit_histogram_mt() {
     const std::span<const double> bounds_view{bounds};
 
     // Non-finite samples are ignored visibly (task 8.1).
-    const auto filtered = (*meter)->create_explicit_histogram<ST, Readable, Cumulative>(
-        "filtered", bounds_view);
+    const auto filtered =
+        (*meter)->create_explicit_histogram<ST, Readable, Cumulative>("filtered", bounds_view);
     NX_CHECK(filtered.has_value());
     if (filtered) {
         (*filtered)->record(1.5);
@@ -2022,8 +2084,8 @@ void test_explicit_histogram_mt() {
     }
 
     // Empty histogram reports zeros (task 8.2).
-    const auto empty_hist = (*meter)->create_explicit_histogram<ST, Readable, Cumulative>(
-        "empty", bounds_view);
+    const auto empty_hist =
+        (*meter)->create_explicit_histogram<ST, Readable, Cumulative>("empty", bounds_view);
     NX_CHECK(empty_hist.has_value());
     if (empty_hist) {
         const metrics::HistogramSnapshot snapshot = (*empty_hist)->read();
@@ -2033,8 +2095,8 @@ void test_explicit_histogram_mt() {
     }
 
     // Uniform-distribution percentiles land within one bucket width (task 8.2).
-    const auto uniform = (*meter)->create_explicit_histogram<ST, Readable, Cumulative>(
-        "uniform", bounds_view);
+    const auto uniform =
+        (*meter)->create_explicit_histogram<ST, Readable, Cumulative>("uniform", bounds_view);
     NX_CHECK(uniform.has_value());
     if (uniform) {
         for (int i = 0; i < 10; ++i) {
@@ -2049,8 +2111,8 @@ void test_explicit_histogram_mt() {
     }
 
     // 32 threads x 1M samples: count and every bucket total are exact.
-    const auto sharded = (*meter)->create_explicit_histogram<MT, Readable, Cumulative>(
-        "sharded", bounds_view);
+    const auto sharded =
+        (*meter)->create_explicit_histogram<MT, Readable, Cumulative>("sharded", bounds_view);
     NX_CHECK(sharded.has_value());
     if (!sharded) {
         return;
@@ -2074,8 +2136,8 @@ void test_explicit_histogram_mt() {
     }
 
     // Reset-window exactness under concurrent recording (task 8.2).
-    const auto windowed = (*meter)->create_explicit_histogram<MT, Readable, ResetOnRead>(
-        "windowed_mt", bounds_view);
+    const auto windowed =
+        (*meter)->create_explicit_histogram<MT, Readable, ResetOnRead>("windowed_mt", bounds_view);
     NX_CHECK(windowed.has_value());
     if (windowed) {
         std::uint64_t windowed_total = 0;
@@ -2105,8 +2167,8 @@ void test_explicit_histogram_mt() {
     }
 
     // >32 threads stay exact through the shared fallback shard (task 8.2).
-    const auto fallback = (*meter)->create_explicit_histogram<MT, Readable, Cumulative>(
-        "fallback", bounds_view);
+    const auto fallback =
+        (*meter)->create_explicit_histogram<MT, Readable, Cumulative>("fallback", bounds_view);
     NX_CHECK(fallback.has_value());
     if (fallback) {
         std::vector<std::jthread> workers;
@@ -2143,8 +2205,8 @@ void test_exponential_histogram_mt() {
 
     // Containment at the effective scale after coarsening (task 9.2): the
     // reported edges bracket each recorded value in its own bucket.
-    const auto contained = (*meter)->create_exponential_histogram<ST, Readable, Cumulative>(
-        "contained", 10);
+    const auto contained =
+        (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("contained", 10);
     NX_CHECK(contained.has_value());
     if (contained) {
         for (int k = -3; k <= 3; ++k) {
@@ -2178,8 +2240,8 @@ void test_exponential_histogram_mt() {
     }
 
     // Empty histogram reports zeros (task 9.3).
-    const auto empty_hist = (*meter)->create_exponential_histogram<ST, Readable, Cumulative>(
-        "empty", 10);
+    const auto empty_hist =
+        (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("empty", 10);
     NX_CHECK(empty_hist.has_value());
     if (empty_hist) {
         const metrics::HistogramSnapshot snapshot = (*empty_hist)->read();
@@ -2188,8 +2250,8 @@ void test_exponential_histogram_mt() {
     }
 
     // Log-uniform percentiles land within one bucket width (task 9.3).
-    const auto log_uniform = (*meter)->create_exponential_histogram<ST, Readable, Cumulative>(
-        "log_uniform", 10);
+    const auto log_uniform =
+        (*meter)->create_exponential_histogram<ST, Readable, Cumulative>("log_uniform", 10);
     NX_CHECK(log_uniform.has_value());
     if (log_uniform) {
         for (int i = 0; i <= 80; ++i) {
@@ -2203,7 +2265,8 @@ void test_exponential_histogram_mt() {
         const double true_p50 = 32.0;
         double tolerance = 0.0;
         for (std::uint32_t i = 0; i + 1U < snapshot.bucket_count; ++i) {
-            if (snapshot.buckets_lower[i] <= true_p50 && true_p50 < snapshot.buckets_lower[i + 1U]) {
+            if (snapshot.buckets_lower[i] <= true_p50 &&
+                true_p50 < snapshot.buckets_lower[i + 1U]) {
                 tolerance = snapshot.buckets_lower[i + 1U] - snapshot.buckets_lower[i];
                 break;
             }
@@ -2213,8 +2276,8 @@ void test_exponential_histogram_mt() {
     }
 
     // 32 threads x 1M samples: count and bucket totals are exact.
-    const auto sharded = (*meter)->create_exponential_histogram<MT, Readable, Cumulative>(
-        "sharded", 10);
+    const auto sharded =
+        (*meter)->create_exponential_histogram<MT, Readable, Cumulative>("sharded", 10);
     NX_CHECK(sharded.has_value());
     if (!sharded) {
         return;
@@ -2242,8 +2305,8 @@ void test_exponential_histogram_mt() {
     }
 
     // Reset-window exactness under concurrent recording (task 9.3).
-    const auto windowed = (*meter)->create_exponential_histogram<MT, Readable, ResetOnRead>(
-        "windowed_mt", 10);
+    const auto windowed =
+        (*meter)->create_exponential_histogram<MT, Readable, ResetOnRead>("windowed_mt", 10);
     NX_CHECK(windowed.has_value());
     if (windowed) {
         std::uint64_t windowed_total = 0;
@@ -2274,8 +2337,8 @@ void test_exponential_histogram_mt() {
 
     // >32 threads stay exact through the bucketed fallback shard (task 9.3):
     // bucket totals plus zeros still account for every accepted sample.
-    const auto fallback = (*meter)->create_exponential_histogram<MT, Readable, Cumulative>(
-        "fallback", 10);
+    const auto fallback =
+        (*meter)->create_exponential_histogram<MT, Readable, Cumulative>("fallback", 10);
     NX_CHECK(fallback.has_value());
     if (fallback) {
         std::vector<std::jthread> workers;
@@ -2312,8 +2375,7 @@ namespace {
     return static_cast<double>(ts.tv_sec) * 1e9 + static_cast<double>(ts.tv_nsec);
 }
 
-template <class F>
-[[nodiscard]] double median_ns_per_op(F&& body, int batches, int ops) {
+template <class F> [[nodiscard]] double median_ns_per_op(F&& body, int batches, int ops) {
     body(ops / 10 + 1); // warm-up
     std::vector<double> samples;
     samples.reserve(static_cast<std::size_t>(batches));
@@ -2428,17 +2490,16 @@ void test_latency() {
     static_cast<void>(st_inc);
     NX_CHECK(true);
 #else
-    NX_CHECK(st_inc <= 2.0);      // task 6.3
-    NX_CHECK(mt_inc <= 6.0);      // task 6.3
-    NX_CHECK(gauge_set <= 8.0);   // task 6.3 (set passes over all 33 shards)
-    NX_CHECK(gauge_add <= 6.0);   // task 6.3
+    NX_CHECK(st_inc <= 2.0);        // task 6.3
+    NX_CHECK(mt_inc <= 6.0);        // task 6.3
+    NX_CHECK(gauge_set <= 8.0);     // task 6.3 (set passes over all 33 shards)
+    NX_CHECK(gauge_add <= 6.0);     // task 6.3
     NX_CHECK(stats_record <= 25.0); // task 7.3
     NX_CHECK(hist_record <= 15.0);  // task 8.3
     NX_CHECK(expo_record <= 15.0);  // task 9.4
 #endif
 #endif
 }
-
 
 // --- Background harvester and control plane (spec metrics/metric-provider;
 // tasks 12.1/12.2).
@@ -2560,18 +2621,17 @@ void test_provider_required_thread_failure() {
 void test_metrics_worker_thread_settings() {
     char global_path[256];
     char local_path[256];
-    std::snprintf(global_path, sizeof global_path,
-                  "/tmp/opencode/metrics-worker-global-%d.json", ::getpid());
-    std::snprintf(local_path, sizeof local_path,
-                  "/tmp/opencode/metrics-worker-local-%d.json", ::getpid());
+    std::snprintf(global_path, sizeof global_path, "/tmp/opencode/metrics-worker-global-%d.json",
+                  ::getpid());
+    std::snprintf(local_path, sizeof local_path, "/tmp/opencode/metrics-worker-local-%d.json",
+                  ::getpid());
     auto write = [](const char* path, std::string_view text) {
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         file << text;
         NX_CHECK(file.good());
     };
-    write(global_path,
-          R"({"core_mask":5,"worker_thread":{"name":"metrics-worker",)"
-          R"("policy":"fifo","priority":30,"mode":"required"}})");
+    write(global_path, R"({"core_mask":5,"worker_thread":{"name":"metrics-worker",)"
+                       R"("policy":"fifo","priority":30,"mode":"required"}})");
     write(local_path, R"({"worker_thread":{"cpus":[64,65]}})");
 
     metrics::Settings merged{};
@@ -2642,8 +2702,7 @@ void test_provider_harvester() {
             const Result<metrics::Meter*> meter = provider.get_meter("harvest", "1.0");
             NX_CHECK(meter.has_value());
             if (meter) {
-                const auto counter =
-                    (*meter)->create_counter<MT, Readable, Cumulative>("ticks");
+                const auto counter = (*meter)->create_counter<MT, Readable, Cumulative>("ticks");
                 if (counter) {
                     (*counter)->add(3);
                 }
@@ -2730,13 +2789,15 @@ void test_provider_harvester() {
         NX_CHECK(meter.has_value());
         if (meter) {
             NX_CHECK((*meter)->create_counter<MT, Readable, Cumulative>("a").has_value());
-            NX_CHECK((*meter)->create_gauge<std::int64_t, MT, Readable, Cumulative>("b").has_value());
+            NX_CHECK(
+                (*meter)->create_gauge<std::int64_t, MT, Readable, Cumulative>("b").has_value());
             NX_CHECK((*meter)->create_statistics<MT, Readable, Cumulative>("c").has_value());
             NX_CHECK((*meter)
                          ->create_explicit_histogram<MT, Readable, Cumulative>(
                              "d", std::span<const double>{std::array<double, 1>{1.0}})
                          .has_value());
-            NX_CHECK((*meter)->create_exponential_histogram<MT, Readable, Cumulative>("e", 5)
+            NX_CHECK((*meter)
+                         ->create_exponential_histogram<MT, Readable, Cumulative>("e", 5)
                          .has_value());
         }
         NX_CHECK(provider.collect_now().has_value());
@@ -2780,7 +2841,6 @@ void test_provider_harvester() {
         NX_CHECK(!stale.has_value() && stale.error() == ErrorCode::NotInitialized);
     }
 }
-
 
 // --- Instrument registration races the background harvester safely
 // (design D11): creation publishes slots under the harvest lock, so
@@ -2851,7 +2911,7 @@ void test_writer_bounds_full() {
     NX_CHECK(writer.append_sv("bc"));
     NX_CHECK(!writer.append_char('d')); // full
     NX_CHECK(!writer.ok());
-    NX_CHECK(!writer.append_sv("x"));   // already overflowed
+    NX_CHECK(!writer.append_sv("x")); // already overflowed
     NX_CHECK(!writer.append_u64(1));
     NX_CHECK(!writer.append_i64(-1));
     NX_CHECK(!writer.append_double(1.0));
@@ -3144,15 +3204,13 @@ void test_snapshot_serialization_full() {
     {
         metrics::MetricIdentity identity_keep{};
         std::snprintf(identity_keep.meter_name, sizeof(identity_keep.meter_name), "keep");
-        metrics::from_json(nlohmann::json{{"meter_name", 1},
-                                          {"meter_version", "v"},
-                                          {"metric_name", "m"}},
-                           identity_keep);
+        metrics::from_json(
+            nlohmann::json{{"meter_name", 1}, {"meter_version", "v"}, {"metric_name", "m"}},
+            identity_keep);
         NX_CHECK(std::string_view(identity_keep.meter_name) == "keep");
         metrics::ScalarValue scalar_keep{};
         scalar_keep.counter = 3;
-        metrics::from_json(nlohmann::json{{"counter", "x"}, {"gauge_int", "x"}},
-                           scalar_keep);
+        metrics::from_json(nlohmann::json{{"counter", "x"}, {"gauge_int", "x"}}, scalar_keep);
         NX_CHECK(scalar_keep.counter == 3U);
         metrics::StatisticsSnapshot stats_keep{};
         stats_keep.count = 2;
@@ -3164,9 +3222,7 @@ void test_snapshot_serialization_full() {
         NX_CHECK(hist_keep.count == 2U);
         metrics::MetricRecord record_keep{};
         record_keep.kind = metrics::MetricKind::Counter;
-        metrics::from_json(nlohmann::json{{"kind", "Counter"},
-                                          {"scalar", "x"}},
-                           record_keep);
+        metrics::from_json(nlohmann::json{{"kind", "Counter"}, {"scalar", "x"}}, record_keep);
         NX_CHECK(record_keep.kind == metrics::MetricKind::Counter);
         metrics::MetricBatchSnapshot batch_keep{};
         batch_keep.record_count = 1;
@@ -3203,8 +3259,7 @@ void test_snapshot_serialization_full() {
 
 } // namespace
 
-int main()
-{
+int main() {
     // Suite order matters for the per-kind thread-slot budgets (design D7,
     // slots are never recycled): the slot probe claims the counter/gauge
     // spaces, the statistics race claims the 32 exclusive statistics slots

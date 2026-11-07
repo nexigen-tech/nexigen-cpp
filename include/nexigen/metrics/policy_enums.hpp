@@ -70,7 +70,7 @@ enum class MetricKind : std::uint8_t {
 
 [[nodiscard]] constexpr std::string_view to_string(AccessPolicy policy) noexcept {
     switch (policy) {
-        case AccessPolicy::Readable: return "Readable";
+        case AccessPolicy::Readable:  return "Readable";
         case AccessPolicy::WriteOnly: return "WriteOnly";
         default:                      return "Unknown";
     }
@@ -86,12 +86,12 @@ enum class MetricKind : std::uint8_t {
 
 [[nodiscard]] constexpr std::string_view to_string(MetricKind kind) noexcept {
     switch (kind) {
-        case MetricKind::Counter:                return "Counter";
-        case MetricKind::Gauge:                  return "Gauge";
-        case MetricKind::DescriptiveStatistics:  return "DescriptiveStatistics";
-        case MetricKind::ExplicitHistogram:      return "ExplicitHistogram";
-        case MetricKind::ExponentialHistogram:   return "ExponentialHistogram";
-        case MetricKind::State:                  return "State";
+        case MetricKind::Counter:               return "Counter";
+        case MetricKind::Gauge:                 return "Gauge";
+        case MetricKind::DescriptiveStatistics: return "DescriptiveStatistics";
+        case MetricKind::ExplicitHistogram:     return "ExplicitHistogram";
+        case MetricKind::ExponentialHistogram:  return "ExponentialHistogram";
+        case MetricKind::State:                 return "State";
         default:                                return "Unknown";
     }
 }
@@ -100,30 +100,66 @@ enum class MetricKind : std::uint8_t {
 /// out-parameter UNCHANGED on any other spelling — including "Unknown",
 /// which is a rendering, not an enumerator.
 [[nodiscard]] constexpr bool from_string(std::string_view name, ConcurrencyPolicy& out) noexcept {
-    if (name == "SingleThreaded") { out = ConcurrencyPolicy::SingleThreaded; return true; }
-    if (name == "MultiThreaded")  { out = ConcurrencyPolicy::MultiThreaded;  return true; }
+    if (name == "SingleThreaded") {
+        out = ConcurrencyPolicy::SingleThreaded;
+        return true;
+    }
+    if (name == "MultiThreaded") {
+        out = ConcurrencyPolicy::MultiThreaded;
+        return true;
+    }
     return false;
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name, AccessPolicy& out) noexcept {
-    if (name == "Readable") { out = AccessPolicy::Readable; return true; }
-    if (name == "WriteOnly") { out = AccessPolicy::WriteOnly; return true; }
+    if (name == "Readable") {
+        out = AccessPolicy::Readable;
+        return true;
+    }
+    if (name == "WriteOnly") {
+        out = AccessPolicy::WriteOnly;
+        return true;
+    }
     return false;
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name, ResetPolicy& out) noexcept {
-    if (name == "Cumulative")  { out = ResetPolicy::Cumulative;  return true; }
-    if (name == "ResetOnRead") { out = ResetPolicy::ResetOnRead; return true; }
+    if (name == "Cumulative") {
+        out = ResetPolicy::Cumulative;
+        return true;
+    }
+    if (name == "ResetOnRead") {
+        out = ResetPolicy::ResetOnRead;
+        return true;
+    }
     return false;
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name, MetricKind& out) noexcept {
-    if (name == "Counter")               { out = MetricKind::Counter;               return true; }
-    if (name == "Gauge")                 { out = MetricKind::Gauge;                 return true; }
-    if (name == "DescriptiveStatistics") { out = MetricKind::DescriptiveStatistics; return true; }
-    if (name == "ExplicitHistogram")     { out = MetricKind::ExplicitHistogram;     return true; }
-    if (name == "ExponentialHistogram")  { out = MetricKind::ExponentialHistogram;  return true; }
-    if (name == "State")                 { out = MetricKind::State;                 return true; }
+    if (name == "Counter") {
+        out = MetricKind::Counter;
+        return true;
+    }
+    if (name == "Gauge") {
+        out = MetricKind::Gauge;
+        return true;
+    }
+    if (name == "DescriptiveStatistics") {
+        out = MetricKind::DescriptiveStatistics;
+        return true;
+    }
+    if (name == "ExplicitHistogram") {
+        out = MetricKind::ExplicitHistogram;
+        return true;
+    }
+    if (name == "ExponentialHistogram") {
+        out = MetricKind::ExponentialHistogram;
+        return true;
+    }
+    if (name == "State") {
+        out = MetricKind::State;
+        return true;
+    }
     return false;
 }
 
@@ -180,10 +216,3 @@ inline void from_json(const nlohmann::json& j, MetricKind& out) noexcept {
 
 /// Policy enums format as their canonical names (mandate 11): the parse and
 /// fill/align handling is delegated to the string-view formatter.
-
-
-
-
-
-
-

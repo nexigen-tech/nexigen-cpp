@@ -53,8 +53,7 @@ public:
     /// descriptor; on_batch then reports SystemError.
     explicit JsonFileMetricSink(const JsonFileMetricSinkConfig& config) noexcept
         : fd_(core::sink_io::open_output(config.path, config.append)) {
-        const std::size_t take =
-            config.app_name.size() < 63 ? config.app_name.size() : 63;
+        const std::size_t take = config.app_name.size() < 63 ? config.app_name.size() : 63;
         for (std::size_t i = 0; i < take; ++i) {
             app_[i] = config.app_name[i];
         }
@@ -120,9 +119,11 @@ public:
             static_cast<void>(writer.append_sv("{\"meter\":\""));
             static_cast<void>(writer.append_escaped(detail::view_name(record.identity.meter_name)));
             static_cast<void>(writer.append_sv("\",\"version\":\""));
-            static_cast<void>(writer.append_escaped(detail::view_name(record.identity.meter_version)));
+            static_cast<void>(
+                writer.append_escaped(detail::view_name(record.identity.meter_version)));
             static_cast<void>(writer.append_sv("\",\"metric\":\""));
-            static_cast<void>(writer.append_escaped(detail::view_name(record.identity.metric_name)));
+            static_cast<void>(
+                writer.append_escaped(detail::view_name(record.identity.metric_name)));
             {
                 const std::string_view unit = detail::view_name(record.identity.unit);
                 if (!unit.empty()) {
@@ -163,8 +164,7 @@ public:
                     break;
                 case MetricKind::State:
                     static_cast<void>(writer.append_sv("\",\"value\":\""));
-                    static_cast<void>(writer.append_escaped(
-                        detail::view_name(record.state.value)));
+                    static_cast<void>(writer.append_escaped(detail::view_name(record.state.value)));
                     static_cast<void>(writer.append_sv("\""));
                     break;
                 default:
@@ -217,8 +217,7 @@ public:
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
         return "JsonFileMetricSink(fd=" + std::to_string(fd_) +
-               ", discarded_batches=" + std::to_string(discarded_batches_) +
-               ")";
+               ", discarded_batches=" + std::to_string(discarded_batches_) + ")";
     }
 
     /// True when the file was opened successfully.
@@ -234,12 +233,14 @@ private:
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const JsonFileMetricSink& sink) { return sink.to_string(); }
+[[nodiscard]] inline std::string to_string(const JsonFileMetricSink& sink) {
+    return sink.to_string();
+}
 
 /// Configuration JSON (cold path).
 inline void to_json(nlohmann::json& j, const JsonFileMetricSinkConfig& config) {
-    j = nlohmann::json{{"path", config.path}, {"app_name", config.app_name},
-                       {"append", config.append}};
+    j = nlohmann::json{
+        {"path", config.path}, {"app_name", config.app_name}, {"append", config.append}};
 }
 
 inline void from_json(const nlohmann::json& j, JsonFileMetricSinkConfig& out) noexcept {

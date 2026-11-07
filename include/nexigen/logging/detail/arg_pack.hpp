@@ -45,7 +45,7 @@
 namespace nexigen::logging::detail {
 
 /// Flags stored in LogRecord::flags (kept here so packer and sinks agree).
-inline constexpr std::uint8_t flag_args_truncated = 1U;  ///< bit0: producer
+inline constexpr std::uint8_t flag_args_truncated = 1U;   ///< bit0: producer
 inline constexpr std::uint8_t flag_render_truncated = 2U; ///< bit1: consumer
 
 /// What may be serialized into a record's inline argument blob: trivially
@@ -53,13 +53,11 @@ inline constexpr std::uint8_t flag_render_truncated = 2U; ///< bit1: consumer
 /// pointer types std::formatter understands. Anything else fails the call
 /// at compile time (spec: static_assert at the call site, no runtime path).
 template <class T>
-concept Packable = std::is_trivially_copyable_v<T> && (
-    std::is_arithmetic_v<T> || std::is_enum_v<T> ||
-    std::same_as<T, std::string_view> ||
-    std::same_as<T, nexigen::chrono::Timestamp> ||
-    std::same_as<T, const char*> ||
-    std::same_as<T, void*> ||
-    std::same_as<T, const void*>);
+concept Packable =
+    std::is_trivially_copyable_v<T> &&
+    (std::is_arithmetic_v<T> || std::is_enum_v<T> || std::same_as<T, std::string_view> ||
+     std::same_as<T, nexigen::chrono::Timestamp> || std::same_as<T, const char*> ||
+     std::same_as<T, void*> || std::same_as<T, const void*>);
 
 /// Bytes a std::string_view slot reserves: length prefix + inline copy.
 constexpr std::size_t string_slot_size(std::size_t message_capacity) noexcept {
@@ -127,9 +125,9 @@ template <std::size_t MessageCapacity, class T>
 /// flow through this sink: bytes up to `left` land in the caller buffer, the
 /// rest are discarded into a one-byte spill. Never allocates.)
 struct BoundedSink {
-    using value_type        = char;
-    using difference_type   = std::ptrdiff_t;
-    using reference         = char&;
+    using value_type = char;
+    using difference_type = std::ptrdiff_t;
+    using reference = char&;
     using iterator_category = std::output_iterator_tag;
 
     char* p{nullptr};
@@ -138,7 +136,10 @@ struct BoundedSink {
 
     [[nodiscard]] char& operator*() noexcept { return left > 0U ? *p : spill; }
     BoundedSink& operator++() noexcept {
-        if (left > 0U) { ++p; --left; }
+        if (left > 0U) {
+            ++p;
+            --left;
+        }
         return *this;
     }
     BoundedSink operator++(int) noexcept {
@@ -155,8 +156,8 @@ struct BoundedSink {
 /// string_view overload keeps the whole path allocation-free.
 template <std::size_t MessageCapacity, class... Args, std::size_t... I>
 [[nodiscard]] std::size_t render_tuple(std::index_sequence<I...>, const char* fmt,
-                                       [[maybe_unused]] const char* blob,
-                                       char* out, std::size_t cap) {
+                                       [[maybe_unused]] const char* blob, char* out,
+                                       std::size_t cap) {
     [[maybe_unused]] constexpr auto offsets = arg_offsets<MessageCapacity, Args...>();
     std::tuple<Args...> values{unpack_one<MessageCapacity, Args>(blob, offsets[I])...};
     return std::apply(
@@ -172,10 +173,10 @@ template <std::size_t MessageCapacity, class... Args, std::size_t... I>
 /// The per-pack render callback stored in LogRecord::render (signature must
 /// match detail::render_fn). Args here are already cvref-stripped slot types.
 template <std::size_t MessageCapacity, class... Args>
-[[nodiscard]] std::size_t render_impl(const char* fmt, const char* blob, std::uint16_t,
-                                      char* out, std::size_t cap) noexcept {
-    return render_tuple<MessageCapacity, Args...>(
-        std::make_index_sequence<sizeof...(Args)>{}, fmt, blob, out, cap);
+[[nodiscard]] std::size_t render_impl(const char* fmt, const char* blob, std::uint16_t, char* out,
+                                      std::size_t cap) noexcept {
+    return render_tuple<MessageCapacity, Args...>(std::make_index_sequence<sizeof...(Args)>{}, fmt,
+                                                  blob, out, cap);
 }
 
 /// Renderer for synthesized (no-argument) records: the blob IS the message

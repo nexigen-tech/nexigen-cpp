@@ -31,8 +31,8 @@ struct JsonFileChronoSinkConfig {
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
-        return "JsonFileChronoSinkConfig(path=" + path +
-               ", append=" + (append ? "true" : "false") + ")";
+        return "JsonFileChronoSinkConfig(path=" + path + ", append=" + (append ? "true" : "false") +
+               ")";
     }
 };
 
@@ -53,9 +53,7 @@ public:
     JsonFileChronoSink& operator=(const JsonFileChronoSink&) = delete;
 
     /// Move transfers the descriptor and leaves the source closed (fd = -1).
-    JsonFileChronoSink(JsonFileChronoSink&& other) noexcept : fd_(other.fd_) {
-        other.fd_ = -1;
-    }
+    JsonFileChronoSink(JsonFileChronoSink&& other) noexcept : fd_(other.fd_) { other.fd_ = -1; }
 
     JsonFileChronoSink& operator=(JsonFileChronoSink&& other) noexcept {
         if (this != &other) {
@@ -144,7 +142,9 @@ private:
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const JsonFileChronoSink& sink) { return sink.to_string(); }
+[[nodiscard]] inline std::string to_string(const JsonFileChronoSink& sink) {
+    return sink.to_string();
+}
 
 /// Configuration JSON (cold path).
 inline void to_json(nlohmann::json& j, const JsonFileChronoSinkConfig& config) {

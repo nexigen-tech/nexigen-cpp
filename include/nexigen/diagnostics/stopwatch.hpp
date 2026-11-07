@@ -46,10 +46,10 @@ namespace nexigen::diagnostics {
 /// uint64 counts); trivially copyable, copyable in O(1). Cold-path to_string
 /// lives in src/diagnostics/stopwatch_format.cpp (mandate 9).
 struct LapSnapshot {
-    StopwatchState state;      ///< The lifecycle state observed at the snapshot.
-    std::uint32_t lap_number;  ///< 1-based index of the most recent lap (0 = none).
-    std::uint64_t lap_ns;      ///< Duration of that most recent lap (0 = none).
-    std::uint64_t total_ns;    ///< Elapsed nanoseconds at the snapshot.
+    StopwatchState state;     ///< The lifecycle state observed at the snapshot.
+    std::uint32_t lap_number; ///< 1-based index of the most recent lap (0 = none).
+    std::uint64_t lap_ns;     ///< Duration of that most recent lap (0 = none).
+    std::uint64_t total_ns;   ///< Elapsed nanoseconds at the snapshot.
 
     /// Cold-path diagnostic (mandate 9; spec "Diagnostic rendering").
     [[nodiscard]] std::string to_string() const;
@@ -93,9 +93,13 @@ public:
     /// resumes with the accumulated total kept; a no-op while already
     /// Running. The transition commits only on a good sample.
     void start() noexcept {
-        if (state_ == StopwatchState::Running) { return; }
+        if (state_ == StopwatchState::Running) {
+            return;
+        }
         std::uint64_t stamp = 0U;
-        if (!sample_ok_(stamp)) { return; } // uncommitted (design D3)
+        if (!sample_ok_(stamp)) {
+            return;
+        } // uncommitted (design D3)
         anchor_ = chrono::Timestamp{stamp};
         lap_anchor_ = anchor_; // first lap of the run measures from this stamp
         state_ = StopwatchState::Running;
@@ -106,9 +110,13 @@ public:
     /// are left untouched — the tail after the last lap() is deliberately not
     /// a lap (laps are explicit only).
     void stop() noexcept {
-        if (state_ != StopwatchState::Running) { return; }
+        if (state_ != StopwatchState::Running) {
+            return;
+        }
         std::uint64_t stamp = 0U;
-        if (!sample_ok_(stamp)) { return; } // uncommitted (design D3)
+        if (!sample_ok_(stamp)) {
+            return;
+        } // uncommitted (design D3)
         accumulated_ns_ += stamp - anchor_.nanoseconds();
         state_ = StopwatchState::Stopped;
     }
@@ -135,18 +143,20 @@ public:
     [[nodiscard]] std::uint64_t restart() noexcept {
         if (state_ == StopwatchState::Running) {
             std::uint64_t stamp = 0U;
-            if (!sample_ok_(stamp)) { return accumulated_ns_; } // uncommitted
-            const std::uint64_t total =
-                accumulated_ns_ + (stamp - anchor_.nanoseconds());
+            if (!sample_ok_(stamp)) {
+                return accumulated_ns_;
+            } // uncommitted
+            const std::uint64_t total = accumulated_ns_ + (stamp - anchor_.nanoseconds());
             accumulated_ns_ = 0U;
             anchor_ = chrono::Timestamp{stamp}; // same stamp as the close
             lap_anchor_ = anchor_;
             return total;
         }
-        const std::uint64_t total =
-            state_ == StopwatchState::Stopped ? accumulated_ns_ : 0U;
+        const std::uint64_t total = state_ == StopwatchState::Stopped ? accumulated_ns_ : 0U;
         std::uint64_t stamp = 0U;
-        if (!sample_ok_(stamp)) { return total; } // uncommitted
+        if (!sample_ok_(stamp)) {
+            return total;
+        } // uncommitted
         accumulated_ns_ = 0U;
         anchor_ = chrono::Timestamp{stamp};
         lap_anchor_ = anchor_;
@@ -163,14 +173,22 @@ public:
     /// plus the live tail). A no-op returning 0 while not Running (no
     /// phantom laps, ever).
     [[nodiscard]] std::uint64_t lap() noexcept {
-        if (state_ != StopwatchState::Running) { return 0U; }
+        if (state_ != StopwatchState::Running) {
+            return 0U;
+        }
         std::uint64_t stamp = 0U;
-        if (!sample_ok_(stamp)) { return 0U; } // uncommitted, no phantom lap
+        if (!sample_ok_(stamp)) {
+            return 0U;
+        } // uncommitted, no phantom lap
         const std::uint64_t duration = stamp - lap_anchor_.nanoseconds();
         lap_anchor_ = chrono::Timestamp{stamp};
         last_lap_ns_ = duration;
-        if (duration < min_lap_ns_) { min_lap_ns_ = duration; } // sentinel-aware
-        if (duration > max_lap_ns_) { max_lap_ns_ = duration; }
+        if (duration < min_lap_ns_) {
+            min_lap_ns_ = duration;
+        } // sentinel-aware
+        if (duration > max_lap_ns_) {
+            max_lap_ns_ = duration;
+        }
         ++lap_count_;
         return duration;
     }
@@ -209,17 +227,21 @@ public:
 
     /// Exact elapsed, nanoseconds; never negative, never silently wrapped.
     [[nodiscard]] std::uint64_t elapsed_ns() const noexcept {
-        if (state_ == StopwatchState::Idle) { return 0U; }
-        if (state_ == StopwatchState::Stopped) { return accumulated_ns_; }
+        if (state_ == StopwatchState::Idle) {
+            return 0U;
+        }
+        if (state_ == StopwatchState::Stopped) {
+            return accumulated_ns_;
+        }
         std::uint64_t stamp = 0U;
-        if (!sample_ok_(stamp)) { return accumulated_ns_; } // frozen read
+        if (!sample_ok_(stamp)) {
+            return accumulated_ns_;
+        } // frozen read
         return accumulated_ns_ + (stamp - anchor_.nanoseconds());
     }
 
     /// Whole microseconds, truncated from the nanosecond total (integer form).
-    [[nodiscard]] std::uint64_t elapsed_us_count() const noexcept {
-        return elapsed_ns() / 1'000U;
-    }
+    [[nodiscard]] std::uint64_t elapsed_us_count() const noexcept { return elapsed_ns() / 1'000U; }
 
     /// Fractional microseconds, double precision, from the nanosecond total.
     [[nodiscard]] double elapsed_us() const noexcept {
@@ -259,7 +281,9 @@ private:
             return true;
         }
         const core::Result<chrono::Timestamp> stamp = chrono::Timestamp::now();
-        if (!stamp.has_value()) { return false; } // branch, never .value()
+        if (!stamp.has_value()) {
+            return false;
+        } // branch, never .value()
         stamp_ns_out = stamp->nanoseconds();
         return true;
     }
@@ -271,15 +295,15 @@ private:
     /// lap segment began (start/restart/lap), feeding split durations only —
     /// so elapsed keeps counting the whole run across laps (spec examples
     /// scenario "total elapsed matches the sum of stage laps").
-    chrono::Timestamp anchor_{};         ///< Open-interval run anchor.
-    chrono::Timestamp lap_anchor_{};     ///< Open-lap segment anchor.
-    std::uint64_t accumulated_ns_{};     ///< Sum of closed intervals.
-    std::uint64_t last_lap_ns_{};        ///< Most recent lap duration.
+    chrono::Timestamp anchor_{};             ///< Open-interval run anchor.
+    chrono::Timestamp lap_anchor_{};         ///< Open-lap segment anchor.
+    std::uint64_t accumulated_ns_{};         ///< Sum of closed intervals.
+    std::uint64_t last_lap_ns_{};            ///< Most recent lap duration.
     std::uint64_t min_lap_ns_{no_lap_value}; ///< Shortest lap (sentinel = none).
-    std::uint64_t max_lap_ns_{};         ///< Longest lap.
-    chrono::StampSource* source_{};     ///< Borrowed sampler; null = default.
-    std::uint32_t lap_count_{};          ///< Laps since the last reset.
-    StopwatchState state_{};             ///< The lifecycle state (Idle).
+    std::uint64_t max_lap_ns_{};             ///< Longest lap.
+    chrono::StampSource* source_{};          ///< Borrowed sampler; null = default.
+    std::uint32_t lap_count_{};              ///< Laps since the last reset.
+    StopwatchState state_{};                 ///< The lifecycle state (Idle).
 };
 
 /// Free helper (mandate 9): mirrors Stopwatch::to_string for generic/ADL call
@@ -293,20 +317,19 @@ static_assert(alignof(Stopwatch) == 64, "Stopwatch must be cache-line aligned");
 static_assert(std::is_trivially_copyable_v<Stopwatch>,
               "Stopwatch must be a trivially copyable value type");
 static_assert(sizeof(LapSnapshot) == 24, "LapSnapshot must stay a register-sized value bundle");
-static_assert(std::is_trivially_copyable_v<LapSnapshot>,
-              "LapSnapshot must be trivially copyable");
+static_assert(std::is_trivially_copyable_v<LapSnapshot>, "LapSnapshot must be trivially copyable");
 // Default member initializer pin: a fresh stopwatch sits in the no-lap state.
 static_assert(([]() {
-    constexpr Stopwatch fresh{};
-    return fresh.min_lap_ns() == Stopwatch::no_lap_value && fresh.lap_count() == 0U;
-})(), "a fresh stopwatch must report the no-lap sentinel");
+                  constexpr Stopwatch fresh{};
+                  return fresh.min_lap_ns() == Stopwatch::no_lap_value && fresh.lap_count() == 0U;
+              })(),
+              "a fresh stopwatch must report the no-lap sentinel");
 } // namespace nexigen::diagnostics
 
 /// Stopwatch formats as its diagnostic text (type-family formatter; built
 /// from the cold-path rendering).
 template <>
-struct std::formatter<nexigen::diagnostics::Stopwatch>
-    : std::formatter<std::string_view> {
+struct std::formatter<nexigen::diagnostics::Stopwatch> : std::formatter<std::string_view> {
     template <class Ctx>
     auto format(const nexigen::diagnostics::Stopwatch& stopwatch, Ctx& ctx) const {
         const std::string text = stopwatch.to_string();

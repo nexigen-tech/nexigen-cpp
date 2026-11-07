@@ -29,8 +29,7 @@
 namespace nexigen::logging {
 
 /// Checked format string + the source location of the statement that passed it.
-template <typename... Args>
-struct FormatWithLocation {
+template <typename... Args> struct FormatWithLocation {
     /// Checked compile-time format (pointer into static literal storage).
     std::format_string<Args...> fmt;
     /// Location captured at the call site (consteval evaluation context).
@@ -45,9 +44,9 @@ struct FormatWithLocation {
     /// location defaulted inside a consteval constructor, current() resolves
     /// where the call is written, not inside library machinery.
     template <std::size_t N>
-    consteval FormatWithLocation(const char (&literal)[N],
-                                 std::source_location location =
-                                     std::source_location::current()) noexcept
+    consteval FormatWithLocation(
+        const char (&literal)[N],
+        std::source_location location = std::source_location::current()) noexcept
         : fmt(literal), loc(location) {}
 };
 
@@ -61,13 +60,11 @@ namespace detail {
 /// alias makes Args deduce from the trailing arguments only (an empty pack
 /// vacuously for a bare literal call), after which the literal converts
 /// through the single user-defined consteval constructor.
-template <class... Args>
-struct format_param {
+template <class... Args> struct format_param {
     using type = FormatWithLocation<Args...>;
 };
 
-template <class... Args>
-using format_param_t = typename format_param<Args...>::type;
+template <class... Args> using format_param_t = typename format_param<Args...>::type;
 
 } // namespace detail
 

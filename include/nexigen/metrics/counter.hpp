@@ -53,11 +53,9 @@ static_assert(sizeof(detail::ScalarShard<std::uint64_t>) == 64,
               "a counter shard owns exactly one cache line");
 
 /// Counter storage selected by the concurrency policy.
-template <ConcurrencyPolicy Concurrency, ResetPolicy Reset>
-class CounterStorage;
+template <ConcurrencyPolicy Concurrency, ResetPolicy Reset> class CounterStorage;
 
-template <ResetPolicy Reset>
-class CounterStorage<ConcurrencyPolicy::SingleThreaded, Reset> {
+template <ResetPolicy Reset> class CounterStorage<ConcurrencyPolicy::SingleThreaded, Reset> {
 public:
     void add(std::uint64_t delta) noexcept { cell_.value += delta; }
 
@@ -85,8 +83,7 @@ class CounterStorage<ConcurrencyPolicy::MultiThreaded, Reset>
 
 /// A counted event source. Constructible only through a Meter.
 template <ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,
-          AccessPolicy Access = AccessPolicy::Readable,
-          ResetPolicy Reset = ResetPolicy::Cumulative>
+          AccessPolicy Access = AccessPolicy::Readable, ResetPolicy Reset = ResetPolicy::Cumulative>
 class Counter {
     static_assert(Concurrency == ConcurrencyPolicy::SingleThreaded ||
                       Concurrency == ConcurrencyPolicy::MultiThreaded,
@@ -111,12 +108,16 @@ public:
 
     /// Current total (or the window delta for ResetOnRead — which also clears
     /// the window). Available only for Readable instruments.
-    [[nodiscard]] std::uint64_t read() const requires (Access == AccessPolicy::Readable) {
+    [[nodiscard]] std::uint64_t read() const
+        requires(Access == AccessPolicy::Readable)
+    {
         return storage_.take();
     }
 
     /// Full record for this instrument (identity, classification, values).
-    [[nodiscard]] MetricRecord snapshot() const requires (Access == AccessPolicy::Readable) {
+    [[nodiscard]] MetricRecord snapshot() const
+        requires(Access == AccessPolicy::Readable)
+    {
         MetricRecord record = detail::make_record(kind, concurrency, access, reset, identity_);
         record.scalar.counter = storage_.take();
         return record;
@@ -162,33 +163,30 @@ static_assert(sizeof(Counter<ConcurrencyPolicy::MultiThreaded, AccessPolicy::Rea
                              ResetPolicy::ResetOnRead>) <= detail::max_counter_size,
               "counter must fit the registry budget");
 static_assert(concepts::Metric<Counter<ConcurrencyPolicy::SingleThreaded, AccessPolicy::Readable,
-                                        ResetPolicy::Cumulative>>,
+                                       ResetPolicy::Cumulative>>,
               "Counter must satisfy the Metric concept");
 static_assert(concepts::ReadableMetric<Counter<ConcurrencyPolicy::SingleThreaded,
-                                                AccessPolicy::Readable,
-                                                ResetPolicy::Cumulative>>,
+                                               AccessPolicy::Readable, ResetPolicy::Cumulative>>,
               "a Readable counter must satisfy the ReadableMetric concept");
 static_assert(!concepts::ReadableMetric<Counter<ConcurrencyPolicy::SingleThreaded,
-                                                 AccessPolicy::WriteOnly,
-                                                 ResetPolicy::Cumulative>>,
+                                                AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
               "a WriteOnly counter must NOT satisfy the ReadableMetric concept");
 static_assert(!detail::HasRead<Counter<ConcurrencyPolicy::SingleThreaded, AccessPolicy::WriteOnly,
-                                         ResetPolicy::Cumulative>>,
+                                       ResetPolicy::Cumulative>>,
               "a WriteOnly counter must not expose read()");
-static_assert(!detail::HasSnapshot<Counter<ConcurrencyPolicy::SingleThreaded, AccessPolicy::WriteOnly,
-                                            ResetPolicy::Cumulative>>,
+static_assert(!detail::HasSnapshot<Counter<ConcurrencyPolicy::SingleThreaded,
+                                           AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
               "a WriteOnly counter must not expose snapshot()");
 
 /// Free helper (mandate 9): mirrors the member.
 template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::AccessPolicy Access,
           nexigen::metrics::ResetPolicy Reset>
-[[nodiscard]] std::string to_string(
-    const nexigen::metrics::Counter<Concurrency, Access, Reset>& counter) {
+[[nodiscard]] std::string
+to_string(const nexigen::metrics::Counter<Concurrency, Access, Reset>& counter) {
     return counter.to_string();
 }
 
 } // namespace nexigen::metrics
-
 
 /// Counters format as their diagnostic string (mandate 11).
 template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::AccessPolicy Access,

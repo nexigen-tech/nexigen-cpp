@@ -31,8 +31,7 @@ namespace {
     }
     for (const char c : id) {
         const bool allowed = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-                             (c >= '0' && c <= '9') || c == '.' || c == '_' ||
-                             c == '-';
+                             (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
         if (!allowed) {
             return false;
         }
@@ -44,8 +43,7 @@ namespace {
     return !path.empty() && path.front() == '/';
 }
 
-[[nodiscard]] std::string choose_path(const RunIdentity& identity,
-                                      std::string_view explicit_path,
+[[nodiscard]] std::string choose_path(const RunIdentity& identity, std::string_view explicit_path,
                                       std::string_view filename) {
     if (!explicit_path.empty()) {
         return std::string(explicit_path);
@@ -62,8 +60,7 @@ namespace {
     return {};
 }
 
-void read_string_field(const nlohmann::json& j, const char* key,
-                       std::string& target) noexcept {
+void read_string_field(const nlohmann::json& j, const char* key, std::string& target) noexcept {
     if (!j.is_object()) {
         return;
     }
@@ -79,8 +76,7 @@ void read_string_field(const nlohmann::json& j, const char* key,
 
 } // namespace
 
-[[nodiscard]] std::string derive_instance_dir(std::string_view run_dir,
-                                              std::string_view app_name,
+[[nodiscard]] std::string derive_instance_dir(std::string_view run_dir, std::string_view app_name,
                                               std::string_view instance_id) {
     std::string out{run_dir};
     while (!out.empty() && out.back() == '/') {
@@ -95,13 +91,11 @@ void read_string_field(const nlohmann::json& j, const char* key,
 
 std::string RunIdentity::to_string() const {
     return "RunIdentity(run_id=" + run_id + ", run_dir=" + run_dir +
-           ", instance_id=" + instance_id +
-           ", instance_dir=" + instance_dir + ")";
+           ", instance_id=" + instance_id + ", instance_dir=" + instance_dir + ")";
 }
 
 std::string TelemetryPaths::to_string() const {
-    return "TelemetryPaths(metrics=" + metrics + ", traces=" + traces +
-           ", chrono=" + chrono + ")";
+    return "TelemetryPaths(metrics=" + metrics + ", traces=" + traces + ", chrono=" + chrono + ")";
 }
 
 RunIdentity load_run_identity() noexcept {
@@ -138,10 +132,9 @@ core::Status resolve_telemetry_paths(const RunIdentity& identity,
     if (!valid) {
         return valid;
     }
-    TelemetryPaths resolved{
-        choose_path(identity, explicit_metrics_path, "metrics.jsonl"),
-        choose_path(identity, explicit_traces_path, "traces.jsonl"),
-        choose_path(identity, explicit_chrono_path, "chrono.jsonl")};
+    TelemetryPaths resolved{choose_path(identity, explicit_metrics_path, "metrics.jsonl"),
+                            choose_path(identity, explicit_traces_path, "traces.jsonl"),
+                            choose_path(identity, explicit_chrono_path, "chrono.jsonl")};
     out = resolved;
     return {};
 }
@@ -161,9 +154,8 @@ void from_json(const nlohmann::json& j, RunIdentity& identity) noexcept {
 }
 
 void to_json(nlohmann::json& j, const TelemetryPaths& paths) {
-    j = nlohmann::json{{"metrics", paths.metrics},
-                       {"traces", paths.traces},
-                       {"chrono", paths.chrono}};
+    j = nlohmann::json{
+        {"metrics", paths.metrics}, {"traces", paths.traces}, {"chrono", paths.chrono}};
 }
 
 void from_json(const nlohmann::json& j, TelemetryPaths& paths) noexcept {

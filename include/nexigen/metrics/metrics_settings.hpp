@@ -28,8 +28,8 @@ namespace nexigen::metrics {
 /// Merged result of one load. `global_loaded`/`local_loaded` report file
 /// presence, not success; `diagnostics` carries every non-fatal problem.
 struct Settings {
-    MetricProviderConfig options{};       ///< Provider configuration.
-    JsonFileMetricSinkConfig sink{};      ///< File-sink path and append flag.
+    MetricProviderConfig options{};  ///< Provider configuration.
+    JsonFileMetricSinkConfig sink{}; ///< File-sink path and append flag.
     bool global_loaded{false};
     bool local_loaded{false};
     std::vector<core::SettingsDiagnostic> diagnostics{};
@@ -52,5 +52,3 @@ void to_json(nlohmann::json& j, const Settings& settings);
                                                  Settings& out) noexcept;
 
 } // namespace nexigen::metrics
-
-

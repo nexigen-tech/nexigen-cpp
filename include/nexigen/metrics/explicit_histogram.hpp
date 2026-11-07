@@ -95,10 +95,10 @@ struct alignas(64) HistogramBank {
         }
         view.count = count.exchange(0U, std::memory_order_relaxed);
         view.sum = sum.exchange(0.0, std::memory_order_relaxed);
-        view.minimum = minimum.exchange(std::numeric_limits<double>::infinity(),
-                                        std::memory_order_relaxed);
-        view.maximum = maximum.exchange(-std::numeric_limits<double>::infinity(),
-                                        std::memory_order_relaxed);
+        view.minimum =
+            minimum.exchange(std::numeric_limits<double>::infinity(), std::memory_order_relaxed);
+        view.maximum =
+            maximum.exchange(-std::numeric_limits<double>::infinity(), std::memory_order_relaxed);
         return view;
     }
 
@@ -130,13 +130,11 @@ struct alignas(64) HistogramBank {
         double current = minimum.load(std::memory_order_relaxed);
         while (value < current &&
                !minimum.compare_exchange_weak(current, value, std::memory_order_relaxed,
-                                              std::memory_order_relaxed)) {
-        }
+                                              std::memory_order_relaxed)) {}
         current = maximum.load(std::memory_order_relaxed);
         while (value > current &&
                !maximum.compare_exchange_weak(current, value, std::memory_order_relaxed,
-                                              std::memory_order_relaxed)) {
-        }
+                                              std::memory_order_relaxed)) {}
     }
 };
 
@@ -175,8 +173,12 @@ struct HistogramMerge {
             maximum = bank_max;
             empty = false;
         } else {
-            if (bank_min < minimum) { minimum = bank_min; }
-            if (bank_max > maximum) { maximum = bank_max; }
+            if (bank_min < minimum) {
+                minimum = bank_min;
+            }
+            if (bank_max > maximum) {
+                maximum = bank_max;
+            }
         }
     }
 };
@@ -185,8 +187,7 @@ struct HistogramMerge {
 
 /// A histogram with caller-defined buckets. Constructible only through a Meter.
 template <ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,
-          AccessPolicy Access = AccessPolicy::Readable,
-          ResetPolicy Reset = ResetPolicy::Cumulative>
+          AccessPolicy Access = AccessPolicy::Readable, ResetPolicy Reset = ResetPolicy::Cumulative>
 class ExplicitBucketHistogram {
 public:
     static constexpr MetricKind kind = MetricKind::ExplicitHistogram;
@@ -227,7 +228,9 @@ public:
 
     /// Current snapshot (bucket counts, summary, percentiles). Available only
     /// for Readable instruments.
-    [[nodiscard]] HistogramSnapshot read() const requires (Access == AccessPolicy::Readable) {
+    [[nodiscard]] HistogramSnapshot read() const
+        requires(Access == AccessPolicy::Readable)
+    {
         detail::HistogramMerge merged{};
         if constexpr (Concurrency == ConcurrencyPolicy::SingleThreaded) {
             const detail::HistogramBank::View cell_view = cell_.load_view();
@@ -240,7 +243,7 @@ public:
                 merge_slot(i, merged);
             }
             merged.absorb_view(Reset == ResetPolicy::ResetOnRead ? fallback_.take_view()
-                                                                  : fallback_.load_view());
+                                                                 : fallback_.load_view());
         }
 
         HistogramSnapshot snapshot{};
@@ -260,7 +263,9 @@ public:
     }
 
     /// Full record for this instrument (identity, classification, values).
-    [[nodiscard]] MetricRecord snapshot() const requires (Access == AccessPolicy::Readable) {
+    [[nodiscard]] MetricRecord snapshot() const
+        requires(Access == AccessPolicy::Readable)
+    {
         MetricRecord record = detail::make_record(kind, concurrency, access, reset, identity_);
         record.histogram = read();
         return record;
@@ -278,10 +283,9 @@ public:
     /// Diagnostic JSON (cold path). The instrument is NOT deserializable: its
     /// construction is Meter-only.
     friend void to_json(nlohmann::json& j, const ExplicitBucketHistogram& histogram) {
-        j = detail::classification_json(ExplicitBucketHistogram::kind,
-                                        ExplicitBucketHistogram::concurrency,
-                                        ExplicitBucketHistogram::access,
-                                        ExplicitBucketHistogram::reset);
+        j = detail::classification_json(
+            ExplicitBucketHistogram::kind, ExplicitBucketHistogram::concurrency,
+            ExplicitBucketHistogram::access, ExplicitBucketHistogram::reset);
         j["bounds"] = histogram.bound_count_;
     }
 
@@ -347,7 +351,8 @@ private:
         snapshot.p999 = percentile(snapshot, 0.999);
     }
 
-    [[nodiscard]] double percentile(const HistogramSnapshot& snapshot, double quantile) const noexcept {
+    [[nodiscard]] double percentile(const HistogramSnapshot& snapshot,
+                                    double quantile) const noexcept {
         const double rank = quantile * static_cast<double>(snapshot.count);
         std::uint64_t cumulative = 0;
         for (std::uint32_t i = 0; i < snapshot.bucket_count; ++i) {
@@ -357,7 +362,8 @@ private:
             }
             if (static_cast<double>(cumulative + in_bucket) >= rank) {
                 const double lower = (i == 0U) ? snapshot.min : lower_edge(i);
-                const double upper = (i + 1U == snapshot.bucket_count) ? snapshot.max : upper_edge(i);
+                const double upper =
+                    (i + 1U == snapshot.bucket_count) ? snapshot.max : upper_edge(i);
                 const double within = static_cast<double>(cumulative + in_bucket) - rank;
                 const double fraction = 1.0 - (within / static_cast<double>(in_bucket));
                 if (upper > lower) {
@@ -412,47 +418,46 @@ private:
     double bounds_[detail::max_explicit_bounds]{};
     std::uint32_t bound_count_{0};
 
-    mutable detail::HistogramBank cell_{};                      // SingleThreaded
+    mutable detail::HistogramBank cell_{};                       // SingleThreaded
     mutable detail::HistogramSlot slots_[detail::shard_count]{}; // MultiThreaded
     mutable detail::HistogramBank fallback_{};                   // shared overflow cell
     std::atomic<std::uint64_t> ignored_{0};
 };
 
-static_assert(sizeof(ExplicitBucketHistogram<ConcurrencyPolicy::MultiThreaded, AccessPolicy::Readable,
-                                              ResetPolicy::ResetOnRead>) <=
+static_assert(sizeof(ExplicitBucketHistogram<ConcurrencyPolicy::MultiThreaded,
+                                             AccessPolicy::Readable, ResetPolicy::ResetOnRead>) <=
                   detail::max_explicit_histogram_size,
               "explicit histogram must fit the registry budget");
-static_assert(concepts::Metric<ExplicitBucketHistogram<ConcurrencyPolicy::SingleThreaded,
-                                                        AccessPolicy::Readable,
-                                                        ResetPolicy::Cumulative>>,
-              "ExplicitBucketHistogram must satisfy the Metric concept");
-static_assert(concepts::ReadableMetric<ExplicitBucketHistogram<ConcurrencyPolicy::SingleThreaded,
-                                                                AccessPolicy::Readable,
-                                                                ResetPolicy::Cumulative>>,
-              "a Readable histogram must satisfy the ReadableMetric concept");
-static_assert(!concepts::ReadableMetric<ExplicitBucketHistogram<ConcurrencyPolicy::SingleThreaded,
-                                                                 AccessPolicy::WriteOnly,
-                                                                 ResetPolicy::Cumulative>>,
-              "a WriteOnly histogram must NOT satisfy the ReadableMetric concept");
-static_assert(!detail::HasRead<ExplicitBucketHistogram<ConcurrencyPolicy::SingleThreaded,
-                                                         AccessPolicy::WriteOnly,
-                                                         ResetPolicy::Cumulative>>,
-              "a WriteOnly histogram must not expose read()");
-static_assert(!detail::HasSnapshot<ExplicitBucketHistogram<ConcurrencyPolicy::SingleThreaded,
-                                                             AccessPolicy::WriteOnly,
-                                                             ResetPolicy::Cumulative>>,
-              "a WriteOnly histogram must not expose snapshot()");
+static_assert(
+    concepts::Metric<ExplicitBucketHistogram<ConcurrencyPolicy::SingleThreaded,
+                                             AccessPolicy::Readable, ResetPolicy::Cumulative>>,
+    "ExplicitBucketHistogram must satisfy the Metric concept");
+static_assert(
+    concepts::ReadableMetric<ExplicitBucketHistogram<
+        ConcurrencyPolicy::SingleThreaded, AccessPolicy::Readable, ResetPolicy::Cumulative>>,
+    "a Readable histogram must satisfy the ReadableMetric concept");
+static_assert(
+    !concepts::ReadableMetric<ExplicitBucketHistogram<
+        ConcurrencyPolicy::SingleThreaded, AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
+    "a WriteOnly histogram must NOT satisfy the ReadableMetric concept");
+static_assert(
+    !detail::HasRead<ExplicitBucketHistogram<ConcurrencyPolicy::SingleThreaded,
+                                             AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
+    "a WriteOnly histogram must not expose read()");
+static_assert(
+    !detail::HasSnapshot<ExplicitBucketHistogram<ConcurrencyPolicy::SingleThreaded,
+                                                 AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
+    "a WriteOnly histogram must not expose snapshot()");
 
 /// Free helper (mandate 9): mirrors the member.
 template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::AccessPolicy Access,
           nexigen::metrics::ResetPolicy Reset>
-[[nodiscard]] std::string to_string(
-    const nexigen::metrics::ExplicitBucketHistogram<Concurrency, Access, Reset>& histogram) {
+[[nodiscard]] std::string
+to_string(const nexigen::metrics::ExplicitBucketHistogram<Concurrency, Access, Reset>& histogram) {
     return histogram.to_string();
 }
 
 } // namespace nexigen::metrics
-
 
 /// Explicit histograms format as their diagnostic string (mandate 11).
 template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::AccessPolicy Access,
@@ -460,8 +465,9 @@ template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::Acc
 struct std::formatter<nexigen::metrics::ExplicitBucketHistogram<Concurrency, Access, Reset>>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::metrics::ExplicitBucketHistogram<Concurrency, Access, Reset>& histogram,
-                Ctx& ctx) const {
+    auto
+    format(const nexigen::metrics::ExplicitBucketHistogram<Concurrency, Access, Reset>& histogram,
+           Ctx& ctx) const {
         const std::string text = histogram.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

@@ -59,8 +59,7 @@ void from_json(const nlohmann::json& j, ChromeTraceSinkConfig& out) noexcept;
 /// The Chrome Trace Event sink.
 class ChromeTraceSink {
 public:
-    explicit ChromeTraceSink(const ChromeTraceSinkConfig& config) noexcept
-        : config_(config) {}
+    explicit ChromeTraceSink(const ChromeTraceSinkConfig& config) noexcept : config_(config) {}
 
     ChromeTraceSink(const ChromeTraceSink&) = delete;
     ChromeTraceSink& operator=(const ChromeTraceSink&) = delete;
@@ -104,10 +103,9 @@ public:
         // (start - base) / 1000 in unsigned 64-bit; spans record after the
         // base, so the subtraction is well-ordered (a record that somehow
         // pre-dates the base clamps to 0 — non-negative by contract).
-        const std::uint64_t ts_us =
-            record.start.nanoseconds() >= base_ns_
-                ? (record.start.nanoseconds() - base_ns_) / 1000U
-                : 0ULL;
+        const std::uint64_t ts_us = record.start.nanoseconds() >= base_ns_
+                                        ? (record.start.nanoseconds() - base_ns_) / 1000U
+                                        : 0ULL;
         const std::uint64_t dur_us = record.duration_ns() / 1000U;
 
         detail::FixedWriter writer{scratch_, detail::json_scratch_capacity};
@@ -157,9 +155,7 @@ public:
                     static_cast<void>(writer.append_escaped(attr.text_view()));
                     static_cast<void>(writer.append_char('"'));
                     break;
-                default:
-                    static_cast<void>(writer.append_sv("null"));
-                    break;
+                default: static_cast<void>(writer.append_sv("null")); break;
             }
         }
         static_cast<void>(writer.append_sv("}}"));
@@ -214,8 +210,8 @@ private:
     }
 
     ChromeTraceSinkConfig config_;
-    std::uint64_t pid_{};      ///< cached at start()
-    std::uint64_t base_ns_{};  ///< first drained span's start (mono ns)
+    std::uint64_t pid_{};     ///< cached at start()
+    std::uint64_t base_ns_{}; ///< first drained span's start (mono ns)
     bool base_set_{false};
     bool first_event_{true};
     int fd_{-1};
@@ -238,8 +234,7 @@ static_assert(concepts::TraceSink<ChromeTraceSink>,
 /// The configuration and the live sink format as their diagnostic texts
 /// (mandate 11).
 template <>
-struct std::formatter<nexigen::tracing::ChromeTraceSinkConfig>
-    : std::formatter<std::string_view> {
+struct std::formatter<nexigen::tracing::ChromeTraceSinkConfig> : std::formatter<std::string_view> {
     template <class Ctx>
     auto format(const nexigen::tracing::ChromeTraceSinkConfig& config, Ctx& ctx) const {
         const std::string text = config.to_string();

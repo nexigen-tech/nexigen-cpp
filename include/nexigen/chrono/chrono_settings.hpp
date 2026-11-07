@@ -31,8 +31,8 @@ namespace nexigen::chrono {
 /// Merged result of one load. `global_loaded`/`local_loaded` report file
 /// presence, not success; `diagnostics` carries every non-fatal problem.
 struct Settings {
-    ChronoProviderConfig options{};            ///< Provider configuration.
-    JsonFileChronoSinkConfig sink{};           ///< File-sink path and append flag.
+    ChronoProviderConfig options{};  ///< Provider configuration.
+    JsonFileChronoSinkConfig sink{}; ///< File-sink path and append flag.
     bool global_loaded{false};
     bool local_loaded{false};
     std::vector<core::SettingsDiagnostic> diagnostics{};
@@ -55,9 +55,6 @@ void to_json(nlohmann::json& j, const Settings& settings);
                                                 Settings& out) noexcept;
 
 /// Map merged settings into a provider construction config.
-[[nodiscard]] core::Status apply_to(const Settings& settings,
-                                    ChronoProviderConfig& out) noexcept;
+[[nodiscard]] core::Status apply_to(const Settings& settings, ChronoProviderConfig& out) noexcept;
 
 } // namespace nexigen::chrono
-
-

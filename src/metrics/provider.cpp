@@ -61,37 +61,40 @@ std::size_t MetricProvider::kind_object_size(MetricKind kind) noexcept {
 
 MetricProvider::MetricProvider(const MetricProviderConfig& config, detail::SinkBinding binding)
     : config_(config), binding_(binding) {
-    const std::uint32_t capacities[kind_count] = {
-        config_.max_counters, config_.max_gauges, config_.max_states,
-        config_.max_statistics, config_.max_explicit_histograms,
-        config_.max_exponential_histograms};
+    const std::uint32_t capacities[kind_count] = {config_.max_counters,
+                                                  config_.max_gauges,
+                                                  config_.max_states,
+                                                  config_.max_statistics,
+                                                  config_.max_explicit_histograms,
+                                                  config_.max_exponential_histograms};
 
     // One aligned block: slot tables, object arenas, meter table, meter arena
     // and the harvest buffer.
     std::size_t total = 0;
     for (std::size_t i = 0; i < kind_count; ++i) {
         total += detail::align_up(static_cast<std::size_t>(capacities[i]) * sizeof(SlotMeta));
-        total += detail::align_up(static_cast<std::size_t>(capacities[i]) * kind_object_size(
-                                     static_cast<MetricKind>(i)));
+        total += detail::align_up(static_cast<std::size_t>(capacities[i]) *
+                                  kind_object_size(static_cast<MetricKind>(i)));
     }
     total += detail::align_up(static_cast<std::size_t>(config_.max_meters) * sizeof(Meter*));
-    total += detail::align_up(static_cast<std::size_t>(config_.max_meters) * detail::max_meter_size);
+    total +=
+        detail::align_up(static_cast<std::size_t>(config_.max_meters) * detail::max_meter_size);
     record_capacity_ = 0;
     for (const std::uint32_t capacity : capacities) {
         record_capacity_ += capacity;
     }
     total += detail::align_up(static_cast<std::size_t>(record_capacity_) * sizeof(MetricRecord));
 
-    block_ = static_cast<std::byte*>(::operator new(total, std::align_val_t{detail::instrument_alignment}));
+    block_ = static_cast<std::byte*>(
+        ::operator new(total, std::align_val_t{detail::instrument_alignment}));
     block_size_ = total;
 
     std::size_t offset = 0;
     for (std::size_t i = 0; i < kind_count; ++i) {
         const std::size_t meta_bytes =
             detail::align_up(static_cast<std::size_t>(capacities[i]) * sizeof(SlotMeta));
-        const std::size_t arena_bytes =
-            detail::align_up(static_cast<std::size_t>(capacities[i]) * kind_object_size(
-                                 static_cast<MetricKind>(i)));
+        const std::size_t arena_bytes = detail::align_up(
+            static_cast<std::size_t>(capacities[i]) * kind_object_size(static_cast<MetricKind>(i)));
         pools_[i].meta = reinterpret_cast<SlotMeta*>(block_ + offset);
         std::memset(static_cast<void*>(pools_[i].meta), 0, meta_bytes);
         offset += meta_bytes;
@@ -124,9 +127,7 @@ MetricProvider::MetricProvider(const MetricProviderConfig& config, detail::SinkB
         startup_error_.store(valid_thread.error(), std::memory_order_relaxed);
         startup_published_.store(true, std::memory_order_release);
     } else if (config_.collect_interval > std::chrono::nanoseconds{0}) {
-        harvester_ = std::jthread([this](std::stop_token stop) {
-            harvest_loop(stop);
-        });
+        harvester_ = std::jthread([this](std::stop_token stop) { harvest_loop(stop); });
         if (config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
             while (!startup_published_.load(std::memory_order_acquire)) {
                 std::this_thread::yield();
@@ -242,12 +243,12 @@ core::Result<Meter*> MetricProvider::get_meter(std::string_view name, std::strin
 }
 
 core::Status MetricProvider::reserve_slot(MetricKind kind, std::size_t object_size,
-                                           const MetricIdentity& identity,
-                                           ConcurrencyPolicy concurrency, AccessPolicy access,
-                                           ResetPolicy reset,
-                                           void (*harvest)(void*, MetricRecord&) noexcept,
-                                           void (*destroy)(void*) noexcept, void*& object_out,
-                                           SlotMeta*& meta_out) {
+                                          const MetricIdentity& identity,
+                                          ConcurrencyPolicy concurrency, AccessPolicy access,
+                                          ResetPolicy reset,
+                                          void (*harvest)(void*, MetricRecord&) noexcept,
+                                          void (*destroy)(void*) noexcept, void*& object_out,
+                                          SlotMeta*& meta_out) {
     if (!alive_.load(std::memory_order_acquire)) {
         return std::unexpected(core::ErrorCode::NotInitialized);
     }
@@ -376,12 +377,12 @@ core::Status MetricProvider::startup_status() const noexcept {
 }
 
 std::string MetricProvider::to_string() const {
-    std::string out = "MetricProvider(collect_interval_ns=" +
-                      std::to_string(config_.collect_interval.count()) +
-                      ", worker_thread=" + config_.worker_thread.to_string() +
-                      ", meters=" + std::to_string(meter_capacity_) +
-                      ", records=" + std::to_string(record_capacity_) +
-                      ", block_bytes=" + std::to_string(block_size_) + ")";
+    std::string out =
+        "MetricProvider(collect_interval_ns=" + std::to_string(config_.collect_interval.count()) +
+        ", worker_thread=" + config_.worker_thread.to_string() +
+        ", meters=" + std::to_string(meter_capacity_) +
+        ", records=" + std::to_string(record_capacity_) +
+        ", block_bytes=" + std::to_string(block_size_) + ")";
     return out;
 }
 

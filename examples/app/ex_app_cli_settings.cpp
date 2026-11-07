@@ -103,10 +103,9 @@ struct CliFilePolicy {
     using TraceSink = tracing::JsonFileTraceSink;
     using ChronoSink = chrono::JsonFileChronoSink;
 
-    static core::Status emplace_logger(
-        std::optional<Logger>& out,
-        const logging::Settings& settings,
-        std::string_view app_name) noexcept {
+    static core::Status emplace_logger(std::optional<Logger>& out,
+                                       const logging::Settings& settings,
+                                       std::string_view app_name) noexcept {
         const core::Status capacity =
             logging::check_capacity<Logger::capacity(), Logger::max_threads(), 128>(settings);
         if (!capacity) {
@@ -124,10 +123,9 @@ struct CliFilePolicy {
         return out->initialize(config);
     }
 
-    static core::Status emplace_metrics_sink(
-        std::optional<MetricsSink>& out,
-        const metrics::Settings& settings,
-        std::string_view app_name) noexcept {
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
+                                             const metrics::Settings& settings,
+                                             std::string_view app_name) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -137,10 +135,9 @@ struct CliFilePolicy {
         return {};
     }
 
-    static core::Status emplace_trace_sink(
-        std::optional<TraceSink>& out,
-        const tracing::Settings& settings,
-        std::string_view app_name) noexcept {
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
+                                           const tracing::Settings& settings,
+                                           std::string_view app_name) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -150,9 +147,8 @@ struct CliFilePolicy {
         return {};
     }
 
-    static core::Status emplace_chrono_sink(
-        std::optional<ChronoSink>& out,
-        const chrono::Settings& settings) noexcept {
+    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+                                            const chrono::Settings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -170,10 +166,8 @@ int fail(std::string_view message) {
     return 1;
 }
 
-template <class Result>
-int fail_status(std::string_view action, const Result& status) {
-    print_error(std::string(action) + " failed: " +
-                std::string(core::to_string(status.error())));
+template <class Result> int fail_status(std::string_view action, const Result& status) {
+    print_error(std::string(action) + " failed: " + std::string(core::to_string(status.error())));
     return 1;
 }
 
@@ -426,8 +420,7 @@ int main(int argc, char* argv[]) {
     }
 
     infra->logger().info("cli settings example ready");
-    infra->logger().info("local settings: {}",
-                         std::string_view{options.local_settings_dir});
+    infra->logger().info("local settings: {}", std::string_view{options.local_settings_dir});
     infra->logger().debug("debug records require --log-level debug or a debug settings file");
 
     const auto tracer = infra->tracer_for("cli-example.loop");
@@ -444,51 +437,50 @@ int main(int argc, char* argv[]) {
     using CounterType = metrics::Counter<metrics::ConcurrencyPolicy::MultiThreaded,
                                          metrics::AccessPolicy::Readable>;
     using GaugeType = metrics::Gauge<std::int64_t, metrics::ConcurrencyPolicy::MultiThreaded,
-                                      metrics::AccessPolicy::Readable>;
+                                     metrics::AccessPolicy::Readable>;
     CounterType* counter = nullptr;
     GaugeType* gauge = nullptr;
     {
         auto startup = (*tracer)->start_span("startup", tracing::SpanKind::Internal);
-        static_cast<void>(startup.set_attribute(
-            "settings_dir", std::string_view{options.local_settings_dir}));
+        static_cast<void>(
+            startup.set_attribute("settings_dir", std::string_view{options.local_settings_dir}));
         const tracing::SpanContext startup_ctx = startup.context();
         {
-            auto create = (*tracer)->start_span(
-                "create-instruments", tracing::SpanKind::Internal, &startup_ctx);
+            auto create = (*tracer)->start_span("create-instruments", tracing::SpanKind::Internal,
+                                                &startup_ctx);
             const auto meter = infra->meter("cli-example", "1.0");
             if (!meter.has_value()) {
                 static_cast<void>(infra->shutdown());
                 return fail_status("Infrastructure::meter", meter);
             }
             const auto made_counter =
-                (*meter)->create_counter<metrics::ConcurrencyPolicy::MultiThreaded,
-                                         metrics::AccessPolicy::Readable>("ticks");
+                (*meter)
+                    ->create_counter<metrics::ConcurrencyPolicy::MultiThreaded,
+                                     metrics::AccessPolicy::Readable>("ticks");
             if (!made_counter.has_value()) {
                 static_cast<void>(infra->shutdown());
                 return fail_status("create_counter", made_counter);
             }
             const auto made_gauge =
-                (*meter)->create_gauge<std::int64_t, metrics::ConcurrencyPolicy::MultiThreaded,
-                                       metrics::AccessPolicy::Readable>("last_tick");
+                (*meter)
+                    ->create_gauge<std::int64_t, metrics::ConcurrencyPolicy::MultiThreaded,
+                                   metrics::AccessPolicy::Readable>("last_tick");
             if (!made_gauge.has_value()) {
                 static_cast<void>(infra->shutdown());
                 return fail_status("create_gauge", made_gauge);
             }
             counter = *made_counter;
             gauge = *made_gauge;
-            static_cast<void>(
-                create.set_attribute("instruments", static_cast<std::int64_t>(3)));
+            static_cast<void>(create.set_attribute("instruments", static_cast<std::int64_t>(3)));
             static_cast<void>(create.set_status(tracing::SpanStatus::Ok));
             static_cast<void>(create.end());
         }
         {
-            auto check = (*tracer)->start_span("check-settings", tracing::SpanKind::Internal,
-                                               &startup_ctx);
-            const std::int64_t diagnostics =
-                static_cast<std::int64_t>(loaded.logging.diagnostics.size() +
-                                          loaded.metrics.diagnostics.size() +
-                                          loaded.tracing.diagnostics.size() +
-                                          loaded.chrono.diagnostics.size());
+            auto check =
+                (*tracer)->start_span("check-settings", tracing::SpanKind::Internal, &startup_ctx);
+            const std::int64_t diagnostics = static_cast<std::int64_t>(
+                loaded.logging.diagnostics.size() + loaded.metrics.diagnostics.size() +
+                loaded.tracing.diagnostics.size() + loaded.chrono.diagnostics.size());
             static_cast<void>(check.set_attribute("diagnostics", diagnostics));
             static_cast<void>(check.set_status(tracing::SpanStatus::Ok));
             static_cast<void>(check.end());
@@ -507,16 +499,16 @@ int main(int argc, char* argv[]) {
     const auto deadline = start + kRunDuration;
     {
         auto loop = (*tracer)->start_span("tick-loop", tracing::SpanKind::Internal);
-        static_cast<void>(loop.set_attribute(
-            "settings_dir", std::string_view{options.local_settings_dir}));
+        static_cast<void>(
+            loop.set_attribute("settings_dir", std::string_view{options.local_settings_dir}));
         static_cast<void>(loop.set_attribute("tick_period_ms", kTickPeriod.count()));
         const tracing::SpanContext loop_ctx = loop.context();
 
         auto next_tick = start;
         auto next_log = start + kLogPeriod;
         while (std::chrono::steady_clock::now() < deadline) {
-            auto batch = (*tracer)->start_span("tick-batch", tracing::SpanKind::Producer,
-                                               &loop_ctx);
+            auto batch =
+                (*tracer)->start_span("tick-batch", tracing::SpanKind::Producer, &loop_ctx);
             auto batch_deadline = std::chrono::steady_clock::now() + kBatchPeriod;
             if (batch_deadline > deadline) {
                 batch_deadline = deadline;
@@ -564,8 +556,8 @@ int main(int argc, char* argv[]) {
         auto stop = (*tracer)->start_span("shutdown", tracing::SpanKind::Internal);
         const tracing::SpanContext stop_ctx = stop.context();
         {
-            auto collect = (*tracer)->start_span("final-collect", tracing::SpanKind::Internal,
-                                                 &stop_ctx);
+            auto collect =
+                (*tracer)->start_span("final-collect", tracing::SpanKind::Internal, &stop_ctx);
             if (!infra->metrics().collect_now() || !infra->chrono().snapshot_now()) {
                 workload_ok = false;
                 print_error("final metric collection or chrono snapshot failed");
@@ -576,15 +568,15 @@ int main(int argc, char* argv[]) {
             static_cast<void>(collect.end());
         }
         {
-            auto flush = (*tracer)->start_span("flush-artifacts", tracing::SpanKind::Internal,
-                                               &stop_ctx);
+            auto flush =
+                (*tracer)->start_span("flush-artifacts", tracing::SpanKind::Internal, &stop_ctx);
             infra->logger().info("workload finished after {} ticks", ticks);
             static_cast<void>(flush.set_attribute("ticks", static_cast<std::int64_t>(ticks)));
             static_cast<void>(flush.set_status(tracing::SpanStatus::Ok));
             static_cast<void>(flush.end());
         }
-        static_cast<void>(stop.set_status(workload_ok ? tracing::SpanStatus::Ok
-                                                      : tracing::SpanStatus::Error));
+        static_cast<void>(
+            stop.set_status(workload_ok ? tracing::SpanStatus::Ok : tracing::SpanStatus::Error));
         static_cast<void>(stop.end());
     }
 
@@ -604,8 +596,7 @@ int main(int argc, char* argv[]) {
     std::uint64_t trace_ids = 0;
     std::uint64_t parent_edges = 0;
     std::uint64_t span_kinds = 0;
-    if (!count_lines(kMetricsPath, metric_batches) ||
-        !count_lines(kChronoPath, chrono_snapshots) ||
+    if (!count_lines(kMetricsPath, metric_batches) || !count_lines(kChronoPath, chrono_snapshots) ||
         !count_trace_ids(kTracesPath, trace_ids) ||
         !scan_trace_shape(kTracesPath, parent_edges, span_kinds)) {
         return 1;
@@ -631,15 +622,14 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::printf(
-        "ex_app_cli_settings: OK (ticks=%llu, batches=%llu, metric_batches=%llu, "
-        "chrono_snapshots=%llu, trace_ids=%llu, parent_edges=%llu, span_kinds=%llu, "
-        "output=%s)\n",
-        static_cast<unsigned long long>(ticks), static_cast<unsigned long long>(batches),
-        static_cast<unsigned long long>(metric_batches),
-        static_cast<unsigned long long>(chrono_snapshots),
-        static_cast<unsigned long long>(trace_ids),
-        static_cast<unsigned long long>(parent_edges),
-        static_cast<unsigned long long>(span_kinds), std::string(kOutputDir).c_str());
+    std::printf("ex_app_cli_settings: OK (ticks=%llu, batches=%llu, metric_batches=%llu, "
+                "chrono_snapshots=%llu, trace_ids=%llu, parent_edges=%llu, span_kinds=%llu, "
+                "output=%s)\n",
+                static_cast<unsigned long long>(ticks), static_cast<unsigned long long>(batches),
+                static_cast<unsigned long long>(metric_batches),
+                static_cast<unsigned long long>(chrono_snapshots),
+                static_cast<unsigned long long>(trace_ids),
+                static_cast<unsigned long long>(parent_edges),
+                static_cast<unsigned long long>(span_kinds), std::string(kOutputDir).c_str());
     return 0;
 }

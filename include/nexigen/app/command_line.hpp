@@ -63,17 +63,14 @@ struct CommandLineError {
 using CommandLineResult = core::Result<CommandLineOptions, CommandLineError>;
 
 /// Parse process arguments. `argv[0]` (the program name) is skipped.
-[[nodiscard]] CommandLineResult parse_command_line(
-    int argc, const char* const argv[]) noexcept;
+[[nodiscard]] CommandLineResult parse_command_line(int argc, const char* const argv[]) noexcept;
 
 /// Parse already-split arguments. Every element is treated as an argument.
-[[nodiscard]] CommandLineResult parse_command_line(
-    std::span<const std::string_view> args) noexcept;
+[[nodiscard]] CommandLineResult parse_command_line(std::span<const std::string_view> args) noexcept;
 
 /// Map the two directories to the four fixed global/local file pairs. An
 /// empty directory leaves that source pair empty (disabled).
-[[nodiscard]] AppSettingsPaths make_app_settings_paths(
-    const CommandLineOptions& options) noexcept;
+[[nodiscard]] AppSettingsPaths make_app_settings_paths(const CommandLineOptions& options) noexcept;
 
 /// Apply the CLI log level to already-loaded settings. The CLI wins over
 /// global/local/environment sources; an absent level preserves the loaded one.
@@ -82,8 +79,8 @@ void apply_to(const CommandLineOptions& options, Settings& settings) noexcept;
 /// Map paths, load all four subsystems, then apply the CLI log level even when
 /// loading reports a diagnostic. Returns InvalidArgument when both directories
 /// are empty, so a manually built options value cannot load built-in defaults.
-[[nodiscard]] core::Status load_app_settings(
-    const CommandLineOptions& options, Settings& out) noexcept;
+[[nodiscard]] core::Status load_app_settings(const CommandLineOptions& options,
+                                             Settings& out) noexcept;
 
 /// Static usage text naming every option, the accepted level spellings and the
 /// four fixed file names. The caller prints it; this function never fails.
@@ -100,9 +97,3 @@ void to_json(nlohmann::json& j, const CommandLineError& error);
 void from_json(const nlohmann::json& j, CommandLineError& error) noexcept;
 
 } // namespace nexigen::app
-
-
-
-
-
-

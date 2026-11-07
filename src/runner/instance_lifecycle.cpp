@@ -46,8 +46,7 @@ namespace {
 constexpr std::size_t max_instance_dir_bytes = 511;
 
 void report_write_failure(std::string_view path, int error) noexcept {
-    warn_runner(std::format("event=json_write_failed path={} errno={}", path,
-                            error));
+    warn_runner(std::format("event=json_write_failed path={} errno={}", path, error));
 }
 
 /// mkdir -p for absolute paths. Every existing component must be a directory.
@@ -68,7 +67,7 @@ void report_write_failure(std::string_view path, int error) noexcept {
         if (::mkdir(current.c_str(), 0700) != 0 && errno != EEXIST) {
             return false;
         }
-        struct stat status {};
+        struct stat status{};
         if (::stat(current.c_str(), &status) != 0 || !S_ISDIR(status.st_mode)) {
             return false;
         }
@@ -84,12 +83,10 @@ void report_write_failure(std::string_view path, int error) noexcept {
     if (path.size() <= stream_root.size()) {
         return false;
     }
-    return path.compare(0, stream_root.size(), stream_root) == 0 &&
-           path[stream_root.size()] == '/';
+    return path.compare(0, stream_root.size(), stream_root) == 0 && path[stream_root.size()] == '/';
 }
 
-[[nodiscard]] std::string stream_path(std::string_view stream_root,
-                                      std::string_view resolved,
+[[nodiscard]] std::string stream_path(std::string_view stream_root, std::string_view resolved,
                                       std::string_view file_name) {
     if (inside_stream_root(resolved, stream_root)) {
         return std::string(resolved);
@@ -110,17 +107,16 @@ void from_json(const nlohmann::json& j, TerminatedBy& value) noexcept {
 
 // --- ResourceMetadata ---
 std::string ResourceMetadata::to_string() const {
-    return std::format(
-        "ResourceMetadata(run_id={}, app_name={}, instance_id={}, "
-        "instance_dir={}, pid={}, ppid={}, start_time_rfc3339={}, "
-        "start_time_mono_ns={}, proc_start_ticks={}, version={})",
-        run_id, app_name, instance_id, instance_dir, pid, ppid,
-        start_time_rfc3339, start_time_mono_ns, proc_start_ticks, version);
+    return std::format("ResourceMetadata(run_id={}, app_name={}, instance_id={}, "
+                       "instance_dir={}, pid={}, ppid={}, start_time_rfc3339={}, "
+                       "start_time_mono_ns={}, proc_start_ticks={}, version={})",
+                       run_id, app_name, instance_id, instance_dir, pid, ppid, start_time_rfc3339,
+                       start_time_mono_ns, proc_start_ticks, version);
 }
 
-ResourceMetadata ResourceMetadata::from_identity(
-    const app::RunIdentity& identity, std::string_view app_name,
-    std::int32_t pid, std::int32_t ppid) {
+ResourceMetadata ResourceMetadata::from_identity(const app::RunIdentity& identity,
+                                                 std::string_view app_name, std::int32_t pid,
+                                                 std::int32_t ppid) {
     ResourceMetadata metadata;
     metadata.run_id = identity.run_id;
     metadata.app_name = std::string(app_name);
@@ -155,30 +151,23 @@ void from_json(const nlohmann::json& j, ResourceMetadata& metadata) noexcept {
     static_cast<void>(read_string(j, "instance_dir", metadata.instance_dir));
     static_cast<void>(read_i32(j, "pid", metadata.pid));
     static_cast<void>(read_i32(j, "ppid", metadata.ppid));
-    static_cast<void>(read_string(j, "start_time_rfc3339",
-                                  metadata.start_time_rfc3339));
-    static_cast<void>(read_u64(j, "start_time_mono_ns",
-                                  metadata.start_time_mono_ns));
-    static_cast<void>(read_u64(j, "proc_start_ticks",
-                               metadata.proc_start_ticks));
+    static_cast<void>(read_string(j, "start_time_rfc3339", metadata.start_time_rfc3339));
+    static_cast<void>(read_u64(j, "start_time_mono_ns", metadata.start_time_mono_ns));
+    static_cast<void>(read_u64(j, "proc_start_ticks", metadata.proc_start_ticks));
     static_cast<void>(read_string(j, "version", metadata.version));
 }
 
 // --- ExitMetadata ---
 std::string ExitMetadata::to_string() const {
-    const std::string exit_text =
-        exit_code.has_value() ? std::to_string(*exit_code) : "null";
-    const std::string signal_text =
-        signal.has_value() ? std::to_string(*signal) : "null";
-    return std::format(
-        "ExitMetadata(exit_code={}, signal={}, uptime_s={}, terminated_by={})",
-        exit_text, signal_text, uptime_s,
-        nexigen::runner::to_string(terminated_by));
+    const std::string exit_text = exit_code.has_value() ? std::to_string(*exit_code) : "null";
+    const std::string signal_text = signal.has_value() ? std::to_string(*signal) : "null";
+    return std::format("ExitMetadata(exit_code={}, signal={}, uptime_s={}, terminated_by={})",
+                       exit_text, signal_text, uptime_s, nexigen::runner::to_string(terminated_by));
 }
 
-ExitMetadata ExitMetadata::from_child_status(
-    std::int32_t pid, std::int32_t status, std::uint64_t uptime_s,
-    TerminatedBy terminated_by) noexcept {
+ExitMetadata ExitMetadata::from_child_status(std::int32_t pid, std::int32_t status,
+                                             std::uint64_t uptime_s,
+                                             TerminatedBy terminated_by) noexcept {
     static_cast<void>(pid);
     ExitMetadata metadata;
     metadata.uptime_s = uptime_s;
@@ -212,12 +201,10 @@ void from_json(const nlohmann::json& j, ExitMetadata& metadata) noexcept {
     if (!j.is_object()) {
         return;
     }
-    static_cast<void>(
-        read_optional_i32(j, "exit_code", metadata.exit_code));
+    static_cast<void>(read_optional_i32(j, "exit_code", metadata.exit_code));
     static_cast<void>(read_optional_i32(j, "signal", metadata.signal));
     static_cast<void>(read_u64(j, "uptime_s", metadata.uptime_s));
-    if (const auto it = j.find("terminated_by");
-        it != j.end() && it->is_string()) {
+    if (const auto it = j.find("terminated_by"); it != j.end() && it->is_string()) {
         const auto* const name = it->get_ptr<const nlohmann::json::string_t*>();
         if (name != nullptr) {
             TerminatedBy parsed = metadata.terminated_by;
@@ -229,15 +216,13 @@ void from_json(const nlohmann::json& j, ExitMetadata& metadata) noexcept {
 }
 
 // --- JSON file I/O ---
-core::Status write_json_file(std::string_view path,
-                             const nlohmann::json& document) noexcept {
+core::Status write_json_file(std::string_view path, const nlohmann::json& document) noexcept {
     const std::string text = document.dump(2);
     const std::string target(path);
     const std::string temporary =
         target + ".tmp." + std::to_string(static_cast<long long>(::getpid()));
 
-    const int fd = ::open(temporary.c_str(),
-                          O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    const int fd = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     if (fd < 0) {
         report_write_failure(target, errno);
         return std::unexpected(core::ErrorCode::SystemError);
@@ -245,8 +230,7 @@ core::Status write_json_file(std::string_view path,
 
     std::size_t written = 0;
     while (written < text.size()) {
-        const ssize_t count =
-            ::write(fd, text.data() + written, text.size() - written);
+        const ssize_t count = ::write(fd, text.data() + written, text.size() - written);
         if (count <= 0) {
             if (count < 0 && errno == EINTR) {
                 continue;
@@ -305,26 +289,21 @@ core::Result<nlohmann::json> read_json_file(std::string_view path) noexcept {
     return document;
 }
 
-core::Status write_resource_json(
-    std::string_view instance_dir,
-    const ResourceMetadata& metadata) noexcept {
+core::Status write_resource_json(std::string_view instance_dir,
+                                 const ResourceMetadata& metadata) noexcept {
     nlohmann::json document;
     to_json(document, metadata);
-    return write_json_file(instance_file_path(instance_dir, "resource.json"),
-                           document);
+    return write_json_file(instance_file_path(instance_dir, "resource.json"), document);
 }
 
-core::Status write_exit_json(std::string_view instance_dir,
-                             const ExitMetadata& metadata) noexcept {
+core::Status write_exit_json(std::string_view instance_dir, const ExitMetadata& metadata) noexcept {
     nlohmann::json document;
     to_json(document, metadata);
-    return write_json_file(instance_file_path(instance_dir, "exit.json"),
-                           document);
+    return write_json_file(instance_file_path(instance_dir, "exit.json"), document);
 }
 
 // --- Instance directory ---
-std::string instance_file_path(std::string_view instance_dir,
-                               std::string_view file_name) {
+std::string instance_file_path(std::string_view instance_dir, std::string_view file_name) {
     std::string path(instance_dir);
     path.push_back('/');
     path.append(file_name);
@@ -339,8 +318,7 @@ core::Status create_instance_dir(std::string_view instance_dir) noexcept {
     if (!make_directories(instance_dir)) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
-    const std::string settings_dir =
-        instance_file_path(instance_dir, "settings");
+    const std::string settings_dir = instance_file_path(instance_dir, "settings");
     if (!make_directories(settings_dir)) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
@@ -359,39 +337,29 @@ core::Status create_artifact_dir(std::string_view artifact_dir) noexcept {
 }
 
 // --- Settings generation ---
-core::Status generate_settings(
-    std::string_view instance_dir,
-    const app::TelemetryPaths& resolved) noexcept {
+core::Status generate_settings(std::string_view instance_dir,
+                               const app::TelemetryPaths& resolved) noexcept {
     return generate_settings(instance_dir, instance_dir, resolved);
 }
 
-core::Status generate_settings(
-    std::string_view instance_dir,
-    std::string_view stream_root,
-    const app::TelemetryPaths& resolved) noexcept {
+core::Status generate_settings(std::string_view instance_dir, std::string_view stream_root,
+                               const app::TelemetryPaths& resolved) noexcept {
     if (instance_dir.empty() || instance_dir.front() != '/' ||
-        instance_dir.size() > max_instance_dir_bytes ||
-        stream_root.empty() || stream_root.front() != '/' ||
-        stream_root.size() > max_instance_dir_bytes) {
+        instance_dir.size() > max_instance_dir_bytes || stream_root.empty() ||
+        stream_root.front() != '/' || stream_root.size() > max_instance_dir_bytes) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 
-    auto write = [&](std::string_view file_name,
-                     nlohmann::json& document) -> core::Status {
+    auto write = [&](std::string_view file_name, nlohmann::json& document) -> core::Status {
         const std::string path =
-            instance_file_path(instance_file_path(instance_dir, "settings"),
-                               file_name);
+            instance_file_path(instance_file_path(instance_dir, "settings"), file_name);
         return write_json_file(path, document);
     };
 
-    const std::string app_log =
-        instance_file_path(stream_root, "app.jsonl");
-    const std::string metrics_log =
-        stream_path(stream_root, resolved.metrics, "metrics.jsonl");
-    const std::string traces_log =
-        stream_path(stream_root, resolved.traces, "traces.jsonl");
-    const std::string chrono_log =
-        stream_path(stream_root, resolved.chrono, "chrono.jsonl");
+    const std::string app_log = instance_file_path(stream_root, "app.jsonl");
+    const std::string metrics_log = stream_path(stream_root, resolved.metrics, "metrics.jsonl");
+    const std::string traces_log = stream_path(stream_root, resolved.traces, "traces.jsonl");
+    const std::string chrono_log = stream_path(stream_root, resolved.chrono, "chrono.jsonl");
 
     {
         nlohmann::json document = {

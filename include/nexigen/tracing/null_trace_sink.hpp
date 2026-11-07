@@ -44,10 +44,8 @@ inline void to_json(nlohmann::json& j, const NullTraceSink&) {
     j = nlohmann::json{{"type", "NullTraceSink"}};
 }
 
-static_assert(concepts::TraceSink<NullTraceSink>,
-              "NullTraceSink must satisfy the sink contract");
+static_assert(concepts::TraceSink<NullTraceSink>, "NullTraceSink must satisfy the sink contract");
 
 } // namespace nexigen::tracing
 
 /// The null sink formats as its diagnostic string (mandate 11).
-

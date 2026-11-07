@@ -37,16 +37,28 @@ enum class RotationKind : std::uint8_t { None, Hourly, Daily, Custom };
         case RotationKind::Hourly: return "hourly";
         case RotationKind::Daily:  return "daily";
         case RotationKind::Custom: return "custom";
-        default:                    return "Unknown";
+        default:                   return "Unknown";
     }
 }
 
 /// Parse a canonical lowercase schedule name; false leaves `out` unchanged.
 [[nodiscard]] constexpr bool from_string(std::string_view name, RotationKind& out) noexcept {
-    if (name == "none")   { out = RotationKind::None; return true; }
-    if (name == "hourly") { out = RotationKind::Hourly; return true; }
-    if (name == "daily")  { out = RotationKind::Daily; return true; }
-    if (name == "custom") { out = RotationKind::Custom; return true; }
+    if (name == "none") {
+        out = RotationKind::None;
+        return true;
+    }
+    if (name == "hourly") {
+        out = RotationKind::Hourly;
+        return true;
+    }
+    if (name == "daily") {
+        out = RotationKind::Daily;
+        return true;
+    }
+    if (name == "custom") {
+        out = RotationKind::Custom;
+        return true;
+    }
     return false;
 }
 
@@ -69,8 +81,8 @@ inline void from_json(const nlohmann::json& j, RotationKind& out) noexcept {
 
 /// Render the human-readable period label into buf (NUL-terminated).
 /// Returns the label length, or 0 when buf is too small (never partial).
-std::size_t period_label(RotationKind kind, std::uint64_t custom_ns,
-                         std::int64_t utc_ns, char (&buf)[64]) noexcept;
+std::size_t period_label(RotationKind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
+                         char (&buf)[64]) noexcept;
 
 /// Caller-owned path scratch: two fixed buffers, reused every rotation.
 /// Both sized 560: base(≤511) + '/' + label(≤"epoch-"+20) fits; file adds
@@ -88,8 +100,8 @@ struct RotationScratch {
 /// this open succeeds, so a failed rotation leaves the old file live.
 [[nodiscard]] core::Status open_period(RotationKind kind, std::uint64_t custom_ns,
                                        std::int64_t utc_ns, std::string_view base_dir,
-                                       std::string_view file_name,
-                                       RotationScratch& scratch, int& fd_out) noexcept;
+                                       std::string_view file_name, RotationScratch& scratch,
+                                       int& fd_out) noexcept;
 
 /// Same as open_period, but selects a numbered size-based segment inside the
 /// period directory: segment 0 keeps `file_name`; segment N inserts `.<N>`
@@ -106,4 +118,3 @@ struct RotationScratch {
 /// RotationSchedule formats as its canonical lowercase name (mandate 11):
 /// parse/fill/align via the string_view formatter; templated context for
 /// libstdc++ 15's substituted-formattability evaluation.
-

@@ -37,9 +37,7 @@ namespace nexigen::hub::detail {
 }
 
 [[nodiscard]] inline char ascii_lower(char value) noexcept {
-    return value >= 'A' && value <= 'Z'
-               ? static_cast<char>(value - 'A' + 'a')
-               : value;
+    return value >= 'A' && value <= 'Z' ? static_cast<char>(value - 'A' + 'a') : value;
 }
 
 [[nodiscard]] inline bool equals_ignore_case(std::string_view left,
@@ -55,8 +53,7 @@ namespace nexigen::hub::detail {
     return true;
 }
 
-[[nodiscard]] inline std::string_view trim_header(
-    std::string_view text) noexcept {
+[[nodiscard]] inline std::string_view trim_header(std::string_view text) noexcept {
     while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) {
         text.remove_prefix(1);
     }
@@ -68,8 +65,8 @@ namespace nexigen::hub::detail {
 
 /// Case-insensitive header lookup. Returns a view into `request` or an empty
 /// view when the header is absent. Only the header block is inspected.
-[[nodiscard]] inline std::string_view header_value(
-    std::string_view request, std::string_view name) noexcept {
+[[nodiscard]] inline std::string_view header_value(std::string_view request,
+                                                   std::string_view name) noexcept {
     std::size_t position = request.find("\r\n");
     if (position == std::string_view::npos) {
         return {};
@@ -80,8 +77,7 @@ namespace nexigen::hub::detail {
         if (line_end == std::string_view::npos) {
             line_end = request.size();
         }
-        const std::string_view line =
-            request.substr(position, line_end - position);
+        const std::string_view line = request.substr(position, line_end - position);
         if (line.empty()) {
             break;
         }
@@ -95,20 +91,17 @@ namespace nexigen::hub::detail {
     return {};
 }
 
-[[nodiscard]] inline std::string query_value(std::string_view query,
-                                             std::string_view key) {
+[[nodiscard]] inline std::string query_value(std::string_view query, std::string_view key) {
     std::size_t position = 0;
     while (position < query.size()) {
         const std::size_t ampersand = query.find('&', position);
-        const std::size_t end =
-            ampersand == std::string_view::npos ? query.size() : ampersand;
+        const std::size_t end = ampersand == std::string_view::npos ? query.size() : ampersand;
         const std::string_view pair = query.substr(position, end - position);
         const std::size_t equals = pair.find('=');
         const std::string_view name = pair.substr(0, equals);
         if (name == key) {
-            return equals == std::string_view::npos
-                       ? std::string{}
-                       : url_decode(pair.substr(equals + 1));
+            return equals == std::string_view::npos ? std::string{}
+                                                    : url_decode(pair.substr(equals + 1));
         }
         if (ampersand == std::string_view::npos) {
             break;
@@ -131,22 +124,19 @@ enum class RequestLineError : std::uint8_t {
     MethodNotAllowed,
 };
 
-[[nodiscard]] inline RequestLineError parse_request_line(
-    std::string_view request, RequestLine& out) noexcept {
+[[nodiscard]] inline RequestLineError parse_request_line(std::string_view request,
+                                                         RequestLine& out) noexcept {
     const std::size_t first_line_end = request.find("\r\n");
     const std::string_view first_line = request.substr(0, first_line_end);
     const std::size_t first_space = first_line.find(' ');
-    const std::size_t second_space =
-        first_space == std::string_view::npos
-            ? std::string_view::npos
-            : first_line.find(' ', first_space + 1);
-    if (first_space == std::string_view::npos ||
-        second_space == std::string_view::npos) {
+    const std::size_t second_space = first_space == std::string_view::npos
+                                         ? std::string_view::npos
+                                         : first_line.find(' ', first_space + 1);
+    if (first_space == std::string_view::npos || second_space == std::string_view::npos) {
         return RequestLineError::BadRequest;
     }
     out.method = first_line.substr(0, first_space);
-    out.path =
-        first_line.substr(first_space + 1, second_space - first_space - 1);
+    out.path = first_line.substr(first_space + 1, second_space - first_space - 1);
     out.version = first_line.substr(second_space + 1);
     if (out.version != "HTTP/1.1" && out.version != "HTTP/1.0") {
         return RequestLineError::BadVersion;

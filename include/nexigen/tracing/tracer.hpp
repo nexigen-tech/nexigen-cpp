@@ -67,21 +67,21 @@ class SpanPasskey {
     SpanPasskey() = default;
 
 public:
-    template <std::size_t SC, std::size_t MT>
-    friend class Tracer;
+    template <std::size_t SC, std::size_t MT> friend class Tracer;
 
     /// Cold-path diagnostic (mandate 9). The tag carries no state.
     [[nodiscard]] std::string to_string() const { return "SpanPasskey"; }
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const SpanPasskey&) { return "SpanPasskey"; }
+[[nodiscard]] inline std::string to_string(const SpanPasskey&) {
+    return "SpanPasskey";
+}
 
 /// A named span factory handle. Created by TracerProvider::get_tracer; the
 /// handle stays valid until the provider's destruction (dead-handle use
 /// fails with NotInitialized through start_span's error surface).
-template <std::size_t ShardCapacity, std::size_t MaxThreads>
-class Tracer {
+template <std::size_t ShardCapacity, std::size_t MaxThreads> class Tracer {
 public:
     Tracer(const Tracer&) = delete;
     Tracer& operator=(const Tracer&) = delete;
@@ -101,18 +101,17 @@ public:
         // NotInitialized through the guard's error surface (no memory error:
         // the provider storage is still mapped — documented contract).
         if (!provider.alive_.load(std::memory_order_acquire)) {
-            return ScopedSpan<ShardCapacity, MaxThreads>{
-                SpanPasskey{}, nullptr, core::ErrorCode::NotInitialized};
+            return ScopedSpan<ShardCapacity, MaxThreads>{SpanPasskey{}, nullptr,
+                                                         core::ErrorCode::NotInitialized};
         }
 
         // (2) Control short-circuit: ONE relaxed load + shifts; disabled or
         // Drop → inactive guard, nothing else on the path (~1 ns).
         const std::uint8_t control = provider.control_.state.load(std::memory_order_relaxed);
-        const SamplingDecision sampling =
-            static_cast<SamplingDecision>((control >> 1U) & 0x3U);
+        const SamplingDecision sampling = static_cast<SamplingDecision>((control >> 1U) & 0x3U);
         if ((control & 0x1U) == 0U || sampling == SamplingDecision::Drop) {
-            return ScopedSpan<ShardCapacity, MaxThreads>{
-                SpanPasskey{}, nullptr, core::ErrorCode::Ok};
+            return ScopedSpan<ShardCapacity, MaxThreads>{SpanPasskey{}, nullptr,
+                                                         core::ErrorCode::Ok};
         }
 
         // (3) Shard slot: TLS steady-state; the claim is cold.
@@ -121,16 +120,15 @@ public:
             // Beyond MaxThreads distinct producers: dropped and counted
             // (slot_exhausted), never blocked (spec "Threads beyond the pool
             // drop visibly").
-            return ScopedSpan<ShardCapacity, MaxThreads>{
-                SpanPasskey{}, nullptr, core::ErrorCode::Ok};
+            return ScopedSpan<ShardCapacity, MaxThreads>{SpanPasskey{}, nullptr,
+                                                         core::ErrorCode::Ok};
         }
 
         // (4) Cached thread id (syscall once per thread).
         const std::uint32_t tid = detail::cached_thread_id();
 
         // (5) Start stamp from the slot's single-writer source.
-        const chrono::Timestamp start = provider.stamps_[static_cast<std::size_t>(slot)]
-                                             .sample();
+        const chrono::Timestamp start = provider.stamps_[static_cast<std::size_t>(slot)].sample();
 
         // (6) Configured span-rate budget: rejected before any queue
         // interaction; rate_limited counts exactly the rejected spans.
@@ -147,11 +145,10 @@ public:
                 state.window_start_ns = ns; // first span opens window 0
             }
             if (state.tokens_used >= provider.rate_max_spans()) {
-                state.rate_limited.store(
-                    state.rate_limited.load(std::memory_order_relaxed) + 1U,
-                    std::memory_order_relaxed);
-                return ScopedSpan<ShardCapacity, MaxThreads>{
-                    SpanPasskey{}, nullptr, core::ErrorCode::Ok};
+                state.rate_limited.store(state.rate_limited.load(std::memory_order_relaxed) + 1U,
+                                         std::memory_order_relaxed);
+                return ScopedSpan<ShardCapacity, MaxThreads>{SpanPasskey{}, nullptr,
+                                                             core::ErrorCode::Ok};
             }
             ++state.tokens_used;
         }
@@ -177,17 +174,15 @@ public:
         const SpanId span_id = SpanId::generate();
         // A sampled span pushes ITS OWN frame (explicit-parent children
         // become the local parent for subsequent same-thread spans).
-        const std::uint8_t stack_index = can_push
-                                             ? stack.push(detail::ActiveFrame{trace_id,
-                                                                                span_id})
-                                             : detail::max_span_depth;
+        const std::uint8_t stack_index =
+            can_push ? stack.push(detail::ActiveFrame{trace_id, span_id}) : detail::max_span_depth;
 
         // (8) Construct the guard as a PRVALUE (C++17 guaranteed elision —
         // constructed directly in the caller's storage, no copy, no move)
         // with the record filled inline by the constructor.
         return ScopedSpan<ShardCapacity, MaxThreads>{
-            SpanPasskey{}, &provider, slot, stack_index, sampling, trace_id, span_id,
-            parent_span_id, kind, start, tid, name, location};
+            SpanPasskey{},  &provider, slot,  stack_index, sampling, trace_id, span_id,
+            parent_span_id, kind,      start, tid,         name,     location};
     }
 
     /// The scope name this tracer was created with.
@@ -234,8 +229,7 @@ void to_json(nlohmann::json& j, const Tracer<SC, MT>& tracer) {
 /// (mandate 11).
 template <>
 struct std::formatter<nexigen::tracing::SpanPasskey> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::SpanPasskey&, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::tracing::SpanPasskey&, Ctx& ctx) const {
         return std::formatter<std::string_view>::format("SpanPasskey", ctx);
     }
 };

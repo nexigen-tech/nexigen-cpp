@@ -70,12 +70,16 @@ class ConsoleSink {
 
     /// Bounded appenders: write only if space remains; never reallocate.
     void append_char(char c) noexcept {
-        if (len_ < line_capacity - 1) { line_[len_++] = c; }
+        if (len_ < line_capacity - 1) {
+            line_[len_++] = c;
+        }
     }
     void append_sv(std::string_view sv) noexcept {
         const std::size_t room = (len_ < line_capacity - 1) ? (line_capacity - 1 - len_) : 0;
         const std::size_t take = sv.size() < room ? sv.size() : room;
-        for (std::size_t i = 0; i < take; ++i) { line_[len_++] = sv[i]; }
+        for (std::size_t i = 0; i < take; ++i) {
+            line_[len_++] = sv[i];
+        }
     }
     void append_u64(std::uint64_t value, unsigned min_width) noexcept {
         char digits[20];
@@ -84,8 +88,12 @@ class ConsoleSink {
             digits[n++] = static_cast<char>('0' + (value % 10U));
             value /= 10U;
         } while (value != 0U);
-        while (n < min_width) { digits[n++] = '0'; } // zero-pad below line_capacity
-        while (n > 0) { append_char(digits[--n]); }
+        while (n < min_width) {
+            digits[n++] = '0';
+        } // zero-pad below line_capacity
+        while (n > 0) {
+            append_char(digits[--n]);
+        }
     }
 
     static std::string_view basename(std::string_view path) noexcept {
@@ -115,8 +123,7 @@ public:
     /// fsync for consoles (spec allows flush OK without an fsync target).
     [[nodiscard]] core::Status synchronize() noexcept { return {}; }
 
-    template <class Record>
-    void handle(Record& rec) noexcept {
+    template <class Record> void handle(Record& rec) noexcept {
         // Deferred formatting executes HERE (spec logging/log-record):
         // render_into writes the pack through the record's callback into
         // msg_ scratch, allocation-free and bounded, flagging truncation.
@@ -219,7 +226,8 @@ public:
     /// The console sink is deliberately unpinned, so only the initial level,
     /// the worker poll interval and the explicit capacity check apply.
     [[nodiscard]] core::Status initialize(const Settings& settings) noexcept {
-        const core::Status capacity = check_capacity<ShardCapacity, MaxThreads, MessageCapacity>(settings);
+        const core::Status capacity =
+            check_capacity<ShardCapacity, MaxThreads, MessageCapacity>(settings);
         if (!capacity) {
             return capacity;
         }
@@ -300,7 +308,8 @@ public:
 
 /// Free helper (mandate 9): mirrors the member.
 template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t MaxThreads>
-[[nodiscard]] std::string to_string(const ConsoleLogger<ShardCapacity, MessageCapacity, MaxThreads>& logger) {
+[[nodiscard]] std::string
+to_string(const ConsoleLogger<ShardCapacity, MessageCapacity, MaxThreads>& logger) {
     return logger.to_string();
 }
 

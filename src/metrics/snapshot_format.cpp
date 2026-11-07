@@ -33,26 +33,18 @@ std::string ScalarValue::to_string() const {
 }
 
 std::string StatisticsSnapshot::to_string() const {
-    return "StatisticsSnapshot(count=" + std::to_string(count) +
-           ", min=" + std::to_string(min) +
-           ", max=" + std::to_string(max) +
-           ", mean=" + std::to_string(mean) +
-           ", std=" + std::to_string(stddev) +
-           ", ignored=" + std::to_string(ignored_samples) +
+    return "StatisticsSnapshot(count=" + std::to_string(count) + ", min=" + std::to_string(min) +
+           ", max=" + std::to_string(max) + ", mean=" + std::to_string(mean) +
+           ", std=" + std::to_string(stddev) + ", ignored=" + std::to_string(ignored_samples) +
            ", dropped=" + std::to_string(dropped_samples) + ")";
 }
 
 std::string HistogramSnapshot::to_string() const {
-    return "HistogramSnapshot(count=" + std::to_string(count) +
-           ", sum=" + std::to_string(sum) +
-           ", min=" + std::to_string(min) +
-           ", max=" + std::to_string(max) +
-           ", zeros=" + std::to_string(zero_count) +
-           ", scale=" + std::to_string(effective_scale) +
-           ", p50=" + std::to_string(p50) +
-           ", p90=" + std::to_string(p90) +
-           ", p99=" + std::to_string(p99) +
-           ", p999=" + std::to_string(p999) +
+    return "HistogramSnapshot(count=" + std::to_string(count) + ", sum=" + std::to_string(sum) +
+           ", min=" + std::to_string(min) + ", max=" + std::to_string(max) +
+           ", zeros=" + std::to_string(zero_count) + ", scale=" + std::to_string(effective_scale) +
+           ", p50=" + std::to_string(p50) + ", p90=" + std::to_string(p90) +
+           ", p99=" + std::to_string(p99) + ", p999=" + std::to_string(p999) +
            ", buckets=" + std::to_string(bucket_count) + ")";
 }
 
@@ -70,18 +62,10 @@ std::string MetricRecord::to_string() const {
     out += ", values=";
     switch (kind) {
         case MetricKind::Counter:
-        case MetricKind::Gauge:
-            out += scalar.to_string();
-            break;
-        case MetricKind::DescriptiveStatistics:
-            out += statistics.to_string();
-            break;
-        case MetricKind::State:
-            out += state.to_string();
-            break;
-        default:
-            out += histogram.to_string();
-            break;
+        case MetricKind::Gauge:                 out += scalar.to_string(); break;
+        case MetricKind::DescriptiveStatistics: out += statistics.to_string(); break;
+        case MetricKind::State:                 out += state.to_string(); break;
+        default:                                out += histogram.to_string(); break;
     }
     out += ")";
     return out;
@@ -96,13 +80,27 @@ std::string MetricBatchSnapshot::to_string() const {
 
 // --- free helpers (mandate 9): mirror the member functions.
 
-std::string to_string(const MetricIdentity& identity) { return identity.to_string(); }
-std::string to_string(const ScalarValue& value) { return value.to_string(); }
-std::string to_string(const StatisticsSnapshot& snapshot) { return snapshot.to_string(); }
-std::string to_string(const HistogramSnapshot& snapshot) { return snapshot.to_string(); }
-std::string to_string(const StateValue& value) { return value.to_string(); }
-std::string to_string(const MetricRecord& record) { return record.to_string(); }
-std::string to_string(const MetricBatchSnapshot& batch) { return batch.to_string(); }
+std::string to_string(const MetricIdentity& identity) {
+    return identity.to_string();
+}
+std::string to_string(const ScalarValue& value) {
+    return value.to_string();
+}
+std::string to_string(const StatisticsSnapshot& snapshot) {
+    return snapshot.to_string();
+}
+std::string to_string(const HistogramSnapshot& snapshot) {
+    return snapshot.to_string();
+}
+std::string to_string(const StateValue& value) {
+    return value.to_string();
+}
+std::string to_string(const MetricRecord& record) {
+    return record.to_string();
+}
+std::string to_string(const MetricBatchSnapshot& batch) {
+    return batch.to_string();
+}
 
 // --- nlohmann::json (cold path). Readers are strictly non-throwing under
 // JSON_NOEXCEPTION=1: is_* checks guard every access, and a wrong shape
@@ -121,7 +119,8 @@ void from_json(const nlohmann::json& j, MetricIdentity& out) noexcept {
     if (!j.is_object()) {
         return;
     }
-    const auto read = [](const nlohmann::json& node, const char* key, char (&dst)[max_name_length + 1]) {
+    const auto read = [](const nlohmann::json& node, const char* key,
+                         char (&dst)[max_name_length + 1]) {
         const auto it = node.find(key);
         if (it == node.end() || !it->is_string()) {
             return;
@@ -276,8 +275,8 @@ void from_json(const nlohmann::json& j, HistogramSnapshot& out) noexcept {
     }
     const auto count_it = j.find("bucket_count");
     if (count_it != j.end() && count_it->is_number_unsigned()) {
-        out.bucket_count = std::min<std::uint32_t>(count_it->get<std::uint32_t>(),
-                                                    static_cast<std::uint32_t>(max_snapshot_buckets));
+        out.bucket_count = std::min<std::uint32_t>(
+            count_it->get<std::uint32_t>(), static_cast<std::uint32_t>(max_snapshot_buckets));
     }
     const auto lower_it = j.find("buckets_lower");
     if (lower_it != j.end() && lower_it->is_array()) {
@@ -332,18 +331,10 @@ void to_json(nlohmann::json& j, const MetricRecord& record) {
     // The payload is a union: only the member selected by `kind` is active.
     switch (record.kind) {
         case MetricKind::Counter:
-        case MetricKind::Gauge:
-            j["scalar"] = record.scalar;
-            break;
-        case MetricKind::DescriptiveStatistics:
-            j["statistics"] = record.statistics;
-            break;
-        case MetricKind::State:
-            j["state"] = record.state;
-            break;
-        default:
-            j["histogram"] = record.histogram;
-            break;
+        case MetricKind::Gauge:                 j["scalar"] = record.scalar; break;
+        case MetricKind::DescriptiveStatistics: j["statistics"] = record.statistics; break;
+        case MetricKind::State:                 j["state"] = record.state; break;
+        default:                                j["histogram"] = record.histogram; break;
     }
 }
 
@@ -372,7 +363,7 @@ void from_json(const nlohmann::json& j, MetricRecord& out) noexcept {
     // Deserialize into the union member selected by `kind`.
     switch (out.kind) {
         case MetricKind::Counter:
-        case MetricKind::Gauge: {
+        case MetricKind::Gauge:   {
             const auto scalar_it = j.find("scalar");
             if (scalar_it != j.end()) {
                 from_json(*scalar_it, out.scalar);
@@ -458,19 +449,20 @@ void from_json(const nlohmann::json& j, MetricBatchSnapshot& out) noexcept {
 // lives in this unit).
 
 std::string nexigen::metrics::MetricProviderConfig::to_string() const {
-    return std::format(
-        "MetricProviderConfig(collect_interval_ns={}, worker_thread={}, "
-        "max_meters={}, max_counters={}, max_gauges={}, max_states={}, "
-        "max_statistics={}, max_explicit_histograms={}, "
-        "max_exponential_histograms={})",
-        collect_interval.count(), worker_thread.to_string(), max_meters, max_counters,
-        max_gauges, max_states, max_statistics, max_explicit_histograms,
-        max_exponential_histograms);
+    return std::format("MetricProviderConfig(collect_interval_ns={}, worker_thread={}, "
+                       "max_meters={}, max_counters={}, max_gauges={}, max_states={}, "
+                       "max_statistics={}, max_explicit_histograms={}, "
+                       "max_exponential_histograms={})",
+                       collect_interval.count(), worker_thread.to_string(), max_meters,
+                       max_counters, max_gauges, max_states, max_statistics,
+                       max_explicit_histograms, max_exponential_histograms);
 }
 
 namespace nexigen::metrics {
 
-std::string to_string(const MetricProviderConfig& config) { return config.to_string(); }
+std::string to_string(const MetricProviderConfig& config) {
+    return config.to_string();
+}
 
 void to_json(nlohmann::json& j, const MetricProviderConfig& config) {
     j = nlohmann::json{

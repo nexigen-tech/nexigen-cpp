@@ -68,14 +68,18 @@ public:
                 delta = ticks - tsc_anchor_; // reanchor pairs with this very tick
             }
             std::uint64_t ns = mono_anchor_ns_ + ((delta * scale_) >> 20);
-            if (ns < last_ns_) { ns = last_ns_; }
+            if (ns < last_ns_) {
+                ns = last_ns_;
+            }
             last_ns_ = ns;
             return Timestamp{ns};
         }
 #endif
         const core::Result<Timestamp> now = Timestamp::now();
         std::uint64_t ns = now ? now->nanoseconds() : last_ns_;
-        if (ns < last_ns_) { ns = last_ns_; }
+        if (ns < last_ns_) {
+            ns = last_ns_;
+        }
         last_ns_ = ns;
         return Timestamp{ns};
     }
@@ -86,8 +90,8 @@ public:
     /// quiescent diagnostics only, never between sample() calls of another
     /// thread, and never on the sampling hot path (allocates a std::string).
     [[nodiscard]] std::string to_string() const {
-        std::string out = calibrated_ ? "StampSource(calibrated=true, "
-                                      : "StampSource(calibrated=false, ";
+        std::string out =
+            calibrated_ ? "StampSource(calibrated=true, " : "StampSource(calibrated=false, ";
         out += "tsc_anchor=" + std::to_string(tsc_anchor_);
         out += ", mono_anchor_ns=" + std::to_string(mono_anchor_ns_);
         out += ", scale_ns_x2^20=" + std::to_string(scale_);
@@ -115,14 +119,14 @@ private:
 
     std::uint64_t tsc_anchor_{};
     std::uint64_t mono_anchor_ns_{};
-    std::uint64_t scale_{};          ///< ns per tick, fixed-point << 20
+    std::uint64_t scale_{}; ///< ns per tick, fixed-point << 20
     std::uint64_t reanchor_ticks_ =
 #if defined(__x86_64__)
         default_reanchor_ticks;
 #else
         0; // unused on non-x86: the fast path never arms
 #endif
-    std::uint64_t last_ns_{};        ///< monotonic clamp
+    std::uint64_t last_ns_{}; ///< monotonic clamp
     bool calibrated_{};
 };
 

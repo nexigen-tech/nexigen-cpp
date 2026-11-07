@@ -20,8 +20,7 @@ namespace nexigen::tracing {
 namespace {
 
 /// Zero-padded decimal append into a char buffer (fixed-width fields).
-void append_padded(char* out, std::size_t& len, std::int64_t value,
-                   std::size_t width) noexcept {
+void append_padded(char* out, std::size_t& len, std::int64_t value, std::size_t width) noexcept {
     char digits[24];
     const auto result = std::to_chars(digits, digits + sizeof(digits), value);
     if (result.ec != std::errc{}) {
@@ -59,10 +58,8 @@ std::string to_string(const JsonFileTraceSinkConfig& config) {
 
 void to_json(nlohmann::json& j, const JsonFileTraceSinkConfig& config) {
     j = nlohmann::json{
-        {"path", config.path},
-        {"app_name", config.app_name},
-        {"rotation", config.rotation},
-        {"max_spans_per_window", config.max_spans_per_window},
+        {"path", config.path},           {"app_name", config.app_name},
+        {"rotation", config.rotation},   {"max_spans_per_window", config.max_spans_per_window},
         {"window_ns", config.window_ns},
     };
 }
@@ -126,8 +123,7 @@ std::string_view JsonFileTraceSink::window_filename(std::int64_t utc_ns) noexcep
 
 core::Status JsonFileTraceSink::write_record_line(const SpanRecord& record,
                                                   std::int64_t utc_ns) noexcept {
-    const std::int64_t end_utc_ns =
-        chrono::utc_from_mono_ns(record.end.nanoseconds(), offset_ns_);
+    const std::int64_t end_utc_ns = chrono::utc_from_mono_ns(record.end.nanoseconds(), offset_ns_);
     char start_stamp[31];
     char end_stamp[31];
     chrono::format_utc_iso8601_ns(utc_ns, start_stamp);
@@ -158,12 +154,11 @@ core::Status JsonFileTraceSink::write_record_line(const SpanRecord& record,
     static_cast<void>(writer.append_escaped(record.name_view()));
     static_cast<void>(writer.append_sv("\",\"file\":\""));
     static_cast<void>(writer.append_escaped(
-        record.file_name != nullptr ? std::string_view(record.file_name)
-                                    : std::string_view{}));
+        record.file_name != nullptr ? std::string_view(record.file_name) : std::string_view{}));
     static_cast<void>(writer.append_sv("\",\"function\":\""));
-    static_cast<void>(writer.append_escaped(
-        record.function_name != nullptr ? std::string_view(record.function_name)
-                                        : std::string_view{}));
+    static_cast<void>(writer.append_escaped(record.function_name != nullptr
+                                                ? std::string_view(record.function_name)
+                                                : std::string_view{}));
     static_cast<void>(writer.append_sv("\",\"line\":"));
     static_cast<void>(writer.append_u64(record.line));
     static_cast<void>(writer.append_sv(",\"column\":"));
@@ -197,9 +192,7 @@ core::Status JsonFileTraceSink::write_record_line(const SpanRecord& record,
                 static_cast<void>(writer.append_escaped(attr.text_view()));
                 static_cast<void>(writer.append_char('"'));
                 break;
-            default:
-                static_cast<void>(writer.append_sv("null"));
-                break;
+            default: static_cast<void>(writer.append_sv("null")); break;
         }
         static_cast<void>(writer.append_char('}'));
     }
@@ -228,7 +221,9 @@ std::string JsonFileTraceSink::to_string() const {
     return out;
 }
 
-std::string to_string(const JsonFileTraceSink& sink) { return sink.to_string(); }
+std::string to_string(const JsonFileTraceSink& sink) {
+    return sink.to_string();
+}
 
 void to_json(nlohmann::json& j, const JsonFileTraceSink& sink) {
     j = nlohmann::json{
@@ -269,12 +264,13 @@ std::string ChromeTraceSink::to_string() const {
            ", open=" + std::string(is_open() ? "true" : "false") + ")";
 }
 
-std::string to_string(const ChromeTraceSink& sink) { return sink.to_string(); }
+std::string to_string(const ChromeTraceSink& sink) {
+    return sink.to_string();
+}
 
 void to_json(nlohmann::json& j, const ChromeTraceSink& sink) {
-    j = nlohmann::json{{"type", "ChromeTraceSink"},
-                       {"open", sink.is_open()},
-                       {"diagnostic", sink.to_string()}};
+    j = nlohmann::json{
+        {"type", "ChromeTraceSink"}, {"open", sink.is_open()}, {"diagnostic", sink.to_string()}};
 }
 
 } // namespace nexigen::tracing

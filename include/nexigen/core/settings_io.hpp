@@ -38,8 +38,7 @@ namespace nexigen::core::settings_io {
 /// per-module loaders carried).
 enum class FileRead : std::uint8_t { Absent, Ok, Failed };
 
-[[nodiscard]] inline FileRead read_text_file(std::string_view path,
-                                             std::string& out) noexcept {
+[[nodiscard]] inline FileRead read_text_file(std::string_view path, std::string& out) noexcept {
     if (path.empty()) {
         return FileRead::Absent;
     }
@@ -48,7 +47,7 @@ enum class FileRead : std::uint8_t { Absent, Ok, Failed };
     if (fd < 0) {
         return errno == ENOENT ? FileRead::Absent : FileRead::Failed;
     }
-    struct stat st {};
+    struct stat st{};
     if (::fstat(fd, &st) != 0 || st.st_size < 0) {
         static_cast<void>(::close(fd));
         return FileRead::Failed;
@@ -72,8 +71,7 @@ enum class FileRead : std::uint8_t { Absent, Ok, Failed };
 }
 
 /// Numeric contract part 1: an unsigned JSON number.
-[[nodiscard]] inline bool unsigned_value(const nlohmann::json& value,
-                                         std::uint64_t& out) noexcept {
+[[nodiscard]] inline bool unsigned_value(const nlohmann::json& value, std::uint64_t& out) noexcept {
     if (!value.is_number_unsigned()) {
         return false;
     }
@@ -82,8 +80,7 @@ enum class FileRead : std::uint8_t { Absent, Ok, Failed };
 }
 
 /// Numeric contract part 2: a full-token decimal digit string.
-[[nodiscard]] inline bool parse_u64(std::string_view text,
-                                    std::uint64_t& out) noexcept {
+[[nodiscard]] inline bool parse_u64(std::string_view text, std::uint64_t& out) noexcept {
     if (text.empty()) {
         return false;
     }
@@ -96,11 +93,9 @@ enum class FileRead : std::uint8_t { Absent, Ok, Failed };
 /// Append one merge-layer finding to a settings diagnostics vector (the
 /// type every loader carries; the logging loader forwards its Settings'
 /// vector here).
-inline void add_diagnostic(std::vector<SettingsDiagnostic>& diagnostics,
-                           SettingsSource source, std::string field,
-                           std::string message) {
-    diagnostics.push_back(
-        SettingsDiagnostic{source, std::move(field), std::move(message)});
+inline void add_diagnostic(std::vector<SettingsDiagnostic>& diagnostics, SettingsSource source,
+                           std::string field, std::string message) {
+    diagnostics.push_back(SettingsDiagnostic{source, std::move(field), std::move(message)});
 }
 
 // --- loader vocabulary (dedup-sink-plumbing): the per-key read helpers the
@@ -110,9 +105,8 @@ inline void add_diagnostic(std::vector<SettingsDiagnostic>& diagnostics,
 // once and leaves the previous target intact.
 
 /// Read a JSON key into a uint64 target when present and within its bound.
-inline void read_uint(const nlohmann::json& document, const char* key,
-                      std::uint64_t max_value, std::uint64_t& target,
-                      std::vector<SettingsDiagnostic>& diagnostics,
+inline void read_uint(const nlohmann::json& document, const char* key, std::uint64_t max_value,
+                      std::uint64_t& target, std::vector<SettingsDiagnostic>& diagnostics,
                       SettingsSource source) {
     const auto it = document.find(key);
     if (it == document.end()) {
@@ -132,10 +126,8 @@ inline void read_uint(const nlohmann::json& document, const char* key,
 }
 
 /// Read an optional string key out of the sink object.
-inline void read_sink_string(const nlohmann::json& sink, const char* key,
-                             std::string& target,
-                             std::vector<SettingsDiagnostic>& diagnostics,
-                             SettingsSource source) {
+inline void read_sink_string(const nlohmann::json& sink, const char* key, std::string& target,
+                             std::vector<SettingsDiagnostic>& diagnostics, SettingsSource source) {
     const auto it = sink.find(key);
     if (it == sink.end()) {
         return;
@@ -152,8 +144,7 @@ inline void read_sink_string(const nlohmann::json& sink, const char* key,
 
 /// Read an optional boolean key out of the sink object.
 inline void read_sink_bool(const nlohmann::json& sink, const char* key, bool& target,
-                           std::vector<SettingsDiagnostic>& diagnostics,
-                           SettingsSource source) {
+                           std::vector<SettingsDiagnostic>& diagnostics, SettingsSource source) {
     const auto it = sink.find(key);
     if (it == sink.end()) {
         return;
@@ -166,10 +157,8 @@ inline void read_sink_bool(const nlohmann::json& sink, const char* key, bool& ta
 }
 
 /// Read an optional unsigned key out of the sink object.
-inline void read_sink_uint(const nlohmann::json& sink, const char* key,
-                           std::uint64_t& target,
-                           std::vector<SettingsDiagnostic>& diagnostics,
-                           SettingsSource source) {
+inline void read_sink_uint(const nlohmann::json& sink, const char* key, std::uint64_t& target,
+                           std::vector<SettingsDiagnostic>& diagnostics, SettingsSource source) {
     const auto it = sink.find(key);
     if (it == sink.end()) {
         return;
@@ -178,16 +167,15 @@ inline void read_sink_uint(const nlohmann::json& sink, const char* key,
     if (unsigned_value(*it, value)) {
         target = value;
     } else {
-        add_diagnostic(diagnostics, source, sink_field(key),
-                       "expected a non-negative integer");
+        add_diagnostic(diagnostics, source, sink_field(key), "expected a non-negative integer");
     }
 }
 
 /// Locate the optional sink object. Returns nullptr when absent or invalid;
 /// an invalid value is reported once and leaves the previous sink intact.
-[[nodiscard]] inline const nlohmann::json* find_sink(
-    const nlohmann::json& document, std::vector<SettingsDiagnostic>& diagnostics,
-    SettingsSource source) {
+[[nodiscard]] inline const nlohmann::json* find_sink(const nlohmann::json& document,
+                                                     std::vector<SettingsDiagnostic>& diagnostics,
+                                                     SettingsSource source) {
     const auto it = document.find("sink");
     if (it == document.end()) {
         return nullptr;

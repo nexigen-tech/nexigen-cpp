@@ -32,33 +32,26 @@ struct SimplePolicy {
     using TraceSink = tracing::ConsoleTraceSink;
     using ChronoSink = chrono::NullChronoSink;
 
-    static core::Status emplace_logger(
-        std::optional<Logger>& out,
-        const logging::Settings&,
-        std::string_view) noexcept {
+    static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
+                                       std::string_view) noexcept {
         out.emplace();
         return out->initialize(logging::ConsoleLoggerConfig{});
     }
 
-    static core::Status emplace_metrics_sink(
-        std::optional<MetricsSink>& out,
-        const metrics::Settings&,
-        std::string_view) noexcept {
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
+                                             const metrics::Settings&, std::string_view) noexcept {
         out.emplace();
         return {};
     }
 
-    static core::Status emplace_trace_sink(
-        std::optional<TraceSink>& out,
-        const tracing::Settings&,
-        std::string_view) noexcept {
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
+                                           std::string_view) noexcept {
         out.emplace(1);
         return {};
     }
 
-    static core::Status emplace_chrono_sink(
-        std::optional<ChronoSink>& out,
-        const chrono::Settings&) noexcept {
+    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+                                            const chrono::Settings&) noexcept {
         out.emplace();
         return {};
     }
@@ -92,8 +85,9 @@ int main() {
     if (!meter.has_value()) {
         return fail("infra->meter failed");
     }
-    const auto ticks = (*meter)->create_counter<metrics::ConcurrencyPolicy::SingleThreaded,
-                                                metrics::AccessPolicy::Readable>("ticks");
+    const auto ticks = (*meter)
+                           ->create_counter<metrics::ConcurrencyPolicy::SingleThreaded,
+                                            metrics::AccessPolicy::Readable>("ticks");
     if (!ticks.has_value()) {
         return fail("create_counter failed");
     }

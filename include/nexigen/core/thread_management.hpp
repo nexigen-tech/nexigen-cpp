@@ -59,8 +59,7 @@ public:
 
     /// Whether `cpu` is a member; ids above 1023 are always absent.
     [[nodiscard]] constexpr bool contains(std::uint32_t cpu) const noexcept {
-        return cpu <= max_cpu_id &&
-               (words_[cpu / 64U] & (1ULL << (cpu % 64U))) != 0ULL;
+        return cpu <= max_cpu_id && (words_[cpu / 64U] & (1ULL << (cpu % 64U))) != 0ULL;
     }
 
     /// Whether no CPU is selected (inherited placement for a `ThreadSpec`).
@@ -97,8 +96,8 @@ public:
 
     /// Allocation-free view conversion. Any duplicate or out-of-range id makes
     /// the whole conversion fail instead of returning a partially built set.
-    [[nodiscard]] static constexpr Result<CpuSet> from_cpus(
-        std::span<const std::uint32_t> cpus) noexcept {
+    [[nodiscard]] static constexpr Result<CpuSet>
+    from_cpus(std::span<const std::uint32_t> cpus) noexcept {
         CpuSet out{};
         for (const std::uint32_t cpu : cpus) {
             const Status added = out.add(static_cast<std::int64_t>(cpu));
@@ -171,11 +170,19 @@ enum class SchedulingPolicy : std::uint8_t { Other, FIFO, RR };
     }
 }
 
-[[nodiscard]] constexpr bool from_string(std::string_view name,
-                                         SchedulingPolicy& out) noexcept {
-    if (name == "other") { out = SchedulingPolicy::Other; return true; }
-    if (name == "fifo")  { out = SchedulingPolicy::FIFO;  return true; }
-    if (name == "rr")    { out = SchedulingPolicy::RR;    return true; }
+[[nodiscard]] constexpr bool from_string(std::string_view name, SchedulingPolicy& out) noexcept {
+    if (name == "other") {
+        out = SchedulingPolicy::Other;
+        return true;
+    }
+    if (name == "fifo") {
+        out = SchedulingPolicy::FIFO;
+        return true;
+    }
+    if (name == "rr") {
+        out = SchedulingPolicy::RR;
+        return true;
+    }
     return false;
 }
 
@@ -190,10 +197,15 @@ enum class ThreadApplyMode : std::uint8_t { BestEffort, Required };
     }
 }
 
-[[nodiscard]] constexpr bool from_string(std::string_view name,
-                                         ThreadApplyMode& out) noexcept {
-    if (name == "best_effort") { out = ThreadApplyMode::BestEffort; return true; }
-    if (name == "required")    { out = ThreadApplyMode::Required;   return true; }
+[[nodiscard]] constexpr bool from_string(std::string_view name, ThreadApplyMode& out) noexcept {
+    if (name == "best_effort") {
+        out = ThreadApplyMode::BestEffort;
+        return true;
+    }
+    if (name == "required") {
+        out = ThreadApplyMode::Required;
+        return true;
+    }
     return false;
 }
 
@@ -222,9 +234,7 @@ public:
     }
 
     /// Requested thread name; empty means inherited name.
-    [[nodiscard]] std::string_view name() const noexcept {
-        return std::string_view(name_.data());
-    }
+    [[nodiscard]] std::string_view name() const noexcept { return std::string_view(name_.data()); }
 
     /// NUL-terminated view for the native naming syscall (storage is inline).
     [[nodiscard]] const char* name_c_str() const noexcept { return name_.data(); }
@@ -279,12 +289,10 @@ public:
     /// Cold-path diagnostic rendering of every attribute, including whether
     /// the scheduler was explicitly configured.
     [[nodiscard]] std::string to_string() const {
-        return "ThreadSpec(name=" + std::string(name()) +
-               ", cpus=" + cpus_.to_string() +
+        return "ThreadSpec(name=" + std::string(name()) + ", cpus=" + cpus_.to_string() +
                ", policy=" + std::string(core::to_string(policy_)) +
                ", priority=" + std::to_string(priority_) +
-               ", mode=" + std::string(core::to_string(mode_)) +
-               ", scheduler_configured=" +
+               ", mode=" + std::string(core::to_string(mode_)) + ", scheduler_configured=" +
                (scheduler_configured_ ? std::string("true") : std::string("false")) + ")";
     }
 
@@ -292,8 +300,8 @@ public:
     friend constexpr bool operator==(const ThreadSpec&, const ThreadSpec&) noexcept = default;
 
 private:
-    [[nodiscard]] static constexpr Status validate_scheduler(
-        SchedulingPolicy policy, std::int32_t priority) noexcept {
+    [[nodiscard]] static constexpr Status validate_scheduler(SchedulingPolicy policy,
+                                                             std::int32_t priority) noexcept {
         if (policy == SchedulingPolicy::Other) {
             return priority == 0 ? Status{} : Status{std::unexpected(ErrorCode::InvalidArgument)};
         }
@@ -305,12 +313,12 @@ private:
         return std::unexpected(ErrorCode::InvalidArgument);
     }
 
-    CpuSet cpus_{};                              // offset 0, 128 bytes
-    std::array<char, 16> name_{};                // offset 128, 15 bytes + NUL
-    std::int32_t priority_{0};                   // offset 144
-    SchedulingPolicy policy_{SchedulingPolicy::Other}; // offset 148
+    CpuSet cpus_{};                                     // offset 0, 128 bytes
+    std::array<char, 16> name_{};                       // offset 128, 15 bytes + NUL
+    std::int32_t priority_{0};                          // offset 144
+    SchedulingPolicy policy_{SchedulingPolicy::Other};  // offset 148
     ThreadApplyMode mode_{ThreadApplyMode::BestEffort}; // offset 149
-    bool scheduler_configured_{false};           // offset 150
+    bool scheduler_configured_{false};                  // offset 150
 };
 
 static_assert(sizeof(ThreadSpec) == 192, "ThreadSpec must keep its fixed cold layout");
@@ -319,8 +327,7 @@ static_assert(alignof(ThreadSpec) == 64, "ThreadSpec layout is cache-line aligne
 /// Cold JSON parser with all-or-nothing semantics. The ADL from_json below and
 /// ThreadSpec's parser share this helper so invalid input never leaves a
 /// partially updated destination.
-[[nodiscard]] inline bool parse_cpu_set_json(const nlohmann::json& j,
-                                             CpuSet& out) noexcept {
+[[nodiscard]] inline bool parse_cpu_set_json(const nlohmann::json& j, CpuSet& out) noexcept {
     if (!j.is_array()) {
         return false;
     }
@@ -452,7 +459,6 @@ inline void to_json(nlohmann::json& j, const ThreadSpec& spec) {
     return true;
 }
 
-
 inline void from_json(const nlohmann::json& j, ThreadSpec& out) noexcept {
     static_cast<void>(parse_thread_spec_json(j, out));
 }
@@ -512,8 +518,7 @@ public:
     /// for the operator-facing attribute names.
     [[nodiscard]] std::string to_string() const {
         return "ThreadApplyReport(requested=" + std::to_string(requested_) +
-               ", applied=" + std::to_string(applied_) +
-               ", failed=" + std::to_string(failed_) +
+               ", applied=" + std::to_string(applied_) + ", failed=" + std::to_string(failed_) +
                ", rollback_failed=" + std::to_string(rollback_failed_) +
                ", first_error=" + std::string(core::to_string(first_error_)) + ")";
     }
@@ -543,10 +548,8 @@ static_assert(alignof(ThreadApplyReport) == 64);
 
 inline void to_json(nlohmann::json& j, const ThreadApplyReport& report) {
     j = nlohmann::json{
-        {"requested", report.requested()},
-        {"applied", report.applied()},
-        {"failed", report.failed()},
-        {"rollback_failed", report.rollback_failed()},
+        {"requested", report.requested()},     {"applied", report.applied()},
+        {"failed", report.failed()},           {"rollback_failed", report.rollback_failed()},
         {"first_error", report.first_error()},
     };
 }
@@ -567,8 +570,7 @@ inline void from_json(const nlohmann::json& j, ThreadApplyReport& out) noexcept 
         destination = static_cast<std::uint32_t>(it->get<std::uint64_t>());
         return true;
     };
-    if (!read_mask("requested", parsed.requested_) ||
-        !read_mask("applied", parsed.applied_) ||
+    if (!read_mask("requested", parsed.requested_) || !read_mask("applied", parsed.applied_) ||
         !read_mask("failed", parsed.failed_) ||
         !read_mask("rollback_failed", parsed.rollback_failed_)) {
         return;
@@ -703,9 +705,8 @@ struct ThreadStateSnapshot {
 #if !defined(__linux__)
     report.failed_ = report.requested_;
     report.first_error_ = ErrorCode::SystemError;
-    return spec.apply_mode() == ThreadApplyMode::Required
-               ? std::unexpected(ErrorCode::SystemError)
-               : Status{};
+    return spec.apply_mode() == ThreadApplyMode::Required ? std::unexpected(ErrorCode::SystemError)
+                                                          : Status{};
 #else
     thread_management_detail::ThreadStateSnapshot snapshot{};
     if (!thread_management_detail::snapshot_current(snapshot)) {

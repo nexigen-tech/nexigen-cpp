@@ -38,7 +38,9 @@ namespace {
 // light/heavy stages are visibly different on a Debug build as well.
 [[nodiscard]] std::uint64_t work_units(int units) noexcept {
     volatile std::uint64_t sink = 0;
-    for (int i = 0; i < units * 600; ++i) { sink += static_cast<std::uint64_t>(i); }
+    for (int i = 0; i < units * 600; ++i) {
+        sink += static_cast<std::uint64_t>(i);
+    }
     return sink;
 }
 
@@ -53,8 +55,7 @@ void expect(bool condition, const char* what) {
 
 } // namespace
 
-int main()
-{
+int main() {
     using nexigen::diagnostics::ScopedStopwatch;
     using nexigen::diagnostics::Stopwatch;
 
@@ -94,7 +95,9 @@ int main()
             static_cast<void>(work_units(units));
             over = guard.has_exceeded_budget(); // mid-scope, delivers nothing
         } // guard reports tick_ns exactly once, here
-        if (over) { ++ticks_over_budget; }
+        if (over) {
+            ++ticks_over_budget;
+        }
         std::printf("  tick %d: %8llu ns  budget %6llu ns  %s\n", tick,
                     static_cast<unsigned long long>(tick_ns),
                     static_cast<unsigned long long>(budget_ns),
@@ -103,8 +106,7 @@ int main()
         expect(over == (tick_ns > budget_ns),
                "the has_exceeded_budget label matches the delivered elapsed");
     }
-    std::printf("  summary: %d of %d ticks over budget\n\n", ticks_over_budget,
-                tick_count);
+    std::printf("  summary: %d of %d ticks over budget\n\n", ticks_over_budget, tick_count);
     expect(ticks_over_budget > 0, "the heavy ticks exceed the budget");
     expect(ticks_over_budget < tick_count, "the light ticks stay within budget");
 
@@ -122,8 +124,7 @@ int main()
         lap_sum += stage_ns;
         std::printf("  stage %d: %8llu ns  (lap_count=%u, last_lap_ns=%llu, "
                     "min=%llu, max=%llu)\n",
-                    stage, static_cast<unsigned long long>(stage_ns),
-                    profile.lap_count(),
+                    stage, static_cast<unsigned long long>(stage_ns), profile.lap_count(),
                     static_cast<unsigned long long>(profile.last_lap_ns()),
                     static_cast<unsigned long long>(profile.min_lap_ns()),
                     static_cast<unsigned long long>(profile.max_lap_ns()));

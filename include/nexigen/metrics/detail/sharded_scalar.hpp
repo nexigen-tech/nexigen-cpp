@@ -20,18 +20,15 @@
 namespace nexigen::metrics::detail {
 
 /// One 64-byte-aligned atomic scalar shard (own cache line, no false sharing).
-template <typename ValueType>
-struct alignas(64) ScalarShard {
+template <typename ValueType> struct alignas(64) ScalarShard {
     std::atomic<ValueType> value{0};
 };
 
 /// Multi-threaded scalar storage selected by the instrument kind. ValueType is
 /// std::uint64_t (counter) or std::int64_t / double (gauge); `add` is the
 /// wait-free recording path, `observe`/`take` are the aggregation paths.
-template <typename ValueType, MetricKind Kind, ResetPolicy Reset>
-class ShardedScalar {
-    static_assert(std::is_trivially_copyable_v<ValueType>,
-                  "scalar values are trivially copyable");
+template <typename ValueType, MetricKind Kind, ResetPolicy Reset> class ShardedScalar {
+    static_assert(std::is_trivially_copyable_v<ValueType>, "scalar values are trivially copyable");
 
 public:
     void add(ValueType delta) noexcept {
@@ -41,8 +38,7 @@ public:
     [[nodiscard]] ValueType observe() const noexcept {
         ValueType total{};
         for (const auto& shard : shards_) {
-            total = static_cast<ValueType>(
-                total + shard.value.load(std::memory_order_relaxed));
+            total = static_cast<ValueType>(total + shard.value.load(std::memory_order_relaxed));
         }
         return total;
     }
@@ -54,8 +50,7 @@ public:
                 total = static_cast<ValueType>(
                     total + shard.value.exchange(ValueType{0}, std::memory_order_relaxed));
             } else {
-                total = static_cast<ValueType>(
-                    total + shard.value.load(std::memory_order_relaxed));
+                total = static_cast<ValueType>(total + shard.value.load(std::memory_order_relaxed));
             }
         }
         return total;

@@ -123,8 +123,12 @@ std::string SpanId::to_string() const {
     return std::string(hex, 16U);
 }
 
-std::string to_string(const TraceId& id) { return id.to_string(); }
-std::string to_string(const SpanId& id) { return id.to_string(); }
+std::string to_string(const TraceId& id) {
+    return id.to_string();
+}
+std::string to_string(const SpanId& id) {
+    return id.to_string();
+}
 
 void to_json(nlohmann::json& j, const TraceId& id) {
     char hex[16];
@@ -163,12 +167,13 @@ void from_json(const nlohmann::json& j, SpanId& out) noexcept {
 // --- SpanContext ------------------------------------------------------------
 
 std::string SpanContext::to_string() const {
-    return "SpanContext(trace_id=" + trace_id.to_string() +
-           ", span_id=" + span_id.to_string() +
+    return "SpanContext(trace_id=" + trace_id.to_string() + ", span_id=" + span_id.to_string() +
            ", sampled=" + std::string(tracing::to_string(sampled)) + ")";
 }
 
-std::string to_string(const SpanContext& context) { return context.to_string(); }
+std::string to_string(const SpanContext& context) {
+    return context.to_string();
+}
 
 void to_json(nlohmann::json& j, const SpanContext& context) {
     j = nlohmann::json{
@@ -207,17 +212,20 @@ std::string SpanAttribute::to_string() const {
         case SpanAttributeType::Uint64: out += std::to_string(value.u64); break;
         case SpanAttributeType::Double: out += std::to_string(value.f64); break;
         case SpanAttributeType::Bool:   out += value.b ? "true" : "false"; break;
-        case SpanAttributeType::String: out += '"';
-                                         out += std::string(text_view());
-                                         out += '"';
-                                         break;
-        default:                        out += "Unknown"; break;
+        case SpanAttributeType::String:
+            out += '"';
+            out += std::string(text_view());
+            out += '"';
+            break;
+        default: out += "Unknown"; break;
     }
     out += ")";
     return out;
 }
 
-std::string to_string(const SpanAttribute& attribute) { return attribute.to_string(); }
+std::string to_string(const SpanAttribute& attribute) {
+    return attribute.to_string();
+}
 
 void to_json(nlohmann::json& j, const SpanAttribute& attribute) {
     nlohmann::json value;
@@ -225,7 +233,7 @@ void to_json(nlohmann::json& j, const SpanAttribute& attribute) {
         case SpanAttributeType::Int64:  value = attribute.value.i64; break;
         case SpanAttributeType::Uint64: value = attribute.value.u64; break;
         case SpanAttributeType::Double: value = attribute.value.f64; break;
-        case SpanAttributeType::Bool:   value = attribute.value.b;   break;
+        case SpanAttributeType::Bool:   value = attribute.value.b; break;
         case SpanAttributeType::String: value = std::string(attribute.text_view()); break;
         default:                        value = nullptr; break;
     }
@@ -269,31 +277,41 @@ void from_json(const nlohmann::json& j, SpanAttribute& out) noexcept {
     switch (parsed_type) {
         case SpanAttributeType::Int64: {
             const auto* const number = value.get_ptr<const nlohmann::json::number_integer_t*>();
-            if (number == nullptr) { return; }
+            if (number == nullptr) {
+                return;
+            }
             static_cast<void>(staged.store(key_view, static_cast<std::int64_t>(*number)));
             break;
         }
         case SpanAttributeType::Uint64: {
             const auto* const number = value.get_ptr<const nlohmann::json::number_unsigned_t*>();
-            if (number == nullptr) { return; }
+            if (number == nullptr) {
+                return;
+            }
             static_cast<void>(staged.store(key_view, static_cast<std::uint64_t>(*number)));
             break;
         }
         case SpanAttributeType::Double: {
             const auto* const number = value.get_ptr<const nlohmann::json::number_float_t*>();
-            if (number == nullptr) { return; }
+            if (number == nullptr) {
+                return;
+            }
             static_cast<void>(staged.store(key_view, static_cast<double>(*number)));
             break;
         }
         case SpanAttributeType::Bool: {
             const auto* const flag = value.get_ptr<const nlohmann::json::boolean_t*>();
-            if (flag == nullptr) { return; }
+            if (flag == nullptr) {
+                return;
+            }
             static_cast<void>(staged.store(key_view, static_cast<bool>(*flag)));
             break;
         }
         case SpanAttributeType::String: {
             const auto* const text = value.get_ptr<const nlohmann::json::string_t*>();
-            if (text == nullptr) { return; }
+            if (text == nullptr) {
+                return;
+            }
             const std::string_view text_view(*text);
             // Inline-representable strings restore exactly; LONGER strings
             // are producer-owned views that deserialization cannot rebind —
@@ -304,8 +322,7 @@ void from_json(const nlohmann::json& j, SpanAttribute& out) noexcept {
             static_cast<void>(staged.store(key_view, text_view));
             break;
         }
-        default:
-            return; // unknown tag: untouched
+        default: return; // unknown tag: untouched
     }
     out = staged;
 }
@@ -339,7 +356,9 @@ std::string SpanRecord::to_string() const {
     return out;
 }
 
-std::string to_string(const SpanRecord& record) { return record.to_string(); }
+std::string to_string(const SpanRecord& record) {
+    return record.to_string();
+}
 
 void to_json(nlohmann::json& j, const SpanRecord& record) {
     nlohmann::json attributes = nlohmann::json::array();
@@ -371,23 +390,32 @@ void from_json(const nlohmann::json& j, SpanRecord& out) noexcept {
         return; // scalar/array/null: the record is unchanged
     }
     const auto trace = j.find("trace_id");
-    if (trace != j.end()) { nlohmann::from_json(*trace, out.trace_id); }
+    if (trace != j.end()) {
+        nlohmann::from_json(*trace, out.trace_id);
+    }
     const auto span = j.find("span_id");
-    if (span != j.end()) { nlohmann::from_json(*span, out.span_id); }
+    if (span != j.end()) {
+        nlohmann::from_json(*span, out.span_id);
+    }
     const auto parent = j.find("parent_span_id");
-    if (parent != j.end()) { nlohmann::from_json(*parent, out.parent_span_id); }
+    if (parent != j.end()) {
+        nlohmann::from_json(*parent, out.parent_span_id);
+    }
     const auto kind = j.find("kind");
-    if (kind != j.end()) { nlohmann::from_json(*kind, out.kind); }
+    if (kind != j.end()) {
+        nlohmann::from_json(*kind, out.kind);
+    }
     const auto status = j.find("status");
-    if (status != j.end()) { nlohmann::from_json(*status, out.status); }
+    if (status != j.end()) {
+        nlohmann::from_json(*status, out.status);
+    }
     const auto flags = j.find("flags");
     if (flags != j.end() && flags->is_number_unsigned()) {
         out.flags = static_cast<std::uint8_t>(flags->get<std::uint64_t>());
     }
     const auto attribute_count = j.find("attribute_count");
     if (attribute_count != j.end() && attribute_count->is_number_unsigned()) {
-        out.attribute_count =
-            static_cast<std::uint8_t>(attribute_count->get<std::uint64_t>());
+        out.attribute_count = static_cast<std::uint8_t>(attribute_count->get<std::uint64_t>());
     }
     const auto thread_id = j.find("thread_id");
     if (thread_id != j.end() && thread_id->is_number_unsigned()) {
@@ -449,7 +477,9 @@ void from_json(const nlohmann::json& j, SpanRecord& out) noexcept {
     if (attributes != j.end() && attributes->is_array()) {
         std::uint8_t count = 0;
         for (const auto& element : *attributes) {
-            if (count >= MaxAttributes) { break; }
+            if (count >= MaxAttributes) {
+                break;
+            }
             SpanAttribute staged{};
             nlohmann::from_json(element, staged);
             // A parsed attribute always carries a key and the correct tag; a
@@ -473,11 +503,13 @@ std::string TracerProviderConfig::to_string() const {
     return std::format("TracerProviderConfig(worker_thread={}, "
                        "max_tracers={}, max_spans_per_window={}, "
                        "window_ns={}, worker_poll_interval_us={})",
-                       worker_thread.to_string(), max_tracers, max_spans_per_window,
-                       window_ns, worker_poll_interval_us);
+                       worker_thread.to_string(), max_tracers, max_spans_per_window, window_ns,
+                       worker_poll_interval_us);
 }
 
-std::string to_string(const TracerProviderConfig& config) { return config.to_string(); }
+std::string to_string(const TracerProviderConfig& config) {
+    return config.to_string();
+}
 
 void to_json(nlohmann::json& j, const TracerProviderConfig& config) {
     j = nlohmann::json{
@@ -515,9 +547,8 @@ void from_json(const nlohmann::json& j, TracerProviderConfig& out) noexcept {
     }
     const auto poll = j.find("worker_poll_interval_us");
     if (poll != j.end() && poll->is_number_unsigned()) {
-        out.worker_poll_interval_us = static_cast<std::uint32_t>(
-            std::min<std::uint64_t>(poll->get<std::uint64_t>(),
-                                    std::numeric_limits<std::uint32_t>::max()));
+        out.worker_poll_interval_us = static_cast<std::uint32_t>(std::min<std::uint64_t>(
+            poll->get<std::uint64_t>(), std::numeric_limits<std::uint32_t>::max()));
     }
 }
 
@@ -528,7 +559,9 @@ std::string DroppedStats::to_string() const {
            ", total=" + std::to_string(total()) + ")";
 }
 
-std::string to_string(const DroppedStats& stats) { return stats.to_string(); }
+std::string to_string(const DroppedStats& stats) {
+    return stats.to_string();
+}
 
 void to_json(nlohmann::json& j, const DroppedStats& stats) {
     j = nlohmann::json{

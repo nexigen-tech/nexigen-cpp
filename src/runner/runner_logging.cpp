@@ -46,8 +46,7 @@ LoggingState& state() {
 }
 
 void warn_stderr(std::string_view message) noexcept {
-    std::fprintf(stderr, "nexigen-run: %.*s\n",
-                 static_cast<int>(message.size()), message.data());
+    std::fprintf(stderr, "nexigen-run: %.*s\n", static_cast<int>(message.size()), message.data());
 }
 
 [[nodiscard]] long online_cpus() noexcept {
@@ -64,8 +63,7 @@ void warn_stderr(std::string_view message) noexcept {
 }
 
 [[nodiscard]] bool has_thread_request(const core::ThreadSpec& spec) noexcept {
-    return !spec.cpus().empty() || !spec.name().empty() ||
-           spec.scheduler_configured() ||
+    return !spec.cpus().empty() || !spec.name().empty() || spec.scheduler_configured() ||
            spec.apply_mode() == core::ThreadApplyMode::Required;
 }
 
@@ -80,14 +78,13 @@ void warn_stderr(std::string_view message) noexcept {
     return true;
 }
 
-[[nodiscard]] core::Result<core::ThreadSpec> resolve_logger_thread(
-    const core::ThreadSpec& requested,
-    const logging::Settings& settings) noexcept {
-    core::ThreadSpec resolved = has_thread_request(requested)
-                                    ? requested
-                                    : (settings.global_loaded
-                                           ? settings.options.worker_thread
-                                           : core::ThreadSpec{});
+[[nodiscard]] core::Result<core::ThreadSpec>
+resolve_logger_thread(const core::ThreadSpec& requested,
+                      const logging::Settings& settings) noexcept {
+    core::ThreadSpec resolved =
+        has_thread_request(requested)
+            ? requested
+            : (settings.global_loaded ? settings.options.worker_thread : core::ThreadSpec{});
     const core::Status valid = resolved.validate();
     if (!valid) {
         if (resolved.apply_mode() == core::ThreadApplyMode::Required) {
@@ -113,8 +110,7 @@ void stop_logger(LoggingState& current) noexcept {
     }
 }
 
-[[nodiscard]] core::Status start_logger(
-    LoggingState& current, std::string_view base_dir) noexcept {
+[[nodiscard]] core::Status start_logger(LoggingState& current, std::string_view base_dir) noexcept {
     const core::Status created = create_artifact_dir(base_dir);
     if (!created) {
         return created;
@@ -131,9 +127,7 @@ void stop_logger(LoggingState& current) noexcept {
     config.worker_thread = current.logger_thread;
     config.rotation.kind = logging::RotationSchedule::None;
     config.max_file_size_bytes =
-        current.settings.global_loaded
-            ? current.settings.options.max_file_size_bytes
-            : 0;
+        current.settings.global_loaded ? current.settings.options.max_file_size_bytes : 0;
     if (current.settings.global_loaded) {
         const auto per_second =
             current.settings.options.spam_protection.max_messages_per_sec_per_shard;
@@ -151,8 +145,7 @@ void stop_logger(LoggingState& current) noexcept {
     for (int attempt = 0; attempt < 100 && !logger->writer_started(); ++attempt) {
         sleep_ms(10);
     }
-    if (!logger->writer_started() ||
-        logger->writer_start_code() != core::ErrorCode::Ok) {
+    if (!logger->writer_started() || logger->writer_start_code() != core::ErrorCode::Ok) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
 
@@ -163,25 +156,20 @@ void stop_logger(LoggingState& current) noexcept {
 
 } // namespace
 
-core::Status load_runner_logging_settings(
-    std::string_view global_settings_path,
-    logging::Settings& out) noexcept {
+core::Status load_runner_logging_settings(std::string_view global_settings_path,
+                                          logging::Settings& out) noexcept {
     out = logging::Settings{};
     if (global_settings_path.empty()) {
         return {};
     }
     core::SettingsPaths paths{};
-    paths.global_file =
-        std::string(global_settings_path) + "/logging.json";
+    paths.global_file = std::string(global_settings_path) + "/logging.json";
     return logging::load_logging_settings(paths, out);
 }
 
-core::Status init_runner_logging(
-    std::string_view primary_dir,
-    const logging::Settings& settings,
-    logging::LogLevel level,
-    const core::ThreadSpec& logger_thread,
-    std::string_view runner_name) noexcept {
+core::Status init_runner_logging(std::string_view primary_dir, const logging::Settings& settings,
+                                 logging::LogLevel level, const core::ThreadSpec& logger_thread,
+                                 std::string_view runner_name) noexcept {
     shutdown_runner_logging();
 
     LoggingState& current = state();
@@ -189,8 +177,7 @@ core::Status init_runner_logging(
     current.level = level;
     current.runner_name =
         runner_name.empty() ? std::string("nexigen-run") : std::string(runner_name);
-    const core::Result<core::ThreadSpec> resolved =
-        resolve_logger_thread(logger_thread, settings);
+    const core::Result<core::ThreadSpec> resolved = resolve_logger_thread(logger_thread, settings);
     if (!resolved) {
         return std::unexpected(resolved.error());
     }
@@ -202,8 +189,7 @@ core::Status init_runner_logging(
         return {};
     }
 
-    warn_stderr("primary log path is unavailable; using " +
-                fallback_directory());
+    warn_stderr("primary log path is unavailable; using " + fallback_directory());
     const std::string fallback = fallback_directory();
     const core::Status secondary = start_logger(current, fallback);
     if (secondary) {
@@ -283,9 +269,8 @@ void shutdown_runner_logging() noexcept {
     current.logger_thread = core::ThreadSpec{};
 }
 
-core::Status apply_runner_thread_spec(
-    const core::ThreadSpec& spec, core::ThreadApplyReport& report,
-    std::string_view context) noexcept {
+core::Status apply_runner_thread_spec(const core::ThreadSpec& spec, core::ThreadApplyReport& report,
+                                      std::string_view context) noexcept {
     static_cast<void>(context);
     report = core::ThreadApplyReport{};
     if (!has_thread_request(spec)) {
@@ -309,8 +294,8 @@ core::Status apply_runner_thread_spec(
     return {};
 }
 
-core::Status apply_runner_thread_spec(
-    const core::ThreadSpec& spec, std::string_view context) noexcept {
+core::Status apply_runner_thread_spec(const core::ThreadSpec& spec,
+                                      std::string_view context) noexcept {
     core::ThreadApplyReport report{};
     return apply_runner_thread_spec(spec, report, context);
 }
@@ -342,8 +327,8 @@ std::string describe_thread_apply_report(const core::ThreadApplyReport& report) 
                        core::to_string(report.first_error()));
 }
 
-core::Status apply_runner_affinity(
-    std::span<const std::uint32_t> cpus, std::string_view context) noexcept {
+core::Status apply_runner_affinity(std::span<const std::uint32_t> cpus,
+                                   std::string_view context) noexcept {
     if (cpus.empty()) {
         return {};
     }
@@ -360,9 +345,8 @@ core::Status reset_runner_affinity() noexcept {
     cpu_set_t mask;
     CPU_ZERO(&mask);
     const long online = online_cpus();
-    const long limit = online < static_cast<long>(CPU_SETSIZE)
-                           ? online
-                           : static_cast<long>(CPU_SETSIZE);
+    const long limit =
+        online < static_cast<long>(CPU_SETSIZE) ? online : static_cast<long>(CPU_SETSIZE);
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsign-conversion"
     for (long cpu = 0; cpu < limit; ++cpu) {

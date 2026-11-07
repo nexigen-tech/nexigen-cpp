@@ -42,8 +42,7 @@ class MeterPasskey;
 namespace detail {
 
 /// Gauge storage selected by the concurrency policy.
-template <typename ValueType, ConcurrencyPolicy Concurrency, ResetPolicy Reset>
-class GaugeStorage;
+template <typename ValueType, ConcurrencyPolicy Concurrency, ResetPolicy Reset> class GaugeStorage;
 
 template <typename ValueType, ResetPolicy Reset>
 class GaugeStorage<ValueType, ConcurrencyPolicy::SingleThreaded, Reset> {
@@ -87,8 +86,7 @@ public:
 /// A current-value instrument. Constructible only through a Meter.
 template <typename ValueType = std::int64_t,
           ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,
-          AccessPolicy Access = AccessPolicy::Readable,
-          ResetPolicy Reset = ResetPolicy::Cumulative>
+          AccessPolicy Access = AccessPolicy::Readable, ResetPolicy Reset = ResetPolicy::Cumulative>
 class Gauge {
     static_assert(std::is_same_v<ValueType, std::int64_t> || std::is_same_v<ValueType, double>,
                   "gauge values are std::int64_t or double");
@@ -112,18 +110,20 @@ public:
     void add(ValueType delta) noexcept { storage_.add(delta); }
 
     /// Move the current value down by a delta.
-    void sub(ValueType delta) noexcept {
-        storage_.add(static_cast<ValueType>(-delta));
-    }
+    void sub(ValueType delta) noexcept { storage_.add(static_cast<ValueType>(-delta)); }
 
     /// Current value (or the window delta for ResetOnRead — which also clears
     /// the window). Available only for Readable instruments.
-    [[nodiscard]] ValueType read() const requires (Access == AccessPolicy::Readable) {
+    [[nodiscard]] ValueType read() const
+        requires(Access == AccessPolicy::Readable)
+    {
         return storage_.take();
     }
 
     /// Full record for this instrument (identity, classification, values).
-    [[nodiscard]] MetricRecord snapshot() const requires (Access == AccessPolicy::Readable) {
+    [[nodiscard]] MetricRecord snapshot() const
+        requires(Access == AccessPolicy::Readable)
+    {
         MetricRecord record = detail::make_record(kind, concurrency, access, reset, identity_);
         const ValueType value = storage_.take();
         if constexpr (std::is_same_v<ValueType, double>) {
@@ -178,20 +178,19 @@ private:
 };
 
 static_assert(sizeof(Gauge<double, ConcurrencyPolicy::MultiThreaded, AccessPolicy::Readable,
-                          ResetPolicy::ResetOnRead>) <= detail::max_gauge_size,
+                           ResetPolicy::ResetOnRead>) <= detail::max_gauge_size,
               "gauge must fit the registry budget");
 static_assert(concepts::Metric<Gauge<std::int64_t, ConcurrencyPolicy::SingleThreaded,
                                      AccessPolicy::Readable, ResetPolicy::Cumulative>>,
               "Gauge must satisfy the Metric concept");
 static_assert(concepts::ReadableMetric<Gauge<double, ConcurrencyPolicy::SingleThreaded,
-                                           AccessPolicy::Readable, ResetPolicy::Cumulative>>,
+                                             AccessPolicy::Readable, ResetPolicy::Cumulative>>,
               "a Readable gauge must satisfy the ReadableMetric concept");
 static_assert(!concepts::ReadableMetric<Gauge<double, ConcurrencyPolicy::SingleThreaded,
-                                                AccessPolicy::WriteOnly,
-                                                ResetPolicy::Cumulative>>,
+                                              AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
               "a WriteOnly gauge must NOT satisfy the ReadableMetric concept");
 static_assert(!detail::HasRead<Gauge<double, ConcurrencyPolicy::SingleThreaded,
-                                      AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
+                                     AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
               "a WriteOnly gauge must not expose read()");
 static_assert(!detail::HasSnapshot<Gauge<double, ConcurrencyPolicy::SingleThreaded,
                                          AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
@@ -200,13 +199,12 @@ static_assert(!detail::HasSnapshot<Gauge<double, ConcurrencyPolicy::SingleThread
 /// Free helper (mandate 9): mirrors the member.
 template <typename ValueType, nexigen::metrics::ConcurrencyPolicy Concurrency,
           nexigen::metrics::AccessPolicy Access, nexigen::metrics::ResetPolicy Reset>
-[[nodiscard]] std::string to_string(
-    const nexigen::metrics::Gauge<ValueType, Concurrency, Access, Reset>& gauge) {
+[[nodiscard]] std::string
+to_string(const nexigen::metrics::Gauge<ValueType, Concurrency, Access, Reset>& gauge) {
     return gauge.to_string();
 }
 
 } // namespace nexigen::metrics
-
 
 /// Gauges format as their diagnostic string (mandate 11).
 template <typename ValueType, nexigen::metrics::ConcurrencyPolicy Concurrency,

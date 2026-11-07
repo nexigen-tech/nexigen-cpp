@@ -124,10 +124,10 @@ namespace detail {
 /// constructor; the sink MUST outlive the provider (documented contract).
 struct SinkBinding {
     void* self{nullptr};
-    core::Status (*start)(void*) noexcept{nullptr};
-    core::Status (*on_span)(void*, const SpanRecord&) noexcept{nullptr};
-    core::Status (*flush)(void*) noexcept{nullptr};
-    void (*stop)(void*) noexcept{nullptr};
+    core::Status (*start)(void*) noexcept {nullptr};
+    core::Status (*on_span)(void*, const SpanRecord&) noexcept {nullptr};
+    core::Status (*flush)(void*) noexcept {nullptr};
+    void (*stop)(void*) noexcept {nullptr};
 };
 
 } // namespace detail
@@ -143,8 +143,7 @@ class alignas(64) TracerProvider {
     // (`this_thread_slot()`/`std::int8_t slot`), so the pool width must fit a
     // signed byte — pinned at compile time instead of silently truncating
     // slots ≥ 128.
-    static_assert(MaxThreads <= 127,
-                  "span-record slot field is int8 (MaxThreads must fit)");
+    static_assert(MaxThreads <= 127, "span-record slot field is int8 (MaxThreads must fit)");
 
 public:
     using Record = SpanRecord;
@@ -167,9 +166,7 @@ public:
                              [](void* self) noexcept -> core::Status {
                                  return static_cast<Sink*>(self)->flush();
                              },
-                             [](void* self) noexcept {
-                                 static_cast<Sink*>(self)->stop();
-                             }}) {}
+                             [](void* self) noexcept { static_cast<Sink*>(self)->stop(); }}) {}
 
     TracerProvider(const TracerProvider&) = delete;
     TracerProvider& operator=(const TracerProvider&) = delete;
@@ -201,8 +198,8 @@ public:
     /// stores; subsequent span starts on every thread act on the new state.
     void set_enabled(bool enabled) noexcept {
         const std::uint8_t current = control_.state.load(std::memory_order_relaxed);
-        const std::uint8_t composed = static_cast<std::uint8_t>(
-            (current & 0xFEU) | (enabled ? 0x1U : 0x0U));
+        const std::uint8_t composed =
+            static_cast<std::uint8_t>((current & 0xFEU) | (enabled ? 0x1U : 0x0U));
         control_.state.store(composed, std::memory_order_relaxed);
     }
     [[nodiscard]] bool is_enabled() const noexcept {
@@ -211,8 +208,7 @@ public:
     void set_sampling(SamplingDecision decision) noexcept {
         const std::uint8_t current = control_.state.load(std::memory_order_relaxed);
         const unsigned sampled = static_cast<unsigned>(decision) << 1U;
-        const std::uint8_t composed =
-            static_cast<std::uint8_t>((current & 0xF9U) | sampled);
+        const std::uint8_t composed = static_cast<std::uint8_t>((current & 0xF9U) | sampled);
         control_.state.store(composed, std::memory_order_relaxed);
     }
     [[nodiscard]] SamplingDecision sampling() const noexcept {
@@ -259,9 +255,7 @@ public:
 
     /// Compile-time capacities.
     [[nodiscard]] static constexpr std::size_t capacity() noexcept { return ShardCapacity; }
-    [[nodiscard]] static constexpr std::size_t max_threads() noexcept {
-        return MaxThreads;
-    }
+    [[nodiscard]] static constexpr std::size_t max_threads() noexcept { return MaxThreads; }
 
     /// Cold-path diagnostic (mandate 9): configuration and live state.
     [[nodiscard]] std::string to_string() const;
@@ -271,8 +265,7 @@ private:
     friend class ScopedSpan<ShardCapacity, MaxThreads>;
 
     /// Hidden common constructor: config + type-erased binding.
-    TracerProvider(const TracerProviderConfig& config,
-                   detail::SinkBinding binding) noexcept;
+    TracerProvider(const TracerProviderConfig& config, detail::SinkBinding binding) noexcept;
 
     // -- hot-path machinery (inline; used by Tracer/ScopedSpan) -----------
 
@@ -296,16 +289,14 @@ private:
     /// INLINE end-of-span path (design D8): end stamp, one SPSC try_push
     /// (full ring → owner-side buffer_full bump, never blocking), TLS stack
     /// truncation. No lock, no allocation, no indirect call.
-    bool finish_span(SpanRecord& record, std::int8_t slot,
-                     std::uint8_t stack_index) noexcept {
+    bool finish_span(SpanRecord& record, std::int8_t slot, std::uint8_t stack_index) noexcept {
         if (slot >= 0) {
             const std::size_t index = static_cast<std::size_t>(slot);
             record.end = stamps_[index].sample();
             if (!pool_.ring(index).try_push(record)) {
                 core::ShardPoolState& state = pool_.state(index);
-                state.buffer_full.store(
-                    state.buffer_full.load(std::memory_order_relaxed) + 1U,
-                    std::memory_order_relaxed);
+                state.buffer_full.store(state.buffer_full.load(std::memory_order_relaxed) + 1U,
+                                        std::memory_order_relaxed);
             }
         }
         detail::active_span_stack().truncate_to(stack_index);
@@ -351,20 +342,18 @@ private:
     /// Runtime control (D9): bit0 enabled, bits 1-2 sampling, rest reserved.
     /// ONE relaxed load per span start; relaxed stores on change.
     struct alignas(64) ControlCell {
-        std::atomic<std::uint8_t> state{
-            static_cast<std::uint8_t>(control_enabled_bit |
-                                      (static_cast<std::uint8_t>(
-                                           SamplingDecision::RecordAndSample)
-                                       << control_sampling_shift))};
+        std::atomic<std::uint8_t> state{static_cast<std::uint8_t>(
+            control_enabled_bit | (static_cast<std::uint8_t>(SamplingDecision::RecordAndSample)
+                                   << control_sampling_shift))};
         std::uint8_t pad_[63]{};
     } control_{};
 
     /// Worker startup snapshot: one-shot release/acquire publication.
     struct alignas(64) StartCell {
-        std::atomic<bool> launched{};       ///< set (release) once the jthread exists
-        std::atomic<bool> started{};        ///< set (release) after the start sequence
-        std::atomic<std::uint8_t> code{};   ///< first start-phase ErrorCode snapshot
-        std::atomic<std::uint64_t> mask{};  ///< post-pin affinity as the worker sees it
+        std::atomic<bool> launched{};            ///< set (release) once the jthread exists
+        std::atomic<bool> started{};             ///< set (release) after the start sequence
+        std::atomic<std::uint8_t> code{};        ///< first start-phase ErrorCode snapshot
+        std::atomic<std::uint64_t> mask{};       ///< post-pin affinity as the worker sees it
         core::ThreadApplyReport thread_report{}; ///< written before started (release)
     } start_{};
 
@@ -400,9 +389,10 @@ private:
         // claim (see get_tracer): provider pointer + name pointer, 16 bytes,
         // 8-aligned — fits the slot's alignment without a separate arena.
     };
-    alignas(64) std::array<std::byte, tracer_pool_capacity *
-                                             (sizeof(TracerSlot) + sizeof(Tracer<ShardCapacity, MaxThreads>))>
-        tracer_storage_{};
+    alignas(64)
+        std::array<std::byte, tracer_pool_capacity *
+                                  (sizeof(TracerSlot) +
+                                   sizeof(Tracer<ShardCapacity, MaxThreads>))> tracer_storage_{};
     std::size_t tracer_limit_{0};
 
     /// Registry lock (control plane only — D12).
@@ -427,8 +417,8 @@ private:
 // instantiates the default parameters). --------------------------------------
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
-TracerProvider<ShardCapacity, MaxThreads>::TracerProvider(
-    const TracerProviderConfig& config, detail::SinkBinding binding) noexcept
+TracerProvider<ShardCapacity, MaxThreads>::TracerProvider(const TracerProviderConfig& config,
+                                                          detail::SinkBinding binding) noexcept
     : config_(config), binding_(binding) {
     policy_.enabled = config.max_spans_per_window != 0ULL && config.window_ns != 0ULL;
     policy_.max_spans_per_window = config.max_spans_per_window;
@@ -519,16 +509,14 @@ TracerProvider<ShardCapacity, MaxThreads>::get_tracer(std::string_view scope_nam
             alignof(Tracer<ShardCapacity, MaxThreads>) +
         sizeof(Tracer<ShardCapacity, MaxThreads>);
     for (std::size_t i = 0; i < tracer_limit_; ++i) {
-        auto* const slot = reinterpret_cast<TracerSlot*>(tracer_storage_.data() +
-                                                          i * slot_stride);
+        auto* const slot = reinterpret_cast<TracerSlot*>(tracer_storage_.data() + i * slot_stride);
         if (slot->occupied && std::string_view(slot->name) == scope_name) {
             return reinterpret_cast<Tracer<ShardCapacity, MaxThreads>*>(
                 reinterpret_cast<std::byte*>(slot) + sizeof(TracerSlot));
         }
     }
     for (std::size_t i = 0; i < tracer_limit_; ++i) {
-        auto* const slot = reinterpret_cast<TracerSlot*>(tracer_storage_.data() +
-                                                          i * slot_stride);
+        auto* const slot = reinterpret_cast<TracerSlot*>(tracer_storage_.data() + i * slot_stride);
         if (!slot->occupied) {
             for (std::size_t c = 0; c < scope_name.size(); ++c) {
                 slot->name[c] = scope_name[c];
@@ -544,8 +532,7 @@ TracerProvider<ShardCapacity, MaxThreads>::get_tracer(std::string_view scope_nam
 }
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
-void TracerProvider<ShardCapacity, MaxThreads>::consume_loop(
-    std::stop_token stop) noexcept {
+void TracerProvider<ShardCapacity, MaxThreads>::consume_loop(std::stop_token stop) noexcept {
     // Start sequence ON the worker (design D10): self-pin first so no
     // scheduling window can run the body off-core; snapshot the resulting
     // mask for third-thread verification; then the sink's cold start. First
@@ -620,8 +607,7 @@ void TracerProvider<ShardCapacity, MaxThreads>::consume_loop(
 }
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
-void TracerProvider<ShardCapacity, MaxThreads>::publish_sync(
-    std::uint64_t sequence) noexcept {
+void TracerProvider<ShardCapacity, MaxThreads>::publish_sync(std::uint64_t sequence) noexcept {
     core::Status sync{};
     if (binding_.flush != nullptr) {
         sync = binding_.flush(binding_.self);
@@ -638,10 +624,9 @@ core::Status TracerProvider<ShardCapacity, MaxThreads>::flush() noexcept {
     if (!start_.launched.load(std::memory_order_acquire)) {
         return std::unexpected(core::ErrorCode::NotInitialized); // not initialized
     }
-    const std::uint64_t sequence =
-        flush_.requested.fetch_add(1U, std::memory_order_release) + 1U;
-    for (std::uint64_t spins = 0;
-         flush_.drained.load(std::memory_order_acquire) < sequence; ++spins) {
+    const std::uint64_t sequence = flush_.requested.fetch_add(1U, std::memory_order_release) + 1U;
+    for (std::uint64_t spins = 0; flush_.drained.load(std::memory_order_acquire) < sequence;
+         ++spins) {
         if (spins >= 50'000) { // worker gone/stuck: escape hatch (~10 s)
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -675,8 +660,7 @@ std::string TracerProvider<ShardCapacity, MaxThreads>::to_string() const {
 /// The configuration and the drop snapshot format as their diagnostic
 /// strings (mandate 11).
 template <>
-struct std::formatter<nexigen::tracing::TracerProviderConfig>
-    : std::formatter<std::string_view> {
+struct std::formatter<nexigen::tracing::TracerProviderConfig> : std::formatter<std::string_view> {
     template <class Ctx>
     auto format(const nexigen::tracing::TracerProviderConfig& config, Ctx& ctx) const {
         const std::string text = config.to_string();
@@ -685,15 +669,13 @@ struct std::formatter<nexigen::tracing::TracerProviderConfig>
 };
 template <>
 struct std::formatter<nexigen::tracing::DroppedStats> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::DroppedStats& stats, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::tracing::DroppedStats& stats, Ctx& ctx) const {
         const std::string text = stats.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }
 };
 template <std::size_t SC, std::size_t MT>
-struct std::formatter<nexigen::tracing::TracerProvider<SC, MT>>
-    : std::formatter<std::string_view> {
+struct std::formatter<nexigen::tracing::TracerProvider<SC, MT>> : std::formatter<std::string_view> {
     template <class Ctx>
     auto format(const nexigen::tracing::TracerProvider<SC, MT>& provider, Ctx& ctx) const {
         const std::string text = provider.to_string();

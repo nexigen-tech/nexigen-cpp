@@ -35,8 +35,7 @@
 namespace nexigen::metrics {
 
 template <ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,
-          AccessPolicy Access = AccessPolicy::Readable,
-          ResetPolicy Reset = ResetPolicy::Cumulative>
+          AccessPolicy Access = AccessPolicy::Readable, ResetPolicy Reset = ResetPolicy::Cumulative>
 class StateGauge;
 
 /// Construction guard: only a Meter may create instruments.
@@ -56,11 +55,9 @@ struct alignas(64) StateShard {
 };
 
 /// State storage selected by the concurrency policy.
-template <ConcurrencyPolicy Concurrency, ResetPolicy Reset>
-class StateStorage;
+template <ConcurrencyPolicy Concurrency, ResetPolicy Reset> class StateStorage;
 
-template <ResetPolicy Reset>
-class StateStorage<ConcurrencyPolicy::SingleThreaded, Reset> {
+template <ResetPolicy Reset> class StateStorage<ConcurrencyPolicy::SingleThreaded, Reset> {
 public:
     bool set(std::string_view value) noexcept {
         if (value.empty() || value.size() > max_state_length) {
@@ -98,8 +95,7 @@ private:
     mutable StateCell cell_{};
 };
 
-template <ResetPolicy Reset>
-class StateStorage<ConcurrencyPolicy::MultiThreaded, Reset> {
+template <ResetPolicy Reset> class StateStorage<ConcurrencyPolicy::MultiThreaded, Reset> {
 public:
     bool set(std::string_view value) noexcept {
         if (value.empty() || value.size() > max_state_length) {
@@ -117,7 +113,9 @@ public:
         return len;
     }
 
-    std::size_t observe(char (&dst)[max_state_length + 1]) const noexcept { return copy_under_seqlock(dst); }
+    std::size_t observe(char (&dst)[max_state_length + 1]) const noexcept {
+        return copy_under_seqlock(dst);
+    }
 
 private:
     std::size_t copy_under_seqlock(char (&dst)[max_state_length + 1]) const noexcept {
@@ -145,8 +143,7 @@ private:
     }
 
     void lock_and_write(std::string_view value) noexcept {
-        while (write_lock_.test_and_set(std::memory_order_acquire)) {
-        }
+        while (write_lock_.test_and_set(std::memory_order_acquire)) {}
         const std::uint64_t s = shard_.seq.load(std::memory_order_relaxed);
         // Announce as a full barrier (xchg on x86): the update below must not
         // become visible before the announcement, or a reader's even-seq check
@@ -161,8 +158,7 @@ private:
     }
 
     void clear_under_lock() const noexcept {
-        while (write_lock_.test_and_set(std::memory_order_acquire)) {
-        }
+        while (write_lock_.test_and_set(std::memory_order_acquire)) {}
         const std::uint64_t s = shard_.seq.load(std::memory_order_relaxed);
         shard_.seq.store(s + 1U, std::memory_order_seq_cst); // odd: announce
         shard_.value[0].store('\0', std::memory_order_relaxed);
@@ -177,8 +173,7 @@ private:
 } // namespace detail
 
 /// A current named state. Constructible only through a Meter.
-template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
-class StateGauge {
+template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset> class StateGauge {
     static_assert(Concurrency == ConcurrencyPolicy::SingleThreaded ||
                       Concurrency == ConcurrencyPolicy::MultiThreaded,
                   "unknown concurrency policy");
@@ -201,7 +196,8 @@ public:
     /// The current state (or the window value for ResetOnRead — which also
     /// clears it). Available only for Readable instruments.
     [[nodiscard]] std::string_view read() const
-        requires (Access == AccessPolicy::Readable) {
+        requires(Access == AccessPolicy::Readable)
+    {
         // The view borrows this thread's own scratch (analysis #19): it is
         // valid until the NEXT read() call on this thread, not for arbitrary
         // lifetimes — copy if the value must outlive an interleaved read.
@@ -212,9 +208,9 @@ public:
 
     /// Full record for this instrument (identity, classification, value).
     [[nodiscard]] MetricRecord snapshot() const
-        requires (Access == AccessPolicy::Readable) {
-        MetricRecord record =
-            detail::make_record(kind, concurrency, access, reset, identity_);
+        requires(Access == AccessPolicy::Readable)
+    {
+        MetricRecord record = detail::make_record(kind, concurrency, access, reset, identity_);
         static_cast<void>(storage_.take(record.state.value));
         return record;
     }
@@ -262,23 +258,21 @@ private:
 static_assert(sizeof(StateGauge<ConcurrencyPolicy::MultiThreaded, AccessPolicy::Readable,
                                 ResetPolicy::ResetOnRead>) <= detail::max_state_size,
               "state gauge must fit the registry budget");
-static_assert(concepts::Metric<StateGauge<ConcurrencyPolicy::SingleThreaded,
-                                          AccessPolicy::Readable, ResetPolicy::Cumulative>>,
+static_assert(concepts::Metric<StateGauge<ConcurrencyPolicy::SingleThreaded, AccessPolicy::Readable,
+                                          ResetPolicy::Cumulative>>,
               "StateGauge must satisfy the Metric concept");
 static_assert(concepts::ReadableMetric<StateGauge<ConcurrencyPolicy::SingleThreaded,
-                                                  AccessPolicy::Readable,
-                                                  ResetPolicy::Cumulative>>,
+                                                  AccessPolicy::Readable, ResetPolicy::Cumulative>>,
               "a Readable state gauge must satisfy the ReadableMetric concept");
-static_assert(!concepts::ReadableMetric<StateGauge<ConcurrencyPolicy::SingleThreaded,
-                                                   AccessPolicy::WriteOnly,
-                                                   ResetPolicy::Cumulative>>,
-              "a WriteOnly state gauge must NOT satisfy the ReadableMetric concept");
+static_assert(
+    !concepts::ReadableMetric<StateGauge<ConcurrencyPolicy::SingleThreaded, AccessPolicy::WriteOnly,
+                                         ResetPolicy::Cumulative>>,
+    "a WriteOnly state gauge must NOT satisfy the ReadableMetric concept");
 static_assert(!detail::HasRead<StateGauge<ConcurrencyPolicy::SingleThreaded,
                                           AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
               "a WriteOnly state gauge must not expose read()");
 static_assert(!detail::HasSnapshot<StateGauge<ConcurrencyPolicy::SingleThreaded,
-                                              AccessPolicy::WriteOnly,
-                                              ResetPolicy::Cumulative>>,
+                                              AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
               "a WriteOnly state gauge must not expose snapshot()");
 
 /// Free helper (mandate 9): mirrors the member.

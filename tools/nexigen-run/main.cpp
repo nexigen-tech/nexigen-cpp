@@ -46,16 +46,14 @@ NEXIGEN_INSTANCE_ID, and NEXIGEN_INSTANCE_DIR are start-time defaults.
 }
 
 [[nodiscard]] std::string derived_instance_dir(const app::RunIdentity& identity,
-                                              std::string_view app_name) {
+                                               std::string_view app_name) {
     if (!identity.instance_dir.empty()) {
         return identity.instance_dir;
     }
-    if (identity.run_dir.empty() || app_name.empty() ||
-        identity.instance_id.empty()) {
+    if (identity.run_dir.empty() || app_name.empty() || identity.instance_id.empty()) {
         return {};
     }
-    return identity.run_dir + "/" + std::string(app_name) + "/" +
-           identity.instance_id;
+    return identity.run_dir + "/" + std::string(app_name) + "/" + identity.instance_id;
 }
 
 struct CliLogTarget {
@@ -77,37 +75,30 @@ struct CliLogTarget {
 [[nodiscard]] CliLogTarget fallback_log_target() {
     CliLogTarget target{};
     const std::string cwd = working_directory();
-    target.primary_dir =
-        (cwd.empty() ? std::string("/tmp") : cwd) + "/.nexigen-run";
+    target.primary_dir = (cwd.empty() ? std::string("/tmp") : cwd) + "/.nexigen-run";
     return target;
 }
 
-[[nodiscard]] CliLogTarget manifest_log_target(
-    const runner::SuiteManifest& manifest) {
+[[nodiscard]] CliLogTarget manifest_log_target(const runner::SuiteManifest& manifest) {
     CliLogTarget target{};
-    target.primary_dir =
-        manifest.artifacts_path + "/" + manifest.suite_id;
+    target.primary_dir = manifest.artifacts_path + "/" + manifest.suite_id;
     target.control_thread = manifest.runner_control_thread;
     target.logger_thread = manifest.runner_logger_thread;
-    const core::Status loaded = runner::load_runner_logging_settings(
-        manifest.global_settings_path, target.settings);
+    const core::Status loaded =
+        runner::load_runner_logging_settings(manifest.global_settings_path, target.settings);
     if (!loaded) {
-        runner::warn_runner(
-            "event=logging_settings_invalid detail=using defaults");
+        runner::warn_runner("event=logging_settings_invalid detail=using defaults");
         target.settings = logging::Settings{};
     }
-    target.level = manifest.log_level.value_or(
-        target.settings.global_loaded
-            ? target.settings.options.initial_log_level
-            : logging::LogLevel::Info);
+    target.level = manifest.log_level.value_or(target.settings.global_loaded
+                                                   ? target.settings.options.initial_log_level
+                                                   : logging::LogLevel::Info);
     return target;
 }
 
-[[nodiscard]] bool suite_dir_log_target(std::string_view suite_dir,
-                                        CliLogTarget& target) {
+[[nodiscard]] bool suite_dir_log_target(std::string_view suite_dir, CliLogTarget& target) {
     const std::string directory(suite_dir);
-    const core::Result<nlohmann::json> document =
-        runner::read_json_file(directory + "/suite.json");
+    const core::Result<nlohmann::json> document = runner::read_json_file(directory + "/suite.json");
     if (!document) {
         return false;
     }
@@ -116,26 +107,22 @@ struct CliLogTarget {
     target.primary_dir = metadata.artifacts_path + "/" + metadata.suite_id;
     target.control_thread = metadata.runner_control_thread;
     target.logger_thread = metadata.runner_logger_thread;
-    const core::Status loaded = runner::load_runner_logging_settings(
-        metadata.global_settings_path, target.settings);
+    const core::Status loaded =
+        runner::load_runner_logging_settings(metadata.global_settings_path, target.settings);
     if (!loaded) {
-        runner::warn_runner(
-            "event=logging_settings_invalid detail=using defaults");
+        runner::warn_runner("event=logging_settings_invalid detail=using defaults");
         target.settings = logging::Settings{};
     }
-    target.level = target.settings.global_loaded
-                       ? target.settings.options.initial_log_level
-                       : logging::LogLevel::Info;
+    target.level = target.settings.global_loaded ? target.settings.options.initial_log_level
+                                                 : logging::LogLevel::Info;
     return true;
 }
 
 [[nodiscard]] core::Status activate_logging(const CliLogTarget& target) {
     const core::Status initialized = runner::init_runner_logging(
-        target.primary_dir, target.settings, target.level,
-        target.logger_thread);
+        target.primary_dir, target.settings, target.level, target.logger_thread);
     if (!initialized) {
-        runner::warn_runner(
-            "event=logging_unavailable detail=runner.jsonl not writable");
+        runner::warn_runner("event=logging_unavailable detail=runner.jsonl not writable");
         if (target.logger_thread.apply_mode() == core::ThreadApplyMode::Required) {
             return initialized;
         }
@@ -145,12 +132,11 @@ struct CliLogTarget {
 
 [[nodiscard]] core::Status apply_control_affinity(const CliLogTarget& target) {
     core::ThreadApplyReport report{};
-    const core::Status applied = runner::apply_runner_thread_spec(
-        target.control_thread, report, "cli-control");
+    const core::Status applied =
+        runner::apply_runner_thread_spec(target.control_thread, report, "cli-control");
     if (!applied) {
-        runner::warn_runner(std::format(
-            "event=thread_spec_warning thread=control detail={}",
-            runner::describe_thread_apply_report(report)));
+        runner::warn_runner(std::format("event=thread_spec_warning thread=control detail={}",
+                                        runner::describe_thread_apply_report(report)));
         if (target.control_thread.apply_mode() == core::ThreadApplyMode::Required) {
             return applied;
         }
@@ -158,20 +144,17 @@ struct CliLogTarget {
     return {};
 }
 
-void log_command(std::string_view command, std::string_view mode,
-                 std::string_view target, std::string_view result,
-                 std::string_view detail = {}) {
+void log_command(std::string_view command, std::string_view mode, std::string_view target,
+                 std::string_view result, std::string_view detail = {}) {
     if (detail.empty()) {
-        runner::log_runner(
-            result == "ok" ? logging::LogLevel::Info : logging::LogLevel::Error,
-            std::format("event=command command={} mode={} target={} result={}",
-                        command, mode, target, result));
+        runner::log_runner(result == "ok" ? logging::LogLevel::Info : logging::LogLevel::Error,
+                           std::format("event=command command={} mode={} target={} result={}",
+                                       command, mode, target, result));
     } else {
-        runner::log_runner(
-            result == "ok" ? logging::LogLevel::Info : logging::LogLevel::Error,
-            std::format("event=command command={} mode={} target={} result={} "
-                        "detail={}",
-                        command, mode, target, result, detail));
+        runner::log_runner(result == "ok" ? logging::LogLevel::Info : logging::LogLevel::Error,
+                           std::format("event=command command={} mode={} target={} result={} "
+                                       "detail={}",
+                                       command, mode, target, result, detail));
     }
 }
 
@@ -187,10 +170,8 @@ void finish_logging() {
 
 /// Failure tail with a core::Status diagnostic and the stderr line's
 /// user-facing phrase (e.g. "start failed"). Returns exit_failure.
-[[nodiscard]] int cli_fail(const char* command, const char* mode,
-                           const std::string& target,
-                           std::string_view diagnostic,
-                           const char* stderr_message) {
+[[nodiscard]] int cli_fail(const char* command, const char* mode, const std::string& target,
+                           std::string_view diagnostic, const char* stderr_message) {
     log_command(command, mode, target, "error", diagnostic);
     finish_logging();
     std::fprintf(stderr, "nexigen-run: %s: %.*s\n", stderr_message,
@@ -200,8 +181,8 @@ void finish_logging() {
 
 /// Success tail for the target-line verbs ("started", "stopped").
 /// Returns 0.
-[[nodiscard]] int cli_ok(const char* command, const char* mode,
-                         const std::string& target, const char* verb) {
+[[nodiscard]] int cli_ok(const char* command, const char* mode, const std::string& target,
+                         const char* verb) {
     log_command(command, mode, target, "ok");
     finish_logging();
     std::fprintf(stdout, "%s: %s\n", verb, target.c_str());
@@ -213,18 +194,15 @@ void finish_logging() {
 /// combination is fine; exit_usage after the matching stderr text
 /// otherwise.
 [[nodiscard]] int suite_target_options_conflict(const std::string& config,
-                                                const std::string& suite_dir,
-                                                bool have_dir) {
+                                                const std::string& suite_dir, bool have_dir) {
     if (!config.empty() && !suite_dir.empty()) {
-        std::fprintf(stderr,
-                     "nexigen-run: --config and --suite-dir are mutually exclusive\n");
+        std::fprintf(stderr, "nexigen-run: --config and --suite-dir are mutually exclusive\n");
         print_usage(stderr);
         return exit_usage;
     }
     if ((!config.empty() || !suite_dir.empty()) && have_dir) {
-        std::fprintf(
-            stderr,
-            "nexigen-run: suite options cannot be combined with an instance directory\n");
+        std::fprintf(stderr,
+                     "nexigen-run: suite options cannot be combined with an instance directory\n");
         print_usage(stderr);
         return exit_usage;
     }
@@ -328,8 +306,7 @@ int cmd_start(int argc, char* argv[]) {
 
     if (!config.empty()) {
         if (!command.empty()) {
-            std::fprintf(stderr,
-                         "nexigen-run: --config cannot be combined with a command\n");
+            std::fprintf(stderr, "nexigen-run: --config cannot be combined with a command\n");
             print_usage(stderr);
             return exit_usage;
         }
@@ -338,25 +315,23 @@ int cmd_start(int argc, char* argv[]) {
         if (!loaded) {
             const CliLogTarget target = fallback_log_target();
             static_cast<void>(activate_logging(target));
-            return cli_fail("start", "suite", config,
-                            std::string(core::to_string(loaded.error())),
+            return cli_fail("start", "suite", config, std::string(core::to_string(loaded.error())),
                             "manifest failed");
         }
         const CliLogTarget log_target = manifest_log_target(manifest);
         if (!apply_control_affinity(log_target)) {
-            return cli_fail("start", "suite", config,
-                            "required control attributes failed", "affinity failed");
+            return cli_fail("start", "suite", config, "required control attributes failed",
+                            "affinity failed");
         }
         std::string target;
         runner::Runner suite_runner;
         const core::Status started = suite_runner.start_suite(manifest, target);
         if (!activate_logging(log_target)) {
-            return cli_fail("start", "suite", target,
-                            "required logger attributes failed", "logger start failed");
+            return cli_fail("start", "suite", target, "required logger attributes failed",
+                            "logger start failed");
         }
         if (!started) {
-            return cli_fail("start", "suite", target,
-                            std::string(core::to_string(started.error())),
+            return cli_fail("start", "suite", target, std::string(core::to_string(started.error())),
                             "suite start failed");
         }
         return cli_ok("start", "suite", target, "started");
@@ -382,8 +357,7 @@ int cmd_start(int argc, char* argv[]) {
     const CliLogTarget log_target = fallback_log_target();
     static_cast<void>(activate_logging(log_target));
     if (!status) {
-        return cli_fail("start", "single", target,
-                        std::string(core::to_string(status.error())),
+        return cli_fail("start", "single", target, std::string(core::to_string(status.error())),
                         "start failed");
     }
     return cli_ok("start", "single", target, "started");
@@ -444,8 +418,7 @@ int cmd_stop(int argc, char* argv[]) {
         ++index;
     }
 
-    const int stop_exclusivity =
-        suite_target_options_conflict(config, suite_dir, have_dir);
+    const int stop_exclusivity = suite_target_options_conflict(config, suite_dir, have_dir);
     if (stop_exclusivity != 0) {
         return stop_exclusivity;
     }
@@ -455,24 +428,19 @@ int cmd_stop(int argc, char* argv[]) {
         CliLogTarget log_target = fallback_log_target();
         if (!config.empty()) {
             runner::SuiteManifest manifest{};
-            const core::Status loaded =
-                runner::load_suite_manifest(config, manifest);
+            const core::Status loaded = runner::load_suite_manifest(config, manifest);
             if (!loaded) {
                 static_cast<void>(activate_logging(log_target));
                 return cli_fail("stop", "suite", config,
-                                std::string(core::to_string(loaded.error())),
-                                "manifest failed");
+                                std::string(core::to_string(loaded.error())), "manifest failed");
             }
             target = runner::suite_dir_path(manifest.run_dir, manifest.suite_id);
             log_target = manifest_log_target(manifest);
         } else if (!suite_dir_log_target(target, log_target)) {
             static_cast<void>(activate_logging(log_target));
-            log_command("stop", "suite", target, "error",
-                        "suite metadata unreadable");
+            log_command("stop", "suite", target, "error", "suite metadata unreadable");
             finish_logging();
-            std::fprintf(stderr,
-                         "nexigen-run: suite metadata unreadable: %s\n",
-                         target.c_str());
+            std::fprintf(stderr, "nexigen-run: suite metadata unreadable: %s\n", target.c_str());
             return exit_failure;
         }
         if (target.empty()) {
@@ -486,8 +454,7 @@ int cmd_stop(int argc, char* argv[]) {
             grace_set ? std::optional<std::uint64_t>(grace_s) : std::nullopt;
         const core::Status status = runner::stop_suite(target, override);
         if (!status) {
-            return cli_fail("stop", "suite", target,
-                            std::string(core::to_string(status.error())),
+            return cli_fail("stop", "suite", target, std::string(core::to_string(status.error())),
                             "suite stop failed");
         }
         return cli_ok("stop", "suite", target, "stopped");
@@ -505,8 +472,7 @@ int cmd_stop(int argc, char* argv[]) {
     const core::Status status = runner.stop(instance_dir, grace_s);
     if (!status) {
         return cli_fail("stop", "single", instance_dir,
-                        std::string(core::to_string(status.error())),
-                        "stop failed");
+                        std::string(core::to_string(status.error())), "stop failed");
     }
     return cli_ok("stop", "single", instance_dir, "stopped");
 }
@@ -559,8 +525,7 @@ int cmd_status(int argc, char* argv[]) {
         have_dir = true;
     }
 
-    const int status_exclusivity =
-        suite_target_options_conflict(config, suite_dir, have_dir);
+    const int status_exclusivity = suite_target_options_conflict(config, suite_dir, have_dir);
     if (status_exclusivity != 0) {
         return status_exclusivity;
     }
@@ -570,19 +535,16 @@ int cmd_status(int argc, char* argv[]) {
         CliLogTarget log_target = fallback_log_target();
         if (!config.empty()) {
             runner::SuiteManifest manifest{};
-            const core::Status loaded =
-                runner::load_suite_manifest(config, manifest);
+            const core::Status loaded = runner::load_suite_manifest(config, manifest);
             if (!loaded) {
                 static_cast<void>(activate_logging(log_target));
                 return cli_fail("status", "suite", config,
-                                std::string(core::to_string(loaded.error())),
-                                "manifest failed");
+                                std::string(core::to_string(loaded.error())), "manifest failed");
             }
             target = runner::suite_dir_path(manifest.run_dir, manifest.suite_id);
             log_target = manifest_log_target(manifest);
         } else if (!suite_dir_log_target(target, log_target)) {
-            runner::warn_runner(
-                "event=suite_metadata_unreadable detail=using fallback log");
+            runner::warn_runner("event=suite_metadata_unreadable detail=using fallback log");
         }
         runner::SuiteStatus status{};
         const core::Status queried = runner::suite_status(target, status);
@@ -590,12 +552,10 @@ int cmd_status(int argc, char* argv[]) {
         static_cast<void>(apply_control_affinity(log_target));
         if (!queried) {
             return cli_fail("status", "suite", target,
-                            std::string(core::to_string(queried.error())),
-                            "suite status failed");
+                            std::string(core::to_string(queried.error())), "suite status failed");
         }
         log_command("status", "suite", target, "ok",
-                    std::string("state=") +
-                        std::string(runner::to_string(status.state)));
+                    std::string("state=") + std::string(runner::to_string(status.state)));
         if (json_output) {
             nlohmann::json document;
             runner::to_json(document, status);
@@ -605,10 +565,10 @@ int cmd_status(int argc, char* argv[]) {
                          std::string(runner::to_string(status.state)).c_str(),
                          status.suite_restarts_used);
             for (const runner::SuiteAppStatus& app : status.apps) {
-                std::fprintf(stdout, "  %s/%s: %s attempt=%u artifact=%s\n",
-                             app.app.c_str(), app.instance.c_str(),
-                             std::string(runner::to_string(app.state)).c_str(),
-                             app.attempt, app.artifact_dir.c_str());
+                std::fprintf(stdout, "  %s/%s: %s attempt=%u artifact=%s\n", app.app.c_str(),
+                             app.instance.c_str(),
+                             std::string(runner::to_string(app.state)).c_str(), app.attempt,
+                             app.artifact_dir.c_str());
             }
         }
         finish_logging();
@@ -628,11 +588,9 @@ int cmd_status(int argc, char* argv[]) {
     const core::Status status = runner.status(instance_dir, state);
     if (!status) {
         return cli_fail("status", "single", instance_dir,
-                        std::string(core::to_string(status.error())),
-                        "status failed");
+                        std::string(core::to_string(status.error())), "status failed");
     }
-    log_command("status", "single", instance_dir, "ok",
-                std::string("state=") + state);
+    log_command("status", "single", instance_dir, "ok", std::string("state=") + state);
     finish_logging();
     std::fprintf(stdout, "%s\n", state.c_str());
     return 0;
@@ -659,8 +617,7 @@ int main(int argc, char* argv[]) {
         print_usage(stdout);
         return 0;
     }
-    std::fprintf(stderr, "nexigen-run: unknown command '%s'\n",
-                 std::string(command).c_str());
+    std::fprintf(stderr, "nexigen-run: unknown command '%s'\n", std::string(command).c_str());
     print_usage(stderr);
     return exit_usage;
 }

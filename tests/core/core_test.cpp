@@ -53,9 +53,11 @@
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::Ok) == "Ok");
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::BufferFull) == "BufferFull");
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::BufferEmpty) == "BufferEmpty");
-static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::InvalidArgument) == "InvalidArgument");
+static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::InvalidArgument) ==
+              "InvalidArgument");
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::SystemError) == "SystemError");
-static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::NotInitialized) == "NotInitialized");
+static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::NotInitialized) ==
+              "NotInitialized");
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::RateLimited) == "RateLimited");
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::Conflict) == "Conflict");
 
@@ -67,7 +69,8 @@ static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::RateLimited) =
 static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::Conflict) == 7);
 
 // Alias identity: Result's default error type IS ErrorCode; Status is the void form.
-static_assert(std::is_same_v<nexigen::core::Result<int>, std::expected<int, nexigen::core::ErrorCode>>);
+static_assert(
+    std::is_same_v<nexigen::core::Result<int>, std::expected<int, nexigen::core::ErrorCode>>);
 static_assert(std::is_same_v<nexigen::core::Status, std::expected<void, nexigen::core::ErrorCode>>);
 
 // --- serialization mandate machinery (change refactor-serialization-
@@ -84,8 +87,14 @@ enum class DemoMode { Idle, Active };
     return v == DemoMode::Idle ? "idle" : "active";
 }
 [[nodiscard]] constexpr bool from_string(std::string_view name, DemoMode& out) noexcept {
-    if (name == "idle")   { out = DemoMode::Idle;   return true; }
-    if (name == "active") { out = DemoMode::Active; return true; }
+    if (name == "idle") {
+        out = DemoMode::Idle;
+        return true;
+    }
+    if (name == "active") {
+        out = DemoMode::Active;
+        return true;
+    }
     return false;
 }
 
@@ -134,36 +143,49 @@ std::size_t g_alloc_used = 0;
 
 } // namespace
 
-[[noreturn]] void arena_exhausted() { std::abort(); }
+[[noreturn]] void arena_exhausted() {
+    std::abort();
+}
 
 void* operator new(std::size_t size) {
     const std::size_t rounded = (size + 15U) & ~static_cast<std::size_t>(15U);
-    if (g_alloc_used + rounded > sizeof(g_arena)) { arena_exhausted(); }
+    if (g_alloc_used + rounded > sizeof(g_arena)) {
+        arena_exhausted();
+    }
     void* p = g_arena + g_alloc_used;
     g_alloc_used += rounded;
     return p;
 }
 
-void* operator new[](std::size_t size) { return ::operator new(size); }
+void* operator new[](std::size_t size) {
+    return ::operator new(size);
+}
 
-void operator delete(void* ptr) noexcept { static_cast<void>(ptr); }
-void operator delete(void* ptr, std::size_t) noexcept { static_cast<void>(ptr); }
-void operator delete[](void* ptr) noexcept { static_cast<void>(ptr); }
-void operator delete[](void* ptr, std::size_t) noexcept { static_cast<void>(ptr); }
+void operator delete(void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete(void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
 
-#define NX_CHECK(condition)                                                                     \
-    do {                                                                                        \
-        ++g_checks;                                                                             \
-        if (!(condition)) {                                                                     \
-            ++g_failures;                                                                       \
-            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition);          \
-        }                                                                                       \
+#define NX_CHECK(condition)                                                                        \
+    do {                                                                                           \
+        ++g_checks;                                                                                \
+        if (!(condition)) {                                                                        \
+            ++g_failures;                                                                          \
+            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition);              \
+        }                                                                                          \
     } while (false)
 
 namespace {
 
-void run_suite(const char* suite_name, void (*body)())
-{
+void run_suite(const char* suite_name, void (*body)()) {
     const int checks_before = g_checks;
     const int failures_before = g_failures;
 
@@ -178,22 +200,29 @@ void run_suite(const char* suite_name, void (*body)())
 // --- result suite (tasks 2.2): ErrorCode / to_string / Result / Status.
 
 // A fallible operation with no payload: success is Status{}.
-[[nodiscard]] Status status_succeeds() noexcept { return {}; }
+[[nodiscard]] Status status_succeeds() noexcept {
+    return {};
+}
 
 [[nodiscard]] Status status_fails_not_initialized() noexcept {
     return std::unexpected(ErrorCode::NotInitialized);
 }
 
 // A fallible operation returning a value; default error type is ErrorCode.
-[[nodiscard]] Result<int> parse_succeeds() noexcept { return 42; }
+[[nodiscard]] Result<int> parse_succeeds() noexcept {
+    return 42;
+}
 
-[[nodiscard]] Result<int> parse_fails() noexcept { return std::unexpected(ErrorCode::BufferEmpty); }
+[[nodiscard]] Result<int> parse_fails() noexcept {
+    return std::unexpected(ErrorCode::BufferEmpty);
+}
 
 void test_result() {
     // Distinctness: all eight codes pairwise different (28 pairs).
     const ErrorCode all_codes[] = {
-        ErrorCode::Ok, ErrorCode::BufferFull, ErrorCode::BufferEmpty,
-        ErrorCode::InvalidArgument, ErrorCode::SystemError, ErrorCode::NotInitialized,
+        ErrorCode::Ok,          ErrorCode::BufferFull,
+        ErrorCode::BufferEmpty, ErrorCode::InvalidArgument,
+        ErrorCode::SystemError, ErrorCode::NotInitialized,
         ErrorCode::RateLimited, ErrorCode::Conflict,
     };
     for (int i = 0; i < 8; ++i) {
@@ -344,7 +373,9 @@ void test_spsc_single_threaded() {
 
     // Fill-then-drain over the whole capacity again (fresh queue, all push, all pop).
     SpscRingBuffer<std::uint64_t, 8> fd{};
-    for (std::uint64_t v = 0; v < 8; ++v) { NX_CHECK(fd.try_push(v + 1000).has_value()); }
+    for (std::uint64_t v = 0; v < 8; ++v) {
+        NX_CHECK(fd.try_push(v + 1000).has_value());
+    }
     NX_CHECK(!fd.try_push(9).has_value()); // full: BufferFull, nothing dropped
     for (std::uint64_t v = 0; v < 8; ++v) {
         std::uint64_t got = 0;
@@ -390,7 +421,9 @@ void test_spsc_stress() {
         while (expected < k_count) {
             std::uint64_t got = 0;
             if (queue.try_pop(got).has_value()) {
-                if (got != expected) { ++r.order_violations; } // increasing, no gaps
+                if (got != expected) {
+                    ++r.order_violations;
+                } // increasing, no gaps
                 r.pop_sum += got;
                 ++expected;
             } else {
@@ -452,7 +485,8 @@ void run_visibility_variant(const bool consumer_first) {
     } r{};
 
     SpscRingBuffer<Payload, 1024> queue{};
-    static_assert(sizeof(queue) >= 64 + 64 + 64 * 1024, "fixture: 1024 x 64 B slots + 2 index lines");
+    static_assert(sizeof(queue) >= 64 + 64 + 64 * 1024,
+                  "fixture: 1024 x 64 B slots + 2 index lines");
 
     const auto produce = [&r, &queue] {
         while (r.sent < k_views) {
@@ -471,7 +505,9 @@ void run_visibility_variant(const bool consumer_first) {
                 Payload want{};
                 fill_payload(want, expected);
                 for (int f = 0; f < 8; ++f) {
-                    if (got.field[f] != want.field[f]) { ++r.field_mismatches; }
+                    if (got.field[f] != want.field[f]) {
+                        ++r.field_mismatches;
+                    }
                 }
                 ++expected;
             }
@@ -498,8 +534,9 @@ void run_visibility_variant(const bool consumer_first) {
 // expected here (the bump arena simply bounds them).
 
 constexpr ErrorCode k_all_codes[] = {
-    ErrorCode::Ok, ErrorCode::BufferFull, ErrorCode::BufferEmpty,
-    ErrorCode::InvalidArgument, ErrorCode::SystemError, ErrorCode::NotInitialized,
+    ErrorCode::Ok,          ErrorCode::BufferFull,
+    ErrorCode::BufferEmpty, ErrorCode::InvalidArgument,
+    ErrorCode::SystemError, ErrorCode::NotInitialized,
     ErrorCode::RateLimited, ErrorCode::Conflict,
 };
 
@@ -562,11 +599,10 @@ void test_error_code_vocabulary() {
     // from_json hostile inputs (spec core/serialization): never terminate,
     // leave the fallback. JSON_NOEXCEPTION would abort on .get<> mistakes —
     // get_ptr is the mandated non-throwing inspection.
-    for (const nlohmann::json& hostile : {nlohmann::json(7),
-                                          nlohmann::json::array(),
-                                          nlohmann::json::object(),
-                                          nlohmann::json(),           // null
-                                          nlohmann::json("Bogus")}) {
+    for (const nlohmann::json& hostile :
+         {nlohmann::json(7), nlohmann::json::array(), nlohmann::json::object(),
+          nlohmann::json(), // null
+          nlohmann::json("Bogus")}) {
         ErrorCode keep = ErrorCode::Ok;
         from_json(hostile, keep);
         NX_CHECK(keep == ErrorCode::Ok);
@@ -584,8 +620,10 @@ void test_error_code_vocabulary() {
 
 void test_settings_vocabulary() {
     const SettingsSource all_sources[] = {
-        SettingsSource::Global, SettingsSource::Local,
-        SettingsSource::Environment, SettingsSource::Computed,
+        SettingsSource::Global,
+        SettingsSource::Local,
+        SettingsSource::Environment,
+        SettingsSource::Computed,
     };
 
     // to_string names each source; from_string recovers it; garbage is "Unknown".
@@ -617,11 +655,9 @@ void test_settings_vocabulary() {
     }
 
     // Hostile enum JSON leaves the fallback unchanged, never aborts.
-    for (const nlohmann::json& hostile : {nlohmann::json(7),
-                                          nlohmann::json::array(),
-                                          nlohmann::json::object(),
-                                          nlohmann::json(),
-                                          nlohmann::json("Bogus")}) {
+    for (const nlohmann::json& hostile :
+         {nlohmann::json(7), nlohmann::json::array(), nlohmann::json::object(), nlohmann::json(),
+          nlohmann::json("Bogus")}) {
         SettingsSource keep = SettingsSource::Environment;
         from_json(hostile, keep);
         NX_CHECK(keep == SettingsSource::Environment);
@@ -712,7 +748,9 @@ void test_ring_to_string() {
     std::jthread consumer([&] {
         while (!done.load(std::memory_order_relaxed)) {
             std::uint64_t out = 0;
-            if (ring.try_pop(out)) { sink += out; }
+            if (ring.try_pop(out)) {
+                sink += out;
+            }
         }
     });
     std::jthread producer([&] {
@@ -785,9 +823,7 @@ void test_shard_pool_tls_cache() {
     // only after an explicit join (happens-before edge).
     const std::int32_t observed = [&] {
         std::int32_t thread_slot = -2;
-        std::jthread claimer([&] {
-            thread_slot = pools.front()->claim_slot();
-        });
+        std::jthread claimer([&] { thread_slot = pools.front()->claim_slot(); });
         claimer.join();
         return thread_slot;
     }();
@@ -825,8 +861,7 @@ struct FanoutConfiguredSink {
 // Unit probe: a test-only consumer mirroring how real composite sinks
 // consume the pack — public inheritance plus public re-exposure of the
 // protected iteration surface (the same widening idiom diagnostics use).
-template <class... Sinks>
-struct FanoutProbe final : nexigen::core::sink_pack::Fanout<Sinks...> {
+template <class... Sinks> struct FanoutProbe final : nexigen::core::sink_pack::Fanout<Sinks...> {
     using nexigen::core::sink_pack::Fanout<Sinks...>::Fanout;
     using nexigen::core::sink_pack::Fanout<Sinks...>::for_each;
 };
@@ -865,11 +900,12 @@ void test_sink_pack() {
     const nexigen::core::Status ok{};
     const nexigen::core::Status failing_x{std::unexpected(nexigen::core::ErrorCode::BufferFull)};
     const nexigen::core::Status failing_y{std::unexpected(nexigen::core::ErrorCode::SystemError)};
-    NX_CHECK(nexigen::core::sink_pack::combine(nexigen::core::sink_pack::combine(ok, failing_x), failing_y)
-                 == failing_x);
+    NX_CHECK(nexigen::core::sink_pack::combine(nexigen::core::sink_pack::combine(ok, failing_x),
+                                               failing_y) == failing_x);
     NX_CHECK(nexigen::core::sink_pack::combine(ok, ok).has_value());
     NX_CHECK(!nexigen::core::sink_pack::combine(failing_x, ok).has_value());
-    NX_CHECK((nexigen::core::sink_pack::combine(failing_x, ok).error() == nexigen::core::ErrorCode::BufferFull));
+    NX_CHECK((nexigen::core::sink_pack::combine(failing_x, ok).error() ==
+              nexigen::core::ErrorCode::BufferFull));
 
     // Member injection: a non-default-constructible, move-only configured
     // sink is moved into the tuple and keeps its state.
@@ -893,16 +929,17 @@ void test_sink_pack() {
     // failed" hits — duplicated type, absent type, index beyond the pack).
     // The script fails the suite if the probe TU ever compiles.
 
-
     // Default-constructibility gate (declaration-level requires-clauses are
     // probeable statically): the pack forbids default construction when any
     // member is non-default-constructible ...
-    static_assert(!std::is_default_constructible_v<nexigen::core::sink_pack::Fanout<FanoutConfiguredSink>>);
+    static_assert(
+        !std::is_default_constructible_v<nexigen::core::sink_pack::Fanout<FanoutConfiguredSink>>);
     // ... and keeps it for all-default-constructible packs (the empty pack
     // included, so the "empty composite satisfies the sink contract" gate
     // keeps holding).
-    static_assert(std::is_default_constructible_v<nexigen::core::sink_pack::Fanout<
-                      FanoutStubAlpha, FanoutStubBeta, FanoutStubGamma>>);
+    static_assert(
+        std::is_default_constructible_v<
+            nexigen::core::sink_pack::Fanout<FanoutStubAlpha, FanoutStubBeta, FanoutStubGamma>>);
     static_assert(std::is_default_constructible_v<nexigen::core::sink_pack::Fanout<>>);
 }
 
@@ -922,8 +959,8 @@ void test_sink_io() {
     // Invalid descriptor: write_all maps the failure to SystemError and
     // never reports success.
     NX_CHECK(!nexigen::core::sink_io::write_all(-1, "x", 1).has_value());
-    NX_CHECK((nexigen::core::sink_io::write_all(-1, "x", 1).error()
-              == nexigen::core::ErrorCode::SystemError));
+    NX_CHECK((nexigen::core::sink_io::write_all(-1, "x", 1).error() ==
+              nexigen::core::ErrorCode::SystemError));
     NX_CHECK(!nexigen::core::sink_io::fsync_fd(-1).has_value());
 
     // Open flag parity. The mode assertion runs under a pinned umask 022
@@ -936,12 +973,11 @@ void test_sink_io() {
     const char* const toggled_path = "/tmp/opencode/nexigen-sink-io-parity.txt";
     ::unlink(toggled_path); // fresh creation: the 0644 mode is applied here
 
-    const int created =
-        nexigen::core::sink_io::open_output(toggled_path, /*append=*/true);
+    const int created = nexigen::core::sink_io::open_output(toggled_path, /*append=*/true);
     NX_CHECK(created >= 0);
     NX_CHECK(nexigen::core::sink_io::write_all(created, "hello\n", 6).has_value());
     {
-        struct stat st {};
+        struct stat st{};
         NX_CHECK(::fstat(created, &st) == 0);
         NX_CHECK((st.st_mode & 07777U) == expected_mode);
         NX_CHECK((::fcntl(created, F_GETFD) & FD_CLOEXEC) != 0);
@@ -949,8 +985,7 @@ void test_sink_io() {
     static_cast<void>(::close(created));
 
     // Truncate policy: pre-existing text replaced entirely.
-    const int truncated =
-        nexigen::core::sink_io::open_output(toggled_path, /*append=*/false);
+    const int truncated = nexigen::core::sink_io::open_output(toggled_path, /*append=*/false);
     NX_CHECK(truncated >= 0);
     NX_CHECK(nexigen::core::sink_io::write_all(truncated, "world\n", 6).has_value());
     static_cast<void>(::close(truncated));
@@ -963,8 +998,7 @@ void test_sink_io() {
     }
 
     // Append policy: pre-existing content preserved, new bytes appended.
-    const int appended =
-        nexigen::core::sink_io::open_output(toggled_path, /*append=*/true);
+    const int appended = nexigen::core::sink_io::open_output(toggled_path, /*append=*/true);
     NX_CHECK(appended >= 0);
     NX_CHECK(nexigen::core::sink_io::write_all(appended, "plus\n", 5).has_value());
     static_cast<void>(::close(appended));
@@ -1023,7 +1057,7 @@ void test_sink_io() {
     NX_CHECK(::sigaction(SIGALRM, &alarm_action, &def_action) == 0);
     struct itimerval stop_timer{};
     struct itimerval alarm_timer{};
-    alarm_timer.it_value.tv_usec = 1000;  // first tick after 1 ms
+    alarm_timer.it_value.tv_usec = 1000;    // first tick after 1 ms
     alarm_timer.it_interval.tv_usec = 1000; // then every 1 ms
     NX_CHECK(::setitimer(ITIMER_REAL, &alarm_timer, nullptr) == 0);
 
@@ -1050,9 +1084,8 @@ void test_sink_io() {
             const ssize_t got = ::read(pipe_fds[0], chunk, sizeof(chunk));
             if (got > 0) {
                 const std::size_t room = blob_size - g_sink_io_received_total;
-                const std::size_t take = static_cast<std::size_t>(got) < room
-                                             ? static_cast<std::size_t>(got)
-                                             : room;
+                const std::size_t take =
+                    static_cast<std::size_t>(got) < room ? static_cast<std::size_t>(got) : room;
                 std::memcpy(g_sink_io_received + g_sink_io_received_total, chunk, take);
                 g_sink_io_received_total += take;
             } else if (got < 0 && errno == EINTR) {
@@ -1132,8 +1165,8 @@ void test_affinity_core() {
 
     // Zero mask: InvalidArgument, thread state untouched.
     NX_CHECK(!nexigen::core::affinity::pin_self(0ULL).has_value());
-    NX_CHECK((nexigen::core::affinity::pin_self(0ULL).error()
-              == nexigen::core::ErrorCode::InvalidArgument));
+    NX_CHECK((nexigen::core::affinity::pin_self(0ULL).error() ==
+              nexigen::core::ErrorCode::InvalidArgument));
     std::uint64_t after_zero = 0;
     NX_CHECK(nexigen::core::affinity::self_affinity(after_zero).has_value());
     NX_CHECK(after_zero == original);
@@ -1154,8 +1187,8 @@ void test_affinity_core() {
     }
     if (online_count < 64ULL) {
         NX_CHECK(!nexigen::core::affinity::pin_self(1ULL << 63).has_value());
-        NX_CHECK((nexigen::core::affinity::pin_self(1ULL << 63).error()
-                  == nexigen::core::ErrorCode::SystemError));
+        NX_CHECK((nexigen::core::affinity::pin_self(1ULL << 63).error() ==
+                  nexigen::core::ErrorCode::SystemError));
         // The failed pin must not have changed the pinned state.
         std::uint64_t still_pinned = 0;
         NX_CHECK(nexigen::core::affinity::self_affinity(still_pinned).has_value());
@@ -1184,16 +1217,14 @@ void test_affinity_core() {
         std::atomic<bool> ok_a{false};
         std::atomic<bool> ok_b{false};
         std::jthread thread_a([&seen_a, &ok_a, core_a] {
-            ok_a.store(
-                nexigen::core::affinity::pin_self(1ULL << core_a).has_value() &&
-                nexigen::core::affinity::self_affinity(seen_a).has_value(),
-                std::memory_order_relaxed);
+            ok_a.store(nexigen::core::affinity::pin_self(1ULL << core_a).has_value() &&
+                           nexigen::core::affinity::self_affinity(seen_a).has_value(),
+                       std::memory_order_relaxed);
         });
         std::jthread thread_b([&seen_b, &ok_b, core_b] {
-            ok_b.store(
-                nexigen::core::affinity::pin_self(1ULL << core_b).has_value() &&
-                nexigen::core::affinity::self_affinity(seen_b).has_value(),
-                std::memory_order_relaxed);
+            ok_b.store(nexigen::core::affinity::pin_self(1ULL << core_b).has_value() &&
+                           nexigen::core::affinity::self_affinity(seen_b).has_value(),
+                       std::memory_order_relaxed);
         });
         thread_a.join();
         thread_b.join();
@@ -1230,8 +1261,7 @@ void test_cpu_set() {
     NX_CHECK(to_string(empty) == empty.to_string());
 
     // Legacy masks convert exactly, including the top representable bit.
-    const CpuSet legacy = CpuSet::from_core_mask((1ULL << 0U) | (1ULL << 3U) |
-                                                 (1ULL << 63U));
+    const CpuSet legacy = CpuSet::from_core_mask((1ULL << 0U) | (1ULL << 3U) | (1ULL << 63U));
     NX_CHECK(legacy.count() == 3U);
     NX_CHECK(legacy.contains(0U) && legacy.contains(3U) && legacy.contains(63U));
     NX_CHECK(!legacy.contains(1U) && !legacy.contains(64U));
@@ -1327,8 +1357,8 @@ void test_thread_spec() {
     spec.set_cpus(cpus);
     NX_CHECK(spec.cpus() == cpus);
 
-    for (const auto policy : {SchedulingPolicy::Other, SchedulingPolicy::FIFO,
-                              SchedulingPolicy::RR}) {
+    for (const auto policy :
+         {SchedulingPolicy::Other, SchedulingPolicy::FIFO, SchedulingPolicy::RR}) {
         SchedulingPolicy recovered = SchedulingPolicy::Other;
         NX_CHECK(from_string(to_string(policy), recovered));
         NX_CHECK(recovered == policy);
@@ -1358,17 +1388,16 @@ void test_thread_serialization() {
     CpuSet cpu_back{};
     from_json(cpu_json, cpu_back);
     NX_CHECK(cpu_back == cpus);
-    for (const nlohmann::json& bad : {
-             nlohmann::json{-1}, nlohmann::json{2, 2}, nlohmann::json{1024},
-             nlohmann::json{"70"}, nlohmann::json{1, nullptr},
-             nlohmann::json::object(), nlohmann::json(4)}) {
+    for (const nlohmann::json& bad :
+         {nlohmann::json{-1}, nlohmann::json{2, 2}, nlohmann::json{1024}, nlohmann::json{"70"},
+          nlohmann::json{1, nullptr}, nlohmann::json::object(), nlohmann::json(4)}) {
         CpuSet unchanged = cpus;
         from_json(bad, unchanged);
         NX_CHECK(unchanged == cpus);
     }
 
-    for (const auto policy : {SchedulingPolicy::Other, SchedulingPolicy::FIFO,
-                              SchedulingPolicy::RR}) {
+    for (const auto policy :
+         {SchedulingPolicy::Other, SchedulingPolicy::FIFO, SchedulingPolicy::RR}) {
         NX_CHECK(std::format("{}", policy) == to_string(policy));
         const nlohmann::json j = policy;
         SchedulingPolicy back = SchedulingPolicy::Other;
@@ -1429,16 +1458,12 @@ void test_thread_serialization() {
     NX_CHECK(other_back.scheduler_configured());
     NX_CHECK(other_back == explicit_other);
 
-    for (const nlohmann::json& bad : {
-             nlohmann::json{{"policy", "deadline"}},
-             nlohmann::json{{"policy", 7}},
-             nlohmann::json{{"policy", "fifo"}, {"priority", 0}},
-             nlohmann::json{{"policy", "rr"}, {"priority", 100}},
-             nlohmann::json{{"priority", -1}},
-             nlohmann::json{{"name", "1234567890123456"}},
-             nlohmann::json{{"mode", "optional"}},
-             nlohmann::json{{"cpus", nlohmann::json{64, 64}}},
-             nlohmann::json(7)}) {
+    for (const nlohmann::json& bad :
+         {nlohmann::json{{"policy", "deadline"}}, nlohmann::json{{"policy", 7}},
+          nlohmann::json{{"policy", "fifo"}, {"priority", 0}},
+          nlohmann::json{{"policy", "rr"}, {"priority", 100}}, nlohmann::json{{"priority", -1}},
+          nlohmann::json{{"name", "1234567890123456"}}, nlohmann::json{{"mode", "optional"}},
+          nlohmann::json{{"cpus", nlohmann::json{64, 64}}}, nlohmann::json(7)}) {
         ThreadSpec unchanged = spec;
         from_json(bad, unchanged);
         NX_CHECK(unchanged == spec);
@@ -1505,12 +1530,12 @@ void test_thread_apply_failure_modes() {
         char after_name[16]{};
         std::jthread worker([&] {
             static_cast<void>(nexigen::core::affinity::self_affinity(before_mask));
-            static_cast<void>(::pthread_getname_np(::pthread_self(), before_name,
-                                                   sizeof(before_name)));
+            static_cast<void>(
+                ::pthread_getname_np(::pthread_self(), before_name, sizeof(before_name)));
             ok = apply_thread_spec_self(spec, report).has_value();
             static_cast<void>(nexigen::core::affinity::self_affinity(after_mask));
-            static_cast<void>(::pthread_getname_np(::pthread_self(), after_name,
-                                                   sizeof(after_name)));
+            static_cast<void>(
+                ::pthread_getname_np(::pthread_self(), after_name, sizeof(after_name)));
         });
         worker.join();
         NX_CHECK(!ok);
@@ -1545,8 +1570,8 @@ void test_thread_apply_failure_modes() {
         std::jthread worker([&] {
             ok = apply_thread_spec_self(spec, report).has_value();
             static_cast<void>(nexigen::core::affinity::self_affinity(after_mask));
-            static_cast<void>(::pthread_getname_np(::pthread_self(), after_name,
-                                                   sizeof(after_name)));
+            static_cast<void>(
+                ::pthread_getname_np(::pthread_self(), after_name, sizeof(after_name)));
         });
         worker.join();
         NX_CHECK(ok);
@@ -1564,10 +1589,9 @@ void test_thread_apply_failure_modes() {
     {
         ThreadSpec spec = make_spec();
         reset_thread_faults();
-        g_thread_fault_mask =
-            (1U << static_cast<std::uint32_t>(FaultPoint::Thread_set_name)) |
-            (1U << static_cast<std::uint32_t>(FaultPoint::Thread_set_affinity)) |
-            (1U << static_cast<std::uint32_t>(FaultPoint::Thread_set_scheduler));
+        g_thread_fault_mask = (1U << static_cast<std::uint32_t>(FaultPoint::Thread_set_name)) |
+                              (1U << static_cast<std::uint32_t>(FaultPoint::Thread_set_affinity)) |
+                              (1U << static_cast<std::uint32_t>(FaultPoint::Thread_set_scheduler));
         ThreadApplyReport report{};
         NX_CHECK(apply_thread_spec_self(spec, report).has_value());
         NX_CHECK(report.failed() == report.requested());
@@ -1652,8 +1676,7 @@ void test_thread_apply() {
         // First "work" after application: every requested attribute is already
         // visible on this same thread, with no parent-side pinning window.
         first_work_saw_attributes =
-            ::pthread_getname_np(::pthread_self(), observed_name,
-                                 sizeof(observed_name)) == 0 &&
+            ::pthread_getname_np(::pthread_self(), observed_name, sizeof(observed_name)) == 0 &&
             nexigen::core::affinity::self_affinity(observed_mask).has_value();
         observed_policy = ::sched_getscheduler(0);
     });
@@ -1673,9 +1696,11 @@ void test_thread_apply() {
 
 void test_thread_report_and_publication() {
     ThreadApplyReport partial{};
-    const nlohmann::json input{
-        {"requested", 7U}, {"applied", 3U}, {"failed", 4U},
-        {"rollback_failed", 0U}, {"first_error", "SystemError"}};
+    const nlohmann::json input{{"requested", 7U},
+                               {"applied", 3U},
+                               {"failed", 4U},
+                               {"rollback_failed", 0U},
+                               {"first_error", "SystemError"}};
     from_json(input, partial);
     NX_CHECK(partial.requested() == 7U && partial.applied() == 3U);
     NX_CHECK(partial.failed() == 4U && partial.rollback_failed() == 0U);
@@ -1691,12 +1716,10 @@ void test_thread_report_and_publication() {
     ThreadApplyReport recovered{};
     from_json(output, recovered);
     NX_CHECK(recovered == partial);
-    for (const nlohmann::json& bad : {
-             nlohmann::json{{"applied", -1}},
-             nlohmann::json{{"failed", "4"}},
-             nlohmann::json{{"first_error", "Missing"}},
-             nlohmann::json{{"first_error", 4}},
-             nlohmann::json(9)}) {
+    for (const nlohmann::json& bad :
+         {nlohmann::json{{"applied", -1}}, nlohmann::json{{"failed", "4"}},
+          nlohmann::json{{"first_error", "Missing"}}, nlohmann::json{{"first_error", 4}},
+          nlohmann::json(9)}) {
         ThreadApplyReport unchanged = partial;
         from_json(bad, unchanged);
         NX_CHECK(unchanged == partial);
@@ -1754,8 +1777,8 @@ void test_rt_integration_opt_in() {
             static_cast<void>(nexigen::core::affinity::self_affinity(observed_mask));
             observed_policy = ::sched_getscheduler(0);
             static_cast<void>(::sched_getparam(0, &observed_param));
-            static_cast<void>(::pthread_getname_np(::pthread_self(), observed_name,
-                                                   sizeof(observed_name)));
+            static_cast<void>(
+                ::pthread_getname_np(::pthread_self(), observed_name, sizeof(observed_name)));
         });
         worker.join();
         NX_CHECK(applied); // requires CAP_SYS_NICE only when explicitly enabled
@@ -1769,8 +1792,7 @@ void test_rt_integration_opt_in() {
 
 } // namespace
 
-int main()
-{
+int main() {
     run_suite("result", test_result);
     run_suite("json_smoke", test_json_smoke);
     run_suite("ec_vocab", test_error_code_vocabulary);

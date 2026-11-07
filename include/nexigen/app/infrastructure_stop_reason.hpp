@@ -29,16 +29,28 @@ enum class InfrastructureStopReason : std::uint8_t {
         case InfrastructureStopReason::Requested: return "requested";
         case InfrastructureStopReason::Sigint:    return "sigint";
         case InfrastructureStopReason::Sigterm:   return "sigterm";
-        default:                                    return "Unknown";
+        default:                                  return "Unknown";
     }
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name,
                                          InfrastructureStopReason& out) noexcept {
-    if (name == "none")      { out = InfrastructureStopReason::None; return true; }
-    if (name == "requested") { out = InfrastructureStopReason::Requested; return true; }
-    if (name == "sigint")    { out = InfrastructureStopReason::Sigint; return true; }
-    if (name == "sigterm")   { out = InfrastructureStopReason::Sigterm; return true; }
+    if (name == "none") {
+        out = InfrastructureStopReason::None;
+        return true;
+    }
+    if (name == "requested") {
+        out = InfrastructureStopReason::Requested;
+        return true;
+    }
+    if (name == "sigint") {
+        out = InfrastructureStopReason::Sigint;
+        return true;
+    }
+    if (name == "sigterm") {
+        out = InfrastructureStopReason::Sigterm;
+        return true;
+    }
     return false;
 }
 
@@ -54,5 +66,3 @@ inline void from_json(const nlohmann::json& j, InfrastructureStopReason& out) no
 }
 
 } // namespace nexigen::app
-
-

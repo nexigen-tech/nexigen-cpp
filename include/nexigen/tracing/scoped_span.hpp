@@ -37,14 +37,11 @@ namespace nexigen::tracing {
 
 class SpanPasskey; // defined in tracer.hpp; the by-ref parameter below keeps
                    // this header self-contained (no include cycle)
-template <std::size_t ShardCapacity, std::size_t MaxThreads>
-class TracerProvider;
-template <std::size_t ShardCapacity, std::size_t MaxThreads>
-class Tracer;
+template <std::size_t ShardCapacity, std::size_t MaxThreads> class TracerProvider;
+template <std::size_t ShardCapacity, std::size_t MaxThreads> class Tracer;
 
 /// The RAII span guard. Constructed only by Tracer::start_span.
-template <std::size_t ShardCapacity, std::size_t MaxThreads>
-class ScopedSpan {
+template <std::size_t ShardCapacity, std::size_t MaxThreads> class ScopedSpan {
 public:
     ScopedSpan(const ScopedSpan&) = delete;
     ScopedSpan& operator=(const ScopedSpan&) = delete;
@@ -159,8 +156,8 @@ private:
                const TraceId& trace_id, const SpanId& span_id, const SpanId& parent_span_id,
                SpanKind kind, const chrono::Timestamp& start, std::uint32_t thread_id,
                std::string_view name, const std::source_location& location) noexcept
-        : owner_(owner), slot_(slot), stack_index_(stack_index), ended_(false),
-          sampled_(sampled), error_(core::ErrorCode::Ok) {
+        : owner_(owner), slot_(slot), stack_index_(stack_index), ended_(false), sampled_(sampled),
+          error_(core::ErrorCode::Ok) {
         record_.trace_id = trace_id;
         record_.span_id = span_id;
         record_.parent_span_id = parent_span_id;
@@ -199,13 +196,13 @@ private:
         return true;
     }
 
-    SpanRecord record_{};                              ///< the inline payload
+    SpanRecord record_{};                                ///< the inline payload
     TracerProvider<ShardCapacity, MaxThreads>* owner_{}; ///< null = inactive
-    std::int8_t slot_{};                               ///< shard index
-    std::uint8_t stack_index_{};                       ///< frame index / sentinel
-    bool ended_{};                                     ///< exactly-once guard
-    SamplingDecision sampled_{SamplingDecision::Drop}; ///< decision at start
-    core::ErrorCode error_{core::ErrorCode::Ok};       ///< start failure class
+    std::int8_t slot_{};                                 ///< shard index
+    std::uint8_t stack_index_{};                         ///< frame index / sentinel
+    bool ended_{};                                       ///< exactly-once guard
+    SamplingDecision sampled_{SamplingDecision::Drop};   ///< decision at start
+    core::ErrorCode error_{core::ErrorCode::Ok};         ///< start failure class
 };
 
 /// Free helpers (mandate 9): mirror the members.
@@ -230,8 +227,7 @@ void to_json(nlohmann::json& j, const ScopedSpan<SC, MT>& span) {
 
 /// Guards format as their diagnostic text (mandate 11).
 template <std::size_t SC, std::size_t MT>
-struct std::formatter<nexigen::tracing::ScopedSpan<SC, MT>>
-    : std::formatter<std::string_view> {
+struct std::formatter<nexigen::tracing::ScopedSpan<SC, MT>> : std::formatter<std::string_view> {
     template <class Ctx>
     auto format(const nexigen::tracing::ScopedSpan<SC, MT>& span, Ctx& ctx) const {
         const std::string text = span.to_string();

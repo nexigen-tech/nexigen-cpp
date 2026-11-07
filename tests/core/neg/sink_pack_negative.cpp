@@ -13,18 +13,24 @@
 
 #include <nexigen/core/sink_pack.hpp>
 
-struct DupA { std::size_t visit{}; };
-struct Ala { std::size_t visit{}; };
-struct Bet { std::size_t visit{}; };
+struct DupA {
+    std::size_t visit{};
+};
+struct Ala {
+    std::size_t visit{};
+};
+struct Bet {
+    std::size_t visit{};
+};
 
 using DupPack = nexigen::core::sink_pack::Fanout<DupA, DupA>;
 using Triple = nexigen::core::sink_pack::Fanout<DupA, Ala, Bet>;
 
 int main() {
-    DupPack dup{ DupA{}, DupA{} };
-    static_cast<void>(dup.get<DupA>());            // duplicated type
-    Triple triple{ DupA{}, Ala{}, Bet{} };
-    static_cast<void>(triple.get<int>());          // absent type
-    static_cast<void>(triple.template get<3U>());  // index beyond pack
+    DupPack dup{DupA{}, DupA{}};
+    static_cast<void>(dup.get<DupA>()); // duplicated type
+    Triple triple{DupA{}, Ala{}, Bet{}};
+    static_cast<void>(triple.get<int>());         // absent type
+    static_cast<void>(triple.template get<3U>()); // index beyond pack
     return 0;
 }

@@ -20,11 +20,11 @@ namespace nexigen::chrono {
 /// Broken-down UTC time.
 struct CivilTime {
     std::int64_t year{};
-    std::uint8_t month{};     ///< 1..12
-    std::uint8_t day{};       ///< 1..31
-    std::uint8_t hour{};      ///< 0..23
-    std::uint8_t minute{};    ///< 0..59
-    std::uint8_t second{};    ///< 0..59
+    std::uint8_t month{};       ///< 1..12
+    std::uint8_t day{};         ///< 1..31
+    std::uint8_t hour{};        ///< 0..23
+    std::uint8_t minute{};      ///< 0..59
+    std::uint8_t second{};      ///< 0..59
     std::uint32_t nanosecond{}; ///< 0..999'999'999
 
     /// Cold-path diagnostic (mandate 9): ISO-like "YYYY-MM-DD HH:MM:SS.nnnnnnnnn
@@ -40,7 +40,8 @@ struct CivilTime {
         };
         // Year may be negative for pre-1970 instants; std::to_string handles sign,
         // pad only the digit run (width 4 minimum magnitude).
-        const std::string year_s = year < 0 ? std::to_string(year) : pad(static_cast<std::uint64_t>(year), 4U);
+        const std::string year_s =
+            year < 0 ? std::to_string(year) : pad(static_cast<std::uint64_t>(year), 4U);
         std::string out = year_s + '-' + pad(month, 2U) + '-' + pad(day, 2U);
         out += ' ' + pad(hour, 2U) + ':' + pad(minute, 2U) + ':' + pad(second, 2U);
         out += '.' + pad(nanosecond, 9U) + " UTC";
@@ -49,7 +50,9 @@ struct CivilTime {
 };
 
 /// Free helper (mandate 9): mirrors CivilTime::to_string for generic call sites.
-[[nodiscard]] inline std::string to_string(const CivilTime& ct) { return ct.to_string(); }
+[[nodiscard]] inline std::string to_string(const CivilTime& ct) {
+    return ct.to_string();
+}
 
 /// Days since 1970-01-01 (floor division: negative utc_ns maps correctly).
 [[nodiscard]] std::int64_t days_from_utc_ns(std::int64_t utc_ns) noexcept;

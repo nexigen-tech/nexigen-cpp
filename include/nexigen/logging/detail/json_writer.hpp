@@ -43,8 +43,7 @@ inline constexpr std::size_t json_scratch_capacity = 4096;
 [[nodiscard]] std::size_t format_json_line(std::int64_t utc_ns, LogLevel level,
                                            std::string_view app, std::uint32_t thread_id,
                                            std::string_view file_name, std::uint32_t line,
-                                           std::string_view function_name,
-                                           std::string_view message,
+                                           std::string_view function_name, std::string_view message,
                                            char (&scratch)[json_scratch_capacity]) noexcept;
 
 } // namespace nexigen::logging::detail

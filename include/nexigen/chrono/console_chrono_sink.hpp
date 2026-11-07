@@ -110,7 +110,9 @@ private:
 };
 
 /// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const ConsoleChronoSink& sink) { return sink.to_string(); }
+[[nodiscard]] inline std::string to_string(const ConsoleChronoSink& sink) {
+    return sink.to_string();
+}
 
 /// Diagnostic JSON (cold path): the sink round-trips its descriptor.
 inline void to_json(nlohmann::json& j, const ConsoleChronoSink& sink) {

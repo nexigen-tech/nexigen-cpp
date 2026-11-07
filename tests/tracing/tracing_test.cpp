@@ -89,8 +89,8 @@
 #endif
 #endif
 
-using namespace nexigen::core;    // test TU: exercise core unqualified
-namespace core = nexigen::core;   // and explicit core:: qualification
+using namespace nexigen::core;  // test TU: exercise core unqualified
+namespace core = nexigen::core; // and explicit core:: qualification
 namespace chrono = nexigen::chrono;
 namespace tracing = nexigen::tracing;
 
@@ -126,8 +126,7 @@ static_assert(tracing::to_string(tracing::SpanStatus::Unset) == "Unset");
 static_assert(tracing::to_string(tracing::SpanStatus::Ok) == "Ok");
 static_assert(tracing::to_string(tracing::SpanStatus::Error) == "Error");
 static_assert(tracing::to_string(tracing::SamplingDecision::Drop) == "Drop");
-static_assert(tracing::to_string(tracing::SamplingDecision::RecordAndSample) ==
-              "RecordAndSample");
+static_assert(tracing::to_string(tracing::SamplingDecision::RecordAndSample) == "RecordAndSample");
 // Garbage casts render "Unknown" from static storage (never throw/allocate).
 static_assert(tracing::to_string(static_cast<tracing::SpanKind>(200)) == "Unknown");
 static_assert(tracing::to_string(static_cast<tracing::SpanStatus>(77)) == "Unknown");
@@ -135,9 +134,13 @@ static_assert(tracing::to_string(static_cast<tracing::SamplingDecision>(9)) == "
 // constexpr from_string round-trips and rejections.
 constexpr bool kind_rt = [] {
     tracing::SpanKind k = tracing::SpanKind::Internal;
-    if (!tracing::from_string("Client", k) || k != tracing::SpanKind::Client) { return false; }
+    if (!tracing::from_string("Client", k) || k != tracing::SpanKind::Client) {
+        return false;
+    }
     tracing::SpanKind untouched = tracing::SpanKind::Producer;
-    if (tracing::from_string("client", untouched)) { return false; }
+    if (tracing::from_string("client", untouched)) {
+        return false;
+    }
     return untouched == tracing::SpanKind::Producer; // unchanged on failure
 }();
 static_assert(kind_rt);
@@ -165,35 +168,48 @@ std::atomic<std::size_t> g_alloc_used{0};
 
 } // namespace
 
-[[noreturn]] void arena_exhausted() { std::abort(); }
+[[noreturn]] void arena_exhausted() {
+    std::abort();
+}
 
 void* operator new(std::size_t size) {
     const std::size_t rounded = (size + 15U) & ~static_cast<std::size_t>(15U);
     const std::size_t offset = g_alloc_used.fetch_add(rounded, std::memory_order_relaxed);
-    if (offset + rounded > sizeof(g_arena)) { arena_exhausted(); }
+    if (offset + rounded > sizeof(g_arena)) {
+        arena_exhausted();
+    }
     return g_arena + offset;
 }
 
-void* operator new[](std::size_t size) { return ::operator new(size); }
+void* operator new[](std::size_t size) {
+    return ::operator new(size);
+}
 
-void operator delete(void* ptr) noexcept { static_cast<void>(ptr); }
-void operator delete(void* ptr, std::size_t) noexcept { static_cast<void>(ptr); }
-void operator delete[](void* ptr) noexcept { static_cast<void>(ptr); }
-void operator delete[](void* ptr, std::size_t) noexcept { static_cast<void>(ptr); }
+void operator delete(void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete(void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
 
-#define NX_CHECK(condition)                                                                     \
-    do {                                                                                        \
-        ++g_checks;                                                                             \
-        if (!(condition)) {                                                                     \
-            ++g_failures;                                                                       \
-            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition);          \
-        }                                                                                       \
+#define NX_CHECK(condition)                                                                        \
+    do {                                                                                           \
+        ++g_checks;                                                                                \
+        if (!(condition)) {                                                                        \
+            ++g_failures;                                                                          \
+            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition);              \
+        }                                                                                          \
     } while (false)
 
 namespace {
 
-void run_suite(const char* suite_name, void (*body)())
-{
+void run_suite(const char* suite_name, void (*body)()) {
     const int checks_before = g_checks;
     const int failures_before = g_failures;
 
@@ -239,27 +255,29 @@ void test_span_enums() {
     using tracing::SamplingDecision;
 
     // Every enumerator renders its exact spelling and parses back.
-    for (const auto& [value, name] : std::array<std::pair<SpanKind, std::string_view>, 5>{{
-             {SpanKind::Internal, "Internal"}, {SpanKind::Server, "Server"},
-             {SpanKind::Client, "Client"}, {SpanKind::Producer, "Producer"},
-             {SpanKind::Consumer, "Consumer"}}}) {
+    for (const auto& [value, name] :
+         std::array<std::pair<SpanKind, std::string_view>, 5>{{{SpanKind::Internal, "Internal"},
+                                                               {SpanKind::Server, "Server"},
+                                                               {SpanKind::Client, "Client"},
+                                                               {SpanKind::Producer, "Producer"},
+                                                               {SpanKind::Consumer, "Consumer"}}}) {
         NX_CHECK(tracing::to_string(value) == name);
         SpanKind parsed = SpanKind::Internal;
         NX_CHECK(tracing::from_string(name, parsed));
         NX_CHECK(parsed == value);
     }
-    for (const auto& [value, name] : std::array<std::pair<SpanStatus, std::string_view>, 3>{{
-             {SpanStatus::Unset, "Unset"}, {SpanStatus::Ok, "Ok"},
-             {SpanStatus::Error, "Error"}}}) {
+    for (const auto& [value, name] :
+         std::array<std::pair<SpanStatus, std::string_view>, 3>{{{SpanStatus::Unset, "Unset"},
+                                                                 {SpanStatus::Ok, "Ok"},
+                                                                 {SpanStatus::Error, "Error"}}}) {
         NX_CHECK(tracing::to_string(value) == name);
         SpanStatus parsed = SpanStatus::Unset;
         NX_CHECK(tracing::from_string(name, parsed));
         NX_CHECK(parsed == value);
     }
-    for (const auto& [value, name] :
-         std::array<std::pair<SamplingDecision, std::string_view>, 2>{{
-             {SamplingDecision::Drop, "Drop"},
-             {SamplingDecision::RecordAndSample, "RecordAndSample"}}}) {
+    for (const auto& [value, name] : std::array<std::pair<SamplingDecision, std::string_view>, 2>{
+             {{SamplingDecision::Drop, "Drop"},
+              {SamplingDecision::RecordAndSample, "RecordAndSample"}}}) {
         NX_CHECK(tracing::to_string(value) == name);
         SamplingDecision parsed = SamplingDecision::Drop;
         NX_CHECK(tracing::from_string(name, parsed));
@@ -307,9 +325,8 @@ void test_span_enums() {
     // pre-initialized value — returns normally, value still Unset.
     {
         const std::array<nlohmann::json, 6> hostile{
-            nlohmann::json(42), nlohmann::json(-1),
-            nlohmann::json{{"a", "b"}}, nlohmann::json{1, 2, 3},
-            nlohmann::json(nullptr), nlohmann::json("NotAnEnum")};
+            nlohmann::json(42),      nlohmann::json(-1),      nlohmann::json{{"a", "b"}},
+            nlohmann::json{1, 2, 3}, nlohmann::json(nullptr), nlohmann::json("NotAnEnum")};
         for (const nlohmann::json& bad : hostile) {
             SpanStatus out = SpanStatus::Unset;
             nlohmann::from_json(bad, out);
@@ -452,9 +469,9 @@ void test_ids_and_context() {
         NX_CHECK(parsed_span == span);
 
         // Hostile JSON: numbers/objects/arrays/null/wrong text leave values.
-        const std::array<nlohmann::json, 5> bad{
-            nlohmann::json(3), nlohmann::json{{"x", "y"}}, nlohmann::json{1},
-            nlohmann::json(nullptr), nlohmann::json("nothex!!")};
+        const std::array<nlohmann::json, 5> bad{nlohmann::json(3), nlohmann::json{{"x", "y"}},
+                                                nlohmann::json{1}, nlohmann::json(nullptr),
+                                                nlohmann::json("nothex!!")};
         for (const nlohmann::json& hostile : bad) {
             TraceId out = trace;
             nlohmann::from_json(hostile, out);
@@ -546,8 +563,8 @@ void test_attributes() {
         char source[] = "mutable-buffer";
         SpanAttribute attr{};
         NX_CHECK(attr.store("k", std::string_view(source)));
-        NX_CHECK(attr.text_inline); // inline arm (the 23-byte bound fits)
-        source[0] = 'X';            // clobber the caller's buffer
+        NX_CHECK(attr.text_inline);                     // inline arm (the 23-byte bound fits)
+        source[0] = 'X';                                // clobber the caller's buffer
         NX_CHECK(attr.text_view() == "mutable-buffer"); // record holds its copy
     }
 
@@ -560,7 +577,7 @@ void test_attributes() {
         static_assert(long_text.size() > tracing::attribute_inline_text_capacity);
         SpanAttribute attr{};
         NX_CHECK(attr.store("long", long_text));
-        NX_CHECK(!attr.text_inline);           // view arm, no bytes copied
+        NX_CHECK(!attr.text_inline); // view arm, no bytes copied
         NX_CHECK(attr.text_view() == long_text);
         NX_CHECK(attr.text_view().data() == long_text.data()); // zero-copy
     }
@@ -584,10 +601,10 @@ void test_attributes() {
         static_assert(tracing::MaxAttributes == 4);
         SpanAttribute attr{};
         static_cast<void>(attr.store("ok", 1));
-        const SpanAttribute before = attr; // trivially copyable snapshot
+        const SpanAttribute before = attr;            // trivially copyable snapshot
         NX_CHECK(!attr.store("0123456789abcdef", 2)); // 16 chars: rejected
         NX_CHECK(std::memcmp(&attr, &before, sizeof(SpanAttribute)) == 0);
-        NX_CHECK(attr.key_view() == "ok"); // untouched
+        NX_CHECK(attr.key_view() == "ok");          // untouched
         NX_CHECK(attr.store("0123456789abcde", 2)); // 15 chars: accepted
         NX_CHECK(attr.key_view() == "0123456789abcde");
     }
@@ -644,15 +661,13 @@ void test_attributes() {
             nlohmann::from_json(round[0], parsed);
             NX_CHECK(parsed.type == SpanAttributeType::Int64 && parsed.value.i64 == 7);
             nlohmann::from_json(round[1], parsed);
-            NX_CHECK(parsed.type == SpanAttributeType::Uint64 &&
-                     parsed.value.u64 == (1ULL << 63));
+            NX_CHECK(parsed.type == SpanAttributeType::Uint64 && parsed.value.u64 == (1ULL << 63));
             nlohmann::from_json(round[2], parsed);
             NX_CHECK(parsed.type == SpanAttributeType::Double && parsed.value.f64 == 2.5);
             nlohmann::from_json(round[3], parsed);
             NX_CHECK(parsed.type == SpanAttributeType::Bool && !parsed.value.b);
             nlohmann::from_json(round[4], parsed);
-            NX_CHECK(parsed.type == SpanAttributeType::String &&
-                     parsed.text_view() == "text");
+            NX_CHECK(parsed.type == SpanAttributeType::String && parsed.text_view() == "text");
         }
 
         // Hostile attribute JSON: scalars/arrays/null/wrong-typed values.
@@ -664,8 +679,7 @@ void test_attributes() {
             nlohmann::json{{"key", "k"}, {"type", "Int64"}, {"value", "not-a-number"}}};
         for (const nlohmann::json& bad : hostile) {
             nlohmann::from_json(bad, hostile_target);
-            NX_CHECK(std::memcmp(&hostile_target, &hostile_before,
-                                 sizeof(SpanAttribute)) == 0);
+            NX_CHECK(std::memcmp(&hostile_target, &hostile_before, sizeof(SpanAttribute)) == 0);
         }
     }
 }
@@ -796,8 +810,7 @@ void test_span_record() {
                  back.attributes[0].value.i64 == 3);
         NX_CHECK(back.attributes[1].type == SpanAttributeType::Double &&
                  back.attributes[1].value.f64 == 0.5);
-        NX_CHECK(back.attributes[2].type == SpanAttributeType::Bool &&
-                 back.attributes[2].value.b);
+        NX_CHECK(back.attributes[2].type == SpanAttributeType::Bool && back.attributes[2].value.b);
         NX_CHECK(back.attributes[3].type == SpanAttributeType::String &&
                  back.attributes[3].text_view() == "hil");
         NX_CHECK(back.line == 77 && back.column == 13);
@@ -812,8 +825,7 @@ void test_span_record() {
         const SpanRecord before = record;
         const std::array<nlohmann::json, 4> hostile{
             nlohmann::json(5), nlohmann::json{1, 2}, nlohmann::json(nullptr),
-            nlohmann::json{{"trace_id", 12}, {"kind", 7}, {"name", false},
-                           {"start_ns", "text"}}};
+            nlohmann::json{{"trace_id", 12}, {"kind", 7}, {"name", false}, {"start_ns", "text"}}};
         for (const nlohmann::json& bad : hostile) {
             nlohmann::from_json(bad, record);
             NX_CHECK(std::memcmp(&record, &before, sizeof(SpanRecord)) == 0);
@@ -886,16 +898,14 @@ void test_parent_stack() {
     {
         stack.clear();
         for (std::uint8_t i = 0; i < max_span_depth; ++i) {
-            const ActiveFrame frame{tracing::TraceId{0x99},
-                                     tracing::SpanId{0x100U + i}};
+            const ActiveFrame frame{tracing::TraceId{0x99}, tracing::SpanId{0x100U + i}};
             NX_CHECK(stack.push(frame) == i);
         }
         NX_CHECK(stack.depth() == max_span_depth);
         const ActiveFrame overflow{tracing::TraceId{0xAA}, tracing::SpanId{0xBB}};
         NX_CHECK(stack.push(overflow) == max_span_depth); // sentinel
         NX_CHECK(stack.depth() == max_span_depth);        // nothing stored
-        NX_CHECK(stack.top() != nullptr &&
-                 stack.top()->span_id == tracing::SpanId{0x100U + 15U});
+        NX_CHECK(stack.top() != nullptr && stack.top()->span_id == tracing::SpanId{0x100U + 15U});
         // Bounded-root truncation is a structural no-op (sentinel index).
         stack.truncate_to(max_span_depth);
         NX_CHECK(stack.depth() == max_span_depth);
@@ -911,8 +921,7 @@ void test_parent_stack() {
     {
         stack.clear();
         static_cast<void>(stack.push(root));
-        const tracing::SpanContext explicit_parent{tracing::TraceId{0xEE},
-                                                   tracing::SpanId{0xEF},
+        const tracing::SpanContext explicit_parent{tracing::TraceId{0xEE}, tracing::SpanId{0xEF},
                                                    tracing::SamplingDecision::RecordAndSample};
         // The explicit-parent child's own frame carries the INHERITED trace
         // id and the child's own span id.
@@ -948,8 +957,7 @@ void test_parent_stack() {
                 return;
             }
             std::uint64_t observed = 0ULL;
-            if (!tracing::detail::self_affinity(observed).has_value() ||
-                observed != probe_mask) {
+            if (!tracing::detail::self_affinity(observed).has_value() || observed != probe_mask) {
                 affinity_failures.fetch_add(1, std::memory_order_relaxed);
             }
         });
@@ -1191,17 +1199,16 @@ void test_concepts() {
             const auto t1 = std::chrono::steady_clock::now();
             null_loop();
             const auto t2 = std::chrono::steady_clock::now();
-            empty_ms[pass] = std::chrono::duration<double, std::nano>(t1 - t0).count() /
-                             static_cast<double>(n);
-            null_ms[pass] = std::chrono::duration<double, std::nano>(t2 - t1).count() /
-                            static_cast<double>(n);
+            empty_ms[pass] =
+                std::chrono::duration<double, std::nano>(t1 - t0).count() / static_cast<double>(n);
+            null_ms[pass] =
+                std::chrono::duration<double, std::nano>(t2 - t1).count() / static_cast<double>(n);
         }
         std::sort(empty_ms.begin(), empty_ms.end());
         std::sort(null_ms.begin(), null_ms.end());
         const double baseline = empty_ms[empty_ms.size() / 2U];
         const double null_cost = null_ms[null_ms.size() / 2U];
-        std::printf("null tracer: baseline %.3f ns/op, null %.3f ns/op\n", baseline,
-                    null_cost);
+        std::printf("null tracer: baseline %.3f ns/op, null %.3f ns/op\n", baseline, null_cost);
         // Indistinguishable from baseline: within 1 ns (noise budget).
         NX_CHECK(null_cost - baseline <= 1.0);
 #else
@@ -1291,9 +1298,9 @@ constexpr const char* sink_tmp_dir = "/tmp/opencode/nexigen-tracing-tests";
     record.function_name = "void run_step()";
     record.line = 77;
     record.column = 13;
-    const std::size_t take =
-        name.size() <= tracing::SpanRecord::name_capacity ? name.size()
-                                                          : tracing::SpanRecord::name_capacity;
+    const std::size_t take = name.size() <= tracing::SpanRecord::name_capacity
+                                 ? name.size()
+                                 : tracing::SpanRecord::name_capacity;
     for (std::size_t i = 0; i < take; ++i) {
         record.name[i] = name[i];
     }
@@ -1399,9 +1406,7 @@ struct RecordingSink {
 
     /// Read-back AFTER a flush barrier or provider destruction (the release
     /// edge of the handshake/join orders these plain writes).
-    [[nodiscard]] const tracing::SpanRecord* view() const noexcept {
-        return g_sink_records + base;
-    }
+    [[nodiscard]] const tracing::SpanRecord* view() const noexcept { return g_sink_records + base; }
     void reset() noexcept {
         g_sink_record_next = base; // release the slice for the next user
         count = 0;
@@ -1412,9 +1417,7 @@ struct RecordingSink {
 struct FailingFlushSink {
     core::Status start() noexcept { return {}; }
     core::Status on_span(const tracing::SpanRecord&) noexcept { return {}; }
-    core::Status flush() noexcept {
-        return std::unexpected(core::ErrorCode::SystemError);
-    }
+    core::Status flush() noexcept { return std::unexpected(core::ErrorCode::SystemError); }
     void stop() noexcept {}
     std::string to_string() const { return "FailingFlushSink"; }
 };
@@ -1438,8 +1441,7 @@ void test_sinks() {
         char pipe_buffer[2048];
         std::size_t total = 0;
         while (total == 0U) {
-            const ssize_t got = ::read(fds[0], pipe_buffer + total,
-                                       sizeof(pipe_buffer) - total);
+            const ssize_t got = ::read(fds[0], pipe_buffer + total, sizeof(pipe_buffer) - total);
             if (got <= 0) {
                 break;
             }
@@ -1471,8 +1473,7 @@ void test_sinks() {
             const int devnull = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
             NX_CHECK(devnull >= 0);
             tracing::ConsoleTraceSink loop_sink{devnull};
-            const tracing::SpanRecord record =
-                crafted_record(2'000'000'000ULL, "alloc-free");
+            const tracing::SpanRecord record = crafted_record(2'000'000'000ULL, "alloc-free");
             for (int i = 0; i < 500; ++i) {
                 static_cast<void>(loop_sink.on_span(record));
             }
@@ -1488,8 +1489,8 @@ void test_sinks() {
             NX_CHECK(stale >= 0);
             static_cast<void>(::close(stale));
             tracing::ConsoleTraceSink dead_sink{stale};
-            const core::Status failed = dead_sink.on_span(
-                crafted_record(3'000'000'000ULL, "doomed"));
+            const core::Status failed =
+                dead_sink.on_span(crafted_record(3'000'000'000ULL, "doomed"));
             NX_CHECK(!failed.has_value());
             NX_CHECK(failed.error() == core::ErrorCode::SystemError);
             NX_CHECK(!dead_sink.on_span(crafted_record(3'000'000'000ULL, "again"))
@@ -1574,14 +1575,14 @@ void test_sinks() {
         const std::string start_iso = parsed.at("start").get<std::string>();
         const std::string end_iso = parsed.at("end").get<std::string>();
         const auto iso_shape = [](std::string_view s) {
-            return s.size() == 30U && s[4] == '-' && s[7] == '-' && s[10] == 'T' &&
-                   s[13] == ':' && s[16] == ':' && s[19] == '.' && s[29] == 'Z';
+            return s.size() == 30U && s[4] == '-' && s[7] == '-' && s[10] == 'T' && s[13] == ':' &&
+                   s[16] == ':' && s[19] == '.' && s[29] == 'Z';
         };
         NX_CHECK(iso_shape(start_iso));
         NX_CHECK(iso_shape(end_iso));
         // The ISO text embeds the crafted civil hour.
         const std::string hour_text =
-            std::to_string(now_civil.year) + "-"; // build YYYY-MM-DDTHH prefix
+            std::to_string(now_civil.year) + "-";     // build YYYY-MM-DDTHH prefix
         NX_CHECK(start_iso.rfind(hour_text, 0) == 0); // begins with the year
         // Typed attributes round-trip.
         const nlohmann::json& attrs = parsed.at("attributes");
@@ -1606,8 +1607,7 @@ void test_sinks() {
         tracing::JsonFileTraceSink sink{config};
         NX_CHECK(sink.start().has_value());
 
-        tracing::SpanRecord big =
-            crafted_record(mono_for_utc(hour_mid_utc(0)), "overflow-span");
+        tracing::SpanRecord big = crafted_record(mono_for_utc(hour_mid_utc(0)), "overflow-span");
         // A 9 KiB string-view attribute cannot fit the 8 KiB scratch no
         // matter the escaping (zero-copy string views are representable):
         // the writer's ok() turns false.
@@ -1616,14 +1616,11 @@ void test_sinks() {
             byte = 'x'; // un-escaped bulk: pure length, no escaping inflation
         }
         static_cast<void>(big.attributes[0].store(
-            "payload",
-            std::string_view(huge_payload, sizeof huge_payload)));
+            "payload", std::string_view(huge_payload, sizeof huge_payload)));
         big.attribute_count = 1;
         const core::Status overflow = sink.on_span(big);
-        NX_CHECK(!overflow.has_value() &&
-                 overflow.error() == core::ErrorCode::BufferFull);
-        NX_CHECK(sink.to_string().find("discarded_lines=1") !=
-                 std::string::npos);
+        NX_CHECK(!overflow.has_value() && overflow.error() == core::ErrorCode::BufferFull);
+        NX_CHECK(sink.to_string().find("discarded_lines=1") != std::string::npos);
         NX_CHECK(sink.flush().has_value()); // no I/O failure hides the discard
 
         // Nothing partial was written: the file stays empty (or absent).
@@ -1639,18 +1636,15 @@ void test_sinks() {
         config.path = path;
         tracing::JsonFileTraceSink sink{config};
         NX_CHECK(sink.start().has_value());
-        tracing::SpanRecord record =
-            crafted_record(mono_for_utc(hour_mid_utc(0)), "esc\"ap\\e\nx");
-        static_cast<void>(record.attributes[3].store("ctl",
-                                                     std::string_view("tab\tend\"q\\")));
+        tracing::SpanRecord record = crafted_record(mono_for_utc(hour_mid_utc(0)), "esc\"ap\\e\nx");
+        static_cast<void>(record.attributes[3].store("ctl", std::string_view("tab\tend\"q\\")));
         NX_CHECK(sink.on_span(record).has_value());
         sink.stop();
         const std::string content = read_file(path.c_str());
         const nlohmann::json parsed = nlohmann::json::parse(content);
         // The escaped name and attribute text round-trip exactly.
         NX_CHECK(parsed.at("name").get<std::string>() == "esc\"ap\\e\nx");
-        NX_CHECK(parsed.at("attributes")[3].at("value").get<std::string>() ==
-                 "tab\tend\"q\\");
+        NX_CHECK(parsed.at("attributes")[3].at("value").get<std::string>() == "tab\tend\"q\\");
     }
 
     // ---- JsonFileTraceSink: rotation filenames per policy (task 7.2) ----
@@ -1667,17 +1661,15 @@ void test_sinks() {
             tracing::JsonFileTraceSink sink{config};
             NX_CHECK(sink.start().has_value());
             // Span A: 30 min into the current hour/day.
-            NX_CHECK(sink.on_span(
-                          crafted_record(mono_for_utc(hour_mid_utc(0)), "window-a"))
-                          .has_value());
+            NX_CHECK(sink.on_span(crafted_record(mono_for_utc(hour_mid_utc(0)), "window-a"))
+                         .has_value());
             // Span B: one period later (next hour / next day).
             const std::int64_t period_ns = policy == tracing::RotationPolicy::Hourly
                                                ? 3'600'000'000'000LL
                                                : 86'400'000'000'000LL;
-            NX_CHECK(sink.on_span(
-                          crafted_record(mono_for_utc(hour_mid_utc(0) + period_ns),
-                                         "window-b"))
-                          .has_value());
+            NX_CHECK(
+                sink.on_span(crafted_record(mono_for_utc(hour_mid_utc(0) + period_ns), "window-b"))
+                    .has_value());
             sink.stop();
 
             // Expected labels from the CIVIL time of each crafted window
@@ -1691,16 +1683,14 @@ void test_sinks() {
                     }
                     return s;
                 };
-                std::string label = pad(civil.year, 4) + pad(civil.month, 2) +
-                                    pad(civil.day, 2);
+                std::string label = pad(civil.year, 4) + pad(civil.month, 2) + pad(civil.day, 2);
                 if (policy == tracing::RotationPolicy::Hourly) {
                     label += "T" + pad(civil.hour, 2);
                 }
                 return label;
             };
             const std::string file_a = prefix + "." + label_of(hour_mid_utc(0));
-            const std::string file_b =
-                prefix + "." + label_of(hour_mid_utc(0) + period_ns);
+            const std::string file_b = prefix + "." + label_of(hour_mid_utc(0) + period_ns);
             NX_CHECK(file_a != file_b);
             const std::string content_a = read_file(file_a.c_str());
             const std::string content_b = read_file(file_b.c_str());
@@ -1720,12 +1710,10 @@ void test_sinks() {
         none_config.rotation = tracing::RotationPolicy::None;
         tracing::JsonFileTraceSink none_sink{none_config};
         NX_CHECK(none_sink.start().has_value());
-        NX_CHECK(none_sink.on_span(
-                      crafted_record(mono_for_utc(hour_mid_utc(0)), "s-one"))
-                      .has_value());
-        NX_CHECK(none_sink.on_span(
-                      crafted_record(mono_for_utc(hour_mid_utc(48)), "s-two"))
-                      .has_value());
+        NX_CHECK(
+            none_sink.on_span(crafted_record(mono_for_utc(hour_mid_utc(0)), "s-one")).has_value());
+        NX_CHECK(
+            none_sink.on_span(crafted_record(mono_for_utc(hour_mid_utc(48)), "s-two")).has_value());
         none_sink.stop();
         const std::string single_content = read_file(single.c_str());
         NX_CHECK(single_content.find("s-one") != std::string::npos);
@@ -1752,8 +1740,7 @@ void test_sinks() {
         NX_CHECK(sink.on_span(crafted_record(w0 + 3'000, "over-2")).has_value());
         // A record past the window boundary: the summary line lands BEFORE
         // this record's line.
-        NX_CHECK(sink.on_span(crafted_record(w0 + 61'000'000'000ULL, "next-window"))
-                      .has_value());
+        NX_CHECK(sink.on_span(crafted_record(w0 + 61'000'000'000ULL, "next-window")).has_value());
         sink.stop();
 
         const std::string content = read_file(path.c_str());
@@ -1786,9 +1773,9 @@ void test_sinks() {
         tracing::JsonFileTraceSink all_sink{all_config};
         NX_CHECK(all_sink.start().has_value());
         for (int i = 0; i < 10; ++i) {
-            NX_CHECK(all_sink.on_span(crafted_record(w0 + static_cast<std::uint64_t>(i),
-                                                     "unthrottled"))
-                          .has_value());
+            NX_CHECK(
+                all_sink.on_span(crafted_record(w0 + static_cast<std::uint64_t>(i), "unthrottled"))
+                    .has_value());
         }
         all_sink.stop();
         const std::string all_content = read_file(all_path.c_str());
@@ -1804,8 +1791,8 @@ void test_sinks() {
         const core::Status started = sink.start();
         NX_CHECK(!started.has_value());
         NX_CHECK(started.error() == core::ErrorCode::SystemError);
-        const core::Status delivered = sink.on_span(
-            crafted_record(mono_for_utc(hour_mid_utc(0)), "void"));
+        const core::Status delivered =
+            sink.on_span(crafted_record(mono_for_utc(hour_mid_utc(0)), "void"));
         NX_CHECK(!delivered.has_value());
         NX_CHECK(delivered.error() == core::ErrorCode::SystemError);
         NX_CHECK(!sink.flush().has_value());
@@ -1819,11 +1806,9 @@ void test_sinks() {
         NX_CHECK(tracing::to_string(tracing::RotationPolicy::None) == "None");
         NX_CHECK(tracing::to_string(tracing::RotationPolicy::Hourly) == "Hourly");
         NX_CHECK(tracing::to_string(tracing::RotationPolicy::Daily) == "Daily");
-        NX_CHECK(tracing::to_string(static_cast<tracing::RotationPolicy>(9)) ==
-                 "Unknown");
+        NX_CHECK(tracing::to_string(static_cast<tracing::RotationPolicy>(9)) == "Unknown");
         tracing::RotationPolicy parsed = tracing::RotationPolicy::None;
-        NX_CHECK(tracing::from_string("Daily", parsed) &&
-                 parsed == tracing::RotationPolicy::Daily);
+        NX_CHECK(tracing::from_string("Daily", parsed) && parsed == tracing::RotationPolicy::Daily);
         NX_CHECK(!tracing::from_string("daily", parsed));
         NX_CHECK(parsed == tracing::RotationPolicy::Daily); // unchanged
         const nlohmann::json j_policy = tracing::RotationPolicy::Hourly;
@@ -1831,9 +1816,8 @@ void test_sinks() {
         tracing::RotationPolicy back = tracing::RotationPolicy::None;
         nlohmann::from_json(j_policy, back);
         NX_CHECK(back == tracing::RotationPolicy::Hourly);
-        for (const nlohmann::json& bad :
-             {nlohmann::json(1), nlohmann::json{1, 2}, nlohmann::json(nullptr),
-              nlohmann::json("nope")}) {
+        for (const nlohmann::json& bad : {nlohmann::json(1), nlohmann::json{1, 2},
+                                          nlohmann::json(nullptr), nlohmann::json("nope")}) {
             tracing::RotationPolicy hostile = tracing::RotationPolicy::Daily;
             nlohmann::from_json(bad, hostile);
             NX_CHECK(hostile == tracing::RotationPolicy::Daily);
@@ -1843,9 +1827,8 @@ void test_sinks() {
         NX_CHECK(std::format("{:*<8}", tracing::RotationPolicy::Hourly) == "Hourly**");
 
         // The config round-trips every field under JSON_NOEXCEPTION=1.
-        const tracing::JsonFileTraceSinkConfig config{"/tmp/x.jsonl", "controller",
-                                                       tracing::RotationPolicy::Hourly,
-                                                       100, 500'000'000};
+        const tracing::JsonFileTraceSinkConfig config{
+            "/tmp/x.jsonl", "controller", tracing::RotationPolicy::Hourly, 100, 500'000'000};
         NX_CHECK(config.to_string() == tracing::to_string(config));
         NX_CHECK(std::format("{}", config) == config.to_string());
         const nlohmann::json j = config;
@@ -1903,7 +1886,7 @@ void test_sinks() {
 
         // The whole file parses as ONE JSON object (header/footer exact).
         const std::string content = read_file(path.c_str());
-        NX_CHECK(content.find("{\"traceEvents\":[") == 0U); // starts with header
+        NX_CHECK(content.find("{\"traceEvents\":[") == 0U);   // starts with header
         NX_CHECK(content.rfind("]}") == content.size() - 3U); // ends with ]}
         const nlohmann::json trace = nlohmann::json::parse(content);
         NX_CHECK(trace.is_object());
@@ -1915,10 +1898,9 @@ void test_sinks() {
         NX_CHECK(first.at("ph").get<std::string>() == "X");
         NX_CHECK(first.at("name").get<std::string>() == "parent-span");
         NX_CHECK(first.at("cat").get<std::string>() == "Server");
-        NX_CHECK(first.at("ts").get<std::uint64_t>() == 0U); // first event ts == 0
+        NX_CHECK(first.at("ts").get<std::uint64_t>() == 0U);  // first event ts == 0
         NX_CHECK(first.at("dur").get<std::uint64_t>() == 1U); // 1500 ns → 1 µs trunc
-        NX_CHECK(first.at("pid").get<std::uint64_t>() ==
-                 static_cast<std::uint64_t>(::getpid()));
+        NX_CHECK(first.at("pid").get<std::uint64_t>() == static_cast<std::uint64_t>(::getpid()));
         NX_CHECK(first.at("tid").get<std::uint64_t>() == 4242);
         const nlohmann::json& args = first.at("args");
         NX_CHECK(args.at("trace_id").get<std::string>() == "0123456789abcdef");
@@ -1953,9 +1935,8 @@ void test_sinks() {
         nlohmann::from_json(j_cfg, cfg_back);
         NX_CHECK(cfg_back.path == "/tmp/t.json");
         tracing::ChromeTraceSinkConfig hostile_back{"/keep.json"};
-        for (const nlohmann::json& bad :
-             {nlohmann::json(1), nlohmann::json{1}, nlohmann::json(nullptr),
-              nlohmann::json{{"path", 3}}}) {
+        for (const nlohmann::json& bad : {nlohmann::json(1), nlohmann::json{1},
+                                          nlohmann::json(nullptr), nlohmann::json{{"path", 3}}}) {
             nlohmann::from_json(bad, hostile_back);
             NX_CHECK(hostile_back.path == "/keep.json");
         }
@@ -1983,30 +1964,26 @@ void test_sinks() {
         static_cast<void>(::unlink(path.c_str()));
         tracing::JsonFileTraceSinkConfig file_config{};
         file_config.path = path;
-        tracing::CompositeTraceSink<tracing::ConsoleTraceSink,
-                                    tracing::JsonFileTraceSink, tracing::NullTraceSink>
-            composite{tracing::ConsoleTraceSink{fds[1]},
-                      tracing::JsonFileTraceSink{file_config},
+        tracing::CompositeTraceSink<tracing::ConsoleTraceSink, tracing::JsonFileTraceSink,
+                                    tracing::NullTraceSink>
+            composite{tracing::ConsoleTraceSink{fds[1]}, tracing::JsonFileTraceSink{file_config},
                       tracing::NullTraceSink{}};
         NX_CHECK(composite.start().has_value());
-        NX_CHECK(composite.on_span(crafted_record(mono_for_utc(hour_mid_utc(0)),
-                                                 "fan-out"))
-                      .has_value());
+        NX_CHECK(composite.on_span(crafted_record(mono_for_utc(hour_mid_utc(0)), "fan-out"))
+                     .has_value());
         NX_CHECK(composite.flush().has_value());
         composite.stop();
         // The console fixture shows the span's line...
         char pipe_buffer[2048];
         std::size_t total = 0;
         while (total == 0U) {
-            const ssize_t got = ::read(fds[0], pipe_buffer + total,
-                                       sizeof(pipe_buffer) - total);
+            const ssize_t got = ::read(fds[0], pipe_buffer + total, sizeof(pipe_buffer) - total);
             if (got <= 0) {
                 break;
             }
             total += static_cast<std::size_t>(got);
         }
-        NX_CHECK(std::string_view(pipe_buffer, total).find("fan-out") !=
-                 std::string_view::npos);
+        NX_CHECK(std::string_view(pipe_buffer, total).find("fan-out") != std::string_view::npos);
         // ...and the file contains the span's JSON object.
         const std::string file_content = read_file(path.c_str());
         NX_CHECK(file_content.find("fan-out") != std::string::npos);
@@ -2015,27 +1992,25 @@ void test_sinks() {
 
         // A failing FIRST member does not starve the rest; the composite
         // surfaces the first error after all members were attempted.
-        tracing::CompositeTraceSink<FailingOnSpanSink, CountingSink> mixed{
-            FailingOnSpanSink{}, CountingSink{}};
+        tracing::CompositeTraceSink<FailingOnSpanSink, CountingSink> mixed{FailingOnSpanSink{},
+                                                                           CountingSink{}};
         NX_CHECK(mixed.start().has_value());
-        const core::Status failed = mixed.on_span(
-            crafted_record(mono_for_utc(hour_mid_utc(0)), "no-starve"));
+        const core::Status failed =
+            mixed.on_span(crafted_record(mono_for_utc(hour_mid_utc(0)), "no-starve"));
         NX_CHECK(!failed.has_value());
         NX_CHECK(failed.error() == core::ErrorCode::SystemError);
         NX_CHECK(mixed.get<1>().deliveries == 1); // the second member received it
-        NX_CHECK(mixed.flush().has_value()); // aggregated flush
+        NX_CHECK(mixed.flush().has_value());      // aggregated flush
         mixed.stop();
 
         // Typed/indexed access identity + the diagnostics surface.
         // A duplicated member type is legal for INDEX access (distinct
         // members); the TYPE access on it is a compile error (pinned by the
         // documented scratch-TU check at the top of this suite).
-        tracing::CompositeTraceSink<tracing::NullTraceSink, tracing::NullTraceSink>
-            dupes{};
+        tracing::CompositeTraceSink<tracing::NullTraceSink, tracing::NullTraceSink> dupes{};
         NX_CHECK(&dupes.get<0>() != &dupes.get<1>()); // two distinct members
         static_assert(tracing::CompositeTraceSink<tracing::NullTraceSink>::size == 1);
-        tracing::CompositeTraceSink<tracing::NullTraceSink> single{
-            tracing::NullTraceSink{}};
+        tracing::CompositeTraceSink<tracing::NullTraceSink> single{tracing::NullTraceSink{}};
         NX_CHECK(&single.get<0>() == &single.get<tracing::NullTraceSink>());
         const std::string text = single.to_string();
         NX_CHECK(text == tracing::to_string(single));
@@ -2049,7 +2024,6 @@ void test_sinks() {
     }
 }
 
-
 // --- compile-time pins (task 6.2 / spec tracing/tracer-provider
 // "Factory-only construction is pinned at compile time" and
 // tracing/tracer-concepts): guards, tracers and the passkey are NOT
@@ -2057,8 +2031,8 @@ void test_sinks() {
 // satisfies the concept.
 static_assert(tracing::concepts::Tracer<tracing::Tracer<64, 4>>);
 static_assert(!std::is_default_constructible_v<tracing::ScopedSpan<64, 4>>);
-static_assert(!std::is_constructible_v<tracing::ScopedSpan<64, 4>, std::string_view,
-                                       tracing::SpanKind>);
+static_assert(
+    !std::is_constructible_v<tracing::ScopedSpan<64, 4>, std::string_view, tracing::SpanKind>);
 static_assert(!std::is_copy_constructible_v<tracing::ScopedSpan<64, 4>>);
 static_assert(!std::is_move_constructible_v<tracing::ScopedSpan<64, 4>>);
 static_assert(!std::is_default_constructible_v<tracing::Tracer<64, 4>>);
@@ -2083,8 +2057,8 @@ void test_scoped_span() {
 
     RecordingSink sink{};
     alignas(Provider) static std::byte storage[sizeof(Provider)];
-    auto* provider = new (static_cast<void*>(storage))
-        Provider(tracing::TracerProviderConfig{}, sink);
+    auto* provider =
+        new (static_cast<void*>(storage)) Provider(tracing::TracerProviderConfig{}, sink);
     NX_CHECK(provider->initialize().has_value());
     const auto tracer = provider->get_tracer("scoped");
     NX_CHECK(tracer.has_value());
@@ -2095,8 +2069,8 @@ void test_scoped_span() {
             std::size_t drained = sink.count;
             static_cast<void>(drained);
             {
-                auto span = tracer->start_span("lifecycle", tracing::SpanKind::Server,
-                                               nullptr, std::source_location::current());
+                auto span = tracer->start_span("lifecycle", tracing::SpanKind::Server, nullptr,
+                                               std::source_location::current());
                 NX_CHECK(span.active());
             } // destruction enqueues
             NX_CHECK(provider->flush().has_value());
@@ -2115,7 +2089,7 @@ void test_scoped_span() {
         // end does not double-enqueue").
         {
             auto span = tracer->start_span("explicit", tracing::SpanKind::Client);
-            NX_CHECK(span.end()); // true: this call ended it
+            NX_CHECK(span.end());  // true: this call ended it
             NX_CHECK(!span.end()); // no-op
             NX_CHECK(!span.end());
             NX_CHECK(provider->flush().has_value());
@@ -2151,7 +2125,7 @@ void test_scoped_span() {
                 NX_CHECK(span.set_attribute("two", std::uint64_t{2}));
                 NX_CHECK(span.set_attribute("three", 3.5));
                 NX_CHECK(span.set_attribute("four", true));
-                NX_CHECK(!span.set_attribute("fifth", 5)); // capacity bound
+                NX_CHECK(!span.set_attribute("fifth", 5));            // capacity bound
                 NX_CHECK(!span.set_attribute("0123456789abcdef", 6)); // key > 15
                 // Every value type reads back exactly from the drained record.
                 NX_CHECK(span.set_status(tracing::SpanStatus::Ok));
@@ -2178,9 +2152,8 @@ void test_scoped_span() {
                 char mutable_source[] = "short-lived";
                 NX_CHECK(span.set_attribute("inline", std::string_view(mutable_source)));
                 mutable_source[0] = 'X'; // record must hold its own copy
-                NX_CHECK(span.set_attribute("view",
-                                            std::string_view(
-                                                "a-program-static-view-longer-than-23-bytes")));
+                NX_CHECK(span.set_attribute(
+                    "view", std::string_view("a-program-static-view-longer-than-23-bytes")));
             }
             NX_CHECK(provider->flush().has_value());
             const SpanRecord& record = sink.view()[sink.count - 1];
@@ -2231,8 +2204,7 @@ void test_scoped_span() {
                 auto child = tracer->start_span("child", tracing::SpanKind::Server);
                 NX_CHECK(child.context().trace_id == root_trace);
                 {
-                    auto grandchild =
-                        tracer->start_span("grandchild", tracing::SpanKind::Client);
+                    auto grandchild = tracer->start_span("grandchild", tracing::SpanKind::Client);
                     NX_CHECK(grandchild.context().trace_id == root_trace);
                 }
             } // child and grandchild end first (LIFO)
@@ -2270,12 +2242,10 @@ void test_scoped_span() {
         const std::size_t ebase = sink.count;
         {
             auto active = tracer->start_span("active", tracing::SpanKind::Internal);
-            const tracing::SpanContext foreign{
-                tracing::TraceId{0xABCD}, tracing::SpanId{0xEF01},
-                tracing::SamplingDecision::RecordAndSample};
+            const tracing::SpanContext foreign{tracing::TraceId{0xABCD}, tracing::SpanId{0xEF01},
+                                               tracing::SamplingDecision::RecordAndSample};
             {
-                auto linked = tracer->start_span("linked", tracing::SpanKind::Consumer,
-                                                 &foreign);
+                auto linked = tracer->start_span("linked", tracing::SpanKind::Consumer, &foreign);
                 NX_CHECK(linked.context().trace_id == foreign.trace_id);
                 // A further span on THIS thread links to the child now.
                 auto deeper = tracer->start_span("deeper", tracing::SpanKind::Internal);
@@ -2306,8 +2276,7 @@ void test_scoped_span() {
                     self(self, depth + 1);
                     return;
                 }
-                auto overflow = tracer->start_span("overflow",
-                                                   tracing::SpanKind::Internal);
+                auto overflow = tracer->start_span("overflow", tracing::SpanKind::Internal);
                 NX_CHECK(overflow.active()); // still recorded
                 overflow_trace = overflow.context().trace_id;
                 NX_CHECK(overflow_trace != sink.view()[obase].trace_id);
@@ -2329,8 +2298,7 @@ void test_scoped_span() {
                 const SpanRecord& deep_rec = sink.view()[obase + i];
                 NX_CHECK(deep_rec.name_view() == "deep");
                 if (i < 16) {
-                    NX_CHECK(deep_rec.parent_span_id ==
-                             sink.view()[obase + i + 1].span_id);
+                    NX_CHECK(deep_rec.parent_span_id == sink.view()[obase + i + 1].span_id);
                 } else {
                     NX_CHECK(deep_rec.parent_span_id.is_unset()); // deep0 = root
                 }
@@ -2345,8 +2313,7 @@ void test_scoped_span() {
             auto parent = tracer->start_span("parent", tracing::SpanKind::Internal);
             auto child = tracer->start_span("child", tracing::SpanKind::Internal);
             NX_CHECK(parent.end()); // child's frame discarded early
-            auto next = tracer->start_span("after-truncation",
-                                           tracing::SpanKind::Internal);
+            auto next = tracer->start_span("after-truncation", tracing::SpanKind::Internal);
             static_cast<void>(next);
             static_cast<void>(child); // later end: clamped no-op
         }
@@ -2356,7 +2323,7 @@ void test_scoped_span() {
             const SpanRecord& next_rec = sink.view()[tbase + 1];
             const SpanRecord& child_rec = sink.view()[tbase + 2];
             NX_CHECK(child_rec.parent_span_id == parent_rec.span_id); // chained before
-            NX_CHECK(next_rec.parent_span_id.is_unset()); // stack truncated to root
+            NX_CHECK(next_rec.parent_span_id.is_unset());             // stack truncated to root
         }
 
         // (12) Cross-thread context linking through the core SPSC queue
@@ -2376,12 +2343,11 @@ void test_scoped_span() {
                     }
                     std::this_thread::sleep_for(std::chrono::microseconds(100));
                 }
-                auto child = tracer->start_span("cross-child",
-                                                tracing::SpanKind::Server, &received);
+                auto child =
+                    tracer->start_span("cross-child", tracing::SpanKind::Server, &received);
                 NX_CHECK(child.context().trace_id == received.trace_id);
                 {
-                    auto deeper = tracer->start_span("cross-deeper",
-                                                     tracing::SpanKind::Client);
+                    auto deeper = tracer->start_span("cross-deeper", tracing::SpanKind::Client);
                     NX_CHECK(deeper.context().trace_id == received.trace_id);
                     NX_CHECK(deeper.context().span_id != received.span_id);
                 }
@@ -2400,12 +2366,10 @@ void test_scoped_span() {
         const tracing::DroppedStats drops_before = provider->dropped();
         const std::size_t dbase = sink.count;
         {
-            auto parent = tracer->start_span("disable-parent",
-                                             tracing::SpanKind::Internal);
+            auto parent = tracer->start_span("disable-parent", tracing::SpanKind::Internal);
             provider->set_enabled(false);
             {
-                auto dropped = tracer->start_span("dropped",
-                                                  tracing::SpanKind::Internal);
+                auto dropped = tracer->start_span("dropped", tracing::SpanKind::Internal);
                 NX_CHECK(!dropped.active());
                 NX_CHECK(dropped.error() == core::ErrorCode::Ok);
             }
@@ -2416,7 +2380,7 @@ void test_scoped_span() {
         }
         NX_CHECK(provider->flush().has_value());
         NX_CHECK(sink.count == dbase + 2); // parent + after-drop only
-        { // END order: after-drop, then parent.
+        {                                  // END order: after-drop, then parent.
             const SpanRecord& parent_rec = sink.view()[dbase + 1];
             const SpanRecord& after_rec = sink.view()[dbase];
             NX_CHECK(after_rec.parent_span_id == parent_rec.span_id);
@@ -2469,8 +2433,7 @@ void test_scoped_span() {
             const std::size_t arena_before = arena_used();
             const std::size_t heap_before = heap_in_use();
             for (int i = 0; i < 5'000; ++i) {
-                auto span = tracer->start_span("alloc-free",
-                                               tracing::SpanKind::Internal);
+                auto span = tracer->start_span("alloc-free", tracing::SpanKind::Internal);
                 static_cast<void>(span.set_attribute("k", i));
                 static_cast<void>(span.set_status(tracing::SpanStatus::Ok));
                 if ((i % 256) == 255) {
@@ -2502,7 +2465,7 @@ void test_scoped_span() {
             while (!stop_flip.load(std::memory_order_relaxed)) {
                 provider->set_enabled(enabled);
                 provider->set_sampling(drop ? tracing::SamplingDecision::Drop
-                                             : tracing::SamplingDecision::RecordAndSample);
+                                            : tracing::SamplingDecision::RecordAndSample);
                 enabled = !enabled;
                 drop = !drop;
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
@@ -2528,11 +2491,10 @@ void test_scoped_span() {
         // Burst-tolerant invariant: every active-at-start span either
         // drained or was counted buffer_full (a full shard drops by design —
         // the producer never blocks; Debug bursts can outrun the consumer).
-        const std::uint64_t drops_during =
-            provider->dropped().buffer_full - drops_at_base;
+        const std::uint64_t drops_during = provider->dropped().buffer_full - drops_at_base;
         if (sink.count + static_cast<std::size_t>(drops_during) != expected) {
-            std::printf("flips MISMATCH: base=%zu active=%d count=%zu dropped=%s\n",
-                        flip_base, active_starts.load(std::memory_order_relaxed), sink.count,
+            std::printf("flips MISMATCH: base=%zu active=%d count=%zu dropped=%s\n", flip_base,
+                        active_starts.load(std::memory_order_relaxed), sink.count,
                         provider->dropped().to_string().c_str());
         }
         NX_CHECK(sink.count + static_cast<std::size_t>(drops_during) == expected);
@@ -2571,7 +2533,9 @@ void test_latency() {
             std::size_t last = 0U;
             for (std::size_t c = 0; c < static_cast<std::size_t>(CPU_SETSIZE); ++c) {
                 if (CPU_ISSET(c, &allowed)) {
-                    if (first == 64U) { first = c; }
+                    if (first == 64U) {
+                        first = c;
+                    }
                     last = c;
                 }
             }
@@ -2581,8 +2545,7 @@ void test_latency() {
                 bench_core = 1ULL << hi;
                 cpu_set_t mine{};
                 CPU_SET(lo, &mine);
-                pinned = ::pthread_setaffinity_np(::pthread_self(), sizeof(mine),
-                                                  &mine) == 0;
+                pinned = ::pthread_setaffinity_np(::pthread_self(), sizeof(mine), &mine) == 0;
                 original_set = allowed;
             }
         }
@@ -2590,17 +2553,16 @@ void test_latency() {
 
     tracing::TracerProviderConfig bench_config{};
     bench_config.worker_thread.set_cpus(core::CpuSet::from_core_mask(bench_core));
-    auto* bench = new (static_cast<void*>(bench_storage))
-        Bench_provider(bench_config, null_sink);
+    auto* bench = new (static_cast<void*>(bench_storage)) Bench_provider(bench_config, null_sink);
     NX_CHECK(bench->initialize().has_value());
     const auto bench_tracer = bench->get_tracer("latency");
     NX_CHECK(bench_tracer.has_value());
 
     constexpr int WARMUP = 2'000;
     constexpr int N = 10'000;
-    alignas(64) static std::uint64_t raw[N];   // full lifecycle samples
-    alignas(64) static std::uint64_t flt[N];   // short-circuit samples
-    alignas(64) static std::uint64_t ovr[N];   // rdtsc-pair overhead samples
+    alignas(64) static std::uint64_t raw[N]; // full lifecycle samples
+    alignas(64) static std::uint64_t flt[N]; // short-circuit samples
+    alignas(64) static std::uint64_t ovr[N]; // rdtsc-pair overhead samples
 
     // Warmup BEFORE the measured window (branch predictors, caches, TLS
     // slot claim, thread id cache, stamp calibration interplay).
@@ -2616,9 +2578,8 @@ void test_latency() {
     const core::Result<chrono::Timestamp> m_end = chrono::Timestamp::now();
     const std::uint64_t t_end = __rdtsc();
     NX_CHECK(m_start.has_value() && m_end.has_value());
-    const double ns_per_tick =
-        static_cast<double>(m_end->nanoseconds() - m_start->nanoseconds()) /
-        static_cast<double>(t_end - t_start);
+    const double ns_per_tick = static_cast<double>(m_end->nanoseconds() - m_start->nanoseconds()) /
+                               static_cast<double>(t_end - t_start);
 
     const std::size_t arena_before = arena_used();
     const std::size_t heap_before = heap_in_use();
@@ -2637,8 +2598,7 @@ void test_latency() {
         // provider's worker draining concurrently.
         for (int i = 0; i < N; ++i) {
             const std::uint64_t r0 = __rdtsc();
-            auto span = (*bench_tracer)->start_span("bench",
-                                                    tracing::SpanKind::Internal);
+            auto span = (*bench_tracer)->start_span("bench", tracing::SpanKind::Internal);
             static_cast<void>(span);
             const std::uint64_t r1 = __rdtsc();
             raw[i] = r1 - r0;
@@ -2648,8 +2608,7 @@ void test_latency() {
         bench->set_enabled(false);
         for (int i = 0; i < N; ++i) {
             const std::uint64_t r0 = __rdtsc();
-            auto span = (*bench_tracer)->start_span("bench",
-                                                    tracing::SpanKind::Internal);
+            auto span = (*bench_tracer)->start_span("bench", tracing::SpanKind::Internal);
             static_cast<void>(span);
             const std::uint64_t r1 = __rdtsc();
             flt[i] = r1 - r0;
@@ -2665,10 +2624,8 @@ void test_latency() {
         std::sort(flt, flt + N);
         std::sort(ovr, ovr + N);
         overhead_ns = static_cast<double>(ovr[N / 2]) * ns_per_tick;
-        const double lifecycle_ns =
-            static_cast<double>(raw[N / 2]) * ns_per_tick - overhead_ns;
-        const double short_ns =
-            static_cast<double>(flt[N / 2]) * ns_per_tick - overhead_ns;
+        const double lifecycle_ns = static_cast<double>(raw[N / 2]) * ns_per_tick - overhead_ns;
+        const double short_ns = static_cast<double>(flt[N / 2]) * ns_per_tick - overhead_ns;
         if (best_lifecycle_ns < 0.0 || lifecycle_ns < best_lifecycle_ns) {
             best_lifecycle_ns = lifecycle_ns;
         }
@@ -2687,8 +2644,7 @@ void test_latency() {
     const std::uint64_t accepted =
         static_cast<std::uint64_t>(WARMUP) +
         static_cast<std::uint64_t>(passes) * static_cast<std::uint64_t>(N);
-    const std::uint64_t dropped_rows =
-        bench->dropped().buffer_full - drops0.buffer_full;
+    const std::uint64_t dropped_rows = bench->dropped().buffer_full - drops0.buffer_full;
     std::printf("latency: best-of-%d lifecycle median %.2f ns (gate 20), short-circuit "
                 "median %.3f ns (gate 2), meas-overhead %.2f ns, ns/tick %.4f, "
                 "accepted=%llu dropped=%llu\n",
@@ -2711,8 +2667,8 @@ void test_latency() {
 
     std::destroy_at(bench);
     if (pinned) { // restore the process's original placement for later suites
-        static_cast<void>(::pthread_setaffinity_np(::pthread_self(),
-                                                   sizeof(original_set), &original_set));
+        static_cast<void>(
+            ::pthread_setaffinity_np(::pthread_self(), sizeof(original_set), &original_set));
     }
 #else
     // Non-x86: accounting-only run (no rdtsc), bounded-time correctness.
@@ -2741,18 +2697,17 @@ void test_latency() {
 void test_tracing_worker_thread_settings() {
     char global_path[256];
     char local_path[256];
-    std::snprintf(global_path, sizeof global_path,
-                  "/tmp/opencode/tracing-worker-global-%d.json", ::getpid());
-    std::snprintf(local_path, sizeof local_path,
-                  "/tmp/opencode/tracing-worker-local-%d.json", ::getpid());
+    std::snprintf(global_path, sizeof global_path, "/tmp/opencode/tracing-worker-global-%d.json",
+                  ::getpid());
+    std::snprintf(local_path, sizeof local_path, "/tmp/opencode/tracing-worker-local-%d.json",
+                  ::getpid());
     auto write = [](const char* path, std::string_view text) {
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         file << text;
         NX_CHECK(file.good());
     };
-    write(global_path,
-          R"({"core_mask":5,"worker_thread":{"name":"trace-worker",)"
-          R"("policy":"rr","priority":40,"mode":"required"}})");
+    write(global_path, R"({"core_mask":5,"worker_thread":{"name":"trace-worker",)"
+                       R"("policy":"rr","priority":40,"mode":"required"}})");
     write(local_path, R"({"worker_thread":{"cpus":[64,65]}})");
 
     tracing::Settings merged{};
@@ -2883,8 +2838,8 @@ void test_provider() {
         alignas(Provider) static std::byte storage[sizeof(Provider)];
         const std::size_t arena_before = arena_used();
         const std::size_t heap_before = heap_in_use();
-        auto* provider = new (static_cast<void*>(storage))
-            Provider(tracing::TracerProviderConfig{}, null_sink);
+        auto* provider =
+            new (static_cast<void*>(storage)) Provider(tracing::TracerProviderConfig{}, null_sink);
         NX_CHECK(arena_used() == arena_before);
         NX_CHECK(heap_in_use() == heap_before);
 
@@ -2892,8 +2847,8 @@ void test_provider() {
         const auto again = provider->get_tracer("engine");
         const auto other = provider->get_tracer("physics");
         NX_CHECK(first.has_value() && again.has_value() && other.has_value());
-        NX_CHECK(*again == *first);   // repeated name → same handle
-        NX_CHECK(*other != *first);   // distinct name → distinct tracer
+        NX_CHECK(*again == *first);             // repeated name → same handle
+        NX_CHECK(*other != *first);             // distinct name → distinct tracer
         NX_CHECK(arena_used() == arena_before); // tracer creation: zero alloc
         NX_CHECK(heap_in_use() == heap_before);
 
@@ -3063,8 +3018,9 @@ void test_provider() {
         };
         const long dflt = idle_wakeups(1000U, 500);
         const long tuned = idle_wakeups(20'000U, 500);
-        std::printf("tracing worker idle: default poll -> %ld, 20 ms poll -> %ld wake-ups / 500 ms\n",
-                    dflt, tuned);
+        std::printf(
+            "tracing worker idle: default poll -> %ld, 20 ms poll -> %ld wake-ups / 500 ms\n", dflt,
+            tuned);
         NX_CHECK(dflt >= 0 && dflt < 1200); // former 200 us poll: ~2000
         NX_CHECK(tuned >= 0 && tuned < 120);
     }
@@ -3114,8 +3070,8 @@ void test_provider() {
         NX_CHECK(tracing::detail::self_affinity(main_mask).has_value());
         RecordingSink sink{};
         alignas(Provider) static std::byte storage[sizeof(Provider)];
-        auto* provider = new (static_cast<void*>(storage))
-            Provider(tracing::TracerProviderConfig{}, sink);
+        auto* provider =
+            new (static_cast<void*>(storage)) Provider(tracing::TracerProviderConfig{}, sink);
         NX_CHECK(provider->initialize().has_value());
         for (int spins = 0; spins < 2'000 && !provider->worker_started(); ++spins) {
             std::this_thread::sleep_for(std::chrono::microseconds(500));
@@ -3148,7 +3104,8 @@ void test_provider() {
         RecordingSink sink{};
         tracing::TracerProviderConfig config{};
         const std::uint64_t rejected = failing.load(std::memory_order_relaxed);
-        config.worker_thread.set_cpus(core::CpuSet::from_core_mask(rejected != 0ULL ? rejected : 1ULL)); // pinnable fallback
+        config.worker_thread.set_cpus(
+            core::CpuSet::from_core_mask(rejected != 0ULL ? rejected : 1ULL)); // pinnable fallback
         alignas(Provider) static std::byte storage[sizeof(Provider)];
         auto* provider = new (static_cast<void*>(storage)) Provider(config, sink);
         NX_CHECK(provider->initialize().has_value());
@@ -3199,8 +3156,7 @@ void test_provider() {
                     std::this_thread::yield();
                 }
                 for (int i = 0; i < per_thread; ++i) {
-                    auto span = tracer->start_span("stress-span",
-                                                   tracing::SpanKind::Internal);
+                    auto span = tracer->start_span("stress-span", tracing::SpanKind::Internal);
                     static_cast<void>(span.set_attribute("seq", i));
                 }
             });
@@ -3245,15 +3201,14 @@ void test_provider() {
     {
         RecordingSink sink{};
         alignas(Provider) static std::byte storage[sizeof(Provider)];
-        auto* provider = new (static_cast<void*>(storage))
-            Provider(tracing::TracerProviderConfig{}, sink);
+        auto* provider =
+            new (static_cast<void*>(storage)) Provider(tracing::TracerProviderConfig{}, sink);
         NX_CHECK(provider->initialize().has_value());
         const auto tracer = provider->get_tracer("pool");
         NX_CHECK(tracer.has_value());
         for (int t = 0; t < 33; ++t) {
             std::jthread ephemeral([tracer = *tracer] {
-                auto span = tracer->start_span("ephemeral",
-                                               tracing::SpanKind::Consumer);
+                auto span = tracer->start_span("ephemeral", tracing::SpanKind::Consumer);
                 static_cast<void>(span);
             });
             ephemeral.join();
@@ -3279,8 +3234,8 @@ void test_provider() {
     {
         RecordingSink sink{};
         alignas(Provider) static std::byte storage[sizeof(Provider)];
-        auto* provider = new (static_cast<void*>(storage))
-            Provider(tracing::TracerProviderConfig{}, sink);
+        auto* provider =
+            new (static_cast<void*>(storage)) Provider(tracing::TracerProviderConfig{}, sink);
         const auto tracer = provider->get_tracer("fill");
         NX_CHECK(tracer.has_value());
         std::jthread producer([tracer = *tracer] {
@@ -3294,8 +3249,8 @@ void test_provider() {
         NX_CHECK(provider->dropped().buffer_full == 6);
         NX_CHECK(provider->dropped().rate_limited == 0);
         NX_CHECK(provider->dropped().slot_exhausted == 0);
-        std::destroy_at(provider); // inline drain of the never-initialized
-        NX_CHECK(sink.count == 64);  // every ACCEPTED record delivered
+        std::destroy_at(provider);  // inline drain of the never-initialized
+        NX_CHECK(sink.count == 64); // every ACCEPTED record delivered
         NX_CHECK(sink.started.load(std::memory_order_relaxed));
         NX_CHECK(sink.stopped.load(std::memory_order_relaxed));
         sink.reset();
@@ -3343,14 +3298,13 @@ void test_provider() {
         // flush() ran before flush() returned.
         RecordingSink sink{};
         alignas(Provider) static std::byte storage[sizeof(Provider)];
-        auto* provider = new (static_cast<void*>(storage))
-            Provider(tracing::TracerProviderConfig{}, sink);
+        auto* provider =
+            new (static_cast<void*>(storage)) Provider(tracing::TracerProviderConfig{}, sink);
         NX_CHECK(provider->initialize().has_value());
         const auto tracer = provider->get_tracer("barrier");
         NX_CHECK(tracer.has_value());
         for (int i = 0; i < 10; ++i) {
-            auto span = (*tracer)->start_span("durability",
-                                              tracing::SpanKind::Internal);
+            auto span = (*tracer)->start_span("durability", tracing::SpanKind::Internal);
             static_cast<void>(span);
         }
         NX_CHECK(provider->flush().has_value());
@@ -3362,8 +3316,8 @@ void test_provider() {
         // Error propagation: a failing sink flush surfaces as SystemError.
         FailingFlushSink failing{};
         alignas(Provider) static std::byte storage2[sizeof(Provider)];
-        auto* provider2 = new (static_cast<void*>(storage2))
-            Provider(tracing::TracerProviderConfig{}, failing);
+        auto* provider2 =
+            new (static_cast<void*>(storage2)) Provider(tracing::TracerProviderConfig{}, failing);
         NX_CHECK(provider2->initialize().has_value());
         const auto tracer2 = provider2->get_tracer("failing");
         NX_CHECK(tracer2.has_value());
@@ -3379,14 +3333,13 @@ void test_provider() {
     {
         RecordingSink sink{};
         alignas(Provider) static std::byte storage[sizeof(Provider)];
-        auto* provider = new (static_cast<void*>(storage))
-            Provider(tracing::TracerProviderConfig{}, sink);
+        auto* provider =
+            new (static_cast<void*>(storage)) Provider(tracing::TracerProviderConfig{}, sink);
         NX_CHECK(provider->initialize().has_value());
         const auto tracer = provider->get_tracer("shutdown");
         NX_CHECK(tracer.has_value());
         for (int i = 0; i < 25; ++i) {
-            auto span = (*tracer)->start_span("last-words",
-                                              tracing::SpanKind::Internal);
+            auto span = (*tracer)->start_span("last-words", tracing::SpanKind::Internal);
             static_cast<void>(span);
         }
         std::destroy_at(provider); // drain-on-join
@@ -3398,8 +3351,8 @@ void test_provider() {
     // flush() before initialize() reports NotInitialized (no worker exists).
     {
         alignas(Provider) static std::byte storage[sizeof(Provider)];
-        auto* provider = new (static_cast<void*>(storage))
-            Provider(tracing::TracerProviderConfig{}, null_sink);
+        auto* provider =
+            new (static_cast<void*>(storage)) Provider(tracing::TracerProviderConfig{}, null_sink);
         const core::Status flushed = provider->flush();
         NX_CHECK(!flushed.has_value());
         NX_CHECK(flushed.error() == core::ErrorCode::NotInitialized);
@@ -3445,8 +3398,7 @@ void test_trace_writer_escape_matrix() {
     static_cast<void>(::unlink(chrome_path.c_str()));
 
     const std::string escaped = "a\b\f\r\t\x01\x1f\"\\Кириллица";
-    tracing::SpanRecord record =
-        crafted_record(1'000'000'000ULL, escaped);
+    tracing::SpanRecord record = crafted_record(1'000'000'000ULL, escaped);
     static_cast<void>(record.attributes[3].store("ctl", std::string_view(escaped)));
 
     {
@@ -3597,39 +3549,24 @@ void test_record_serialization_full() {
         NX_CHECK(attr_keep.key_view() == "k");
         tracing::from_json(nlohmann::json{{"key", "k"}}, attr_keep);
         NX_CHECK(attr_keep.type == tracing::SpanAttributeType::Int64);
-        tracing::from_json(nlohmann::json{{"key", std::string(16, 'x')},
-                                          {"type", "Int64"},
-                                          {"value", 1}},
-                           attr_keep);
+        tracing::from_json(
+            nlohmann::json{{"key", std::string(16, 'x')}, {"type", "Int64"}, {"value", 1}},
+            attr_keep);
         NX_CHECK(attr_keep.key_view() == "k");
-        tracing::from_json(nlohmann::json{{"key", "k"},
-                                          {"type", "Int64"},
-                                          {"value", "wrong"}},
+        tracing::from_json(nlohmann::json{{"key", "k"}, {"type", "Int64"}, {"value", "wrong"}},
                            attr_keep);
         NX_CHECK(attr_keep.value.i64 == 1);
-        tracing::from_json(nlohmann::json{{"key", "k"},
-                                          {"type", "Uint64"},
-                                          {"value", "wrong"}},
+        tracing::from_json(nlohmann::json{{"key", "k"}, {"type", "Uint64"}, {"value", "wrong"}},
                            attr_keep);
-        tracing::from_json(nlohmann::json{{"key", "k"},
-                                          {"type", "Double"},
-                                          {"value", "wrong"}},
+        tracing::from_json(nlohmann::json{{"key", "k"}, {"type", "Double"}, {"value", "wrong"}},
                            attr_keep);
-        tracing::from_json(nlohmann::json{{"key", "k"},
-                                          {"type", "Bool"},
-                                          {"value", "wrong"}},
+        tracing::from_json(nlohmann::json{{"key", "k"}, {"type", "Bool"}, {"value", "wrong"}},
                            attr_keep);
-        tracing::from_json(nlohmann::json{{"key", "k"},
-                                          {"type", "String"},
-                                          {"value", 1}},
+        tracing::from_json(nlohmann::json{{"key", "k"}, {"type", "String"}, {"value", 1}},
                            attr_keep);
-        tracing::from_json(nlohmann::json{{"key", "k"},
-                                          {"type", "Bogus"},
-                                          {"value", 1}},
+        tracing::from_json(nlohmann::json{{"key", "k"}, {"type", "Bogus"}, {"value", 1}},
                            attr_keep);
-        tracing::from_json(nlohmann::json{{"key", "k"},
-                                          {"type", "Int64"}},
-                           attr_keep);
+        tracing::from_json(nlohmann::json{{"key", "k"}, {"type", "Int64"}}, attr_keep);
         tracing::SpanRecord record_keep = crafted_record(1'000'000'000ULL, "keep");
         tracing::from_json(nlohmann::json{{"kind", 7}}, record_keep);
         NX_CHECK(record_keep.name_view() == "keep");

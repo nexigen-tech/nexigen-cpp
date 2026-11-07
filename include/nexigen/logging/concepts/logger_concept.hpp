@@ -70,12 +70,12 @@ concept Logger = requires(T t, const T ct, LogLevel lv) {
 
     /// Severity conveniences with implicit FormatWithLocation capture (the
     /// message-only call shape is the requirement — see header).
-    { t.verbose("v") }   noexcept -> std::same_as<void>;
-    { t.debug("d") }     noexcept -> std::same_as<void>;
-    { t.info("i") }      noexcept -> std::same_as<void>;
-    { t.warning("w") }   noexcept -> std::same_as<void>;
-    { t.error("e") }     noexcept -> std::same_as<void>;
-    { t.fatal("f") }     noexcept -> std::same_as<void>;
+    { t.verbose("v") } noexcept -> std::same_as<void>;
+    { t.debug("d") } noexcept -> std::same_as<void>;
+    { t.info("i") } noexcept -> std::same_as<void>;
+    { t.warning("w") } noexcept -> std::same_as<void>;
+    { t.error("e") } noexcept -> std::same_as<void>;
+    { t.fatal("f") } noexcept -> std::same_as<void>;
     /// One convenience checked with an argument pack (spec "Argument packs
     /// are accepted"); all six accept the same variadic shape.
     { t.info("i {}", 1) } noexcept -> std::same_as<void>;

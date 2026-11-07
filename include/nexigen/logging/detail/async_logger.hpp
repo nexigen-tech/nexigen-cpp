@@ -77,8 +77,7 @@ using core::WorkerTuning;
 /// Sink contract (duck-typed): core::Status start() noexcept;
 /// void handle(const Producer::record_type&) noexcept;
 /// core::Status synchronize() noexcept; void stop() noexcept.
-template <class Producer, class Sink>
-class AsyncWorker {
+template <class Producer, class Sink> class AsyncWorker {
     using record_type = typename Producer::record_type;
 
     static constexpr std::uint64_t flush_sleep_budget = 50'000; ///< * 200 us ~ 10 s escape hatch
@@ -100,11 +99,11 @@ class AsyncWorker {
         core::ThreadApplyReport thread_report{}; ///< written before started (release)
     } start_{};
 
-    Producer* producer_{};             ///< owned by the logger; stable address
-    core::ThreadSpec thread_spec_{};   ///< copied by start() before the thread exists
-    WorkerTuning tuning_{};            ///< set_tuning() before start(); read by the worker only
-    std::optional<Sink> sink_{};       ///< constructed by start()
-    std::jthread thread_{};            ///< LAST member: joins before sink_/producer_ die
+    Producer* producer_{};           ///< owned by the logger; stable address
+    core::ThreadSpec thread_spec_{}; ///< copied by start() before the thread exists
+    WorkerTuning tuning_{};          ///< set_tuning() before start(); read by the worker only
+    std::optional<Sink> sink_{};     ///< constructed by start()
+    std::jthread thread_{};          ///< LAST member: joins before sink_/producer_ die
 
     void run(std::stop_token st) noexcept {
         // Start sequence ON the worker thread (design D15): self-pin first so
@@ -170,8 +169,8 @@ class AsyncWorker {
             if (++idle <= spin_budget) {
                 continue;
             }
-            std::this_thread::sleep_for(
-                std::chrono::microseconds(WorkerTuning::backoff_us(idle - spin_budget, poll_max_us)));
+            std::this_thread::sleep_for(std::chrono::microseconds(
+                WorkerTuning::backoff_us(idle - spin_budget, poll_max_us)));
         }
 
         // Shutdown: drain what is still queued, synchronize once, publish,
@@ -210,9 +209,9 @@ public:
 
     /// Start the background consumer. The Producer must outlive the worker
     /// (it is a member of the same logger object). thread_spec is applied by
-    /// the worker itself (empty = inherited attributes). Sink is constructed in place from sink_args.
-    /// Returns OK once the thread exists; the pin/sink start results land in
-    /// the snapshot cell (writer_started()/writer_code()/writer_mask()).
+    /// the worker itself (empty = inherited attributes). Sink is constructed in place from
+    /// sink_args. Returns OK once the thread exists; the pin/sink start results land in the
+    /// snapshot cell (writer_started()/writer_code()/writer_mask()).
     template <class... Args>
         requires std::constructible_from<Sink, Args...>
     [[nodiscard]] core::Status start(Producer& producer, const core::ThreadSpec& thread_spec,
@@ -253,10 +252,9 @@ public:
         if (!start_.launched.load(std::memory_order_acquire)) {
             return std::unexpected(core::ErrorCode::NotInitialized); // not started yet
         }
-        const std::uint64_t seq =
-            flush_.requested.fetch_add(1U, std::memory_order_release) + 1U;
-        for (std::uint64_t spins = 0;
-             flush_.drained.load(std::memory_order_acquire) < seq; ++spins) {
+        const std::uint64_t seq = flush_.requested.fetch_add(1U, std::memory_order_release) + 1U;
+        for (std::uint64_t spins = 0; flush_.drained.load(std::memory_order_acquire) < seq;
+             ++spins) {
             if (spins >= flush_sleep_budget) { // worker gone/stuck: escape hatch
                 return std::unexpected(core::ErrorCode::SystemError);
             }

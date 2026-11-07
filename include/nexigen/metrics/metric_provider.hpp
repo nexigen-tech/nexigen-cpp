@@ -80,15 +80,15 @@ public:
     /// provider.
     template <concepts::MetricSink Sink>
     MetricProvider(const MetricProviderConfig& config, Sink& sink)
-        : MetricProvider(config,
-                         detail::SinkBinding{
-                             static_cast<void*>(&sink),
-                             [](void* self, const MetricBatchSnapshot& batch) noexcept -> core::Status {
-                                 return static_cast<Sink*>(self)->on_batch(batch);
-                             },
-                             [](void* self) noexcept -> core::Status {
-                                 return static_cast<Sink*>(self)->flush();
-                             }}) {}
+        : MetricProvider(config, detail::SinkBinding{
+                                     static_cast<void*>(&sink),
+                                     [](void* self,
+                                        const MetricBatchSnapshot& batch) noexcept -> core::Status {
+                                         return static_cast<Sink*>(self)->on_batch(batch);
+                                     },
+                                     [](void* self) noexcept -> core::Status {
+                                         return static_cast<Sink*>(self)->flush();
+                                     }}) {}
 
     MetricProvider(const MetricProvider&) = delete;
     MetricProvider& operator=(const MetricProvider&) = delete;
@@ -133,8 +133,8 @@ private:
         AccessPolicy access{AccessPolicy::Readable};
         ResetPolicy reset{ResetPolicy::Cumulative};
         void* object{nullptr};
-        void (*harvest)(void*, MetricRecord&) noexcept{nullptr};
-        void (*destroy)(void*) noexcept{nullptr};
+        void (*harvest)(void*, MetricRecord&) noexcept {nullptr};
+        void (*destroy)(void*) noexcept {nullptr};
         bool occupied{false};
     };
 
@@ -150,13 +150,11 @@ private:
     static constexpr std::size_t kind_count = 6;
 
     /// Reserve a registry slot for a new instrument.
-    [[nodiscard]] core::Status reserve_slot(MetricKind kind, std::size_t object_size,
-                                            const MetricIdentity& identity,
-                                            ConcurrencyPolicy concurrency, AccessPolicy access,
-                                            ResetPolicy reset,
-                                            void (*harvest)(void*, MetricRecord&) noexcept,
-                                            void (*destroy)(void*) noexcept, void*& object_out,
-                                            SlotMeta*& meta_out);
+    [[nodiscard]] core::Status
+    reserve_slot(MetricKind kind, std::size_t object_size, const MetricIdentity& identity,
+                 ConcurrencyPolicy concurrency, AccessPolicy access, ResetPolicy reset,
+                 void (*harvest)(void*, MetricRecord&) noexcept, void (*destroy)(void*) noexcept,
+                 void*& object_out, SlotMeta*& meta_out);
 
     /// True when the meter already owns an instrument with that name.
     [[nodiscard]] bool has_duplicate(const MetricIdentity& meter_identity,
@@ -201,10 +199,10 @@ private:
 namespace nexigen::metrics {
 
 template <class Instrument, class Construct>
-core::Result<Instrument*> Meter::create_instrument(
-    MetricKind kind, std::string_view name, std::string_view unit,
-    ConcurrencyPolicy concurrency, AccessPolicy access, ResetPolicy reset,
-    Construct&& construct) {
+core::Result<Instrument*>
+Meter::create_instrument(MetricKind kind, std::string_view name, std::string_view unit,
+                         ConcurrencyPolicy concurrency, AccessPolicy access, ResetPolicy reset,
+                         Construct&& construct) {
     // Publish the slot under the harvest lock (design D11): construction and
     // occupancy happen-before the background harvester can observe them.
     std::lock_guard<std::mutex> lock(provider_->harvest_mutex_);
@@ -218,10 +216,9 @@ core::Result<Instrument*> Meter::create_instrument(
     }
     void* object = nullptr;
     MetricProvider::SlotMeta* meta = nullptr;
-    const core::Status reserved =
-        provider_->reserve_slot(kind, sizeof(Instrument), identity, concurrency, access, reset,
-                                &Instrument::harvest_thunk, &detail::destroy_instrument<Instrument>,
-                                object, meta);
+    const core::Status reserved = provider_->reserve_slot(
+        kind, sizeof(Instrument), identity, concurrency, access, reset, &Instrument::harvest_thunk,
+        &detail::destroy_instrument<Instrument>, object, meta);
     if (!reserved) {
         return std::unexpected(reserved.error());
     }
@@ -231,14 +228,12 @@ core::Result<Instrument*> Meter::create_instrument(
 }
 
 template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
-core::Result<Counter<Concurrency, Access, Reset>*>
-Meter::create_counter(std::string_view name, std::string_view unit) {
+core::Result<Counter<Concurrency, Access, Reset>*> Meter::create_counter(std::string_view name,
+                                                                         std::string_view unit) {
     using Instrument = Counter<Concurrency, Access, Reset>;
     return create_instrument<Instrument>(
         MetricKind::Counter, name, unit, Concurrency, Access, Reset,
-        [](void* object) -> Instrument* {
-            return new (object) Instrument(MeterPasskey{});
-        });
+        [](void* object) -> Instrument* { return new (object) Instrument(MeterPasskey{}); });
 }
 
 template <typename ValueType, ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
@@ -247,20 +242,16 @@ Meter::create_gauge(std::string_view name, std::string_view unit) {
     using Instrument = Gauge<ValueType, Concurrency, Access, Reset>;
     return create_instrument<Instrument>(
         MetricKind::Gauge, name, unit, Concurrency, Access, Reset,
-        [](void* object) -> Instrument* {
-            return new (object) Instrument(MeterPasskey{});
-        });
+        [](void* object) -> Instrument* { return new (object) Instrument(MeterPasskey{}); });
 }
 
 template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
-core::Result<StateGauge<Concurrency, Access, Reset>*>
-Meter::create_state(std::string_view name, std::string_view unit) {
+core::Result<StateGauge<Concurrency, Access, Reset>*> Meter::create_state(std::string_view name,
+                                                                          std::string_view unit) {
     using Instrument = StateGauge<Concurrency, Access, Reset>;
     return create_instrument<Instrument>(
         MetricKind::State, name, unit, Concurrency, Access, Reset,
-        [](void* object) -> Instrument* {
-            return new (object) Instrument(MeterPasskey{});
-        });
+        [](void* object) -> Instrument* { return new (object) Instrument(MeterPasskey{}); });
 }
 
 template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
@@ -269,9 +260,7 @@ Meter::create_statistics(std::string_view name, std::string_view unit) {
     using Instrument = DescriptiveStatistics<Concurrency, Access, Reset>;
     return create_instrument<Instrument>(
         MetricKind::DescriptiveStatistics, name, unit, Concurrency, Access, Reset,
-        [](void* object) -> Instrument* {
-            return new (object) Instrument(MeterPasskey{});
-        });
+        [](void* object) -> Instrument* { return new (object) Instrument(MeterPasskey{}); });
 }
 
 template <ConcurrencyPolicy Concurrency, AccessPolicy Access, ResetPolicy Reset>
@@ -309,11 +298,10 @@ Meter::create_exponential_histogram(std::string_view name, std::int32_t scale,
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     using Instrument = ExponentialHistogram<Concurrency, Access, Reset>;
-    return create_instrument<Instrument>(
-        MetricKind::ExponentialHistogram, name, unit, Concurrency, Access, Reset,
-        [scale](void* object) -> Instrument* {
-            return new (object) Instrument(MeterPasskey{}, scale);
-        });
+    return create_instrument<Instrument>(MetricKind::ExponentialHistogram, name, unit, Concurrency,
+                                         Access, Reset, [scale](void* object) -> Instrument* {
+                                             return new (object) Instrument(MeterPasskey{}, scale);
+                                         });
 }
 
 } // namespace nexigen::metrics
@@ -327,5 +315,3 @@ struct std::formatter<nexigen::metrics::MetricProviderConfig> : std::formatter<s
         return std::formatter<std::string_view>::format(text, ctx);
     }
 };
-
-

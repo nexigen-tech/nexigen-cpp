@@ -51,8 +51,7 @@ bool wait_for_writer() {
 /// current hour; rotation labels are UTC-derived.
 std::string find_log_file() {
     std::error_code ec;
-    for (const auto& entry :
-         std::filesystem::directory_iterator(std::string(k_base_dir), ec)) {
+    for (const auto& entry : std::filesystem::directory_iterator(std::string(k_base_dir), ec)) {
         if (ec) {
             break;
         }
@@ -96,8 +95,8 @@ bool verify_log_file(const std::string& path) {
         }
     }
     if (lines != k_expected_records) {
-        print_line(std::format("record count mismatch: got {}, expected {}", lines,
-                               k_expected_records));
+        print_line(
+            std::format("record count mismatch: got {}, expected {}", lines, k_expected_records));
         return false;
     }
     if (!schema_ok) {
@@ -126,7 +125,8 @@ int main() {
     config.file_name = k_file_name;
     config.initial_level = LogLevel::Debug;
     config.rotation.kind = nexigen::logging::RotationSchedule::Hourly;
-    config.worker_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(0x1)); // request core 0 for the background JSON writer
+    config.worker_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(
+        0x1)); // request core 0 for the background JSON writer
     config.throttle.enabled = true;
     config.throttle.max_records_per_window = 4096;
     config.throttle.window_ns = 1'000'000'000; // 1 s window
@@ -145,8 +145,8 @@ int main() {
     }
     // Pinning problems are reported, not hidden; core 0 may be outside the
     // cpuset of a container, so a pin failure alone is not a failure here.
-    print_line(std::format("writer: start_code={}, mask=0x{:x}",
-                           logger.writer_start_code(), logger.writer_mask()));
+    print_line(std::format("writer: start_code={}, mask=0x{:x}", logger.writer_start_code(),
+                           logger.writer_mask()));
 
     std::array<std::jthread, k_workers> workers{};
     for (std::uint32_t worker = 0; worker < k_workers; ++worker) {

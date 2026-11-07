@@ -43,12 +43,23 @@ enum class SettingsSource : std::uint8_t {
 
 /// Parse a canonical source name (the exact to_string spelling). Returns false
 /// leaving the out-parameter UNCHANGED on any other spelling.
-[[nodiscard]] constexpr bool from_string(std::string_view name,
-                                         SettingsSource& out) noexcept {
-    if (name == "global")      { out = SettingsSource::Global; return true; }
-    if (name == "local")       { out = SettingsSource::Local; return true; }
-    if (name == "environment") { out = SettingsSource::Environment; return true; }
-    if (name == "computed")    { out = SettingsSource::Computed; return true; }
+[[nodiscard]] constexpr bool from_string(std::string_view name, SettingsSource& out) noexcept {
+    if (name == "global") {
+        out = SettingsSource::Global;
+        return true;
+    }
+    if (name == "local") {
+        out = SettingsSource::Local;
+        return true;
+    }
+    if (name == "environment") {
+        out = SettingsSource::Environment;
+        return true;
+    }
+    if (name == "computed") {
+        out = SettingsSource::Computed;
+        return true;
+    }
     return false;
 }
 
@@ -74,8 +85,8 @@ struct SettingsPaths {
     std::string local_file{};
 
     [[nodiscard]] std::string to_string() const {
-        return "SettingsPaths(global_file=\"" + global_file + "\", local_file=\"" +
-               local_file + "\")";
+        return "SettingsPaths(global_file=\"" + global_file + "\", local_file=\"" + local_file +
+               "\")";
     }
 };
 [[nodiscard]] inline std::string to_string(const SettingsPaths& paths) {
@@ -89,9 +100,8 @@ struct SettingsDiagnostic {
     std::string message{};
 
     [[nodiscard]] std::string to_string() const {
-        return "SettingsDiagnostic(source=" +
-               std::string(nexigen::core::to_string(source)) + ", field=" + field +
-               ", message=" + message + ")";
+        return "SettingsDiagnostic(source=" + std::string(nexigen::core::to_string(source)) +
+               ", field=" + field + ", message=" + message + ")";
     }
 };
 [[nodiscard]] inline std::string to_string(const SettingsDiagnostic& diag) {
@@ -100,8 +110,7 @@ struct SettingsDiagnostic {
 
 /// ADL JSON writer for the global/local file pair (cold path only).
 inline void to_json(nlohmann::json& j, const SettingsPaths& paths) {
-    j = nlohmann::json{{"global_file", paths.global_file},
-                       {"local_file", paths.local_file}};
+    j = nlohmann::json{{"global_file", paths.global_file}, {"local_file", paths.local_file}};
 }
 
 /// ADL JSON reader for the pair, non-throwing under JSON_NOEXCEPTION=1: a
@@ -150,4 +159,3 @@ inline void from_json(const nlohmann::json& j, SettingsDiagnostic& out) noexcept
 }
 
 } // namespace nexigen::core
-

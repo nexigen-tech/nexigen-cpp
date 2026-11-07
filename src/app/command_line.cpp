@@ -50,8 +50,8 @@ struct Collected {
     return token.size() > 1 && token.front() == '-';
 }
 
-void add_diagnostic(std::vector<CommandLineDiagnostic>& diagnostics,
-                    std::string_view option, std::string_view message) {
+void add_diagnostic(std::vector<CommandLineDiagnostic>& diagnostics, std::string_view option,
+                    std::string_view message) {
     diagnostics.push_back(CommandLineDiagnostic{std::string(option), std::string(message)});
 }
 
@@ -69,14 +69,12 @@ void store_value(Collected& collected, ValueKind kind, std::string_view value) {
             collected.log_level = value;
             collected.log_level_supplied = true;
             break;
-        case ValueKind::App_name:
-            collected.app_name = value;
-            break;
+        case ValueKind::App_name: collected.app_name = value; break;
     }
 }
 
-[[nodiscard]] bool take_next_value(std::span<const std::string_view> args,
-                                   std::size_t& index, std::string_view option,
+[[nodiscard]] bool take_next_value(std::span<const std::string_view> args, std::size_t& index,
+                                   std::string_view option,
                                    std::vector<CommandLineDiagnostic>& diagnostics,
                                    std::string_view& value) {
     if (index + 1 >= args.size()) {
@@ -94,9 +92,8 @@ void store_value(Collected& collected, ValueKind kind, std::string_view value) {
     return true;
 }
 
-void parse_long(std::string_view token, std::span<const std::string_view> args,
-                std::size_t& index, Collected& collected,
-                std::vector<CommandLineDiagnostic>& diagnostics) {
+void parse_long(std::string_view token, std::span<const std::string_view> args, std::size_t& index,
+                Collected& collected, std::vector<CommandLineDiagnostic>& diagnostics) {
     const std::size_t equals = token.find('=');
     const std::string_view name =
         equals == std::string_view::npos ? token : token.substr(0, equals);
@@ -117,9 +114,8 @@ void parse_long(std::string_view token, std::span<const std::string_view> args,
     add_diagnostic(diagnostics, name, "unknown option");
 }
 
-void parse_short(std::string_view token, std::span<const std::string_view> args,
-                 std::size_t& index, Collected& collected,
-                 std::vector<CommandLineDiagnostic>& diagnostics) {
+void parse_short(std::string_view token, std::span<const std::string_view> args, std::size_t& index,
+                 Collected& collected, std::vector<CommandLineDiagnostic>& diagnostics) {
     for (const OptionSpec& spec : kOptions) {
         if (token == spec.short_name) {
             std::string_view value;
@@ -141,8 +137,8 @@ void parse_short(std::string_view token, std::span<const std::string_view> args,
     add_diagnostic(diagnostics, token, "unknown option");
 }
 
-[[nodiscard]] CommandLineResult finish_parse(
-    Collected&& collected, std::vector<CommandLineDiagnostic>&& diagnostics) {
+[[nodiscard]] CommandLineResult finish_parse(Collected&& collected,
+                                             std::vector<CommandLineDiagnostic>&& diagnostics) {
     CommandLineOptions options{};
 
     if (!collected.global_supplied && !collected.local_supplied) {
@@ -154,8 +150,7 @@ void parse_short(std::string_view token, std::span<const std::string_view> args,
             add_diagnostic(diagnostics, "--global-settings",
                            "expected a non-empty absolute directory path");
         } else if (collected.global_settings_dir.front() != '/') {
-            add_diagnostic(diagnostics, "--global-settings",
-                           "expected an absolute directory path");
+            add_diagnostic(diagnostics, "--global-settings", "expected an absolute directory path");
         }
     }
     if (collected.local_supplied) {
@@ -163,8 +158,7 @@ void parse_short(std::string_view token, std::span<const std::string_view> args,
             add_diagnostic(diagnostics, "--local-settings",
                            "expected a non-empty relative directory path");
         } else if (collected.local_settings_dir.front() == '/') {
-            add_diagnostic(diagnostics, "--local-settings",
-                           "expected a relative directory path");
+            add_diagnostic(diagnostics, "--local-settings", "expected a relative directory path");
         }
     }
     if (collected.log_level_supplied) {
@@ -188,8 +182,7 @@ void parse_short(std::string_view token, std::span<const std::string_view> args,
     return options;
 }
 
-[[nodiscard]] std::string join_path(const std::string& directory,
-                                    std::string_view file) {
+[[nodiscard]] std::string join_path(const std::string& directory, std::string_view file) {
     if (directory.empty()) {
         return {};
     }
@@ -216,8 +209,7 @@ constexpr std::string_view kUsage =
 } // namespace
 
 std::string CommandLineDiagnostic::to_string() const {
-    return "CommandLineDiagnostic(option=\"" + option + "\", message=\"" + message +
-           "\")";
+    return "CommandLineDiagnostic(option=\"" + option + "\", message=\"" + message + "\")";
 }
 
 std::string CommandLineOptions::to_string() const {
@@ -226,14 +218,13 @@ std::string CommandLineOptions::to_string() const {
         level = std::string(logging::to_string(*log_level));
     }
     return "CommandLineOptions(global_settings_dir=\"" + global_settings_dir +
-           "\", local_settings_dir=\"" + local_settings_dir + "\", app_name=\"" +
-           app_name + "\", log_level=" + level +
-           ", help=" + std::string(help ? "true" : "false") + ")";
+           "\", local_settings_dir=\"" + local_settings_dir + "\", app_name=\"" + app_name +
+           "\", log_level=" + level + ", help=" + std::string(help ? "true" : "false") + ")";
 }
 
 std::string CommandLineError::to_string() const {
-    std::string out = "CommandLineError(code=" + std::string(core::to_string(code)) +
-                      ", diagnostics=[";
+    std::string out =
+        "CommandLineError(code=" + std::string(core::to_string(code)) + ", diagnostics=[";
     for (std::size_t i = 0; i < diagnostics.size(); ++i) {
         if (i != 0) {
             out += "; ";
@@ -396,14 +387,12 @@ CommandLineResult parse_command_line(int argc, const char* const argv[]) noexcep
     args.reserve(static_cast<std::size_t>(argc - 1));
     for (int index = 1; index < argc; ++index) {
         const char* const argument = argv[index];
-        args.emplace_back(argument == nullptr ? std::string_view{}
-                                              : std::string_view{argument});
+        args.emplace_back(argument == nullptr ? std::string_view{} : std::string_view{argument});
     }
     return parse_command_line(std::span<const std::string_view>{args.data(), args.size()});
 }
 
-CommandLineResult parse_command_line(
-    std::span<const std::string_view> args) noexcept {
+CommandLineResult parse_command_line(std::span<const std::string_view> args) noexcept {
     // Help wins over every other argument and does not require a directory.
     for (const std::string_view token : args) {
         if (token == "--") {
@@ -446,8 +435,7 @@ CommandLineResult parse_command_line(
     return finish_parse(std::move(collected), std::move(diagnostics));
 }
 
-AppSettingsPaths make_app_settings_paths(
-    const CommandLineOptions& options) noexcept {
+AppSettingsPaths make_app_settings_paths(const CommandLineOptions& options) noexcept {
     AppSettingsPaths paths{};
     paths.logging.global_file = join_path(options.global_settings_dir, "logging.json");
     paths.logging.local_file = join_path(options.local_settings_dir, "logging.json");
@@ -467,8 +455,7 @@ void apply_to(const CommandLineOptions& options, Settings& settings) noexcept {
     }
 }
 
-core::Status load_app_settings(const CommandLineOptions& options,
-                               Settings& out) noexcept {
+core::Status load_app_settings(const CommandLineOptions& options, Settings& out) noexcept {
     if (options.global_settings_dir.empty() && options.local_settings_dir.empty()) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }

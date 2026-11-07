@@ -30,8 +30,7 @@ namespace nexigen::logging::detail {
 
 /// Cache-line-padded runtime threshold shared by all concrete loggers.
 class LevelControl {
-    static_assert(std::atomic<LogLevel>::is_always_lock_free,
-                  "LogLevel atomics must be lock-free");
+    static_assert(std::atomic<LogLevel>::is_always_lock_free, "LogLevel atomics must be lock-free");
 
     struct alignas(64) Cell {
         std::atomic<LogLevel> level{LogLevel::Info}; ///< Relaxed load/store only.
@@ -42,8 +41,7 @@ public:
     constexpr LevelControl() noexcept = default;
 
     /// Start at a non-default threshold (config-driven construction time).
-    explicit constexpr LevelControl(LogLevel initial) noexcept
-        : cell_{.level = initial} {}
+    explicit constexpr LevelControl(LogLevel initial) noexcept : cell_{.level = initial} {}
 
     LevelControl(const LevelControl&) = delete;
     LevelControl& operator=(const LevelControl&) = delete;

@@ -52,16 +52,25 @@ enum class ClockLogLevel : std::uint8_t {
         case ClockLogLevel::info:    return "info";
         case ClockLogLevel::warning: return "warning";
         case ClockLogLevel::error:   return "error";
-        default:                       return "Unknown";
+        default:                     return "Unknown";
     }
 }
 
 /// Parse a canonical ClockLogLevel name; false leaves the out-parameter
 /// UNCHANGED on any other spelling.
 [[nodiscard]] constexpr bool from_string(std::string_view name, ClockLogLevel& out) noexcept {
-    if (name == "info")    { out = ClockLogLevel::info;    return true; }
-    if (name == "warning") { out = ClockLogLevel::warning; return true; }
-    if (name == "error")   { out = ClockLogLevel::error;   return true; }
+    if (name == "info") {
+        out = ClockLogLevel::info;
+        return true;
+    }
+    if (name == "warning") {
+        out = ClockLogLevel::warning;
+        return true;
+    }
+    if (name == "error") {
+        out = ClockLogLevel::error;
+        return true;
+    }
     return false;
 }
 
@@ -196,11 +205,11 @@ public:
         if (worker_.joinable()) {
             return std::unexpected(core::ErrorCode::Conflict);
         }
-        log_binding_ = detail::LogBinding{
-            static_cast<void*>(&logger),
-            [](void* self, ClockLogLevel level, std::string_view message) noexcept {
-                static_cast<Logger*>(self)->log(level, message);
-            }};
+        log_binding_ =
+            detail::LogBinding{static_cast<void*>(&logger), [](void* self, ClockLogLevel level,
+                                                               std::string_view message) noexcept {
+                                   static_cast<Logger*>(self)->log(level, message);
+                               }};
         return start();
     }
 
@@ -259,11 +268,9 @@ private:
 
 /// ClockLogLevel formats as its canonical name (mandate 11).
 
-
 /// The configuration formats as its diagnostic string (mandate 11).
 template <>
-struct std::formatter<nexigen::chrono::ChronoProviderConfig>
-    : std::formatter<std::string_view> {
+struct std::formatter<nexigen::chrono::ChronoProviderConfig> : std::formatter<std::string_view> {
     template <class Ctx>
     auto format(const nexigen::chrono::ChronoProviderConfig& config, Ctx& ctx) const {
         const std::string text = config.to_string();

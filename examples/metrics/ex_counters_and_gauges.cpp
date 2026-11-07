@@ -120,8 +120,10 @@ int main() {
     // --- 1. Single-threaded accumulation: exact, plain-storage hot path.
     std::printf("== SingleThreaded accumulation ==\n");
     const auto st_counter = (*meter)->create_counter<ST, Readable, Cumulative>("requests");
-    const auto st_int_gauge = (*meter)->create_gauge<std::int64_t, ST, Readable, Cumulative>("temperature_c");
-    const auto st_double_gauge = (*meter)->create_gauge<double, ST, Readable, Cumulative>("pressure_bar");
+    const auto st_int_gauge =
+        (*meter)->create_gauge<std::int64_t, ST, Readable, Cumulative>("temperature_c");
+    const auto st_double_gauge =
+        (*meter)->create_gauge<double, ST, Readable, Cumulative>("pressure_bar");
     expect(st_counter.has_value() && st_int_gauge.has_value() && st_double_gauge.has_value(),
            "single-threaded instruments created");
     if (!st_counter || !st_int_gauge || !st_double_gauge) {
@@ -146,7 +148,8 @@ int main() {
     // --- 2. Multi-threaded accumulation: wait-free per-thread shards.
     std::printf("== MultiThreaded accumulation ==\n");
     const auto mt_counter = (*meter)->create_counter<MT, Readable, Cumulative>("events");
-    const auto mt_gauge = (*meter)->create_gauge<std::int64_t, MT, Readable, Cumulative>("queue_depth");
+    const auto mt_gauge =
+        (*meter)->create_gauge<std::int64_t, MT, Readable, Cumulative>("queue_depth");
     expect(mt_counter.has_value() && mt_gauge.has_value(), "multi-threaded instruments created");
     if (!mt_counter || !mt_gauge) {
         return 1;
@@ -208,7 +211,8 @@ int main() {
     std::printf("== Cumulative vs ResetOnRead ==\n");
     const auto cumulative = (*meter)->create_counter<ST, Readable, Cumulative>("all_time");
     const auto windowed = (*meter)->create_counter<ST, Readable, ResetOnRead>("per_poll");
-    const auto windowed_gauge = (*meter)->create_gauge<std::int64_t, ST, Readable, ResetOnRead>("net_flow");
+    const auto windowed_gauge =
+        (*meter)->create_gauge<std::int64_t, ST, Readable, ResetOnRead>("net_flow");
     expect(cumulative.has_value() && windowed.has_value() && windowed_gauge.has_value(),
            "window instruments created");
     if (!cumulative || !windowed || !windowed_gauge) {

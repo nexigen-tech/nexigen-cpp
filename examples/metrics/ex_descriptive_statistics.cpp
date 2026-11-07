@@ -137,10 +137,12 @@ int main() {
                     window.mean);
         expect(window.count == static_cast<std::uint64_t>(worker_count * per_phase_worker),
                "window reports exactly its own interval's samples");
-        expect(near(window.min, static_cast<double>(phase * 10 + 1)), "window min is the phase min");
+        expect(near(window.min, static_cast<double>(phase * 10 + 1)),
+               "window min is the phase min");
         expect(near(window.max, static_cast<double>(phase * 10 + worker_count)),
                "window max is the phase max");
-        expect(near(window.mean, static_cast<double>(phase * 10) + 2.5), "window mean is the phase mean");
+        expect(near(window.mean, static_cast<double>(phase * 10) + 2.5),
+               "window mean is the phase mean");
     }
 
     // The cumulative instrument reflects the whole run.
@@ -207,7 +209,8 @@ int main() {
     expect(formatted == summary.to_string(), "std::format equals to_string() for the snapshot");
     expect(std::format("{}", MT) == "MultiThreaded", "policy enums format by canonical name");
     expect(std::format("{}", Readable) == "Readable", "access policy formats by canonical name");
-    expect(std::format("{}", ResetOnRead) == "ResetOnRead", "reset policy formats by canonical name");
+    expect(std::format("{}", ResetOnRead) == "ResetOnRead",
+           "reset policy formats by canonical name");
 
     std::printf("ex_descriptive_statistics: %s\n", g_failures == 0 ? "OK" : "FAILED");
     return g_failures == 0 ? 0 : 1;

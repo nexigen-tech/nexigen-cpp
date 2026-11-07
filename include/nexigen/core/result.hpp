@@ -35,14 +35,14 @@ namespace nexigen::core {
 /// Append-only contract: existing enumerators keep their numeric values, so
 /// recompiled and non-recompiled translation units stay ABI-compatible.
 enum class ErrorCode : std::uint8_t {
-    Ok,             ///< Success enumerator; not expected inside a Result's error arm.
-    BufferFull,     ///< Bounded queue rejected a push: all capacity is in use.
-    BufferEmpty,    ///< Bounded queue had nothing to pop.
-    InvalidArgument,///< Caller-supplied value violated a precondition.
-    SystemError,    ///< An OS call failed (errno-era failure, e.g. clock_gettime).
-    NotInitialized, ///< Operation attempted before required setup completed.
-    RateLimited,    ///< Rate policy rejected the request before any queue interaction.
-    Conflict,       ///< Another owner holds a process-global resource/state.
+    Ok,              ///< Success enumerator; not expected inside a Result's error arm.
+    BufferFull,      ///< Bounded queue rejected a push: all capacity is in use.
+    BufferEmpty,     ///< Bounded queue had nothing to pop.
+    InvalidArgument, ///< Caller-supplied value violated a precondition.
+    SystemError,     ///< An OS call failed (errno-era failure, e.g. clock_gettime).
+    NotInitialized,  ///< Operation attempted before required setup completed.
+    RateLimited,     ///< Rate policy rejected the request before any queue interaction.
+    Conflict,        ///< Another owner holds a process-global resource/state.
 };
 
 /// Compile-time name of an error code; returns a static-storage view, no
@@ -51,15 +51,15 @@ enum class ErrorCode : std::uint8_t {
 /// in the test TU, so the loss of -Wswitch coverage is compensated.
 [[nodiscard]] constexpr std::string_view to_string(ErrorCode code) noexcept {
     switch (code) {
-        case ErrorCode::Ok:             return "Ok";
-        case ErrorCode::BufferFull:     return "BufferFull";
-        case ErrorCode::BufferEmpty:    return "BufferEmpty";
-        case ErrorCode::InvalidArgument:return "InvalidArgument";
-        case ErrorCode::SystemError:    return "SystemError";
-        case ErrorCode::NotInitialized: return "NotInitialized";
-        case ErrorCode::RateLimited:    return "RateLimited";
-        case ErrorCode::Conflict:       return "Conflict";
-        default:                        return "Unknown";
+        case ErrorCode::Ok:              return "Ok";
+        case ErrorCode::BufferFull:      return "BufferFull";
+        case ErrorCode::BufferEmpty:     return "BufferEmpty";
+        case ErrorCode::InvalidArgument: return "InvalidArgument";
+        case ErrorCode::SystemError:     return "SystemError";
+        case ErrorCode::NotInitialized:  return "NotInitialized";
+        case ErrorCode::RateLimited:     return "RateLimited";
+        case ErrorCode::Conflict:        return "Conflict";
+        default:                         return "Unknown";
     }
 }
 
@@ -67,14 +67,38 @@ enum class ErrorCode : std::uint8_t {
 /// false leaving the out-parameter UNCHANGED on any other spelling — including
 /// "Unknown", which is a rendering, not an enumerator. constexpr in C++23.
 [[nodiscard]] constexpr bool from_string(std::string_view name, ErrorCode& out) noexcept {
-    if (name == "Ok") { out = ErrorCode::Ok; return true; }
-    if (name == "BufferFull") { out = ErrorCode::BufferFull; return true; }
-    if (name == "BufferEmpty") { out = ErrorCode::BufferEmpty; return true; }
-    if (name == "InvalidArgument") { out = ErrorCode::InvalidArgument; return true; }
-    if (name == "SystemError") { out = ErrorCode::SystemError; return true; }
-    if (name == "NotInitialized") { out = ErrorCode::NotInitialized; return true; }
-    if (name == "RateLimited") { out = ErrorCode::RateLimited; return true; }
-    if (name == "Conflict") { out = ErrorCode::Conflict; return true; }
+    if (name == "Ok") {
+        out = ErrorCode::Ok;
+        return true;
+    }
+    if (name == "BufferFull") {
+        out = ErrorCode::BufferFull;
+        return true;
+    }
+    if (name == "BufferEmpty") {
+        out = ErrorCode::BufferEmpty;
+        return true;
+    }
+    if (name == "InvalidArgument") {
+        out = ErrorCode::InvalidArgument;
+        return true;
+    }
+    if (name == "SystemError") {
+        out = ErrorCode::SystemError;
+        return true;
+    }
+    if (name == "NotInitialized") {
+        out = ErrorCode::NotInitialized;
+        return true;
+    }
+    if (name == "RateLimited") {
+        out = ErrorCode::RateLimited;
+        return true;
+    }
+    if (name == "Conflict") {
+        out = ErrorCode::Conflict;
+        return true;
+    }
     return false;
 }
 
@@ -96,14 +120,10 @@ inline void from_json(const nlohmann::json& j, ErrorCode& out) noexcept {
 
 /// Value-or-error return type: holds a T or an ErrorCode (custom E allowed).
 /// Never call value(); use has_value(), *res, res->, res.error().
-template <class T, class E = ErrorCode>
-using Result = std::expected<T, E>;
+template <class T, class E = ErrorCode> using Result = std::expected<T, E>;
 
 /// Outcome of an operation that carries no payload. Status{} means success.
 /// Never call value(); use has_value() and .error().
 using Status = std::expected<void, ErrorCode>;
 
 } // namespace nexigen::core
-
-
-

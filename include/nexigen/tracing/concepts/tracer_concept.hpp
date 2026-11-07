@@ -56,8 +56,7 @@ concept SpanGuard = requires(G& guard) {
 /// call shapes must compile), plus a cold-path diagnostic to_string().
 template <class T>
 concept Tracer = requires(T& tracer, std::string_view name, SpanKind kind,
-                          const SpanContext* parent,
-                          std::source_location location) {
+                          const SpanContext* parent, std::source_location location) {
     { tracer.start_span(name, kind, parent, location) } -> SpanGuard;
     { tracer.start_span(name, kind) } -> SpanGuard;
     { tracer.to_string() } -> std::same_as<std::string>;
@@ -90,23 +89,16 @@ public:
     /// type has no state and a trivial destructor (spec "zero-instruction").
     class NullSpan {
     public:
-        [[nodiscard]] bool set_attribute(std::string_view, int) const noexcept {
-            return false;
-        }
+        [[nodiscard]] bool set_attribute(std::string_view, int) const noexcept { return false; }
         [[nodiscard]] bool set_attribute(std::string_view, std::int64_t) const noexcept {
             return false;
         }
         [[nodiscard]] bool set_attribute(std::string_view, std::uint64_t) const noexcept {
             return false;
         }
-        [[nodiscard]] bool set_attribute(std::string_view, double) const noexcept {
-            return false;
-        }
-        [[nodiscard]] bool set_attribute(std::string_view, bool) const noexcept {
-            return false;
-        }
-        [[nodiscard]] bool set_attribute(std::string_view, std::string_view)
-            const noexcept {
+        [[nodiscard]] bool set_attribute(std::string_view, double) const noexcept { return false; }
+        [[nodiscard]] bool set_attribute(std::string_view, bool) const noexcept { return false; }
+        [[nodiscard]] bool set_attribute(std::string_view, std::string_view) const noexcept {
             return false;
         }
         [[nodiscard]] bool set_status(SpanStatus) const noexcept { return false; }
@@ -118,10 +110,9 @@ public:
 
     /// Returns the state-free null guard; the arguments are discarded
     /// without evaluation side effects (no ids, no stamps, no TLS).
-    [[nodiscard]] NullSpan start_span(std::string_view, SpanKind,
-                                       const SpanContext* = nullptr,
-                                       std::source_location = std::source_location::current())
-        const noexcept {
+    [[nodiscard]] NullSpan
+    start_span(std::string_view, SpanKind, const SpanContext* = nullptr,
+               std::source_location = std::source_location::current()) const noexcept {
         return {};
     }
 
@@ -130,7 +121,9 @@ public:
 };
 
 /// Free helpers (mandate 9): mirror the members.
-[[nodiscard]] inline std::string to_string(const NullTracer&) { return "NullTracer()"; }
+[[nodiscard]] inline std::string to_string(const NullTracer&) {
+    return "NullTracer()";
+}
 [[nodiscard]] inline std::string to_string(const NullTracer::NullSpan& span) {
     return span.to_string();
 }
@@ -144,8 +137,7 @@ inline void to_json(nlohmann::json& j, const NullTracer::NullSpan&) {
     j = nlohmann::json{{"type", "NullTracer::NullSpan"}};
 }
 
-static_assert(concepts::Tracer<NullTracer>,
-              "NullTracer must satisfy the Tracer contract");
+static_assert(concepts::Tracer<NullTracer>, "NullTracer must satisfy the Tracer contract");
 static_assert(std::is_trivially_destructible_v<NullTracer::NullSpan>,
               "the null guard must be trivially destructible (zero-instruction path)");
 
@@ -153,11 +145,8 @@ static_assert(std::is_trivially_destructible_v<NullTracer::NullSpan>,
 
 /// The null tracer and its guard format as their diagnostic strings
 /// (mandate 11).
-template <>
-struct std::formatter<nexigen::tracing::NullTracer> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::NullTracer&, Ctx& ctx) const {
+template <> struct std::formatter<nexigen::tracing::NullTracer> : std::formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::tracing::NullTracer&, Ctx& ctx) const {
         return std::formatter<std::string_view>::format("NullTracer()", ctx);
     }
 };
-

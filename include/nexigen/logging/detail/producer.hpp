@@ -182,25 +182,20 @@ class Producer {
     /// synthesized, cells keep their values). Never touches a ring: ownership
     /// of the ring push belongs to the caller's domain (owner `try_push` or
     /// direct sink delivery).
-    [[nodiscard]] static bool compose_summary_record(std::uint64_t rl,
-                                                     std::uint64_t bf,
-                                                     std::uint64_t se,
-                                                     std::uint64_t th,
+    [[nodiscard]] static bool compose_summary_record(std::uint64_t rl, std::uint64_t bf,
+                                                     std::uint64_t se, std::uint64_t th,
                                                      const chrono::Timestamp stamp,
                                                      Record& rec) noexcept {
         char buf[256];
-        const int n = std::snprintf(buf, sizeof buf,
-                                    "Dropped %llu record(s) in the last window "
-                                    "(rate-limited: %llu, buffer-full: %llu, "
-                                    "slot-exhausted: %llu, throttled: %llu).",
-                                    static_cast<unsigned long long>(rl) +
-                                        static_cast<unsigned long long>(bf) +
-                                        static_cast<unsigned long long>(se) +
-                                        static_cast<unsigned long long>(th),
-                                    static_cast<unsigned long long>(rl),
-                                    static_cast<unsigned long long>(bf),
-                                    static_cast<unsigned long long>(se),
-                                    static_cast<unsigned long long>(th));
+        const int n = std::snprintf(
+            buf, sizeof buf,
+            "Dropped %llu record(s) in the last window "
+            "(rate-limited: %llu, buffer-full: %llu, "
+            "slot-exhausted: %llu, throttled: %llu).",
+            static_cast<unsigned long long>(rl) + static_cast<unsigned long long>(bf) +
+                static_cast<unsigned long long>(se) + static_cast<unsigned long long>(th),
+            static_cast<unsigned long long>(rl), static_cast<unsigned long long>(bf),
+            static_cast<unsigned long long>(se), static_cast<unsigned long long>(th));
         if (n <= 0) {
             return false;
         }
@@ -213,8 +208,8 @@ class Producer {
         rec.fmt = ""; // text lives in the blob (rendered verbatim)
         rec.render = &render_text;
         const std::size_t take = static_cast<std::size_t>(n) < MessageCapacity
-                                    ? static_cast<std::size_t>(n)
-                                    : MessageCapacity;
+                                     ? static_cast<std::size_t>(n)
+                                     : MessageCapacity;
         std::memcpy(rec.arg_payload_.data(), buf, take);
         rec.arg_length = static_cast<std::uint16_t>(take);
         rec.flags = static_cast<std::uint8_t>(
@@ -303,8 +298,7 @@ public:
             const std::uint64_t th = spam_state_[i].throttled_count.load(std::memory_order_relaxed);
             if ((rl | bf | th | global_se) != 0ULL) {
                 Record rec{};
-                if (!compose_summary_record(rl, bf, global_se, th,
-                                            worker_stamp(), rec)) {
+                if (!compose_summary_record(rl, bf, global_se, th, worker_stamp(), rec)) {
                     return false;
                 }
                 rec.thread_id = cached_thread_id();
@@ -335,12 +329,11 @@ public:
     /// the unwired duplicate `logging::detail::SpscShardRing` was deleted
     /// (change fix-p1-races-process-correctness, analysis #7). Out-of-range
     /// indices fall back to slot 0 so tests cannot read out of bounds.
-    [[nodiscard]] core::SpscRingBuffer<Record, ShardCapacity>& shard(
-        std::size_t index) noexcept {
+    [[nodiscard]] core::SpscRingBuffer<Record, ShardCapacity>& shard(std::size_t index) noexcept {
         return pool_.shard(index);
     }
-    [[nodiscard]] const core::SpscRingBuffer<Record, ShardCapacity>& shard(
-        std::size_t index) const noexcept {
+    [[nodiscard]] const core::SpscRingBuffer<Record, ShardCapacity>&
+    shard(std::size_t index) const noexcept {
         return pool_.ring(index < MaxThreads ? index : 0U);
     }
 
@@ -360,8 +353,8 @@ public:
 
     /// Cold path (before the worker starts): install throttle policy.
     void configure_throttle(const ThrottleConfig& cfg) noexcept {
-        policy_.enabled = cfg.enabled && cfg.max_records_per_window != 0ULL &&
-                          cfg.window_ns != 0ULL;
+        policy_.enabled =
+            cfg.enabled && cfg.max_records_per_window != 0ULL && cfg.window_ns != 0ULL;
         policy_.max_records_per_window = cfg.max_records_per_window;
         policy_.window_ns = cfg.window_ns;
     }
@@ -383,7 +376,7 @@ public:
     /// and surfaced through dropped(). Every Packable argument is serialized
     /// inline; NOTHING formats on this thread.
     template <class... Args>
-        requires (Packable<std::remove_cvref_t<Args>> && ...)
+        requires(Packable<std::remove_cvref_t<Args>> && ...)
     void emit(LogLevel level, detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
         const LogLevel active = level_.level();
         if (active == LogLevel::Off || level < active) {
@@ -421,7 +414,8 @@ public:
 
         // Fixed-offset argument pack (design D5): compile-time layout, one
         // bounded memcpy per slot, no formatting, no allocation.
-        [[maybe_unused]] constexpr auto offsets = arg_offsets<MessageCapacity, std::remove_cvref_t<Args>...>();
+        [[maybe_unused]] constexpr auto offsets =
+            arg_offsets<MessageCapacity, std::remove_cvref_t<Args>...>();
         constexpr std::size_t total = arg_total<MessageCapacity, std::remove_cvref_t<Args>...>();
         static_assert(total <= MessageCapacity,
                       "format pack does not fit the inline blob: raise MessageCapacity");
@@ -448,15 +442,13 @@ public:
         }
 
         // Anti-spam Level 1: repeat suppression (hash includes packed args).
-        const std::uint64_t msg_hash = message_hash(
-            rec.file_name, rec.line, rec.fmt,
-            rec.arg_payload_.data(), rec.arg_length);
+        const std::uint64_t msg_hash =
+            message_hash(rec.file_name, rec.line, rec.fmt, rec.arg_payload_.data(), rec.arg_length);
         if (!spam_.check_repeat(spam_st, msg_hash, stamp.nanoseconds())) {
             return; // suppressed duplicate
         }
 
-        const core::Status pushed =
-            pool_.ring(static_cast<std::size_t>(slot)).try_push(rec);
+        const core::Status pushed = pool_.ring(static_cast<std::size_t>(slot)).try_push(rec);
         if (!pushed) {
             bump(st.buffer_full);
         }

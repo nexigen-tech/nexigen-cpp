@@ -42,8 +42,7 @@ struct alignas(64) ShardPoolState {
     std::uint64_t tokens_used{};               ///< owner-only plain state
     std::uint8_t pad_[32]{};
 };
-static_assert(sizeof(ShardPoolState) % 64 == 0,
-              "shard pool state owns whole cache lines");
+static_assert(sizeof(ShardPoolState) % 64 == 0, "shard pool state owns whole cache lines");
 
 /// The shared shard pool (see file header for the full contract).
 template <class Record, std::size_t ShardCapacity, std::size_t MaxThreads>
@@ -74,8 +73,8 @@ public:
     [[nodiscard]] core::SpscRingBuffer<Record, ShardCapacity>& ring(std::size_t slot) noexcept {
         return shards_[slot];
     }
-    [[nodiscard]] const core::SpscRingBuffer<Record, ShardCapacity>& ring(
-        std::size_t slot) const noexcept {
+    [[nodiscard]] const core::SpscRingBuffer<Record, ShardCapacity>&
+    ring(std::size_t slot) const noexcept {
         return shards_[slot];
     }
     [[nodiscard]] ShardPoolState& state(std::size_t slot) noexcept { return state_[slot]; }
@@ -101,8 +100,7 @@ public:
     }
 
     /// Cold-path test/diagnostic accessor for one shard (out-of-range → 0).
-    [[nodiscard]] core::SpscRingBuffer<Record, ShardCapacity>& shard(
-        std::size_t index) noexcept {
+    [[nodiscard]] core::SpscRingBuffer<Record, ShardCapacity>& shard(std::size_t index) noexcept {
         return shards_[index < MaxThreads ? index : 0U];
     }
 
@@ -117,8 +115,7 @@ private:
         std::uint8_t pad_[56]{};
     };
 
-    alignas(64) std::array<core::SpscRingBuffer<Record, ShardCapacity>, MaxThreads>
-        shards_{};
+    alignas(64) std::array<core::SpscRingBuffer<Record, ShardCapacity>, MaxThreads> shards_{};
     ShardPoolState state_[MaxThreads]{};
     RegistrationCell registration_{};
     ExhaustedCell exhausted_{};
@@ -150,9 +147,8 @@ std::int32_t ShardPool<Record, ShardCapacity, MaxThreads>::claim_slot() noexcept
             // stale TLS entry; its new registration has not published any slot
             // yet, so treat the entry as stale and re-register instead of
             // returning a slot the worker cannot drain.
-            if (entry.slot >= 0 &&
-                static_cast<std::uint32_t>(entry.slot) <
-                    registration_.active.load(std::memory_order_acquire)) {
+            if (entry.slot >= 0 && static_cast<std::uint32_t>(entry.slot) <
+                                       registration_.active.load(std::memory_order_acquire)) {
                 return entry.slot; // steady path: TLS only, no shared atomics
             }
             entry.owner = nullptr;
@@ -178,8 +174,7 @@ std::int32_t ShardPool<Record, ShardCapacity, MaxThreads>::claim_slot() noexcept
         exhausted_.slot_exhausted.fetch_add(1U, std::memory_order_relaxed);
         return -1; // TLS-cache overflow: counted drop (never blocks)
     }
-    const std::uint32_t claimed =
-        registration_.next_slot.fetch_add(1U, std::memory_order_relaxed);
+    const std::uint32_t claimed = registration_.next_slot.fetch_add(1U, std::memory_order_relaxed);
     if (claimed >= MaxThreads) {
         exhausted_.slot_exhausted.fetch_add(1U, std::memory_order_relaxed);
         return -1; // dropped: no slot (never blocks)
@@ -189,8 +184,7 @@ std::int32_t ShardPool<Record, ShardCapacity, MaxThreads>::claim_slot() noexcept
     std::uint32_t current = registration_.active.load(std::memory_order_relaxed);
     while (claimed + 1U > current &&
            !registration_.active.compare_exchange_weak(
-               current, claimed + 1U, std::memory_order_release,
-               std::memory_order_relaxed)) {
+               current, claimed + 1U, std::memory_order_release, std::memory_order_relaxed)) {
         // bounded: current strictly increases per retry, ≤ MaxThreads contenders
     }
     for (Entry& entry : tls) {

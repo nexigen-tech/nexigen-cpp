@@ -28,12 +28,12 @@ namespace nexigen::runner {
 /// single-instance behavior: streams in the instance directory, no extra
 /// environment, no affinity restriction, no settings sources, no level override.
 struct StartOptions {
-    std::string artifact_dir{};          ///< Empty = instance directory.
-    std::string global_settings_dir{};   ///< Absolute directory or empty.
-    std::string local_settings_dir{};    ///< Absolute directory or empty.
-    std::optional<logging::LogLevel> log_level{}; ///< Empty = keep settings value.
+    std::string artifact_dir{};                             ///< Empty = instance directory.
+    std::string global_settings_dir{};                      ///< Absolute directory or empty.
+    std::string local_settings_dir{};                       ///< Absolute directory or empty.
+    std::optional<logging::LogLevel> log_level{};           ///< Empty = keep settings value.
     std::vector<std::pair<std::string, std::string>> env{}; ///< Child-only env.
-    core::CpuSet cpus{};                 ///< Empty = unrestricted.
+    core::CpuSet cpus{};                                    ///< Empty = unrestricted.
 
     [[nodiscard]] std::string to_string() const;
 };
@@ -53,21 +53,16 @@ public:
     /// `identity.instance_dir` is derived as
     /// `<run_dir>/<app_name>/<instance_id>` when it is empty. A non-zero
     /// `timeout_s` starts the same stop sequence as `stop` on expiry.
-    [[nodiscard]] core::Status start(
-        const app::RunIdentity& identity,
-        std::string_view app_name,
-        const std::vector<std::string>& command,
-        std::uint64_t timeout_s = 0);
+    [[nodiscard]] core::Status start(const app::RunIdentity& identity, std::string_view app_name,
+                                     const std::vector<std::string>& command,
+                                     std::uint64_t timeout_s = 0);
 
     /// Options overload used by suite supervision. `artifact_dir` relocates
     /// runtime streams, `global_settings_dir`/`local_settings_dir` feed the
     /// settings merge, and `env`/`cpus` apply to the child before `exec`.
-    [[nodiscard]] core::Status start(
-        const app::RunIdentity& identity,
-        std::string_view app_name,
-        const std::vector<std::string>& command,
-        std::uint64_t timeout_s,
-        const StartOptions& options);
+    [[nodiscard]] core::Status start(const app::RunIdentity& identity, std::string_view app_name,
+                                     const std::vector<std::string>& command,
+                                     std::uint64_t timeout_s, const StartOptions& options);
 
     /// Start a detached suite supervisor and return once `suite.json` exists.
     [[nodiscard]] core::Status start_suite(const SuiteManifest& manifest,
@@ -77,15 +72,11 @@ public:
     /// SIGKILL. Writes/patches `exit.json` so a graceful stop is attributed
     /// to the runner. Idempotent: an instance that already has an `exit.json`
     /// is left untouched.
-    [[nodiscard]] core::Status stop(std::string_view instance_dir,
-                                    std::uint64_t grace_s = 5);
+    [[nodiscard]] core::Status stop(std::string_view instance_dir, std::uint64_t grace_s = 5);
 
     /// Report `running`, `stopped`, `exited`, or `unknown`, derived from
     /// `resource.json`, `/proc`, and `exit.json`.
-    [[nodiscard]] core::Status status(std::string_view instance_dir,
-                                      std::string& state) noexcept;
+    [[nodiscard]] core::Status status(std::string_view instance_dir, std::string& state) noexcept;
 };
 
 } // namespace nexigen::runner
-
-

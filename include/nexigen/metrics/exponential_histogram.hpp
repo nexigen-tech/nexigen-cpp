@@ -91,8 +91,8 @@ inline constexpr std::size_t boundary_master_size = std::size_t{1} << boundary_m
     static const std::array<double, boundary_master_size> table = [] {
         std::array<double, boundary_master_size> out{};
         for (std::size_t r = 0; r < boundary_master_size; ++r) {
-            out[r] = std::pow(2.0, static_cast<double>(r) /
-                                       static_cast<double>(boundary_master_size));
+            out[r] =
+                std::pow(2.0, static_cast<double>(r) / static_cast<double>(boundary_master_size));
         }
         return out;
     }();
@@ -104,9 +104,9 @@ inline constexpr std::size_t boundary_master_size = std::size_t{1} << boundary_m
         (scale < 0) ? 0 : ((scale > boundary_master_bits) ? boundary_master_bits : scale);
     const std::int64_t quotient = floor_div_pow2(index, static_cast<std::uint32_t>(s));
     const std::int64_t remainder = index - (quotient << s); // 0 <= remainder < 2^s
-    return std::ldexp(boundary_master()[static_cast<std::size_t>(remainder)
-                                        << (boundary_master_bits - s)],
-                      static_cast<int>(quotient));
+    return std::ldexp(
+        boundary_master()[static_cast<std::size_t>(remainder) << (boundary_master_bits - s)],
+        static_cast<int>(quotient));
 }
 
 /// Bucket index of a positive finite value at the given scale: the exact
@@ -127,8 +127,7 @@ inline constexpr std::size_t boundary_master_size = std::size_t{1} << boundary_m
         shift = 64;
         bits = std::bit_cast<std::uint64_t>(probe);
     }
-    const std::int64_t exponent =
-        static_cast<std::int64_t>((bits >> 52U) & 0x7FFU) - 1023;
+    const std::int64_t exponent = static_cast<std::int64_t>((bits >> 52U) & 0x7FFU) - 1023;
     const double m = static_cast<double>(bits & ((1ULL << 52U) - 1ULL)) * 0x1p-52; // [0, 1)
 
     // Candidate for floor(2^scale * log2(1 + m)): log2 lookup on the top 8
@@ -147,8 +146,8 @@ inline constexpr std::size_t boundary_master_size = std::size_t{1} << boundary_m
     constexpr double log2e = 1.4426950408889634;
     const double approx = (log2_lookup[hi_index] + (z - 0.5 * z * z) * log2e) *
                           static_cast<double>(std::size_t{1} << scale);
-    std::int64_t index = (exponent << scale) +
-                         static_cast<std::int64_t>(approx < 0.0 ? approx - 1.0 : approx);
+    std::int64_t index =
+        (exponent << scale) + static_cast<std::int64_t>(approx < 0.0 ? approx - 1.0 : approx);
 
     // Bounded correction against the exact boundaries (design D11).
     for (int step = 0; step < 4; ++step) {
@@ -224,10 +223,10 @@ struct alignas(64) ExponentialBank {
         }
         view.count = count.exchange(0U, std::memory_order_relaxed);
         view.sum = sum.exchange(0.0, std::memory_order_relaxed);
-        view.minimum = minimum.exchange(std::numeric_limits<double>::infinity(),
-                                        std::memory_order_relaxed);
-        view.maximum = maximum.exchange(-std::numeric_limits<double>::infinity(),
-                                        std::memory_order_relaxed);
+        view.minimum =
+            minimum.exchange(std::numeric_limits<double>::infinity(), std::memory_order_relaxed);
+        view.maximum =
+            maximum.exchange(-std::numeric_limits<double>::infinity(), std::memory_order_relaxed);
         view.effective_scale = effective_scale.load(std::memory_order_relaxed);
         view.base_index = base_index.load(std::memory_order_relaxed);
         return view;
@@ -268,20 +267,20 @@ struct alignas(64) ExponentialBank {
         double current = minimum.load(std::memory_order_relaxed);
         while (value < current &&
                !minimum.compare_exchange_weak(current, value, std::memory_order_relaxed,
-                                              std::memory_order_relaxed)) {
-        }
+                                              std::memory_order_relaxed)) {}
         current = maximum.load(std::memory_order_relaxed);
         while (value > current &&
                !maximum.compare_exchange_weak(current, value, std::memory_order_relaxed,
-                                              std::memory_order_relaxed)) {
-        }
+                                              std::memory_order_relaxed)) {}
     }
 
     /// Halve the resolution: buckets collapse pairwise, the window widens.
     void coarsen(std::int64_t lowest_index) noexcept {
         const std::int32_t scale = effective_scale.load(std::memory_order_relaxed);
         const std::int64_t base = base_index.load(std::memory_order_relaxed);
-        const std::int64_t anchor = (base == unanchored_index) ? lowest_index : ((base < lowest_index) ? base : lowest_index);
+        const std::int64_t anchor = (base == unanchored_index)
+                                        ? lowest_index
+                                        : ((base < lowest_index) ? base : lowest_index);
         const std::int64_t new_base = floor_div_pow2(anchor, 1U);
         std::uint64_t collapsed[max_exponential_buckets]{};
         if (base != unanchored_index) {
@@ -296,7 +295,8 @@ struct alignas(64) ExponentialBank {
                 // Loss-free collapse: buckets falling outside the new window
                 // fold into the edge buckets (spec "coarsen without losing
                 // samples"), matching the merge and scale-0 paths.
-                if (position >= 0 && position < static_cast<std::int64_t>(max_exponential_buckets)) {
+                if (position >= 0 &&
+                    position < static_cast<std::int64_t>(max_exponential_buckets)) {
                     collapsed[static_cast<std::size_t>(position)] += value;
                 } else if (position < 0) {
                     collapsed[0] += value;
@@ -339,7 +339,7 @@ struct ExponentialMerge {
 /// onto the merged scale (finer banks shift down, the scale-0 fallback up),
 /// folding out-of-window buckets into the edge buckets.
 inline void ExponentialBank::merge_view(const View& view, ExponentialMerge& merged,
-                                         std::int32_t merged_scale) noexcept {
+                                        std::int32_t merged_scale) noexcept {
     if (view.base_index == unanchored_index) {
         return;
     }
@@ -377,8 +377,12 @@ inline void ExponentialBank::merge_view(const View& view, ExponentialMerge& merg
             merged.maximum = view.maximum;
             merged.empty = false;
         } else {
-            if (view.minimum < merged.minimum) { merged.minimum = view.minimum; }
-            if (view.maximum > merged.maximum) { merged.maximum = view.maximum; }
+            if (view.minimum < merged.minimum) {
+                merged.minimum = view.minimum;
+            }
+            if (view.maximum > merged.maximum) {
+                merged.maximum = view.maximum;
+            }
         }
     }
 }
@@ -387,8 +391,7 @@ inline void ExponentialBank::merge_view(const View& view, ExponentialMerge& merg
 
 /// An exponentially bucketed histogram. Constructible only through a Meter.
 template <ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,
-          AccessPolicy Access = AccessPolicy::Readable,
-          ResetPolicy Reset = ResetPolicy::Cumulative>
+          AccessPolicy Access = AccessPolicy::Readable, ResetPolicy Reset = ResetPolicy::Cumulative>
 class ExponentialHistogram {
 public:
     static constexpr MetricKind kind = MetricKind::ExponentialHistogram;
@@ -448,7 +451,9 @@ public:
 
     /// Current snapshot (buckets, summary, percentiles). Available only for
     /// Readable instruments.
-    [[nodiscard]] HistogramSnapshot read() const requires (Access == AccessPolicy::Readable) {
+    [[nodiscard]] HistogramSnapshot read() const
+        requires(Access == AccessPolicy::Readable)
+    {
         // Pass 1: the coarsest scale in play — the merged frame lives there so
         // every slot's buckets land on a common axis.
         std::int32_t merged_scale = scale_;
@@ -456,8 +461,10 @@ public:
             merged_scale = cell_.effective_scale.load(std::memory_order_relaxed);
         } else {
             for (std::size_t i = 0; i < detail::shard_count; ++i) {
-                const std::int32_t first = slots_[i].bank[0].effective_scale.load(std::memory_order_relaxed);
-                const std::int32_t second = slots_[i].bank[1].effective_scale.load(std::memory_order_relaxed);
+                const std::int32_t first =
+                    slots_[i].bank[0].effective_scale.load(std::memory_order_relaxed);
+                const std::int32_t second =
+                    slots_[i].bank[1].effective_scale.load(std::memory_order_relaxed);
                 const std::int32_t slot_scale = (first < second) ? first : second;
                 if (slot_scale < merged_scale) {
                     merged_scale = slot_scale;
@@ -483,12 +490,10 @@ public:
         const bool consuming = (Reset == ResetPolicy::ResetOnRead);
         // The shared fallback shard lives in a fixed scale-0 window and is
         // rebased onto the merged frame by merge_bank.
-        detail::ExponentialBank::merge_view(consuming ? fallback_.take_view()
-                                                        : fallback_.load_view(),
-                                             merged, merged_scale);
-        const std::uint64_t zeros = consuming
-            ? zero_count_.exchange(0U, std::memory_order_relaxed)
-            : zero_count_.load(std::memory_order_relaxed);
+        detail::ExponentialBank::merge_view(
+            consuming ? fallback_.take_view() : fallback_.load_view(), merged, merged_scale);
+        const std::uint64_t zeros = consuming ? zero_count_.exchange(0U, std::memory_order_relaxed)
+                                              : zero_count_.load(std::memory_order_relaxed);
 
         HistogramSnapshot snapshot{};
         snapshot.ignored_samples = ignored_.load(std::memory_order_relaxed);
@@ -522,7 +527,9 @@ public:
     }
 
     /// Full record for this instrument (identity, classification, values).
-    [[nodiscard]] MetricRecord snapshot() const requires (Access == AccessPolicy::Readable) {
+    [[nodiscard]] MetricRecord snapshot() const
+        requires(Access == AccessPolicy::Readable)
+    {
         MetricRecord record = detail::make_record(kind, concurrency, access, reset, identity_);
         record.histogram = read();
         return record;
@@ -542,8 +549,7 @@ public:
     friend void to_json(nlohmann::json& j, const ExponentialHistogram& histogram) {
         j = detail::classification_json(ExponentialHistogram::kind,
                                         ExponentialHistogram::concurrency,
-                                        ExponentialHistogram::access,
-                                        ExponentialHistogram::reset);
+                                        ExponentialHistogram::access, ExponentialHistogram::reset);
         j["scale"] = histogram.scale_;
     }
 
@@ -551,7 +557,8 @@ private:
     friend class Meter;
     friend class MetricProvider;
 
-    explicit ExponentialHistogram(const MeterPasskey&, std::int32_t scale) noexcept : scale_(scale) {
+    explicit ExponentialHistogram(const MeterPasskey&, std::int32_t scale) noexcept
+        : scale_(scale) {
         cell_.effective_scale.store(scale, std::memory_order_relaxed);
         for (auto& slot : slots_) {
             slot.bank[0].effective_scale.store(scale, std::memory_order_relaxed);
@@ -581,14 +588,16 @@ private:
                 return;
             }
             const std::int64_t position = index - base;
-            if (position >= 0 && position < static_cast<std::int64_t>(detail::max_exponential_buckets)) {
+            if (position >= 0 &&
+                position < static_cast<std::int64_t>(detail::max_exponential_buckets)) {
                 bank.apply(value, static_cast<std::size_t>(position));
                 return;
             }
             if (scale <= 0) {
                 // Cannot coarsen any further: fold into the nearest edge so the
                 // sample still counts (bucket totals stay exact).
-                const std::size_t edge = (position < 0) ? 0U : (detail::max_exponential_buckets - 1U);
+                const std::size_t edge =
+                    (position < 0) ? 0U : (detail::max_exponential_buckets - 1U);
                 bank.apply(value, edge);
                 return;
             }
@@ -606,9 +615,9 @@ private:
             }
             const std::int32_t scale = bank.effective_scale.load(std::memory_order_relaxed);
             const std::int32_t delta = scale - merged_scale;
-            const std::int64_t here = (delta > 0)
-                                          ? detail::floor_div_pow2(base, static_cast<std::uint32_t>(delta))
-                                          : (base << (-delta));
+            const std::int64_t here =
+                (delta > 0) ? detail::floor_div_pow2(base, static_cast<std::uint32_t>(delta))
+                            : (base << (-delta));
             if (lowest == detail::unanchored_index || here < lowest) {
                 lowest = here;
             }
@@ -688,7 +697,8 @@ private:
         snapshot.p999 = percentile_of(snapshot, rank_of(0.999));
     }
 
-    [[nodiscard]] double percentile_of(const HistogramSnapshot& snapshot, double rank) const noexcept {
+    [[nodiscard]] double percentile_of(const HistogramSnapshot& snapshot,
+                                       double rank) const noexcept {
         if (snapshot.zero_count > 0U && rank <= static_cast<double>(snapshot.zero_count)) {
             return 0.0;
         }
@@ -700,9 +710,8 @@ private:
             }
             if (static_cast<double>(cumulative + in_bucket) >= rank) {
                 const double lower = snapshot.buckets_lower[i];
-                const double upper = (i + 1U < snapshot.bucket_count)
-                                         ? snapshot.buckets_lower[i + 1U]
-                                         : lower;
+                const double upper =
+                    (i + 1U < snapshot.bucket_count) ? snapshot.buckets_lower[i + 1U] : lower;
                 return (lower + upper) * 0.5;
             }
             cumulative += in_bucket;
@@ -715,48 +724,47 @@ private:
 
     std::int32_t scale_{0};
 
-    mutable detail::ExponentialBank cell_{};                    // SingleThreaded
+    mutable detail::ExponentialBank cell_{};                       // SingleThreaded
     mutable detail::ExponentialSlot slots_[detail::shard_count]{}; // MultiThreaded
-    mutable detail::ExponentialBank fallback_{};               // shared >32-thread cell
+    mutable detail::ExponentialBank fallback_{};                   // shared >32-thread cell
     mutable std::atomic<std::uint64_t> ignored_{0};
     mutable std::atomic<std::uint64_t> zero_count_{0};
 };
 
 static_assert(sizeof(ExponentialHistogram<ConcurrencyPolicy::MultiThreaded, AccessPolicy::Readable,
-                                           ResetPolicy::ResetOnRead>) <=
+                                          ResetPolicy::ResetOnRead>) <=
                   detail::max_exponential_histogram_size,
               "exponential histogram must fit the registry budget");
-static_assert(concepts::Metric<ExponentialHistogram<ConcurrencyPolicy::SingleThreaded,
-                                                     AccessPolicy::Readable,
-                                                     ResetPolicy::Cumulative>>,
-              "ExponentialHistogram must satisfy the Metric concept");
-static_assert(concepts::ReadableMetric<ExponentialHistogram<ConcurrencyPolicy::SingleThreaded,
-                                                             AccessPolicy::Readable,
-                                                             ResetPolicy::Cumulative>>,
-              "a Readable exponential histogram must satisfy the ReadableMetric concept");
-static_assert(!concepts::ReadableMetric<ExponentialHistogram<ConcurrencyPolicy::SingleThreaded,
-                                                              AccessPolicy::WriteOnly,
-                                                              ResetPolicy::Cumulative>>,
-              "a WriteOnly exponential histogram must NOT satisfy the ReadableMetric concept");
-static_assert(!detail::HasRead<ExponentialHistogram<ConcurrencyPolicy::SingleThreaded,
-                                                    AccessPolicy::WriteOnly,
-                                                    ResetPolicy::Cumulative>>,
-              "a WriteOnly exponential histogram must not expose read()");
-static_assert(!detail::HasSnapshot<ExponentialHistogram<ConcurrencyPolicy::SingleThreaded,
-                                                        AccessPolicy::WriteOnly,
-                                                        ResetPolicy::Cumulative>>,
-              "a WriteOnly exponential histogram must not expose snapshot()");
+static_assert(
+    concepts::Metric<ExponentialHistogram<ConcurrencyPolicy::SingleThreaded, AccessPolicy::Readable,
+                                          ResetPolicy::Cumulative>>,
+    "ExponentialHistogram must satisfy the Metric concept");
+static_assert(
+    concepts::ReadableMetric<ExponentialHistogram<ConcurrencyPolicy::SingleThreaded,
+                                                  AccessPolicy::Readable, ResetPolicy::Cumulative>>,
+    "a Readable exponential histogram must satisfy the ReadableMetric concept");
+static_assert(
+    !concepts::ReadableMetric<ExponentialHistogram<
+        ConcurrencyPolicy::SingleThreaded, AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
+    "a WriteOnly exponential histogram must NOT satisfy the ReadableMetric concept");
+static_assert(
+    !detail::HasRead<ExponentialHistogram<ConcurrencyPolicy::SingleThreaded,
+                                          AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
+    "a WriteOnly exponential histogram must not expose read()");
+static_assert(
+    !detail::HasSnapshot<ExponentialHistogram<ConcurrencyPolicy::SingleThreaded,
+                                              AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
+    "a WriteOnly exponential histogram must not expose snapshot()");
 
 /// Free helper (mandate 9): mirrors the member.
 template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::AccessPolicy Access,
           nexigen::metrics::ResetPolicy Reset>
-[[nodiscard]] std::string to_string(
-    const nexigen::metrics::ExponentialHistogram<Concurrency, Access, Reset>& histogram) {
+[[nodiscard]] std::string
+to_string(const nexigen::metrics::ExponentialHistogram<Concurrency, Access, Reset>& histogram) {
     return histogram.to_string();
 }
 
 } // namespace nexigen::metrics
-
 
 /// Exponential histograms format as their diagnostic string (mandate 11).
 template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::AccessPolicy Access,

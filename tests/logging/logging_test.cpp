@@ -35,9 +35,9 @@
 
 #include <malloc.h> // mallinfo2(): glibc-счётчики кучи (Linux-only проект)
 
-#include <fcntl.h>   // openat/read for the rotation round-trip test
+#include <fcntl.h> // openat/read for the rotation round-trip test
 #include <sys/stat.h>
-#include <dirent.h>  // period directory walk for rotation/soak tests
+#include <dirent.h> // period directory walk for rotation/soak tests
 
 #include "../support/test_temp.hpp"
 
@@ -80,15 +80,16 @@
 #endif
 
 using namespace nexigen::core;   // test TU: exercise core unqualified
-using namespace nexigen::chrono;  // record stamps/clock reads come from the chrono module
+using namespace nexigen::chrono; // record stamps/clock reads come from the chrono module
 using namespace nexigen::logging;
-namespace core = nexigen::core;    // also allow explicit core:: qualification in fixtures
+namespace core = nexigen::core;     // also allow explicit core:: qualification in fixtures
 namespace chrono = nexigen::chrono; // and explicit chrono:: qualification (stamps)
 
 // Compile-away proof helper for task 4.1 (external linkage so -O3 keeps a
 // standalone copy; defined after the suites, used below). The emitted body
 // of _Z9null_loopi must contain no logging call. Verify:
-//   objdump -d build/release/tests/nexigen_logging_tests | sed -n '/<_Z9null_loopi>:/,/^$/p' | grep -c "call"
+//   objdump -d build/release/tests/nexigen_logging_tests | sed -n '/<_Z9null_loopi>:/,/^$/p' | grep
+//   -c "call"
 // (expect 0)
 int null_loop(int iterations) noexcept;
 
@@ -106,7 +107,8 @@ int null_loop(int iterations) noexcept;
 //       static_cast<void>(c.get<1U>());                           // index beyond pack
 //   }
 //   EOF
-//   g++ -std=c++23 -fno-exceptions -fno-rtti -D_GNU_SOURCE -Iinclude -c /tmp/opencode/composite_neg.cpp -o /dev/null
+//   g++ -std=c++23 -fno-exceptions -fno-rtti -D_GNU_SOURCE -Iinclude -c
+//   /tmp/opencode/composite_neg.cpp -o /dev/null
 //       # expect: static assertion failed
 //   rm /tmp/opencode/composite_neg.cpp
 
@@ -152,10 +154,9 @@ static_assert(offsetof(LogRecord<128>, arg_payload_) == 56);
 static_assert(std::is_trivially_destructible_v<FormatWithLocation<>>);
 static_assert(requires { FormatWithLocation<>{"plain"}; });
 static_assert(requires { FormatWithLocation<double>{"{:.4f}"}; });
-static_assert(detail::Packable<double> && detail::Packable<int> &&
-              detail::Packable<bool> && detail::Packable<std::string_view> &&
-              detail::Packable<LogLevel> && detail::Packable<Timestamp> &&
-              detail::Packable<const char*>);
+static_assert(detail::Packable<double> && detail::Packable<int> && detail::Packable<bool> &&
+              detail::Packable<std::string_view> && detail::Packable<LogLevel> &&
+              detail::Packable<Timestamp> && detail::Packable<const char*>);
 static_assert(!detail::Packable<std::string> && !detail::Packable<double*>);
 
 namespace {
@@ -172,36 +173,49 @@ std::size_t g_alloc_used = 0;
 
 } // namespace
 
-[[noreturn]] void arena_exhausted() { std::abort(); }
+[[noreturn]] void arena_exhausted() {
+    std::abort();
+}
 
 void* operator new(std::size_t size) {
     const std::size_t rounded = (size + 15U) & ~static_cast<std::size_t>(15U);
-    if (g_alloc_used + rounded > sizeof(g_arena)) { arena_exhausted(); }
+    if (g_alloc_used + rounded > sizeof(g_arena)) {
+        arena_exhausted();
+    }
     void* p = g_arena + g_alloc_used;
     g_alloc_used += rounded;
     return p;
 }
 
-void* operator new[](std::size_t size) { return ::operator new(size); }
+void* operator new[](std::size_t size) {
+    return ::operator new(size);
+}
 
-void operator delete(void* ptr) noexcept { static_cast<void>(ptr); }
-void operator delete(void* ptr, std::size_t) noexcept { static_cast<void>(ptr); }
-void operator delete[](void* ptr) noexcept { static_cast<void>(ptr); }
-void operator delete[](void* ptr, std::size_t) noexcept { static_cast<void>(ptr); }
+void operator delete(void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete(void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
 
-#define NX_CHECK(condition)                                                                     \
-    do {                                                                                        \
-        ++g_checks;                                                                             \
-        if (!(condition)) {                                                                     \
-            ++g_failures;                                                                       \
-            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition);          \
-        }                                                                                       \
+#define NX_CHECK(condition)                                                                        \
+    do {                                                                                           \
+        ++g_checks;                                                                                \
+        if (!(condition)) {                                                                        \
+            ++g_failures;                                                                          \
+            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition);              \
+        }                                                                                          \
     } while (false)
 
 namespace {
 
-void run_suite(const char* suite_name, void (*body)())
-{
+void run_suite(const char* suite_name, void (*body)()) {
     const int checks_before = g_checks;
     const int failures_before = g_failures;
 
@@ -246,17 +260,22 @@ void test_harness() {
 // defect — absence/signature errors are compile law.
 
 // The five conveniences below `fatal` are boilerplate in every fixture.
-#define NX_CONV_5()                                                                                    \
-    template <class... A> void verbose(detail::format_param_t<A...> f, A&&... a) noexcept                  \
-    { log(LogLevel::Verbose, f, std::forward<A>(a)...); }                                              \
-    template <class... A> void debug(detail::format_param_t<A...> f, A&&... a) noexcept                    \
-    { log(LogLevel::Debug, f, std::forward<A>(a)...); }                                                \
-    template <class... A> void info(detail::format_param_t<A...> f, A&&... a) noexcept                     \
-    { log(LogLevel::Info, f, std::forward<A>(a)...); }                                                 \
-    template <class... A> void warning(detail::format_param_t<A...> f, A&&... a) noexcept                  \
-    { log(LogLevel::Warning, f, std::forward<A>(a)...); }                                              \
-    template <class... A> void error(detail::format_param_t<A...> f, A&&... a) noexcept                    \
-    { log(LogLevel::Error, f, std::forward<A>(a)...); }
+#define NX_CONV_5()                                                                                \
+    template <class... A> void verbose(detail::format_param_t<A...> f, A&&... a) noexcept {        \
+        log(LogLevel::Verbose, f, std::forward<A>(a)...);                                          \
+    }                                                                                              \
+    template <class... A> void debug(detail::format_param_t<A...> f, A&&... a) noexcept {          \
+        log(LogLevel::Debug, f, std::forward<A>(a)...);                                            \
+    }                                                                                              \
+    template <class... A> void info(detail::format_param_t<A...> f, A&&... a) noexcept {           \
+        log(LogLevel::Info, f, std::forward<A>(a)...);                                             \
+    }                                                                                              \
+    template <class... A> void warning(detail::format_param_t<A...> f, A&&... a) noexcept {        \
+        log(LogLevel::Warning, f, std::forward<A>(a)...);                                          \
+    }                                                                                              \
+    template <class... A> void error(detail::format_param_t<A...> f, A&&... a) noexcept {          \
+        log(LogLevel::Error, f, std::forward<A>(a)...);                                            \
+    }
 
 /// Complete conforming surface: the positive reference for the concept.
 struct FullLoggerModel {
@@ -266,14 +285,12 @@ struct FullLoggerModel {
 
     void set_level(LogLevel lv) noexcept { levels_.set_level(lv); }
     [[nodiscard]] LogLevel level() const noexcept { return levels_.level(); }
-    template <class... A>
-    void log(LogLevel lv, detail::format_param_t<A...>, A&&...) noexcept {
+    template <class... A> void log(LogLevel lv, detail::format_param_t<A...>, A&&...) noexcept {
         last_level = lv;
         ++calls;
     }
     NX_CONV_5()
-    template <class... A>
-    void fatal(detail::format_param_t<A...> f, A&&... a) noexcept {
+    template <class... A> void fatal(detail::format_param_t<A...> f, A&&... a) noexcept {
         log(LogLevel::Fatal, f, std::forward<A>(a)...);
     }
     [[nodiscard]] Status flush() noexcept { return {}; }
@@ -287,16 +304,12 @@ struct FailFlushLogger {
     core::ErrorCode code{core::ErrorCode::InvalidArgument};
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
-    template <class... A>
-    void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
+    template <class... A> void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
     NX_CONV_5()
-    template <class... A>
-    void fatal(detail::format_param_t<A...> f, A&&... a) noexcept {
+    template <class... A> void fatal(detail::format_param_t<A...> f, A&&... a) noexcept {
         log(LogLevel::Fatal, f, std::forward<A>(a)...);
     }
-    [[nodiscard]] Status flush() noexcept {
-        return std::unexpected(code);
-    }
+    [[nodiscard]] Status flush() noexcept { return std::unexpected(code); }
 };
 
 struct NoFatalModel { // fatal omitted entirely
@@ -313,8 +326,7 @@ struct NoFlushModel { // flush omitted entirely
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
     template <class... A> void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
     NX_CONV_5()
-    template <class... A>
-    void fatal(detail::format_param_t<A...> f, A&&... a) noexcept {
+    template <class... A> void fatal(detail::format_param_t<A...> f, A&&... a) noexcept {
         log(LogLevel::Fatal, f, std::forward<A>(a)...);
     }
 };
@@ -325,8 +337,7 @@ struct LevelNonconstModel { // level() loses const
     [[nodiscard]] LogLevel level() noexcept { return LogLevel::Info; }
     template <class... A> void log(LogLevel, detail::format_param_t<A...>, A&&...) noexcept {}
     NX_CONV_5()
-    template <class... A>
-    void fatal(detail::format_param_t<A...> f, A&&... a) noexcept {
+    template <class... A> void fatal(detail::format_param_t<A...> f, A&&... a) noexcept {
         log(LogLevel::Fatal, f, std::forward<A>(a)...);
     }
     [[nodiscard]] Status flush() noexcept { return {}; }
@@ -336,12 +347,10 @@ static_assert(!concepts::Logger<LevelNonconstModel>);
 struct LogNotNoexceptModel { // log() loses noexcept
     void set_level(LogLevel) noexcept {}
     [[nodiscard]] LogLevel level() const noexcept { return LogLevel::Info; }
-    template <class... A>
-    void log(LogLevel, detail::format_param_t<A...>, A&&...) { ++calls; }
+    template <class... A> void log(LogLevel, detail::format_param_t<A...>, A&&...) { ++calls; }
     int calls{0};
     NX_CONV_5()
-    template <class... A>
-    void fatal(detail::format_param_t<A...>, A&&...) noexcept {}
+    template <class... A> void fatal(detail::format_param_t<A...>, A&&...) noexcept {}
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
 static_assert(!concepts::Logger<LogNotNoexceptModel>);
@@ -425,7 +434,9 @@ void test_levels() {
     std::jthread reader([&live, &bad] {
         for (int i = 0; i < 200'000; ++i) {
             const LogLevel seen = live.level();
-            if (seen != LogLevel::Debug && seen != LogLevel::Off) { ++bad; }
+            if (seen != LogLevel::Debug && seen != LogLevel::Off) {
+                ++bad;
+            }
         }
     });
     NX_CHECK(bad == 0); // jthread destructors join both threads
@@ -436,8 +447,7 @@ void test_levels() {
     // SystemError (second, suppressed in the return) — configured through
     // the by-index accessors (spec logging/composite-logger).
     {
-        CompositeLogger<NullLogger, FailFlushLogger, FailFlushLogger>
-            composite{};
+        CompositeLogger<NullLogger, FailFlushLogger, FailFlushLogger> composite{};
         composite.get<1>().code = core::ErrorCode::InvalidArgument;
         composite.get<2>().code = core::ErrorCode::SystemError;
         const core::Status flushed = composite.flush();
@@ -450,10 +460,10 @@ void test_levels() {
 // round-trip is the payload contract; layout is pinned at compile time above.
 // Round-trip harness (task 4.2): pack args into a record, render into scratch,
 // compare against std::format at the same literal/arguments.
-template <class... Args>
-[[nodiscard]] std::string rendered(const char* lit, Args&&... args) {
+template <class... Args> [[nodiscard]] std::string rendered(const char* lit, Args&&... args) {
     LogRecord<128> rec{};
-    [[maybe_unused]] constexpr auto offs = detail::arg_offsets<128U, std::remove_cvref_t<Args>...>();
+    [[maybe_unused]] constexpr auto offs =
+        detail::arg_offsets<128U, std::remove_cvref_t<Args>...>();
     constexpr std::size_t total = detail::arg_total<128U, std::remove_cvref_t<Args>...>();
     static_assert(total <= 128U, "harness pack must fit");
     std::size_t i = 0;
@@ -595,14 +605,16 @@ void test_producer() {
     NX_CHECK(prod.ring_size() == 8);
     prod.set_level(LogLevel::Fatal);
     prod.emit(LogLevel::Error, "while-full"); // filtered path
-    NX_CHECK(prod.ring_size() == 8); // untouched by the filtered call
+    NX_CHECK(prod.ring_size() == 8);          // untouched by the filtered call
     prod.set_level(LogLevel::Info);
 
     // Drain preserves FIFO order (v0..v7 as written).
     int order_bad = 0;
     for (int i = 0; i < 8; ++i) {
         if (prod.pop(out)) {
-            if (rendered_value(out) != static_cast<std::uint64_t>(i)) { ++order_bad; }
+            if (rendered_value(out) != static_cast<std::uint64_t>(i)) {
+                ++order_bad;
+            }
         } else {
             ++order_bad;
         }
@@ -642,7 +654,9 @@ void test_producer() {
         while (!stop.load(std::memory_order_relaxed) || !wrap.ring_empty()) {
             if (wrap.pop(rec)) {
                 const std::uint64_t v = rendered_value(rec);
-                if (!first && v <= last) { ++seq_bad; }
+                if (!first && v <= last) {
+                    ++seq_bad;
+                }
                 last = v;
                 first = false;
                 ++popped;
@@ -673,8 +687,16 @@ void test_producer() {
     static detail::Producer<8, 128> mp{};
     NX_CHECK(mp.initialize().has_value());
     std::atomic<bool> go{false};
-    std::jthread a([&] { while (!go.load(std::memory_order_relaxed)) {} for (int i = 0; i < 5; ++i) mp.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i)); });
-    std::jthread b([&] { while (!go.load(std::memory_order_relaxed)) {} for (int i = 100; i < 105; ++i) mp.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i)); });
+    std::jthread a([&] {
+        while (!go.load(std::memory_order_relaxed)) {}
+        for (int i = 0; i < 5; ++i)
+            mp.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
+    });
+    std::jthread b([&] {
+        while (!go.load(std::memory_order_relaxed)) {}
+        for (int i = 100; i < 105; ++i)
+            mp.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
+    });
     go.store(true, std::memory_order_relaxed);
     a.join();
     b.join();
@@ -687,13 +709,21 @@ void test_producer() {
         const std::uint64_t v = rendered_value(out);
         ++total_popped;
         if (v < 50U) { // thread A range
-            if (tid_low == 0U) { tid_low = out.thread_id; }
-            if (out.thread_id != tid_low || v < last_low) { order_ok = false; }
+            if (tid_low == 0U) {
+                tid_low = out.thread_id;
+            }
+            if (out.thread_id != tid_low || v < last_low) {
+                order_ok = false;
+            }
             last_low = v;
             ++cnt_low;
         } else { // thread B range
-            if (tid_high == 0U) { tid_high = out.thread_id; }
-            if (out.thread_id != tid_high || v < last_high) { order_ok = false; }
+            if (tid_high == 0U) {
+                tid_high = out.thread_id;
+            }
+            if (out.thread_id != tid_high || v < last_high) {
+                order_ok = false;
+            }
             last_high = v;
             ++cnt_high;
         }
@@ -708,17 +738,21 @@ void test_producer() {
     // a fresh thread's own shard still accepts.
     static detail::Producer<4, 128> isolation{};
     NX_CHECK(isolation.initialize().has_value());
-    for (int i = 0; i < 6; ++i) { isolation.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i)); }
+    for (int i = 0; i < 6; ++i) {
+        isolation.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(i));
+    }
     NX_CHECK(isolation.dropped().buffer_full == 2U); // main thread: 4 accepted, 2 dropped
     std::uint64_t other_accepted = 0;
     std::thread helper([&] {
         const std::uint64_t before = isolation.dropped().buffer_full;
         static_cast<void>(before);
-        for (int i = 0; i < 3; ++i) { isolation.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(200 + i)); }
+        for (int i = 0; i < 3; ++i) {
+            isolation.emit(LogLevel::Info, "v {}", static_cast<std::uint64_t>(200 + i));
+        }
         other_accepted = isolation.ring_size();
     });
     helper.join();
-    NX_CHECK(other_accepted == 7U); // 4 (main) + 3 (helper shard)
+    NX_CHECK(other_accepted == 7U);                  // 4 (main) + 3 (helper shard)
     NX_CHECK(isolation.dropped().buffer_full == 2U); // helper dropped nothing
     LogRecord<128> tmp{};
     while (isolation.pop(tmp)) {}
@@ -734,7 +768,9 @@ void test_producer() {
     t3.join();
     NX_CHECK(tiny.dropped().slot_exhausted == 1U);
     std::size_t tiny_popped = 0;
-    while (tiny.pop(tmp)) { ++tiny_popped; }
+    while (tiny.pop(tmp)) {
+        ++tiny_popped;
+    }
     NX_CHECK(tiny_popped == 2U); // both registered producers' records intact
     std::printf("producer: multi-thread isolation + exhaustion counting verified\n");
 }
@@ -766,7 +802,9 @@ void test_latency() {
     if (::pthread_getaffinity_np(pthread_self(), sizeof(orig), &orig) == 0) {
         for (std::size_t c = 0; c < static_cast<std::size_t>(CPU_SETSIZE); ++c) {
             if (CPU_ISSET(c, &orig)) {
-                if (lo == CPU_SETSIZE) { lo = c; }
+                if (lo == CPU_SETSIZE) {
+                    lo = c;
+                }
                 hi = c;
             }
         }
@@ -818,9 +856,8 @@ void test_latency() {
     const Result<Timestamp> m_end = Timestamp::now();
     const std::uint64_t t_end = __rdtsc();
     NX_CHECK(m_start.has_value() && m_end.has_value());
-    const double ns_per_tick =
-        static_cast<double>(m_end->nanoseconds() - m_start->nanoseconds()) /
-        static_cast<double>(t_end - t_start);
+    const double ns_per_tick = static_cast<double>(m_end->nanoseconds() - m_start->nanoseconds()) /
+                               static_cast<double>(t_end - t_start);
 
     // (a..c) sampled windows. In the strict (Release, no-sanitizer) config the
     // full set runs up to 3 times and the GATE sees the BEST median: a window
@@ -868,8 +905,12 @@ void test_latency() {
         ovh_ns = static_cast<double>(ovr[N / 2]) * ns_per_tick;
         const double acc_ns = static_cast<double>(raw[N / 2] - ovr[N / 2]) * ns_per_tick;
         const double flt_ns = static_cast<double>(flt[N / 2]) * ns_per_tick - ovh_ns;
-        if (best_accepted_ns < 0.0 || acc_ns < best_accepted_ns) { best_accepted_ns = acc_ns; }
-        if (best_filtered_ns < 0.0 || flt_ns < best_filtered_ns) { best_filtered_ns = flt_ns; }
+        if (best_accepted_ns < 0.0 || acc_ns < best_accepted_ns) {
+            best_accepted_ns = acc_ns;
+        }
+        if (best_filtered_ns < 0.0 || flt_ns < best_filtered_ns) {
+            best_filtered_ns = flt_ns;
+        }
     }
 
     const std::uint64_t accepted =
@@ -882,8 +923,9 @@ void test_latency() {
 
     stop.store(true, std::memory_order_relaxed);
     consumer.join();
-    NX_CHECK(popped == accepted_warm + accepted); // everything accepted (warmup included) is delivered
-    if (pinned) { // restore the process's original placement for later suites
+    NX_CHECK(popped ==
+             accepted_warm + accepted); // everything accepted (warmup included) is delivered
+    if (pinned) {                       // restore the process's original placement for later suites
         static_cast<void>(::pthread_setaffinity_np(pthread_self(), sizeof(orig), &orig));
     }
 
@@ -912,7 +954,9 @@ void test_latency() {
     const std::uint64_t accepted = 10'000ULL - (bench.dropped().buffer_full - drops0);
     LogRecord<128> rec{};
     std::uint64_t drained = 0;
-    while (bench.pop(rec)) { ++drained; }
+    while (bench.pop(rec)) {
+        ++drained;
+    }
     NX_CHECK(drained == accepted);
     std::printf("latency: accounting-only run (non-x86), accepted=%llu\n",
                 static_cast<unsigned long long>(accepted));
@@ -934,9 +978,11 @@ static_assert(FileLogger<64, 128, 4>::max_threads() == 4);
 // Literal call shapes compile on real loggers too (spec format-api): the
 // requires-expression proves conversion from a literal via the consteval
 // constructor WITHOUT evaluating the call itself.
-static_assert(requires (ConsoleLogger<32, 64> cl) {
+static_assert(requires(ConsoleLogger<32, 64> cl) {
     { cl.info("plain") } noexcept -> std::same_as<void>;
-    { cl.debug("Прямой вызов метода debug. Давление: {:.4f}", 0.0025) } noexcept -> std::same_as<void>;
+    {
+        cl.debug("Прямой вызов метода debug. Давление: {:.4f}", 0.0025)
+    } noexcept -> std::same_as<void>;
     { cl.log(LogLevel::Error, "Level is {}", LogLevel::Warning) } noexcept -> std::same_as<void>;
 });
 
@@ -945,8 +991,8 @@ static_assert(requires (ConsoleLogger<32, 64> cl) {
 static_assert(concepts::Logger<CompositeLogger<>>);
 static_assert(concepts::Logger<CompositeLogger<NullLogger>>);
 static_assert(concepts::Logger<CompositeLogger<ConsoleLogger<>, FileLogger<>>>);
-static_assert(concepts::Logger<
-    CompositeLogger<CompositeLogger<NullLogger, ConsoleLogger<64, 128>>, FileLogger<64, 128>>>);
+static_assert(concepts::Logger<CompositeLogger<CompositeLogger<NullLogger, ConsoleLogger<64, 128>>,
+                                               FileLogger<64, 128>>>);
 
 // --- null logger suite (task 6.2 / spec logging/null-logger).
 void test_null_logger() {
@@ -987,9 +1033,13 @@ std::size_t read_all(int fd, char* buf, std::size_t cap) {
     std::size_t n = 0;
     for (;;) {
         const ssize_t r = ::read(fd, buf + n, cap - 1 - n);
-        if (r <= 0) { break; }
+        if (r <= 0) {
+            break;
+        }
         n += static_cast<std::size_t>(r);
-        if (n + 1 >= cap) { break; }
+        if (n + 1 >= cap) {
+            break;
+        }
     }
     buf[n] = '\0';
     return n;
@@ -998,7 +1048,9 @@ std::size_t read_all(int fd, char* buf, std::size_t cap) {
 std::size_t count_char(const char* s, std::size_t n, char c) {
     std::size_t k = 0;
     for (std::size_t i = 0; i < n; ++i) {
-        if (s[i] == c) { ++k; }
+        if (s[i] == c) {
+            ++k;
+        }
     }
     return k;
 }
@@ -1109,8 +1161,8 @@ void test_console() {
     // leading monotonic seconds.nanoseconds stamp
     NX_CHECK(out_buf[0] >= '0' && out_buf[0] <= '9');
     NX_CHECK(std::strchr(out_buf, '.') != nullptr);
-    std::printf("console: out=%zu B (%zu lines), err=%zu B, storm ok=%d full=%d\n",
-                out_len, expected_out, err_len, storm_accepted, storm_full);
+    std::printf("console: out=%zu B (%zu lines), err=%zu B, storm ok=%d full=%d\n", out_len,
+                expected_out, err_len, storm_accepted, storm_full);
 }
 
 // --- JSON formatter suite (task 5.4 / spec logging/file-logger schema).
@@ -1118,9 +1170,9 @@ void test_json() {
     alignas(64) static char scratch[detail::json_scratch_capacity];
 
     // Byte-exact golden line (schema AND field order pinned, basename only).
-    const std::size_t len = detail::format_json_line(
-        1'784'850'120'321'841'133LL, LogLevel::Warning, "hil", 1'772'393U,
-        "/home/dev/src/app.cpp", 42U, "void drive()", "ok", scratch);
+    const std::size_t len =
+        detail::format_json_line(1'784'850'120'321'841'133LL, LogLevel::Warning, "hil", 1'772'393U,
+                                 "/home/dev/src/app.cpp", 42U, "void drive()", "ok", scratch);
     const std::string_view golden =
         "{\"timestamp\":\"2026-07-23T23:42:00.321841133Z\",\"level\":\"warning\","
         "\"app\":\"hil\",\"thread_id\":1772393,"
@@ -1130,8 +1182,8 @@ void test_json() {
 
     // Escapes: quote, backslash, short control forms, \u00XX for the rest.
     const char evil[] = "q\"bs\\ tab\tnl\nct\x01\x1fx";
-    const std::size_t elen = detail::format_json_line(
-        0LL, LogLevel::Error, "app", 7U, "f.cpp", 1U, "main", evil, scratch);
+    const std::size_t elen = detail::format_json_line(0LL, LogLevel::Error, "app", 7U, "f.cpp", 1U,
+                                                      "main", evil, scratch);
     NX_CHECK(elen > 0);
     scratch[elen] = '\0';
     const std::string_view line(scratch, elen);
@@ -1143,8 +1195,8 @@ void test_json() {
 
     // Cyrillic UTF-8 passes through as raw bytes (no \u rewriting).
     const std::string_view ru = "Привет, мир";
-    const std::size_t rlen = detail::format_json_line(
-        0LL, LogLevel::Info, "app", 1U, "t.cpp", 2U, "main", ru, scratch);
+    const std::size_t rlen =
+        detail::format_json_line(0LL, LogLevel::Info, "app", 1U, "t.cpp", 2U, "main", ru, scratch);
     NX_CHECK(rlen > 0);
     scratch[rlen] = '\0';
     NX_CHECK(std::strstr(scratch, "Привет, мир") != nullptr);
@@ -1154,9 +1206,9 @@ void test_json() {
     static_assert(sizeof huge_fn > 0);
     std::memset(huge_fn, 'x', sizeof huge_fn - 1);
     huge_fn[sizeof huge_fn - 1] = '\0';
-    const std::size_t over = detail::format_json_line(
-        0LL, LogLevel::Info, "app", 1U, "t.cpp", 2U,
-        std::string_view(huge_fn, sizeof huge_fn - 1), "m", scratch);
+    const std::size_t over =
+        detail::format_json_line(0LL, LogLevel::Info, "app", 1U, "t.cpp", 2U,
+                                 std::string_view(huge_fn, sizeof huge_fn - 1), "m", scratch);
     NX_CHECK(over == 0);
 
     // FixedWriter unit: rejects writes that would exceed the small buffer.
@@ -1204,20 +1256,21 @@ void test_affinity() {
 // --- rotation suite (task 5.5 / spec logging/file-logger rotation).
 void test_rotation() {
     using detail::RotationKind;
-    constexpr std::int64_t hour_end_ns = 1'784'851'199'999'999'999LL; // 2026-07-23T23:59:59.999999999Z
-    constexpr std::int64_t next_hour_ns = hour_end_ns + 1;            // 2026-07-24T00:00:00Z
+    constexpr std::int64_t hour_end_ns =
+        1'784'851'199'999'999'999LL;                       // 2026-07-23T23:59:59.999999999Z
+    constexpr std::int64_t next_hour_ns = hour_end_ns + 1; // 2026-07-24T00:00:00Z
     constexpr std::int64_t ns_hour = 3'600'000'000'000LL;
 
     // Keys move exactly at boundaries.
-    NX_CHECK(detail::period_key(RotationKind::Hourly, 0, hour_end_ns)
-             == detail::period_key(RotationKind::Hourly, 0, hour_end_ns));
-    NX_CHECK(detail::period_key(RotationKind::Hourly, 0, next_hour_ns)
-             == detail::period_key(RotationKind::Hourly, 0, hour_end_ns) + 1);
+    NX_CHECK(detail::period_key(RotationKind::Hourly, 0, hour_end_ns) ==
+             detail::period_key(RotationKind::Hourly, 0, hour_end_ns));
+    NX_CHECK(detail::period_key(RotationKind::Hourly, 0, next_hour_ns) ==
+             detail::period_key(RotationKind::Hourly, 0, hour_end_ns) + 1);
     // next_hour_ns lands on 07-24T00:00:00Z — already the next DAY as well.
-    NX_CHECK(detail::period_key(RotationKind::Daily, 0, next_hour_ns)
-             == detail::period_key(RotationKind::Daily, 0, hour_end_ns) + 1);
-    NX_CHECK(detail::period_key(RotationKind::Daily, 0, hour_end_ns + ns_hour)
-             == detail::period_key(RotationKind::Daily, 0, hour_end_ns) + 1);
+    NX_CHECK(detail::period_key(RotationKind::Daily, 0, next_hour_ns) ==
+             detail::period_key(RotationKind::Daily, 0, hour_end_ns) + 1);
+    NX_CHECK(detail::period_key(RotationKind::Daily, 0, hour_end_ns + ns_hour) ==
+             detail::period_key(RotationKind::Daily, 0, hour_end_ns) + 1);
 
     char label[64]{};
     NX_CHECK(detail::period_label(RotationKind::Hourly, 0, hour_end_ns, label) == 13);
@@ -1225,7 +1278,8 @@ void test_rotation() {
     NX_CHECK(detail::period_label(RotationKind::Daily, 0, hour_end_ns, label) == 10);
     NX_CHECK(std::strcmp(label, "2026-07-23") == 0);
     // Leap day label
-    NX_CHECK(detail::period_label(RotationKind::Daily, 0, 1'709'164'800'000'000'000LL, label) == 10);
+    NX_CHECK(detail::period_label(RotationKind::Daily, 0, 1'709'164'800'000'000'000LL, label) ==
+             10);
     NX_CHECK(std::strcmp(label, "2024-02-29") == 0);
     // Custom key/label: 250 ms windows (epoch-anchored, so align the probe
     // to the window start to exercise the boundary itself).
@@ -1235,8 +1289,10 @@ void test_rotation() {
     const std::int64_t t0a = t - static_cast<std::int64_t>(static_cast<std::uint64_t>(t) % custom);
     NX_CHECK(detail::period_key(RotationKind::Custom, custom, t) == idx0);
     NX_CHECK(detail::period_key(RotationKind::Custom, custom, t0a) == idx0);
-    NX_CHECK(detail::period_key(RotationKind::Custom, custom, t0a + static_cast<std::int64_t>(custom) - 1) == idx0);
-    NX_CHECK(detail::period_key(RotationKind::Custom, custom, t0a + static_cast<std::int64_t>(custom)) == idx0 + 1);
+    NX_CHECK(detail::period_key(RotationKind::Custom, custom,
+                                t0a + static_cast<std::int64_t>(custom) - 1) == idx0);
+    NX_CHECK(detail::period_key(RotationKind::Custom, custom,
+                                t0a + static_cast<std::int64_t>(custom)) == idx0 + 1);
     const std::size_t llen = detail::period_label(RotationKind::Custom, custom, t, label);
     char expect_label[64];
     const int epos = std::snprintf(expect_label, sizeof expect_label, "epoch-%lld",
@@ -1250,8 +1306,7 @@ void test_rotation() {
     // Filesystem switch: two 1 ms custom windows land in distinct directories,
     // sentinel lines round-trip, and the whole sequence allocates nothing.
     alignas(64) static char base[512];
-    std::snprintf(base, sizeof base, "/tmp/opencode/nexigen-rot-%d-%lld",
-                  ::getpid(),
+    std::snprintf(base, sizeof base, "/tmp/opencode/nexigen-rot-%d-%lld", ::getpid(),
                   static_cast<long long>(idx0 % 1'000'000));
     const std::string_view base_dir(base);
     constexpr std::uint64_t fast_period = 1'000'000ULL; // 1 ms
@@ -1260,7 +1315,8 @@ void test_rotation() {
     int fd = -1;
     // warm-up open first so any lazy libc setup happens outside the measured window
     NX_CHECK(detail::open_period(detail::RotationKind::Custom, fast_period, t, base_dir,
-                                 "warm.jsonl", sc, fd).has_value());
+                                 "warm.jsonl", sc, fd)
+                 .has_value());
     NX_CHECK(fd >= 0);
     ::close(fd);
 
@@ -1269,7 +1325,8 @@ void test_rotation() {
 
     int fd1 = -1;
     NX_CHECK(detail::open_period(detail::RotationKind::Custom, fast_period, t, base_dir,
-                                 "app.jsonl", sc, fd1).has_value());
+                                 "app.jsonl", sc, fd1)
+                 .has_value());
     NX_CHECK(fd1 >= 0);
     char path1[560];
     std::strcpy(path1, sc.file); // remember for read-back
@@ -1278,8 +1335,9 @@ void test_rotation() {
     ::close(fd1);
 
     int fd2 = -1;
-    NX_CHECK(detail::open_period(detail::RotationKind::Custom, fast_period, t + 2'000'000,
-                                 base_dir, "app.jsonl", sc, fd2).has_value());
+    NX_CHECK(detail::open_period(detail::RotationKind::Custom, fast_period, t + 2'000'000, base_dir,
+                                 "app.jsonl", sc, fd2)
+                 .has_value());
     NX_CHECK(fd2 >= 0);
     char path2[560];
     std::strcpy(path2, sc.file);
@@ -1293,10 +1351,14 @@ void test_rotation() {
     // Read both files back: contents intact, both periods preserved.
     auto read_first_line = [](const char* path, char (&out)[8]) -> std::size_t {
         const int fdr = ::open(path, O_RDONLY | O_CLOEXEC);
-        if (fdr < 0) { return 0; }
+        if (fdr < 0) {
+            return 0;
+        }
         const ssize_t n = ::read(fdr, out, 2);
         ::close(fdr);
-        if (n <= 0) { return 0; }
+        if (n <= 0) {
+            return 0;
+        }
         out[n] = '\0';
         return static_cast<std::size_t>(n);
     };
@@ -1305,7 +1367,8 @@ void test_rotation() {
     NX_CHECK(read_first_line(path2, got) == 2 && std::strcmp(got, "b\n") == 0);
 
     // Error paths: empty base rejected; a non-directory component maps to SystemError.
-    NX_CHECK(!detail::open_period(detail::RotationKind::Hourly, 0, t, "", "app.jsonl", sc, fd).has_value());
+    NX_CHECK(!detail::open_period(detail::RotationKind::Hourly, 0, t, "", "app.jsonl", sc, fd)
+                  .has_value());
     const Status bad = detail::open_period(detail::RotationKind::Hourly, 0, t, "/etc/hostname",
                                            "app.jsonl", sc, fd);
     NX_CHECK(!bad.has_value());
@@ -1318,14 +1381,20 @@ void test_rotation() {
 // Count newlines in a file; SIZE_MAX if the file cannot be opened.
 std::size_t file_line_count(const char* path) {
     const int fdr = ::open(path, O_RDONLY | O_CLOEXEC);
-    if (fdr < 0) { return SIZE_MAX; }
+    if (fdr < 0) {
+        return SIZE_MAX;
+    }
     char chunk[4096];
     std::size_t lines = 0;
     for (;;) {
         const ssize_t n = ::read(fdr, chunk, sizeof chunk);
-        if (n <= 0) { break; }
+        if (n <= 0) {
+            break;
+        }
         for (ssize_t i = 0; i < n; ++i) {
-            if (chunk[i] == '\n') { ++lines; }
+            if (chunk[i] == '\n') {
+                ++lines;
+            }
         }
     }
     ::close(fdr);
@@ -1335,10 +1404,14 @@ std::size_t file_line_count(const char* path) {
 // Read up to cap-1 bytes of a file (small fixtures).
 std::size_t read_whole_file(const char* path, char (&buf)[40096]) {
     const int fdr = ::open(path, O_RDONLY | O_CLOEXEC);
-    if (fdr < 0) { return SIZE_MAX; }
+    if (fdr < 0) {
+        return SIZE_MAX;
+    }
     const ssize_t n = ::read(fdr, buf, sizeof buf - 1);
     ::close(fdr);
-    if (n < 0) { return SIZE_MAX; }
+    if (n < 0) {
+        return SIZE_MAX;
+    }
     buf[n] = '\0';
     return static_cast<std::size_t>(n);
 }
@@ -1364,17 +1437,18 @@ void test_file_logger() {
         }
     };
     static const char long_name[] =
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; // 70 a's
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; // 70
+                                                                                            // a's
     static FileLogger<64, 128> flv{};
     {
         FileLoggerConfig bad{};
-        bad.base_dir = "";                       // required
+        bad.base_dir = ""; // required
         is_invalid(flv.initialize(bad));
         bad.base_dir = flbase;
         bad.rotation = RotationConfig{RotationSchedule::Custom, 0ULL}; // zero period
         is_invalid(flv.initialize(bad));
         bad.rotation = RotationConfig{RotationSchedule::Hourly, 0ULL};
-        bad.throttle = ThrottleConfig{true, 5ULL, 0ULL};                  // zero window
+        bad.throttle = ThrottleConfig{true, 5ULL, 0ULL}; // zero window
         is_invalid(flv.initialize(bad));
         bad.throttle = {};
         bad.file_name = std::string_view(long_name, sizeof long_name - 1); // > 63
@@ -1443,8 +1517,8 @@ void test_file_logger() {
     {
         FileLoggerConfig cfg{};
         cfg.app_name = "dev";
-        cfg.base_dir = "/dev";           // mkdirat -> EEXIST (ignored)
-        cfg.file_name = "full";          // character device that fails every write
+        cfg.base_dir = "/dev";  // mkdirat -> EEXIST (ignored)
+        cfg.file_name = "full"; // character device that fails every write
         cfg.rotation.kind = RotationSchedule::None;
         NX_CHECK(fld.initialize(cfg).has_value());
         wait_writer(fld);
@@ -1493,8 +1567,10 @@ void test_file_logger() {
         NX_CHECK(n != SIZE_MAX);
         const std::string_view sv(content, n);
         NX_CHECK(file_line_count(path) == 5); // 3 + summary + 1
-        const std::size_t p_user3 = sv.find("thr user\"}", sv.find("thr user", sv.find("thr user") + 1) + 1);
-        const std::size_t p_sum = sv.find("Dropped 7 record(s) in the last window (rate-limited: 7, buffer-full: 0, slot-exhausted: 0, throttled: 0).");
+        const std::size_t p_user3 =
+            sv.find("thr user\"}", sv.find("thr user", sv.find("thr user") + 1) + 1);
+        const std::size_t p_sum = sv.find("Dropped 7 record(s) in the last window (rate-limited: "
+                                          "7, buffer-full: 0, slot-exhausted: 0, throttled: 0).");
         const std::size_t p_res = sv.find("thr resumed");
         NX_CHECK(p_user3 != std::string_view::npos);
         NX_CHECK(p_sum != std::string_view::npos);
@@ -1505,8 +1581,8 @@ void test_file_logger() {
         }
         // the summary itself is a warning record
         const std::size_t sum_line_begin = sv.rfind('\n', p_sum) + 1;
-        NX_CHECK(sv.substr(sum_line_begin, p_sum - sum_line_begin).find("\"level\":\"warning\"")
-                 != std::string_view::npos);
+        NX_CHECK(sv.substr(sum_line_begin, p_sum - sum_line_begin).find("\"level\":\"warning\"") !=
+                 std::string_view::npos);
         std::printf("file_logger: throttle ok=%d rl=%llu summary line verified\n", ok,
                     static_cast<unsigned long long>(rl));
     }
@@ -1517,7 +1593,9 @@ void test_file_logger() {
         std::uint64_t proc_mask = 0;
         static_cast<void>(detail::self_affinity(proc_mask));
         int allowed = 0;
-        for (std::uint64_t m = proc_mask; m != 0ULL; m &= m - 1ULL) { ++allowed; }
+        for (std::uint64_t m = proc_mask; m != 0ULL; m &= m - 1ULL) {
+            ++allowed;
+        }
         const std::uint64_t target = (allowed >= 2) ? (proc_mask & (~proc_mask + 1ULL)) : 0ULL;
 
         alignas(64) static char rot_base[512];
@@ -1547,7 +1625,9 @@ void test_file_logger() {
         for (int i = 0; i < 60; ++i) {
             const std::uint64_t drops_b = flr.dropped().total();
             flr.info("rot stream");
-            if (flr.dropped().total() == drops_b) { ++accepted; }
+            if (flr.dropped().total() == drops_b) {
+                ++accepted;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         NX_CHECK(flr.flush().has_value());
@@ -1567,13 +1647,15 @@ void test_file_logger() {
                                   static_cast<int>(name.size()), name.data());
                     const std::size_t lc = file_line_count(path);
                     NX_CHECK(lc != SIZE_MAX);
-                    if (lc != SIZE_MAX) { lines_total += lc; }
+                    if (lc != SIZE_MAX) {
+                        lines_total += lc;
+                    }
                 }
             }
             ::closedir(d);
         }
-        NX_CHECK(period_dirs >= 3);           // >= 600 ms / 150 ms
-        NX_CHECK(lines_total == accepted);    // nothing lost or duplicated at the switch
+        NX_CHECK(period_dirs >= 3);        // >= 600 ms / 150 ms
+        NX_CHECK(lines_total == accepted); // nothing lost or duplicated at the switch
         std::printf("file_logger: rotation across %d period dirs, %llu lines == %llu accepted\n",
                     period_dirs, static_cast<unsigned long long>(lines_total),
                     static_cast<unsigned long long>(accepted));
@@ -1691,8 +1773,9 @@ void test_composite() {
         fcfg.file_name = "comp.jsonl";
         fcfg.rotation.kind = RotationSchedule::None;
         NX_CHECK(comp.get<CompFile>().initialize(fcfg).has_value());
-        for (int i = 0; i < 5000 && (!comp.get<0>().writer_started() ||
-                                      !comp.get<1>().writer_started()); ++i) {
+        for (int i = 0;
+             i < 5000 && (!comp.get<0>().writer_started() || !comp.get<1>().writer_started());
+             ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         NX_CHECK(comp.get<0>().writer_started());
@@ -1739,7 +1822,7 @@ void test_composite() {
     ::close(err_pipe[0]);
 
     NX_CHECK(count_char(cout_buf, cout_len, '\n') == 1); // "console only"
-    NX_CHECK(count_char(cerr_buf, cerr_len, '\n') == 3);  // fan-out, fatal, sc-warn
+    NX_CHECK(count_char(cerr_buf, cerr_len, '\n') == 3); // fan-out, fatal, sc-warn
     NX_CHECK(std::strstr(cout_buf, "console only") != nullptr);
     NX_CHECK(std::strstr(cout_buf, "shortcircuit") == nullptr);
     NX_CHECK(std::strstr(cerr_buf, "composite fan-out") != nullptr);
@@ -1760,7 +1843,7 @@ void test_composite() {
     NX_CHECK(std::strstr(ccontent, "composite fan-out\"}") != nullptr);
     NX_CHECK(std::strstr(ccontent, "both again\"}") != nullptr);
     NX_CHECK(std::strstr(ccontent, "shortcircuit warn\"}") != nullptr);
-    NX_CHECK(std::strstr(ccontent, "console only") == nullptr);    // member-level Fatal
+    NX_CHECK(std::strstr(ccontent, "console only") == nullptr);      // member-level Fatal
     NX_CHECK(std::strstr(ccontent, "shortcircuit info") == nullptr); // composite short-circuit
     NX_CHECK(std::strstr(ccontent, "\"message\":\"[logging_test.cpp:") != nullptr);
     NX_CHECK(std::strstr(ccontent, "test_composite") != nullptr);
@@ -1787,7 +1870,8 @@ void test_composite() {
         b_cfg.base_dir = nest_b;
         NX_CHECK(outer.get<NestFile>().initialize(b_cfg).has_value());
         for (int i = 0; i < 5000 && (!outer.get<0>().get<NestFile>().writer_started() ||
-                                      !outer.get<1>().writer_started()); ++i) {
+                                     !outer.get<1>().writer_started());
+             ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         NX_CHECK(outer.get<0>().get<NestFile>().writer_started());
@@ -1905,15 +1989,16 @@ void test_enum_vocab() {
         NX_CHECK(back == lv);
     }
     static_assert(to_string(LogLevel::Warning) == "warning"); // pinned spellings
-    static_assert([] { LogLevel l{}; return from_string("info", l) && l == LogLevel::Info; }());
+    static_assert([] {
+        LogLevel l{};
+        return from_string("info", l) && l == LogLevel::Info;
+    }());
 
     // Hostile level inputs: non-string JSON types and unknown names leave the
     // fallback (no throw, no terminate under JSON_NOEXCEPTION).
-    for (const nlohmann::json& hostile : {nlohmann::json(3),
-                                          nlohmann::json::array(),
-                                          nlohmann::json(),
-                                          nlohmann::json("WARN"),
-                                          nlohmann::json("Unknown")}) {
+    for (const nlohmann::json& hostile :
+         {nlohmann::json(3), nlohmann::json::array(), nlohmann::json(), nlohmann::json("WARN"),
+          nlohmann::json("Unknown")}) {
         LogLevel keep = LogLevel::Info;
         from_json(hostile, keep);
         NX_CHECK(keep == LogLevel::Info);
@@ -1929,7 +2014,7 @@ void test_enum_vocab() {
 
     // RotationSchedule vocabulary (task 2.3) — detail::RotationKind alias.
     const RotationSchedule kinds[] = {RotationSchedule::None, RotationSchedule::Hourly,
-                                       RotationSchedule::Daily, RotationSchedule::Custom};
+                                      RotationSchedule::Daily, RotationSchedule::Custom};
     for (const RotationSchedule k : kinds) {
         RotationSchedule parsed = RotationSchedule::None;
         NX_CHECK(detail::from_string(detail::to_string(k), parsed));
@@ -1956,8 +2041,8 @@ void test_enum_vocab() {
 // --- config vocabulary suite (task 3.3): DroppedStats / ThrottleConfig /
 // RotationConfig / FileLoggerConfig / ConsoleLogger::Config to_string.
 void test_config_strings() {
-    const ThrottleConfig throttle{.enabled = true, .max_records_per_window = 1000,
-                                   .window_ns = 1'000'000'000ULL};
+    const ThrottleConfig throttle{
+        .enabled = true, .max_records_per_window = 1000, .window_ns = 1'000'000'000ULL};
     std::string s = throttle.to_string();
     NX_CHECK(s.find("enabled=true") != std::string::npos);
     NX_CHECK(s.find("max_records_per_window=1000") != std::string::npos);
@@ -2113,7 +2198,8 @@ void test_logger_options() {
 
     // std::formatter<LoggerOptions>.
     NX_CHECK(std::format("{}", o).find("log_root_directory") != std::string::npos);
-    NX_CHECK(std::format("[{:*>20}]", OverflowPolicy::OverwriteOldest).find("overwrite_oldest") != std::string::npos);
+    NX_CHECK(std::format("[{:*>20}]", OverflowPolicy::OverwriteOldest).find("overwrite_oldest") !=
+             std::string::npos);
 
     std::printf("logger_options: defaults, bit_ceil, JSON round-trip, formatter verified\n");
 }
@@ -2127,10 +2213,10 @@ void test_spam_protection() {
         detail::SpamShardState st{};
         const std::uint64_t h1 = detail::message_hash("f.cpp", 1, "msg", nullptr, 0);
         const std::uint64_t h2 = detail::message_hash("f.cpp", 2, "other", nullptr, 0);
-        NX_CHECK(sp.check_repeat(st, h1, 1000)); // first: pass
+        NX_CHECK(sp.check_repeat(st, h1, 1000));  // first: pass
         NX_CHECK(!sp.check_repeat(st, h1, 2000)); // duplicate: suppress
         NX_CHECK(!sp.check_repeat(st, h1, 3000)); // duplicate: suppress
-        NX_CHECK(sp.check_repeat(st, h2, 4000)); // different: pass
+        NX_CHECK(sp.check_repeat(st, h2, 4000));  // different: pass
     }
 
     // Repeat suppression disabled: all pass.
@@ -2184,7 +2270,7 @@ void test_spam_protection() {
         sp.set_config(cfg);
         NX_CHECK(!sp.check_rate_limit(st, LogLevel::Info, 1000)); // throttled (tokens_used >= 1)
         // Reset window: new second, tokens reset.
-        NX_CHECK(sp.check_rate_limit(st, LogLevel::Info, 2'000'000'000ULL)); // 1st in new window
+        NX_CHECK(sp.check_rate_limit(st, LogLevel::Info, 2'000'000'000ULL));  // 1st in new window
         NX_CHECK(!sp.check_rate_limit(st, LogLevel::Info, 2'000'000'000ULL)); // 2nd throttled
     }
 
@@ -2198,10 +2284,8 @@ void test_spam_protection() {
 // lines into a caller-owned buffer shared with the test; the barrier's
 // release/acquire on `drained` orders every handle() before flush() returns,
 // and probes read only while the worker is idle or joined.
-template <class RecordT>
-struct LinesSink {
-    LinesSink(char* buffer, std::size_t cap) noexcept
-        : buf_(buffer), cap_(cap) {}
+template <class RecordT> struct LinesSink {
+    LinesSink(char* buffer, std::size_t cap) noexcept : buf_(buffer), cap_(cap) {}
 
     [[nodiscard]] core::Status start() noexcept { return {}; }
     void handle(RecordT& rec) noexcept {
@@ -2259,8 +2343,7 @@ void test_flush_summary_race() {
     NX_CHECK(prod.initialize().has_value());
 
     detail::AsyncWorker<P, LinesSink<RecordT>> worker{};
-    NX_CHECK(worker.start(prod, core::ThreadSpec{}, g_flush_race_arena,
-                          sizeof g_flush_race_arena)
+    NX_CHECK(worker.start(prod, core::ThreadSpec{}, g_flush_race_arena, sizeof g_flush_race_arena)
                  .has_value());
     for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2322,8 +2405,7 @@ void test_spam_config_race() {
     NX_CHECK(prod.initialize().has_value());
 
     detail::AsyncWorker<P, LinesSink<RecordT>> worker{};
-    NX_CHECK(worker.start(prod, core::ThreadSpec{}, g_spam_race_arena,
-                          sizeof g_spam_race_arena)
+    NX_CHECK(worker.start(prod, core::ThreadSpec{}, g_spam_race_arena, sizeof g_spam_race_arena)
                  .has_value());
     for (int i = 0; i < 5000 && !worker.writer_started(); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2333,28 +2415,25 @@ void test_spam_config_race() {
     SpamProtectionConfig quota_cfg{};
     quota_cfg.max_messages_per_sec_per_shard = 5; // tiny quota → throttle waves
     SpamProtectionConfig open_cfg{};
-    open_cfg.max_messages_per_sec_per_shard = 0;  // no limit
+    open_cfg.max_messages_per_sec_per_shard = 0; // no limit
 
     std::atomic<bool> stop_flag{false};
     std::jthread reconfigurer([&] {
         std::uint64_t flips = 0;
         while (!stop_flag.load(std::memory_order_relaxed)) {
-            prod.set_spam_protection_config(
-                (flips & 1ULL) == 0ULL ? quota_cfg : open_cfg);
+            prod.set_spam_protection_config((flips & 1ULL) == 0ULL ? quota_cfg : open_cfg);
             ++flips;
             std::this_thread::yield();
         }
     });
-    auto emitter = [](detail::Producer<4, 128, 4>& producer,
-                      std::int32_t lane,
+    auto emitter = [](detail::Producer<4, 128, 4>& producer, std::int32_t lane,
                       std::atomic<bool>& stop) {
         // Wave pacing (2 records per 2 ms): the 16 KiB shared arena must keep
         // capacity for the late flush-time summaries, so a 150 ms run stays
         // inside the render budget while the tiny quota throttles the rest.
         for (int wave = 0; !stop.load(std::memory_order_relaxed); ++wave) {
             for (int i = 0; i < 2; ++i) {
-                producer.emit(LogLevel::Info, "spam-race {} {}",
-                              static_cast<std::int64_t>(lane),
+                producer.emit(LogLevel::Info, "spam-race {} {}", static_cast<std::int64_t>(lane),
                               static_cast<std::int64_t>(wave * 2 + i));
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -2374,8 +2453,7 @@ void test_spam_config_race() {
     // Some first-window records were accepted under whichever quota was
     // published at the time, and the tiny quota made throttling pending —
     // both show up in the sink stream after the barrier.
-    const LinesSink<RecordT> probe(g_spam_race_arena,
-                                   sizeof g_spam_race_arena);
+    const LinesSink<RecordT> probe(g_spam_race_arena, sizeof g_spam_race_arena);
     NX_CHECK(probe.count("spam-race") >= 4);
     NX_CHECK(probe.find("throttled: "));
 
@@ -2406,9 +2484,7 @@ void test_shutdown_drain_race() {
     struct CountSink {
         std::atomic<std::uint64_t>* received{nullptr};
         [[nodiscard]] core::Status start() noexcept { return {}; }
-        void handle(RecordT&) noexcept {
-            received->fetch_add(1, std::memory_order_relaxed);
-        }
+        void handle(RecordT&) noexcept { received->fetch_add(1, std::memory_order_relaxed); }
         [[nodiscard]] core::Status synchronize() noexcept { return {}; }
         void stop() noexcept {}
     };
@@ -2460,10 +2536,8 @@ void test_shutdown_drain_race() {
     // Conservation of every emitted record: worker-delivered + main-tail
     // drained + counted buffer-full drops == total emitted. Nothing else
     // may appear beside those three outcomes.
-    const std::uint64_t total =
-        static_cast<std::uint64_t>(producers * per_producer);
-    NX_CHECK(sink_received.load() + drained +
-                 prod.dropped().buffer_full == total);
+    const std::uint64_t total = static_cast<std::uint64_t>(producers * per_producer);
+    NX_CHECK(sink_received.load() + drained + prod.dropped().buffer_full == total);
     NX_CHECK(sink_received.load() >= 1);
     NX_CHECK(prod.dropped().rate_limited == 0); // throttle config untouched
 
@@ -2503,12 +2577,12 @@ void test_drop_visibility() {
         NX_CHECK(prod.ring_empty());          // all accepted records handled
 
         const LinesSink<LogRecord<128>> probe(arena, sizeof arena);
-        NX_CHECK(probe.count("v ") == 4);                     // 4 user records
-        NX_CHECK(probe.count("Dropped 2 record(s)") == 1);    // exactly one summary
+        NX_CHECK(probe.count("v ") == 4);                  // 4 user records
+        NX_CHECK(probe.count("Dropped 2 record(s)") == 1); // exactly one summary
         NX_CHECK(probe.find("buffer-full: 2"));
         NX_CHECK(probe.find("slot-exhausted: 0"));
         NX_CHECK(probe.find("throttled: 0"));
-        NX_CHECK(prod.dropped().buffer_full == 0);            // reported cells reset
+        NX_CHECK(prod.dropped().buffer_full == 0); // reported cells reset
         // A summary-less second flush does not re-report the same counts.
         NX_CHECK(worker.flush().has_value());
         NX_CHECK(probe.count("Dropped 2 record(s)") == 1);
@@ -2615,7 +2689,7 @@ void test_producer_edge_cases() {
         NX_CHECK(probe.find("rate-limited: 3"));
         NX_CHECK(probe.find("buffer-full: 0"));
         NX_CHECK(prod.dropped().rate_limited == 0); // reported cell reset
-        prod.configure_throttle(ThrottleConfig{}); // reset
+        prod.configure_throttle(ThrottleConfig{});  // reset
     }
 
     // Summary with both rate_limited and buffer_full causes in one line.
@@ -2702,7 +2776,9 @@ void test_producer_edge_cases() {
         // Drain: the four original records remain.
         LogRecord<128> rec{};
         int count = 0;
-        while (prod5.pop(rec)) { ++count; }
+        while (prod5.pop(rec)) {
+            ++count;
+        }
         NX_CHECK(count == 4);
     }
 
@@ -2775,7 +2851,9 @@ void test_stress() {
     const int ffd = ::open(fpath, O_RDONLY);
     NX_CHECK(ffd >= 0);
     const std::size_t flen = ffd >= 0 ? read_all(ffd, fcontent, sizeof fcontent) : 0U;
-    if (ffd >= 0) { ::close(ffd); }
+    if (ffd >= 0) {
+        ::close(ffd);
+    }
     NX_CHECK(flen != 0U);
     const std::string_view fsv(fcontent, flen);
     bool all_present = true;
@@ -2785,8 +2863,8 @@ void test_stress() {
             // The trailing `"}` anchors at the message-field terminator so
             // "#1" cannot be matched inside "#10" (exactly-once verification).
             const int nn = std::snprintf(needle, sizeof needle, "stress t%d #%d\"}", t, i);
-            if (fsv.find(std::string_view(needle, static_cast<std::size_t>(nn)))
-                == std::string_view::npos) {
+            if (fsv.find(std::string_view(needle, static_cast<std::size_t>(nn))) ==
+                std::string_view::npos) {
                 all_present = false;
             }
         }
@@ -2830,8 +2908,8 @@ void test_stress() {
     const std::size_t clen = read_all(out_pipe[0], cbuf, sizeof cbuf);
     ::close(out_pipe[0]);
     NX_CHECK(count_char(cbuf, clen, '\n') == static_cast<std::size_t>(k_threads * 16));
-    std::printf("stress: console sink delivered %d lines from %d producers\n",
-                k_threads * 16, k_threads);
+    std::printf("stress: console sink delivered %d lines from %d producers\n", k_threads * 16,
+                k_threads);
 
     // --- (c) Composite fan-out under concurrency: both leaves see everything.
     alignas(64) static char comp_stress[512];
@@ -2869,7 +2947,9 @@ void test_stress() {
             const int cfd = ::open(cpath, O_RDONLY);
             NX_CHECK(cfd >= 0);
             const std::size_t cn = cfd >= 0 ? read_all(cfd, cc, sizeof cc) : 0U;
-            if (cfd >= 0) { ::close(cfd); }
+            if (cfd >= 0) {
+                ::close(cfd);
+            }
             const std::string_view csv(cc, cn);
             NX_CHECK(csv.find("fanout t0 #0\"}") != std::string_view::npos);
             NX_CHECK(csv.find("fanout t5 #49\"}") != std::string_view::npos);
@@ -2884,15 +2964,13 @@ void test_stress() {
 // --- logging_settings suite helpers (change add-logging-settings-loader)
 namespace {
 
-template <class T, class = void>
-struct has_from_json : std::false_type {};
+template <class T, class = void> struct has_from_json : std::false_type {};
 template <class T>
 struct has_from_json<
-    T, std::void_t<decltype(from_json(std::declval<const nlohmann::json&>(),
-                                      std::declval<T&>()))>> : std::true_type {};
+    T, std::void_t<decltype(from_json(std::declval<const nlohmann::json&>(), std::declval<T&>()))>>
+    : std::true_type {};
 
-static_assert(!has_from_json<Settings>::value,
-              "Settings is factory/IO-bound: to_json only");
+static_assert(!has_from_json<Settings>::value, "Settings is factory/IO-bound: to_json only");
 static_assert(has_from_json<core::SettingsDiagnostic>::value,
               "core::SettingsDiagnostic must round-trip through JSON");
 static_assert(has_from_json<core::SettingsPaths>::value,
@@ -2951,7 +3029,7 @@ std::vector<std::string> list_regular_files(const std::string& dir) {
             continue;
         }
         const std::string full = dir + "/" + name;
-        struct stat st {};
+        struct stat st{};
         if (::stat(full.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
             files.push_back(full);
         }
@@ -3024,7 +3102,7 @@ void test_settings_vocabulary() {
     NX_CHECK(std::format("{}", paths) == paths_text);
 
     const core::SettingsDiagnostic diag{core::SettingsSource::Local, "app_name",
-                                   "expected at most 63 bytes"};
+                                        "expected at most 63 bytes"};
     const std::string diag_text = diag.to_string();
     NX_CHECK(diag_text.find("local") != std::string::npos);
     NX_CHECK(diag_text.find("app_name") != std::string::npos);
@@ -3087,20 +3165,18 @@ void test_logging_settings_loader() {
 
     const std::string global_path = unique_path("settings_global");
     const std::string local_path = unique_path("settings_local");
-    write_text(global_path,
-               R"({"log_root_directory":"/tmp/opencode/global-logs",)"
-               R"("initial_log_level":"warning",)"
-               R"("max_file_size_bytes":1234,)"
-               R"("flush_cpu_affinity":[1,3]})");
-    write_text(local_path,
-               R"({"initial_log_level":"debug",)"
-               R"("spsc_ring_buffer_capacity":16,)"
-               R"("message_capacity":64})");
+    write_text(global_path, R"({"log_root_directory":"/tmp/opencode/global-logs",)"
+                            R"("initial_log_level":"warning",)"
+                            R"("max_file_size_bytes":1234,)"
+                            R"("flush_cpu_affinity":[1,3]})");
+    write_text(local_path, R"({"initial_log_level":"debug",)"
+                           R"("spsc_ring_buffer_capacity":16,)"
+                           R"("message_capacity":64})");
 
     {
         Settings out{};
-        NX_CHECK(load_logging_settings(core::SettingsPaths{global_path, local_path}, out)
-                     .has_value());
+        NX_CHECK(
+            load_logging_settings(core::SettingsPaths{global_path, local_path}, out).has_value());
         NX_CHECK(out.global_loaded && out.local_loaded);
         NX_CHECK(out.options.log_root_directory == "/tmp/opencode/global-logs");
         NX_CHECK(out.options.initial_log_level == LogLevel::Debug);
@@ -3120,8 +3196,8 @@ void test_logging_settings_loader() {
     message_env.set("256");
     {
         Settings out{};
-        NX_CHECK(load_logging_settings(core::SettingsPaths{global_path, local_path}, out)
-                     .has_value());
+        NX_CHECK(
+            load_logging_settings(core::SettingsPaths{global_path, local_path}, out).has_value());
         NX_CHECK(out.options.initial_log_level == LogLevel::Error);
         NX_CHECK(out.options.worker_thread.cpus() ==
                  core::CpuSet::from_core_mask((1ULL << 0U) | (1ULL << 2U) | (1ULL << 3U)));
@@ -3136,8 +3212,7 @@ void test_logging_settings_loader() {
     {
         Settings out{};
         NX_CHECK(load_logging_settings(
-                     core::SettingsPaths{global_path, "/tmp/opencode/does-not-exist.json"},
-                     out)
+                     core::SettingsPaths{global_path, "/tmp/opencode/does-not-exist.json"}, out)
                      .has_value());
         NX_CHECK(out.global_loaded && !out.local_loaded);
         NX_CHECK(out.diagnostics.empty());
@@ -3174,8 +3249,7 @@ void test_logging_settings_loader() {
         NX_CHECK(out.options.max_file_size_bytes == 1234ULL);
         bool field_seen = false;
         for (const core::SettingsDiagnostic& diag : out.diagnostics) {
-            if (diag.field == "max_file_size_bytes" &&
-                diag.source == core::SettingsSource::Local) {
+            if (diag.field == "max_file_size_bytes" && diag.source == core::SettingsSource::Local) {
                 field_seen = true;
             }
         }
@@ -3186,8 +3260,8 @@ void test_logging_settings_loader() {
     write_text(local_path, R"({"initial_log_level":"chatty"})");
     {
         Settings out{};
-        NX_CHECK(!load_logging_settings(core::SettingsPaths{global_path, local_path}, out)
-                      .has_value());
+        NX_CHECK(
+            !load_logging_settings(core::SettingsPaths{global_path, local_path}, out).has_value());
         NX_CHECK(out.options.initial_log_level == LogLevel::Warning);
     }
 
@@ -3204,8 +3278,7 @@ void test_logging_settings_loader() {
     // Unreadable supplied path (a directory) -> SystemError.
     {
         Settings out{};
-        const Status status =
-            load_logging_settings(core::SettingsPaths{"/tmp/opencode", ""}, out);
+        const Status status = load_logging_settings(core::SettingsPaths{"/tmp/opencode", ""}, out);
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == ErrorCode::SystemError);
         NX_CHECK(!out.diagnostics.empty());
@@ -3235,16 +3308,17 @@ void test_logging_settings_loader() {
         NX_CHECK(out.options.max_producer_threads == 4U);
         NX_CHECK(out.options.overflow_policy == OverflowPolicy::OverwriteOldest);
     }
-    dir_env.clear(); size_env.clear(); ring_env.clear(); threads_env.clear();
+    dir_env.clear();
+    size_env.clear();
+    ring_env.clear();
+    threads_env.clear();
     overflow_env.clear();
 
     // Diagnostics rendering with multiple entries (separator branch).
     {
         Settings out{};
-        out.diagnostics.push_back(
-            {core::SettingsSource::Local, "a", "first"});
-        out.diagnostics.push_back(
-            {core::SettingsSource::Local, "b", "second"});
+        out.diagnostics.push_back({core::SettingsSource::Local, "a", "first"});
+        out.diagnostics.push_back({core::SettingsSource::Local, "b", "second"});
         NX_CHECK(out.to_string().find("; ") != std::string::npos);
         nlohmann::json json;
         to_json(json, out);
@@ -3259,8 +3333,7 @@ void test_logging_settings_loader() {
         from_json(nlohmann::json{{"global_file", 7}}, keep);
         NX_CHECK(keep.global_file == "g");
         core::SettingsDiagnostic diag_keep{core::SettingsSource::Local, "f", "m"};
-        from_json(nlohmann::json{{"source", 7}, {"field", 7}, {"message", 7}},
-                  diag_keep);
+        from_json(nlohmann::json{{"source", 7}, {"field", 7}, {"message", 7}}, diag_keep);
         NX_CHECK(diag_keep.field == "f");
     }
 
@@ -3485,10 +3558,9 @@ void test_logging_worker_thread_settings() {
 
     // Canonical local fields override legacy placement while inheriting the
     // global scheduler/name/mode. No FIFO/RR operation is performed here.
-    write_text(global_path,
-               R"({"flush_cpu_affinity":[1,3],)"
-               R"("worker_thread":{"name":"file-worker","policy":"rr",)"
-               R"("priority":40,"mode":"required"}})");
+    write_text(global_path, R"({"flush_cpu_affinity":[1,3],)"
+                            R"("worker_thread":{"name":"file-worker","policy":"rr",)"
+                            R"("priority":40,"mode":"required"}})");
     write_text(local_path, R"({"worker_thread":{"cpus":[64,65]}})");
     Settings merged{};
     NX_CHECK(load_logging_settings({global_path, local_path}, merged).has_value());
@@ -3540,7 +3612,8 @@ void test_logging_settings_apply() {
     settings.options.initial_log_level = LogLevel::Warning;
     settings.options.log_root_directory = "/var/log/hil";
     settings.options.max_file_size_bytes = 4096ULL;
-    settings.options.worker_thread.set_cpus(core::CpuSet::from_core_mask((1ULL << 1U) | (1ULL << 3U)));
+    settings.options.worker_thread.set_cpus(
+        core::CpuSet::from_core_mask((1ULL << 1U) | (1ULL << 3U)));
     settings.options.spam_protection.max_messages_per_sec_per_shard = 500U;
     settings.options.worker_poll_interval_us = 5000U;
 
@@ -3734,9 +3807,9 @@ void test_file_size_rotation() {
             static_cast<void>(::close(fd));
         }
         NX_CHECK(std::string(scratch.file).find("app.2.jsonl") != std::string::npos);
-        NX_CHECK(detail::open_segment(detail::RotationKind::None, 0, 0, dir, "noext", 3U,
-                                      scratch, fd)
-                     .has_value());
+        NX_CHECK(
+            detail::open_segment(detail::RotationKind::None, 0, 0, dir, "noext", 3U, scratch, fd)
+                .has_value());
         if (fd >= 0) {
             static_cast<void>(::close(fd));
         }
@@ -3773,8 +3846,13 @@ void test_logging_settings_full_coverage() {
     EnvGuard ring_env{"NEXIGEN_LOG_RING_CAPACITY"};
     EnvGuard threads_env{"NEXIGEN_LOG_MAX_PRODUCER_THREADS"};
     EnvGuard overflow_env{"NEXIGEN_LOG_OVERFLOW_POLICY"};
-    level_env.clear(); dir_env.clear(); size_env.clear();
-    affinity_env.clear(); ring_env.clear(); threads_env.clear(); overflow_env.clear();
+    level_env.clear();
+    dir_env.clear();
+    size_env.clear();
+    affinity_env.clear();
+    ring_env.clear();
+    threads_env.clear();
+    overflow_env.clear();
 
     const std::string global_path = unique_path("full_settings_global");
     const std::string local_path = unique_path("full_settings_local");
@@ -3799,7 +3877,8 @@ void test_logging_settings_full_coverage() {
         NX_CHECK(out.options.spsc_ring_buffer_capacity == 64U);
         NX_CHECK(out.options.max_producer_threads == 8U);
         NX_CHECK(out.options.overflow_policy == OverflowPolicy::OverwriteOldest);
-        NX_CHECK(out.options.worker_thread.cpus() == core::CpuSet::from_core_mask((1ULL << 0U) | (1ULL << 63U)));
+        NX_CHECK(out.options.worker_thread.cpus() ==
+                 core::CpuSet::from_core_mask((1ULL << 0U) | (1ULL << 63U)));
         NX_CHECK(out.options.worker_poll_interval_us == 250U);
         NX_CHECK(out.options.sync_flush_on_critical == false);
         NX_CHECK(out.options.spam_protection.enable_repeat_suppression == false);
@@ -3811,13 +3890,12 @@ void test_logging_settings_full_coverage() {
     }
 
     // Every field invalid: one diagnostic per field, values retained.
-    write_text(local_path,
-               R"({"log_root_directory":5,)"
-               R"("initial_log_level":7,"max_file_size_bytes":"x",)"
-               R"("spsc_ring_buffer_capacity":0,"max_producer_threads":4294967296,)"
-               R"("overflow_policy":7,"flush_cpu_affinity":"x",)"
-               R"("worker_poll_interval_us":"x","sync_flush_on_critical":1,)"
-               R"("spam_protection":7})");
+    write_text(local_path, R"({"log_root_directory":5,)"
+                           R"("initial_log_level":7,"max_file_size_bytes":"x",)"
+                           R"("spsc_ring_buffer_capacity":0,"max_producer_threads":4294967296,)"
+                           R"("overflow_policy":7,"flush_cpu_affinity":"x",)"
+                           R"("worker_poll_interval_us":"x","sync_flush_on_critical":1,)"
+                           R"("spam_protection":7})");
     {
         Settings out{};
         NX_CHECK(!load_logging_settings({"", local_path}, out).has_value());
@@ -3829,11 +3907,10 @@ void test_logging_settings_full_coverage() {
     // Nested spam fields invalid + affinity id out of range (removed
     // quota keys from change fix-p2-observability-and-writers no longer
     // produce diagnostics — they are not part of the surface).
-    write_text(local_path,
-               R"({"flush_cpu_affinity":[1,1024],"spam_protection":{)"
-               R"("enable_repeat_suppression":1,"repeat_suppression_window_ms":"x",)"
-               R"("max_messages_per_sec_per_shard":"x",)"
-               R"("bypass_min_level":"chatty"}})");
+    write_text(local_path, R"({"flush_cpu_affinity":[1,1024],"spam_protection":{)"
+                           R"("enable_repeat_suppression":1,"repeat_suppression_window_ms":"x",)"
+                           R"("max_messages_per_sec_per_shard":"x",)"
+                           R"("bypass_min_level":"chatty"}})");
     {
         Settings out{};
         NX_CHECK(!load_logging_settings({"", local_path}, out).has_value());
@@ -3865,9 +3942,8 @@ void test_logging_settings_full_coverage() {
     }
 
     // Environment failures for every variable.
-    write_text(global_path,
-               R"({"log_root_directory":"/tmp/env",)"
-               R"("initial_log_level":"info"})");
+    write_text(global_path, R"({"log_root_directory":"/tmp/env",)"
+                            R"("initial_log_level":"info"})");
     level_env.set("chatty");
     dir_env.set(std::string(512, 'd').c_str());
     size_env.set("x");
@@ -3879,12 +3955,16 @@ void test_logging_settings_full_coverage() {
         NX_CHECK(!load_logging_settings({global_path, ""}, out).has_value());
         NX_CHECK(out.diagnostics.size() >= 6U);
     }
-    level_env.clear(); dir_env.clear(); size_env.clear();
-    ring_env.clear(); threads_env.clear(); overflow_env.clear();
+    level_env.clear();
+    dir_env.clear();
+    size_env.clear();
+    ring_env.clear();
+    threads_env.clear();
+    overflow_env.clear();
 
     // Affinity grammar: invalid tokens fail, valid list expands.
-    const std::array<std::string_view, 8> invalid_affinity{
-        "", ",", "1-", "-2", "3-1", "1024", "1,,2", " 1"};
+    const std::array<std::string_view, 8> invalid_affinity{"",    ",",    "1-",   "-2",
+                                                           "3-1", "1024", "1,,2", " 1"};
     for (const std::string_view token : invalid_affinity) {
         affinity_env.set(std::string(token).c_str());
         Settings out{};
@@ -3918,28 +3998,28 @@ void test_spam_window_and_rotation_errors() {
         detail::SpamShardState st{};
         const std::uint64_t hash = detail::message_hash("f.cpp", 1, "msg", nullptr, 0);
         NX_CHECK(sp.check_repeat(st, hash, 0));
-        NX_CHECK(!sp.check_repeat(st, hash, 500'000)); // inside the window
+        NX_CHECK(!sp.check_repeat(st, hash, 500'000));  // inside the window
         NX_CHECK(sp.check_repeat(st, hash, 2'000'000)); // window expired → pass
         NX_CHECK(st.repeat_count == 1);
     }
     {
         detail::RotationScratch scratch{};
         int fd = -1;
-        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0, "", "f",
-                                      scratch, fd).has_value());
-        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0, "/tmp",
-                                      std::string(256, 'x'), scratch, fd).has_value());
-        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0,
-                                      std::string(512, 'b'), "f", scratch, fd)
+        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0, "", "f", scratch, fd)
                       .has_value());
-        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0,
-                                      "/proc/nexigen-nope", "f", scratch, fd)
+        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0, "/tmp",
+                                      std::string(256, 'x'), scratch, fd)
+                      .has_value());
+        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0, std::string(512, 'b'), "f",
+                                      scratch, fd)
+                      .has_value());
+        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0, "/proc/nexigen-nope", "f",
+                                      scratch, fd)
                       .has_value());
     }
 }
 
-int main()
-{
+int main() {
     run_suite("harness", test_harness);
     run_suite("levels", test_levels);
     run_suite("record", test_record);

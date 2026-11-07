@@ -149,8 +149,8 @@ int main() {
         consumer.join();
     }
 
-    print_line(std::format("producer: sent={}, full_retries={}, last_outcome={}",
-                           k_packet_count, producer_retries, producer_last_error));
+    print_line(std::format("producer: sent={}, full_retries={}, last_outcome={}", k_packet_count,
+                           producer_retries, producer_last_error));
     print_line(std::format("consumer: received={}, empty_retries={}, last_outcome={}",
                            k_packet_count, consumer_retries, consumer_last_error));
     print_line(std::format("final queue state: {}", queue.to_string()));

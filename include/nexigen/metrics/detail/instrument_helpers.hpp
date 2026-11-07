@@ -18,16 +18,14 @@ namespace nexigen::metrics::detail {
 
 /// Placement-destruct an instrument (the type-erased destroy hook). The
 /// instrument's destructor is public, so no friendship is required.
-template <class Instrument>
-void destroy_instrument(void* object) noexcept {
+template <class Instrument> void destroy_instrument(void* object) noexcept {
     static_cast<Instrument*>(object)->~Instrument();
 }
 
 /// Build the classification + identity prefix of a harvested record. The
 /// kind-specific payload is filled separately by the instrument.
-inline MetricRecord make_record(MetricKind kind, ConcurrencyPolicy concurrency,
-                                AccessPolicy access, ResetPolicy reset,
-                                const MetricIdentity* identity) {
+inline MetricRecord make_record(MetricKind kind, ConcurrencyPolicy concurrency, AccessPolicy access,
+                                ResetPolicy reset, const MetricIdentity* identity) {
     MetricRecord record{};
     record.kind = kind;
     record.concurrency = concurrency;
@@ -40,9 +38,8 @@ inline MetricRecord make_record(MetricKind kind, ConcurrencyPolicy concurrency,
 }
 
 /// Append the "kind/concurrency/access/reset" classification to a diagnostic.
-inline void append_classification(std::string& out, MetricKind kind,
-                                  ConcurrencyPolicy concurrency, AccessPolicy access,
-                                  ResetPolicy reset) {
+inline void append_classification(std::string& out, MetricKind kind, ConcurrencyPolicy concurrency,
+                                  AccessPolicy access, ResetPolicy reset) {
     out += std::string(metrics::to_string(kind));
     out += ", concurrency=" + std::string(metrics::to_string(concurrency));
     out += ", access=" + std::string(metrics::to_string(access));

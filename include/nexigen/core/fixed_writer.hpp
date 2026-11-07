@@ -57,24 +57,18 @@ public:
         return true;
     }
 
-    bool append_u64(std::uint64_t value) noexcept {
-        return append_integral(value);
-    }
+    bool append_u64(std::uint64_t value) noexcept { return append_integral(value); }
 
-    bool append_i64(std::int64_t value) noexcept {
-        return append_integral(value);
-    }
+    bool append_i64(std::int64_t value) noexcept { return append_integral(value); }
 
     bool append_double(double value) noexcept {
         char digits[40];
-        const auto result =
-            std::to_chars(digits, digits + sizeof(digits), value);
+        const auto result = std::to_chars(digits, digits + sizeof(digits), value);
         if (result.ec != std::errc{}) {
             ok_ = false;
             return false;
         }
-        return append_sv(std::string_view(
-            digits, static_cast<std::size_t>(result.ptr - digits)));
+        return append_sv(std::string_view(digits, static_cast<std::size_t>(result.ptr - digits)));
     }
 
     /// JSON-escape sv into the buffer (the policy above).
@@ -106,31 +100,48 @@ public:
     [[nodiscard]] bool ok() const noexcept { return ok_; }
 
 private:
-    static constexpr std::string_view hex_digits =
-        "0123456789abcdef";
+    static constexpr std::string_view hex_digits = "0123456789abcdef";
 
-    template <typename Integer>
-    bool append_integral(Integer value) noexcept {
+    template <typename Integer> bool append_integral(Integer value) noexcept {
         char digits[24];
-        const auto result =
-            std::to_chars(digits, digits + sizeof(digits), value);
+        const auto result = std::to_chars(digits, digits + sizeof(digits), value);
         if (result.ec != std::errc{}) {
             ok_ = false;
             return false;
         }
-        return append_sv(std::string_view(
-            digits, static_cast<std::size_t>(result.ptr - digits)));
+        return append_sv(std::string_view(digits, static_cast<std::size_t>(result.ptr - digits)));
     }
 
     void append_escape_byte(std::uint8_t b) noexcept {
         switch (b) {
-            case '"':  static_cast<void>(append_char('\\')); static_cast<void>(append_char('"'));  return;
-            case '\\': static_cast<void>(append_char('\\')); static_cast<void>(append_char('\\')); return;
-            case '\b': static_cast<void>(append_char('\\')); static_cast<void>(append_char('b'));  return;
-            case '\f': static_cast<void>(append_char('\\')); static_cast<void>(append_char('f'));  return;
-            case '\n': static_cast<void>(append_char('\\')); static_cast<void>(append_char('n'));  return;
-            case '\r': static_cast<void>(append_char('\\')); static_cast<void>(append_char('r'));  return;
-            case '\t': static_cast<void>(append_char('\\')); static_cast<void>(append_char('t'));  return;
+            case '"':
+                static_cast<void>(append_char('\\'));
+                static_cast<void>(append_char('"'));
+                return;
+            case '\\':
+                static_cast<void>(append_char('\\'));
+                static_cast<void>(append_char('\\'));
+                return;
+            case '\b':
+                static_cast<void>(append_char('\\'));
+                static_cast<void>(append_char('b'));
+                return;
+            case '\f':
+                static_cast<void>(append_char('\\'));
+                static_cast<void>(append_char('f'));
+                return;
+            case '\n':
+                static_cast<void>(append_char('\\'));
+                static_cast<void>(append_char('n'));
+                return;
+            case '\r':
+                static_cast<void>(append_char('\\'));
+                static_cast<void>(append_char('r'));
+                return;
+            case '\t':
+                static_cast<void>(append_char('\\'));
+                static_cast<void>(append_char('t'));
+                return;
             default: break;
         }
         if (b < 0x20U) {
@@ -138,8 +149,7 @@ private:
             static_cast<void>(append_char('u'));
             static_cast<void>(append_char('0'));
             static_cast<void>(append_char('0'));
-            static_cast<void>(append_char(
-                hex_digits[(b >> 4U) & 0x0FU]));
+            static_cast<void>(append_char(hex_digits[(b >> 4U) & 0x0FU]));
             static_cast<void>(append_char(hex_digits[b & 0x0FU]));
             return;
         }

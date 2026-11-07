@@ -44,9 +44,7 @@ public:
 
     /// Move transfers the descriptor and leaves the source unusable (fd =
     /// -1) so the destructors can never double-close.
-    ConsoleTraceSink(ConsoleTraceSink&& other) noexcept : fd_(other.fd_) {
-        other.fd_ = -1;
-    }
+    ConsoleTraceSink(ConsoleTraceSink&& other) noexcept : fd_(other.fd_) { other.fd_ = -1; }
     ConsoleTraceSink& operator=(ConsoleTraceSink&& other) noexcept {
         if (this != &other) {
             if (fd_ >= 0 && fd_ != other.fd_) {
@@ -93,26 +91,16 @@ public:
                 append_sv(attr.key_view());
                 append_char('=');
                 switch (attr.type) {
-                    case SpanAttributeType::Int64:
-                        append_i64(attr.value.i64);
-                        break;
-                    case SpanAttributeType::Uint64:
-                        append_u64(attr.value.u64);
-                        break;
-                    case SpanAttributeType::Double:
-                        append_double(attr.value.f64);
-                        break;
-                    case SpanAttributeType::Bool:
-                        append_sv(attr.value.b ? "true" : "false");
-                        break;
+                    case SpanAttributeType::Int64:  append_i64(attr.value.i64); break;
+                    case SpanAttributeType::Uint64: append_u64(attr.value.u64); break;
+                    case SpanAttributeType::Double: append_double(attr.value.f64); break;
+                    case SpanAttributeType::Bool:   append_sv(attr.value.b ? "true" : "false"); break;
                     case SpanAttributeType::String:
                         append_char('"');
                         append_sv(attr.text_view()); // bounded render (view may be long)
                         append_char('"');
                         break;
-                    default:
-                        append_sv("Unknown");
-                        break;
+                    default: append_sv("Unknown"); break;
                 }
             }
             append_char('}');

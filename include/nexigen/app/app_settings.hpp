@@ -37,7 +37,7 @@ struct AppSettingsPaths {
 
 /// One merged value consumed by Infrastructure::initialize.
 struct Settings {
-    std::string app_name{};  ///< Application name for telemetry (supplied from the CLI).
+    std::string app_name{}; ///< Application name for telemetry (supplied from the CLI).
     logging::Settings logging{};
     metrics::Settings metrics{};
     tracing::Settings tracing{};
@@ -59,11 +59,6 @@ void to_json(nlohmann::json& j, const Settings& settings);
 /// subsystem loaders. Reports SystemError if any supplied file could not be
 /// read, otherwise InvalidArgument if any diagnostic exists, otherwise OK.
 /// Every subsystem stays populated best effort.
-[[nodiscard]] core::Status load_app_settings(const AppSettingsPaths& paths,
-                                             Settings& out) noexcept;
+[[nodiscard]] core::Status load_app_settings(const AppSettingsPaths& paths, Settings& out) noexcept;
 
 } // namespace nexigen::app
-
-
-
-

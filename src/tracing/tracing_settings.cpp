@@ -51,12 +51,10 @@ using nexigen::core::settings_io::unsigned_value;
 } // namespace
 
 std::string Settings::to_string() const {
-    std::string out = "Settings(global_loaded=" +
-                      std::string(global_loaded ? "true" : "false") +
+    std::string out = "Settings(global_loaded=" + std::string(global_loaded ? "true" : "false") +
                       ", local_loaded=" + std::string(local_loaded ? "true" : "false") +
                       ", options=" + nexigen::tracing::to_string(options) +
-                      ", sink=" + nexigen::tracing::to_string(sink) +
-                      ", diagnostics=[";
+                      ", sink=" + nexigen::tracing::to_string(sink) + ", diagnostics=[";
     for (std::size_t i = 0; i < diagnostics.size(); ++i) {
         if (i != 0) {
             out += "; ";
@@ -75,20 +73,19 @@ void to_json(nlohmann::json& j, const Settings& settings) {
         to_json(entry, diag);
         diagnostics.push_back(std::move(entry));
     }
-    j = nlohmann::json{{"global_loaded", settings.global_loaded},
-                       {"local_loaded", settings.local_loaded},
-                       {"worker_thread", options.worker_thread},
-                       {"max_tracers", options.max_tracers},
-                       {"max_spans_per_window", options.max_spans_per_window},
-                       {"window_ns", options.window_ns},
-                       {"worker_poll_interval_us", options.worker_poll_interval_us},
-                       {"sink", nlohmann::json{
-                                    {"path", settings.sink.path},
-                                    {"rotation", std::string(to_string(settings.sink.rotation))},
-                                    {"max_spans_per_window",
-                                     settings.sink.max_spans_per_window},
-                                    {"window_ns", settings.sink.window_ns}}},
-                       {"diagnostics", std::move(diagnostics)}};
+    j = nlohmann::json{
+        {"global_loaded", settings.global_loaded},
+        {"local_loaded", settings.local_loaded},
+        {"worker_thread", options.worker_thread},
+        {"max_tracers", options.max_tracers},
+        {"max_spans_per_window", options.max_spans_per_window},
+        {"window_ns", options.window_ns},
+        {"worker_poll_interval_us", options.worker_poll_interval_us},
+        {"sink", nlohmann::json{{"path", settings.sink.path},
+                                {"rotation", std::string(to_string(settings.sink.rotation))},
+                                {"max_spans_per_window", settings.sink.max_spans_per_window},
+                                {"window_ns", settings.sink.window_ns}}},
+        {"diagnostics", std::move(diagnostics)}};
 }
 
 namespace {
@@ -105,11 +102,9 @@ void merge_tracing_sink(const nlohmann::json& document, core::SettingsSource sou
         if (!rotation_it->is_string()) {
             add_diagnostic(out.diagnostics, source, "sink.rotation", "expected a string");
         } else {
-            const auto* const name =
-                rotation_it->get_ptr<const nlohmann::json::string_t*>();
+            const auto* const name = rotation_it->get_ptr<const nlohmann::json::string_t*>();
             RotationPolicy parsed = out.sink.rotation;
-            if (name != nullptr &&
-                from_string(std::string_view(*name), parsed)) {
+            if (name != nullptr && from_string(std::string_view(*name), parsed)) {
                 out.sink.rotation = parsed;
             } else {
                 add_diagnostic(out.diagnostics, source, "sink.rotation",
@@ -117,13 +112,12 @@ void merge_tracing_sink(const nlohmann::json& document, core::SettingsSource sou
             }
         }
     }
-    read_sink_uint(*sink, "max_spans_per_window", out.sink.max_spans_per_window,
-                   out.diagnostics, source);
+    read_sink_uint(*sink, "max_spans_per_window", out.sink.max_spans_per_window, out.diagnostics,
+                   source);
     read_sink_uint(*sink, "window_ns", out.sink.window_ns, out.diagnostics, source);
 }
 
-void merge_tracing_document(const nlohmann::json& document,
-                            core::SettingsSource source,
+void merge_tracing_document(const nlohmann::json& document, core::SettingsSource source,
                             Settings& out) {
     if (!document.is_object()) {
         add_diagnostic(out.diagnostics, source, "", "document is not a JSON object");
@@ -156,8 +150,8 @@ void merge_tracing_document(const nlohmann::json& document,
     }
 
     std::uint64_t spans = out.options.max_spans_per_window;
-    read_uint(document, "max_spans_per_window", std::numeric_limits<std::uint64_t>::max(),
-              spans, out.diagnostics, source);
+    read_uint(document, "max_spans_per_window", std::numeric_limits<std::uint64_t>::max(), spans,
+              out.diagnostics, source);
     out.options.max_spans_per_window = spans;
 
     std::uint64_t window = out.options.window_ns;
@@ -166,8 +160,8 @@ void merge_tracing_document(const nlohmann::json& document,
     out.options.window_ns = window;
 
     std::uint64_t poll = out.options.worker_poll_interval_us;
-    read_uint(document, "worker_poll_interval_us", std::numeric_limits<std::uint32_t>::max(),
-              poll, out.diagnostics, source);
+    read_uint(document, "worker_poll_interval_us", std::numeric_limits<std::uint32_t>::max(), poll,
+              out.diagnostics, source);
     out.options.worker_poll_interval_us = static_cast<std::uint32_t>(poll);
     merge_tracing_sink(document, source, out);
 }
@@ -222,8 +216,7 @@ void apply_tracing_environment(Settings& out) {
 
 } // namespace
 
-core::Status load_tracing_settings(const core::SettingsPaths& paths,
-                                   Settings& out) noexcept {
+core::Status load_tracing_settings(const core::SettingsPaths& paths, Settings& out) noexcept {
     out = Settings{};
     bool invalid = false;
     bool system_error = false;
@@ -235,8 +228,7 @@ core::Status load_tracing_settings(const core::SettingsPaths& paths,
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, core::SettingsSource::Global, "",
-                           "malformed JSON");
+            add_diagnostic(out.diagnostics, core::SettingsSource::Global, "", "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
             merge_tracing_document(document, core::SettingsSource::Global, out);
@@ -255,8 +247,7 @@ core::Status load_tracing_settings(const core::SettingsPaths& paths,
         const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
         if (document.is_discarded()) {
             invalid = true;
-            add_diagnostic(out.diagnostics, core::SettingsSource::Local, "",
-                           "malformed JSON");
+            add_diagnostic(out.diagnostics, core::SettingsSource::Local, "", "malformed JSON");
         } else {
             const std::size_t before = out.diagnostics.size();
             merge_tracing_document(document, core::SettingsSource::Local, out);

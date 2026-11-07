@@ -136,7 +136,9 @@ std::string ChronoProviderConfig::to_string() const {
                        collect_interval.count(), worker_thread.to_string());
 }
 
-std::string to_string(const ChronoProviderConfig& config) { return config.to_string(); }
+std::string to_string(const ChronoProviderConfig& config) {
+    return config.to_string();
+}
 
 void to_json(nlohmann::json& j, const ChronoProviderConfig& config) {
     j = nlohmann::json{

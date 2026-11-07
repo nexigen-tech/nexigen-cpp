@@ -18,8 +18,7 @@ namespace nexigen::hub {
 
 /// Control-plane diagnostic callback. It must not throw and should be cheap;
 /// the hub passes preformatted messages once per failed refresh or stream.
-using DiagnosticSink = void (*)(void* context,
-                                 std::string_view message) noexcept;
+using DiagnosticSink = void (*)(void* context, std::string_view message) noexcept;
 
 /// Per-stream capacity and read bounds.
 struct StreamLimits {
@@ -60,10 +59,9 @@ public:
 
     /// Register a subscriber. Returns its id and fills the replay snapshot.
     /// `stream_id` empty means all streams. `since` filters one stream's replay.
-    [[nodiscard]] std::uint64_t subscribe(
-        std::string_view stream_id, std::uint64_t since,
-        std::vector<StreamRecord>& snapshot,
-        std::optional<GapMarker>& gap) noexcept;
+    [[nodiscard]] std::uint64_t subscribe(std::string_view stream_id, std::uint64_t since,
+                                          std::vector<StreamRecord>& snapshot,
+                                          std::optional<GapMarker>& gap) noexcept;
 
     void unsubscribe(std::uint64_t subscriber_id) noexcept;
 
@@ -72,8 +70,7 @@ public:
               std::vector<GapMarker>& gaps) noexcept;
 
     /// Copy up to `limit` newest records from one stream without subscribing.
-    void recent(std::string_view stream_id, std::size_t limit,
-                std::vector<StreamRecord>& records,
+    void recent(std::string_view stream_id, std::size_t limit, std::vector<StreamRecord>& records,
                 std::optional<GapMarker>& gap) const noexcept;
 
     [[nodiscard]] bool overflowed(std::uint64_t subscriber_id) const noexcept;
@@ -128,5 +125,3 @@ private:
 };
 
 } // namespace nexigen::hub
-
-

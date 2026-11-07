@@ -46,35 +46,36 @@
 
 namespace nexigen::app {
 
-template <class Policy, std::size_t TracerCapacity = 1024,
-          std::size_t TracerThreads = 32>
+template <class Policy, std::size_t TracerCapacity = 1024, std::size_t TracerThreads = 32>
 class Infrastructure;
 
 /// Stateless policy contract: component types plus static emplacement hooks.
 template <class Policy>
-concept InfrastructurePolicy = requires(
-    std::optional<typename Policy::Logger>& logger,
-    std::optional<typename Policy::MetricsSink>& metrics_sink,
-    std::optional<typename Policy::TraceSink>& trace_sink,
-    std::optional<typename Policy::ChronoSink>& chrono_sink,
-    const logging::Settings& logging_settings,
-    const metrics::Settings& metrics_settings,
-    const tracing::Settings& tracing_settings,
-    const chrono::Settings& chrono_settings,
-    std::string_view app_name) {
-    typename Policy::Logger;
-    typename Policy::MetricsSink;
-    typename Policy::TraceSink;
-    typename Policy::ChronoSink;
-    { Policy::emplace_logger(logger, logging_settings, app_name) } noexcept
-        -> std::same_as<core::Status>;
-    { Policy::emplace_metrics_sink(metrics_sink, metrics_settings, app_name) } noexcept
-        -> std::same_as<core::Status>;
-    { Policy::emplace_trace_sink(trace_sink, tracing_settings, app_name) } noexcept
-        -> std::same_as<core::Status>;
-    { Policy::emplace_chrono_sink(chrono_sink, chrono_settings) } noexcept
-        -> std::same_as<core::Status>;
-};
+concept InfrastructurePolicy =
+    requires(std::optional<typename Policy::Logger>& logger,
+             std::optional<typename Policy::MetricsSink>& metrics_sink,
+             std::optional<typename Policy::TraceSink>& trace_sink,
+             std::optional<typename Policy::ChronoSink>& chrono_sink,
+             const logging::Settings& logging_settings, const metrics::Settings& metrics_settings,
+             const tracing::Settings& tracing_settings, const chrono::Settings& chrono_settings,
+             std::string_view app_name) {
+        typename Policy::Logger;
+        typename Policy::MetricsSink;
+        typename Policy::TraceSink;
+        typename Policy::ChronoSink;
+        {
+            Policy::emplace_logger(logger, logging_settings, app_name)
+        } noexcept -> std::same_as<core::Status>;
+        {
+            Policy::emplace_metrics_sink(metrics_sink, metrics_settings, app_name)
+        } noexcept -> std::same_as<core::Status>;
+        {
+            Policy::emplace_trace_sink(trace_sink, tracing_settings, app_name)
+        } noexcept -> std::same_as<core::Status>;
+        {
+            Policy::emplace_chrono_sink(chrono_sink, chrono_settings)
+        } noexcept -> std::same_as<core::Status>;
+    };
 
 namespace detail {
 
@@ -126,8 +127,7 @@ public:
     [[nodiscard]] bool active() const noexcept { return fd_ >= 0; }
 
 private:
-    template <class Target>
-    void run(Target* target, std::stop_token token) noexcept {
+    template <class Target> void run(Target* target, std::stop_token token) noexcept {
         while (!token.stop_requested()) {
             pollfd descriptor{fd_, POLLIN, 0};
             const int ready = ::poll(&descriptor, 1, 100);
@@ -154,21 +154,14 @@ private:
 /// Bridges the application logger to the chrono worker's module-local log hook
 /// (chrono must not depend on logging): maps ClockLogLevel to LogLevel and
 /// forwards a pre-formatted message through the logger.
-template <class Logger>
-struct ChronoLoggerBridge {
+template <class Logger> struct ChronoLoggerBridge {
     Logger* logger{nullptr};
 
     void log(chrono::ClockLogLevel level, std::string_view message) noexcept {
         switch (level) {
-            case chrono::ClockLogLevel::info:
-                logger->info("{}", message);
-                break;
-            case chrono::ClockLogLevel::warning:
-                logger->warning("{}", message);
-                break;
-            case chrono::ClockLogLevel::error:
-                logger->error("{}", message);
-                break;
+            case chrono::ClockLogLevel::info:    logger->info("{}", message); break;
+            case chrono::ClockLogLevel::warning: logger->warning("{}", message); break;
+            case chrono::ClockLogLevel::error:   logger->error("{}", message); break;
         }
     }
 };
@@ -220,9 +213,9 @@ public:
         }
 
         const void* no_owner = nullptr;
-        if (!detail::signal_owner.compare_exchange_strong(
-                no_owner, static_cast<const void*>(this), std::memory_order_acq_rel,
-                std::memory_order_relaxed)) {
+        if (!detail::signal_owner.compare_exchange_strong(no_owner, static_cast<const void*>(this),
+                                                          std::memory_order_acq_rel,
+                                                          std::memory_order_relaxed)) {
             return std::unexpected(core::ErrorCode::Conflict);
         }
 
@@ -243,8 +236,8 @@ public:
         // "construct a component or fail with the returned status (a plain
         // null from an invalid-policy stub maps to InvalidArgument)"
         // followed by rollback — one helper instead of four copies.
-        const auto emplace_checked = [&fail](
-            const core::Status status, const bool constructed) -> core::Status {
+        const auto emplace_checked = [&fail](const core::Status status,
+                                             const bool constructed) -> core::Status {
             if (!status) {
                 return fail(status);
             }
@@ -257,10 +250,8 @@ public:
         // 1. chrono is the time foundation: construct it (deferred worker),
         //    then the logger, then bind the logger and start the chrono worker.
         {
-            const core::Status status =
-                Policy::emplace_chrono_sink(chrono_sink_, settings.chrono);
-            if (const core::Status step =
-                    emplace_checked(status, chrono_sink_.has_value());
+            const core::Status status = Policy::emplace_chrono_sink(chrono_sink_, settings.chrono);
+            if (const core::Status step = emplace_checked(status, chrono_sink_.has_value());
                 !step) {
                 return step;
             }
@@ -270,9 +261,7 @@ public:
         {
             const core::Status status =
                 Policy::emplace_logger(logger_, settings.logging, settings.app_name);
-            if (const core::Status step =
-                    emplace_checked(status, logger_.has_value());
-                !step) {
+            if (const core::Status step = emplace_checked(status, logger_.has_value()); !step) {
                 return step;
             }
         }
@@ -283,10 +272,8 @@ public:
 
         {
             const core::Status status =
-                Policy::emplace_metrics_sink(metrics_sink_, settings.metrics,
-                                             settings.app_name);
-            if (const core::Status step =
-                    emplace_checked(status, metrics_sink_.has_value());
+                Policy::emplace_metrics_sink(metrics_sink_, settings.metrics, settings.app_name);
+            if (const core::Status step = emplace_checked(status, metrics_sink_.has_value());
                 !step) {
                 return step;
             }
@@ -302,11 +289,8 @@ public:
 
         {
             const core::Status status =
-                Policy::emplace_trace_sink(trace_sink_, settings.tracing,
-                                           settings.app_name);
-            if (const core::Status step =
-                    emplace_checked(status, trace_sink_.has_value());
-                !step) {
+                Policy::emplace_trace_sink(trace_sink_, settings.tracing, settings.app_name);
+            if (const core::Status step = emplace_checked(status, trace_sink_.has_value()); !step) {
                 return step;
             }
         }
@@ -344,8 +328,7 @@ public:
 
     /// Run the caller's tick until a stop is requested; returns the reason.
     /// A bool-returning tick requests a host stop when it yields false.
-    template <class Tick>
-    [[nodiscard]] InfrastructureStopReason run(Tick&& tick) noexcept {
+    template <class Tick> [[nodiscard]] InfrastructureStopReason run(Tick&& tick) noexcept {
         while (!stop_requested()) {
             if constexpr (std::is_invocable_r_v<bool, Tick&>) {
                 if (!tick()) {
@@ -416,9 +399,7 @@ public:
                     logger_->info("shutdown reason: requested");
                     break;
                 case InfrastructureStopReason::None:
-                default:
-                    logger_->info("shutdown reason: none");
-                    break;
+                default:                             logger_->info("shutdown reason: none"); break;
             }
             capture(logger_->flush());
         }
@@ -475,8 +456,7 @@ private:
     Infrastructure() noexcept = default;
 
     template <class P, std::size_t C, std::size_t T>
-    friend core::Result<std::unique_ptr<Infrastructure<P, C, T>>>
-    make_infrastructure() noexcept;
+    friend core::Result<std::unique_ptr<Infrastructure<P, C, T>>> make_infrastructure() noexcept;
 
     void rollback() noexcept {
         signals_.stop();
@@ -509,16 +489,13 @@ private:
     sigset_t previous_mask_{};
     bool initialized_{false};
     std::atomic<bool> shutdown_started_{false};
-    alignas(64) std::atomic<InfrastructureStopReason> stop_reason_{
-        InfrastructureStopReason::None};
+    alignas(64) std::atomic<InfrastructureStopReason> stop_reason_{InfrastructureStopReason::None};
 };
 
 /// Heap-only factory: the private constructor makes automatic/static
 /// Infrastructure objects impossible. Allocation failure is a SystemError.
-template <class Policy, std::size_t TracerCapacity = 1024,
-          std::size_t TracerThreads = 32>
-[[nodiscard]] core::Result<std::unique_ptr<
-    Infrastructure<Policy, TracerCapacity, TracerThreads>>>
+template <class Policy, std::size_t TracerCapacity = 1024, std::size_t TracerThreads = 32>
+[[nodiscard]] core::Result<std::unique_ptr<Infrastructure<Policy, TracerCapacity, TracerThreads>>>
 make_infrastructure() noexcept {
     using Type = Infrastructure<Policy, TracerCapacity, TracerThreads>;
     Type* const raw = new (std::nothrow) Type{};

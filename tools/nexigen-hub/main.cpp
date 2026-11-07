@@ -44,8 +44,7 @@ maximum line 1 MiB. The hub is read-only and serves an embedded web UI.
 
 void hub_diagnostic(void* context, std::string_view message) noexcept {
     static_cast<void>(context);
-    std::fprintf(stderr, "nexigen-hub: %.*s\n",
-                 static_cast<int>(message.size()), message.data());
+    std::fprintf(stderr, "nexigen-hub: %.*s\n", static_cast<int>(message.size()), message.data());
 }
 
 } // namespace
@@ -121,9 +120,8 @@ int main(int argc, char* argv[]) {
     std::string listen_host{};
     if (!listen.empty() && listen.front() == '[') {
         const std::size_t closing = listen.find(']');
-        listen_host = closing == std::string::npos
-                          ? listen
-                          : listen.substr(1, closing > 1 ? closing - 1 : 0);
+        listen_host =
+            closing == std::string::npos ? listen : listen.substr(1, closing > 1 ? closing - 1 : 0);
     } else if (const std::size_t colon = listen.find(':');
                colon != std::string::npos && colon != 0) {
         listen_host = listen.substr(0, colon);
@@ -136,8 +134,7 @@ int main(int argc, char* argv[]) {
     if (listen_host.empty()) {
         listen_host = "127.0.0.1"; // server default applied below anyway
     }
-    if (listen_host != "127.0.0.1" && listen_host != "localhost" &&
-        listen_host != "::1") {
+    if (listen_host != "127.0.0.1" && listen_host != "localhost" && listen_host != "::1") {
         std::fprintf(stderr,
                      "nexigen-hub: warning: listening on non-loopback address "
                      "'%s' without authentication\n",
@@ -170,8 +167,7 @@ int main(int argc, char* argv[]) {
 
     std::fprintf(stdout, "nexigen-hub: listening on http://%s:%u\n",
                  listen.substr(0, listen.rfind(':')).c_str(), server.port());
-    std::fprintf(stdout, "nexigen-hub: watching %zu run root(s)\n",
-                 run_dirs.size());
+    std::fprintf(stdout, "nexigen-hub: watching %zu run root(s)\n", run_dirs.size());
     std::fflush(stdout);
 
     server.run(&g_stop);

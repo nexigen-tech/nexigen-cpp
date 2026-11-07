@@ -28,8 +28,7 @@ constexpr std::string_view k_root = "/tmp/nexigen-examples-logging-settings-simp
 FileLogger<> logger{};
 
 int fail(std::string_view message) {
-    std::fprintf(stderr, "ex_logging_settings_simple: %s\n",
-                 std::string(message).c_str());
+    std::fprintf(stderr, "ex_logging_settings_simple: %s\n", std::string(message).c_str());
     return 1;
 }
 
@@ -52,15 +51,12 @@ int main() {
     const std::string local_path = std::string(k_root) + "/local.json";
 
     // Global: machine-wide defaults. Local: this application's overrides.
-    write_file(global_path,
-               std::string(R"({"log_root_directory":")") + std::string(k_root) +
-                   R"(","initial_log_level":"info","max_file_size_bytes":4096})");
-    write_file(local_path,
-               R"({"initial_log_level":"debug"})");
+    write_file(global_path, std::string(R"({"log_root_directory":")") + std::string(k_root) +
+                                R"(","initial_log_level":"info","max_file_size_bytes":4096})");
+    write_file(local_path, R"({"initial_log_level":"debug"})");
 
     Settings settings{};
-    const auto loaded =
-        load_logging_settings(SettingsPaths{global_path, local_path}, settings);
+    const auto loaded = load_logging_settings(SettingsPaths{global_path, local_path}, settings);
     for (const auto& diagnostic : settings.diagnostics) {
         std::fprintf(stderr, "%s\n", diagnostic.to_string().c_str());
     }

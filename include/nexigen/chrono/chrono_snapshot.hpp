@@ -40,16 +40,13 @@ void to_json(nlohmann::json& j, const Snapshot& snapshot);
 void from_json(const nlohmann::json& j, Snapshot& out) noexcept;
 
 static_assert(sizeof(Snapshot) == 16, "snapshot must stay two register-sized fields");
-static_assert(std::is_trivially_copyable_v<Snapshot>,
-              "snapshot must be trivially copyable");
+static_assert(std::is_trivially_copyable_v<Snapshot>, "snapshot must be trivially copyable");
 
 } // namespace nexigen::chrono
 
 /// Snapshot formats as its diagnostic string (mandate 11).
-template <>
-struct std::formatter<nexigen::chrono::Snapshot> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::chrono::Snapshot& snapshot, Ctx& ctx) const {
+template <> struct std::formatter<nexigen::chrono::Snapshot> : std::formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::chrono::Snapshot& snapshot, Ctx& ctx) const {
         const std::string text = snapshot.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

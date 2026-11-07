@@ -44,7 +44,7 @@
 #ifndef NEXIGEN_LOG_MESSAGE_CAPACITY
 #define NEXIGEN_LOG_MESSAGE_CAPACITY 128
 #endif
-/* 
+/*
  * Configurable message capacity for LogRecord.
  * Users can define NEXIGEN_LOG_MESSAGE_CAPACITY before including this header
  * (e.g. via -DNEXIGEN_LOG_MESSAGE_CAPACITY=256) to change the default.
@@ -73,8 +73,7 @@ using record_render_fn = std::size_t (*)(const char* fmt, const char* blob,
                                          std::size_t cap) noexcept;
 
 /// Fixed-capacity log record: template over the inline argument blob size.
-template <std::size_t MessageCapacity = NEXIGEN_LOG_MESSAGE_CAPACITY>
-struct alignas(64) LogRecord {
+template <std::size_t MessageCapacity = NEXIGEN_LOG_MESSAGE_CAPACITY> struct alignas(64) LogRecord {
     static_assert(MessageCapacity >= 16 && MessageCapacity <= 0xFFFF,
                   "argument blob must be positive and addressable by uint16 length");
 
@@ -124,16 +123,16 @@ struct alignas(64) LogRecord {
         return out;
     }
 
-    chrono::Timestamp stamp{};                        ///< monotonic nanoseconds
-    std::uint32_t thread_id{};                        ///< cached SYS_gettid
-    LogLevel level{LogLevel::Info};                   ///< severity
-    std::uint8_t flags{};                             ///< bit0 args, bit1 render
-    std::uint16_t arg_length{};                       ///< bytes of arg_payload_ in use
-    const char* file_name{};                          ///< source_location::file_name
-    const char* function_name{};                      ///< source_location::function_name
-    std::uint32_t line{};                             ///< source_location::line
-    const char* fmt{};                                ///< checked format literal
-    record_render_fn render{};                        ///< type-erased pack renderer
+    chrono::Timestamp stamp{};      ///< monotonic nanoseconds
+    std::uint32_t thread_id{};      ///< cached SYS_gettid
+    LogLevel level{LogLevel::Info}; ///< severity
+    std::uint8_t flags{};           ///< bit0 args, bit1 render
+    std::uint16_t arg_length{};     ///< bytes of arg_payload_ in use
+    const char* file_name{};        ///< source_location::file_name
+    const char* function_name{};    ///< source_location::function_name
+    std::uint32_t line{};           ///< source_location::line
+    const char* fmt{};              ///< checked format literal
+    record_render_fn render{};      ///< type-erased pack renderer
     /// 8-aligned so the payload starts at offset 56 (design D4 layout table).
     alignas(std::uint64_t) std::array<char, MessageCapacity> arg_payload_{}; ///< inline pack blob
 };

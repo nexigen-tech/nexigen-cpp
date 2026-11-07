@@ -47,8 +47,8 @@ enum class SpanStatus : std::uint8_t {
 
 /// The whole sampling vocabulary (design non-goal: no policy engines).
 enum class SamplingDecision : std::uint8_t {
-    Drop,           ///< Do not record: start_span short-circuits.
-    RecordAndSample,///< Record the span (default).
+    Drop,            ///< Do not record: start_span short-circuits.
+    RecordAndSample, ///< Record the span (default).
 };
 
 /// Compile-time canonical name — the exact enumerator spelling used by JSON
@@ -68,11 +68,26 @@ enum class SamplingDecision : std::uint8_t {
 /// Parse a canonical SpanKind name; false leaves the out-parameter UNCHANGED
 /// on any other spelling (including "Unknown" — a rendering, not an enumerator).
 [[nodiscard]] constexpr bool from_string(std::string_view name, SpanKind& out) noexcept {
-    if (name == "Internal") { out = SpanKind::Internal; return true; }
-    if (name == "Server")   { out = SpanKind::Server;   return true; }
-    if (name == "Client")   { out = SpanKind::Client;   return true; }
-    if (name == "Producer") { out = SpanKind::Producer; return true; }
-    if (name == "Consumer") { out = SpanKind::Consumer; return true; }
+    if (name == "Internal") {
+        out = SpanKind::Internal;
+        return true;
+    }
+    if (name == "Server") {
+        out = SpanKind::Server;
+        return true;
+    }
+    if (name == "Client") {
+        out = SpanKind::Client;
+        return true;
+    }
+    if (name == "Producer") {
+        out = SpanKind::Producer;
+        return true;
+    }
+    if (name == "Consumer") {
+        out = SpanKind::Consumer;
+        return true;
+    }
     return false;
 }
 
@@ -88,25 +103,40 @@ enum class SamplingDecision : std::uint8_t {
 
 /// Parse a canonical SpanStatus name; same contract as SpanKind::from_string.
 [[nodiscard]] constexpr bool from_string(std::string_view name, SpanStatus& out) noexcept {
-    if (name == "Unset") { out = SpanStatus::Unset; return true; }
-    if (name == "Ok")    { out = SpanStatus::Ok;    return true; }
-    if (name == "Error") { out = SpanStatus::Error; return true; }
+    if (name == "Unset") {
+        out = SpanStatus::Unset;
+        return true;
+    }
+    if (name == "Ok") {
+        out = SpanStatus::Ok;
+        return true;
+    }
+    if (name == "Error") {
+        out = SpanStatus::Error;
+        return true;
+    }
     return false;
 }
 
 /// Canonical name of a sampling decision; same contract as above.
 [[nodiscard]] constexpr std::string_view to_string(SamplingDecision decision) noexcept {
     switch (decision) {
-        case SamplingDecision::Drop:             return "Drop";
-        case SamplingDecision::RecordAndSample:  return "RecordAndSample";
-        default:                                 return "Unknown";
+        case SamplingDecision::Drop:            return "Drop";
+        case SamplingDecision::RecordAndSample: return "RecordAndSample";
+        default:                                return "Unknown";
     }
 }
 
 /// Parse a canonical SamplingDecision name; same contract as above.
 [[nodiscard]] constexpr bool from_string(std::string_view name, SamplingDecision& out) noexcept {
-    if (name == "Drop")            { out = SamplingDecision::Drop;            return true; }
-    if (name == "RecordAndSample") { out = SamplingDecision::RecordAndSample; return true; }
+    if (name == "Drop") {
+        out = SamplingDecision::Drop;
+        return true;
+    }
+    if (name == "RecordAndSample") {
+        out = SamplingDecision::RecordAndSample;
+        return true;
+    }
     return false;
 }
 
@@ -153,9 +183,6 @@ inline void from_json(const nlohmann::json& j, SamplingDecision& out) noexcept {
 /// fill/align handled by the string_view formatter; contexts templated because
 /// libstdc++ 15 evaluates formattability against a substituted context.
 
-
 /// SpanStatus formats as its canonical name (mandate 11).
 
-
 /// SamplingDecision formats as its canonical name (mandate 11).
-

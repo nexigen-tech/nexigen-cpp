@@ -23,20 +23,18 @@ using nexigen::runner::detail::read_u32;
 using nexigen::runner::detail::read_u64;
 
 std::string HubStream::to_string() const {
-    return std::format("HubStream(id={}, kind={}, path={})", id,
-                       nexigen::hub::to_string(kind), path);
+    return std::format("HubStream(id={}, kind={}, path={})", id, nexigen::hub::to_string(kind),
+                       path);
 }
 
 std::string HubAttempt::to_string() const {
-    return std::format("HubAttempt(attempt={}, artifact_dir={}, streams={})",
-                       attempt, artifact_dir, streams.size());
+    return std::format("HubAttempt(attempt={}, artifact_dir={}, streams={})", attempt, artifact_dir,
+                       streams.size());
 }
 
 std::string HubInstance::to_string() const {
-    return std::format(
-        "HubInstance(instance={}, instance_dir={}, state={}, attempts={})",
-        instance, instance_dir, nexigen::runner::to_string(state),
-        attempts.size());
+    return std::format("HubInstance(instance={}, instance_dir={}, state={}, attempts={})", instance,
+                       instance_dir, nexigen::runner::to_string(state), attempts.size());
 }
 
 std::string HubApp::to_string() const {
@@ -45,17 +43,15 @@ std::string HubApp::to_string() const {
 }
 
 std::string HubSuite::to_string() const {
-    return std::format(
-        "HubSuite(suite_id={}, suite_dir={}, artifacts_path={}, state={}, "
-        "suite_restarts_used={}, apps={})",
-        suite_id, suite_dir, artifacts_path, nexigen::runner::to_string(state),
-        suite_restarts_used, apps.size());
+    return std::format("HubSuite(suite_id={}, suite_dir={}, artifacts_path={}, state={}, "
+                       "suite_restarts_used={}, apps={})",
+                       suite_id, suite_dir, artifacts_path, nexigen::runner::to_string(state),
+                       suite_restarts_used, apps.size());
 }
 
 std::string HubRun::to_string() const {
-    return std::format(
-        "HubRun(run_key={}, run_dir={}, suites={}, standalone_instances={})",
-        run_key, run_dir, suites.size(), standalone_instances.size());
+    return std::format("HubRun(run_key={}, run_dir={}, suites={}, standalone_instances={})",
+                       run_key, run_dir, suites.size(), standalone_instances.size());
 }
 
 std::string HubTree::to_string() const {
@@ -63,18 +59,15 @@ std::string HubTree::to_string() const {
 }
 
 std::string StreamRecord::to_string() const {
-    return std::format(
-        "StreamRecord(stream_id={}, kind={}, sequence={}, line_size={}, "
-        "truncated={})",
-        stream_id, nexigen::hub::to_string(kind), sequence, line.size(),
-        truncated);
+    return std::format("StreamRecord(stream_id={}, kind={}, sequence={}, line_size={}, "
+                       "truncated={})",
+                       stream_id, nexigen::hub::to_string(kind), sequence, line.size(), truncated);
 }
 
 std::string GapMarker::to_string() const {
-    return std::format(
-        "GapMarker(stream_id={}, dropped={}, first_missing_sequence={}, "
-        "last_missing_sequence={})",
-        stream_id, dropped, first_missing_sequence, last_missing_sequence);
+    return std::format("GapMarker(stream_id={}, dropped={}, first_missing_sequence={}, "
+                       "last_missing_sequence={})",
+                       stream_id, dropped, first_missing_sequence, last_missing_sequence);
 }
 
 // --- enum JSON ---
@@ -88,9 +81,8 @@ void from_json(const nlohmann::json& j, StreamKind& value) noexcept {
 
 // --- struct JSON ---
 void to_json(nlohmann::json& j, const HubStream& value) {
-    j = nlohmann::json{{"id", value.id},
-                       {"kind", std::string(to_string(value.kind))},
-                       {"path", value.path}};
+    j = nlohmann::json{
+        {"id", value.id}, {"kind", std::string(to_string(value.kind))}, {"path", value.path}};
 }
 
 void from_json(const nlohmann::json& j, HubStream& value) noexcept {
@@ -208,8 +200,7 @@ void from_json(const nlohmann::json& j, HubSuite& value) noexcept {
     static_cast<void>(read_string(j, "suite_dir", value.suite_dir));
     static_cast<void>(read_string(j, "artifacts_path", value.artifacts_path));
     read_enum(j, "state", value.state);
-    static_cast<void>(read_u32(j, "suite_restarts_used",
-                               value.suite_restarts_used));
+    static_cast<void>(read_u32(j, "suite_restarts_used", value.suite_restarts_used));
     static_cast<void>(read_string(j, "reason", value.reason));
     if (const auto it = j.find("runner_log"); it != j.end()) {
         from_json(*it, value.runner_log);
@@ -258,8 +249,7 @@ void from_json(const nlohmann::json& j, HubRun& value) noexcept {
         }
         value.suites = std::move(suites);
     }
-    if (const auto it = j.find("standalone_instances");
-        it != j.end() && it->is_array()) {
+    if (const auto it = j.find("standalone_instances"); it != j.end() && it->is_array()) {
         std::vector<HubInstance> instances;
         instances.reserve(it->size());
         for (const auto& entry : *it) {
@@ -295,12 +285,9 @@ void from_json(const nlohmann::json& j, HubTree& value) noexcept {
 }
 
 void to_json(nlohmann::json& j, const StreamRecord& value) {
-    j = nlohmann::json{{"stream_id", value.stream_id},
-                       {"kind", std::string(to_string(value.kind))},
-                       {"sequence", value.sequence},
-                       {"received_at", value.received_at_rfc3339},
-                       {"line", value.line},
-                       {"truncated", value.truncated}};
+    j = nlohmann::json{{"stream_id", value.stream_id}, {"kind", std::string(to_string(value.kind))},
+                       {"sequence", value.sequence},   {"received_at", value.received_at_rfc3339},
+                       {"line", value.line},           {"truncated", value.truncated}};
 }
 
 void from_json(const nlohmann::json& j, StreamRecord& value) noexcept {
@@ -322,10 +309,8 @@ void to_json(nlohmann::json& j, const GapMarker& value) {
 void from_json(const nlohmann::json& j, GapMarker& value) noexcept {
     static_cast<void>(read_string(j, "stream_id", value.stream_id));
     static_cast<void>(read_u64(j, "dropped", value.dropped));
-    static_cast<void>(read_u64(j, "first_missing_sequence",
-                               value.first_missing_sequence));
-    static_cast<void>(read_u64(j, "last_missing_sequence",
-                               value.last_missing_sequence));
+    static_cast<void>(read_u64(j, "first_missing_sequence", value.first_missing_sequence));
+    static_cast<void>(read_u64(j, "last_missing_sequence", value.last_missing_sequence));
 }
 
 std::vector<HubStream> all_streams(const HubTree& tree) {

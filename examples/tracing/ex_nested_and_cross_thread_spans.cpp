@@ -64,8 +64,8 @@ struct Edge {
 };
 
 /// Find the record for a span name (exactly one expected).
-[[nodiscard]] const tracing::SpanRecord* find_span(
-    const std::vector<tracing::SpanRecord>& records, std::string_view name) {
+[[nodiscard]] const tracing::SpanRecord* find_span(const std::vector<tracing::SpanRecord>& records,
+                                                   std::string_view name) {
     const tracing::SpanRecord* found = nullptr;
     for (const tracing::SpanRecord& record : records) {
         if (record.name_view() == name) {
@@ -93,8 +93,7 @@ int main(int argc, char** argv) {
     // parameters): static storage, never the stack (documented rule).
     static tracing::CompositeTraceSink<tracing::ConsoleTraceSink, TimelineSink> sink{
         tracing::ConsoleTraceSink{1}, TimelineSink{}};
-    static tracing::TracerProvider<1024, 32> provider{
-        tracing::TracerProviderConfig{}, sink};
+    static tracing::TracerProvider<1024, 32> provider{tracing::TracerProviderConfig{}, sink};
 
     if (!provider.initialize().has_value()) {
         return report("provider initialization failed");
@@ -112,13 +111,11 @@ int main(int argc, char** argv) {
 
         // Nested: the physics subsystem inside the step...
         {
-            auto physics = (*tracer)->start_span("physics-step",
-                                                 tracing::SpanKind::Server);
+            auto physics = (*tracer)->start_span("physics-step", tracing::SpanKind::Server);
             static_cast<void>(physics.set_attribute("bodies", 4096));
             // ...and the I/O flush inside physics.
             {
-                auto io = (*tracer)->start_span("io-flush",
-                                                tracing::SpanKind::Producer);
+                auto io = (*tracer)->start_span("io-flush", tracing::SpanKind::Producer);
                 static_cast<void>(io.set_status(tracing::SpanStatus::Ok));
             }
         }
@@ -139,12 +136,11 @@ int main(int argc, char** argv) {
                 }
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
-            auto remote = tracer->start_span("physics-worker",
-                                             tracing::SpanKind::Client, &received);
+            auto remote =
+                tracer->start_span("physics-worker", tracing::SpanKind::Client, &received);
             static_cast<void>(remote.set_attribute("core", 3));
             {
-                auto deeper = tracer->start_span("worker-batch",
-                                                 tracing::SpanKind::Consumer);
+                auto deeper = tracer->start_span("worker-batch", tracing::SpanKind::Consumer);
                 static_cast<void>(deeper);
             }
         });
@@ -172,8 +168,7 @@ int main(int argc, char** argv) {
         if (parent == nullptr || child == nullptr) {
             return report("expected span missing or duplicated in the timeline");
         }
-        const bool edge_ok = fail_demo ? false : (child->parent_span_id ==
-                                                  parent->span_id);
+        const bool edge_ok = fail_demo ? false : (child->parent_span_id == parent->span_id);
         if (!edge_ok) {
             std::fprintf(stderr,
                          "ex_nested_and_cross_thread_spans: FAIL: edge %.*s -> %.*s "
@@ -187,9 +182,8 @@ int main(int argc, char** argv) {
         if (child->trace_id != parent->trace_id) {
             return report("edge spans do not share a trace id");
         }
-        std::printf("   ok: %-14s -> %-14s [trace %s]\n",
-                    std::string(edge.parent).c_str(), std::string(edge.child).c_str(),
-                    tracing::to_string(child->trace_id).c_str());
+        std::printf("   ok: %-14s -> %-14s [trace %s]\n", std::string(edge.parent).c_str(),
+                    std::string(edge.child).c_str(), tracing::to_string(child->trace_id).c_str());
     }
     if (records.size() != edges.size() + 1) {
         // Every drained record must be part of the verified tree (5 spans).

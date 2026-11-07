@@ -32,8 +32,7 @@ constexpr std::size_t record_overhead_bytes = 64;
 [[nodiscard]] std::string utc_now_rfc3339() {
     using namespace std::chrono;
     const auto since_epoch = system_clock::now().time_since_epoch();
-    const std::int64_t epoch_ns =
-        duration_cast<nanoseconds>(since_epoch).count();
+    const std::int64_t epoch_ns = duration_cast<nanoseconds>(since_epoch).count();
     char buffer[31]{};
     nexigen::chrono::format_utc_iso8601_ns(epoch_ns, buffer);
     return std::string(buffer);
@@ -42,11 +41,10 @@ constexpr std::size_t record_overhead_bytes = 64;
 } // namespace
 
 std::string StreamLimits::to_string() const {
-    return std::format(
-        "StreamLimits(ring_records={}, ring_bytes={}, max_line_bytes={}, "
-        "read_chunk_bytes={}, subscriber_bytes={})",
-        ring_records, ring_bytes, max_line_bytes, read_chunk_bytes,
-        subscriber_bytes);
+    return std::format("StreamLimits(ring_records={}, ring_bytes={}, max_line_bytes={}, "
+                       "read_chunk_bytes={}, subscriber_bytes={})",
+                       ring_records, ring_bytes, max_line_bytes, read_chunk_bytes,
+                       subscriber_bytes);
 }
 
 StreamManager::StreamManager(StreamLimits limits) noexcept : limits_(limits) {
@@ -77,12 +75,11 @@ StreamManager::~StreamManager() {
 }
 
 std::string StreamManager::to_string() const {
-    return std::format("StreamManager(tailers={}, subscribers={})",
-                       tailers_.size(), subscribers_.size());
+    return std::format("StreamManager(tailers={}, subscribers={})", tailers_.size(),
+                       subscribers_.size());
 }
 
-void StreamManager::set_diagnostic_sink(DiagnosticSink sink,
-                                         void* context) noexcept {
+void StreamManager::set_diagnostic_sink(DiagnosticSink sink, void* context) noexcept {
     diagnostic_sink_ = sink;
     diagnostic_context_ = context;
 }
@@ -101,17 +98,15 @@ bool StreamManager::open_tailer(Tailer& tailer) noexcept {
     const int fd = ::open(tailer.descriptor.path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
         report(std::format("event=stream_open_failed stream={} path={} errno={}",
-                           tailer.descriptor.id, tailer.descriptor.path,
-                           errno));
+                           tailer.descriptor.id, tailer.descriptor.path, errno));
         return false;
     }
-    struct stat status {};
+    struct stat status{};
     if (::fstat(fd, &status) != 0) {
         const int error = errno;
         static_cast<void>(::close(fd));
         report(std::format("event=stream_stat_failed stream={} path={} errno={}",
-                           tailer.descriptor.id, tailer.descriptor.path,
-                           error));
+                           tailer.descriptor.id, tailer.descriptor.path, error));
         return false;
     }
     tailer.fd = fd;
@@ -140,9 +135,8 @@ bool StreamManager::open_tailer(Tailer& tailer) noexcept {
             const ssize_t count = ::read(fd, buffer.data(), buffer.size());
             if (count <= 0) {
                 if (count < 0) {
-                    report(std::format(
-                        "event=stream_read_failed stream={} path={} errno={}",
-                        tailer.descriptor.id, tailer.descriptor.path, errno));
+                    report(std::format("event=stream_read_failed stream={} path={} errno={}",
+                                       tailer.descriptor.id, tailer.descriptor.path, errno));
                 }
                 break;
             }
@@ -168,8 +162,7 @@ bool StreamManager::open_tailer(Tailer& tailer) noexcept {
     return true;
 }
 
-void StreamManager::consume_chunk(Tailer& tailer,
-                                   std::string_view chunk) noexcept {
+void StreamManager::consume_chunk(Tailer& tailer, std::string_view chunk) noexcept {
     for (const char c : chunk) {
         if (tailer.discarding) {
             if (c == '\n') {
@@ -197,8 +190,7 @@ void StreamManager::consume_chunk(Tailer& tailer,
     }
 }
 
-void StreamManager::emit(Tailer& tailer, std::string_view line,
-                          bool truncated) noexcept {
+void StreamManager::emit(Tailer& tailer, std::string_view line, bool truncated) noexcept {
     if (line.empty() && tailer.partial.empty() && truncated) {
         return;
     }
@@ -212,8 +204,7 @@ void StreamManager::emit(Tailer& tailer, std::string_view line,
 
     tailer.bytes += record.line.size() + record_overhead_bytes;
     tailer.ring.push_back(record);
-    while (tailer.ring.size() > limits_.ring_records ||
-           tailer.bytes > limits_.ring_bytes) {
+    while (tailer.ring.size() > limits_.ring_records || tailer.bytes > limits_.ring_bytes) {
         if (tailer.ring.empty()) {
             break;
         }
@@ -236,11 +227,10 @@ void StreamManager::poll_tailer(Tailer& tailer) noexcept {
             return;
         }
     }
-    struct stat status {};
+    struct stat status{};
     if (::stat(tailer.descriptor.path.c_str(), &status) != 0) {
         report(std::format("event=stream_stat_failed stream={} path={} errno={}",
-                           tailer.descriptor.id, tailer.descriptor.path,
-                           errno));
+                           tailer.descriptor.id, tailer.descriptor.path, errno));
         return;
     }
     if (static_cast<std::uint64_t>(status.st_dev) != tailer.device ||
@@ -295,8 +285,7 @@ core::Status StreamManager::sync(const HubTree& tree) noexcept {
         if (it == tailers_.end()) {
             Tailer tailer{};
             tailer.descriptor = descriptor;
-            auto [inserted, ok] = tailers_.emplace(descriptor.id,
-                                                   std::move(tailer));
+            auto [inserted, ok] = tailers_.emplace(descriptor.id, std::move(tailer));
             static_cast<void>(ok);
             if (!open_tailer(inserted->second)) {
                 failed = true;
@@ -327,17 +316,15 @@ core::Status StreamManager::sync(const HubTree& tree) noexcept {
             ++it;
         }
     }
-    return failed ? core::Status{std::unexpected(core::ErrorCode::SystemError)}
-                  : core::Status{};
+    return failed ? core::Status{std::unexpected(core::ErrorCode::SystemError)} : core::Status{};
 }
 
 bool StreamManager::matches(const Subscriber& subscriber,
-                             std::string_view stream_id) const noexcept {
+                            std::string_view stream_id) const noexcept {
     return subscriber.filter.empty() || subscriber.filter == stream_id;
 }
 
-void StreamManager::push_gap(Subscriber& subscriber,
-                              const GapMarker& gap) noexcept {
+void StreamManager::push_gap(Subscriber& subscriber, const GapMarker& gap) noexcept {
     if (subscriber.overflow) {
         return;
     }
@@ -350,8 +337,7 @@ void StreamManager::push_gap(Subscriber& subscriber,
     subscriber.gaps.push_back(gap);
 }
 
-void StreamManager::push_record(Subscriber& subscriber,
-                                 const StreamRecord& record) noexcept {
+void StreamManager::push_record(Subscriber& subscriber, const StreamRecord& record) noexcept {
     if (subscriber.overflow) {
         return;
     }
@@ -371,12 +357,10 @@ void StreamManager::dispatch(const StreamRecord& record) noexcept {
             continue;
         }
         auto last = subscriber.last.find(record.stream_id);
-        if (last != subscriber.last.end() &&
-            record.sequence <= last->second) {
+        if (last != subscriber.last.end() && record.sequence <= last->second) {
             continue;
         }
-        if (last != subscriber.last.end() &&
-            record.sequence > last->second + 1U) {
+        if (last != subscriber.last.end() && record.sequence > last->second + 1U) {
             GapMarker gap{};
             gap.stream_id = record.stream_id;
             gap.dropped = record.sequence - last->second - 1U;
@@ -398,10 +382,9 @@ void StreamManager::dispatch_gap(const GapMarker& gap) noexcept {
     }
 }
 
-std::uint64_t StreamManager::subscribe(
-    std::string_view stream_id, std::uint64_t since,
-    std::vector<StreamRecord>& snapshot,
-    std::optional<GapMarker>& gap) noexcept {
+std::uint64_t StreamManager::subscribe(std::string_view stream_id, std::uint64_t since,
+                                       std::vector<StreamRecord>& snapshot,
+                                       std::optional<GapMarker>& gap) noexcept {
     const std::uint64_t id = next_subscriber_id_++;
     Subscriber subscriber{};
     subscriber.id = id;
@@ -427,8 +410,7 @@ std::uint64_t StreamManager::subscribe(
                 snapshot.push_back(record);
             }
         }
-        subscriber.last[tailer.descriptor.id] =
-            std::max(tailer.ring.back().sequence, from);
+        subscriber.last[tailer.descriptor.id] = std::max(tailer.ring.back().sequence, from);
     };
 
     if (subscriber.filter.empty()) {
@@ -453,8 +435,8 @@ void StreamManager::unsubscribe(std::uint64_t subscriber_id) noexcept {
 }
 
 void StreamManager::recent(std::string_view stream_id, std::size_t limit,
-                            std::vector<StreamRecord>& records,
-                            std::optional<GapMarker>& gap) const noexcept {
+                           std::vector<StreamRecord>& records,
+                           std::optional<GapMarker>& gap) const noexcept {
     static_cast<void>(gap);
     const auto found = tailers_.find(std::string(stream_id));
     if (found == tailers_.end()) {
@@ -469,9 +451,8 @@ void StreamManager::recent(std::string_view stream_id, std::size_t limit,
     }
 }
 
-void StreamManager::take(std::uint64_t subscriber_id,
-                          std::vector<StreamRecord>& records,
-                          std::vector<GapMarker>& gaps) noexcept {
+void StreamManager::take(std::uint64_t subscriber_id, std::vector<StreamRecord>& records,
+                         std::vector<GapMarker>& gaps) noexcept {
     const auto found = subscribers_.find(subscriber_id);
     if (found == subscribers_.end()) {
         return;

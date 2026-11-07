@@ -44,13 +44,13 @@ namespace {
 int g_checks = 0;
 int g_failures = 0;
 
-#define NX_CHECK(...)                                                                           \
-    do {                                                                                        \
-        ++g_checks;                                                                             \
-        if (!(__VA_ARGS__)) {                                                                   \
-            ++g_failures;                                                                       \
-            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #__VA_ARGS__);        \
-        }                                                                                       \
+#define NX_CHECK(...)                                                                              \
+    do {                                                                                           \
+        ++g_checks;                                                                                \
+        if (!(__VA_ARGS__)) {                                                                      \
+            ++g_failures;                                                                          \
+            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #__VA_ARGS__);            \
+        }                                                                                          \
     } while (false)
 
 void run_suite(const char* name, void (*body)()) {
@@ -65,8 +65,7 @@ std::string unique_dir(std::string_view tag) {
     static int counter = 0;
     ++counter;
     return "/tmp/opencode/nexigen_hub_" + std::string(tag) + "_" +
-           std::to_string(static_cast<long long>(::getpid())) + "_" +
-           std::to_string(counter);
+           std::to_string(static_cast<long long>(::getpid())) + "_" + std::to_string(counter);
 }
 
 void remove_tree(const std::string& path) {
@@ -89,8 +88,7 @@ std::string read_text(const std::string& path) {
     if (!input.is_open()) {
         return {};
     }
-    return std::string(std::istreambuf_iterator<char>(input),
-                       std::istreambuf_iterator<char>());
+    return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
 }
 
 bool contains(std::string_view text, std::string_view needle) {
@@ -108,8 +106,7 @@ void capture_diagnostic(void* context, std::string_view message) noexcept {
     capture->messages.emplace_back(message);
 }
 
-bool diagnostic_contains(const DiagnosticCapture& capture,
-                         std::string_view needle) {
+bool diagnostic_contains(const DiagnosticCapture& capture, std::string_view needle) {
     const std::lock_guard<std::mutex> lock(capture.mutex);
     for (const std::string& message : capture.messages) {
         if (contains(message, needle)) {
@@ -120,8 +117,7 @@ bool diagnostic_contains(const DiagnosticCapture& capture,
 }
 
 #if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
-core::fault_injection::FaultPoint g_hub_fault_point =
-    core::fault_injection::FaultPoint::Hub_socket;
+core::fault_injection::FaultPoint g_hub_fault_point = core::fault_injection::FaultPoint::Hub_socket;
 bool g_hub_fault_enabled = false;
 
 bool hub_fault_hook(core::fault_injection::FaultPoint point) noexcept {
@@ -129,10 +125,8 @@ bool hub_fault_hook(core::fault_injection::FaultPoint point) noexcept {
 }
 #endif
 
-template <class Predicate>
-bool wait_until(Predicate predicate, int timeout_ms) {
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(timeout_ms);
+template <class Predicate> bool wait_until(Predicate predicate, int timeout_ms) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (std::chrono::steady_clock::now() < deadline) {
         if (predicate()) return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -218,11 +212,9 @@ std::string stream_id(const Fixture& fixture, std::string_view kind) {
 }
 
 void test_model_serialization() {
-    for (const auto kind :
-         {hub::StreamKind::App, hub::StreamKind::Metrics,
-          hub::StreamKind::Traces, hub::StreamKind::Chrono,
-          hub::StreamKind::Stdout, hub::StreamKind::Stderr,
-          hub::StreamKind::Runner}) {
+    for (const auto kind : {hub::StreamKind::App, hub::StreamKind::Metrics, hub::StreamKind::Traces,
+                            hub::StreamKind::Chrono, hub::StreamKind::Stdout,
+                            hub::StreamKind::Stderr, hub::StreamKind::Runner}) {
         hub::StreamKind parsed = static_cast<hub::StreamKind>(0xff);
         NX_CHECK(hub::from_string(hub::to_string(kind), parsed));
         NX_CHECK(parsed == kind);
@@ -286,9 +278,8 @@ void test_model_serialization() {
     hub::HubTree round_tree;
     hub::from_json(json, round_tree);
     NX_CHECK(round_tree.runs.size() == 1);
-    NX_CHECK(round_tree.runs[0].suites[0].apps[0].instances[0].attempts[0]
-                 .streams[0]
-                 .kind == hub::StreamKind::App);
+    NX_CHECK(round_tree.runs[0].suites[0].apps[0].instances[0].attempts[0].streams[0].kind ==
+             hub::StreamKind::App);
 
     hub::HubTree hostile = round_tree;
     hub::from_json(nlohmann::json::array(), hostile);
@@ -332,35 +323,28 @@ void test_model_serialization() {
     hub::HubStream bad_stream;
     bad_stream.id = "keep";
     hub::from_json(nlohmann::json::array(), bad_stream);
-    hub::from_json(nlohmann::json{{"id", 5}, {"kind", 7}, {"path", false}},
-                   bad_stream);
+    hub::from_json(nlohmann::json{{"id", 5}, {"kind", 7}, {"path", false}}, bad_stream);
     NX_CHECK(bad_stream.id == "keep");
 
     hub::HubAttempt bad_attempt;
     bad_attempt.attempt = 9;
     hub::from_json(nlohmann::json::array(), bad_attempt);
-    hub::from_json(nlohmann::json{{"attempt", "x"},
-                                  {"artifact_dir", 4},
-                                  {"streams", 3}},
+    hub::from_json(nlohmann::json{{"attempt", "x"}, {"artifact_dir", 4}, {"streams", 3}},
                    bad_attempt);
     NX_CHECK(bad_attempt.attempt == 9);
 
     hub::HubInstance bad_instance;
     bad_instance.instance = "keep";
     hub::from_json(nlohmann::json::array(), bad_instance);
-    hub::from_json(nlohmann::json{{"instance", 1},
-                                  {"instance_dir", true},
-                                  {"state", 4},
-                                  {"attempts", 3}},
-                   bad_instance);
+    hub::from_json(
+        nlohmann::json{{"instance", 1}, {"instance_dir", true}, {"state", 4}, {"attempts", 3}},
+        bad_instance);
     NX_CHECK(bad_instance.instance == "keep");
 
     hub::HubApp bad_app;
     bad_app.app = "keep";
     hub::from_json(nlohmann::json::array(), bad_app);
-    hub::from_json(nlohmann::json{{"app", 1}, {"state", false},
-                                  {"instances", 2}},
-                   bad_app);
+    hub::from_json(nlohmann::json{{"app", 1}, {"state", false}, {"instances", 2}}, bad_app);
     NX_CHECK(bad_app.app == "keep");
 
     hub::HubSuite bad_suite;
@@ -370,8 +354,7 @@ void test_model_serialization() {
                                   {"suite_dir", 2},
                                   {"artifacts_path", 3},
                                   {"state", 4},
-                                  {"suite_restarts_used",
-                                   std::uint64_t{4294967296ULL}},
+                                  {"suite_restarts_used", std::uint64_t{4294967296ULL}},
                                   {"reason", 5},
                                   {"runner_log", 6},
                                   {"apps", 7}},
@@ -381,10 +364,9 @@ void test_model_serialization() {
     hub::HubRun bad_run;
     bad_run.run_key = "keep";
     hub::from_json(nlohmann::json::array(), bad_run);
-    hub::from_json(nlohmann::json{{"run_key", 1}, {"run_dir", 2},
-                                  {"suites", 3},
-                                  {"standalone_instances", 4}},
-                   bad_run);
+    hub::from_json(
+        nlohmann::json{{"run_key", 1}, {"run_dir", 2}, {"suites", 3}, {"standalone_instances", 4}},
+        bad_run);
     NX_CHECK(bad_run.run_key == "keep");
 
     hub::HubTree bad_tree;
@@ -496,8 +478,7 @@ void test_discovery() {
     // Multiple roots merge; duplicate roots collapse; invalid roots fail.
     Fixture second("roots2");
     hub::Discovery multiple;
-    std::vector<std::string> multiple_roots{fixture.root, second.root,
-                                             fixture.root};
+    std::vector<std::string> multiple_roots{fixture.root, second.root, fixture.root};
     NX_CHECK(multiple.initialize(multiple_roots).has_value());
     NX_CHECK(multiple.tree().runs.size() == 2);
     hub::Discovery invalid;
@@ -513,8 +494,7 @@ void test_discovery() {
     make_dirs(fixture.artifacts + "/hil/alpha/1/attempt-bogus");
     make_dirs(fixture.artifacts + "/hil/alpha/1/attempt-");
     NX_CHECK(discovery.rescan().has_value());
-    NX_CHECK(discovery.tree().runs[0].suites[0].apps[0].instances[0]
-                 .attempts.size() == 2);
+    NX_CHECK(discovery.tree().runs[0].suites[0].apps[0].instances[0].attempts.size() == 2);
 
     // Standalone instance directories become their own run entries.
     const std::string standalone = fixture.root + "/solo";
@@ -536,8 +516,7 @@ void test_discovery() {
     write_text(standalone + "/stderr.log", "");
     NX_CHECK(discovery.rescan().has_value());
     NX_CHECK(discovery.tree().runs[0].standalone_instances.size() == 1);
-    NX_CHECK(hub::find_stream(discovery.tree(),
-                              "run-1:standalone:solo:1:1:app") != nullptr);
+    NX_CHECK(hub::find_stream(discovery.tree(), "run-1:standalone:solo:1:1:app") != nullptr);
 
     // Standalone states derive from the same runner status contract.
     const std::string running_dir = fixture.root + "/alive";
@@ -567,8 +546,7 @@ void test_discovery() {
 
     NX_CHECK(discovery.rescan().has_value());
     NX_CHECK(discovery.tree().runs[0].standalone_instances.size() == 4);
-    for (const hub::HubInstance& instance :
-         discovery.tree().runs[0].standalone_instances) {
+    for (const hub::HubInstance& instance : discovery.tree().runs[0].standalone_instances) {
         if (instance.instance_dir == running_dir) {
             NX_CHECK(instance.state == runner::AppState::Running);
         } else if (instance.instance_dir == stopped_dir) {
@@ -602,10 +580,8 @@ void test_discovery_states() {
     runner::to_json(document, degraded);
     write_json(fixture.suite_dir + "/suite-state.json", document);
     NX_CHECK(discovery.rescan().has_value());
-    NX_CHECK(discovery.tree().runs[0].suites[0].state ==
-             runner::SuiteState::Degraded);
-    NX_CHECK(discovery.tree().runs[0].suites[0].apps[0].state ==
-             runner::AppState::Failed);
+    NX_CHECK(discovery.tree().runs[0].suites[0].state == runner::SuiteState::Degraded);
+    NX_CHECK(discovery.tree().runs[0].suites[0].apps[0].state == runner::AppState::Failed);
 
     runner::SuiteExit exit{};
     exit.state = runner::SuiteState::Stopped;
@@ -613,16 +589,14 @@ void test_discovery_states() {
     runner::to_json(document, exit);
     write_json(fixture.suite_dir + "/suite-exit.json", document);
     NX_CHECK(discovery.rescan().has_value());
-    NX_CHECK(discovery.tree().runs[0].suites[0].state ==
-             runner::SuiteState::Stopped);
+    NX_CHECK(discovery.tree().runs[0].suites[0].state == runner::SuiteState::Stopped);
     NX_CHECK(discovery.tree().runs[0].suites[0].reason == "operator_stop");
 
     std::error_code error;
     std::filesystem::remove(fixture.suite_dir + "/suite-state.json", error);
     std::filesystem::remove(fixture.suite_dir + "/suite-exit.json", error);
     NX_CHECK(discovery.rescan().has_value());
-    NX_CHECK(discovery.tree().runs[0].suites[0].state ==
-             runner::SuiteState::Unknown);
+    NX_CHECK(discovery.tree().runs[0].suites[0].state == runner::SuiteState::Unknown);
 
     auto combined_state = [&](runner::AppState app_state) {
         runner::SuiteStatus recorded{};
@@ -639,16 +613,11 @@ void test_discovery_states() {
         static_cast<void>(discovery.rescan());
         return discovery.tree().runs[0].suites[0].state;
     };
-    NX_CHECK(combined_state(runner::AppState::Restarting) ==
-             runner::SuiteState::Running);
-    NX_CHECK(combined_state(runner::AppState::Failed) ==
-             runner::SuiteState::Failed);
-    NX_CHECK(combined_state(runner::AppState::Stopped) ==
-             runner::SuiteState::Unknown);
-    NX_CHECK(combined_state(runner::AppState::Exited) ==
-             runner::SuiteState::Unknown);
-    NX_CHECK(combined_state(runner::AppState::Running) ==
-             runner::SuiteState::Running);
+    NX_CHECK(combined_state(runner::AppState::Restarting) == runner::SuiteState::Running);
+    NX_CHECK(combined_state(runner::AppState::Failed) == runner::SuiteState::Failed);
+    NX_CHECK(combined_state(runner::AppState::Stopped) == runner::SuiteState::Unknown);
+    NX_CHECK(combined_state(runner::AppState::Exited) == runner::SuiteState::Unknown);
+    NX_CHECK(combined_state(runner::AppState::Running) == runner::SuiteState::Running);
 }
 
 // --- Suite-metadata containment (change fix-p0-critical-defects, spec
@@ -674,8 +643,7 @@ void test_discovery_containment() {
         }
         return nullptr;
     };
-    auto write_hostile = [&](const std::string& name,
-                             runner::SuiteMetadata& metadata) {
+    auto write_hostile = [&](const std::string& name, runner::SuiteMetadata& metadata) {
         nlohmann::json json;
         runner::to_json(json, metadata);
         make_dirs(fixture.root + "/.suite/" + name);
@@ -709,12 +677,10 @@ void test_discovery_containment() {
     // (b) `..` escape from inside the root: the artifact root is recorded as
     // a root-relative path that climbs out (`/.suite/../..`), resolving to a
     // sibling of the unique test root.
-    const std::string escape_anchor = "/tmp/opencode/containment_escape_" +
-                                      std::to_string(static_cast<long long>(
-                                          ::getpid()));
-    metadata.artifacts_path =
-        fixture.root + "/.suite/../../containment_escape_" +
-        std::to_string(static_cast<long long>(::getpid()));
+    const std::string escape_anchor =
+        "/tmp/opencode/containment_escape_" + std::to_string(static_cast<long long>(::getpid()));
+    metadata.artifacts_path = fixture.root + "/.suite/../../containment_escape_" +
+                              std::to_string(static_cast<long long>(::getpid()));
     make_dirs(escape_anchor);
     write_hostile("escape", metadata);
     NX_CHECK(discovery.rescan().has_value());
@@ -737,8 +703,8 @@ void test_discovery_containment() {
     make_dirs(fixture.artifacts + "/hostile/leaker");
     runner::SuiteAppMetadata leaker{};
     leaker.app = "leaker";
-    leaker.instance = "../../../../../etc";       // base escapes the root
-    leaker.instance_dir = "/etc";                 // instance_dir outside root
+    leaker.instance = "../../../../../etc"; // base escapes the root
+    leaker.instance_dir = "/etc";           // instance_dir outside root
     metadata.apps.push_back(leaker);
     write_hostile("hostile", metadata);
     NX_CHECK(discovery.rescan().has_value());
@@ -750,11 +716,9 @@ void test_discovery_containment() {
         // runner.jsonl exists — until then the derived target is missing and
         // stays empty (spec: missing targets are not read).
         NX_CHECK(hostile_suite->runner_log.id.empty());
-        if (!hostile_suite->apps.empty() &&
-            !hostile_suite->apps[0].instances.empty()) {
+        if (!hostile_suite->apps.empty() && !hostile_suite->apps[0].instances.empty()) {
             NX_CHECK(hostile_suite->apps[0].instances[0].instance_dir.empty());
-            NX_CHECK(hostile_suite->apps[0].instances[0].state ==
-                     runner::AppState::Unknown);
+            NX_CHECK(hostile_suite->apps[0].instances[0].state == runner::AppState::Unknown);
             NX_CHECK(hostile_suite->apps[0].instances[0].attempts.empty());
         }
         // No foreign stream may exist for the hostile app's attempts.
@@ -770,10 +734,8 @@ void test_discovery_containment() {
     hostile_suite = scanned(discovery.tree());
     NX_CHECK(hostile_suite != nullptr);
     if (hostile_suite != nullptr) {
-        NX_CHECK(hostile_suite->runner_log.id ==
-                 "run-1:hostile:suite:runner:0:runner");
-        NX_CHECK(hostile_suite->runner_log.path ==
-                 fixture.artifacts + "/hostile/runner.jsonl");
+        NX_CHECK(hostile_suite->runner_log.id == "run-1:hostile:suite:runner:0:runner");
+        NX_CHECK(hostile_suite->runner_log.path == fixture.artifacts + "/hostile/runner.jsonl");
     }
     remove_hostile("hostile");
     remove_tree(fixture.artifacts + "/hostile");
@@ -784,8 +746,7 @@ void test_discovery_containment() {
     const hub::HubTree& tree = discovery.tree();
     NX_CHECK(tree.runs.size() == 1);
     NX_CHECK(hub::all_streams(tree).size() == 7);
-    NX_CHECK(tree.runs[0].suites[0].runner_log.path ==
-             fixture.artifacts + "/hil/runner.jsonl");
+    NX_CHECK(tree.runs[0].suites[0].runner_log.path == fixture.artifacts + "/hil/runner.jsonl");
     NX_CHECK(tree.runs[0].suites[0].apps[0].instances[0].attempts.size() == 1);
 
     // Missing artifact root is tolerated (retained spec scenario): suite
@@ -833,8 +794,7 @@ void test_streaming() {
     NX_CHECK(snapshot.back().line == "{\"a\":2}");
 
     // Live append is delivered after the snapshot.
-    write_text(fixture.attempt_dir + "/app.jsonl",
-               "{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n");
+    write_text(fixture.attempt_dir + "/app.jsonl", "{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n");
     streaming.poll();
     std::vector<hub::StreamRecord> live;
     std::vector<hub::GapMarker> gaps;
@@ -859,8 +819,7 @@ void test_streaming() {
     streaming.poll();
     std::vector<hub::StreamRecord> metrics_snapshot;
     gap.reset();
-    static_cast<void>(streaming.subscribe(stream_id(fixture, "metrics"), 0,
-                                          metrics_snapshot, gap));
+    static_cast<void>(streaming.subscribe(stream_id(fixture, "metrics"), 0, metrics_snapshot, gap));
     NX_CHECK(metrics_snapshot.empty());
     write_text(fixture.attempt_dir + "/metrics.jsonl", "partial\n");
     streaming.poll();
@@ -877,8 +836,7 @@ void test_streaming() {
     const std::string replacement = fixture.attempt_dir + "/stdout.new";
     write_text(replacement, "two\n");
     std::error_code rename_error;
-    std::filesystem::rename(replacement, fixture.attempt_dir + "/stdout.log",
-                            rename_error);
+    std::filesystem::rename(replacement, fixture.attempt_dir + "/stdout.log", rename_error);
     NX_CHECK(!rename_error);
     streaming.poll();
     recent.clear();
@@ -905,8 +863,7 @@ void test_streaming() {
     std::vector<hub::StreamRecord> other_snapshot;
     std::optional<hub::GapMarker> other_gap;
     const std::uint64_t other_id =
-        slow.subscribe(stream_id(fixture, "stdout"), 0, other_snapshot,
-                       other_gap);
+        slow.subscribe(stream_id(fixture, "stdout"), 0, other_snapshot, other_gap);
     NX_CHECK(!slow.overflowed(other_id));
     NX_CHECK(!other_snapshot.empty());
 
@@ -944,8 +901,8 @@ void test_streaming() {
     long_lines.poll();
     std::vector<hub::StreamRecord> long_snapshot;
     std::optional<hub::GapMarker> long_gap;
-    const std::uint64_t long_id = long_lines.subscribe(
-        stream_id(fixture, "app"), 0, long_snapshot, long_gap);
+    const std::uint64_t long_id =
+        long_lines.subscribe(stream_id(fixture, "app"), 0, long_snapshot, long_gap);
     NX_CHECK(long_lines.subscriber_count() == 1);
     std::string long_text;
     for (int index = 0; index < 40; ++index) {
@@ -968,8 +925,8 @@ void test_streaming() {
     // Subscribing to an unknown stream records the cursor without a snapshot.
     std::vector<hub::StreamRecord> unknown_snapshot;
     std::optional<hub::GapMarker> unknown_gap;
-    const std::uint64_t unknown_id = long_lines.subscribe(
-        "missing-stream", 5, unknown_snapshot, unknown_gap);
+    const std::uint64_t unknown_id =
+        long_lines.subscribe("missing-stream", 5, unknown_snapshot, unknown_gap);
     NX_CHECK(unknown_snapshot.empty());
     NX_CHECK(unknown_id > 0);
     long_lines.unsubscribe(unknown_id);
@@ -978,12 +935,7 @@ void test_streaming() {
     const std::string copy_path = fixture.attempt_dir + "/app-copy.jsonl";
     write_text(copy_path, "copied-line\n");
     hub::HubTree changed = discovery.tree();
-    auto& changed_streams = changed.runs[0]
-                                .suites[0]
-                                .apps[0]
-                                .instances[0]
-                                .attempts[0]
-                                .streams;
+    auto& changed_streams = changed.runs[0].suites[0].apps[0].instances[0].attempts[0].streams;
     for (hub::HubStream& stream : changed_streams) {
         if (stream.kind == hub::StreamKind::App) {
             stream.path = copy_path;
@@ -1012,8 +964,7 @@ void test_streaming() {
     hub::HubAttempt missing_attempt{};
     missing_attempt.attempt = 1;
     missing_attempt.streams.push_back(
-        hub::HubStream{"missing:app", hub::StreamKind::App,
-                        fixture.root + "/missing-app.jsonl"});
+        hub::HubStream{"missing:app", hub::StreamKind::App, fixture.root + "/missing-app.jsonl"});
     missing_instance.attempts.push_back(std::move(missing_attempt));
     missing_run.standalone_instances.push_back(std::move(missing_instance));
     missing_tree.runs.push_back(std::move(missing_run));
@@ -1040,8 +991,7 @@ void test_streaming() {
     transient_attempt.streams.push_back(
         hub::HubStream{"transient:app", hub::StreamKind::App, transient});
     transient_instance.attempts.push_back(std::move(transient_attempt));
-    transient_run.standalone_instances.push_back(
-        std::move(transient_instance));
+    transient_run.standalone_instances.push_back(std::move(transient_instance));
     transient_tree.runs.push_back(std::move(transient_run));
     NX_CHECK(transient_streams.sync(transient_tree).has_value());
     transient_streams.poll();
@@ -1062,11 +1012,10 @@ void test_streaming() {
     directory_instance.instance = "1";
     hub::HubAttempt directory_attempt{};
     directory_attempt.attempt = 1;
-    directory_attempt.streams.push_back(hub::HubStream{
-        "directory:app", hub::StreamKind::App, fixture.attempt_dir});
+    directory_attempt.streams.push_back(
+        hub::HubStream{"directory:app", hub::StreamKind::App, fixture.attempt_dir});
     directory_instance.attempts.push_back(std::move(directory_attempt));
-    directory_run.standalone_instances.push_back(
-        std::move(directory_instance));
+    directory_run.standalone_instances.push_back(std::move(directory_instance));
     directory_tree.runs.push_back(std::move(directory_run));
     NX_CHECK(directory_streams.sync(directory_tree).has_value());
     directory_streams.poll();
@@ -1101,17 +1050,13 @@ void test_http_start_errors() {
     address.sin_family = AF_INET;
     address.sin_port = 0;
     static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr));
-    NX_CHECK(::bind(occupied, reinterpret_cast<sockaddr*>(&address),
-                    sizeof(address)) == 0);
+    NX_CHECK(::bind(occupied, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0);
     NX_CHECK(::listen(occupied, 1) == 0);
     sockaddr_in bound{};
     socklen_t bound_length = sizeof(bound);
-    NX_CHECK(::getsockname(occupied, reinterpret_cast<sockaddr*>(&bound),
-                           &bound_length) == 0);
+    NX_CHECK(::getsockname(occupied, reinterpret_cast<sockaddr*>(&bound), &bound_length) == 0);
     hub::HttpServer busy(discovery, streaming);
-    NX_CHECK(!busy.start("127.0.0.1:" +
-                         std::to_string(ntohs(bound.sin_port)))
-                  .has_value());
+    NX_CHECK(!busy.start("127.0.0.1:" + std::to_string(ntohs(bound.sin_port))).has_value());
     static_cast<void>(::close(occupied));
 
     // A failed initial stream reconciliation is reported but does not prevent
@@ -1170,10 +1115,8 @@ void test_http_server_ipv6_listen() {
     target.sin6_family = AF_INET6;
     target.sin6_port = htons(server.port());
     static_cast<void>(::inet_pton(AF_INET6, "::1", &target.sin6_addr));
-    NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&target),
-                       sizeof(target)) == 0);
-    const std::string request =
-        "GET / HTTP/1.1\r\nHost: [::1]\r\nConnection: close\r\n\r\n";
+    NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&target), sizeof(target)) == 0);
+    const std::string request = "GET / HTTP/1.1\r\nHost: [::1]\r\nConnection: close\r\n\r\n";
     static_cast<void>(::send(fd, request.data(), request.size(), 0));
     std::string text;
     char buffer[2048];
@@ -1204,8 +1147,7 @@ void test_http_server_ipv6_listen() {
     v4target.sin_family = AF_INET;
     v4target.sin_port = htons(dual.port());
     static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &v4target.sin_addr));
-    NX_CHECK(::connect(v4fd, reinterpret_cast<sockaddr*>(&v4target),
-                       sizeof(v4target)) == 0);
+    NX_CHECK(::connect(v4fd, reinterpret_cast<sockaddr*>(&v4target), sizeof(v4target)) == 0);
     static_cast<void>(::close(v4fd));
     dual.stop();
 }
@@ -1237,15 +1179,12 @@ void test_http_sse_gaps() {
     address.sin_family = AF_INET;
     address.sin_port = htons(port);
     static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr));
-    NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&address),
-                       sizeof(address)) == 0);
+    NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0);
     timeval timeout{};
     timeout.tv_sec = 2;
-    static_cast<void>(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout,
-                                    sizeof(timeout)));
-    const std::string request =
-        "GET /api/events?stream=" + stream_id(fixture, "app") +
-        "&since=0 HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    static_cast<void>(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
+    const std::string request = "GET /api/events?stream=" + stream_id(fixture, "app") +
+                                "&since=0 HTTP/1.1\r\nHost: localhost\r\n\r\n";
     static_cast<void>(::send(fd, request.data(), request.size(), 0));
     std::string text;
     char buffer[4096];
@@ -1262,8 +1201,7 @@ void test_http_sse_gaps() {
     NX_CHECK(contains(text, "\"sequence\":"));
 
     // A long line produces a live gap after the snapshot boundary.
-    write_text(fixture.attempt_dir + "/app.jsonl",
-               std::string(200, 'x') + "\n");
+    write_text(fixture.attempt_dir + "/app.jsonl", std::string(200, 'x') + "\n");
     std::string live;
     NX_CHECK(wait_until(
         [&] {
@@ -1303,12 +1241,10 @@ void test_http_fuzz_corpus() {
         address.sin_family = AF_INET;
         address.sin_port = htons(port);
         static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr));
-        NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&address),
-                           sizeof(address)) == 0);
+        NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0);
         timeval timeout{};
         timeout.tv_usec = 200000;
-        static_cast<void>(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout,
-                                        sizeof(timeout)));
+        static_cast<void>(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
         static_cast<void>(::send(fd, payload.data(), payload.size(), 0));
         static_cast<void>(::shutdown(fd, SHUT_WR));
         std::string response;
@@ -1348,9 +1284,8 @@ void test_http_fuzz_corpus() {
         NX_CHECK(response.empty() || contains(response, "HTTP/1.1"));
     }
 
-    const std::string health = exchange(
-        "GET /api/health HTTP/1.1\r\nHost: localhost\r\n"
-        "Connection: close\r\n\r\n");
+    const std::string health = exchange("GET /api/health HTTP/1.1\r\nHost: localhost\r\n"
+                                        "Connection: close\r\n\r\n");
     NX_CHECK(contains(health, "200"));
     NX_CHECK(contains(health, "\"status\":\"ok\""));
 
@@ -1368,10 +1303,10 @@ void test_http_fault_injection() {
     hub::StreamManager streaming;
 
     core::fault_injection::set_fault_hook(hub_fault_hook);
-    for (const auto point : {core::fault_injection::FaultPoint::Hub_socket,
-                             core::fault_injection::FaultPoint::Hub_bind,
-                             core::fault_injection::FaultPoint::Hub_epoll,
-                             core::fault_injection::FaultPoint::Hub_eventfd}) {
+    for (const auto point :
+         {core::fault_injection::FaultPoint::Hub_socket,
+          core::fault_injection::FaultPoint::Hub_bind, core::fault_injection::FaultPoint::Hub_epoll,
+          core::fault_injection::FaultPoint::Hub_eventfd}) {
         g_hub_fault_point = point;
         g_hub_fault_enabled = true;
         hub::HttpServer server(discovery, streaming);
@@ -1426,13 +1361,10 @@ void test_http_server() {
         address.sin_family = AF_INET;
         address.sin_port = htons(port);
         static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr));
-        NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&address),
-                           sizeof(address)) == 0);
-        const std::string payload = std::string(method) + " " +
-                                    std::string(path) +
+        NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0);
+        const std::string payload = std::string(method) + " " + std::string(path) +
                                     " HTTP/1.1\r\nHost: localhost\r\n" +
-                                    std::string(extra_headers) +
-                                    "Connection: close\r\n\r\n";
+                                    std::string(extra_headers) + "Connection: close\r\n\r\n";
         static_cast<void>(::send(fd, payload.data(), payload.size(), 0));
         std::string response;
         char buffer[4096];
@@ -1452,12 +1384,10 @@ void test_http_server() {
         address.sin_family = AF_INET;
         address.sin_port = htons(port);
         static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr));
-        NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&address),
-                           sizeof(address)) == 0);
+        NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0);
         timeval timeout{};
         timeout.tv_sec = 2;
-        static_cast<void>(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout,
-                                        sizeof(timeout)));
+        static_cast<void>(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
         static_cast<void>(::send(fd, payload.data(), payload.size(), 0));
         std::string response;
         char buffer[4096];
@@ -1473,16 +1403,15 @@ void test_http_server() {
     NX_CHECK(contains(request("GET", "/api/health"), "\"status\":\"ok\""));
     NX_CHECK(contains(request("GET", "/api/tree"), "\"suite_id\":\"hil\""));
     NX_CHECK(contains(request("GET", "/api/streams"), "run-1:hil:alpha:1:1:app"));
-    NX_CHECK(contains(request("GET", "/api/streams/" + stream_id(fixture, "app") +
-                                  "/recent?limit=1"),
-                              "\"records\""));
+    NX_CHECK(
+        contains(request("GET", "/api/streams/" + stream_id(fixture, "app") + "/recent?limit=1"),
+                 "\"records\""));
     NX_CHECK(contains(request("GET", "/"), "<!doctype html>"));
     NX_CHECK(contains(request("GET", "/app.js"), "EventSource"));
     NX_CHECK(contains(request("GET", "/style.css"), "--accent"));
     NX_CHECK(contains(request("GET", "/api/missing"), "404"));
     NX_CHECK(contains(request("GET", "/" + std::string(5000, 'a')), "400"));
-    NX_CHECK(contains(request("GET", "/api/health",
-                              std::string(9000, 'x')), "400"));
+    NX_CHECK(contains(request("GET", "/api/health", std::string(9000, 'x')), "400"));
 
     // Malformed request lines and unsupported versions get a bounded 400.
     NX_CHECK(contains(raw("GET\r\n\r\n"), "400"));
@@ -1496,12 +1425,11 @@ void test_http_server() {
     }
 
     // Invalid query and escape values fall back to defaults or a 404.
-    NX_CHECK(contains(request("GET", "/api/streams/" + stream_id(fixture, "app") +
-                                  "/recent?limit=abc"),
-                              "200"));
-    NX_CHECK(contains(request("GET", "/api/streams/" + stream_id(fixture, "app") +
-                                  "/recent?limit=999999"),
-                              "200"));
+    NX_CHECK(contains(
+        request("GET", "/api/streams/" + stream_id(fixture, "app") + "/recent?limit=abc"), "200"));
+    NX_CHECK(contains(
+        request("GET", "/api/streams/" + stream_id(fixture, "app") + "/recent?limit=999999"),
+        "200"));
     NX_CHECK(contains(request("GET", "/api/streams/%zz/recent"), "404"));
     NX_CHECK(contains(request("GET", "/api/streams/unknown/recent"), "404"));
     // Percent-decoding is exercised by encoding every separator manually.
@@ -1513,8 +1441,7 @@ void test_http_server() {
             encoded_path.push_back(c);
         }
     }
-    NX_CHECK(contains(request("GET", "/api/streams/" + encoded_path + "/recent"),
-                      "200"));
+    NX_CHECK(contains(request("GET", "/api/streams/" + encoded_path + "/recent"), "200"));
     NX_CHECK(contains(raw("GET /api/events?stream=unknown HTTP/1.1\r\n"
                           "Host: localhost\r\n\r\n"),
                       "404"));
@@ -1529,36 +1456,29 @@ void test_http_server() {
         sockaddr_in keep_address{};
         keep_address.sin_family = AF_INET;
         keep_address.sin_port = htons(port);
-        static_cast<void>(
-            ::inet_pton(AF_INET, "127.0.0.1", &keep_address.sin_addr));
-        NX_CHECK(::connect(keep_fd,
-                           reinterpret_cast<sockaddr*>(&keep_address),
+        static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &keep_address.sin_addr));
+        NX_CHECK(::connect(keep_fd, reinterpret_cast<sockaddr*>(&keep_address),
                            sizeof(keep_address)) == 0);
         timeval keep_timeout{};
         keep_timeout.tv_sec = 2;
-        static_cast<void>(::setsockopt(keep_fd, SOL_SOCKET, SO_RCVTIMEO,
-                                        &keep_timeout, sizeof(keep_timeout)));
-        const std::string first_request =
-            "GET /api/health HTTP/1.1\r\nHost: localhost\r\n"
-            "Connection: keep-alive\r\n\r\n";
-        static_cast<void>(::send(keep_fd, first_request.data(),
-                                 first_request.size(), 0));
+        static_cast<void>(
+            ::setsockopt(keep_fd, SOL_SOCKET, SO_RCVTIMEO, &keep_timeout, sizeof(keep_timeout)));
+        const std::string first_request = "GET /api/health HTTP/1.1\r\nHost: localhost\r\n"
+                                          "Connection: keep-alive\r\n\r\n";
+        static_cast<void>(::send(keep_fd, first_request.data(), first_request.size(), 0));
         std::string buffer;
         auto read_one = [&](std::string& response) -> bool {
             for (;;) {
                 const std::size_t header_end = buffer.find("\r\n\r\n");
                 if (header_end != std::string::npos) {
                     const std::string header = buffer.substr(0, header_end + 4);
-                    const std::size_t length_pos =
-                        header.find("Content-Length: ");
+                    const std::size_t length_pos = header.find("Content-Length: ");
                     if (length_pos != std::string::npos) {
                         std::size_t length = 0;
                         std::size_t index = length_pos + 16;
                         while (index < header.size() && header[index] >= '0' &&
                                header[index] <= '9') {
-                            length = length * 10U +
-                                     static_cast<std::size_t>(
-                                         header[index] - '0');
+                            length = length * 10U + static_cast<std::size_t>(header[index] - '0');
                             ++index;
                         }
                         if (buffer.size() >= header_end + 4 + length) {
@@ -1577,11 +1497,9 @@ void test_http_server() {
         std::string first_response;
         NX_CHECK(read_one(first_response));
         NX_CHECK(contains(first_response, "HTTP/1.1 200 OK"));
-        const std::string second_request =
-            "GET /api/health HTTP/1.1\r\nHost: localhost\r\n"
-            "Connection: close\r\n\r\n";
-        static_cast<void>(::send(keep_fd, second_request.data(),
-                                 second_request.size(), 0));
+        const std::string second_request = "GET /api/health HTTP/1.1\r\nHost: localhost\r\n"
+                                           "Connection: close\r\n\r\n";
+        static_cast<void>(::send(keep_fd, second_request.data(), second_request.size(), 0));
         std::string second_response;
         NX_CHECK(read_one(second_response));
         NX_CHECK(contains(second_response, "HTTP/1.1 200 OK"));
@@ -1594,15 +1512,12 @@ void test_http_server() {
     address.sin_family = AF_INET;
     address.sin_port = htons(port);
     static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr));
-    NX_CHECK(::connect(sse_fd, reinterpret_cast<sockaddr*>(&address),
-                       sizeof(address)) == 0);
+    NX_CHECK(::connect(sse_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0);
     timeval timeout{};
     timeout.tv_usec = 100000;
-    static_cast<void>(::setsockopt(sse_fd, SOL_SOCKET, SO_RCVTIMEO,
-                                    &timeout, sizeof(timeout)));
-    const std::string sse_request =
-        "GET /api/events?stream=" + stream_id(fixture, "app") +
-        "&since=0 HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    static_cast<void>(::setsockopt(sse_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
+    const std::string sse_request = "GET /api/events?stream=" + stream_id(fixture, "app") +
+                                    "&since=0 HTTP/1.1\r\nHost: localhost\r\n\r\n";
     static_cast<void>(::send(sse_fd, sse_request.data(), sse_request.size(), 0));
     std::string sse;
     char sse_buffer[4096];
@@ -1619,8 +1534,7 @@ void test_http_server() {
     NX_CHECK(contains(sse, "event: record"));
 
     // A new line is delivered live after the snapshot boundary.
-    write_text(fixture.attempt_dir + "/app.jsonl",
-               "{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n");
+    write_text(fixture.attempt_dir + "/app.jsonl", "{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n");
     NX_CHECK(wait_until(
         [&] {
             const ssize_t count = ::recv(sse_fd, sse_buffer, sizeof(sse_buffer), 0);
@@ -1636,28 +1550,23 @@ void test_http_server() {
         sockaddr_in tree_address{};
         tree_address.sin_family = AF_INET;
         tree_address.sin_port = htons(port);
-        static_cast<void>(
-            ::inet_pton(AF_INET, "127.0.0.1", &tree_address.sin_addr));
-        NX_CHECK(::connect(tree_fd,
-                           reinterpret_cast<sockaddr*>(&tree_address),
+        static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &tree_address.sin_addr));
+        NX_CHECK(::connect(tree_fd, reinterpret_cast<sockaddr*>(&tree_address),
                            sizeof(tree_address)) == 0);
         timeval tree_timeout{};
         tree_timeout.tv_sec = 2;
-        static_cast<void>(::setsockopt(tree_fd, SOL_SOCKET, SO_RCVTIMEO,
-                                        &tree_timeout, sizeof(tree_timeout)));
+        static_cast<void>(
+            ::setsockopt(tree_fd, SOL_SOCKET, SO_RCVTIMEO, &tree_timeout, sizeof(tree_timeout)));
         const std::string tree_request =
             "GET /api/events?tree=1 HTTP/1.1\r\nHost: localhost\r\n\r\n";
-        static_cast<void>(::send(tree_fd, tree_request.data(),
-                                 tree_request.size(), 0));
+        static_cast<void>(::send(tree_fd, tree_request.data(), tree_request.size(), 0));
         std::string tree_text;
         char tree_buffer[4096];
         NX_CHECK(wait_until(
             [&] {
-                const ssize_t count =
-                    ::recv(tree_fd, tree_buffer, sizeof(tree_buffer), 0);
+                const ssize_t count = ::recv(tree_fd, tree_buffer, sizeof(tree_buffer), 0);
                 if (count > 0) {
-                    tree_text.append(tree_buffer,
-                                     static_cast<std::size_t>(count));
+                    tree_text.append(tree_buffer, static_cast<std::size_t>(count));
                 }
                 return contains(tree_text, "event: tree");
             },
@@ -1667,16 +1576,13 @@ void test_http_server() {
         make_dirs(fixture.artifacts + "/hil/alpha/1/attempt-0009");
         NX_CHECK(wait_until(
             [&] {
-                const ssize_t count =
-                    ::recv(tree_fd, tree_buffer, sizeof(tree_buffer), 0);
+                const ssize_t count = ::recv(tree_fd, tree_buffer, sizeof(tree_buffer), 0);
                 if (count > 0) {
-                    tree_text.append(tree_buffer,
-                                     static_cast<std::size_t>(count));
+                    tree_text.append(tree_buffer, static_cast<std::size_t>(count));
                 }
                 const std::size_t first = tree_text.find("event: tree");
                 return first != std::string::npos &&
-                       tree_text.find("event: tree", first + 1) !=
-                           std::string::npos;
+                       tree_text.find("event: tree", first + 1) != std::string::npos;
             },
             5000));
         static_cast<void>(::close(tree_fd));
@@ -1688,25 +1594,20 @@ void test_http_server() {
         sockaddr_in all_address{};
         all_address.sin_family = AF_INET;
         all_address.sin_port = htons(port);
-        static_cast<void>(
-            ::inet_pton(AF_INET, "127.0.0.1", &all_address.sin_addr));
-        NX_CHECK(::connect(all_fd,
-                           reinterpret_cast<sockaddr*>(&all_address),
-                           sizeof(all_address)) == 0);
+        static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &all_address.sin_addr));
+        NX_CHECK(
+            ::connect(all_fd, reinterpret_cast<sockaddr*>(&all_address), sizeof(all_address)) == 0);
         timeval all_timeout{};
         all_timeout.tv_sec = 2;
-        static_cast<void>(::setsockopt(all_fd, SOL_SOCKET, SO_RCVTIMEO,
-                                        &all_timeout, sizeof(all_timeout)));
-        const std::string all_request =
-            "GET /api/events HTTP/1.1\r\nHost: localhost\r\n\r\n";
-        static_cast<void>(::send(all_fd, all_request.data(),
-                                 all_request.size(), 0));
+        static_cast<void>(
+            ::setsockopt(all_fd, SOL_SOCKET, SO_RCVTIMEO, &all_timeout, sizeof(all_timeout)));
+        const std::string all_request = "GET /api/events HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        static_cast<void>(::send(all_fd, all_request.data(), all_request.size(), 0));
         std::string all_text;
         char all_buffer[4096];
         NX_CHECK(wait_until(
             [&] {
-                const ssize_t count =
-                    ::recv(all_fd, all_buffer, sizeof(all_buffer), 0);
+                const ssize_t count = ::recv(all_fd, all_buffer, sizeof(all_buffer), 0);
                 if (count > 0) {
                     all_text.append(all_buffer, static_cast<std::size_t>(count));
                 }
@@ -1723,30 +1624,25 @@ void test_http_server() {
         sockaddr_in cursor_address{};
         cursor_address.sin_family = AF_INET;
         cursor_address.sin_port = htons(port);
-        static_cast<void>(
-            ::inet_pton(AF_INET, "127.0.0.1", &cursor_address.sin_addr));
-        NX_CHECK(::connect(cursor_fd,
-                           reinterpret_cast<sockaddr*>(&cursor_address),
+        static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &cursor_address.sin_addr));
+        NX_CHECK(::connect(cursor_fd, reinterpret_cast<sockaddr*>(&cursor_address),
                            sizeof(cursor_address)) == 0);
         timeval cursor_timeout{};
         cursor_timeout.tv_sec = 2;
-        static_cast<void>(::setsockopt(cursor_fd, SOL_SOCKET, SO_RCVTIMEO,
-                                        &cursor_timeout, sizeof(cursor_timeout)));
+        static_cast<void>(::setsockopt(cursor_fd, SOL_SOCKET, SO_RCVTIMEO, &cursor_timeout,
+                                       sizeof(cursor_timeout)));
         const std::string cursor_request =
             "GET /api/events?stream=" + stream_id(fixture, "app") +
-            " HTTP/1.1\r\nHost: localhost\r\nLast-Event-ID: " +
-            stream_id(fixture, "app") + ":1\r\n\r\n";
-        static_cast<void>(::send(cursor_fd, cursor_request.data(),
-                                 cursor_request.size(), 0));
+            " HTTP/1.1\r\nHost: localhost\r\nLast-Event-ID: " + stream_id(fixture, "app") +
+            ":1\r\n\r\n";
+        static_cast<void>(::send(cursor_fd, cursor_request.data(), cursor_request.size(), 0));
         std::string cursor_text;
         char cursor_buffer[4096];
         NX_CHECK(wait_until(
             [&] {
-                const ssize_t count =
-                    ::recv(cursor_fd, cursor_buffer, sizeof(cursor_buffer), 0);
+                const ssize_t count = ::recv(cursor_fd, cursor_buffer, sizeof(cursor_buffer), 0);
                 if (count > 0) {
-                    cursor_text.append(cursor_buffer,
-                                       static_cast<std::size_t>(count));
+                    cursor_text.append(cursor_buffer, static_cast<std::size_t>(count));
                 }
                 return contains(cursor_text, "event: snapshot_end");
             },
@@ -1764,17 +1660,16 @@ void test_http_server() {
         sockaddr_in sse_address{};
         sse_address.sin_family = AF_INET;
         sse_address.sin_port = htons(port);
-        static_cast<void>(
-            ::inet_pton(AF_INET, "127.0.0.1", &sse_address.sin_addr));
-        NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&sse_address),
-                           sizeof(sse_address)) == 0);
+        static_cast<void>(::inet_pton(AF_INET, "127.0.0.1", &sse_address.sin_addr));
+        NX_CHECK(::connect(fd, reinterpret_cast<sockaddr*>(&sse_address), sizeof(sse_address)) ==
+                 0);
         timeval sse_timeout{};
         sse_timeout.tv_sec = 2;
-        static_cast<void>(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &sse_timeout,
-                                        sizeof(sse_timeout)));
-        const std::string payload =
-            "GET /api/events?stream=" + stream_id(fixture, "app") +
-            " HTTP/1.1\r\nHost: localhost\r\n" + std::string(header) + "\r\n";
+        static_cast<void>(
+            ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &sse_timeout, sizeof(sse_timeout)));
+        const std::string payload = "GET /api/events?stream=" + stream_id(fixture, "app") +
+                                    " HTTP/1.1\r\nHost: localhost\r\n" + std::string(header) +
+                                    "\r\n";
         static_cast<void>(::send(fd, payload.data(), payload.size(), 0));
         std::string response;
         char buffer[4096];
@@ -1800,25 +1695,22 @@ void test_http_server() {
         NX_CHECK(!contains(resumed, "\"sequence\":1"));
         NX_CHECK(contains(resumed, "\"sequence\":3"));
     }
-    const std::string invalid_cursor = sse_with_header(
-        "Last-Event-ID: not-a-sequence\r\n");
+    const std::string invalid_cursor = sse_with_header("Last-Event-ID: not-a-sequence\r\n");
     NX_CHECK(contains(invalid_cursor, "\"sequence\":1"));
-    const std::string similar_header = sse_with_header(
-        "X-Last-Event-ID: " + stream_id(fixture, "app") + ":2\r\n");
+    const std::string similar_header =
+        sse_with_header("X-Last-Event-ID: " + stream_id(fixture, "app") + ":2\r\n");
     NX_CHECK(contains(similar_header, "\"sequence\":1"));
 
     // Connection header matching is case-insensitive as well.
-    const std::string connection_close =
-        raw("GET /api/health HTTP/1.1\r\nHost: localhost\r\n"
-            "Connection: CLOSE\r\n\r\n");
+    const std::string connection_close = raw("GET /api/health HTTP/1.1\r\nHost: localhost\r\n"
+                                             "Connection: CLOSE\r\n\r\n");
     NX_CHECK(contains(connection_close, "200"));
 
     // A disappearing run root is reported as a failed refresh while the
     // listener keeps serving.
     remove_tree(fixture.root);
     NX_CHECK(wait_until(
-        [&] { return diagnostic_contains(capture, "event=discovery_rescan_failed"); },
-        4000));
+        [&] { return diagnostic_contains(capture, "event=discovery_rescan_failed"); }, 4000));
     NX_CHECK(contains(request("GET", "/api/health"), "200"));
 
     stop.store(true);

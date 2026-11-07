@@ -67,8 +67,7 @@ constexpr std::uint64_t poll_interval_ms = 20;
 /// Create (or truncate) then reopen a log file in append mode. The truncation
 /// happens on every start, as required by the spec.
 [[nodiscard]] int open_truncated_log(const std::string& path) noexcept {
-    const int truncate_fd =
-        ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    const int truncate_fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     if (truncate_fd < 0) {
         return -1;
     }
@@ -88,25 +87,20 @@ constexpr std::size_t max_path_bytes = 511;
     return !path.empty() && path.front() == '/';
 }
 
-[[nodiscard]] core::Status validate_start_options(
-    const StartOptions& options) noexcept {
+[[nodiscard]] core::Status validate_start_options(const StartOptions& options) noexcept {
     if (!options.artifact_dir.empty() &&
-        (!absolute_path(options.artifact_dir) ||
-         options.artifact_dir.size() > max_path_bytes)) {
+        (!absolute_path(options.artifact_dir) || options.artifact_dir.size() > max_path_bytes)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    if (!options.global_settings_dir.empty() &&
-        !absolute_path(options.global_settings_dir)) {
+    if (!options.global_settings_dir.empty() && !absolute_path(options.global_settings_dir)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    if (!options.local_settings_dir.empty() &&
-        !absolute_path(options.local_settings_dir)) {
+    if (!options.local_settings_dir.empty() && !absolute_path(options.local_settings_dir)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     for (const auto& [key, value] : options.env) {
         if (key.empty() || key.find('=') != std::string::npos ||
-            key.find('\0') != std::string::npos ||
-            value.find('\0') != std::string::npos) {
+            key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
     }
@@ -116,9 +110,8 @@ constexpr std::size_t max_path_bytes = 511;
             online = static_cast<long>(CPU_SETSIZE);
         }
         for (std::uint32_t cpu = 0; cpu <= core::CpuSet::max_cpu_id; ++cpu) {
-            if (options.cpus.contains(cpu) &&
-                (cpu >= static_cast<std::uint32_t>(online) ||
-                 cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
+            if (options.cpus.contains(cpu) && (cpu >= static_cast<std::uint32_t>(online) ||
+                                               cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
                 return std::unexpected(core::ErrorCode::InvalidArgument);
             }
         }
@@ -126,30 +119,27 @@ constexpr std::size_t max_path_bytes = 511;
     return {};
 }
 
-[[nodiscard]] nlohmann::json logging_document(
-    const logging::LoggerOptions& options, std::string_view stream_root,
-    const std::optional<logging::LogLevel> level) {
+[[nodiscard]] nlohmann::json logging_document(const logging::LoggerOptions& options,
+                                              std::string_view stream_root,
+                                              const std::optional<logging::LogLevel> level) {
     nlohmann::json document;
     to_json(document, options);
     document["log_root_directory"] = std::string(stream_root);
     if (level.has_value()) {
         document["initial_log_level"] = std::string(logging::to_string(*level));
     }
-    document["sink"] = nlohmann::json{
-        {"path", instance_file_path(stream_root, "app.jsonl")},
-        {"append", true}};
+    document["sink"] =
+        nlohmann::json{{"path", instance_file_path(stream_root, "app.jsonl")}, {"append", true}};
     return document;
 }
 
-[[nodiscard]] core::Status write_suite_settings(
-    std::string_view instance_dir, std::string_view stream_root,
-    const StartOptions& options) noexcept {
+[[nodiscard]] core::Status write_suite_settings(std::string_view instance_dir,
+                                                std::string_view stream_root,
+                                                const StartOptions& options) noexcept {
     app::Settings settings{};
-    if (!options.global_settings_dir.empty() ||
-        !options.local_settings_dir.empty()) {
+    if (!options.global_settings_dir.empty() || !options.local_settings_dir.empty()) {
         app::AppSettingsPaths paths{};
-        auto make_pair = [](std::string_view global, std::string_view local,
-                            const char* name) {
+        auto make_pair = [](std::string_view global, std::string_view local, const char* name) {
             core::SettingsPaths entry{};
             if (!global.empty()) {
                 entry.global_file = std::string(global) + "/" + name;
@@ -159,20 +149,18 @@ constexpr std::size_t max_path_bytes = 511;
             }
             return entry;
         };
-        paths.logging = make_pair(options.global_settings_dir,
-                                  options.local_settings_dir, "logging.json");
-        paths.metrics = make_pair(options.global_settings_dir,
-                                  options.local_settings_dir, "metrics.json");
-        paths.tracing = make_pair(options.global_settings_dir,
-                                  options.local_settings_dir, "tracing.json");
-        paths.chrono.global_file =
-            options.global_settings_dir.empty()
-                ? std::string{}
-                : std::string(options.global_settings_dir) + "/chrono.json";
-        paths.chrono.local_file =
-            options.local_settings_dir.empty()
-                ? std::string{}
-                : std::string(options.local_settings_dir) + "/chrono.json";
+        paths.logging =
+            make_pair(options.global_settings_dir, options.local_settings_dir, "logging.json");
+        paths.metrics =
+            make_pair(options.global_settings_dir, options.local_settings_dir, "metrics.json");
+        paths.tracing =
+            make_pair(options.global_settings_dir, options.local_settings_dir, "tracing.json");
+        paths.chrono.global_file = options.global_settings_dir.empty()
+                                       ? std::string{}
+                                       : std::string(options.global_settings_dir) + "/chrono.json";
+        paths.chrono.local_file = options.local_settings_dir.empty()
+                                      ? std::string{}
+                                      : std::string(options.local_settings_dir) + "/chrono.json";
         const core::Status loaded = app::load_app_settings(paths, settings);
         if (!loaded) {
             return loaded;
@@ -204,9 +192,8 @@ constexpr std::size_t max_path_bytes = 511;
 
     nlohmann::json metrics_json;
     to_json(metrics_json, settings.metrics);
-    metrics_json["sink"] = nlohmann::json{
-        {"path", settings.metrics.sink.path},
-        {"append", settings.metrics.sink.append}};
+    metrics_json["sink"] = nlohmann::json{{"path", settings.metrics.sink.path},
+                                          {"append", settings.metrics.sink.append}};
     const core::Status metrics_status = write("metrics.json", metrics_json);
     if (!metrics_status) {
         return metrics_status;
@@ -222,9 +209,8 @@ constexpr std::size_t max_path_bytes = 511;
 
     nlohmann::json chrono_json;
     to_json(chrono_json, settings.chrono);
-    chrono_json["sink"] = nlohmann::json{
-        {"path", settings.chrono.sink.path},
-        {"append", settings.chrono.sink.append}};
+    chrono_json["sink"] = nlohmann::json{{"path", settings.chrono.sink.path},
+                                         {"append", settings.chrono.sink.append}};
     return write("chrono.json", chrono_json);
 }
 
@@ -242,9 +228,8 @@ struct SuperviseResult {
     bool status_valid{false};
 };
 
-[[nodiscard]] SuperviseResult supervise_child(
-    pid_t child, std::uint64_t timeout_s, std::uint64_t start_mono_ns,
-    int& status) noexcept {
+[[nodiscard]] SuperviseResult supervise_child(pid_t child, std::uint64_t timeout_s,
+                                              std::uint64_t start_mono_ns, int& status) noexcept {
     SuperviseResult result;
     if (timeout_s == 0) {
         // No deadline: block in waitpid until the child terminates.
@@ -280,11 +265,9 @@ struct SuperviseResult {
                 result.runner_stopped = true;
                 static_cast<void>(::kill(-child, SIGTERM));
                 const std::uint64_t grace_end =
-                    monotonic_now_ns() + timeout_grace_seconds *
-                                             nanoseconds_per_second;
+                    monotonic_now_ns() + timeout_grace_seconds * nanoseconds_per_second;
                 while (monotonic_now_ns() < grace_end) {
-                    const pid_t grace_result =
-                        ::waitpid(child, &status, WNOHANG);
+                    const pid_t grace_result = ::waitpid(child, &status, WNOHANG);
                     if (grace_result == child) {
                         result.reaped = true;
                         result.status_valid = true;
@@ -313,8 +296,7 @@ struct SuperviseResult {
     return result;
 }
 
-[[nodiscard]] TerminatedBy attribution(bool runner_stopped, bool reaped,
-                                        int status) noexcept {
+[[nodiscard]] TerminatedBy attribution(bool runner_stopped, bool reaped, int status) noexcept {
     if (runner_stopped) {
         return TerminatedBy::Runner;
     }
@@ -333,8 +315,7 @@ struct SuperviseResult {
     return TerminatedBy::Unknown;
 }
 
-void rewrite_terminated_by(const std::string& exit_path,
-                           TerminatedBy value) noexcept {
+void rewrite_terminated_by(const std::string& exit_path, TerminatedBy value) noexcept {
     core::Result<nlohmann::json> document = read_json_file(exit_path);
     if (!document) {
         return;
@@ -347,14 +328,12 @@ void rewrite_terminated_by(const std::string& exit_path,
     static_cast<void>(write_json_file(exit_path, updated));
 }
 
-void write_fallback_exit(const std::string& exit_path,
-                         const ResourceMetadata& resource,
+void write_fallback_exit(const std::string& exit_path, const ResourceMetadata& resource,
                          std::optional<std::int32_t> signal_number,
                          TerminatedBy attribution_value) noexcept {
     const std::uint64_t now = monotonic_now_ns();
     std::uint64_t uptime = 0;
-    if (now != 0 && resource.start_time_mono_ns != 0 &&
-        now >= resource.start_time_mono_ns) {
+    if (now != 0 && resource.start_time_mono_ns != 0 && now >= resource.start_time_mono_ns) {
         uptime = (now - resource.start_time_mono_ns) / nanoseconds_per_second;
     }
     ExitMetadata metadata;
@@ -368,8 +347,7 @@ void write_fallback_exit(const std::string& exit_path,
 
 void reap_child(pid_t child) noexcept {
     int status = 0;
-    while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {
-    }
+    while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {}
 }
 
 struct StartLayout {
@@ -379,24 +357,22 @@ struct StartLayout {
     std::string exit_path{};
 };
 
-[[nodiscard]] core::Status resolve_start_layout(
-    const app::RunIdentity& identity, std::string_view app_name,
-    const StartOptions& options, StartLayout& out) noexcept {
+[[nodiscard]] core::Status resolve_start_layout(const app::RunIdentity& identity,
+                                                std::string_view app_name,
+                                                const StartOptions& options,
+                                                StartLayout& out) noexcept {
     app::RunIdentity resolved = identity;
     if (resolved.instance_dir.empty()) {
-        if (resolved.run_dir.empty() || app_name.empty() ||
-            resolved.instance_id.empty()) {
+        if (resolved.run_dir.empty() || app_name.empty() || resolved.instance_id.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        resolved.instance_dir = resolved.run_dir + "/" + std::string(app_name) +
-                                "/" + resolved.instance_id;
+        resolved.instance_dir =
+            resolved.run_dir + "/" + std::string(app_name) + "/" + resolved.instance_id;
     }
-    while (resolved.instance_dir.size() > 1 &&
-           resolved.instance_dir.back() == '/') {
+    while (resolved.instance_dir.size() > 1 && resolved.instance_dir.back() == '/') {
         resolved.instance_dir.pop_back();
     }
-    if (resolved.instance_dir.empty() ||
-        resolved.instance_dir.size() > max_instance_dir_bytes) {
+    if (resolved.instance_dir.empty() || resolved.instance_dir.size() > max_instance_dir_bytes) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     const core::Status valid = app::validate_run_identity(resolved);
@@ -405,15 +381,13 @@ struct StartLayout {
     }
 
     out.instance_dir = resolved.instance_dir;
-    out.stream_root =
-        options.artifact_dir.empty() ? out.instance_dir : options.artifact_dir;
+    out.stream_root = options.artifact_dir.empty() ? out.instance_dir : options.artifact_dir;
     if (out.stream_root.size() > max_instance_dir_bytes) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 
     // One live instance per directory: refuse to clobber an unfinished run.
-    const std::string resource_path =
-        instance_file_path(out.instance_dir, "resource.json");
+    const std::string resource_path = instance_file_path(out.instance_dir, "resource.json");
     out.exit_path = instance_file_path(out.instance_dir, "exit.json");
     if (file_exists(resource_path) && !file_exists(out.exit_path)) {
         return std::unexpected(core::ErrorCode::Conflict);
@@ -422,48 +396,40 @@ struct StartLayout {
     return {};
 }
 
-[[nodiscard]] core::Status prepare_start_layout(
-    const StartLayout& layout, const StartOptions& options) noexcept {
+[[nodiscard]] core::Status prepare_start_layout(const StartLayout& layout,
+                                                const StartOptions& options) noexcept {
     const core::Status created = create_instance_dir(layout.instance_dir);
     if (!created) {
         return created;
     }
     if (layout.stream_root != layout.instance_dir) {
-        const core::Status artifact_created =
-            create_artifact_dir(layout.stream_root);
+        const core::Status artifact_created = create_artifact_dir(layout.stream_root);
         if (!artifact_created) {
             return artifact_created;
         }
     }
 
     app::TelemetryPaths resolved_paths{};
-    const core::Status paths_status = app::resolve_telemetry_paths(
-        layout.resolved, "", "", "", resolved_paths);
+    const core::Status paths_status =
+        app::resolve_telemetry_paths(layout.resolved, "", "", "", resolved_paths);
     if (!paths_status) {
         return paths_status;
     }
     const bool suite_settings =
-        !options.artifact_dir.empty() ||
-        !options.global_settings_dir.empty() ||
-        !options.local_settings_dir.empty() ||
-        options.log_level.has_value();
+        !options.artifact_dir.empty() || !options.global_settings_dir.empty() ||
+        !options.local_settings_dir.empty() || options.log_level.has_value();
     const core::Status settings_status =
-        suite_settings
-            ? write_suite_settings(layout.instance_dir, layout.stream_root,
-                                   options)
-            : generate_settings(layout.instance_dir, resolved_paths);
+        suite_settings ? write_suite_settings(layout.instance_dir, layout.stream_root, options)
+                       : generate_settings(layout.instance_dir, resolved_paths);
     if (!settings_status) {
         return settings_status;
     }
 
     // The deterministic layout lists all four JSONL streams; make sure they
     // exist before the child starts (the sinks append to them).
-    for (const char* stream : {"app.jsonl", "metrics.jsonl", "traces.jsonl",
-                               "chrono.jsonl"}) {
-        const std::string stream_file =
-            instance_file_path(layout.stream_root, stream);
-        const int stream_fd =
-            ::open(stream_file.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+    for (const char* stream : {"app.jsonl", "metrics.jsonl", "traces.jsonl", "chrono.jsonl"}) {
+        const std::string stream_file = instance_file_path(layout.stream_root, stream);
+        const int stream_fd = ::open(stream_file.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
         if (stream_fd < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -475,16 +441,13 @@ struct StartLayout {
     return {};
 }
 
-[[nodiscard]] core::Status open_start_logs(std::string_view stream_root,
-                                           int& stdout_fd, int& stderr_fd,
-                                           int& null_fd) noexcept {
-    stdout_fd = open_truncated_log(
-        instance_file_path(stream_root, "stdout.log"));
+[[nodiscard]] core::Status open_start_logs(std::string_view stream_root, int& stdout_fd,
+                                           int& stderr_fd, int& null_fd) noexcept {
+    stdout_fd = open_truncated_log(instance_file_path(stream_root, "stdout.log"));
     if (stdout_fd < 0) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
-    stderr_fd = open_truncated_log(
-        instance_file_path(stream_root, "stderr.log"));
+    stderr_fd = open_truncated_log(instance_file_path(stream_root, "stderr.log"));
     if (stderr_fd < 0) {
         static_cast<void>(::close(stdout_fd));
         stdout_fd = -1;
@@ -534,20 +497,16 @@ struct SupervisorContext {
     // setup failure is reported before the group exists.
     int setup_pipe[2]{-1, -1};
     if (::pipe2(setup_pipe, O_CLOEXEC) != 0) {
-        StartReport report{
-            0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
-        static_cast<void>(
-            write_all(context.report_fd, &report, sizeof(report)));
+        StartReport report{0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
+        static_cast<void>(write_all(context.report_fd, &report, sizeof(report)));
         static_cast<void>(::close(context.report_fd));
         child_exit(1);
     }
 
     const pid_t child = ::fork();
     if (child < 0) {
-        StartReport report{
-            0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
-        static_cast<void>(
-            write_all(context.report_fd, &report, sizeof(report)));
+        StartReport report{0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
+        static_cast<void>(write_all(context.report_fd, &report, sizeof(report)));
         static_cast<void>(::close(context.report_fd));
         static_cast<void>(::close(setup_pipe[0]));
         static_cast<void>(::close(setup_pipe[1]));
@@ -562,8 +521,8 @@ struct SupervisorContext {
         auto fail_setup = [&](std::int32_t setup_status) {
             // SIGPIPE shielded (spec process-supervision; analysis #23 —
             // the parent may already have closed the pipe on a failure).
-            static_cast<void>(detail::write_all_no_sigpipe(
-                setup_pipe[1], &setup_status, sizeof(setup_status)));
+            static_cast<void>(
+                detail::write_all_no_sigpipe(setup_pipe[1], &setup_status, sizeof(setup_status)));
             static_cast<void>(::close(setup_pipe[1]));
             child_exit(126);
         };
@@ -587,8 +546,7 @@ struct SupervisorContext {
 
         if (!context.options->cpus.empty()) {
             cpu_set_t mask;
-            core::thread_management_detail::fill_native_cpu_set(
-                context.options->cpus, mask);
+            core::thread_management_detail::fill_native_cpu_set(context.options->cpus, mask);
             if (::sched_setaffinity(0, sizeof(mask), &mask) != 0) {
                 fail_setup(2);
             }
@@ -601,17 +559,12 @@ struct SupervisorContext {
         }
 
         const app::RunIdentity& resolved = *context.resolved;
-        static_cast<void>(
-            ::setenv("NEXIGEN_RUN_ID", resolved.run_id.c_str(), 1));
-        static_cast<void>(
-            ::setenv("NEXIGEN_RUN_DIR", resolved.run_dir.c_str(), 1));
-        static_cast<void>(
-            ::setenv("NEXIGEN_INSTANCE_ID", resolved.instance_id.c_str(), 1));
-        static_cast<void>(::setenv("NEXIGEN_INSTANCE_DIR",
-                                   context.instance_dir->c_str(), 1));
+        static_cast<void>(::setenv("NEXIGEN_RUN_ID", resolved.run_id.c_str(), 1));
+        static_cast<void>(::setenv("NEXIGEN_RUN_DIR", resolved.run_dir.c_str(), 1));
+        static_cast<void>(::setenv("NEXIGEN_INSTANCE_ID", resolved.instance_id.c_str(), 1));
+        static_cast<void>(::setenv("NEXIGEN_INSTANCE_DIR", context.instance_dir->c_str(), 1));
         if (!context.log_level.empty()) {
-            static_cast<void>(::setenv("NEXIGEN_LOG_LEVEL",
-                                       context.log_level.c_str(), 1));
+            static_cast<void>(::setenv("NEXIGEN_LOG_LEVEL", context.log_level.c_str(), 1));
         }
 
         detail::coverage_flush();
@@ -625,8 +578,8 @@ struct SupervisorContext {
         // so the supervisor observes EOF as success. On exec failure the fd
         // is still ours — report status 4 (exec) before dying.
         const std::int32_t exec_status = 4;
-        static_cast<void>(detail::write_all_no_sigpipe(
-            setup_pipe[1], &exec_status, sizeof(exec_status)));
+        static_cast<void>(
+            detail::write_all_no_sigpipe(setup_pipe[1], &exec_status, sizeof(exec_status)));
         static_cast<void>(::close(setup_pipe[1]));
         child_exit(127);
     }
@@ -640,8 +593,7 @@ struct SupervisorContext {
     // fd, so EOF is the success signal. A full 4-byte read therefore always
     // means a reported setup/exec failure (the `!= 0` check stays as a
     // protocol belt; zero is never written on purpose).
-    const bool failure_reported =
-        read_all(setup_pipe[0], &setup_status, sizeof(setup_status));
+    const bool failure_reported = read_all(setup_pipe[0], &setup_status, sizeof(setup_status));
     static_cast<void>(::close(setup_pipe[0]));
 
     if (context.null_fd > STDERR_FILENO) {
@@ -657,10 +609,8 @@ struct SupervisorContext {
     if (failure_reported || setup_status != 0) {
         static_cast<void>(::kill(-child, SIGKILL));
         reap_child(child);
-        StartReport report{
-            0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
-        static_cast<void>(
-            write_all(context.report_fd, &report, sizeof(report)));
+        StartReport report{0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
+        static_cast<void>(write_all(context.report_fd, &report, sizeof(report)));
         static_cast<void>(::close(context.report_fd));
         child_exit(1);
     }
@@ -677,10 +627,8 @@ struct SupervisorContext {
     if (!resource_status) {
         static_cast<void>(::kill(-child, SIGKILL));
         reap_child(child);
-        StartReport report{
-            0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
-        static_cast<void>(
-            write_all(context.report_fd, &report, sizeof(report)));
+        StartReport report{0, static_cast<std::int32_t>(core::ErrorCode::SystemError)};
+        static_cast<void>(write_all(context.report_fd, &report, sizeof(report)));
         static_cast<void>(::close(context.report_fd));
         child_exit(1);
     }
@@ -691,25 +639,20 @@ struct SupervisorContext {
 
     int child_status = 0;
     const SuperviseResult supervised = supervise_child(
-        child, context.timeout_s, context.metadata.start_time_mono_ns,
-        child_status);
+        child, context.timeout_s, context.metadata.start_time_mono_ns, child_status);
     const std::uint64_t end_ns = monotonic_now_ns();
     std::uint64_t uptime = 0;
-    if (supervised.reaped && end_ns != 0 &&
-        context.metadata.start_time_mono_ns != 0 &&
+    if (supervised.reaped && end_ns != 0 && context.metadata.start_time_mono_ns != 0 &&
         end_ns >= context.metadata.start_time_mono_ns) {
-        uptime = (end_ns - context.metadata.start_time_mono_ns) /
-                 nanoseconds_per_second;
+        uptime = (end_ns - context.metadata.start_time_mono_ns) / nanoseconds_per_second;
     }
 
     if (supervised.status_valid) {
         const TerminatedBy terminated_by =
-            attribution(supervised.runner_stopped, supervised.reaped,
-                        child_status);
-        const ExitMetadata exit_metadata = ExitMetadata::from_child_status(
-            child, child_status, uptime, terminated_by);
-        static_cast<void>(write_exit_json(*context.instance_dir,
-                                         exit_metadata));
+            attribution(supervised.runner_stopped, supervised.reaped, child_status);
+        const ExitMetadata exit_metadata =
+            ExitMetadata::from_child_status(child, child_status, uptime, terminated_by);
+        static_cast<void>(write_exit_json(*context.instance_dir, exit_metadata));
     } else {
         // Unreapable child (waitpid error ≠ EINTR — analysis #6): the exit
         // record must not assert a stale/foreign status as a real outcome
@@ -718,8 +661,7 @@ struct SupervisorContext {
         ExitMetadata unknown_metadata{};
         unknown_metadata.uptime_s = uptime;
         unknown_metadata.terminated_by = TerminatedBy::Unknown;
-        static_cast<void>(write_exit_json(*context.instance_dir,
-                                         unknown_metadata));
+        static_cast<void>(write_exit_json(*context.instance_dir, unknown_metadata));
     }
     child_exit(0);
 }
@@ -727,26 +669,21 @@ struct SupervisorContext {
 } // namespace
 
 std::string StartOptions::to_string() const {
-    return std::format(
-        "StartOptions(artifact_dir={}, global_settings_dir={}, "
-        "local_settings_dir={}, log_level={}, env={}, cpus={})",
-        artifact_dir, global_settings_dir, local_settings_dir,
-        log_level.has_value() ? std::string(logging::to_string(*log_level))
-                              : std::string("inherit"),
-        env.size(), cpus.count());
+    return std::format("StartOptions(artifact_dir={}, global_settings_dir={}, "
+                       "local_settings_dir={}, log_level={}, env={}, cpus={})",
+                       artifact_dir, global_settings_dir, local_settings_dir,
+                       log_level.has_value() ? std::string(logging::to_string(*log_level))
+                                             : std::string("inherit"),
+                       env.size(), cpus.count());
 }
 
-core::Status Runner::start(const app::RunIdentity& identity,
-                           std::string_view app_name,
-                           const std::vector<std::string>& command,
-                           std::uint64_t timeout_s) {
+core::Status Runner::start(const app::RunIdentity& identity, std::string_view app_name,
+                           const std::vector<std::string>& command, std::uint64_t timeout_s) {
     return start(identity, app_name, command, timeout_s, StartOptions{});
 }
 
-core::Status Runner::start(const app::RunIdentity& identity,
-                           std::string_view app_name,
-                           const std::vector<std::string>& command,
-                           std::uint64_t timeout_s,
+core::Status Runner::start(const app::RunIdentity& identity, std::string_view app_name,
+                           const std::vector<std::string>& command, std::uint64_t timeout_s,
                            const StartOptions& options) {
     if (command.empty() || command.front().empty()) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -757,8 +694,7 @@ core::Status Runner::start(const app::RunIdentity& identity,
     }
 
     StartLayout layout;
-    const core::Status resolved_status =
-        resolve_start_layout(identity, app_name, options, layout);
+    const core::Status resolved_status = resolve_start_layout(identity, app_name, options, layout);
     if (!resolved_status) {
         return resolved_status;
     }
@@ -770,8 +706,7 @@ core::Status Runner::start(const app::RunIdentity& identity,
     int stdout_fd = -1;
     int stderr_fd = -1;
     int null_fd = -1;
-    const core::Status logs =
-        open_start_logs(layout.stream_root, stdout_fd, stderr_fd, null_fd);
+    const core::Status logs = open_start_logs(layout.stream_root, stdout_fd, stderr_fd, null_fd);
     if (!logs) {
         return logs;
     }
@@ -788,8 +723,7 @@ core::Status Runner::start(const app::RunIdentity& identity,
     }
     argv.push_back(nullptr);
 
-    ResourceMetadata metadata =
-        ResourceMetadata::from_identity(layout.resolved, app_name, 0, 0);
+    ResourceMetadata metadata = ResourceMetadata::from_identity(layout.resolved, app_name, 0, 0);
 
     int pipe_fds[2]{-1, -1};
     if (core::fault_injection::fault(core::fault_injection::FaultPoint::Runner_pipe2) ||
@@ -816,9 +750,8 @@ core::Status Runner::start(const app::RunIdentity& identity,
     }
 
     const pid_t supervisor =
-        core::fault_injection::fault(core::fault_injection::FaultPoint::Runner_fork)
-            ? -1
-            : ::fork();
+        core::fault_injection::fault(core::fault_injection::FaultPoint::Runner_fork) ? -1
+                                                                                     : ::fork();
     if (supervisor < 0) {
         static_cast<void>(::close(pipe_fds[0]));
         static_cast<void>(::close(pipe_fds[1]));
@@ -852,21 +785,17 @@ core::Status Runner::start(const app::RunIdentity& identity,
     return {};
 }
 
-core::Status Runner::start_suite(const SuiteManifest& manifest,
-                                 std::string& suite_dir_out) {
+core::Status Runner::start_suite(const SuiteManifest& manifest, std::string& suite_dir_out) {
     return ::nexigen::runner::start_suite(manifest, suite_dir_out);
 }
 
-core::Status Runner::stop(std::string_view instance_dir,
-                          std::uint64_t grace_s) {
+core::Status Runner::stop(std::string_view instance_dir, std::uint64_t grace_s) {
     if (instance_dir.empty()) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     const std::string directory(instance_dir);
-    const std::string resource_path =
-        instance_file_path(directory, "resource.json");
-    const std::string exit_path =
-        instance_file_path(directory, "exit.json");
+    const std::string resource_path = instance_file_path(directory, "resource.json");
+    const std::string exit_path = instance_file_path(directory, "exit.json");
 
     if (file_exists(exit_path)) {
         // Idempotent path: nothing to signal, but success still requires the
@@ -875,24 +804,21 @@ core::Status Runner::stop(std::string_view instance_dir,
         // foreign group liveness implies a foreign process, not a stop
         // failure (spec process-supervision "Identity is verified before
         // signals are sent").
-        const core::Result<nlohmann::json> completed =
-            read_json_file(resource_path);
+        const core::Result<nlohmann::json> completed = read_json_file(resource_path);
         if (!completed) {
             return {};
         }
         ResourceMetadata completed_metadata{};
         from_json(*completed, completed_metadata);
         if (completed_metadata.pid > 0 &&
-            identity_matches(completed_metadata.pid,
-                            completed_metadata.proc_start_ticks) &&
+            identity_matches(completed_metadata.pid, completed_metadata.proc_start_ticks) &&
             group_alive(completed_metadata.pid)) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         return {};
     }
 
-    core::Result<nlohmann::json> resource_document =
-        read_json_file(resource_path);
+    core::Result<nlohmann::json> resource_document = read_json_file(resource_path);
     if (!resource_document) {
         return std::unexpected(resource_document.error());
     }
@@ -910,21 +836,18 @@ core::Status Runner::stop(std::string_view instance_dir,
     // still finalizes the instance (terminated_by "unknown") and reports
     // success without ever touching a foreign process group.
     if (!identity_matches(pid, resource.proc_start_ticks)) {
-        write_fallback_exit(exit_path, resource, std::nullopt,
-                            TerminatedBy::Unknown);
+        write_fallback_exit(exit_path, resource, std::nullopt, TerminatedBy::Unknown);
         return {};
     }
 
     if (!process_alive(pid) && !group_alive(pid)) {
         // The supervisor may be in the middle of writing exit.json.
-        const std::uint64_t wait_end =
-            monotonic_now_ns() + nanoseconds_per_second;
+        const std::uint64_t wait_end = monotonic_now_ns() + nanoseconds_per_second;
         while (monotonic_now_ns() < wait_end && !file_exists(exit_path)) {
             sleep_ms(poll_interval_ms);
         }
         if (!file_exists(exit_path)) {
-            write_fallback_exit(exit_path, resource, std::nullopt,
-                                TerminatedBy::Unknown);
+            write_fallback_exit(exit_path, resource, std::nullopt, TerminatedBy::Unknown);
         }
         return {};
     }
@@ -938,8 +861,7 @@ core::Status Runner::stop(std::string_view instance_dir,
         return std::unexpected(core::ErrorCode::SystemError);
     }
 
-    const std::uint64_t grace_end =
-        monotonic_now_ns() + grace_s * nanoseconds_per_second;
+    const std::uint64_t grace_end = monotonic_now_ns() + grace_s * nanoseconds_per_second;
     while (monotonic_now_ns() < grace_end) {
         if (file_exists(exit_path) && !group_alive(pid)) {
             break;
@@ -976,16 +898,14 @@ core::Status Runner::stop(std::string_view instance_dir,
     }
 
     write_fallback_exit(exit_path, resource, last_signal,
-                        sent_signal ? TerminatedBy::Runner
-                                    : TerminatedBy::Unknown);
+                        sent_signal ? TerminatedBy::Runner : TerminatedBy::Unknown);
     if (group_alive(pid)) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
     return {};
 }
 
-core::Status Runner::status(std::string_view instance_dir,
-                            std::string& state) noexcept {
+core::Status Runner::status(std::string_view instance_dir, std::string& state) noexcept {
     state = "unknown";
     if (instance_dir.empty()) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -1006,8 +926,7 @@ core::Status Runner::status(std::string_view instance_dir,
     // state"; analysis #5): a live pid whose /proc start-ticks differ from
     // resource.json is a recycled PID of an unrelated process — not this
     // instance running. Legacy anchors (0) keep the plain pid check.
-    if (process_alive(resource.pid) &&
-        identity_matches(resource.pid, resource.proc_start_ticks)) {
+    if (process_alive(resource.pid) && identity_matches(resource.pid, resource.proc_start_ticks)) {
         state = "running";
         return {};
     }
@@ -1022,8 +941,7 @@ core::Status Runner::status(std::string_view instance_dir,
     }
     ExitMetadata exit_metadata{};
     from_json(*exit_document, exit_metadata);
-    state = exit_metadata.terminated_by == TerminatedBy::Runner ? "stopped"
-                                                                 : "exited";
+    state = exit_metadata.terminated_by == TerminatedBy::Runner ? "stopped" : "exited";
     return {};
 }
 

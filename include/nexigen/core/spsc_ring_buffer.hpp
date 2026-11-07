@@ -45,12 +45,10 @@ namespace nexigen::core {
 /// Wait-free SPSC ring buffer with compile-time fixed, power-of-two capacity.
 /// One producer thread (try_push), one consumer thread (try_pop). See the
 /// file header for the full thread-safety contract.
-template <class T, std::size_t Capacity>
-class alignas(64) SpscRingBuffer {
+template <class T, std::size_t Capacity> class alignas(64) SpscRingBuffer {
     static_assert(Capacity >= 1 && (Capacity & (Capacity - 1)) == 0,
                   "Capacity must be a positive power of two");
-    static_assert(std::atomic<std::size_t>::is_always_lock_free,
-                  "index atomics must be lock-free");
+    static_assert(std::atomic<std::size_t>::is_always_lock_free, "index atomics must be lock-free");
     static_assert(std::is_default_constructible_v<T> && std::is_move_assignable_v<T>,
                   "T must be default-constructible and move-assignable");
 

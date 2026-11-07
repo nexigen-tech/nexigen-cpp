@@ -38,16 +38,25 @@ enum class ClockId : std::uint8_t {
         case ClockId::monotonic_raw: return "monotonic_raw";
         case ClockId::boottime:      return "boottime";
         case ClockId::realtime:      return "realtime";
-        default:                      return "Unknown";
+        default:                     return "Unknown";
     }
 }
 
 /// Parse a canonical ClockId name; false leaves the out-parameter UNCHANGED
 /// on any other spelling (including "Unknown" — a rendering, not an enumerator).
 [[nodiscard]] constexpr bool from_string(std::string_view name, ClockId& out) noexcept {
-    if (name == "monotonic_raw") { out = ClockId::monotonic_raw; return true; }
-    if (name == "boottime")      { out = ClockId::boottime;      return true; }
-    if (name == "realtime")      { out = ClockId::realtime;      return true; }
+    if (name == "monotonic_raw") {
+        out = ClockId::monotonic_raw;
+        return true;
+    }
+    if (name == "boottime") {
+        out = ClockId::boottime;
+        return true;
+    }
+    if (name == "realtime") {
+        out = ClockId::realtime;
+        return true;
+    }
     return false;
 }
 
@@ -68,12 +77,10 @@ inline void from_json(const nlohmann::json& j, ClockId& out) noexcept {
 /// Compile-time clock-domain declaration. A component specializes this
 /// constant to report the clock it stamps in; the default is the canonical
 /// hot-path domain monotonic_raw.
-template <class T>
-inline constexpr ClockId clock_domain = ClockId::monotonic_raw;
+template <class T> inline constexpr ClockId clock_domain = ClockId::monotonic_raw;
 
 } // namespace nexigen::chrono
 
 /// ClockId formats as its canonical name (mandate 11): parse and fill/align
 /// handled by the string_view formatter; the context is templated because
 /// libstdc++ 15 evaluates formattability against a substituted context.
-

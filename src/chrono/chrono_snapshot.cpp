@@ -19,7 +19,9 @@ std::string Snapshot::to_string() const {
            ", realtime_offset_ns=" + std::to_string(realtime_offset_ns) + ")";
 }
 
-std::string to_string(const Snapshot& snapshot) { return snapshot.to_string(); }
+std::string to_string(const Snapshot& snapshot) {
+    return snapshot.to_string();
+}
 
 void to_json(nlohmann::json& j, const Snapshot& snapshot) {
     j = nlohmann::json{

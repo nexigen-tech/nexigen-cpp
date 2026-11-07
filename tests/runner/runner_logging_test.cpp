@@ -31,13 +31,13 @@ namespace {
 int g_checks = 0;
 int g_failures = 0;
 
-#define NX_CHECK(...)                                                                           \
-    do {                                                                                        \
-        ++g_checks;                                                                             \
-        if (!(__VA_ARGS__)) {                                                                   \
-            ++g_failures;                                                                       \
-            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #__VA_ARGS__);        \
-        }                                                                                       \
+#define NX_CHECK(...)                                                                              \
+    do {                                                                                           \
+        ++g_checks;                                                                                \
+        if (!(__VA_ARGS__)) {                                                                      \
+            ++g_failures;                                                                          \
+            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #__VA_ARGS__);            \
+        }                                                                                          \
     } while (false)
 
 void run_suite(const char* name, void (*body)()) {
@@ -52,8 +52,7 @@ std::string unique_dir(std::string_view tag) {
     static int counter = 0;
     ++counter;
     return "/tmp/opencode/nexigen_log_" + std::string(tag) + "_" +
-           std::to_string(static_cast<long long>(::getpid())) + "_" +
-           std::to_string(counter);
+           std::to_string(static_cast<long long>(::getpid())) + "_" + std::to_string(counter);
 }
 
 void remove_tree(const std::string& path) {
@@ -66,8 +65,7 @@ std::string read_text(const std::string& path) {
     if (!input.is_open()) {
         return {};
     }
-    return std::string(std::istreambuf_iterator<char>(input),
-                       std::istreambuf_iterator<char>());
+    return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
 }
 
 bool contains(std::string_view text, std::string_view needle) {
@@ -100,9 +98,7 @@ void test_init_level_and_file() {
     runner::shutdown_runner_logging();
     const std::string directory = unique_dir("basic");
     const logging::Settings settings{};
-    NX_CHECK(runner::init_runner_logging(directory, settings,
-                                        logging::LogLevel::Info)
-                 .has_value());
+    NX_CHECK(runner::init_runner_logging(directory, settings, logging::LogLevel::Info).has_value());
     NX_CHECK(runner::runner_logging_active());
     NX_CHECK(runner::runner_logging_path() == directory + "/runner.jsonl");
     runner::log_runner(logging::LogLevel::Info, "info-event");
@@ -123,15 +119,11 @@ void test_reinit() {
     const std::string first = unique_dir("reinit1");
     const std::string second = unique_dir("reinit2");
     const logging::Settings settings{};
-    NX_CHECK(runner::init_runner_logging(first, settings,
-                                        logging::LogLevel::Info)
-                 .has_value());
+    NX_CHECK(runner::init_runner_logging(first, settings, logging::LogLevel::Info).has_value());
     runner::log_runner(logging::LogLevel::Info, "first-event");
     NX_CHECK(runner::flush_runner_logging().has_value());
     runner::shutdown_runner_logging();
-    NX_CHECK(runner::init_runner_logging(second, settings,
-                                        logging::LogLevel::Info)
-                 .has_value());
+    NX_CHECK(runner::init_runner_logging(second, settings, logging::LogLevel::Info).has_value());
     runner::log_runner(logging::LogLevel::Info, "second-event");
     NX_CHECK(runner::flush_runner_logging().has_value());
     NX_CHECK(contains(read_text(second + "/runner.jsonl"), "second-event"));
@@ -145,9 +137,9 @@ void test_global_settings_loader() {
     std::error_code error;
     std::filesystem::create_directories(directory, error);
     {
-        std::ofstream file(directory + "/logging.json",
-                           std::ios::binary | std::ios::trunc);
-        file << R"({"initial_log_level":"debug","flush_cpu_affinity":[0],"max_file_size_bytes":4096})";
+        std::ofstream file(directory + "/logging.json", std::ios::binary | std::ios::trunc);
+        file
+            << R"({"initial_log_level":"debug","flush_cpu_affinity":[0],"max_file_size_bytes":4096})";
     }
     logging::Settings settings{};
     NX_CHECK(runner::load_runner_logging_settings(directory, settings).has_value());
@@ -157,8 +149,7 @@ void test_global_settings_loader() {
     NX_CHECK(settings.options.max_file_size_bytes == 4096ULL);
 
     {
-        std::ofstream file(directory + "/logging.json",
-                           std::ios::binary | std::ios::trunc);
+        std::ofstream file(directory + "/logging.json", std::ios::binary | std::ios::trunc);
         file << "{bad json";
     }
     logging::Settings invalid{};
@@ -179,16 +170,13 @@ void test_fallback_directory() {
     NX_CHECK(::getcwd(previous, sizeof(previous)) != nullptr);
     NX_CHECK(::chdir(directory.c_str()) == 0);
     const logging::Settings settings{};
-    NX_CHECK(runner::init_runner_logging(
-                 "/proc/nexigen_runner_log_denied", settings,
-                 logging::LogLevel::Info)
+    NX_CHECK(runner::init_runner_logging("/proc/nexigen_runner_log_denied", settings,
+                                         logging::LogLevel::Info)
                  .has_value());
-    NX_CHECK(runner::runner_logging_path() ==
-             directory + "/.nexigen-run/runner.jsonl");
+    NX_CHECK(runner::runner_logging_path() == directory + "/.nexigen-run/runner.jsonl");
     runner::log_runner(logging::LogLevel::Info, "fallback-event");
     NX_CHECK(runner::flush_runner_logging().has_value());
-    NX_CHECK(contains(read_text(directory + "/.nexigen-run/runner.jsonl"),
-                      "fallback-event"));
+    NX_CHECK(contains(read_text(directory + "/.nexigen-run/runner.jsonl"), "fallback-event"));
     runner::shutdown_runner_logging();
     NX_CHECK(::chdir(previous) == 0);
     remove_tree(directory);
@@ -206,7 +194,8 @@ void test_affinity_and_logger_mask() {
     cpu_set_t mask;
     CPU_ZERO(&mask);
     NX_CHECK(::sched_getaffinity(0, sizeof(mask), &mask) == 0);
-    NX_CHECK(cpu_is_set(cpu, mask));    NX_CHECK(CPU_COUNT(&mask) == 1);
+    NX_CHECK(cpu_is_set(cpu, mask));
+    NX_CHECK(CPU_COUNT(&mask) == 1);
     const std::array<std::uint32_t, 1> invalid{99999};
     NX_CHECK(!runner::apply_runner_affinity(invalid).has_value());
     NX_CHECK(runner::reset_runner_affinity().has_value());
@@ -215,9 +204,9 @@ void test_affinity_and_logger_mask() {
     const logging::Settings settings{};
     core::ThreadSpec logger_thread{};
     logger_thread.set_cpus(core::CpuSet::from_core_mask(1ULL << core));
-    NX_CHECK(runner::init_runner_logging(directory, settings,
-                                         logging::LogLevel::Info, logger_thread)
-                 .has_value());
+    NX_CHECK(
+        runner::init_runner_logging(directory, settings, logging::LogLevel::Info, logger_thread)
+            .has_value());
     NX_CHECK(runner::runner_logging_writer_mask() == (1ULL << core));
     runner::shutdown_runner_logging();
     remove_tree(directory);
@@ -229,13 +218,10 @@ void test_state_write_warning() {
     std::error_code error;
     std::filesystem::create_directories(directory + "/state.json", error);
     const logging::Settings settings{};
-    NX_CHECK(runner::init_runner_logging(directory, settings,
-                                         logging::LogLevel::Info)
-                 .has_value());
+    NX_CHECK(runner::init_runner_logging(directory, settings, logging::LogLevel::Info).has_value());
     nlohmann::json document;
     document["state"] = "running";
-    const core::Status written =
-        runner::write_json_file(directory + "/state.json", document);
+    const core::Status written = runner::write_json_file(directory + "/state.json", document);
     NX_CHECK(!written.has_value());
     NX_CHECK(runner::flush_runner_logging().has_value());
     const std::string text = read_text(directory + "/runner.jsonl");
@@ -258,9 +244,8 @@ void test_inactive_and_invalid_config() {
     NX_CHECK(!runner::apply_runner_affinity(invalid).has_value());
     const int cpu = first_allowed_cpu();
     if (cpu >= 0) {
-        const std::array<std::uint32_t, 2> duplicate{
-            static_cast<std::uint32_t>(cpu),
-            static_cast<std::uint32_t>(cpu)};
+        const std::array<std::uint32_t, 2> duplicate{static_cast<std::uint32_t>(cpu),
+                                                     static_cast<std::uint32_t>(cpu)};
         NX_CHECK(!runner::apply_runner_affinity(duplicate).has_value());
     }
 
@@ -268,28 +253,21 @@ void test_inactive_and_invalid_config() {
     logging::Settings settings{};
     settings.global_loaded = true;
     settings.options.worker_thread = core::ThreadSpec{};
-    NX_CHECK(runner::init_runner_logging(directory, settings,
-                                         logging::LogLevel::Info)
-                 .has_value());
+    NX_CHECK(runner::init_runner_logging(directory, settings, logging::LogLevel::Info).has_value());
     runner::shutdown_runner_logging();
 
     settings.options.worker_thread = core::ThreadSpec{};
-    NX_CHECK(runner::init_runner_logging(directory, settings,
-                                         logging::LogLevel::Info)
-                 .has_value());
+    NX_CHECK(runner::init_runner_logging(directory, settings, logging::LogLevel::Info).has_value());
     runner::shutdown_runner_logging();
 
     if (cpu >= 0) {
         settings.options.worker_thread = core::ThreadSpec{};
-        NX_CHECK(runner::init_runner_logging(directory, settings,
-                                             logging::LogLevel::Info)
-                     .has_value());
+        NX_CHECK(
+            runner::init_runner_logging(directory, settings, logging::LogLevel::Info).has_value());
         runner::shutdown_runner_logging();
-        settings.options.worker_thread.set_cpus(
-            core::CpuSet::from_core_mask(1ULL << cpu));
-        NX_CHECK(runner::init_runner_logging(directory, settings,
-                                             logging::LogLevel::Info)
-                     .has_value());
+        settings.options.worker_thread.set_cpus(core::CpuSet::from_core_mask(1ULL << cpu));
+        NX_CHECK(
+            runner::init_runner_logging(directory, settings, logging::LogLevel::Info).has_value());
         NX_CHECK(runner::runner_logging_writer_mask() == (1ULL << cpu));
         runner::shutdown_runner_logging();
     }
@@ -326,27 +304,23 @@ void test_thread_spec_report_diagnostics() {
             core::ThreadSpec spec{};
             spec.set_cpus(core::CpuSet::from_core_mask(1ULL << cpu));
             NX_CHECK(spec.set_name("rt-diag").has_value());
-            NX_CHECK(spec.set_scheduler(core::SchedulingPolicy::FIFO, 1)
-                         .has_value());
+            NX_CHECK(spec.set_scheduler(core::SchedulingPolicy::FIFO, 1).has_value());
             const auto hook = [](FaultPoint point) noexcept {
                 return point == FaultPoint::Thread_set_scheduler;
             };
             nexigen::core::fault_injection::set_fault_hook(hook);
             core::ThreadApplyReport report{};
             core::Status status{};
-            std::jthread worker([&] {
-                status = runner::apply_runner_thread_spec(spec, report, "test");
-            });
+            std::jthread worker(
+                [&] { status = runner::apply_runner_thread_spec(spec, report, "test"); });
             worker.join();
             nexigen::core::fault_injection::set_fault_hook(nullptr);
             NX_CHECK(!status.has_value());
             NX_CHECK(report.applied() ==
-                     (core::ThreadApplyReport::name_mask |
-                      core::ThreadApplyReport::affinity_mask));
+                     (core::ThreadApplyReport::name_mask | core::ThreadApplyReport::affinity_mask));
             NX_CHECK(report.failed() == core::ThreadApplyReport::scheduler_mask);
             NX_CHECK(report.first_error() == core::ErrorCode::SystemError);
-            const std::string text =
-                runner::describe_thread_apply_report(report);
+            const std::string text = runner::describe_thread_apply_report(report);
             NX_CHECK(contains(text, "failed=scheduler"));
             NX_CHECK(!contains(text, "failed=name,affinity"));
         }

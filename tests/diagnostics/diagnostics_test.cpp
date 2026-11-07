@@ -37,13 +37,17 @@ struct ProbeSink {
 
 // --- Compile-time claims: enum shape and name spellings (design D5).
 static_assert(sizeof(nexigen::diagnostics::StopwatchState) == 1U);
-static_assert(nexigen::diagnostics::to_string(nexigen::diagnostics::StopwatchState::Idle) == "Idle");
-static_assert(nexigen::diagnostics::to_string(nexigen::diagnostics::StopwatchState::Running) == "Running");
-static_assert(nexigen::diagnostics::to_string(nexigen::diagnostics::StopwatchState::Stopped) == "Stopped");
+static_assert(nexigen::diagnostics::to_string(nexigen::diagnostics::StopwatchState::Idle) ==
+              "Idle");
+static_assert(nexigen::diagnostics::to_string(nexigen::diagnostics::StopwatchState::Running) ==
+              "Running");
+static_assert(nexigen::diagnostics::to_string(nexigen::diagnostics::StopwatchState::Stopped) ==
+              "Stopped");
 // from_string is the exact inverse of to_string (constexpr exercised).
 static_assert([]() {
     nexigen::diagnostics::StopwatchState s{};
-    return nexigen::diagnostics::from_string("Stopped", s) && s == nexigen::diagnostics::StopwatchState::Stopped;
+    return nexigen::diagnostics::from_string("Stopped", s) &&
+           s == nexigen::diagnostics::StopwatchState::Stopped;
 }());
 
 // --- Compile-time claims: Stopwatch / LapSnapshot layout (design D2/D6).
@@ -51,14 +55,12 @@ static_assert(sizeof(nexigen::diagnostics::Stopwatch) == 64);
 static_assert(alignof(nexigen::diagnostics::Stopwatch) == 64);
 static_assert(std::is_trivially_copyable_v<nexigen::diagnostics::Stopwatch>);
 static_assert(sizeof(nexigen::diagnostics::LapSnapshot) == 24);
-static_assert(nexigen::diagnostics::Stopwatch::no_lap_value ==
-              0xFFFF'FFFF'FFFF'FFFFULL);
+static_assert(nexigen::diagnostics::Stopwatch::no_lap_value == 0xFFFF'FFFF'FFFF'FFFFULL);
 
 // --- Compile-time claims: the guard is not transferable (design D7; spec
 // diagnostics/scoped-stopwatch "Guard is not transferable") — copy and move
 // both fail compilation, for both destination kinds.
-using OutRefGuard =
-    nexigen::diagnostics::ScopedStopwatch<nexigen::diagnostics::detail::OutRefSink>;
+using OutRefGuard = nexigen::diagnostics::ScopedStopwatch<nexigen::diagnostics::detail::OutRefSink>;
 using SinkGuard = nexigen::diagnostics::ScopedStopwatch<ProbeSink>;
 static_assert(!std::is_copy_constructible_v<OutRefGuard>);
 static_assert(!std::is_copy_assignable_v<OutRefGuard>);
@@ -84,36 +86,49 @@ std::size_t g_alloc_used = 0;
 
 } // namespace
 
-[[noreturn]] void arena_exhausted() { std::abort(); }
+[[noreturn]] void arena_exhausted() {
+    std::abort();
+}
 
 void* operator new(std::size_t size) {
     const std::size_t rounded = (size + 15U) & ~static_cast<std::size_t>(15U);
-    if (g_alloc_used + rounded > sizeof(g_arena)) { arena_exhausted(); }
+    if (g_alloc_used + rounded > sizeof(g_arena)) {
+        arena_exhausted();
+    }
     void* p = g_arena + g_alloc_used;
     g_alloc_used += rounded;
     return p;
 }
 
-void* operator new[](std::size_t size) { return ::operator new(size); }
+void* operator new[](std::size_t size) {
+    return ::operator new(size);
+}
 
-void operator delete(void* ptr) noexcept { static_cast<void>(ptr); }
-void operator delete(void* ptr, std::size_t) noexcept { static_cast<void>(ptr); }
-void operator delete[](void* ptr) noexcept { static_cast<void>(ptr); }
-void operator delete[](void* ptr, std::size_t) noexcept { static_cast<void>(ptr); }
+void operator delete(void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete(void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
 
-#define NX_CHECK(condition)                                                                     \
-    do {                                                                                        \
-        ++g_checks;                                                                             \
-        if (!(condition)) {                                                                     \
-            ++g_failures;                                                                       \
-            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition);          \
-        }                                                                                       \
+#define NX_CHECK(condition)                                                                        \
+    do {                                                                                           \
+        ++g_checks;                                                                                \
+        if (!(condition)) {                                                                        \
+            ++g_failures;                                                                          \
+            std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition);              \
+        }                                                                                          \
     } while (false)
 
 namespace {
 
-void run_suite(const char* suite_name, void (*body)())
-{
+void run_suite(const char* suite_name, void (*body)()) {
     const int checks_before = g_checks;
     const int failures_before = g_failures;
 
@@ -130,8 +145,8 @@ void run_suite(const char* suite_name, void (*body)())
 // JSON, formatter.
 void test_stopwatch_state() {
     // Every enumerator round-trips (spec "Every enumerator round-trips").
-    for (const StopwatchState state : {StopwatchState::Idle, StopwatchState::Running,
-                                       StopwatchState::Stopped}) {
+    for (const StopwatchState state :
+         {StopwatchState::Idle, StopwatchState::Running, StopwatchState::Stopped}) {
         const std::string_view name = to_string(state);
         NX_CHECK(!name.empty() && name != "Unknown");
         StopwatchState round = StopwatchState::Idle;
@@ -141,13 +156,13 @@ void test_stopwatch_state() {
 
     // Unknown input is rejected without mutation (spec scenario).
     StopwatchState out = StopwatchState::Running;
-    NX_CHECK(!from_string("running ", out));       // trailing space
-    NX_CHECK(out == StopwatchState::Running);      // out-parameter untouched
-    NX_CHECK(!from_string("idle", out));           // different case
+    NX_CHECK(!from_string("running ", out));  // trailing space
+    NX_CHECK(out == StopwatchState::Running); // out-parameter untouched
+    NX_CHECK(!from_string("idle", out));      // different case
     NX_CHECK(out == StopwatchState::Running);
-    NX_CHECK(!from_string("", out));               // empty name
+    NX_CHECK(!from_string("", out)); // empty name
     NX_CHECK(out == StopwatchState::Running);
-    NX_CHECK(!from_string("Unknown", out));        // rendering is not parseable
+    NX_CHECK(!from_string("Unknown", out)); // rendering is not parseable
     NX_CHECK(out == StopwatchState::Running);
 
     // Garbage-cast values stay well-defined (spec scenario): no UB, "Unknown".
@@ -193,7 +208,9 @@ void test_stopwatch_state() {
 [[nodiscard]] std::uint64_t spin_us(int micros) noexcept {
     volatile std::uint64_t sink = 0;
     const int iters = micros * 600;
-    for (int i = 0; i < iters; ++i) { sink += static_cast<std::uint64_t>(i); }
+    for (int i = 0; i < iters; ++i) {
+        sink += static_cast<std::uint64_t>(i);
+    }
     return sink;
 }
 
@@ -219,7 +236,9 @@ void test_stopwatch_lifecycle() {
     for (int i = 0; i < 100; ++i) {
         static_cast<void>(spin_us(1));
         const std::uint64_t now_reading = sw.elapsed_ns();
-        if (now_reading < prev) { monotone = false; }
+        if (now_reading < prev) {
+            monotone = false;
+        }
         prev = now_reading;
     }
     NX_CHECK(monotone);
@@ -323,10 +342,10 @@ void test_stopwatch_laps() {
     // Consecutive laps measure only their own segment; second is longer.
     static_cast<void>(spin_us(3));
     const std::uint64_t second = sw.lap();
-    NX_CHECK(second > first);                     // segment lengths grew
-    NX_CHECK(sw.lap_count() == 2U);               // count grew by one
+    NX_CHECK(second > first);       // segment lengths grew
+    NX_CHECK(sw.lap_count() == 2U); // count grew by one
     NX_CHECK(sw.last_lap_ns() == second);
-    NX_CHECK(sw.min_lap_ns() == first);           // min brackets the laps
+    NX_CHECK(sw.min_lap_ns() == first); // min brackets the laps
     NX_CHECK(sw.max_lap_ns() == second);
 
     // Total still covers the sum of laps (within sampled-running tolerance).
@@ -336,9 +355,9 @@ void test_stopwatch_laps() {
     sw.stop();
     const std::uint64_t phantom = sw.lap();
     NX_CHECK(phantom == 0U);
-    NX_CHECK(sw.lap_count() == 2U);        // no phantom lap recorded
-    NX_CHECK(sw.last_lap_ns() == second);  // untouched
-    NX_CHECK(sw.min_lap_ns() == first);    // untouched
+    NX_CHECK(sw.lap_count() == 2U);       // no phantom lap recorded
+    NX_CHECK(sw.last_lap_ns() == second); // untouched
+    NX_CHECK(sw.min_lap_ns() == first);   // untouched
 }
 
 void test_lap_snapshot() {
@@ -390,7 +409,7 @@ void test_stopwatch_elapsed_units() {
 
     // Unit conversions scale correctly against the nanosecond total
     // (spec scenario): mm — all from the one ns reading.
-    const double us = sw.elapsed_us();            // ns/1000
+    const double us = sw.elapsed_us();                    // ns/1000
     const std::uint64_t us_count = sw.elapsed_us_count(); // truncated
     const double ms = sw.elapsed_ms();
     const double secs = sw.elapsed_seconds();
@@ -412,7 +431,7 @@ void test_stopwatch_elapsed_units() {
     static_cast<void>(sw.elapsed_ms());
     static_cast<void>(sw.elapsed_seconds());
     static_cast<void>(sw.elapsed_us_count());
-    NX_CHECK(sw.lap_count() == 0U);       // queries recorded nothing
+    NX_CHECK(sw.lap_count() == 0U);        // queries recorded nothing
     NX_CHECK(sw.state() == running_state); // state unchanged by queries
     sw.reset();
 }
@@ -493,12 +512,14 @@ void test_stopwatch_diag_strings() {
     // "identical to the free-function rendering of the same object").
     sw.stop();
     const std::string frozen = sw.to_string();
-    NX_CHECK(to_string(sw) == frozen);        // free == member
+    NX_CHECK(to_string(sw) == frozen);         // free == member
     NX_CHECK(std::format("{}", sw) == frozen); // formatter == member
     NX_CHECK(frozen.find("state=Stopped") != std::string::npos);
 
     // Cold-path no throw/UB while re-rendering repeatedly.
-    for (int i = 0; i < 10; ++i) { static_cast<void>(sw.to_string()); }
+    for (int i = 0; i < 10; ++i) {
+        static_cast<void>(sw.to_string());
+    }
     sw.reset();
     NX_CHECK(sw.to_string().find("state=Idle") != std::string::npos);
 }
@@ -554,15 +575,18 @@ void test_guard_lifecycle() {
     int calls = 0;
     std::uint64_t last = 0;
     {
-        ScopedStopwatch g{[&](std::uint64_t ns) noexcept { ++calls; last = ns; }};
+        ScopedStopwatch g{[&](std::uint64_t ns) noexcept {
+            ++calls;
+            last = ns;
+        }};
         NX_CHECK(calls == 0); // never at construction
         static_cast<void>(spin_us(1));
         NX_CHECK(calls == 0); // nor mid-scope
         static_cast<void>(g.has_exceeded_budget(0ULL));
         NX_CHECK(calls == 0); // checks never report early
     }
-    NX_CHECK(calls == 1);  // exactly once at destruction
-    NX_CHECK(last > 0U);   // with the scope's elapsed nanoseconds
+    NX_CHECK(calls == 1); // exactly once at destruction
+    NX_CHECK(last > 0U);  // with the scope's elapsed nanoseconds
 
     // Constructor overload matrix (spec "Construction overloads and
     // default-clock fallback"): every call form resolves to its clear
@@ -706,7 +730,7 @@ void test_guard_strings() {
         NX_CHECK(text.rfind(prefix, 0) == 0); // active status + elapsed readout
         NX_CHECK(text.size() > prefix.size() + suffix.size());
         NX_CHECK(text.compare(text.size() - suffix.size(), suffix.size(),
-                              suffix) == 0); // pending default budget
+                              suffix) == 0);            // pending default budget
         NX_CHECK(text.find('\\') == std::string::npos); // no JSON-style escapes
     }
 }
@@ -735,8 +759,7 @@ namespace {
     return static_cast<double>(ts.tv_sec) * 1e9 + static_cast<double>(ts.tv_nsec);
 }
 
-template <class F>
-[[nodiscard]] double median_ns_per_op(F&& body, int batches, int ops) {
+template <class F> [[nodiscard]] double median_ns_per_op(F&& body, int batches, int ops) {
     body(ops / 10 + 1); // warm-up
     double samples[21];
     for (int b = 0; b < batches; ++b) {
@@ -838,7 +861,7 @@ template <class F>
                 default_start_stop, cal_start_stop, cal_restart, cal_lap, cal_elapsed);
 
     // Gates (design D10): generous headroom over the one-stamp costs.
-    NX_CHECK(default_start_stop > 0.0);  // genuine measurement, not optimized out
+    NX_CHECK(default_start_stop > 0.0); // genuine measurement, not optimized out
     NX_CHECK(cal_start_stop > 0.0);
     NX_CHECK(default_start_stop <= 100.0); // two vDSO reads ≈ 40-50 ns
     NX_CHECK(cal_start_stop <= 20.0);      // two TSC stamps ≈ 6-10 ns
@@ -873,8 +896,7 @@ template <class F>
             }
         },
         batches, ops);
-    std::printf("  guard construct+destruct median (ns/op): calibrated=%.2f\n",
-                guard_cd);
+    std::printf("  guard construct+destruct median (ns/op): calibrated=%.2f\n", guard_cd);
 
     // Gates (design D10): two TSC stamps + fixed stores per lifecycle.
     NX_CHECK(guard_cd > 0.0);   // genuine measurement, not optimized out
@@ -884,8 +906,7 @@ template <class F>
 
 } // namespace
 
-int main()
-{
+int main() {
     run_suite("stopwatch_state", test_stopwatch_state);
     run_suite("lifecycle", test_stopwatch_lifecycle);
     run_suite("restart_zero_gap", test_stopwatch_restart_zero_gap);

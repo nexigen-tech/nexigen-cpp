@@ -43,8 +43,7 @@ namespace {
 
 constexpr std::size_t max_request_line_bytes = std::size_t{4} * 1024U;
 constexpr std::size_t max_header_bytes = std::size_t{8} * 1024U;
-constexpr std::size_t max_request_bytes =
-    max_request_line_bytes + max_header_bytes + 4U;
+constexpr std::size_t max_request_bytes = max_request_line_bytes + max_header_bytes + 4U;
 constexpr std::size_t max_client_output_bytes = std::size_t{1} * 1024U * 1024U;
 constexpr std::size_t max_clients = 64;
 constexpr std::uint64_t heartbeat_interval_ns = 15ULL * 1'000'000'000ULL;
@@ -56,18 +55,15 @@ using nexigen::runner::detail::monotonic_now_ns;
     return document.dump();
 }
 
-[[nodiscard]] bool starts_with(std::string_view text,
-                               std::string_view prefix) noexcept {
-    return text.size() >= prefix.size() &&
-           text.compare(0, prefix.size(), prefix) == 0;
+[[nodiscard]] bool starts_with(std::string_view text, std::string_view prefix) noexcept {
+    return text.size() >= prefix.size() && text.compare(0, prefix.size(), prefix) == 0;
 }
 
 [[nodiscard]] std::string sse_record(const StreamRecord& record) {
     nlohmann::json document;
     to_json(document, record);
-    return "event: record\nid: " + record.stream_id + ":" +
-           std::to_string(record.sequence) + "\ndata: " +
-           json_text(document) + "\n\n";
+    return "event: record\nid: " + record.stream_id + ":" + std::to_string(record.sequence) +
+           "\ndata: " + json_text(document) + "\n\n";
 }
 
 [[nodiscard]] std::string sse_gap(const GapMarker& gap) {
@@ -129,15 +125,14 @@ struct HttpServer::Impl {
             return;
         }
         char size_line[32];
-        const int size_len = std::snprintf(size_line, sizeof(size_line), "%zx\r\n",
-                                           data.size());
+        const int size_len = std::snprintf(size_line, sizeof(size_line), "%zx\r\n", data.size());
         client.output.append(size_line, static_cast<std::size_t>(size_len));
         client.output.append(data.data(), data.size());
         client.output.append("\r\n", 2);
     }
 
-    Impl(Discovery& discovery_ref, StreamManager& streaming_ref,
-         DiagnosticSink sink, void* context) noexcept
+    Impl(Discovery& discovery_ref, StreamManager& streaming_ref, DiagnosticSink sink,
+         void* context) noexcept
         : discovery(discovery_ref), streaming(streaming_ref) {
         set_diagnostic_sink(sink, context);
     }
@@ -160,10 +155,8 @@ struct HttpServer::Impl {
         }
     }
 
-    [[nodiscard]] bool parse_listen(std::string_view listen,
-                                    std::string& host,
-                                    std::uint16_t& out_port,
-                                    bool& out_ipv6) const {
+    [[nodiscard]] bool parse_listen(std::string_view listen, std::string& host,
+                                    std::uint16_t& out_port, bool& out_ipv6) const {
         out_ipv6 = false;
         if (listen.empty()) {
             return false;
@@ -172,8 +165,8 @@ struct HttpServer::Impl {
         // literals with more than one colon; analysis #13).
         if (listen.front() == '[') {
             const std::size_t closing = listen.find(']');
-            if (closing == std::string_view::npos ||
-                closing + 2 >= listen.size() || listen[closing + 1] != ':') {
+            if (closing == std::string_view::npos || closing + 2 >= listen.size() ||
+                listen[closing + 1] != ':') {
                 return false;
             }
             host = std::string(listen.substr(1, closing - 1));
@@ -210,8 +203,7 @@ struct HttpServer::Impl {
             if (c < '0' || c > '9') {
                 return false;
             }
-            port_value = port_value * std::uint64_t{10} +
-                         static_cast<std::uint64_t>(c - '0');
+            port_value = port_value * std::uint64_t{10} + static_cast<std::uint64_t>(c - '0');
             if (port_value > 65535ULL) {
                 return false;
             }
@@ -234,8 +226,7 @@ struct HttpServer::Impl {
             // classic `0.0.0.0` listener spanned with IPv6.
             const bool dual_stack = host == "::";
             const std::uint32_t v6_only = dual_stack ? 0U : 1U;
-            if (::inet_pton(AF_INET6, host.c_str(),
-                            &bind_address_.in6.sin6_addr) != 1) {
+            if (::inet_pton(AF_INET6, host.c_str(), &bind_address_.in6.sin6_addr) != 1) {
                 return std::unexpected(core::ErrorCode::InvalidArgument);
             }
             bind_address_.in6.sin6_family = AF_INET6;
@@ -243,22 +234,17 @@ struct HttpServer::Impl {
             if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_socket)) {
                 return std::unexpected(core::ErrorCode::SystemError);
             }
-            listen_fd = ::socket(AF_INET6,
-                                 SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
-                                 0);
+            listen_fd = ::socket(AF_INET6, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
             if (listen_fd < 0) {
                 return std::unexpected(core::ErrorCode::SystemError);
             }
             int enabled = 1;
-            static_cast<void>(::setsockopt(
-                listen_fd, IPPROTO_IPV6, IPV6_V6ONLY, &v6_only,
-                sizeof(v6_only)));
-            static_cast<void>(::setsockopt(listen_fd, SOL_SOCKET,
-                                           SO_REUSEADDR, &enabled,
-                                           sizeof(enabled)));
+            static_cast<void>(
+                ::setsockopt(listen_fd, IPPROTO_IPV6, IPV6_V6ONLY, &v6_only, sizeof(v6_only)));
+            static_cast<void>(
+                ::setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled)));
             if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_bind) ||
-                ::bind(listen_fd,
-                       reinterpret_cast<sockaddr*>(&bind_address_.in6),
+                ::bind(listen_fd, reinterpret_cast<sockaddr*>(&bind_address_.in6),
                        sizeof(bind_address_.in6)) != 0 ||
                 ::listen(listen_fd, 128) != 0) {
                 return std::unexpected(core::ErrorCode::SystemError);
@@ -274,19 +260,15 @@ struct HttpServer::Impl {
             if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_socket)) {
                 return std::unexpected(core::ErrorCode::SystemError);
             }
-            listen_fd = ::socket(AF_INET,
-                                 SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
-                                 0);
+            listen_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
             if (listen_fd < 0) {
                 return std::unexpected(core::ErrorCode::SystemError);
             }
             int enabled = 1;
-            static_cast<void>(::setsockopt(listen_fd, SOL_SOCKET,
-                                           SO_REUSEADDR, &enabled,
-                                           sizeof(enabled)));
+            static_cast<void>(
+                ::setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled)));
             if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_bind) ||
-                ::bind(listen_fd, reinterpret_cast<sockaddr*>(&address),
-                       sizeof(address)) != 0 ||
+                ::bind(listen_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 ||
                 ::listen(listen_fd, 128) != 0) {
                 return std::unexpected(core::ErrorCode::SystemError);
             }
@@ -294,11 +276,9 @@ struct HttpServer::Impl {
 
         sockaddr_storage bound{};
         socklen_t bound_length = sizeof(bound);
-        if (::getsockname(listen_fd, reinterpret_cast<sockaddr*>(&bound),
-                          &bound_length) == 0) {
+        if (::getsockname(listen_fd, reinterpret_cast<sockaddr*>(&bound), &bound_length) == 0) {
             if (bound.ss_family == AF_INET6) {
-                port = ntohs(reinterpret_cast<sockaddr_in6&>(bound)
-                                 .sin6_port);
+                port = ntohs(reinterpret_cast<sockaddr_in6&>(bound).sin6_port);
             } else if (bound.ss_family == AF_INET) {
                 port = ntohs(reinterpret_cast<sockaddr_in&>(bound).sin_port);
             }
@@ -318,21 +298,18 @@ struct HttpServer::Impl {
         epoll_event listen_event{};
         listen_event.events = EPOLLIN;
         listen_event.data.fd = listen_fd;
-        static_cast<void>(::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd,
-                                      &listen_event));
+        static_cast<void>(::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &listen_event));
         epoll_event event_event{};
         event_event.events = EPOLLIN;
         event_event.data.fd = event_fd;
-        static_cast<void>(::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, event_fd,
-                                      &event_event));
+        static_cast<void>(::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, event_fd, &event_event));
 #pragma GCC diagnostic pop
         if (discovery.inotify_fd() >= 0) {
             epoll_event inotify_event{};
             inotify_event.events = EPOLLIN;
             inotify_event.data.fd = discovery.inotify_fd();
-            static_cast<void>(::epoll_ctl(epoll_fd, EPOLL_CTL_ADD,
-                                          discovery.inotify_fd(),
-                                          &inotify_event));
+            static_cast<void>(
+                ::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, discovery.inotify_fd(), &inotify_event));
         }
         const core::Status synced = streaming.sync(discovery.tree());
         if (!synced) {
@@ -352,8 +329,7 @@ struct HttpServer::Impl {
 
     void accept_clients() noexcept {
         for (;;) {
-            const int fd = ::accept4(listen_fd, nullptr, nullptr,
-                                    SOCK_NONBLOCK | SOCK_CLOEXEC);
+            const int fd = ::accept4(listen_fd, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
             if (fd < 0) {
                 if (errno == EINTR) {
                     continue;
@@ -405,15 +381,14 @@ struct HttpServer::Impl {
             event.events |= EPOLLOUT;
         }
         event.data.fd = client.fd;
-        static_cast<void>(::epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client.fd,
-                                      &event));
+        static_cast<void>(::epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client.fd, &event));
 #pragma GCC diagnostic pop
     }
 
     [[nodiscard]] bool flush_client(Client& client) noexcept {
         while (!client.output.empty()) {
-            const ssize_t sent = ::send(client.fd, client.output.data(),
-                                        client.output.size(), MSG_NOSIGNAL);
+            const ssize_t sent =
+                ::send(client.fd, client.output.data(), client.output.size(), MSG_NOSIGNAL);
             if (sent > 0) {
                 client.output.erase(0, static_cast<std::size_t>(sent));
                 continue;
@@ -429,14 +404,12 @@ struct HttpServer::Impl {
         return true;
     }
 
-    void respond(Client& client, int status, std::string_view reason,
-                 std::string_view content_type, std::string_view body,
-                 bool keep_alive) noexcept {
+    void respond(Client& client, int status, std::string_view reason, std::string_view content_type,
+                 std::string_view body, bool keep_alive) noexcept {
         const std::string head = std::format(
             "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
             "Cache-Control: no-store\r\nConnection: {}\r\n\r\n",
-            status, reason, content_type, body.size(),
-            keep_alive ? "keep-alive" : "close");
+            status, reason, content_type, body.size(), keep_alive ? "keep-alive" : "close");
         client.output += head;
         client.output.append(body);
         if (!keep_alive) {
@@ -446,33 +419,28 @@ struct HttpServer::Impl {
 
     void respond_json(Client& client, int status, std::string_view reason,
                       const nlohmann::json& document, bool keep_alive) noexcept {
-        respond(client, status, reason, "application/json", json_text(document),
-                keep_alive);
+        respond(client, status, reason, "application/json", json_text(document), keep_alive);
     }
 
-    void start_sse(Client& client, std::string_view path,
-                   std::string_view last_event_id) noexcept {
+    void start_sse(Client& client, std::string_view path, std::string_view last_event_id) noexcept {
         const std::size_t query_start = path.find('?');
-        const std::string_view query =
-            query_start == std::string_view::npos
-                ? std::string_view{}
-                : path.substr(query_start + 1);
+        const std::string_view query = query_start == std::string_view::npos
+                                           ? std::string_view{}
+                                           : path.substr(query_start + 1);
         const std::string tree_topic = detail::query_value(query, "tree");
         const std::string stream = detail::query_value(query, "stream");
         if (tree_topic != "1" && !stream.empty() &&
             find_stream(discovery.tree(), stream) == nullptr) {
-            respond_json(client, 404, "Not Found", {{"error", "unknown stream"}},
-                         false);
+            respond_json(client, 404, "Not Found", {{"error", "unknown stream"}}, false);
             return;
         }
 
         client.sse = true;
         client.chunked = true;
         client.close_after_write = false;
-        client.output +=
-            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
-            "Cache-Control: no-cache\r\nTransfer-Encoding: chunked\r\n"
-            "X-Accel-Buffering: no\r\n\r\n";
+        client.output += "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                         "Cache-Control: no-cache\r\nTransfer-Encoding: chunked\r\n"
+                         "X-Accel-Buffering: no\r\n\r\n";
         client.last_heartbeat_ns = monotonic_now_ns();
 
         if (tree_topic == "1") {
@@ -515,9 +483,7 @@ struct HttpServer::Impl {
     }
 
     void handle_health(Client& client, bool keep_alive) noexcept {
-        respond_json(client, 200, "OK",
-                     {{"status", "ok"}, {"version", "nexigen-hub"}},
-                     keep_alive);
+        respond_json(client, 200, "OK", {{"status", "ok"}, {"version", "nexigen-hub"}}, keep_alive);
     }
 
     void handle_tree(Client& client, bool keep_alive) noexcept {
@@ -536,19 +502,15 @@ struct HttpServer::Impl {
         respond_json(client, 200, "OK", document, keep_alive);
     }
 
-    void handle_recent(Client& client, std::string_view route,
-                       std::string_view path,
+    void handle_recent(Client& client, std::string_view route, std::string_view path,
                        std::size_t query_start, bool keep_alive) noexcept {
         constexpr std::string_view recent_prefix = "/api/streams/";
         constexpr std::string_view recent_suffix = "/recent";
-        const std::string id =
-            detail::url_decode(route.substr(recent_prefix.size(),
-                                    route.size() - recent_prefix.size() -
-                                        recent_suffix.size()));
+        const std::string id = detail::url_decode(route.substr(
+            recent_prefix.size(), route.size() - recent_prefix.size() - recent_suffix.size()));
         const HubStream* const stream = find_stream(discovery.tree(), id);
         if (stream == nullptr) {
-            respond_json(client, 404, "Not Found", {{"error", "unknown stream"}},
-                         false);
+            respond_json(client, 404, "Not Found", {{"error", "unknown stream"}}, false);
             return;
         }
         std::size_t limit = streaming.limits().ring_records;
@@ -584,8 +546,7 @@ struct HttpServer::Impl {
         respond_json(client, 200, "OK", document, keep_alive);
     }
 
-    void handle_events(Client& client, std::string_view request,
-                       std::string_view path) noexcept {
+    void handle_events(Client& client, std::string_view request, std::string_view path) noexcept {
         const std::string last_event_id(detail::header_value(request, "Last-Event-ID"));
         start_sse(client, path, last_event_id);
     }
@@ -593,41 +554,33 @@ struct HttpServer::Impl {
     [[nodiscard]] bool handle_assets(Client& client, std::string_view route,
                                      bool keep_alive) noexcept {
         if (route == "/" || route == "/index.html") {
-            respond(client, 200, "OK", "text/html; charset=utf-8", index_html(),
-                    keep_alive);
+            respond(client, 200, "OK", "text/html; charset=utf-8", index_html(), keep_alive);
             return true;
         }
         if (route == "/app.js") {
-            respond(client, 200, "OK", "text/javascript; charset=utf-8",
-                    app_js(), keep_alive);
+            respond(client, 200, "OK", "text/javascript; charset=utf-8", app_js(), keep_alive);
             return true;
         }
         if (route == "/style.css") {
-            respond(client, 200, "OK", "text/css; charset=utf-8", style_css(),
-                    keep_alive);
+            respond(client, 200, "OK", "text/css; charset=utf-8", style_css(), keep_alive);
             return true;
         }
         return false;
     }
 
-    void handle_request(Client& client, std::string_view request,
-                        bool keep_alive) noexcept {
+    void handle_request(Client& client, std::string_view request, bool keep_alive) noexcept {
         detail::RequestLine parsed;
         switch (detail::parse_request_line(request, parsed)) {
             case detail::RequestLineError::BadRequest:
-                respond_json(client, 400, "Bad Request",
-                             {{"error", "bad request"}}, false);
+                respond_json(client, 400, "Bad Request", {{"error", "bad request"}}, false);
                 return;
             case detail::RequestLineError::BadVersion:
-                respond_json(client, 400, "Bad Request",
-                             {{"error", "bad version"}}, false);
+                respond_json(client, 400, "Bad Request", {{"error", "bad version"}}, false);
                 return;
             case detail::RequestLineError::MethodNotAllowed:
-                respond_json(client, 405, "Method Not Allowed",
-                             {{"error", "read only"}}, false);
+                respond_json(client, 405, "Method Not Allowed", {{"error", "read only"}}, false);
                 return;
-            case detail::RequestLineError::None:
-                break;
+            case detail::RequestLineError::None: break;
         }
         const std::string_view path = parsed.path;
 
@@ -676,8 +629,8 @@ struct HttpServer::Impl {
             if (count > 0) {
                 client.input.append(buffer.data(), static_cast<std::size_t>(count));
                 if (client.input.size() > max_request_bytes) {
-                    respond_json(client, 400, "Bad Request",
-                                 {{"error", "request too large"}}, false);
+                    respond_json(client, 400, "Bad Request", {{"error", "request too large"}},
+                                 false);
                     break;
                 }
                 continue;
@@ -698,23 +651,20 @@ struct HttpServer::Impl {
                 break;
             }
             const std::size_t first_line_end = client.input.find("\r\n");
-            if (first_line_end == std::string::npos ||
-                first_line_end > max_request_line_bytes) {
-                respond_json(client, 400, "Bad Request",
-                             {{"error", "request line too large"}}, false);
+            if (first_line_end == std::string::npos || first_line_end > max_request_line_bytes) {
+                respond_json(client, 400, "Bad Request", {{"error", "request line too large"}},
+                             false);
                 break;
             }
-            const std::size_t header_bytes =
-                header_end + 4U - (first_line_end + 2U);
+            const std::size_t header_bytes = header_end + 4U - (first_line_end + 2U);
             if (header_bytes > max_header_bytes) {
-                respond_json(client, 400, "Bad Request",
-                             {{"error", "headers too large"}}, false);
+                respond_json(client, 400, "Bad Request", {{"error", "headers too large"}}, false);
                 break;
             }
             const std::string request = client.input.substr(0, header_end + 4);
             client.input.erase(0, header_end + 4);
-            const bool keep_alive = !detail::equals_ignore_case(
-                detail::header_value(request, "Connection"), "close");
+            const bool keep_alive =
+                !detail::equals_ignore_case(detail::header_value(request, "Connection"), "close");
             handle_request(client, request, keep_alive);
             if (client.sse) {
                 break;
@@ -755,8 +705,7 @@ struct HttpServer::Impl {
                     client.last_tree_revision = discovery.revision();
                     nlohmann::json document;
                     to_json(document, discovery.tree());
-                    append_sse(client,
-                               "event: tree\ndata: " + json_text(document) + "\n\n");
+                    append_sse(client, "event: tree\ndata: " + json_text(document) + "\n\n");
                 }
             } else if (client.subscriber != 0) {
                 std::vector<StreamRecord> records;
@@ -793,8 +742,7 @@ struct HttpServer::Impl {
         }
         const core::Status synced = streaming.sync(discovery.tree());
         if (!synced) {
-            report(std::format("event=hub_sync_failed code={}",
-                               core::to_string(synced.error())));
+            report(std::format("event=hub_sync_failed code={}", core::to_string(synced.error())));
         }
     }
 
@@ -810,8 +758,7 @@ struct HttpServer::Impl {
         }
         for (auto& [fd, client] : clients) {
             static_cast<void>(fd);
-            if (client.sse &&
-                now - client.last_heartbeat_ns >= heartbeat_interval_ns) {
+            if (client.sse && now - client.last_heartbeat_ns >= heartbeat_interval_ns) {
                 client.last_heartbeat_ns = now;
                 append_sse(client, ": heartbeat\n\n");
             }
@@ -821,8 +768,8 @@ struct HttpServer::Impl {
     void run(std::atomic<bool>* stop_flag) noexcept {
         std::array<epoll_event, 64> events{};
         while (stop_flag == nullptr || !*stop_flag) {
-            const int count = ::epoll_wait(epoll_fd, events.data(),
-                                           static_cast<int>(events.size()), 500);
+            const int count =
+                ::epoll_wait(epoll_fd, events.data(), static_cast<int>(events.size()), 500);
             if (count < 0) {
                 if (errno == EINTR) {
                     continue;
@@ -835,8 +782,7 @@ struct HttpServer::Impl {
                     accept_clients();
                 } else if (fd == event_fd) {
                     std::uint64_t value = 0;
-                    const ssize_t read_count =
-                        ::read(event_fd, &value, sizeof(value));
+                    const ssize_t read_count = ::read(event_fd, &value, sizeof(value));
                     static_cast<void>(read_count);
                     return;
                 } else if (fd == discovery.inotify_fd()) {
@@ -855,8 +801,7 @@ struct HttpServer::Impl {
                     if ((events_mask & EPOLLOUT) != 0U) {
                         write_client(fd);
                     }
-                    if ((events_mask &
-                         (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
+                    if ((events_mask & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
                         close_client(fd);
                     }
                 }
@@ -880,14 +825,13 @@ struct HttpServer::Impl {
     }
 };
 
-HttpServer::HttpServer(Discovery& discovery, StreamManager& streaming,
-                         DiagnosticSink sink, void* context)
+HttpServer::HttpServer(Discovery& discovery, StreamManager& streaming, DiagnosticSink sink,
+                       void* context)
     : impl_(std::make_unique<Impl>(discovery, streaming, sink, context)) {}
 
 HttpServer::~HttpServer() = default;
 
-void HttpServer::set_diagnostic_sink(DiagnosticSink sink,
-                                      void* context) noexcept {
+void HttpServer::set_diagnostic_sink(DiagnosticSink sink, void* context) noexcept {
     impl_->set_diagnostic_sink(sink, context);
 }
 
@@ -908,8 +852,7 @@ std::uint16_t HttpServer::port() const noexcept {
 }
 
 std::string HttpServer::to_string() const {
-    return std::format("HttpServer(port={}, clients={})", impl_->port,
-                       impl_->clients.size());
+    return std::format("HttpServer(port={}, clients={})", impl_->port, impl_->clients.size());
 }
 
 } // namespace nexigen::hub
