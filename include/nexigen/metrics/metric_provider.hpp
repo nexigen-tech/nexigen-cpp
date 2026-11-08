@@ -31,47 +31,14 @@
 #include <nexigen/metrics/detail/instrument_helpers.hpp>
 #include <nexigen/metrics/detail/layout.hpp>
 #include <nexigen/metrics/meter.hpp>
+#include <nexigen/metrics/metric_provider_config.hpp>
+#include <nexigen/metrics/sink_binding.hpp>
 #include <nexigen/metrics/metric_snapshot.hpp>
 #include <nexigen/metrics/policy_enums.hpp>
 
 namespace nexigen::metrics {
 
-/// Provider configuration: collection period, CPU affinity and registry
-/// capacities. A zero collect_interval disables the background thread.
-struct MetricProviderConfig {
-    std::chrono::nanoseconds collect_interval{0};
-    core::ThreadSpec worker_thread{};
-    std::uint32_t max_meters{16};
-    std::uint32_t max_counters{64};
-    std::uint32_t max_gauges{64};
-    std::uint32_t max_states{16};
-    std::uint32_t max_statistics{32};
-    std::uint32_t max_explicit_histograms{16};
-    std::uint32_t max_exponential_histograms{8};
 
-    /// Cold-path diagnostic (mandate 9).
-    [[nodiscard]] std::string to_string() const;
-};
-
-/// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] std::string to_string(const MetricProviderConfig& config);
-
-/// Provider config JSON (cold path). Declared in this namespace so the
-/// overloads are findable by ADL; definitions live in
-/// src/metrics/snapshot_format.cpp (design D2).
-void to_json(nlohmann::json& j, const MetricProviderConfig& config);
-void from_json(const nlohmann::json& j, MetricProviderConfig& out) noexcept;
-
-namespace detail {
-
-/// Type-erased sink binding: plain function pointers, no virtual dispatch.
-struct SinkBinding {
-    void* self{nullptr};
-    core::Status (*on_batch)(void*, const MetricBatchSnapshot&) noexcept {nullptr};
-    core::Status (*flush)(void*) noexcept {nullptr};
-};
-
-} // namespace detail
 
 /// The registry root and the only source of meters.
 class MetricProvider {
@@ -306,12 +273,4 @@ Meter::create_exponential_histogram(std::string_view name, std::int32_t scale,
 
 } // namespace nexigen::metrics
 
-/// The configuration formats as its diagnostic string (mandate 11).
-template <>
-struct std::formatter<nexigen::metrics::MetricProviderConfig> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::metrics::MetricProviderConfig& config, Ctx& ctx) const {
-        const std::string text = config.to_string();
-        return std::formatter<std::string_view>::format(text, ctx);
-    }
-};
+// MetricProviderConfig formatter lives in metric_provider_config.hpp.
