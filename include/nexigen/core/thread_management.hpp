@@ -25,6 +25,7 @@
 #include <sched.h>
 #endif
 
+#include <nexigen/core/enum_traits.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/detail/fault_injection.hpp>
 
@@ -161,52 +162,48 @@ static_assert(alignof(CpuSet) == 64, "CpuSet layout is cache-line aligned");
 /// Linux scheduling policies supported by the background-thread contract.
 enum class SchedulingPolicy : std::uint8_t { Other, FIFO, RR };
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+template <> struct EnumTraits<SchedulingPolicy> {
+    struct Entry {
+        SchedulingPolicy value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 3> entries{{
+        {SchedulingPolicy::Other, "other"},
+        {SchedulingPolicy::FIFO, "fifo"},
+        {SchedulingPolicy::RR, "rr"},
+    }};
+};
+
 [[nodiscard]] constexpr std::string_view to_string(SchedulingPolicy policy) noexcept {
-    switch (policy) {
-        case SchedulingPolicy::Other: return "other";
-        case SchedulingPolicy::FIFO:  return "fifo";
-        case SchedulingPolicy::RR:    return "rr";
-        default:                      return "Unknown";
-    }
+    return enum_name(policy);
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name, SchedulingPolicy& out) noexcept {
-    if (name == "other") {
-        out = SchedulingPolicy::Other;
-        return true;
-    }
-    if (name == "fifo") {
-        out = SchedulingPolicy::FIFO;
-        return true;
-    }
-    if (name == "rr") {
-        out = SchedulingPolicy::RR;
-        return true;
-    }
-    return false;
+    return enum_value(name, out);
 }
 
 /// Whether an OS rejection aborts startup or is reported as a partial state.
 enum class ThreadApplyMode : std::uint8_t { BestEffort, Required };
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+template <> struct EnumTraits<ThreadApplyMode> {
+    struct Entry {
+        ThreadApplyMode value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 2> entries{{
+        {ThreadApplyMode::BestEffort, "best_effort"},
+        {ThreadApplyMode::Required, "required"},
+    }};
+};
+
 [[nodiscard]] constexpr std::string_view to_string(ThreadApplyMode mode) noexcept {
-    switch (mode) {
-        case ThreadApplyMode::BestEffort: return "best_effort";
-        case ThreadApplyMode::Required:   return "required";
-        default:                          return "Unknown";
-    }
+    return enum_name(mode);
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name, ThreadApplyMode& out) noexcept {
-    if (name == "best_effort") {
-        out = ThreadApplyMode::BestEffort;
-        return true;
-    }
-    if (name == "required") {
-        out = ThreadApplyMode::Required;
-        return true;
-    }
-    return false;
+    return enum_value(name, out);
 }
 
 /// Fixed cold-path description of background-thread attributes. The default
@@ -362,23 +359,19 @@ inline void from_json(const nlohmann::json& j, CpuSet& out) noexcept {
 }
 
 inline void to_json(nlohmann::json& j, const SchedulingPolicy policy) {
-    j = std::string(to_string(policy));
+    mandate::enum_to_json(j, policy);
 }
 
 inline void from_json(const nlohmann::json& j, SchedulingPolicy& out) noexcept {
-    if (const auto* const name = j.get_ptr<const nlohmann::json::string_t*>()) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    mandate::enum_from_json(j, out);
 }
 
 inline void to_json(nlohmann::json& j, const ThreadApplyMode mode) {
-    j = std::string(to_string(mode));
+    mandate::enum_to_json(j, mode);
 }
 
 inline void from_json(const nlohmann::json& j, ThreadApplyMode& out) noexcept {
-    if (const auto* const name = j.get_ptr<const nlohmann::json::string_t*>()) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    mandate::enum_from_json(j, out);
 }
 
 inline void to_json(nlohmann::json& j, const ThreadSpec& spec) {

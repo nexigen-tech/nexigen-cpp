@@ -10,6 +10,7 @@
 // res-> and the failure via res.error() only after the branch.
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -20,6 +21,10 @@
 // module pulls result.hpp, so the generic enum/struct formatters and the
 // generic nexigen::to_json/from_json pair are always in scope where per-type
 // declarations used to be written out (refactor-serialization-mandate).
+// The enum vocabulary engine rides along for the same reason
+// (refactor-enum-traits-helper): modules get EnumTraits + the json glue in
+// scope from the header they already include.
+#include <nexigen/core/enum_traits.hpp>
 #include <nexigen/core/serialization_mandate.hpp>
 #include <expected>
 #include <format>
@@ -45,66 +50,44 @@ enum class ErrorCode : std::uint8_t {
     Conflict,        ///< Another owner holds a process-global resource/state.
 };
 
-/// Compile-time name of an error code; returns a static-storage view, no
-/// allocation, no exception path. The `default` arm makes a garbage-cast enum
-/// value well-defined ("Unknown"); every enumerator is pinned by static_assert
-/// in the test TU, so the loss of -Wswitch coverage is compensated.
+/// ErrorCode vocabulary table (change refactor-enum-traits-helper): the single
+/// source of truth for the wire names. Append-only contract holds: existing
+/// rows keep their numeric values and spellings; the test TU pins every name
+/// with static_assert, compensating for the lost -Wswitch coverage.
+template <> struct EnumTraits<ErrorCode> {
+    struct Entry {
+        ErrorCode value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 8> entries{{
+        {ErrorCode::Ok, "Ok"},
+        {ErrorCode::BufferFull, "BufferFull"},
+        {ErrorCode::BufferEmpty, "BufferEmpty"},
+        {ErrorCode::InvalidArgument, "InvalidArgument"},
+        {ErrorCode::SystemError, "SystemError"},
+        {ErrorCode::NotInitialized, "NotInitialized"},
+        {ErrorCode::RateLimited, "RateLimited"},
+        {ErrorCode::Conflict, "Conflict"},
+    }};
+};
+
+/// Compile-time name of an error code; static-storage view, no allocation, no
+/// exception path. Values outside the table render "Unknown" (engine
+/// fallback — well-defined for a garbage-cast enum).
 [[nodiscard]] constexpr std::string_view to_string(ErrorCode code) noexcept {
-    switch (code) {
-        case ErrorCode::Ok:              return "Ok";
-        case ErrorCode::BufferFull:      return "BufferFull";
-        case ErrorCode::BufferEmpty:     return "BufferEmpty";
-        case ErrorCode::InvalidArgument: return "InvalidArgument";
-        case ErrorCode::SystemError:     return "SystemError";
-        case ErrorCode::NotInitialized:  return "NotInitialized";
-        case ErrorCode::RateLimited:     return "RateLimited";
-        case ErrorCode::Conflict:        return "Conflict";
-        default:                         return "Unknown";
-    }
+    return enum_name(code);
 }
 
 /// Parse a canonical enumerator name (the exact to_string spelling). Returns
 /// false leaving the out-parameter UNCHANGED on any other spelling — including
 /// "Unknown", which is a rendering, not an enumerator. constexpr in C++23.
 [[nodiscard]] constexpr bool from_string(std::string_view name, ErrorCode& out) noexcept {
-    if (name == "Ok") {
-        out = ErrorCode::Ok;
-        return true;
-    }
-    if (name == "BufferFull") {
-        out = ErrorCode::BufferFull;
-        return true;
-    }
-    if (name == "BufferEmpty") {
-        out = ErrorCode::BufferEmpty;
-        return true;
-    }
-    if (name == "InvalidArgument") {
-        out = ErrorCode::InvalidArgument;
-        return true;
-    }
-    if (name == "SystemError") {
-        out = ErrorCode::SystemError;
-        return true;
-    }
-    if (name == "NotInitialized") {
-        out = ErrorCode::NotInitialized;
-        return true;
-    }
-    if (name == "RateLimited") {
-        out = ErrorCode::RateLimited;
-        return true;
-    }
-    if (name == "Conflict") {
-        out = ErrorCode::Conflict;
-        return true;
-    }
-    return false;
+    return enum_value(name, out);
 }
 
 /// ADL JSON writer (cold path): the value is exactly to_string(code).
 inline void to_json(nlohmann::json& j, const ErrorCode code) {
-    j = std::string(to_string(code));
+    mandate::enum_to_json(j, code);
 }
 
 /// ADL JSON reader, strictly non-throwing under JSON_NOEXCEPTION=1: get_ptr
@@ -112,10 +95,7 @@ inline void to_json(nlohmann::json& j, const ErrorCode code) {
 /// unknown name leaves `out` unchanged (caller pre-sets the fallback). Never
 /// aborts regardless of input.
 inline void from_json(const nlohmann::json& j, ErrorCode& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    mandate::enum_from_json(j, out);
 }
 
 /// Value-or-error return type: holds a T or an ErrorCode (custom E allowed).

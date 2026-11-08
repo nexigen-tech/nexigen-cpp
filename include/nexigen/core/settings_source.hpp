@@ -2,12 +2,14 @@
 // core/settings-vocabulary).
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::core {
 
 /// Which source produced a value or a diagnostic.
@@ -18,52 +20,41 @@ enum class SettingsSource : std::uint8_t {
     Computed,    ///< Derived check (capacity limits).
 };
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+template <> struct EnumTraits<SettingsSource> {
+    struct Entry {
+        SettingsSource value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 4> entries{{
+        {SettingsSource::Global, "global"},
+        {SettingsSource::Local, "local"},
+        {SettingsSource::Environment, "environment"},
+        {SettingsSource::Computed, "computed"},
+    }};
+};
+
 /// Compile-time name of a settings source. Static-storage view, no allocation.
 [[nodiscard]] constexpr std::string_view to_string(SettingsSource src) noexcept {
-    switch (src) {
-        case SettingsSource::Global:      return "global";
-        case SettingsSource::Local:       return "local";
-        case SettingsSource::Environment: return "environment";
-        case SettingsSource::Computed:    return "computed";
-        default:                          return "Unknown";
-    }
+    return enum_name(src);
 }
 
 /// Parse a canonical source name (the exact to_string spelling). Returns false
 /// leaving the out-parameter UNCHANGED on any other spelling.
 [[nodiscard]] constexpr bool from_string(std::string_view name, SettingsSource& out) noexcept {
-    if (name == "global") {
-        out = SettingsSource::Global;
-        return true;
-    }
-    if (name == "local") {
-        out = SettingsSource::Local;
-        return true;
-    }
-    if (name == "environment") {
-        out = SettingsSource::Environment;
-        return true;
-    }
-    if (name == "computed") {
-        out = SettingsSource::Computed;
-        return true;
-    }
-    return false;
+    return enum_value(name, out);
 }
 
 /// ADL JSON writer (cold path only): the value is exactly to_string(src).
 inline void to_json(nlohmann::json& j, const SettingsSource src) {
-    j = std::string(to_string(src));
+    mandate::enum_to_json(j, src);
 }
 
 /// ADL JSON reader, strictly non-throwing under JSON_NOEXCEPTION=1: a non-string
 /// value or an unknown name leaves `out` unchanged. Never aborts regardless of
 /// input.
 inline void from_json(const nlohmann::json& j, SettingsSource& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    mandate::enum_from_json(j, out);
 }
 
 } // namespace nexigen::core
