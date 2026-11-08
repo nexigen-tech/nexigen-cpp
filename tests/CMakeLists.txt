@@ -24,9 +24,29 @@ target_link_libraries(nexigen_chrono_tests PRIVATE nexigen_chrono Threads::Threa
 add_test(NAME nexigen_chrono_tests COMMAND nexigen_chrono_tests)
 set_tests_properties(nexigen_chrono_tests PROPERTIES TIMEOUT 600)
 
-# Юнит-тесты nexigen::logging: один TU (design.md D18/D4), потоки и аффинность
-# требуют полного времени; тот же увеличенный таймаут под TSan.
-add_executable(nexigen_logging_tests logging/logging_test.cpp)
+# Юнит-тесты nexigen::logging: один TU на сущность (design.md D18/D4), потоки и
+# аффинность требуют полного времени; тот же увеличенный таймаут под TSan.
+add_executable(nexigen_logging_tests
+    logging/main.cpp
+    logging/logging_test_support.cpp
+    logging/log_level_test.cpp
+    logging/log_record_test.cpp
+    logging/producer_test.cpp
+    logging/latency_test.cpp
+    logging/null_logger_test.cpp
+    logging/console_logger_test.cpp
+    logging/json_format_test.cpp
+    logging/affinity_test.cpp
+    logging/rotation_test.cpp
+    logging/file_logger_test.cpp
+    logging/composite_logger_test.cpp
+    logging/enum_vocabulary_test.cpp
+    logging/logger_options_test.cpp
+    logging/spam_protection_test.cpp
+    logging/async_worker_test.cpp
+    logging/stress_test.cpp
+    logging/settings_test.cpp
+    logging/worker_test.cpp)
 target_link_libraries(nexigen_logging_tests PRIVATE nexigen_logging Threads::Threads)
 # Ворота латентности ≤20 ns включаются только в Release/RelWithDebInfo (design D18):
 # числа под Debug/санитайзерами нерепрезентативны, тест тогда проверяет только
@@ -39,9 +59,25 @@ endif()
 add_test(NAME nexigen_logging_tests COMMAND nexigen_logging_tests)
 set_tests_properties(nexigen_logging_tests PROPERTIES TIMEOUT 600)
 
-# Юнит-тесты nexigen::metrics: один TU (design.md D16), потоки и аффинность
-# требуют полного времени; тот же увеличенный таймаут под TSan.
-add_executable(nexigen_metrics_tests metrics/metrics_test.cpp)
+# Юнит-тесты nexigen::metrics: один TU на сущность (design.md D16), потоки и
+# аффинность требуют полного времени; тот же увеличенный таймаут под TSan.
+add_executable(nexigen_metrics_tests
+    metrics/main.cpp
+    metrics/metrics_test_support.cpp
+    metrics/policy_enums_test.cpp
+    metrics/metric_concept_test.cpp
+    metrics/meter_test.cpp
+    metrics/counter_test.cpp
+    metrics/gauge_test.cpp
+    metrics/state_gauge_test.cpp
+    metrics/descriptive_statistics_test.cpp
+    metrics/explicit_histogram_test.cpp
+    metrics/exponential_histogram_test.cpp
+    metrics/composite_metric_sink_test.cpp
+    metrics/metric_provider_test.cpp
+    metrics/serialization_test.cpp
+    metrics/sinks_test.cpp
+    metrics/latency_test.cpp)
 target_link_libraries(nexigen_metrics_tests PRIVATE nexigen_metrics Threads::Threads)
 # Ворота латентности включаются только в Release/RelWithDebInfo (design D16):
 # числа под Debug/санитайзерами нерепрезентативны, тест тогда проверяет только
@@ -54,9 +90,22 @@ endif()
 add_test(NAME nexigen_metrics_tests COMMAND nexigen_metrics_tests)
 set_tests_properties(nexigen_metrics_tests PROPERTIES TIMEOUT 600)
 
-# Юнит-тесты nexigen::tracing: один TU (design D14), потоки и аффинность
-# требуют полного времени; тот же увеличенный таймаут под TSan.
-add_executable(nexigen_tracing_tests tracing/tracing_test.cpp)
+# Юнит-тесты nexigen::tracing: один TU на сущность (design D14), потоки и
+# аффинность требуют полного времени; тот же увеличенный таймаут под TSan.
+add_executable(nexigen_tracing_tests
+    tracing/main.cpp
+    tracing/tracing_test_support.cpp
+    tracing/span_enums_test.cpp
+    tracing/span_context_test.cpp
+    tracing/attributes_test.cpp
+    tracing/span_record_test.cpp
+    tracing/tracer_concept_test.cpp
+    tracing/sinks_test.cpp
+    tracing/scoped_span_test.cpp
+    tracing/latency_test.cpp
+    tracing/tracing_settings_test.cpp
+    tracing/tracer_provider_test.cpp
+    tracing/record_format_test.cpp)
 target_link_libraries(nexigen_tracing_tests PRIVATE nexigen_tracing Threads::Threads)
 # Ворота латентности (≤20 ns lifecycle / ≤2 ns short-circuit) включаются
 # только в Release/RelWithDebInfo (design D14): числа под Debug/санитайзерами
@@ -85,8 +134,16 @@ add_test(NAME nexigen_diagnostics_tests COMMAND nexigen_diagnostics_tests)
 set_tests_properties(nexigen_diagnostics_tests PROPERTIES TIMEOUT 600)
 
 # Юнит-тесты nexigen::app: settings loaders, lifecycle, signalfd watcher.
-# Потоки и реальные сигналы требуют полного времени.
-add_executable(nexigen_app_tests app/app_test.cpp)
+# Потоки и реальные сигналы требуют полного времени. Один TU на сущность:
+# правка настроек не пересобирает инфраструктуру, а падение сразу указывает
+# на файл-владелец (см. app_test_support.hpp).
+add_executable(nexigen_app_tests
+    app/main.cpp
+    app/stop_reason_test.cpp
+    app/command_line_test.cpp
+    app/app_settings_test.cpp
+    app/telemetry_layout_test.cpp
+    app/infrastructure_test.cpp)
 target_link_libraries(nexigen_app_tests PRIVATE nexigen_app Threads::Threads)
 
 add_test(NAME nexigen_app_tests COMMAND nexigen_app_tests)
@@ -122,7 +179,13 @@ if(NEXIGEN_BUILD_TOOLS)
     set_tests_properties(nexigen_run_cli_tests PROPERTIES TIMEOUT 300)
 endif()
 
-add_executable(nexigen_hub_tests hub/hub_test.cpp)
+add_executable(nexigen_hub_tests
+    hub/main.cpp
+    hub/model_test.cpp
+    hub/discovery_test.cpp
+    hub/streaming_test.cpp
+    hub/web_assets_test.cpp
+    hub/http_server_test.cpp)
 target_link_libraries(nexigen_hub_tests PRIVATE nexigen_hub Threads::Threads)
 
 add_test(NAME nexigen_hub_tests COMMAND nexigen_hub_tests)
