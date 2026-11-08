@@ -1,12 +1,14 @@
 // nexigen::metrics — MetricKind enum.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::metrics {
 
 /// Which instrument family a registry slot holds.
@@ -19,56 +21,44 @@ enum class MetricKind : std::uint8_t {
     State,
 };
 
+} // namespace nexigen::metrics
+
+namespace nexigen::metrics {
+
 [[nodiscard]] constexpr std::string_view to_string(MetricKind kind) noexcept {
-    switch (kind) {
-        case MetricKind::Counter:               return "Counter";
-        case MetricKind::Gauge:                 return "Gauge";
-        case MetricKind::DescriptiveStatistics: return "DescriptiveStatistics";
-        case MetricKind::ExplicitHistogram:     return "ExplicitHistogram";
-        case MetricKind::ExponentialHistogram:  return "ExponentialHistogram";
-        case MetricKind::State:                 return "State";
-        default:                                return "Unknown";
-    }
+    return core::enum_name(kind);
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name, MetricKind& out) noexcept {
-    if (name == "Counter") {
-        out = MetricKind::Counter;
-        return true;
-    }
-    if (name == "Gauge") {
-        out = MetricKind::Gauge;
-        return true;
-    }
-    if (name == "DescriptiveStatistics") {
-        out = MetricKind::DescriptiveStatistics;
-        return true;
-    }
-    if (name == "ExplicitHistogram") {
-        out = MetricKind::ExplicitHistogram;
-        return true;
-    }
-    if (name == "ExponentialHistogram") {
-        out = MetricKind::ExponentialHistogram;
-        return true;
-    }
-    if (name == "State") {
-        out = MetricKind::State;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 inline void from_json(const nlohmann::json& j, MetricKind& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    core::mandate::enum_from_json(j, out);
 }
 
-
 inline void to_json(nlohmann::json& j, const MetricKind metricKind) {
-    j = std::string(to_string(metricKind));
+    core::mandate::enum_to_json(j, metricKind);
 }
 
 } // namespace nexigen::metrics
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::metrics::MetricKind> {
+    struct Entry {
+        nexigen::metrics::MetricKind value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 6> entries{{
+        {nexigen::metrics::MetricKind::Counter, "Counter"},
+        {nexigen::metrics::MetricKind::Gauge, "Gauge"},
+        {nexigen::metrics::MetricKind::DescriptiveStatistics, "DescriptiveStatistics"},
+        {nexigen::metrics::MetricKind::ExplicitHistogram, "ExplicitHistogram"},
+        {nexigen::metrics::MetricKind::ExponentialHistogram, "ExponentialHistogram"},
+        {nexigen::metrics::MetricKind::State, "State"},
+    }};
+};
+
+} // namespace nexigen::core

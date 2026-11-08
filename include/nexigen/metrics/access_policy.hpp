@@ -1,12 +1,14 @@
 // nexigen::metrics — AccessPolicy enum.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::metrics {
 
 /// Whether the read side (.read() / .snapshot()) is part of the public API.
@@ -15,36 +17,40 @@ enum class AccessPolicy : std::uint8_t {
     WriteOnly,
 };
 
+} // namespace nexigen::metrics
+
+namespace nexigen::metrics {
+
 [[nodiscard]] constexpr std::string_view to_string(AccessPolicy policy) noexcept {
-    switch (policy) {
-        case AccessPolicy::Readable:  return "Readable";
-        case AccessPolicy::WriteOnly: return "WriteOnly";
-        default:                      return "Unknown";
-    }
+    return core::enum_name(policy);
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name, AccessPolicy& out) noexcept {
-    if (name == "Readable") {
-        out = AccessPolicy::Readable;
-        return true;
-    }
-    if (name == "WriteOnly") {
-        out = AccessPolicy::WriteOnly;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 inline void from_json(const nlohmann::json& j, AccessPolicy& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    core::mandate::enum_from_json(j, out);
 }
 
-
 inline void to_json(nlohmann::json& j, const AccessPolicy accessPolicy) {
-    j = std::string(to_string(accessPolicy));
+    core::mandate::enum_to_json(j, accessPolicy);
 }
 
 } // namespace nexigen::metrics
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::metrics::AccessPolicy> {
+    struct Entry {
+        nexigen::metrics::AccessPolicy value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 2> entries{{
+        {nexigen::metrics::AccessPolicy::Readable, "Readable"},
+        {nexigen::metrics::AccessPolicy::WriteOnly, "WriteOnly"},
+    }};
+};
+
+} // namespace nexigen::core
