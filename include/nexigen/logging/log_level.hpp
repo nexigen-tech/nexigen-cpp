@@ -16,6 +16,7 @@
 // every enumerator is pinned by static_assert in the test TU.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <format>
 #include <string>
@@ -23,6 +24,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::logging {
 
 /// Severity levels in strictly increasing order; `Off` silences everything.
@@ -36,68 +38,32 @@ enum class LogLevel : std::uint8_t {
     Off,     ///< Filter everything: the only value no record can reach.
 };
 
+} // namespace nexigen::logging
+
+namespace nexigen::logging {
+
 /// Compile-time lowercase name of a level — the exact spelling used by the
 /// JSON `"level"` field and console lines. Static storage, allocation-free.
 [[nodiscard]] constexpr std::string_view to_string(LogLevel level) noexcept {
-    switch (level) {
-        case LogLevel::Verbose: return "verbose";
-        case LogLevel::Debug:   return "debug";
-        case LogLevel::Info:    return "info";
-        case LogLevel::Warning: return "warning";
-        case LogLevel::Error:   return "error";
-        case LogLevel::Fatal:   return "fatal";
-        case LogLevel::Off:     return "off";
-        default:                return "Unknown";
-    }
+    return core::enum_name(level);
 }
 
 /// Parse a canonical lowercase level name (the exact to_string spelling).
 /// Returns false leaving the out-parameter UNCHANGED otherwise ("Unknown"
 /// is a rendering, not an enumerator).
 [[nodiscard]] constexpr bool from_string(std::string_view name, LogLevel& out) noexcept {
-    if (name == "verbose") {
-        out = LogLevel::Verbose;
-        return true;
-    }
-    if (name == "debug") {
-        out = LogLevel::Debug;
-        return true;
-    }
-    if (name == "info") {
-        out = LogLevel::Info;
-        return true;
-    }
-    if (name == "warning") {
-        out = LogLevel::Warning;
-        return true;
-    }
-    if (name == "error") {
-        out = LogLevel::Error;
-        return true;
-    }
-    if (name == "fatal") {
-        out = LogLevel::Fatal;
-        return true;
-    }
-    if (name == "off") {
-        out = LogLevel::Off;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 /// ADL JSON writer (cold path only): the JSON value is exactly to_string(level).
 inline void to_json(nlohmann::json& j, const LogLevel level) {
-    j = std::string(to_string(level));
+    core::mandate::enum_to_json(j, level);
 }
 
 /// ADL JSON reader, strictly non-throwing under JSON_NOEXCEPTION=1: non-string
 /// values yield nullptr from get_ptr, unknown names leave `out` unchanged.
 inline void from_json(const nlohmann::json& j, LogLevel& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    core::mandate::enum_from_json(j, out);
 }
 
 } // namespace nexigen::logging
@@ -105,3 +71,24 @@ inline void from_json(const nlohmann::json& j, LogLevel& out) noexcept {
 /// LogLevel formats as its canonical lowercase name (mandate 11): parse and
 /// fill/align handled by the string_view formatter; context templated because
 /// libstdc++ 15 evaluates formattability against a substituted context.
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::logging::LogLevel> {
+    struct Entry {
+        nexigen::logging::LogLevel value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 7> entries{{
+        {nexigen::logging::LogLevel::Verbose, "verbose"},
+        {nexigen::logging::LogLevel::Debug, "debug"},
+        {nexigen::logging::LogLevel::Info, "info"},
+        {nexigen::logging::LogLevel::Warning, "warning"},
+        {nexigen::logging::LogLevel::Error, "error"},
+        {nexigen::logging::LogLevel::Fatal, "fatal"},
+        {nexigen::logging::LogLevel::Off, "off"},
+    }};
+};
+
+} // namespace nexigen::core
