@@ -1,4 +1,4 @@
-// nexigen::chrono — the clock service: configuration and provider (change
+// nexigen::chrono — the clock service: provider (change
 // add-chrono-clock-service; spec chrono/chrono-provider). Two-phase lifecycle
 // added by change integrate-chrono-into-infrastructure: construction provides
 // snapshot_now() without starting the worker; start() (with an optional
@@ -16,123 +16,35 @@
 // steady-state snapshot path: all working state (worker, atomics, log hook) is
 // fixed members. The optional worker logger is a module-local hook so chrono
 // does not depend on the logging module.
+//
+// The provider's own vocabulary types are split per the file-per-entity
+// convention: ClockLogLevel (clock_log_level.hpp), ChronoProviderConfig
+// (chrono_provider_config.hpp), concepts::ClockLogger
+// (concepts/clock_logger_concept.hpp), and the type-erased bindings
+// (detail/sink_binding.hpp, detail/log_binding.hpp).
 #pragma once
 
 #include <atomic>
 #include <chrono>
-#include <concepts>
 #include <condition_variable>
 #include <cstdint>
+#include <format>
 #include <mutex>
 #include <string>
 #include <string_view>
 #include <thread>
 
-#include <nlohmann/json.hpp>
-
-#include <nexigen/chrono/chrono_snapshot.hpp>
+#include <nexigen/chrono/chrono_provider_config.hpp>
+#include <nexigen/chrono/snapshot.hpp>
+#include <nexigen/chrono/clock_log_level.hpp>
 #include <nexigen/chrono/concepts/chrono_sink_concept.hpp>
+#include <nexigen/chrono/concepts/clock_logger_concept.hpp>
+#include <nexigen/chrono/detail/log_binding.hpp>
+#include <nexigen/chrono/detail/sink_binding.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
 
 namespace nexigen::chrono {
-
-/// Severity of the clock service's own worker diagnostics. Module-local so
-/// chrono does not depend on the logging module; the application bridges its
-/// logger to the worker's log hook.
-enum class ClockLogLevel : std::uint8_t {
-    info,    ///< normal operational milestone
-    warning, ///< recoverable problem (pin failure, snapshot delivery failure)
-    error,   ///< hard failure
-};
-
-/// Canonical name of a log level; allocation-free, constexpr.
-[[nodiscard]] constexpr std::string_view to_string(ClockLogLevel level) noexcept {
-    switch (level) {
-        case ClockLogLevel::info:    return "info";
-        case ClockLogLevel::warning: return "warning";
-        case ClockLogLevel::error:   return "error";
-        default:                     return "Unknown";
-    }
-}
-
-/// Parse a canonical ClockLogLevel name; false leaves the out-parameter
-/// UNCHANGED on any other spelling.
-[[nodiscard]] constexpr bool from_string(std::string_view name, ClockLogLevel& out) noexcept {
-    if (name == "info") {
-        out = ClockLogLevel::info;
-        return true;
-    }
-    if (name == "warning") {
-        out = ClockLogLevel::warning;
-        return true;
-    }
-    if (name == "error") {
-        out = ClockLogLevel::error;
-        return true;
-    }
-    return false;
-}
-
-/// ADL JSON writer (cold path only): the value is exactly to_string(level).
-inline void to_json(nlohmann::json& j, const ClockLogLevel level) {
-    j = std::string(to_string(level));
-}
-
-/// ADL JSON reader, strictly non-throwing under JSON_NOEXCEPTION=1.
-inline void from_json(const nlohmann::json& j, ClockLogLevel& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
-}
-
-/// Provider configuration: snapshot period and CPU affinity. A zero
-/// collect_interval disables the background thread.
-struct ChronoProviderConfig {
-    std::chrono::nanoseconds collect_interval{0};
-    core::ThreadSpec worker_thread{};
-
-    /// Cold-path diagnostic (mandate 9).
-    [[nodiscard]] std::string to_string() const;
-};
-
-/// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] std::string to_string(const ChronoProviderConfig& config);
-
-/// Provider config JSON (cold path). Definitions live in
-/// src/chrono/chrono_provider.cpp.
-void to_json(nlohmann::json& j, const ChronoProviderConfig& config);
-void from_json(const nlohmann::json& j, ChronoProviderConfig& out) noexcept;
-
-namespace concepts {
-
-/// A chrono-local logger: anything with a void log(ClockLogLevel,
-/// std::string_view) noexcept member. The application bridges a
-/// nexigen::logging logger to this contract.
-template <class T>
-concept ClockLogger = requires(T& logger, ClockLogLevel level, std::string_view message) {
-    { logger.log(level, message) } noexcept -> std::same_as<void>;
-};
-
-} // namespace concepts
-
-namespace detail {
-
-/// Type-erased sink binding: plain function pointers, no virtual dispatch.
-struct SinkBinding {
-    void* self{nullptr};
-    core::Status (*on_snapshot)(void*, const Snapshot&) noexcept {nullptr};
-    core::Status (*flush)(void*) noexcept {nullptr};
-};
-
-/// Type-erased worker log hook: plain function pointers, no virtual dispatch.
-struct LogBinding {
-    void* self{nullptr};
-    void (*log)(void*, ClockLogLevel, std::string_view) noexcept {nullptr};
-};
-
-} // namespace detail
 
 /// The clock service: samples base clock domains and delivers UTC-offset
 /// snapshots to a bound sink.
@@ -265,18 +177,6 @@ private:
 };
 
 } // namespace nexigen::chrono
-
-/// ClockLogLevel formats as its canonical name (mandate 11).
-
-/// The configuration formats as its diagnostic string (mandate 11).
-template <>
-struct std::formatter<nexigen::chrono::ChronoProviderConfig> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::chrono::ChronoProviderConfig& config, Ctx& ctx) const {
-        const std::string text = config.to_string();
-        return std::formatter<std::string_view>::format(text, ctx);
-    }
-};
 
 /// The provider formats as its diagnostic string (mandate 11).
 template <>

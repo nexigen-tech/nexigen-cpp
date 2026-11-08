@@ -45,7 +45,7 @@ struct Settings {
     return settings.to_string();
 }
 
-// --- cold-path ADL serialization (body in src/chrono/chrono_settings.cpp)
+// --- cold-path ADL serialization (body in src/chrono/settings.cpp)
 void to_json(nlohmann::json& j, const Settings& settings);
 // Deliberately no from_json(Settings&): reconstructed by the loader.
 

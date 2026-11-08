@@ -38,10 +38,12 @@
 #include "../support/test_temp.hpp"
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/chrono/chrono_provider_config.hpp>
 #include <nexigen/chrono/chrono_provider.hpp>
-#include <nexigen/chrono/chrono_settings.hpp>
-#include <nexigen/chrono/chrono_snapshot.hpp>
+#include <nexigen/chrono/settings.hpp>
+#include <nexigen/chrono/snapshot.hpp>
 #include <nexigen/chrono/clock_id.hpp>
+#include <nexigen/chrono/clock_log_level.hpp>
 #include <nexigen/chrono/composite_chrono_sink.hpp>
 #include <nexigen/chrono/concepts/chrono_sink_concept.hpp>
 #include <nexigen/chrono/console_chrono_sink.hpp>
@@ -49,7 +51,8 @@
 #include <nexigen/chrono/json_file_chrono_sink.hpp>
 #include <nexigen/chrono/null_chrono_sink.hpp>
 #include <nexigen/chrono/stamp_source.hpp>
-#include <nexigen/chrono/time_format.hpp>
+#include <nexigen/chrono/civil_time.hpp>
+#include <nexigen/chrono/utc_offset.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 
 // --- Compile-time claims (relocated with the type): Timestamp shape.

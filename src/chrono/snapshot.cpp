@@ -2,14 +2,14 @@
 // add-chrono-clock-service; spec chrono/chrono-snapshot).
 //
 // Bodies for the to_string / to_json / from_json contract declared in
-// include/nexigen/chrono/chrono_snapshot.hpp. Everything here allocates
+// include/nexigen/chrono/snapshot.hpp. Everything here allocates
 // (std::string, nlohmann::json) and is diagnostics-only: the snapshot
 // sampling and delivery paths never call into this unit.
 #include <string>
 
 #include <nlohmann/json.hpp>
 
-#include <nexigen/chrono/chrono_snapshot.hpp>
+#include <nexigen/chrono/snapshot.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 
 namespace nexigen::chrono {

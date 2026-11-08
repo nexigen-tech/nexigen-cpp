@@ -6,7 +6,7 @@
 #include <cstring>
 #include <new>
 
-#include <nexigen/chrono/stamp_source.hpp>
+#include <nexigen/chrono/utc_offset.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/metrics/detail/affinity.hpp>

@@ -5,7 +5,7 @@
 #include <string_view>
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/chrono/time_format.hpp>
+#include <nexigen/chrono/civil_time.hpp>
 #include <nexigen/logging/detail/json_writer.hpp>
 #include <nexigen/logging/log_level.hpp>
 

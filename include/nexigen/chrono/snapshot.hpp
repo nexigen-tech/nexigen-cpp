@@ -7,7 +7,7 @@
 // wall clock as stamp + realtime_offset_ns.
 //
 // COLD PATH ONLY: to_string / to_json / from_json allocate and are
-// diagnostics; the bodies live in src/chrono/chrono_snapshot.cpp so consumer
+// diagnostics; the bodies live in src/chrono/snapshot.cpp so consumer
 // TUs stay lean.
 #pragma once
 
@@ -35,7 +35,7 @@ struct Snapshot {
 [[nodiscard]] std::string to_string(const Snapshot& snapshot);
 
 // --- nlohmann::json (cold path). Readers are strictly non-throwing under
-// JSON_NOEXCEPTION=1. Definitions live in src/chrono/chrono_snapshot.cpp.
+// JSON_NOEXCEPTION=1. Definitions live in src/chrono/snapshot.cpp.
 void to_json(nlohmann::json& j, const Snapshot& snapshot);
 void from_json(const nlohmann::json& j, Snapshot& out) noexcept;
 

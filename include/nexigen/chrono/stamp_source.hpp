@@ -132,19 +132,6 @@ private:
 
 static_assert(sizeof(StampSource) <= 64, "stamp source must own one cache line");
 
-/// Snapshot the offset such that utc_ns ≈ monotonic_ns + offset (logging
-/// design D10). Cold path (initialize / rotation boundary / flush hook): two
-/// clock reads, no allocation. The producer never calls CLOCK_REALTIME —
-/// conversion to UTC happens on the consumer thread through this offset
-/// snapshot.
-[[nodiscard]] core::Status sample_utc_offset(std::int64_t& offset_ns_out) noexcept;
-
-/// Apply an offset snapshot: the consumer-side UTC time of a record stamp.
-[[nodiscard]] inline std::int64_t utc_from_mono_ns(std::uint64_t mono_ns,
-                                                   std::int64_t offset_ns) noexcept {
-    return static_cast<std::int64_t>(mono_ns) + offset_ns;
-}
-
 /// Free helper (mandate 9): mirrors StampSource::to_string for generic call sites.
 [[nodiscard]] inline std::string to_string(const StampSource& source) {
     return source.to_string();

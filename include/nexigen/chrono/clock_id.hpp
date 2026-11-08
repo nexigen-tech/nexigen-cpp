@@ -80,7 +80,3 @@ inline void from_json(const nlohmann::json& j, ClockId& out) noexcept {
 template <class T> inline constexpr ClockId clock_domain = ClockId::monotonic_raw;
 
 } // namespace nexigen::chrono
-
-/// ClockId formats as its canonical name (mandate 11): parse and fill/align
-/// handled by the string_view formatter; the context is templated because
-/// libstdc++ 15 evaluates formattability against a substituted context.

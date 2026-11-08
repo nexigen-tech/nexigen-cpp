@@ -21,7 +21,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/sink_io.hpp>
-#include <nexigen/chrono/time_format.hpp>
+#include <nexigen/chrono/civil_time.hpp>
 #include <nexigen/metrics/concepts/metric_sink_concept.hpp>
 #include <nexigen/metrics/detail/json_writer.hpp>
 #include <nexigen/metrics/metric_snapshot.hpp>

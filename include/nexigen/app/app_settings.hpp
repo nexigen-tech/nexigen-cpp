@@ -7,7 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/app/app_settings_paths.hpp>
-#include <nexigen/chrono/chrono_settings.hpp>
+#include <nexigen/chrono/settings.hpp>
 #include <nexigen/core/settings_source.hpp>
 #include <nexigen/logging/settings.hpp>
 #include <nexigen/metrics/metrics_settings.hpp>

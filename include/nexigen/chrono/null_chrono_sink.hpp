@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include <nexigen/chrono/chrono_snapshot.hpp>
+#include <nexigen/chrono/snapshot.hpp>
 #include <nexigen/chrono/concepts/chrono_sink_concept.hpp>
 #include <nexigen/core/result.hpp>
 

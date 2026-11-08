@@ -1,10 +1,10 @@
 // nexigen::chrono — civil-time implementation (logging design.md D10/D11,
 // relocated out of src/logging/ by the extract-chrono-module change): see
-// chrono/time_format.hpp for the contract. Pure integer arithmetic; no
+// chrono/civil_time.hpp for the contract. Pure integer arithmetic; no
 // locale, no timezone state, no allocation.
 #include <cstdint>
 
-#include <nexigen/chrono/time_format.hpp>
+#include <nexigen/chrono/civil_time.hpp>
 
 namespace nexigen::chrono {
 namespace {

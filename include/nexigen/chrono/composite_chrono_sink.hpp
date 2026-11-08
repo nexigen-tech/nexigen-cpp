@@ -22,7 +22,7 @@
 #include <tuple>
 #include <utility>
 
-#include <nexigen/chrono/chrono_snapshot.hpp>
+#include <nexigen/chrono/snapshot.hpp>
 #include <nexigen/chrono/concepts/chrono_sink_concept.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/sink_pack.hpp>

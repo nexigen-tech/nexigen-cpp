@@ -10,7 +10,7 @@
 #pragma GCC diagnostic ignored "-Wnull-dereference"
 #include <nlohmann/json.hpp>
 
-#include <nexigen/chrono/chrono_settings.hpp>
+#include <nexigen/chrono/settings.hpp>
 #include <nexigen/core/settings_io.hpp>
 #pragma GCC diagnostic pop
 

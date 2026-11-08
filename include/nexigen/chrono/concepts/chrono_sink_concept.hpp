@@ -10,7 +10,7 @@
 
 #include <concepts>
 
-#include <nexigen/chrono/chrono_snapshot.hpp>
+#include <nexigen/chrono/snapshot.hpp>
 #include <nexigen/core/result.hpp>
 
 namespace nexigen::chrono::concepts {

@@ -55,6 +55,7 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
 #include <nexigen/chrono/timestamp.hpp>
+#include <nexigen/chrono/utc_offset.hpp>
 #include <nexigen/tracing/span_enums.hpp>
 #include <nexigen/tracing/span_context.hpp>
 #include <nexigen/tracing/detail/json_writer.hpp>

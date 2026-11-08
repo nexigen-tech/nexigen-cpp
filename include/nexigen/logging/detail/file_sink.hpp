@@ -12,7 +12,7 @@
 #include <unistd.h>
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/chrono/stamp_source.hpp>
+#include <nexigen/chrono/utc_offset.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/logging/detail/json_writer.hpp>
 #include <nexigen/logging/detail/rotation.hpp>

@@ -1,11 +1,13 @@
 // nexigen::chrono — JSON-lines file sink (change add-chrono-clock-service;
 // spec chrono/chrono-sink "JSON-file chrono sink").
 //
-#include <nexigen/chrono/json_file_chrono_sink_config.hpp>
 // Writes one JSON object per snapshot per line, rendered with std::to_chars
 // into a fixed scratch buffer and written with a raw ::write. The file is
 // opened during construction (the sink owns the descriptor); the write path is
 // allocation-free and flush() pushes the data to the file with fsync.
+//
+// The configuration value type (JsonFileChronoSinkConfig) lives in
+// json_file_chrono_sink_config.hpp.
 #pragma once
 
 #include <charconv>
@@ -18,7 +20,10 @@
 #include <cerrno>
 #include <fcntl.h>
 
-#include <nexigen/chrono/chrono_snapshot.hpp>
+#include <nlohmann/json.hpp>
+
+#include <nexigen/chrono/json_file_chrono_sink_config.hpp>
+#include <nexigen/chrono/snapshot.hpp>
 #include <nexigen/chrono/concepts/chrono_sink_concept.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/sink_io.hpp>
@@ -130,28 +135,6 @@ private:
     return sink.to_string();
 }
 
-/// Configuration JSON (cold path).
-inline void to_json(nlohmann::json& j, const JsonFileChronoSinkConfig& config) {
-    j = nlohmann::json{{"path", config.path}, {"append", config.append}};
-}
-
-inline void from_json(const nlohmann::json& j, JsonFileChronoSinkConfig& out) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
-    const auto it = j.find("path");
-    if (it != j.end() && it->is_string()) {
-        const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
-        if (text != nullptr) {
-            out.path = std::string(*text);
-        }
-    }
-    const auto append_it = j.find("append");
-    if (append_it != j.end() && append_it->is_boolean()) {
-        out.append = append_it->get<bool>();
-    }
-}
-
 /// The sink itself is not deserializable: rebinding it opens a file, which is
 /// a construction-time action, not a deserialization.
 inline void to_json(nlohmann::json& j, const JsonFileChronoSink& sink) {
@@ -162,17 +145,6 @@ static_assert(concepts::ChronoSink<JsonFileChronoSink>,
               "JsonFileChronoSink must satisfy the sink contract");
 
 } // namespace nexigen::chrono
-
-/// The configuration formats as its diagnostic string (mandate 11).
-template <>
-struct std::formatter<nexigen::chrono::JsonFileChronoSinkConfig>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::chrono::JsonFileChronoSinkConfig& config, Ctx& ctx) const {
-        const std::string text = config.to_string();
-        return std::formatter<std::string_view>::format(text, ctx);
-    }
-};
 
 /// The file sink formats as its diagnostic string (mandate 11).
 template <>

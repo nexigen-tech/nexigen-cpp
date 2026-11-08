@@ -41,8 +41,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include <nexigen/chrono/stamp_source.hpp>
-#include <nexigen/chrono/time_format.hpp>
+#include <nexigen/chrono/utc_offset.hpp>
+#include <nexigen/chrono/civil_time.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/sink_io.hpp>

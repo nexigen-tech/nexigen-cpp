@@ -35,7 +35,7 @@
 #include <nexigen/app/command_line.hpp>
 #include <nexigen/app/infrastructure_stop_reason.hpp>
 #include <nexigen/chrono/chrono_provider.hpp>
-#include <nexigen/chrono/chrono_settings.hpp>
+#include <nexigen/chrono/settings.hpp>
 #include <nexigen/chrono/concepts/chrono_sink_concept.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/concepts/logger_concept.hpp>

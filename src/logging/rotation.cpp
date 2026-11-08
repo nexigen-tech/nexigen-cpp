@@ -15,7 +15,7 @@
 #include <unistd.h>
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/chrono/time_format.hpp>
+#include <nexigen/chrono/civil_time.hpp>
 #include <nexigen/logging/detail/rotation.hpp>
 
 namespace nexigen::logging::detail {
