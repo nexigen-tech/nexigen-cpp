@@ -383,44 +383,9 @@ inline bool write_start_report(int fd, StartReport report) noexcept {
     return true;
 }
 
-// --- enum ADL serialization helpers (mandate 10) ---------------------------
-//
-// The per-enum `to_json`/`from_json` overloads declared in each module's public
-// headers delegate here so the serialization contract lives in one place.
-
-/// Serialize an enum as its canonical lower-case name via ADL `to_string`.
-template <class Enum> void enum_to_json(nlohmann::json& j, Enum value) {
-    j = std::string(to_string(value));
-}
-
-/// Parse an enum from its canonical name via ADL `from_string`; a missing,
-/// non-string or unknown value leaves `value` unchanged (non-throwing under
-/// JSON_NOEXCEPTION).
-template <class Enum> void enum_from_json(const nlohmann::json& j, Enum& value) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), value));
-    }
-}
-
-/// Read an enum field from a JSON object by key, delegating to `enum_from_json`.
-/// A missing or wrong-typed key leaves `target` unchanged.
-template <class Enum>
-void read_enum(const nlohmann::json& document, const char* key, Enum& target) noexcept {
-    if (!document.is_object()) {
-        return;
-    }
-    const auto it = document.find(key);
-    if (it == document.end() || !it->is_string()) {
-        return;
-    }
-    const auto* const name = it->get_ptr<const nlohmann::json::string_t*>();
-    if (name == nullptr) {
-        return;
-    }
-    Enum parsed = target;
-    enum_from_json(nlohmann::json(*name), parsed);
-    target = parsed;
-}
+// --- enum ADL serialization helpers: moved to nexigen::core::mandate -------
+// (change refactor-enum-traits-helper). `enum_to_json`/`enum_from_json`/
+// `read_enum` now live once in <nexigen/core/enum_traits.hpp>; every module’s
+// public enum glue delegates there.
 
 } // namespace nexigen::runner::detail

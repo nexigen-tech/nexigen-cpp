@@ -30,6 +30,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/serialization_mandate.hpp>
 #include <nexigen/core/settings_diagnostic.hpp>
@@ -1810,11 +1811,99 @@ void test_rt_integration_opt_in() {
 
 } // namespace
 
+// --- enum_traits (change refactor-enum-traits-helper): the table engine must serve
+// any enum that specializes EnumTraits, with byte-exact vocabulary, the
+// "Unknown" fallback for values outside the table, and the non-throwing JSON
+// glue under JSON_NOEXCEPTION. Probe enum deliberately omits Green to test
+// out-of-range rendering.
+namespace probe {
+
+enum class Color : std::uint8_t { Red, Green, Blue };
+
+[[nodiscard]] constexpr std::string_view to_string(Color value) noexcept {
+    return nexigen::core::enum_name(value);
+}
+
+[[nodiscard]] constexpr bool from_string(std::string_view name, Color& out) noexcept {
+    return nexigen::core::enum_value(name, out);
+}
+
+inline void to_json(nlohmann::json& j, const Color value) {
+    nexigen::core::mandate::enum_to_json(j, value);
+}
+
+inline void from_json(const nlohmann::json& j, Color& out) noexcept {
+    nexigen::core::mandate::enum_from_json(j, out);
+}
+
+} // namespace probe
+
+namespace nexigen::core {
+
+template <> struct EnumTraits<probe::Color> {
+    struct Entry {
+        probe::Color value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 2> entries{{
+        {probe::Color::Red, "red"},
+        {probe::Color::Blue, "blue"},
+    }};
+};
+
+} // namespace nexigen::core
+
+static_assert(nexigen::core::enum_name(probe::Color::Red) == "red");
+static_assert(nexigen::core::enum_name(probe::Color::Green) == "Unknown");
+static_assert(probe::to_string(probe::Color::Blue) == "blue");
+
+void test_enum_traits() {
+    probe::Color out = probe::Color::Green;
+    NX_CHECK(probe::from_string("red", out));
+    NX_CHECK(out == probe::Color::Red);
+    NX_CHECK(nexigen::core::enum_name(out) == "red");
+
+    // Round trip through JSON (ADL finds the probe glue).
+    const nlohmann::json j = probe::Color::Blue;
+    NX_CHECK(j == nlohmann::json("blue"));
+    probe::Color parsed = probe::Color::Green;
+    j.get_to(parsed);
+    NX_CHECK(parsed == probe::Color::Blue);
+
+    // Out-of-table value renders "Unknown" (legacy default: arm).
+    NX_CHECK(nexigen::core::enum_name(probe::Color::Green) == "Unknown");
+    const nlohmann::json unknown = probe::Color::Green;
+    NX_CHECK(unknown == nlohmann::json("Unknown"));
+
+    // Unknown name: false, target untouched.
+    probe::Color untouched = probe::Color::Red;
+    NX_CHECK(!probe::from_string("cyan", untouched));
+    NX_CHECK(untouched == probe::Color::Red);
+    nlohmann::json bad = "cyan";
+    bad.get_to(untouched);
+    NX_CHECK(untouched == probe::Color::Red);
+
+    // Non-string JSON: leaves the value unchanged, never throws.
+    nlohmann::json number = 42;
+    probe::Color after_non_string = probe::Color::Blue;
+    number.get_to(after_non_string);
+    NX_CHECK(after_non_string == probe::Color::Blue);
+
+    // read_enum by key: missing/wrong-typed keys leave the target untouched.
+    const nlohmann::json doc = nlohmann::json{{"color", "blue"}};
+    probe::Color field = probe::Color::Green;
+    nexigen::core::mandate::read_enum(doc, "color", field);
+    NX_CHECK(field == probe::Color::Blue);
+    nexigen::core::mandate::read_enum(doc, "missing", field);
+    NX_CHECK(field == probe::Color::Blue);
+}
+
 int main() {
     run_suite("result", test_result);
     run_suite("json_smoke", test_json_smoke);
     run_suite("ec_vocab", test_error_code_vocabulary);
     run_suite("settings_vocab", test_settings_vocabulary);
+    run_suite("enum_traits", test_enum_traits);
     run_suite("ring_to_string", test_ring_to_string);
     run_suite("spsc_single_threaded", test_spsc_single_threaded);
     run_suite("spsc_stress_1m", test_spsc_stress);

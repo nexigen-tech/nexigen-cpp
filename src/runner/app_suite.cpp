@@ -22,6 +22,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/app/telemetry_layout.hpp>
+#include <nexigen/core/enum_traits.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/log_level.hpp>
 #include <nexigen/runner/detail/cpu_validation.hpp>
@@ -53,7 +54,7 @@ using detail::monotonic_now_ns;
 using detail::nanoseconds_per_second;
 using detail::proc_start_ticks;
 using detail::process_alive;
-using detail::read_enum;
+using core::mandate::read_enum;
 using detail::read_i32;
 using detail::read_start_report;
 using detail::read_string;

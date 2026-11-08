@@ -9,15 +9,16 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 #include <nexigen/hub/model.hpp>
 #include <nexigen/runner/detail/sys_helpers.hpp>
 
 namespace nexigen::hub {
 
-using nexigen::runner::detail::enum_from_json;
-using nexigen::runner::detail::enum_to_json;
+using nexigen::core::mandate::enum_from_json;
+using nexigen::core::mandate::enum_to_json;
 using nexigen::runner::detail::read_bool;
-using nexigen::runner::detail::read_enum;
+using nexigen::core::mandate::read_enum;
 using nexigen::runner::detail::read_string;
 using nexigen::runner::detail::read_u32;
 using nexigen::runner::detail::read_u64;
