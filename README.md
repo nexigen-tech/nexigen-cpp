@@ -966,13 +966,16 @@ signal escalation, restart policy, and JSON-lines runner logging; the
 
 * **`<nexigen/runner/runner.hpp>`** — `Runner::start()`, `start_suite()`,
   `stop()`, and `status()` over explicit run/instance directories;
-  `Start_options` carries the stop grace period and log level.
-* **`<nexigen/runner/instance_lifecycle.hpp>`** — the on-disk instance
-  contract: control directory, `state.json`, pid/exit metadata, and resource
-  accounting.
-* **`<nexigen/runner/app_suite.hpp>`** — `Suite_manifest` (apps, CPU masks,
-  per-app arguments, restart and impact policy) plus `Suite_status`/`App_state`
-  snapshots used by the CLI.
+  `<nexigen/runner/start_options.hpp>` carries the stream location, settings
+  sources, child environment, CPU set, and log-level override.
+* **`<nexigen/runner/instance_lifecycle.hpp>`** — umbrella for the on-disk
+  instance contract; each entity lives in its own header
+  (`resource_metadata.hpp`, `exit_metadata.hpp`, `instance_file_io.hpp`,
+  `instance_layout.hpp`, `instance_settings.hpp`).
+* **`<nexigen/runner/app_suite.hpp>`** — umbrella for the suite vocabulary;
+  each entity lives in its own header (`app_spec.hpp`, `suite_manifest.hpp`,
+  `suite_metadata.hpp`, `suite_status.hpp`, `suite_paths.hpp`,
+  `suite_control.hpp`, and the per-record metadata/status headers).
 * **`<nexigen/runner/runner_logging.hpp>`** — the dedicated JSONL runner log
   that records lifecycle transitions without touching application hot paths;
   also the control/logger thread-spec application surface

@@ -6,15 +6,10 @@
 #pragma GCC diagnostic pop
 
 #include <cerrno>
-#include <chrono>
 #include <cstdint>
-#include <cstdio>
-#include <cstring>
 #include <format>
-#include <limits>
 #include <string>
 #include <string_view>
-#include <system_error>
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -22,16 +17,15 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <nexigen/chrono/time_format.hpp>
-#include <nexigen/chrono/timestamp.hpp>
+#include <nexigen/runner/detail/path_utils.hpp>
 #include <nexigen/runner/detail/sys_helpers.hpp>
 #include <nexigen/runner/instance_lifecycle.hpp>
 #include <nexigen/runner/runner_logging.hpp>
 
 namespace nexigen::runner {
 
-using detail::enum_from_json;
-using detail::enum_to_json;
+using detail::absolute_path;
+using detail::max_path_bytes;
 using detail::monotonic_now_ns;
 using detail::read_i32;
 using detail::read_optional_i32;
@@ -41,17 +35,13 @@ using detail::utc_now_rfc3339;
 
 namespace {
 
-/// Maximum length accepted for the instance directory. The logging settings
-/// loader caps `log_root_directory` at 511 bytes, so the directory must fit.
-constexpr std::size_t max_instance_dir_bytes = 511;
-
 void report_write_failure(std::string_view path, int error) noexcept {
     warn_runner(std::format("event=json_write_failed path={} errno={}", path, error));
 }
 
 /// mkdir -p for absolute paths. Every existing component must be a directory.
 [[nodiscard]] bool make_directories(std::string_view path) noexcept {
-    if (path.empty() || path.front() != '/') {
+    if (!absolute_path(path)) {
         return false;
     }
     std::string current;
@@ -77,7 +67,7 @@ void report_write_failure(std::string_view path, int error) noexcept {
 
 [[nodiscard]] bool inside_stream_root(std::string_view path,
                                       std::string_view stream_root) noexcept {
-    if (path.empty() || path.front() != '/') {
+    if (!absolute_path(path)) {
         return false;
     }
     if (path.size() <= stream_root.size()) {
@@ -95,15 +85,6 @@ void report_write_failure(std::string_view path, int error) noexcept {
 }
 
 } // namespace
-
-// --- TerminatedBy ---
-void to_json(nlohmann::json& j, TerminatedBy value) {
-    enum_to_json(j, value);
-}
-
-void from_json(const nlohmann::json& j, TerminatedBy& value) noexcept {
-    enum_from_json(j, value);
-}
 
 // --- ResourceMetadata ---
 std::string ResourceMetadata::to_string() const {
@@ -311,8 +292,7 @@ std::string instance_file_path(std::string_view instance_dir, std::string_view f
 }
 
 core::Status create_instance_dir(std::string_view instance_dir) noexcept {
-    if (instance_dir.empty() || instance_dir.front() != '/' ||
-        instance_dir.size() > max_instance_dir_bytes) {
+    if (!absolute_path(instance_dir) || instance_dir.size() > max_path_bytes) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     if (!make_directories(instance_dir)) {
@@ -326,8 +306,7 @@ core::Status create_instance_dir(std::string_view instance_dir) noexcept {
 }
 
 core::Status create_artifact_dir(std::string_view artifact_dir) noexcept {
-    if (artifact_dir.empty() || artifact_dir.front() != '/' ||
-        artifact_dir.size() > max_instance_dir_bytes) {
+    if (!absolute_path(artifact_dir) || artifact_dir.size() > max_path_bytes) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     if (!make_directories(artifact_dir)) {
@@ -344,9 +323,8 @@ core::Status generate_settings(std::string_view instance_dir,
 
 core::Status generate_settings(std::string_view instance_dir, std::string_view stream_root,
                                const app::TelemetryPaths& resolved) noexcept {
-    if (instance_dir.empty() || instance_dir.front() != '/' ||
-        instance_dir.size() > max_instance_dir_bytes || stream_root.empty() ||
-        stream_root.front() != '/' || stream_root.size() > max_instance_dir_bytes) {
+    if (!absolute_path(instance_dir) || instance_dir.size() > max_path_bytes ||
+        !absolute_path(stream_root) || stream_root.size() > max_path_bytes) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 
@@ -410,7 +388,6 @@ core::Status generate_settings(std::string_view instance_dir, std::string_view s
     return {};
 }
 
-static_assert(max_instance_dir_bytes == 511,
-              "logging settings cap log_root_directory at 511 bytes");
+static_assert(max_path_bytes == 511, "logging settings cap log_root_directory at 511 bytes");
 
 } // namespace nexigen::runner

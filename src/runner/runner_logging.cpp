@@ -1,22 +1,19 @@
 // nexigen::runner — runner-owned logging and CPU affinity
 // (change nexigen-run-logging; spec runner/logging).
-#include <cerrno>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 #include <format>
 #include <memory>
 #include <string>
 #include <string_view>
-#include <vector>
 
-#include <pthread.h>
 #include <sched.h>
 #include <unistd.h>
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/logging/settings.hpp>
+#include <nexigen/runner/detail/cpu_validation.hpp>
 #include <nexigen/runner/detail/sys_helpers.hpp>
 #include <nexigen/runner/instance_lifecycle.hpp>
 #include <nexigen/runner/runner_logging.hpp>
@@ -49,11 +46,6 @@ void warn_stderr(std::string_view message) noexcept {
     std::fprintf(stderr, "nexigen-run: %.*s\n", static_cast<int>(message.size()), message.data());
 }
 
-[[nodiscard]] long online_cpus() noexcept {
-    const long count = ::sysconf(_SC_NPROCESSORS_ONLN);
-    return count > 0 ? count : static_cast<long>(CPU_SETSIZE);
-}
-
 [[nodiscard]] std::string fallback_directory() {
     char buffer[4096]{};
     if (::getcwd(buffer, sizeof(buffer)) == nullptr) {
@@ -65,17 +57,6 @@ void warn_stderr(std::string_view message) noexcept {
 [[nodiscard]] bool has_thread_request(const core::ThreadSpec& spec) noexcept {
     return !spec.cpus().empty() || !spec.name().empty() || spec.scheduler_configured() ||
            spec.apply_mode() == core::ThreadApplyMode::Required;
-}
-
-[[nodiscard]] bool online_cpu_set(const core::CpuSet& cpus) noexcept {
-    const auto online = static_cast<std::uint32_t>(online_cpus());
-    for (std::uint32_t cpu = 0; cpu <= core::CpuSet::max_cpu_id; ++cpu) {
-        if (cpus.contains(cpu) &&
-            (cpu >= online || cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
-            return false;
-        }
-    }
-    return true;
 }
 
 [[nodiscard]] core::Result<core::ThreadSpec>
@@ -93,7 +74,7 @@ resolve_logger_thread(const core::ThreadSpec& requested,
         warn_stderr("logger thread spec is invalid; worker attributes disabled");
         return core::ThreadSpec{};
     }
-    if (!online_cpu_set(resolved.cpus())) {
+    if (!detail::cpus_within_online(resolved.cpus())) {
         if (resolved.apply_mode() == core::ThreadApplyMode::Required) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -277,7 +258,7 @@ core::Status apply_runner_thread_spec(const core::ThreadSpec& spec, core::Thread
         return {};
     }
     core::ThreadSpec effective = spec;
-    if (!online_cpu_set(effective.cpus())) {
+    if (!detail::cpus_within_online(effective.cpus())) {
         if (effective.apply_mode() == core::ThreadApplyMode::Required) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -344,7 +325,7 @@ core::Status apply_runner_affinity(std::span<const std::uint32_t> cpus,
 core::Status reset_runner_affinity() noexcept {
     cpu_set_t mask;
     CPU_ZERO(&mask);
-    const long online = online_cpus();
+    const long online = detail::online_cpu_count();
     const long limit =
         online < static_cast<long>(CPU_SETSIZE) ? online : static_cast<long>(CPU_SETSIZE);
 #pragma GCC diagnostic push

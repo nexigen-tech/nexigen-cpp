@@ -1,8 +1,9 @@
 // nexigen::runner — TerminatedBy enum.
 #pragma once
 #include <cstdint>
-#include <string>
 #include <string_view>
+
+#include <nlohmann/json.hpp>
 
 namespace nexigen::runner {
 
@@ -38,5 +39,8 @@ enum class TerminatedBy : std::uint8_t {
     }
     return false;
 }
+
+void to_json(nlohmann::json& j, TerminatedBy value);
+void from_json(const nlohmann::json& j, TerminatedBy& value) noexcept;
 
 } // namespace nexigen::runner

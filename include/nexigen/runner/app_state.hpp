@@ -1,8 +1,9 @@
 // nexigen::runner — AppState enum.
 #pragma once
 #include <cstdint>
-#include <string>
 #include <string_view>
+
+#include <nlohmann/json.hpp>
 
 namespace nexigen::runner {
 
@@ -54,5 +55,8 @@ enum class AppState : std::uint8_t {
     }
     return false;
 }
+
+void to_json(nlohmann::json& j, AppState value);
+void from_json(const nlohmann::json& j, AppState& value) noexcept;
 
 } // namespace nexigen::runner

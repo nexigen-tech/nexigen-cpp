@@ -1,8 +1,9 @@
 // nexigen::runner — SuiteState enum.
 #pragma once
 #include <cstdint>
-#include <string>
 #include <string_view>
+
+#include <nlohmann/json.hpp>
 
 namespace nexigen::runner {
 
@@ -48,5 +49,8 @@ enum class SuiteState : std::uint8_t {
     }
     return false;
 }
+
+void to_json(nlohmann::json& j, SuiteState value);
+void from_json(const nlohmann::json& j, SuiteState& value) noexcept;
 
 } // namespace nexigen::runner

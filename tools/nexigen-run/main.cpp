@@ -13,6 +13,8 @@
 
 #include <nexigen/app/telemetry_layout.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/runner/app_suite.hpp>
+#include <nexigen/runner/instance_lifecycle.hpp>
 #include <nexigen/runner/runner.hpp>
 #include <nexigen/runner/runner_logging.hpp>
 

@@ -19,6 +19,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include <fcntl.h>
 #include <signal.h>
@@ -27,21 +29,14 @@
 
 #include <nlohmann/json.hpp>
 
-#include <nexigen/chrono/time_format.hpp>
+#include <nexigen/chrono/civil_time.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/runner/detail/start_report.hpp>
 
 namespace nexigen::runner::detail {
 
 inline constexpr std::uint64_t nanoseconds_per_second = 1'000'000'000ULL;
-
-/// Handshake message written by a supervisor before it starts reaping.
-/// `pid` is the launched child (or the suite supervisor); a non-zero `error`
-/// carries a `core::ErrorCode` when startup failed.
-struct StartReport {
-    std::int32_t pid{0};
-    std::int32_t error{0};
-};
 
 [[nodiscard]] inline std::uint64_t monotonic_now_ns() noexcept {
     const core::Result<nexigen::chrono::Timestamp> now = nexigen::chrono::Timestamp::now();
@@ -80,6 +75,13 @@ inline void sleep_ms(std::uint64_t milliseconds) noexcept {
     return true;
 }
 
+/// Point stdin/stdout/stderr at an already-open `/dev/null` descriptor.
+inline void redirect_to_null(int null_fd) noexcept {
+    static_cast<void>(::dup2(null_fd, STDIN_FILENO));
+    static_cast<void>(::dup2(null_fd, STDOUT_FILENO));
+    static_cast<void>(::dup2(null_fd, STDERR_FILENO));
+}
+
 /// Handshake/report writes are the one IPC family without a recv-style
 /// MSG_NOSIGNAL (analysis #23): shield the single write from SIGPIPE —
 /// save the old disposition, write, restore. The restore matters because
@@ -115,6 +117,19 @@ inline void sleep_ms(std::uint64_t milliseconds) noexcept {
 [[nodiscard]] inline bool file_exists(std::string_view path) noexcept {
     const std::string name(path);
     return ::access(name.c_str(), F_OK) == 0;
+}
+
+/// Validate child-only environment entries: non-empty keys without '=' or
+/// embedded NUL and values without embedded NUL.
+[[nodiscard]] inline core::Status
+validate_env_entries(const std::vector<std::pair<std::string, std::string>>& env) noexcept {
+    for (const auto& [key, value] : env) {
+        if (key.empty() || key.find('=') != std::string::npos ||
+            key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+    }
+    return {};
 }
 
 /// True when the PID exists and is not a zombie. `/proc/<pid>/stat` is used
@@ -239,6 +254,26 @@ inline void reap_failed_supervisor(pid_t supervisor) noexcept {
         }
         sleep_ms(5);
     }
+}
+
+/// Write one `StartReport` handshake record, shielding the write from SIGPIPE
+/// if the launcher has already closed its end of the pipe.
+inline bool write_start_report(int fd, StartReport report) noexcept {
+    return write_all_no_sigpipe(fd, &report, sizeof(report));
+}
+
+/// Read the supervisor's `StartReport` and close the read end. A short read,
+/// a non-zero error, or a non-positive pid is a failed start: the supervisor
+/// child is reaped so no zombie survives.
+[[nodiscard]] inline core::Status read_start_report(int read_fd, pid_t supervisor) noexcept {
+    StartReport report{};
+    const bool received = read_all(read_fd, &report, sizeof(report));
+    static_cast<void>(::close(read_fd));
+    if (!received || report.error != 0 || report.pid <= 0) {
+        reap_failed_supervisor(supervisor);
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return {};
 }
 
 // --- nlohmann::json field readers (non-throwing, JSON_NOEXCEPTION-safe) ----

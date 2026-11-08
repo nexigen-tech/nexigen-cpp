@@ -6,9 +6,7 @@
 // recorded; `stop` and `status` derive everything from the instance directory.
 #include <cerrno>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <format>
 #include <optional>
 #include <string>
@@ -18,48 +16,48 @@
 #include <fcntl.h>
 #include <sched.h>
 #include <signal.h>
-#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <time.h>
 #include <unistd.h>
 
 #include <nlohmann/json.hpp>
 
 #include <nexigen/app/app_settings.hpp>
-#include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/core/detail/fault_injection.hpp>
 #include <nexigen/logging/logger_options.hpp>
+#include <nexigen/runner/detail/cpu_validation.hpp>
+#include <nexigen/runner/detail/path_utils.hpp>
 #include <nexigen/runner/detail/sys_helpers.hpp>
+#include <nexigen/runner/instance_lifecycle.hpp>
 #include <nexigen/runner/runner.hpp>
 #include <nexigen/runner/runner_logging.hpp>
+#include <nexigen/runner/suite_control.hpp>
 
 #include "coverage_flush.hpp"
 
 namespace nexigen::runner {
 
+using detail::absolute_path;
+using detail::child_exit;
+using detail::cpus_within_online;
 using detail::file_exists;
 using detail::group_alive;
 using detail::identity_matches;
+using detail::max_path_bytes;
 using detail::monotonic_now_ns;
 using detail::nanoseconds_per_second;
 using detail::process_alive;
 using detail::proc_start_ticks;
-using detail::reap_failed_supervisor;
 using detail::read_all;
+using detail::read_start_report;
+using detail::redirect_to_null;
 using detail::sleep_ms;
 using detail::StartReport;
-using detail::write_all;
+using detail::validate_env_entries;
+using detail::write_start_report;
 
 namespace {
 
-constexpr std::size_t max_instance_dir_bytes = 511;
-
-/// Flush coverage counters before a forked child leaves the process image.
-[[noreturn]] void child_exit(int code) noexcept {
-    detail::coverage_flush();
-    _exit(code);
-}
 constexpr std::uint64_t timeout_grace_seconds = 5;
 constexpr std::uint64_t stop_settle_seconds = 5;
 constexpr std::uint64_t poll_interval_ms = 20;
@@ -73,18 +71,6 @@ constexpr std::uint64_t poll_interval_ms = 20;
     }
     static_cast<void>(::close(truncate_fd));
     return ::open(path.c_str(), O_WRONLY | O_APPEND | O_CLOEXEC, 0644);
-}
-
-void redirect_to_null(int null_fd) noexcept {
-    static_cast<void>(::dup2(null_fd, STDIN_FILENO));
-    static_cast<void>(::dup2(null_fd, STDOUT_FILENO));
-    static_cast<void>(::dup2(null_fd, STDERR_FILENO));
-}
-
-constexpr std::size_t max_path_bytes = 511;
-
-[[nodiscard]] bool absolute_path(std::string_view path) noexcept {
-    return !path.empty() && path.front() == '/';
 }
 
 [[nodiscard]] core::Status validate_artifact_dir(std::string_view artifact_dir) noexcept {
@@ -106,32 +92,9 @@ constexpr std::size_t max_path_bytes = 511;
     return {};
 }
 
-[[nodiscard]] core::Status
-validate_env_entries(const std::vector<std::pair<std::string, std::string>>& env) noexcept {
-    for (const auto& [key, value] : env) {
-        if (key.empty() || key.find('=') != std::string::npos ||
-            key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-    }
-    return {};
-}
-
 [[nodiscard]] core::Status validate_cpu_set(const core::CpuSet& cpus) noexcept {
-    if (cpus.empty()) {
-        return {};
-    }
-    long online = ::sysconf(_SC_NPROCESSORS_ONLN);
-    if (online <= 0) {
-        online = static_cast<long>(CPU_SETSIZE);
-    }
-    for (std::uint32_t cpu = 0; cpu <= core::CpuSet::max_cpu_id; ++cpu) {
-        if (cpus.contains(cpu) && (cpu >= static_cast<std::uint32_t>(online) ||
-                                   cpu >= static_cast<std::uint32_t>(CPU_SETSIZE))) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-    }
-    return {};
+    return cpus_within_online(cpus) ? core::Status{}
+                                    : std::unexpected(core::ErrorCode::InvalidArgument);
 }
 
 [[nodiscard]] core::Status validate_start_options(const StartOptions& options) noexcept {
@@ -356,12 +319,10 @@ struct SuperviseResult {
 }
 
 void rewrite_terminated_by(const std::string& exit_path, TerminatedBy value) noexcept {
-    core::Result<nlohmann::json> document = read_json_file(exit_path);
-    if (!document) {
+    ExitMetadata metadata{};
+    if (!read_json_into(exit_path, metadata)) {
         return;
     }
-    ExitMetadata metadata{};
-    from_json(*document, metadata);
     metadata.terminated_by = value;
     nlohmann::json updated;
     to_json(updated, metadata);
@@ -412,7 +373,7 @@ struct StartLayout {
     while (resolved.instance_dir.size() > 1 && resolved.instance_dir.back() == '/') {
         resolved.instance_dir.pop_back();
     }
-    if (resolved.instance_dir.empty() || resolved.instance_dir.size() > max_instance_dir_bytes) {
+    if (resolved.instance_dir.empty() || resolved.instance_dir.size() > max_path_bytes) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     const core::Status valid = app::validate_run_identity(resolved);
@@ -422,7 +383,7 @@ struct StartLayout {
 
     out.instance_dir = resolved.instance_dir;
     out.stream_root = options.artifact_dir.empty() ? out.instance_dir : options.artifact_dir;
-    if (out.stream_root.size() > max_instance_dir_bytes) {
+    if (out.stream_root.size() > max_path_bytes) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 
@@ -530,7 +491,7 @@ struct SupervisorContext {
     std::int32_t error_code = static_cast<std::int32_t>(core::ErrorCode::SystemError),
     int exit_code = 1) noexcept {
     StartReport report{0, error_code};
-    static_cast<void>(write_all(report_fd, &report, sizeof(report)));
+    static_cast<void>(write_start_report(report_fd, report));
     static_cast<void>(::close(report_fd));
     child_exit(exit_code);
 }
@@ -654,7 +615,7 @@ void close_supervisor_fds(int null_fd, int stdout_fd, int stderr_fd) noexcept {
     }
 
     StartReport report{context.metadata.pid, 0};
-    static_cast<void>(write_all(context.report_fd, &report, sizeof(report)));
+    static_cast<void>(write_start_report(context.report_fd, report));
     static_cast<void>(::close(context.report_fd));
 
     int child_status = 0;
@@ -739,12 +700,10 @@ resolve_stop_state(const std::string& resource_path, const std::string& exit_pat
         // foreign group liveness implies a foreign process, not a stop
         // failure (spec process-supervision "Identity is verified before
         // signals are sent").
-        const core::Result<nlohmann::json> completed = read_json_file(resource_path);
-        if (!completed) {
+        ResourceMetadata completed_metadata{};
+        if (!read_json_into(resource_path, completed_metadata)) {
             return std::nullopt;
         }
-        ResourceMetadata completed_metadata{};
-        from_json(*completed, completed_metadata);
         if (completed_metadata.pid > 0 &&
             identity_matches(completed_metadata.pid, completed_metadata.proc_start_ticks) &&
             group_alive(completed_metadata.pid)) {
@@ -869,19 +828,6 @@ resolve_stop_state(const std::string& resource_path, const std::string& exit_pat
     }
     argv.push_back(nullptr);
     return argv;
-}
-
-[[nodiscard]] core::Status read_start_report(int read_fd, pid_t supervisor) noexcept {
-    StartReport report{};
-    const bool received = read_all(read_fd, &report, sizeof(report));
-    static_cast<void>(::close(read_fd));
-    if (!received || report.error != 0 || report.pid <= 0) {
-        // Failed start must not leave a zombie supervisor behind (spec
-        // process-supervision "A failed start reaps the supervisor child").
-        reap_failed_supervisor(supervisor);
-        return std::unexpected(core::ErrorCode::SystemError);
-    }
-    return {};
 }
 
 } // namespace
@@ -1026,13 +972,10 @@ core::Status Runner::status(std::string_view instance_dir, std::string& state) n
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     const std::string directory(instance_dir);
-    core::Result<nlohmann::json> resource_document =
-        read_json_file(instance_file_path(directory, "resource.json"));
-    if (!resource_document) {
+    ResourceMetadata resource{};
+    if (!read_json_into(instance_file_path(directory, "resource.json"), resource)) {
         return {};
     }
-    ResourceMetadata resource{};
-    from_json(*resource_document, resource);
     if (resource.pid <= 0) {
         return {};
     }
@@ -1046,16 +989,13 @@ core::Status Runner::status(std::string_view instance_dir, std::string& state) n
         return {};
     }
 
-    core::Result<nlohmann::json> exit_document =
-        read_json_file(instance_file_path(directory, "exit.json"));
-    if (!exit_document) {
+    ExitMetadata exit_metadata{};
+    if (!read_json_into(instance_file_path(directory, "exit.json"), exit_metadata)) {
         // The process is gone and no completion record exists; a supervisor
         // may still be about to publish one, but the state is already final.
         state = "exited";
         return {};
     }
-    ExitMetadata exit_metadata{};
-    from_json(*exit_document, exit_metadata);
     state = exit_metadata.terminated_by == TerminatedBy::Runner ? "stopped" : "exited";
     return {};
 }
