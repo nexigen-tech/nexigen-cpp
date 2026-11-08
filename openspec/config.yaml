@@ -35,6 +35,12 @@ context: |
   11. Universal Enum std::formatter Specialization:
       - Every enum class MUST specialize `template <> struct std::formatter<EnumType>` in `namespace std` (inheriting or delegating to `std::formatter<std::string_view>` via `to_string(e)`) so all enums work directly in `std::format` and `nexigen::logging` format calls.
 
+  Third-Party Dependencies (ALL Modules):
+  12. JSON Library: the ONLY permitted JSON library is nlohmann/json (https://github.com/nlohmann/json), version v3.12.0 exactly.
+      - Never use rapidjson, jsoncpp, simdjson, boost::json, json11 or any other JSON library for any JSON work.
+      - The build MUST resolve exactly 3.12.0: `find_package(nlohmann_json 3.12.0 EXACT QUIET)` with the pinned FetchContent fallback (URL https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz, SHA256-verified). An unversioned system/conda package must NEVER win over the pin.
+      - Installed consumers resolve the same version: `find_dependency(nlohmann_json 3.12.0 EXACT)` in the package config.
+
   Code Organization — File-per-entity layout (ALL modules):
   - Each top-level enum, struct, and class lives in its own header, named snake_case of the type (LogLevel -> log_level.hpp, FileLoggerConfig -> file_logger_config.hpp).
   - Public types go in include/nexigen/<module>/; internal/implementation types go in include/nexigen/<module>/detail/ under <module>::detail.

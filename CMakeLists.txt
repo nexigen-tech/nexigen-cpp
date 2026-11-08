@@ -81,13 +81,15 @@ target_include_directories(nexigen_options INTERFACE
 
 # =============================================================================
 # nlohmann::json — vocabularies to_json/from_json для enum-контрактов
-# (design D1 change add-serialization-and-wait-free-logging). Предпочитаем
-# системный пакет; иначе FetchContent (header-only, тег закреплён).
+# (design D1 change add-serialization-and-wait-free-logging). Мандат 12
+# (openspec/config.yaml): только nlohmann/json ровно v3.12.0 — системный
+# пакет принимается лишь при EXACT-совпадении версии, любая другая версия
+# уходит в закреплённый FetchContent-архив.
 # JSON_NOEXCEPTION=1 определяется PUBLIC (INTERFACE): каждый consumer-TU
 # обязан инклудить <nlohmann/json.hpp> при -fno-exceptions, иначе заголовки
 # генерируют try/catch и падают на строгом флаге.
 # =============================================================================
-find_package(nlohmann_json QUIET)
+find_package(nlohmann_json 3.12.0 EXACT QUIET)
 if(NOT nlohmann_json_FOUND)
     include(FetchContent)
     set(JSON_BuildTests OFF CACHE INTERNAL "")

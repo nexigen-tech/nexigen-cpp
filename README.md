@@ -168,7 +168,10 @@ target_link_libraries(app PRIVATE nexigen::logging nexigen::metrics)
 ```
 
 The package config resolves `Threads` and `nlohmann_json` for the consumer; an
-installed `nlohmann_json` (3.11 or newer) must be discoverable. Version
+installed `nlohmann_json` **exactly v3.12.0** must be discoverable (mandate 12:
+nlohmann/json is the only permitted JSON library, version-pinned — the build
+tree falls back to the pinned FetchContent archive for any other version, but
+installed consumers have no fallback). Version
 compatibility is same-minor (`0.1.x`). The standalone consumer in
 `tests/packaging/consumer/` verifies the install tree end to end:
 
@@ -221,8 +224,10 @@ Header-only, C++23, no exceptions/RTTI, no heap allocation on hot paths. Link th
 **Serialization contract (all modules):** every public type exposes a cold-path
 `std::string to_string() const` + free `to_string(const T&)`; every enum class exposes
 constexpr `to_string`/`from_string`, ADL `to_json`/`from_json` and a `std::formatter`
-specialization. The build resolves nlohmann::json via `find_package(nlohmann_json QUIET)`
-with a FetchContent fallback (pinned v3.12.0) and propagates `JSON_NOEXCEPTION=1` publicly,
+specialization. The build resolves nlohmann::json via
+`find_package(nlohmann_json 3.12.0 EXACT QUIET)` (mandate 12: nlohmann/json
+https://github.com/nlohmann/json, exactly v3.12.0 — no other version) with a
+FetchContent fallback (pinned v3.12.0 archive) and propagates `JSON_NOEXCEPTION=1` publicly,
 so the JSON vocabulary compiles everywhere under `-fno-exceptions`. `std::string` and
 nlohmann::json remain strictly cold-path tools — never on a producer or worker hot path.
 

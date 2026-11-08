@@ -63,12 +63,17 @@ Every enum class SHALL specialize `template <> struct std::formatter<EnumType>` 
 
 ### Requirement: nlohmann_json build integration
 
-The build SHALL obtain nlohmann::json via `find_package(nlohmann_json QUIET)` with a FetchContent fallback when the package is not installed, link it as an INTERFACE dependency reachable from `nexigen::core` (and transitively from `nexigen::chrono` and `nexigen::logging`), and publicly define `JSON_NOEXCEPTION=1` so every consumer translation unit compiles the JSON headers under the project-wide `-fno-exceptions` mandate.
+The build SHALL obtain nlohmann::json — the only permitted JSON library, exactly v3.12.0 (mandate 12 in `openspec/config.yaml`) — via `find_package(nlohmann_json 3.12.0 EXACT QUIET)`, with a FetchContent fallback (pinned v3.12.0 archive) when no exactly-matching package is installed, link it as an INTERFACE dependency reachable from `nexigen::core` (and transitively from `nexigen::chrono` and `nexigen::logging`), and publicly define `JSON_NOEXCEPTION=1` so every consumer translation unit compiles the JSON headers under the project-wide `-fno-exceptions` mandate.
 
 #### Scenario: Configure succeeds without a system package
 
 - **WHEN** the project is configured on a machine with no nlohmann_json installed
 - **THEN** FetchContent provides the header-only dependency and configuration completes
+
+#### Scenario: An installed package of a different version does not win over the pin
+
+- **WHEN** the project is configured on a machine where nlohmann_json is installed at a version other than 3.12.0 (for example 3.11.x)
+- **THEN** `find_package` with `EXACT` rejects it and configuration falls back to the pinned v3.12.0 FetchContent archive
 
 #### Scenario: JSON headers compile without exceptions
 
