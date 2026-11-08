@@ -9,6 +9,7 @@
 #pragma once
 
 #include <nexigen/runner/app_spec.hpp>
+#include <nexigen/runner/child_process.hpp>
 #include <nexigen/runner/suite_app_metadata.hpp>
 #include <nexigen/runner/suite_app_status.hpp>
 #include <nexigen/runner/suite_control.hpp>

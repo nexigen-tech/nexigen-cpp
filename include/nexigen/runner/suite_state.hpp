@@ -1,10 +1,12 @@
 // nexigen::runner — SuiteState enum.
 #pragma once
+#include <array>
 #include <cstdint>
 #include <string_view>
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::runner {
 
 enum class SuiteState : std::uint8_t {
@@ -15,42 +17,39 @@ enum class SuiteState : std::uint8_t {
     Unknown,
 };
 
+} // namespace nexigen::runner
+
+namespace nexigen::runner {
+
 [[nodiscard]] constexpr std::string_view to_string(SuiteState value) noexcept {
-    switch (value) {
-        case SuiteState::Running:  return "running";
-        case SuiteState::Degraded: return "degraded";
-        case SuiteState::Failed:   return "failed";
-        case SuiteState::Stopped:  return "stopped";
-        case SuiteState::Unknown:  return "unknown";
-        default:                   return "unknown";
-    }
+    return core::enum_name(value);
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name, SuiteState& out) noexcept {
-    if (name == "running") {
-        out = SuiteState::Running;
-        return true;
-    }
-    if (name == "degraded") {
-        out = SuiteState::Degraded;
-        return true;
-    }
-    if (name == "failed") {
-        out = SuiteState::Failed;
-        return true;
-    }
-    if (name == "stopped") {
-        out = SuiteState::Stopped;
-        return true;
-    }
-    if (name == "unknown") {
-        out = SuiteState::Unknown;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 void to_json(nlohmann::json& j, SuiteState value);
 void from_json(const nlohmann::json& j, SuiteState& value) noexcept;
 
 } // namespace nexigen::runner
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::runner::SuiteState> {
+    struct Entry {
+        nexigen::runner::SuiteState value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 5> entries{{
+        {nexigen::runner::SuiteState::Running, "running"},
+        {nexigen::runner::SuiteState::Degraded, "degraded"},
+        {nexigen::runner::SuiteState::Failed, "failed"},
+        {nexigen::runner::SuiteState::Stopped, "stopped"},
+        {nexigen::runner::SuiteState::Unknown, "unknown"},
+    }};
+    static constexpr std::string_view fallback = "unknown";
+};
+
+} // namespace nexigen::core
