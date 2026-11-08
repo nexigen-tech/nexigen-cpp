@@ -72,6 +72,17 @@ using nexigen::runner::detail::monotonic_now_ns;
     return "event: gap\ndata: " + json_text(document) + "\n\n";
 }
 
+// SSE helpers
+[[nodiscard]] std::string sse_headers() noexcept {
+    return "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+           "Cache-Control: no-cache\r\nTransfer-Encoding: chunked\r\n"
+           "X-Accel-Buffering: no\r\n\r\n";
+}
+
+[[nodiscard]] std::string sse_tree_event(const nlohmann::json& document) noexcept {
+    return "event: tree\ndata: " + json_text(document) + "\n\n";
+}
+
 } // namespace
 
 struct HttpServer::Impl {
@@ -222,6 +233,7 @@ struct HttpServer::Impl {
             }
             bind_address_.in6.sin6_family = AF_INET6;
             bind_address_.in6.sin6_port = htons(requested_port);
+
             if (core::fault_injection::fault(core::fault_injection::FaultPoint::Hub_socket)) {
                 return std::unexpected(core::ErrorCode::SystemError);
             }
@@ -229,6 +241,7 @@ struct HttpServer::Impl {
             if (listen_fd < 0) {
                 return std::unexpected(core::ErrorCode::SystemError);
             }
+
             int enabled = 1;
             static_cast<void>(
                 ::setsockopt(listen_fd, IPPROTO_IPV6, IPV6_V6ONLY, &v6_only, sizeof(v6_only)));
@@ -475,9 +488,7 @@ struct HttpServer::Impl {
         client.sse = true;
         client.chunked = true;
         client.close_after_write = false;
-        client.output += "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
-                         "Cache-Control: no-cache\r\nTransfer-Encoding: chunked\r\n"
-                         "X-Accel-Buffering: no\r\n\r\n";
+        client.output += sse_headers();
         client.last_heartbeat_ns = monotonic_now_ns();
 
         if (tree_topic == "1") {
@@ -485,7 +496,7 @@ struct HttpServer::Impl {
             client.last_tree_revision = discovery.revision();
             nlohmann::json document;
             to_json(document, discovery.tree());
-            append_sse(client, "event: tree\ndata: " + json_text(document) + "\n\n");
+            append_sse(client, sse_tree_event(document));
             return;
         }
 
