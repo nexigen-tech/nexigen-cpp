@@ -9,12 +9,14 @@
 // mandate) — no per-type formatter specialization.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::chrono {
 
 /// Severity of the clock service's own worker diagnostics. Module-local so
@@ -26,45 +28,46 @@ enum class ClockLogLevel : std::uint8_t {
     error,   ///< hard failure
 };
 
+} // namespace nexigen::chrono
+
+namespace nexigen::chrono {
+
 /// Canonical name of a log level; allocation-free, constexpr.
 [[nodiscard]] constexpr std::string_view to_string(ClockLogLevel level) noexcept {
-    switch (level) {
-        case ClockLogLevel::info:    return "info";
-        case ClockLogLevel::warning: return "warning";
-        case ClockLogLevel::error:   return "error";
-        default:                     return "Unknown";
-    }
+    return core::enum_name(level);
 }
 
 /// Parse a canonical ClockLogLevel name; false leaves the out-parameter
 /// UNCHANGED on any other spelling.
 [[nodiscard]] constexpr bool from_string(std::string_view name, ClockLogLevel& out) noexcept {
-    if (name == "info") {
-        out = ClockLogLevel::info;
-        return true;
-    }
-    if (name == "warning") {
-        out = ClockLogLevel::warning;
-        return true;
-    }
-    if (name == "error") {
-        out = ClockLogLevel::error;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 /// ADL JSON writer (cold path only): the value is exactly to_string(level).
 inline void to_json(nlohmann::json& j, const ClockLogLevel level) {
-    j = std::string(to_string(level));
+    core::mandate::enum_to_json(j, level);
 }
 
 /// ADL JSON reader, strictly non-throwing under JSON_NOEXCEPTION=1.
 inline void from_json(const nlohmann::json& j, ClockLogLevel& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    core::mandate::enum_from_json(j, out);
 }
 
 } // namespace nexigen::chrono
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::chrono::ClockLogLevel> {
+    struct Entry {
+        nexigen::chrono::ClockLogLevel value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 3> entries{{
+        {nexigen::chrono::ClockLogLevel::info, "info"},
+        {nexigen::chrono::ClockLogLevel::warning, "warning"},
+        {nexigen::chrono::ClockLogLevel::error, "error"},
+    }};
+};
+
+} // namespace nexigen::core

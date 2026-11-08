@@ -21,6 +21,7 @@
 // specialization that renders through the canonical name.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <format>
 #include <string>
@@ -28,6 +29,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::diagnostics {
 
 /// The three states an interval timer occupies; nothing else exists.
@@ -37,52 +39,53 @@ enum class StopwatchState : std::uint8_t {
     Stopped, ///< Frozen: accumulated total kept, boundary reads stay put.
 };
 
+} // namespace nexigen::diagnostics
+
+namespace nexigen::diagnostics {
+
 /// Compile-time PascalCase name of a state — the exact spelling used by
 /// from_string, the JSON `"state"` payload and diagnostic strings. Static
 /// storage, allocation-free; the `default:` arm keeps a garbage-cast value
 /// well-defined ("Unknown" is a rendering, not an enumerator).
 [[nodiscard]] constexpr std::string_view to_string(StopwatchState state) noexcept {
-    switch (state) {
-        case StopwatchState::Idle:    return "Idle";
-        case StopwatchState::Running: return "Running";
-        case StopwatchState::Stopped: return "Stopped";
-        default:                      return "Unknown";
-    }
+    return core::enum_name(state);
 }
 
 /// Parse a canonical PascalCase state name (the exact to_string spelling).
 /// Returns false leaving the out-parameter UNCHANGED otherwise.
 [[nodiscard]] constexpr bool from_string(std::string_view name, StopwatchState& out) noexcept {
-    if (name == "Idle") {
-        out = StopwatchState::Idle;
-        return true;
-    }
-    if (name == "Running") {
-        out = StopwatchState::Running;
-        return true;
-    }
-    if (name == "Stopped") {
-        out = StopwatchState::Stopped;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 /// ADL JSON writer (cold path only): the JSON value is exactly to_string(state).
 inline void to_json(nlohmann::json& j, const StopwatchState state) {
-    j = std::string(to_string(state));
+    core::mandate::enum_to_json(j, state);
 }
 
 /// ADL JSON reader, strictly non-throwing under JSON_NOEXCEPTION=1: non-string
 /// values yield nullptr from get_ptr, unknown names leave `out` unchanged.
 inline void from_json(const nlohmann::json& j, StopwatchState& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    core::mandate::enum_from_json(j, out);
 }
 
 } // namespace nexigen::diagnostics
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::diagnostics::StopwatchState> {
+    struct Entry {
+        nexigen::diagnostics::StopwatchState value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 3> entries{{
+        {nexigen::diagnostics::StopwatchState::Idle, "Idle"},
+        {nexigen::diagnostics::StopwatchState::Running, "Running"},
+        {nexigen::diagnostics::StopwatchState::Stopped, "Stopped"},
+    }};
+};
+
+} // namespace nexigen::core
 
 /// StopwatchState formats as its canonical PascalCase name (mandate 11):
 /// parse and fill/align handled by the string_view formatter; context

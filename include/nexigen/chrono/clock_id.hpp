@@ -16,6 +16,7 @@
 // clock read (spec chrono/clock-id "Compile-time domain declaration").
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <format>
 #include <string>
@@ -23,6 +24,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::chrono {
 
 /// Base clock domains available on every Linux system.
@@ -32,46 +34,30 @@ enum class ClockId : std::uint8_t {
     realtime,      ///< wall clock, disciplined by NTP/PTP (may step)
 };
 
+} // namespace nexigen::chrono
+
+namespace nexigen::chrono {
+
 /// Canonical name of a clock domain; allocation-free, constexpr.
 [[nodiscard]] constexpr std::string_view to_string(ClockId id) noexcept {
-    switch (id) {
-        case ClockId::monotonic_raw: return "monotonic_raw";
-        case ClockId::boottime:      return "boottime";
-        case ClockId::realtime:      return "realtime";
-        default:                     return "Unknown";
-    }
+    return core::enum_name(id);
 }
 
 /// Parse a canonical ClockId name; false leaves the out-parameter UNCHANGED
 /// on any other spelling (including "Unknown" — a rendering, not an enumerator).
 [[nodiscard]] constexpr bool from_string(std::string_view name, ClockId& out) noexcept {
-    if (name == "monotonic_raw") {
-        out = ClockId::monotonic_raw;
-        return true;
-    }
-    if (name == "boottime") {
-        out = ClockId::boottime;
-        return true;
-    }
-    if (name == "realtime") {
-        out = ClockId::realtime;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 /// ADL JSON writer (cold path only): the value is exactly to_string(id).
 inline void to_json(nlohmann::json& j, const ClockId id) {
-    j = std::string(to_string(id));
+    core::mandate::enum_to_json(j, id);
 }
 
 /// ADL JSON reader, strictly non-throwing under JSON_NOEXCEPTION=1: non-string
 /// values yield nullptr from get_ptr; unknown names leave `out` unchanged.
 inline void from_json(const nlohmann::json& j, ClockId& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    core::mandate::enum_from_json(j, out);
 }
 
 /// Compile-time clock-domain declaration. A component specializes this
@@ -80,3 +66,20 @@ inline void from_json(const nlohmann::json& j, ClockId& out) noexcept {
 template <class T> inline constexpr ClockId clock_domain = ClockId::monotonic_raw;
 
 } // namespace nexigen::chrono
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::chrono::ClockId> {
+    struct Entry {
+        nexigen::chrono::ClockId value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 3> entries{{
+        {nexigen::chrono::ClockId::monotonic_raw, "monotonic_raw"},
+        {nexigen::chrono::ClockId::boottime, "boottime"},
+        {nexigen::chrono::ClockId::realtime, "realtime"},
+    }};
+};
+
+} // namespace nexigen::core
