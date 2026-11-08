@@ -15,21 +15,11 @@
 #include <cstring>
 #include <string>
 
-#include <nexigen/logging/logger_options.hpp>
+#include <nexigen/logging/detail/spam_shard_state.hpp>
 #include <nexigen/logging/log_level.hpp>
+#include <nexigen/logging/spam_protection_config.hpp>
 
 namespace nexigen::logging::detail {
-
-/// Per-shard anti-spam state (owner-written, consumer-read relaxed).
-struct alignas(64) SpamShardState {
-    std::uint64_t last_hash{0};                    ///< hash of previous message identity
-    std::uint32_t repeat_count{0};                 ///< consecutive identical messages
-    std::uint64_t repeat_window_start{0};          ///< monotonic ns of window start
-    std::uint64_t tokens_used{0};                  ///< messages in current second
-    std::uint64_t window_start_ns{0};              ///< rate-limit window start
-    std::atomic<std::uint64_t> throttled_count{0}; ///< rate-limited drops
-    std::uint8_t pad_[16]{};
-};
 
 /// Two-level anti-spam: repeat suppression + token-bucket rate limiting.
 /// The hot-path quota fields are per-field atomics (design D5, change
@@ -58,6 +48,13 @@ public:
         max_messages_per_sec_per_shard_.store(cfg.max_messages_per_sec_per_shard,
                                               std::memory_order_relaxed);
         bypass_min_level_.store(cfg.bypass_min_level, std::memory_order_relaxed);
+    }
+
+    /// Hot-path guard: true only when repeat suppression is armed. The
+    /// producer skips the ~70 ns message-hash computation when this is false
+    /// (the default) — `check_repeat` would short-circuit and never read it.
+    [[nodiscard]] bool repeat_suppression_enabled() const noexcept {
+        return enable_repeat_suppression_.load(std::memory_order_relaxed);
     }
 
     /// Snapshot view of the currently published quotas (cold-path diagnostic;

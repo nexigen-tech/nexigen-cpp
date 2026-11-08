@@ -48,7 +48,7 @@
 #include <nexigen/logging/composite_logger.hpp>
 #include <nexigen/logging/console_logger.hpp>
 #include <nexigen/logging/detail/affinity.hpp>
-#include <nexigen/logging/detail/async_logger.hpp>
+#include <nexigen/logging/detail/async_worker.hpp>
 #include <nexigen/logging/detail/json_writer.hpp>
 #include <nexigen/logging/detail/level_control.hpp>
 #include <nexigen/logging/detail/producer.hpp>
@@ -57,7 +57,7 @@
 #include <nexigen/logging/log_level.hpp>
 #include <nexigen/logging/log_record.hpp>
 #include <nexigen/logging/logger_options.hpp>
-#include <nexigen/logging/logging_settings.hpp>
+#include <nexigen/logging/settings.hpp>
 #include <nexigen/logging/null_logger.hpp>
 
 // --- Compile-time claims (design.md D18): the harness itself is allocation-
@@ -1255,30 +1255,29 @@ void test_affinity() {
 
 // --- rotation suite (task 5.5 / spec logging/file-logger rotation).
 void test_rotation() {
-    using detail::RotationKind;
     constexpr std::int64_t hour_end_ns =
         1'784'851'199'999'999'999LL;                       // 2026-07-23T23:59:59.999999999Z
     constexpr std::int64_t next_hour_ns = hour_end_ns + 1; // 2026-07-24T00:00:00Z
     constexpr std::int64_t ns_hour = 3'600'000'000'000LL;
 
     // Keys move exactly at boundaries.
-    NX_CHECK(detail::period_key(RotationKind::Hourly, 0, hour_end_ns) ==
-             detail::period_key(RotationKind::Hourly, 0, hour_end_ns));
-    NX_CHECK(detail::period_key(RotationKind::Hourly, 0, next_hour_ns) ==
-             detail::period_key(RotationKind::Hourly, 0, hour_end_ns) + 1);
+    NX_CHECK(detail::period_key(RotationSchedule::Hourly, 0, hour_end_ns) ==
+             detail::period_key(RotationSchedule::Hourly, 0, hour_end_ns));
+    NX_CHECK(detail::period_key(RotationSchedule::Hourly, 0, next_hour_ns) ==
+             detail::period_key(RotationSchedule::Hourly, 0, hour_end_ns) + 1);
     // next_hour_ns lands on 07-24T00:00:00Z — already the next DAY as well.
-    NX_CHECK(detail::period_key(RotationKind::Daily, 0, next_hour_ns) ==
-             detail::period_key(RotationKind::Daily, 0, hour_end_ns) + 1);
-    NX_CHECK(detail::period_key(RotationKind::Daily, 0, hour_end_ns + ns_hour) ==
-             detail::period_key(RotationKind::Daily, 0, hour_end_ns) + 1);
+    NX_CHECK(detail::period_key(RotationSchedule::Daily, 0, next_hour_ns) ==
+             detail::period_key(RotationSchedule::Daily, 0, hour_end_ns) + 1);
+    NX_CHECK(detail::period_key(RotationSchedule::Daily, 0, hour_end_ns + ns_hour) ==
+             detail::period_key(RotationSchedule::Daily, 0, hour_end_ns) + 1);
 
     char label[64]{};
-    NX_CHECK(detail::period_label(RotationKind::Hourly, 0, hour_end_ns, label) == 13);
+    NX_CHECK(detail::period_label(RotationSchedule::Hourly, 0, hour_end_ns, label) == 13);
     NX_CHECK(std::strcmp(label, "2026-07-23T23") == 0);
-    NX_CHECK(detail::period_label(RotationKind::Daily, 0, hour_end_ns, label) == 10);
+    NX_CHECK(detail::period_label(RotationSchedule::Daily, 0, hour_end_ns, label) == 10);
     NX_CHECK(std::strcmp(label, "2026-07-23") == 0);
     // Leap day label
-    NX_CHECK(detail::period_label(RotationKind::Daily, 0, 1'709'164'800'000'000'000LL, label) ==
+    NX_CHECK(detail::period_label(RotationSchedule::Daily, 0, 1'709'164'800'000'000'000LL, label) ==
              10);
     NX_CHECK(std::strcmp(label, "2024-02-29") == 0);
     // Custom key/label: 250 ms windows (epoch-anchored, so align the probe
@@ -1287,21 +1286,21 @@ void test_rotation() {
     constexpr std::int64_t t = 1'784'850'120'321'841'133LL;
     const std::int64_t idx0 = static_cast<std::int64_t>(static_cast<std::uint64_t>(t) / custom);
     const std::int64_t t0a = t - static_cast<std::int64_t>(static_cast<std::uint64_t>(t) % custom);
-    NX_CHECK(detail::period_key(RotationKind::Custom, custom, t) == idx0);
-    NX_CHECK(detail::period_key(RotationKind::Custom, custom, t0a) == idx0);
-    NX_CHECK(detail::period_key(RotationKind::Custom, custom,
+    NX_CHECK(detail::period_key(RotationSchedule::Custom, custom, t) == idx0);
+    NX_CHECK(detail::period_key(RotationSchedule::Custom, custom, t0a) == idx0);
+    NX_CHECK(detail::period_key(RotationSchedule::Custom, custom,
                                 t0a + static_cast<std::int64_t>(custom) - 1) == idx0);
-    NX_CHECK(detail::period_key(RotationKind::Custom, custom,
+    NX_CHECK(detail::period_key(RotationSchedule::Custom, custom,
                                 t0a + static_cast<std::int64_t>(custom)) == idx0 + 1);
-    const std::size_t llen = detail::period_label(RotationKind::Custom, custom, t, label);
+    const std::size_t llen = detail::period_label(RotationSchedule::Custom, custom, t, label);
     char expect_label[64];
     const int epos = std::snprintf(expect_label, sizeof expect_label, "epoch-%lld",
                                    static_cast<long long>(idx0));
     NX_CHECK(epos > 0);
     NX_CHECK(std::strcmp(label, expect_label) == 0 && std::strlen(label) == llen);
     // None: key 0, no label.
-    NX_CHECK(detail::period_key(detail::RotationKind::None, 0, t) == 0);
-    NX_CHECK(detail::period_label(detail::RotationKind::None, 0, t, label) == 0);
+    NX_CHECK(detail::period_key(RotationSchedule::None, 0, t) == 0);
+    NX_CHECK(detail::period_label(RotationSchedule::None, 0, t, label) == 0);
 
     // Filesystem switch: two 1 ms custom windows land in distinct directories,
     // sentinel lines round-trip, and the whole sequence allocates nothing.
@@ -1314,7 +1313,7 @@ void test_rotation() {
     detail::RotationScratch sc{};
     int fd = -1;
     // warm-up open first so any lazy libc setup happens outside the measured window
-    NX_CHECK(detail::open_period(detail::RotationKind::Custom, fast_period, t, base_dir,
+    NX_CHECK(detail::open_period(RotationSchedule::Custom, fast_period, t, base_dir,
                                  "warm.jsonl", sc, fd)
                  .has_value());
     NX_CHECK(fd >= 0);
@@ -1324,7 +1323,7 @@ void test_rotation() {
     const std::size_t heap_b = heap_in_use();
 
     int fd1 = -1;
-    NX_CHECK(detail::open_period(detail::RotationKind::Custom, fast_period, t, base_dir,
+    NX_CHECK(detail::open_period(RotationSchedule::Custom, fast_period, t, base_dir,
                                  "app.jsonl", sc, fd1)
                  .has_value());
     NX_CHECK(fd1 >= 0);
@@ -1335,7 +1334,7 @@ void test_rotation() {
     ::close(fd1);
 
     int fd2 = -1;
-    NX_CHECK(detail::open_period(detail::RotationKind::Custom, fast_period, t + 2'000'000, base_dir,
+    NX_CHECK(detail::open_period(RotationSchedule::Custom, fast_period, t + 2'000'000, base_dir,
                                  "app.jsonl", sc, fd2)
                  .has_value());
     NX_CHECK(fd2 >= 0);
@@ -1367,9 +1366,9 @@ void test_rotation() {
     NX_CHECK(read_first_line(path2, got) == 2 && std::strcmp(got, "b\n") == 0);
 
     // Error paths: empty base rejected; a non-directory component maps to SystemError.
-    NX_CHECK(!detail::open_period(detail::RotationKind::Hourly, 0, t, "", "app.jsonl", sc, fd)
+    NX_CHECK(!detail::open_period(RotationSchedule::Hourly, 0, t, "", "app.jsonl", sc, fd)
                   .has_value());
-    const Status bad = detail::open_period(detail::RotationKind::Hourly, 0, t, "/etc/hostname",
+    const Status bad = detail::open_period(RotationSchedule::Hourly, 0, t, "/etc/hostname",
                                            "app.jsonl", sc, fd);
     NX_CHECK(!bad.has_value());
     NX_CHECK(bad.error() == ErrorCode::SystemError);
@@ -2012,26 +2011,26 @@ void test_enum_vocab() {
     NX_CHECK(std::format("[{:*>8}]", LogLevel::Info) == "[****info]");
     static_assert(std::formattable<const LogLevel&, char>);
 
-    // RotationSchedule vocabulary (task 2.3) — detail::RotationKind alias.
+    // RotationSchedule vocabulary (task 2.3) — RotationSchedule alias.
     const RotationSchedule kinds[] = {RotationSchedule::None, RotationSchedule::Hourly,
                                       RotationSchedule::Daily, RotationSchedule::Custom};
     for (const RotationSchedule k : kinds) {
         RotationSchedule parsed = RotationSchedule::None;
-        NX_CHECK(detail::from_string(detail::to_string(k), parsed));
+        NX_CHECK(from_string(to_string(k), parsed));
         NX_CHECK(parsed == k);
         nlohmann::json j;
-        detail::to_json(j, k);
+        to_json(j, k);
         NX_CHECK(j.is_string());
         RotationSchedule back = RotationSchedule::Custom;
-        detail::from_json(j, back);
+        from_json(j, back);
         NX_CHECK(back == k);
     }
     NX_CHECK(std::format("rotate={}", RotationSchedule::Daily) == "rotate=daily");
     NX_CHECK(std::format("[{:*>8}]", RotationSchedule::Hourly) == "[**hourly]");
     RotationSchedule keep = RotationSchedule::Hourly;
-    detail::from_json(nlohmann::json("weekly"), keep);
+    from_json(nlohmann::json("weekly"), keep);
     NX_CHECK(keep == RotationSchedule::Hourly);
-    detail::from_json(nlohmann::json(7), keep);
+    from_json(nlohmann::json(7), keep);
     NX_CHECK(keep == RotationSchedule::Hourly);
 
     std::printf("enum_vocab: levels x7 + schedules x4 round-tripped, hostile inputs "
@@ -3799,7 +3798,7 @@ void test_file_size_rotation() {
         int fd = -1;
         const std::string dir = unique_path("settings_segment_paths");
         static_cast<void>(::mkdir(dir.c_str(), 0755));
-        NX_CHECK(detail::open_segment(detail::RotationKind::None, 0, 0, dir, "app.jsonl", 2U,
+        NX_CHECK(detail::open_segment(RotationSchedule::None, 0, 0, dir, "app.jsonl", 2U,
                                       scratch, fd)
                      .has_value());
         NX_CHECK(fd >= 0);
@@ -3808,13 +3807,13 @@ void test_file_size_rotation() {
         }
         NX_CHECK(std::string(scratch.file).find("app.2.jsonl") != std::string::npos);
         NX_CHECK(
-            detail::open_segment(detail::RotationKind::None, 0, 0, dir, "noext", 3U, scratch, fd)
+            detail::open_segment(RotationSchedule::None, 0, 0, dir, "noext", 3U, scratch, fd)
                 .has_value());
         if (fd >= 0) {
             static_cast<void>(::close(fd));
         }
         NX_CHECK(std::string(scratch.file).find("noext.3") != std::string::npos);
-        NX_CHECK(!detail::open_segment(detail::RotationKind::None, 0, 0, "", "app.jsonl", 1U,
+        NX_CHECK(!detail::open_segment(RotationSchedule::None, 0, 0, "", "app.jsonl", 1U,
                                        scratch, fd)
                       .has_value());
     }
@@ -4005,15 +4004,15 @@ void test_spam_window_and_rotation_errors() {
     {
         detail::RotationScratch scratch{};
         int fd = -1;
-        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0, "", "f", scratch, fd)
+        NX_CHECK(!detail::open_period(RotationSchedule::None, 0, 0, "", "f", scratch, fd)
                       .has_value());
-        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0, "/tmp",
+        NX_CHECK(!detail::open_period(RotationSchedule::None, 0, 0, "/tmp",
                                       std::string(256, 'x'), scratch, fd)
                       .has_value());
-        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0, std::string(512, 'b'), "f",
+        NX_CHECK(!detail::open_period(RotationSchedule::None, 0, 0, std::string(512, 'b'), "f",
                                       scratch, fd)
                       .has_value());
-        NX_CHECK(!detail::open_period(detail::RotationKind::None, 0, 0, "/proc/nexigen-nope", "f",
+        NX_CHECK(!detail::open_period(RotationSchedule::None, 0, 0, "/proc/nexigen-nope", "f",
                                       scratch, fd)
                       .has_value());
     }

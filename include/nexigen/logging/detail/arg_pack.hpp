@@ -41,6 +41,7 @@
 #include <utility>
 
 #include <nexigen/chrono/timestamp.hpp>
+#include <nexigen/logging/detail/bounded_sink.hpp>
 
 namespace nexigen::logging::detail {
 
@@ -119,35 +120,6 @@ template <std::size_t MessageCapacity, class T>
         return value;
     }
 }
-
-/// Bounded output adapter for std::vformat_to (the checked/bounded overload
-/// needs a compile-time format_string; we hold a runtime pointer, so writes
-/// flow through this sink: bytes up to `left` land in the caller buffer, the
-/// rest are discarded into a one-byte spill. Never allocates.)
-struct BoundedSink {
-    using value_type = char;
-    using difference_type = std::ptrdiff_t;
-    using reference = char&;
-    using iterator_category = std::output_iterator_tag;
-
-    char* p{nullptr};
-    std::size_t left{0};
-    char spill{};
-
-    [[nodiscard]] char& operator*() noexcept { return left > 0U ? *p : spill; }
-    BoundedSink& operator++() noexcept {
-        if (left > 0U) {
-            ++p;
-            --left;
-        }
-        return *this;
-    }
-    BoundedSink operator++(int) noexcept {
-        const BoundedSink copy = *this;
-        ++*this;
-        return copy;
-    }
-};
 
 /// Render a packed tuple through the record's stored callback. The format
 /// string was type-checked at the call site (std::format_string), so the

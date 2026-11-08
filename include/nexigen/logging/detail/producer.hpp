@@ -66,41 +66,15 @@
 #include <nexigen/core/spsc_ring_buffer.hpp>
 #include <nexigen/chrono/stamp_source.hpp>
 #include <nexigen/logging/detail/arg_pack.hpp>
+#include <nexigen/logging/detail/format_param.hpp>
 #include <nexigen/logging/detail/level_control.hpp>
 #include <nexigen/logging/detail/spam_protection.hpp>
-#include <nexigen/logging/format_with_location.hpp>
+#include <nexigen/logging/dropped_stats.hpp>
 #include <nexigen/logging/log_level.hpp>
 #include <nexigen/logging/log_record.hpp>
+#include <nexigen/logging/throttle_config.hpp>
 
-namespace nexigen::logging {
-
-/// Snapshot of dropped-record accounting (spec logging/multi-producer: the
-/// three drop causes are counted separately; third threads may read it
-/// anytime as a cross-shard aggregate).
-struct DroppedStats {
-    std::uint64_t rate_limited{};   ///< Rejected by the throttle window (D9).
-    std::uint64_t buffer_full{};    ///< Rejected by a full shard ring.
-    std::uint64_t slot_exhausted{}; ///< Dropped: no free shard slot (D6).
-
-    [[nodiscard]] constexpr std::uint64_t total() const noexcept {
-        return rate_limited + buffer_full + slot_exhausted;
-    }
-
-    /// Cold-path diagnostic (mandate 9): per-cause counts + total.
-    [[nodiscard]] std::string to_string() const {
-        return "DroppedStats(rate_limited=" + std::to_string(rate_limited) +
-               ", buffer_full=" + std::to_string(buffer_full) +
-               ", slot_exhausted=" + std::to_string(slot_exhausted) +
-               ", total=" + std::to_string(total()) + ")";
-    }
-};
-
-/// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const DroppedStats& stats) {
-    return stats.to_string();
-}
-
-namespace detail {
+namespace nexigen::logging::detail {
 
 /// Per-thread cached Linux thread id (design D5): the SYS_gettid syscall runs
 /// once per thread on first use; steady-state calls read the thread_local.
@@ -113,26 +87,9 @@ namespace detail {
     return tid;
 }
 
-/// Window throttle parameters (design D9; spec logging/file-logger).
-/// Validation belongs to FileLogger::initialize; configure_throttle copies
-/// as-is and only enables when max/window are non-zero.
-struct ThrottleConfig {
-    bool enabled{false};
-    std::uint64_t max_records_per_window{0}; ///< accepted budget per window
-    std::uint64_t window_ns{0};              ///< window length, monotonic domain
-
-    /// Cold-path diagnostic (mandate 9): full policy dump.
-    [[nodiscard]] std::string to_string() const {
-        return "ThrottleConfig(enabled=" + std::string(enabled ? "true" : "false") +
-               ", max_records_per_window=" + std::to_string(max_records_per_window) +
-               ", window_ns=" + std::to_string(window_ns) + ")";
-    }
-};
-
-/// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const ThrottleConfig& cfg) {
-    return cfg.to_string();
-}
+/// Window throttle parameters live in the public nexigen::logging::ThrottleConfig
+/// (throttle_config.hpp). configure_throttle copies it as-is and only enables
+/// when max/window are non-zero.
 
 /// The hot-path pipeline shared by ConsoleLogger/FileLogger: a fixed array of
 /// per-thread SPSC shards (spec logging/multi-producer). Composed (not
@@ -442,10 +399,16 @@ public:
         }
 
         // Anti-spam Level 1: repeat suppression (hash includes packed args).
-        const std::uint64_t msg_hash =
-            message_hash(rec.file_name, rec.line, rec.fmt, rec.arg_payload_.data(), rec.arg_length);
-        if (!spam_.check_repeat(spam_st, msg_hash, stamp.nanoseconds())) {
-            return; // suppressed duplicate
+        // The FNV hash costs ~70 ns (serial dependent-multiply chain), so it is
+        // computed ONLY when suppression is armed. The default is off, and a
+        // disabled suppression never reads the hash (check_repeat short-circuits
+        // on the same flag), so the hot path must not pay for it.
+        if (spam_.repeat_suppression_enabled()) {
+            const std::uint64_t msg_hash = message_hash(
+                rec.file_name, rec.line, rec.fmt, rec.arg_payload_.data(), rec.arg_length);
+            if (!spam_.check_repeat(spam_st, msg_hash, stamp.nanoseconds())) {
+                return; // suppressed duplicate
+            }
         }
 
         const core::Status pushed = pool_.ring(static_cast<std::size_t>(slot)).try_push(rec);
@@ -471,5 +434,4 @@ public:
     [[nodiscard]] bool ring_empty() const noexcept { return pool_.ring_empty(); }
 };
 
-} // namespace detail
-} // namespace nexigen::logging
+} // namespace nexigen::logging::detail

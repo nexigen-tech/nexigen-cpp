@@ -30,7 +30,8 @@
 #pragma GCC diagnostic pop
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/core/settings_vocabulary.hpp>
+#include <nexigen/core/settings_diagnostic.hpp>
+#include <nexigen/core/settings_source.hpp>
 
 namespace nexigen::core::settings_io {
 

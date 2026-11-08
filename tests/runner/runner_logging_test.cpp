@@ -18,7 +18,7 @@
 #include "../support/test_temp.hpp"
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/logging/logging_settings.hpp>
+#include <nexigen/logging/settings.hpp>
 #include <nexigen/runner/instance_lifecycle.hpp>
 #include <nexigen/runner/runner_logging.hpp>
 

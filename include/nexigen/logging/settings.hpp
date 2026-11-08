@@ -21,7 +21,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <format>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -29,12 +28,12 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/core/settings_vocabulary.hpp>
+#include <nexigen/core/settings_diagnostic.hpp>
+#include <nexigen/core/settings_paths.hpp>
+#include <nexigen/core/settings_source.hpp>
 #include <nexigen/logging/logger_options.hpp>
 
 namespace nexigen::logging {
-
-struct FileLoggerConfig; // defined by file_logger.hpp
 
 /// Merged result of one load. `global_loaded`/`local_loaded` report file
 /// presence, not success; `diagnostics` carries every non-fatal problem.
@@ -60,7 +59,7 @@ struct Settings {
     return settings.to_string();
 }
 
-// --- cold-path ADL serialization (body in src/logging/logging_settings.cpp)
+// --- cold-path ADL serialization (body in src/logging/settings.cpp)
 void to_json(nlohmann::json& j, const Settings& settings);
 // Deliberately no from_json(Settings&): reconstructed by the loader.
 
@@ -70,11 +69,6 @@ void to_json(nlohmann::json& j, const Settings& settings);
 /// exists but cannot be read. Missing files are not errors.
 [[nodiscard]] core::Status load_logging_settings(const core::SettingsPaths& paths,
                                                  Settings& out) noexcept;
-
-/// Map merged settings into a file logger construction config. Returns
-/// InvalidArgument when a mapped value violates the file logger's fixed-buffer
-/// limits; the destination owns its strings.
-[[nodiscard]] core::Status apply_to(const Settings& settings, FileLoggerConfig& out) noexcept;
 
 /// Check explicitly configured capacities against a logger's compile-time
 /// limits. Defaults that were never explicitly set are not checked. When

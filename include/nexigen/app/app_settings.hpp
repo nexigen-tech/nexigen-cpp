@@ -1,39 +1,19 @@
-// nexigen::app — application settings (change
-// refactor-settings-into-subsystem-modules; spec app/settings).
-//
-// COLD PATH ONLY. The app layer now AGGREGATES the four subsystem settings:
-// each subsystem (logging, metrics, tracing, chrono) owns its own `Settings`
-// type and loader, and `load_app_settings` delegates to the four loaders and
-// reports the worst status. The shared source/diagnostic vocabulary lives in
-// `nexigen::core`.
+// nexigen::app — merged app settings (spec app/settings).
+// AppSettingsPaths was split into app_settings_paths.hpp.
 #pragma once
 
-#include <format>
 #include <string>
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/app/app_settings_paths.hpp>
 #include <nexigen/chrono/chrono_settings.hpp>
-#include <nexigen/core/result.hpp>
-#include <nexigen/core/settings_vocabulary.hpp>
-#include <nexigen/logging/logging_settings.hpp>
+#include <nexigen/core/settings_source.hpp>
+#include <nexigen/logging/settings.hpp>
 #include <nexigen/metrics/metrics_settings.hpp>
 #include <nexigen/tracing/tracing_settings.hpp>
 
 namespace nexigen::app {
-
-/// The four explicit source pairs consumed by load_app_settings.
-struct AppSettingsPaths {
-    core::SettingsPaths logging{};
-    core::SettingsPaths metrics{};
-    core::SettingsPaths tracing{};
-    core::SettingsPaths chrono{};
-
-    [[nodiscard]] std::string to_string() const;
-};
-[[nodiscard]] inline std::string to_string(const AppSettingsPaths& paths) {
-    return paths.to_string();
-}
 
 /// One merged value consumed by Infrastructure::initialize.
 struct Settings {
@@ -49,16 +29,13 @@ struct Settings {
     return settings.to_string();
 }
 
-// --- cold-path ADL serialization (bodies in src/app/app_settings.cpp)
-void to_json(nlohmann::json& j, const AppSettingsPaths& paths);
+// --- cold-path ADL serialization (body in src/app/app_settings.cpp)
 void to_json(nlohmann::json& j, const Settings& settings);
-// No from_json for the aggregate or AppSettingsPaths: they are reconstructed
-// by the loaders (pinned at compile time in the test TU).
+// No from_json for the aggregate: it is reconstructed by the loaders.
 
 /// Load logging + metrics + tracing + chrono by delegating to the four
 /// subsystem loaders. Reports SystemError if any supplied file could not be
 /// read, otherwise InvalidArgument if any diagnostic exists, otherwise OK.
-/// Every subsystem stays populated best effort.
 [[nodiscard]] core::Status load_app_settings(const AppSettingsPaths& paths, Settings& out) noexcept;
 
 } // namespace nexigen::app

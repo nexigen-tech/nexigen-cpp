@@ -19,7 +19,9 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/core/settings_vocabulary.hpp>
+#include <nexigen/core/settings_diagnostic.hpp>
+#include <nexigen/core/settings_paths.hpp>
+#include <nexigen/core/settings_source.hpp>
 #include <nexigen/tracing/json_file_trace_sink.hpp>
 #include <nexigen/tracing/tracer_provider.hpp>
 

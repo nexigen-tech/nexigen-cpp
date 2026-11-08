@@ -24,7 +24,9 @@
 #include <nexigen/chrono/chrono_provider.hpp>
 #include <nexigen/chrono/json_file_chrono_sink.hpp>
 #include <nexigen/core/result.hpp>
-#include <nexigen/core/settings_vocabulary.hpp>
+#include <nexigen/core/settings_diagnostic.hpp>
+#include <nexigen/core/settings_paths.hpp>
+#include <nexigen/core/settings_source.hpp>
 
 namespace nexigen::chrono {
 

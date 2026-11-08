@@ -35,6 +35,7 @@
 #include <nexigen/chrono/stamp_source.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/diagnostics/stopwatch_state.hpp>
+#include <nexigen/diagnostics/lap_snapshot.hpp>
 
 namespace nexigen::diagnostics {
 
@@ -45,24 +46,6 @@ namespace nexigen::diagnostics {
 /// order keeps the struct at 24 bytes (uint8 state, uint32 lap_number, two
 /// uint64 counts); trivially copyable, copyable in O(1). Cold-path to_string
 /// lives in src/diagnostics/stopwatch_format.cpp (mandate 9).
-struct LapSnapshot {
-    StopwatchState state;     ///< The lifecycle state observed at the snapshot.
-    std::uint32_t lap_number; ///< 1-based index of the most recent lap (0 = none).
-    std::uint64_t lap_ns;     ///< Duration of that most recent lap (0 = none).
-    std::uint64_t total_ns;   ///< Elapsed nanoseconds at the snapshot.
-
-    /// Cold-path diagnostic (mandate 9; spec "Diagnostic rendering").
-    [[nodiscard]] std::string to_string() const;
-
-    /// All fields compare — snapshots are plain values.
-    [[nodiscard]] friend constexpr bool operator==(const LapSnapshot&,
-                                                   const LapSnapshot&) = default;
-};
-
-/// Free helper (mandate 9): mirrors LapSnapshot::to_string.
-[[nodiscard]] inline std::string to_string(const LapSnapshot& snapshot) {
-    return snapshot.to_string();
-}
 
 /// An interval timer: measure, split, budget — the diagnostic stopwatch.
 /// Single-thread measuring domain by design (fresh instance per thread, no

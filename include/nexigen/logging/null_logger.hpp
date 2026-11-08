@@ -35,8 +35,8 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/concepts/logger_concept.hpp>
+#include <nexigen/logging/detail/format_param.hpp>
 #include <nexigen/logging/detail/level_control.hpp>
-#include <nexigen/logging/format_with_location.hpp>
 #include <nexigen/logging/log_level.hpp>
 
 namespace nexigen::logging {

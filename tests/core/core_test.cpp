@@ -32,7 +32,9 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/serialization_mandate.hpp>
-#include <nexigen/core/settings_vocabulary.hpp>
+#include <nexigen/core/settings_diagnostic.hpp>
+#include <nexigen/core/settings_paths.hpp>
+#include <nexigen/core/settings_source.hpp>
 #include <nexigen/core/shard_pool.hpp>
 #include <nexigen/core/affinity.hpp>
 #include <nexigen/core/sink_io.hpp>

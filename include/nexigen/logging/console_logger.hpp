@@ -13,13 +13,6 @@
 // Routing (spec "Stream routing by severity"): Verbose/Debug/Info -> stdout;
 // Warning/Error/Fatal -> stderr.
 //
-// Line shape (self-descriptive, fixed format, allocation-free):
-//   "<monotonic-sec>.<ns9> <level> <file basename>:<line> (<function>) <message>\n"
-// The timestamp is the record's monotonic-domain stamp (CLOCK_MONOTONIC_RAW
-// ns); <message> is the rendered deferred format. Wall-clock ISO-8601 belongs
-// to the file sink's calibrated formatter; the console line only promises
-// "includes the timestamp" (spec scenario).
-//
 // MULTI-PRODUCER CONTRACT (spec logging/multi-producer): up to MaxThreads
 // (32 default) distinct producer threads may log to one instance; each thread
 // owns one SPSC shard and the internal worker is the sole consumer of all of
@@ -40,146 +33,20 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <string_view>
-#include <sys/types.h>
-#include <unistd.h>
-
-#include <cerrno>
+#include <utility>
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/concepts/logger_concept.hpp>
-#include <nexigen/logging/detail/async_logger.hpp>
+#include <nexigen/logging/console_logger_config.hpp>
+#include <nexigen/logging/detail/async_worker.hpp>
+#include <nexigen/logging/detail/console_sink.hpp>
+#include <nexigen/logging/detail/format_param.hpp>
 #include <nexigen/logging/detail/producer.hpp>
-#include <nexigen/logging/format_with_location.hpp>
+#include <nexigen/logging/dropped_stats.hpp>
 #include <nexigen/logging/log_level.hpp>
-#include <nexigen/logging/log_record.hpp>
-#include <nexigen/logging/logging_settings.hpp>
-
-namespace nexigen::logging::detail {
-
-/// Consumer-thread writer for the console: renders each record's deferred
-/// format into fixed scratch, formats a plain line, writes it to the routed
-/// fd, tolerates partial writes/EINTR.
-class ConsoleSink {
-    static constexpr std::size_t line_capacity = 512;
-    static constexpr std::size_t msg_capacity = 256;
-
-    char line_[line_capacity]{}; ///< pre-allocated line scratch (consumer-only)
-    char msg_[msg_capacity]{};   ///< pre-allocated render scratch (consumer-only)
-    std::size_t len_ = 0;        ///< bytes currently staged in line_
-
-    /// Bounded appenders: write only if space remains; never reallocate.
-    void append_char(char c) noexcept {
-        if (len_ < line_capacity - 1) {
-            line_[len_++] = c;
-        }
-    }
-    void append_sv(std::string_view sv) noexcept {
-        const std::size_t room = (len_ < line_capacity - 1) ? (line_capacity - 1 - len_) : 0;
-        const std::size_t take = sv.size() < room ? sv.size() : room;
-        for (std::size_t i = 0; i < take; ++i) {
-            line_[len_++] = sv[i];
-        }
-    }
-    void append_u64(std::uint64_t value, unsigned min_width) noexcept {
-        char digits[20];
-        std::size_t n = 0;
-        do {
-            digits[n++] = static_cast<char>('0' + (value % 10U));
-            value /= 10U;
-        } while (value != 0U);
-        while (n < min_width) {
-            digits[n++] = '0';
-        } // zero-pad below line_capacity
-        while (n > 0) {
-            append_char(digits[--n]);
-        }
-    }
-
-    static std::string_view basename(std::string_view path) noexcept {
-        const std::size_t slash = path.find_last_of('/');
-        return (slash == std::string_view::npos) ? path : path.substr(slash + 1);
-    }
-
-    void write_all(int fd, std::size_t bytes) noexcept {
-        std::size_t off = 0;
-        while (off < bytes) {
-            const ssize_t wrote = ::write(fd, line_ + off, bytes - off);
-            if (wrote > 0) {
-                off += static_cast<std::size_t>(wrote);
-            } else if (errno == EINTR) {
-                continue;
-            } else {
-                return; // tty closed/error: consumer-side loss only (documented)
-            }
-        }
-    }
-
-public:
-    [[nodiscard]] core::Status start() noexcept { return {}; }
-    void stop() noexcept {}
-
-    /// ::write to an unbuffered fd is complete when it returns: nothing to
-    /// fsync for consoles (spec allows flush OK without an fsync target).
-    [[nodiscard]] core::Status synchronize() noexcept { return {}; }
-
-    template <class Record> void handle(Record& rec) noexcept {
-        // Deferred formatting executes HERE (spec logging/log-record):
-        // render_into writes the pack through the record's callback into
-        // msg_ scratch, allocation-free and bounded, flagging truncation.
-        const std::size_t msg_len = rec.render_into(msg_, msg_capacity);
-
-        len_ = 0;
-        const std::uint64_t ns_total = rec.stamp.nanoseconds();
-        append_u64(ns_total / 1'000'000'000ULL, 1U);
-        append_char('.');
-        append_u64(ns_total % 1'000'000'000ULL, 9U);
-        append_char(' ');
-        append_sv(to_string(rec.level));
-        append_char(' ');
-        append_sv(basename(std::string_view(rec.file_name != nullptr ? rec.file_name : "")));
-        append_char(':');
-        append_u64(rec.line, 1U);
-        append_char(' ');
-        append_char('(');
-        append_sv(std::string_view(rec.function_name != nullptr ? rec.function_name : ""));
-        append_char(')');
-        append_char(' ');
-        append_sv(std::string_view(msg_, msg_len));
-        append_char('\n');
-        const int fd = (rec.level >= LogLevel::Warning) ? STDERR_FILENO : STDOUT_FILENO;
-        write_all(fd, len_);
-    }
-};
-
-} // namespace nexigen::logging::detail
+#include <nexigen/logging/settings.hpp>
 
 namespace nexigen::logging {
-
-/// Construction-time configuration shared by every ConsoleLogger instantiation.
-struct ConsoleLoggerConfig {
-    LogLevel initial_level{LogLevel::Info};
-    core::ThreadSpec worker_thread{}; ///< empty = inherited worker attributes
-    /// Ceiling of the worker's idle sleep; clamped to [50, 100000] us.
-    std::uint32_t worker_poll_interval_us{detail::WorkerTuning::default_poll_interval_us};
-
-    /// Cold-path diagnostic (mandate 9): initial threshold + worker poll ceiling.
-    [[nodiscard]] std::string to_string() const {
-        return "ConsoleLogger::Config(level=" + std::string(logging::to_string(initial_level)) +
-               ", worker_thread=" + worker_thread.to_string() +
-               ", worker_poll_interval_us=" + std::to_string(worker_poll_interval_us) + ")";
-    }
-
-    /// Free form via ADL (nested types are non-deducible for template
-    /// helpers; a class-scope friend is the standard discovery route).
-    [[nodiscard]] friend std::string to_string(const ConsoleLoggerConfig& cfg) {
-        return cfg.to_string();
-    }
-};
-
-/// Cold-path JSON round-trip; bodies live in logger_options_format.cpp.
-void to_json(nlohmann::json& j, const ConsoleLoggerConfig& cfg);
-void from_json(const nlohmann::json& j, ConsoleLoggerConfig& out) noexcept;
 
 /// Asynchronous wait-free console logger supporting multiple producer threads
 /// via per-thread SPSC shards. Template parameters fix the per-shard capacity,
@@ -311,22 +178,6 @@ template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t Ma
 [[nodiscard]] std::string
 to_string(const ConsoleLogger<ShardCapacity, MessageCapacity, MaxThreads>& logger) {
     return logger.to_string();
-}
-
-/// Apply merged settings to a console logger config (spec logging/logging-settings
-/// "Merged settings apply to logger configuration"): the console sink carries
-/// the initial level and the worker poll interval.
-[[nodiscard]] inline core::Status apply_to(const Settings& settings,
-                                           ConsoleLoggerConfig& out) noexcept {
-    out.initial_level = settings.options.initial_log_level;
-    if (settings.worker_thread_set) {
-        out.worker_thread = settings.options.worker_thread;
-        if (!settings.worker_cpus_set) {
-            out.worker_thread.set_cpus(core::CpuSet{});
-        }
-    }
-    out.worker_poll_interval_us = settings.options.worker_poll_interval_us;
-    return {};
 }
 
 static_assert(concepts::Logger<ConsoleLogger<>>,

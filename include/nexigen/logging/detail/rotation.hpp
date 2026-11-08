@@ -1,4 +1,4 @@
-// nexigen::logging — scheduled directory rotation (design.md D11, spec
+// nexigen::logging — scheduled directory rotation (design D11, spec
 // logging/file-logger "Hitch-free scheduled directory rotation").
 //
 // All work here runs ON THE CONSUMER THREAD only: the producer never learns
@@ -16,81 +16,22 @@
 #pragma once
 
 #include <cstdint>
-#include <format>
-#include <string>
 #include <string_view>
 
-#include <nlohmann/json.hpp>
-
 #include <nexigen/core/result.hpp>
+#include <nexigen/logging/detail/rotation_scratch.hpp>
+#include <nexigen/logging/rotation_schedule.hpp>
 
 namespace nexigen::logging::detail {
 
-/// Schedule selector (mirrors the public FileLogger config vocabulary).
-enum class RotationKind : std::uint8_t { None, Hourly, Daily, Custom };
-
-/// Compile-time lowercase name — the spelling used by from_string/JSON
-/// (mandates 9–11; public alias: nexigen::logging::RotationSchedule).
-[[nodiscard]] constexpr std::string_view to_string(RotationKind kind) noexcept {
-    switch (kind) {
-        case RotationKind::None:   return "none";
-        case RotationKind::Hourly: return "hourly";
-        case RotationKind::Daily:  return "daily";
-        case RotationKind::Custom: return "custom";
-        default:                   return "Unknown";
-    }
-}
-
-/// Parse a canonical lowercase schedule name; false leaves `out` unchanged.
-[[nodiscard]] constexpr bool from_string(std::string_view name, RotationKind& out) noexcept {
-    if (name == "none") {
-        out = RotationKind::None;
-        return true;
-    }
-    if (name == "hourly") {
-        out = RotationKind::Hourly;
-        return true;
-    }
-    if (name == "daily") {
-        out = RotationKind::Daily;
-        return true;
-    }
-    if (name == "custom") {
-        out = RotationKind::Custom;
-        return true;
-    }
-    return false;
-}
-
-/// ADL JSON writer (cold path only): the JSON value is exactly to_string(kind).
-inline void to_json(nlohmann::json& j, const RotationKind kind) {
-    j = std::string(to_string(kind));
-}
-
-/// ADL JSON reader, strictly non-throwing under JSON_NOEXCEPTION=1.
-inline void from_json(const nlohmann::json& j, RotationKind& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
-}
-
 /// Period identity for an UTC timestamp (monotonic in utc_ns).
-[[nodiscard]] std::int64_t period_key(RotationKind kind, std::uint64_t custom_ns,
+[[nodiscard]] std::int64_t period_key(RotationSchedule kind, std::uint64_t custom_ns,
                                       std::int64_t utc_ns) noexcept;
 
 /// Render the human-readable period label into buf (NUL-terminated).
 /// Returns the label length, or 0 when buf is too small (never partial).
-std::size_t period_label(RotationKind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
+std::size_t period_label(RotationSchedule kind, std::uint64_t custom_ns, std::int64_t utc_ns,
                          char (&buf)[64]) noexcept;
-
-/// Caller-owned path scratch: two fixed buffers, reused every rotation.
-/// Both sized 560: base(≤511) + '/' + label(≤"epoch-"+20) fits; file adds
-/// '/' + file_name(≤255) checked by put()'s bounds logic at every append.
-struct RotationScratch {
-    char dir[560]{};
-    char file[560]{};
-};
 
 /// Create (if needed) and open the descriptor for the period containing
 /// utc_ns:  dir  = "<base_dir>/<label>",  file = "<dir>/<file_name>".
@@ -98,7 +39,7 @@ struct RotationScratch {
 /// kind == None: dir = base_dir directly (single fixed directory).
 /// The PREVIOUS descriptor is NOT touched here — the caller closes it after
 /// this open succeeds, so a failed rotation leaves the old file live.
-[[nodiscard]] core::Status open_period(RotationKind kind, std::uint64_t custom_ns,
+[[nodiscard]] core::Status open_period(RotationSchedule kind, std::uint64_t custom_ns,
                                        std::int64_t utc_ns, std::string_view base_dir,
                                        std::string_view file_name, RotationScratch& scratch,
                                        int& fd_out) noexcept;
@@ -108,13 +49,9 @@ struct RotationScratch {
 /// before the last extension (`app.jsonl` -> `app.1.jsonl`) or appends it when
 /// the name has no usable extension. A rendered name that would overflow the
 /// pre-allocated scratch maps to InvalidArgument (never truncation).
-[[nodiscard]] core::Status open_segment(RotationKind kind, std::uint64_t custom_ns,
+[[nodiscard]] core::Status open_segment(RotationSchedule kind, std::uint64_t custom_ns,
                                         std::int64_t utc_ns, std::string_view base_dir,
                                         std::string_view file_name, std::uint64_t segment,
                                         RotationScratch& scratch, int& fd_out) noexcept;
 
 } // namespace nexigen::logging::detail
-
-/// RotationSchedule formats as its canonical lowercase name (mandate 11):
-/// parse/fill/align via the string_view formatter; templated context for
-/// libstdc++ 15's substituted-formattability evaluation.

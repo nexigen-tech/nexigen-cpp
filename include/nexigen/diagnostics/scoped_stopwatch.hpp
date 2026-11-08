@@ -37,27 +37,10 @@
 
 #include <nexigen/chrono/stamp_source.hpp>
 #include <nexigen/chrono/timestamp.hpp>
+#include <nexigen/diagnostics/out_ref_sink.hpp>
 
 namespace nexigen::diagnostics {
 
-namespace detail {
-
-/// The tiniest destination: writes the delivered elapsed count into a
-/// borrowed caller slot. This is what the std::uint64_t& constructor flavors
-/// bind through CTAD (design D7).
-struct OutRefSink {
-    std::uint64_t* out; ///< Borrowed destination slot (never null in practice).
-
-    constexpr explicit OutRefSink(std::uint64_t* slot) noexcept : out{slot} {}
-
-    void operator()(std::uint64_t elapsed_ns) const noexcept {
-        if (out != nullptr) {
-            *out = elapsed_ns;
-        }
-    }
-};
-
-} // namespace detail
 
 /// RAII scope measurement: samples at construction, delivers the scope's
 /// elapsed nanoseconds exactly once at destruction (design D7; spec "RAII

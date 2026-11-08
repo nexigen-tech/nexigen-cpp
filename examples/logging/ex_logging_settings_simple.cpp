@@ -13,7 +13,7 @@
 #include <string_view>
 
 #include <nexigen/logging/file_logger.hpp>
-#include <nexigen/logging/logging_settings.hpp>
+#include <nexigen/logging/settings.hpp>
 
 namespace {
 

@@ -16,137 +16,19 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/runner/app_state.hpp>
+#include <nexigen/runner/impact_on_app_suite_operability.hpp>
+#include <nexigen/runner/suite_state.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/logging/log_level.hpp>
 
 namespace nexigen::runner {
 
 /// How one application affects the operability of the whole suite.
-enum class ImpactOnAppSuiteOperability : std::uint8_t {
-    Failure,    ///< Any abnormal termination restarts the whole suite.
-    Degrade,    ///< Only this application is retried; suite becomes degraded.
-    Not_impact, ///< Only this application is retried; suite state is unchanged.
-};
-
-[[nodiscard]] constexpr std::string_view to_string(ImpactOnAppSuiteOperability value) noexcept {
-    switch (value) {
-        case ImpactOnAppSuiteOperability::Failure:    return "failure";
-        case ImpactOnAppSuiteOperability::Degrade:    return "degrade";
-        case ImpactOnAppSuiteOperability::Not_impact: return "not_impact";
-        default:                                      return "unknown";
-    }
-}
-
-[[nodiscard]] constexpr bool from_string(std::string_view name,
-                                         ImpactOnAppSuiteOperability& out) noexcept {
-    if (name == "failure") {
-        out = ImpactOnAppSuiteOperability::Failure;
-        return true;
-    }
-    if (name == "degrade") {
-        out = ImpactOnAppSuiteOperability::Degrade;
-        return true;
-    }
-    if (name == "not_impact") {
-        out = ImpactOnAppSuiteOperability::Not_impact;
-        return true;
-    }
-    return false;
-}
 
 /// Aggregate state of a supervised suite.
-enum class SuiteState : std::uint8_t {
-    Running,
-    Degraded,
-    Failed,
-    Stopped,
-    Unknown,
-};
-
-[[nodiscard]] constexpr std::string_view to_string(SuiteState value) noexcept {
-    switch (value) {
-        case SuiteState::Running:  return "running";
-        case SuiteState::Degraded: return "degraded";
-        case SuiteState::Failed:   return "failed";
-        case SuiteState::Stopped:  return "stopped";
-        case SuiteState::Unknown:  return "unknown";
-        default:                   return "unknown";
-    }
-}
-
-[[nodiscard]] constexpr bool from_string(std::string_view name, SuiteState& out) noexcept {
-    if (name == "running") {
-        out = SuiteState::Running;
-        return true;
-    }
-    if (name == "degraded") {
-        out = SuiteState::Degraded;
-        return true;
-    }
-    if (name == "failed") {
-        out = SuiteState::Failed;
-        return true;
-    }
-    if (name == "stopped") {
-        out = SuiteState::Stopped;
-        return true;
-    }
-    if (name == "unknown") {
-        out = SuiteState::Unknown;
-        return true;
-    }
-    return false;
-}
 
 /// State of one application inside a suite.
-enum class AppState : std::uint8_t {
-    Running,
-    Restarting,
-    Exited,
-    Stopped,
-    Failed,
-    Unknown,
-};
-
-[[nodiscard]] constexpr std::string_view to_string(AppState value) noexcept {
-    switch (value) {
-        case AppState::Running:    return "running";
-        case AppState::Restarting: return "restarting";
-        case AppState::Exited:     return "exited";
-        case AppState::Stopped:    return "stopped";
-        case AppState::Failed:     return "failed";
-        case AppState::Unknown:    return "unknown";
-        default:                   return "unknown";
-    }
-}
-
-[[nodiscard]] constexpr bool from_string(std::string_view name, AppState& out) noexcept {
-    if (name == "running") {
-        out = AppState::Running;
-        return true;
-    }
-    if (name == "restarting") {
-        out = AppState::Restarting;
-        return true;
-    }
-    if (name == "exited") {
-        out = AppState::Exited;
-        return true;
-    }
-    if (name == "stopped") {
-        out = AppState::Stopped;
-        return true;
-    }
-    if (name == "failed") {
-        out = AppState::Failed;
-        return true;
-    }
-    if (name == "unknown") {
-        out = AppState::Unknown;
-        return true;
-    }
-    return false;
-}
 
 /// One application entry in the suite manifest.
 struct AppSpec {

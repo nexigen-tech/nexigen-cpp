@@ -50,22 +50,4 @@ template <typename... Args> struct FormatWithLocation {
         : fmt(literal), loc(location) {}
 };
 
-namespace detail {
-
-/// Non-deduced rendering of the wrapper type. Using bare
-/// FormatWithLocation<Args...> as the first variadic parameter would make it
-/// a DUCED context: a string literal (const char[N]) mismatches the class
-/// template head and fails the whole template-argument deduction before the
-/// implicit consteval conversion can ever apply. Going through this identity
-/// alias makes Args deduce from the trailing arguments only (an empty pack
-/// vacuously for a bare literal call), after which the literal converts
-/// through the single user-defined consteval constructor.
-template <class... Args> struct format_param {
-    using type = FormatWithLocation<Args...>;
-};
-
-template <class... Args> using format_param_t = typename format_param<Args...>::type;
-
-} // namespace detail
-
 } // namespace nexigen::logging

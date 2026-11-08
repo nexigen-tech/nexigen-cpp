@@ -35,6 +35,15 @@ context: |
   11. Universal Enum std::formatter Specialization:
       - Every enum class MUST specialize `template <> struct std::formatter<EnumType>` in `namespace std` (inheriting or delegating to `std::formatter<std::string_view>` via `to_string(e)`) so all enums work directly in `std::format` and `nexigen::logging` format calls.
 
+  Code Organization — File-per-entity layout (ALL modules):
+  - Each top-level enum, struct, and class lives in its own header, named snake_case of the type (LogLevel -> log_level.hpp, FileLoggerConfig -> file_logger_config.hpp).
+  - Public types go in include/nexigen/<module>/; internal/implementation types go in include/nexigen/<module>/detail/ under <module>::detail.
+  - concepts/: only public concepts (e.g. nexigen::logging::concepts::Logger); detail-only concepts stay in detail/ beside their owner.
+  - Private nested types (cache-line cells, scratch buffers, sub-settings that exist only to serve their owner) stay nested inside the owning type.
+  - using aliases get no header of their own; they live with the type they alias or the header that needs them.
+  - Free functions live in the header of the entity they serve; a cohesive group owned by no single entity (rotation, argument packing, JSON line formatting) may share one utility header.
+  - The .cpp of a non-inline definition sits beside its header under src/<module>/, named identically; split into a .cpp only when a compiled TU keeps consumer translation units lean.
+
 rules:
   proposal:
     - Explicitly state the performance, latency (ns), and memory-allocation impact of the change.

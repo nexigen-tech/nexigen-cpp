@@ -11,8 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/settings_io.hpp>
-#include <nexigen/logging/file_logger.hpp>
-#include <nexigen/logging/logging_settings.hpp>
+#include <nexigen/logging/settings.hpp>
 #pragma GCC diagnostic pop
 
 #include <cerrno>
@@ -35,8 +34,6 @@ namespace {
 // Imports stay inside the TU's anonymous namespace.
 using nexigen::core::settings_io::FileRead;
 using nexigen::core::settings_io::read_text_file;
-
-constexpr std::uint64_t kNanoseconds_per_second = 1'000'000'000ULL;
 
 [[nodiscard]] const nlohmann::json::string_t* string_ptr(const nlohmann::json& value) noexcept {
     return value.get_ptr<const nlohmann::json::string_t*>();
@@ -593,29 +590,6 @@ core::Status load_logging_settings(const core::SettingsPaths& paths, Settings& o
     }
     if (invalid) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    return {};
-}
-
-core::Status apply_to(const Settings& settings, FileLoggerConfig& out) noexcept {
-    const LoggerOptions& options = settings.options;
-    if (options.log_root_directory.empty() || options.log_root_directory.size() > 511 ||
-        options.log_root_directory.find('\0') != std::string::npos) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-
-    out = FileLoggerConfig{};
-    out.base_dir = options.log_root_directory;
-    out.initial_level = options.initial_log_level;
-    out.max_file_size_bytes = options.max_file_size_bytes;
-    out.worker_thread = options.worker_thread;
-    out.worker_poll_interval_us = options.worker_poll_interval_us;
-
-    const std::uint64_t per_second = options.spam_protection.max_messages_per_sec_per_shard;
-    if (per_second != 0ULL) {
-        out.throttle.enabled = true;
-        out.throttle.max_records_per_window = per_second;
-        out.throttle.window_ns = kNanoseconds_per_second;
     }
     return {};
 }

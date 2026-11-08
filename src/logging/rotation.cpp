@@ -132,14 +132,14 @@ std::size_t put_epoch_label(std::int64_t value, char (&buf)[64]) noexcept {
 }
 
 /// Render "<base_dir>[/<label>]" into scratch.dir (label only when rotating).
-[[nodiscard]] core::Status build_rotation_dir(RotationKind kind, std::uint64_t custom_ns,
+[[nodiscard]] core::Status build_rotation_dir(RotationSchedule kind, std::uint64_t custom_ns,
                                               std::int64_t utc_ns, std::string_view base_dir,
                                               RotationScratch& scratch) noexcept {
     std::size_t pos = 0;
     if (!put(base_dir, scratch.dir, pos)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    if (kind == RotationKind::None) {
+    if (kind == RotationSchedule::None) {
         return {};
     }
     char label[64];
@@ -172,54 +172,54 @@ std::size_t put_epoch_label(std::int64_t value, char (&buf)[64]) noexcept {
 
 } // namespace
 
-std::int64_t period_key(RotationKind kind, std::uint64_t custom_ns, std::int64_t utc_ns) noexcept {
+std::int64_t period_key(RotationSchedule kind, std::uint64_t custom_ns, std::int64_t utc_ns) noexcept {
     switch (kind) {
-        case RotationKind::Hourly: {
+        case RotationSchedule::Hourly: {
             // Same civil decomposition the labels use, so key changes and
             // visible boundaries cannot disagree.
             const chrono::CivilTime ct = chrono::civil_from_utc_ns(utc_ns);
             return chrono::days_from_utc_ns(utc_ns) * 24 + static_cast<std::int64_t>(ct.hour);
         }
-        case RotationKind::Daily:  return chrono::days_from_utc_ns(utc_ns);
-        case RotationKind::Custom: {
+        case RotationSchedule::Daily:  return chrono::days_from_utc_ns(utc_ns);
+        case RotationSchedule::Custom: {
             if (custom_ns == 0ULL) {
                 return 0; // config error is surfaced at initialize(); stay monotone
             }
             const std::uint64_t u = static_cast<std::uint64_t>(utc_ns); // UTC >= epoch in practice
             return static_cast<std::int64_t>(u / custom_ns);
         }
-        case RotationKind::None:
+        case RotationSchedule::None:
         default:                 return 0;
     }
 }
 
-std::size_t period_label(RotationKind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
+std::size_t period_label(RotationSchedule kind, std::uint64_t custom_ns, std::int64_t utc_ns,
                          char (&buf)[64]) noexcept {
     buf[0] = '\0';
     switch (kind) {
-        case RotationKind::Hourly:
-        case RotationKind::Daily:  {
+        case RotationSchedule::Hourly:
+        case RotationSchedule::Daily:  {
             char iso[31];
             chrono::format_utc_iso8601_ns(utc_ns, iso);
             // Hourly: "YYYY-MM-DDTHH" (13 chars); Daily: "YYYY-MM-DD" (10).
-            const std::size_t len = (kind == RotationKind::Hourly) ? 13U : 10U;
+            const std::size_t len = (kind == RotationSchedule::Hourly) ? 13U : 10U;
             std::memcpy(buf, iso, len);
             buf[len] = '\0';
             return len;
         }
-        case RotationKind::Custom: return put_epoch_label(period_key(kind, custom_ns, utc_ns), buf);
-        case RotationKind::None:
+        case RotationSchedule::Custom: return put_epoch_label(period_key(kind, custom_ns, utc_ns), buf);
+        case RotationSchedule::None:
         default:                   return 0;
     }
 }
 
-core::Status open_period(RotationKind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
+core::Status open_period(RotationSchedule kind, std::uint64_t custom_ns, std::int64_t utc_ns,
                          std::string_view base_dir, std::string_view file_name,
                          RotationScratch& scratch, int& fd_out) noexcept {
     return open_segment(kind, custom_ns, utc_ns, base_dir, file_name, 0U, scratch, fd_out);
 }
 
-core::Status open_segment(RotationKind kind, std::uint64_t custom_ns, std::int64_t utc_ns,
+core::Status open_segment(RotationSchedule kind, std::uint64_t custom_ns, std::int64_t utc_ns,
                           std::string_view base_dir, std::string_view file_name,
                           std::uint64_t segment, RotationScratch& scratch, int& fd_out) noexcept {
     fd_out = -1;

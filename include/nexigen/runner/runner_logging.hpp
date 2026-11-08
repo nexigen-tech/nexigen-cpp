@@ -14,7 +14,7 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/logging/log_level.hpp>
-#include <nexigen/logging/logging_settings.hpp>
+#include <nexigen/logging/settings.hpp>
 
 namespace nexigen::runner {
 
