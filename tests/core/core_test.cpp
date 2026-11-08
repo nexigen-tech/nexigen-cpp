@@ -34,6 +34,7 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/serialization_mandate.hpp>
 #include <nexigen/core/settings_diagnostic.hpp>
+#include <nexigen/core/settings_io.hpp>
 #include <nexigen/core/settings_paths.hpp>
 #include <nexigen/core/settings_source.hpp>
 #include <nexigen/core/shard_pool.hpp>
@@ -1898,12 +1899,107 @@ void test_enum_traits() {
     NX_CHECK(field == probe::Color::Blue);
 }
 
+// --- settings_fields (change refactor-settings-table-parsing): the shared
+// read/write drivers must produce byte-identical diagnostics (wording, field
+// name and table order) and leave absent keys untouched.
+namespace box_probe {
+
+struct Boxed {
+    std::vector<nexigen::core::SettingsDiagnostic> diagnostics;
+    std::uint64_t counter = 0;
+    std::string path;
+};
+
+inline void read_counter(const nlohmann::json& document, nexigen::core::SettingsSource source,
+                         std::vector<nexigen::core::SettingsDiagnostic>& diagnostics,
+                         Boxed& out) {
+    nexigen::core::settings_io::read_uint(document, "counter", 100ULL, out.counter, diagnostics,
+                                          source);
+}
+
+inline void read_path(const nlohmann::json& sink, nexigen::core::SettingsSource source,
+                      std::vector<nexigen::core::SettingsDiagnostic>& diagnostics, Boxed& out) {
+    nexigen::core::settings_io::read_sink_string(sink, "path", out.path, diagnostics, source);
+}
+
+inline void write_counter(nlohmann::json& object, const Boxed& out) {
+    object["counter"] = out.counter;
+}
+
+constexpr nexigen::core::settings_io::ReadField<Boxed> fields[]{{"counter", &read_counter}};
+constexpr nexigen::core::settings_io::SinkReadField<Boxed> sink_fields[]{{"path", &read_path}};
+constexpr nexigen::core::settings_io::WriteField<Boxed> write_fields[]{{"counter",
+                                                                        &write_counter}};
+
+} // namespace box_probe
+
+void test_settings_fields() {
+    namespace io = nexigen::core::settings_io;
+    using box_probe::Boxed;
+    using Src = nexigen::core::SettingsSource;
+
+    // Present and in range: value moves in, no diagnostic.
+    Boxed ok;
+    io::read_fields(nlohmann::json::parse(R"({"counter": 50})", nullptr, false), Src::Global, box_probe::fields, ok);
+    io::read_sink_fields(nlohmann::json::parse(R"({"sink": {"path": "/tmp/x"}})", nullptr, false), Src::Global,
+                         box_probe::sink_fields, ok);
+    NX_CHECK(ok.counter == 50ULL);
+    NX_CHECK(ok.path == "/tmp/x");
+    NX_CHECK(ok.diagnostics.empty());
+
+    // Missing key: untouched, silent.
+    Boxed absent;
+    io::read_fields(nlohmann::json::object(), Src::Global, box_probe::fields, absent);
+    NX_CHECK(absent.counter == 0ULL);
+    NX_CHECK(absent.diagnostics.empty());
+
+    // Out of range and wrong type share the read_uint wording.
+    Boxed high;
+    io::read_fields(nlohmann::json::parse(R"({"counter": 200})", nullptr, false), Src::Local, box_probe::fields, high);
+    NX_CHECK(high.counter == 0ULL);
+    NX_CHECK(high.diagnostics.size() == 1);
+    NX_CHECK(high.diagnostics[0].field == "counter");
+    NX_CHECK(high.diagnostics[0].message == "expected an integer in range");
+    Boxed wrong_type;
+    io::read_fields(nlohmann::json::parse(R"({"counter": "x"})", nullptr, false), Src::Local, box_probe::fields, wrong_type);
+    NX_CHECK(wrong_type.diagnostics.size() == 1);
+    NX_CHECK(wrong_type.diagnostics[0].message == "expected an integer in range");
+
+    // Sink that is not an object: the one shared diagnostic, sink fields skipped.
+    Boxed bad_sink;
+    io::read_sink_fields(nlohmann::json::parse(R"({"sink": 7})", nullptr, false), Src::Global, box_probe::sink_fields,
+                         bad_sink);
+    NX_CHECK(bad_sink.diagnostics.size() == 1);
+    NX_CHECK(bad_sink.diagnostics[0].field == "sink");
+    NX_CHECK(bad_sink.diagnostics[0].message == "expected a JSON object");
+    NX_CHECK(bad_sink.path.empty());
+
+    // Table order = diagnostic order (document fields first, then sink).
+    Boxed order;
+    const nlohmann::json dirty = nlohmann::json::parse(R"({"counter": 999, "sink": 3})", nullptr, false);
+    io::read_fields(dirty, Src::Global, box_probe::fields, order);
+    io::read_sink_fields(dirty, Src::Global, box_probe::sink_fields, order);
+    NX_CHECK(order.diagnostics.size() == 2);
+    NX_CHECK(order.diagnostics[0].field == "counter");
+    NX_CHECK(order.diagnostics[1].field == "sink");
+
+    // Write table + shared diagnostics array mirror the read side.
+    nlohmann::json out_json;
+    io::write_fields(out_json, box_probe::write_fields, high);
+    io::write_diagnostics(out_json, high.diagnostics);
+    NX_CHECK(out_json["counter"] == 0ULL);
+    NX_CHECK(out_json["diagnostics"].is_array());
+    NX_CHECK(out_json["diagnostics"].size() == 1);
+    NX_CHECK(out_json["diagnostics"][0]["field"] == "counter");
+}
+
 int main() {
     run_suite("result", test_result);
     run_suite("json_smoke", test_json_smoke);
     run_suite("ec_vocab", test_error_code_vocabulary);
     run_suite("settings_vocab", test_settings_vocabulary);
     run_suite("enum_traits", test_enum_traits);
+    run_suite("settings_fields", test_settings_fields);
     run_suite("ring_to_string", test_ring_to_string);
     run_suite("spsc_single_threaded", test_spsc_single_threaded);
     run_suite("spsc_stress_1m", test_spsc_stress);

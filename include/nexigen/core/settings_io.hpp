@@ -188,4 +188,78 @@ inline void read_sink_uint(const nlohmann::json& sink, const char* key, std::uin
     return &*it;
 }
 
+// --- declarative field tables (refactor-settings-table-parsing, design D1-D4):
+// one driver per direction, per-module tables list {key, hook}. Table order =
+// read/write order, so diagnostics order and JSON key order are preserved by
+// construction. Hooks are plain function pointers over module-local free
+// functions (no std::function heap); the diagnostics plumbing itself lives in
+// the primitives above, so a hook body is only the field's own logic.
+
+/// One document field: the key names it in JSON, the hook reads it.
+template <class Settings> struct ReadField {
+    const char* key;
+    void (*read)(const nlohmann::json& document, SettingsSource source,
+                 std::vector<SettingsDiagnostic>& diagnostics, Settings& settings);
+};
+
+/// One document field of the sink sub-object: same contract, `document` is
+/// the sink object handed over by find_sink.
+template <class Settings> struct SinkReadField {
+    const char* key;
+    void (*read)(const nlohmann::json& sink, SettingsSource source,
+                 std::vector<SettingsDiagnostic>& diagnostics, Settings& settings);
+};
+
+/// Run the document table in order. Keys are consumed through the table's
+/// own hooks (each hook locates its key via the shared primitives).
+template <class Settings, std::size_t N>
+inline void read_fields(const nlohmann::json& document, SettingsSource source,
+                        const ReadField<Settings> (&fields)[N], Settings& settings) {
+    for (const ReadField<Settings>& field : fields) {
+        field.read(document, source, settings.diagnostics, settings);
+    }
+}
+
+/// Run the sink table: find_sink once, then every field reads from it. A
+/// missing or invalid sink produces the one shared diagnostic and stops.
+template <class Settings, std::size_t N>
+inline void read_sink_fields(const nlohmann::json& document, SettingsSource source,
+                             const SinkReadField<Settings> (&fields)[N], Settings& settings) {
+    const nlohmann::json* const sink = find_sink(document, settings.diagnostics, source);
+    if (sink == nullptr) {
+        return;
+    }
+    for (const SinkReadField<Settings>& field : fields) {
+        field.read(*sink, source, settings.diagnostics, settings);
+    }
+}
+
+/// One JSON write slot: the key names it, the hook fills it.
+template <class Settings> struct WriteField {
+    const char* key;
+    void (*write)(nlohmann::json& object, const Settings& settings);
+};
+
+/// Run the write table in order.
+template <class Settings, std::size_t N>
+inline void write_fields(nlohmann::json& object, const WriteField<Settings> (&fields)[N],
+                         const Settings& settings) {
+    for (const WriteField<Settings>& field : fields) {
+        field.write(object, settings);
+    }
+}
+
+/// The diagnostics array every module settings JSON ends with (shared shape;
+/// the writer body lives in the SettingsDiagnostic ADL pair).
+inline void write_diagnostics(nlohmann::json& object,
+                              const std::vector<SettingsDiagnostic>& diagnostics) {
+    nlohmann::json entries = nlohmann::json::array();
+    for (const SettingsDiagnostic& diagnostic : diagnostics) {
+        nlohmann::json entry;
+        to_json(entry, diagnostic);
+        entries.push_back(std::move(entry));
+    }
+    object["diagnostics"] = std::move(entries);
+}
+
 } // namespace nexigen::core::settings_io
