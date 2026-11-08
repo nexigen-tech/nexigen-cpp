@@ -28,6 +28,7 @@
 // std::string exists only in the CONFIGURATION (setup-time).
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <format>
@@ -50,6 +51,7 @@
 #include <nexigen/tracing/detail/json_writer.hpp>
 #include <nexigen/tracing/span_record.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::tracing {
 
 /// Rotation schedule selector (enum contract of mandates 9–11).
@@ -59,42 +61,26 @@ enum class RotationPolicy : std::uint8_t {
     Daily,  ///< A new file every UTC day.
 };
 
+} // namespace nexigen::tracing
+
+namespace nexigen::tracing {
+
 /// Compile-time canonical name; "Unknown" for garbage casts.
 [[nodiscard]] constexpr std::string_view to_string(RotationPolicy policy) noexcept {
-    switch (policy) {
-        case RotationPolicy::None:   return "None";
-        case RotationPolicy::Hourly: return "Hourly";
-        case RotationPolicy::Daily:  return "Daily";
-        default:                     return "Unknown";
-    }
+    return core::enum_name(policy);
 }
 
 /// Parse a canonical policy name; false leaves the out-parameter unchanged.
 [[nodiscard]] constexpr bool from_string(std::string_view name, RotationPolicy& out) noexcept {
-    if (name == "None") {
-        out = RotationPolicy::None;
-        return true;
-    }
-    if (name == "Hourly") {
-        out = RotationPolicy::Hourly;
-        return true;
-    }
-    if (name == "Daily") {
-        out = RotationPolicy::Daily;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 /// ADL JSON writer/reader (cold path; result.hpp get_ptr pattern).
 inline void to_json(nlohmann::json& j, const RotationPolicy policy) {
-    j = std::string(to_string(policy));
+    core::mandate::enum_to_json(j, policy);
 }
 inline void from_json(const nlohmann::json& j, RotationPolicy& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    core::mandate::enum_from_json(j, out);
 }
 
 /// File sink configuration (value type, full serialization trio; body in
@@ -393,3 +379,20 @@ struct std::formatter<nexigen::tracing::JsonFileTraceSink> : std::formatter<std:
         return std::formatter<std::string_view>::format(text, ctx);
     }
 };
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::tracing::RotationPolicy> {
+    struct Entry {
+        nexigen::tracing::RotationPolicy value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 3> entries{{
+        {nexigen::tracing::RotationPolicy::None, "None"},
+        {nexigen::tracing::RotationPolicy::Hourly, "Hourly"},
+        {nexigen::tracing::RotationPolicy::Daily, "Daily"},
+    }};
+};
+
+} // namespace nexigen::core

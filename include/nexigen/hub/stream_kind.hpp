@@ -1,9 +1,11 @@
 // nexigen::hub — StreamKind enum.
 #pragma once
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::hub {
 
 enum class StreamKind : std::uint8_t {
@@ -16,49 +18,38 @@ enum class StreamKind : std::uint8_t {
     Runner,
 };
 
+} // namespace nexigen::hub
+
+namespace nexigen::hub {
+
 [[nodiscard]] constexpr std::string_view to_string(StreamKind kind) noexcept {
-    switch (kind) {
-        case StreamKind::App:     return "app";
-        case StreamKind::Metrics: return "metrics";
-        case StreamKind::Traces:  return "traces";
-        case StreamKind::Chrono:  return "chrono";
-        case StreamKind::Stdout:  return "stdout";
-        case StreamKind::Stderr:  return "stderr";
-        case StreamKind::Runner:  return "runner";
-        default:                  return "unknown";
-    }
+    return core::enum_name(kind);
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name, StreamKind& out) noexcept {
-    if (name == "app") {
-        out = StreamKind::App;
-        return true;
-    }
-    if (name == "metrics") {
-        out = StreamKind::Metrics;
-        return true;
-    }
-    if (name == "traces") {
-        out = StreamKind::Traces;
-        return true;
-    }
-    if (name == "chrono") {
-        out = StreamKind::Chrono;
-        return true;
-    }
-    if (name == "stdout") {
-        out = StreamKind::Stdout;
-        return true;
-    }
-    if (name == "stderr") {
-        out = StreamKind::Stderr;
-        return true;
-    }
-    if (name == "runner") {
-        out = StreamKind::Runner;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 } // namespace nexigen::hub
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::hub::StreamKind> {
+    struct Entry {
+        nexigen::hub::StreamKind value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 7> entries{{
+        {nexigen::hub::StreamKind::App, "app"},
+        {nexigen::hub::StreamKind::Metrics, "metrics"},
+        {nexigen::hub::StreamKind::Traces, "traces"},
+        {nexigen::hub::StreamKind::Chrono, "chrono"},
+        {nexigen::hub::StreamKind::Stdout, "stdout"},
+        {nexigen::hub::StreamKind::Stderr, "stderr"},
+        {nexigen::hub::StreamKind::Runner, "runner"},
+    }};
+    static constexpr std::string_view fallback = "unknown";
+};
+
+} // namespace nexigen::core

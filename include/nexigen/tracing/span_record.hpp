@@ -47,6 +47,7 @@
 // cold bodies live in src/tracing/record_format.cpp (design D2).
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -60,6 +61,7 @@
 #include <nexigen/tracing/span_context.hpp>
 #include <nexigen/tracing/span_enums.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::tracing {
 
 /// Inline attribute capacity per span (request-mandated spelling, design D3).
@@ -74,52 +76,26 @@ enum class SpanAttributeType : std::uint8_t {
     String, ///< inline_text (≤ 23 B copy) or view (longer, zero-copy).
 };
 
+} // namespace nexigen::tracing
+
+namespace nexigen::tracing {
+
 /// Compile-time canonical name; static storage; "Unknown" for garbage casts.
 [[nodiscard]] constexpr std::string_view to_string(SpanAttributeType type) noexcept {
-    switch (type) {
-        case SpanAttributeType::Int64:  return "Int64";
-        case SpanAttributeType::Uint64: return "Uint64";
-        case SpanAttributeType::Double: return "Double";
-        case SpanAttributeType::Bool:   return "Bool";
-        case SpanAttributeType::String: return "String";
-        default:                        return "Unknown";
-    }
+    return core::enum_name(type);
 }
 
 /// Parse a canonical tag name; false leaves the out-parameter unchanged.
 [[nodiscard]] constexpr bool from_string(std::string_view name, SpanAttributeType& out) noexcept {
-    if (name == "Int64") {
-        out = SpanAttributeType::Int64;
-        return true;
-    }
-    if (name == "Uint64") {
-        out = SpanAttributeType::Uint64;
-        return true;
-    }
-    if (name == "Double") {
-        out = SpanAttributeType::Double;
-        return true;
-    }
-    if (name == "Bool") {
-        out = SpanAttributeType::Bool;
-        return true;
-    }
-    if (name == "String") {
-        out = SpanAttributeType::String;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 /// ADL JSON writer/reader (cold path only; result.hpp get_ptr pattern).
 inline void to_json(nlohmann::json& j, const SpanAttributeType type) {
-    j = std::string(to_string(type));
+    core::mandate::enum_to_json(j, type);
 }
 inline void from_json(const nlohmann::json& j, SpanAttributeType& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    core::mandate::enum_from_json(j, out);
 }
 
 /// Inline bounds (design D5): key and value text capacities.
@@ -370,3 +346,22 @@ template <> struct std::formatter<nexigen::tracing::SpanRecord> : std::formatter
         return std::formatter<std::string_view>::format(text, ctx);
     }
 };
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::tracing::SpanAttributeType> {
+    struct Entry {
+        nexigen::tracing::SpanAttributeType value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 5> entries{{
+        {nexigen::tracing::SpanAttributeType::Int64, "Int64"},
+        {nexigen::tracing::SpanAttributeType::Uint64, "Uint64"},
+        {nexigen::tracing::SpanAttributeType::Double, "Double"},
+        {nexigen::tracing::SpanAttributeType::Bool, "Bool"},
+        {nexigen::tracing::SpanAttributeType::String, "String"},
+    }};
+};
+
+} // namespace nexigen::core

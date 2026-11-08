@@ -1,12 +1,14 @@
 // nexigen::tracing — SpanStatus enum.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::tracing {
 
 /// Outcome of a span; Unset is the start-time default.
@@ -16,41 +18,41 @@ enum class SpanStatus : std::uint8_t {
     Error, ///< Completed with a failure.
 };
 
+} // namespace nexigen::tracing
+
+namespace nexigen::tracing {
+
 [[nodiscard]] constexpr std::string_view to_string(SpanStatus status) noexcept {
-    switch (status) {
-        case SpanStatus::Unset: return "Unset";
-        case SpanStatus::Ok:    return "Ok";
-        case SpanStatus::Error: return "Error";
-        default:                return "Unknown";
-    }
+    return core::enum_name(status);
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name, SpanStatus& out) noexcept {
-    if (name == "Unset") {
-        out = SpanStatus::Unset;
-        return true;
-    }
-    if (name == "Ok") {
-        out = SpanStatus::Ok;
-        return true;
-    }
-    if (name == "Error") {
-        out = SpanStatus::Error;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 inline void from_json(const nlohmann::json& j, SpanStatus& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    core::mandate::enum_from_json(j, out);
 }
 
-
 inline void to_json(nlohmann::json& j, const SpanStatus spanStatus) {
-    j = std::string(to_string(spanStatus));
+    core::mandate::enum_to_json(j, spanStatus);
 }
 
 } // namespace nexigen::tracing
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::tracing::SpanStatus> {
+    struct Entry {
+        nexigen::tracing::SpanStatus value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 3> entries{{
+        {nexigen::tracing::SpanStatus::Unset, "Unset"},
+        {nexigen::tracing::SpanStatus::Ok, "Ok"},
+        {nexigen::tracing::SpanStatus::Error, "Error"},
+    }};
+};
+
+} // namespace nexigen::core

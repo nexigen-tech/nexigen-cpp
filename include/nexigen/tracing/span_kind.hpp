@@ -1,12 +1,14 @@
 // nexigen::tracing — SpanKind enum.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::tracing {
 
 /// Causal role of a span inside the traced system (OTel-compatible names).
@@ -18,51 +20,43 @@ enum class SpanKind : std::uint8_t {
     Consumer, ///< Asynchronous consumer of a message/event.
 };
 
+} // namespace nexigen::tracing
+
+namespace nexigen::tracing {
+
 [[nodiscard]] constexpr std::string_view to_string(SpanKind kind) noexcept {
-    switch (kind) {
-        case SpanKind::Internal: return "Internal";
-        case SpanKind::Server:   return "Server";
-        case SpanKind::Client:   return "Client";
-        case SpanKind::Producer: return "Producer";
-        case SpanKind::Consumer: return "Consumer";
-        default:                 return "Unknown";
-    }
+    return core::enum_name(kind);
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name, SpanKind& out) noexcept {
-    if (name == "Internal") {
-        out = SpanKind::Internal;
-        return true;
-    }
-    if (name == "Server") {
-        out = SpanKind::Server;
-        return true;
-    }
-    if (name == "Client") {
-        out = SpanKind::Client;
-        return true;
-    }
-    if (name == "Producer") {
-        out = SpanKind::Producer;
-        return true;
-    }
-    if (name == "Consumer") {
-        out = SpanKind::Consumer;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 inline void from_json(const nlohmann::json& j, SpanKind& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    core::mandate::enum_from_json(j, out);
 }
 
-
 inline void to_json(nlohmann::json& j, const SpanKind spanKind) {
-    j = std::string(to_string(spanKind));
+    core::mandate::enum_to_json(j, spanKind);
 }
 
 } // namespace nexigen::tracing
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::tracing::SpanKind> {
+    struct Entry {
+        nexigen::tracing::SpanKind value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 5> entries{{
+        {nexigen::tracing::SpanKind::Internal, "Internal"},
+        {nexigen::tracing::SpanKind::Server, "Server"},
+        {nexigen::tracing::SpanKind::Client, "Client"},
+        {nexigen::tracing::SpanKind::Producer, "Producer"},
+        {nexigen::tracing::SpanKind::Consumer, "Consumer"},
+    }};
+};
+
+} // namespace nexigen::core

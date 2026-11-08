@@ -1,12 +1,14 @@
 // nexigen::tracing — SamplingDecision enum.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::tracing {
 
 /// The whole sampling vocabulary (design non-goal: no policy engines).
@@ -15,36 +17,40 @@ enum class SamplingDecision : std::uint8_t {
     RecordAndSample, ///< Record the span (default).
 };
 
+} // namespace nexigen::tracing
+
+namespace nexigen::tracing {
+
 [[nodiscard]] constexpr std::string_view to_string(SamplingDecision decision) noexcept {
-    switch (decision) {
-        case SamplingDecision::Drop:            return "Drop";
-        case SamplingDecision::RecordAndSample: return "RecordAndSample";
-        default:                                return "Unknown";
-    }
+    return core::enum_name(decision);
 }
 
 [[nodiscard]] constexpr bool from_string(std::string_view name, SamplingDecision& out) noexcept {
-    if (name == "Drop") {
-        out = SamplingDecision::Drop;
-        return true;
-    }
-    if (name == "RecordAndSample") {
-        out = SamplingDecision::RecordAndSample;
-        return true;
-    }
-    return false;
+    return core::enum_value(name, out);
 }
 
 inline void from_json(const nlohmann::json& j, SamplingDecision& out) noexcept {
-    const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
-    if (name != nullptr) {
-        static_cast<void>(from_string(std::string_view(*name), out));
-    }
+    core::mandate::enum_from_json(j, out);
 }
 
-
 inline void to_json(nlohmann::json& j, const SamplingDecision samplingDecision) {
-    j = std::string(to_string(samplingDecision));
+    core::mandate::enum_to_json(j, samplingDecision);
 }
 
 } // namespace nexigen::tracing
+
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::tracing::SamplingDecision> {
+    struct Entry {
+        nexigen::tracing::SamplingDecision value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 2> entries{{
+        {nexigen::tracing::SamplingDecision::Drop, "Drop"},
+        {nexigen::tracing::SamplingDecision::RecordAndSample, "RecordAndSample"},
+    }};
+};
+
+} // namespace nexigen::core
