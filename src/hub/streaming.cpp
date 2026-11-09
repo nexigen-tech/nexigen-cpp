@@ -153,7 +153,19 @@ bool StreamManager::open_tailer(Tailer& tailer) noexcept {
             consume_chunk(tailer, chunk);
             tailer.offset += static_cast<std::uint64_t>(count);
         }
-        tailer.offset = static_cast<std::uint64_t>(status.st_size);
+        // speedup-validation-loop (latent-race fix exposed by ctest -j):
+        // the seed read advances the fd cursor by the bytes actually consumed,
+        // so pin `offset` to that same cursor. The former assignment to
+        // `status.st_size` used a fstat size captured BEFORE the read — when a
+        // writer truncates then rewrites while seeding, the file grows mid-read
+        // and the stale size desyncs `offset` from the fd cursor, wedging the
+        // tailer at offset < size (every later read then returns 0 forever).
+        // A too-long-line gap produced during the seed read also needs to be
+        // dispatched here (poll_tailer does the same after its own read).
+        while (!tailer.gaps.empty()) {
+            dispatch_gap(tailer.gaps.front());
+            tailer.gaps.pop_front();
+        }
         return true;
     }
 
