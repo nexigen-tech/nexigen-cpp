@@ -46,6 +46,27 @@ function(nexigen_set_optimizations target_name)
             # read it at generation time.
             set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE PARENT_SCOPE)
             message(STATUS "🚀 LTO (Link-Time Optimization) enabled")
+            # speedup-validation-loop D1: gcc runs the whole-program WPA
+            # stage in ONE worker unless the link line carries an explicit
+            # worker count, so the 17-min Release rebuild spends most of its
+            # wall time in the link. Publish -flto=<N> for both compile and
+            # link (the driver must agree on the partition count), Release-
+            # scoped, riding the same options umbrella as sanitizers.
+            # Clang's LTO already parallelizes; N stays default there.
+            if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+                include(ProcessorCount)
+                ProcessorCount(lto_jobs)
+                if(lto_jobs LESS_EQUAL 0)
+                    set(lto_jobs 4)
+                elseif(lto_jobs GREATER 32)
+                    set(lto_jobs 32)
+                endif()
+                target_compile_options(${target_name} INTERFACE
+                    $<$<CONFIG:Release,RelWithDebInfo>:-flto=${lto_jobs}>)
+                target_link_options(${target_name} INTERFACE
+                    $<$<CONFIG:Release,RelWithDebInfo>:-flto=${lto_jobs}>)
+                message(STATUS "🚀 LTO workers: -flto=${lto_jobs}")
+            endif()
         else()
             message(WARNING "LTO is not supported: ${lto_error}")
         endif()

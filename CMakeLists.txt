@@ -17,6 +17,19 @@ include(Sanitizers)
 include(Format)
 include(Complexity)
 
+# speedup-validation-loop 1.4 (design D5): прозрачный компайл-кэш, когда
+# ccache лежит на PATH; отсутствие — no-op (установка не требуется).
+# Экспорт безопасен: CMAKE_*_COMPILER_LAUNCHER — переменная build-tree,
+# в nexigenConfig.cmake не попадает.
+find_program(NEXIGEN_CCACHE_PROGRAM NAMES ccache)
+if(NEXIGEN_CCACHE_PROGRAM)
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${NEXIGEN_CCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER "${NEXIGEN_CCACHE_PROGRAM}")
+    message(STATUS "🧰 compile cache: ccache (${NEXIGEN_CCACHE_PROGRAM})")
+else()
+    message(STATUS "🧰 compile cache: ccache not on PATH (conda install -c conda-forge ccache)")
+endif()
+
 # Опция покрытия: инструментирует ВСЕ цели и добавляет target `coverage`.
 option(NEXIGEN_ENABLE_COVERAGE "Instrument the build with GCC/Clang --coverage" OFF)
 set(NEXIGEN_COVERAGE_FAIL_UNDER "0" CACHE STRING
@@ -347,6 +360,24 @@ target_include_directories(nexigen_hub PUBLIC
 )
 target_compile_definitions(nexigen_hub PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
 target_link_libraries(nexigen_hub PUBLIC nexigen_core nexigen_runner PRIVATE Threads::Threads)
+
+# =============================================================================
+# speedup-validation-loop 1.2: один PCH-прелюд (include/nexigen/core/pch.hpp)
+# на каждую статичную библиотеку — nlohmann/json и холодные std-хедеры
+# парсятся один раз на таргет вместо каждой TU. Снапшот PCH идентичен
+# текущему прелюду каждой TU (те же дефайны и прагмы, design D2); точка
+# приложения — после всех add_library выше; тестовые/example-цели получают
+# свой PCH отдельно (задача 1.3).
+# =============================================================================
+include(Pch)
+nexigen_precompile(nexigen_chrono)
+nexigen_precompile(nexigen_logging)
+nexigen_precompile(nexigen_metrics)
+nexigen_precompile(nexigen_tracing)
+nexigen_precompile(nexigen_diagnostics)
+nexigen_precompile(nexigen_app)
+nexigen_precompile(nexigen_runner)
+nexigen_precompile(nexigen_hub)
 
 # =============================================================================
 # Опции сборки: юнит-тесты и runnable-примеры (включены по умолчанию).
