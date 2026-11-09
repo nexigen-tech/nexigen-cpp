@@ -197,3 +197,28 @@ if(NEXIGEN_BUILD_TOOLS)
                      $<TARGET_FILE:nexigen-hub>)
     set_tests_properties(nexigen_hub_cli_tests PROPERTIES TIMEOUT 120)
 endif()
+
+# =============================================================================
+# speedup-validation-loop 1.3: PCH-прелюд и тестовым исполняемым (тот же
+# compiled state, что у библиотек: verified-равные дефайны, design D2).
+# if(TARGET)-guard переживает включение/выключение опциональных тестов.
+# =============================================================================
+include(Pch)
+foreach(_nexigen_test
+        nexigen_core_tests
+        nexigen_chrono_tests
+        nexigen_logging_tests
+        nexigen_metrics_tests
+        nexigen_tracing_tests
+        nexigen_diagnostics_tests
+        nexigen_app_tests
+        nexigen_runner_tests
+        nexigen_app_suite_tests
+        nexigen_child_process_tests
+        nexigen_runner_logging_tests
+        nexigen_hub_tests)
+    if(TARGET ${_nexigen_test})
+        nexigen_precompile(${_nexigen_test})
+    endif()
+endforeach()
+unset(_nexigen_test)
