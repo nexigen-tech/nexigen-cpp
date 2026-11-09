@@ -330,7 +330,10 @@ void test_stopwatch_laps() {
     NX_CHECK(sw.min_lap_ns() == Stopwatch::no_lap_value);
 
     // First lap measures from the segment start (spec scenario); run stays.
-    static_cast<void>(spin_us(1));
+    // The spin margin is deliberately wide (10 vs 50 us): under parallel
+    // ctest / sanitizer-config load, a ~2 us margin (1 vs 3 us) is smaller
+    // than the monotonic-clock read jitter and can invert `second > first`.
+    static_cast<void>(spin_us(10));
     const std::uint64_t first = sw.lap();
     NX_CHECK(first > 0U);
     NX_CHECK(sw.is_running()); // no stop() state change
@@ -340,7 +343,7 @@ void test_stopwatch_laps() {
     NX_CHECK(sw.max_lap_ns() == first);
 
     // Consecutive laps measure only their own segment; second is longer.
-    static_cast<void>(spin_us(3));
+    static_cast<void>(spin_us(50));
     const std::uint64_t second = sw.lap();
     NX_CHECK(second > first);       // segment lengths grew
     NX_CHECK(sw.lap_count() == 2U); // count grew by one
