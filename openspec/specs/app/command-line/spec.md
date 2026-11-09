@@ -165,7 +165,7 @@ double slash. An absent directory SHALL leave that source pair empty.
 
 ### Requirement: Log level accepts canonical enumerator names
 
-`--log-level` MUST accept exactly the lowercase `nexigen::logging::LogLevel` spellings:
+`--log-level` MUST accept exactly the lowercase `nexigen::core::LogLevel` spellings:
 `verbose`, `debug`, `info`, `warning`, `error`, `fatal`, and `off`. An unknown or differently
 cased value MUST yield `InvalidArgument` with a diagnostic listing the accepted spellings. When
 the option is omitted, no override SHALL be recorded.
@@ -173,7 +173,7 @@ the option is omitted, no override SHALL be recorded.
 #### Scenario: Every canonical level is accepted
 
 - **WHEN** each of the seven canonical spellings is supplied to `--log-level`
-- **THEN** parsing succeeds and records the matching `LogLevel` value
+- **THEN** parsing succeeds and records the matching `nexigen::core::LogLevel` value
 
 #### Scenario: Unknown level is rejected
 
