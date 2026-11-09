@@ -18,6 +18,8 @@
 #include <system_error>
 #include <thread>
 
+#include <unistd.h>
+
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/logging/log_level.hpp>
 
@@ -26,7 +28,12 @@ namespace {
 /// Static storage: FileLogger owns non-movable shard rings and a worker.
 nexigen::logging::FileLogger<> logger{};
 
-constexpr std::string_view k_base_dir = "/tmp/nexigen-examples-logs";
+// Per-process suffix keeps the scratch tree unique under parallel ctest:
+// ex_composite_logger nests under "/tmp/nexigen-examples-logs", and the 3
+// sanitizer configs run this example concurrently — a shared absolute path
+// lets one process remove_all() the other's files mid-write.
+const std::string k_base_dir =
+    "/tmp/nexigen-examples-logs-" + std::to_string(static_cast<long>(::getpid()));
 constexpr std::string_view k_file_name = "ex_file_logger.jsonl";
 constexpr std::string_view k_app_name = "nexigen-example";
 

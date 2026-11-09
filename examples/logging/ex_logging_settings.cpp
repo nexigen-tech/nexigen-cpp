@@ -14,6 +14,8 @@
 #include <string>
 #include <string_view>
 
+#include <unistd.h>
+
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/logging/settings.hpp>
 
@@ -25,9 +27,12 @@ using nexigen::logging::Settings;
 using nexigen::core::SettingsPaths;
 using nexigen::logging::load_logging_settings;
 
-constexpr std::string_view k_root = "/tmp/nexigen-examples-logging-settings";
-constexpr std::string_view k_global = "/tmp/nexigen-examples-logging-settings/global.json";
-constexpr std::string_view k_local = "/tmp/nexigen-examples-logging-settings/local.json";
+// Per-process suffix keeps the scratch tree unique under parallel ctest
+// (the 3 sanitizer configs run this example concurrently).
+const std::string k_root =
+    "/tmp/nexigen-examples-logging-settings-" + std::to_string(static_cast<long>(::getpid()));
+const std::string k_global = k_root + "/global.json";
+const std::string k_local = k_root + "/local.json";
 
 /// Static storage: FileLogger owns non-movable shard rings and a worker.
 FileLogger<> logger{};

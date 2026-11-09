@@ -10,13 +10,16 @@
 #include <string>
 #include <thread>
 
+#include <unistd.h>
+
 #include <nexigen/chrono/chrono_provider.hpp>
 #include <nexigen/chrono/json_file_chrono_sink.hpp>
 
 int main() {
     using namespace nexigen;
 
-    const std::string path = "/tmp/ex_chrono_snapshot.jsonl";
+    const std::string path =
+        "/tmp/ex_chrono_snapshot-" + std::to_string(static_cast<long>(::getpid())) + ".jsonl";
     chrono::JsonFileChronoSinkConfig sink_config{path, /*append=*/false};
     chrono::JsonFileChronoSink sink{sink_config};
     if (!sink.is_open()) {

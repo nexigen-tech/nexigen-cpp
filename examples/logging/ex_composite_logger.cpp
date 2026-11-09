@@ -18,6 +18,8 @@
 #include <system_error>
 #include <thread>
 
+#include <unistd.h>
+
 #include <nexigen/logging/composite_logger.hpp>
 #include <nexigen/logging/console_logger.hpp>
 #include <nexigen/logging/file_logger.hpp>
@@ -34,7 +36,12 @@ using nexigen::logging::NullLogger;
 /// Static storage: the composite owns non-movable shard rings and workers.
 nexigen::logging::CompositeLogger<ConsoleLogger<>, FileLogger<>, NullLogger> app{};
 
-constexpr std::string_view k_base_dir = "/tmp/nexigen-examples-logs/composite";
+// Per-process suffix keeps the scratch tree unique under parallel ctest:
+// ex_file_logger owns the "/tmp/nexigen-examples-logs" prefix and
+// remove_all()s it at startup, and the 3 sanitizer configs run this example
+// concurrently — a shared absolute path makes flush() fail with SystemError.
+const std::string k_base_dir =
+    "/tmp/nexigen-examples-logs/composite-" + std::to_string(static_cast<long>(::getpid()));
 constexpr std::string_view k_file_name = "ex_composite_logger.jsonl";
 constexpr std::string_view k_app_name = "nexigen-composite-example";
 
