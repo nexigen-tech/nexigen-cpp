@@ -4,7 +4,7 @@
 
 void test_telemetry_layout() {
     EnvGuard run_id_env{"NEXIGEN_RUN_ID"};
-    EnvGuard run_dir_env{"NEXIGEN_RUN_DIR"};
+    EnvGuard run_dir_env{"NEXIGEN_EXEC_DIR"};
     EnvGuard instance_id_env{"NEXIGEN_INSTANCE_ID"};
     EnvGuard instance_dir_env{"NEXIGEN_INSTANCE_DIR"};
     run_id_env.clear();
@@ -183,7 +183,7 @@ void test_telemetry_layout() {
 
 void test_telemetry_layout_infrastructure() {
     EnvGuard run_id_env{"NEXIGEN_RUN_ID"};
-    EnvGuard run_dir_env{"NEXIGEN_RUN_DIR"};
+    EnvGuard run_dir_env{"NEXIGEN_EXEC_DIR"};
     EnvGuard instance_id_env{"NEXIGEN_INSTANCE_ID"};
     EnvGuard instance_dir_env{"NEXIGEN_INSTANCE_DIR"};
     run_id_env.set("run-layout");

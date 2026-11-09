@@ -550,7 +550,7 @@ public:
         return failed_ == 0U && rollback_failed_ == 0U;
     }
 
-    /// Cold-path mask/error rendering; see `nexigen::runner::describe_thread_apply_report`
+    /// Cold-path mask/error rendering; see `nexigen::exec::describe_thread_apply_report`
     /// for the operator-facing attribute names.
     [[nodiscard]] std::string to_string() const {
         return "ThreadApplyReport(requested=" + std::to_string(requested_) +

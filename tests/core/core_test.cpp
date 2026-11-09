@@ -64,6 +64,8 @@ static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::NotInitialized)
               "NotInitialized");
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::RateLimited) == "RateLimited");
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::Conflict) == "Conflict");
+static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::ResourceExhausted) ==
+              "ResourceExhausted");
 
 // Append-only contract (logging change): existing enumerator values are pinned,
 // so RateLimited joins the catalogue as enumerator 6 without renumbering.
@@ -71,6 +73,7 @@ static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::Ok) == 0);
 static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::NotInitialized) == 5);
 static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::RateLimited) == 6);
 static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::Conflict) == 7);
+static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::ResourceExhausted) == 8);
 
 // Alias identity: Result's default error type IS ErrorCode; Status is the void form.
 static_assert(
@@ -222,15 +225,16 @@ void run_suite(const char* suite_name, void (*body)()) {
 }
 
 void test_result() {
-    // Distinctness: all eight codes pairwise different (28 pairs).
+    // Distinctness: all nine codes pairwise different (36 pairs).
     const ErrorCode all_codes[] = {
         ErrorCode::Ok,          ErrorCode::BufferFull,
         ErrorCode::BufferEmpty, ErrorCode::InvalidArgument,
         ErrorCode::SystemError, ErrorCode::NotInitialized,
         ErrorCode::RateLimited, ErrorCode::Conflict,
+        ErrorCode::ResourceExhausted,
     };
-    for (int i = 0; i < 8; ++i) {
-        for (int j = i + 1; j < 8; ++j) {
+    for (int i = 0; i < 9; ++i) {
+        for (int j = i + 1; j < 9; ++j) {
             NX_CHECK(all_codes[i] != all_codes[j]);
         }
     }
@@ -246,6 +250,7 @@ void test_result() {
     NX_CHECK(to_string(ErrorCode::NotInitialized) == "NotInitialized");
     NX_CHECK(to_string(ErrorCode::RateLimited) == "RateLimited");
     NX_CHECK(to_string(ErrorCode::Conflict) == "Conflict");
+    NX_CHECK(to_string(ErrorCode::ResourceExhausted) == "ResourceExhausted");
     // Garbage-cast value is well-defined via the default arm.
     NX_CHECK(to_string(static_cast<ErrorCode>(200)) == "Unknown");
 

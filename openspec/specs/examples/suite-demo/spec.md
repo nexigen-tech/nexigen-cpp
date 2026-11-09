@@ -1,7 +1,7 @@
 # examples/suite-demo Specification
 
 ## Purpose
-Defines the runnable multi-application suite demonstration that launches several `Infrastructure`-based applications through `nexigen-run` and exercises the suite supervisor's restart, degrade, and whole-suite-failure policy end to end.
+Defines the runnable multi-application suite demonstration that launches several `Infrastructure`-based applications through `nexigen-exec` and exercises the suite supervisor's restart, degrade, and whole-suite-failure policy end to end.
 
 ## Requirements
 
@@ -16,7 +16,7 @@ The project SHALL provide a self-contained executable `ex_suite_app` under `exam
 
 #### Scenario: Self-contained and harness-free
 
-- **WHEN** `ex_suite_app` is run outside any test runner
+- **WHEN** `ex_suite_app` is run outside any test execution_manager
 - **THEN** it creates its own Infrastructure from the supplied settings, requires no fixture or pre-existing file, and depends only on the public `nexigen` API
 
 #### Scenario: Failure to initialize is visible
@@ -26,7 +26,7 @@ The project SHALL provide a self-contained executable `ex_suite_app` under `exam
 
 ### Requirement: Roles and failure modes are environment-driven
 
-The application SHALL select its behavior from environment variables set by the runner without changing its identity: a worker role SHALL run until stopped, a degrade role SHALL terminate with a non-zero exit code after its interval, and a failure role SHALL die by signal after its interval. The intervals SHALL be configurable so a manual run uses full durations and a smoke run can compress them.
+The application SHALL select its behavior from environment variables set by the execution_manager without changing its identity: a worker role SHALL run until stopped, a degrade role SHALL terminate with a non-zero exit code after its interval, and a failure role SHALL die by signal after its interval. The intervals SHALL be configurable so a manual run uses full durations and a smoke run can compress them.
 
 #### Scenario: Degrade role exits with an error code
 
@@ -41,7 +41,7 @@ The application SHALL select its behavior from environment variables set by the 
 #### Scenario: Worker role runs until stopped
 
 - **WHEN** a worker-role instance runs without a failure interval
-- **THEN** it keeps ticking and is terminated only by an operator stop or a signal from the runner
+- **THEN** it keeps ticking and is terminated only by an operator stop or a signal from the execution_manager
 
 #### Scenario: Intervals are configurable
 
@@ -74,12 +74,12 @@ While running, the application SHALL write all four telemetry streams — applic
 
 ### Requirement: Settings drive launch through the command line
 
-Each application SHALL load its settings through the standard command-line options, pointing at the settings the runner generates for its instance so the four sinks resolve to the attempt artifact directory, the log root is that directory, and the application name in emitted records equals the instance's `app` identity.
+Each application SHALL load its settings through the standard command-line options, pointing at the settings the execution_manager generates for its instance so the four sinks resolve to the attempt artifact directory, the log root is that directory, and the application name in emitted records equals the instance's `app` identity.
 
 #### Scenario: Instance settings directory is supplied on the command line
 
-- **WHEN** the runner launches an application from the manifest
-- **THEN** the child receives `--global-settings <instance_dir>/settings` and initializes from the merged files the runner wrote there
+- **WHEN** the execution_manager launches an application from the manifest
+- **THEN** the child receives `--global-settings <instance_dir>/settings` and initializes from the merged files the execution_manager wrote there
 
 #### Scenario: Application name and directories follow the identity
 
@@ -92,7 +92,7 @@ The demonstration SHALL ship a suite manifest that launches three instances of t
 
 #### Scenario: Manifest names three distinct applications
 
-- **WHEN** the manifest is loaded by `nexigen-run start --config`
+- **WHEN** the manifest is loaded by `nexigen-exec start --config`
 - **THEN** exactly three applications are launched under distinct app names with the three distinct impact levels
 
 #### Scenario: Global and local settings merge is exercised
@@ -100,9 +100,9 @@ The demonstration SHALL ship a suite manifest that launches three instances of t
 - **WHEN** the suite global settings and a per-application local settings source both configure a field
 - **THEN** the merged value seen by that application reflects the local override
 
-#### Scenario: Manifest is accepted by the runner
+#### Scenario: Manifest is accepted by the execution_manager
 
-- **WHEN** `nexigen-run start --config` is invoked with the shipped manifest
+- **WHEN** `nexigen-exec start --config` is invoked with the shipped manifest
 - **THEN** the suite supervisor starts and reports all three applications running
 
 ### Requirement: Impact policy produces the documented timeline
@@ -112,7 +112,7 @@ The demonstration SHALL make the suite supervisor's policy observable: a degrade
 #### Scenario: Degrade restart is observed
 
 - **WHEN** the degrade instance exits with an error
-- **THEN** the runner schedules a retry and relaunches that application into a new attempt directory, leaving earlier attempts intact
+- **THEN** the execution_manager schedules a retry and relaunches that application into a new attempt directory, leaving earlier attempts intact
 
 #### Scenario: Degrade exhaustion degrades the suite
 
@@ -131,12 +131,12 @@ The demonstration SHALL make the suite supervisor's policy observable: a degrade
 
 ### Requirement: Driver and cleanup scripts run and reset the scenario
 
-The project SHALL provide `examples/suite/run_suite_demo.sh` and `examples/suite/clean_suite_demo.sh`. The driver SHALL start the suite through `nexigen-run`, and the cleanup script SHALL remove the generated run, artifact, and suite metadata directories idempotently.
+The project SHALL provide `examples/suite/run_suite_demo.sh` and `examples/suite/clean_suite_demo.sh`. The driver SHALL start the suite through `nexigen-exec`, and the cleanup script SHALL remove the generated run, artifact, and suite metadata directories idempotently.
 
 #### Scenario: Driver starts the suite
 
 - **WHEN** `run_suite_demo.sh` is invoked
-- **THEN** it builds the example if needed and starts the suite supervisor via `nexigen-run start --config`
+- **THEN** it builds the example if needed and starts the suite supervisor via `nexigen-exec start --config`
 
 #### Scenario: Cleanup removes generated state
 

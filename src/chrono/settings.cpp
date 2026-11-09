@@ -1,7 +1,9 @@
 // nexigen::chrono — cold-path implementation of the global/local settings
 // loader (change add-chrono-clock-service; spec chrono/chrono-settings;
 // refactor-settings-table-parsing turns the per-field read/write scaffolding
-// into a declarative table over the shared core::settings_io drivers).
+// into a declarative table over the shared core::settings_io drivers;
+// add-clock-authority-core adds the file-only `kind` field and the
+// manual+worker-attributes diagnostic).
 //
 // Everything in this unit is initialization-time code: file I/O, JSON,
 // std::string and diagnostics are explicitly allowed here and never reach a
@@ -68,6 +70,25 @@ void read_worker_thread(const char* key, const nlohmann::json& document,
     io::read_worker_spec(document, key, source, diagnostics, out.options.worker_thread);
 }
 
+void read_kind(const char* key, const nlohmann::json& document, core::SettingsSource source,
+               std::vector<core::SettingsDiagnostic>& diagnostics, Settings& out) {
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return;
+    }
+    const auto* const name = it->get_ptr<const nlohmann::json::string_t*>();
+    if (name == nullptr) {
+        add_diagnostic(diagnostics, source, key, "expected a string");
+        return;
+    }
+    ProviderKind parsed = out.options.kind;
+    if (!from_string(std::string_view(*name), parsed)) {
+        add_diagnostic(diagnostics, source, key, "unknown kind");
+        return;
+    }
+    out.options.kind = parsed;
+}
+
 void read_sink_path(const char* key, const nlohmann::json& sink, core::SettingsSource source,
                     std::vector<core::SettingsDiagnostic>& diagnostics, Settings& out) {
     io::read_sink_string(sink, key, out.sink.path, diagnostics, source);
@@ -82,6 +103,7 @@ constexpr io::ReadField<Settings> document_fields[] = {
     {"collect_interval_ns", &read_collect_interval},
     {"core_mask", &read_core_mask},
     {"worker_thread", &read_worker_thread},
+    {"kind", &read_kind},
 };
 
 constexpr io::SinkReadField<Settings> sink_fields[] = {
@@ -106,6 +128,10 @@ void write_worker_thread(nlohmann::json& object, const char* key, const Settings
     object[key] = settings.options.worker_thread;
 }
 
+void write_kind(nlohmann::json& object, const char* key, const Settings& settings) {
+    object[key] = settings.options.kind;
+}
+
 void write_sink(nlohmann::json& object, const char* key, const Settings& settings) {
     object[key] = nlohmann::json{{"path", settings.sink.path}, {"append", settings.sink.append}};
 }
@@ -115,6 +141,7 @@ constexpr io::WriteField<Settings> json_fields[] = {
     {"local_loaded", &write_local_loaded},
     {"collect_interval_ns", &write_collect_interval},
     {"worker_thread", &write_worker_thread},
+    {"kind", &write_kind},
     {"sink", &write_sink},
 };
 
@@ -155,6 +182,16 @@ constexpr io::EnvField<Settings> env_fields[] = {
 
 void apply_environment(Settings& out) {
     io::apply_env_fields(env_fields, out);
+    // Provider kind is file-only: no environment override targets it. A manual
+    // kind with configured worker attributes records the ignored fields while
+    // the values remain stored for diagnostics.
+    if (out.options.kind == ProviderKind::manual &&
+        (!out.options.worker_thread.cpus().empty() ||
+         !out.options.worker_thread.name().empty() ||
+         out.options.worker_thread.scheduler_configured())) {
+        add_diagnostic(out.diagnostics, core::SettingsSource::Computed, "kind",
+                       "manual kind ignores configured worker attributes");
+    }
 }
 
 } // namespace
@@ -164,7 +201,7 @@ core::Status load_chrono_settings(const core::SettingsPaths& paths, Settings& ou
                                                      &apply_environment);
 }
 
-core::Status apply_to(const Settings& settings, ChronoProviderConfig& out) noexcept {
+core::Status apply_to(const Settings& settings, ProviderConfig& out) noexcept {
     out = settings.options;
     return {};
 }

@@ -1,4 +1,4 @@
-// Entry point for the nexigen::app tests. Each entity file exposes one runner
+// Entry point for the nexigen::app tests. Each entity file exposes one execution_manager
 // that preserves the historical suite order; the shared harness lives in
 // app_test_support.hpp.
 

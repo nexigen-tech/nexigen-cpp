@@ -8,12 +8,12 @@ Provides the exception-free error-modeling vocabulary that every fallible `nexig
 
 ### Requirement: Error code catalogue
 
-The system SHALL expose a fixed set of error codes in `nexigen::core`: `Ok`, `BufferFull`, `BufferEmpty`, `InvalidArgument`, `SystemError`, `NotInitialized`, `RateLimited`, and `Conflict`. Each code SHALL be a distinct, addressable enumerator usable as a non-throwing failure value. `RateLimited` classifies a rate-policy rejection before queue interaction; `Conflict` classifies an operation rejected because another owner holds a process-global resource or state (distinct from `NotInitialized`).
+The system SHALL expose a fixed set of error codes in `nexigen::core`: `Ok`, `BufferFull`, `BufferEmpty`, `InvalidArgument`, `SystemError`, `NotInitialized`, `RateLimited`, `Conflict`, and `ResourceExhausted`. Each code SHALL be a distinct, addressable enumerator usable as a non-throwing failure value. `RateLimited` classifies a rate-policy rejection before queue interaction; `Conflict` classifies an operation rejected because another owner holds a process-global resource or state (distinct from `NotInitialized`); `ResourceExhausted` classifies a request rejected because the whole fixed-capacity pool of a preallocated resource is already issued (distinct from `BufferFull`'s bounded-queue push rejection).
 
 #### Scenario: Enumerators are available and distinct
 
-- **WHEN** a caller names each of the eight error codes and compares any two different codes
-- **THEN** all eight are usable as error values and no two compare equal
+- **WHEN** a caller names each of the nine error codes and compares any two different codes
+- **THEN** all nine are usable as error values and no two compare equal
 
 #### Scenario: Success is representable
 
@@ -40,14 +40,24 @@ The system SHALL expose a fixed set of error codes in `nexigen::core`: `Ok`, `Bu
 - **WHEN** `std::format("{}", ErrorCode::Conflict)` is evaluated
 - **THEN** it yields `"Conflict"`
 
+#### Scenario: Resource pool exhaustion is distinguishable from queue rejection
+
+- **WHEN** stamp-source issuance fails after every source of the fixed bank is issued while the codebase queues stay untouched
+- **THEN** the call reports `ResourceExhausted` and a caller can tell the pool grant failure apart from `BufferFull`
+
+#### Scenario: ResourceExhausted has stable value and naming
+
+- **WHEN** `ErrorCode::ResourceExhausted` is converted to its underlying value, `to_string`, and JSON
+- **THEN** the value is 8, the name is `"ResourceExhausted"`, and `from_json`/`from_string` recover the same enumerator under `JSON_NOEXCEPTION=1`, with `std::format` rendering `"ResourceExhausted"`
+
 ### Requirement: Compile-time error code naming
 
 The system SHALL provide a `to_string` mapping from an error code to its human-readable name that is evaluated at compile time (`constexpr`) and returns a string view referring to static storage, with no allocation and no exception path.
 
 #### Scenario: Name of a known code is resolvable at compile time
 
-- **WHEN** `to_string` is applied to each of the seven defined error codes
-- **THEN** each call yields that code's exact name (for example `BufferFull` yields the text `BufferFull` and `RateLimited` yields the text `RateLimited`), and the calls are valid in a constant expression
+- **WHEN** `to_string` is applied to each of the nine defined error codes
+- **THEN** each call yields that code's exact name (for example `BufferFull` yields the text `BufferFull`, `RateLimited` yields the text `RateLimited`, and `ResourceExhausted` yields the text `ResourceExhausted`), and the calls are valid in a constant expression
 
 #### Scenario: Naming allocates nothing
 

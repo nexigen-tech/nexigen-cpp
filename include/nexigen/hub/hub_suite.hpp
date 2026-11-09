@@ -12,7 +12,7 @@
 
 #include <nexigen/hub/hub_app.hpp>
 #include <nexigen/hub/hub_stream.hpp>
-#include <nexigen/runner/suite_state.hpp>
+#include <nexigen/exec/suite_state.hpp>
 
 namespace nexigen::hub {
 
@@ -21,10 +21,10 @@ struct HubSuite {
     std::string suite_id{};
     std::string suite_dir{};
     std::string artifacts_path{};
-    runner::SuiteState state{runner::SuiteState::Unknown};
+    exec::SuiteState state{exec::SuiteState::Unknown};
     std::uint32_t suite_restarts_used{0};
     std::string reason{};
-    HubStream runner_log{};
+    HubStream execution_manager_log{};
     std::vector<HubApp> apps{};
 
     [[nodiscard]] std::string to_string() const;

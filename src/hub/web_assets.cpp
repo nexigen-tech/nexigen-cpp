@@ -122,7 +122,7 @@ std::string_view app_js() noexcept {
     };
     for (const run of tree.runs || []) {
       for (const suite of run.suites || []) {
-        push(suite.runner_log, run.run_key + "/" + suite.suite_id + "/runner");
+        push(suite.execution_manager_log, run.run_key + "/" + suite.suite_id + "/execution_manager");
         for (const app of suite.apps || []) {
           for (const inst of app.instances || []) {
             for (const attempt of inst.attempts || []) {

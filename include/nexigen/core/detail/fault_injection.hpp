@@ -11,9 +11,9 @@
 namespace nexigen::core::fault_injection {
 
 enum class FaultPoint : std::uint8_t {
-    Runner_pipe2,
-    Runner_fork,
-    Runner_open_null,
+    ExecutionManager_pipe2,
+    ExecutionManager_fork,
+    ExecutionManager_open_null,
     Hub_socket,
     Hub_bind,
     Hub_epoll,

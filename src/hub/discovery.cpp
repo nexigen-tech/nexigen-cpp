@@ -23,8 +23,8 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/hub/discovery.hpp>
 #include <nexigen/hub/hub_tree.hpp>
-#include <nexigen/runner/app_suite.hpp>
-#include <nexigen/runner/instance_lifecycle.hpp>
+#include <nexigen/exec/app_suite.hpp>
+#include <nexigen/exec/instance_lifecycle.hpp>
 
 namespace nexigen::hub {
 
@@ -120,67 +120,67 @@ constexpr std::uint32_t watch_mask = IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_
            std::string(to_string(kind));
 }
 
-[[nodiscard]] runner::AppState
-combine_app_state(const std::vector<runner::AppState>& states) noexcept {
+[[nodiscard]] exec::AppState
+combine_app_state(const std::vector<exec::AppState>& states) noexcept {
     bool running = false;
     bool restarting = false;
     bool failed = false;
     bool stopped = false;
     bool exited = false;
-    for (const runner::AppState state : states) {
-        if (state == runner::AppState::Failed) {
+    for (const exec::AppState state : states) {
+        if (state == exec::AppState::Failed) {
             failed = true;
-        } else if (state == runner::AppState::Restarting) {
+        } else if (state == exec::AppState::Restarting) {
             restarting = true;
-        } else if (state == runner::AppState::Running) {
+        } else if (state == exec::AppState::Running) {
             running = true;
-        } else if (state == runner::AppState::Stopped) {
+        } else if (state == exec::AppState::Stopped) {
             stopped = true;
-        } else if (state == runner::AppState::Exited) {
+        } else if (state == exec::AppState::Exited) {
             exited = true;
         }
     }
     if (failed) {
-        return runner::AppState::Failed;
+        return exec::AppState::Failed;
     }
     if (restarting) {
-        return runner::AppState::Restarting;
+        return exec::AppState::Restarting;
     }
     if (running) {
-        return runner::AppState::Running;
+        return exec::AppState::Running;
     }
     if (stopped) {
-        return runner::AppState::Stopped;
+        return exec::AppState::Stopped;
     }
     if (exited) {
-        return runner::AppState::Exited;
+        return exec::AppState::Exited;
     }
-    return runner::AppState::Unknown;
+    return exec::AppState::Unknown;
 }
 
-[[nodiscard]] runner::AppState instance_state(const std::string& instance_dir) {
+[[nodiscard]] exec::AppState instance_state(const std::string& instance_dir) {
     // Read-only derivation from the on-disk instance contract: a resource.json
     // without exit.json means the instance is (or was) running; exit.json
-    // attributes the end. The hub never probes /proc or signals the runner.
+    // attributes the end. The hub never probes /proc or signals the execution_manager.
     const core::Result<nlohmann::json> resource_document =
-        runner::read_json_file(runner::instance_file_path(instance_dir, "resource.json"));
+        exec::read_json_file(exec::instance_file_path(instance_dir, "resource.json"));
     if (!resource_document) {
-        return runner::AppState::Unknown;
+        return exec::AppState::Unknown;
     }
-    runner::ResourceMetadata resource{};
-    runner::from_json(*resource_document, resource);
+    exec::ResourceMetadata resource{};
+    exec::from_json(*resource_document, resource);
     if (resource.pid <= 0) {
-        return runner::AppState::Unknown;
+        return exec::AppState::Unknown;
     }
     const core::Result<nlohmann::json> exit_document =
-        runner::read_json_file(runner::instance_file_path(instance_dir, "exit.json"));
+        exec::read_json_file(exec::instance_file_path(instance_dir, "exit.json"));
     if (!exit_document) {
-        return runner::AppState::Running;
+        return exec::AppState::Running;
     }
-    runner::ExitMetadata exit{};
-    runner::from_json(*exit_document, exit);
-    return exit.terminated_by == runner::TerminatedBy::Runner ? runner::AppState::Stopped
-                                                              : runner::AppState::Exited;
+    exec::ExitMetadata exit{};
+    exec::from_json(*exit_document, exit);
+    return exit.terminated_by == exec::TerminatedBy::ExecutionManager ? exec::AppState::Stopped
+                                                              : exec::AppState::Exited;
 }
 
 void append_attempt_streams(HubAttempt& attempt, std::string_view run_key,
@@ -371,59 +371,59 @@ namespace {
 
 /// Read and validate `suite.json`; false when absent/unreadable or empty id.
 [[nodiscard]] bool load_suite_document(const std::string& suite_dir,
-                                       runner::SuiteMetadata& metadata) {
+                                       exec::SuiteMetadata& metadata) {
     const core::Result<nlohmann::json> document =
-        runner::read_json_file(join(suite_dir, "suite.json"));
+        exec::read_json_file(join(suite_dir, "suite.json"));
     if (!document) {
         return false;
     }
-    runner::from_json(*document, metadata);
+    exec::from_json(*document, metadata);
     return !metadata.suite_id.empty();
 }
 
-/// Fill identity and the contained runner-log stream.
+/// Fill identity and the contained execution_manager-log stream.
 ///
 /// Spec hub/discovery "Suite-metadata read targets are run-root contained"
 /// (design D3): every path that originates in suite.json is proven contained
 /// at tree-build time before it is stored or derived from; uncontained sources
 /// leave the stored path empty, produce no streams, and degrade gracefully
-/// ("Non-contained suite metadata degrades gracefully"). The runner log is
+/// ("Non-contained suite metadata degrades gracefully"). The execution_manager log is
 /// derived from the already-contained artifacts path, so its own containment
 /// check covers hostile `suite_id` content too.
 void apply_suite_streams(const RunRoot& root, const std::string& suite_dir,
-                         const runner::SuiteMetadata& metadata, HubSuite& out) {
+                         const exec::SuiteMetadata& metadata, HubSuite& out) {
     out.suite_id = metadata.suite_id;
     out.suite_dir = suite_dir;
     if (!contained(root.path, metadata.artifacts_path)) {
         return;
     }
     out.artifacts_path = metadata.artifacts_path;
-    const std::string runner_log_path =
-        join(join(out.artifacts_path, out.suite_id), "runner.jsonl");
-    if (contained(root.path, runner_log_path)) {
-        out.runner_log.id =
-            stream_id(root.key, out.suite_id, "suite", "runner", 0, StreamKind::Runner);
-        out.runner_log.kind = StreamKind::Runner;
-        out.runner_log.path = runner_log_path;
+    const std::string execution_manager_log_path =
+        join(join(out.artifacts_path, out.suite_id), "execution_manager.jsonl");
+    if (contained(root.path, execution_manager_log_path)) {
+        out.execution_manager_log.id =
+            stream_id(root.key, out.suite_id, "suite", "execution_manager", 0, StreamKind::ExecutionManager);
+        out.execution_manager_log.kind = StreamKind::ExecutionManager;
+        out.execution_manager_log.path = execution_manager_log_path;
     }
 }
 
 /// Apply suite-state then suite-exit precedence; returns whether state existed.
 [[nodiscard]] bool apply_suite_outcome(const std::string& suite_dir, HubSuite& out,
-                                       runner::SuiteStatus& status) {
-    runner::SuiteState recorded_state = runner::SuiteState::Unknown;
+                                       exec::SuiteStatus& status) {
+    exec::SuiteState recorded_state = exec::SuiteState::Unknown;
     bool have_status = false;
     if (const core::Result<nlohmann::json> state_document =
-            runner::read_json_file(join(suite_dir, "suite-state.json"))) {
-        runner::from_json(*state_document, status);
+            exec::read_json_file(join(suite_dir, "suite-state.json"))) {
+        exec::from_json(*state_document, status);
         have_status = true;
         recorded_state = status.state;
         out.suite_restarts_used = status.suite_restarts_used;
     }
     if (const core::Result<nlohmann::json> exit_document =
-            runner::read_json_file(join(suite_dir, "suite-exit.json"))) {
-        runner::SuiteExit exit{};
-        runner::from_json(*exit_document, exit);
+            exec::read_json_file(join(suite_dir, "suite-exit.json"))) {
+        exec::SuiteExit exit{};
+        exec::from_json(*exit_document, exit);
         recorded_state = exit.state;
         out.reason = exit.reason;
     }
@@ -455,8 +455,8 @@ void apply_suite_streams(const RunRoot& root, const std::string& suite_dir,
 /// suite-state entries of affected instances are not applied either, per the
 /// "Escaped instance directory is rejected" scenario).
 [[nodiscard]] HubInstance make_suite_instance(const RunRoot& root,
-                                              const runner::SuiteAppMetadata& app_meta,
-                                              bool have_status, const runner::SuiteStatus& status) {
+                                              const exec::SuiteAppMetadata& app_meta,
+                                              bool have_status, const exec::SuiteStatus& status) {
     HubInstance instance{};
     instance.instance = app_meta.instance;
     if (!contained(root.path, app_meta.instance_dir)) {
@@ -467,7 +467,7 @@ void apply_suite_streams(const RunRoot& root, const std::string& suite_dir,
     if (!have_status) {
         return instance;
     }
-    for (const runner::SuiteAppStatus& recorded : status.apps) {
+    for (const exec::SuiteAppStatus& recorded : status.apps) {
         if (recorded.app == app_meta.app && recorded.instance == app_meta.instance) {
             instance.state = recorded.state;
             break;
@@ -479,7 +479,7 @@ void apply_suite_streams(const RunRoot& root, const std::string& suite_dir,
 /// Aggregate each app's instances into its app-level state.
 void derive_app_states(HubSuite& out) {
     for (HubApp& app : out.apps) {
-        std::vector<runner::AppState> states;
+        std::vector<exec::AppState> states;
         states.reserve(app.instances.size());
         for (const HubInstance& instance : app.instances) {
             states.push_back(instance.state);
@@ -490,19 +490,19 @@ void derive_app_states(HubSuite& out) {
 
 /// When no recorded suite outcome exists, derive it from the app states.
 void derive_unknown_suite_state(HubSuite& out) {
-    if (out.state != runner::SuiteState::Unknown) {
+    if (out.state != exec::SuiteState::Unknown) {
         return;
     }
-    std::vector<runner::AppState> states;
+    std::vector<exec::AppState> states;
     states.reserve(out.apps.size());
     for (const HubApp& app : out.apps) {
         states.push_back(app.state);
     }
-    const runner::AppState combined = combine_app_state(states);
-    if (combined == runner::AppState::Running || combined == runner::AppState::Restarting) {
-        out.state = runner::SuiteState::Running;
-    } else if (combined == runner::AppState::Failed) {
-        out.state = runner::SuiteState::Failed;
+    const exec::AppState combined = combine_app_state(states);
+    if (combined == exec::AppState::Running || combined == exec::AppState::Restarting) {
+        out.state = exec::SuiteState::Running;
+    } else if (combined == exec::AppState::Failed) {
+        out.state = exec::SuiteState::Failed;
     }
 }
 
@@ -510,17 +510,17 @@ void derive_unknown_suite_state(HubSuite& out) {
 
 void Discovery::scan_suite(const RunRoot& root, const std::string& suite_dir,
                            HubSuite& out) noexcept {
-    runner::SuiteMetadata metadata{};
+    exec::SuiteMetadata metadata{};
     if (!load_suite_document(suite_dir, metadata)) {
         return;
     }
     apply_suite_streams(root, suite_dir, metadata, out);
 
-    runner::SuiteStatus status{};
+    exec::SuiteStatus status{};
     const bool have_status = apply_suite_outcome(suite_dir, out, status);
 
     std::unordered_map<std::string, std::size_t> app_index{};
-    for (const runner::SuiteAppMetadata& app_meta : metadata.apps) {
+    for (const exec::SuiteAppMetadata& app_meta : metadata.apps) {
         const std::size_t index = upsert_app(out, app_index, app_meta.app);
         HubInstance instance = make_suite_instance(root, app_meta, have_status, status);
         scan_attempts(root, metadata.artifacts_path, metadata.suite_id, app_meta.app,

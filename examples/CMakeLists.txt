@@ -22,7 +22,7 @@ function(nexigen_add_example name source target)
         TIMEOUT 600
         LABELS "examples"
         WORKING_DIRECTORY "${_nexigen_ex_run_dir}"
-        ENVIRONMENT "NEXIGEN_RUN_DIR=${_nexigen_ex_run_dir}/nexigen-run")
+        ENVIRONMENT "NEXIGEN_RUN_DIR=${_nexigen_ex_run_dir}/nexigen-exec")
     # 1.3: PCH ностикуется и примерам (тот же прелюд, тот же compiled state).
     nexigen_precompile(${name})
 endfunction()

@@ -149,33 +149,40 @@ target_link_libraries(nexigen_app_tests PRIVATE nexigen_app Threads::Threads)
 add_test(NAME nexigen_app_tests COMMAND nexigen_app_tests)
 set_tests_properties(nexigen_app_tests PROPERTIES TIMEOUT 600)
 
-# Юнит-тесты nexigen::runner: создание каталогов, metadata, генерация настроек.
-add_executable(nexigen_runner_tests runner/runner_test.cpp)
-target_link_libraries(nexigen_runner_tests PRIVATE nexigen_runner Threads::Threads)
+# Юнит-тесты nexigen::exec: создание каталогов, metadata, генерация настроек.
+add_executable(nexigen_exec_tests exec/execution_manager_test.cpp)
+target_link_libraries(nexigen_exec_tests PRIVATE nexigen_exec Threads::Threads)
 
-add_test(NAME nexigen_runner_tests COMMAND nexigen_runner_tests)
-set_tests_properties(nexigen_runner_tests PROPERTIES TIMEOUT 600)
+add_test(NAME nexigen_exec_tests COMMAND nexigen_exec_tests)
+set_tests_properties(nexigen_exec_tests PROPERTIES TIMEOUT 600)
 
 # Юнит-тесты suite-манифеста, политики рестартов и артефактов.
-add_executable(nexigen_app_suite_tests runner/app_suite_test.cpp)
-target_link_libraries(nexigen_app_suite_tests PRIVATE nexigen_runner Threads::Threads)
+add_executable(nexigen_app_suite_tests exec/app_suite_test.cpp)
+target_link_libraries(nexigen_app_suite_tests PRIVATE nexigen_exec Threads::Threads)
 
 add_test(NAME nexigen_app_suite_tests COMMAND nexigen_app_suite_tests)
 set_tests_properties(nexigen_app_suite_tests PROPERTIES TIMEOUT 900)
 
-add_executable(nexigen_runner_logging_tests runner/runner_logging_test.cpp)
-target_link_libraries(nexigen_runner_logging_tests PRIVATE nexigen_runner Threads::Threads)
+# Юнит-тесты ChildProcess — жизненный цикл одного дочернего приложения.
+add_executable(nexigen_child_process_tests exec/child_process_test.cpp)
+target_link_libraries(nexigen_child_process_tests PRIVATE nexigen_exec Threads::Threads)
 
-add_test(NAME nexigen_runner_logging_tests COMMAND nexigen_runner_logging_tests)
-set_tests_properties(nexigen_runner_logging_tests PROPERTIES TIMEOUT 300)
+add_test(NAME nexigen_child_process_tests COMMAND nexigen_child_process_tests)
+set_tests_properties(nexigen_child_process_tests PROPERTIES TIMEOUT 300)
+
+add_executable(nexigen_exec_logging_tests exec/execution_manager_logging_test.cpp)
+target_link_libraries(nexigen_exec_logging_tests PRIVATE nexigen_exec Threads::Threads)
+
+add_test(NAME nexigen_exec_logging_tests COMMAND nexigen_exec_logging_tests)
+set_tests_properties(nexigen_exec_logging_tests PROPERTIES TIMEOUT 300)
 
 if(NEXIGEN_BUILD_TOOLS)
-    # The CLI tests drive the real nexigen-run/nexigen-hub binaries, which
+    # The CLI tests drive the real nexigen-exec/nexigen-hub binaries, which
     # exist only when tools are built; tests=ON + tools=OFF must configure
     # and run the remaining suites (analysis 2026-11-03 #20).
     add_test(NAME nexigen_run_cli_tests
-             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/runner/cli_test.sh
-                     $<TARGET_FILE:nexigen-run>)
+             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/exec/cli_test.sh
+                     $<TARGET_FILE:nexigen-exec>)
     set_tests_properties(nexigen_run_cli_tests PROPERTIES TIMEOUT 300)
 endif()
 
@@ -212,10 +219,10 @@ foreach(_nexigen_test
         nexigen_tracing_tests
         nexigen_diagnostics_tests
         nexigen_app_tests
-        nexigen_runner_tests
+        nexigen_exec_tests
         nexigen_app_suite_tests
         nexigen_child_process_tests
-        nexigen_runner_logging_tests
+        nexigen_exec_logging_tests
         nexigen_hub_tests)
     if(TARGET ${_nexigen_test})
         nexigen_precompile(${_nexigen_test})

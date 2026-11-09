@@ -34,9 +34,11 @@
 #include <nexigen/app/app_settings.hpp>
 #include <nexigen/app/command_line.hpp>
 #include <nexigen/app/infrastructure_stop_reason.hpp>
-#include <nexigen/chrono/chrono_provider.hpp>
+#include <nexigen/chrono/provider.hpp>
 #include <nexigen/chrono/settings.hpp>
-#include <nexigen/chrono/concepts/chrono_sink_concept.hpp>
+#include <nexigen/chrono/worker.hpp>
+#include <nexigen/chrono/concepts/sink_concept.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/concepts/logger_concept.hpp>
 #include <nexigen/metrics/concepts/metric_sink_concept.hpp>
@@ -55,14 +57,14 @@ concept InfrastructurePolicy =
     requires(std::optional<typename Policy::Logger>& logger,
              std::optional<typename Policy::MetricsSink>& metrics_sink,
              std::optional<typename Policy::TraceSink>& trace_sink,
-             std::optional<typename Policy::ChronoSink>& chrono_sink,
+             std::optional<typename Policy::Sink>& chrono_sink,
              const logging::Settings& logging_settings, const metrics::Settings& metrics_settings,
              const tracing::Settings& tracing_settings, const chrono::Settings& chrono_settings,
              std::string_view app_name) {
         typename Policy::Logger;
         typename Policy::MetricsSink;
         typename Policy::TraceSink;
-        typename Policy::ChronoSink;
+        typename Policy::Sink;
         {
             Policy::emplace_logger(logger, logging_settings, app_name)
         } noexcept -> std::same_as<core::Status>;
@@ -152,16 +154,20 @@ private:
 };
 
 /// Bridges the application logger to the chrono worker's module-local log hook
-/// (chrono must not depend on logging): maps ClockLogLevel to core::LogLevel and
-/// forwards a pre-formatted message through the logger.
+/// (chrono must not depend on logging): forwards a pre-formatted message
+/// through the logger at the matching core::LogLevel.
 template <class Logger> struct ChronoLoggerBridge {
     Logger* logger{nullptr};
 
-    void log(chrono::ClockLogLevel level, std::string_view message) noexcept {
+    void log(core::LogLevel level, std::string_view message) noexcept {
         switch (level) {
-            case chrono::ClockLogLevel::info:    logger->info("{}", message); break;
-            case chrono::ClockLogLevel::warning: logger->warning("{}", message); break;
-            case chrono::ClockLogLevel::error:   logger->error("{}", message); break;
+            case core::LogLevel::Verbose: logger->verbose("{}", message); break;
+            case core::LogLevel::Debug:   logger->debug("{}", message); break;
+            case core::LogLevel::Info:    logger->info("{}", message); break;
+            case core::LogLevel::Warning: logger->warning("{}", message); break;
+            case core::LogLevel::Error:   logger->error("{}", message); break;
+            case core::LogLevel::Fatal:   logger->fatal("{}", message); break;
+            case core::LogLevel::Off:     break; // filtered: no record
         }
     }
 };
@@ -174,12 +180,12 @@ public:
     using Logger = typename Policy::Logger;
     using MetricsSink = typename Policy::MetricsSink;
     using TraceSink = typename Policy::TraceSink;
-    using ChronoSink = typename Policy::ChronoSink;
+    using Sink = typename Policy::Sink;
     using TracerProvider = tracing::TracerProvider<TracerCapacity, TracerThreads>;
     using TracerType = tracing::Tracer<TracerCapacity, TracerThreads>;
 
     static_assert(InfrastructurePolicy<Policy>,
-                  "Policy must declare Logger/MetricsSink/TraceSink/ChronoSink and static "
+                  "Policy must declare Logger/MetricsSink/TraceSink/Sink and static "
                   "emplace hooks");
     static_assert(logging::concepts::Logger<Logger>,
                   "Policy::Logger must satisfy nexigen::logging::concepts::Logger");
@@ -187,8 +193,8 @@ public:
                   "Policy::MetricsSink must satisfy metrics::concepts::MetricSink");
     static_assert(tracing::concepts::TraceSink<TraceSink>,
                   "Policy::TraceSink must satisfy tracing::concepts::TraceSink");
-    static_assert(chrono::concepts::ChronoSink<ChronoSink>,
-                  "Policy::ChronoSink must satisfy chrono::concepts::ChronoSink");
+    static_assert(chrono::concepts::Sink<Sink>,
+                  "Policy::Sink must satisfy chrono::concepts::Sink");
 
     Infrastructure(const Infrastructure&) = delete;
     Infrastructure& operator=(const Infrastructure&) = delete;
@@ -353,10 +359,9 @@ public:
             capture(metrics_->collect_now());
             capture(metrics_->flush());
         }
-        if (chrono_) {
-            capture(chrono_->snapshot_now());
-            capture(chrono_->flush());
-        }
+        // The chrono worker's destructor stops the thread and delivers the
+        // final snapshot + flush; reset it first so the provider outlives it.
+        worker_.reset();
 
         static_cast<void>(::pthread_sigmask(SIG_SETMASK, &previous_mask_, nullptr));
 
@@ -364,7 +369,7 @@ public:
         trace_sink_.reset();
         metrics_.reset();
         metrics_sink_.reset();
-        chrono_.reset();
+        provider_.reset();
         chrono_sink_.reset();
         logger_.reset();
         initialized_ = false;
@@ -376,7 +381,7 @@ public:
     [[nodiscard]] Logger& logger() noexcept { return *logger_; }
     [[nodiscard]] metrics::MetricProvider& metrics() noexcept { return *metrics_; }
     [[nodiscard]] TracerProvider& tracer() noexcept { return *tracer_; }
-    [[nodiscard]] chrono::ChronoProvider& chrono() noexcept { return *chrono_; }
+    [[nodiscard]] chrono::Provider<>& chrono() noexcept { return *provider_; }
 
     /// Thin factory conveniences; NotInitialized before initialize().
     [[nodiscard]] core::Result<metrics::Meter*> meter(std::string_view name,
@@ -428,7 +433,7 @@ private:
             !step) {
             return step;
         }
-        chrono_.emplace(settings.chrono.options, *chrono_sink_);
+        provider_.emplace(settings.chrono.options, *chrono_sink_);
 
         const core::Status logger_status =
             Policy::emplace_logger(logger_, settings.logging, settings.app_name);
@@ -436,7 +441,8 @@ private:
             return step;
         }
         chrono_logger_bridge_.logger = &*logger_;
-        const core::Status started = chrono_->start(chrono_logger_bridge_);
+        worker_.emplace(*provider_, settings.chrono.options);
+        const core::Status started = worker_->start(chrono_logger_bridge_);
         if (!started) {
             return fail(started);
         }
@@ -484,7 +490,8 @@ private:
         trace_sink_.reset();
         metrics_.reset();
         metrics_sink_.reset();
-        chrono_.reset();
+        worker_.reset();
+        provider_.reset();
         chrono_sink_.reset();
         logger_.reset();
         static_cast<void>(::pthread_sigmask(SIG_SETMASK, &previous_mask_, nullptr));
@@ -492,8 +499,9 @@ private:
         detail::signal_owner.store(nullptr, std::memory_order_release);
     }
 
-    // Declaration order is the lifetime contract: providers before the sinks
-    // they reference; the watcher is destroyed first. The chrono provider is
+    // Declaration order is the lifetime contract: the worker references the
+    // provider, which references the chrono sink, so reverse-declaration
+    // teardown destroys worker -> provider -> sink. The chrono worker is
     // declared after the logger/sink bridge it references, so the bridge, the
     // chrono sink, and the logger all outlive the chrono worker.
     std::optional<Logger> logger_{};
@@ -502,8 +510,9 @@ private:
     std::optional<metrics::MetricProvider> metrics_{};
     std::optional<TraceSink> trace_sink_{};
     std::optional<TracerProvider> tracer_{};
-    std::optional<ChronoSink> chrono_sink_{};
-    std::optional<chrono::ChronoProvider> chrono_{};
+    std::optional<Sink> chrono_sink_{};
+    std::optional<chrono::Provider<>> provider_{};
+    std::optional<chrono::ChronoWorker<chrono::Provider<>>> worker_{};
     detail::SignalWatcher signals_{};
 
     sigset_t previous_mask_{};

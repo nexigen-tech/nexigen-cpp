@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build (when needed) and start the multi-application suite demonstration via
-# nexigen-run. The manifest is generated under the demo root so no
+# nexigen-exec. The manifest is generated under the demo root so no
 # machine-specific absolute paths are committed (design D6 of add-suite-demo).
 #
 # Overridable via environment:
@@ -45,9 +45,9 @@ find_app() {
 find_runner() {
     local candidate
     for candidate in \
-        "${build_dir}/tools/nexigen-run" \
-        "${build_dir}/debug/tools/nexigen-run" \
-        "${build_dir}/release/tools/nexigen-run"; do
+        "${build_dir}/tools/nexigen-exec" \
+        "${build_dir}/debug/tools/nexigen-exec" \
+        "${build_dir}/release/tools/nexigen-exec"; do
         if [[ -x "${candidate}" ]]; then
             printf '%s\n' "${candidate}"
             return 0
@@ -57,24 +57,24 @@ find_runner() {
 }
 
 app_binary="$(find_app || true)"
-runner_binary="$(find_runner || true)"
+execution_manager_binary="$(find_runner || true)"
 
-if [[ -z "${app_binary}" || -z "${runner_binary}" ]]; then
-    echo "run_suite_demo: building ex_suite_app and nexigen-run in ${build_dir}" >&2
-    if ! cmake --build "${build_dir}" --target ex_suite_app nexigen-run; then
+if [[ -z "${app_binary}" || -z "${execution_manager_binary}" ]]; then
+    echo "run_suite_demo: building ex_suite_app and nexigen-exec in ${build_dir}" >&2
+    if ! cmake --build "${build_dir}" --target ex_suite_app nexigen-exec; then
         echo "run_suite_demo: build failed" >&2
         exit 1
     fi
     app_binary="$(find_app || true)"
-    runner_binary="$(find_runner || true)"
+    execution_manager_binary="$(find_runner || true)"
 fi
 
 if [[ -z "${app_binary}" ]]; then
     echo "run_suite_demo: ex_suite_app binary not found under ${build_dir}" >&2
     exit 1
 fi
-if [[ -z "${runner_binary}" ]]; then
-    echo "run_suite_demo: nexigen-run binary not found under ${build_dir}" >&2
+if [[ -z "${execution_manager_binary}" ]]; then
+    echo "run_suite_demo: nexigen-exec binary not found under ${build_dir}" >&2
     exit 1
 fi
 
@@ -135,13 +135,13 @@ EOF
 
 echo "run_suite_demo: manifest=${manifest}"
 echo "run_suite_demo: starting suite '${suite_id}' (degrade_exit=${degrade_exit_s}s, failure_abort=${failure_abort_s}s)"
-"${runner_binary}" start --config "${manifest}"
+"${execution_manager_binary}" start --config "${manifest}"
 
 echo
 echo "run_suite_demo: observe with:"
-echo "  ${runner_binary} status --config ${manifest}"
-echo "  ${runner_binary} status --suite-dir ${run_dir}/.suite/${suite_id} --json"
+echo "  ${execution_manager_binary} status --config ${manifest}"
+echo "  ${execution_manager_binary} status --suite-dir ${run_dir}/.suite/${suite_id} --json"
 echo "run_suite_demo: stop with:"
-echo "  ${runner_binary} stop --config ${manifest}"
+echo "  ${execution_manager_binary} stop --config ${manifest}"
 echo "run_suite_demo: clean with:"
 echo "  ${repo_root}/examples/suite/clean_suite_demo.sh"

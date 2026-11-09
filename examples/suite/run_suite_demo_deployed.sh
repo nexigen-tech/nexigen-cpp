@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Launch the nexigen-run suite demo from a self-contained deployment layout:
+# Launch the nexigen-exec suite demo from a self-contained deployment layout:
 #
-#   <root>/bin/nexigen-run            # all executables in one directory
+#   <root>/bin/nexigen-exec            # all executables in one directory
 #   <root>/bin/ex_suite_app
 #   <root>/global_settings/           # logging.json metrics.json tracing.json chrono.json
 #   <root>/local_settings/<app>/      # per-app local overrides (e.g. degrade/metrics.json)
@@ -10,7 +10,7 @@
 #
 # The script locates the two executables, generates the manifest, clears the
 # output directory, and starts the suite. Global/local settings are read in
-# place (missing files fall back to built-in defaults, per the runner).
+# place (missing files fall back to built-in defaults, per the execution_manager).
 #
 # Overridable via environment (defaults shown):
 #   NEXIGEN_DEMO_ROOT                  deployment root (default: current directory)
@@ -42,12 +42,12 @@ suite_restart_attempts="${NEXIGEN_DEMO_SUITE_RESTART_ATTEMPTS:-1}"
 suite_restart_delay_s="${NEXIGEN_DEMO_SUITE_RESTART_DELAY_S:-5}"
 
 # --- locate the two executables in the single bin directory ---
-runner_bin="${bin_dir}/nexigen-run"
+execution_manager_bin="${bin_dir}/nexigen-exec"
 app_bin="${bin_dir}/ex_suite_app"
-for exe in "${runner_bin}" "${app_bin}"; do
+for exe in "${execution_manager_bin}" "${app_bin}"; do
     if [[ ! -x "${exe}" ]]; then
         echo "run_suite_demo_deployed: executable not found: ${exe}" >&2
-        echo "run_suite_demo_deployed: place nexigen-run and ex_suite_app in ${bin_dir}" >&2
+        echo "run_suite_demo_deployed: place nexigen-exec and ex_suite_app in ${bin_dir}" >&2
         exit 1
     fi
 done
@@ -107,13 +107,13 @@ EOF
 echo "run_suite_demo_deployed: manifest=${manifest}"
 echo "run_suite_demo_deployed: bin=${bin_dir} global=${global_settings} local=${local_settings}"
 echo "run_suite_demo_deployed: starting suite '${suite_id}' (degrade_exit=${degrade_exit_s}s, failure_abort=${failure_abort_s}s)"
-"${runner_bin}" start --config "${manifest}"
+"${execution_manager_bin}" start --config "${manifest}"
 
 echo
 echo "run_suite_demo_deployed: observe with:"
-echo "  ${runner_bin} status --config ${manifest}"
-echo "  ${runner_bin} status --suite-dir ${run_dir}/.suite/${suite_id} --json"
+echo "  ${execution_manager_bin} status --config ${manifest}"
+echo "  ${execution_manager_bin} status --suite-dir ${run_dir}/.suite/${suite_id} --json"
 echo "run_suite_demo_deployed: stop with:"
-echo "  ${runner_bin} stop --config ${manifest}"
+echo "  ${execution_manager_bin} stop --config ${manifest}"
 echo "run_suite_demo_deployed: clean with:"
 echo "  rm -rf ${output_dir} ${manifest}"

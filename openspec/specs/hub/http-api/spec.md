@@ -166,7 +166,7 @@ The hub SHALL serve the embedded UI at `GET /`, `GET /index.html`, `GET /app.js`
 
 ### Requirement: The API is observation-only
 
-The hub SHALL NOT expose endpoints that start, stop, restart, signal, or modify applications or runner metadata. Methods other than `GET` SHALL be rejected.
+The hub SHALL NOT expose endpoints that start, stop, restart, signal, or modify applications or execution_manager metadata. Methods other than `GET` SHALL be rejected.
 
 #### Scenario: No control endpoint exists
 
@@ -176,7 +176,7 @@ The hub SHALL NOT expose endpoints that start, stop, restart, signal, or modify 
 #### Scenario: State files are not modified
 
 - **WHEN** API requests are served
-- **THEN** no runner state or metadata file is created, changed, or deleted
+- **THEN** no execution_manager state or metadata file is created, changed, or deleted
 
 ### Requirement: HTTP serving is cold path only
 

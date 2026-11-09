@@ -39,7 +39,7 @@ The UI SHALL display run → suite → app → instance → attempt hierarchy wi
 - **WHEN** an instance is removed while the UI is open
 - **THEN** it disappears without a page reload
 
-### Requirement: State panels show runner-derived details
+### Requirement: State panels show execution_manager-derived details
 
 The UI SHALL show aggregate suite state, per-application state, restart usage, current attempt, artifact directory, and stop/failure reason when available. It SHALL present `unknown` explicitly rather than inventing a state.
 
@@ -64,7 +64,7 @@ The UI SHALL list every discovered stream, show replay records on selection, and
 
 #### Scenario: Stream list is complete
 
-- **WHEN** an instance has app, metrics, traces, chrono, stdout, stderr, and runner streams
+- **WHEN** an instance has app, metrics, traces, chrono, stdout, stderr, and execution_manager streams
 - **THEN** each is selectable in the viewer
 
 #### Scenario: Replay then live
@@ -103,7 +103,7 @@ The UI SHALL show SSE connection status and reconnect after a dropped connection
 
 ### Requirement: UI is read-only
 
-The UI SHALL NOT present start, stop, restart, signal, delete, or edit controls for applications, suites, streams, or runner metadata.
+The UI SHALL NOT present start, stop, restart, signal, delete, or edit controls for applications, suites, streams, or execution_manager metadata.
 
 #### Scenario: No control buttons exist
 
@@ -113,7 +113,7 @@ The UI SHALL NOT present start, stop, restart, signal, delete, or edit controls 
 #### Scenario: Viewing does not change state
 
 - **WHEN** the operator navigates the tree and streams
-- **THEN** no runner or artifact file is modified
+- **THEN** no execution_manager or artifact file is modified
 
 ### Requirement: UI work stays off application hot paths
 

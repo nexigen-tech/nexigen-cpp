@@ -32,7 +32,7 @@ The project SHALL provide self-contained executables named `ex_spsc_ring_buffer`
 #### Scenario: Examples are self-contained
 
 - **WHEN** an example is built and run outside the test harness
-- **THEN** it creates its own inputs and configuration, prints its diagnostics, and does not require a test runner, fixture, or pre-existing file
+- **THEN** it creates its own inputs and configuration, prints its diagnostics, and does not require a test execution_manager, fixture, or pre-existing file
 
 ### Requirement: Example exit status reports success
 
@@ -88,31 +88,31 @@ Every catalogue example SHALL build and exit 0 under the project's Debug, Releas
 #### Scenario: Reader can run and clean the command-line settings example
 
 - **WHEN** a reader follows the documented helper-script commands
-- **THEN** the runner builds and executes `ex_app_cli_settings`, and the cleanup script removes the generated settings and output directories
+- **THEN** the execution_manager builds and executes `ex_app_cli_settings`, and the cleanup script removes the generated settings and output directories
 
 #### Scenario: Reader can run and clean the suite demonstration
 
 - **WHEN** a reader follows the documented suite-script commands
-- **THEN** the runner builds and starts the suite via `nexigen-run`, and the cleanup script removes the generated run, artifact, and suite metadata directories
+- **THEN** the execution_manager builds and starts the suite via `nexigen-exec`, and the cleanup script removes the generated run, artifact, and suite metadata directories
 
 #### Scenario: Stale duplicated build notes are removed
 
 - **WHEN** the README is read to its end
 - **THEN** it ends with the license section and contains no leftover untranslated or duplicated build-mode appendix
 
-### Requirement: Example runner and cleanup scripts
+### Requirement: Example execution_manager and cleanup scripts
 
-The project SHALL provide `examples/app/run_ex_app_cli_settings.sh` and `examples/app/clean_ex_app_cli_settings.sh`. The runner SHALL build the example when needed and execute it from the repository root under a 60-second timeout; the cleanup script SHALL remove the generated `nexigen-example-settings/` and `nexigen-example-output/` directories idempotently.
+The project SHALL provide `examples/app/run_ex_app_cli_settings.sh` and `examples/app/clean_ex_app_cli_settings.sh`. The execution_manager SHALL build the example when needed and execute it from the repository root under a 60-second timeout; the cleanup script SHALL remove the generated `nexigen-example-settings/` and `nexigen-example-output/` directories idempotently.
 
-#### Scenario: Runner builds and executes the example
+#### Scenario: ExecutionManager builds and executes the example
 
 - **WHEN** `run_ex_app_cli_settings.sh` is invoked from the repository root
 - **THEN** it builds `ex_app_cli_settings` if necessary, runs it under a 60-second timeout, and returns the example's exit status
 
-#### Scenario: Runner reports build or run failures
+#### Scenario: ExecutionManager reports build or run failures
 
 - **WHEN** the build or the example fails
-- **THEN** the runner prints the failure and exits with a non-zero status
+- **THEN** the execution_manager prints the failure and exits with a non-zero status
 
 #### Scenario: Cleanup removes generated directories
 

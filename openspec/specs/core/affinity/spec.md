@@ -41,7 +41,7 @@ The system SHALL provide one query function that reads the calling thread's curr
 
 ### Requirement: Single implementation behind module shims
 
-`nexigen::core::affinity` SHALL remain the compatibility implementation of the uint64-mask contract and SHALL delegate CPU-set conversion/application to the shared `core/thread-management` machinery. The chrono, logging, metrics, and tracing `detail/affinity` declarations SHALL remain forward-only shims, and no module unit SHALL keep a private `cpu_set_t`-converting copy. Runner CPU lists and thread specs SHALL use the same public CPU vocabulary rather than a third representation.
+`nexigen::core::affinity` SHALL remain the compatibility implementation of the uint64-mask contract and SHALL delegate CPU-set conversion/application to the shared `core/thread-management` machinery. The chrono, logging, metrics, and tracing `detail/affinity` declarations SHALL remain forward-only shims, and no module unit SHALL keep a private `cpu_set_t`-converting copy. ExecutionManager CPU lists and thread specs SHALL use the same public CPU vocabulary rather than a third representation.
 
 #### Scenario: Audit finds one implementation and four forwarders
 

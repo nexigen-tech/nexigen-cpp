@@ -37,12 +37,12 @@
 #include <nexigen/hub/http_server.hpp>
 #include <nexigen/hub/streaming.hpp>
 #include <nexigen/hub/web_assets.hpp>
-#include <nexigen/runner/app_suite.hpp>
-#include <nexigen/runner/instance_lifecycle.hpp>
+#include <nexigen/exec/app_suite.hpp>
+#include <nexigen/exec/instance_lifecycle.hpp>
 
 namespace core = nexigen::core;
 namespace hub = nexigen::hub;
-namespace runner = nexigen::runner;
+namespace exec = nexigen::exec;
 
 inline int g_checks = 0;
 inline int g_failures = 0;
@@ -139,7 +139,7 @@ template <class Predicate> bool wait_until(Predicate predicate, int timeout_ms) 
 }
 
 inline void write_json(const std::string& path, const nlohmann::json& document) {
-    static_cast<void>(runner::write_json_file(path, document));
+    static_cast<void>(exec::write_json_file(path, document));
 }
 
 struct Fixture {
@@ -151,7 +151,7 @@ struct Fixture {
 
     explicit Fixture(std::string_view tag) {
         root = unique_dir(tag);
-        // Runner-realistic layout (change fix-p0-critical-defects): the
+        // ExecutionManager-realistic layout (change fix-p0-critical-defects): the
         // artifacts tree lives inside the run root ("artifacts/"), or the
         // new containment contract would reject it.
         artifacts = root + "/artifacts";
@@ -162,7 +162,7 @@ struct Fixture {
         make_dirs(instance_dir);
         make_dirs(attempt_dir);
 
-        runner::SuiteMetadata metadata{};
+        exec::SuiteMetadata metadata{};
         metadata.suite_id = "hil";
         metadata.run_id = "run-1";
         metadata.run_dir = root;
@@ -170,30 +170,30 @@ struct Fixture {
         metadata.pid = 1234;
         metadata.start_time_rfc3339 = "2026-11-01T00:00:00.000000000Z";
         metadata.start_time_mono_ns = 1;
-        runner::SuiteAppMetadata app{};
+        exec::SuiteAppMetadata app{};
         app.app = "alpha";
         app.instance = "1";
         app.instance_dir = instance_dir;
         metadata.apps.push_back(app);
         nlohmann::json metadata_json;
-        runner::to_json(metadata_json, metadata);
+        exec::to_json(metadata_json, metadata);
         write_json(suite_dir + "/suite.json", metadata_json);
 
-        runner::SuiteStatus status{};
-        status.state = runner::SuiteState::Running;
+        exec::SuiteStatus status{};
+        status.state = exec::SuiteState::Running;
         status.suite_id = "hil";
         status.run_dir = root;
         status.artifacts_path = artifacts;
-        runner::SuiteAppStatus app_status{};
+        exec::SuiteAppStatus app_status{};
         app_status.app = "alpha";
         app_status.instance = "1";
         app_status.instance_dir = instance_dir;
         app_status.artifact_dir = attempt_dir;
         app_status.attempt = 1;
-        app_status.state = runner::AppState::Running;
+        app_status.state = exec::AppState::Running;
         status.apps.push_back(app_status);
         nlohmann::json status_json;
-        runner::to_json(status_json, status);
+        exec::to_json(status_json, status);
         write_json(suite_dir + "/suite-state.json", status_json);
 
         write_text(attempt_dir + "/app.jsonl", "{\"a\":1}\n{\"a\":2}\n");
@@ -202,7 +202,7 @@ struct Fixture {
         write_text(attempt_dir + "/metrics.jsonl", "");
         write_text(attempt_dir + "/traces.jsonl", "");
         write_text(attempt_dir + "/chrono.jsonl", "");
-        write_text(artifacts + "/hil/runner.jsonl", "{\"event\":\"suite_started\"}\n");
+        write_text(artifacts + "/hil/execution_manager.jsonl", "{\"event\":\"suite_started\"}\n");
     }
 
     ~Fixture() {

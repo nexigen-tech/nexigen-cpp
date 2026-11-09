@@ -80,7 +80,7 @@ template <class E>
 namespace nexigen::core::mandate {
 
 /// Serialize an enum as its canonical name via ADL `to_string` (mandate 10).
-/// Lifted from nexigen::runner::detail (refactor-enum-traits-helper): one
+/// Lifted from nexigen::exec::detail (refactor-enum-traits-helper): one
 /// engine for every module; the enum's own header keeps the one-line ADL glue.
 template <class Enum> void enum_to_json(nlohmann::json& j, Enum value) {
     j = std::string(to_string(value));

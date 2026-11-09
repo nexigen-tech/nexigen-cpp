@@ -105,7 +105,7 @@ std::string TelemetryPaths::to_string() const {
 RunIdentity load_run_identity() noexcept {
     RunIdentity identity;
     identity.run_id = std::string(env_value("NEXIGEN_RUN_ID"));
-    identity.run_dir = std::string(env_value("NEXIGEN_RUN_DIR"));
+    identity.run_dir = std::string(env_value("NEXIGEN_EXEC_DIR"));
     identity.instance_id = std::string(env_value("NEXIGEN_INSTANCE_ID"));
     identity.instance_dir = std::string(env_value("NEXIGEN_INSTANCE_DIR"));
     return identity;

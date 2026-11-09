@@ -75,7 +75,7 @@ if(NEXIGEN_ENABLE_COVERAGE)
     message(STATUS "📊 Coverage instrumentation enabled (--coverage)")
     target_compile_options(nexigen_options INTERFACE --coverage)
     target_link_options(nexigen_options INTERFACE --coverage)
-    # Forked runner children flush gcov counters before `_exit()`/`execvp()`.
+    # Forked execution manager children flush gcov counters before `_exit()`/`execvp()`.
     target_compile_definitions(nexigen_options INTERFACE
         NEXIGEN_ENABLE_COVERAGE=1)
 endif()
@@ -330,20 +330,20 @@ target_link_libraries(nexigen_app PUBLIC nexigen_core nexigen_chrono nexigen_log
     nexigen_metrics nexigen_tracing PRIVATE Threads::Threads)
 
 # =============================================================================
-# nexigen::runner — instance lifecycle library.
+# nexigen::exec — instance lifecycle library.
 # =============================================================================
-file(GLOB NEXIGEN_RUNNER_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/runner/*.cpp")
+file(GLOB NEXIGEN_EXEC_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/exec/*.cpp")
 
-add_library(nexigen_runner STATIC ${NEXIGEN_RUNNER_SOURCES})
-add_library(nexigen::runner ALIAS nexigen_runner)
+add_library(nexigen_exec STATIC ${NEXIGEN_EXEC_SOURCES})
+add_library(nexigen::exec ALIAS nexigen_exec)
 
-target_include_directories(nexigen_runner PUBLIC
+target_include_directories(nexigen_exec PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
-target_compile_definitions(nexigen_runner PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
-target_link_libraries(nexigen_runner PUBLIC nexigen_core nexigen_app PRIVATE Threads::Threads)
+target_compile_definitions(nexigen_exec PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+target_link_libraries(nexigen_exec PUBLIC nexigen_core nexigen_app PRIVATE Threads::Threads)
 
 # =============================================================================
 # nexigen::hub — read-only observatory library.
@@ -359,7 +359,7 @@ target_include_directories(nexigen_hub PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 target_compile_definitions(nexigen_hub PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
-target_link_libraries(nexigen_hub PUBLIC nexigen_core nexigen_runner PRIVATE Threads::Threads)
+target_link_libraries(nexigen_hub PUBLIC nexigen_core nexigen_exec PRIVATE Threads::Threads)
 
 # =============================================================================
 # speedup-validation-loop 1.2: один PCH-прелюд (include/nexigen/core/pch.hpp)
@@ -376,7 +376,7 @@ nexigen_precompile(nexigen_metrics)
 nexigen_precompile(nexigen_tracing)
 nexigen_precompile(nexigen_diagnostics)
 nexigen_precompile(nexigen_app)
-nexigen_precompile(nexigen_runner)
+nexigen_precompile(nexigen_exec)
 nexigen_precompile(nexigen_hub)
 
 # =============================================================================
@@ -426,7 +426,7 @@ if(NEXIGEN_ENABLE_COVERAGE)
                 --source-dir ${CMAKE_CURRENT_SOURCE_DIR}
                 --gcov ${GCOV_EXECUTABLE}
                 --fail-under ${NEXIGEN_COVERAGE_FAIL_UNDER}
-                --module-fail-under runner=90
+                --module-fail-under exec=90
                 --module-fail-under hub=90
         DEPENDS
             nexigen_core_tests
@@ -436,9 +436,9 @@ if(NEXIGEN_ENABLE_COVERAGE)
             nexigen_tracing_tests
             nexigen_diagnostics_tests
             nexigen_app_tests
-            nexigen_runner_tests
+            nexigen_exec_tests
             nexigen_app_suite_tests
-            nexigen_runner_logging_tests
+            nexigen_exec_logging_tests
             nexigen_hub_tests
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         USES_TERMINAL
@@ -479,7 +479,7 @@ set(NEXIGEN_EXPORT_TARGETS
     nexigen_tracing
     nexigen_diagnostics
     nexigen_app
-    nexigen_runner
+    nexigen_exec
     nexigen_hub)
 
 set_target_properties(nexigen_core        PROPERTIES EXPORT_NAME core)
@@ -489,7 +489,7 @@ set_target_properties(nexigen_metrics     PROPERTIES EXPORT_NAME metrics)
 set_target_properties(nexigen_tracing     PROPERTIES EXPORT_NAME tracing)
 set_target_properties(nexigen_diagnostics PROPERTIES EXPORT_NAME diagnostics)
 set_target_properties(nexigen_app         PROPERTIES EXPORT_NAME app)
-set_target_properties(nexigen_runner      PROPERTIES EXPORT_NAME runner)
+set_target_properties(nexigen_exec      PROPERTIES EXPORT_NAME exec)
 set_target_properties(nexigen_hub         PROPERTIES EXPORT_NAME hub)
 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/nexigen"

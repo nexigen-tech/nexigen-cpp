@@ -37,19 +37,24 @@
 
 #include "../support/test_temp.hpp"
 
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/core/result.hpp>
-#include <nexigen/chrono/chrono_provider_config.hpp>
-#include <nexigen/chrono/chrono_provider.hpp>
+#include <nexigen/chrono/provider.hpp>
+#include <nexigen/chrono/provider_config.hpp>
+#include <nexigen/chrono/provider_kind.hpp>
+#include <nexigen/chrono/worker.hpp>
 #include <nexigen/chrono/settings.hpp>
 #include <nexigen/chrono/snapshot.hpp>
 #include <nexigen/chrono/clock_id.hpp>
-#include <nexigen/chrono/clock_log_level.hpp>
-#include <nexigen/chrono/composite_chrono_sink.hpp>
-#include <nexigen/chrono/concepts/chrono_sink_concept.hpp>
-#include <nexigen/chrono/console_chrono_sink.hpp>
+#include <nexigen/chrono/composite_sink.hpp>
+#include <nexigen/chrono/concepts/logger_concept.hpp>
+#include <nexigen/chrono/concepts/provider_concept.hpp>
+#include <nexigen/chrono/concepts/sink_concept.hpp>
+#include <nexigen/chrono/concepts/stamper_concept.hpp>
+#include <nexigen/chrono/console_sink.hpp>
 #include <nexigen/chrono/detail/affinity.hpp>
-#include <nexigen/chrono/json_file_chrono_sink.hpp>
-#include <nexigen/chrono/null_chrono_sink.hpp>
+#include <nexigen/chrono/json_file_sink.hpp>
+#include <nexigen/chrono/null_sink.hpp>
 #include <nexigen/chrono/stamp_source.hpp>
 #include <nexigen/chrono/civil_time.hpp>
 #include <nexigen/chrono/utc_offset.hpp>
@@ -388,7 +393,7 @@ void test_diag_strings() {
 }
 
 // --- clock service suites (change add-chrono-clock-service): ClockId,
-// Snapshot, sinks, ChronoProvider, Settings.
+// Snapshot, sinks, Provider, ChronoWorker, Settings.
 
 [[nodiscard]] bool write_file(const char* path, std::string_view content) {
     const int fd = ::open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
@@ -456,10 +461,10 @@ struct FailSink {
     std::string to_string() const { return "FailSink()"; }
 };
 
-/// Records the ClockLogLevel diagnostics a worker emits through a logger.
+/// Records the core::LogLevel diagnostics a worker emits through a logger.
 struct RecordingClockLogger {
-    std::vector<std::pair<ClockLogLevel, std::string>> messages{};
-    void log(ClockLogLevel level, std::string_view message) noexcept {
+    std::vector<std::pair<core::LogLevel, std::string>> messages{};
+    void log(core::LogLevel level, std::string_view message) noexcept {
         messages.push_back({level, std::string(message)});
     }
 };
@@ -539,26 +544,25 @@ void test_enum_contracts() {
         NX_CHECK(std::format("{}", parsed) == "environment");
     }
 
-    // ClockLogLevel: every name, unknown handling, JSON trio and formatter.
-    for (const ClockLogLevel level :
-         {ClockLogLevel::info, ClockLogLevel::warning, ClockLogLevel::error}) {
-        ClockLogLevel back{};
-        NX_CHECK(from_string(to_string(level), back));
-        NX_CHECK(back == level);
+    // ProviderKind: every name, unknown handling, JSON trio and formatter.
+    for (const ProviderKind kind : {ProviderKind::daemon, ProviderKind::manual}) {
+        ProviderKind back{};
+        NX_CHECK(from_string(to_string(kind), back));
+        NX_CHECK(back == kind);
         nlohmann::json j;
-        to_json(j, level);
-        NX_CHECK(j == std::string(to_string(level)));
-        ClockLogLevel parsed = ClockLogLevel::info;
+        to_json(j, kind);
+        NX_CHECK(j == std::string(to_string(kind)));
+        ProviderKind parsed = ProviderKind::daemon;
         from_json(j, parsed);
-        NX_CHECK(parsed == level);
+        NX_CHECK(parsed == kind);
     }
-    ClockLogLevel level = ClockLogLevel::info;
-    NX_CHECK(!from_string("bogus", level));
-    NX_CHECK(level == ClockLogLevel::info);
-    from_json(nlohmann::json{42}, level);
-    NX_CHECK(level == ClockLogLevel::info);
-    NX_CHECK(to_string(static_cast<ClockLogLevel>(0x7f)) == "Unknown");
-    NX_CHECK(std::format("{}", ClockLogLevel::error) == "error");
+    ProviderKind kind = ProviderKind::daemon;
+    NX_CHECK(!from_string("bogus", kind));
+    NX_CHECK(kind == ProviderKind::daemon);
+    from_json(nlohmann::json{42}, kind);
+    NX_CHECK(kind == ProviderKind::daemon);
+    NX_CHECK(to_string(static_cast<ProviderKind>(0x7f)) == "Unknown");
+    NX_CHECK(std::format("{}", ProviderKind::manual) == "manual");
 }
 
 void test_snapshot() {
@@ -621,21 +625,21 @@ void test_snapshot_edges() {
 
 void test_sinks() {
     // Concept membership (compile-time).
-    static_assert(concepts::ChronoSink<NullChronoSink>);
-    static_assert(concepts::ChronoSink<ConsoleChronoSink>);
-    static_assert(concepts::ChronoSink<JsonFileChronoSink>);
-    static_assert(concepts::ChronoSink<CompositeChronoSink<>>);
+    static_assert(concepts::Sink<NullSink>);
+    static_assert(concepts::Sink<ConsoleSink>);
+    static_assert(concepts::Sink<JsonFileSink>);
+    static_assert(concepts::Sink<CompositeSink<>>);
 
     // Null sink: no-op, no allocation, diagnostics contract.
     {
-        NullChronoSink sink;
+        NullSink sink;
         NX_CHECK(sink.on_snapshot(Snapshot{}).has_value());
         NX_CHECK(sink.flush().has_value());
-        NX_CHECK(sink.to_string() == "NullChronoSink()");
+        NX_CHECK(sink.to_string() == "NullSink()");
         NX_CHECK(to_string(sink) == sink.to_string());
         nlohmann::json j;
         to_json(j, sink);
-        NullChronoSink back{};
+        NullSink back{};
         from_json(j, back);
         NX_CHECK(std::format("{}", sink) == sink.to_string());
     }
@@ -645,7 +649,7 @@ void test_sinks() {
         int fds[2];
         NX_CHECK(::pipe(fds) == 0);
         {
-            ConsoleChronoSink sink{fds[1]};
+            ConsoleSink sink{fds[1]};
             NX_CHECK(sink.on_snapshot(Snapshot{Timestamp{1000ULL}, 500}).has_value());
             NX_CHECK(sink.flush().has_value());
             NX_CHECK(sink.descriptor() == fds[1]);
@@ -661,7 +665,7 @@ void test_sinks() {
         NX_CHECK(text.find("realtime_offset_ns=500") != std::string_view::npos);
     }
     {
-        ConsoleChronoSink bad{-1};
+        ConsoleSink bad{-1};
         NX_CHECK(!bad.on_snapshot(Snapshot{}).has_value());
     }
 
@@ -673,10 +677,10 @@ void test_sinks() {
     ::close(mfd);
     ::unlink(tmpl); // the sink re-creates it
     {
-        JsonFileChronoSinkConfig config;
+        JsonFileSinkConfig config;
         config.path = tmpl;
         config.append = true;
-        JsonFileChronoSink sink{config};
+        JsonFileSink sink{config};
         NX_CHECK(sink.is_open());
         NX_CHECK(sink.on_snapshot(Snapshot{Timestamp{111ULL}, 222}).has_value());
         NX_CHECK(sink.on_snapshot(Snapshot{Timestamp{333ULL}, -444}).has_value());
@@ -685,7 +689,7 @@ void test_sinks() {
         // Config serialization round-trip.
         nlohmann::json j;
         to_json(j, config);
-        JsonFileChronoSinkConfig back{};
+        JsonFileSinkConfig back{};
         from_json(j, back);
         NX_CHECK(back.path == config.path);
         NX_CHECK(back.append == config.append);
@@ -727,9 +731,9 @@ void test_sinks() {
     }
     ::unlink(tmpl);
     {
-        JsonFileChronoSinkConfig bad;
+        JsonFileSinkConfig bad;
         bad.path = "/nonexistent_dir_nexigen/no_file.jsonl";
-        JsonFileChronoSink sink{bad};
+        JsonFileSink sink{bad};
         NX_CHECK(!sink.is_open());
         NX_CHECK(!sink.on_snapshot(Snapshot{}).has_value());
         NX_CHECK(!sink.flush().has_value());
@@ -737,7 +741,7 @@ void test_sinks() {
 
     // Composite sink: fan-out, first-failure aggregation, typed/indexed access.
     {
-        CompositeChronoSink<CountSink, CountSink, CountSink> comp{CountSink{}, CountSink{},
+        CompositeSink<CountSink, CountSink, CountSink> comp{CountSink{}, CountSink{},
                                                                   CountSink{}};
         NX_CHECK(comp.on_snapshot(Snapshot{}).has_value());
         NX_CHECK(comp.get<0>().count == 1);
@@ -747,7 +751,7 @@ void test_sinks() {
     }
     {
         // First failure does not starve the rest.
-        CompositeChronoSink<FailSink, CountSink, CountSink> comp{FailSink{}, CountSink{},
+        CompositeSink<FailSink, CountSink, CountSink> comp{FailSink{}, CountSink{},
                                                                  CountSink{}};
         const Status s = comp.on_snapshot(Snapshot{});
         NX_CHECK(!s.has_value());
@@ -758,8 +762,8 @@ void test_sinks() {
         NX_CHECK(!fs.has_value());
     }
     {
-        CompositeChronoSink<NullChronoSink, CountSink> typed{NullChronoSink{}, CountSink{}};
-        NX_CHECK(typed.get<NullChronoSink>().to_string() == "NullChronoSink()");
+        CompositeSink<NullSink, CountSink> typed{NullSink{}, CountSink{}};
+        NX_CHECK(typed.get<NullSink>().to_string() == "NullSink()");
         NX_CHECK(typed.get<CountSink>().count == 0);
         NX_CHECK(typed.get<1>().count == 0);
     }
@@ -768,13 +772,13 @@ void test_sinks() {
 void test_sink_edges() {
     // Config: append=false rendering, JSON edge cases and formatter.
     {
-        JsonFileChronoSinkConfig config;
+        JsonFileSinkConfig config;
         config.path = "/tmp/nexigen_chrono_sink_edges.jsonl";
         config.append = false;
         NX_CHECK(config.to_string().find("append=false") != std::string::npos);
         NX_CHECK(std::format("{}", config) == config.to_string());
 
-        JsonFileChronoSinkConfig out;
+        JsonFileSinkConfig out;
         out.path = "/keep";
         out.append = true;
         from_json(nlohmann::json::array(), out);
@@ -794,10 +798,10 @@ void test_sink_edges() {
     NX_CHECK(write_file(tmpl, "stale-content-that-must-disappear"));
     ::close(mfd);
     {
-        JsonFileChronoSinkConfig config;
+        JsonFileSinkConfig config;
         config.path = tmpl;
         config.append = false;
-        JsonFileChronoSink sink{config};
+        JsonFileSink sink{config};
         NX_CHECK(sink.is_open());
         NX_CHECK(sink.on_snapshot(Snapshot{Timestamp{5ULL}, 6}).has_value());
         NX_CHECK(sink.flush().has_value());
@@ -811,10 +815,10 @@ void test_sink_edges() {
 
     // fsync failure: /dev/null opens but cannot be synced.
     {
-        JsonFileChronoSinkConfig config;
+        JsonFileSinkConfig config;
         config.path = "/dev/null";
         config.append = false;
-        JsonFileChronoSink sink{config};
+        JsonFileSink sink{config};
         NX_CHECK(sink.is_open());
         NX_CHECK(sink.on_snapshot(Snapshot{}).has_value());
         NX_CHECK(!sink.flush().has_value());
@@ -822,17 +826,17 @@ void test_sink_edges() {
 
     // Write failure: /dev/full reports ENOSPC on every write.
     {
-        JsonFileChronoSinkConfig config;
+        JsonFileSinkConfig config;
         config.path = "/dev/full";
         config.append = false;
-        JsonFileChronoSink sink{config};
+        JsonFileSink sink{config};
         NX_CHECK(sink.is_open());
         NX_CHECK(!sink.on_snapshot(Snapshot{}).has_value());
     }
     {
         const int fd = ::open("/dev/full", O_WRONLY | O_CLOEXEC);
         NX_CHECK(fd >= 0);
-        ConsoleChronoSink sink{fd};
+        ConsoleSink sink{fd};
         NX_CHECK(!sink.on_snapshot(Snapshot{}).has_value());
         ::close(fd);
     }
@@ -841,22 +845,25 @@ void test_sink_edges() {
 void test_provider_config_roundtrip() {
     // Config serialization round-trip + diagnostics.
     {
-        ChronoProviderConfig config;
+        ProviderConfig config;
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         config.worker_thread.set_cpus(core::CpuSet::from_core_mask(0x3));
+        config.kind = ProviderKind::manual;
         nlohmann::json j;
         to_json(j, config);
         NX_CHECK(j["collect_interval_ns"] == 1'000'000);
         NX_CHECK(j["worker_thread"]["cpus"].size() == 2U);
-        ChronoProviderConfig back{};
+        NX_CHECK(j["kind"] == "manual");
+        ProviderConfig back{};
         from_json(j, back);
         NX_CHECK(back.collect_interval == config.collect_interval);
         NX_CHECK(back.worker_thread.cpus() == core::CpuSet::from_core_mask(0x3));
+        NX_CHECK(back.kind == ProviderKind::manual);
         NX_CHECK(config.to_string().find("worker_thread=") != std::string::npos);
         // Real hex render (P2-17): decimal 10 → `0xa`, never the old
         // "0x<decimal>" artifact.
         {
-            ChronoProviderConfig hex_probe{};
+            ProviderConfig hex_probe{};
             hex_probe.worker_thread.set_cpus(core::CpuSet::from_core_mask(0xA));
             const std::string hex_text = hex_probe.to_string();
             NX_CHECK(hex_text.find("worker_thread=") != std::string::npos);
@@ -870,10 +877,11 @@ void test_provider_manual_snapshot() {
     // Manual snapshot is deterministic, allocation-free on the steady path,
     // and reports a sane monotonic/offset pair.
     {
-        NullChronoSink sink;
-        ChronoProviderConfig config{}; // zero interval: no background worker
-        ChronoProvider provider{config, sink};
-        NX_CHECK(provider.startup_status().has_value());
+        NullSink sink;
+        ProviderConfig config{}; // zero interval: no background worker
+        Provider<> provider{config, sink};
+        ChronoWorker worker{provider, config};
+        NX_CHECK(worker.startup_status().has_value());
         const std::size_t before = g_alloc_used;
         for (int i = 0; i < 1000; ++i) {
             NX_CHECK(provider.snapshot_now().has_value());
@@ -882,8 +890,9 @@ void test_provider_manual_snapshot() {
     }
     {
         RecordingSink sink;
-        ChronoProviderConfig config{};
-        ChronoProvider provider{config, sink};
+        ProviderConfig config{};
+        Provider<> provider{config, sink};
+        ChronoWorker worker{provider, config};
         NX_CHECK(provider.snapshot_now().has_value());
         NX_CHECK(sink.snapshots.size() == 1U);
         NX_CHECK(sink.snapshots[0].stamp.nanoseconds() > 0);
@@ -893,7 +902,7 @@ void test_provider_manual_snapshot() {
                                   sink.snapshots[0].realtime_offset_ns;
         NX_CHECK(wall > 1'500'000'000'000'000'000LL);
         NX_CHECK(wall < 4'100'000'000'000'000'000LL);
-        NX_CHECK(provider.to_string().find("ChronoProvider") != std::string::npos);
+        NX_CHECK(provider.to_string().find("Provider(") != std::string::npos);
     }
 }
 
@@ -901,10 +910,11 @@ void test_provider_destructor_drain() {
     // Zero interval disables background delivery; destructor drains + flushes.
     {
         RecordingSink sink;
-        ChronoProviderConfig config{};
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         {
-            ChronoProvider provider{config, sink};
+            Provider<> provider{config, sink};
+            ChronoWorker worker{provider, config};
             std::this_thread::sleep_for(std::chrono::milliseconds{30});
             NX_CHECK(sink.snapshots.empty());
         } // destructor: one final snapshot + flush
@@ -918,25 +928,27 @@ void test_provider_deferred_start() {
     // idempotent; a zero interval makes start() a no-op.
     {
         RecordingSink sink;
-        ChronoProviderConfig config{};
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{5'000'000}; // 5 ms
         {
-            ChronoProvider provider{config, sink};
+            Provider<> provider{config, sink};
+            ChronoWorker worker{provider, config};
             std::this_thread::sleep_for(std::chrono::milliseconds{30});
             NX_CHECK(sink.snapshots.empty()); // not started yet
-            NX_CHECK(provider.start().has_value());
-            NX_CHECK(provider.start().has_value()); // idempotent
+            NX_CHECK(worker.start().has_value());
+            NX_CHECK(worker.start().has_value()); // idempotent
             std::this_thread::sleep_for(std::chrono::milliseconds{30});
         } // destructor: final snapshot + flush
         NX_CHECK(sink.snapshots.size() >= 1U); // worker delivered after start()
     }
     {
         RecordingSink sink;
-        ChronoProviderConfig config{};
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0}; // zero interval
         {
-            ChronoProvider provider{config, sink};
-            NX_CHECK(provider.start().has_value()); // no-op
+            Provider<> provider{config, sink};
+            ChronoWorker worker{provider, config};
+            NX_CHECK(worker.start().has_value()); // no-op
             std::this_thread::sleep_for(std::chrono::milliseconds{30});
             NX_CHECK(sink.snapshots.empty()); // no worker, nothing delivered
         }
@@ -948,12 +960,13 @@ void test_provider_worker_logging() {
     // Worker logging: start(Logger&) binds a logger; start() runs silent.
     {
         RecordingClockLogger logger;
-        NullChronoSink sink;
-        ChronoProviderConfig config{};
+        NullSink sink;
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000}; // 1 ms
         {
-            ChronoProvider provider{config, sink};
-            NX_CHECK(provider.start(logger).has_value());
+            Provider<> provider{config, sink};
+            ChronoWorker worker{provider, config};
+            NX_CHECK(worker.start(logger).has_value());
             std::this_thread::sleep_for(std::chrono::milliseconds{20});
         } // destructor stops the worker, which logs its shutdown
         NX_CHECK(!logger.messages.empty());
@@ -964,14 +977,15 @@ void test_provider_worker_logging() {
     {
         RecordingClockLogger first;
         RecordingClockLogger second;
-        NullChronoSink sink;
-        ChronoProviderConfig config{};
+        NullSink sink;
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         {
-            ChronoProvider provider{config, sink};
-            NX_CHECK(provider.start(first).has_value());
+            Provider<> provider{config, sink};
+            ChronoWorker worker{provider, config};
+            NX_CHECK(worker.start(first).has_value());
             std::this_thread::sleep_for(std::chrono::milliseconds{5});
-            const core::Status rebound = provider.start(second);
+            const core::Status rebound = worker.start(second);
             NX_CHECK(rebound.has_value() == false && rebound.error() == core::ErrorCode::Conflict);
             std::this_thread::sleep_for(std::chrono::milliseconds{20});
         } // destructor stops the worker
@@ -980,12 +994,13 @@ void test_provider_worker_logging() {
     }
     {
         RecordingClockLogger logger;
-        NullChronoSink sink;
-        ChronoProviderConfig config{};
+        NullSink sink;
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         {
-            ChronoProvider provider{config, sink};
-            NX_CHECK(provider.start().has_value()); // no logger
+            Provider<> provider{config, sink};
+            ChronoWorker worker{provider, config};
+            NX_CHECK(worker.start().has_value()); // no logger
             std::this_thread::sleep_for(std::chrono::milliseconds{20});
         }
         NX_CHECK(logger.messages.empty()); // no logging calls
@@ -996,11 +1011,12 @@ void test_provider_worker_period() {
     // Background worker honors the period.
     {
         RecordingSink sink;
-        ChronoProviderConfig config{};
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{10'000'000}; // 10 ms
         {
-            ChronoProvider provider{config, sink};
-            NX_CHECK(provider.start().has_value());
+            Provider<> provider{config, sink};
+            ChronoWorker worker{provider, config};
+            NX_CHECK(worker.start().has_value());
             std::this_thread::sleep_for(std::chrono::milliseconds{120});
         } // destructor joins the worker before the sink is read again
         NX_CHECK(sink.snapshots.size() >= 3U);
@@ -1028,20 +1044,21 @@ void test_provider_affinity() {
     {
         RecordingSink sink;
         sink.expected_cpu = first_cpu;
-        ChronoProviderConfig config{};
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000}; // 1 ms
         config.worker_thread.set_cpus(core::CpuSet::from_core_mask(std::uint64_t{1} << first_cpu));
         {
-            ChronoProvider provider{config, sink};
-            NX_CHECK(provider.startup_status().has_value());
-            NX_CHECK(provider.start().has_value());
-            for (int i = 0; i < 200 && provider.worker_mask() == 0ULL; ++i) {
+            Provider<> provider{config, sink};
+            ChronoWorker worker{provider, config};
+            NX_CHECK(worker.startup_status().has_value());
+            NX_CHECK(worker.start().has_value());
+            for (int i = 0; i < 200 && worker.worker_mask() == 0ULL; ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds{1});
             }
-            NX_CHECK(provider.worker_mask() == (std::uint64_t{1} << first_cpu));
-            NX_CHECK((provider.worker_thread_report().applied() &
+            NX_CHECK(worker.worker_mask() == (std::uint64_t{1} << first_cpu));
+            NX_CHECK((worker.worker_thread_report().applied() &
                       core::ThreadApplyReport::affinity_mask) != 0U);
-            NX_CHECK(provider.worker_thread_report().failed() == 0U);
+            NX_CHECK(worker.worker_thread_report().failed() == 0U);
             std::this_thread::sleep_for(std::chrono::milliseconds{30});
         }
         // Every background snapshot ran on the pinned core (the final drain on
@@ -1054,25 +1071,27 @@ void test_provider_affinity() {
     }
     if (denied_cpu >= 0) {
         RecordingSink sink;
-        ChronoProviderConfig config{};
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         config.worker_thread.set_cpus(core::CpuSet::from_core_mask(std::uint64_t{1} << denied_cpu));
-        ChronoProvider provider{config, sink};
-        NX_CHECK(provider.start().has_value());
-        for (int i = 0; i < 200 && provider.startup_status().has_value(); ++i) {
+        Provider<> provider{config, sink};
+        ChronoWorker worker{provider, config};
+        NX_CHECK(worker.start().has_value());
+        for (int i = 0; i < 200 && worker.startup_status().has_value(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds{1});
         }
-        const Status startup = provider.startup_status();
+        const Status startup = worker.startup_status();
         NX_CHECK(!startup.has_value());
         NX_CHECK(startup.error() == ErrorCode::SystemError);
     }
     {
         RecordingSink sink;
-        ChronoProviderConfig config{};
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         config.worker_thread = core::ThreadSpec{};
-        ChronoProvider provider{config, sink};
-        NX_CHECK(provider.startup_status().has_value());
+        Provider<> provider{config, sink};
+        ChronoWorker worker{provider, config};
+        NX_CHECK(worker.startup_status().has_value());
     }
 }
 
@@ -1083,8 +1102,9 @@ void test_provider_control_plane() {
         RecordingSink sink;
         sink.snapshot_status = std::unexpected(ErrorCode::SystemError);
         sink.flush_status = std::unexpected(ErrorCode::SystemError);
-        ChronoProviderConfig config{};
-        ChronoProvider provider{config, sink};
+        ProviderConfig config{};
+        Provider<> provider{config, sink};
+        ChronoWorker worker{provider, config};
         const Status snap = provider.snapshot_now();
         NX_CHECK(!snap.has_value());
         NX_CHECK(snap.error() == ErrorCode::SystemError);
@@ -1101,16 +1121,17 @@ void test_provider_delivery_warnings() {
     {
         RecordingClockLogger logger;
         FailSink sink;
-        ChronoProviderConfig config{};
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         {
-            ChronoProvider provider{config, sink};
-            NX_CHECK(provider.start(logger).has_value());
+            Provider<> provider{config, sink};
+            ChronoWorker worker{provider, config};
+            NX_CHECK(worker.start(logger).has_value());
             std::this_thread::sleep_for(std::chrono::milliseconds{20});
         }
         bool warned = false;
         for (const auto& [level, message] : logger.messages) {
-            if (level == ClockLogLevel::warning &&
+            if (level == core::LogLevel::Warning &&
                 message.find("delivery failed") != std::string::npos) {
                 warned = true;
             }
@@ -1134,15 +1155,149 @@ void test_provider_slow_sink() {
             std::string to_string() const { return "SlowSink()"; }
         };
         SlowSink sink;
-        ChronoProviderConfig config{};
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1};
         {
-            ChronoProvider provider{config, sink};
-            NX_CHECK(provider.start().has_value());
+            Provider<> provider{config, sink};
+            ChronoWorker worker{provider, config};
+            NX_CHECK(worker.start().has_value());
             std::this_thread::sleep_for(std::chrono::milliseconds{30});
         }
         NX_CHECK(sink.count.load(std::memory_order_relaxed) >= 2);
     }
+}
+
+// --- concept fixtures (task 2.2): a deterministic fake provider + stamper
+// prove the concepts admit non-clock implementations for deterministic tests.
+
+struct FakeStamper {
+    std::uint64_t counter{0};
+    Timestamp sample() noexcept { return Timestamp{counter++}; }
+};
+
+struct FakeProvider {
+    using Stamper = FakeStamper;
+    FakeStamper stamper_{};
+    core::Result<Stamper*> acquire() noexcept { return &stamper_; }
+    std::int64_t utc_offset() noexcept { return 0; }
+    std::int64_t utc_now_ns() noexcept { return 0; }
+    core::Status snapshot_now() noexcept { return {}; }
+    core::Status flush() noexcept { return {}; }
+    std::string to_string() { return "FakeProvider()"; }
+};
+
+static_assert(concepts::Stamper<FakeStamper>);
+static_assert(concepts::Stamper<StampSource>);
+static_assert(concepts::Provider<FakeProvider>);
+static_assert(concepts::Provider<Provider<>>);
+
+void test_provider_issuance() {
+    // Issuance: prepare gates acquire, distinct sources, exhaustion, zero
+    // allocation on the issuance path.
+    NullSink sink;
+    ProviderConfig config{};
+    Provider<> provider{config, sink};
+
+    // acquire() before prepare() reports NotInitialized.
+    {
+        const core::Result<Provider<>::Stamper*> before = provider.acquire();
+        NX_CHECK(!before.has_value());
+        NX_CHECK(before.error() == ErrorCode::NotInitialized);
+    }
+
+    // prepare() calibrates the bank; issuance then succeeds.
+    NX_CHECK(provider.prepare().has_value());
+
+    // Distinct sources keep independent non-decreasing series.
+    {
+        const auto src_a = provider.acquire();
+        const auto src_b = provider.acquire();
+        NX_CHECK(src_a.has_value() && src_b.has_value());
+        StampSource& a = *(*src_a);
+        StampSource& b = *(*src_b);
+        const Timestamp a0 = a.sample();
+        static_cast<void>(b.sample());
+        NX_CHECK(a.sample() >= a0);
+    }
+
+    // Issuance allocates nothing.
+    {
+        const std::size_t before = g_alloc_used;
+        for (int i = 0; i < 10; ++i) {
+            const auto src = provider.acquire();
+            NX_CHECK(src.has_value());
+            static_cast<void>((*src)->sample());
+        }
+        NX_CHECK(g_alloc_used == before);
+    }
+
+    // Full bank + one more reports ResourceExhausted.
+    {
+        bool exhausted = false;
+        for (std::size_t i = 0; i < 64; ++i) {
+            const auto src = provider.acquire();
+            if (!src.has_value()) {
+                exhausted = (src.error() == ErrorCode::ResourceExhausted);
+                break;
+            }
+        }
+        NX_CHECK(exhausted);
+        const auto again = provider.acquire();
+        NX_CHECK(!again.has_value() && again.error() == ErrorCode::ResourceExhausted);
+    }
+
+    // Cold authority API is plausible.
+    NX_CHECK(provider.utc_now_ns() > 0);
+    NX_CHECK(provider.to_string().find("capacity=64") != std::string::npos);
+}
+
+void test_provider_concurrent_snapshot() {
+    // Two threads calling snapshot_now() against one recording sink never
+    // interleave: the provider serializes delivery, so each snapshot is
+    // complete and the count is exact.
+    RecordingSink sink;
+    ProviderConfig config{};
+    Provider<> provider{config, sink};
+    std::atomic<bool> start{false};
+    std::thread t1([&] {
+        while (!start.load(std::memory_order_acquire)) {
+        }
+        for (int i = 0; i < 500; ++i) {
+            static_cast<void>(provider.snapshot_now());
+        }
+    });
+    std::thread t2([&] {
+        while (!start.load(std::memory_order_acquire)) {
+        }
+        for (int i = 0; i < 500; ++i) {
+            static_cast<void>(provider.snapshot_now());
+        }
+    });
+    start.store(true, std::memory_order_release);
+    t1.join();
+    t2.join();
+    NX_CHECK(sink.snapshots.size() == 1000U);
+}
+
+void test_worker_diagnostics() {
+    // Worker + provider diagnostics: to_string / free helper / formatter render
+    // the same text.
+    NullSink sink;
+    ProviderConfig config{};
+    config.collect_interval = std::chrono::nanoseconds{1'000'000};
+    config.worker_thread.set_cpus(core::CpuSet::from_core_mask(0x1));
+    Provider<> provider{config, sink};
+    ChronoWorker worker{provider, config};
+
+    const std::string wtext = worker.to_string();
+    NX_CHECK(wtext.find("ChronoWorker(") != std::string::npos);
+    NX_CHECK(wtext.find("worker_thread=") != std::string::npos);
+    NX_CHECK(std::format("{}", worker) == wtext);
+
+    const std::string ptext = provider.to_string();
+    NX_CHECK(ptext.find("Provider(") != std::string::npos);
+    NX_CHECK(ptext.find("capacity=64") != std::string::npos);
+    NX_CHECK(std::format("{}", provider) == ptext);
 }
 
 void test_provider() {
@@ -1165,10 +1320,16 @@ void test_provider() {
     test_provider_delivery_warnings();
 
     test_provider_slow_sink();
+
+    test_provider_issuance();
+
+    test_provider_concurrent_snapshot();
+
+    test_worker_diagnostics();
 }
 
 void test_provider_config_edges() {
-    ChronoProviderConfig config;
+    ProviderConfig config;
     config.collect_interval = std::chrono::nanoseconds{5};
     config.worker_thread.set_cpus(core::CpuSet::from_core_mask(7));
 
@@ -1218,24 +1379,25 @@ void test_chrono_required_thread_failure() {
     // Required failure joins the worker; the same provider can start again.
     {
         RecordingSink sink;
-        ChronoProviderConfig config{};
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         config.worker_thread.set_cpus(core::CpuSet::from_core_mask(std::uint64_t{1} << first_cpu));
         NX_CHECK(config.worker_thread.set_name("chrono-worker").has_value());
         config.worker_thread.set_apply_mode(core::ThreadApplyMode::Required);
-        ChronoProvider provider{config, sink};
+        Provider<> provider{config, sink};
+        ChronoWorker worker{provider, config};
         nexigen::core::fault_injection::set_fault_hook(chrono_fail_point);
-        const Status failed = provider.start();
+        const Status failed = worker.start();
         nexigen::core::fault_injection::set_fault_hook(nullptr);
         NX_CHECK(!failed.has_value());
         NX_CHECK(failed.error() == ErrorCode::SystemError);
-        NX_CHECK(!provider.startup_status().has_value());
-        NX_CHECK(provider.worker_thread_report().failed() ==
+        NX_CHECK(!worker.startup_status().has_value());
+        NX_CHECK(worker.worker_thread_report().failed() ==
                  core::ThreadApplyReport::affinity_mask);
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
         NX_CHECK(sink.snapshots.empty());
 
-        NX_CHECK(provider.start().has_value());
+        NX_CHECK(worker.start().has_value());
         std::this_thread::sleep_for(std::chrono::milliseconds{20});
         NX_CHECK(!sink.snapshots.empty());
     }
@@ -1243,19 +1405,20 @@ void test_chrono_required_thread_failure() {
     // Best effort exposes a scheduler failure but keeps snapshots flowing.
     {
         RecordingSink sink;
-        ChronoProviderConfig config{};
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{1'000'000};
         NX_CHECK(config.worker_thread.set_scheduler(core::SchedulingPolicy::FIFO, 1).has_value());
         config.worker_thread.set_apply_mode(core::ThreadApplyMode::BestEffort);
-        ChronoProvider provider{config, sink};
+        Provider<> provider{config, sink};
+        ChronoWorker worker{provider, config};
         nexigen::core::fault_injection::set_fault_hook(chrono_fail_point);
-        NX_CHECK(provider.start().has_value());
-        for (int i = 0; i < 100 && provider.startup_status().has_value(); ++i) {
+        NX_CHECK(worker.start().has_value());
+        for (int i = 0; i < 100 && worker.startup_status().has_value(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds{1});
         }
         nexigen::core::fault_injection::set_fault_hook(nullptr);
-        NX_CHECK(!provider.startup_status().has_value());
-        NX_CHECK(provider.worker_thread_report().failed() ==
+        NX_CHECK(!worker.startup_status().has_value());
+        NX_CHECK(worker.worker_thread_report().failed() ==
                  core::ThreadApplyReport::scheduler_mask);
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
         NX_CHECK(!sink.snapshots.empty());
@@ -1264,15 +1427,16 @@ void test_chrono_required_thread_failure() {
     // Zero interval skips worker creation and attribute application.
     {
         RecordingSink sink;
-        ChronoProviderConfig config{};
+        ProviderConfig config{};
         config.collect_interval = std::chrono::nanoseconds{0};
         NX_CHECK(config.worker_thread.set_scheduler(core::SchedulingPolicy::FIFO, 1).has_value());
         config.worker_thread.set_apply_mode(core::ThreadApplyMode::Required);
-        ChronoProvider provider{config, sink};
+        Provider<> provider{config, sink};
+        ChronoWorker worker{provider, config};
         nexigen::core::fault_injection::set_fault_hook(chrono_fail_point);
-        NX_CHECK(provider.start().has_value());
+        NX_CHECK(worker.start().has_value());
         nexigen::core::fault_injection::set_fault_hook(nullptr);
-        NX_CHECK(provider.worker_thread_report().requested() == 0U);
+        NX_CHECK(worker.worker_thread_report().requested() == 0U);
         NX_CHECK(sink.snapshots.empty());
     }
 #else
@@ -1337,7 +1501,7 @@ void test_chrono_worker_thread_settings() {
     NX_CHECK(merged.options.worker_thread.cpus().contains(64U));
     NX_CHECK(merged.options.worker_thread.cpus().contains(65U));
     NX_CHECK(merged.options.worker_thread.cpus().count() == 2U);
-    ChronoProviderConfig config{};
+    ProviderConfig config{};
     NX_CHECK(apply_to(merged, config).has_value());
     NX_CHECK(config.collect_interval == std::chrono::nanoseconds{1'000'000});
     NX_CHECK(config.worker_thread == merged.options.worker_thread);
@@ -1458,7 +1622,7 @@ void test_settings() {
         Settings settings;
         settings.options.collect_interval = std::chrono::nanoseconds{3'000'000};
         settings.options.worker_thread.set_cpus(core::CpuSet::from_core_mask(0x7));
-        ChronoProviderConfig config;
+        ProviderConfig config;
         NX_CHECK(apply_to(settings, config).has_value());
         NX_CHECK(config.collect_interval == settings.options.collect_interval);
         NX_CHECK(config.worker_thread.cpus() == core::CpuSet::from_core_mask(0x7));
@@ -1555,14 +1719,14 @@ void test_settings_sink() {
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
-        NX_CHECK(settings.to_string().find("sink=JsonFileChronoSinkConfig") != std::string::npos);
+        NX_CHECK(settings.to_string().find("sink=JsonFileSinkConfig") != std::string::npos);
         NX_CHECK(std::format("{}", settings) == settings.to_string());
         nlohmann::json j;
         to_json(j, settings);
         NX_CHECK(j["sink"]["path"] == "/tmp/local-chrono.jsonl");
         NX_CHECK(j["sink"]["append"] == false);
 
-        ChronoProviderConfig config;
+        ProviderConfig config;
         NX_CHECK(apply_to(settings, config).has_value());
         NX_CHECK(config.collect_interval == settings.options.collect_interval);
         NX_CHECK(config.worker_thread == settings.options.worker_thread);

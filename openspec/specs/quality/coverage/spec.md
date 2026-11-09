@@ -2,13 +2,13 @@
 
 ## Purpose
 Defines how nexigen measures line coverage across process boundaries and what
-minimum coverage the runner and hub modules must keep.
+minimum coverage the execution_manager and hub modules must keep.
 
 ## Requirements
 
 ### Requirement: Coverage includes forked supervisors
 
-The coverage build SHALL flush instrumentation counters from forked runner
+The coverage build SHALL flush instrumentation counters from forked execution_manager
 supervisor and application-setup processes before they terminate or replace
 their image, so work performed in those children contributes to line coverage.
 
@@ -27,15 +27,15 @@ their image, so work performed in those children contributes to line coverage.
 - **WHEN** the project is built without coverage instrumentation
 - **THEN** the flush helper compiles to an empty inline call and forks behave exactly as before
 
-### Requirement: Runner and hub coverage gates
+### Requirement: ExecutionManager and hub coverage gates
 
-The coverage report SHALL score runner and hub module line coverage separately,
+The coverage report SHALL score execution_manager and hub module line coverage separately,
 and both modules SHALL remain at or above 90%.
 
-#### Scenario: Runner stays above the gate
+#### Scenario: ExecutionManager stays above the gate
 
 - **WHEN** the coverage target runs after the full unit-test suite
-- **THEN** the runner module reports at least 90.0% line coverage
+- **THEN** the execution_manager module reports at least 90.0% line coverage
 
 #### Scenario: Hub stays above the gate
 

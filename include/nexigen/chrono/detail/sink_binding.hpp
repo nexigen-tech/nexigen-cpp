@@ -1,6 +1,6 @@
 // nexigen::chrono — type-erased sink binding (change add-chrono-clock-service;
 // spec chrono/chrono-provider). Plain function pointers, no virtual dispatch,
-// no RTTI: the provider binds a ChronoSink through these two thunks.
+// no RTTI: the provider binds a Sink through these two thunks.
 #pragma once
 
 #include <nexigen/chrono/snapshot.hpp>

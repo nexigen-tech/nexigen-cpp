@@ -1,9 +1,9 @@
 // nexigen::app — configurable suite-application example (ex_suite_app).
 //
-// One binary reused as several distinct instances by the nexigen-run suite
+// One binary reused as several distinct instances by the nexigen-exec suite
 // demo. The role and its timers come from environment variables set by the
 // manifest (design D1/D5 of change add-suite-demo), while the only
-// command-line argument is the settings directory the runner generates for the
+// command-line argument is the settings directory the execution_manager generates for the
 // instance. The workload writes all four telemetry streams and records one
 // instrument of every metric kind, all ResetOnRead with a one-second
 // collection cadence.
@@ -29,7 +29,7 @@
 #include <vector>
 
 #include <nexigen/app/infrastructure.hpp>
-#include <nexigen/chrono/json_file_chrono_sink.hpp>
+#include <nexigen/chrono/json_file_sink.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/metrics/json_file_metric_sink.hpp>
@@ -140,7 +140,7 @@ struct SuitePolicy {
     using Logger = logging::FileLogger<>;
     using MetricsSink = metrics::JsonFileMetricSink;
     using TraceSink = tracing::JsonFileTraceSink;
-    using ChronoSink = chrono::JsonFileChronoSink;
+    using Sink = chrono::JsonFileSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Settings& settings,
@@ -185,7 +185,7 @@ struct SuitePolicy {
         return {};
     }
 
-    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
                                             const chrono::Settings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -334,7 +334,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Standalone (no directory option) prepares its own settings, mirroring the
-    // runner-generated instance settings for a non-suite run.
+    // execution_manager-generated instance settings for a non-suite run.
     if (!help_requested && !has_directory_option(args)) {
         if (!prepare_standalone_directories() || !prepare_standalone_settings()) {
             return 1;
@@ -500,6 +500,6 @@ int main(int argc, char* argv[]) {
                 std::string(app::to_string(reason)).c_str());
 
     // Degrade exits non-zero after a clean shutdown so its telemetry is
-    // flushed before the runner retries the attempt.
+    // flushed before the execution_manager retries the attempt.
     return config.role == DemoRole::Degrade ? 1 : 0;
 }

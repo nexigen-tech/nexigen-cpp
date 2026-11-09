@@ -40,7 +40,7 @@ The example SHALL demonstrate stage-level profiling with `Stopwatch`: one instru
 
 #### Scenario: Example seeds its own data and needs no harness
 
-- **WHEN** the example is run outside any test runner
+- **WHEN** the example is run outside any test execution_manager
 - **THEN** it creates its own loops, budgets, and timing data, requires no fixture or pre-existing files, and prints its report to stdout
 
 ### Requirement: ex_stopwatch_histogram records measured scopes into a histogram
@@ -82,5 +82,5 @@ The example SHALL print count, sum, min, max, `p50`/`p90`/`p99`/`p99.9`, a per-b
 
 #### Scenario: Example seeds its own data and needs no harness
 
-- **WHEN** the example is run outside any test runner
+- **WHEN** the example is run outside any test execution_manager
 - **THEN** it creates its own clock, provider, workloads and bucket bounds, requires no fixture or pre-existing files, and prints its report to stdout

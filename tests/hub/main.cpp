@@ -1,4 +1,4 @@
-// Entry point for the nexigen::hub tests. Entity files expose one runner each
+// Entry point for the nexigen::hub tests. Entity files expose one execution_manager each
 // and the shared harness/fixtures live in hub_test_support.hpp.
 
 #include "hub_test_support.hpp"

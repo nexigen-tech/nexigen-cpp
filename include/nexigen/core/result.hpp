@@ -48,6 +48,7 @@ enum class ErrorCode : std::uint8_t {
     NotInitialized,  ///< Operation attempted before required setup completed.
     RateLimited,     ///< Rate policy rejected the request before any queue interaction.
     Conflict,        ///< Another owner holds a process-global resource/state.
+    ResourceExhausted, ///< Fixed-capacity pool of a preallocated resource is fully issued.
 };
 
 /// ErrorCode vocabulary table (change refactor-enum-traits-helper): the single
@@ -59,7 +60,7 @@ template <> struct EnumTraits<ErrorCode> {
         ErrorCode value;
         std::string_view name;
     };
-    static constexpr std::array<Entry, 8> entries{{
+    static constexpr std::array<Entry, 9> entries{{
         {ErrorCode::Ok, "Ok"},
         {ErrorCode::BufferFull, "BufferFull"},
         {ErrorCode::BufferEmpty, "BufferEmpty"},
@@ -68,6 +69,7 @@ template <> struct EnumTraits<ErrorCode> {
         {ErrorCode::NotInitialized, "NotInitialized"},
         {ErrorCode::RateLimited, "RateLimited"},
         {ErrorCode::Conflict, "Conflict"},
+        {ErrorCode::ResourceExhausted, "ResourceExhausted"},
     }};
 };
 

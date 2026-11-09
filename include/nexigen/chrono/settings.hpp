@@ -4,7 +4,7 @@
 // COLD PATH ONLY. `load_chrono_settings` runs once before real-time
 // execution: it reads an explicitly supplied global JSON file, then an
 // explicitly supplied local JSON file, then applies environment overrides,
-// merging field by field into a ChronoProviderConfig. Every problem becomes a
+// merging field by field into a ProviderConfig. Every problem becomes a
 // `core::SettingsDiagnostic`; a bad value leaves the previous/default value in
 // place so the caller can still initialize a provider.
 //
@@ -21,8 +21,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include <nexigen/chrono/chrono_provider.hpp>
-#include <nexigen/chrono/json_file_chrono_sink.hpp>
+#include <nexigen/chrono/json_file_sink_config.hpp>
+#include <nexigen/chrono/provider_config.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/settings_diagnostic.hpp>
 #include <nexigen/core/settings_paths.hpp>
@@ -33,8 +33,8 @@ namespace nexigen::chrono {
 /// Merged result of one load. `global_loaded`/`local_loaded` report file
 /// presence, not success; `diagnostics` carries every non-fatal problem.
 struct Settings {
-    ChronoProviderConfig options{};  ///< Provider configuration.
-    JsonFileChronoSinkConfig sink{}; ///< File-sink path and append flag.
+    ProviderConfig options{};  ///< Provider configuration.
+    JsonFileSinkConfig sink{}; ///< File-sink path and append flag.
     bool global_loaded{false};
     bool local_loaded{false};
     std::vector<core::SettingsDiagnostic> diagnostics{};
@@ -57,6 +57,6 @@ void to_json(nlohmann::json& j, const Settings& settings);
                                                 Settings& out) noexcept;
 
 /// Map merged settings into a provider construction config.
-[[nodiscard]] core::Status apply_to(const Settings& settings, ChronoProviderConfig& out) noexcept;
+[[nodiscard]] core::Status apply_to(const Settings& settings, ProviderConfig& out) noexcept;
 
 } // namespace nexigen::chrono

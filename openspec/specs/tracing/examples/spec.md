@@ -23,7 +23,7 @@ The project SHALL provide a self-contained executable `ex_nested_and_cross_threa
 #### Scenario: The example is self-contained
 
 - **WHEN** the example is built and run outside the test harness
-- **THEN** it creates its own configuration and inputs, requires no test runner or fixture, and depends only on the public tracing API
+- **THEN** it creates its own configuration and inputs, requires no test execution_manager or fixture, and depends only on the public tracing API
 
 ### Requirement: Perfetto Chrome trace example
 
@@ -42,7 +42,7 @@ The project SHALL provide a self-contained executable `ex_perfetto_chrome_trace`
 #### Scenario: The example is self-contained
 
 - **WHEN** the example is built and run outside the test harness
-- **THEN** it creates its own configuration and output location, requires no test runner or fixture, and depends only on the public tracing API
+- **THEN** it creates its own configuration and output location, requires no test execution_manager or fixture, and depends only on the public tracing API
 
 ### Requirement: Tracing examples pass in every build mode
 

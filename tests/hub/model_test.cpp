@@ -5,7 +5,7 @@
 void test_model_serialization() {
     for (const auto kind : {hub::StreamKind::App, hub::StreamKind::Metrics, hub::StreamKind::Traces,
                             hub::StreamKind::Chrono, hub::StreamKind::Stdout,
-                            hub::StreamKind::Stderr, hub::StreamKind::Runner}) {
+                            hub::StreamKind::Stderr, hub::StreamKind::ExecutionManager}) {
         hub::StreamKind parsed = static_cast<hub::StreamKind>(0xff);
         NX_CHECK(hub::from_string(hub::to_string(kind), parsed));
         NX_CHECK(parsed == kind);
@@ -47,10 +47,10 @@ void test_model_serialization() {
     run.run_dir = "/run";
     hub::HubSuite suite{};
     suite.suite_id = "hil";
-    suite.state = runner::SuiteState::Running;
+    suite.state = exec::SuiteState::Running;
     hub::HubApp app{};
     app.app = "alpha";
-    app.state = runner::AppState::Running;
+    app.state = exec::AppState::Running;
     hub::HubInstance instance{};
     instance.instance = "1";
     hub::HubAttempt attempt{};
@@ -147,7 +147,7 @@ void test_model_serialization() {
                                   {"state", 4},
                                   {"suite_restarts_used", std::uint64_t{4294967296ULL}},
                                   {"reason", 5},
-                                  {"runner_log", 6},
+                                  {"execution_manager_log", 6},
                                   {"apps", 7}},
                    bad_suite);
     NX_CHECK(bad_suite.suite_id == "keep");

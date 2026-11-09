@@ -21,17 +21,17 @@
 #include <nexigen/hub/hub_tree.hpp>
 #include <nexigen/hub/stream_kind.hpp>
 #include <nexigen/hub/stream_record.hpp>
-#include <nexigen/runner/detail/sys_helpers.hpp>
+#include <nexigen/exec/detail/sys_helpers.hpp>
 
 namespace nexigen::hub {
 
 using nexigen::core::mandate::enum_from_json;
 using nexigen::core::mandate::enum_to_json;
-using nexigen::runner::detail::read_bool;
+using nexigen::exec::detail::read_bool;
 using nexigen::core::mandate::read_enum;
-using nexigen::runner::detail::read_string;
-using nexigen::runner::detail::read_u32;
-using nexigen::runner::detail::read_u64;
+using nexigen::exec::detail::read_string;
+using nexigen::exec::detail::read_u32;
+using nexigen::exec::detail::read_u64;
 
 std::string HubStream::to_string() const {
     return std::format("HubStream(id={}, kind={}, path={})", id, nexigen::hub::to_string(kind),
@@ -45,18 +45,18 @@ std::string HubAttempt::to_string() const {
 
 std::string HubInstance::to_string() const {
     return std::format("HubInstance(instance={}, instance_dir={}, state={}, attempts={})", instance,
-                       instance_dir, nexigen::runner::to_string(state), attempts.size());
+                       instance_dir, nexigen::exec::to_string(state), attempts.size());
 }
 
 std::string HubApp::to_string() const {
     return std::format("HubApp(app={}, state={}, instances={})", app,
-                       nexigen::runner::to_string(state), instances.size());
+                       nexigen::exec::to_string(state), instances.size());
 }
 
 std::string HubSuite::to_string() const {
     return std::format("HubSuite(suite_id={}, suite_dir={}, artifacts_path={}, state={}, "
                        "suite_restarts_used={}, apps={})",
-                       suite_id, suite_dir, artifacts_path, nexigen::runner::to_string(state),
+                       suite_id, suite_dir, artifacts_path, nexigen::exec::to_string(state),
                        suite_restarts_used, apps.size());
 }
 
@@ -138,7 +138,7 @@ void to_json(nlohmann::json& j, const HubInstance& value) {
     }
     j = nlohmann::json{{"instance", value.instance},
                        {"instance_dir", value.instance_dir},
-                       {"state", std::string(nexigen::runner::to_string(value.state))},
+                       {"state", std::string(nexigen::exec::to_string(value.state))},
                        {"attempts", std::move(attempts)}};
 }
 
@@ -166,7 +166,7 @@ void to_json(nlohmann::json& j, const HubApp& value) {
         instances.push_back(std::move(entry));
     }
     j = nlohmann::json{{"app", value.app},
-                       {"state", std::string(nexigen::runner::to_string(value.state))},
+                       {"state", std::string(nexigen::exec::to_string(value.state))},
                        {"instances", std::move(instances)}};
 }
 
@@ -192,16 +192,16 @@ void to_json(nlohmann::json& j, const HubSuite& value) {
         to_json(entry, app);
         apps.push_back(std::move(entry));
     }
-    nlohmann::json runner_log;
-    to_json(runner_log, value.runner_log);
+    nlohmann::json execution_manager_log;
+    to_json(execution_manager_log, value.execution_manager_log);
     j = nlohmann::json{
         {"suite_id", value.suite_id},
         {"suite_dir", value.suite_dir},
         {"artifacts_path", value.artifacts_path},
-        {"state", std::string(nexigen::runner::to_string(value.state))},
+        {"state", std::string(nexigen::exec::to_string(value.state))},
         {"suite_restarts_used", value.suite_restarts_used},
         {"reason", value.reason},
-        {"runner_log", std::move(runner_log)},
+        {"execution_manager_log", std::move(execution_manager_log)},
         {"apps", std::move(apps)},
     };
 }
@@ -213,8 +213,8 @@ void from_json(const nlohmann::json& j, HubSuite& value) noexcept {
     read_enum(j, "state", value.state);
     static_cast<void>(read_u32(j, "suite_restarts_used", value.suite_restarts_used));
     static_cast<void>(read_string(j, "reason", value.reason));
-    if (const auto it = j.find("runner_log"); it != j.end()) {
-        from_json(*it, value.runner_log);
+    if (const auto it = j.find("execution_manager_log"); it != j.end()) {
+        from_json(*it, value.execution_manager_log);
     }
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
         std::vector<HubApp> apps;
@@ -335,8 +335,8 @@ std::vector<HubStream> all_streams(const HubTree& tree) {
     };
     for (const HubRun& run : tree.runs) {
         for (const HubSuite& suite : run.suites) {
-            if (!suite.runner_log.id.empty()) {
-                streams.push_back(suite.runner_log);
+            if (!suite.execution_manager_log.id.empty()) {
+                streams.push_back(suite.execution_manager_log);
             }
             for (const HubApp& app : suite.apps) {
                 for (const HubInstance& instance : app.instances) {
@@ -354,8 +354,8 @@ std::vector<HubStream> all_streams(const HubTree& tree) {
 const HubStream* find_stream(const HubTree& tree, std::string_view id) noexcept {
     for (const HubRun& run : tree.runs) {
         for (const HubSuite& suite : run.suites) {
-            if (suite.runner_log.id == id) {
-                return &suite.runner_log;
+            if (suite.execution_manager_log.id == id) {
+                return &suite.execution_manager_log;
             }
             for (const HubApp& app : suite.apps) {
                 for (const HubInstance& instance : app.instances) {

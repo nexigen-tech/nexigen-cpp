@@ -10,14 +10,14 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/hub/hub_instance.hpp>
-#include <nexigen/runner/app_state.hpp>
+#include <nexigen/exec/app_state.hpp>
 
 namespace nexigen::hub {
 
 /// One application and all of its instances.
 struct HubApp {
     std::string app{};
-    runner::AppState state{runner::AppState::Unknown};
+    exec::AppState state{exec::AppState::Unknown};
     std::vector<HubInstance> instances{};
 
     [[nodiscard]] std::string to_string() const;

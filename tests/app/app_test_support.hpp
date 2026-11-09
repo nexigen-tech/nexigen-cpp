@@ -41,8 +41,8 @@
 #include <nexigen/app/app_settings.hpp>
 #include <nexigen/app/infrastructure_stop_reason.hpp>
 #include <nexigen/app/telemetry_layout.hpp>
-#include <nexigen/chrono/json_file_chrono_sink.hpp>
-#include <nexigen/chrono/null_chrono_sink.hpp>
+#include <nexigen/chrono/json_file_sink.hpp>
+#include <nexigen/chrono/null_sink.hpp>
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/metrics/json_file_metric_sink.hpp>
 #include <nexigen/metrics/null_metric_sink.hpp>
@@ -139,7 +139,7 @@ struct TestPolicy {
     using Logger = CaptureLogger;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
-    using ChronoSink = chrono::NullChronoSink;
+    using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
                                        std::string_view) noexcept {
@@ -156,7 +156,7 @@ struct TestPolicy {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
                                             const chrono::Settings&) noexcept {
         out.emplace();
         return {};
@@ -169,7 +169,7 @@ struct ResolvedPathPolicy {
     using Logger = logging::FileLogger<>;
     using MetricsSink = metrics::JsonFileMetricSink;
     using TraceSink = tracing::JsonFileTraceSink;
-    using ChronoSink = chrono::JsonFileChronoSink;
+    using Sink = chrono::JsonFileSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Settings& settings,
@@ -206,7 +206,7 @@ struct ResolvedPathPolicy {
         out.emplace(config);
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
                                             const chrono::Settings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -220,7 +220,7 @@ struct RtPolicy {
     using Logger = logging::FileLogger<128, 128>;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
-    using ChronoSink = chrono::NullChronoSink;
+    using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Settings& settings,
@@ -245,7 +245,7 @@ struct RtPolicy {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
                                             const chrono::Settings&) noexcept {
         out.emplace();
         return {};
@@ -256,7 +256,7 @@ struct FailLoggerPolicy {
     using Logger = CaptureLogger;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
-    using ChronoSink = chrono::NullChronoSink;
+    using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>&, const logging::Settings&,
                                        std::string_view) noexcept {
@@ -272,7 +272,7 @@ struct FailLoggerPolicy {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
                                             const chrono::Settings&) noexcept {
         out.emplace();
         return {};
@@ -283,7 +283,7 @@ struct FailMetricsPolicy {
     using Logger = CaptureLogger;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
-    using ChronoSink = chrono::NullChronoSink;
+    using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
                                        std::string_view) noexcept {
@@ -299,7 +299,7 @@ struct FailMetricsPolicy {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
                                             const chrono::Settings&) noexcept {
         out.emplace();
         return {};
@@ -310,7 +310,7 @@ struct FailTracePolicy {
     using Logger = CaptureLogger;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
-    using ChronoSink = chrono::NullChronoSink;
+    using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
                                        std::string_view) noexcept {
@@ -326,7 +326,7 @@ struct FailTracePolicy {
                                            std::string_view) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
                                             const chrono::Settings&) noexcept {
         out.emplace();
         return {};
@@ -337,7 +337,7 @@ struct FlushFailPolicy {
     using Logger = FlushFailLogger;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
-    using ChronoSink = chrono::NullChronoSink;
+    using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
                                        std::string_view) noexcept {
@@ -354,7 +354,7 @@ struct FlushFailPolicy {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
                                             const chrono::Settings&) noexcept {
         out.emplace();
         return {};
@@ -365,7 +365,7 @@ struct FailChronoPolicy {
     using Logger = CaptureLogger;
     using MetricsSink = metrics::NullMetricSink;
     using TraceSink = tracing::NullTraceSink;
-    using ChronoSink = chrono::NullChronoSink;
+    using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
                                        std::string_view) noexcept {
@@ -382,7 +382,7 @@ struct FailChronoPolicy {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<ChronoSink>&,
+    static core::Status emplace_chrono_sink(std::optional<Sink>&,
                                             const chrono::Settings&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }

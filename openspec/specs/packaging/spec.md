@@ -17,7 +17,7 @@ The project SHALL define install rules that place every public header under
 #### Scenario: Headers are installed
 
 - **WHEN** `cmake --install <build-dir> --prefix <prefix>` runs after a default build
-- **THEN** `<prefix>/include/nexigen/` contains the core, chrono, logging, metrics, tracing, diagnostics, app, runner, and hub headers
+- **THEN** `<prefix>/include/nexigen/` contains the core, chrono, logging, metrics, tracing, diagnostics, app, execution_manager, and hub headers
 
 #### Scenario: Archives are installed
 
@@ -33,7 +33,7 @@ project can locate the package with `find_package(nexigen CONFIG REQUIRED)`.
 #### Scenario: External discovery succeeds
 
 - **WHEN** a project sets `CMAKE_PREFIX_PATH` to the install prefix and calls `find_package(nexigen 0.1 CONFIG REQUIRED)`
-- **THEN** configuration succeeds and the `nexigen::core`, `nexigen::chrono`, `nexigen::logging`, `nexigen::metrics`, `nexigen::tracing`, `nexigen::diagnostics`, `nexigen::app`, `nexigen::runner`, and `nexigen::hub` targets are defined
+- **THEN** configuration succeeds and the `nexigen::core`, `nexigen::chrono`, `nexigen::logging`, `nexigen::metrics`, `nexigen::tracing`, `nexigen::diagnostics`, `nexigen::app`, `nexigen::exec`, and `nexigen::hub` targets are defined
 
 #### Scenario: Incompatible version is rejected
 
@@ -53,12 +53,12 @@ The installed package configuration SHALL resolve `Threads` and
 ### Requirement: Command-line tools install when built
 
 When `NEXIGEN_BUILD_TOOLS` is `ON`, the install rules SHALL place the
-`nexigen-run` and `nexigen-hub` executables in `<prefix>/bin/`.
+`nexigen-exec` and `nexigen-hub` executables in `<prefix>/bin/`.
 
 #### Scenario: Tools are installed
 
 - **WHEN** the project is configured with tools enabled and installed
-- **THEN** `<prefix>/bin/nexigen-run` and `<prefix>/bin/nexigen-hub` are executable
+- **THEN** `<prefix>/bin/nexigen-exec` and `<prefix>/bin/nexigen-hub` are executable
 
 #### Scenario: Tools are skipped when disabled
 

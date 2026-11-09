@@ -37,7 +37,7 @@
 #include <nexigen/hub/stream_record.hpp>
 #include <nexigen/hub/streaming.hpp>
 #include <nexigen/hub/web_assets.hpp>
-#include <nexigen/runner/detail/sys_helpers.hpp>
+#include <nexigen/exec/detail/sys_helpers.hpp>
 
 namespace nexigen::hub {
 
@@ -51,7 +51,7 @@ constexpr std::size_t max_clients = 64;
 constexpr std::uint64_t heartbeat_interval_ns = 15ULL * 1'000'000'000ULL;
 constexpr std::uint64_t refresh_interval_ns = 1ULL * 1'000'000'000ULL;
 
-using nexigen::runner::detail::monotonic_now_ns;
+using nexigen::exec::detail::monotonic_now_ns;
 
 [[nodiscard]] std::string json_text(const nlohmann::json& document) {
     return document.dump();

@@ -10,7 +10,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/hub/hub_attempt.hpp>
-#include <nexigen/runner/app_state.hpp>
+#include <nexigen/exec/app_state.hpp>
 
 namespace nexigen::hub {
 
@@ -18,7 +18,7 @@ namespace nexigen::hub {
 struct HubInstance {
     std::string instance{};
     std::string instance_dir{};
-    runner::AppState state{runner::AppState::Unknown};
+    exec::AppState state{exec::AppState::Unknown};
     std::vector<HubAttempt> attempts{};
 
     [[nodiscard]] std::string to_string() const;

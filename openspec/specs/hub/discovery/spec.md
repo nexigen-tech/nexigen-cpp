@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines how `nexigen-hub` discovers run roots, suites, applications, instances, attempts, and artifact streams from the filesystem, maintains a live tree through inotify, and derives read-only lifecycle state from existing runner metadata.
+Defines how `nexigen-hub` discovers run roots, suites, applications, instances, attempts, and artifact streams from the filesystem, maintains a live tree through inotify, and derives read-only lifecycle state from existing execution_manager metadata.
 
 ## Requirements
 
@@ -77,7 +77,7 @@ The hub SHALL watch each run root, suite metadata directory, instance directory,
 
 The hub SHALL accept filesystem reading targets that originate from
 `suite.json` — `artifacts_path`, per-application `instance_dir`, and every
-path derived from them (suite runner log, attempt directories, stream files) —
+path derived from them (suite execution_manager log, attempt directories, stream files) —
 only when the target's real path (resolved with `realpath`) lies inside the
 canonical run root owned by the suite. A target that does not exist or
 resolves outside the run root SHALL NOT be opened, watched, or read.
@@ -99,7 +99,7 @@ resolves outside the run root SHALL NOT be opened, watched, or read.
 #### Scenario: Contained artifact root is still followed
 
 - **WHEN** the recorded artifact root resolves to a real path inside the run
-  root (the runner-created default)
+  root (the execution_manager-created default)
 - **THEN** the hub discovers and tails attempts below that root
 
 #### Scenario: Artifact root changes are observed
@@ -121,9 +121,9 @@ no streams SHALL attach, and the hub SHALL NOT fail startup.
 - **THEN** the suite remains in the tree with no streams and no startup
   failure
 
-### Requirement: State is derived from runner files
+### Requirement: State is derived from execution_manager files
 
-The hub SHALL report suite and application state from `suite-state.json`, `suite-exit.json`, `resource.json`, and `exit.json`, using the same state vocabulary as the runner. It SHALL report `unknown` when no usable record exists and MUST NOT infer state from process names or command lines.
+The hub SHALL report suite and application state from `suite-state.json`, `suite-exit.json`, `resource.json`, and `exit.json`, using the same state vocabulary as the execution_manager. It SHALL report `unknown` when no usable record exists and MUST NOT infer state from process names or command lines.
 
 #### Scenario: Running suite is reported
 
@@ -190,23 +190,23 @@ Scanning, inotify handling, state derivation, and tree updates SHALL execute in 
 #### Scenario: Hub is a separate process
 
 - **WHEN** the hub is running
-- **THEN** its pid differs from every application and runner supervisor pid
+- **THEN** its pid differs from every application and execution_manager supervisor pid
 
-### Requirement: Suite runner log path follows the runner layout
+### Requirement: Suite execution_manager log path follows the execution_manager layout
 
-The hub SHALL resolve the suite runner log stream to `<artifacts_path>/<suite_id>/runner.jsonl`, the location `nexigen-run` writes it to, so the runner stream opens and is followed rather than failing with a missing file.
+The hub SHALL resolve the suite execution_manager log stream to `<artifacts_path>/<suite_id>/execution_manager.jsonl`, the location `nexigen-exec` writes it to, so the execution_manager stream opens and is followed rather than failing with a missing file.
 
-#### Scenario: Runner log resolves under the suite artifact directory
+#### Scenario: ExecutionManager log resolves under the suite artifact directory
 
-- **WHEN** a suite records `artifacts_path` and `suite_id`, and `nexigen-run` has written `<artifacts_path>/<suite_id>/runner.jsonl`
-- **THEN** the hub reports the runner stream with that exact path and follows it
+- **WHEN** a suite records `artifacts_path` and `suite_id`, and `nexigen-exec` has written `<artifacts_path>/<suite_id>/execution_manager.jsonl`
+- **THEN** the hub reports the execution_manager stream with that exact path and follows it
 
-#### Scenario: Runner log stream is discoverable and openable
+#### Scenario: ExecutionManager log stream is discoverable and openable
 
-- **WHEN** the hub discovers a suite whose runner log exists under the suite artifact directory
-- **THEN** the stream kind `runner` is present with a non-empty path ending in `<suite_id>/runner.jsonl`, and the initial stream sync succeeds without a missing-file failure
+- **WHEN** the hub discovers a suite whose execution_manager log exists under the suite artifact directory
+- **THEN** the stream kind `execution_manager` is present with a non-empty path ending in `<suite_id>/execution_manager.jsonl`, and the initial stream sync succeeds without a missing-file failure
 
-#### Scenario: Missing suite id keeps the runner log unset
+#### Scenario: Missing suite id keeps the execution_manager log unset
 
 - **WHEN** a suite has no recorded `suite_id` or no recorded `artifacts_path`
-- **THEN** no runner log stream is reported for that suite
+- **THEN** no execution_manager log stream is reported for that suite

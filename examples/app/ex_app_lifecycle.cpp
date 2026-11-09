@@ -12,7 +12,7 @@
 #include <utility>
 
 #include <nexigen/app/infrastructure.hpp>
-#include <nexigen/chrono/null_chrono_sink.hpp>
+#include <nexigen/chrono/null_sink.hpp>
 #include <nexigen/logging/console_logger.hpp>
 #include <nexigen/metrics/console_metric_sink.hpp>
 #include <nexigen/tracing/console_trace_sink.hpp>
@@ -30,7 +30,7 @@ struct SimplePolicy {
     using Logger = logging::ConsoleLogger<>;
     using MetricsSink = metrics::ConsoleMetricSink;
     using TraceSink = tracing::ConsoleTraceSink;
-    using ChronoSink = chrono::NullChronoSink;
+    using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
                                        std::string_view) noexcept {
@@ -50,7 +50,7 @@ struct SimplePolicy {
         return {};
     }
 
-    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
                                             const chrono::Settings&) noexcept {
         out.emplace();
         return {};

@@ -17,7 +17,7 @@ enum class StreamKind : std::uint8_t {
     Chrono,
     Stdout,
     Stderr,
-    Runner,
+    ExecutionManager,
 };
 
 } // namespace nexigen::hub
@@ -37,7 +37,7 @@ template <> struct EnumTraits<nexigen::hub::StreamKind> {
         {nexigen::hub::StreamKind::Chrono, "chrono"},
         {nexigen::hub::StreamKind::Stdout, "stdout"},
         {nexigen::hub::StreamKind::Stderr, "stderr"},
-        {nexigen::hub::StreamKind::Runner, "runner"},
+        {nexigen::hub::StreamKind::ExecutionManager, "execution_manager"},
     }};
     static constexpr std::string_view fallback = "unknown";
 };

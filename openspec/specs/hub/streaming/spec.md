@@ -8,11 +8,11 @@ Defines how `nexigen-hub` tails runtime stream files, frames complete lines, kee
 
 ### Requirement: Streams have stable identities
 
-Each discovered stream SHALL be identified by run, suite, application, instance, attempt, and stream kind. Stream kinds SHALL be `app`, `metrics`, `traces`, `chrono`, `stdout`, `stderr`, and `runner`. The identity SHALL remain stable while the source file is being followed.
+Each discovered stream SHALL be identified by run, suite, application, instance, attempt, and stream kind. Stream kinds SHALL be `app`, `metrics`, `traces`, `chrono`, `stdout`, `stderr`, and `execution_manager`. The identity SHALL remain stable while the source file is being followed.
 
 #### Scenario: Every stream kind is represented
 
-- **WHEN** an instance has all four JSONL files, stdout, stderr, and a suite runner log
+- **WHEN** an instance has all four JSONL files, stdout, stderr, and a suite execution_manager log
 - **THEN** descriptors exist for all seven kinds with distinct identities
 
 #### Scenario: Attempts are distinct streams

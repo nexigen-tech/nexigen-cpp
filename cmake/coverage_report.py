@@ -101,7 +101,7 @@ def summarize(counts: dict, source_dir: str) -> tuple[int, int, dict[str, list[i
         "tracing",
         "diagnostics",
         "app",
-        "runner",
+        "exec",
         "hub",
     ]
     modules = [module for module in preferred if module in totals]
@@ -146,7 +146,7 @@ def main() -> int:
         default=[],
         metavar="MODULE=PERCENT",
         help="fail when one module's line coverage is below PERCENT "
-             "(repeatable, for example runner=90)",
+             "(repeatable, for example exec=90)",
     )
     args = parser.parse_args()
     build_dir = os.path.realpath(args.build_dir)

@@ -32,7 +32,7 @@ struct HubTree {
 void to_json(nlohmann::json& j, const HubTree& value);
 void from_json(const nlohmann::json& j, HubTree& value) noexcept;
 
-/// Flatten all streams in a tree (including suite runner logs).
+/// Flatten all streams in a tree (including suite execution_manager logs).
 [[nodiscard]] std::vector<HubStream> all_streams(const HubTree& tree);
 /// Find one stream by id, or nullptr.
 [[nodiscard]] const HubStream* find_stream(const HubTree& tree, std::string_view id) noexcept;

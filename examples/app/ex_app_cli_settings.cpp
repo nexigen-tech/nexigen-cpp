@@ -21,7 +21,7 @@
 #include <vector>
 
 #include <nexigen/app/infrastructure.hpp>
-#include <nexigen/chrono/json_file_chrono_sink.hpp>
+#include <nexigen/chrono/json_file_sink.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/metrics/json_file_metric_sink.hpp>
@@ -101,7 +101,7 @@ struct CliFilePolicy {
     using Logger = logging::FileLogger<>;
     using MetricsSink = metrics::JsonFileMetricSink;
     using TraceSink = tracing::JsonFileTraceSink;
-    using ChronoSink = chrono::JsonFileChronoSink;
+    using Sink = chrono::JsonFileSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Settings& settings,
@@ -147,7 +147,7 @@ struct CliFilePolicy {
         return {};
     }
 
-    static core::Status emplace_chrono_sink(std::optional<ChronoSink>& out,
+    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
                                             const chrono::Settings& settings) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
