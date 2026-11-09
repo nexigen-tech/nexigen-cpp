@@ -34,27 +34,12 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/sink_io.hpp>
+#include <nexigen/tracing/chrome_trace_sink_config.hpp>
 #include <nexigen/tracing/concepts/tracer_concept.hpp>
 #include <nexigen/tracing/detail/json_writer.hpp>
 #include <nexigen/tracing/span_record.hpp>
 
 namespace nexigen::tracing {
-
-/// Chrome sink configuration (value type, full serialization trio; body in
-/// src/tracing/sink_format.cpp).
-struct ChromeTraceSinkConfig {
-    std::string path{}; ///< the trace file to (re)create at start().
-
-    /// Cold-path diagnostic (mandate 9).
-    [[nodiscard]] std::string to_string() const;
-};
-
-/// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] std::string to_string(const ChromeTraceSinkConfig& config);
-
-/// ADL JSON (cold path, full round-trip); bodies in sink_format.cpp.
-void to_json(nlohmann::json& j, const ChromeTraceSinkConfig& config);
-void from_json(const nlohmann::json& j, ChromeTraceSinkConfig& out) noexcept;
 
 /// The Chrome Trace Event sink.
 class ChromeTraceSink {
@@ -233,14 +218,6 @@ static_assert(concepts::TraceSink<ChromeTraceSink>,
 
 /// The configuration and the live sink format as their diagnostic texts
 /// (mandate 11).
-template <>
-struct std::formatter<nexigen::tracing::ChromeTraceSinkConfig> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::ChromeTraceSinkConfig& config, Ctx& ctx) const {
-        const std::string text = config.to_string();
-        return std::formatter<std::string_view>::format(text, ctx);
-    }
-};
 template <>
 struct std::formatter<nexigen::tracing::ChromeTraceSink> : std::formatter<std::string_view> {
     template <class Ctx>

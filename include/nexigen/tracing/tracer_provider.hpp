@@ -60,62 +60,15 @@
 #include <nexigen/tracing/detail/active_span_stack.hpp>
 #include <nexigen/tracing/detail/affinity.hpp>
 #include <nexigen/tracing/detail/id_generator.hpp>
+#include <nexigen/tracing/dropped_stats.hpp>
 #include <nexigen/tracing/scoped_span.hpp>
 #include <nexigen/tracing/span_context.hpp>
 #include <nexigen/tracing/span_enums.hpp>
 #include <nexigen/tracing/span_record.hpp>
 #include <nexigen/tracing/tracer.hpp>
+#include <nexigen/tracing/tracer_provider_config.hpp>
 
 namespace nexigen::tracing {
-
-/// Provider configuration (value type, full serialization trio; bodies in
-/// src/tracing/record_format.cpp): CPU affinity of the background consumer,
-/// the effective tracer pool size, and the optional span-rate budget (two
-/// zeros = unlimited).
-struct TracerProviderConfig {
-    core::ThreadSpec worker_thread{};      ///< empty = inherited worker attributes.
-    std::uint32_t max_tracers{16};         ///< effective pool limit (≤ 64).
-    std::uint64_t max_spans_per_window{0}; ///< 0 = no rate limiting.
-    std::uint64_t window_ns{0};            ///< 0 = no rate limiting.
-    /// Ceiling of the consumer's idle sleep (backoff grows up to it); clamped
-    /// to [50, 100000] us. Larger = fewer wake-ups on a shared pinned core,
-    /// but the shard rings must absorb bursts for that long.
-    std::uint32_t worker_poll_interval_us{core::WorkerTuning::default_poll_interval_us};
-
-    /// Cold-path diagnostic (mandate 9).
-    [[nodiscard]] std::string to_string() const;
-};
-
-/// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] std::string to_string(const TracerProviderConfig& config);
-
-/// ADL JSON (cold path, full round-trip under JSON_NOEXCEPTION=1).
-void to_json(nlohmann::json& j, const TracerProviderConfig& config);
-void from_json(const nlohmann::json& j, TracerProviderConfig& out) noexcept;
-
-/// Snapshot of dropped-span accounting (spec "Drop visibility"): the three
-/// drop causes counted separately; readable from any thread at any time as
-/// a relaxed aggregate observation, never as synchronization. Sampling-
-/// filtered spans are NOT counted (a decision is not a failure).
-struct DroppedStats {
-    std::uint64_t rate_limited{};   ///< Rejected by the span-rate budget.
-    std::uint64_t buffer_full{};    ///< Rejected by a full shard ring.
-    std::uint64_t slot_exhausted{}; ///< Dropped: no free shard slot.
-
-    [[nodiscard]] constexpr std::uint64_t total() const noexcept {
-        return rate_limited + buffer_full + slot_exhausted;
-    }
-
-    /// Cold-path diagnostic (mandate 9).
-    [[nodiscard]] std::string to_string() const;
-};
-
-/// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] std::string to_string(const DroppedStats& stats);
-
-/// ADL JSON (cold path, full round-trip — the snapshot is a value type).
-void to_json(nlohmann::json& j, const DroppedStats& stats);
-void from_json(const nlohmann::json& j, DroppedStats& out) noexcept;
 
 namespace detail {
 
@@ -695,23 +648,7 @@ std::string TracerProvider<ShardCapacity, MaxThreads>::to_string() const {
 
 } // namespace nexigen::tracing
 
-/// The configuration and the drop snapshot format as their diagnostic
-/// strings (mandate 11).
-template <>
-struct std::formatter<nexigen::tracing::TracerProviderConfig> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::TracerProviderConfig& config, Ctx& ctx) const {
-        const std::string text = config.to_string();
-        return std::formatter<std::string_view>::format(text, ctx);
-    }
-};
-template <>
-struct std::formatter<nexigen::tracing::DroppedStats> : std::formatter<std::string_view> {
-    template <class Ctx> auto format(const nexigen::tracing::DroppedStats& stats, Ctx& ctx) const {
-        const std::string text = stats.to_string();
-        return std::formatter<std::string_view>::format(text, ctx);
-    }
-};
+/// The provider formats as its diagnostic string (mandate 11).
 template <std::size_t SC, std::size_t MT>
 struct std::formatter<nexigen::tracing::TracerProvider<SC, MT>> : std::formatter<std::string_view> {
     template <class Ctx>

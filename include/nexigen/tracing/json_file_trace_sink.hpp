@@ -49,77 +49,10 @@
 #include <nexigen/core/sink_io.hpp>
 #include <nexigen/tracing/concepts/tracer_concept.hpp>
 #include <nexigen/tracing/detail/json_writer.hpp>
+#include <nexigen/tracing/json_file_trace_sink_config.hpp>
 #include <nexigen/tracing/span_record.hpp>
 
-#include <nexigen/core/enum_traits.hpp>
 namespace nexigen::tracing {
-
-/// Rotation schedule selector (enum contract of mandates 9–11).
-enum class RotationPolicy : std::uint8_t {
-    None,   ///< Single file for the sink's lifetime.
-    Hourly, ///< A new file every UTC hour.
-    Daily,  ///< A new file every UTC day.
-};
-
-} // namespace nexigen::tracing
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::tracing::RotationPolicy> {
-    struct Entry {
-        nexigen::tracing::RotationPolicy value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 3> entries{{
-        {nexigen::tracing::RotationPolicy::None, "None"},
-        {nexigen::tracing::RotationPolicy::Hourly, "Hourly"},
-        {nexigen::tracing::RotationPolicy::Daily, "Daily"},
-    }};
-};
-
-} // namespace nexigen::core
-
-namespace nexigen::tracing {
-
-/// Compile-time canonical name; "Unknown" for garbage casts.
-[[nodiscard]] constexpr std::string_view to_string(RotationPolicy policy) noexcept {
-    return core::enum_name(policy);
-}
-
-/// Parse a canonical policy name; false leaves the out-parameter unchanged.
-[[nodiscard]] constexpr bool from_string(std::string_view name, RotationPolicy& out) noexcept {
-    return core::enum_value(name, out);
-}
-
-/// ADL JSON writer/reader (cold path; result.hpp get_ptr pattern).
-inline void to_json(nlohmann::json& j, const RotationPolicy policy) {
-    core::mandate::enum_to_json(j, policy);
-}
-inline void from_json(const nlohmann::json& j, RotationPolicy& out) noexcept {
-    core::mandate::enum_from_json(j, out);
-}
-
-/// File sink configuration (value type, full serialization trio; body in
-/// src/tracing/sink_format.cpp).
-struct JsonFileTraceSinkConfig {
-    std::string path{};     ///< file (None) or filename prefix.
-    std::string app_name{}; ///< application name for the "app" field.
-    RotationPolicy rotation{RotationPolicy::None};
-    std::uint64_t max_spans_per_window{0}; ///< 0 = unlimited.
-    std::uint64_t window_ns{0};            ///< 0 = unlimited.
-
-    /// Cold-path diagnostic (mandate 9).
-    [[nodiscard]] std::string to_string() const;
-};
-
-/// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] std::string to_string(const JsonFileTraceSinkConfig& config);
-
-/// ADL JSON (cold path, full round-trip under JSON_NOEXCEPTION=1); bodies in
-/// src/tracing/sink_format.cpp.
-void to_json(nlohmann::json& j, const JsonFileTraceSinkConfig& config);
-void from_json(const nlohmann::json& j, JsonFileTraceSinkConfig& out) noexcept;
 
 /// The JSONL trace sink. All state is consumer-thread plain state (the
 /// provider's single worker is the only caller).
@@ -376,18 +309,7 @@ static_assert(concepts::TraceSink<JsonFileTraceSink>,
 
 } // namespace nexigen::tracing
 
-/// The policy enum and the configuration format as their canonical/diagnostic
-/// texts (mandate 11).
-
-template <>
-struct std::formatter<nexigen::tracing::JsonFileTraceSinkConfig>
-    : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::JsonFileTraceSinkConfig& config, Ctx& ctx) const {
-        const std::string text = config.to_string();
-        return std::formatter<std::string_view>::format(text, ctx);
-    }
-};
+/// The live sink formats as its diagnostic string (mandate 11).
 template <>
 struct std::formatter<nexigen::tracing::JsonFileTraceSink> : std::formatter<std::string_view> {
     template <class Ctx>
