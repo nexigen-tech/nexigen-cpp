@@ -84,7 +84,13 @@
 
 ## 5. Wrap-up
 
-- [ ] 5.1 Commit (build system / script / openspec artifacts split, commit
+- [x] 5.1 Commit (build system / script / openspec artifacts split, commit
       per logical unit), noting measured deltas in the commit message.
-- [ ] 5.2 Record loop-discipline notes into the change folder README-level
+      Commits: 0a899fe (LTO+PCH+ccache), d66d747 (ctest cwd isolation),
+      340c99d (hub SSE gap fix), d0d6b06 (example /tmp isolation), 0a225d2
+      (diagnostics lap margin), 6b30b1e (tests PCH + validate.sh + artifacts).
+- [x] 5.2 Record loop-discipline notes into the change folder README-level
       note only if the artifacts require; otherwise close with results.
+      No extra note required — measured deltas and the three soak-discovered
+      fixes are recorded inline in design.md (D4/D7) and tasks.md (2.1/2.2/
+      4.1).
