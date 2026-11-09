@@ -20,6 +20,24 @@ enum class RotationSchedule : std::uint8_t { None, Hourly, Daily, Custom };
 
 } // namespace nexigen::logging
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::logging::RotationSchedule> {
+    struct Entry {
+        nexigen::logging::RotationSchedule value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 4> entries{{
+        {nexigen::logging::RotationSchedule::None, "none"},
+        {nexigen::logging::RotationSchedule::Hourly, "hourly"},
+        {nexigen::logging::RotationSchedule::Daily, "daily"},
+        {nexigen::logging::RotationSchedule::Custom, "custom"},
+    }};
+};
+
+} // namespace nexigen::core
+
 namespace nexigen::logging {
 
 /// Compile-time lowercase name — the spelling used by from_string/JSON.
@@ -43,21 +61,3 @@ inline void from_json(const nlohmann::json& j, RotationSchedule& out) noexcept {
 }
 
 } // namespace nexigen::logging
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::logging::RotationSchedule> {
-    struct Entry {
-        nexigen::logging::RotationSchedule value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 4> entries{{
-        {nexigen::logging::RotationSchedule::None, "none"},
-        {nexigen::logging::RotationSchedule::Hourly, "hourly"},
-        {nexigen::logging::RotationSchedule::Daily, "daily"},
-        {nexigen::logging::RotationSchedule::Custom, "custom"},
-    }};
-};
-
-} // namespace nexigen::core

@@ -36,6 +36,23 @@ enum class ClockId : std::uint8_t {
 
 } // namespace nexigen::chrono
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::chrono::ClockId> {
+    struct Entry {
+        nexigen::chrono::ClockId value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 3> entries{{
+        {nexigen::chrono::ClockId::monotonic_raw, "monotonic_raw"},
+        {nexigen::chrono::ClockId::boottime, "boottime"},
+        {nexigen::chrono::ClockId::realtime, "realtime"},
+    }};
+};
+
+} // namespace nexigen::core
+
 namespace nexigen::chrono {
 
 /// Canonical name of a clock domain; allocation-free, constexpr.
@@ -66,20 +83,3 @@ inline void from_json(const nlohmann::json& j, ClockId& out) noexcept {
 template <class T> inline constexpr ClockId clock_domain = ClockId::monotonic_raw;
 
 } // namespace nexigen::chrono
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::chrono::ClockId> {
-    struct Entry {
-        nexigen::chrono::ClockId value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 3> entries{{
-        {nexigen::chrono::ClockId::monotonic_raw, "monotonic_raw"},
-        {nexigen::chrono::ClockId::boottime, "boottime"},
-        {nexigen::chrono::ClockId::realtime, "realtime"},
-    }};
-};
-
-} // namespace nexigen::core

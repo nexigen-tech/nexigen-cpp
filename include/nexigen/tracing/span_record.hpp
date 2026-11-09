@@ -78,6 +78,25 @@ enum class SpanAttributeType : std::uint8_t {
 
 } // namespace nexigen::tracing
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::tracing::SpanAttributeType> {
+    struct Entry {
+        nexigen::tracing::SpanAttributeType value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 5> entries{{
+        {nexigen::tracing::SpanAttributeType::Int64, "Int64"},
+        {nexigen::tracing::SpanAttributeType::Uint64, "Uint64"},
+        {nexigen::tracing::SpanAttributeType::Double, "Double"},
+        {nexigen::tracing::SpanAttributeType::Bool, "Bool"},
+        {nexigen::tracing::SpanAttributeType::String, "String"},
+    }};
+};
+
+} // namespace nexigen::core
+
 namespace nexigen::tracing {
 
 /// Compile-time canonical name; static storage; "Unknown" for garbage casts.
@@ -346,22 +365,3 @@ template <> struct std::formatter<nexigen::tracing::SpanRecord> : std::formatter
         return std::formatter<std::string_view>::format(text, ctx);
     }
 };
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::tracing::SpanAttributeType> {
-    struct Entry {
-        nexigen::tracing::SpanAttributeType value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 5> entries{{
-        {nexigen::tracing::SpanAttributeType::Int64, "Int64"},
-        {nexigen::tracing::SpanAttributeType::Uint64, "Uint64"},
-        {nexigen::tracing::SpanAttributeType::Double, "Double"},
-        {nexigen::tracing::SpanAttributeType::Bool, "Bool"},
-        {nexigen::tracing::SpanAttributeType::String, "String"},
-    }};
-};
-
-} // namespace nexigen::core

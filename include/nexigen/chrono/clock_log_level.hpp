@@ -30,6 +30,23 @@ enum class ClockLogLevel : std::uint8_t {
 
 } // namespace nexigen::chrono
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::chrono::ClockLogLevel> {
+    struct Entry {
+        nexigen::chrono::ClockLogLevel value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 3> entries{{
+        {nexigen::chrono::ClockLogLevel::info, "info"},
+        {nexigen::chrono::ClockLogLevel::warning, "warning"},
+        {nexigen::chrono::ClockLogLevel::error, "error"},
+    }};
+};
+
+} // namespace nexigen::core
+
 namespace nexigen::chrono {
 
 /// Canonical name of a log level; allocation-free, constexpr.
@@ -54,20 +71,3 @@ inline void from_json(const nlohmann::json& j, ClockLogLevel& out) noexcept {
 }
 
 } // namespace nexigen::chrono
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::chrono::ClockLogLevel> {
-    struct Entry {
-        nexigen::chrono::ClockLogLevel value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 3> entries{{
-        {nexigen::chrono::ClockLogLevel::info, "info"},
-        {nexigen::chrono::ClockLogLevel::warning, "warning"},
-        {nexigen::chrono::ClockLogLevel::error, "error"},
-    }};
-};
-
-} // namespace nexigen::core

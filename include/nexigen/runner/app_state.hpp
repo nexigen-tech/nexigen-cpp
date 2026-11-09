@@ -20,21 +20,6 @@ enum class AppState : std::uint8_t {
 
 } // namespace nexigen::runner
 
-namespace nexigen::runner {
-
-[[nodiscard]] constexpr std::string_view to_string(AppState value) noexcept {
-    return core::enum_name(value);
-}
-
-[[nodiscard]] constexpr bool from_string(std::string_view name, AppState& out) noexcept {
-    return core::enum_value(name, out);
-}
-
-void to_json(nlohmann::json& j, AppState value);
-void from_json(const nlohmann::json& j, AppState& value) noexcept;
-
-} // namespace nexigen::runner
-
 // Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
 namespace nexigen::core {
 
@@ -55,3 +40,18 @@ template <> struct EnumTraits<nexigen::runner::AppState> {
 };
 
 } // namespace nexigen::core
+
+namespace nexigen::runner {
+
+[[nodiscard]] constexpr std::string_view to_string(AppState value) noexcept {
+    return core::enum_name(value);
+}
+
+[[nodiscard]] constexpr bool from_string(std::string_view name, AppState& out) noexcept {
+    return core::enum_value(name, out);
+}
+
+void to_json(nlohmann::json& j, AppState value);
+void from_json(const nlohmann::json& j, AppState& value) noexcept;
+
+} // namespace nexigen::runner

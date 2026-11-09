@@ -20,6 +20,23 @@ enum class SpanStatus : std::uint8_t {
 
 } // namespace nexigen::tracing
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::tracing::SpanStatus> {
+    struct Entry {
+        nexigen::tracing::SpanStatus value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 3> entries{{
+        {nexigen::tracing::SpanStatus::Unset, "Unset"},
+        {nexigen::tracing::SpanStatus::Ok, "Ok"},
+        {nexigen::tracing::SpanStatus::Error, "Error"},
+    }};
+};
+
+} // namespace nexigen::core
+
 namespace nexigen::tracing {
 
 [[nodiscard]] constexpr std::string_view to_string(SpanStatus status) noexcept {
@@ -39,20 +56,3 @@ inline void to_json(nlohmann::json& j, const SpanStatus spanStatus) {
 }
 
 } // namespace nexigen::tracing
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::tracing::SpanStatus> {
-    struct Entry {
-        nexigen::tracing::SpanStatus value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 3> entries{{
-        {nexigen::tracing::SpanStatus::Unset, "Unset"},
-        {nexigen::tracing::SpanStatus::Ok, "Ok"},
-        {nexigen::tracing::SpanStatus::Error, "Error"},
-    }};
-};
-
-} // namespace nexigen::core

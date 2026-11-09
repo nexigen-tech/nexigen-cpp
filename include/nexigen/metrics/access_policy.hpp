@@ -19,6 +19,22 @@ enum class AccessPolicy : std::uint8_t {
 
 } // namespace nexigen::metrics
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::metrics::AccessPolicy> {
+    struct Entry {
+        nexigen::metrics::AccessPolicy value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 2> entries{{
+        {nexigen::metrics::AccessPolicy::Readable, "Readable"},
+        {nexigen::metrics::AccessPolicy::WriteOnly, "WriteOnly"},
+    }};
+};
+
+} // namespace nexigen::core
+
 namespace nexigen::metrics {
 
 [[nodiscard]] constexpr std::string_view to_string(AccessPolicy policy) noexcept {
@@ -38,19 +54,3 @@ inline void to_json(nlohmann::json& j, const AccessPolicy accessPolicy) {
 }
 
 } // namespace nexigen::metrics
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::metrics::AccessPolicy> {
-    struct Entry {
-        nexigen::metrics::AccessPolicy value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 2> entries{{
-        {nexigen::metrics::AccessPolicy::Readable, "Readable"},
-        {nexigen::metrics::AccessPolicy::WriteOnly, "WriteOnly"},
-    }};
-};
-
-} // namespace nexigen::core

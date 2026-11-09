@@ -21,23 +21,6 @@ enum class ShardState : std::uint8_t {
 
 } // namespace nexigen::logging
 
-namespace nexigen::logging {
-
-[[nodiscard]] constexpr std::string_view to_string(ShardState s) noexcept {
-    return core::enum_name(s);
-}
-[[nodiscard]] constexpr bool from_string(std::string_view name, ShardState& out) noexcept {
-    return core::enum_value(name, out);
-}
-inline void to_json(nlohmann::json& j, const ShardState& s) {
-    j = std::string(to_string(s));
-}
-inline void from_json(const nlohmann::json& j, ShardState& out) noexcept {
-    core::mandate::enum_from_json(j, out);
-}
-
-} // namespace nexigen::logging
-
 // Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
 namespace nexigen::core {
 
@@ -54,3 +37,20 @@ template <> struct EnumTraits<nexigen::logging::ShardState> {
 };
 
 } // namespace nexigen::core
+
+namespace nexigen::logging {
+
+[[nodiscard]] constexpr std::string_view to_string(ShardState s) noexcept {
+    return core::enum_name(s);
+}
+[[nodiscard]] constexpr bool from_string(std::string_view name, ShardState& out) noexcept {
+    return core::enum_value(name, out);
+}
+inline void to_json(nlohmann::json& j, const ShardState& s) {
+    j = std::string(to_string(s));
+}
+inline void from_json(const nlohmann::json& j, ShardState& out) noexcept {
+    core::mandate::enum_from_json(j, out);
+}
+
+} // namespace nexigen::logging

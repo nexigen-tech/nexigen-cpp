@@ -19,6 +19,22 @@ enum class ConcurrencyPolicy : std::uint8_t {
 
 } // namespace nexigen::metrics
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::metrics::ConcurrencyPolicy> {
+    struct Entry {
+        nexigen::metrics::ConcurrencyPolicy value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 2> entries{{
+        {nexigen::metrics::ConcurrencyPolicy::SingleThreaded, "SingleThreaded"},
+        {nexigen::metrics::ConcurrencyPolicy::MultiThreaded, "MultiThreaded"},
+    }};
+};
+
+} // namespace nexigen::core
+
 namespace nexigen::metrics {
 
 [[nodiscard]] constexpr std::string_view to_string(ConcurrencyPolicy policy) noexcept {
@@ -38,19 +54,3 @@ inline void to_json(nlohmann::json& j, const ConcurrencyPolicy concurrencyPolicy
 }
 
 } // namespace nexigen::metrics
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::metrics::ConcurrencyPolicy> {
-    struct Entry {
-        nexigen::metrics::ConcurrencyPolicy value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 2> entries{{
-        {nexigen::metrics::ConcurrencyPolicy::SingleThreaded, "SingleThreaded"},
-        {nexigen::metrics::ConcurrencyPolicy::MultiThreaded, "MultiThreaded"},
-    }};
-};
-
-} // namespace nexigen::core

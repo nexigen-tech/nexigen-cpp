@@ -20,18 +20,6 @@ enum class StreamKind : std::uint8_t {
 
 } // namespace nexigen::hub
 
-namespace nexigen::hub {
-
-[[nodiscard]] constexpr std::string_view to_string(StreamKind kind) noexcept {
-    return core::enum_name(kind);
-}
-
-[[nodiscard]] constexpr bool from_string(std::string_view name, StreamKind& out) noexcept {
-    return core::enum_value(name, out);
-}
-
-} // namespace nexigen::hub
-
 // Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
 namespace nexigen::core {
 
@@ -53,3 +41,15 @@ template <> struct EnumTraits<nexigen::hub::StreamKind> {
 };
 
 } // namespace nexigen::core
+
+namespace nexigen::hub {
+
+[[nodiscard]] constexpr std::string_view to_string(StreamKind kind) noexcept {
+    return core::enum_name(kind);
+}
+
+[[nodiscard]] constexpr bool from_string(std::string_view name, StreamKind& out) noexcept {
+    return core::enum_value(name, out);
+}
+
+} // namespace nexigen::hub

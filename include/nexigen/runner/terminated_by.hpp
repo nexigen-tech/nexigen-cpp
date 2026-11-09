@@ -17,23 +17,6 @@ enum class TerminatedBy : std::uint8_t {
 
 } // namespace nexigen::runner
 
-namespace nexigen::runner {
-
-/// Canonical lower-case name used by exit.json.
-[[nodiscard]] constexpr std::string_view to_string(TerminatedBy value) noexcept {
-    return core::enum_name(value);
-}
-
-/// Parse a canonical name; false leaves `out` unchanged.
-[[nodiscard]] constexpr bool from_string(std::string_view name, TerminatedBy& out) noexcept {
-    return core::enum_value(name, out);
-}
-
-void to_json(nlohmann::json& j, TerminatedBy value);
-void from_json(const nlohmann::json& j, TerminatedBy& value) noexcept;
-
-} // namespace nexigen::runner
-
 // Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
 namespace nexigen::core {
 
@@ -50,3 +33,20 @@ template <> struct EnumTraits<nexigen::runner::TerminatedBy> {
 };
 
 } // namespace nexigen::core
+
+namespace nexigen::runner {
+
+/// Canonical lower-case name used by exit.json.
+[[nodiscard]] constexpr std::string_view to_string(TerminatedBy value) noexcept {
+    return core::enum_name(value);
+}
+
+/// Parse a canonical name; false leaves `out` unchanged.
+[[nodiscard]] constexpr bool from_string(std::string_view name, TerminatedBy& out) noexcept {
+    return core::enum_value(name, out);
+}
+
+void to_json(nlohmann::json& j, TerminatedBy value);
+void from_json(const nlohmann::json& j, TerminatedBy& value) noexcept;
+
+} // namespace nexigen::runner

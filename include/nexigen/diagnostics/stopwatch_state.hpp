@@ -41,6 +41,23 @@ enum class StopwatchState : std::uint8_t {
 
 } // namespace nexigen::diagnostics
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::diagnostics::StopwatchState> {
+    struct Entry {
+        nexigen::diagnostics::StopwatchState value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 3> entries{{
+        {nexigen::diagnostics::StopwatchState::Idle, "Idle"},
+        {nexigen::diagnostics::StopwatchState::Running, "Running"},
+        {nexigen::diagnostics::StopwatchState::Stopped, "Stopped"},
+    }};
+};
+
+} // namespace nexigen::core
+
 namespace nexigen::diagnostics {
 
 /// Compile-time PascalCase name of a state — the exact spelling used by
@@ -69,23 +86,6 @@ inline void from_json(const nlohmann::json& j, StopwatchState& out) noexcept {
 }
 
 } // namespace nexigen::diagnostics
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::diagnostics::StopwatchState> {
-    struct Entry {
-        nexigen::diagnostics::StopwatchState value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 3> entries{{
-        {nexigen::diagnostics::StopwatchState::Idle, "Idle"},
-        {nexigen::diagnostics::StopwatchState::Running, "Running"},
-        {nexigen::diagnostics::StopwatchState::Stopped, "Stopped"},
-    }};
-};
-
-} // namespace nexigen::core
 
 /// StopwatchState formats as its canonical PascalCase name (mandate 11):
 /// parse and fill/align handled by the string_view formatter; context

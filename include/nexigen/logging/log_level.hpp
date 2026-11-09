@@ -40,6 +40,27 @@ enum class LogLevel : std::uint8_t {
 
 } // namespace nexigen::logging
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::logging::LogLevel> {
+    struct Entry {
+        nexigen::logging::LogLevel value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 7> entries{{
+        {nexigen::logging::LogLevel::Verbose, "verbose"},
+        {nexigen::logging::LogLevel::Debug, "debug"},
+        {nexigen::logging::LogLevel::Info, "info"},
+        {nexigen::logging::LogLevel::Warning, "warning"},
+        {nexigen::logging::LogLevel::Error, "error"},
+        {nexigen::logging::LogLevel::Fatal, "fatal"},
+        {nexigen::logging::LogLevel::Off, "off"},
+    }};
+};
+
+} // namespace nexigen::core
+
 namespace nexigen::logging {
 
 /// Compile-time lowercase name of a level — the exact spelling used by the
@@ -71,24 +92,3 @@ inline void from_json(const nlohmann::json& j, LogLevel& out) noexcept {
 /// LogLevel formats as its canonical lowercase name (mandate 11): parse and
 /// fill/align handled by the string_view formatter; context templated because
 /// libstdc++ 15 evaluates formattability against a substituted context.
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::logging::LogLevel> {
-    struct Entry {
-        nexigen::logging::LogLevel value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 7> entries{{
-        {nexigen::logging::LogLevel::Verbose, "verbose"},
-        {nexigen::logging::LogLevel::Debug, "debug"},
-        {nexigen::logging::LogLevel::Info, "info"},
-        {nexigen::logging::LogLevel::Warning, "warning"},
-        {nexigen::logging::LogLevel::Error, "error"},
-        {nexigen::logging::LogLevel::Fatal, "fatal"},
-        {nexigen::logging::LogLevel::Off, "off"},
-    }};
-};
-
-} // namespace nexigen::core

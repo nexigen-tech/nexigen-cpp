@@ -19,21 +19,6 @@ enum class SuiteState : std::uint8_t {
 
 } // namespace nexigen::runner
 
-namespace nexigen::runner {
-
-[[nodiscard]] constexpr std::string_view to_string(SuiteState value) noexcept {
-    return core::enum_name(value);
-}
-
-[[nodiscard]] constexpr bool from_string(std::string_view name, SuiteState& out) noexcept {
-    return core::enum_value(name, out);
-}
-
-void to_json(nlohmann::json& j, SuiteState value);
-void from_json(const nlohmann::json& j, SuiteState& value) noexcept;
-
-} // namespace nexigen::runner
-
 // Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
 namespace nexigen::core {
 
@@ -53,3 +38,18 @@ template <> struct EnumTraits<nexigen::runner::SuiteState> {
 };
 
 } // namespace nexigen::core
+
+namespace nexigen::runner {
+
+[[nodiscard]] constexpr std::string_view to_string(SuiteState value) noexcept {
+    return core::enum_name(value);
+}
+
+[[nodiscard]] constexpr bool from_string(std::string_view name, SuiteState& out) noexcept {
+    return core::enum_value(name, out);
+}
+
+void to_json(nlohmann::json& j, SuiteState value);
+void from_json(const nlohmann::json& j, SuiteState& value) noexcept;
+
+} // namespace nexigen::runner

@@ -63,6 +63,23 @@ enum class RotationPolicy : std::uint8_t {
 
 } // namespace nexigen::tracing
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::tracing::RotationPolicy> {
+    struct Entry {
+        nexigen::tracing::RotationPolicy value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 3> entries{{
+        {nexigen::tracing::RotationPolicy::None, "None"},
+        {nexigen::tracing::RotationPolicy::Hourly, "Hourly"},
+        {nexigen::tracing::RotationPolicy::Daily, "Daily"},
+    }};
+};
+
+} // namespace nexigen::core
+
 namespace nexigen::tracing {
 
 /// Compile-time canonical name; "Unknown" for garbage casts.
@@ -379,20 +396,3 @@ struct std::formatter<nexigen::tracing::JsonFileTraceSink> : std::formatter<std:
         return std::formatter<std::string_view>::format(text, ctx);
     }
 };
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::tracing::RotationPolicy> {
-    struct Entry {
-        nexigen::tracing::RotationPolicy value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 3> entries{{
-        {nexigen::tracing::RotationPolicy::None, "None"},
-        {nexigen::tracing::RotationPolicy::Hourly, "Hourly"},
-        {nexigen::tracing::RotationPolicy::Daily, "Daily"},
-    }};
-};
-
-} // namespace nexigen::core

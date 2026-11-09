@@ -21,6 +21,22 @@ enum class OverflowPolicy : std::uint8_t {
 
 } // namespace nexigen::logging
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::logging::OverflowPolicy> {
+    struct Entry {
+        nexigen::logging::OverflowPolicy value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 2> entries{{
+        {nexigen::logging::OverflowPolicy::DropNewest, "drop_newest"},
+        {nexigen::logging::OverflowPolicy::OverwriteOldest, "overwrite_oldest"},
+    }};
+};
+
+} // namespace nexigen::core
+
 namespace nexigen::logging {
 
 [[nodiscard]] constexpr std::string_view to_string(OverflowPolicy p) noexcept {
@@ -37,19 +53,3 @@ inline void from_json(const nlohmann::json& j, OverflowPolicy& out) noexcept {
 }
 
 } // namespace nexigen::logging
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::logging::OverflowPolicy> {
-    struct Entry {
-        nexigen::logging::OverflowPolicy value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 2> entries{{
-        {nexigen::logging::OverflowPolicy::DropNewest, "drop_newest"},
-        {nexigen::logging::OverflowPolicy::OverwriteOldest, "overwrite_oldest"},
-    }};
-};
-
-} // namespace nexigen::core

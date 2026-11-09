@@ -1821,6 +1821,25 @@ namespace probe {
 
 enum class Color : std::uint8_t { Red, Green, Blue };
 
+} // namespace probe
+
+namespace nexigen::core {
+
+template <> struct EnumTraits<probe::Color> {
+    struct Entry {
+        probe::Color value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 2> entries{{
+        {probe::Color::Red, "red"},
+        {probe::Color::Blue, "blue"},
+    }};
+};
+
+} // namespace nexigen::core
+
+namespace probe {
+
 [[nodiscard]] constexpr std::string_view to_string(Color value) noexcept {
     return nexigen::core::enum_name(value);
 }
@@ -1838,21 +1857,6 @@ inline void from_json(const nlohmann::json& j, Color& out) noexcept {
 }
 
 } // namespace probe
-
-namespace nexigen::core {
-
-template <> struct EnumTraits<probe::Color> {
-    struct Entry {
-        probe::Color value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 2> entries{{
-        {probe::Color::Red, "red"},
-        {probe::Color::Blue, "blue"},
-    }};
-};
-
-} // namespace nexigen::core
 
 static_assert(nexigen::core::enum_name(probe::Color::Red) == "red");
 static_assert(nexigen::core::enum_name(probe::Color::Green) == "Unknown");
@@ -1910,26 +1914,25 @@ struct Boxed {
     std::string path;
 };
 
-inline void read_counter(const nlohmann::json& document, nexigen::core::SettingsSource source,
-                         std::vector<nexigen::core::SettingsDiagnostic>& diagnostics,
-                         Boxed& out) {
-    nexigen::core::settings_io::read_uint(document, "counter", 100ULL, out.counter, diagnostics,
-                                          source);
+inline void read_counter(const char* key, const nlohmann::json& document,
+                         nexigen::core::SettingsSource source,
+                         std::vector<nexigen::core::SettingsDiagnostic>& diagnostics, Boxed& out) {
+    nexigen::core::settings_io::read_uint(document, key, 100ULL, out.counter, diagnostics, source);
 }
 
-inline void read_path(const nlohmann::json& sink, nexigen::core::SettingsSource source,
+inline void read_path(const char* key, const nlohmann::json& sink,
+                      nexigen::core::SettingsSource source,
                       std::vector<nexigen::core::SettingsDiagnostic>& diagnostics, Boxed& out) {
-    nexigen::core::settings_io::read_sink_string(sink, "path", out.path, diagnostics, source);
+    nexigen::core::settings_io::read_sink_string(sink, key, out.path, diagnostics, source);
 }
 
-inline void write_counter(nlohmann::json& object, const Boxed& out) {
-    object["counter"] = out.counter;
+inline void write_counter(nlohmann::json& object, const char* key, const Boxed& out) {
+    object[key] = out.counter;
 }
 
 constexpr nexigen::core::settings_io::ReadField<Boxed> fields[]{{"counter", &read_counter}};
 constexpr nexigen::core::settings_io::SinkReadField<Boxed> sink_fields[]{{"path", &read_path}};
-constexpr nexigen::core::settings_io::WriteField<Boxed> write_fields[]{{"counter",
-                                                                        &write_counter}};
+constexpr nexigen::core::settings_io::WriteField<Boxed> write_fields[]{{"counter", &write_counter}};
 
 } // namespace box_probe
 
@@ -1940,9 +1943,10 @@ void test_settings_fields() {
 
     // Present and in range: value moves in, no diagnostic.
     Boxed ok;
-    io::read_fields(nlohmann::json::parse(R"({"counter": 50})", nullptr, false), Src::Global, box_probe::fields, ok);
-    io::read_sink_fields(nlohmann::json::parse(R"({"sink": {"path": "/tmp/x"}})", nullptr, false), Src::Global,
-                         box_probe::sink_fields, ok);
+    io::read_fields(nlohmann::json::parse(R"({"counter": 50})", nullptr, false), Src::Global,
+                    box_probe::fields, ok);
+    io::read_sink_fields(nlohmann::json::parse(R"({"sink": {"path": "/tmp/x"}})", nullptr, false),
+                         Src::Global, box_probe::sink_fields, ok);
     NX_CHECK(ok.counter == 50ULL);
     NX_CHECK(ok.path == "/tmp/x");
     NX_CHECK(ok.diagnostics.empty());
@@ -1955,20 +1959,22 @@ void test_settings_fields() {
 
     // Out of range and wrong type share the read_uint wording.
     Boxed high;
-    io::read_fields(nlohmann::json::parse(R"({"counter": 200})", nullptr, false), Src::Local, box_probe::fields, high);
+    io::read_fields(nlohmann::json::parse(R"({"counter": 200})", nullptr, false), Src::Local,
+                    box_probe::fields, high);
     NX_CHECK(high.counter == 0ULL);
     NX_CHECK(high.diagnostics.size() == 1);
     NX_CHECK(high.diagnostics[0].field == "counter");
     NX_CHECK(high.diagnostics[0].message == "expected an integer in range");
     Boxed wrong_type;
-    io::read_fields(nlohmann::json::parse(R"({"counter": "x"})", nullptr, false), Src::Local, box_probe::fields, wrong_type);
+    io::read_fields(nlohmann::json::parse(R"({"counter": "x"})", nullptr, false), Src::Local,
+                    box_probe::fields, wrong_type);
     NX_CHECK(wrong_type.diagnostics.size() == 1);
     NX_CHECK(wrong_type.diagnostics[0].message == "expected an integer in range");
 
     // Sink that is not an object: the one shared diagnostic, sink fields skipped.
     Boxed bad_sink;
-    io::read_sink_fields(nlohmann::json::parse(R"({"sink": 7})", nullptr, false), Src::Global, box_probe::sink_fields,
-                         bad_sink);
+    io::read_sink_fields(nlohmann::json::parse(R"({"sink": 7})", nullptr, false), Src::Global,
+                         box_probe::sink_fields, bad_sink);
     NX_CHECK(bad_sink.diagnostics.size() == 1);
     NX_CHECK(bad_sink.diagnostics[0].field == "sink");
     NX_CHECK(bad_sink.diagnostics[0].message == "expected a JSON object");
@@ -1976,7 +1982,8 @@ void test_settings_fields() {
 
     // Table order = diagnostic order (document fields first, then sink).
     Boxed order;
-    const nlohmann::json dirty = nlohmann::json::parse(R"({"counter": 999, "sink": 3})", nullptr, false);
+    const nlohmann::json dirty =
+        nlohmann::json::parse(R"({"counter": 999, "sink": 3})", nullptr, false);
     io::read_fields(dirty, Src::Global, box_probe::fields, order);
     io::read_sink_fields(dirty, Src::Global, box_probe::sink_fields, order);
     NX_CHECK(order.diagnostics.size() == 2);

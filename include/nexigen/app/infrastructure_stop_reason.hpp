@@ -27,6 +27,24 @@ enum class InfrastructureStopReason : std::uint8_t {
 
 } // namespace nexigen::app
 
+// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+namespace nexigen::core {
+
+template <> struct EnumTraits<nexigen::app::InfrastructureStopReason> {
+    struct Entry {
+        nexigen::app::InfrastructureStopReason value;
+        std::string_view name;
+    };
+    static constexpr std::array<Entry, 4> entries{{
+        {nexigen::app::InfrastructureStopReason::None, "none"},
+        {nexigen::app::InfrastructureStopReason::Requested, "requested"},
+        {nexigen::app::InfrastructureStopReason::Sigint, "sigint"},
+        {nexigen::app::InfrastructureStopReason::Sigterm, "sigterm"},
+    }};
+};
+
+} // namespace nexigen::core
+
 namespace nexigen::app {
 
 [[nodiscard]] constexpr std::string_view to_string(InfrastructureStopReason reason) noexcept {
@@ -47,21 +65,3 @@ inline void from_json(const nlohmann::json& j, InfrastructureStopReason& out) no
 }
 
 } // namespace nexigen::app
-
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::app::InfrastructureStopReason> {
-    struct Entry {
-        nexigen::app::InfrastructureStopReason value;
-        std::string_view name;
-    };
-    static constexpr std::array<Entry, 4> entries{{
-        {nexigen::app::InfrastructureStopReason::None, "none"},
-        {nexigen::app::InfrastructureStopReason::Requested, "requested"},
-        {nexigen::app::InfrastructureStopReason::Sigint, "sigint"},
-        {nexigen::app::InfrastructureStopReason::Sigterm, "sigterm"},
-    }};
-};
-
-} // namespace nexigen::core

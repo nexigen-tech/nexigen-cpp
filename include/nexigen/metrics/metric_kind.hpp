@@ -23,26 +23,6 @@ enum class MetricKind : std::uint8_t {
 
 } // namespace nexigen::metrics
 
-namespace nexigen::metrics {
-
-[[nodiscard]] constexpr std::string_view to_string(MetricKind kind) noexcept {
-    return core::enum_name(kind);
-}
-
-[[nodiscard]] constexpr bool from_string(std::string_view name, MetricKind& out) noexcept {
-    return core::enum_value(name, out);
-}
-
-inline void from_json(const nlohmann::json& j, MetricKind& out) noexcept {
-    core::mandate::enum_from_json(j, out);
-}
-
-inline void to_json(nlohmann::json& j, const MetricKind metricKind) {
-    core::mandate::enum_to_json(j, metricKind);
-}
-
-} // namespace nexigen::metrics
-
 // Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
 namespace nexigen::core {
 
@@ -62,3 +42,23 @@ template <> struct EnumTraits<nexigen::metrics::MetricKind> {
 };
 
 } // namespace nexigen::core
+
+namespace nexigen::metrics {
+
+[[nodiscard]] constexpr std::string_view to_string(MetricKind kind) noexcept {
+    return core::enum_name(kind);
+}
+
+[[nodiscard]] constexpr bool from_string(std::string_view name, MetricKind& out) noexcept {
+    return core::enum_value(name, out);
+}
+
+inline void from_json(const nlohmann::json& j, MetricKind& out) noexcept {
+    core::mandate::enum_from_json(j, out);
+}
+
+inline void to_json(nlohmann::json& j, const MetricKind metricKind) {
+    core::mandate::enum_to_json(j, metricKind);
+}
+
+} // namespace nexigen::metrics
