@@ -12,7 +12,9 @@
 #include <vector>
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/hub/model.hpp>
+#include <nexigen/hub/gap_marker.hpp>
+#include <nexigen/hub/hub_tree.hpp>
+#include <nexigen/hub/stream_record.hpp>
 
 namespace nexigen::hub {
 

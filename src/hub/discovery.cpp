@@ -22,7 +22,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/hub/discovery.hpp>
-#include <nexigen/hub/model.hpp>
+#include <nexigen/hub/hub_tree.hpp>
 #include <nexigen/runner/app_suite.hpp>
 #include <nexigen/runner/instance_lifecycle.hpp>
 

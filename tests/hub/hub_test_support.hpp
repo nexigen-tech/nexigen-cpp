@@ -35,7 +35,6 @@
 #include <nexigen/core/detail/fault_injection.hpp>
 #include <nexigen/hub/discovery.hpp>
 #include <nexigen/hub/http_server.hpp>
-#include <nexigen/hub/model.hpp>
 #include <nexigen/hub/streaming.hpp>
 #include <nexigen/hub/web_assets.hpp>
 #include <nexigen/runner/app_suite.hpp>

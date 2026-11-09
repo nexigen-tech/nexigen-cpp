@@ -20,7 +20,9 @@
 #include <unistd.h>
 
 #include <nexigen/chrono/civil_time.hpp>
-#include <nexigen/hub/model.hpp>
+#include <nexigen/hub/gap_marker.hpp>
+#include <nexigen/hub/hub_tree.hpp>
+#include <nexigen/hub/stream_record.hpp>
 #include <nexigen/hub/streaming.hpp>
 
 namespace nexigen::hub {

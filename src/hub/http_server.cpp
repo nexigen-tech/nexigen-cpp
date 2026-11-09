@@ -32,7 +32,9 @@
 #include <nexigen/hub/detail/http_parse.hpp>
 #include <nexigen/hub/discovery.hpp>
 #include <nexigen/hub/http_server.hpp>
-#include <nexigen/hub/model.hpp>
+#include <nexigen/hub/gap_marker.hpp>
+#include <nexigen/hub/hub_tree.hpp>
+#include <nexigen/hub/stream_record.hpp>
 #include <nexigen/hub/streaming.hpp>
 #include <nexigen/hub/web_assets.hpp>
 #include <nexigen/runner/detail/sys_helpers.hpp>

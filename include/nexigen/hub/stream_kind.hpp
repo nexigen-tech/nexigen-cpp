@@ -5,6 +5,8 @@
 #include <string>
 #include <string_view>
 
+#include <nlohmann/json.hpp>
+
 #include <nexigen/core/enum_traits.hpp>
 namespace nexigen::hub {
 
@@ -51,5 +53,9 @@ namespace nexigen::hub {
 [[nodiscard]] constexpr bool from_string(std::string_view name, StreamKind& out) noexcept {
     return core::enum_value(name, out);
 }
+
+// --- cold-path ADL serialization (bodies in src/hub/hub_format.cpp)
+void to_json(nlohmann::json& j, StreamKind value);
+void from_json(const nlohmann::json& j, StreamKind& value) noexcept;
 
 } // namespace nexigen::hub

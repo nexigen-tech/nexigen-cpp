@@ -1005,8 +1005,11 @@ lower modules transitively.
 * **`<nexigen/hub/streaming.hpp>`** — `Stream_manager`/`Stream_limits`: bounded
   record and byte rings, replay from `Last-Event-ID`, and gap reporting when a
   producer outruns the ring or a line exceeds the limit.
-* **`<nexigen/hub/model.hpp>`** — the `Hub_tree` (`run → suite → app → instance
-  → attempt`) and stream record types used by the API and UI.
+* **`<nexigen/hub/hub_tree.hpp>`** — the `HubTree` (`run → suite → app →
+  instance → attempt`) and stream record types used by the API and UI, one DTO
+  per header (`hub_stream.hpp`, `hub_attempt.hpp`, `hub_instance.hpp`,
+  `hub_app.hpp`, `hub_suite.hpp`, `hub_run.hpp`, `stream_record.hpp`,
+  `gap_marker.hpp`).
 * **`<nexigen/hub/http_server.hpp>`** — the epoll HTTP/SSE server and request
   routing.
 

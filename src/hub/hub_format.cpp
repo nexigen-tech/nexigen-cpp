@@ -1,4 +1,5 @@
-// nexigen::hub — read-only observatory model
+// nexigen::hub — read-only observatory model serialization (change
+// refactor-hub-model-config-headers; bodies moved verbatim from model.cpp).
 // (change nexigen-hub; specs hub/discovery, hub/streaming).
 #include <cstdint>
 #include <format>
@@ -10,7 +11,16 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/enum_traits.hpp>
-#include <nexigen/hub/model.hpp>
+#include <nexigen/hub/gap_marker.hpp>
+#include <nexigen/hub/hub_app.hpp>
+#include <nexigen/hub/hub_attempt.hpp>
+#include <nexigen/hub/hub_instance.hpp>
+#include <nexigen/hub/hub_run.hpp>
+#include <nexigen/hub/hub_stream.hpp>
+#include <nexigen/hub/hub_suite.hpp>
+#include <nexigen/hub/hub_tree.hpp>
+#include <nexigen/hub/stream_kind.hpp>
+#include <nexigen/hub/stream_record.hpp>
 #include <nexigen/runner/detail/sys_helpers.hpp>
 
 namespace nexigen::hub {
