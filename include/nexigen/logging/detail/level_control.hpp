@@ -24,24 +24,25 @@
 #include <cstdint>
 #include <utility>
 
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace nexigen::logging::detail {
 
 /// Cache-line-padded runtime threshold shared by all concrete loggers.
 class LevelControl {
-    static_assert(std::atomic<LogLevel>::is_always_lock_free, "LogLevel atomics must be lock-free");
+    static_assert(std::atomic<core::LogLevel>::is_always_lock_free,
+                  "core::LogLevel atomics must be lock-free");
 
     struct alignas(64) Cell {
-        std::atomic<LogLevel> level{LogLevel::Info}; ///< Relaxed load/store only.
-        std::uint8_t pad_[63]{};                     ///< Padding, never written.
+        std::atomic<core::LogLevel> level{core::LogLevel::Info}; ///< Relaxed load/store only.
+        std::uint8_t pad_[63]{};                                 ///< Padding, never written.
     } cell_{};
 
 public:
     constexpr LevelControl() noexcept = default;
 
     /// Start at a non-default threshold (config-driven construction time).
-    explicit constexpr LevelControl(LogLevel initial) noexcept : cell_{.level = initial} {}
+    explicit constexpr LevelControl(core::LogLevel initial) noexcept : cell_{.level = initial} {}
 
     LevelControl(const LevelControl&) = delete;
     LevelControl& operator=(const LevelControl&) = delete;
@@ -50,12 +51,12 @@ public:
 
     /// Producer/agent edge: publish a new threshold. Relaxed store — the new
     /// value becomes visible with no ordering obligations (see header).
-    void set_level(LogLevel new_level) noexcept {
+    void set_level(core::LogLevel new_level) noexcept {
         cell_.level.store(new_level, std::memory_order_relaxed);
     }
 
     /// Hot-path read: current threshold as last visible to this thread.
-    [[nodiscard]] LogLevel level() const noexcept {
+    [[nodiscard]] core::LogLevel level() const noexcept {
         return cell_.level.load(std::memory_order_relaxed);
     }
 };

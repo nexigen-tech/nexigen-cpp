@@ -2,7 +2,7 @@
 //
 // A default ConsoleLogger accepts records from several std::jthread producers
 // through the variadic deferred-format API, demonstrates runtime set_level()
-// filtering and direct LogLevel formatting, flushes, and prints its drop and
+// filtering and direct nexigen::core::LogLevel formatting, flushes, and prints its drop and
 // diagnostic snapshots. Initialization and flush are checked via has_value()
 // / .error() — never value().
 #include <array>
@@ -13,7 +13,7 @@
 #include <thread>
 
 #include <nexigen/logging/console_logger.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace {
 
@@ -31,10 +31,10 @@ void print_line(const std::string& line) {
 } // namespace
 
 int main() {
-    using nexigen::logging::LogLevel;
+    using nexigen::core::LogLevel;
 
-    const auto started = logger.initialize(
-        nexigen::logging::ConsoleLogger<>::Config{.initial_level = LogLevel::Verbose});
+    const auto started = logger.initialize(nexigen::logging::ConsoleLogger<>::Config{
+        .initial_level = nexigen::core::LogLevel::Verbose});
     if (!started.has_value()) {
         print_line(std::format("initialize failed: {}", started.error()));
         return 1;
@@ -60,9 +60,9 @@ int main() {
     }
 
     // Runtime filtering: one relaxed cell, effective immediately.
-    logger.set_level(LogLevel::Warning);
+    logger.set_level(nexigen::core::LogLevel::Warning);
     logger.info("this info record is filtered below the active threshold");
-    logger.warning("post-filter warning at level {}", LogLevel::Warning);
+    logger.warning("post-filter warning at level {}", nexigen::core::LogLevel::Warning);
     print_line(std::format("active level after set_level: {}", logger.level()));
 
     // Control-plane barrier: wait until everything accepted so far is written.

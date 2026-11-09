@@ -22,7 +22,7 @@
 namespace {
 
 using nexigen::logging::FileLogger;
-using nexigen::logging::LogLevel;
+using nexigen::core::LogLevel;
 using nexigen::logging::Settings;
 using nexigen::core::SettingsPaths;
 using nexigen::logging::load_logging_settings;
@@ -124,7 +124,7 @@ int main() {
     }
 
     logger.debug("settings merged from global + local + environment");
-    logger.info("level is {}", LogLevel::Debug);
+    logger.info("level is {}", nexigen::core::LogLevel::Debug);
     logger.warning("size limit is {} bytes", settings.options.max_file_size_bytes);
 
     const auto flushed = logger.flush();

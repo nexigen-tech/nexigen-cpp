@@ -23,14 +23,14 @@
 #include <nexigen/logging/composite_logger.hpp>
 #include <nexigen/logging/console_logger.hpp>
 #include <nexigen/logging/file_logger.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/null_logger.hpp>
 
 namespace {
 
 using nexigen::logging::ConsoleLogger;
 using nexigen::logging::FileLogger;
-using nexigen::logging::LogLevel;
+using nexigen::core::LogLevel;
 using nexigen::logging::NullLogger;
 
 /// Static storage: the composite owns non-movable shard rings and workers.
@@ -119,7 +119,7 @@ int main() {
     file_config.app_name = k_app_name;
     file_config.base_dir = k_base_dir;
     file_config.file_name = k_file_name;
-    file_config.initial_level = LogLevel::Info;
+    file_config.initial_level = nexigen::core::LogLevel::Info;
     file_config.rotation.kind = nexigen::logging::RotationSchedule::Hourly;
     file_config.worker_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(0x1));
     file_config.throttle.enabled = true;
@@ -127,7 +127,7 @@ int main() {
     file_config.throttle.window_ns = 1'000'000'000;
 
     const auto console_started = app.get<ConsoleLogger<>>().initialize(
-        ConsoleLogger<>::Config{.initial_level = LogLevel::Debug});
+        ConsoleLogger<>::Config{.initial_level = nexigen::core::LogLevel::Debug});
     if (!console_started.has_value()) {
         print_line(std::format("console initialize failed: {}", console_started.error()));
         return 1;
@@ -139,14 +139,14 @@ int main() {
     }
 
     // One call re-thresholds the whole tree, NullLogger included.
-    app.set_level(LogLevel::Info);
+    app.set_level(nexigen::core::LogLevel::Info);
     print_line(std::format("global set_level: composite={}, null={}", app.level(),
                            app.get<NullLogger>().level()));
 
     // Per-sink policy through the typed accessor; the indexed accessor must
     // address the same stored FileLogger instance (pack order: console=0,
     // file=1, null=2).
-    app.get<FileLogger<>>().set_level(LogLevel::Warning);
+    app.get<FileLogger<>>().set_level(nexigen::core::LogLevel::Warning);
     const bool same_sink = &app.get<1>() == &app.get<FileLogger<>>();
     print_line(std::format("file sink: level={}, get<1>() addresses get<FileLogger<>>(): {}",
                            app.get<1>().level(), same_sink));

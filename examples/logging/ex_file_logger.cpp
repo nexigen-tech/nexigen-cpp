@@ -21,7 +21,7 @@
 #include <unistd.h>
 
 #include <nexigen/logging/file_logger.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace {
 
@@ -120,7 +120,7 @@ bool verify_log_file(const std::string& path) {
 } // namespace
 
 int main() {
-    using nexigen::logging::LogLevel;
+    using nexigen::core::LogLevel;
 
     // Fresh output tree: stale runs must not leak into verification.
     std::error_code cleanup_ec;
@@ -130,7 +130,7 @@ int main() {
     config.app_name = k_app_name;
     config.base_dir = k_base_dir;
     config.file_name = k_file_name;
-    config.initial_level = LogLevel::Debug;
+    config.initial_level = nexigen::core::LogLevel::Debug;
     config.rotation.kind = nexigen::logging::RotationSchedule::Hourly;
     config.worker_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(
         0x1)); // request core 0 for the background JSON writer

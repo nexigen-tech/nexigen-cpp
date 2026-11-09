@@ -37,7 +37,7 @@
 #include <nexigen/logging/concepts/logger_concept.hpp>
 #include <nexigen/logging/detail/format_param.hpp>
 #include <nexigen/logging/detail/level_control.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace nexigen::logging {
 
@@ -50,40 +50,40 @@ public:
     NullLogger& operator=(const NullLogger&) = delete;
 
     /// Level control is stored (relaxed cell) so the API behaves uniformly.
-    void set_level(LogLevel new_level) noexcept { levels_.set_level(new_level); }
-    [[nodiscard]] LogLevel level() const noexcept { return levels_.level(); }
+    void set_level(core::LogLevel new_level) noexcept { levels_.set_level(new_level); }
+    [[nodiscard]] core::LogLevel level() const noexcept { return levels_.level(); }
 
     /// Every record call is a successful no-op — by definition the shortest
     /// possible path. The pack is discarded without rendering anything.
     template <class... Args>
-    void log(LogLevel, detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+    void log(core::LogLevel, detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
         static_cast<void>(fmt);
         ((static_cast<void>(args)), ...);
     }
 
     template <class... Args>
     void verbose(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(LogLevel::Verbose, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Verbose, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void debug(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(LogLevel::Debug, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Debug, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void info(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(LogLevel::Info, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Info, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void warning(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(LogLevel::Warning, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Warning, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void error(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(LogLevel::Error, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Error, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void fatal(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(LogLevel::Fatal, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Fatal, fmt, std::forward<Args>(args)...);
     }
 
     /// Nothing is pending, so flushing is trivially complete.
@@ -92,7 +92,7 @@ public:
     /// Cold-path diagnostic (mandate 9): the stored level is the complete
     /// state of this sink.
     [[nodiscard]] std::string to_string() const {
-        return "NullLogger(level=" + std::string(logging::to_string(levels_.level())) + ")";
+        return "NullLogger(level=" + std::string(core::to_string(levels_.level())) + ")";
     }
 
 private:

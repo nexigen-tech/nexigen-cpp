@@ -22,7 +22,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/overflow_policy.hpp>
 #include <nexigen/logging/shard_state.hpp>
 #include <nexigen/logging/spam_protection_config.hpp>
@@ -32,7 +32,7 @@ namespace nexigen::logging {
 /// Unified runtime configuration for the async logging engine.
 struct LoggerOptions {
     std::string log_root_directory{"./logs"};
-    LogLevel initial_log_level{LogLevel::Info};
+    core::LogLevel initial_log_level{core::LogLevel::Info};
     std::uint64_t max_file_size_bytes{104857600ULL}; ///< 0 = no limit.
     std::uint32_t spsc_ring_buffer_capacity{65536U}; ///< rounded up via bit_ceil.
     std::uint32_t message_capacity{128U}; ///< inline argument blob capacity (max bytes per record).

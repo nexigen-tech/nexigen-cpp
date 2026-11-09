@@ -16,7 +16,7 @@
 #include <nexigen/app/command_line_error.hpp>
 #include <nexigen/app/command_line_options.hpp>
 #include <nexigen/core/result.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace nexigen::app {
 

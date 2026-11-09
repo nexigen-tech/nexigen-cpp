@@ -12,7 +12,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/runner/app_spec.hpp>
 
 namespace nexigen::runner {
@@ -26,7 +26,7 @@ struct SuiteManifest {
     std::string run_dir{};
     std::string global_settings_path{};
     std::string artifacts_path{};
-    std::optional<logging::LogLevel> log_level{};
+    std::optional<core::LogLevel> log_level{};
     std::uint32_t suite_restart_attempts{0};
     std::uint64_t suite_restart_delay_s{5};
     std::string manifest_path{};

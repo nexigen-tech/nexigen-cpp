@@ -10,21 +10,21 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/worker_tuning.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/settings.hpp>
 
 namespace nexigen::logging {
 
 /// Construction-time configuration shared by every ConsoleLogger instantiation.
 struct ConsoleLoggerConfig {
-    LogLevel initial_level{LogLevel::Info};
+    core::LogLevel initial_level{core::LogLevel::Info};
     core::ThreadSpec worker_thread{}; ///< empty = inherited worker attributes
     /// Ceiling of the worker's idle sleep; clamped to [50, 100000] us.
     std::uint32_t worker_poll_interval_us{core::WorkerTuning::default_poll_interval_us};
 
     /// Cold-path diagnostic (mandate 9): initial threshold + worker poll ceiling.
     [[nodiscard]] std::string to_string() const {
-        return "ConsoleLogger::Config(level=" + std::string(logging::to_string(initial_level)) +
+        return "ConsoleLogger::Config(level=" + std::string(core::to_string(initial_level)) +
                ", worker_thread=" + worker_thread.to_string() +
                ", worker_poll_interval_us=" + std::to_string(worker_poll_interval_us) + ")";
     }

@@ -51,7 +51,7 @@
 #include <nexigen/logging/detail/producer.hpp>
 #include <nexigen/logging/detail/rotation.hpp>
 #include <nexigen/logging/file_logger.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/log_record.hpp>
 #include <nexigen/logging/logger_options.hpp>
 #include <nexigen/logging/settings.hpp>

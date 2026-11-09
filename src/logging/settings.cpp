@@ -87,14 +87,14 @@ void sanitize_string_field(const nlohmann::json& document, core::SettingsSource 
 }
 
 void sanitize_log_level_field(const nlohmann::json& document, core::SettingsSource source,
-                              const char* key, LogLevel fallback, const char* error_message,
+                              const char* key, core::LogLevel fallback, const char* error_message,
                               Settings& settings, nlohmann::json& clean) {
     const auto it = document.find(key);
     if (it == document.end()) {
         return;
     }
     const auto* const text = string_ptr(*it);
-    LogLevel level = fallback;
+    core::LogLevel level = fallback;
     if (text != nullptr && from_string(std::string_view(*text), level)) {
         clean[key] = *text;
     } else {
@@ -256,7 +256,7 @@ void sanitize_spam_protection_level_field(const nlohmann::json& parent, core::Se
         return;
     }
     const auto* const text = string_ptr(*entry);
-    LogLevel level = settings.options.spam_protection.bypass_min_level;
+    core::LogLevel level = settings.options.spam_protection.bypass_min_level;
     if (text != nullptr && from_string(std::string_view(*text), level)) {
         spam[key] = *text;
     } else {
@@ -398,7 +398,7 @@ void apply_log_level_env(std::string_view value, Settings& settings) noexcept {
     if (value.empty()) {
         return;
     }
-    LogLevel level = settings.options.initial_log_level;
+    core::LogLevel level = settings.options.initial_log_level;
     if (from_string(value, level)) {
         settings.options.initial_log_level = level;
     } else {

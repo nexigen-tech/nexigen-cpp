@@ -67,20 +67,20 @@ void test_command_line_parser_levels() {
         NX_CHECK(parsed.has_value());
         if (parsed.has_value()) {
             NX_CHECK(parsed->log_level.has_value());
-            NX_CHECK(parsed->log_level == logging::LogLevel::Info);
+            NX_CHECK(parsed->log_level == core::LogLevel::Info);
         }
     }
 
     // Every canonical level spelling.
     struct LevelCase {
         std::string_view name;
-        logging::LogLevel level;
+        core::LogLevel level;
     };
     constexpr LevelCase kLevels[] = {
-        {"verbose", logging::LogLevel::Verbose}, {"debug", logging::LogLevel::Debug},
-        {"info", logging::LogLevel::Info},       {"warning", logging::LogLevel::Warning},
-        {"error", logging::LogLevel::Error},     {"fatal", logging::LogLevel::Fatal},
-        {"off", logging::LogLevel::Off},
+        {"verbose", core::LogLevel::Verbose}, {"debug", core::LogLevel::Debug},
+        {"info", core::LogLevel::Info},       {"warning", core::LogLevel::Warning},
+        {"error", core::LogLevel::Error},     {"fatal", core::LogLevel::Fatal},
+        {"off", core::LogLevel::Off},
     };
     for (const LevelCase& level : kLevels) {
         auto parsed = parse_args({"-gs", "/etc/nexigen", "-lgl", level.name});
@@ -205,7 +205,7 @@ void test_command_line_parser_errors() {
         NX_CHECK(parsed.has_value());
         if (parsed.has_value()) {
             NX_CHECK(parsed->global_settings_dir == "/etc/b");
-            NX_CHECK(parsed->log_level == logging::LogLevel::Error);
+            NX_CHECK(parsed->log_level == core::LogLevel::Error);
         }
     }
     {
@@ -348,15 +348,15 @@ void test_command_line_mapping() {
     NX_CHECK(paths.logging.local_file == "./hil-config/logging.json");
 
     app::Settings settings{};
-    settings.logging.options.initial_log_level = logging::LogLevel::Debug;
-    options.log_level = logging::LogLevel::Warning;
+    settings.logging.options.initial_log_level = core::LogLevel::Debug;
+    options.log_level = core::LogLevel::Warning;
     app::apply_to(options, settings);
-    NX_CHECK(settings.logging.options.initial_log_level == logging::LogLevel::Warning);
+    NX_CHECK(settings.logging.options.initial_log_level == core::LogLevel::Warning);
 
     options.log_level.reset();
-    settings.logging.options.initial_log_level = logging::LogLevel::Error;
+    settings.logging.options.initial_log_level = core::LogLevel::Error;
     app::apply_to(options, settings);
-    NX_CHECK(settings.logging.options.initial_log_level == logging::LogLevel::Error);
+    NX_CHECK(settings.logging.options.initial_log_level == core::LogLevel::Error);
 }
 
 void test_command_line_serialization() {
@@ -368,7 +368,7 @@ void test_command_line_serialization() {
     app::CommandLineOptions options{};
     options.global_settings_dir = "/etc/nexigen";
     options.local_settings_dir = "./hil-config";
-    options.log_level = logging::LogLevel::Warning;
+    options.log_level = core::LogLevel::Warning;
     options.help = true;
     NX_CHECK(app::to_string(options) == options.to_string());
     NX_CHECK(std::format("{}", options) == options.to_string());
@@ -412,43 +412,43 @@ void test_command_line_serialization() {
     app::from_json(options_json, recovered_options);
     NX_CHECK(recovered_options.global_settings_dir == "/etc/nexigen");
     NX_CHECK(recovered_options.local_settings_dir == "./hil-config");
-    NX_CHECK(recovered_options.log_level == logging::LogLevel::Warning);
+    NX_CHECK(recovered_options.log_level == core::LogLevel::Warning);
     NX_CHECK(recovered_options.help);
 
     app::CommandLineOptions defaulted_options{};
     defaulted_options.global_settings_dir = "/keep";
     defaulted_options.local_settings_dir = "./keep";
-    defaulted_options.log_level = logging::LogLevel::Warning;
+    defaulted_options.log_level = core::LogLevel::Warning;
     defaulted_options.help = true;
     app::from_json(nlohmann::json::object(), defaulted_options);
     NX_CHECK(defaulted_options.global_settings_dir.empty());
     NX_CHECK(defaulted_options.local_settings_dir.empty());
-    NX_CHECK(defaulted_options.log_level == logging::LogLevel::Info);
+    NX_CHECK(defaulted_options.log_level == core::LogLevel::Info);
     NX_CHECK(!defaulted_options.help);
 
     app::CommandLineOptions partial_options{};
     app::from_json(nlohmann::json{{"global_settings_dir", "/only"}}, partial_options);
     NX_CHECK(partial_options.global_settings_dir == "/only");
     NX_CHECK(partial_options.local_settings_dir.empty());
-    NX_CHECK(partial_options.log_level == logging::LogLevel::Info);
+    NX_CHECK(partial_options.log_level == core::LogLevel::Info);
     NX_CHECK(!partial_options.help);
 
     app::CommandLineOptions kept_options{};
     kept_options.global_settings_dir = "/keep";
-    kept_options.log_level = logging::LogLevel::Warning;
+    kept_options.log_level = core::LogLevel::Warning;
     app::from_json(nlohmann::json{{"help", "yes"}}, kept_options);
     NX_CHECK(kept_options.global_settings_dir == "/keep");
-    NX_CHECK(kept_options.log_level == logging::LogLevel::Warning);
+    NX_CHECK(kept_options.log_level == core::LogLevel::Warning);
     app::from_json(nlohmann::json{{"log_level", "chatty"}}, kept_options);
     NX_CHECK(kept_options.global_settings_dir == "/keep");
-    NX_CHECK(kept_options.log_level == logging::LogLevel::Warning);
+    NX_CHECK(kept_options.log_level == core::LogLevel::Warning);
 
     app::CommandLineOptions non_object_options{};
     non_object_options.global_settings_dir = "/keep";
-    non_object_options.log_level = logging::LogLevel::Warning;
+    non_object_options.log_level = core::LogLevel::Warning;
     app::from_json(nlohmann::json::array(), non_object_options);
     NX_CHECK(non_object_options.global_settings_dir == "/keep");
-    NX_CHECK(non_object_options.log_level == logging::LogLevel::Warning);
+    NX_CHECK(non_object_options.log_level == core::LogLevel::Warning);
 
     options.log_level.reset();
     app::to_json(options_json, options);
@@ -509,20 +509,20 @@ void test_command_line_loading() {
 
     app::CommandLineOptions options{};
     options.global_settings_dir = global_dir;
-    options.log_level = logging::LogLevel::Warning;
+    options.log_level = core::LogLevel::Warning;
     app::Settings loaded{};
     core::Status status = app::load_app_settings(options, loaded);
     NX_CHECK(status.has_value());
     NX_CHECK(loaded.logging.global_loaded);
     NX_CHECK(!loaded.logging.local_loaded);
-    NX_CHECK(loaded.logging.options.initial_log_level == logging::LogLevel::Warning);
+    NX_CHECK(loaded.logging.options.initial_log_level == core::LogLevel::Warning);
 
     options.local_settings_dir = local_dir;
     status = app::load_app_settings(options, loaded);
     NX_CHECK(status.has_value());
     NX_CHECK(loaded.logging.global_loaded);
     NX_CHECK(loaded.logging.local_loaded);
-    NX_CHECK(loaded.logging.options.initial_log_level == logging::LogLevel::Warning);
+    NX_CHECK(loaded.logging.options.initial_log_level == core::LogLevel::Warning);
 
     // A bad file is best-effort: the CLI level still wins and diagnostics stay.
     write_text(global_dir + "/logging.json", "{");
@@ -533,7 +533,7 @@ void test_command_line_loading() {
         NX_CHECK(status.error() == core::ErrorCode::InvalidArgument);
     }
     NX_CHECK(!failed.logging.diagnostics.empty());
-    NX_CHECK(failed.logging.options.initial_log_level == logging::LogLevel::Warning);
+    NX_CHECK(failed.logging.options.initial_log_level == core::LogLevel::Warning);
 
     // Manually built options with no directory cannot load built-in defaults.
     app::CommandLineOptions empty{};
@@ -569,7 +569,7 @@ void test_command_line_infrastructure() {
 
     app::CommandLineOptions options{};
     options.global_settings_dir = dir;
-    options.log_level = logging::LogLevel::Warning;
+    options.log_level = core::LogLevel::Warning;
 
     auto infra = make_test_infra<TestPolicy>();
     NX_CHECK(infra != nullptr);
@@ -578,7 +578,7 @@ void test_command_line_infrastructure() {
         const core::Status status = infra->initialize(options, loaded);
         NX_CHECK(status.has_value());
         NX_CHECK(loaded.logging.global_loaded);
-        NX_CHECK(loaded.logging.options.initial_log_level == logging::LogLevel::Warning);
+        NX_CHECK(loaded.logging.options.initial_log_level == core::LogLevel::Warning);
         NX_CHECK(infra->meter("sim", "1.0").has_value());
         NX_CHECK(infra->shutdown().has_value());
     }
@@ -597,7 +597,7 @@ void test_command_line_infrastructure() {
         }
         NX_CHECK(!failing->meter("x", "1").has_value());
         NX_CHECK(!failed.logging.diagnostics.empty());
-        NX_CHECK(failed.logging.options.initial_log_level == logging::LogLevel::Warning);
+        NX_CHECK(failed.logging.options.initial_log_level == core::LogLevel::Warning);
         NX_CHECK(failing->initialize(failed).has_value());
         NX_CHECK(failing->meter("x", "1").has_value());
         NX_CHECK(failing->shutdown().has_value());

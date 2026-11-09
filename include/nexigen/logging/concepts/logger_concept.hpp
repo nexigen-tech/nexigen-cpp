@@ -49,7 +49,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/format_with_location.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace nexigen::logging::concepts {
 
@@ -57,10 +57,10 @@ namespace nexigen::logging::concepts {
 /// and returning void; the control plane (flush) still reports through
 /// nexigen::core::Status; no virtual anywhere.
 template <class T>
-concept Logger = requires(T t, const T ct, LogLevel lv) {
+concept Logger = requires(T t, const T ct, core::LogLevel lv) {
     /// Runtime threshold control (see detail::LevelControl, design D2).
     { t.set_level(lv) } noexcept -> std::same_as<void>;
-    { ct.level() } noexcept -> std::same_as<LogLevel>;
+    { ct.level() } noexcept -> std::same_as<core::LogLevel>;
 
     /// Explicit-level entry point: filter → pack → enqueue, never blocks,
     /// never returns a per-call outcome. Literal call shape (empty pack) is

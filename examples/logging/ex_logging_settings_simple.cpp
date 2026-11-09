@@ -79,6 +79,6 @@ int main() {
     }
 
     std::printf("ex_logging_settings_simple: OK (level=%s)\n",
-                std::string(nexigen::logging::to_string(logger.level())).c_str());
+                std::string(nexigen::core::to_string(logger.level())).c_str());
     return 0;
 }

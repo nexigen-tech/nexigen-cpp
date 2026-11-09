@@ -43,7 +43,7 @@
 #include <nexigen/logging/detail/format_param.hpp>
 #include <nexigen/logging/detail/producer.hpp>
 #include <nexigen/logging/dropped_stats.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/settings.hpp>
 
 namespace nexigen::logging {
@@ -110,39 +110,39 @@ public:
         return initialize(cfg);
     }
 
-    void set_level(LogLevel new_level) noexcept { producer_.set_level(new_level); }
-    [[nodiscard]] LogLevel level() const noexcept { return producer_.level(); }
+    void set_level(core::LogLevel new_level) noexcept { producer_.set_level(new_level); }
+    [[nodiscard]] core::LogLevel level() const noexcept { return producer_.level(); }
 
     /// Variadic surface (spec logging/logger-concept): pack + shard enqueue,
     /// never blocks, never formats, returns void.
     template <class... Args>
-    void log(LogLevel level, detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+    void log(core::LogLevel level, detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
         producer_.emit(level, fmt, std::forward<Args>(args)...);
     }
 
     template <class... Args>
     void verbose(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        producer_.emit(LogLevel::Verbose, fmt, std::forward<Args>(args)...);
+        producer_.emit(core::LogLevel::Verbose, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void debug(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        producer_.emit(LogLevel::Debug, fmt, std::forward<Args>(args)...);
+        producer_.emit(core::LogLevel::Debug, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void info(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        producer_.emit(LogLevel::Info, fmt, std::forward<Args>(args)...);
+        producer_.emit(core::LogLevel::Info, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void warning(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        producer_.emit(LogLevel::Warning, fmt, std::forward<Args>(args)...);
+        producer_.emit(core::LogLevel::Warning, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void error(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        producer_.emit(LogLevel::Error, fmt, std::forward<Args>(args)...);
+        producer_.emit(core::LogLevel::Error, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void fatal(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        producer_.emit(LogLevel::Fatal, fmt, std::forward<Args>(args)...);
+        producer_.emit(core::LogLevel::Fatal, fmt, std::forward<Args>(args)...);
     }
 
     /// Control-plane barrier: returns once every record accepted before the
@@ -164,7 +164,7 @@ public:
     /// Cold-path diagnostic (mandate 9): threshold + shard-pool snapshot
     /// (capacity, registered producers, pending, per-cause drops).
     [[nodiscard]] std::string to_string() const {
-        return "ConsoleLogger(level=" + std::string(logging::to_string(producer_.level())) +
+        return "ConsoleLogger(level=" + std::string(core::to_string(producer_.level())) +
                ", shard_capacity=" + std::to_string(ShardCapacity) +
                ", shards=" + std::to_string(MaxThreads) +
                ", message_capacity=" + std::to_string(MessageCapacity) +

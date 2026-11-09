@@ -114,12 +114,12 @@ constexpr std::uint64_t poll_interval_ms = 20;
 
 [[nodiscard]] nlohmann::json logging_document(const logging::LoggerOptions& options,
                                               std::string_view stream_root,
-                                              const std::optional<logging::LogLevel> level) {
+                                              const std::optional<core::LogLevel> level) {
     nlohmann::json document;
     to_json(document, options);
     document["log_root_directory"] = std::string(stream_root);
     if (level.has_value()) {
-        document["initial_log_level"] = std::string(logging::to_string(*level));
+        document["initial_log_level"] = std::string(core::to_string(*level));
     }
     document["sink"] =
         nlohmann::json{{"path", instance_file_path(stream_root, "app.jsonl")}, {"append", true}};
@@ -836,7 +836,7 @@ std::string StartOptions::to_string() const {
     return std::format("StartOptions(artifact_dir={}, global_settings_dir={}, "
                        "local_settings_dir={}, log_level={}, env={}, cpus={})",
                        artifact_dir, global_settings_dir, local_settings_dir,
-                       log_level.has_value() ? std::string(logging::to_string(*log_level))
+                       log_level.has_value() ? std::string(core::to_string(*log_level))
                                              : std::string("inherit"),
                        env.size(), cpus.count());
 }
@@ -892,7 +892,7 @@ core::Status Runner::start(const app::RunIdentity& identity, std::string_view ap
     context.timeout_s = timeout_s;
     context.metadata = metadata;
     if (options.log_level.has_value()) {
-        context.log_level = std::string(logging::to_string(*options.log_level));
+        context.log_level = std::string(core::to_string(*options.log_level));
     }
 
     const pid_t supervisor =

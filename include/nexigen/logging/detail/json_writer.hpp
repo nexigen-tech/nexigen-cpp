@@ -25,7 +25,7 @@
 #include <string_view>
 
 #include <nexigen/core/fixed_writer.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace nexigen::logging::detail {
 
@@ -40,7 +40,7 @@ inline constexpr std::size_t json_scratch_capacity = 4096;
 /// including trailing '\n'), or 0 when the line would not fit — the caller
 /// then skips the record (a malformed/overflowing record must never emit a
 /// half line into the file).
-[[nodiscard]] std::size_t format_json_line(std::int64_t utc_ns, LogLevel level,
+[[nodiscard]] std::size_t format_json_line(std::int64_t utc_ns, core::LogLevel level,
                                            std::string_view app, std::uint32_t thread_id,
                                            std::string_view file_name, std::uint32_t line,
                                            std::string_view function_name, std::string_view message,

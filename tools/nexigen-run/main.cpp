@@ -62,7 +62,7 @@ NEXIGEN_INSTANCE_ID, and NEXIGEN_INSTANCE_DIR are start-time defaults.
 struct CliLogTarget {
     std::string primary_dir{};
     logging::Settings settings{};
-    logging::LogLevel level{logging::LogLevel::Info};
+    core::LogLevel level{core::LogLevel::Info};
     core::ThreadSpec control_thread{};
     core::ThreadSpec logger_thread{};
 };
@@ -95,7 +95,7 @@ struct CliLogTarget {
     }
     target.level = manifest.log_level.value_or(target.settings.global_loaded
                                                    ? target.settings.options.initial_log_level
-                                                   : logging::LogLevel::Info);
+                                                   : core::LogLevel::Info);
     return target;
 }
 
@@ -117,7 +117,7 @@ struct CliLogTarget {
         target.settings = logging::Settings{};
     }
     target.level = target.settings.global_loaded ? target.settings.options.initial_log_level
-                                                 : logging::LogLevel::Info;
+                                                 : core::LogLevel::Info;
     return true;
 }
 
@@ -150,11 +150,11 @@ struct CliLogTarget {
 void log_command(std::string_view command, std::string_view mode, std::string_view target,
                  std::string_view result, std::string_view detail = {}) {
     if (detail.empty()) {
-        runner::log_runner(result == "ok" ? logging::LogLevel::Info : logging::LogLevel::Error,
+        runner::log_runner(result == "ok" ? core::LogLevel::Info : core::LogLevel::Error,
                            std::format("event=command command={} mode={} target={} result={}",
                                        command, mode, target, result));
     } else {
-        runner::log_runner(result == "ok" ? logging::LogLevel::Info : logging::LogLevel::Error,
+        runner::log_runner(result == "ok" ? core::LogLevel::Info : core::LogLevel::Error,
                            std::format("event=command command={} mode={} target={} result={} "
                                        "detail={}",
                                        command, mode, target, result, detail));

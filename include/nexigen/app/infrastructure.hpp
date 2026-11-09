@@ -152,7 +152,7 @@ private:
 };
 
 /// Bridges the application logger to the chrono worker's module-local log hook
-/// (chrono must not depend on logging): maps ClockLogLevel to LogLevel and
+/// (chrono must not depend on logging): maps ClockLogLevel to core::LogLevel and
 /// forwards a pre-formatted message through the logger.
 template <class Logger> struct ChronoLoggerBridge {
     Logger* logger{nullptr};

@@ -66,7 +66,7 @@ void read_bool_field(const nlohmann::json& j, const char* key, bool& out) noexce
     out = it->get<bool>();
 }
 
-void read_log_level_field(const nlohmann::json& j, const char* key, LogLevel& out) noexcept {
+void read_log_level_field(const nlohmann::json& j, const char* key, core::LogLevel& out) noexcept {
     const auto it = j.find(key);
     if (it == j.end()) {
         return;
@@ -166,7 +166,7 @@ void from_json(const nlohmann::json& j, LoggerOptions& out) noexcept {
 
 std::string LoggerOptions::to_string() const {
     return "LoggerOptions(log_root_directory=" + log_root_directory +
-           ", initial_log_level=" + std::string(nexigen::logging::to_string(initial_log_level)) +
+           ", initial_log_level=" + std::string(nexigen::core::to_string(initial_log_level)) +
            ", max_file_size_bytes=" + std::to_string(max_file_size_bytes) +
            ", spsc_ring_buffer_capacity=" + std::to_string(spsc_ring_buffer_capacity) +
            ", message_capacity=" + std::to_string(message_capacity) +

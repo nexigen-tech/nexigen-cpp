@@ -9,7 +9,7 @@
 #include <vector>
 
 #include <nexigen/core/thread_management.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace nexigen::runner {
 
@@ -20,7 +20,7 @@ struct StartOptions {
     std::string artifact_dir{};                             ///< Empty = instance directory.
     std::string global_settings_dir{};                      ///< Absolute directory or empty.
     std::string local_settings_dir{};                       ///< Absolute directory or empty.
-    std::optional<logging::LogLevel> log_level{};           ///< Empty = keep settings value.
+    std::optional<core::LogLevel> log_level{};              ///< Empty = keep settings value.
     std::vector<std::pair<std::string, std::string>> env{}; ///< Child-only env.
     core::CpuSet cpus{};                                    ///< Empty = unrestricted.
 

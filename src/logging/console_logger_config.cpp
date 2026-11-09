@@ -16,7 +16,7 @@
 
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/logging/console_logger_config.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace nexigen::logging {
 
@@ -36,7 +36,7 @@ namespace {
 }
 
 [[nodiscard]] bool try_read_log_level_field(const nlohmann::json& j, const char* key,
-                                            LogLevel& out) noexcept {
+                                            core::LogLevel& out) noexcept {
     const auto it = j.find(key);
     if (it == j.end()) {
         return true;

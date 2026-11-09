@@ -70,7 +70,7 @@
 #include <nexigen/logging/detail/level_control.hpp>
 #include <nexigen/logging/detail/spam_protection.hpp>
 #include <nexigen/logging/dropped_stats.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/log_record.hpp>
 #include <nexigen/logging/throttle_config.hpp>
 
@@ -158,7 +158,7 @@ class Producer {
         }
         rec = Record{};
         rec.stamp = stamp;
-        rec.level = LogLevel::Warning;
+        rec.level = core::LogLevel::Warning;
         rec.file_name = "<nexigen-logging>"; // internal synthesis (spec: diagnostic line)
         rec.function_name = "throttle_summary";
         rec.line = 0;
@@ -324,8 +324,8 @@ public:
     }
 
     /// Level control forwards to the shared relaxed cell (design D2).
-    void set_level(LogLevel new_level) noexcept { level_.set_level(new_level); }
-    [[nodiscard]] LogLevel level() const noexcept { return level_.level(); }
+    void set_level(core::LogLevel new_level) noexcept { level_.set_level(new_level); }
+    [[nodiscard]] core::LogLevel level() const noexcept { return level_.level(); }
 
     /// The hot path (spec logging/log-record, logging/multi-producer).
     /// Returns void: every outcome (accepted, filtered, dropped) completes in
@@ -334,9 +334,9 @@ public:
     /// inline; NOTHING formats on this thread.
     template <class... Args>
         requires(Packable<std::remove_cvref_t<Args>> && ...)
-    void emit(LogLevel level, detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        const LogLevel active = level_.level();
-        if (active == LogLevel::Off || level < active) {
+    void emit(core::LogLevel level, detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        const core::LogLevel active = level_.level();
+        if (active == core::LogLevel::Off || level < active) {
             return; // short-circuit: nothing else on this path (spec log-level)
         }
 
@@ -404,8 +404,8 @@ public:
         // disabled suppression never reads the hash (check_repeat short-circuits
         // on the same flag), so the hot path must not pay for it.
         if (spam_.repeat_suppression_enabled()) {
-            const std::uint64_t msg_hash = message_hash(
-                rec.file_name, rec.line, rec.fmt, rec.arg_payload_.data(), rec.arg_length);
+            const std::uint64_t msg_hash = message_hash(rec.file_name, rec.line, rec.fmt,
+                                                        rec.arg_payload_.data(), rec.arg_length);
             if (!spam_.check_repeat(spam_st, msg_hash, stamp.nanoseconds())) {
                 return; // suppressed duplicate
             }

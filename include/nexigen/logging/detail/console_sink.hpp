@@ -13,7 +13,7 @@
 #include <cerrno>
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace nexigen::logging::detail {
 
@@ -107,7 +107,7 @@ public:
         append_char(' ');
         append_sv(std::string_view(msg_, msg_len));
         append_char('\n');
-        const int fd = (rec.level >= LogLevel::Warning) ? STDERR_FILENO : STDOUT_FILENO;
+        const int fd = (rec.level >= core::LogLevel::Warning) ? STDERR_FILENO : STDOUT_FILENO;
         write_all(fd, len_);
     }
 };

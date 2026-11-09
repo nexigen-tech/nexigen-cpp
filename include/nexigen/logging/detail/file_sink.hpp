@@ -16,7 +16,7 @@
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/logging/detail/json_writer.hpp>
 #include <nexigen/logging/detail/rotation.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/rotation_schedule.hpp>
 
 namespace nexigen::logging::detail {

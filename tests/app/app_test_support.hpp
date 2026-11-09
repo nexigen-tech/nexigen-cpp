@@ -84,44 +84,44 @@ inline std::vector<std::string> g_log_lines;
 
 class CaptureLogger {
 public:
-    void set_level(logging::LogLevel level) noexcept { level_ = level; }
-    [[nodiscard]] logging::LogLevel level() const noexcept { return level_; }
+    void set_level(core::LogLevel level) noexcept { level_ = level; }
+    [[nodiscard]] core::LogLevel level() const noexcept { return level_; }
 
     template <class... Args>
-    void log(logging::LogLevel, logging::detail::format_param_t<Args...> fmt,
+    void log(core::LogLevel, logging::detail::format_param_t<Args...> fmt,
              Args&&... args) noexcept {
         g_log_lines.push_back(std::vformat(fmt.fmt.get(), std::make_format_args(args...)));
     }
 
     template <class... Args>
     void verbose(logging::detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(logging::LogLevel::Verbose, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Verbose, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void debug(logging::detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(logging::LogLevel::Debug, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Debug, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void info(logging::detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(logging::LogLevel::Info, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Info, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void warning(logging::detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(logging::LogLevel::Warning, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Warning, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void error(logging::detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(logging::LogLevel::Error, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Error, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void fatal(logging::detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(logging::LogLevel::Fatal, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Fatal, fmt, std::forward<Args>(args)...);
     }
 
     [[nodiscard]] core::Status flush() noexcept { return {}; }
 
 private:
-    logging::LogLevel level_{logging::LogLevel::Info};
+    core::LogLevel level_{core::LogLevel::Info};
 };
 
 static_assert(logging::concepts::Logger<CaptureLogger>);

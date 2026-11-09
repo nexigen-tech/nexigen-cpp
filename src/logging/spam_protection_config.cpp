@@ -14,7 +14,7 @@
 #include <string>
 #include <string_view>
 
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/spam_protection_config.hpp>
 
 namespace nexigen::logging {
@@ -43,7 +43,7 @@ void read_bool_field(const nlohmann::json& j, const char* key, bool& out) noexce
     out = it->get<bool>();
 }
 
-void read_log_level_field(const nlohmann::json& j, const char* key, LogLevel& out) noexcept {
+void read_log_level_field(const nlohmann::json& j, const char* key, core::LogLevel& out) noexcept {
     const auto it = j.find(key);
     if (it == j.end()) {
         return;
@@ -81,7 +81,7 @@ std::string SpamProtectionConfig::to_string() const {
            std::string(enable_repeat_suppression ? "true" : "false") +
            ", repeat_suppression_window_ms=" + std::to_string(repeat_suppression_window_ms) +
            ", max_messages_per_sec_per_shard=" + std::to_string(max_messages_per_sec_per_shard) +
-           ", bypass_min_level=" + std::string(nexigen::logging::to_string(bypass_min_level)) + ")";
+           ", bypass_min_level=" + std::string(nexigen::core::to_string(bypass_min_level)) + ")";
 }
 
 } // namespace nexigen::logging

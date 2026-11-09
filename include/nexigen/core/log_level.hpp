@@ -1,4 +1,5 @@
-// nexigen::logging — severity catalogue (design.md D2).
+// nexigen::core — program-wide severity catalogue (change
+// move-log-level-to-core, design D1).
 //
 // LogLevel is the ordering domain for every logger's threshold: declared
 // Verbose..Off so the built-in relational order of the scoped enum *is*
@@ -25,7 +26,8 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/enum_traits.hpp>
-namespace nexigen::logging {
+
+namespace nexigen::core {
 
 /// Severity levels in strictly increasing order; `Off` silences everything.
 enum class LogLevel : std::uint8_t {
@@ -38,30 +40,22 @@ enum class LogLevel : std::uint8_t {
     Off,     ///< Filter everything: the only value no record can reach.
 };
 
-} // namespace nexigen::logging
-
 // Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
-namespace nexigen::core {
-
-template <> struct EnumTraits<nexigen::logging::LogLevel> {
+template <> struct EnumTraits<nexigen::core::LogLevel> {
     struct Entry {
-        nexigen::logging::LogLevel value;
+        nexigen::core::LogLevel value;
         std::string_view name;
     };
     static constexpr std::array<Entry, 7> entries{{
-        {nexigen::logging::LogLevel::Verbose, "verbose"},
-        {nexigen::logging::LogLevel::Debug, "debug"},
-        {nexigen::logging::LogLevel::Info, "info"},
-        {nexigen::logging::LogLevel::Warning, "warning"},
-        {nexigen::logging::LogLevel::Error, "error"},
-        {nexigen::logging::LogLevel::Fatal, "fatal"},
-        {nexigen::logging::LogLevel::Off, "off"},
+        {nexigen::core::LogLevel::Verbose, "verbose"},
+        {nexigen::core::LogLevel::Debug, "debug"},
+        {nexigen::core::LogLevel::Info, "info"},
+        {nexigen::core::LogLevel::Warning, "warning"},
+        {nexigen::core::LogLevel::Error, "error"},
+        {nexigen::core::LogLevel::Fatal, "fatal"},
+        {nexigen::core::LogLevel::Off, "off"},
     }};
 };
-
-} // namespace nexigen::core
-
-namespace nexigen::logging {
 
 /// Compile-time lowercase name of a level — the exact spelling used by the
 /// JSON `"level"` field and console lines. Static storage, allocation-free.
@@ -87,8 +81,4 @@ inline void from_json(const nlohmann::json& j, LogLevel& out) noexcept {
     core::mandate::enum_from_json(j, out);
 }
 
-} // namespace nexigen::logging
-
-/// LogLevel formats as its canonical lowercase name (mandate 11): parse and
-/// fill/align handled by the string_view formatter; context templated because
-/// libstdc++ 15 evaluates formattability against a substituted context.
+} // namespace nexigen::core

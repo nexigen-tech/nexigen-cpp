@@ -20,7 +20,7 @@
 // Pinned layout for MessageCapacity = 200 (sizeof == 256 == 4 cache lines):
 //   0   stamp          chrono::Timestamp monotonic ns domain
 //   8   thread_id      uint32            cached SYS_gettid
-//   12  level          LogLevel (u8)     severity
+//   12  level          core::LogLevel (u8)     severity
 //   13  flags          uint8             bit0 args truncated, bit1 render truncated
 //   14  arg_length     uint16            bytes of arg_payload_ used (fixed per pack)
 //   16  file_name      const char*       static storage
@@ -61,7 +61,7 @@
 
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/logging/detail/arg_pack.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace nexigen::logging {
 
@@ -112,7 +112,7 @@ template <std::size_t MessageCapacity = NEXIGEN_LOG_MESSAGE_CAPACITY> struct ali
     [[nodiscard]] std::string to_string() const {
         std::string out = "LogRecord(";
         out += "stamp=" + chrono::to_string(stamp);
-        out += ", level=" + std::string(logging::to_string(level));
+        out += ", level=" + std::string(core::to_string(level));
         out += ", thread_id=" + std::to_string(thread_id);
         out += ", file=" + std::string(file_name != nullptr ? file_name : "");
         out += ':' + std::to_string(line);
@@ -123,16 +123,16 @@ template <std::size_t MessageCapacity = NEXIGEN_LOG_MESSAGE_CAPACITY> struct ali
         return out;
     }
 
-    chrono::Timestamp stamp{};      ///< monotonic nanoseconds
-    std::uint32_t thread_id{};      ///< cached SYS_gettid
-    LogLevel level{LogLevel::Info}; ///< severity
-    std::uint8_t flags{};           ///< bit0 args, bit1 render
-    std::uint16_t arg_length{};     ///< bytes of arg_payload_ in use
-    const char* file_name{};        ///< source_location::file_name
-    const char* function_name{};    ///< source_location::function_name
-    std::uint32_t line{};           ///< source_location::line
-    const char* fmt{};              ///< checked format literal
-    record_render_fn render{};      ///< type-erased pack renderer
+    chrono::Timestamp stamp{};                  ///< monotonic nanoseconds
+    std::uint32_t thread_id{};                  ///< cached SYS_gettid
+    core::LogLevel level{core::LogLevel::Info}; ///< severity
+    std::uint8_t flags{};                       ///< bit0 args, bit1 render
+    std::uint16_t arg_length{};                 ///< bytes of arg_payload_ in use
+    const char* file_name{};                    ///< source_location::file_name
+    const char* function_name{};                ///< source_location::function_name
+    std::uint32_t line{};                       ///< source_location::line
+    const char* fmt{};                          ///< checked format literal
+    record_render_fn render{};                  ///< type-erased pack renderer
     /// 8-aligned so the payload starts at offset 56 (design D4 layout table).
     alignas(std::uint64_t) std::array<char, MessageCapacity> arg_payload_{}; ///< inline pack blob
 };

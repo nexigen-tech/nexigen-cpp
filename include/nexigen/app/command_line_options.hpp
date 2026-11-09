@@ -3,13 +3,13 @@
 #include <optional>
 #include <string>
 #include <nlohmann/json.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 namespace nexigen::app {
 struct CommandLineOptions {
     std::string global_settings_dir{};
     std::string local_settings_dir{};
     std::string app_name{};
-    std::optional<logging::LogLevel> log_level{};
+    std::optional<core::LogLevel> log_level{};
     bool help{false};
     [[nodiscard]] std::string to_string() const;
 };

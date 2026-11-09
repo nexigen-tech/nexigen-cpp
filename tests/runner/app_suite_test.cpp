@@ -243,7 +243,7 @@ void test_enums_and_serialization() {
     NX_CHECK(spec.cpus.add(64).has_value());
     spec.restart_attempts = 3;
     spec.restart_delay_s = 4;
-    spec.log_level = logging::LogLevel::Warning;
+    spec.log_level = core::LogLevel::Warning;
     spec.global_settings_path = "/etc/nexigen";
     spec.local_settings_path = "local";
     nlohmann::json spec_json;
@@ -254,7 +254,7 @@ void test_enums_and_serialization() {
     NX_CHECK(spec_round.args.size() == 2 && spec_round.args[1] == "b");
     NX_CHECK(spec_round.env.size() == 2);
     NX_CHECK(spec_round.cpus.count() == 2U && spec_round.cpus.contains(64U));
-    NX_CHECK(spec_round.log_level == logging::LogLevel::Warning);
+    NX_CHECK(spec_round.log_level == core::LogLevel::Warning);
     NX_CHECK(!spec.to_string().empty());
     NX_CHECK(!std::format("{}", spec).empty());
 
@@ -264,7 +264,7 @@ void test_enums_and_serialization() {
     manifest.run_dir = "/runs";
     manifest.artifacts_path = "/artifacts";
     manifest.global_settings_path = "/etc/nexigen";
-    manifest.log_level = logging::LogLevel::Debug;
+    manifest.log_level = core::LogLevel::Debug;
     manifest.suite_restart_attempts = 2;
     manifest.suite_restart_delay_s = 3;
     manifest.manifest_path = "/etc/nexigen/suite.json";
@@ -280,7 +280,7 @@ void test_enums_and_serialization() {
     runner::SuiteManifest manifest_round;
     runner::from_json(manifest_json, manifest_round);
     NX_CHECK(manifest_round.suite_id == "s");
-    NX_CHECK(manifest_round.log_level == logging::LogLevel::Debug);
+    NX_CHECK(manifest_round.log_level == core::LogLevel::Debug);
     NX_CHECK(manifest_round.runner_control_thread.cpus().count() == 2U);
     NX_CHECK(manifest_round.runner_control_thread.name() == "control");
     NX_CHECK(manifest_round.runner_control_thread.scheduler_configured());
@@ -313,7 +313,7 @@ void test_enums_and_serialization() {
     runner::AppSpec hostile = spec;
     runner::from_json(nlohmann::json::array(), hostile);
     NX_CHECK(hostile.app == "app");
-    NX_CHECK(hostile.log_level == logging::LogLevel::Warning);
+    NX_CHECK(hostile.log_level == core::LogLevel::Warning);
     nlohmann::json wrong_spec{{"app", 1},
                               {"instance", 2},
                               {"command", 3},
@@ -334,7 +334,7 @@ void test_enums_and_serialization() {
     NX_CHECK(hostile.env.size() == 2);
     NX_CHECK(hostile.cpus.count() == 2U);
     NX_CHECK(hostile.restart_attempts == 3);
-    NX_CHECK(hostile.log_level == logging::LogLevel::Warning);
+    NX_CHECK(hostile.log_level == core::LogLevel::Warning);
 
     runner::from_json(nlohmann::json::object(), hostile);
     runner::from_json(nlohmann::json{{"args", nlohmann::json::array({1})}}, hostile);
@@ -346,7 +346,7 @@ void test_enums_and_serialization() {
     runner::from_json(nlohmann::json{{"env", {{"A", 1}}}}, hostile);
     runner::from_json(nlohmann::json{{"restart_attempts", std::uint64_t{4294967296ULL}}}, hostile);
     runner::from_json(nlohmann::json{{"log_level", "chatty"}}, hostile);
-    NX_CHECK(hostile.log_level == logging::LogLevel::Warning);
+    NX_CHECK(hostile.log_level == core::LogLevel::Warning);
 
     runner::SuiteAppMetadata app_metadata{};
     app_metadata.app = "app";
@@ -535,7 +535,7 @@ void test_manifest_validation() {
     NX_CHECK(failed_with(runner::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.log_level = static_cast<logging::LogLevel>(0x7f);
+    bad.log_level = static_cast<core::LogLevel>(0x7f);
     NX_CHECK(failed_with(runner::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
@@ -587,7 +587,7 @@ void test_manifest_validation() {
     NX_CHECK(failed_with(runner::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.apps.front().log_level = static_cast<logging::LogLevel>(0x7f);
+    bad.apps.front().log_level = static_cast<core::LogLevel>(0x7f);
     NX_CHECK(failed_with(runner::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
@@ -969,7 +969,7 @@ void test_env_affinity_and_log_level() {
                        "echo LEVEL=$NEXIGEN_LOG_LEVEL; exec sleep 60"};
     spec.env = {{"SUITE_ENV", "visible"}, {"NEXIGEN_LOG_LEVEL", "debug"}};
     spec.cpus = core::CpuSet::from_core_mask(1ULL);
-    spec.log_level = logging::LogLevel::Error;
+    spec.log_level = core::LogLevel::Error;
     manifest.apps.push_back(spec);
 
     std::string suite_dir;
@@ -1048,7 +1048,7 @@ void test_settings_precedence() {
         app_spec("overridden", "1", "/bin/sh", runner::ImpactOnAppSuiteOperability::Not_impact);
     overridden.args = {"-c", "exec sleep 60"};
     overridden.local_settings_path = "local";
-    overridden.log_level = logging::LogLevel::Error;
+    overridden.log_level = core::LogLevel::Error;
     runner::AppSpec replaced =
         app_spec("replaced", "1", "/bin/sh", runner::ImpactOnAppSuiteOperability::Not_impact);
     replaced.args = {"-c", "exec sleep 60"};
@@ -1218,7 +1218,7 @@ void test_runner_logging_and_affinity() {
         return;
     }
     runner::SuiteManifest manifest = base_manifest(root, artifacts);
-    manifest.log_level = logging::LogLevel::Debug;
+    manifest.log_level = core::LogLevel::Debug;
     manifest.runner_control_thread.set_cpus(core::CpuSet::from_core_mask(1ULL << cpu));
     manifest.runner_logger_thread.set_cpus(core::CpuSet::from_core_mask(1ULL << cpu));
     runner::AppSpec spec =

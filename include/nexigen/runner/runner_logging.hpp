@@ -13,7 +13,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/settings.hpp>
 
 namespace nexigen::runner {
@@ -29,7 +29,7 @@ namespace nexigen::runner {
 /// `<cwd>/.nexigen-run`.
 [[nodiscard]] core::Status init_runner_logging(std::string_view primary_dir,
                                                const logging::Settings& settings,
-                                               logging::LogLevel level,
+                                               core::LogLevel level,
                                                const core::ThreadSpec& logger_thread = {},
                                                std::string_view runner_name = {}) noexcept;
 
@@ -43,7 +43,7 @@ void suspend_runner_logging() noexcept;
 [[nodiscard]] core::Status flush_runner_logging() noexcept;
 
 /// Emit one runner record; no-op when logging is inactive.
-void log_runner(logging::LogLevel level, std::string_view message) noexcept;
+void log_runner(core::LogLevel level, std::string_view message) noexcept;
 
 /// Warning helper: writes a runner warning record when active, otherwise one
 /// stderr line.

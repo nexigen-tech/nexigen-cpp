@@ -162,8 +162,8 @@ void parse_short(std::string_view token, std::span<const std::string_view> args,
         }
     }
     if (collected.log_level_supplied) {
-        logging::LogLevel level = logging::LogLevel::Info;
-        if (logging::from_string(collected.log_level, level)) {
+        core::LogLevel level = core::LogLevel::Info;
+        if (core::from_string(collected.log_level, level)) {
             options.log_level = level;
         } else {
             add_diagnostic(diagnostics, "--log-level",
@@ -215,7 +215,7 @@ std::string CommandLineDiagnostic::to_string() const {
 std::string CommandLineOptions::to_string() const {
     std::string level = "none";
     if (log_level.has_value()) {
-        level = std::string(logging::to_string(*log_level));
+        level = std::string(core::to_string(*log_level));
     }
     return "CommandLineOptions(global_settings_dir=\"" + global_settings_dir +
            "\", local_settings_dir=\"" + local_settings_dir + "\", app_name=\"" + app_name +
@@ -264,7 +264,7 @@ void from_json(const nlohmann::json& j, CommandLineDiagnostic& diagnostic) noexc
 void to_json(nlohmann::json& j, const CommandLineOptions& options) {
     nlohmann::json level = nullptr;
     if (options.log_level.has_value()) {
-        level = std::string(logging::to_string(*options.log_level));
+        level = std::string(core::to_string(*options.log_level));
     }
     j = nlohmann::json{{"global_settings_dir", options.global_settings_dir},
                        {"local_settings_dir", options.local_settings_dir},
@@ -278,7 +278,7 @@ void from_json(const nlohmann::json& j, CommandLineOptions& options) noexcept {
         return;
     }
     CommandLineOptions parsed{};
-    parsed.log_level = logging::LogLevel::Info;
+    parsed.log_level = core::LogLevel::Info;
     auto it = j.find("global_settings_dir");
     if (it != j.end()) {
         if (!it->is_string()) {
@@ -305,8 +305,8 @@ void from_json(const nlohmann::json& j, CommandLineOptions& options) noexcept {
         if (it->is_null()) {
             parsed.log_level.reset();
         } else if (it->is_string()) {
-            logging::LogLevel level = logging::LogLevel::Info;
-            if (!logging::from_string(it->get<std::string>(), level)) {
+            core::LogLevel level = core::LogLevel::Info;
+            if (!core::from_string(it->get<std::string>(), level)) {
                 return;
             }
             parsed.log_level = level;

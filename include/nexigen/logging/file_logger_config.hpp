@@ -11,7 +11,7 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/worker_tuning.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/rotation_config.hpp>
 #include <nexigen/logging/settings.hpp>
 #include <nexigen/logging/throttle_config.hpp>
@@ -24,7 +24,7 @@ struct FileLoggerConfig {
     std::string app_name{"nexigen"};    ///< JSON "app" field (≤ 63 B)
     std::string base_dir{};             ///< required, ≤ 511 B
     std::string file_name{"app.jsonl"}; ///< ≤ 63 B
-    LogLevel initial_level{LogLevel::Info};
+    core::LogLevel initial_level{core::LogLevel::Info};
     ThrottleConfig throttle{};
     RotationConfig rotation{};
     core::ThreadSpec worker_thread{};     ///< empty = inherited worker attributes
@@ -39,7 +39,7 @@ struct FileLoggerConfig {
         out += std::string(app_name);
         out += ", base_dir=" + std::string(base_dir);
         out += ", file_name=" + std::string(file_name);
-        out += ", level=" + std::string(logging::to_string(initial_level));
+        out += ", level=" + std::string(core::to_string(initial_level));
         out += ", max_file_size_bytes=" + std::to_string(max_file_size_bytes);
         out += ", throttle=" + throttle.to_string();
         out += ", rotation=" + rotation.to_string();

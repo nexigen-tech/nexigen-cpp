@@ -16,7 +16,7 @@
 #include <string>
 
 #include <nexigen/logging/detail/spam_shard_state.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/spam_protection_config.hpp>
 
 namespace nexigen::logging::detail {
@@ -113,7 +113,7 @@ public:
     }
 
     /// Level 2: token-bucket rate limiter. Returns true if the message passes.
-    [[nodiscard]] bool check_rate_limit(SpamShardState& state, LogLevel level,
+    [[nodiscard]] bool check_rate_limit(SpamShardState& state, core::LogLevel level,
                                         std::uint64_t now_ns) noexcept {
         // bypass_min_level: always pass.
         if (level >= bypass_min_level_.load(std::memory_order_relaxed)) {
@@ -150,7 +150,7 @@ private:
     std::atomic<bool> enable_repeat_suppression_;
     std::atomic<std::uint32_t> repeat_suppression_window_ms_;
     std::atomic<std::uint32_t> max_messages_per_sec_per_shard_;
-    std::atomic<LogLevel> bypass_min_level_;
+    std::atomic<core::LogLevel> bypass_min_level_;
 };
 
 /// Free helper (mandate 9).

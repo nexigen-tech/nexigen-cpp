@@ -18,7 +18,7 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/logging/file_logger_config.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/rotation_schedule.hpp>
 #include <nexigen/logging/settings.hpp>
 
@@ -69,7 +69,7 @@ constexpr std::uint64_t kNanoseconds_per_second = 1'000'000'000ULL;
 }
 
 [[nodiscard]] bool try_read_log_level_field(const nlohmann::json& j, const char* key,
-                                            LogLevel& out) noexcept {
+                                            core::LogLevel& out) noexcept {
     const auto it = j.find(key);
     if (it == j.end()) {
         return true;

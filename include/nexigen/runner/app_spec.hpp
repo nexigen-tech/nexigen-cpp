@@ -11,7 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/thread_management.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/runner/impact_on_app_suite_operability.hpp>
 
 namespace nexigen::runner {
@@ -31,7 +31,7 @@ struct AppSpec {
     ImpactOnAppSuiteOperability impact{ImpactOnAppSuiteOperability::Degrade};
     std::string global_settings_path{};
     std::string local_settings_path{};
-    std::optional<logging::LogLevel> log_level{};
+    std::optional<core::LogLevel> log_level{};
 
     [[nodiscard]] std::string to_string() const;
 };

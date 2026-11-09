@@ -7,7 +7,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace nexigen::logging {
 
@@ -19,7 +19,8 @@ struct SpamProtectionConfig {
     bool enable_repeat_suppression{true};                 ///< Level 1 on.
     std::uint32_t repeat_suppression_window_ms{1000};     ///< Collapse window.
     std::uint32_t max_messages_per_sec_per_shard{100000}; ///< 0 = no limit.
-    LogLevel bypass_min_level{LogLevel::Fatal}; ///< Always-pass floor (Fatal = highest before Off).
+    core::LogLevel bypass_min_level{
+        core::LogLevel::Fatal}; ///< Always-pass floor (Fatal = highest before Off).
 
     [[nodiscard]] std::string to_string() const;
 };

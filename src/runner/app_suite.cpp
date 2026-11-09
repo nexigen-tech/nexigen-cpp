@@ -24,7 +24,7 @@
 #include <nexigen/app/telemetry_layout.hpp>
 #include <nexigen/core/enum_traits.hpp>
 #include <nexigen/core/result.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 #include <nexigen/runner/detail/cpu_validation.hpp>
 #include <nexigen/runner/detail/path_utils.hpp>
 #include <nexigen/runner/detail/sys_helpers.hpp>
@@ -78,7 +78,7 @@ constexpr std::uint64_t suite_poll_interval_ms = 100;
 // --- JSON helpers ----------------------------------------------------------
 
 [[nodiscard]] bool read_log_level(const nlohmann::json& document, const char* key,
-                                  std::optional<logging::LogLevel>& target) noexcept {
+                                  std::optional<core::LogLevel>& target) noexcept {
     if (!document.is_object()) {
         return false;
     }
@@ -97,19 +97,19 @@ constexpr std::uint64_t suite_poll_interval_ms = 100;
     if (name == nullptr) {
         return false;
     }
-    logging::LogLevel level = logging::LogLevel::Info;
-    if (!logging::from_string(std::string_view(*name), level)) {
+    core::LogLevel level = core::LogLevel::Info;
+    if (!core::from_string(std::string_view(*name), level)) {
         return false;
     }
     target = level;
     return true;
 }
 
-[[nodiscard]] nlohmann::json log_level_json(const std::optional<logging::LogLevel>& level) {
+[[nodiscard]] nlohmann::json log_level_json(const std::optional<core::LogLevel>& level) {
     if (!level.has_value()) {
         return nullptr;
     }
-    return std::string(logging::to_string(*level));
+    return std::string(core::to_string(*level));
 }
 
 [[nodiscard]] bool read_string_array(const nlohmann::json& document, const char* key,
@@ -217,16 +217,15 @@ read_env_object(const nlohmann::json& document, const char* key,
 } // namespace
 
 std::string AppSpec::to_string() const {
-    return std::format("AppSpec(app={}, instance={}, command={}, args={}, env={}, cpus={}, "
-                       "idle_timeout_s={}, stop_grace_s={}, restart_attempts={}, "
-                       "restart_delay_s={}, impact={}, global_settings_path={}, "
-                       "local_settings_path={}, log_level={})",
-                       app, instance, command, args.size(), env.size(), cpus.count(),
-                       idle_timeout_s, stop_grace_s, restart_attempts, restart_delay_s,
-                       nexigen::runner::to_string(impact), global_settings_path,
-                       local_settings_path,
-                       log_level.has_value() ? std::string(logging::to_string(*log_level))
-                                             : std::string("inherit"));
+    return std::format(
+        "AppSpec(app={}, instance={}, command={}, args={}, env={}, cpus={}, "
+        "idle_timeout_s={}, stop_grace_s={}, restart_attempts={}, "
+        "restart_delay_s={}, impact={}, global_settings_path={}, "
+        "local_settings_path={}, log_level={})",
+        app, instance, command, args.size(), env.size(), cpus.count(), idle_timeout_s, stop_grace_s,
+        restart_attempts, restart_delay_s, nexigen::runner::to_string(impact), global_settings_path,
+        local_settings_path,
+        log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"));
 }
 
 std::string SuiteManifest::to_string() const {
@@ -234,7 +233,7 @@ std::string SuiteManifest::to_string() const {
                        "global_settings_path={}, artifacts_path={}, log_level={}, "
                        "suite_restart_attempts={}, suite_restart_delay_s={}, apps={})",
                        version, suite_id, run_id, run_dir, global_settings_path, artifacts_path,
-                       log_level.has_value() ? std::string(logging::to_string(*log_level))
+                       log_level.has_value() ? std::string(core::to_string(*log_level))
                                              : std::string("inherit"),
                        suite_restart_attempts, suite_restart_delay_s, apps.size());
 }
@@ -521,19 +520,19 @@ namespace {
     return std::unexpected(core::ErrorCode::InvalidArgument);
 }
 
-[[nodiscard]] bool is_valid_log_level(const std::optional<logging::LogLevel>& level) noexcept {
+[[nodiscard]] bool is_valid_log_level(const std::optional<core::LogLevel>& level) noexcept {
     if (!level.has_value()) {
         return true;
     }
     switch (*level) {
-        case logging::LogLevel::Verbose:
-        case logging::LogLevel::Debug:
-        case logging::LogLevel::Info:
-        case logging::LogLevel::Warning:
-        case logging::LogLevel::Error:
-        case logging::LogLevel::Fatal:
-        case logging::LogLevel::Off:     return true;
-        default:                         return false;
+        case core::LogLevel::Verbose:
+        case core::LogLevel::Debug:
+        case core::LogLevel::Info:
+        case core::LogLevel::Warning:
+        case core::LogLevel::Error:
+        case core::LogLevel::Fatal:
+        case core::LogLevel::Off:     return true;
+        default:                      return false;
     }
 }
 
@@ -723,8 +722,8 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
     if (name == nullptr) {
         return false;
     }
-    logging::LogLevel level = logging::LogLevel::Info;
-    return logging::from_string(std::string_view(*name), level);
+    core::LogLevel level = core::LogLevel::Info;
+    return core::from_string(std::string_view(*name), level);
 }
 
 [[nodiscard]] bool valid_json_cpu_array(const nlohmann::json& object, const char* key) {
@@ -995,18 +994,17 @@ void schedule_retry_or_fail(RuntimeSuite& suite, RuntimeApp& app) {
         app.state = AppState::Restarting;
         app.next_restart_ns =
             monotonic_now_ns() + app.spec.restart_delay_s * nanoseconds_per_second;
-        log_runner(logging::LogLevel::Info,
-                   std::format("event=retry_scheduled app={} instance={} "
-                               "attempt={} impact={} delay_s={}",
-                               app.spec.app, app.spec.instance, app.attempt,
-                               nexigen::runner::to_string(app.spec.impact),
-                               app.spec.restart_delay_s));
+        log_runner(core::LogLevel::Info, std::format("event=retry_scheduled app={} instance={} "
+                                                     "attempt={} impact={} delay_s={}",
+                                                     app.spec.app, app.spec.instance, app.attempt,
+                                                     nexigen::runner::to_string(app.spec.impact),
+                                                     app.spec.restart_delay_s));
     } else {
         app.state = AppState::Failed;
         if (app.spec.impact == ImpactOnAppSuiteOperability::Degrade) {
             suite.state = SuiteState::Degraded;
         }
-        log_runner(logging::LogLevel::Warning,
+        log_runner(core::LogLevel::Warning,
                    std::format("event=app_failed app={} instance={} impact={} "
                                "suite_state={}",
                                app.spec.app, app.spec.instance,
@@ -1023,7 +1021,7 @@ void finish_failed(RuntimeSuite& suite) {
             app.state = AppState::Stopped;
         }
     }
-    log_runner(logging::LogLevel::Error,
+    log_runner(core::LogLevel::Error,
                std::format("event=suite_failed suite={} reason=restart_exhausted",
                            suite.manifest->suite_id));
     write_suite_exit(suite, SuiteState::Failed, "restart_exhausted");
@@ -1036,7 +1034,7 @@ void trigger_suite_restart(RuntimeSuite& suite) {
         finish_failed(suite);
     }
     ++suite.suite_restarts_used;
-    log_runner(logging::LogLevel::Warning,
+    log_runner(core::LogLevel::Warning,
                std::format("event=suite_restart trigger={} used={} limit={} "
                            "delay_s={}",
                            "failure", suite.suite_restarts_used,
@@ -1095,14 +1093,14 @@ void apply_launch_failures(RuntimeSuite& suite) {
 }
 
 [[noreturn]] void finish_suite_stop(RuntimeSuite& suite, const SuiteManifest& manifest) {
-    log_runner(logging::LogLevel::Info,
+    log_runner(core::LogLevel::Info,
                std::format("event=stop_requested suite={}", manifest.suite_id));
     stop_all(suite);
     for (RuntimeApp& app : suite.apps) {
         app.state = AppState::Stopped;
     }
     write_suite_exit(suite, SuiteState::Stopped, "operator_stop");
-    log_runner(logging::LogLevel::Info,
+    log_runner(core::LogLevel::Info,
                std::format("event=suite_stopped suite={} reason=operator_stop", manifest.suite_id));
     shutdown_runner_logging();
     child_exit(0);
@@ -1119,11 +1117,11 @@ void apply_launch_failures(RuntimeSuite& suite) {
         launch_all(suite);
         static_cast<void>(resume_runner_logging());
         apply_launch_failures(suite);
-        log_runner(logging::LogLevel::Info,
+        log_runner(core::LogLevel::Info,
                    std::format("event=suite_restart suite={} used={} limit={}", manifest.suite_id,
                                suite.suite_restarts_used, manifest.suite_restart_attempts));
         for (const RuntimeApp& app : suite.apps) {
-            log_runner(logging::LogLevel::Info,
+            log_runner(core::LogLevel::Info,
                        std::format("event=app_launch app={} instance={} "
                                    "attempt={} pid={} state={}",
                                    app.spec.app, app.spec.instance, app.attempt, app.child_pid,
@@ -1142,12 +1140,12 @@ void apply_launch_failures(RuntimeSuite& suite) {
         if (read_exit_metadata(app.instance_dir, exit) && !app.exit_consumed) {
             app.exit_consumed = true;
             if (exit.exit_code.has_value()) {
-                log_runner(logging::LogLevel::Info, std::format("event=app_exit app={} instance={} "
-                                                                "attempt={} exit_code={}",
-                                                                app.spec.app, app.spec.instance,
-                                                                app.attempt, *exit.exit_code));
+                log_runner(core::LogLevel::Info, std::format("event=app_exit app={} instance={} "
+                                                             "attempt={} exit_code={}",
+                                                             app.spec.app, app.spec.instance,
+                                                             app.attempt, *exit.exit_code));
             } else if (exit.signal.has_value()) {
-                log_runner(logging::LogLevel::Warning,
+                log_runner(core::LogLevel::Warning,
                            std::format("event=app_exit app={} instance={} "
                                        "attempt={} signal={}",
                                        app.spec.app, app.spec.instance, app.attempt, *exit.signal));
@@ -1168,13 +1166,13 @@ void apply_launch_failures(RuntimeSuite& suite) {
         static_cast<void>(resume_runner_logging());
         if (!launched) {
             app.launch_failed = false;
-            log_runner(logging::LogLevel::Warning,
+            log_runner(core::LogLevel::Warning,
                        std::format("event=app_launch_failed app={} "
                                    "instance={} attempt={}",
                                    app.spec.app, app.spec.instance, app.attempt));
             schedule_retry_or_fail(suite, app);
         } else {
-            log_runner(logging::LogLevel::Info,
+            log_runner(core::LogLevel::Info,
                        std::format("event=app_launch app={} instance={} "
                                    "attempt={} pid={} state=running",
                                    app.spec.app, app.spec.instance, app.attempt, app.child_pid));
@@ -1266,9 +1264,8 @@ void init_suite_logging(const SuiteManifest& manifest) {
         warn_runner("event=logging_settings_invalid detail=using defaults");
         log_settings = logging::Settings{};
     }
-    const logging::LogLevel log_level = manifest.log_level.value_or(
-        log_settings.global_loaded ? log_settings.options.initial_log_level
-                                   : logging::LogLevel::Info);
+    const core::LogLevel log_level = manifest.log_level.value_or(
+        log_settings.global_loaded ? log_settings.options.initial_log_level : core::LogLevel::Info);
     const core::Status log_status =
         init_runner_logging(join_path(manifest.artifacts_path, manifest.suite_id), log_settings,
                             log_level, manifest.runner_logger_thread, manifest.runner_name);
@@ -1278,11 +1275,10 @@ void init_suite_logging(const SuiteManifest& manifest) {
 }
 
 void log_initial_app_launches(const RuntimeSuite& suite) {
-    log_runner(logging::LogLevel::Info, std::format("event=suite_started suite={} apps={}",
-                                                    suite.manifest->suite_id, suite.apps.size()));
+    log_runner(core::LogLevel::Info, std::format("event=suite_started suite={} apps={}",
+                                                 suite.manifest->suite_id, suite.apps.size()));
     for (const RuntimeApp& app : suite.apps) {
-        log_runner(app.state == AppState::Failed ? logging::LogLevel::Warning
-                                                 : logging::LogLevel::Info,
+        log_runner(app.state == AppState::Failed ? core::LogLevel::Warning : core::LogLevel::Info,
                    std::format("event=app_launch app={} instance={} attempt={} "
                                "pid={} state={}",
                                app.spec.app, app.spec.instance, app.attempt, app.child_pid,

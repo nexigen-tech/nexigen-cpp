@@ -32,7 +32,7 @@ struct LoggingState {
     std::string base_dir{};
     std::string runner_name{"nexigen-run"};
     logging::Settings settings{};
-    logging::LogLevel level{logging::LogLevel::Info};
+    core::LogLevel level{core::LogLevel::Info};
     core::ThreadSpec logger_thread{};
     bool configured{false};
 };
@@ -149,7 +149,7 @@ core::Status load_runner_logging_settings(std::string_view global_settings_path,
 }
 
 core::Status init_runner_logging(std::string_view primary_dir, const logging::Settings& settings,
-                                 logging::LogLevel level, const core::ThreadSpec& logger_thread,
+                                 core::LogLevel level, const core::ThreadSpec& logger_thread,
                                  std::string_view runner_name) noexcept {
     shutdown_runner_logging();
 
@@ -206,7 +206,7 @@ core::Status flush_runner_logging() noexcept {
     return current.logger->flush();
 }
 
-void log_runner(logging::LogLevel level, std::string_view message) noexcept {
+void log_runner(core::LogLevel level, std::string_view message) noexcept {
     LoggingState& current = state();
     if (!current.logger) {
         return;
@@ -217,7 +217,7 @@ void log_runner(logging::LogLevel level, std::string_view message) noexcept {
 void warn_runner(std::string_view message) noexcept {
     LoggingState& current = state();
     if (current.logger) {
-        current.logger->log(logging::LogLevel::Warning, "{}", message);
+        current.logger->log(core::LogLevel::Warning, "{}", message);
     } else {
         warn_stderr(message);
     }

@@ -1034,7 +1034,7 @@ void test_start_options() {
     options.artifact_dir = artifacts;
     options.global_settings_dir = settings;
     options.local_settings_dir = settings;
-    options.log_level = logging::LogLevel::Warning;
+    options.log_level = core::LogLevel::Warning;
     options.env = {{"NEXIGEN_TEST_OPTION", "yes"}};
     if (const auto cpu = first_allowed_cpu(); cpu.has_value()) {
         options.cpus = core::CpuSet::from_core_mask(1ULL << *cpu);

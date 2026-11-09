@@ -52,7 +52,7 @@
 #include <nexigen/logging/concepts/logger_concept.hpp>
 #include <nexigen/logging/detail/format_param.hpp>
 #include <nexigen/logging/detail/level_control.hpp>
-#include <nexigen/logging/log_level.hpp>
+#include <nexigen/core/log_level.hpp>
 
 namespace nexigen::logging {
 
@@ -131,19 +131,20 @@ public:
 
     /// Store own threshold and fold it through every member (spec: one call
     /// moves the whole tree; per-member filters still apply per sink).
-    void set_level(LogLevel new_level) noexcept {
+    void set_level(core::LogLevel new_level) noexcept {
         level_.set_level(new_level);
         for_each([new_level](auto& lg) noexcept { lg.set_level(new_level); });
     }
-    [[nodiscard]] LogLevel level() const noexcept { return level_.level(); }
+    [[nodiscard]] core::LogLevel level() const noexcept { return level_.level(); }
 
     /// Composite short-circuit on the OWN threshold, then static fan-out.
     /// Every member is invoked exactly once with the same wrapper and pack;
     /// record methods return void (spec logging/logger-concept).
     template <class... Args>
-    void log(LogLevel record_level, detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        const LogLevel active = level_.level();
-        if (active == LogLevel::Off || record_level < active) {
+    void log(core::LogLevel record_level, detail::format_param_t<Args...> fmt,
+             Args&&... args) noexcept {
+        const core::LogLevel active = level_.level();
+        if (active == core::LogLevel::Off || record_level < active) {
             return; // bounded short-circuit: folds never run (spec)
         }
         for_each(
@@ -152,27 +153,27 @@ public:
 
     template <class... Args>
     void verbose(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(LogLevel::Verbose, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Verbose, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void debug(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(LogLevel::Debug, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Debug, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void info(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(LogLevel::Info, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Info, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void warning(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(LogLevel::Warning, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Warning, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void error(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(LogLevel::Error, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Error, fmt, std::forward<Args>(args)...);
     }
     template <class... Args>
     void fatal(detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
-        log(LogLevel::Fatal, fmt, std::forward<Args>(args)...);
+        log(core::LogLevel::Fatal, fmt, std::forward<Args>(args)...);
     }
 
     /// Control-plane barrier across all members; the last failure surfaces
@@ -196,9 +197,8 @@ public:
     /// Cold-path diagnostic (mandate 9): own level + member count, embedding
     /// each member's own to_string() via the fold (nested composites recurse).
     [[nodiscard]] std::string to_string() const {
-        std::string out =
-            "CompositeLogger(level=" + std::string(logging::to_string(level_.level())) +
-            ", members=" + std::to_string(sizeof...(Loggers));
+        std::string out = "CompositeLogger(level=" + std::string(core::to_string(level_.level())) +
+                          ", members=" + std::to_string(sizeof...(Loggers));
         std::apply(
             [&](const Loggers&... lg) {
                 static_cast<void>(out);
