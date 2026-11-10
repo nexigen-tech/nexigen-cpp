@@ -98,3 +98,10 @@ vcpkg_installed/
 conanbuildinfo.*
 conaninfo.txt
 CMakeUserPresets.json
+
+# =============================================================================
+# Graphify knowledge graph: only the committed artifacts are tracked; the AST
+# cache and transient build state are regenerated on every build.
+# =============================================================================
+graphify-out/cache/
+graphify-out/.graphify_*
