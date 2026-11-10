@@ -34,6 +34,15 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_sm_help PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
+    # nexigen-logd — Log Daemon (change add-log-daemon).
+    add_executable(nexigen-logd nexigen-logd/main.cpp)
+    target_link_libraries(nexigen-logd PRIVATE nexigen_logging nexigen_com Threads::Threads)
+    target_include_directories(nexigen-logd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+    add_test(NAME nexigen_logd_help COMMAND nexigen-logd --help)
+    set_tests_properties(nexigen_logd_help PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
     install(TARGETS nexigen-phmd nexigen-sm
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()

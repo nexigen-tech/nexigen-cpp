@@ -13,6 +13,7 @@
 #include <cstring>
 #include <optional>
 #include <string>
+#include <unistd.h>
 
 #include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
@@ -74,6 +75,7 @@ public:
             return std::unexpected(core::ErrorCode::SystemError);
         }
         notifier_.emplace(std::move(*notifier));
+        sink_pid_ = static_cast<std::uint32_t>(::getpid());
         return {};
     }
 
@@ -89,6 +91,7 @@ public:
             rec.render_into(reinterpret_cast<char*>(frame_.payload), sizeof(frame_.payload));
         frame_.timestamp_ns = rec.stamp.nanoseconds();
         frame_.thread_id = rec.thread_id;
+        frame_.pid = sink_pid_;
         frame_.log_level = rec.level;
         frame_.context_id = 0U; // reserved until per-context thresholds land (LOGC_003)
         frame_.payload_size = static_cast<std::uint16_t>(
@@ -133,6 +136,7 @@ private:
     std::optional<com::Publisher<LogFrame>> publisher_{};
     std::optional<com::EventNotifier> notifier_{};
     std::uint64_t last_dropped_total_{0};
+    std::uint32_t sink_pid_{0};
     LogFrame frame_{};
 };
 

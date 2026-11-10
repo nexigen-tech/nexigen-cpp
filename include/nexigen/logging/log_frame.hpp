@@ -23,16 +23,17 @@
 namespace nexigen::logging {
 
 /// Fixed 256-byte log frame (REQ_LOGC_004), layout per design D1:
-/// header 27 bytes + payload[229] = 256 = 4 cache lines.
+/// header 31 bytes + payload[225] = 256 = 4 cache lines.
 struct alignas(64) LogFrame {
     std::uint64_t timestamp_ns{};   ///< monotonic OS time of the record
     char app_id[4]{};               ///< 4-byte ASCII code (e.g. "LOGD")
     std::uint32_t context_id{};     ///< reserved = 0 until contexts land (LOGC_003)
     std::uint32_t thread_id{};      ///< cached SYS_gettid
+    std::uint32_t pid{};            ///< client process PID
     std::uint32_t dropped_counter{};///< drop delta since the previous frame
     std::uint16_t payload_size{};   ///< bytes of `payload` in use
     core::LogLevel log_level{core::LogLevel::Info}; ///< severity (1 byte)
-    std::uint8_t payload[229]{};    ///< rendered message text
+    std::uint8_t payload[225]{};    ///< rendered message text
 
     /// The app_id as a non-null-terminated view (trimmed at the first NUL).
     [[nodiscard]] std::string_view app_id_text() const noexcept {
@@ -55,6 +56,7 @@ struct alignas(64) LogFrame {
         out += ", app=" + std::string(app_id_text());
         out += ", ctx=" + std::to_string(context_id);
         out += ", tid=" + std::to_string(thread_id);
+        out += ", pid=" + std::to_string(pid);
         out += ", dropped=" + std::to_string(dropped_counter);
         out += ", level=" + std::string(core::to_string(log_level));
         out += ", payload=" + std::to_string(payload_size) + ")";
@@ -81,6 +83,7 @@ inline void to_json(nlohmann::json& j, const LogFrame& frame) {
         {"app_id", std::string(frame.app_id_text())},
         {"context_id", frame.context_id},
         {"thread_id", frame.thread_id},
+        {"pid", frame.pid},
         {"dropped_counter", frame.dropped_counter},
         {"payload_size", frame.payload_size},
         {"log_level", frame.log_level},
@@ -120,6 +123,7 @@ inline void from_json(const nlohmann::json& j, LogFrame& out) noexcept {
     read_u64("timestamp_ns", parsed.timestamp_ns);
     read_u32("context_id", parsed.context_id);
     read_u32("thread_id", parsed.thread_id);
+    read_u32("pid", parsed.pid);
     read_u32("dropped_counter", parsed.dropped_counter);
     read_u16("payload_size", parsed.payload_size);
 
