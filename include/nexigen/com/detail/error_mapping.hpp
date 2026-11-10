@@ -36,5 +36,8 @@ namespace nexigen::com::detail {
 [[nodiscard]] Error map_error(iox2::ReaderCreateError error) noexcept;
 [[nodiscard]] Error map_error(iox2::EntryHandleMutError error) noexcept;
 [[nodiscard]] Error map_error(iox2::EntryHandleError error) noexcept;
+[[nodiscard]] Error map_error(iox2::WaitSetCreateError error) noexcept;
+[[nodiscard]] Error map_error(iox2::WaitSetAttachmentError error) noexcept;
+[[nodiscard]] Error map_error(iox2::WaitSetRunError error) noexcept;
 
 } // namespace nexigen::com::detail

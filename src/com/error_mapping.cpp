@@ -174,6 +174,39 @@ Error map_error(iox2::EntryHandleError error) noexcept {
     }
 }
 
+Error map_error(iox2::WaitSetCreateError) noexcept {
+    return Error::CreationFailed;
+}
+
+Error map_error(iox2::WaitSetAttachmentError error) noexcept {
+    switch (error) {
+        case iox2::WaitSetAttachmentError::InsufficientCapacity:
+            return Error::OutOfSamples;
+        case iox2::WaitSetAttachmentError::AlreadyAttached:
+            return Error::InvalidArgument;
+        default:
+            // InternalError / InsufficientResources
+            return Error::CreationFailed;
+    }
+}
+
+Error map_error(iox2::WaitSetRunError error) noexcept {
+    switch (error) {
+        case iox2::WaitSetRunError::NoAttachments:
+            return Error::InvalidArgument;
+        case iox2::WaitSetRunError::InsufficientPermissions:
+            return Error::CreationFailed;
+        case iox2::WaitSetRunError::InternalError:
+            return Error::Unknown;
+        case iox2::WaitSetRunError::TerminationRequest:
+        case iox2::WaitSetRunError::Interrupt:
+            // Signal-driven termination is a normal stop, not a failure (D3).
+            return Error::Ok;
+        default:
+            return Error::Unknown;
+    }
+}
+
 Error map_error(iox2::ListenerCreateError) noexcept {
     return Error::CreationFailed;
 }

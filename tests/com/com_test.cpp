@@ -16,8 +16,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/com/callback_progression.hpp>
 #include <nexigen/com/client.hpp>
 #include <nexigen/com/concepts/message_concept.hpp>
+#include <nexigen/com/detail/error_mapping.hpp>
 #include <nexigen/com/error.hpp>
 #include <nexigen/com/event.hpp>
 #include <nexigen/com/event_id.hpp>
@@ -31,6 +33,10 @@
 #include <nexigen/com/service_manifest.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
+#include <nexigen/com/wait_set_attachment_id.hpp>
+#include <nexigen/com/wait_set_guard.hpp>
+#include <nexigen/com/waitset.hpp>
+#include <nexigen/core/serialization_mandate.hpp>
 
 namespace com = nexigen::com;
 
@@ -226,6 +232,177 @@ void test_manifest() {
     NX_CHECK(manifest.provided_services.size() == 1U);
     com::from_json(nlohmann::json{{"provided_services", nlohmann::json::array({42})}}, manifest);
     NX_CHECK(manifest.provided_services.size() == 1U);
+}
+
+void test_waitset() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+
+    // Multiplexing: attach two listeners, fire only the first — the callback
+    // must observe exactly that source.
+    {
+        const auto name_a = com::ServiceName::create("Nexigen/Test/WsA");
+        const auto name_b = com::ServiceName::create("Nexigen/Test/WsB");
+        NX_CHECK(name_a.has_value());
+        NX_CHECK(name_b.has_value());
+        auto listener_a = com::EventListener::create(*node, *name_a);
+        auto listener_b = com::EventListener::create(*node, *name_b);
+        auto notifier_a = com::EventNotifier::create(*node, *name_a);
+        NX_CHECK(listener_a.has_value());
+        NX_CHECK(listener_b.has_value());
+        NX_CHECK(notifier_a.has_value());
+
+        auto waitset = com::WaitSet::create();
+        NX_CHECK(waitset.has_value());
+        NX_CHECK(waitset->is_empty());
+        auto guard_a = waitset->attach_notification(*listener_a);
+        auto guard_b = waitset->attach_notification(*listener_b);
+        NX_CHECK(guard_a.has_value());
+        NX_CHECK(guard_b.has_value());
+        NX_CHECK(waitset->len() == 2U);
+        NX_CHECK(!waitset->is_empty());
+
+        NX_CHECK(notifier_a->notify().has_value());
+        bool fired_a = false;
+        bool fired_b = false;
+        const auto status = waitset->wait_and_process_once([&](com::WaitSetAttachmentId id) {
+            fired_a = id.has_event_from(*guard_a);
+            fired_b = id.has_event_from(*guard_b);
+            return com::CallbackProgression::Stop;
+        });
+        NX_CHECK(status.has_value());
+        NX_CHECK(fired_a);
+        NX_CHECK(!fired_b);
+
+        // Diagnostics: attachment count in to_string and formatter equality.
+        const std::string text = waitset->to_string();
+        NX_CHECK(text.find("attachments=2") != std::string::npos);
+        NX_CHECK(com::to_string(*waitset) == text);
+        NX_CHECK(std::format("{}", *waitset) == text);
+
+        // Dropped guards detach.
+        guard_a = std::move(*guard_a);  // keep a moved-from no-op via scope
+    }
+    {
+        const auto name = com::ServiceName::create("Nexigen/Test/WsDetach");
+        NX_CHECK(name.has_value());
+        auto listener = com::EventListener::create(*node, *name);
+        NX_CHECK(listener.has_value());
+        auto waitset = com::WaitSet::create();
+        NX_CHECK(waitset.has_value());
+        {
+            auto guard = waitset->attach_notification(*listener);
+            NX_CHECK(guard.has_value());
+            NX_CHECK(waitset->len() == 1U);
+        }
+        NX_CHECK(waitset->len() == 0U);
+        NX_CHECK(waitset->is_empty());
+    }
+
+    // Deadline: a listener with a short deadline wakes with has_missed_deadline.
+    {
+        const auto name = com::ServiceName::create("Nexigen/Test/WsDeadline");
+        NX_CHECK(name.has_value());
+        auto listener = com::EventListener::create(*node, *name);
+        NX_CHECK(listener.has_value());
+        auto waitset = com::WaitSet::create();
+        NX_CHECK(waitset.has_value());
+        auto guard = waitset->attach_deadline(*listener, std::chrono::milliseconds(100));
+        NX_CHECK(guard.has_value());
+        bool missed = false;
+        const auto status = waitset->wait_and_process_once([&](com::WaitSetAttachmentId id) {
+            missed = id.has_missed_deadline(*guard);
+            return com::CallbackProgression::Stop;
+        });
+        NX_CHECK(status.has_value());
+        NX_CHECK(missed);
+    }
+
+    // Interval: a short periodic attachment wakes with no notifier event.
+    {
+        auto waitset = com::WaitSet::create();
+        NX_CHECK(waitset.has_value());
+        auto guard = waitset->attach_interval(std::chrono::milliseconds(100));
+        NX_CHECK(guard.has_value());
+        bool woken = false;
+        const auto status = waitset->wait_and_process_once([&](com::WaitSetAttachmentId) {
+            woken = true;
+            return com::CallbackProgression::Stop;
+        });
+        NX_CHECK(status.has_value());
+        NX_CHECK(woken);
+    }
+
+    // Callback progression: Stop ends wait_and_process after the first source.
+    {
+        const auto name = com::ServiceName::create("Nexigen/Test/WsStop");
+        NX_CHECK(name.has_value());
+        auto listener = com::EventListener::create(*node, *name);
+        auto notifier = com::EventNotifier::create(*node, *name);
+        NX_CHECK(listener.has_value());
+        NX_CHECK(notifier.has_value());
+        auto waitset = com::WaitSet::create();
+        NX_CHECK(waitset.has_value());
+        auto guard = waitset->attach_notification(*listener);
+        NX_CHECK(guard.has_value());
+        NX_CHECK(notifier->notify().has_value());
+        int calls = 0;
+        const auto status = waitset->wait_and_process([&](com::WaitSetAttachmentId) {
+            ++calls;
+            return com::CallbackProgression::Stop;
+        });
+        NX_CHECK(status.has_value());
+        NX_CHECK(calls == 1);
+    }
+
+    // Empty wait set: the transport reports NoAttachments immediately rather
+    // than spinning or blocking for the full timeout.
+    {
+        auto waitset = com::WaitSet::create();
+        NX_CHECK(waitset.has_value());
+        const auto start = std::chrono::steady_clock::now();
+        const auto status = waitset->wait_and_process_once_with_timeout(
+            [](com::WaitSetAttachmentId) { return com::CallbackProgression::Stop; },
+            std::chrono::milliseconds(1000));
+        const auto elapsed = std::chrono::steady_clock::now() - start;
+        NX_CHECK(!status.has_value());
+        NX_CHECK(status.error() == com::Error::InvalidArgument);
+        NX_CHECK(elapsed < std::chrono::milliseconds(500));
+    }
+
+    // CallbackProgression conversion set round-trips.
+    {
+        for (const com::CallbackProgression value :
+             {com::CallbackProgression::Continue, com::CallbackProgression::Stop}) {
+            const std::string_view name = com::to_string(value);
+            NX_CHECK(!name.empty());
+            com::CallbackProgression back = com::CallbackProgression::Continue;
+            NX_CHECK(com::from_string(name, back));
+            NX_CHECK(back == value);
+            nlohmann::json j;
+            com::to_json(j, value);
+            NX_CHECK(j == std::string(name));
+            com::CallbackProgression parsed = com::CallbackProgression::Continue;
+            com::from_json(j, parsed);
+            NX_CHECK(parsed == value);
+            NX_CHECK(std::format("{}", value) == std::string(name));
+        }
+        NX_CHECK(com::to_string(static_cast<com::CallbackProgression>(0x7f)) == "Unknown");
+    }
+
+    // Error mapping unit cases (task 3.1): WaitSet error enums collapse onto
+    // the com::Error vocabulary per design D3.
+    {
+        NX_CHECK(com::detail::map_error(iox2::WaitSetAttachmentError::AlreadyAttached) ==
+                 com::Error::InvalidArgument);
+        NX_CHECK(com::detail::map_error(iox2::WaitSetAttachmentError::InsufficientCapacity) ==
+                 com::Error::OutOfSamples);
+        NX_CHECK(com::detail::map_error(iox2::WaitSetRunError::NoAttachments) ==
+                 com::Error::InvalidArgument);
+        NX_CHECK(com::detail::map_error(iox2::WaitSetRunError::TerminationRequest) ==
+                 com::Error::Ok);
+        NX_CHECK(com::detail::map_error(iox2::WaitSetRunError::Interrupt) == com::Error::Ok);
+    }
 }
 
 void test_field() {
@@ -604,6 +781,7 @@ int main() {
     run_suite("pub_sub_type_mismatch", test_pub_sub_type_mismatch);
     run_suite("pub_sub_two_process", test_pub_sub_two_process);
     run_suite("event", test_event);
+    run_suite("waitset", test_waitset);
     run_suite("field", test_field);
     run_suite("method", test_method);
     run_suite("manifest", test_manifest);

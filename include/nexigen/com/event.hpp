@@ -115,6 +115,12 @@ public:
         return std::format("EventListener(service={})", service_name_.to_string());
     }
 
+    /// The underlying transport handle (module-internal surface only; the
+    /// WaitSet attaches listeners through it).
+    [[nodiscard]] const iox2::Listener<iox2::ServiceType::Ipc>& handle() const noexcept {
+        return inner_;
+    }
+
 private:
     EventListener(ServiceName name, iox2::Listener<iox2::ServiceType::Ipc> inner) noexcept
         : service_name_(std::move(name)), inner_(std::move(inner)) {}
