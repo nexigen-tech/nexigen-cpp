@@ -193,10 +193,10 @@ void serve_one_request(TriggerServer& server, nexigen::sm::StateManager& manager
 }
 
 /// Drive pending transitions: send the final EM command once the preparation
-/// deadline elapsed.
+/// deadline elapsed. SafeState commands ride the emergency channel (REQ_EM_007).
 void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
-                   nexigen::sm::SmMetrics& metrics, std::vector<PendingTransition>& pending,
-                   Clock::time_point now) {
+                   EmClient& em_emergency_client, nexigen::sm::SmMetrics& metrics,
+                   std::vector<PendingTransition>& pending, Clock::time_point now) {
     for (std::size_t i = 0; i < pending.size();) {
         if (now < pending[i].deadline) {
             ++i;
@@ -208,9 +208,16 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
                       manager.group_name(index).data());
         std::snprintf(command.target_state, sizeof(command.target_state), "%s",
                       pending[i].target_state);
+        const bool safe_state =
+            std::string_view(pending[i].target_state) == "SafeState";
         const auto started = Clock::now();
-        const auto ack = em_client.call(
-            command, std::chrono::milliseconds(manager.transition_max_time_ms(index)));
+        const auto ack = safe_state
+                             ? em_emergency_client.call(
+                                   command, std::chrono::milliseconds(
+                                                manager.transition_max_time_ms(index)))
+                             : em_client.call(
+                                   command, std::chrono::milliseconds(
+                                                manager.transition_max_time_ms(index)));
         const std::uint64_t elapsed_us =
             static_cast<std::uint64_t>(
                 std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started)
@@ -339,10 +346,16 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
     }
 
     const auto em_channel = nexigen::com::ServiceName::create("Nexigen/EM/StateCommand");
+    const auto em_emergency_channel =
+        nexigen::com::ServiceName::create("Nexigen/EM/StateCommandEmergency");
     auto em_client =
         em_channel ? EmClient::create(*node, *em_channel)
                    : nexigen::com::Result<EmClient>{
                          std::unexpected(nexigen::com::Error::InvalidArgument)};
+    auto em_emergency_client =
+        em_emergency_channel ? EmClient::create(*node, *em_emergency_channel)
+                             : nexigen::com::Result<EmClient>{
+                                   std::unexpected(nexigen::com::Error::InvalidArgument)};
 
     const auto health_name = nexigen::com::ServiceName::create("Nexigen/SM/Health");
     auto health =
@@ -400,8 +413,9 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
                         serve_one_request(*trigger_server, manager, *publication, preparation,
                                           audit, metrics, pending, now);
                     }
-                    if (em_client) {
-                        drive_pending(manager, *em_client, metrics, pending, now);
+                    if (em_client && em_emergency_client) {
+                        drive_pending(manager, *em_client, *em_emergency_client, metrics,
+                                      pending, now);
                     }
                     if (health) {
                         (void)health->emit(1);

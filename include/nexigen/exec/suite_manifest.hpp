@@ -17,6 +17,15 @@
 
 namespace nexigen::exec {
 
+/// One Function Group of the EM's own configuration (REQ_EM_005): its name
+/// and the states it can be in.
+struct FunctionGroupConfig {
+    std::string name{};
+    std::vector<std::string> states{};
+
+    [[nodiscard]] std::string to_string() const;
+};
+
 /// Parsed and validated suite manifest.
 struct SuiteManifest {
     std::uint32_t version{0};
@@ -32,6 +41,7 @@ struct SuiteManifest {
     std::string manifest_path{};
     core::ThreadSpec execution_manager_control_thread{};
     core::ThreadSpec execution_manager_logger_thread{};
+    std::vector<FunctionGroupConfig> function_groups{};
     std::vector<AppSpec> apps{};
 
     [[nodiscard]] std::string to_string() const;

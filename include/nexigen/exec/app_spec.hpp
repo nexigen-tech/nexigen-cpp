@@ -28,6 +28,10 @@ struct AppSpec {
     std::uint64_t stop_grace_s{5};
     std::uint32_t restart_attempts{0};
     std::uint64_t restart_delay_s{0};
+    /// Applications that must report Running before this one starts (REQ_EM_001).
+    std::vector<std::string> dependencies{};
+    /// Function Groups whose active states keep this application running (REQ_EM_005/006).
+    std::vector<std::string> function_groups{};
     ImpactOnAppSuiteOperability impact{ImpactOnAppSuiteOperability::Degrade};
     std::string global_settings_path{};
     std::string local_settings_path{};

@@ -207,6 +207,14 @@ if(NEXIGEN_ENABLE_COM)
     add_test(NAME nexigen_state_client_tests COMMAND nexigen_state_client_tests)
     set_tests_properties(nexigen_state_client_tests PROPERTIES TIMEOUT 600)
 
+    # Юнит-тесты оркестрации EM (change add-em-orchestration).
+    add_executable(nexigen_em_orchestration_tests exec/em_orchestration_test.cpp)
+    target_link_libraries(nexigen_em_orchestration_tests PRIVATE
+        nexigen_state_client nexigen_com Threads::Threads)
+
+    add_test(NAME nexigen_em_orchestration_tests COMMAND nexigen_em_orchestration_tests)
+    set_tests_properties(nexigen_em_orchestration_tests PROPERTIES TIMEOUT 600)
+
     # Negative-compile probe: non-trivially-copyable payloads (owning string,
     # virtuals, containers) must be rejected by concepts::Message at compile
     # time. Тот же механизм, что tests/core/negative_compile.sh.
@@ -280,6 +288,7 @@ foreach(_nexigen_test
         nexigen_phm_tests
         nexigen_sm_tests
         nexigen_state_client_tests
+        nexigen_em_orchestration_tests
         nexigen_hub_tests)
     if(TARGET ${_nexigen_test})
         nexigen_precompile(${_nexigen_test})

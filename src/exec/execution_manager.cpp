@@ -631,6 +631,13 @@ void close_supervisor_fds(int null_fd, int stdout_fd, int stderr_fd) noexcept {
     if (supervised.status_valid) {
         const TerminatedBy terminated_by =
             attribution(supervised.execution_manager_stopped, supervised.reaped, child_status);
+        if (supervised.execution_manager_stopped) {
+            // REQ_EM_002: the startup deadline expired and the EM forced the
+            // stop — record it so the recovery policy sees a visible failure.
+            log_execution_manager(core::LogLevel::Warning,
+                                  std::format("event=startup_timeout instance_dir={}",
+                                              *context.instance_dir));
+        }
         const ExitMetadata exit_metadata =
             ExitMetadata::from_child_status(child, child_status, uptime, terminated_by);
         static_cast<void>(write_exit_json(*context.instance_dir, exit_metadata));

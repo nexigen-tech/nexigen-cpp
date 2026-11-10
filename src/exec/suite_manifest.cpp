@@ -207,14 +207,20 @@ std::string AppSpec::to_string() const {
         log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"));
 }
 
+std::string FunctionGroupConfig::to_string() const {
+    return std::format("FunctionGroupConfig(name={}, states={})", name, states.size());
+}
+
 std::string SuiteManifest::to_string() const {
     return std::format("SuiteManifest(version={}, suite_id={}, run_id={}, run_dir={}, "
                        "global_settings_path={}, artifacts_path={}, log_level={}, "
-                       "suite_restart_attempts={}, suite_restart_delay_s={}, apps={})",
+                       "suite_restart_attempts={}, suite_restart_delay_s={}, "
+                       "function_groups={}, apps={})",
                        version, suite_id, run_id, run_dir, global_settings_path, artifacts_path,
                        log_level.has_value() ? std::string(core::to_string(*log_level))
                                              : std::string("inherit"),
-                       suite_restart_attempts, suite_restart_delay_s, apps.size());
+                       suite_restart_attempts, suite_restart_delay_s, function_groups.size(),
+                       apps.size());
 }
 
 std::string SuiteAppMetadata::to_string() const {
@@ -269,6 +275,8 @@ void to_json(nlohmann::json& j, const AppSpec& spec) {
         {"stop_grace_s", spec.stop_grace_s},
         {"restart_attempts", spec.restart_attempts},
         {"restart_delay_s", spec.restart_delay_s},
+        {"dependencies", spec.dependencies},
+        {"function_groups", spec.function_groups},
         {"impact_on_app_suite_operability", std::string(to_string(spec.impact))},
         {"global_settings_path", spec.global_settings_path},
         {"local_settings_path", spec.local_settings_path},
@@ -287,6 +295,8 @@ void from_json(const nlohmann::json& j, AppSpec& spec) noexcept {
     static_cast<void>(read_u64(j, "stop_grace_s", spec.stop_grace_s));
     static_cast<void>(read_u32(j, "restart_attempts", spec.restart_attempts));
     static_cast<void>(read_u64(j, "restart_delay_s", spec.restart_delay_s));
+    static_cast<void>(read_string_array(j, "dependencies", spec.dependencies));
+    static_cast<void>(read_string_array(j, "function_groups", spec.function_groups));
     read_enum(j, "impact_on_app_suite_operability", spec.impact);
     static_cast<void>(read_string(j, "global_settings_path", spec.global_settings_path));
     static_cast<void>(read_string(j, "local_settings_path", spec.local_settings_path));
@@ -299,6 +309,10 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
         nlohmann::json entry;
         to_json(entry, app);
         apps.push_back(std::move(entry));
+    }
+    nlohmann::json groups = nlohmann::json::array();
+    for (const FunctionGroupConfig& group : manifest.function_groups) {
+        groups.push_back(nlohmann::json{{"name", group.name}, {"states", group.states}});
     }
     j = nlohmann::json{
         {"version", manifest.version},
@@ -314,6 +328,7 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
         {"manifest_path", manifest.manifest_path},
         {"execution_manager_control_thread", manifest.execution_manager_control_thread},
         {"execution_manager_logger_thread", manifest.execution_manager_logger_thread},
+        {"function_groups", std::move(groups)},
         {"apps", std::move(apps)},
     };
 }
@@ -334,6 +349,20 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
     read_legacy_execution_manager_cpus(j, "execution_manager_logger_cpus", manifest.execution_manager_logger_thread);
     read_canonical_thread(j, "execution_manager_control_thread", manifest.execution_manager_control_thread);
     read_canonical_thread(j, "execution_manager_logger_thread", manifest.execution_manager_logger_thread);
+    if (const auto it = j.find("function_groups"); it != j.end() && it->is_array()) {
+        std::vector<FunctionGroupConfig> groups;
+        groups.reserve(it->size());
+        for (const auto& entry : *it) {
+            if (!entry.is_object()) {
+                continue;
+            }
+            FunctionGroupConfig group;
+            static_cast<void>(read_string(entry, "name", group.name));
+            static_cast<void>(read_string_array(entry, "states", group.states));
+            groups.push_back(std::move(group));
+        }
+        manifest.function_groups = std::move(groups);
+    }
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
         std::vector<AppSpec> apps;
         apps.reserve(it->size());

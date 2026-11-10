@@ -1,11 +1,14 @@
-// nexigen::exec — StateClient receiver (change add-sm; spec exec/state-client;
-// design D4).
+// nexigen::exec — StateClient receiver (change add-sm; change
+// add-em-orchestration adds Function Groups + SafeState priority;
+// specs exec/state-client + exec/app-suite; design D3/D4).
 //
 // The EM-side receiver of the State Manager's SetState commands: a
-// request-response server that maps Function Groups onto the EM's managed
-// processes and executes the switch through the existing ExecutionManager
-// start/stop machinery, acknowledging completion or rejection. The EM calls
-// serve_once() from its control loop — never a polling loop of its own.
+// request-response server on the ordinary channel plus an emergency channel
+// (`<channel>Emergency`) reserved for PHM SafeState commands, which
+// serve_once drains first — SafeState always overtakes queued ordinary
+// transitions. Commands map Function Groups onto the EM's managed processes
+// (FunctionGroupRegistry) and execute through the existing ExecutionManager
+// start/stop machinery.
 //
 // NOTE: the definition lives in src/exec/state_client.cpp, built into the
 // NEXIGEN_ENABLE_COM-gated `nexigen_state_client` target (the class depends
@@ -16,7 +19,6 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 #include <nexigen/app/run_identity.hpp>
 #include <nexigen/com/error.hpp>
@@ -25,6 +27,7 @@
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/execution_manager.hpp>
+#include <nexigen/exec/function_group_registry.hpp>
 #include <nexigen/exec/state_ack.hpp>
 #include <nexigen/exec/state_command.hpp>
 
@@ -33,24 +36,19 @@ namespace nexigen::exec {
 /// The EM-side receiver of SetState commands from the State Manager.
 class StateClient {
 public:
-    /// One Function Group -> managed processes mapping.
-    struct GroupMapping {
-        std::string function_group{};
-        std::vector<std::string> app_names{};
-        std::string binary{};  ///< Launch command; empty = app_name itself.
-    };
-
-    /// Open (or create) the state-command channel on the node and bind the
-    /// group mappings plus the ExecutionManager used to execute switches.
+    /// Open the ordinary command channel plus its emergency channel
+    /// (`<name>Emergency`) and bind the group registry plus the
+    /// ExecutionManager used to execute switches.
     [[nodiscard]] static com::Result<StateClient> create(
-        com::Node& node, const com::ServiceName& name, std::vector<GroupMapping> mappings,
+        com::Node& node, const com::ServiceName& name, FunctionGroupRegistry& registry,
         ExecutionManager& manager, const app::RunIdentity& identity) noexcept;
 
     StateClient(StateClient&&) noexcept = default;
     StateClient& operator=(StateClient&&) noexcept = default;
 
-    /// Serve one pending command: receive, execute, acknowledge. Returns true
-    /// when a command was handled, false when none was pending.
+    /// Serve one pending command: emergency channel first (SafeState
+    /// overtakes), then the ordinary channel. Returns true when a command was
+    /// handled, false when none was pending.
     [[nodiscard]] com::Result<bool> serve_once() noexcept;
 
     /// Cold-path diagnostic (mandate 9): service name + last command.
@@ -58,21 +56,25 @@ public:
 
 private:
     StateClient(com::ServiceName name, com::Server<StateCommand, StateAck> server,
-                std::vector<GroupMapping> mappings, ExecutionManager* manager,
+                com::Server<StateCommand, StateAck> emergency_server,
+                FunctionGroupRegistry* registry, ExecutionManager* manager,
                 app::RunIdentity identity) noexcept;
 
+    /// Receive from one channel, execute the command, and acknowledge.
+    [[nodiscard]] com::Result<bool> serve_from(
+        com::Server<StateCommand, StateAck>& server) noexcept;
+
     /// Execute one SetState command through the ExecutionManager: stop the
-    /// group's processes for Off-like targets, start them otherwise. An
+    /// group's bound processes for Off-like targets, start them otherwise. An
     /// unmapped group is rejected.
     [[nodiscard]] bool execute(const StateCommand& command) noexcept;
-
-    [[nodiscard]] static bool is_off_target(std::string_view target) noexcept;
 
     [[nodiscard]] std::string instance_dir_for(std::string_view app_name) const;
 
     com::ServiceName service_name_;
     com::Server<StateCommand, StateAck> server_;
-    std::vector<GroupMapping> mappings_;
+    com::Server<StateCommand, StateAck> emergency_server_;
+    FunctionGroupRegistry* registry_{nullptr};
     ExecutionManager* manager_{nullptr};
     app::RunIdentity identity_;
     std::string last_command_{};

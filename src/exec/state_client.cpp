@@ -1,31 +1,56 @@
-// nexigen::exec — StateClient receiver implementation (change add-sm).
+// nexigen::exec — StateClient receiver implementation (change add-sm;
+// add-em-orchestration adds Function Groups + SafeState priority).
 // Built only when NEXIGEN_ENABLE_COM=ON (nexigen_state_client target).
 #include <nexigen/exec/state_client.hpp>
 
 namespace nexigen::exec {
 
 com::Result<StateClient> StateClient::create(com::Node& node, const com::ServiceName& name,
-                                             std::vector<GroupMapping> mappings,
+                                             FunctionGroupRegistry& registry,
                                              ExecutionManager& manager,
                                              const app::RunIdentity& identity) noexcept {
     auto server = com::Server<StateCommand, StateAck>::create(node, name);
     if (!server) {
         return std::unexpected(server.error());
     }
-    return StateClient{name, std::move(*server), std::move(mappings), &manager, identity};
+    const std::string emergency_name = name.to_string() + "Emergency";
+    const auto emergency_service = com::ServiceName::create(emergency_name.c_str());
+    if (!emergency_service) {
+        return std::unexpected(emergency_service.error());
+    }
+    auto emergency_server = com::Server<StateCommand, StateAck>::create(node, *emergency_service);
+    if (!emergency_server) {
+        return std::unexpected(emergency_server.error());
+    }
+    return StateClient{name, std::move(*server), std::move(*emergency_server), &registry,
+                       &manager, identity};
 }
 
 StateClient::StateClient(com::ServiceName name, com::Server<StateCommand, StateAck> server,
-                         std::vector<GroupMapping> mappings, ExecutionManager* manager,
+                         com::Server<StateCommand, StateAck> emergency_server,
+                         FunctionGroupRegistry* registry, ExecutionManager* manager,
                          app::RunIdentity identity) noexcept
     : service_name_(std::move(name)),
       server_(std::move(server)),
-      mappings_(std::move(mappings)),
+      emergency_server_(std::move(emergency_server)),
+      registry_(registry),
       manager_(manager),
       identity_(std::move(identity)) {}
 
 com::Result<bool> StateClient::serve_once() noexcept {
-    auto received = server_.receive();
+    // SafeState priority (REQ_EM_007): the emergency channel is drained first.
+    auto emergency = serve_from(emergency_server_);
+    if (!emergency) {
+        return emergency;
+    }
+    if (*emergency) {
+        return true;
+    }
+    return serve_from(server_);
+}
+
+com::Result<bool> StateClient::serve_from(com::Server<StateCommand, StateAck>& server) noexcept {
+    auto received = server.receive();
     if (!received) {
         return std::unexpected(received.error());
     }
@@ -44,28 +69,25 @@ com::Result<bool> StateClient::serve_once() noexcept {
 
 bool StateClient::execute(const StateCommand& command) noexcept {
     const std::string_view group = command.function_group;
-    for (const GroupMapping& mapping : mappings_) {
-        if (mapping.function_group != group) {
-            continue;
-        }
-        const bool stopping = is_off_target(command.target_state);
-        for (const std::string& app_name : mapping.app_names) {
-            const std::string binary = mapping.binary.empty() ? app_name : mapping.binary;
-            const core::Status step =
-                stopping ? manager_->stop(instance_dir_for(app_name))
-                         : manager_->start(identity_, app_name,
-                                           std::vector<std::string>{binary});
-            if (!step) {
-                return false;
-            }
-        }
-        return true;
+    const std::size_t index = registry_->find_group(group);
+    if (index == static_cast<std::size_t>(-1)) {
+        return false;  // unknown group -> rejection ack
     }
-    return false;  // unknown group -> rejection ack
-}
-
-bool StateClient::is_off_target(std::string_view target) noexcept {
-    return target == "Off" || target == "Stopped" || target == "Shutdown";
+    const bool stopping = FunctionGroupRegistry::is_off_target(command.target_state);
+    const std::vector<std::string>& app_names = registry_->bound_apps(index);
+    for (const std::string& app_name : app_names) {
+        const std::string_view command_binary = registry_->command_of(app_name);
+        const std::string binary = command_binary.empty() ? app_name : std::string(command_binary);
+        const core::Status step =
+            stopping ? manager_->stop(instance_dir_for(app_name))
+                     : manager_->start(identity_, app_name,
+                                       std::vector<std::string>{binary});
+        if (!step) {
+            return false;
+        }
+    }
+    registry_->set_state(index, command.target_state);
+    return true;
 }
 
 std::string StateClient::instance_dir_for(std::string_view app_name) const {

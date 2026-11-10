@@ -62,6 +62,8 @@ public:
     std::int32_t supervisor_pid{0};           ///< Instance supervisor pid.
     bool exit_consumed{false};                ///< exit.json already handled.
     bool launch_failed{false};                ///< Last launch attempt failed.
+    bool dependencies_pending{false};         ///< Waiting for dependencies to report Running.
+    std::uint64_t dependency_deadline_ns{0};  ///< Deadline for the wait; 0 = no deadline.
 };
 
 [[nodiscard]] inline std::string to_string(const ChildProcess& child) {

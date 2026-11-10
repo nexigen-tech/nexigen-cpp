@@ -212,8 +212,70 @@ void handle_abnormal(RuntimeSuite& suite, RuntimeApp& app) {
     schedule_retry_or_fail(suite, app);
 }
 
+/// A dependency is ready when its application is alive (state Running).
+[[nodiscard]] const RuntimeApp* find_app_by_name(const RuntimeSuite& suite,
+                                                std::string_view name) noexcept {
+    for (const RuntimeApp& candidate : suite.apps) {
+        if (candidate.spec.app == name) {
+            return &candidate;
+        }
+    }
+    return nullptr;
+}
+
+/// All declared dependencies are Running; an unknown dependency is never
+/// ready (the dependent fails visibly instead of launching blind).
+[[nodiscard]] bool dependencies_ready(const RuntimeSuite& suite, const RuntimeApp& app) noexcept {
+    for (const std::string& dependency : app.spec.dependencies) {
+        const RuntimeApp* dep = find_app_by_name(suite, dependency);
+        if (dep == nullptr || dep->state != AppState::Running) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// A dependency that failed or exited can never report Running.
+[[nodiscard]] bool dependency_failed(const RuntimeSuite& suite, const RuntimeApp& app) noexcept {
+    for (const std::string& dependency : app.spec.dependencies) {
+        const RuntimeApp* dep = find_app_by_name(suite, dependency);
+        if (dep != nullptr &&
+            (dep->state == AppState::Failed || dep->state == AppState::Exited)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// The longest configured startup timeout among the dependencies (0 = unset).
+[[nodiscard]] std::uint64_t max_dependency_startup_ns(const RuntimeSuite& suite,
+                                                      const RuntimeApp& app) noexcept {
+    std::uint64_t max_s = 0;
+    for (const std::string& dependency : app.spec.dependencies) {
+        const RuntimeApp* dep = find_app_by_name(suite, dependency);
+        if (dep != nullptr && dep->spec.idle_timeout_s > max_s) {
+            max_s = dep->spec.idle_timeout_s;
+        }
+    }
+    return max_s * nanoseconds_per_second;
+}
+
 void launch_all(RuntimeSuite& suite) {
+    const std::uint64_t now = monotonic_now_ns();
     for (RuntimeApp& app : suite.apps) {
+        if (!app.spec.dependencies.empty() && !dependencies_ready(suite, app)) {
+            // Dependency gating (REQ_EM_001): wait until every dependency
+            // reports Running.
+            app.dependencies_pending = true;
+            const std::uint64_t deadline = max_dependency_startup_ns(suite, app);
+            app.dependency_deadline_ns =
+                deadline == 0U ? 0U : now + deadline;
+            log_execution_manager(core::LogLevel::Info,
+                       std::format("event=dependency_wait app={} instance={}",
+                                   app.spec.app, app.spec.instance));
+            suite.dirty = true;
+            continue;
+        }
         static_cast<void>(launch_app(suite, app));
     }
 }
@@ -365,6 +427,37 @@ private:
 
 void advance_suite_apps(RuntimeSuite& suite, std::uint64_t now) {
     for (RuntimeApp& app : suite.apps) {
+        if (app.dependencies_pending) {
+            // Dependency gating (REQ_EM_001): launch once ready, fail visibly
+            // on a failed dependency or an expired deadline.
+            if (dependencies_ready(suite, app)) {
+                app.dependencies_pending = false;
+                app.dependency_deadline_ns = 0;
+                const bool ok = launch_app(suite, app);
+                if (!ok) {
+                    app.launch_failed = true;
+                    apply_launch_failures(suite);
+                    return;
+                }
+                suite.dirty = true;
+                continue;
+            }
+            if (dependency_failed(suite, app) ||
+                (app.dependency_deadline_ns != 0U && now >= app.dependency_deadline_ns)) {
+                app.dependencies_pending = false;
+                app.dependency_deadline_ns = 0;
+                app.state = AppState::Failed;
+                if (app.spec.impact == ImpactOnAppSuiteOperability::Degrade) {
+                    suite.state = SuiteState::Degraded;
+                }
+                log_execution_manager(core::LogLevel::Warning,
+                           std::format("event=dependency_failed app={} instance={}",
+                                       app.spec.app, app.spec.instance));
+                suite.dirty = true;
+                continue;
+            }
+            continue;  // still waiting
+        }
         AppStateMachine machine(suite, app);
         if (machine.advance(now)) {
             break;
