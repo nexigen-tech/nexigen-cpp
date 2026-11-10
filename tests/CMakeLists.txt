@@ -236,6 +236,14 @@ if(NEXIGEN_ENABLE_COM)
     add_test(NAME nexigen_logging_com_tests COMMAND nexigen_logging_com_tests)
     set_tests_properties(nexigen_logging_com_tests PROPERTIES TIMEOUT 600)
 
+    # Юнит-тесты nexigen-logd (change add-log-daemon).
+    add_executable(nexigen_logging_com_daemon_tests logging/log_daemon_test.cpp)
+    target_link_libraries(nexigen_logging_com_daemon_tests PRIVATE
+        nexigen_logging_com Threads::Threads)
+
+    add_test(NAME nexigen_logging_com_daemon_tests COMMAND nexigen_logging_com_daemon_tests)
+    set_tests_properties(nexigen_logging_com_daemon_tests PROPERTIES TIMEOUT 600)
+
     # Negative-compile probe: non-trivially-copyable payloads (owning string,
     # virtuals, containers) must be rejected by concepts::Message at compile
     # time. Тот же механизм, что tests/core/negative_compile.sh.
@@ -312,6 +320,7 @@ foreach(_nexigen_test
         nexigen_state_client_tests
         nexigen_em_orchestration_tests
         nexigen_logging_com_tests
+        nexigen_logging_com_daemon_tests
         nexigen_hub_tests)
     if(TARGET ${_nexigen_test})
         nexigen_precompile(${_nexigen_test})
