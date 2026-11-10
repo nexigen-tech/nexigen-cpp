@@ -18,6 +18,7 @@
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/server.hpp>
 #include <nexigen/com/service_name.hpp>
+#include <nexigen/com/subscriber.hpp>
 #include <nexigen/core/serialization_mandate.hpp>
 #include <nexigen/phm/checkpoint.hpp>
 #include <nexigen/phm/fault_kind.hpp>
@@ -31,6 +32,7 @@
 #include <nexigen/phm/recovery_response.hpp>
 #include <nexigen/phm/supervision_status.hpp>
 #include <nexigen/phm/supervisor.hpp>
+#include <nexigen/sm/recovery_notification.hpp>
 
 namespace com = nexigen::com;
 namespace phm = nexigen::phm;
@@ -238,14 +240,19 @@ void test_supervision() {
 void test_recovery() {
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
-    const auto name = com::ServiceName::create("Nexigen/Test/Recovery");
-    NX_CHECK(name.has_value());
+    const auto em_name = com::ServiceName::create("Nexigen/Test/Recovery");
+    const auto sm_notif_name = com::ServiceName::create("Nexigen/Test/SmRecovery");
+    const auto sm_event_name = com::ServiceName::create("Nexigen/Test/SmRecoveryEvent");
+    NX_CHECK(em_name.has_value());
+    NX_CHECK(sm_notif_name.has_value());
+    NX_CHECK(sm_event_name.has_value());
 
     // Mock EM responder: a com::Server that accepts every request and answers
-    // accepted=1 (the real StateClient lands with nexigen::sm).
-    auto client = phm::RecoveryClient::create(*node, *name);
+    // accepted=1 (the real StateClient lives in nexigen::exec).
+    auto client = phm::RecoveryClient::create(*node, *em_name, *sm_notif_name, *sm_event_name);
     NX_CHECK(client.has_value());
-    auto server = com::Server<phm::RecoveryRequest, phm::RecoveryResponse>::create(*node, *name);
+    auto server = com::Server<phm::RecoveryRequest, phm::RecoveryResponse>::create(*node,
+                                                                                   *em_name);
     NX_CHECK(server.has_value());
 
     std::thread mock_em([&server] {
@@ -259,7 +266,7 @@ void test_recovery() {
         }
     });
 
-    // Local recovery: restart a failed process by identity.
+    // Local recovery: restart a failed process by identity (direct PHM->EM).
     const auto restart = client->restart_process(42, "camera", std::chrono::milliseconds(2000));
     mock_em.join();
     NX_CHECK(restart.has_value());
@@ -269,8 +276,8 @@ void test_recovery() {
     NX_CHECK(text.find("RestartProcess") != std::string::npos);
     NX_CHECK(std::format("{}", *client) == text);
 
-    // SafeState escalation: apply the configured rule of an expired
-    // safety-critical process.
+    // SafeState escalation (re-routed per HLR-SM-030): the fault notification
+    // is published to the SM channel, not to the EM.
     {
         phm::SupervisedProcess process;
         process.name = "steering";
@@ -278,25 +285,34 @@ void test_recovery() {
         process.recovery_rules.push_back(
             {phm::RecoveryAction::SwitchFunctionGroupState, "motion_control"});
 
-        std::thread mock_em2([&server] {
-            for (int i = 0; i < 200; ++i) {
-                auto request = server->receive();
-                if (request.has_value() && request->has_value()) {
-                    NX_CHECK((*request)->payload().action ==
-                             phm::RecoveryAction::SwitchFunctionGroupState);
-                    NX_CHECK(std::string((*request)->payload().function_group) ==
-                             "motion_control");
-                    NX_CHECK((*request)->send_copy(phm::RecoveryResponse{1}).has_value());
-                    return;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            }
-        });
-        const auto escalated =
-            client->apply_rule(process, std::chrono::milliseconds(2000));
-        mock_em2.join();
+        auto sm_subscriber =
+            com::Subscriber<nexigen::sm::RecoveryNotification>::create(*node, *sm_notif_name);
+        auto sm_listener = com::EventListener::create(*node, *sm_event_name);
+        NX_CHECK(sm_subscriber.has_value());
+        NX_CHECK(sm_listener.has_value());
+
+        const auto escalated = client->apply_rule(process, std::chrono::milliseconds(2000));
         NX_CHECK(escalated.has_value());
         NX_CHECK(client->last_action() == phm::RecoveryAction::SwitchFunctionGroupState);
+
+        // The SM channel carries the failed function group.
+        bool observed = false;
+        for (int i = 0; i < 200 && !observed; ++i) {
+            auto received = sm_subscriber->receive();
+            NX_CHECK(received.has_value());
+            if (received->has_value()) {
+                observed = std::string((*received)->payload().function_group) ==
+                           "motion_control";
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+        NX_CHECK(observed);
+        // The wake event fires so the SM's WaitSet wakes without polling.
+        bool woken = false;
+        const auto collected = sm_listener->try_wait([&](com::EventId) { woken = true; });
+        NX_CHECK(collected.has_value());
+        NX_CHECK(woken);
     }
 
     // Fault storage: records land in the log asynchronously.

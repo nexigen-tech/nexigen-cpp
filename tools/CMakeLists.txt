@@ -25,7 +25,16 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_phmd_help PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
-    install(TARGETS nexigen-phmd
+    # nexigen-sm — State Manager process (change add-sm).
+    add_executable(nexigen-sm nexigen-sm/main.cpp)
+    target_link_libraries(nexigen-sm PRIVATE nexigen_sm nexigen_phm Threads::Threads)
+    target_include_directories(nexigen-sm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+    add_test(NAME nexigen_sm_help COMMAND nexigen-sm --help)
+    set_tests_properties(nexigen_sm_help PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
+    install(TARGETS nexigen-phmd nexigen-sm
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 

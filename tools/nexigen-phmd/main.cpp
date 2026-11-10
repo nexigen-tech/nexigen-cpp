@@ -224,10 +224,16 @@ struct MonitoredProcess {
 
     const auto recovery_name =
         nexigen::com::ServiceName::create("Nexigen/PHM/Recovery");
+    const auto sm_notification_name =
+        nexigen::com::ServiceName::create("Nexigen/SM/Recovery");
+    const auto sm_event_name =
+        nexigen::com::ServiceName::create("Nexigen/SM/RecoveryEvent");
     auto recovery =
-        recovery_name ? nexigen::phm::RecoveryClient::create(*node, *recovery_name)
-                      : nexigen::com::Result<nexigen::phm::RecoveryClient>{
-                            std::unexpected(nexigen::com::Error::InvalidArgument)};
+        recovery_name && sm_notification_name && sm_event_name
+            ? nexigen::phm::RecoveryClient::create(*node, *recovery_name,
+                                                   *sm_notification_name, *sm_event_name)
+            : nexigen::com::Result<nexigen::phm::RecoveryClient>{
+                  std::unexpected(nexigen::com::Error::InvalidArgument)};
 
     std::signal(SIGINT, stop_handler);
     std::signal(SIGTERM, stop_handler);

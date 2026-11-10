@@ -363,6 +363,10 @@ target_link_libraries(nexigen_app PUBLIC nexigen_core nexigen_chrono nexigen_log
 # =============================================================================
 file(GLOB NEXIGEN_EXEC_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/exec/*.cpp")
+# state_client.cpp depends on nexigen::com and lives in the gated
+# nexigen_state_client target (change add-sm); it must never enter nexigen_exec,
+# which builds with the gate OFF.
+list(FILTER NEXIGEN_EXEC_SOURCES EXCLUDE REGEX "state_client\\.cpp$")
 
 add_library(nexigen_exec STATIC ${NEXIGEN_EXEC_SOURCES})
 add_library(nexigen::exec ALIAS nexigen_exec)
@@ -434,6 +438,33 @@ if(NEXIGEN_ENABLE_COM)
     )
     target_compile_definitions(nexigen_phm PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
     target_link_libraries(nexigen_phm PUBLIC nexigen_com PRIVATE Threads::Threads)
+
+    # nexigen::sm — State Management (change add-sm): центральный арбитр
+    # состояний поверх nexigen::com (WaitSet, Field, Request-Response, Event).
+    file(GLOB NEXIGEN_SM_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/sm/*.cpp")
+
+    add_library(nexigen_sm STATIC ${NEXIGEN_SM_SOURCES})
+    add_library(nexigen::sm ALIAS nexigen_sm)
+
+    target_include_directories(nexigen_sm PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_compile_definitions(nexigen_sm PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+    target_link_libraries(nexigen_sm PUBLIC nexigen_com PRIVATE Threads::Threads)
+
+    # nexigen::exec::StateClient (change add-sm): приёмная сторона SetState в
+    # EM. Зависит от com, поэтому отдельный gated-таргет; линкуется к
+    # nexigen-exec при NEXIGEN_ENABLE_COM=ON.
+    add_library(nexigen_state_client STATIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/exec/state_client.cpp")
+    target_include_directories(nexigen_state_client PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_compile_definitions(nexigen_state_client PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+    target_link_libraries(nexigen_state_client PUBLIC nexigen_exec nexigen_com)
 endif()
 
 # =============================================================================
@@ -456,6 +487,8 @@ nexigen_precompile(nexigen_hub)
 if(NEXIGEN_ENABLE_COM)
     nexigen_precompile(nexigen_com)
     nexigen_precompile(nexigen_phm)
+    nexigen_precompile(nexigen_sm)
+    nexigen_precompile(nexigen_state_client)
 endif()
 
 # =============================================================================
@@ -561,7 +594,7 @@ set(NEXIGEN_EXPORT_TARGETS
     nexigen_exec
     nexigen_hub)
 if(NEXIGEN_ENABLE_COM)
-    list(APPEND NEXIGEN_EXPORT_TARGETS nexigen_com nexigen_phm)
+    list(APPEND NEXIGEN_EXPORT_TARGETS nexigen_com nexigen_phm nexigen_sm)
 endif()
 
 set_target_properties(nexigen_core        PROPERTIES EXPORT_NAME core)
@@ -576,6 +609,7 @@ set_target_properties(nexigen_hub         PROPERTIES EXPORT_NAME hub)
 if(NEXIGEN_ENABLE_COM)
     set_target_properties(nexigen_com     PROPERTIES EXPORT_NAME com)
     set_target_properties(nexigen_phm     PROPERTIES EXPORT_NAME phm)
+    set_target_properties(nexigen_sm      PROPERTIES EXPORT_NAME sm)
 endif()
 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/nexigen"

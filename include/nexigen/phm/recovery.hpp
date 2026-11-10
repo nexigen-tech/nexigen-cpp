@@ -1,10 +1,13 @@
-// nexigen::phm — recovery client (change add-phm; spec phm/recovery;
-// design D4).
+// nexigen::phm — recovery client (change add-phm; change add-sm re-routes
+// SafeState; spec phm/recovery "SafeState escalation" / "Local process
+// recovery"; design D5 of add-sm).
 //
-// The daemon's sender side of the PHM→EM recovery channel: a typed
-// com::Client over the request-response transport. The EM-side responder is
-// the nexigen::exec::StateClient, implemented by the later nexigen::sm
-// change; until then tests run against a mock EM responder.
+// The daemon's sender side of recovery:
+//   * RestartProcess / TriggerWatchdogReset stay a direct PHM→EM
+//     request-response (REQ_PHM_006 — an EM concern).
+//   * SafeState escalation emits a RecoveryNotification to the State Manager
+//     (publish-subscribe + wake event, HLR-SM-030/REQ_SM_007); the SM
+//     arbitrates and commands the EM through nexigen::exec::StateClient.
 #pragma once
 
 #include <chrono>
@@ -17,26 +20,44 @@
 
 #include <nexigen/com/client.hpp>
 #include <nexigen/com/error.hpp>
+#include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
+#include <nexigen/com/publisher.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/phm/phm_manifest.hpp>
 #include <nexigen/phm/recovery_action.hpp>
 #include <nexigen/phm/recovery_request.hpp>
 #include <nexigen/phm/recovery_response.hpp>
+#include <nexigen/sm/recovery_notification.hpp>
 
 namespace nexigen::phm {
 
-/// Sends recovery requests to the Execution Manager.
+/// Sends recovery requests to the Execution Manager and fault notifications
+/// to the State Manager.
 class RecoveryClient {
 public:
-    /// Open (or create) the recovery channel service on the node.
+    /// Open the recovery channels: the EM request-response channel and the
+    /// SM notification channel (publish-subscribe) with its wake event.
     [[nodiscard]] static com::Result<RecoveryClient> create(
-        com::Node& node, const com::ServiceName& name) noexcept {
-        auto client = com::Client<RecoveryRequest, RecoveryResponse>::create(node, name);
+        com::Node& node, const com::ServiceName& em_channel_name,
+        const com::ServiceName& sm_notification_name,
+        const com::ServiceName& sm_event_name) noexcept {
+        auto client = com::Client<RecoveryRequest, RecoveryResponse>::create(node,
+                                                                             em_channel_name);
         if (!client) {
             return std::unexpected(client.error());
         }
-        return RecoveryClient{name, std::move(*client)};
+        auto notifier =
+            com::Publisher<nexigen::sm::RecoveryNotification>::create(node, sm_notification_name);
+        if (!notifier) {
+            return std::unexpected(notifier.error());
+        }
+        auto event = com::EventNotifier::create(node, sm_event_name);
+        if (!event) {
+            return std::unexpected(event.error());
+        }
+        return RecoveryClient{em_channel_name, std::move(*client), std::move(*notifier),
+                              std::move(*event)};
     }
 
     RecoveryClient(const RecoveryClient&) = delete;
@@ -44,7 +65,7 @@ public:
     RecoveryClient(RecoveryClient&&) noexcept = default;
     RecoveryClient& operator=(RecoveryClient&&) noexcept = default;
 
-    /// Ask the EM to forcibly restart a failed process.
+    /// Ask the EM to forcibly restart a failed process (direct channel).
     [[nodiscard]] com::Result<RecoveryResponse> restart_process(
         std::uint32_t pid, std::string_view name,
         std::chrono::milliseconds timeout) noexcept {
@@ -55,17 +76,7 @@ public:
         return send(request, timeout);
     }
 
-    /// Escalate: move a function group into its SafeState.
-    [[nodiscard]] com::Result<RecoveryResponse> switch_function_group(
-        std::string_view function_group, std::chrono::milliseconds timeout) noexcept {
-        RecoveryRequest request;
-        request.action = RecoveryAction::SwitchFunctionGroupState;
-        std::snprintf(request.function_group, sizeof(request.function_group), "%s",
-                      function_group.data());
-        return send(request, timeout);
-    }
-
-    /// Escalate: trigger the hardware watchdog reset.
+    /// Escalate: trigger the hardware watchdog reset (direct channel).
     [[nodiscard]] com::Result<RecoveryResponse> trigger_watchdog_reset(
         std::chrono::milliseconds timeout) noexcept {
         RecoveryRequest request;
@@ -73,24 +84,54 @@ public:
         return send(request, timeout);
     }
 
+    /// Escalate a critical fault to the State Manager: publish the
+    /// RecoveryNotification for the failed Function Group and wake the SM's
+    /// WaitSet (HLR-SM-030). The SM arbitrates and commands the SafeState
+    /// switch through the StateClient.
+    [[nodiscard]] com::Status notify_sm_recovery(std::string_view function_group) noexcept {
+        nexigen::sm::RecoveryNotification notification{};
+        std::snprintf(notification.function_group, sizeof(notification.function_group), "%s",
+                      function_group.data());
+        auto loaned = sm_notifier_.loan_uninit();
+        if (!loaned) {
+            return std::unexpected(loaned.error());
+        }
+        auto sample = loaned->write_payload(std::move(notification));
+        const com::Status sent = sm_notifier_.send(std::move(sample));
+        if (!sent) {
+            return sent;
+        }
+        const com::Status woken = sm_event_.notify();
+        if (!woken) {
+            return woken;
+        }
+        last_action_ = RecoveryAction::SwitchFunctionGroupState;
+        return {};
+    }
+
     /// Apply the first configured recovery rule of an expired process
     /// (spec phm/recovery "Local process recovery" / "SafeState escalation").
-    [[nodiscard]] com::Result<RecoveryResponse> apply_rule(
-        const SupervisedProcess& process, std::chrono::milliseconds timeout) noexcept {
+    [[nodiscard]] com::Status apply_rule(const SupervisedProcess& process,
+                                         std::chrono::milliseconds timeout) noexcept {
         if (process.recovery_rules.empty()) {
-            // No configured rule: escalate the safety-critical default.
-            return switch_function_group(process.name, timeout);
+            // No configured rule: escalate the safety-critical default to SM.
+            return notify_sm_recovery(process.name);
         }
         const RecoveryRule& rule = process.recovery_rules.front();
         switch (rule.action) {
-            case RecoveryAction::RestartProcess:
-                return restart_process(0, process.name, timeout);
+            case RecoveryAction::RestartProcess: {
+                const auto response = restart_process(0, process.name, timeout);
+                return response.has_value() ? com::Status{}
+                                            : com::Status{std::unexpected(response.error())};
+            }
             case RecoveryAction::SwitchFunctionGroupState:
-                return switch_function_group(rule.function_group.empty() ? process.name
-                                                                         : rule.function_group,
-                                            timeout);
-            case RecoveryAction::TriggerWatchdogReset:
-                return trigger_watchdog_reset(timeout);
+                return notify_sm_recovery(
+                    rule.function_group.empty() ? process.name : rule.function_group);
+            case RecoveryAction::TriggerWatchdogReset: {
+                const auto response = trigger_watchdog_reset(timeout);
+                return response.has_value() ? com::Status{}
+                                            : com::Status{std::unexpected(response.error())};
+            }
         }
         return std::unexpected(com::Error::InvalidArgument);
     }
@@ -100,14 +141,20 @@ public:
 
     /// Cold-path diagnostic (mandate 9): names the channel and last action.
     [[nodiscard]] std::string to_string() const {
-        return std::format("RecoveryClient(service={}, last_action={})", service_name_.to_string(),
+        return std::format("RecoveryClient(em_channel={}, last_action={})",
+                           em_channel_.to_string(),
                            nexigen::phm::to_string(last_action_));
     }
 
 private:
-    RecoveryClient(com::ServiceName name,
-                   com::Client<RecoveryRequest, RecoveryResponse> client) noexcept
-        : service_name_(std::move(name)), client_(std::move(client)) {}
+    RecoveryClient(com::ServiceName em_channel,
+                   com::Client<RecoveryRequest, RecoveryResponse> client,
+                   com::Publisher<nexigen::sm::RecoveryNotification> sm_notifier,
+                   com::EventNotifier sm_event) noexcept
+        : em_channel_(std::move(em_channel)),
+          client_(std::move(client)),
+          sm_notifier_(std::move(sm_notifier)),
+          sm_event_(std::move(sm_event)) {}
 
     com::Result<RecoveryResponse> send(const RecoveryRequest& request,
                                        std::chrono::milliseconds timeout) noexcept {
@@ -118,8 +165,10 @@ private:
         return response;
     }
 
-    com::ServiceName service_name_;
+    com::ServiceName em_channel_;
     com::Client<RecoveryRequest, RecoveryResponse> client_;
+    com::Publisher<nexigen::sm::RecoveryNotification> sm_notifier_;
+    com::EventNotifier sm_event_;
     RecoveryAction last_action_{RecoveryAction::RestartProcess};
 };
 

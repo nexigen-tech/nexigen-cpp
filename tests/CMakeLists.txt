@@ -192,6 +192,21 @@ if(NEXIGEN_ENABLE_COM)
     add_test(NAME nexigen_phm_tests COMMAND nexigen_phm_tests)
     set_tests_properties(nexigen_phm_tests PROPERTIES TIMEOUT 600)
 
+    # Юнит-тесты nexigen::sm — state machine, arbitration, ipc, recovery, telemetry.
+    add_executable(nexigen_sm_tests sm/sm_test.cpp)
+    target_link_libraries(nexigen_sm_tests PRIVATE nexigen_sm nexigen_phm Threads::Threads)
+
+    add_test(NAME nexigen_sm_tests COMMAND nexigen_sm_tests)
+    set_tests_properties(nexigen_sm_tests PROPERTIES TIMEOUT 600)
+
+    # Юнит-тесты nexigen::exec::StateClient (change add-sm).
+    add_executable(nexigen_state_client_tests exec/state_client_test.cpp)
+    target_link_libraries(nexigen_state_client_tests PRIVATE
+        nexigen_state_client nexigen_com Threads::Threads)
+
+    add_test(NAME nexigen_state_client_tests COMMAND nexigen_state_client_tests)
+    set_tests_properties(nexigen_state_client_tests PROPERTIES TIMEOUT 600)
+
     # Negative-compile probe: non-trivially-copyable payloads (owning string,
     # virtuals, containers) must be rejected by concepts::Message at compile
     # time. Тот же механизм, что tests/core/negative_compile.sh.
@@ -263,6 +278,8 @@ foreach(_nexigen_test
         nexigen_exec_logging_tests
         nexigen_com_tests
         nexigen_phm_tests
+        nexigen_sm_tests
+        nexigen_state_client_tests
         nexigen_hub_tests)
     if(TARGET ${_nexigen_test})
         nexigen_precompile(${_nexigen_test})
