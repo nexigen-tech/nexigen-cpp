@@ -36,6 +36,20 @@ public:
         return WaitSet{std::move(*created)};
     }
 
+    /// Create a wait set whose underlying transport does NOT install its own
+    /// SIGINT/SIGTERM handlers (iceoryx2 SignalHandlingMode::Disabled): the
+    /// caller installs and owns signal handling — needed by the PHM daemon,
+    /// which must stop its loop on its own terms.
+    [[nodiscard]] static Result<WaitSet> create_without_signal_handling() noexcept {
+        auto created = iox2::WaitSetBuilder()
+                           .signal_handling_mode(iox2::SignalHandlingMode::Disabled)
+                           .create<iox2::ServiceType::Ipc>();
+        if (!created) {
+            return std::unexpected(detail::map_error(created.error()));
+        }
+        return WaitSet{std::move(*created)};
+    }
+
     WaitSet(const WaitSet&) = delete;
     WaitSet& operator=(const WaitSet&) = delete;
     WaitSet(WaitSet&&) noexcept = default;

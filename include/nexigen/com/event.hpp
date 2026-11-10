@@ -99,15 +99,36 @@ public:
     EventListener& operator=(EventListener&&) noexcept = default;
 
     /// Block until one notification batch arrives; the callback runs for each
-    /// activation. No polling: the listener sleeps in the kernel.
+    /// activation with its com-typed event id. No polling: the listener sleeps
+    /// in the kernel.
     template <class Callback>
     [[nodiscard]] Status blocking_wait(Callback&& callback) noexcept {
+        auto adapter = [&callback](iox2::EventActivation activation) {
+            callback(EventId{activation.id().as_value()});
+        };
         auto waited = inner_.blocking_wait(
-            iox2::bb::StaticFunction<void(iox2::EventActivation)>{std::forward<Callback>(callback)});
+            iox2::bb::StaticFunction<void(iox2::EventActivation)>{std::move(adapter)});
         if (!waited) {
             return std::unexpected(detail::map_error(waited.error()));
         }
         return {};
+    }
+
+    /// Drain the activations that are already pending (non-blocking); the
+    /// callback runs for each activation with its com-typed event id. Returns
+    /// the number of activations delivered — the polling-free way for a
+    /// WaitSet-driven loop to collect checkpoint/state ids.
+    template <class Callback>
+    [[nodiscard]] Result<std::uint64_t> try_wait(Callback&& callback) noexcept {
+        auto adapter = [&callback](iox2::EventActivation activation) {
+            callback(EventId{activation.id().as_value()});
+        };
+        auto collected = inner_.try_wait(
+            iox2::bb::StaticFunction<void(iox2::EventActivation)>{std::move(adapter)});
+        if (!collected) {
+            return std::unexpected(detail::map_error(collected.error()));
+        }
+        return *collected;
     }
 
     /// Cold-path diagnostic (mandate 9).

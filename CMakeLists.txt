@@ -417,6 +417,23 @@ if(NEXIGEN_ENABLE_COM)
     # nexigen_core, so it wins over the inherited -fno-rtti (GCC: last flag
     # wins).
     target_compile_options(static-lib-cxx INTERFACE -frtti)
+
+    # nexigen::phm — Platform Health Management (change add-phm): клиентская
+    # библиотека (health channel, checkpoint emission) и движки supervision /
+    # recovery / fault storage поверх nexigen::com (Event, WaitSet,
+    # Request-Response).
+    file(GLOB NEXIGEN_PHM_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/phm/*.cpp")
+
+    add_library(nexigen_phm STATIC ${NEXIGEN_PHM_SOURCES})
+    add_library(nexigen::phm ALIAS nexigen_phm)
+
+    target_include_directories(nexigen_phm PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_compile_definitions(nexigen_phm PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+    target_link_libraries(nexigen_phm PUBLIC nexigen_com PRIVATE Threads::Threads)
 endif()
 
 # =============================================================================
@@ -438,6 +455,7 @@ nexigen_precompile(nexigen_exec)
 nexigen_precompile(nexigen_hub)
 if(NEXIGEN_ENABLE_COM)
     nexigen_precompile(nexigen_com)
+    nexigen_precompile(nexigen_phm)
 endif()
 
 # =============================================================================
@@ -543,7 +561,7 @@ set(NEXIGEN_EXPORT_TARGETS
     nexigen_exec
     nexigen_hub)
 if(NEXIGEN_ENABLE_COM)
-    list(APPEND NEXIGEN_EXPORT_TARGETS nexigen_com)
+    list(APPEND NEXIGEN_EXPORT_TARGETS nexigen_com nexigen_phm)
 endif()
 
 set_target_properties(nexigen_core        PROPERTIES EXPORT_NAME core)
@@ -557,6 +575,7 @@ set_target_properties(nexigen_exec      PROPERTIES EXPORT_NAME exec)
 set_target_properties(nexigen_hub         PROPERTIES EXPORT_NAME hub)
 if(NEXIGEN_ENABLE_COM)
     set_target_properties(nexigen_com     PROPERTIES EXPORT_NAME com)
+    set_target_properties(nexigen_phm     PROPERTIES EXPORT_NAME phm)
 endif()
 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/nexigen"

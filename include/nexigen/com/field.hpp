@@ -210,7 +210,7 @@ public:
     /// Block until the writer updates the field. The listener sleeps in the
     /// kernel; it does not poll the shared value.
     [[nodiscard]] Status wait_for_update() noexcept {
-        return listener_.blocking_wait([](iox2::EventActivation) {});
+        return listener_.blocking_wait([](nexigen::com::EventId) {});
     }
 
     /// Cold-path diagnostic (mandate 9).

@@ -185,6 +185,13 @@ if(NEXIGEN_ENABLE_COM)
     add_test(NAME nexigen_com_tests COMMAND nexigen_com_tests)
     set_tests_properties(nexigen_com_tests PROPERTIES TIMEOUT 600)
 
+    # Юнит-тесты nexigen::phm — health channel, supervision, recovery, manifest.
+    add_executable(nexigen_phm_tests phm/phm_test.cpp)
+    target_link_libraries(nexigen_phm_tests PRIVATE nexigen_phm Threads::Threads)
+
+    add_test(NAME nexigen_phm_tests COMMAND nexigen_phm_tests)
+    set_tests_properties(nexigen_phm_tests PROPERTIES TIMEOUT 600)
+
     # Negative-compile probe: non-trivially-copyable payloads (owning string,
     # virtuals, containers) must be rejected by concepts::Message at compile
     # time. Тот же механизм, что tests/core/negative_compile.sh.
@@ -255,6 +262,7 @@ foreach(_nexigen_test
         nexigen_child_process_tests
         nexigen_exec_logging_tests
         nexigen_com_tests
+        nexigen_phm_tests
         nexigen_hub_tests)
     if(TARGET ${_nexigen_test})
         nexigen_precompile(${_nexigen_test})

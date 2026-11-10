@@ -186,7 +186,7 @@ void test_event() {
 
     int activations = 0;
     const com::Status waited =
-        listener->blocking_wait([&](iox2::EventActivation) { ++activations; });
+        listener->blocking_wait([&](com::EventId) { ++activations; });
     NX_CHECK(waited.has_value());
     NX_CHECK(activations >= 1);
 
