@@ -54,6 +54,13 @@ option(NEXIGEN_STRICT_LATENCY_TESTS
 option(NEXIGEN_NATIVE_ARCH
     "Use -march=native/-mtune=native in Release/RelWithDebInfo builds" ON)
 
+# nexigen::com — SOA over iceoryx2 (change add-com-module). The dependency is
+# Rust-based (cargo -> iceoryx2-ffi-c -> iceoryx2-bb-cxx -> iceoryx2-cxx), so
+# the module and the whole Rust build chain sit behind this gate; OFF keeps
+# every other target free of any Rust reference.
+option(NEXIGEN_ENABLE_COM
+    "Build nexigen::com (SOA over iceoryx2; requires the Rust toolchain)" OFF)
+
 if(NEXIGEN_ENABLE_COVERAGE AND (NEXIGEN_ENABLE_ASAN OR NEXIGEN_ENABLE_TSAN))
     message(FATAL_ERROR "❌ Coverage cannot be combined with ASan/TSan in one build.")
 endif()
@@ -112,6 +119,28 @@ if(NOT nlohmann_json_FOUND)
         URL https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.tar.gz
         URL_HASH SHA256=4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187)
     FetchContent_MakeAvailable(nlohmann_json)
+endif()
+
+# =============================================================================
+# iceoryx2 — zero-copy IPC backend for nexigen::com (change add-com-module).
+# Пин: коммит b0660b5b3574d3cc18911f3c115e270630120b75. В репозитории нет
+# тегов и GitHub-релизов; этот коммит — main на версии 0.10.999-dev, сразу
+# после стабильного 0.10.0 (crates.io, 2026-09-18). Сборка вызывает cargo
+# (Rust) — поэтому всё за гейтом NEXIGEN_ENABLE_COM.
+# =============================================================================
+if(NEXIGEN_ENABLE_COM)
+    include(FetchContent)
+    # Мандат проекта — std::expected: переводим биндинг с iox2-expected на
+    # стандартный. Примеры/тесты iceoryx2 не собираем (BUILD_EXAMPLES OFF по
+    # умолчанию — фиксируем явно).
+    set(IOX2_BB_CXX_CONFIG_USE_STD_EXPECTED ON CACHE BOOL "" FORCE)
+    set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(iceoryx2
+        SYSTEM
+        GIT_REPOSITORY https://github.com/ekxide/iceoryx2.git
+        GIT_TAG b0660b5b3574d3cc18911f3c115e270630120b75
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(iceoryx2)
 endif()
 
 # =============================================================================
@@ -362,6 +391,35 @@ target_compile_definitions(nexigen_hub PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE
 target_link_libraries(nexigen_hub PUBLIC nexigen_core nexigen_exec PRIVATE Threads::Threads)
 
 # =============================================================================
+# nexigen::com — SOA over iceoryx2 (change add-com-module). Собирается только
+# за гейтом NEXIGEN_ENABLE_COM: тонкая обёртка над iceoryx2-cxx (iox2::) с
+# собственным com::Error и zero-copy паттернами (pub-sub, event, method, field).
+# =============================================================================
+if(NEXIGEN_ENABLE_COM)
+    file(GLOB NEXIGEN_COM_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/com/*.cpp")
+
+    add_library(nexigen_com STATIC ${NEXIGEN_COM_SOURCES})
+    add_library(nexigen::com ALIAS nexigen_com)
+
+    target_include_directories(nexigen_com PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_compile_definitions(nexigen_com PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+    target_link_libraries(nexigen_com PUBLIC nexigen_core iceoryx2-cxx::static-lib-cxx)
+
+    # iceoryx2-cxx derives payload type names via typeid (its default
+    # type-name mechanism, exercised only at port creation — cold path), so
+    # the com module opts back into RTTI; every other nexigen module keeps the
+    # global -fno-rtti mandate (deviation recorded in design D9). The -frtti
+    # rides on the iceoryx2 target's INTERFACE, which is linked after
+    # nexigen_core, so it wins over the inherited -fno-rtti (GCC: last flag
+    # wins).
+    target_compile_options(static-lib-cxx INTERFACE -frtti)
+endif()
+
+# =============================================================================
 # speedup-validation-loop 1.2: один PCH-прелюд (include/nexigen/core/pch.hpp)
 # на каждую статичную библиотеку — nlohmann/json и холодные std-хедеры
 # парсятся один раз на таргет вместо каждой TU. Снапшот PCH идентичен
@@ -378,6 +436,9 @@ nexigen_precompile(nexigen_diagnostics)
 nexigen_precompile(nexigen_app)
 nexigen_precompile(nexigen_exec)
 nexigen_precompile(nexigen_hub)
+if(NEXIGEN_ENABLE_COM)
+    nexigen_precompile(nexigen_com)
+endif()
 
 # =============================================================================
 # Опции сборки: юнит-тесты и runnable-примеры (включены по умолчанию).
@@ -481,6 +542,9 @@ set(NEXIGEN_EXPORT_TARGETS
     nexigen_app
     nexigen_exec
     nexigen_hub)
+if(NEXIGEN_ENABLE_COM)
+    list(APPEND NEXIGEN_EXPORT_TARGETS nexigen_com)
+endif()
 
 set_target_properties(nexigen_core        PROPERTIES EXPORT_NAME core)
 set_target_properties(nexigen_chrono      PROPERTIES EXPORT_NAME chrono)
@@ -491,6 +555,9 @@ set_target_properties(nexigen_diagnostics PROPERTIES EXPORT_NAME diagnostics)
 set_target_properties(nexigen_app         PROPERTIES EXPORT_NAME app)
 set_target_properties(nexigen_exec      PROPERTIES EXPORT_NAME exec)
 set_target_properties(nexigen_hub         PROPERTIES EXPORT_NAME hub)
+if(NEXIGEN_ENABLE_COM)
+    set_target_properties(nexigen_com     PROPERTIES EXPORT_NAME com)
+endif()
 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/nexigen"
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")

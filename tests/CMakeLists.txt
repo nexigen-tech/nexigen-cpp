@@ -176,6 +176,37 @@ target_link_libraries(nexigen_exec_logging_tests PRIVATE nexigen_exec Threads::T
 add_test(NAME nexigen_exec_logging_tests COMMAND nexigen_exec_logging_tests)
 set_tests_properties(nexigen_exec_logging_tests PROPERTIES TIMEOUT 300)
 
+# Юнит-тесты nexigen::com — словарь ошибок, имена сервисов, Node и концепт
+# Message<T>. Только при NEXIGEN_ENABLE_COM=ON (зависимость от iceoryx2).
+if(NEXIGEN_ENABLE_COM)
+    add_executable(nexigen_com_tests com/com_test.cpp)
+    target_link_libraries(nexigen_com_tests PRIVATE nexigen_com Threads::Threads)
+
+    add_test(NAME nexigen_com_tests COMMAND nexigen_com_tests)
+    set_tests_properties(nexigen_com_tests PROPERTIES TIMEOUT 600)
+
+    # Negative-compile probe: non-trivially-copyable payloads (owning string,
+    # virtuals, containers) must be rejected by concepts::Message at compile
+    # time. Тот же механизм, что tests/core/negative_compile.sh.
+    get_target_property(_nexigen_com_iox2_includes iceoryx2-cxx::static-lib-cxx
+        INTERFACE_INCLUDE_DIRECTORIES)
+    set(_nexigen_com_iox2_inc_flags "")
+    foreach(_nexigen_com_inc IN LISTS _nexigen_com_iox2_includes)
+        list(APPEND _nexigen_com_iox2_inc_flags "-I${_nexigen_com_inc}")
+    endforeach()
+    add_test(NAME nexigen_com_message_negative_compile
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/core/negative_compile.sh
+            ${CMAKE_CXX_COMPILER}
+            ${CMAKE_CURRENT_SOURCE_DIR}/com/neg/message_non_pod_negative.cpp
+            ${PROJECT_SOURCE_DIR}/include
+            -frtti
+            ${_nexigen_com_iox2_inc_flags})
+    set_tests_properties(nexigen_com_message_negative_compile PROPERTIES TIMEOUT 300)
+    unset(_nexigen_com_inc)
+    unset(_nexigen_com_iox2_includes)
+    unset(_nexigen_com_iox2_inc_flags)
+endif()
+
 if(NEXIGEN_BUILD_TOOLS)
     # The CLI tests drive the real nexigen-exec/nexigen-hub binaries, which
     # exist only when tools are built; tests=ON + tools=OFF must configure
@@ -223,6 +254,7 @@ foreach(_nexigen_test
         nexigen_app_suite_tests
         nexigen_child_process_tests
         nexigen_exec_logging_tests
+        nexigen_com_tests
         nexigen_hub_tests)
     if(TARGET ${_nexigen_test})
         nexigen_precompile(${_nexigen_test})
