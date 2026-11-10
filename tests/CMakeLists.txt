@@ -185,6 +185,19 @@ if(NEXIGEN_ENABLE_COM)
     add_test(NAME nexigen_com_tests COMMAND nexigen_com_tests)
     set_tests_properties(nexigen_com_tests PROPERTIES TIMEOUT 600)
 
+    # Микробенч латентности горячего пути логгера поверх iceoryx2
+    # (change bench-log-iceoryx2-latency): печатает медиану/p99/p99.9/max,
+    # строгий sanity-гейт (a+event <= 2 мкс) только в Release x86-64.
+    add_executable(nexigen_com_latency_tests com/latency_test.cpp)
+    target_link_libraries(nexigen_com_latency_tests PRIVATE nexigen_com Threads::Threads)
+    if(NEXIGEN_STRICT_LATENCY_TESTS)
+        target_compile_definitions(nexigen_com_latency_tests PRIVATE
+            $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:NEXIGEN_COM_STRICT_LATENCY>)
+    endif()
+
+    add_test(NAME nexigen_com_latency_tests COMMAND nexigen_com_latency_tests)
+    set_tests_properties(nexigen_com_latency_tests PROPERTIES TIMEOUT 600)
+
     # Юнит-тесты nexigen::phm — health channel, supervision, recovery, manifest.
     add_executable(nexigen_phm_tests phm/phm_test.cpp)
     target_link_libraries(nexigen_phm_tests PRIVATE nexigen_phm Threads::Threads)
@@ -214,6 +227,14 @@ if(NEXIGEN_ENABLE_COM)
 
     add_test(NAME nexigen_em_orchestration_tests COMMAND nexigen_em_orchestration_tests)
     set_tests_properties(nexigen_em_orchestration_tests PROPERTIES TIMEOUT 600)
+
+    # Юнит-тесты nexigen::logging::Iceoryx2Logger (change add-iceoryx2-logger).
+    add_executable(nexigen_logging_com_tests logging/iceoryx2_logger_test.cpp)
+    target_link_libraries(nexigen_logging_com_tests PRIVATE
+        nexigen_logging_com Threads::Threads)
+
+    add_test(NAME nexigen_logging_com_tests COMMAND nexigen_logging_com_tests)
+    set_tests_properties(nexigen_logging_com_tests PROPERTIES TIMEOUT 600)
 
     # Negative-compile probe: non-trivially-copyable payloads (owning string,
     # virtuals, containers) must be rejected by concepts::Message at compile
@@ -285,10 +306,12 @@ foreach(_nexigen_test
         nexigen_child_process_tests
         nexigen_exec_logging_tests
         nexigen_com_tests
+        nexigen_com_latency_tests
         nexigen_phm_tests
         nexigen_sm_tests
         nexigen_state_client_tests
         nexigen_em_orchestration_tests
+        nexigen_logging_com_tests
         nexigen_hub_tests)
     if(TARGET ${_nexigen_test})
         nexigen_precompile(${_nexigen_test})

@@ -465,6 +465,17 @@ if(NEXIGEN_ENABLE_COM)
     )
     target_compile_definitions(nexigen_state_client PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
     target_link_libraries(nexigen_state_client PUBLIC nexigen_exec nexigen_com)
+
+    # nexigen::logging_com — Iceoryx2Logger (change add-iceoryx2-logger):
+    # header-only logger поверх nexigen::com. Гейт отдельным INTERFACE-таргетом,
+    # ядро nexigen_logging остаётся свободным от iceoryx2.
+    add_library(nexigen_logging_com INTERFACE)
+    add_library(nexigen::logging_com ALIAS nexigen_logging_com)
+    target_include_directories(nexigen_logging_com INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_link_libraries(nexigen_logging_com INTERFACE nexigen_logging nexigen_com)
 endif()
 
 # =============================================================================
