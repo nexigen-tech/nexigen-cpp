@@ -65,45 +65,43 @@ void print_line(const std::string& line) {
 
 } // namespace
 
-int main() {
-    // Cold-path diagnostic via the ADL free function (mandate 9).
-    TelemetryPacket sample{};
-    sample.sensor_value = 0.0025;
-    print_line(std::format("sample packet: {}", to_string(sample)));
+/// One endpoint's classified outcomes.
+struct EndpointStats {
+    std::uint64_t retries{0};
+    nexigen::core::ErrorCode last_error{nexigen::core::ErrorCode::Ok};
+};
 
-    std::uint64_t producer_retries = 0;
-    nexigen::core::ErrorCode producer_last_error = nexigen::core::ErrorCode::Ok;
+/// (1) Producer: stream every packet and retry wait-free while the queue is
+/// full — a full queue is normal backpressure, never a reason to sleep.
+void run_producer(EndpointStats& stats) {
+    for (std::uint64_t sequence = 0; sequence < k_packet_count; ++sequence) {
+        TelemetryPacket packet{};
+        packet.sequence = sequence;
+        packet.sensor_value = static_cast<double>(sequence) * 0.0025;
 
-    std::jthread producer{[&] {
-        for (std::uint64_t sequence = 0; sequence < k_packet_count; ++sequence) {
-            TelemetryPacket packet{};
-            packet.sequence = sequence;
-            packet.sensor_value = static_cast<double>(sequence) * 0.0025;
-
-            const auto now = nexigen::chrono::Timestamp::now();
-            if (!now.has_value()) { // never value(): SystemError would abort
-                producer_failed.store(true, std::memory_order_release);
-                producer_last_error = now.error();
-                return;
-            }
-            packet.stamp = *now;
-
-            // Wait-free retry: a full queue is a normal backpressure outcome,
-            // never a reason to block or sleep on the producer thread.
-            for (;;) {
-                const auto pushed = queue.try_push(packet);
-                if (pushed.has_value()) {
-                    break;
-                }
-                ++producer_retries;
-                producer_last_error = pushed.error(); // classified, never value()
-                producer_saw_full.store(true, std::memory_order_release);
-            }
+        const auto now = nexigen::chrono::Timestamp::now();
+        if (!now.has_value()) { // never value(): SystemError would abort
+            producer_failed.store(true, std::memory_order_release);
+            stats.last_error = now.error();
+            return;
         }
-    }};
+        packet.stamp = *now;
 
-    // Guarantee the BufferFull outcome is part of the demonstration: start
-    // the consumer only once the producer has run into a full queue.
+        for (;;) {
+            const auto pushed = queue.try_push(packet);
+            if (pushed.has_value()) {
+                break;
+            }
+            ++stats.retries;
+            stats.last_error = pushed.error(); // classified, never value()
+            producer_saw_full.store(true, std::memory_order_release);
+        }
+    }
+}
+
+/// (2) Guarantee the BufferFull outcome is part of the demonstration: start the
+/// consumer only once the producer has run into a full queue (bounded spin).
+void await_first_full() {
     std::uint64_t spins = 0;
     constexpr std::uint64_t k_spin_budget = 100'000'000;
     while (!producer_saw_full.load(std::memory_order_acquire)) {
@@ -111,60 +109,47 @@ int main() {
             break; // fall through: the final checks report the failure
         }
     }
+}
 
-    std::uint64_t consumer_retries = 0;
-    std::uint64_t order_violations = 0;
-    nexigen::core::ErrorCode consumer_last_error = nexigen::core::ErrorCode::Ok;
-
-    std::jthread consumer{};
-    if (!producer_failed.load(std::memory_order_acquire)) {
-        consumer = std::jthread{[&] {
-            std::uint64_t expected = 0;
-            while (expected < k_packet_count) {
-                TelemetryPacket packet{};
-                if (queue.try_pop(packet).has_value()) {
-                    if (packet.sequence != expected ||
-                        packet.sensor_value != static_cast<double>(expected) * 0.0025) {
-                        ++order_violations;
-                    }
-                    ++expected;
-                } else {
-                    ++consumer_retries; // BufferEmpty: wait-free, retry immediately
-                    consumer_last_error = nexigen::core::ErrorCode::BufferEmpty;
-                }
+/// (3) Consumer: drain exactly k_packet_count packets in order, then prove the
+/// queue is empty with one deliberate classified pop.
+void run_consumer(EndpointStats& stats, std::uint64_t& order_violations) {
+    std::uint64_t expected = 0;
+    while (expected < k_packet_count) {
+        TelemetryPacket packet{};
+        if (queue.try_pop(packet).has_value()) {
+            if (packet.sequence != expected ||
+                packet.sensor_value != static_cast<double>(expected) * 0.0025) {
+                ++order_violations;
             }
-            // One deliberate pop past the end demonstrates the empty outcome.
-            TelemetryPacket extra{};
-            const auto outcome = queue.try_pop(extra);
-            if (!outcome.has_value()) {
-                consumer_last_error = outcome.error();
-            } else {
-                ++order_violations; // nothing may remain after k_packet_count pops
-            }
-        }};
+            ++expected;
+        } else {
+            ++stats.retries; // BufferEmpty: wait-free, retry immediately
+            stats.last_error = nexigen::core::ErrorCode::BufferEmpty;
+        }
     }
-
-    producer.join();
-    if (consumer.joinable()) {
-        consumer.join();
+    TelemetryPacket extra{};
+    const auto outcome = queue.try_pop(extra);
+    if (!outcome.has_value()) {
+        stats.last_error = outcome.error();
+    } else {
+        ++order_violations; // nothing may remain after k_packet_count pops
     }
+}
 
-    print_line(std::format("producer: sent={}, full_retries={}, last_outcome={}", k_packet_count,
-                           producer_retries, producer_last_error));
-    print_line(std::format("consumer: received={}, empty_retries={}, last_outcome={}",
-                           k_packet_count, consumer_retries, consumer_last_error));
-    print_line(std::format("final queue state: {}", queue.to_string()));
-
+/// (4) Final checks; each failure names its reason on stdout.
+bool report(const EndpointStats& producer, const EndpointStats& consumer,
+            std::uint64_t order_violations) {
     bool ok = true;
     if (producer_failed.load(std::memory_order_acquire)) {
         print_line("producer failed to read the monotonic clock");
         ok = false;
     }
-    if (producer_last_error != nexigen::core::ErrorCode::BufferFull) {
+    if (producer.last_error != nexigen::core::ErrorCode::BufferFull) {
         print_line("producer never observed BufferFull");
         ok = false;
     }
-    if (consumer_last_error != nexigen::core::ErrorCode::BufferEmpty) {
+    if (consumer.last_error != nexigen::core::ErrorCode::BufferEmpty) {
         print_line("consumer did not finish on a classified BufferEmpty");
         ok = false;
     }
@@ -176,7 +161,38 @@ int main() {
         print_line("queue is not empty after the consumer finished");
         ok = false;
     }
+    return ok;
+}
 
+int main() {
+    // Cold-path diagnostic via the ADL free function (mandate 9).
+    TelemetryPacket sample{};
+    sample.sensor_value = 0.0025;
+    print_line(std::format("sample packet: {}", to_string(sample)));
+
+    EndpointStats producer_stats;
+    std::jthread producer{[&] { run_producer(producer_stats); }};
+    await_first_full();
+
+    EndpointStats consumer_stats;
+    std::uint64_t order_violations = 0;
+    std::jthread consumer{};
+    if (!producer_failed.load(std::memory_order_acquire)) {
+        consumer = std::jthread{[&] { run_consumer(consumer_stats, order_violations); }};
+    }
+
+    producer.join();
+    if (consumer.joinable()) {
+        consumer.join();
+    }
+
+    print_line(std::format("producer: sent={}, full_retries={}, last_outcome={}", k_packet_count,
+                           producer_stats.retries, producer_stats.last_error));
+    print_line(std::format("consumer: received={}, empty_retries={}, last_outcome={}",
+                           k_packet_count, consumer_stats.retries, consumer_stats.last_error));
+    print_line(std::format("final queue state: {}", queue.to_string()));
+
+    const bool ok = report(producer_stats, consumer_stats, order_violations);
     print_line(ok ? "ex_spsc_ring_buffer: OK" : "ex_spsc_ring_buffer: FAILED");
     return ok ? 0 : 1;
 }

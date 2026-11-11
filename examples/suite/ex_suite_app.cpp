@@ -314,17 +314,16 @@ bool has_directory_option(std::span<const std::string_view> args) {
 
 } // namespace
 
-int main(int argc, char* argv[]) {
-    const DemoConfig config = load_demo_config();
-
-    std::vector<std::string_view> args;
+/// Collect argv, prepare the standalone settings when no directory option was
+/// passed, and parse the command line. `--help` is a caller action, not a
+/// startup request: no directory preparation happens in that case.
+std::optional<int> prepare_command_line(int argc, char* argv[], std::vector<std::string_view>& args,
+                                        app::CommandLineOptions& options) {
     args.reserve(static_cast<std::size_t>(argc > 0 ? argc - 1 : 0) + 2);
     for (int i = 1; i < argc; ++i) {
         args.emplace_back(argv[i]);
     }
 
-    // Help is a caller action, not a startup request: skip the standalone
-    // directory preparation entirely so --help leaves no side effects.
     bool help_requested = false;
     for (const std::string_view token : args) {
         if (token == "-h" || token == "--help") {
@@ -354,11 +353,77 @@ int main(int argc, char* argv[]) {
         static_cast<void>(std::fwrite(usage.data(), 1, usage.size(), stderr));
         return 2;
     }
-    const app::CommandLineOptions options = *parsed;
+    options = *parsed;
     if (options.help) {
         const std::string_view usage = app::command_line_usage();
         static_cast<void>(std::fwrite(usage.data(), 1, usage.size(), stdout));
         return 0;
+    }
+    return std::nullopt;
+}
+
+/// The concrete infrastructure this example builds (one logger, one meter tree,
+/// one tracer, one chrono sink).
+using Infrastructure = app::Infrastructure<SuitePolicy, 256, 8>;
+
+/// Initialize the infrastructure and report every settings diagnostic on
+/// failure; the caller surfaces the status.
+core::Status initialize_infrastructure(Infrastructure& infra,
+                                       const app::CommandLineOptions& options,
+                                       app::Settings& loaded) {
+    const core::Status initialized = infra.initialize(options, loaded);
+    if (initialized) {
+        return initialized;
+    }
+    for (const auto& diagnostic : loaded.logging.diagnostics) {
+        print_error("logging: " + diagnostic.to_string());
+    }
+    for (const auto& diagnostic : loaded.metrics.diagnostics) {
+        print_error("metrics: " + diagnostic.to_string());
+    }
+    for (const auto& diagnostic : loaded.tracing.diagnostics) {
+        print_error("tracing: " + diagnostic.to_string());
+    }
+    for (const auto& diagnostic : loaded.chrono.diagnostics) {
+        print_error("chrono: " + diagnostic.to_string());
+    }
+    return initialized;
+}
+
+/// Every instrument kind must exist; the diagnostic is printed once here.
+bool instruments_created(bool counter, bool gauge, bool state, bool statistics, bool explicit_hist,
+                         bool exp_hist) {
+    const bool ok = counter && gauge && state && statistics && explicit_hist && exp_hist;
+    if (!ok) {
+        print_error("one or more instruments could not be created");
+    }
+    return ok;
+}
+
+/// Role deadline: a failing role aborts at its own deadline, worker/degrade
+/// request a stop there, and an unbounded worker runs until a signal.
+std::chrono::steady_clock::time_point
+compute_deadline(const DemoConfig& config, std::chrono::steady_clock::time_point start) {
+    if (config.role == DemoRole::Failure) {
+        return start + std::chrono::seconds{config.abort_after_s};
+    }
+    if (config.role == DemoRole::Degrade) {
+        return start + std::chrono::seconds{config.exit_after_s};
+    }
+    if (config.run_forever) {
+        return std::chrono::steady_clock::time_point::max();
+    }
+    return start + std::chrono::seconds{config.worker_seconds};
+}
+
+int main(int argc, char* argv[]) {
+    const DemoConfig config = load_demo_config();
+
+    std::vector<std::string_view> args;
+    app::CommandLineOptions options;
+    const std::optional<int> early_exit = prepare_command_line(argc, argv, args, options);
+    if (early_exit.has_value()) {
+        return *early_exit;
     }
 
     auto created = app::make_infrastructure<SuitePolicy, 256, 8>();
@@ -368,20 +433,8 @@ int main(int argc, char* argv[]) {
     auto infra = std::move(*created);
 
     app::Settings loaded{};
-    const core::Status initialized = infra->initialize(options, loaded);
+    const core::Status initialized = initialize_infrastructure(*infra, options, loaded);
     if (!initialized) {
-        for (const auto& diagnostic : loaded.logging.diagnostics) {
-            print_error("logging: " + diagnostic.to_string());
-        }
-        for (const auto& diagnostic : loaded.metrics.diagnostics) {
-            print_error("metrics: " + diagnostic.to_string());
-        }
-        for (const auto& diagnostic : loaded.tracing.diagnostics) {
-            print_error("tracing: " + diagnostic.to_string());
-        }
-        for (const auto& diagnostic : loaded.chrono.diagnostics) {
-            print_error("chrono: " + diagnostic.to_string());
-        }
         return fail_status("Infrastructure::initialize", initialized);
     }
 
@@ -406,9 +459,11 @@ int main(int argc, char* argv[]) {
     const auto exp_hist =
         (*meter)->create_exponential_histogram<kMultiThreaded, kReadable, kResetOnRead>(
             "latency_exp", kExponentialScale);
-    if (!counter || !gauge || !state || !statistics || !explicit_hist || !exp_hist) {
+    if (!instruments_created(counter.has_value(), gauge.has_value(), state.has_value(),
+                             statistics.has_value(), explicit_hist.has_value(),
+                             exp_hist.has_value())) {
         static_cast<void>(infra->shutdown());
-        return fail("one or more instruments could not be created");
+        return 1;
     }
 
     const auto tracer = infra->tracer_for("suite-app.loop");
@@ -424,16 +479,7 @@ int main(int argc, char* argv[]) {
     // Deadline for the role: failure aborts at its deadline, worker/degrade
     // request a stop there (or run until a signal for a forever worker).
     const auto start = std::chrono::steady_clock::now();
-    std::chrono::steady_clock::time_point deadline{};
-    if (config.role == DemoRole::Failure) {
-        deadline = start + std::chrono::seconds{config.abort_after_s};
-    } else if (config.role == DemoRole::Degrade) {
-        deadline = start + std::chrono::seconds{config.exit_after_s};
-    } else if (config.run_forever) {
-        deadline = std::chrono::steady_clock::time_point::max();
-    } else {
-        deadline = start + std::chrono::seconds{config.worker_seconds};
-    }
+    const std::chrono::steady_clock::time_point deadline = compute_deadline(config, start);
 
     std::uint64_t ticks = 0;
     std::uint64_t batches = 0;

@@ -73,31 +73,13 @@ void expect(bool condition, const char* what) {
 
 } // namespace
 
-int main() {
-    metrics::NullMetricSink sink;
-    metrics::MetricProviderConfig config{};
-    config.collect_interval = std::chrono::nanoseconds{0}; // no background thread
-    metrics::MetricProvider provider{config, sink};
-    expect(provider.startup_status().has_value(), "provider startup");
+using ExplicitHist = metrics::ExplicitBucketHistogram<MT, Readable, Cumulative>;
+using ExponentialHist = metrics::ExponentialHistogram<MT, Readable, Cumulative>;
 
-    const core::Result<metrics::Meter*> meter = provider.get_meter("hil", "1.0");
-    expect(meter.has_value(), "get_meter succeeds");
-    if (!meter) {
-        return 1;
-    }
-
-    const auto latency = (*meter)->create_explicit_histogram<MT, Readable, Cumulative>(
-        "task_latency_ns", std::span<const double>{latency_bounds});
-    const auto wide = (*meter)->create_exponential_histogram<MT, Readable, Cumulative>(
-        "task_latency_wide", exponential_scale);
-    expect(latency.has_value() && wide.has_value(), "histograms created");
-    if (!latency || !wide) {
-        return 1;
-    }
-
-    // --- Measure simulated task durations from multiple threads. Each
-    // producer owns a calibrated StampSource (hot path: sample() only) and
-    // simulates workloads whose spin counts span orders of magnitude.
+/// (1) Measure simulated task durations from multiple threads. Each producer
+/// owns a calibrated StampSource (hot path: sample() only) and simulates
+/// workloads whose spin counts span orders of magnitude.
+void measure_durations(ExplicitHist& latency, ExponentialHist& wide) {
     std::printf("== Measured task durations ==\n");
     std::atomic<int> calibration_failures{0};
     {
@@ -119,8 +101,8 @@ int main() {
                     const nexigen::chrono::Timestamp end = stamps.sample();
                     const double duration =
                         static_cast<double>(end.nanoseconds() - start.nanoseconds());
-                    (*latency)->record(duration);
-                    (*wide)->record(duration);
+                    latency.record(duration);
+                    wide.record(duration);
                 }
                 static_cast<void>(spin_sink);
             });
@@ -128,40 +110,45 @@ int main() {
     } // producers joined
     expect(calibration_failures.load(std::memory_order_relaxed) == 0,
            "every producer clock calibrated");
+}
 
-    // --- ExplicitBucketHistogram: configured bounds are reflected in the
-    // snapshot and the buckets account for every sample.
+/// (2) ExplicitBucketHistogram: configured bounds are reflected in the
+/// snapshot and the buckets account for every sample.
+void report_explicit(const metrics::HistogramSnapshot& view) {
     std::printf("== ExplicitBucketHistogram ==\n");
-    const metrics::HistogramSnapshot latency_view = (*latency)->read();
-    std::printf("  %s\n", latency_view.to_string().c_str());
-    expect(latency_view.count == expected_samples, "explicit histogram counts every measurement");
-    expect(latency_view.bucket_count == 8U, "one bucket per bound plus the overflow bucket");
-    std::uint64_t latency_buckets = 0;
-    for (std::uint32_t i = 0; i < latency_view.bucket_count; ++i) {
-        latency_buckets += latency_view.buckets_count[i];
+    std::printf("  %s\n", view.to_string().c_str());
+    expect(view.count == expected_samples, "explicit histogram counts every measurement");
+    expect(view.bucket_count == 8U, "one bucket per bound plus the overflow bucket");
+    std::uint64_t buckets = 0;
+    for (std::uint32_t i = 0; i < view.bucket_count; ++i) {
+        buckets += view.buckets_count[i];
     }
-    expect(latency_buckets == latency_view.count, "bucket counts match the summary");
+    expect(buckets == view.count, "bucket counts match the summary");
     for (std::size_t i = 0; i < std::size(latency_bounds); ++i) {
-        expect(latency_view.buckets_lower[i + 1U] == latency_bounds[i],
+        expect(view.buckets_lower[i + 1U] == latency_bounds[i],
                "configured bounds appear as bucket edges");
     }
+}
 
-    // --- ExponentialHistogram: wide dynamic range, effective scale reported,
-    // buckets plus zeros account for every accepted sample.
+/// (3) ExponentialHistogram: wide dynamic range, effective scale reported,
+/// buckets plus zeros account for every accepted sample.
+void report_exponential(const metrics::HistogramSnapshot& view) {
     std::printf("== ExponentialHistogram ==\n");
-    const metrics::HistogramSnapshot wide_view = (*wide)->read();
-    std::printf("  %s\n", wide_view.to_string().c_str());
-    expect(wide_view.count == expected_samples, "exponential histogram counts every measurement");
-    std::uint64_t wide_buckets = 0;
-    for (std::uint32_t i = 0; i < wide_view.bucket_count; ++i) {
-        wide_buckets += wide_view.buckets_count[i];
+    std::printf("  %s\n", view.to_string().c_str());
+    expect(view.count == expected_samples, "exponential histogram counts every measurement");
+    std::uint64_t buckets = 0;
+    for (std::uint32_t i = 0; i < view.bucket_count; ++i) {
+        buckets += view.buckets_count[i];
     }
-    expect(wide_buckets + wide_view.zero_count == wide_view.count,
+    expect(buckets + view.zero_count == view.count,
            "buckets plus zeros account for every accepted sample");
-    expect(wide_view.effective_scale >= 0 && wide_view.effective_scale <= exponential_scale,
+    expect(view.effective_scale >= 0 && view.effective_scale <= exponential_scale,
            "effective scale is reported and at most the configured scale");
+}
 
-    // --- Percentiles for both families.
+/// (4) Percentiles for both families.
+void report_percentiles(const metrics::HistogramSnapshot& latency_view,
+                        const metrics::HistogramSnapshot& wide_view) {
     std::printf("== Percentiles ==\n");
     std::printf("  explicit:    p50=%.1f p90=%.1f p99=%.1f p99.9=%.1f\n", latency_view.p50,
                 latency_view.p90, latency_view.p99, latency_view.p999);
@@ -170,6 +157,38 @@ int main() {
     expect(percentiles_ordered(latency_view), "explicit percentiles are ordered");
     expect(percentiles_ordered(wide_view), "exponential percentiles are ordered");
     expect(latency_view.p50 > 0.0 && wide_view.p50 > 0.0, "percentiles are populated");
+}
+
+int main() {
+    // (0) Setup: no background harvester; both instruments are MultiThreaded
+    // and snapshots are taken after the producers join.
+    metrics::NullMetricSink sink;
+    metrics::MetricProviderConfig config{};
+    config.collect_interval = std::chrono::nanoseconds{0}; // no background thread
+    metrics::MetricProvider provider{config, sink};
+    expect(provider.startup_status().has_value(), "provider startup");
+
+    const core::Result<metrics::Meter*> meter = provider.get_meter("hil", "1.0");
+    expect(meter.has_value(), "get_meter succeeds");
+    if (!meter) {
+        return 1;
+    }
+
+    const auto latency = (*meter)->create_explicit_histogram<MT, Readable, Cumulative>(
+        "task_latency_ns", std::span<const double>{latency_bounds});
+    const auto wide = (*meter)->create_exponential_histogram<MT, Readable, Cumulative>(
+        "task_latency_wide", exponential_scale);
+    expect(latency.has_value() && wide.has_value(), "histograms created");
+    if (!latency || !wide) {
+        return 1;
+    }
+
+    measure_durations(**latency, **wide);
+    const metrics::HistogramSnapshot latency_view = (*latency)->read();
+    const metrics::HistogramSnapshot wide_view = (*wide)->read();
+    report_explicit(latency_view);
+    report_exponential(wide_view);
+    report_percentiles(latency_view, wide_view);
 
     std::printf("ex_histograms: %s\n", g_failures == 0 ? "OK" : "FAILED");
     return g_failures == 0 ? 0 : 1;

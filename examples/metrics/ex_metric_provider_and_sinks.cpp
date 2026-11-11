@@ -108,21 +108,185 @@ void expect(bool condition, const char* what) {
 
 } // namespace
 
+using Composite =
+    metrics::CompositeMetricSink<metrics::ConsoleMetricSink, metrics::JsonFileMetricSink,
+                                 metrics::NullMetricSink>;
+
+/// Every instrument kind must exist; the diagnostic is printed once here so the
+/// pipeline body stays flat.
+bool all_created(bool events, bool temperature, bool pressure, bool statistics, bool histogram,
+                 bool exponential) {
+    const bool ok = events && temperature && pressure && statistics && histogram && exponential;
+    expect(ok, "all instruments created");
+    return ok;
+}
+
+/// (1) Build the pipeline, emit from concurrent producers and let the
+/// background harvester deliver several periodic batches. The provider is
+/// destroyed at the end of this function, so its final harvest and flush reach
+/// the file before the read-back step.
+bool emit_pipeline(const metrics::MetricProviderConfig& config, Composite& composite) {
+    metrics::MetricProvider provider{config, composite};
+    const core::Status startup = provider.startup_status();
+    expect(startup.has_value(), "harvester pinned to the configured core mask");
+    if (!startup) {
+        std::fprintf(stderr, "  startup_status error: %d\n", static_cast<int>(startup.error()));
+    }
+
+    const core::Result<metrics::Meter*> meter = provider.get_meter("hil-rig", "3.1.0");
+    expect(meter.has_value(), "get_meter succeeds");
+    if (!meter) {
+        return false;
+    }
+
+    const auto events = (*meter)->create_counter<MT, Readable, Cumulative>("hil_events");
+    const auto temperature =
+        (*meter)->create_gauge<std::int64_t, MT, Readable, Cumulative>("hil_temperature");
+    const auto pressure = (*meter)->create_gauge<double, MT, Readable, Cumulative>("hil_pressure");
+    const auto latency_stats =
+        (*meter)->create_statistics<MT, Readable, Cumulative>("hil_latency_stats");
+    const auto latency_ns = (*meter)->create_explicit_histogram<MT, Readable, Cumulative>(
+        "hil_latency_ns", std::span<const double>{latency_bounds});
+    const auto latency_wide =
+        (*meter)->create_exponential_histogram<MT, Readable, Cumulative>("hil_latency_wide", 10);
+    if (!all_created(events.has_value(), temperature.has_value(), pressure.has_value(),
+                     latency_stats.has_value(), latency_ns.has_value(), latency_wide.has_value())) {
+        return false;
+    }
+
+    // Concurrent producers across every instrument kind.
+    {
+        std::vector<std::jthread> producers;
+        producers.reserve(worker_count);
+        for (int w = 0; w < worker_count; ++w) {
+            producers.emplace_back([&, w] {
+                for (int i = 0; i < 100'000; ++i) {
+                    (*events)->inc();
+                    (*temperature)->add(1);
+                    (*pressure)->add(0.5);
+                    (*latency_stats)->record(25.0 + static_cast<double>(w));
+                    (*latency_ns)->record(15.0 + static_cast<double>(i % 64));
+                    (*latency_wide)->record(1.0 + static_cast<double>(i % 4096));
+                }
+            });
+        }
+    } // producers joined
+    // Let the background harvester deliver several periodic batches.
+    std::this_thread::sleep_for(std::chrono::milliseconds{300});
+
+    const core::Status flushed = provider.flush();
+    expect(flushed.has_value(), "flush reaches the sink");
+    return true;
+}
+
+/// What the read-back step observed across the telemetry file.
+struct ReadBackStats {
+    std::size_t lines{0};
+    bool saw_meter{false};
+    bool saw_counter{false};
+    bool saw_histogram{false};
+};
+
+/// ISO-8601 UTC stamp that never goes backwards. Returns false when the line
+/// carries no string timestamp (reported here).
+bool check_timestamp(const nlohmann::json& parsed, std::size_t number,
+                     std::string& previous_stamp) {
+    const auto stamp_it = parsed.find("timestamp");
+    if (stamp_it == parsed.end() || !stamp_it->is_string()) {
+        ++g_failures;
+        std::fprintf(stderr, "FAIL: line %zu has no timestamp string\n", number);
+        return false;
+    }
+    const std::string stamp = stamp_it->get<std::string>();
+    if (!iso8601_shape(stamp)) {
+        ++g_failures;
+        std::fprintf(stderr, "FAIL: line %zu stamp '%s' is not ISO-8601 UTC\n", number,
+                     stamp.c_str());
+    }
+    if (!previous_stamp.empty() && stamp < previous_stamp) {
+        ++g_failures;
+        std::fprintf(stderr, "FAIL: line %zu timestamp went backwards\n", number);
+    }
+    previous_stamp = stamp;
+    return true;
+}
+
+/// Collect the instrument kinds and meter identity the records mention.
+void scan_records(const nlohmann::json& parsed, std::size_t number, ReadBackStats& stats) {
+    const auto records_it = parsed.find("records");
+    if (records_it == parsed.end() || !records_it->is_array()) {
+        ++g_failures;
+        std::fprintf(stderr, "FAIL: line %zu has no records array\n", number);
+        return;
+    }
+    for (const nlohmann::json& record : *records_it) {
+        const auto meter_it = record.find("meter");
+        const auto metric_it = record.find("metric");
+        if (meter_it != record.end() && meter_it->is_string() &&
+            meter_it->get<std::string>() == "hil-rig") {
+            stats.saw_meter = true;
+        }
+        if (metric_it != record.end() && metric_it->is_string()) {
+            const std::string name = metric_it->get<std::string>();
+            stats.saw_counter = stats.saw_counter || name == "hil_events";
+            stats.saw_histogram = stats.saw_histogram || name == "hil_latency_ns";
+        }
+    }
+}
+
+/// Validate one batch line: parseable JSON object, then timestamp and records.
+void check_line(const std::string& line, std::size_t number, std::string& previous_stamp,
+                ReadBackStats& stats) {
+    const nlohmann::json parsed = nlohmann::json::parse(line, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_object()) {
+        ++g_failures;
+        std::fprintf(stderr, "FAIL: line %zu is not a parseable JSON object\n", number);
+        return;
+    }
+    if (!check_timestamp(parsed, number, previous_stamp)) {
+        return;
+    }
+    scan_records(parsed, number, stats);
+}
+
+/// (2) Cold-path read-back: one parseable JSON object per line, ISO-8601
+/// stamps, non-decreasing in delivery order, records intact.
+void read_back(const std::string& path) {
+    std::printf("== JSONL read-back ==\n");
+    std::ifstream input(path);
+    expect(input.is_open(), "telemetry file exists on disk");
+
+    ReadBackStats stats;
+    std::string previous_stamp;
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.empty()) {
+            continue;
+        }
+        ++stats.lines;
+        check_line(line, stats.lines, previous_stamp, stats);
+    }
+
+    std::printf("  %zu batch lines parsed from %s\n", stats.lines, path.c_str());
+    expect(stats.lines >= 3U, "periodic batch delivery observed (multiple batches)");
+    expect(stats.saw_meter, "harvested records carry the meter identity");
+    expect(stats.saw_counter && stats.saw_histogram, "records cover the instrument kinds");
+}
+
 int main() {
-    // --- Output location and per-run file (append-safe across ctest runs).
+    // (0) Output location and per-run file (append-safe across ctest runs).
     std::error_code dir_error;
     std::filesystem::create_directories("/tmp/nexigen-examples-metrics", dir_error);
     expect(!dir_error, "output directory created");
     const std::string path = "/tmp/nexigen-examples-metrics/telemetry_" +
                              std::to_string(static_cast<long long>(::getpid())) + ".jsonl";
 
-    // --- The composite owns configured members (design D3): console to
-    // stdout, JSONL telemetry to the per-run file, and a null member.
-    metrics::CompositeMetricSink<metrics::ConsoleMetricSink, metrics::JsonFileMetricSink,
-                                 metrics::NullMetricSink>
-        composite{metrics::ConsoleMetricSink{STDOUT_FILENO},
-                  metrics::JsonFileMetricSink{metrics::JsonFileMetricSinkConfig{path, "", false}},
-                  metrics::NullMetricSink{}};
+    // The composite owns configured members (design D3): console to stdout,
+    // JSONL telemetry to the per-run file, and a null member.
+    Composite composite{
+        metrics::ConsoleMetricSink{STDOUT_FILENO},
+        metrics::JsonFileMetricSink{metrics::JsonFileMetricSinkConfig{path, "", false}},
+        metrics::NullMetricSink{}};
     expect(composite.get<metrics::JsonFileMetricSink>().is_open(), "JSONL sink opened its file");
 
     const std::uint64_t core_mask = derive_core_mask();
@@ -132,127 +296,10 @@ int main() {
     std::printf("== HIL telemetry pipeline (core_mask=0x%llx) ==\n",
                 static_cast<unsigned long long>(core_mask));
 
-    {
-        metrics::MetricProvider provider{config, composite};
-        const core::Status startup = provider.startup_status();
-        expect(startup.has_value(), "harvester pinned to the configured core mask");
-        if (!startup) {
-            std::fprintf(stderr, "  startup_status error: %d\n", static_cast<int>(startup.error()));
-        }
-
-        const core::Result<metrics::Meter*> meter = provider.get_meter("hil-rig", "3.1.0");
-        expect(meter.has_value(), "get_meter succeeds");
-        if (!meter) {
-            return 1;
-        }
-
-        const auto events = (*meter)->create_counter<MT, Readable, Cumulative>("hil_events");
-        const auto temperature =
-            (*meter)->create_gauge<std::int64_t, MT, Readable, Cumulative>("hil_temperature");
-        const auto pressure =
-            (*meter)->create_gauge<double, MT, Readable, Cumulative>("hil_pressure");
-        const auto latency_stats =
-            (*meter)->create_statistics<MT, Readable, Cumulative>("hil_latency_stats");
-        const auto latency_ns = (*meter)->create_explicit_histogram<MT, Readable, Cumulative>(
-            "hil_latency_ns", std::span<const double>{latency_bounds});
-        const auto latency_wide = (*meter)->create_exponential_histogram<MT, Readable, Cumulative>(
-            "hil_latency_wide", 10);
-        expect(events.has_value() && temperature.has_value() && pressure.has_value() &&
-                   latency_stats.has_value() && latency_ns.has_value() && latency_wide.has_value(),
-               "all instruments created");
-        if (!events || !temperature || !pressure || !latency_stats || !latency_ns ||
-            !latency_wide) {
-            return 1;
-        }
-
-        // --- Concurrent producers across every instrument kind.
-        {
-            std::vector<std::jthread> producers;
-            producers.reserve(worker_count);
-            for (int w = 0; w < worker_count; ++w) {
-                producers.emplace_back([&, w] {
-                    for (int i = 0; i < 100'000; ++i) {
-                        (*events)->inc();
-                        (*temperature)->add(1);
-                        (*pressure)->add(0.5);
-                        (*latency_stats)->record(25.0 + static_cast<double>(w));
-                        (*latency_ns)->record(15.0 + static_cast<double>(i % 64));
-                        (*latency_wide)->record(1.0 + static_cast<double>(i % 4096));
-                    }
-                });
-            }
-        } // producers joined
-        // Let the background harvester deliver several periodic batches.
-        std::this_thread::sleep_for(std::chrono::milliseconds{300});
-
-        const core::Status flushed = provider.flush();
-        expect(flushed.has_value(), "flush reaches the sink");
-    } // provider destroyed: stop, join, final harvest + flush
-
-    // --- Cold-path read-back: one parseable JSON object per line, ISO-8601
-    // stamps, non-decreasing in delivery order, records intact.
-    std::printf("== JSONL read-back ==\n");
-    std::ifstream input(path);
-    expect(input.is_open(), "telemetry file exists on disk");
-    std::string line;
-    std::string previous_stamp;
-    std::size_t lines = 0;
-    bool saw_meter = false;
-    bool saw_counter = false;
-    bool saw_histogram = false;
-    while (std::getline(input, line)) {
-        if (line.empty()) {
-            continue;
-        }
-        ++lines;
-        const nlohmann::json parsed = nlohmann::json::parse(line, nullptr, false);
-        if (parsed.is_discarded() || !parsed.is_object()) {
-            ++g_failures;
-            std::fprintf(stderr, "FAIL: line %zu is not a parseable JSON object\n", lines);
-            continue;
-        }
-        const auto stamp_it = parsed.find("timestamp");
-        if (stamp_it == parsed.end() || !stamp_it->is_string()) {
-            ++g_failures;
-            std::fprintf(stderr, "FAIL: line %zu has no timestamp string\n", lines);
-            continue;
-        }
-        const std::string stamp = stamp_it->get<std::string>();
-        if (!iso8601_shape(stamp)) {
-            ++g_failures;
-            std::fprintf(stderr, "FAIL: line %zu stamp '%s' is not ISO-8601 UTC\n", lines,
-                         stamp.c_str());
-        }
-        if (!previous_stamp.empty() && stamp < previous_stamp) {
-            ++g_failures;
-            std::fprintf(stderr, "FAIL: line %zu timestamp went backwards\n", lines);
-        }
-        previous_stamp = stamp;
-
-        const auto records_it = parsed.find("records");
-        if (records_it == parsed.end() || !records_it->is_array()) {
-            ++g_failures;
-            std::fprintf(stderr, "FAIL: line %zu has no records array\n", lines);
-            continue;
-        }
-        for (const nlohmann::json& record : *records_it) {
-            const auto meter_it = record.find("meter");
-            const auto metric_it = record.find("metric");
-            if (meter_it != record.end() && meter_it->is_string() &&
-                meter_it->get<std::string>() == "hil-rig") {
-                saw_meter = true;
-            }
-            if (metric_it != record.end() && metric_it->is_string()) {
-                const std::string name = metric_it->get<std::string>();
-                saw_counter = saw_counter || name == "hil_events";
-                saw_histogram = saw_histogram || name == "hil_latency_ns";
-            }
-        }
+    if (!emit_pipeline(config, composite)) {
+        return 1;
     }
-    std::printf("  %zu batch lines parsed from %s\n", lines, path.c_str());
-    expect(lines >= 3U, "periodic batch delivery observed (multiple batches)");
-    expect(saw_meter, "harvested records carry the meter identity");
-    expect(saw_counter && saw_histogram, "records cover the instrument kinds");
+    read_back(path);
 
     std::printf("ex_metric_provider_and_sinks: %s\n", g_failures == 0 ? "OK" : "FAILED");
     return g_failures == 0 ? 0 : 1;

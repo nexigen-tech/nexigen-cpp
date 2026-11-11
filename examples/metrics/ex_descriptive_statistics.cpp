@@ -68,30 +68,18 @@ void expect(bool condition, const char* what) {
 
 } // namespace
 
-int main() {
-    metrics::NullMetricSink sink;
-    metrics::MetricProviderConfig config{};
-    config.collect_interval = std::chrono::nanoseconds{0}; // no background thread
-    metrics::MetricProvider provider{config, sink};
-    expect(provider.startup_status().has_value(), "provider startup");
+using FixtureStats = metrics::DescriptiveStatistics<ST, Readable, Cumulative>;
+using AllTimeStats = metrics::DescriptiveStatistics<MT, Readable, Cumulative>;
+using WindowStats = metrics::DescriptiveStatistics<MT, Readable, ResetOnRead>;
 
-    const core::Result<metrics::Meter*> meter = provider.get_meter("control-loop", "2.0.0");
-    expect(meter.has_value(), "get_meter succeeds");
-    if (!meter) {
-        return 1;
-    }
-
-    // --- 1. Running summary: the Welford fixture pinned exactly.
+/// (1) Running summary: the Welford fixture pinned exactly, plus the visible
+/// rejection of non-finite samples.
+metrics::StatisticsSnapshot step_running_summary(FixtureStats& fixture) {
     std::printf("== Running summary (fixture) ==\n");
-    const auto fixture = (*meter)->create_statistics<ST, Readable, Cumulative>("fixture");
-    expect(fixture.has_value(), "fixture statistics created");
-    if (!fixture) {
-        return 1;
-    }
     for (double value : {2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0}) {
-        (*fixture)->record(value);
+        fixture.record(value);
     }
-    metrics::StatisticsSnapshot summary = (*fixture)->read();
+    metrics::StatisticsSnapshot summary = fixture.read();
     std::printf("  %s\n", summary.to_string().c_str());
     expect(summary.count == 8U, "fixture count is 8");
     expect(near(summary.mean, 5.0), "fixture mean is 5");
@@ -99,22 +87,19 @@ int main() {
     expect(near(summary.min, 2.0) && near(summary.max, 9.0), "fixture min/max are 2/9");
 
     // Non-finite samples are rejected visibly (moments unchanged).
-    (*fixture)->record(std::nan(""));
-    (*fixture)->record(std::numeric_limits<double>::infinity());
-    (*fixture)->record(-std::numeric_limits<double>::infinity());
-    summary = (*fixture)->read();
+    fixture.record(std::nan(""));
+    fixture.record(std::numeric_limits<double>::infinity());
+    fixture.record(-std::numeric_limits<double>::infinity());
+    summary = fixture.read();
     expect(summary.count == 8U, "non-finite samples do not change the moments");
     expect(summary.ignored_samples == 3U, "ignored-sample counter reports the rejections");
+    return summary;
+}
 
-    // --- 2. Cumulative all-time statistics across producer phases.
+/// (2) Cumulative all-time statistics across producer phases; the windowed
+/// instrument covers exactly its own interval.
+void step_cumulative(AllTimeStats& all_time, WindowStats& windowed) {
     std::printf("== Cumulative all-time statistics ==\n");
-    const auto all_time = (*meter)->create_statistics<MT, Readable, Cumulative>("sensor_all");
-    const auto windowed = (*meter)->create_statistics<MT, Readable, ResetOnRead>("sensor_window");
-    expect(all_time.has_value() && windowed.has_value(), "multi-threaded statistics created");
-    if (!all_time || !windowed) {
-        return 1;
-    }
-
     for (int phase = 1; phase <= phase_count; ++phase) {
         {
             std::vector<std::jthread> producers;
@@ -123,15 +108,15 @@ int main() {
                 const double value = static_cast<double>(phase * 10 + (w + 1));
                 producers.emplace_back([&, value] {
                     for (int i = 0; i < per_phase_worker; ++i) {
-                        (*all_time)->record(value);
-                        (*windowed)->record(value);
+                        all_time.record(value);
+                        windowed.record(value);
                     }
                 });
             }
         } // producers joined: the interval is complete
 
         // Poll the window between ticks: it covers exactly this interval.
-        const metrics::StatisticsSnapshot window = (*windowed)->read();
+        const metrics::StatisticsSnapshot window = windowed.read();
         std::printf("  window %d: count=%llu min=%.1f max=%.1f mean=%.3f\n", phase,
                     static_cast<unsigned long long>(window.count), window.min, window.max,
                     window.mean);
@@ -146,13 +131,16 @@ int main() {
     }
 
     // The cumulative instrument reflects the whole run.
-    const metrics::StatisticsSnapshot total = (*all_time)->read();
+    const metrics::StatisticsSnapshot total = all_time.read();
     std::printf("  all-time: %s\n", total.to_string().c_str());
     expect(total.count == static_cast<std::uint64_t>(phase_count * worker_count * per_phase_worker),
            "cumulative count covers every phase");
     expect(near(total.min, 11.0) && near(total.max, 34.0), "cumulative min/max span all phases");
+}
 
-    // --- 3. Windowed statistics under live polling (exactly-once swap).
+/// (3) Windowed statistics under live polling (exactly-once swap): every
+/// record must land in exactly one window across concurrent polls.
+void step_live_polling(AllTimeStats& all_time, WindowStats& windowed) {
     std::printf("== Live polling while producers record ==\n");
     std::atomic<int> active_workers{worker_count};
     std::uint64_t windowed_total = 0;
@@ -163,14 +151,14 @@ int main() {
         for (int w = 0; w < worker_count; ++w) {
             producers.emplace_back([&] {
                 for (int i = 0; i < 250'000; ++i) {
-                    (*all_time)->record(100.0);
-                    (*windowed)->record(100.0);
+                    all_time.record(100.0);
+                    windowed.record(100.0);
                 }
                 active_workers.fetch_sub(1, std::memory_order_relaxed);
             });
         }
         while (active_workers.load(std::memory_order_relaxed) > 0) {
-            const metrics::StatisticsSnapshot window = (*windowed)->read();
+            const metrics::StatisticsSnapshot window = windowed.read();
             windowed_total += window.count;
             ++polls;
             std::this_thread::sleep_for(std::chrono::milliseconds{2});
@@ -184,11 +172,11 @@ int main() {
     // empty windows so every record is attributed exactly once.
     std::uint64_t consecutive_empty = 0;
     while (consecutive_empty < 2) {
-        const metrics::StatisticsSnapshot window = (*windowed)->read();
+        const metrics::StatisticsSnapshot window = windowed.read();
         windowed_total += window.count;
         consecutive_empty = window.count == 0U ? consecutive_empty + 1 : 0;
     }
-    const metrics::StatisticsSnapshot cumulative = (*all_time)->read();
+    const metrics::StatisticsSnapshot cumulative = all_time.read();
     const std::uint64_t live_recorded = static_cast<std::uint64_t>(worker_count) * 250'000U;
     const std::uint64_t recorded =
         live_recorded + static_cast<std::uint64_t>(phase_count * worker_count * per_phase_worker);
@@ -198,10 +186,12 @@ int main() {
     expect(windowed_total == live_recorded,
            "every record lands in exactly one window across concurrent polls");
     expect(cumulative.count == recorded, "cumulative count matches every record");
+}
 
-    // --- 4. Diagnostics: to_string() and std::format agree.
+/// (4) Diagnostics: to_string() and std::format agree.
+void step_diagnostics(const FixtureStats& fixture, const metrics::StatisticsSnapshot& summary) {
     std::printf("== Diagnostics ==\n");
-    const std::string text = (*fixture)->to_string();
+    const std::string text = fixture.to_string();
     std::printf("  %s\n", text.c_str());
     const std::string formatted = std::format("{}", summary);
     expect(!text.empty() && text.find("Cumulative") != std::string::npos,
@@ -211,6 +201,39 @@ int main() {
     expect(std::format("{}", Readable) == "Readable", "access policy formats by canonical name");
     expect(std::format("{}", ResetOnRead) == "ResetOnRead",
            "reset policy formats by canonical name");
+}
+
+int main() {
+    // (0) Setup: no background harvester.
+    metrics::NullMetricSink sink;
+    metrics::MetricProviderConfig config{};
+    config.collect_interval = std::chrono::nanoseconds{0}; // no background thread
+    metrics::MetricProvider provider{config, sink};
+    expect(provider.startup_status().has_value(), "provider startup");
+
+    const core::Result<metrics::Meter*> meter = provider.get_meter("control-loop", "2.0.0");
+    expect(meter.has_value(), "get_meter succeeds");
+    if (!meter) {
+        return 1;
+    }
+
+    const auto fixture = (*meter)->create_statistics<ST, Readable, Cumulative>("fixture");
+    expect(fixture.has_value(), "fixture statistics created");
+    if (!fixture) {
+        return 1;
+    }
+    const metrics::StatisticsSnapshot summary = step_running_summary(**fixture);
+
+    const auto all_time = (*meter)->create_statistics<MT, Readable, Cumulative>("sensor_all");
+    const auto windowed = (*meter)->create_statistics<MT, Readable, ResetOnRead>("sensor_window");
+    expect(all_time.has_value() && windowed.has_value(), "multi-threaded statistics created");
+    if (!all_time || !windowed) {
+        return 1;
+    }
+
+    step_cumulative(**all_time, **windowed);
+    step_live_polling(**all_time, **windowed);
+    step_diagnostics(**fixture, summary);
 
     std::printf("ex_descriptive_statistics: %s\n", g_failures == 0 ? "OK" : "FAILED");
     return g_failures == 0 ? 0 : 1;

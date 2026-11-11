@@ -367,9 +367,17 @@ bool scan_trace_shape(std::string_view path, std::uint64_t& edges, std::uint64_t
 }
 
 } // namespace
+using Infrastructure = app::Infrastructure<CliFilePolicy, 256, 8>;
+using CliTracer = tracing::Tracer<256, 8>;
+using CliCounter =
+    metrics::Counter<metrics::ConcurrencyPolicy::MultiThreaded, metrics::AccessPolicy::Readable>;
+using CliGauge = metrics::Gauge<std::int64_t, metrics::ConcurrencyPolicy::MultiThreaded,
+                                metrics::AccessPolicy::Readable>;
 
-int main(int argc, char* argv[]) {
-    std::vector<std::string_view> args;
+/// Collect argv, strip the example-local demo token, prepare the settings
+/// inputs and parse the standard command line. `--help` is answered here.
+std::optional<int> prepare_command_line(int argc, char* argv[], std::vector<std::string_view>& args,
+                                        app::CommandLineOptions& options) {
     args.reserve(static_cast<std::size_t>(argc > 0 ? argc - 1 : 0) + 2);
     for (int i = 1; i < argc; ++i) {
         args.emplace_back(argv[i]);
@@ -399,11 +407,229 @@ int main(int argc, char* argv[]) {
         static_cast<void>(std::fwrite(usage.data(), 1, usage.size(), stderr));
         return 2;
     }
-    const app::CommandLineOptions options = *parsed;
+    options = *parsed;
     if (options.help) {
         const std::string_view usage = app::command_line_usage();
         static_cast<void>(std::fwrite(usage.data(), 1, usage.size(), stdout));
         return 0;
+    }
+    return std::nullopt;
+}
+
+/// Trace 1 of 3: startup. The tracer exists only after initialize(), so the
+/// root covers the post-initialization phases with explicit-parent children.
+bool run_startup_trace(Infrastructure& infra, CliTracer& tracer,
+                       const app::CommandLineOptions& options, const app::Settings& loaded,
+                       CliCounter*& counter, CliGauge*& gauge) {
+    // Trace 1 of 3: startup. The tracer exists only after initialize(), so the
+    // root covers the post-initialization phases with explicit-parent children.
+    // The instruments are MultiThreaded: a background harvester runs every
+    // collect_interval, and single-threaded storage must not be harvested
+    // concurrently with recording (README hot-path rules).
+    {
+        auto startup = tracer.start_span("startup", tracing::SpanKind::Internal);
+        static_cast<void>(
+            startup.set_attribute("settings_dir", std::string_view{options.local_settings_dir}));
+        const tracing::SpanContext startup_ctx = startup.context();
+        {
+            auto create =
+                tracer.start_span("create-instruments", tracing::SpanKind::Internal, &startup_ctx);
+            const auto meter = infra.meter("cli-example", "1.0");
+            if (!meter.has_value()) {
+                static_cast<void>(infra.shutdown());
+                static_cast<void>(fail_status("Infrastructure::meter", meter));
+                return false;
+            }
+            const auto made_counter =
+                (*meter)
+                    ->create_counter<metrics::ConcurrencyPolicy::MultiThreaded,
+                                     metrics::AccessPolicy::Readable>("ticks");
+            if (!made_counter.has_value()) {
+                static_cast<void>(infra.shutdown());
+                static_cast<void>(fail_status("create_counter", made_counter));
+                return false;
+            }
+            const auto made_gauge =
+                (*meter)
+                    ->create_gauge<std::int64_t, metrics::ConcurrencyPolicy::MultiThreaded,
+                                   metrics::AccessPolicy::Readable>("last_tick");
+            if (!made_gauge.has_value()) {
+                static_cast<void>(infra.shutdown());
+                static_cast<void>(fail_status("create_gauge", made_gauge));
+                return false;
+            }
+            counter = *made_counter;
+            gauge = *made_gauge;
+            static_cast<void>(create.set_attribute("instruments", static_cast<std::int64_t>(3)));
+            static_cast<void>(create.set_status(tracing::SpanStatus::Ok));
+            static_cast<void>(create.end());
+        }
+        {
+            auto check =
+                tracer.start_span("check-settings", tracing::SpanKind::Internal, &startup_ctx);
+            const std::int64_t diagnostics = static_cast<std::int64_t>(
+                loaded.logging.diagnostics.size() + loaded.metrics.diagnostics.size() +
+                loaded.tracing.diagnostics.size() + loaded.chrono.diagnostics.size());
+            static_cast<void>(check.set_attribute("diagnostics", diagnostics));
+            static_cast<void>(check.set_status(tracing::SpanStatus::Ok));
+            static_cast<void>(check.end());
+        }
+        static_cast<void>(startup.set_status(tracing::SpanStatus::Ok));
+        static_cast<void>(startup.end());
+    }
+    return true;
+}
+
+/// Trace 2 of 3: tick-loop. Each outer iteration opens one Producer batch span
+/// for up to 2 s of paced ticks and closes it with a nested Consumer collect
+/// child (the per-batch collection report).
+void run_tick_loop(Infrastructure& infra, CliTracer& tracer, CliCounter& counter, CliGauge& gauge,
+                   std::string_view settings_dir, std::uint64_t& ticks, std::uint64_t& batches) {
+    // Trace 2 of 3: tick-loop. Each outer iteration opens one Producer batch
+    // span for up to 2 s of paced ticks and closes it with a nested Consumer
+    // collect child (the per-batch collection report).
+    const auto start = std::chrono::steady_clock::now();
+    const auto deadline = start + kRunDuration;
+    {
+        auto loop = tracer.start_span("tick-loop", tracing::SpanKind::Internal);
+        static_cast<void>(loop.set_attribute("settings_dir", settings_dir));
+        static_cast<void>(loop.set_attribute("tick_period_ms", kTickPeriod.count()));
+        const tracing::SpanContext loop_ctx = loop.context();
+
+        auto next_tick = start;
+        auto next_log = start + kLogPeriod;
+        while (std::chrono::steady_clock::now() < deadline) {
+            auto batch = tracer.start_span("tick-batch", tracing::SpanKind::Producer, &loop_ctx);
+            auto batch_deadline = std::chrono::steady_clock::now() + kBatchPeriod;
+            if (batch_deadline > deadline) {
+                batch_deadline = deadline;
+            }
+            while (std::chrono::steady_clock::now() < batch_deadline) {
+                counter.inc();
+                gauge.set(static_cast<std::int64_t>(ticks));
+                ++ticks;
+                next_tick += kTickPeriod;
+                std::this_thread::sleep_until(next_tick);
+                if (std::chrono::steady_clock::now() >= next_log) {
+                    infra.logger().info("tick {}", ticks);
+                    next_log = std::chrono::steady_clock::now() + kLogPeriod;
+                }
+            }
+
+            const auto batch_now = std::chrono::steady_clock::now();
+            const tracing::SpanContext batch_ctx = batch.context();
+            auto collect = tracer.start_span("collect", tracing::SpanKind::Consumer, &batch_ctx);
+            static_cast<void>(collect.set_attribute("batch", static_cast<std::int64_t>(batches)));
+            infra.logger().info("batch {} closed at tick {}", batches, ticks);
+            static_cast<void>(collect.set_status(tracing::SpanStatus::Ok));
+            static_cast<void>(collect.end());
+
+            static_cast<void>(batch.set_attribute("batch", static_cast<std::int64_t>(batches)));
+            static_cast<void>(batch.set_attribute("ticks", static_cast<std::int64_t>(ticks)));
+            static_cast<void>(batch.set_attribute(
+                "elapsed_ms",
+                std::chrono::duration_cast<std::chrono::milliseconds>(batch_now - start).count()));
+            static_cast<void>(batch.set_status(tracing::SpanStatus::Ok));
+            static_cast<void>(batch.end());
+            ++batches;
+        }
+
+        static_cast<void>(loop.set_attribute("ticks", static_cast<std::int64_t>(ticks)));
+        static_cast<void>(loop.set_attribute("batches", static_cast<std::int64_t>(batches)));
+        static_cast<void>(loop.set_status(tracing::SpanStatus::Ok));
+        static_cast<void>(loop.end());
+    }
+}
+
+/// Trace 3 of 3: shutdown. The final collection pair and the last log write run
+/// under explicit-parent children before shutdown flushes the sinks.
+bool run_shutdown_trace(Infrastructure& infra, CliTracer& tracer, std::uint64_t ticks) {
+    bool workload_ok = true;
+    // Trace 3 of 3: shutdown. The final collection pair and the last log write
+    // run under explicit-parent children before shutdown flushes the sinks.
+    {
+        auto stop = tracer.start_span("shutdown", tracing::SpanKind::Internal);
+        const tracing::SpanContext stop_ctx = stop.context();
+        {
+            auto collect =
+                tracer.start_span("final-collect", tracing::SpanKind::Internal, &stop_ctx);
+            if (!infra.metrics().collect_now() || !infra.chrono().snapshot_now()) {
+                workload_ok = false;
+                print_error("final metric collection or chrono snapshot failed");
+                static_cast<void>(collect.set_status(tracing::SpanStatus::Error));
+            } else {
+                static_cast<void>(collect.set_status(tracing::SpanStatus::Ok));
+            }
+            static_cast<void>(collect.end());
+        }
+        {
+            auto flush =
+                tracer.start_span("flush-artifacts", tracing::SpanKind::Internal, &stop_ctx);
+            infra.logger().info("workload finished after {} ticks", ticks);
+            static_cast<void>(flush.set_attribute("ticks", static_cast<std::int64_t>(ticks)));
+            static_cast<void>(flush.set_status(tracing::SpanStatus::Ok));
+            static_cast<void>(flush.end());
+        }
+        static_cast<void>(
+            stop.set_status(workload_ok ? tracing::SpanStatus::Ok : tracing::SpanStatus::Error));
+        static_cast<void>(stop.end());
+    }
+    return workload_ok;
+}
+
+/// Record counts read back from the artifacts.
+struct ArtifactCounts {
+    std::uint64_t metric_batches{0};
+    std::uint64_t chrono_snapshots{0};
+    std::uint64_t trace_ids{0};
+    std::uint64_t parent_edges{0};
+    std::uint64_t span_kinds{0};
+};
+
+/// Every artifact must exist and carry enough records to prove the pipeline.
+bool verify_artifacts(ArtifactCounts& counts) {
+    if (!artifact_present(kLogPath)) {
+        return false;
+    }
+    std::uint64_t& metric_batches = counts.metric_batches;
+    std::uint64_t& chrono_snapshots = counts.chrono_snapshots;
+    std::uint64_t& trace_ids = counts.trace_ids;
+    std::uint64_t& parent_edges = counts.parent_edges;
+    std::uint64_t& span_kinds = counts.span_kinds;
+    if (!count_lines(kMetricsPath, metric_batches) || !count_lines(kChronoPath, chrono_snapshots) ||
+        !count_trace_ids(kTracesPath, trace_ids) ||
+        !scan_trace_shape(kTracesPath, parent_edges, span_kinds)) {
+        return false;
+    }
+    if (metric_batches < kMinMetricBatches) {
+        print_error("too few metric batches: " + std::to_string(metric_batches));
+        return false;
+    }
+    if (chrono_snapshots < kMinChronoSnapshots) {
+        print_error("too few chrono snapshots: " + std::to_string(chrono_snapshots));
+        return false;
+    }
+    if (trace_ids < kMinTraceIds) {
+        print_error("too few distinct trace ids: " + std::to_string(trace_ids));
+        return false;
+    }
+    if (parent_edges < kMinParentEdges) {
+        print_error("no parent-child span edges in " + std::string(kTracesPath));
+        return false;
+    }
+    if (span_kinds < kMinSpanKinds) {
+        print_error("too few span kinds: " + std::to_string(span_kinds));
+        return false;
+    }
+    return true;
+}
+
+int main(int argc, char* argv[]) {
+    std::vector<std::string_view> args;
+    app::CommandLineOptions options;
+    const std::optional<int> early_exit = prepare_command_line(argc, argv, args, options);
+    if (early_exit.has_value()) {
+        return *early_exit;
     }
 
     auto created = app::make_infrastructure<CliFilePolicy, 256, 8>();
@@ -429,157 +655,18 @@ int main(int argc, char* argv[]) {
         return fail_status("Infrastructure::tracer_for", tracer);
     }
 
-    // Trace 1 of 3: startup. The tracer exists only after initialize(), so the
-    // root covers the post-initialization phases with explicit-parent children.
-    // The instruments are MultiThreaded: a background harvester runs every
-    // collect_interval, and single-threaded storage must not be harvested
-    // concurrently with recording (README hot-path rules).
-    using CounterType = metrics::Counter<metrics::ConcurrencyPolicy::MultiThreaded,
-                                         metrics::AccessPolicy::Readable>;
-    using GaugeType = metrics::Gauge<std::int64_t, metrics::ConcurrencyPolicy::MultiThreaded,
-                                     metrics::AccessPolicy::Readable>;
-    CounterType* counter = nullptr;
-    GaugeType* gauge = nullptr;
-    {
-        auto startup = (*tracer)->start_span("startup", tracing::SpanKind::Internal);
-        static_cast<void>(
-            startup.set_attribute("settings_dir", std::string_view{options.local_settings_dir}));
-        const tracing::SpanContext startup_ctx = startup.context();
-        {
-            auto create = (*tracer)->start_span("create-instruments", tracing::SpanKind::Internal,
-                                                &startup_ctx);
-            const auto meter = infra->meter("cli-example", "1.0");
-            if (!meter.has_value()) {
-                static_cast<void>(infra->shutdown());
-                return fail_status("Infrastructure::meter", meter);
-            }
-            const auto made_counter =
-                (*meter)
-                    ->create_counter<metrics::ConcurrencyPolicy::MultiThreaded,
-                                     metrics::AccessPolicy::Readable>("ticks");
-            if (!made_counter.has_value()) {
-                static_cast<void>(infra->shutdown());
-                return fail_status("create_counter", made_counter);
-            }
-            const auto made_gauge =
-                (*meter)
-                    ->create_gauge<std::int64_t, metrics::ConcurrencyPolicy::MultiThreaded,
-                                   metrics::AccessPolicy::Readable>("last_tick");
-            if (!made_gauge.has_value()) {
-                static_cast<void>(infra->shutdown());
-                return fail_status("create_gauge", made_gauge);
-            }
-            counter = *made_counter;
-            gauge = *made_gauge;
-            static_cast<void>(create.set_attribute("instruments", static_cast<std::int64_t>(3)));
-            static_cast<void>(create.set_status(tracing::SpanStatus::Ok));
-            static_cast<void>(create.end());
-        }
-        {
-            auto check =
-                (*tracer)->start_span("check-settings", tracing::SpanKind::Internal, &startup_ctx);
-            const std::int64_t diagnostics = static_cast<std::int64_t>(
-                loaded.logging.diagnostics.size() + loaded.metrics.diagnostics.size() +
-                loaded.tracing.diagnostics.size() + loaded.chrono.diagnostics.size());
-            static_cast<void>(check.set_attribute("diagnostics", diagnostics));
-            static_cast<void>(check.set_status(tracing::SpanStatus::Ok));
-            static_cast<void>(check.end());
-        }
-        static_cast<void>(startup.set_status(tracing::SpanStatus::Ok));
-        static_cast<void>(startup.end());
+    CliCounter* counter = nullptr;
+    CliGauge* gauge = nullptr;
+    if (!run_startup_trace(*infra, **tracer, options, loaded, counter, gauge)) {
+        return 1;
     }
 
-    // Trace 2 of 3: tick-loop. Each outer iteration opens one Producer batch
-    // span for up to 2 s of paced ticks and closes it with a nested Consumer
-    // collect child (the per-batch collection report).
-    bool workload_ok = true;
     std::uint64_t ticks = 0;
     std::uint64_t batches = 0;
-    const auto start = std::chrono::steady_clock::now();
-    const auto deadline = start + kRunDuration;
-    {
-        auto loop = (*tracer)->start_span("tick-loop", tracing::SpanKind::Internal);
-        static_cast<void>(
-            loop.set_attribute("settings_dir", std::string_view{options.local_settings_dir}));
-        static_cast<void>(loop.set_attribute("tick_period_ms", kTickPeriod.count()));
-        const tracing::SpanContext loop_ctx = loop.context();
+    run_tick_loop(*infra, **tracer, *counter, *gauge, std::string_view{options.local_settings_dir},
+                  ticks, batches);
 
-        auto next_tick = start;
-        auto next_log = start + kLogPeriod;
-        while (std::chrono::steady_clock::now() < deadline) {
-            auto batch =
-                (*tracer)->start_span("tick-batch", tracing::SpanKind::Producer, &loop_ctx);
-            auto batch_deadline = std::chrono::steady_clock::now() + kBatchPeriod;
-            if (batch_deadline > deadline) {
-                batch_deadline = deadline;
-            }
-            while (std::chrono::steady_clock::now() < batch_deadline) {
-                counter->inc();
-                gauge->set(static_cast<std::int64_t>(ticks));
-                ++ticks;
-                next_tick += kTickPeriod;
-                std::this_thread::sleep_until(next_tick);
-                if (std::chrono::steady_clock::now() >= next_log) {
-                    infra->logger().info("tick {}", ticks);
-                    next_log = std::chrono::steady_clock::now() + kLogPeriod;
-                }
-            }
-
-            const auto batch_now = std::chrono::steady_clock::now();
-            const tracing::SpanContext batch_ctx = batch.context();
-            auto collect =
-                (*tracer)->start_span("collect", tracing::SpanKind::Consumer, &batch_ctx);
-            static_cast<void>(collect.set_attribute("batch", static_cast<std::int64_t>(batches)));
-            infra->logger().info("batch {} closed at tick {}", batches, ticks);
-            static_cast<void>(collect.set_status(tracing::SpanStatus::Ok));
-            static_cast<void>(collect.end());
-
-            static_cast<void>(batch.set_attribute("batch", static_cast<std::int64_t>(batches)));
-            static_cast<void>(batch.set_attribute("ticks", static_cast<std::int64_t>(ticks)));
-            static_cast<void>(batch.set_attribute(
-                "elapsed_ms",
-                std::chrono::duration_cast<std::chrono::milliseconds>(batch_now - start).count()));
-            static_cast<void>(batch.set_status(tracing::SpanStatus::Ok));
-            static_cast<void>(batch.end());
-            ++batches;
-        }
-
-        static_cast<void>(loop.set_attribute("ticks", static_cast<std::int64_t>(ticks)));
-        static_cast<void>(loop.set_attribute("batches", static_cast<std::int64_t>(batches)));
-        static_cast<void>(loop.set_status(tracing::SpanStatus::Ok));
-        static_cast<void>(loop.end());
-    }
-
-    // Trace 3 of 3: shutdown. The final collection pair and the last log write
-    // run under explicit-parent children before shutdown flushes the sinks.
-    {
-        auto stop = (*tracer)->start_span("shutdown", tracing::SpanKind::Internal);
-        const tracing::SpanContext stop_ctx = stop.context();
-        {
-            auto collect =
-                (*tracer)->start_span("final-collect", tracing::SpanKind::Internal, &stop_ctx);
-            if (!infra->metrics().collect_now() || !infra->chrono().snapshot_now()) {
-                workload_ok = false;
-                print_error("final metric collection or chrono snapshot failed");
-                static_cast<void>(collect.set_status(tracing::SpanStatus::Error));
-            } else {
-                static_cast<void>(collect.set_status(tracing::SpanStatus::Ok));
-            }
-            static_cast<void>(collect.end());
-        }
-        {
-            auto flush =
-                (*tracer)->start_span("flush-artifacts", tracing::SpanKind::Internal, &stop_ctx);
-            infra->logger().info("workload finished after {} ticks", ticks);
-            static_cast<void>(flush.set_attribute("ticks", static_cast<std::int64_t>(ticks)));
-            static_cast<void>(flush.set_status(tracing::SpanStatus::Ok));
-            static_cast<void>(flush.end());
-        }
-        static_cast<void>(
-            stop.set_status(workload_ok ? tracing::SpanStatus::Ok : tracing::SpanStatus::Error));
-        static_cast<void>(stop.end());
-    }
-
+    const bool workload_ok = run_shutdown_trace(*infra, **tracer, ticks);
     const core::Status shutdown_status = infra->shutdown();
     if (!workload_ok) {
         return 1;
@@ -587,38 +674,8 @@ int main(int argc, char* argv[]) {
     if (!shutdown_status) {
         return fail_status("Infrastructure::shutdown", shutdown_status);
     }
-
-    if (!artifact_present(kLogPath)) {
-        return 1;
-    }
-    std::uint64_t metric_batches = 0;
-    std::uint64_t chrono_snapshots = 0;
-    std::uint64_t trace_ids = 0;
-    std::uint64_t parent_edges = 0;
-    std::uint64_t span_kinds = 0;
-    if (!count_lines(kMetricsPath, metric_batches) || !count_lines(kChronoPath, chrono_snapshots) ||
-        !count_trace_ids(kTracesPath, trace_ids) ||
-        !scan_trace_shape(kTracesPath, parent_edges, span_kinds)) {
-        return 1;
-    }
-    if (metric_batches < kMinMetricBatches) {
-        print_error("too few metric batches: " + std::to_string(metric_batches));
-        return 1;
-    }
-    if (chrono_snapshots < kMinChronoSnapshots) {
-        print_error("too few chrono snapshots: " + std::to_string(chrono_snapshots));
-        return 1;
-    }
-    if (trace_ids < kMinTraceIds) {
-        print_error("too few distinct trace ids: " + std::to_string(trace_ids));
-        return 1;
-    }
-    if (parent_edges < kMinParentEdges) {
-        print_error("no parent-child span edges in " + std::string(kTracesPath));
-        return 1;
-    }
-    if (span_kinds < kMinSpanKinds) {
-        print_error("too few span kinds: " + std::to_string(span_kinds));
+    ArtifactCounts counts;
+    if (!verify_artifacts(counts)) {
         return 1;
     }
 
@@ -626,10 +683,11 @@ int main(int argc, char* argv[]) {
                 "chrono_snapshots=%llu, trace_ids=%llu, parent_edges=%llu, span_kinds=%llu, "
                 "output=%s)\n",
                 static_cast<unsigned long long>(ticks), static_cast<unsigned long long>(batches),
-                static_cast<unsigned long long>(metric_batches),
-                static_cast<unsigned long long>(chrono_snapshots),
-                static_cast<unsigned long long>(trace_ids),
-                static_cast<unsigned long long>(parent_edges),
-                static_cast<unsigned long long>(span_kinds), std::string(kOutputDir).c_str());
+                static_cast<unsigned long long>(counts.metric_batches),
+                static_cast<unsigned long long>(counts.chrono_snapshots),
+                static_cast<unsigned long long>(counts.trace_ids),
+                static_cast<unsigned long long>(counts.parent_edges),
+                static_cast<unsigned long long>(counts.span_kinds),
+                std::string(kOutputDir).c_str());
     return 0;
 }
