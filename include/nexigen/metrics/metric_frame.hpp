@@ -58,43 +58,9 @@ static_assert(offsetof(MetricFrame, record) % alignof(MetricRecord) == 0U,
 }
 
 /// Cold-path JSON (mandate 10), hostile-safe under JSON_NOEXCEPTION=1.
-inline void to_json(nlohmann::json& j, const MetricFrame& frame) {
-    j = nlohmann::json{
-        {"app_id", std::string(frame.app_id_text())},
-        {"pid", frame.pid},
-        {"timestamp_ns", frame.timestamp_ns},
-        {"record", frame.record},
-    };
-}
-
-inline void from_json(const nlohmann::json& j, MetricFrame& out) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
-    MetricFrame parsed{};
-    const auto app_it = j.find("app_id");
-    if (app_it != j.end() && app_it->is_string()) {
-        const std::string app = app_it->get<std::string>();
-        const std::size_t take =
-            app.size() < sizeof(parsed.app_id) ? app.size() : sizeof(parsed.app_id);
-        for (std::size_t i = 0; i < take; ++i) {
-            parsed.app_id[i] = app[i];
-        }
-    }
-    const auto pid_it = j.find("pid");
-    if (pid_it != j.end() && pid_it->is_number_unsigned()) {
-        parsed.pid = pid_it->get<std::uint32_t>();
-    }
-    const auto ts_it = j.find("timestamp_ns");
-    if (ts_it != j.end() && ts_it->is_number_integer()) {
-        parsed.timestamp_ns = ts_it->get<std::int64_t>();
-    }
-    const auto rec_it = j.find("record");
-    if (rec_it != j.end()) {
-        from_json(*rec_it, parsed.record);
-    }
-    out = parsed;
-}
+/// Declarations: bodies live in metric_frame.cpp.
+void to_json(nlohmann::json& j, const MetricFrame& frame);
+void from_json(const nlohmann::json& j, MetricFrame& out) noexcept;
 
 } // namespace nexigen::metrics
 

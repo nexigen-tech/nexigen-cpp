@@ -42,21 +42,23 @@ PY
 
 ## Result
 
-69 inline `to_json`/`from_json` definitions remain across 35 headers.
+56 inline `to_json`/`from_json` definitions remain across 29 headers. Every one
+of them is a 3- or 6-line descriptor: the mandated enum vocabulary pair or a
+null-sink `to_json`. No multi-line configuration or sink body is left inline.
 
 | Module | Headers | Definitions | Inline lines | Largest remaining header |
 |---|---:|---:|---:|---|
-| `tracing` | 7 | 13 | 39 | `span_record.hpp` (6) |
-| `chrono` | 6 | 11 | 50 | `json_file_sink_config.hpp` (19) |
-| `metrics` | 9 | 19 | 129 | `metric_frame.hpp` (35) |
+| `tracing` | 7 | 13 | 39 | enum/null-sink descriptors (6 each) |
+| `metrics` | 5 | 10 | 34 | enum/null-sink descriptors (6 each) |
 | `phm` | 4 | 8 | 24 | enum pairs only (6 each) |
+| `chrono` | 4 | 7 | 18 | enum pairs plus `json_file_sink` (3) |
 | `logging` | 3 | 6 | 18 | enum pairs only (6 each) |
-| `sm` | 2 | 4 | 12 | enum pairs only (6 each) |
 | `com` | 2 | 4 | 12 | enum pairs only (6 each) |
+| `sm` | 2 | 4 | 12 | enum pairs only (6 each) |
 | `app` | 1 | 2 | 6 | `infrastructure_stop_reason.hpp` |
 | `diagnostics` | 1 | 2 | 6 | `stopwatch_state.hpp` |
-| `exec` | 0 | 0 | 0 | moved by this change |
-| **Total** | **35** | **69** | **296** | |
+| `exec` | 0 | 0 | 0 | moved by an earlier change |
+| **Total** | **29** | **56** | **169** | |
 
 `nexigen::core` is reported as exempt: `add_library(nexigen_core INTERFACE)` at
 `CMakeLists.txt:156`.
@@ -69,6 +71,12 @@ PY
 | `logging/log_frame.hpp` | `src/logging/log_frame.cpp` | 57-line deserializer, CCN 17 |
 | `logging/log_daemon_config.hpp` | `src/logging/log_daemon_config.cpp` | daemon config, cold path |
 | `metrics/metric_daemon_config.hpp` | `src/metrics/metric_daemon_config.cpp` | daemon config, cold path |
+| `metrics/metric_frame.hpp` | `src/metrics/metric_frame.cpp` | 35-line frame pair, cold path |
+| `metrics/json_file_metric_sink.hpp` | `src/metrics/json_file_metric_sink.cpp` | config pair + sink descriptor (30 lines) |
+| `metrics/iceoryx2_metric_sink_config.hpp` | `src/metrics/iceoryx2_metric_sink_config.cpp` | 26-line sink config |
+| `metrics/console_metric_sink.hpp` | `src/metrics/console_metric_sink.cpp` | descriptor pair (10 lines) |
+| `chrono/json_file_sink_config.hpp` | `src/chrono/json_file_sink_config.cpp` | 19-line sink config |
+| `chrono/console_sink.hpp` | `src/chrono/console_sink.cpp` | descriptor pair (10 lines) |
 
 Both moved headers keep only declarations, so the public symbol set is unchanged
 (verified with `nm -C --defined-only --extern-only` before/after).
@@ -78,15 +86,11 @@ Both moved headers keep only declarations, so the public symbol set is unchanged
 Ordered by payoff — each is a mechanical "declaration in header, definition in
 `src/<module>/<entity>.cpp`" move:
 
-1. `include/nexigen/metrics/metric_frame.hpp` — 35 inline lines.
-2. `include/nexigen/metrics/json_file_metric_sink.hpp` — 30 inline lines.
-3. `include/nexigen/metrics/iceoryx2_metric_sink_config.hpp` — 26 inline lines.
-4. `include/nexigen/chrono/json_file_sink_config.hpp` — 19 inline lines.
-5. `include/nexigen/chrono/console_sink.hpp`, `metrics/console_metric_sink.hpp` — 10 lines each.
-
-The 24 remaining enum pairs (6 inline lines each: `to_json` + `from_json`) are
-deliberately deferred: moving them would scatter the mandated enum vocabulary
-(mandate 10) across `.cpp` files for a marginal compile-time gain.
+All configuration and sink bodies have been moved. What remains is the mandated
+enum vocabulary (`to_json` + `from_json`, 6 lines each) plus three null/descriptor
+`to_json` helpers (3 lines each). Moving those would scatter the mandate-10
+vocabulary across `.cpp` files for no measurable compile-time gain, so they stay
+inline by decision.
 
 ## Verification for future moves
 

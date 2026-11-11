@@ -115,17 +115,9 @@ private:
 }
 
 /// Diagnostic JSON (cold path): the sink round-trips its descriptor.
-inline void to_json(nlohmann::json& j, const ConsoleSink& sink) {
-    j = nlohmann::json{{"type", "ConsoleSink"}, {"fd", sink.descriptor()}};
-}
-
-inline void from_json(const nlohmann::json& j, ConsoleSink& sink) noexcept {
-    const auto it = j.find("fd");
-    if (it != j.end() && it->is_number_integer()) {
-        const auto value = it->get<std::int64_t>();
-        sink = ConsoleSink{static_cast<int>(value)};
-    }
-}
+/// Declarations: bodies live in console_sink.cpp.
+void to_json(nlohmann::json& j, const ConsoleSink& sink);
+void from_json(const nlohmann::json& j, ConsoleSink& sink) noexcept;
 
 static_assert(concepts::Sink<ConsoleSink>, "ConsoleSink must satisfy the sink contract");
 
