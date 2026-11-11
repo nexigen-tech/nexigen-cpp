@@ -31,7 +31,9 @@
 #include <nexigen/phm/recovery_request.hpp>
 #include <nexigen/phm/recovery_response.hpp>
 #include <nexigen/phm/supervision_status.hpp>
+#include <nexigen/phm/supervised_entity.hpp>
 #include <nexigen/phm/supervisor.hpp>
+#include <nexigen/sm/group_state_payload.hpp>
 #include <nexigen/sm/recovery_notification.hpp>
 
 namespace com = nexigen::com;
@@ -369,6 +371,70 @@ void test_manifest() {
     NX_CHECK(manifest.processes.size() == 1U);
 }
 
+void test_supervised_entity() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto checkpoint_name = com::ServiceName::create("Nexigen/Test/AppCheckpoints");
+    const auto health_name = com::ServiceName::create("Nexigen/Test/AppHealth");
+    NX_CHECK(checkpoint_name.has_value());
+    NX_CHECK(health_name.has_value());
+
+    auto entity =
+        phm::SupervisedEntity::create(*node, "camera", *checkpoint_name, *health_name);
+    NX_CHECK(entity.has_value());
+    NX_CHECK(entity->app_name() == "camera");
+
+    // Checkpoint reporting reaches the daemon-side listener.
+    auto checkpoint_listener = com::EventListener::create(*node, *checkpoint_name);
+    NX_CHECK(checkpoint_listener.has_value());
+    NX_CHECK(entity->report_checkpoint(7).has_value());
+    bool checkpoint_seen = false;
+    const auto collected = checkpoint_listener->try_wait([&](com::EventId id) {
+        checkpoint_seen = id.as_value() == 7U;
+    });
+    NX_CHECK(collected.has_value());
+    NX_CHECK(checkpoint_seen);
+
+    // Health reporting reaches the daemon-side listener.
+    auto health_listener = com::EventListener::create(*node, *health_name);
+    NX_CHECK(health_listener.has_value());
+    NX_CHECK(entity->report_health(phm::HealthState::Error).has_value());
+    bool health_seen = false;
+    const auto collected_health = health_listener->try_wait([&](com::EventId id) {
+        health_seen = id.as_value() == static_cast<std::uint64_t>(phm::HealthState::Error);
+    });
+    NX_CHECK(collected_health.has_value());
+    NX_CHECK(health_seen);
+
+    // Function Group state: read what the SM publishes through the Field.
+    const auto group_service = com::ServiceName::create("Nexigen/SM/State/motion_control");
+    NX_CHECK(group_service.has_value());
+    nexigen::sm::GroupStatePayload initial{};
+    std::snprintf(initial.state, sizeof(initial.state), "Active");
+    auto sm_field = com::Field<nexigen::sm::GroupStatePayload>::create(*node, *group_service,
+                                                                      initial);
+    NX_CHECK(sm_field.has_value());
+    NX_CHECK(sm_field->set(nexigen::sm::GroupStatePayload{"SafeState"}).has_value());
+
+    const auto state = entity->current_group_state("motion_control");
+    NX_CHECK(state.has_value());
+    NX_CHECK(state->has_value());
+    NX_CHECK(std::string((*state)->state) == "SafeState");
+
+    // An unknown (unpublished) group reports no state without blocking.
+    const auto unknown = entity->current_group_state("unpublished_group");
+    NX_CHECK(unknown.has_value());
+    NX_CHECK(!unknown->has_value());
+
+    // Diagnostics.
+    const std::string text = entity->to_string();
+    NX_CHECK(text.find("camera") != std::string::npos);
+    NX_CHECK(text.find("last_checkpoint=7") != std::string::npos);
+    NX_CHECK(text.find("Error") != std::string::npos);
+    NX_CHECK(phm::to_string(*entity) == text);
+    NX_CHECK(std::format("{}", *entity) == text);
+}
+
 } // namespace
 
 int main() {
@@ -377,6 +443,7 @@ int main() {
     run_suite("supervision", test_supervision);
     run_suite("recovery", test_recovery);
     run_suite("manifest", test_manifest);
+    run_suite("supervised_entity", test_supervised_entity);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

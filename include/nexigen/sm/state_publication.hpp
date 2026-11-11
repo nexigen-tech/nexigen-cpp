@@ -18,30 +18,10 @@
 #include <nexigen/com/field.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
+#include <nexigen/sm/group_state_payload.hpp>
 #include <nexigen/sm/sm_manifest.hpp>
 
 namespace nexigen::sm {
-
-/// Maximum length of a published group-state string.
-inline constexpr std::size_t k_group_state_length = 32;
-
-/// The published payload of one Function Group's state (trivially copyable).
-struct GroupStatePayload {
-    char state[k_group_state_length]{};
-
-    /// Cold-path diagnostic (mandate 9).
-    [[nodiscard]] std::string to_string() const {
-        return std::format("GroupStatePayload(state={})", std::string(state));
-    }
-};
-
-/// The payload contract: plain bytes, safe for zero-copy transport.
-static_assert(com::concepts::Message<GroupStatePayload>);
-
-/// Free helper (mandate 9): mirrors the member.
-[[nodiscard]] inline std::string to_string(const GroupStatePayload& payload) {
-    return payload.to_string();
-}
 
 /// Publishes the current state of every configured Function Group as a Field.
 class StatePublication {
