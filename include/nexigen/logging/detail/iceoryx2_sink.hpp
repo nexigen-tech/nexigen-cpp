@@ -27,8 +27,7 @@ namespace nexigen::logging::detail {
 /// Publishes rendered LogFrames on the worker thread. Templated on the
 /// Producer only so the drop-delta can read the producer's dropped() snapshot
 /// (third-thread relaxed read, safe on the consumer thread).
-template <class Producer>
-class Iceoryx2Sink {
+template <class Producer> class Iceoryx2Sink {
 public:
     /// Fixed-footprint snapshot of the validated config (copied at
     /// initialize() — the sink never holds caller string_views at runtime).
@@ -82,8 +81,7 @@ public:
     /// Render the deferred format into the frame payload, pack the metadata,
     /// and publish. Deferred rendering executes HERE (spec logging/log-record),
     /// allocation-free; the producer never formats.
-    template <class Record>
-    void handle(Record& rec) noexcept {
+    template <class Record> void handle(Record& rec) noexcept {
         if (!publisher_.has_value()) {
             return;
         }
@@ -125,7 +123,8 @@ private:
     /// yields 0 rather than a bogus huge delta.
     [[nodiscard]] std::uint32_t dropped_delta() noexcept {
         const std::uint64_t total = producer_ != nullptr ? producer_->dropped().total() : 0ULL;
-        const std::uint64_t delta = total > last_dropped_total_ ? total - last_dropped_total_ : 0ULL;
+        const std::uint64_t delta =
+            total > last_dropped_total_ ? total - last_dropped_total_ : 0ULL;
         last_dropped_total_ = total;
         return static_cast<std::uint32_t>(delta < UINT32_MAX ? delta : UINT32_MAX);
     }

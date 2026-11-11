@@ -23,8 +23,8 @@ namespace nexigen::phm {
 class CheckpointEmitter {
 public:
     /// Open (or create) the checkpoint channel service on the node.
-    [[nodiscard]] static com::Result<CheckpointEmitter> create(
-        com::Node& node, const com::ServiceName& name) noexcept {
+    [[nodiscard]] static com::Result<CheckpointEmitter>
+    create(com::Node& node, const com::ServiceName& name) noexcept {
         auto notifier = com::EventNotifier::create(node, name);
         if (!notifier) {
             return std::unexpected(notifier.error());

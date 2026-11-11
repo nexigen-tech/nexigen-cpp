@@ -32,7 +32,7 @@ struct FunctionGroup {
     std::vector<AllowedTransition> allowed_transitions{};
     std::uint64_t transition_max_time_ms{1000};
     std::uint64_t preparation_timeout_ms{500};
-    bool application_group{true};  ///< Moved to Off during shutdown sequencing.
+    bool application_group{true}; ///< Moved to Off during shutdown sequencing.
 
     [[nodiscard]] std::string to_string() const;
 };
@@ -78,10 +78,8 @@ void from_json(const nlohmann::json& j, SmManifest& manifest) noexcept;
 } // namespace nexigen::sm
 
 /// The manifest formats as its diagnostic string (mandate 11).
-template <>
-struct std::formatter<nexigen::sm::SmManifest> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::sm::SmManifest& manifest, Ctx& ctx) const {
+template <> struct std::formatter<nexigen::sm::SmManifest> : std::formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::sm::SmManifest& manifest, Ctx& ctx) const {
         const std::string text = manifest.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

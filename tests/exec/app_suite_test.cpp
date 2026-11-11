@@ -129,7 +129,7 @@ bool failed_with(const core::Status& result, core::ErrorCode expected) {
 }
 
 exec::AppSpec app_spec(std::string app_name, std::string instance, std::string command,
-                         exec::ImpactOnAppSuiteOperability impact) {
+                       exec::ImpactOnAppSuiteOperability impact) {
     exec::AppSpec spec{};
     spec.app = std::move(app_name);
     spec.instance = std::move(instance);
@@ -195,9 +195,9 @@ exec::SuiteAppStatus find_app(const exec::SuiteStatus& status, std::string_view 
 }
 
 void test_enums_and_serialization() {
-    for (const auto value : {exec::ImpactOnAppSuiteOperability::Failure,
-                             exec::ImpactOnAppSuiteOperability::Degrade,
-                             exec::ImpactOnAppSuiteOperability::Not_impact}) {
+    for (const auto value :
+         {exec::ImpactOnAppSuiteOperability::Failure, exec::ImpactOnAppSuiteOperability::Degrade,
+          exec::ImpactOnAppSuiteOperability::Not_impact}) {
         const std::string_view text = exec::to_string(value);
         exec::ImpactOnAppSuiteOperability parsed =
             static_cast<exec::ImpactOnAppSuiteOperability>(0xff);
@@ -209,8 +209,7 @@ void test_enums_and_serialization() {
         exec::from_json(json, parsed);
         NX_CHECK(parsed == value);
     }
-    NX_CHECK(exec::to_string(static_cast<exec::ImpactOnAppSuiteOperability>(0x7f)) ==
-             "unknown");
+    NX_CHECK(exec::to_string(static_cast<exec::ImpactOnAppSuiteOperability>(0x7f)) == "unknown");
 
     for (const auto value :
          {exec::SuiteState::Running, exec::SuiteState::Degraded, exec::SuiteState::Failed,
@@ -271,7 +270,8 @@ void test_enums_and_serialization() {
     manifest.execution_manager_control_thread.set_cpus(core::CpuSet::from_core_mask(3));
     NX_CHECK(manifest.execution_manager_control_thread.set_name("control").has_value());
     NX_CHECK(
-        manifest.execution_manager_control_thread.set_scheduler(core::SchedulingPolicy::Other, 0).has_value());
+        manifest.execution_manager_control_thread.set_scheduler(core::SchedulingPolicy::Other, 0)
+            .has_value());
     manifest.execution_manager_control_thread.set_apply_mode(core::ThreadApplyMode::Required);
     manifest.execution_manager_logger_thread.set_cpus(core::CpuSet::from_core_mask(2));
     manifest.apps.push_back(spec);
@@ -341,8 +341,8 @@ void test_enums_and_serialization() {
     exec::from_json(nlohmann::json{{"cpus", nlohmann::json::array({-1})}}, hostile);
     exec::from_json(nlohmann::json{{"cpus", nlohmann::json::array({0, 0})}}, hostile);
     NX_CHECK(hostile.cpus.count() == 2U); // duplicates leave the old set intact
-    exec::from_json(
-        nlohmann::json{{"cpus", nlohmann::json::array({std::uint64_t{4294967296ULL}})}}, hostile);
+    exec::from_json(nlohmann::json{{"cpus", nlohmann::json::array({std::uint64_t{4294967296ULL}})}},
+                    hostile);
     exec::from_json(nlohmann::json{{"env", {{"A", 1}}}}, hostile);
     exec::from_json(nlohmann::json{{"restart_attempts", std::uint64_t{4294967296ULL}}}, hostile);
     exec::from_json(nlohmann::json{{"log_level", "chatty"}}, hostile);
@@ -672,9 +672,11 @@ void test_manifest_validation() {
 
     exec::to_json(document, manifest);
     document["execution_manager_control_cpus"] = "bad";
-    NX_CHECK(exec::write_json_file(root + "/bad_execution_manager_cpus.json", document).has_value());
-    NX_CHECK(failed_with(exec::load_suite_manifest(root + "/bad_execution_manager_cpus.json", loaded),
-                         core::ErrorCode::InvalidArgument));
+    NX_CHECK(
+        exec::write_json_file(root + "/bad_execution_manager_cpus.json", document).has_value());
+    NX_CHECK(
+        failed_with(exec::load_suite_manifest(root + "/bad_execution_manager_cpus.json", loaded),
+                    core::ErrorCode::InvalidArgument));
 
     int case_index = 0;
     auto rejected = [&](const nlohmann::json& candidate) {
@@ -695,7 +697,8 @@ void test_manifest_validation() {
     document["execution_manager_control_cpus"] = nlohmann::json::array({-1});
     NX_CHECK(rejected(document));
     exec::to_json(document, manifest);
-    document["execution_manager_logger_cpus"] = nlohmann::json::array({std::uint64_t{4294967296ULL}});
+    document["execution_manager_logger_cpus"] =
+        nlohmann::json::array({std::uint64_t{4294967296ULL}});
     NX_CHECK(rejected(document));
     exec::to_json(document, manifest);
     document.erase("apps");
@@ -1299,7 +1302,7 @@ void test_required_affinity_failure() {
             manifest.execution_manager_logger_thread = spec;
         }
         exec::AppSpec spec_app = app_spec("must_not_start", "1", "/bin/sh",
-                                            exec::ImpactOnAppSuiteOperability::Not_impact);
+                                          exec::ImpactOnAppSuiteOperability::Not_impact);
         spec_app.args = {"-c", "exec sleep 60"};
         manifest.apps.push_back(spec_app);
 

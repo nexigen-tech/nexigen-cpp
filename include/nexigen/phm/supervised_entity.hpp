@@ -33,9 +33,9 @@ namespace nexigen::phm {
 class SupervisedEntity {
 public:
     /// Open the checkpoint and health channels for the application.
-    [[nodiscard]] static com::Result<SupervisedEntity> create(
-        com::Node& node, std::string_view app_name, const com::ServiceName& checkpoint_service,
-        const com::ServiceName& health_service) noexcept {
+    [[nodiscard]] static com::Result<SupervisedEntity>
+    create(com::Node& node, std::string_view app_name, const com::ServiceName& checkpoint_service,
+           const com::ServiceName& health_service) noexcept {
         auto checkpoint = CheckpointEmitter::create(node, checkpoint_service);
         if (!checkpoint) {
             return std::unexpected(checkpoint.error());
@@ -75,8 +75,8 @@ public:
     /// Non-blocking read of the Function Group state published by the SM
     /// (`Nexigen/SM/State/<group>`). Returns no value while the group is not
     /// published, and never blocks.
-    [[nodiscard]] com::Result<std::optional<sm::GroupStatePayload>> current_group_state(
-        std::string_view group) noexcept {
+    [[nodiscard]] com::Result<std::optional<sm::GroupStatePayload>>
+    current_group_state(std::string_view group) noexcept {
         if (!group_listener_.has_value() || group_name_ != group) {
             const std::string service = "Nexigen/SM/State/" + std::string(group);
             const auto name = com::ServiceName::create(service.c_str());
@@ -106,9 +106,7 @@ public:
 private:
     SupervisedEntity(com::Node& node, std::string_view app_name, CheckpointEmitter checkpoint,
                      HealthChannel health) noexcept
-        : node_(&node),
-          app_name_(app_name),
-          checkpoint_(std::move(checkpoint)),
+        : node_(&node), app_name_(app_name), checkpoint_(std::move(checkpoint)),
           health_(std::move(health)) {}
 
     com::Node* node_{nullptr};
@@ -131,8 +129,7 @@ private:
 /// The entity formats as its diagnostic string (mandate 11).
 template <>
 struct std::formatter<nexigen::phm::SupervisedEntity> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::phm::SupervisedEntity& entity, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::phm::SupervisedEntity& entity, Ctx& ctx) const {
         const std::string text = entity.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

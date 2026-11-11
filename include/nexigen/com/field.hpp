@@ -48,8 +48,7 @@ inline constexpr std::string_view k_field_event_suffix = "/Event";
 
 /// Single-writer side of a field: set() updates the shared value and notifies
 /// every listener; get() returns the last value known to this writer.
-template <concepts::Message T>
-class Field {
+template <concepts::Message T> class Field {
 public:
     /// Create the field service with an initial value and become its writer.
     [[nodiscard]] static Result<Field> create(Node& node, const ServiceName& name,
@@ -80,8 +79,8 @@ public:
         if (!notifier) {
             return std::unexpected(notifier.error());
         }
-        return Field{name, std::move(*writer), std::move(*entry), std::move(*notifier), entry_id,
-                     std::move(initial)};
+        return Field{name,     std::move(*writer), std::move(*entry), std::move(*notifier),
+                     entry_id, std::move(initial)};
     }
 
     Field(const Field&) = delete;
@@ -90,12 +89,9 @@ public:
     /// Move transfers the transport handles and the last value; the update
     /// counter is re-loaded from the source (std::atomic is not movable).
     Field(Field&& other) noexcept
-        : service_name_(std::move(other.service_name_)),
-          writer_(std::move(other.writer_)),
-          entry_(std::move(other.entry_)),
-          notifier_(std::move(other.notifier_)),
-          entry_id_(other.entry_id_),
-          last_value_(std::move(other.last_value_)) {
+        : service_name_(std::move(other.service_name_)), writer_(std::move(other.writer_)),
+          entry_(std::move(other.entry_)), notifier_(std::move(other.notifier_)),
+          entry_id_(other.entry_id_), last_value_(std::move(other.last_value_)) {
         update_count_.store(other.update_count_.load(std::memory_order_relaxed),
                             std::memory_order_relaxed);
     }
@@ -136,14 +132,10 @@ public:
 
 private:
     Field(ServiceName name, iox2::Writer<iox2::ServiceType::Ipc, FieldKey> writer,
-          iox2::EntryHandleMut<iox2::ServiceType::Ipc, FieldKey, T> entry,
-          EventNotifier notifier, std::uint64_t entry_id, T initial) noexcept
-        : service_name_(std::move(name)),
-          writer_(std::move(writer)),
-          entry_(std::move(entry)),
-          notifier_(std::move(notifier)),
-          entry_id_(entry_id),
-          last_value_(std::move(initial)) {}
+          iox2::EntryHandleMut<iox2::ServiceType::Ipc, FieldKey, T> entry, EventNotifier notifier,
+          std::uint64_t entry_id, T initial) noexcept
+        : service_name_(std::move(name)), writer_(std::move(writer)), entry_(std::move(entry)),
+          notifier_(std::move(notifier)), entry_id_(entry_id), last_value_(std::move(initial)) {}
 
     ServiceName service_name_;
     iox2::Writer<iox2::ServiceType::Ipc, FieldKey> writer_;
@@ -155,23 +147,19 @@ private:
 };
 
 /// Free helper (mandate 9): mirrors the member.
-template <concepts::Message T>
-[[nodiscard]] inline std::string to_string(const Field<T>& field) {
+template <concepts::Message T> [[nodiscard]] inline std::string to_string(const Field<T>& field) {
     return field.to_string();
 }
 
 /// Reader-only side of a field: get() always returns the current value
 /// (history >= 1, so it is available immediately on connect); wait_for_update()
 /// blocks until the writer's next notification — no polling.
-template <concepts::Message T>
-class FieldListener {
+template <concepts::Message T> class FieldListener {
 public:
     /// Open the field service for reading and listening.
     [[nodiscard]] static Result<FieldListener> open(Node& node, const ServiceName& name) noexcept {
-        auto service = node.handle()
-                           .service_builder(name.handle())
-                           .blackboard_opener<FieldKey>()
-                           .open();
+        auto service =
+            node.handle().service_builder(name.handle()).blackboard_opener<FieldKey>().open();
         if (!service) {
             return std::unexpected(detail::map_error(service.error()));
         }
@@ -222,9 +210,7 @@ private:
     FieldListener(ServiceName name, iox2::Reader<iox2::ServiceType::Ipc, FieldKey> reader,
                   iox2::EntryHandle<iox2::ServiceType::Ipc, FieldKey, T> entry,
                   EventListener listener) noexcept
-        : service_name_(std::move(name)),
-          reader_(std::move(reader)),
-          entry_(std::move(entry)),
+        : service_name_(std::move(name)), reader_(std::move(reader)), entry_(std::move(entry)),
           listener_(std::move(listener)) {}
 
     ServiceName service_name_;
@@ -244,8 +230,7 @@ template <concepts::Message T>
 /// The field formats as its diagnostic string (mandate 11).
 template <nexigen::com::concepts::Message T>
 struct std::formatter<nexigen::com::Field<T>> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::com::Field<T>& field, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::com::Field<T>& field, Ctx& ctx) const {
         const std::string text = field.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

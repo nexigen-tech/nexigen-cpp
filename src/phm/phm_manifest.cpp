@@ -78,8 +78,8 @@ std::string RecoveryRule::to_string() const {
 std::string SupervisedProcess::to_string() const {
     return std::format("SupervisedProcess(name={}, service={}, checkpoints={}, transitions={}, "
                        "deadlines={}, rules={}, safety_critical={})",
-                       name, service_name, checkpoints.size(), transitions.size(),
-                       deadlines.size(), recovery_rules.size(), safety_critical);
+                       name, service_name, checkpoints.size(), transitions.size(), deadlines.size(),
+                       recovery_rules.size(), safety_critical);
 }
 
 std::string PhmManifest::to_string() const {
@@ -133,18 +133,18 @@ void to_json(nlohmann::json& j, const SupervisedProcess& process) {
         to_json(r, rule);
         rules.push_back(std::move(r));
     }
-    j = nlohmann::json{{"name", process.name},
-                       {"service_name", process.service_name},
-                       {"alive_reference_cycle_ms", process.alive_reference_cycle_ms},
-                       {"alive_min_margin_ms", process.alive_min_margin_ms},
-                       {"alive_max_margin_ms", process.alive_max_margin_ms},
-                       {"failed_supervision_cycles_tolerance",
-                        process.failed_supervision_cycles_tolerance},
-                       {"safety_critical", process.safety_critical},
-                       {"checkpoints", std::move(checkpoints)},
-                       {"transitions", std::move(transitions)},
-                       {"deadlines", std::move(deadlines)},
-                       {"recovery_rules", std::move(rules)}};
+    j = nlohmann::json{
+        {"name", process.name},
+        {"service_name", process.service_name},
+        {"alive_reference_cycle_ms", process.alive_reference_cycle_ms},
+        {"alive_min_margin_ms", process.alive_min_margin_ms},
+        {"alive_max_margin_ms", process.alive_max_margin_ms},
+        {"failed_supervision_cycles_tolerance", process.failed_supervision_cycles_tolerance},
+        {"safety_critical", process.safety_critical},
+        {"checkpoints", std::move(checkpoints)},
+        {"transitions", std::move(transitions)},
+        {"deadlines", std::move(deadlines)},
+        {"recovery_rules", std::move(rules)}};
 }
 
 void to_json(nlohmann::json& j, const PhmManifest& manifest) {

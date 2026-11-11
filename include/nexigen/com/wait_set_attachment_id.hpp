@@ -65,9 +65,9 @@ private:
 } // namespace nexigen::com
 
 /// The attachment id formats as its diagnostic string (mandate 11).
-template <> struct std::formatter<nexigen::com::WaitSetAttachmentId> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::com::WaitSetAttachmentId& id, Ctx& ctx) const {
+template <>
+struct std::formatter<nexigen::com::WaitSetAttachmentId> : std::formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::com::WaitSetAttachmentId& id, Ctx& ctx) const {
         const std::string text = id.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

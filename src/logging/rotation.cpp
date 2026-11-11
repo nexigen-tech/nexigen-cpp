@@ -172,7 +172,8 @@ std::size_t put_epoch_label(std::int64_t value, char (&buf)[64]) noexcept {
 
 } // namespace
 
-std::int64_t period_key(RotationSchedule kind, std::uint64_t custom_ns, std::int64_t utc_ns) noexcept {
+std::int64_t period_key(RotationSchedule kind, std::uint64_t custom_ns,
+                        std::int64_t utc_ns) noexcept {
     switch (kind) {
         case RotationSchedule::Hourly: {
             // Same civil decomposition the labels use, so key changes and
@@ -189,7 +190,7 @@ std::int64_t period_key(RotationSchedule kind, std::uint64_t custom_ns, std::int
             return static_cast<std::int64_t>(u / custom_ns);
         }
         case RotationSchedule::None:
-        default:                 return 0;
+        default:                     return 0;
     }
 }
 
@@ -207,9 +208,10 @@ std::size_t period_label(RotationSchedule kind, std::uint64_t custom_ns, std::in
             buf[len] = '\0';
             return len;
         }
-        case RotationSchedule::Custom: return put_epoch_label(period_key(kind, custom_ns, utc_ns), buf);
+        case RotationSchedule::Custom:
+            return put_epoch_label(period_key(kind, custom_ns, utc_ns), buf);
         case RotationSchedule::None:
-        default:                   return 0;
+        default:                     return 0;
     }
 }
 

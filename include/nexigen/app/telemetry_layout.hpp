@@ -23,7 +23,6 @@
 
 namespace nexigen::app {
 
-
 /// Read NEXIGEN_RUN_ID, NEXIGEN_EXEC_DIR,
 /// NEXIGEN_INSTANCE_ID, and NEXIGEN_INSTANCE_DIR. The application name is not
 /// part of run identity and is supplied separately. Never consults CWD,
@@ -58,6 +57,5 @@ namespace nexigen::app {
     return resolve_telemetry_paths(identity, metrics.sink.path, tracing.sink.path, chrono.sink.path,
                                    out);
 }
-
 
 } // namespace nexigen::app

@@ -24,8 +24,7 @@ struct RecoveryNotification {
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
-        return std::format("RecoveryNotification(function_group={})",
-                           std::string(function_group));
+        return std::format("RecoveryNotification(function_group={})", std::string(function_group));
     }
 };
 

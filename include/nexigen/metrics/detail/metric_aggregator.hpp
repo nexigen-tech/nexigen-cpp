@@ -47,8 +47,7 @@ public:
     }
 
     /// Visit each occupied slot (the drain thread is the only writer).
-    template <class Fn>
-    void for_each(Fn&& fn) const {
+    template <class Fn> void for_each(Fn&& fn) const {
         for (const Slot& slot : slots_) {
             if (slot.used) {
                 fn(slot.frame);

@@ -51,19 +51,19 @@ public:
 
     // --- Runtime state (public value-type fields) ---
 
-    AppSpec spec{};                           ///< Manifest entry for this app.
-    std::string instance_dir{};               ///< Control directory.
-    std::string artifact_dir{};               ///< Stream directory for this attempt.
-    AppState state{AppState::Unknown};        ///< Lifecycle state.
-    std::uint32_t attempt{0};                 ///< 1-based attempt counter.
-    std::uint32_t restarts_used{0};           ///< Restarts consumed.
-    std::uint64_t next_restart_ns{0};         ///< 0 = no retry scheduled.
-    std::int32_t child_pid{0};                ///< Child process group leader.
-    std::int32_t supervisor_pid{0};           ///< Instance supervisor pid.
-    bool exit_consumed{false};                ///< exit.json already handled.
-    bool launch_failed{false};                ///< Last launch attempt failed.
-    bool dependencies_pending{false};         ///< Waiting for dependencies to report Running.
-    std::uint64_t dependency_deadline_ns{0};  ///< Deadline for the wait; 0 = no deadline.
+    AppSpec spec{};                          ///< Manifest entry for this app.
+    std::string instance_dir{};              ///< Control directory.
+    std::string artifact_dir{};              ///< Stream directory for this attempt.
+    AppState state{AppState::Unknown};       ///< Lifecycle state.
+    std::uint32_t attempt{0};                ///< 1-based attempt counter.
+    std::uint32_t restarts_used{0};          ///< Restarts consumed.
+    std::uint64_t next_restart_ns{0};        ///< 0 = no retry scheduled.
+    std::int32_t child_pid{0};               ///< Child process group leader.
+    std::int32_t supervisor_pid{0};          ///< Instance supervisor pid.
+    bool exit_consumed{false};               ///< exit.json already handled.
+    bool launch_failed{false};               ///< Last launch attempt failed.
+    bool dependencies_pending{false};        ///< Waiting for dependencies to report Running.
+    std::uint64_t dependency_deadline_ns{0}; ///< Deadline for the wait; 0 = no deadline.
 };
 
 [[nodiscard]] inline std::string to_string(const ChildProcess& child) {
@@ -77,10 +77,8 @@ void from_json(const nlohmann::json& j, ChildProcess& child) noexcept;
 
 namespace std {
 
-template <> struct formatter<nexigen::exec::ChildProcess>
-    : formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::exec::ChildProcess& child, Ctx& ctx) const {
+template <> struct formatter<nexigen::exec::ChildProcess> : formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::exec::ChildProcess& child, Ctx& ctx) const {
         const std::string text = child.to_string();
         return formatter<std::string_view>::format(text, ctx);
     }

@@ -42,10 +42,11 @@ std::string AllowedTransition::to_string() const {
 }
 
 std::string FunctionGroup::to_string() const {
-    return std::format("FunctionGroup(name={}, states={}, transitions={}, transition_max_time_ms={}, "
-                       "preparation_timeout_ms={})",
-                       name, states.size(), allowed_transitions.size(), transition_max_time_ms,
-                       preparation_timeout_ms);
+    return std::format(
+        "FunctionGroup(name={}, states={}, transitions={}, transition_max_time_ms={}, "
+        "preparation_timeout_ms={})",
+        name, states.size(), allowed_transitions.size(), transition_max_time_ms,
+        preparation_timeout_ms);
 }
 
 std::string RequesterPriority::to_string() const {
@@ -97,8 +98,7 @@ void to_json(nlohmann::json& j, const FunctionGroup& group) {
 }
 
 void to_json(nlohmann::json& j, const RequesterPriority& priority) {
-    j = nlohmann::json{{"requester_id", priority.requester_id},
-                       {"priority", priority.priority}};
+    j = nlohmann::json{{"requester_id", priority.requester_id}, {"priority", priority.priority}};
 }
 
 void to_json(nlohmann::json& j, const SmManifest& manifest) {

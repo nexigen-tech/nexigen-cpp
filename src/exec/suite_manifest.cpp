@@ -150,7 +150,7 @@ constexpr std::uint64_t max_delay_seconds = 86400;
 }
 
 void read_legacy_execution_manager_cpus(const nlohmann::json& document, const char* key,
-                             core::ThreadSpec& target) noexcept {
+                                        core::ThreadSpec& target) noexcept {
     std::vector<std::uint32_t> values;
     if (!read_cpu_array(document, key, values)) {
         return;
@@ -196,15 +196,15 @@ read_env_object(const nlohmann::json& document, const char* key,
 } // namespace
 
 std::string AppSpec::to_string() const {
-    return std::format(
-        "AppSpec(app={}, instance={}, command={}, args={}, env={}, cpus={}, "
-        "idle_timeout_s={}, stop_grace_s={}, restart_attempts={}, "
-        "restart_delay_s={}, impact={}, global_settings_path={}, "
-        "local_settings_path={}, log_level={})",
-        app, instance, command, args.size(), env.size(), cpus.count(), idle_timeout_s, stop_grace_s,
-        restart_attempts, restart_delay_s, nexigen::exec::to_string(impact), global_settings_path,
-        local_settings_path,
-        log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"));
+    return std::format("AppSpec(app={}, instance={}, command={}, args={}, env={}, cpus={}, "
+                       "idle_timeout_s={}, stop_grace_s={}, restart_attempts={}, "
+                       "restart_delay_s={}, impact={}, global_settings_path={}, "
+                       "local_settings_path={}, log_level={})",
+                       app, instance, command, args.size(), env.size(), cpus.count(),
+                       idle_timeout_s, stop_grace_s, restart_attempts, restart_delay_s,
+                       nexigen::exec::to_string(impact), global_settings_path, local_settings_path,
+                       log_level.has_value() ? std::string(core::to_string(*log_level))
+                                             : std::string("inherit"));
 }
 
 std::string FunctionGroupConfig::to_string() const {
@@ -212,15 +212,14 @@ std::string FunctionGroupConfig::to_string() const {
 }
 
 std::string SuiteManifest::to_string() const {
-    return std::format("SuiteManifest(version={}, suite_id={}, run_id={}, run_dir={}, "
-                       "global_settings_path={}, artifacts_path={}, log_level={}, "
-                       "suite_restart_attempts={}, suite_restart_delay_s={}, "
-                       "function_groups={}, apps={})",
-                       version, suite_id, run_id, run_dir, global_settings_path, artifacts_path,
-                       log_level.has_value() ? std::string(core::to_string(*log_level))
-                                             : std::string("inherit"),
-                       suite_restart_attempts, suite_restart_delay_s, function_groups.size(),
-                       apps.size());
+    return std::format(
+        "SuiteManifest(version={}, suite_id={}, run_id={}, run_dir={}, "
+        "global_settings_path={}, artifacts_path={}, log_level={}, "
+        "suite_restart_attempts={}, suite_restart_delay_s={}, "
+        "function_groups={}, apps={})",
+        version, suite_id, run_id, run_dir, global_settings_path, artifacts_path,
+        log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"),
+        suite_restart_attempts, suite_restart_delay_s, function_groups.size(), apps.size());
 }
 
 std::string SuiteAppMetadata::to_string() const {
@@ -345,10 +344,14 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
     static_cast<void>(read_u32(j, "suite_restart_attempts", manifest.suite_restart_attempts));
     static_cast<void>(read_u64(j, "suite_restart_delay_s", manifest.suite_restart_delay_s));
     static_cast<void>(read_string(j, "manifest_path", manifest.manifest_path));
-    read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus", manifest.execution_manager_control_thread);
-    read_legacy_execution_manager_cpus(j, "execution_manager_logger_cpus", manifest.execution_manager_logger_thread);
-    read_canonical_thread(j, "execution_manager_control_thread", manifest.execution_manager_control_thread);
-    read_canonical_thread(j, "execution_manager_logger_thread", manifest.execution_manager_logger_thread);
+    read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus",
+                                       manifest.execution_manager_control_thread);
+    read_legacy_execution_manager_cpus(j, "execution_manager_logger_cpus",
+                                       manifest.execution_manager_logger_thread);
+    read_canonical_thread(j, "execution_manager_control_thread",
+                          manifest.execution_manager_control_thread);
+    read_canonical_thread(j, "execution_manager_logger_thread",
+                          manifest.execution_manager_logger_thread);
     if (const auto it = j.find("function_groups"); it != j.end() && it->is_array()) {
         std::vector<FunctionGroupConfig> groups;
         groups.reserve(it->size());
@@ -426,10 +429,14 @@ void from_json(const nlohmann::json& j, SuiteMetadata& metadata) noexcept {
     static_cast<void>(read_u64(j, "start_time_mono_ns", metadata.start_time_mono_ns));
     static_cast<void>(read_u64(j, "proc_start_ticks", metadata.proc_start_ticks));
     static_cast<void>(read_string(j, "manifest_path", metadata.manifest_path));
-    read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus", metadata.execution_manager_control_thread);
-    read_legacy_execution_manager_cpus(j, "execution_manager_logger_cpus", metadata.execution_manager_logger_thread);
-    read_canonical_thread(j, "execution_manager_control_thread", metadata.execution_manager_control_thread);
-    read_canonical_thread(j, "execution_manager_logger_thread", metadata.execution_manager_logger_thread);
+    read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus",
+                                       metadata.execution_manager_control_thread);
+    read_legacy_execution_manager_cpus(j, "execution_manager_logger_cpus",
+                                       metadata.execution_manager_logger_thread);
+    read_canonical_thread(j, "execution_manager_control_thread",
+                          metadata.execution_manager_control_thread);
+    read_canonical_thread(j, "execution_manager_logger_thread",
+                          metadata.execution_manager_logger_thread);
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
         std::vector<SuiteAppMetadata> apps;
         apps.reserve(it->size());
@@ -782,7 +789,8 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
 }
 
 [[nodiscard]] bool valid_json_thread_specs(const nlohmann::json& document) {
-    for (const char* key : {"execution_manager_control_thread", "execution_manager_logger_thread"}) {
+    for (const char* key :
+         {"execution_manager_control_thread", "execution_manager_logger_thread"}) {
         if (!valid_json_thread_spec(document, key)) {
             return false;
         }

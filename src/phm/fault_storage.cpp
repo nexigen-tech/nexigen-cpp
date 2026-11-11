@@ -38,8 +38,8 @@ void FaultStorage::worker_loop() noexcept {
             drained_any = true;
             if (file_ != nullptr) {
                 const std::string_view kind = nexigen::phm::to_string(record.kind);
-                std::fprintf(file_, "%.*s %u %u %llu\n", static_cast<int>(kind.size()),
-                             kind.data(), record.process_index, record.checkpoint_id,
+                std::fprintf(file_, "%.*s %u %u %llu\n", static_cast<int>(kind.size()), kind.data(),
+                             record.process_index, record.checkpoint_id,
                              static_cast<unsigned long long>(record.timestamp_ns));
             }
             recorded_.fetch_add(1, std::memory_order_relaxed);

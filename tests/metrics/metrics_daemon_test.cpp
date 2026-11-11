@@ -183,8 +183,7 @@ void test_daemon_e2e() {
         metrics::detail::HistoryWriter writer{path, 1U << 20};
         NX_CHECK(writer.open());
         if (!window.empty()) {
-            std::string line =
-                metrics::detail::build_history_line(window.data(), window.size());
+            std::string line = metrics::detail::build_history_line(window.data(), window.size());
             line.push_back('\n');
             NX_CHECK(writer.append(line));
         }

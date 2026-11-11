@@ -88,8 +88,8 @@ public:
         typename Sink::Settings settings{};
         copy_into(cfg.service_name, settings.service_name, settings.service_name_len);
         const std::size_t app_take = cfg.app_id.size() < sizeof(settings.app_id)
-                                          ? cfg.app_id.size()
-                                          : sizeof(settings.app_id);
+                                         ? cfg.app_id.size()
+                                         : sizeof(settings.app_id);
         for (std::size_t i = 0; i < app_take; ++i) {
             settings.app_id[i] = cfg.app_id[i];
         }
@@ -166,8 +166,7 @@ public:
                ", message_capacity=" + std::to_string(MessageCapacity) +
                ", pending=" + std::to_string(producer_.ring_size()) +
                ", dropped=" + producer_.dropped().to_string() +
-               ", writer_started=" + std::string(worker_.writer_started() ? "true" : "false") +
-               ")";
+               ", writer_started=" + std::string(worker_.writer_started() ? "true" : "false") + ")";
     }
 
 private:

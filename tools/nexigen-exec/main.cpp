@@ -87,8 +87,8 @@ struct CliLogTarget {
     target.primary_dir = manifest.artifacts_path + "/" + manifest.suite_id;
     target.control_thread = manifest.execution_manager_control_thread;
     target.logger_thread = manifest.execution_manager_logger_thread;
-    const core::Status loaded =
-        exec::load_execution_manager_logging_settings(manifest.global_settings_path, target.settings);
+    const core::Status loaded = exec::load_execution_manager_logging_settings(
+        manifest.global_settings_path, target.settings);
     if (!loaded) {
         exec::warn_execution_manager("event=logging_settings_invalid detail=using defaults");
         target.settings = logging::Settings{};
@@ -110,8 +110,8 @@ struct CliLogTarget {
     target.primary_dir = metadata.artifacts_path + "/" + metadata.suite_id;
     target.control_thread = metadata.execution_manager_control_thread;
     target.logger_thread = metadata.execution_manager_logger_thread;
-    const core::Status loaded =
-        exec::load_execution_manager_logging_settings(metadata.global_settings_path, target.settings);
+    const core::Status loaded = exec::load_execution_manager_logging_settings(
+        metadata.global_settings_path, target.settings);
     if (!loaded) {
         exec::warn_execution_manager("event=logging_settings_invalid detail=using defaults");
         target.settings = logging::Settings{};
@@ -125,7 +125,8 @@ struct CliLogTarget {
     const core::Status initialized = exec::init_execution_manager_logging(
         target.primary_dir, target.settings, target.level, target.logger_thread);
     if (!initialized) {
-        exec::warn_execution_manager("event=logging_unavailable detail=execution_manager.jsonl not writable");
+        exec::warn_execution_manager(
+            "event=logging_unavailable detail=execution_manager.jsonl not writable");
         if (target.logger_thread.apply_mode() == core::ThreadApplyMode::Required) {
             return initialized;
         }
@@ -138,8 +139,9 @@ struct CliLogTarget {
     const core::Status applied =
         exec::apply_execution_manager_thread_spec(target.control_thread, report, "cli-control");
     if (!applied) {
-        exec::warn_execution_manager(std::format("event=thread_spec_warning thread=control detail={}",
-                                        exec::describe_thread_apply_report(report)));
+        exec::warn_execution_manager(
+            std::format("event=thread_spec_warning thread=control detail={}",
+                        exec::describe_thread_apply_report(report)));
         if (target.control_thread.apply_mode() == core::ThreadApplyMode::Required) {
             return applied;
         }
@@ -150,14 +152,16 @@ struct CliLogTarget {
 void log_command(std::string_view command, std::string_view mode, std::string_view target,
                  std::string_view result, std::string_view detail = {}) {
     if (detail.empty()) {
-        exec::log_execution_manager(result == "ok" ? core::LogLevel::Info : core::LogLevel::Error,
-                           std::format("event=command command={} mode={} target={} result={}",
-                                       command, mode, target, result));
+        exec::log_execution_manager(
+            result == "ok" ? core::LogLevel::Info : core::LogLevel::Error,
+            std::format("event=command command={} mode={} target={} result={}", command, mode,
+                        target, result));
     } else {
-        exec::log_execution_manager(result == "ok" ? core::LogLevel::Info : core::LogLevel::Error,
-                           std::format("event=command command={} mode={} target={} result={} "
-                                       "detail={}",
-                                       command, mode, target, result, detail));
+        exec::log_execution_manager(
+            result == "ok" ? core::LogLevel::Info : core::LogLevel::Error,
+            std::format("event=command command={} mode={} target={} result={} "
+                        "detail={}",
+                        command, mode, target, result, detail));
     }
 }
 
@@ -475,7 +479,8 @@ enum class StartScan { Scanned, Missing_value, Unknown };
 
     const std::string target = derived_instance_dir(identity, args.app_name);
     exec::ExecutionManager execution_manager;
-    const core::Status status = execution_manager.start(identity, args.app_name, args.command, args.timeout_s);
+    const core::Status status =
+        execution_manager.start(identity, args.app_name, args.command, args.timeout_s);
     const CliLogTarget log_target = fallback_log_target();
     static_cast<void>(activate_logging(log_target));
     if (!status) {

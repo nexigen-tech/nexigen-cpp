@@ -61,8 +61,7 @@ void test_readiness_reporting() {
 
     bool observed = false;
     const auto collected = listener->try_wait([&](com::EventId id) {
-        observed = id.as_value() ==
-                   static_cast<std::uint64_t>(exec::AppState::Running);
+        observed = id.as_value() == static_cast<std::uint64_t>(exec::AppState::Running);
     });
     NX_CHECK(collected.has_value());
     NX_CHECK(observed);

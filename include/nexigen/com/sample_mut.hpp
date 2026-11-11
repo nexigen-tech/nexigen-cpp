@@ -23,8 +23,7 @@ template <concepts::Message T, typename H> class Publisher;
 template <concepts::Message T, typename H> class SampleMutUninit;
 
 /// Initialized, writable view of one loaned slot (ready to send).
-template <concepts::Message T, typename H = void>
-class SampleMut {
+template <concepts::Message T, typename H = void> class SampleMut {
     static_assert(std::is_void_v<H> || concepts::Message<H>,
                   "the custom header must satisfy com::concepts::Message");
 
@@ -60,8 +59,7 @@ private:
 };
 
 /// Uninitialized loaned slot: construct the payload with write_payload.
-template <concepts::Message T, typename H = void>
-class SampleMutUninit {
+template <concepts::Message T, typename H = void> class SampleMutUninit {
     static_assert(std::is_void_v<H> || concepts::Message<H>,
                   "the custom header must satisfy com::concepts::Message");
 

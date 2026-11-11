@@ -16,7 +16,7 @@ namespace nexigen::phm {
 
 /// The EM's acknowledgement of one recovery request.
 struct RecoveryResponse {
-    std::uint32_t accepted{0};  ///< 1 = the EM accepted the action, 0 = rejected.
+    std::uint32_t accepted{0}; ///< 1 = the EM accepted the action, 0 = rejected.
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
@@ -35,7 +35,8 @@ static_assert(com::concepts::Message<RecoveryResponse>);
 } // namespace nexigen::phm
 
 /// The response formats as its diagnostic string (mandate 11).
-template <> struct std::formatter<nexigen::phm::RecoveryResponse> : std::formatter<std::string_view> {
+template <>
+struct std::formatter<nexigen::phm::RecoveryResponse> : std::formatter<std::string_view> {
     template <class Ctx>
     auto format(const nexigen::phm::RecoveryResponse& response, Ctx& ctx) const {
         const std::string text = response.to_string();

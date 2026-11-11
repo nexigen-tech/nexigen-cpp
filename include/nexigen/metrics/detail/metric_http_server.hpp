@@ -83,8 +83,8 @@ public:
             }
             sockaddr_in peer{};
             socklen_t peer_length = sizeof(peer);
-            const int client = ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&peer),
-                                        &peer_length);
+            const int client =
+                ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&peer), &peer_length);
             if (client < 0) {
                 continue;
             }
@@ -104,8 +104,7 @@ private:
     static void send_all(int fd, const char* data, std::size_t size) noexcept {
         std::size_t offset = 0;
         while (offset < size) {
-            const ssize_t written =
-                ::send(fd, data + offset, size - offset, MSG_NOSIGNAL);
+            const ssize_t written = ::send(fd, data + offset, size - offset, MSG_NOSIGNAL);
             if (written > 0) {
                 offset += static_cast<std::size_t>(written);
             } else if (errno != EINTR) {
@@ -116,14 +115,12 @@ private:
 
     void handle_connection(int client, const ExpositionBuffer& exposition) noexcept {
         timeval timeout{2, 0};
-        static_cast<void>(
-            ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
+        static_cast<void>(::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
 
         char request[8192];
         std::size_t used = 0;
         while (used + 1U < sizeof(request)) {
-            const ssize_t received =
-                ::recv(client, request + used, sizeof(request) - 1U - used, 0);
+            const ssize_t received = ::recv(client, request + used, sizeof(request) - 1U - used, 0);
             if (received <= 0) {
                 break;
             }
@@ -136,8 +133,7 @@ private:
 
         hub::detail::RequestLine line{};
         const auto error = hub::detail::parse_request_line(std::string_view(request, used), line);
-        const bool matched =
-            error == hub::detail::RequestLineError::None && line.path == endpoint_;
+        const bool matched = error == hub::detail::RequestLineError::None && line.path == endpoint_;
         if (!matched) {
             static constexpr char not_found[] =
                 "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";

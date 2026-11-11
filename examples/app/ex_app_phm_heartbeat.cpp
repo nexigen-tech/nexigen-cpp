@@ -78,8 +78,8 @@ auto main() -> int {
     if (!checkpoint_service || !health_service) {
         return fail("bad service name");
     }
-    auto entity = phm::SupervisedEntity::create(*node, "hub_example", *checkpoint_service,
-                                                *health_service);
+    auto entity =
+        phm::SupervisedEntity::create(*node, "hub_example", *checkpoint_service, *health_service);
     if (!entity) {
         return fail("SupervisedEntity::create failed");
     }

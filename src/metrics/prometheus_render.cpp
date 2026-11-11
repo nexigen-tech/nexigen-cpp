@@ -36,8 +36,8 @@ struct Appender {
 
     void u64(std::uint64_t value) noexcept {
         char text[24];
-        const int n = std::snprintf(text, sizeof(text), "%llu",
-                                    static_cast<unsigned long long>(value));
+        const int n =
+            std::snprintf(text, sizeof(text), "%llu", static_cast<unsigned long long>(value));
         raw(text, n > 0 ? static_cast<std::size_t>(n) : 0U);
     }
     void i64(std::int64_t value) noexcept {
@@ -55,10 +55,10 @@ struct Appender {
         ch('"');
         for (const char c : text) {
             switch (c) {
-                case '"': lit("\\\""); break;
+                case '"':  lit("\\\""); break;
                 case '\\': lit("\\\\"); break;
                 case '\n': lit("\\n"); break;
-                default: ch(c); break;
+                default:   ch(c); break;
             }
         }
         ch('"');
@@ -122,7 +122,8 @@ void emit_double_family(Appender& a, std::string_view base, std::string_view suf
 
 /// Emit a uint64 sample of the derived `<base><suffix>` family.
 void emit_count_family(Appender& a, std::string_view base, std::string_view suffix,
-                       std::string_view unit, const MetricFrame& frame, std::uint64_t value) noexcept {
+                       std::string_view unit, const MetricFrame& frame,
+                       std::uint64_t value) noexcept {
     emit_type(a, base, suffix, "gauge");
     emit_unit(a, base, suffix, unit);
     emit_sample_head(a, base, suffix, frame);
@@ -223,9 +224,7 @@ std::size_t render_prometheus(const MetricFrame& frame, char* out, std::size_t u
             break;
         }
         case MetricKind::ExplicitHistogram:
-        case MetricKind::ExponentialHistogram:
-            render_histogram(a, name, unit, frame);
-            break;
+        case MetricKind::ExponentialHistogram: render_histogram(a, name, unit, frame); break;
         case MetricKind::State:
             emit_type(a, name, {}, "gauge");
             emit_unit(a, name, {}, unit);

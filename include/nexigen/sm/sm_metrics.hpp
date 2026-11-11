@@ -22,15 +22,14 @@ struct alignas(64) SmMetrics {
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
-        return std::format(
-            "SmMetrics(last_transition_duration_us={}, arbitration_latency_us={}, "
-            "rejected_requests_total={}, emergency_transitions_total={}, "
-            "transition_timeouts_total={})",
-            last_transition_duration_us.load(std::memory_order_relaxed),
-            arbitration_latency_us.load(std::memory_order_relaxed),
-            rejected_requests_total.load(std::memory_order_relaxed),
-            emergency_transitions_total.load(std::memory_order_relaxed),
-            transition_timeouts_total.load(std::memory_order_relaxed));
+        return std::format("SmMetrics(last_transition_duration_us={}, arbitration_latency_us={}, "
+                           "rejected_requests_total={}, emergency_transitions_total={}, "
+                           "transition_timeouts_total={})",
+                           last_transition_duration_us.load(std::memory_order_relaxed),
+                           arbitration_latency_us.load(std::memory_order_relaxed),
+                           rejected_requests_total.load(std::memory_order_relaxed),
+                           emergency_transitions_total.load(std::memory_order_relaxed),
+                           transition_timeouts_total.load(std::memory_order_relaxed));
     }
 };
 
@@ -43,8 +42,7 @@ struct alignas(64) SmMetrics {
 
 /// The metrics format as their diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::sm::SmMetrics> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::sm::SmMetrics& metrics, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::sm::SmMetrics& metrics, Ctx& ctx) const {
         const std::string text = metrics.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

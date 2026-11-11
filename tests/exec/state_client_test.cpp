@@ -139,18 +139,16 @@ void test_state_client() {
         std::atomic<bool> ordinary_done{false};
         std::atomic<bool> emergency_done{false};
         std::thread ordinary_sender([&] {
-            auto response =
-                client->call(make_command("motion_control", "Active"),
-                             std::chrono::milliseconds(3000));
+            auto response = client->call(make_command("motion_control", "Active"),
+                                         std::chrono::milliseconds(3000));
             if (response.has_value()) {
                 ordinary_result = *response;
                 ordinary_done.store(true, std::memory_order_release);
             }
         });
         std::thread emergency_sender([&] {
-            auto response =
-                emergency_client->call(make_command("motion_control", "SafeState"),
-                                       std::chrono::milliseconds(3000));
+            auto response = emergency_client->call(make_command("motion_control", "SafeState"),
+                                                   std::chrono::milliseconds(3000));
             if (response.has_value()) {
                 emergency_result = *response;
                 emergency_done.store(true, std::memory_order_release);

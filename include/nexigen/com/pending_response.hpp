@@ -41,8 +41,7 @@ struct ClientTelemetry {
 template <concepts::Message Req, concepts::Message Resp> class Client;
 
 /// Outstanding asynchronous request: poll receive() or drop the handle.
-template <concepts::Message Req, concepts::Message Resp>
-class PendingResponse {
+template <concepts::Message Req, concepts::Message Resp> class PendingResponse {
 public:
     /// Dropping the handle abandons the outstanding request (the transport
     /// recycles the request slot; late server answers are discarded). The
@@ -85,7 +84,8 @@ private:
     PendingResponse(iox2::PendingResponse<iox2::ServiceType::Ipc, Req, void, Resp, void> inner,
                     std::uint64_t correlation_id,
                     std::shared_ptr<detail::ClientTelemetry> telemetry) noexcept
-        : inner_(std::move(inner)), correlation_id_(correlation_id), telemetry_(std::move(telemetry)) {}
+        : inner_(std::move(inner)), correlation_id_(correlation_id),
+          telemetry_(std::move(telemetry)) {}
 
     iox2::PendingResponse<iox2::ServiceType::Ipc, Req, void, Resp, void> inner_;
     std::uint64_t correlation_id_{0};

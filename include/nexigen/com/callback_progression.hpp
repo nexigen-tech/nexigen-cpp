@@ -18,8 +18,8 @@ namespace nexigen::com {
 
 /// Controls the WaitSet processing loop from inside the callback.
 enum class CallbackProgression : std::uint8_t {
-    Continue,  ///< Handle the next fired source.
-    Stop,      ///< Return from wait_and_process.
+    Continue, ///< Handle the next fired source.
+    Stop,     ///< Return from wait_and_process.
 };
 
 /// Canonical name of a progression value; allocation-free, constexpr.

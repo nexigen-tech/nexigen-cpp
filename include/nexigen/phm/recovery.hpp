@@ -38,12 +38,11 @@ class RecoveryClient {
 public:
     /// Open the recovery channels: the EM request-response channel and the
     /// SM notification channel (publish-subscribe) with its wake event.
-    [[nodiscard]] static com::Result<RecoveryClient> create(
-        com::Node& node, const com::ServiceName& em_channel_name,
-        const com::ServiceName& sm_notification_name,
-        const com::ServiceName& sm_event_name) noexcept {
-        auto client = com::Client<RecoveryRequest, RecoveryResponse>::create(node,
-                                                                             em_channel_name);
+    [[nodiscard]] static com::Result<RecoveryClient>
+    create(com::Node& node, const com::ServiceName& em_channel_name,
+           const com::ServiceName& sm_notification_name,
+           const com::ServiceName& sm_event_name) noexcept {
+        auto client = com::Client<RecoveryRequest, RecoveryResponse>::create(node, em_channel_name);
         if (!client) {
             return std::unexpected(client.error());
         }
@@ -66,9 +65,9 @@ public:
     RecoveryClient& operator=(RecoveryClient&&) noexcept = default;
 
     /// Ask the EM to forcibly restart a failed process (direct channel).
-    [[nodiscard]] com::Result<RecoveryResponse> restart_process(
-        std::uint32_t pid, std::string_view name,
-        std::chrono::milliseconds timeout) noexcept {
+    [[nodiscard]] com::Result<RecoveryResponse>
+    restart_process(std::uint32_t pid, std::string_view name,
+                    std::chrono::milliseconds timeout) noexcept {
         RecoveryRequest request;
         request.action = RecoveryAction::RestartProcess;
         request.pid = pid;
@@ -77,8 +76,8 @@ public:
     }
 
     /// Escalate: trigger the hardware watchdog reset (direct channel).
-    [[nodiscard]] com::Result<RecoveryResponse> trigger_watchdog_reset(
-        std::chrono::milliseconds timeout) noexcept {
+    [[nodiscard]] com::Result<RecoveryResponse>
+    trigger_watchdog_reset(std::chrono::milliseconds timeout) noexcept {
         RecoveryRequest request;
         request.action = RecoveryAction::TriggerWatchdogReset;
         return send(request, timeout);
@@ -125,8 +124,8 @@ public:
                                             : com::Status{std::unexpected(response.error())};
             }
             case RecoveryAction::SwitchFunctionGroupState:
-                return notify_sm_recovery(
-                    rule.function_group.empty() ? process.name : rule.function_group);
+                return notify_sm_recovery(rule.function_group.empty() ? process.name
+                                                                      : rule.function_group);
             case RecoveryAction::TriggerWatchdogReset: {
                 const auto response = trigger_watchdog_reset(timeout);
                 return response.has_value() ? com::Status{}
@@ -141,8 +140,7 @@ public:
 
     /// Cold-path diagnostic (mandate 9): names the channel and last action.
     [[nodiscard]] std::string to_string() const {
-        return std::format("RecoveryClient(em_channel={}, last_action={})",
-                           em_channel_.to_string(),
+        return std::format("RecoveryClient(em_channel={}, last_action={})", em_channel_.to_string(),
                            nexigen::phm::to_string(last_action_));
     }
 
@@ -151,10 +149,8 @@ private:
                    com::Client<RecoveryRequest, RecoveryResponse> client,
                    com::Publisher<nexigen::sm::RecoveryNotification> sm_notifier,
                    com::EventNotifier sm_event) noexcept
-        : em_channel_(std::move(em_channel)),
-          client_(std::move(client)),
-          sm_notifier_(std::move(sm_notifier)),
-          sm_event_(std::move(sm_event)) {}
+        : em_channel_(std::move(em_channel)), client_(std::move(client)),
+          sm_notifier_(std::move(sm_notifier)), sm_event_(std::move(sm_event)) {}
 
     com::Result<RecoveryResponse> send(const RecoveryRequest& request,
                                        std::chrono::milliseconds timeout) noexcept {
@@ -181,8 +177,7 @@ private:
 
 /// The recovery client formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::phm::RecoveryClient> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::phm::RecoveryClient& recovery, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::phm::RecoveryClient& recovery, Ctx& ctx) const {
         const std::string text = recovery.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

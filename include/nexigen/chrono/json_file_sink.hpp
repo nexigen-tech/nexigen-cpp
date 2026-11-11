@@ -148,8 +148,7 @@ static_assert(concepts::Sink<JsonFileSink>, "JsonFileSink must satisfy the sink 
 /// The file sink formats as its diagnostic string (mandate 11).
 template <>
 struct std::formatter<nexigen::chrono::JsonFileSink> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::chrono::JsonFileSink& sink, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::chrono::JsonFileSink& sink, Ctx& ctx) const {
         const std::string text = sink.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

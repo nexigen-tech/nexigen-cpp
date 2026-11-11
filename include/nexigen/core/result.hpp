@@ -40,14 +40,14 @@ namespace nexigen::core {
 /// Append-only contract: existing enumerators keep their numeric values, so
 /// recompiled and non-recompiled translation units stay ABI-compatible.
 enum class ErrorCode : std::uint8_t {
-    Ok,              ///< Success enumerator; not expected inside a Result's error arm.
-    BufferFull,      ///< Bounded queue rejected a push: all capacity is in use.
-    BufferEmpty,     ///< Bounded queue had nothing to pop.
-    InvalidArgument, ///< Caller-supplied value violated a precondition.
-    SystemError,     ///< An OS call failed (errno-era failure, e.g. clock_gettime).
-    NotInitialized,  ///< Operation attempted before required setup completed.
-    RateLimited,     ///< Rate policy rejected the request before any queue interaction.
-    Conflict,        ///< Another owner holds a process-global resource/state.
+    Ok,                ///< Success enumerator; not expected inside a Result's error arm.
+    BufferFull,        ///< Bounded queue rejected a push: all capacity is in use.
+    BufferEmpty,       ///< Bounded queue had nothing to pop.
+    InvalidArgument,   ///< Caller-supplied value violated a precondition.
+    SystemError,       ///< An OS call failed (errno-era failure, e.g. clock_gettime).
+    NotInitialized,    ///< Operation attempted before required setup completed.
+    RateLimited,       ///< Rate policy rejected the request before any queue interaction.
+    Conflict,          ///< Another owner holds a process-global resource/state.
     ResourceExhausted, ///< Fixed-capacity pool of a preallocated resource is fully issued.
 };
 

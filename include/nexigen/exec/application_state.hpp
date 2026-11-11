@@ -32,8 +32,8 @@ namespace nexigen::exec {
 class ApplicationStateReporter {
 public:
     /// Open (or create) the per-application readiness channel on the node.
-    [[nodiscard]] static com::Result<ApplicationStateReporter> create(
-        com::Node& node, std::string_view app_name) noexcept {
+    [[nodiscard]] static com::Result<ApplicationStateReporter>
+    create(com::Node& node, std::string_view app_name) noexcept {
         const std::string service = application_state_service(app_name);
         const auto name = com::ServiceName::create(service.c_str());
         if (!name) {

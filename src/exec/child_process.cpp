@@ -51,8 +51,8 @@ core::Status ChildProcess::launch(const app::RunIdentity& identity,
 }
 
 core::Status ChildProcess::stop(std::uint64_t grace_s) noexcept {
-    if (state != AppState::Running && state != AppState::Restarting &&
-        child_pid <= 0 && supervisor_pid <= 0) {
+    if (state != AppState::Running && state != AppState::Restarting && child_pid <= 0 &&
+        supervisor_pid <= 0) {
         return {};
     }
     ExecutionManager execution_manager;
@@ -64,11 +64,10 @@ bool ChildProcess::is_running() const noexcept {
 }
 
 std::string ChildProcess::to_string() const {
-    return std::format(
-        "ChildProcess(app={}, instance={}, pid={}, supervisor_pid={}, state={}, "
-        "attempt={}, restarts_used={})",
-        spec.app, spec.instance, child_pid, supervisor_pid,
-        nexigen::exec::to_string(state), attempt, restarts_used);
+    return std::format("ChildProcess(app={}, instance={}, pid={}, supervisor_pid={}, state={}, "
+                       "attempt={}, restarts_used={})",
+                       spec.app, spec.instance, child_pid, supervisor_pid,
+                       nexigen::exec::to_string(state), attempt, restarts_used);
 }
 
 void to_json(nlohmann::json& j, const ChildProcess& child) {

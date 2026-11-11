@@ -193,8 +193,7 @@ public:
                   "Policy::MetricsSink must satisfy metrics::concepts::MetricSink");
     static_assert(tracing::concepts::TraceSink<TraceSink>,
                   "Policy::TraceSink must satisfy tracing::concepts::TraceSink");
-    static_assert(chrono::concepts::Sink<Sink>,
-                  "Policy::Sink must satisfy chrono::concepts::Sink");
+    static_assert(chrono::concepts::Sink<Sink>, "Policy::Sink must satisfy chrono::concepts::Sink");
 
     Infrastructure(const Infrastructure&) = delete;
     Infrastructure& operator=(const Infrastructure&) = delete;

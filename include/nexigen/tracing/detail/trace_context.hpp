@@ -17,8 +17,8 @@ namespace nexigen::tracing {
 
 /// The causally-linking state carried across a thread between messages.
 struct TraceContext {
-    TraceId trace_id{};       ///< Inherited trace id (0 = none).
-    SpanId source_span_id{};  ///< Parent span of the incoming message (0 = root).
+    TraceId trace_id{};      ///< Inherited trace id (0 = none).
+    SpanId source_span_id{}; ///< Parent span of the incoming message (0 = root).
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
@@ -41,7 +41,8 @@ struct TraceContext {
 } // namespace nexigen::tracing
 
 /// The context formats as its diagnostic string (mandate 11).
-template <> struct std::formatter<nexigen::tracing::TraceContext> : std::formatter<std::string_view> {
+template <>
+struct std::formatter<nexigen::tracing::TraceContext> : std::formatter<std::string_view> {
     template <class Ctx>
     auto format(const nexigen::tracing::TraceContext& context, Ctx& ctx) const {
         const std::string text = context.to_string();

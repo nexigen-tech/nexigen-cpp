@@ -132,10 +132,8 @@ static_assert(concepts::Sink<ConsoleSink>, "ConsoleSink must satisfy the sink co
 } // namespace nexigen::chrono
 
 /// The console sink formats as its diagnostic string (mandate 11).
-template <>
-struct std::formatter<nexigen::chrono::ConsoleSink> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::chrono::ConsoleSink& sink, Ctx& ctx) const {
+template <> struct std::formatter<nexigen::chrono::ConsoleSink> : std::formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::chrono::ConsoleSink& sink, Ctx& ctx) const {
         const std::string text = sink.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

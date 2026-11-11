@@ -59,8 +59,7 @@ public:
     /// the transition graph (`InvalidGraph`), then arbitrated against the
     /// current holder (`RejectedByPriority` when a higher-priority requester
     /// holds the group); otherwise the state is applied (`Success`).
-    [[nodiscard]] TransitionResult request_transition(std::size_t index,
-                                                      std::string_view target,
+    [[nodiscard]] TransitionResult request_transition(std::size_t index, std::string_view target,
                                                       std::string_view requester_id) noexcept;
 
     /// Startup sequencing step: Startup -> Verify.
@@ -105,8 +104,7 @@ private:
 
 /// The state manager formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::sm::StateManager> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::sm::StateManager& manager, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::sm::StateManager& manager, Ctx& ctx) const {
         const std::string text = manager.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

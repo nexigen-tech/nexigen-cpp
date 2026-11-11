@@ -61,8 +61,7 @@ void run_suite(const char* name, void (*body)()) {
                 g_failures - failures_before);
 }
 
-template <class E>
-void check_enum_round_trip(std::initializer_list<E> values) {
+template <class E> void check_enum_round_trip(std::initializer_list<E> values) {
     for (const E value : values) {
         const std::string_view name = to_string(value);
         NX_CHECK(!name.empty());
@@ -80,8 +79,8 @@ void check_enum_round_trip(std::initializer_list<E> values) {
 }
 
 void test_vocabulary() {
-    check_enum_round_trip({phm::HealthState::Ok, phm::HealthState::Warning,
-                           phm::HealthState::Error, phm::HealthState::Critical});
+    check_enum_round_trip({phm::HealthState::Ok, phm::HealthState::Warning, phm::HealthState::Error,
+                           phm::HealthState::Critical});
     check_enum_round_trip({phm::SupervisionStatus::Ok, phm::SupervisionStatus::Failed,
                            phm::SupervisionStatus::Expired, phm::SupervisionStatus::Stopped});
     check_enum_round_trip({phm::RecoveryAction::RestartProcess,
@@ -110,8 +109,7 @@ void test_health_channel() {
 
         bool observed = false;
         const auto collected = listener->try_wait([&](com::EventId id) {
-            observed = id.as_value() ==
-                       static_cast<std::uint64_t>(phm::HealthState::Error);
+            observed = id.as_value() == static_cast<std::uint64_t>(phm::HealthState::Error);
         });
         NX_CHECK(collected.has_value());
         NX_CHECK(observed);
@@ -132,9 +130,8 @@ void test_health_channel() {
 
         NX_CHECK(emitter->emit(7).has_value());
         bool observed = false;
-        const auto collected = listener->try_wait([&](com::EventId id) {
-            observed = id.as_value() == 7U;
-        });
+        const auto collected =
+            listener->try_wait([&](com::EventId id) { observed = id.as_value() == 7U; });
         NX_CHECK(collected.has_value());
         NX_CHECK(observed);
         NX_CHECK(emitter->to_string().find("Nexigen/Test/Checkpoint") != std::string::npos);
@@ -253,8 +250,7 @@ void test_recovery() {
     // accepted=1 (the real StateClient lives in nexigen::exec).
     auto client = phm::RecoveryClient::create(*node, *em_name, *sm_notif_name, *sm_event_name);
     NX_CHECK(client.has_value());
-    auto server = com::Server<phm::RecoveryRequest, phm::RecoveryResponse>::create(*node,
-                                                                                   *em_name);
+    auto server = com::Server<phm::RecoveryRequest, phm::RecoveryResponse>::create(*node, *em_name);
     NX_CHECK(server.has_value());
 
     std::thread mock_em([&server] {
@@ -303,8 +299,7 @@ void test_recovery() {
             auto received = sm_subscriber->receive();
             NX_CHECK(received.has_value());
             if (received->has_value()) {
-                observed = std::string((*received)->payload().function_group) ==
-                           "motion_control";
+                observed = std::string((*received)->payload().function_group) == "motion_control";
             } else {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
@@ -335,8 +330,7 @@ void test_recovery() {
 void test_manifest() {
     phm::PhmManifest manifest;
     phm::SupervisedProcess process = make_process("camera");
-    process.recovery_rules.push_back(
-        {phm::RecoveryAction::RestartProcess, "ignored_group"});
+    process.recovery_rules.push_back({phm::RecoveryAction::RestartProcess, "ignored_group"});
     manifest.processes.push_back(process);
 
     nlohmann::json j;
@@ -356,8 +350,7 @@ void test_manifest() {
     NX_CHECK(back.processes[0].deadlines[0].min_ms == 10U);
     NX_CHECK(back.processes[0].deadlines[0].max_ms == 100U);
     NX_CHECK(back.processes[0].recovery_rules.size() == 1U);
-    NX_CHECK(back.processes[0].recovery_rules[0].action ==
-             phm::RecoveryAction::RestartProcess);
+    NX_CHECK(back.processes[0].recovery_rules[0].action == phm::RecoveryAction::RestartProcess);
 
     const std::string text = manifest.to_string();
     NX_CHECK(text.find("camera") != std::string::npos);
@@ -379,8 +372,7 @@ void test_supervised_entity() {
     NX_CHECK(checkpoint_name.has_value());
     NX_CHECK(health_name.has_value());
 
-    auto entity =
-        phm::SupervisedEntity::create(*node, "camera", *checkpoint_name, *health_name);
+    auto entity = phm::SupervisedEntity::create(*node, "camera", *checkpoint_name, *health_name);
     NX_CHECK(entity.has_value());
     NX_CHECK(entity->app_name() == "camera");
 
@@ -389,9 +381,8 @@ void test_supervised_entity() {
     NX_CHECK(checkpoint_listener.has_value());
     NX_CHECK(entity->report_checkpoint(7).has_value());
     bool checkpoint_seen = false;
-    const auto collected = checkpoint_listener->try_wait([&](com::EventId id) {
-        checkpoint_seen = id.as_value() == 7U;
-    });
+    const auto collected = checkpoint_listener->try_wait(
+        [&](com::EventId id) { checkpoint_seen = id.as_value() == 7U; });
     NX_CHECK(collected.has_value());
     NX_CHECK(checkpoint_seen);
 
@@ -411,8 +402,8 @@ void test_supervised_entity() {
     NX_CHECK(group_service.has_value());
     nexigen::sm::GroupStatePayload initial{};
     std::snprintf(initial.state, sizeof(initial.state), "Active");
-    auto sm_field = com::Field<nexigen::sm::GroupStatePayload>::create(*node, *group_service,
-                                                                      initial);
+    auto sm_field =
+        com::Field<nexigen::sm::GroupStatePayload>::create(*node, *group_service, initial);
     NX_CHECK(sm_field.has_value());
     NX_CHECK(sm_field->set(nexigen::sm::GroupStatePayload{"SafeState"}).has_value());
 

@@ -30,8 +30,7 @@
 namespace nexigen::chrono {
 
 /// Periodic snapshot daemon over a bound Provider.
-template <concepts::Provider P>
-class ChronoWorker {
+template <concepts::Provider P> class ChronoWorker {
 public:
     /// Bind the provider and copy the driver configuration (interval + worker
     /// thread spec). The provider MUST outlive the worker.
@@ -94,15 +93,13 @@ public:
     /// the worker. A start(Logger&) on a running worker returns Conflict
     /// WITHOUT touching the binding; rebinding is only possible while the
     /// worker is not running.
-    template <concepts::Logger Logger>
-    [[nodiscard]] core::Status start(Logger& logger) noexcept {
+    template <concepts::Logger Logger> [[nodiscard]] core::Status start(Logger& logger) noexcept {
         if (worker_.joinable()) {
             return std::unexpected(core::ErrorCode::Conflict);
         }
         log_binding_ =
-            detail::LogBinding{static_cast<void*>(&logger),
-                               [](void* self, core::LogLevel level,
-                                  std::string_view message) noexcept {
+            detail::LogBinding{static_cast<void*>(&logger), [](void* self, core::LogLevel level,
+                                                               std::string_view message) noexcept {
                                    static_cast<Logger*>(self)->log(level, message);
                                }};
         return start();

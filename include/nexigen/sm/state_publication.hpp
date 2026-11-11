@@ -27,8 +27,8 @@ namespace nexigen::sm {
 class StatePublication {
 public:
     /// Create one Field per Function Group on the node.
-    [[nodiscard]] static com::Result<StatePublication> create(
-        com::Node& node, const SmManifest& manifest) noexcept {
+    [[nodiscard]] static com::Result<StatePublication> create(com::Node& node,
+                                                              const SmManifest& manifest) noexcept {
         StatePublication publication;
         for (const FunctionGroup& group : manifest.function_groups) {
             const std::string service_name = "Nexigen/SM/State/" + group.name;

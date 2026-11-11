@@ -19,12 +19,12 @@ namespace nexigen::logging {
 /// during initialize(); lengths beyond the buffers are rejected.
 struct Iceoryx2LoggerConfig {
     std::string service_name{"Nexigen/Log/nexigen"}; ///< pub/sub service (≤ 511 B)
-    std::string app_id{"NEXG"};                     ///< 4-byte code into LogFrame.app_id
-    std::uint32_t max_subscribers{16};              ///< receiver pool (REQ_COM_009)
-    std::uint32_t history_size{4};                  ///< receiver queue depth
+    std::string app_id{"NEXG"};                      ///< 4-byte code into LogFrame.app_id
+    std::uint32_t max_subscribers{16};               ///< receiver pool (REQ_COM_009)
+    std::uint32_t history_size{4};                   ///< receiver queue depth
     core::LogLevel initial_level{core::LogLevel::Info};
-    ThrottleConfig throttle{};          ///< rate limit (drop semantics)
-    core::ThreadSpec worker_thread{};   ///< empty = inherited worker attributes
+    ThrottleConfig throttle{};        ///< rate limit (drop semantics)
+    core::ThreadSpec worker_thread{}; ///< empty = inherited worker attributes
     /// Ceiling of the worker's idle sleep (backoff grows up to it); clamped to
     /// [50, 100000] us — bounds the worker's idle CPU consumption.
     std::uint32_t worker_poll_interval_us{core::WorkerTuning::default_poll_interval_us};

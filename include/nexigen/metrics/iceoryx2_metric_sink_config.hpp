@@ -16,7 +16,7 @@ namespace nexigen::metrics {
 /// iceoryx2 service to publish to, and the subscriber buffer depth the daemon
 /// needs to receive one publish burst without discards.
 struct Iceoryx2MetricSinkConfig {
-    std::string app_id{"NEXG"};                        ///< 4-byte code into MetricFrame.app_id
+    std::string app_id{"NEXG"};                         ///< 4-byte code into MetricFrame.app_id
     std::string service_name{"nexigen/metrics/stream"}; ///< pub-sub service (≤ 511 B)
     std::uint64_t subscriber_max_buffer_size{256};      ///< burst depth (0 = service default 2)
 

@@ -19,9 +19,7 @@ public:
     explicit EventId(std::uint64_t value) noexcept : inner_(value) {}
 
     /// The numeric value of the event id.
-    [[nodiscard]] std::uint64_t as_value() const noexcept {
-        return inner_.as_value();
-    }
+    [[nodiscard]] std::uint64_t as_value() const noexcept { return inner_.as_value(); }
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
@@ -44,8 +42,7 @@ private:
 
 /// The event id formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::com::EventId> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::com::EventId& id, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::com::EventId& id, Ctx& ctx) const {
         const std::string text = id.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

@@ -163,7 +163,8 @@ std::optional<std::uint32_t> first_allowed_cpu() {
 }
 
 #if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
-core::fault_injection::FaultPoint g_fault_point = core::fault_injection::FaultPoint::ExecutionManager_pipe2;
+core::fault_injection::FaultPoint g_fault_point =
+    core::fault_injection::FaultPoint::ExecutionManager_pipe2;
 bool g_fault_enabled = false;
 
 bool test_fault_hook(core::fault_injection::FaultPoint point) noexcept {
@@ -283,8 +284,8 @@ void test_exit_metadata() {
     NX_CHECK(parsed.uptime_s == 42ULL);
     NX_CHECK(parsed.terminated_by == exec::TerminatedBy::Self);
 
-    const exec::ExitMetadata killed =
-        exec::ExitMetadata::from_child_status(100, SIGKILL, 3, exec::TerminatedBy::ExecutionManager);
+    const exec::ExitMetadata killed = exec::ExitMetadata::from_child_status(
+        100, SIGKILL, 3, exec::TerminatedBy::ExecutionManager);
     NX_CHECK(!killed.exit_code.has_value());
     NX_CHECK(killed.signal.has_value());
     NX_CHECK(*killed.signal == SIGKILL);
@@ -303,7 +304,7 @@ void test_exit_metadata() {
     exec::from_json(nlohmann::json::array(), parsed);
     NX_CHECK(parsed.uptime_s == before.uptime_s);
     exec::from_json(nlohmann::json{{"exit_code", "bad"}, {"signal", false}, {"uptime_s", "bad"}},
-                      parsed);
+                    parsed);
     NX_CHECK(parsed.exit_code == before.exit_code);
     NX_CHECK(parsed.signal == before.signal);
     NX_CHECK(parsed.uptime_s == before.uptime_s);
@@ -331,8 +332,8 @@ void test_instance_dir_creation() {
     NX_CHECK(exec::create_instance_dir(nested).has_value());
 
     // Relative paths and over-long paths are rejected before any syscall.
-    NX_CHECK(failed_with(exec::create_instance_dir("relative/path"),
-                         core::ErrorCode::InvalidArgument));
+    NX_CHECK(
+        failed_with(exec::create_instance_dir("relative/path"), core::ErrorCode::InvalidArgument));
     const std::string too_long = "/tmp/" + std::string(600, 'x');
     NX_CHECK(failed_with(exec::create_instance_dir(too_long), core::ErrorCode::InvalidArgument));
 
@@ -347,8 +348,8 @@ void test_instance_dir_creation() {
         std::ofstream output(component, std::ios::binary | std::ios::trunc);
         output << "x";
     }
-    NX_CHECK(failed_with(exec::create_instance_dir(component + "/child"),
-                         core::ErrorCode::SystemError));
+    NX_CHECK(
+        failed_with(exec::create_instance_dir(component + "/child"), core::ErrorCode::SystemError));
 
     remove_tree(root);
 }
@@ -442,8 +443,7 @@ void test_json_file_io() {
     NX_CHECK(failed_with(exec::write_exit_json(missing, {}), core::ErrorCode::SystemError));
 
     NX_CHECK(failed_with(exec::create_instance_dir(""), core::ErrorCode::InvalidArgument));
-    NX_CHECK(
-        failed_with(exec::create_instance_dir("relative"), core::ErrorCode::InvalidArgument));
+    NX_CHECK(failed_with(exec::create_instance_dir("relative"), core::ErrorCode::InvalidArgument));
     NX_CHECK(failed_with(exec::create_artifact_dir(""), core::ErrorCode::InvalidArgument));
     NX_CHECK(failed_with(exec::create_artifact_dir("/proc/nexigen_artifact_denied"),
                          core::ErrorCode::SystemError));
@@ -457,8 +457,8 @@ void test_json_file_io() {
         const std::string settings_root = unique_dir(std::string("settings_") + blocked);
         std::error_code mkdir_error;
         std::filesystem::create_directories(settings_root + "/settings/" + blocked, mkdir_error);
-        NX_CHECK(failed_with(exec::generate_settings(settings_root, {}),
-                             core::ErrorCode::SystemError));
+        NX_CHECK(
+            failed_with(exec::generate_settings(settings_root, {}), core::ErrorCode::SystemError));
         remove_tree(settings_root);
     }
 
@@ -516,8 +516,8 @@ void test_start_status_stop() {
     NX_CHECK(state == "running");
 
     // A second start on a live instance is rejected without touching it.
-    NX_CHECK(
-        failed_with(execution_manager.start(identity, k_test_app, command, 0), core::ErrorCode::Conflict));
+    NX_CHECK(failed_with(execution_manager.start(identity, k_test_app, command, 0),
+                         core::ErrorCode::Conflict));
 
     const exec::ResourceMetadata metadata = read_resource(identity.instance_dir);
     NX_CHECK(metadata.pid > 0);
@@ -579,8 +579,8 @@ void test_failed_exec_visible() {
     // (a) nonexistent file: every setup step succeeds, `execvp` fails (ENOENT).
     const app::RunIdentity identity = identity_for(root);
     const std::vector<std::string> command{"/nonexistent/nexigen/test-binary", "--flag"};
-    NX_CHECK(
-        failed_with(execution_manager.start(identity, "execfail", command, 0), core::ErrorCode::SystemError));
+    NX_CHECK(failed_with(execution_manager.start(identity, "execfail", command, 0),
+                         core::ErrorCode::SystemError));
     struct stat resource_status{};
     NX_CHECK(::stat((identity.instance_dir + "/resource.json").c_str(), &resource_status) != 0);
     struct stat exit_status{};
@@ -655,8 +655,8 @@ void test_recycled_pid_identity() {
     {
         nlohmann::json doctored;
         exec::to_json(doctored, recycled);
-        NX_CHECK(exec::write_json_file(identity.instance_dir + "/resource.json", doctored)
-                     .has_value());
+        NX_CHECK(
+            exec::write_json_file(identity.instance_dir + "/resource.json", doctored).has_value());
     }
     NX_CHECK(wait_until(
         [&] { return contains(read_text(identity.instance_dir + "/stdout.log"), "started"); },
@@ -1159,7 +1159,8 @@ void test_error_paths() {
     NX_CHECK(execution_manager.status("/tmp/opencode/nexigen_exec_missing", state).has_value());
     NX_CHECK(state == "unknown");
 
-    const core::Status stop_missing = execution_manager.stop("/tmp/opencode/nexigen_exec_missing", 0);
+    const core::Status stop_missing =
+        execution_manager.stop("/tmp/opencode/nexigen_exec_missing", 0);
     NX_CHECK(failed_with(stop_missing, core::ErrorCode::SystemError));
 
     // Empty command.
@@ -1185,8 +1186,8 @@ void test_error_paths() {
     app::RunIdentity denied = identity_for(root);
     denied.instance_dir = "/proc/nexigen_exec_denied_" +
                           std::to_string(static_cast<long long>(::getpid())) + "/instance";
-    NX_CHECK(
-        failed_with(execution_manager.start(denied, k_test_app, command, 0), core::ErrorCode::SystemError));
+    NX_CHECK(failed_with(execution_manager.start(denied, k_test_app, command, 0),
+                         core::ErrorCode::SystemError));
 
     // Identity derived from the three components when instance_dir is empty.
     app::RunIdentity derived{"run-2", root, "derived", ""};

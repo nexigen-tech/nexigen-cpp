@@ -47,8 +47,8 @@ static_assert(com::concepts::Message<TransitionPreparationPayload>);
 class TransitionPreparation {
 public:
     /// Open (or create) the preparation channel on the node.
-    [[nodiscard]] static com::Result<TransitionPreparation> create(
-        com::Node& node, const com::ServiceName& name) noexcept {
+    [[nodiscard]] static com::Result<TransitionPreparation>
+    create(com::Node& node, const com::ServiceName& name) noexcept {
         auto publisher = com::Publisher<TransitionPreparationPayload>::create(node, name);
         if (!publisher) {
             return std::unexpected(publisher.error());

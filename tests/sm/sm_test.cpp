@@ -65,8 +65,8 @@ sm::SmManifest make_manifest() {
     motion.name = "motion_control";
     motion.states = {"Active", "Parking", "Off", "SafeState"};
     motion.allowed_transitions = {
-        {"Active", "Parking"}, {"Parking", "Active"}, {"Parking", "Off"}, {"Off", "Parking"},
-        {"Active", "SafeState"}, {"Parking", "SafeState"},
+        {"Active", "Parking"}, {"Parking", "Active"},   {"Parking", "Off"},
+        {"Off", "Parking"},    {"Active", "SafeState"}, {"Parking", "SafeState"},
     };
     motion.transition_max_time_ms = 500;
     motion.preparation_timeout_ms = 100;
@@ -95,8 +95,8 @@ void test_vocabulary() {
         NX_CHECK(std::format("{}", value) == std::string(name));
     }
     for (const sm::MachineState value :
-         {sm::MachineState::Startup, sm::MachineState::Verify,
-          sm::MachineState::NormalRunning, sm::MachineState::Shutdown}) {
+         {sm::MachineState::Startup, sm::MachineState::Verify, sm::MachineState::NormalRunning,
+          sm::MachineState::Shutdown}) {
         const std::string_view name = to_string(value);
         sm::MachineState back{};
         NX_CHECK(from_string(name, back));
@@ -115,8 +115,7 @@ void test_state_machine() {
     // Invalid transition is rejected and the state stays.
     {
         sm::StateManager manager(make_manifest());
-        const sm::TransitionResult result =
-            manager.request_transition(0, "Off", "app");
+        const sm::TransitionResult result = manager.request_transition(0, "Off", "app");
         NX_CHECK(result == sm::TransitionResult::InvalidGraph);
         NX_CHECK(manager.state(0) == "Active");
     }
@@ -124,8 +123,7 @@ void test_state_machine() {
     // Valid transition is applied.
     {
         sm::StateManager manager(make_manifest());
-        const sm::TransitionResult result =
-            manager.request_transition(0, "Parking", "app");
+        const sm::TransitionResult result = manager.request_transition(0, "Parking", "app");
         NX_CHECK(result == sm::TransitionResult::Success);
         NX_CHECK(manager.state(0) == "Parking");
     }
@@ -133,8 +131,7 @@ void test_state_machine() {
     // Arbitration: a higher-priority requester wins over the lower holder.
     {
         sm::StateManager manager(make_manifest());
-        NX_CHECK(manager.request_transition(0, "Parking", "app") ==
-                 sm::TransitionResult::Success);
+        NX_CHECK(manager.request_transition(0, "Parking", "app") == sm::TransitionResult::Success);
         // diagnostics (50) can move it further; app (10) cannot reverse it.
         NX_CHECK(manager.request_transition(0, "Off", "diagnostics") ==
                  sm::TransitionResult::Success);
@@ -142,8 +139,7 @@ void test_state_machine() {
                  sm::TransitionResult::RejectedByPriority);
         NX_CHECK(manager.state(0) == "Off");
         // phm (90) always wins.
-        NX_CHECK(manager.request_transition(0, "Parking", "phm") ==
-                 sm::TransitionResult::Success);
+        NX_CHECK(manager.request_transition(0, "Parking", "phm") == sm::TransitionResult::Success);
     }
 
     // Startup/shutdown sequencing.

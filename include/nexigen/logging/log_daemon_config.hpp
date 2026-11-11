@@ -21,8 +21,8 @@ struct LogDaemonConfig {
     std::uint64_t max_file_size_mb{20};              ///< 0 = no size-based rotation
     std::uint32_t max_archive_files{5};              ///< rotated files kept
     core::LogLevel min_log_level_storage{core::LogLevel::Warning}; ///< threshold for disk
-    core::CpuSet bg_cpu_affinity{};                  ///< service-core mask (empty = inhertit)
-    std::uint32_t batch_flush_interval_ms{500};      ///< flush timer (ms)
+    core::CpuSet bg_cpu_affinity{};             ///< service-core mask (empty = inhertit)
+    std::uint32_t batch_flush_interval_ms{500}; ///< flush timer (ms)
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
@@ -52,8 +52,7 @@ void from_json(const nlohmann::json& j, LogDaemonConfig& out) noexcept;
 /// The config formats as its diagnostic string (mandate 11).
 template <>
 struct std::formatter<nexigen::logging::LogDaemonConfig> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::logging::LogDaemonConfig& cfg, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::logging::LogDaemonConfig& cfg, Ctx& ctx) const {
         const std::string text = cfg.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

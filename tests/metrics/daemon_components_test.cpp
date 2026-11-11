@@ -30,8 +30,8 @@ metrics::MetricFrame make_counter(const char* app, const char* metric, std::uint
                   "meter");
     std::snprintf(frame.record.identity.meter_version, sizeof(frame.record.identity.meter_version),
                   "1.0");
-    std::snprintf(frame.record.identity.metric_name, sizeof(frame.record.identity.metric_name), "%s",
-                  metric);
+    std::snprintf(frame.record.identity.metric_name, sizeof(frame.record.identity.metric_name),
+                  "%s", metric);
     frame.record.kind = metrics::MetricKind::Counter;
     frame.record.scalar.counter = value;
     return frame;
@@ -44,9 +44,8 @@ void test_aggregation_latest_wins() {
     NX_CHECK(aggregator.size() == 1U);
 
     std::uint64_t latest = 0;
-    aggregator.for_each([&latest](const metrics::MetricFrame& frame) {
-        latest = frame.record.scalar.counter;
-    });
+    aggregator.for_each(
+        [&latest](const metrics::MetricFrame& frame) { latest = frame.record.scalar.counter; });
     NX_CHECK(latest == 5U);
 
     // A different metric name is a distinct key.

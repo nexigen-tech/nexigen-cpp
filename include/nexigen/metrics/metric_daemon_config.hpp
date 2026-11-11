@@ -18,16 +18,16 @@ namespace nexigen::metrics {
 /// MetricsDaemon construction-time configuration. Validated at startup; invalid
 /// values are rejected before any thread, subscriber, or listener is created.
 struct MetricDaemonConfig {
-    std::string service_name{"nexigen/metrics/stream"}; ///< subscription (≤ 511 B)
-    std::string bind_address{"127.0.0.1"};              ///< HTTP bind host
-    std::uint16_t port{9100};                           ///< HTTP port
-    std::string endpoint{"/metrics"};                   ///< Prometheus scrape path
-    bool enable_http{true};                             ///< serve the scrape endpoint
+    std::string service_name{"nexigen/metrics/stream"};        ///< subscription (≤ 511 B)
+    std::string bind_address{"127.0.0.1"};                     ///< HTTP bind host
+    std::uint16_t port{9100};                                  ///< HTTP port
+    std::string endpoint{"/metrics"};                          ///< Prometheus scrape path
+    bool enable_http{true};                                    ///< serve the scrape endpoint
     std::string storage_directory{"/var/log/nexigen/metrics"}; ///< absolute history root
-    std::uint64_t max_storage_mb{50};                   ///< history quota (0 = unbounded)
-    std::uint32_t batch_flush_interval_ms{500};         ///< render/flush timer (ms)
-    std::uint32_t max_metrics{256};                     ///< aggregation table capacity
-    core::ThreadSpec bg_cpu_affinity{};                 ///< drain worker affinity
+    std::uint64_t max_storage_mb{50};                          ///< history quota (0 = unbounded)
+    std::uint32_t batch_flush_interval_ms{500};                ///< render/flush timer (ms)
+    std::uint32_t max_metrics{256};                            ///< aggregation table capacity
+    core::ThreadSpec bg_cpu_affinity{};                        ///< drain worker affinity
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {

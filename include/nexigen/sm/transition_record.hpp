@@ -33,8 +33,7 @@ struct TransitionRecord {
             "TransitionRecord(timestamp_ns={}, function_group={}, old_state={}, new_state={}, "
             "requester_id={}, result={})",
             timestamp_ns, std::string(function_group), std::string(old_state),
-            std::string(new_state), std::string(requester_id),
-            nexigen::sm::to_string(result));
+            std::string(new_state), std::string(requester_id), nexigen::sm::to_string(result));
     }
 };
 
@@ -46,9 +45,9 @@ struct TransitionRecord {
 } // namespace nexigen::sm
 
 /// The record formats as its diagnostic string (mandate 11).
-template <> struct std::formatter<nexigen::sm::TransitionRecord> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::sm::TransitionRecord& record, Ctx& ctx) const {
+template <>
+struct std::formatter<nexigen::sm::TransitionRecord> : std::formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::sm::TransitionRecord& record, Ctx& ctx) const {
         const std::string text = record.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

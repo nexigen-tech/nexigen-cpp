@@ -22,8 +22,7 @@ namespace nexigen::com {
 template <concepts::Message T, typename H> class Subscriber;
 
 /// Read-only view of one received payload (+ optional custom header).
-template <concepts::Message T, typename H = void>
-class Sample {
+template <concepts::Message T, typename H = void> class Sample {
     static_assert(std::is_void_v<H> || concepts::Message<H>,
                   "the custom header must satisfy com::concepts::Message");
 

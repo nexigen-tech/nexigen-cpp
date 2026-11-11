@@ -228,10 +228,14 @@ void run_suite(const char* suite_name, void (*body)()) {
 void test_result() {
     // Distinctness: all nine codes pairwise different (36 pairs).
     const ErrorCode all_codes[] = {
-        ErrorCode::Ok,          ErrorCode::BufferFull,
-        ErrorCode::BufferEmpty, ErrorCode::InvalidArgument,
-        ErrorCode::SystemError, ErrorCode::NotInitialized,
-        ErrorCode::RateLimited, ErrorCode::Conflict,
+        ErrorCode::Ok,
+        ErrorCode::BufferFull,
+        ErrorCode::BufferEmpty,
+        ErrorCode::InvalidArgument,
+        ErrorCode::SystemError,
+        ErrorCode::NotInitialized,
+        ErrorCode::RateLimited,
+        ErrorCode::Conflict,
         ErrorCode::ResourceExhausted,
     };
     for (int i = 0; i < 9; ++i) {

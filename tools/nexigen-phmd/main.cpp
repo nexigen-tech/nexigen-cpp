@@ -42,10 +42,9 @@ void stop_handler(int /*signal*/) {
 }
 
 void print_usage() {
-    std::printf(
-        "nexigen-phmd - Platform Health Management daemon\n"
-        "Usage: nexigen-phmd --manifest <path> [--core <mask>] [--priority <n>]\n"
-        "                    [--fault-log <path>] [--help]\n");
+    std::printf("nexigen-phmd - Platform Health Management daemon\n"
+                "Usage: nexigen-phmd --manifest <path> [--core <mask>] [--priority <n>]\n"
+                "                    [--fault-log <path>] [--help]\n");
 }
 
 struct Options {
@@ -232,8 +231,7 @@ struct Session {
 
 /// One shared alive tick at the shortest configured cycle.
 [[nodiscard]] bool attach_alive_tick(Session& session, std::uint64_t min_cycle_ms) {
-    const auto tick_interval =
-        std::chrono::milliseconds(min_cycle_ms == 0U ? 100U : min_cycle_ms);
+    const auto tick_interval = std::chrono::milliseconds(min_cycle_ms == 0U ? 100U : min_cycle_ms);
     auto tick_guard = session.waitset->attach_interval(tick_interval);
     if (!tick_guard) {
         std::fprintf(stderr, "nexigen-phmd: cannot attach alive tick\n");
@@ -270,8 +268,8 @@ void handle_attachment(Session& session, nexigen::phm::Supervisor& supervisor,
     for (MonitoredProcess& process : session.monitored) {
         if (attachment.has_event_from(process.guard)) {
             const auto drained = process.listener.try_wait([&](nexigen::com::EventId id) {
-                supervisor.on_checkpoint(process.index,
-                                         static_cast<std::uint32_t>(id.as_value()), now);
+                supervisor.on_checkpoint(process.index, static_cast<std::uint32_t>(id.as_value()),
+                                         now);
             });
             (void)drained;
         }
@@ -308,8 +306,7 @@ void run_loop(Session& session, nexigen::phm::Supervisor& supervisor,
               std::vector<nexigen::phm::SupervisionStatus>& seen) {
     while (g_stop == 0) {
         const auto waited = session.waitset->wait_and_process_once_with_timeout(
-            [&](nexigen::com::WaitSetAttachmentId attachment)
-                -> nexigen::com::CallbackProgression {
+            [&](nexigen::com::WaitSetAttachmentId attachment) -> nexigen::com::CallbackProgression {
                 handle_attachment(session, supervisor, attachment);
                 return nexigen::com::CallbackProgression::Continue;
             },

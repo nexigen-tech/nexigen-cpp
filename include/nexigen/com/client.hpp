@@ -30,8 +30,7 @@
 namespace nexigen::com {
 
 /// Client side of one request-response service.
-template <concepts::Message Req, concepts::Message Resp>
-class Client {
+template <concepts::Message Req, concepts::Message Resp> class Client {
 public:
     /// Open (or create) the service on the node and create the client.
     [[nodiscard]] static Result<Client> create(Node& node, const ServiceName& name) noexcept {
@@ -61,7 +60,8 @@ public:
         if (!pending) {
             return std::unexpected(detail::map_error(pending.error()));
         }
-        const std::uint64_t correlation_id = telemetry_->correlation_.fetch_add(1, std::memory_order_relaxed);
+        const std::uint64_t correlation_id =
+            telemetry_->correlation_.fetch_add(1, std::memory_order_relaxed);
         telemetry_->outstanding_.fetch_add(1, std::memory_order_relaxed);
         return PendingResponse<Req, Resp>{std::move(*pending), correlation_id, telemetry_};
     }
@@ -69,7 +69,8 @@ public:
     /// Synchronous call: blocks until the response arrives or the timeout
     /// elapses. On timeout the request is abandoned and Error::Timeout is
     /// returned; the caller is free to ignore or retry.
-    [[nodiscard]] Result<Resp> call(const Req& request, std::chrono::milliseconds timeout) noexcept {
+    [[nodiscard]] Result<Resp> call(const Req& request,
+                                    std::chrono::milliseconds timeout) noexcept {
         auto pending = send(request);
         if (!pending) {
             return std::unexpected(pending.error());
@@ -102,9 +103,9 @@ public:
     }
 
 private:
-    Client(ServiceName name, iox2::Client<iox2::ServiceType::Ipc, Req, void, Resp, void> inner) noexcept
-        : service_name_(std::move(name)),
-          inner_(std::move(inner)),
+    Client(ServiceName name,
+           iox2::Client<iox2::ServiceType::Ipc, Req, void, Resp, void> inner) noexcept
+        : service_name_(std::move(name)), inner_(std::move(inner)),
           telemetry_(std::make_shared<detail::ClientTelemetry>()) {}
 
     ServiceName service_name_;

@@ -37,9 +37,9 @@ class Iceoryx2MetricSink {
 public:
     Iceoryx2MetricSink(const Iceoryx2MetricSinkConfig& config, com::Node* node) noexcept
         : config_{config}, node_{node}, pid_{static_cast<std::uint32_t>(::getpid())} {
-        const std::size_t take =
-            config_.app_id.size() < sizeof(frame_.app_id) ? config_.app_id.size()
-                                                          : sizeof(frame_.app_id);
+        const std::size_t take = config_.app_id.size() < sizeof(frame_.app_id)
+                                     ? config_.app_id.size()
+                                     : sizeof(frame_.app_id);
         for (std::size_t i = 0; i < take; ++i) {
             frame_.app_id[i] = config_.app_id[i];
         }
@@ -117,8 +117,8 @@ public:
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
         return "Iceoryx2MetricSink(service=" + config_.service_name + ", app=" + config_.app_id +
-               ", pid=" + std::to_string(pid_) + ", started=" +
-               (publisher_.has_value() ? "true" : "false") + ")";
+               ", pid=" + std::to_string(pid_) +
+               ", started=" + (publisher_.has_value() ? "true" : "false") + ")";
     }
 
 private:

@@ -29,8 +29,8 @@ struct RecoveryRequest {
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
         return std::format("RecoveryRequest(action={}, pid={}, name={}, function_group={})",
-                           nexigen::phm::to_string(action), pid,
-                           std::string(name), std::string(function_group));
+                           nexigen::phm::to_string(action), pid, std::string(name),
+                           std::string(function_group));
     }
 };
 
@@ -45,9 +45,9 @@ static_assert(com::concepts::Message<RecoveryRequest>);
 } // namespace nexigen::phm
 
 /// The request formats as its diagnostic string (mandate 11).
-template <> struct std::formatter<nexigen::phm::RecoveryRequest> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::phm::RecoveryRequest& request, Ctx& ctx) const {
+template <>
+struct std::formatter<nexigen::phm::RecoveryRequest> : std::formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::phm::RecoveryRequest& request, Ctx& ctx) const {
         const std::string text = request.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

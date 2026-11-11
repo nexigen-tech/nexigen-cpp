@@ -17,10 +17,10 @@ namespace nexigen::phm {
 
 /// Health state of one supervised channel, worst-first semantics.
 enum class HealthState : std::uint8_t {
-    Ok,        ///< Nominal operation.
-    Warning,   ///< Degraded but tolerable.
-    Error,     ///< A fault was detected.
-    Critical,  ///< Safety-relevant fault.
+    Ok,       ///< Nominal operation.
+    Warning,  ///< Degraded but tolerable.
+    Error,    ///< A fault was detected.
+    Critical, ///< Safety-relevant fault.
 };
 
 /// Canonical name of a health state; allocation-free, constexpr.

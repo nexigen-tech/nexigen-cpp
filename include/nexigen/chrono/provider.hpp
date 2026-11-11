@@ -41,8 +41,7 @@
 namespace nexigen::chrono {
 
 /// The threadless clock authority.
-template <std::size_t MaxSources = 64>
-class Provider {
+template <std::size_t MaxSources = 64> class Provider {
 public:
     using Stamper = StampSource;
     static constexpr std::size_t max_sources = MaxSources;
@@ -52,15 +51,14 @@ public:
     /// outlive the provider.
     template <concepts::Sink Sink>
     Provider(const ProviderConfig& config, Sink& sink)
-        : Provider(config,
-                   detail::SinkBinding{
-                       static_cast<void*>(&sink),
-                       [](void* self, const Snapshot& snapshot) noexcept -> core::Status {
-                           return static_cast<Sink*>(self)->on_snapshot(snapshot);
-                       },
-                       [](void* self) noexcept -> core::Status {
-                           return static_cast<Sink*>(self)->flush();
-                       }}) {}
+        : Provider(config, detail::SinkBinding{
+                               static_cast<void*>(&sink),
+                               [](void* self, const Snapshot& snapshot) noexcept -> core::Status {
+                                   return static_cast<Sink*>(self)->on_snapshot(snapshot);
+                               },
+                               [](void* self) noexcept -> core::Status {
+                                   return static_cast<Sink*>(self)->flush();
+                               }}) {}
 
     Provider(const Provider&) = delete;
     Provider& operator=(const Provider&) = delete;
@@ -139,7 +137,7 @@ public:
             return std::unexpected(core::ErrorCode::SystemError);
         }
         const std::int64_t rt_ns = static_cast<std::int64_t>(realtime.tv_sec) * 1'000'000'000LL +
-                                    static_cast<std::int64_t>(realtime.tv_nsec);
+                                   static_cast<std::int64_t>(realtime.tv_nsec);
         const Snapshot snapshot{*stamp, rt_ns - static_cast<std::int64_t>(stamp->nanoseconds())};
         if (binding_.on_snapshot == nullptr) {
             return {};
@@ -157,12 +155,12 @@ public:
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
-        return std::format("Provider(collect_interval_ns={}, kind={}, worker_thread={}, "
-                           "prepared={}, issued={}, capacity={})",
-                           config_.collect_interval.count(), nexigen::chrono::to_string(config_.kind),
-                           config_.worker_thread.to_string(),
-                           prepared_.load(std::memory_order_relaxed),
-                           next_free_.load(std::memory_order_relaxed), MaxSources);
+        return std::format(
+            "Provider(collect_interval_ns={}, kind={}, worker_thread={}, "
+            "prepared={}, issued={}, capacity={})",
+            config_.collect_interval.count(), nexigen::chrono::to_string(config_.kind),
+            config_.worker_thread.to_string(), prepared_.load(std::memory_order_relaxed),
+            next_free_.load(std::memory_order_relaxed), MaxSources);
     }
 
 private:

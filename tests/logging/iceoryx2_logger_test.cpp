@@ -49,8 +49,7 @@ void run_suite(const char* name, void (*body)()) {
                 g_failures - failures_before);
 }
 
-template <class Logger>
-void wait_writer_started(Logger& logger) {
+template <class Logger> void wait_writer_started(Logger& logger) {
     for (int i = 0; i < 5000 && !logger.writer_started(); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }

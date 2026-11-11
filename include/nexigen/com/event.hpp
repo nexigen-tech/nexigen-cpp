@@ -24,7 +24,8 @@ namespace nexigen::com {
 class EventNotifier {
 public:
     /// Open (or create) the event service on the node and create the notifier.
-    [[nodiscard]] static Result<EventNotifier> create(Node& node, const ServiceName& name) noexcept {
+    [[nodiscard]] static Result<EventNotifier> create(Node& node,
+                                                      const ServiceName& name) noexcept {
         auto service = node.handle().service_builder(name.handle()).event().open_or_create();
         if (!service) {
             return std::unexpected(detail::map_error(service.error()));
@@ -81,7 +82,8 @@ private:
 class EventListener {
 public:
     /// Open (or create) the event service on the node and create the listener.
-    [[nodiscard]] static Result<EventListener> create(Node& node, const ServiceName& name) noexcept {
+    [[nodiscard]] static Result<EventListener> create(Node& node,
+                                                      const ServiceName& name) noexcept {
         auto service = node.handle().service_builder(name.handle()).event().open_or_create();
         if (!service) {
             return std::unexpected(detail::map_error(service.error()));
@@ -101,8 +103,7 @@ public:
     /// Block until one notification batch arrives; the callback runs for each
     /// activation with its com-typed event id. No polling: the listener sleeps
     /// in the kernel.
-    template <class Callback>
-    [[nodiscard]] Status blocking_wait(Callback&& callback) noexcept {
+    template <class Callback> [[nodiscard]] Status blocking_wait(Callback&& callback) noexcept {
         auto adapter = [&callback](iox2::EventActivation activation) {
             callback(EventId{activation.id().as_value()});
         };
@@ -159,8 +160,7 @@ private:
 
 /// The notifier formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::com::EventNotifier> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::com::EventNotifier& notifier, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::com::EventNotifier& notifier, Ctx& ctx) const {
         const std::string text = notifier.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }
@@ -168,8 +168,7 @@ template <> struct std::formatter<nexigen::com::EventNotifier> : std::formatter<
 
 /// The listener formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::com::EventListener> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::com::EventListener& listener, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::com::EventListener& listener, Ctx& ctx) const {
         const std::string text = listener.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

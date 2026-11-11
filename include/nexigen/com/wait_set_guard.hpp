@@ -51,8 +51,7 @@ private:
 
 /// The guard formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::com::WaitSetGuard> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::com::WaitSetGuard& guard, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::com::WaitSetGuard& guard, Ctx& ctx) const {
         const std::string text = guard.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

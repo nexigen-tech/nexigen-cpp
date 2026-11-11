@@ -30,8 +30,7 @@
 namespace nexigen::chrono {
 
 /// Fan-out over heterogeneous conforming sinks, zero virtual dispatch.
-template <concepts::Sink... Sinks>
-class CompositeSink : public core::sink_pack::Fanout<Sinks...> {
+template <concepts::Sink... Sinks> class CompositeSink : public core::sink_pack::Fanout<Sinks...> {
 public:
     /// Constructor surface inherited from the pack: default construction
     /// only for default-constructible member packs; member injection
@@ -87,8 +86,7 @@ template <concepts::Sink... Sinks>
 /// reconstructed from JSON — deserialization is deliberately absent.
 template <concepts::Sink... Sinks>
 void to_json(nlohmann::json& j, const CompositeSink<Sinks...>& sink) {
-    j = nlohmann::json{{"type", "CompositeSink"},
-                       {"members", CompositeSink<Sinks...>::size}};
+    j = nlohmann::json{{"type", "CompositeSink"}, {"members", CompositeSink<Sinks...>::size}};
     static_cast<void>(sink);
 }
 
@@ -98,8 +96,7 @@ static_assert(concepts::Sink<CompositeSink<>>, "empty composite must satisfy the
 
 /// Composite sinks format as their diagnostic string (mandate 11).
 template <nexigen::chrono::concepts::Sink... Sinks>
-struct std::formatter<nexigen::chrono::CompositeSink<Sinks...>>
-    : std::formatter<std::string_view> {
+struct std::formatter<nexigen::chrono::CompositeSink<Sinks...>> : std::formatter<std::string_view> {
     template <class Ctx>
     auto format(const nexigen::chrono::CompositeSink<Sinks...>& sink, Ctx& ctx) const {
         const std::string text = sink.to_string();

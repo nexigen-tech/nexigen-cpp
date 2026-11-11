@@ -299,7 +299,8 @@ struct SuperviseResult {
     return wait_child_deadline(child, status, timeout_s, start_mono_ns);
 }
 
-[[nodiscard]] TerminatedBy attribution(bool execution_manager_stopped, bool reaped, int status) noexcept {
+[[nodiscard]] TerminatedBy attribution(bool execution_manager_stopped, bool reaped,
+                                       int status) noexcept {
     if (execution_manager_stopped) {
         return TerminatedBy::ExecutionManager;
     }
@@ -454,7 +455,8 @@ struct StartLayout {
         stdout_fd = -1;
         return std::unexpected(core::ErrorCode::SystemError);
     }
-    if (core::fault_injection::fault(core::fault_injection::FaultPoint::ExecutionManager_open_null)) {
+    if (core::fault_injection::fault(
+            core::fault_injection::FaultPoint::ExecutionManager_open_null)) {
         static_cast<void>(::close(stdout_fd));
         static_cast<void>(::close(stderr_fd));
         stdout_fd = -1;
@@ -634,9 +636,9 @@ void close_supervisor_fds(int null_fd, int stdout_fd, int stderr_fd) noexcept {
         if (supervised.execution_manager_stopped) {
             // REQ_EM_002: the startup deadline expired and the EM forced the
             // stop — record it so the recovery policy sees a visible failure.
-            log_execution_manager(core::LogLevel::Warning,
-                                  std::format("event=startup_timeout instance_dir={}",
-                                              *context.instance_dir));
+            log_execution_manager(
+                core::LogLevel::Warning,
+                std::format("event=startup_timeout instance_dir={}", *context.instance_dir));
         }
         const ExitMetadata exit_metadata =
             ExitMetadata::from_child_status(child, child_status, uptime, terminated_by);
@@ -849,13 +851,14 @@ std::string StartOptions::to_string() const {
 }
 
 core::Status ExecutionManager::start(const app::RunIdentity& identity, std::string_view app_name,
-                           const std::vector<std::string>& command, std::uint64_t timeout_s) {
+                                     const std::vector<std::string>& command,
+                                     std::uint64_t timeout_s) {
     return start(identity, app_name, command, timeout_s, StartOptions{});
 }
 
 core::Status ExecutionManager::start(const app::RunIdentity& identity, std::string_view app_name,
-                           const std::vector<std::string>& command, std::uint64_t timeout_s,
-                           const StartOptions& options) {
+                                     const std::vector<std::string>& command,
+                                     std::uint64_t timeout_s, const StartOptions& options) {
     if (const core::Status valid = validate_start_inputs(command, options); !valid) {
         return valid;
     }
@@ -903,8 +906,9 @@ core::Status ExecutionManager::start(const app::RunIdentity& identity, std::stri
     }
 
     const pid_t supervisor =
-        core::fault_injection::fault(core::fault_injection::FaultPoint::ExecutionManager_fork) ? -1
-                                                                                     : ::fork();
+        core::fault_injection::fault(core::fault_injection::FaultPoint::ExecutionManager_fork)
+            ? -1
+            : ::fork();
     if (supervisor < 0) {
         static_cast<void>(::close(pipe_fds[0]));
         static_cast<void>(::close(pipe_fds[1]));
@@ -928,7 +932,8 @@ core::Status ExecutionManager::start(const app::RunIdentity& identity, std::stri
     return read_start_report(pipe_fds[0], supervisor);
 }
 
-core::Status ExecutionManager::start_suite(const SuiteManifest& manifest, std::string& suite_dir_out) {
+core::Status ExecutionManager::start_suite(const SuiteManifest& manifest,
+                                           std::string& suite_dir_out) {
     return ::nexigen::exec::start_suite(manifest, suite_dir_out);
 }
 

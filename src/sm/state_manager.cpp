@@ -10,7 +10,7 @@ StateManager::StateManager(SmManifest manifest) : manifest_(std::move(manifest))
     groups_.reserve(manifest_.function_groups.size());
     for (std::size_t i = 0; i < manifest_.function_groups.size(); ++i) {
         GroupRuntime runtime;
-        runtime.state_index = 0U;  // first declared state
+        runtime.state_index = 0U; // first declared state
         groups_.push_back(std::move(runtime));
     }
 }
@@ -37,7 +37,7 @@ std::size_t StateManager::find_state(std::size_t index, std::string_view name) c
             return i;
         }
     }
-    return group.states.size();  // not found
+    return group.states.size(); // not found
 }
 
 bool StateManager::is_allowed(std::size_t index, std::string_view from,
@@ -73,7 +73,7 @@ std::uint64_t StateManager::transition_max_time_ms(std::size_t index) const noex
 }
 
 TransitionResult StateManager::request_transition(std::size_t index, std::string_view target,
-                                                 std::string_view requester_id) noexcept {
+                                                  std::string_view requester_id) noexcept {
     GroupRuntime& group = groups_[index];
     const std::string_view current = state(index);
 
@@ -132,8 +132,8 @@ void StateManager::force_state(std::size_t index, std::string_view target) noexc
 }
 
 std::string StateManager::to_string() const {
-    std::string out = std::format("StateManager(machine={}, groups=[",
-                                  nexigen::sm::to_string(machine_));
+    std::string out =
+        std::format("StateManager(machine={}, groups=[", nexigen::sm::to_string(machine_));
     for (std::size_t i = 0; i < groups_.size(); ++i) {
         if (i != 0U) {
             out += ", ";

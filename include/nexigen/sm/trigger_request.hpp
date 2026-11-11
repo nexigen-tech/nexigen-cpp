@@ -43,8 +43,7 @@ static_assert(com::concepts::Message<TriggerRequest>);
 
 /// The request formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::sm::TriggerRequest> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::sm::TriggerRequest& request, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::sm::TriggerRequest& request, Ctx& ctx) const {
         const std::string text = request.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

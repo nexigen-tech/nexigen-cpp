@@ -81,8 +81,7 @@ void Supervisor::on_checkpoint(std::size_t index, std::uint32_t checkpoint_id,
         } else if (checkpoint_id == pair.target_id && clock.started.has_value()) {
             const auto elapsed =
                 std::chrono::duration_cast<std::chrono::milliseconds>(now - *clock.started);
-            if (elapsed.count() < 0 ||
-                static_cast<std::uint64_t>(elapsed.count()) < pair.min_ms ||
+            if (elapsed.count() < 0 || static_cast<std::uint64_t>(elapsed.count()) < pair.min_ms ||
                 static_cast<std::uint64_t>(elapsed.count()) > pair.max_ms) {
                 record_failure(index);
             }

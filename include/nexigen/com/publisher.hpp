@@ -27,10 +27,10 @@ namespace nexigen::com {
 
 /// Zero-copy publisher of payload type T for one service (optional custom
 /// header H, default void = no header).
-template <concepts::Message T, typename H = void>
-class Publisher {
+template <concepts::Message T, typename H = void> class Publisher {
     static_assert(std::is_void_v<H> || concepts::Message<H>,
                   "the custom header must satisfy com::concepts::Message");
+
 public:
     /// Open (or create) the service on the node and create the publisher.
     /// Delivery policy is DiscardData (design D6/REQ_COM_007): safe overflow
@@ -46,8 +46,8 @@ public:
     /// Open (or create) the service with an explicit `subscriber_max_buffer_size`
     /// (0 leaves the service default of 2). A larger value lets one publish
     /// burst of N frames reach a subscriber without deterministic discards.
-    [[nodiscard]] static Result<Publisher> create(Node& node, const ServiceName& name,
-                                                  std::uint64_t subscriber_max_buffer_size) noexcept {
+    [[nodiscard]] static Result<Publisher>
+    create(Node& node, const ServiceName& name, std::uint64_t subscriber_max_buffer_size) noexcept {
         auto builder = node.handle().service_builder(name.handle()).publish_subscribe<T>();
         if (subscriber_max_buffer_size > 0U) {
             static_cast<void>(
@@ -57,7 +57,8 @@ public:
             if constexpr (std::is_void_v<H>) {
                 return std::move(builder).enable_safe_overflow(false).open_or_create();
             } else {
-                return std::move(builder).template user_header<H>()
+                return std::move(builder)
+                    .template user_header<H>()
                     .enable_safe_overflow(false)
                     .open_or_create();
             }
@@ -82,9 +83,11 @@ public:
     Publisher(Publisher&& other) noexcept
         : service_name_(std::move(other.service_name_)), inner_(std::move(other.inner_)) {
         telemetry_.queued_samples_.store(
-            other.telemetry_.queued_samples_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            other.telemetry_.queued_samples_.load(std::memory_order_relaxed),
+            std::memory_order_relaxed);
         telemetry_.lost_samples_.store(
-            other.telemetry_.lost_samples_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            other.telemetry_.lost_samples_.load(std::memory_order_relaxed),
+            std::memory_order_relaxed);
         telemetry_.send_count_.store(other.telemetry_.send_count_.load(std::memory_order_relaxed),
                                      std::memory_order_relaxed);
         telemetry_.peak_recipients_.store(
@@ -102,8 +105,9 @@ public:
             telemetry_.lost_samples_.store(
                 other.telemetry_.lost_samples_.load(std::memory_order_relaxed),
                 std::memory_order_relaxed);
-            telemetry_.send_count_.store(other.telemetry_.send_count_.load(std::memory_order_relaxed),
-                                         std::memory_order_relaxed);
+            telemetry_.send_count_.store(
+                other.telemetry_.send_count_.load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
             telemetry_.peak_recipients_.store(
                 other.telemetry_.peak_recipients_.load(std::memory_order_relaxed),
                 std::memory_order_relaxed);

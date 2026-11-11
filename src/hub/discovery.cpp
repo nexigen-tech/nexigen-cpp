@@ -120,8 +120,7 @@ constexpr std::uint32_t watch_mask = IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_
            std::string(to_string(kind));
 }
 
-[[nodiscard]] exec::AppState
-combine_app_state(const std::vector<exec::AppState>& states) noexcept {
+[[nodiscard]] exec::AppState combine_app_state(const std::vector<exec::AppState>& states) noexcept {
     bool running = false;
     bool restarting = false;
     bool failed = false;
@@ -180,7 +179,7 @@ combine_app_state(const std::vector<exec::AppState>& states) noexcept {
     exec::ExitMetadata exit{};
     exec::from_json(*exit_document, exit);
     return exit.terminated_by == exec::TerminatedBy::ExecutionManager ? exec::AppState::Stopped
-                                                              : exec::AppState::Exited;
+                                                                      : exec::AppState::Exited;
 }
 
 void append_attempt_streams(HubAttempt& attempt, std::string_view run_key,
@@ -401,8 +400,8 @@ void apply_suite_streams(const RunRoot& root, const std::string& suite_dir,
     const std::string execution_manager_log_path =
         join(join(out.artifacts_path, out.suite_id), "execution_manager.jsonl");
     if (contained(root.path, execution_manager_log_path)) {
-        out.execution_manager_log.id =
-            stream_id(root.key, out.suite_id, "suite", "execution_manager", 0, StreamKind::ExecutionManager);
+        out.execution_manager_log.id = stream_id(
+            root.key, out.suite_id, "suite", "execution_manager", 0, StreamKind::ExecutionManager);
         out.execution_manager_log.kind = StreamKind::ExecutionManager;
         out.execution_manager_log.path = execution_manager_log_path;
     }

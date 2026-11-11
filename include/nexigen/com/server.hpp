@@ -29,8 +29,7 @@ template <concepts::Message Req, concepts::Message Resp> class Server;
 
 /// One active request: a zero-copy view of the request payload plus the
 /// routing that sends the response back to the requesting client.
-template <concepts::Message Req, concepts::Message Resp>
-class ServerRequest {
+template <concepts::Message Req, concepts::Message Resp> class ServerRequest {
 public:
     ServerRequest(const ServerRequest&) = delete;
     ServerRequest& operator=(const ServerRequest&) = delete;
@@ -74,8 +73,7 @@ template <concepts::Message Req, concepts::Message Resp>
 }
 
 /// Server side of one request-response service.
-template <concepts::Message Req, concepts::Message Resp>
-class Server {
+template <concepts::Message Req, concepts::Message Resp> class Server {
 public:
     /// Open (or create) the service on the node and create the server.
     [[nodiscard]] static Result<Server> create(Node& node, const ServiceName& name) noexcept {
@@ -131,11 +129,14 @@ private:
     /// atomics only.
     struct Telemetry {
         std::atomic<std::uint64_t> received_{0};
-        std::shared_ptr<std::atomic<std::uint64_t>> answered_{std::make_shared<std::atomic<std::uint64_t>>(0)};
+        std::shared_ptr<std::atomic<std::uint64_t>> answered_{
+            std::make_shared<std::atomic<std::uint64_t>>(0)};
     };
 
-    Server(ServiceName name, iox2::Server<iox2::ServiceType::Ipc, Req, void, Resp, void> inner) noexcept
-        : service_name_(std::move(name)), inner_(std::move(inner)), telemetry_(std::make_shared<Telemetry>()) {}
+    Server(ServiceName name,
+           iox2::Server<iox2::ServiceType::Ipc, Req, void, Resp, void> inner) noexcept
+        : service_name_(std::move(name)), inner_(std::move(inner)),
+          telemetry_(std::make_shared<Telemetry>()) {}
 
     ServiceName service_name_;
     iox2::Server<iox2::ServiceType::Ipc, Req, void, Resp, void> inner_;

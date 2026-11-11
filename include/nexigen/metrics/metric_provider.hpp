@@ -38,8 +38,6 @@
 
 namespace nexigen::metrics {
 
-
-
 /// The registry root and the only source of meters.
 class MetricProvider {
 public:

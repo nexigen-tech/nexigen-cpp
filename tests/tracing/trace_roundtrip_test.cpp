@@ -50,8 +50,8 @@ void test_propagation_round_trip() {
     using Provider = tracing::TracerProvider<64, 1>;
     alignas(Provider) static std::byte storage[sizeof(Provider)];
     tracing::NullTraceSink null_sink;
-    auto* provider = new (static_cast<void*>(storage)) Provider(
-        tracing::TracerProviderConfig{}, null_sink);
+    auto* provider =
+        new (static_cast<void*>(storage)) Provider(tracing::TracerProviderConfig{}, null_sink);
     NX_CHECK(provider->initialize().has_value());
     const auto tracer = provider->get_tracer("camera");
     NX_CHECK(tracer.has_value());

@@ -98,7 +98,8 @@ void test_init_level_and_file() {
     exec::shutdown_execution_manager_logging();
     const std::string directory = unique_dir("basic");
     const logging::Settings settings{};
-    NX_CHECK(exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info).has_value());
+    NX_CHECK(exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info)
+                 .has_value());
     NX_CHECK(exec::execution_manager_logging_active());
     NX_CHECK(exec::execution_manager_logging_path() == directory + "/execution_manager.jsonl");
     exec::log_execution_manager(core::LogLevel::Info, "info-event");
@@ -119,11 +120,13 @@ void test_reinit() {
     const std::string first = unique_dir("reinit1");
     const std::string second = unique_dir("reinit2");
     const logging::Settings settings{};
-    NX_CHECK(exec::init_execution_manager_logging(first, settings, core::LogLevel::Info).has_value());
+    NX_CHECK(
+        exec::init_execution_manager_logging(first, settings, core::LogLevel::Info).has_value());
     exec::log_execution_manager(core::LogLevel::Info, "first-event");
     NX_CHECK(exec::flush_execution_manager_logging().has_value());
     exec::shutdown_execution_manager_logging();
-    NX_CHECK(exec::init_execution_manager_logging(second, settings, core::LogLevel::Info).has_value());
+    NX_CHECK(
+        exec::init_execution_manager_logging(second, settings, core::LogLevel::Info).has_value());
     exec::log_execution_manager(core::LogLevel::Info, "second-event");
     NX_CHECK(exec::flush_execution_manager_logging().has_value());
     NX_CHECK(contains(read_text(second + "/execution_manager.jsonl"), "second-event"));
@@ -171,12 +174,14 @@ void test_fallback_directory() {
     NX_CHECK(::chdir(directory.c_str()) == 0);
     const logging::Settings settings{};
     NX_CHECK(exec::init_execution_manager_logging("/proc/nexigen_exec_log_denied", settings,
-                                         core::LogLevel::Info)
+                                                  core::LogLevel::Info)
                  .has_value());
-    NX_CHECK(exec::execution_manager_logging_path() == directory + "/.nexigen-exec/execution_manager.jsonl");
+    NX_CHECK(exec::execution_manager_logging_path() ==
+             directory + "/.nexigen-exec/execution_manager.jsonl");
     exec::log_execution_manager(core::LogLevel::Info, "fallback-event");
     NX_CHECK(exec::flush_execution_manager_logging().has_value());
-    NX_CHECK(contains(read_text(directory + "/.nexigen-exec/execution_manager.jsonl"), "fallback-event"));
+    NX_CHECK(contains(read_text(directory + "/.nexigen-exec/execution_manager.jsonl"),
+                      "fallback-event"));
     exec::shutdown_execution_manager_logging();
     NX_CHECK(::chdir(previous) == 0);
     remove_tree(directory);
@@ -204,7 +209,8 @@ void test_affinity_and_logger_mask() {
     const logging::Settings settings{};
     core::ThreadSpec logger_thread{};
     logger_thread.set_cpus(core::CpuSet::from_core_mask(1ULL << core));
-    NX_CHECK(exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info, logger_thread)
+    NX_CHECK(exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info,
+                                                  logger_thread)
                  .has_value());
     NX_CHECK(exec::execution_manager_logging_writer_mask() == (1ULL << core));
     exec::shutdown_execution_manager_logging();
@@ -217,7 +223,8 @@ void test_state_write_warning() {
     std::error_code error;
     std::filesystem::create_directories(directory + "/state.json", error);
     const logging::Settings settings{};
-    NX_CHECK(exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info).has_value());
+    NX_CHECK(exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info)
+                 .has_value());
     nlohmann::json document;
     document["state"] = "running";
     const core::Status written = exec::write_json_file(directory + "/state.json", document);
@@ -252,21 +259,23 @@ void test_inactive_and_invalid_config() {
     logging::Settings settings{};
     settings.global_loaded = true;
     settings.options.worker_thread = core::ThreadSpec{};
-    NX_CHECK(exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info).has_value());
+    NX_CHECK(exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info)
+                 .has_value());
     exec::shutdown_execution_manager_logging();
 
     settings.options.worker_thread = core::ThreadSpec{};
-    NX_CHECK(exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info).has_value());
+    NX_CHECK(exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info)
+                 .has_value());
     exec::shutdown_execution_manager_logging();
 
     if (cpu >= 0) {
         settings.options.worker_thread = core::ThreadSpec{};
-        NX_CHECK(
-            exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info).has_value());
+        NX_CHECK(exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info)
+                     .has_value());
         exec::shutdown_execution_manager_logging();
         settings.options.worker_thread.set_cpus(core::CpuSet::from_core_mask(1ULL << cpu));
-        NX_CHECK(
-            exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info).has_value());
+        NX_CHECK(exec::init_execution_manager_logging(directory, settings, core::LogLevel::Info)
+                     .has_value());
         NX_CHECK(exec::execution_manager_logging_writer_mask() == (1ULL << cpu));
         exec::shutdown_execution_manager_logging();
     }

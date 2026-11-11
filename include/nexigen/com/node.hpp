@@ -38,7 +38,8 @@ public:
 
     /// Cold-path diagnostic (mandate 9): the node name.
     [[nodiscard]] std::string to_string() const {
-        return "Node(name=" + std::string(inner_.name().to_string().unchecked_access().c_str()) + ")";
+        return "Node(name=" + std::string(inner_.name().to_string().unchecked_access().c_str()) +
+               ")";
     }
 
     /// The underlying transport handle (module-internal surface only; the
@@ -63,8 +64,7 @@ private:
 
 /// The node formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::com::Node> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::com::Node& node, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::com::Node& node, Ctx& ctx) const {
         const std::string text = node.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

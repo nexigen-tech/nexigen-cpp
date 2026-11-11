@@ -59,7 +59,8 @@ using detail::suite_poll_interval_ms;
         probe.join();
         return applied;
     };
-    if (const core::Status control = preflight(manifest.execution_manager_control_thread); !control) {
+    if (const core::Status control = preflight(manifest.execution_manager_control_thread);
+        !control) {
         return control;
     }
     if (const core::Status logger = preflight(manifest.execution_manager_logger_thread); !logger) {
@@ -204,7 +205,8 @@ void stop_suite_apps(const std::vector<SuiteAppMetadata>& apps,
                      const std::optional<std::uint64_t>& grace_override) noexcept {
     for (const SuiteAppMetadata& app : apps) {
         ExecutionManager execution_manager;
-        static_cast<void>(execution_manager.stop(app.instance_dir, grace_override.value_or(app.stop_grace_s)));
+        static_cast<void>(
+            execution_manager.stop(app.instance_dir, grace_override.value_or(app.stop_grace_s)));
     }
 }
 

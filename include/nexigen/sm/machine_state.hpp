@@ -16,10 +16,10 @@ namespace nexigen::sm {
 
 /// The main machine's states.
 enum class MachineState : std::uint8_t {
-    Startup,        ///< Initial state; the SM sequences from here.
-    Verify,         ///< Self-diagnosis processes are running.
-    NormalRunning,  ///< The platform operates normally.
-    Shutdown,       ///< Final state; the EM stops the SM afterwards.
+    Startup,       ///< Initial state; the SM sequences from here.
+    Verify,        ///< Self-diagnosis processes are running.
+    NormalRunning, ///< The platform operates normally.
+    Shutdown,      ///< Final state; the EM stops the SM afterwards.
 };
 
 /// Canonical name of a machine state; allocation-free, constexpr.

@@ -22,17 +22,17 @@ namespace nexigen::com {
 
 /// Transport failures of the communication layer.
 enum class Error : std::uint8_t {
-    Ok,                      ///< Success.
-    ServiceAlreadyExists,    ///< create() collided with an existing service name.
-    ServiceNotFound,         ///< open() found no such service.
-    CreationFailed,          ///< Port/service creation failed for any other reason.
-    ConnectionFailure,       ///< A connected peer disappeared or could not be reached.
-    IncompatibleTypeLayout,  ///< Payload type name/size/alignment mismatch on connect.
-    OutOfSamples,            ///< The shared-memory loan pool is exhausted.
-    UnableToDeliver,         ///< send() could not deliver (connection/delivery policy).
-    Timeout,                 ///< A synchronous operation exceeded its deadline.
-    InvalidArgument,         ///< Caller-supplied value violated a precondition.
-    Unknown,                 ///< Unmapped underlying transport error.
+    Ok,                     ///< Success.
+    ServiceAlreadyExists,   ///< create() collided with an existing service name.
+    ServiceNotFound,        ///< open() found no such service.
+    CreationFailed,         ///< Port/service creation failed for any other reason.
+    ConnectionFailure,      ///< A connected peer disappeared or could not be reached.
+    IncompatibleTypeLayout, ///< Payload type name/size/alignment mismatch on connect.
+    OutOfSamples,           ///< The shared-memory loan pool is exhausted.
+    UnableToDeliver,        ///< send() could not deliver (connection/delivery policy).
+    Timeout,                ///< A synchronous operation exceeded its deadline.
+    InvalidArgument,        ///< Caller-supplied value violated a precondition.
+    Unknown,                ///< Unmapped underlying transport error.
 };
 
 /// The never-.value() rule of core::Result applies here verbatim.

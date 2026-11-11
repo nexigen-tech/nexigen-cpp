@@ -41,8 +41,7 @@ static_assert(com::concepts::Message<StateCommand>);
 
 /// The command formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::exec::StateCommand> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::exec::StateCommand& command, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::exec::StateCommand& command, Ctx& ctx) const {
         const std::string text = command.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

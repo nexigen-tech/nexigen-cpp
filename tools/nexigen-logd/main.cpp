@@ -43,23 +43,22 @@ namespace chrono = nexigen::chrono;
 namespace {
 
 std::atomic<bool> g_stop{false};
-void signal_handler(int) { g_stop.store(true, std::memory_order_relaxed); }
+void signal_handler(int) {
+    g_stop.store(true, std::memory_order_relaxed);
+}
 
 /// Render one LogFrame into a JSON line in the provided buffer.
 std::size_t format_frame(const logging::LogFrame& frame, char* out, std::size_t cap,
                          std::int64_t utc_offset_ns) {
     char ts_buf[31];
-    const std::int64_t utc =
-        chrono::utc_from_mono_ns(frame.timestamp_ns, utc_offset_ns);
+    const std::int64_t utc = chrono::utc_from_mono_ns(frame.timestamp_ns, utc_offset_ns);
     chrono::format_utc_iso8601_ns(utc, ts_buf);
     int n = std::snprintf(
         out, cap,
-        R"({"app":"%.*s","level":"%s","timestamp":"%.30s","thread":%u,"pid":%u,"message":"%.*s"})" "\n",
+        R"({"app":"%.*s","level":"%s","timestamp":"%.30s","thread":%u,"pid":%u,"message":"%.*s"})"
+        "\n",
         static_cast<int>(frame.app_id_text().size()), frame.app_id_text().data(),
-        core::to_string(frame.log_level).data(),
-        ts_buf,
-        frame.thread_id,
-        frame.pid,
+        core::to_string(frame.log_level).data(), ts_buf, frame.thread_id, frame.pid,
         static_cast<int>(frame.payload_text().size()), frame.payload_text().data());
     return (n > 0 && static_cast<std::size_t>(n) < cap) ? static_cast<std::size_t>(n) : 0U;
 }
@@ -68,7 +67,8 @@ std::size_t format_frame(const logging::LogFrame& frame, char* out, std::size_t 
 bool write_all(int fd, const char* buf, std::size_t len) noexcept {
     std::size_t off = 0;
     while (off < len) {
-        const ssize_t w = ::write(fd, buf + off, len - off);;
+        const ssize_t w = ::write(fd, buf + off, len - off);
+        ;
         if (w > 0) {
             off += static_cast<std::size_t>(w);
         } else if (errno != EINTR) {
@@ -86,10 +86,9 @@ int open_log_file(const std::string& log_dir, std::int64_t utc_offset_ns) noexce
     const chrono::CivilTime civil = chrono::civil_from_utc_ns(utc);
 
     char dir[1024];
-    std::snprintf(dir, sizeof(dir), "%s/%04lld-%02d-%02dT%02d",
-                  log_dir.c_str(), static_cast<long long>(civil.year),
-                  static_cast<int>(civil.month), static_cast<int>(civil.day),
-                  static_cast<int>(civil.hour));
+    std::snprintf(dir, sizeof(dir), "%s/%04lld-%02d-%02dT%02d", log_dir.c_str(),
+                  static_cast<long long>(civil.year), static_cast<int>(civil.month),
+                  static_cast<int>(civil.day), static_cast<int>(civil.hour));
     ::mkdir(dir, 0755); // best-effort; ignore EEXIST
 
     char path[1088];
@@ -98,8 +97,7 @@ int open_log_file(const std::string& log_dir, std::int64_t utc_offset_ns) noexce
 }
 
 /// Load LogDaemonConfig from a JSON file.
-core::Status load_config(const char* path,
-                         logging::LogDaemonConfig& cfg) noexcept {
+core::Status load_config(const char* path, logging::LogDaemonConfig& cfg) noexcept {
     std::ifstream file(path);
     if (!file) {
         return std::unexpected(core::ErrorCode::SystemError);

@@ -741,8 +741,7 @@ void test_sinks() {
 
     // Composite sink: fan-out, first-failure aggregation, typed/indexed access.
     {
-        CompositeSink<CountSink, CountSink, CountSink> comp{CountSink{}, CountSink{},
-                                                                  CountSink{}};
+        CompositeSink<CountSink, CountSink, CountSink> comp{CountSink{}, CountSink{}, CountSink{}};
         NX_CHECK(comp.on_snapshot(Snapshot{}).has_value());
         NX_CHECK(comp.get<0>().count == 1);
         NX_CHECK(comp.get<1>().count == 1);
@@ -751,8 +750,7 @@ void test_sinks() {
     }
     {
         // First failure does not starve the rest.
-        CompositeSink<FailSink, CountSink, CountSink> comp{FailSink{}, CountSink{},
-                                                                 CountSink{}};
+        CompositeSink<FailSink, CountSink, CountSink> comp{FailSink{}, CountSink{}, CountSink{}};
         const Status s = comp.on_snapshot(Snapshot{});
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::SystemError);
@@ -1260,15 +1258,13 @@ void test_provider_concurrent_snapshot() {
     Provider<> provider{config, sink};
     std::atomic<bool> start{false};
     std::thread t1([&] {
-        while (!start.load(std::memory_order_acquire)) {
-        }
+        while (!start.load(std::memory_order_acquire)) {}
         for (int i = 0; i < 500; ++i) {
             static_cast<void>(provider.snapshot_now());
         }
     });
     std::thread t2([&] {
-        while (!start.load(std::memory_order_acquire)) {
-        }
+        while (!start.load(std::memory_order_acquire)) {}
         for (int i = 0; i < 500; ++i) {
             static_cast<void>(provider.snapshot_now());
         }
@@ -1392,8 +1388,7 @@ void test_chrono_required_thread_failure() {
         NX_CHECK(!failed.has_value());
         NX_CHECK(failed.error() == ErrorCode::SystemError);
         NX_CHECK(!worker.startup_status().has_value());
-        NX_CHECK(worker.worker_thread_report().failed() ==
-                 core::ThreadApplyReport::affinity_mask);
+        NX_CHECK(worker.worker_thread_report().failed() == core::ThreadApplyReport::affinity_mask);
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
         NX_CHECK(sink.snapshots.empty());
 
@@ -1418,8 +1413,7 @@ void test_chrono_required_thread_failure() {
         }
         nexigen::core::fault_injection::set_fault_hook(nullptr);
         NX_CHECK(!worker.startup_status().has_value());
-        NX_CHECK(worker.worker_thread_report().failed() ==
-                 core::ThreadApplyReport::scheduler_mask);
+        NX_CHECK(worker.worker_thread_report().failed() == core::ThreadApplyReport::scheduler_mask);
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
         NX_CHECK(!sink.snapshots.empty());
     }

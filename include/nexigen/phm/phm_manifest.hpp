@@ -41,7 +41,7 @@ struct DeadlinePair {
 /// One recovery rule attached to an Expired process.
 struct RecoveryRule {
     RecoveryAction action{RecoveryAction::RestartProcess};
-    std::string function_group{};  ///< Only used by SwitchFunctionGroupState.
+    std::string function_group{}; ///< Only used by SwitchFunctionGroupState.
 
     [[nodiscard]] std::string to_string() const;
 };
@@ -49,16 +49,16 @@ struct RecoveryRule {
 /// One supervised process: identity plus every supervision parameter.
 struct SupervisedProcess {
     std::string name{};
-    std::string service_name{};  ///< iceoryx2 service identifier (checkpoints channel).
+    std::string service_name{}; ///< iceoryx2 service identifier (checkpoints channel).
     std::uint64_t alive_reference_cycle_ms{0};
     std::uint64_t alive_min_margin_ms{0};
     std::uint64_t alive_max_margin_ms{0};
     std::uint64_t failed_supervision_cycles_tolerance{0};
     bool safety_critical{false};
-    std::vector<std::uint32_t> checkpoints{};      ///< Expected checkpoint ids (alive).
-    std::vector<CheckpointTransition> transitions{};  ///< Logical graph edges.
-    std::vector<DeadlinePair> deadlines{};         ///< Deadline pairs with limits.
-    std::vector<RecoveryRule> recovery_rules{};    ///< Actions on Expired.
+    std::vector<std::uint32_t> checkpoints{};        ///< Expected checkpoint ids (alive).
+    std::vector<CheckpointTransition> transitions{}; ///< Logical graph edges.
+    std::vector<DeadlinePair> deadlines{};           ///< Deadline pairs with limits.
+    std::vector<RecoveryRule> recovery_rules{};      ///< Actions on Expired.
 
     [[nodiscard]] std::string to_string() const;
 };
@@ -92,10 +92,8 @@ void from_json(const nlohmann::json& j, PhmManifest& manifest) noexcept;
 } // namespace nexigen::phm
 
 /// The manifest formats as its diagnostic string (mandate 11).
-template <>
-struct std::formatter<nexigen::phm::PhmManifest> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::phm::PhmManifest& manifest, Ctx& ctx) const {
+template <> struct std::formatter<nexigen::phm::PhmManifest> : std::formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::phm::PhmManifest& manifest, Ctx& ctx) const {
         const std::string text = manifest.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

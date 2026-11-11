@@ -138,7 +138,7 @@ void stop_logger(LoggingState& current) noexcept {
 } // namespace
 
 core::Status load_execution_manager_logging_settings(std::string_view global_settings_path,
-                                          logging::Settings& out) noexcept {
+                                                     logging::Settings& out) noexcept {
     out = logging::Settings{};
     if (global_settings_path.empty()) {
         return {};
@@ -148,16 +148,18 @@ core::Status load_execution_manager_logging_settings(std::string_view global_set
     return logging::load_logging_settings(paths, out);
 }
 
-core::Status init_execution_manager_logging(std::string_view primary_dir, const logging::Settings& settings,
-                                 core::LogLevel level, const core::ThreadSpec& logger_thread,
-                                 std::string_view execution_manager_name) noexcept {
+core::Status init_execution_manager_logging(std::string_view primary_dir,
+                                            const logging::Settings& settings, core::LogLevel level,
+                                            const core::ThreadSpec& logger_thread,
+                                            std::string_view execution_manager_name) noexcept {
     shutdown_execution_manager_logging();
 
     LoggingState& current = state();
     current.settings = settings;
     current.level = level;
-    current.execution_manager_name =
-        execution_manager_name.empty() ? std::string("nexigen-exec") : std::string(execution_manager_name);
+    current.execution_manager_name = execution_manager_name.empty()
+                                         ? std::string("nexigen-exec")
+                                         : std::string(execution_manager_name);
     const core::Result<core::ThreadSpec> resolved = resolve_logger_thread(logger_thread, settings);
     if (!resolved) {
         return std::unexpected(resolved.error());
@@ -250,8 +252,9 @@ void shutdown_execution_manager_logging() noexcept {
     current.logger_thread = core::ThreadSpec{};
 }
 
-core::Status apply_execution_manager_thread_spec(const core::ThreadSpec& spec, core::ThreadApplyReport& report,
-                                      std::string_view context) noexcept {
+core::Status apply_execution_manager_thread_spec(const core::ThreadSpec& spec,
+                                                 core::ThreadApplyReport& report,
+                                                 std::string_view context) noexcept {
     static_cast<void>(context);
     report = core::ThreadApplyReport{};
     if (!has_thread_request(spec)) {
@@ -276,7 +279,7 @@ core::Status apply_execution_manager_thread_spec(const core::ThreadSpec& spec, c
 }
 
 core::Status apply_execution_manager_thread_spec(const core::ThreadSpec& spec,
-                                      std::string_view context) noexcept {
+                                                 std::string_view context) noexcept {
     core::ThreadApplyReport report{};
     return apply_execution_manager_thread_spec(spec, report, context);
 }
@@ -309,7 +312,7 @@ std::string describe_thread_apply_report(const core::ThreadApplyReport& report) 
 }
 
 core::Status apply_execution_manager_affinity(std::span<const std::uint32_t> cpus,
-                                   std::string_view context) noexcept {
+                                              std::string_view context) noexcept {
     if (cpus.empty()) {
         return {};
     }

@@ -17,10 +17,10 @@ namespace nexigen::sm {
 
 /// Outcome of a state-change request processed by the arbitration engine.
 enum class TransitionResult : std::uint8_t {
-    Success,             ///< The transition was accepted and applied.
-    RejectedByPriority,  ///< A higher-priority requester holds the state.
-    InvalidGraph,        ///< The graph forbids the requested transition.
-    Timeout,             ///< The EM did not confirm the switch in time.
+    Success,            ///< The transition was accepted and applied.
+    RejectedByPriority, ///< A higher-priority requester holds the state.
+    InvalidGraph,       ///< The graph forbids the requested transition.
+    Timeout,            ///< The EM did not confirm the switch in time.
 };
 
 /// Canonical name of a transition result; allocation-free, constexpr.

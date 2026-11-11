@@ -41,7 +41,6 @@
 
 namespace nexigen::diagnostics {
 
-
 /// RAII scope measurement: samples at construction, delivers the scope's
 /// elapsed nanoseconds exactly once at destruction (design D7; spec "RAII
 /// scope measurement"). Non-copyable and non-movable — it owns exactly one

@@ -21,10 +21,10 @@ namespace nexigen::tracing {
 
 /// The propagation header attached to a published sample.
 struct alignas(8) TraceHeader {
-    TraceId trace_id{};               ///< Causal group (0 = unset).
-    SpanId source_span_id{};          ///< The publishing span (0 = root).
+    TraceId trace_id{};                    ///< Causal group (0 = unset).
+    SpanId source_span_id{};               ///< The publishing span (0 = root).
     std::uint64_t publish_timestamp_ns{0}; ///< Publish wall/monotonic stamp (ns).
-    std::uint32_t sequence_number{0}; ///< Per-publisher monotonic sequence.
+    std::uint32_t sequence_number{0};      ///< Per-publisher monotonic sequence.
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const;
@@ -60,9 +60,9 @@ static_assert(com::concepts::Message<TraceHeader>, "TraceHeader must satisfy the
 } // namespace nexigen::tracing
 
 /// The header formats as its diagnostic string (mandate 11).
-template <> struct std::formatter<nexigen::tracing::TraceHeader> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::tracing::TraceHeader& header, Ctx& ctx) const {
+template <>
+struct std::formatter<nexigen::tracing::TraceHeader> : std::formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::tracing::TraceHeader& header, Ctx& ctx) const {
         const std::string text = header.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

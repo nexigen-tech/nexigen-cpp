@@ -35,8 +35,7 @@ static_assert(com::concepts::Message<TriggerResponse>);
 
 /// The response formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::sm::TriggerResponse> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::sm::TriggerResponse& response, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::sm::TriggerResponse& response, Ctx& ctx) const {
         const std::string text = response.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

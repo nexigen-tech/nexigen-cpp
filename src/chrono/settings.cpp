@@ -186,8 +186,7 @@ void apply_environment(Settings& out) {
     // kind with configured worker attributes records the ignored fields while
     // the values remain stored for diagnostics.
     if (out.options.kind == ProviderKind::manual &&
-        (!out.options.worker_thread.cpus().empty() ||
-         !out.options.worker_thread.name().empty() ||
+        (!out.options.worker_thread.cpus().empty() || !out.options.worker_thread.name().empty() ||
          out.options.worker_thread.scheduler_configured())) {
         add_diagnostic(out.diagnostics, core::SettingsSource::Computed, "kind",
                        "manual kind ignores configured worker attributes");

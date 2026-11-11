@@ -17,10 +17,10 @@ namespace nexigen::phm {
 
 /// Aggregated supervision status of one process.
 enum class SupervisionStatus : std::uint8_t {
-    Ok,       ///< All checks pass.
-    Failed,   ///< A single failure within the tolerance.
-    Expired,  ///< Failures exceeded the tolerance; recovery is triggered.
-    Stopped,  ///< The process stopped deliberately.
+    Ok,      ///< All checks pass.
+    Failed,  ///< A single failure within the tolerance.
+    Expired, ///< Failures exceeded the tolerance; recovery is triggered.
+    Stopped, ///< The process stopped deliberately.
 };
 
 /// Canonical name of a supervision status; allocation-free, constexpr.

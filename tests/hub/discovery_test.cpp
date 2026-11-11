@@ -18,8 +18,10 @@ void test_discovery() {
     NX_CHECK(suite.apps.size() == 1);
     NX_CHECK(suite.apps[0].instances.size() == 1);
     NX_CHECK(suite.apps[0].instances[0].attempts.size() == 1);
-    NX_CHECK(suite.execution_manager_log.id == "run-1:hil:suite:execution_manager:0:execution_manager");
-    NX_CHECK(suite.execution_manager_log.path == fixture.artifacts + "/hil/execution_manager.jsonl");
+    NX_CHECK(suite.execution_manager_log.id ==
+             "run-1:hil:suite:execution_manager:0:execution_manager");
+    NX_CHECK(suite.execution_manager_log.path ==
+             fixture.artifacts + "/hil/execution_manager.jsonl");
     NX_CHECK(hub::all_streams(tree).size() == 7);
     NX_CHECK(hub::find_stream(tree, stream_id(fixture, "stdout")) != nullptr);
 
@@ -339,8 +341,10 @@ void test_discovery_containment() {
     hostile_suite = scanned(discovery.tree());
     NX_CHECK(hostile_suite != nullptr);
     if (hostile_suite != nullptr) {
-        NX_CHECK(hostile_suite->execution_manager_log.id == "run-1:hostile:suite:execution_manager:0:execution_manager");
-        NX_CHECK(hostile_suite->execution_manager_log.path == fixture.artifacts + "/hostile/execution_manager.jsonl");
+        NX_CHECK(hostile_suite->execution_manager_log.id ==
+                 "run-1:hostile:suite:execution_manager:0:execution_manager");
+        NX_CHECK(hostile_suite->execution_manager_log.path ==
+                 fixture.artifacts + "/hostile/execution_manager.jsonl");
     }
     remove_hostile("hostile");
     remove_tree(fixture.artifacts + "/hostile");
@@ -351,7 +355,8 @@ void test_discovery_containment() {
     const hub::HubTree& tree = discovery.tree();
     NX_CHECK(tree.runs.size() == 1);
     NX_CHECK(hub::all_streams(tree).size() == 7);
-    NX_CHECK(tree.runs[0].suites[0].execution_manager_log.path == fixture.artifacts + "/hil/execution_manager.jsonl");
+    NX_CHECK(tree.runs[0].suites[0].execution_manager_log.path ==
+             fixture.artifacts + "/hil/execution_manager.jsonl");
     NX_CHECK(tree.runs[0].suites[0].apps[0].instances[0].attempts.size() == 1);
 
     // Missing artifact root is tolerated (retained spec scenario): suite

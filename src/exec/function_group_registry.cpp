@@ -6,12 +6,11 @@
 
 namespace nexigen::exec {
 
-FunctionGroupRegistry::FunctionGroupRegistry(const SuiteManifest& manifest)
-    : manifest_(&manifest) {
+FunctionGroupRegistry::FunctionGroupRegistry(const SuiteManifest& manifest) : manifest_(&manifest) {
     groups_.reserve(manifest.function_groups.size());
     for (std::size_t i = 0; i < manifest.function_groups.size(); ++i) {
         GroupRuntime runtime;
-        runtime.state_index = 0U;  // first declared state
+        runtime.state_index = 0U; // first declared state
         groups_.push_back(std::move(runtime));
     }
     // Bind every application to the groups it declares.
@@ -40,8 +39,8 @@ std::string_view FunctionGroupRegistry::group_state(std::size_t index) const noe
                                              : std::string_view{};
 }
 
-const std::vector<std::string>& FunctionGroupRegistry::bound_apps(
-    std::size_t index) const noexcept {
+const std::vector<std::string>&
+FunctionGroupRegistry::bound_apps(std::size_t index) const noexcept {
     return groups_[index].app_names;
 }
 

@@ -10,9 +10,9 @@
 namespace nexigen::exec {
 
 enum class TerminatedBy : std::uint8_t {
-    Self,    ///< The child exited on its own.
-    ExecutionManager,  ///< The execution_manager/stop command sent the terminating signal.
-    Unknown, ///< No attribution is available.
+    Self,             ///< The child exited on its own.
+    ExecutionManager, ///< The execution_manager/stop command sent the terminating signal.
+    Unknown,          ///< No attribution is available.
 };
 
 } // namespace nexigen::exec

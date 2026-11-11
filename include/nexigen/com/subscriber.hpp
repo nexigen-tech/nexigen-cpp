@@ -24,10 +24,10 @@ namespace nexigen::com {
 
 /// Zero-copy subscriber of payload type T for one service (optional custom
 /// header H, default void = no header).
-template <concepts::Message T, typename H = void>
-class Subscriber {
+template <concepts::Message T, typename H = void> class Subscriber {
     static_assert(std::is_void_v<H> || concepts::Message<H>,
                   "the custom header must satisfy com::concepts::Message");
+
 public:
     /// Open (or create) the service on the node and create the subscriber
     /// with the service-default buffer size.
@@ -89,7 +89,8 @@ private:
             if constexpr (std::is_void_v<H>) {
                 return std::move(builder).enable_safe_overflow(false).open_or_create();
             } else {
-                return std::move(builder).template user_header<H>()
+                return std::move(builder)
+                    .template user_header<H>()
                     .enable_safe_overflow(false)
                     .open_or_create();
             }

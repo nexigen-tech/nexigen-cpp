@@ -23,10 +23,10 @@ namespace nexigen::metrics {
 
 /// One harvested record plus the publisher identity, published as a fixed POD.
 struct MetricFrame {
-    char app_id[4]{};              ///< 4-byte ASCII code (e.g. "LIDR")
-    std::uint32_t pid{0};          ///< publisher PID (::getpid(), cached at start)
-    std::int64_t timestamp_ns{0};  ///< window stamp (CLOCK_MONOTONIC_RAW)
-    MetricRecord record{};         ///< one harvested metric
+    char app_id[4]{};             ///< 4-byte ASCII code (e.g. "LIDR")
+    std::uint32_t pid{0};         ///< publisher PID (::getpid(), cached at start)
+    std::int64_t timestamp_ns{0}; ///< window stamp (CLOCK_MONOTONIC_RAW)
+    MetricRecord record{};        ///< one harvested metric
 
     /// The app_id as a non-null-terminated view (trimmed at the first NUL).
     [[nodiscard]] std::string_view app_id_text() const noexcept {
@@ -75,7 +75,8 @@ inline void from_json(const nlohmann::json& j, MetricFrame& out) noexcept {
     const auto app_it = j.find("app_id");
     if (app_it != j.end() && app_it->is_string()) {
         const std::string app = app_it->get<std::string>();
-        const std::size_t take = app.size() < sizeof(parsed.app_id) ? app.size() : sizeof(parsed.app_id);
+        const std::size_t take =
+            app.size() < sizeof(parsed.app_id) ? app.size() : sizeof(parsed.app_id);
         for (std::size_t i = 0; i < take; ++i) {
             parsed.app_id[i] = app[i];
         }
@@ -100,8 +101,7 @@ inline void from_json(const nlohmann::json& j, MetricFrame& out) noexcept {
 /// The frame formats as its diagnostic string (mandate 11).
 template <>
 struct std::formatter<nexigen::metrics::MetricFrame> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::metrics::MetricFrame& frame, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::metrics::MetricFrame& frame, Ctx& ctx) const {
         const std::string text = frame.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

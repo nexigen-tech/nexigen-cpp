@@ -171,7 +171,7 @@ constexpr std::uint64_t suite_poll_interval_ms = 100;
 }
 
 void read_legacy_execution_manager_cpus(const nlohmann::json& document, const char* key,
-                             core::ThreadSpec& target) noexcept {
+                                        core::ThreadSpec& target) noexcept {
     std::vector<std::uint32_t> values;
     if (!read_cpu_array(document, key, values)) {
         return;
@@ -217,15 +217,15 @@ read_env_object(const nlohmann::json& document, const char* key,
 } // namespace
 
 std::string AppSpec::to_string() const {
-    return std::format(
-        "AppSpec(app={}, instance={}, command={}, args={}, env={}, cpus={}, "
-        "idle_timeout_s={}, stop_grace_s={}, restart_attempts={}, "
-        "restart_delay_s={}, impact={}, global_settings_path={}, "
-        "local_settings_path={}, log_level={})",
-        app, instance, command, args.size(), env.size(), cpus.count(), idle_timeout_s, stop_grace_s,
-        restart_attempts, restart_delay_s, nexigen::exec::to_string(impact), global_settings_path,
-        local_settings_path,
-        log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"));
+    return std::format("AppSpec(app={}, instance={}, command={}, args={}, env={}, cpus={}, "
+                       "idle_timeout_s={}, stop_grace_s={}, restart_attempts={}, "
+                       "restart_delay_s={}, impact={}, global_settings_path={}, "
+                       "local_settings_path={}, log_level={})",
+                       app, instance, command, args.size(), env.size(), cpus.count(),
+                       idle_timeout_s, stop_grace_s, restart_attempts, restart_delay_s,
+                       nexigen::exec::to_string(impact), global_settings_path, local_settings_path,
+                       log_level.has_value() ? std::string(core::to_string(*log_level))
+                                             : std::string("inherit"));
 }
 
 std::string SuiteManifest::to_string() const {
@@ -360,10 +360,14 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
     static_cast<void>(read_u32(j, "suite_restart_attempts", manifest.suite_restart_attempts));
     static_cast<void>(read_u64(j, "suite_restart_delay_s", manifest.suite_restart_delay_s));
     static_cast<void>(read_string(j, "manifest_path", manifest.manifest_path));
-    read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus", manifest.execution_manager_control_thread);
-    read_legacy_execution_manager_cpus(j, "execution_manager_logger_cpus", manifest.execution_manager_logger_thread);
-    read_canonical_thread(j, "execution_manager_control_thread", manifest.execution_manager_control_thread);
-    read_canonical_thread(j, "execution_manager_logger_thread", manifest.execution_manager_logger_thread);
+    read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus",
+                                       manifest.execution_manager_control_thread);
+    read_legacy_execution_manager_cpus(j, "execution_manager_logger_cpus",
+                                       manifest.execution_manager_logger_thread);
+    read_canonical_thread(j, "execution_manager_control_thread",
+                          manifest.execution_manager_control_thread);
+    read_canonical_thread(j, "execution_manager_logger_thread",
+                          manifest.execution_manager_logger_thread);
     if (const auto it = j.find("function_groups"); it != j.end() && it->is_array()) {
         std::vector<FunctionGroupConfig> groups;
         groups.reserve(it->size());
@@ -441,10 +445,14 @@ void from_json(const nlohmann::json& j, SuiteMetadata& metadata) noexcept {
     static_cast<void>(read_u64(j, "start_time_mono_ns", metadata.start_time_mono_ns));
     static_cast<void>(read_u64(j, "proc_start_ticks", metadata.proc_start_ticks));
     static_cast<void>(read_string(j, "manifest_path", metadata.manifest_path));
-    read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus", metadata.execution_manager_control_thread);
-    read_legacy_execution_manager_cpus(j, "execution_manager_logger_cpus", metadata.execution_manager_logger_thread);
-    read_canonical_thread(j, "execution_manager_control_thread", metadata.execution_manager_control_thread);
-    read_canonical_thread(j, "execution_manager_logger_thread", metadata.execution_manager_logger_thread);
+    read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus",
+                                       metadata.execution_manager_control_thread);
+    read_legacy_execution_manager_cpus(j, "execution_manager_logger_cpus",
+                                       metadata.execution_manager_logger_thread);
+    read_canonical_thread(j, "execution_manager_control_thread",
+                          metadata.execution_manager_control_thread);
+    read_canonical_thread(j, "execution_manager_logger_thread",
+                          metadata.execution_manager_logger_thread);
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
         std::vector<SuiteAppMetadata> apps;
         apps.reserve(it->size());
@@ -797,7 +805,8 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
 }
 
 [[nodiscard]] bool valid_json_thread_specs(const nlohmann::json& document) {
-    for (const char* key : {"execution_manager_control_thread", "execution_manager_logger_thread"}) {
+    for (const char* key :
+         {"execution_manager_control_thread", "execution_manager_logger_thread"}) {
         if (!valid_json_thread_spec(document, key)) {
             return false;
         }
@@ -1017,22 +1026,23 @@ void schedule_retry_or_fail(RuntimeSuite& suite, RuntimeApp& app) {
         app.state = AppState::Restarting;
         app.next_restart_ns =
             monotonic_now_ns() + app.spec.restart_delay_s * nanoseconds_per_second;
-        log_execution_manager(core::LogLevel::Info, std::format("event=retry_scheduled app={} instance={} "
-                                                     "attempt={} impact={} delay_s={}",
-                                                     app.spec.app, app.spec.instance, app.attempt,
-                                                     nexigen::exec::to_string(app.spec.impact),
-                                                     app.spec.restart_delay_s));
+        log_execution_manager(core::LogLevel::Info,
+                              std::format("event=retry_scheduled app={} instance={} "
+                                          "attempt={} impact={} delay_s={}",
+                                          app.spec.app, app.spec.instance, app.attempt,
+                                          nexigen::exec::to_string(app.spec.impact),
+                                          app.spec.restart_delay_s));
     } else {
         app.state = AppState::Failed;
         if (app.spec.impact == ImpactOnAppSuiteOperability::Degrade) {
             suite.state = SuiteState::Degraded;
         }
         log_execution_manager(core::LogLevel::Warning,
-                   std::format("event=app_failed app={} instance={} impact={} "
-                               "suite_state={}",
-                               app.spec.app, app.spec.instance,
-                               nexigen::exec::to_string(app.spec.impact),
-                               nexigen::exec::to_string(suite.state)));
+                              std::format("event=app_failed app={} instance={} impact={} "
+                                          "suite_state={}",
+                                          app.spec.app, app.spec.instance,
+                                          nexigen::exec::to_string(app.spec.impact),
+                                          nexigen::exec::to_string(suite.state)));
     }
     suite.dirty = true;
 }
@@ -1045,8 +1055,8 @@ void finish_failed(RuntimeSuite& suite) {
         }
     }
     log_execution_manager(core::LogLevel::Error,
-               std::format("event=suite_failed suite={} reason=restart_exhausted",
-                           suite.manifest->suite_id));
+                          std::format("event=suite_failed suite={} reason=restart_exhausted",
+                                      suite.manifest->suite_id));
     write_suite_exit(suite, SuiteState::Failed, "restart_exhausted");
     shutdown_execution_manager_logging();
     child_exit(0);
@@ -1058,11 +1068,11 @@ void trigger_suite_restart(RuntimeSuite& suite) {
     }
     ++suite.suite_restarts_used;
     log_execution_manager(core::LogLevel::Warning,
-               std::format("event=suite_restart trigger={} used={} limit={} "
-                           "delay_s={}",
-                           "failure", suite.suite_restarts_used,
-                           suite.manifest->suite_restart_attempts,
-                           suite.manifest->suite_restart_delay_s));
+                          std::format("event=suite_restart trigger={} used={} limit={} "
+                                      "delay_s={}",
+                                      "failure", suite.suite_restarts_used,
+                                      suite.manifest->suite_restart_attempts,
+                                      suite.manifest->suite_restart_delay_s));
     stop_all(suite);
     for (RuntimeApp& app : suite.apps) {
         app.state = AppState::Restarting;
@@ -1117,14 +1127,15 @@ void apply_launch_failures(RuntimeSuite& suite) {
 
 [[noreturn]] void finish_suite_stop(RuntimeSuite& suite, const SuiteManifest& manifest) {
     log_execution_manager(core::LogLevel::Info,
-               std::format("event=stop_requested suite={}", manifest.suite_id));
+                          std::format("event=stop_requested suite={}", manifest.suite_id));
     stop_all(suite);
     for (RuntimeApp& app : suite.apps) {
         app.state = AppState::Stopped;
     }
     write_suite_exit(suite, SuiteState::Stopped, "operator_stop");
-    log_execution_manager(core::LogLevel::Info,
-               std::format("event=suite_stopped suite={} reason=operator_stop", manifest.suite_id));
+    log_execution_manager(
+        core::LogLevel::Info,
+        std::format("event=suite_stopped suite={} reason=operator_stop", manifest.suite_id));
     shutdown_execution_manager_logging();
     child_exit(0);
 }
@@ -1141,14 +1152,15 @@ void apply_launch_failures(RuntimeSuite& suite) {
         static_cast<void>(resume_execution_manager_logging());
         apply_launch_failures(suite);
         log_execution_manager(core::LogLevel::Info,
-                   std::format("event=suite_restart suite={} used={} limit={}", manifest.suite_id,
-                               suite.suite_restarts_used, manifest.suite_restart_attempts));
+                              std::format("event=suite_restart suite={} used={} limit={}",
+                                          manifest.suite_id, suite.suite_restarts_used,
+                                          manifest.suite_restart_attempts));
         for (const RuntimeApp& app : suite.apps) {
             log_execution_manager(core::LogLevel::Info,
-                       std::format("event=app_launch app={} instance={} "
-                                   "attempt={} pid={} state={}",
-                                   app.spec.app, app.spec.instance, app.attempt, app.child_pid,
-                                   nexigen::exec::to_string(app.state)));
+                                  std::format("event=app_launch app={} instance={} "
+                                              "attempt={} pid={} state={}",
+                                              app.spec.app, app.spec.instance, app.attempt,
+                                              app.child_pid, nexigen::exec::to_string(app.state)));
         }
         write_suite_status(suite);
     }
@@ -1163,15 +1175,17 @@ void apply_launch_failures(RuntimeSuite& suite) {
         if (read_exit_metadata(app.instance_dir, exit) && !app.exit_consumed) {
             app.exit_consumed = true;
             if (exit.exit_code.has_value()) {
-                log_execution_manager(core::LogLevel::Info, std::format("event=app_exit app={} instance={} "
-                                                             "attempt={} exit_code={}",
-                                                             app.spec.app, app.spec.instance,
-                                                             app.attempt, *exit.exit_code));
+                log_execution_manager(core::LogLevel::Info,
+                                      std::format("event=app_exit app={} instance={} "
+                                                  "attempt={} exit_code={}",
+                                                  app.spec.app, app.spec.instance, app.attempt,
+                                                  *exit.exit_code));
             } else if (exit.signal.has_value()) {
                 log_execution_manager(core::LogLevel::Warning,
-                           std::format("event=app_exit app={} instance={} "
-                                       "attempt={} signal={}",
-                                       app.spec.app, app.spec.instance, app.attempt, *exit.signal));
+                                      std::format("event=app_exit app={} instance={} "
+                                                  "attempt={} signal={}",
+                                                  app.spec.app, app.spec.instance, app.attempt,
+                                                  *exit.signal));
             }
             if (exit.exit_code.has_value() && *exit.exit_code == 0) {
                 app.state = AppState::Exited;
@@ -1190,15 +1204,16 @@ void apply_launch_failures(RuntimeSuite& suite) {
         if (!launched) {
             app.launch_failed = false;
             log_execution_manager(core::LogLevel::Warning,
-                       std::format("event=app_launch_failed app={} "
-                                   "instance={} attempt={}",
-                                   app.spec.app, app.spec.instance, app.attempt));
+                                  std::format("event=app_launch_failed app={} "
+                                              "instance={} attempt={}",
+                                              app.spec.app, app.spec.instance, app.attempt));
             schedule_retry_or_fail(suite, app);
         } else {
             log_execution_manager(core::LogLevel::Info,
-                       std::format("event=app_launch app={} instance={} "
-                                   "attempt={} pid={} state=running",
-                                   app.spec.app, app.spec.instance, app.attempt, app.child_pid));
+                                  std::format("event=app_launch app={} instance={} "
+                                              "attempt={} pid={} state=running",
+                                              app.spec.app, app.spec.instance, app.attempt,
+                                              app.child_pid));
         }
         suite.dirty = true;
     }
@@ -1215,13 +1230,14 @@ void advance_suite_apps(RuntimeSuite& suite, std::uint64_t now) {
 
 void apply_suite_control_thread(const SuiteManifest& manifest) noexcept {
     core::ThreadApplyReport report{};
-    const core::Status status =
-        apply_execution_manager_thread_spec(manifest.execution_manager_control_thread, report, "suite-supervisor");
+    const core::Status status = apply_execution_manager_thread_spec(
+        manifest.execution_manager_control_thread, report, "suite-supervisor");
     if (!status) {
         const std::string detail = describe_thread_apply_report(report);
         std::fprintf(stderr, "nexigen-exec: control thread spec application failed: %s\n",
                      detail.c_str());
-        if (manifest.execution_manager_control_thread.apply_mode() == core::ThreadApplyMode::Required) {
+        if (manifest.execution_manager_control_thread.apply_mode() ==
+            core::ThreadApplyMode::Required) {
             child_exit(1); // no application has been launched at this point
         }
     }
@@ -1289,23 +1305,26 @@ void init_suite_logging(const SuiteManifest& manifest) {
     }
     const core::LogLevel log_level = manifest.log_level.value_or(
         log_settings.global_loaded ? log_settings.options.initial_log_level : core::LogLevel::Info);
-    const core::Status log_status =
-        init_execution_manager_logging(join_path(manifest.artifacts_path, manifest.suite_id), log_settings,
-                            log_level, manifest.execution_manager_logger_thread, manifest.execution_manager_name);
+    const core::Status log_status = init_execution_manager_logging(
+        join_path(manifest.artifacts_path, manifest.suite_id), log_settings, log_level,
+        manifest.execution_manager_logger_thread, manifest.execution_manager_name);
     if (!log_status) {
-        warn_execution_manager("event=logging_unavailable detail=execution_manager.jsonl not writable");
+        warn_execution_manager(
+            "event=logging_unavailable detail=execution_manager.jsonl not writable");
     }
 }
 
 void log_initial_app_launches(const RuntimeSuite& suite) {
-    log_execution_manager(core::LogLevel::Info, std::format("event=suite_started suite={} apps={}",
-                                                 suite.manifest->suite_id, suite.apps.size()));
+    log_execution_manager(core::LogLevel::Info,
+                          std::format("event=suite_started suite={} apps={}",
+                                      suite.manifest->suite_id, suite.apps.size()));
     for (const RuntimeApp& app : suite.apps) {
-        log_execution_manager(app.state == AppState::Failed ? core::LogLevel::Warning : core::LogLevel::Info,
-                   std::format("event=app_launch app={} instance={} attempt={} "
-                               "pid={} state={}",
-                               app.spec.app, app.spec.instance, app.attempt, app.child_pid,
-                               nexigen::exec::to_string(app.state)));
+        log_execution_manager(app.state == AppState::Failed ? core::LogLevel::Warning
+                                                            : core::LogLevel::Info,
+                              std::format("event=app_launch app={} instance={} attempt={} "
+                                          "pid={} state={}",
+                                          app.spec.app, app.spec.instance, app.attempt,
+                                          app.child_pid, nexigen::exec::to_string(app.state)));
     }
 }
 
@@ -1375,7 +1394,8 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
         probe.join();
         return applied;
     };
-    if (const core::Status control = preflight(manifest.execution_manager_control_thread); !control) {
+    if (const core::Status control = preflight(manifest.execution_manager_control_thread);
+        !control) {
         return control;
     }
     if (const core::Status logger = preflight(manifest.execution_manager_logger_thread); !logger) {
@@ -1520,7 +1540,8 @@ void stop_suite_apps(const std::vector<SuiteAppMetadata>& apps,
                      const std::optional<std::uint64_t>& grace_override) noexcept {
     for (const SuiteAppMetadata& app : apps) {
         ExecutionManager execution_manager;
-        static_cast<void>(execution_manager.stop(app.instance_dir, grace_override.value_or(app.stop_grace_s)));
+        static_cast<void>(
+            execution_manager.stop(app.instance_dir, grace_override.value_or(app.stop_grace_s)));
     }
 }
 

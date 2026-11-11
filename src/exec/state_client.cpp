@@ -22,19 +22,16 @@ com::Result<StateClient> StateClient::create(com::Node& node, const com::Service
     if (!emergency_server) {
         return std::unexpected(emergency_server.error());
     }
-    return StateClient{name, std::move(*server), std::move(*emergency_server), &registry,
-                       &manager, identity};
+    return StateClient{name,      std::move(*server), std::move(*emergency_server),
+                       &registry, &manager,           identity};
 }
 
 StateClient::StateClient(com::ServiceName name, com::Server<StateCommand, StateAck> server,
                          com::Server<StateCommand, StateAck> emergency_server,
                          FunctionGroupRegistry* registry, ExecutionManager* manager,
                          app::RunIdentity identity) noexcept
-    : service_name_(std::move(name)),
-      server_(std::move(server)),
-      emergency_server_(std::move(emergency_server)),
-      registry_(registry),
-      manager_(manager),
+    : service_name_(std::move(name)), server_(std::move(server)),
+      emergency_server_(std::move(emergency_server)), registry_(registry), manager_(manager),
       identity_(std::move(identity)) {}
 
 com::Result<bool> StateClient::serve_once() noexcept {
@@ -71,7 +68,7 @@ bool StateClient::execute(const StateCommand& command) noexcept {
     const std::string_view group = command.function_group;
     const std::size_t index = registry_->find_group(group);
     if (index == static_cast<std::size_t>(-1)) {
-        return false;  // unknown group -> rejection ack
+        return false; // unknown group -> rejection ack
     }
     const bool stopping = FunctionGroupRegistry::is_off_target(command.target_state);
     const std::vector<std::string>& app_names = registry_->bound_apps(index);
@@ -80,8 +77,7 @@ bool StateClient::execute(const StateCommand& command) noexcept {
         const std::string binary = command_binary.empty() ? app_name : std::string(command_binary);
         const core::Status step =
             stopping ? manager_->stop(instance_dir_for(app_name))
-                     : manager_->start(identity_, app_name,
-                                       std::vector<std::string>{binary});
+                     : manager_->start(identity_, app_name, std::vector<std::string>{binary});
         if (!step) {
             return false;
         }

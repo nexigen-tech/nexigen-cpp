@@ -43,8 +43,7 @@ static_assert(concepts::Sink<NullSink>, "NullSink must satisfy the sink contract
 } // namespace nexigen::chrono
 
 /// The null sink formats as its diagnostic string (mandate 11).
-template <>
-struct std::formatter<nexigen::chrono::NullSink> : std::formatter<std::string_view> {
+template <> struct std::formatter<nexigen::chrono::NullSink> : std::formatter<std::string_view> {
     template <class Ctx> auto format(const nexigen::chrono::NullSink&, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(std::string_view("NullSink()"), ctx);
     }

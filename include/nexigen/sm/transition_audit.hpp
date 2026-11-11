@@ -50,8 +50,8 @@ public:
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
-        return std::format("TransitionAudit(path={}, recorded={}, dropped={})", path_,
-                           recorded(), dropped());
+        return std::format("TransitionAudit(path={}, recorded={}, dropped={})", path_, recorded(),
+                           dropped());
     }
 
 private:
@@ -75,8 +75,7 @@ private:
 
 /// The audit log formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::sm::TransitionAudit> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::sm::TransitionAudit& audit, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::sm::TransitionAudit& audit, Ctx& ctx) const {
         const std::string text = audit.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

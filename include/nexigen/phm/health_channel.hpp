@@ -24,8 +24,8 @@ namespace nexigen::phm {
 class HealthChannel {
 public:
     /// Open (or create) the channel service on the node.
-    [[nodiscard]] static com::Result<HealthChannel> create(
-        com::Node& node, const com::ServiceName& name) noexcept {
+    [[nodiscard]] static com::Result<HealthChannel> create(com::Node& node,
+                                                           const com::ServiceName& name) noexcept {
         auto notifier = com::EventNotifier::create(node, name);
         if (!notifier) {
             return std::unexpected(notifier.error());
@@ -80,8 +80,7 @@ private:
 
 /// The channel formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::phm::HealthChannel> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::phm::HealthChannel& channel, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::phm::HealthChannel& channel, Ctx& ctx) const {
         const std::string text = channel.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

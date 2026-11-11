@@ -96,8 +96,7 @@ private:
 
 /// The storage formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::phm::FaultStorage> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::phm::FaultStorage& storage, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::phm::FaultStorage& storage, Ctx& ctx) const {
         const std::string text = storage.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

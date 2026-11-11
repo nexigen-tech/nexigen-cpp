@@ -48,8 +48,8 @@ void test_start_span_inherits_context() {
     using Provider = nexigen::tracing::TracerProvider<64, 1>;
     alignas(Provider) static std::byte storage[sizeof(Provider)];
     nexigen::tracing::NullTraceSink null_sink;
-    auto* provider = new (static_cast<void*>(storage)) Provider(
-        nexigen::tracing::TracerProviderConfig{}, null_sink);
+    auto* provider = new (static_cast<void*>(storage))
+        Provider(nexigen::tracing::TracerProviderConfig{}, null_sink);
     NX_CHECK(provider->initialize().has_value());
     const auto tracer = provider->get_tracer("propagation");
     NX_CHECK(tracer.has_value());
@@ -93,8 +93,8 @@ void test_outgoing_header_from_context() {
     using Provider = nexigen::tracing::TracerProvider<64, 1>;
     alignas(Provider) static std::byte storage[sizeof(Provider)];
     nexigen::tracing::NullTraceSink null_sink;
-    auto* provider = new (static_cast<void*>(storage)) Provider(
-        nexigen::tracing::TracerProviderConfig{}, null_sink);
+    auto* provider = new (static_cast<void*>(storage))
+        Provider(nexigen::tracing::TracerProviderConfig{}, null_sink);
     NX_CHECK(provider->initialize().has_value());
     const auto tracer = provider->get_tracer("outgoing");
     NX_CHECK(tracer.has_value());

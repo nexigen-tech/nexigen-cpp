@@ -39,9 +39,9 @@ public:
     /// Open the ordinary command channel plus its emergency channel
     /// (`<name>Emergency`) and bind the group registry plus the
     /// ExecutionManager used to execute switches.
-    [[nodiscard]] static com::Result<StateClient> create(
-        com::Node& node, const com::ServiceName& name, FunctionGroupRegistry& registry,
-        ExecutionManager& manager, const app::RunIdentity& identity) noexcept;
+    [[nodiscard]] static com::Result<StateClient>
+    create(com::Node& node, const com::ServiceName& name, FunctionGroupRegistry& registry,
+           ExecutionManager& manager, const app::RunIdentity& identity) noexcept;
 
     StateClient(StateClient&&) noexcept = default;
     StateClient& operator=(StateClient&&) noexcept = default;
@@ -61,8 +61,8 @@ private:
                 app::RunIdentity identity) noexcept;
 
     /// Receive from one channel, execute the command, and acknowledge.
-    [[nodiscard]] com::Result<bool> serve_from(
-        com::Server<StateCommand, StateAck>& server) noexcept;
+    [[nodiscard]] com::Result<bool>
+    serve_from(com::Server<StateCommand, StateAck>& server) noexcept;
 
     /// Execute one SetState command through the ExecutionManager: stop the
     /// group's bound processes for Off-like targets, start them otherwise. An
@@ -89,8 +89,7 @@ private:
 
 /// The StateClient formats as its diagnostic string (mandate 11).
 template <> struct std::formatter<nexigen::exec::StateClient> : std::formatter<std::string_view> {
-    template <class Ctx>
-    auto format(const nexigen::exec::StateClient& client, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::exec::StateClient& client, Ctx& ctx) const {
         const std::string text = client.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

@@ -40,8 +40,8 @@ namespace nexigen::metrics::detail {
     MetricBatchSnapshot batch{};
     if (count > 0U) {
         batch.stamp = chrono::Timestamp{static_cast<std::uint64_t>(frames[0].timestamp_ns)};
-        batch.utc_ns = chrono::utc_from_mono_ns(
-            static_cast<std::uint64_t>(frames[0].timestamp_ns), utc_offset_ns);
+        batch.utc_ns = chrono::utc_from_mono_ns(static_cast<std::uint64_t>(frames[0].timestamp_ns),
+                                                utc_offset_ns);
     }
     batch.records = records.data();
     batch.record_count = static_cast<std::uint32_t>(count);

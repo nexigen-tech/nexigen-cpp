@@ -31,8 +31,9 @@ std::string ProvidedService::to_string() const {
 }
 
 std::string RequiredService::to_string() const {
-    return std::format("RequiredService(service_name={}, buffer_capacity={}, report_overflow_to_phm={})",
-                       service_name, buffer_capacity, report_overflow_to_phm);
+    return std::format(
+        "RequiredService(service_name={}, buffer_capacity={}, report_overflow_to_phm={})",
+        service_name, buffer_capacity, report_overflow_to_phm);
 }
 
 std::string ServiceManifest::to_string() const {
@@ -65,9 +66,10 @@ void to_json(nlohmann::json& j, const ServiceManifest& manifest) {
     j["provided_services"] = std::move(provided);
     auto required = nlohmann::json::array();
     for (const RequiredService& service : manifest.required_services) {
-        required.push_back(nlohmann::json{{"service_name", service.service_name},
-                                          {"buffer_capacity", service.buffer_capacity},
-                                          {"report_overflow_to_phm", service.report_overflow_to_phm}});
+        required.push_back(
+            nlohmann::json{{"service_name", service.service_name},
+                           {"buffer_capacity", service.buffer_capacity},
+                           {"report_overflow_to_phm", service.report_overflow_to_phm}});
     }
     j["required_services"] = std::move(required);
 }

@@ -57,10 +57,9 @@ void stop_handler(int /*signal*/) {
 }
 
 void print_usage() {
-    std::printf(
-        "nexigen-sm - State Manager\n"
-        "Usage: nexigen-sm --config <path> [--rt-core <mask>] [--priority <n>]\n"
-        "                  [--audit-log <path>] [--help]\n");
+    std::printf("nexigen-sm - State Manager\n"
+                "Usage: nexigen-sm --config <path> [--rt-core <mask>] [--priority <n>]\n"
+                "                  [--audit-log <path>] [--help]\n");
 }
 
 struct Options {
@@ -156,16 +155,14 @@ void serve_one_request(TriggerServer& server, nexigen::sm::StateManager& manager
               : nexigen::sm::TransitionResult::InvalidGraph;
     metrics.arbitration_latency_us.store(
         static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started)
-                .count()),
+            std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started).count()),
         std::memory_order_relaxed);
     if (result == nexigen::sm::TransitionResult::RejectedByPriority) {
         metrics.rejected_requests_total.fetch_add(1, std::memory_order_relaxed);
     }
 
     nexigen::sm::TransitionRecord record;
-    record.timestamp_ns =
-        static_cast<std::uint64_t>(now.time_since_epoch().count());
+    record.timestamp_ns = static_cast<std::uint64_t>(now.time_since_epoch().count());
     std::snprintf(record.function_group, sizeof(record.function_group), "%s",
                   request.function_group);
     std::snprintf(record.old_state, sizeof(record.old_state), "%s", old_state.data());
@@ -180,13 +177,11 @@ void serve_one_request(TriggerServer& server, nexigen::sm::StateManager& manager
         if (preparation != nullptr) {
             (void)preparation->notify(manager.state(index));
         }
-        const auto timeout = std::chrono::milliseconds(
-            manager.preparation_timeout_ms(index));
+        const auto timeout = std::chrono::milliseconds(manager.preparation_timeout_ms(index));
         PendingTransition pending_transition;
         pending_transition.group_index = index;
-        std::snprintf(pending_transition.target_state,
-                      sizeof(pending_transition.target_state), "%s",
-                      manager.state(index).data());
+        std::snprintf(pending_transition.target_state, sizeof(pending_transition.target_state),
+                      "%s", manager.state(index).data());
         pending_transition.deadline = now + timeout;
         pending.push_back(pending_transition);
     }
@@ -208,20 +203,16 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
                       manager.group_name(index).data());
         std::snprintf(command.target_state, sizeof(command.target_state), "%s",
                       pending[i].target_state);
-        const bool safe_state =
-            std::string_view(pending[i].target_state) == "SafeState";
+        const bool safe_state = std::string_view(pending[i].target_state) == "SafeState";
         const auto started = Clock::now();
-        const auto ack = safe_state
-                             ? em_emergency_client.call(
-                                   command, std::chrono::milliseconds(
-                                                manager.transition_max_time_ms(index)))
-                             : em_client.call(
-                                   command, std::chrono::milliseconds(
-                                                manager.transition_max_time_ms(index)));
-        const std::uint64_t elapsed_us =
-            static_cast<std::uint64_t>(
-                std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started)
-                    .count());
+        const auto ack =
+            safe_state
+                ? em_emergency_client.call(
+                      command, std::chrono::milliseconds(manager.transition_max_time_ms(index)))
+                : em_client.call(command,
+                                 std::chrono::milliseconds(manager.transition_max_time_ms(index)));
+        const std::uint64_t elapsed_us = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started).count());
         if (ack.has_value()) {
             metrics.last_transition_duration_us.store(elapsed_us, std::memory_order_relaxed);
         } else {
@@ -337,7 +328,7 @@ struct Session {
 
 /// State publication, TriggerIn server, and the PHM recovery channel.
 [[nodiscard]] bool open_state_channels(Session& session, nexigen::sm::StateManager& manager,
-                                      const nexigen::sm::SmManifest& manifest) {
+                                       const nexigen::sm::SmManifest& manifest) {
     auto publication = nexigen::sm::StatePublication::create(*session.node, manifest);
     if (!publication) {
         std::fprintf(stderr, "nexigen-sm: state publication failed\n");
@@ -431,25 +422,22 @@ void run_loop(Session& session, nexigen::sm::StateManager& manager,
               std::vector<PendingTransition>& pending) {
     while (g_stop == 0) {
         const auto waited = session.waitset->wait_and_process_once_with_timeout(
-            [&](nexigen::com::WaitSetAttachmentId attachment)
-                -> nexigen::com::CallbackProgression {
+            [&](nexigen::com::WaitSetAttachmentId attachment) -> nexigen::com::CallbackProgression {
                 const Clock::time_point now = Clock::now();
                 if (attachment.has_event_from(*session.recovery_guard)) {
                     (void)session.recovery->listener().try_wait([](nexigen::com::EventId) {});
                     session.recovery->handle_pending();
-                    metrics.emergency_transitions_total.fetch_add(1,
-                                                                 std::memory_order_relaxed);
+                    metrics.emergency_transitions_total.fetch_add(1, std::memory_order_relaxed);
                 }
                 if (attachment.has_event_from(*session.tick_guard)) {
                     for (std::size_t i = 0; i < manager.group_count() * 2U; ++i) {
-                        serve_one_request(*session.trigger_server, manager,
-                                          *session.publication,
+                        serve_one_request(*session.trigger_server, manager, *session.publication,
                                           session.preparation ? &*session.preparation : nullptr,
                                           audit, metrics, pending, now);
                     }
                     if (session.em_client && session.em_emergency_client) {
-                        drive_pending(manager, *session.em_client,
-                                      *session.em_emergency_client, metrics, pending, now);
+                        drive_pending(manager, *session.em_client, *session.em_emergency_client,
+                                      metrics, pending, now);
                     }
                     if (session.health) {
                         (void)session.health->emit(1);
