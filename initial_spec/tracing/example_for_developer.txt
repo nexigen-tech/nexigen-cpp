@@ -1,0 +1,48 @@
+Как это работает для прикладного разработчика (Магия автоматического trace_id)
+
+Посмотрите, насколько чистым остается код разработчика: ему не нужно вручную передавать trace_id, потому что nexigen::com и nexigen::trace делают всё сами через скрытый заголовок iceoryx2 и thread_local:
+
+
+Процесс 1: Драйвер Камеры (camera_node.cpp)
+cpp
+#include "nexigen/trace/trace.h"
+#include "nexigen/com/publisher.h"
+void CameraLoop() {
+    // 1. Генерируем новый сквозной trace_id для нового кадра с матрицы!
+    // Он автоматически ложится в thread_local текущего потока.
+    NEXIGEN_TRACE_NEW_ROOT("Camera_Capture_Pipeline");
+
+    auto sample = frame_publisher.loan_uninit();
+    {
+        NEXIGEN_TRACE_SCOPE("ISP_Debayering"); // Замер внутри камеры (привязан к trace_id)
+        FillFrameData(sample.payload_mut());
+    }
+    
+    // 2. При вызове send() библиотека nexigen::com сама берет trace_id из thread_local
+    // и прячет его в системный TraceHeader внутри сегмента iceoryx2!
+    sample.send(); 
+}
+
+
+
+Процесс 2: Нейросеть детекции объектов (perception_node.cpp)
+cpp
+#include "nexigen/trace/trace.h"
+#include "nexigen/com/subscriber.h"
+
+void PerceptionLoop() {
+    // 3. При вызове receive() библиотека nexigen::com достает скрытый TraceHeader из сэмпла
+    // и автоматически устанавливает ТОТ ЖЕ САМЫЙ trace_id в thread_local этого потока!
+    // Плюс автоматически записывает время, которое кадр пролежал в очереди iceoryx2!
+    if (auto sample = frame_subscriber.receive()) {
+        
+        // 4. Этот спан в другом процессе автоматически привязывается к кадру камеры!
+        NEXIGEN_TRACE_SCOPE("YOLO_Inference"); 
+        
+        auto bbox_sample = objects_publisher.loan_uninit();
+        RunInference(*sample, bbox_sample.payload_mut());
+        
+        // 5. И снова тот же trace_id автоматически летит дальше в процесс планировщика!
+        bbox_sample.send();
+    }
+}

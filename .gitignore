@@ -105,3 +105,16 @@ CMakeUserPresets.json
 # =============================================================================
 graphify-out/cache/
 graphify-out/.graphify_*
+
+# =============================================================================
+# 7. Local, machine-specific leftovers (not part of the project)
+# =============================================================================
+# Standalone Git-project analyzer experiment (click + GitPython); unrelated to
+# nexigen. Root-anchored so a same-named module file is not silently ignored.
+/lens.py
+# Generated HTML report and a leftover shell log.
+/opencode_report.html
+/pub.log
+# Personal session-log analyzer skill; the project skills live beside it and are
+# tracked, so ignore only this directory.
+.opencode/skills/session_analyzer/

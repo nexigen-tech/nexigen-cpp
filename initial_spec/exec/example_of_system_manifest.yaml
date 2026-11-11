@@ -1,0 +1,303 @@
+version: 1.0
+platform_name: "Nexigenasy_Primary"
+
+# ==============================================================================
+# 1. ГЛОБАЛЬНАЯ КОНФИГУРАЦИЯ ЯДЕР И СРЕДЫ (GLOBAL ENVIRONMENT)
+# ==============================================================================
+global_settings:
+  # Дефолтная маска сервисного ядра (CPU 0) для всех фоновых задач
+  default_bg_cpu_mask: "0"
+  # Автоматическая очистка сегментов iceoryx2 при падении процессов (REQ_EM_014)
+  ipc_cleanup_on_crash: true
+  iceoryx2_root_dir: "/dev/shm/nexigenauto_iox2"
+
+# ==============================================================================
+# 2. ОПРЕДЕЛЕНИЕ ГРУПП ФУНКЦИЙ И ИХ СОСТОЯНИЙ (REQ_EM_005)
+# ==============================================================================
+function_groups:
+  - name: "MachineState"
+    initial_state: "Startup"
+    states: ["Startup", "Verify", "NormalRunning", "SafeState", "Shutdown"]
+
+  - name: "ADAS_FG"
+    initial_state: "Off"
+    states: ["Off", "Calibration", "Active", "DegradedMode", "SafeState"]
+
+# ==============================================================================
+# 3. ОПИСАНИЕ ПРОЦЕССОВ (СИСТЕМНЫЕ ДЕМОНЫ И ПРИКЛАДНЫЕ ПРИЛОЖЕНИЯ)
+# ==============================================================================
+processes:
+
+  # ----------------------------------------------------------------------------
+  # ПРОЦЕСС 1: LOG DAEMON (Запускается самым первым — REQ_LOGD_001)
+  # Задача: Прием логов через iceoryx2, запись на диск и стриминг в сеть.
+  # ----------------------------------------------------------------------------
+  - name: "nexigen_log_daemon"
+    app_id: "LOGD"
+    executable_path: "/opt/nexigenauto/bin/log_daemon"
+    args: ["--config", "/opt/nexigenauto/etc/log_daemon_config.yaml"]
+    
+    dependencies: []
+    
+    function_groups:
+      MachineState: ["Startup", "Verify", "NormalRunning", "SafeState"]
+
+    lifecycle:
+      startup_timeout_ms: 500
+      shutdown_timeout_ms: 2000
+      restart_attempts: 3
+
+    security:
+      user: "nexigen_logger"
+      group: "nexigen_system"
+      capabilities: []
+      sha256_checksum: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+    resources:
+      max_memory_mb: 64
+      scheduling_policy: "SCHED_OTHER"
+      priority: 0
+      worker_cpu_affinity: "0"
+      background_cpu_affinity: "0"
+
+    environment_variables:
+      NEXIGEN_BG_CPU_MASK: "0"
+      NEXIGEN_LOG_DIR: "/var/log/nexigenauto"
+
+  # ----------------------------------------------------------------------------
+  # ПРОЦЕСС 2: PHM DAEMON (Запускается вторым, сразу после логгера)
+  # Задача: Контроль живого состояния, дедлайнов и логики выполнения.
+  # ----------------------------------------------------------------------------
+  - name: "nexigen_phm_daemon"
+    app_id: "PHM"
+    executable_path: "/opt/nexigenauto/bin/phm_daemon"
+    args: ["--config", "/opt/nexigenauto/etc/phm_config.yaml"]
+    
+    dependencies: ["nexigen_log_daemon"]
+    
+    function_groups:
+      MachineState: ["Startup", "Verify", "NormalRunning", "SafeState"]
+
+    lifecycle:
+      startup_timeout_ms: 300
+      shutdown_timeout_ms: 500
+      restart_attempts: 5
+
+    security:
+      user: "nexigen_phm"
+      group: "nexigen_system"
+      capabilities: ["CAP_SYS_NICE", "CAP_IPC_LOCK"]
+      sha256_checksum: "8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4"
+
+    resources:
+      max_memory_mb: 32
+      scheduling_policy: "SCHED_FIFO"
+      priority: 90
+      worker_cpu_affinity: "1"
+      background_cpu_affinity: "0"
+
+    environment_variables:
+      NEXIGEN_WORKER_CPU_MASK: "1"
+      NEXIGEN_BG_CPU_MASK: "0"
+      NEXIGEN_DEFAULT_LOG_LEVEL: "Info"
+
+  # ----------------------------------------------------------------------------
+  # ПРОЦЕСС 3: METRICS DAEMON (Запускается после логгера и PHM — REQ_METD_001)
+  # Задача: Сбор атомарных метрик из shm, чтение cgroups/proc, экспорт в Prometheus.
+  # ----------------------------------------------------------------------------
+  - name: "nexigen_metrics_daemon"
+    app_id: "METD"
+    executable_path: "/opt/nexigenauto/bin/metrics_daemon"
+    args: ["--config", "/opt/nexigenauto/etc/metrics_daemon_config.yaml"]
+    
+    # Зависит от PHM, так как сам контролируется им и шлет туда алерты по ресурсам
+    dependencies: ["nexigen_log_daemon", "nexigen_phm_daemon"]
+    
+    function_groups:
+      MachineState: ["Startup", "Verify", "NormalRunning", "SafeState"]
+
+    lifecycle:
+      startup_timeout_ms: 500
+      shutdown_timeout_ms: 1000
+      restart_attempts: 3
+
+    security:
+      user: "nexigen_metrics"
+      group: "nexigen_metrics" # Группа с правами Read-Write к сегментам метрик для ResetOnRead
+      capabilities: ["CAP_DAC_READ_SEARCH", "CAP_SYS_PTRACE"] # Для чтения /proc/<pid> всех процессов
+      sha256_checksum: "a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0"
+
+    resources:
+      max_memory_mb: 48
+      scheduling_policy: "SCHED_OTHER"
+      priority: 0
+      # Полностью изолирован на сервисном ядре CPU 0 (REQ_METD_002)
+      worker_cpu_affinity: "0"
+      background_cpu_affinity: "0"
+
+    environment_variables:
+      NEXIGEN_BG_CPU_MASK: "0"
+      NEXIGEN_DEFAULT_LOG_LEVEL: "Info"
+      NEXIGEN_CGROUP_ROOT: "/sys/fs/cgroup/nexigenauto"
+
+    phm_supervision:
+      alive_checkpoint_id: 20
+      cycle_time_ms: 500
+      max_margin_ms: 100
+      recovery_action: "RestartProcess"
+
+  # ----------------------------------------------------------------------------
+  # ПРОЦЕСС 4: TRACE DAEMON (Запускается параллельно с демоном метрик — REQ_TRCD_001)
+  # Задача: Кольцевой буфер спанов в ОЗУ, захват ftrace ядра, экспорт в Perfetto.
+  # ----------------------------------------------------------------------------
+  - name: "nexigen_trace_daemon"
+    app_id: "TRCD"
+    executable_path: "/opt/nexigenauto/bin/trace_daemon"
+    args: ["--config", "/opt/nexigenauto/etc/trace_daemon_config.yaml"]
+    
+    dependencies: ["nexigen_log_daemon", "nexigen_phm_daemon"]
+    
+    function_groups:
+      MachineState: ["Startup", "Verify", "NormalRunning", "SafeState"]
+
+    lifecycle:
+      startup_timeout_ms: 500
+      shutdown_timeout_ms: 1500 # Время на сброс 32 МБ буфера ОЗУ на диск при аварии
+      restart_attempts: 3
+
+    security:
+      user: "nexigen_tracer"
+      group: "nexigen_system"
+      # CAP_IPC_LOCK для фиксации 32 МБ кольцевого буфера в RAM (mlockall)
+      # CAP_SYS_ADMIN / CAP_PERFMON для чтения /sys/kernel/tracing (ftrace)
+      capabilities: ["CAP_IPC_LOCK", "CAP_PERFMON"]
+      sha256_checksum: "f0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d"
+
+    resources:
+      max_memory_mb: 64
+      scheduling_policy: "SCHED_OTHER"
+      priority: 0
+      # Работает строго на сервисном ядре CPU 0 (REQ_TRCD_001)
+      worker_cpu_affinity: "0"
+      background_cpu_affinity: "0"
+
+    environment_variables:
+      NEXIGEN_BG_CPU_MASK: "0"
+      NEXIGEN_DEFAULT_LOG_LEVEL: "Info"
+      NEXIGEN_TRACE_DUMP_DIR: "/var/log/nexigenauto/traces/incidents"
+
+    phm_supervision:
+      alive_checkpoint_id: 30
+      cycle_time_ms: 250
+      max_margin_ms: 50
+      recovery_action: "RestartProcess"
+
+  # ----------------------------------------------------------------------------
+  # ПРОЦЕСС 5: STATE MANAGER (Запускается, когда вся инфраструктура готова)
+  # Задача: Центральная машина состояний и арбитраж режимов работы ЭБУ.
+  # ----------------------------------------------------------------------------
+  - name: "nexigen_state_manager"
+    app_id: "SM"
+    executable_path: "/opt/nexigenauto/bin/state_manager"
+    args: ["--manifest", "/opt/nexigenauto/etc/state_manager_config.yaml"]
+    
+    # Ждет готовности всех 4 инфраструктурных демонов перед переводом системы в Verify/NormalRunning
+    dependencies:
+      - "nexigen_log_daemon"
+      - "nexigen_phm_daemon"
+      - "nexigen_metrics_daemon"
+      - "nexigen_trace_daemon"
+    
+    function_groups:
+      MachineState: ["Startup", "Verify", "NormalRunning", "SafeState"]
+
+    lifecycle:
+      startup_timeout_ms: 500
+      shutdown_timeout_ms: 1000
+      restart_attempts: 3
+
+    security:
+      user: "nexigen_sm"
+      group: "nexigen_system"
+      capabilities: ["CAP_SYS_NICE", "CAP_IPC_LOCK"]
+      sha256_checksum: "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+
+    resources:
+      max_memory_mb: 32
+      scheduling_policy: "SCHED_FIFO"
+      priority: 85
+      worker_cpu_affinity: "1"
+      background_cpu_affinity: "0"
+
+    environment_variables:
+      NEXIGEN_SM_RT_CPU_MASK: "1"
+      NEXIGEN_BG_CPU_MASK: "0"
+      NEXIGEN_DEFAULT_LOG_LEVEL: "Info"
+
+    phm_supervision:
+      alive_checkpoint_id: 10
+      cycle_time_ms: 100
+      max_margin_ms: 20
+      recovery_action: "RestartProcess"
+
+  # ----------------------------------------------------------------------------
+  # ПРОЦЕСС 6: ПРИКЛАДНОЕ ПРИЛОЖЕНИЕ (Обработка Лидара / ADAS)
+  # Задача: Выполнение алгоритмов восприятия в жестком реальном времени.
+  # ----------------------------------------------------------------------------
+  - name: "lidar_perception_node"
+    app_id: "LIDR"
+    executable_path: "/opt/nexigenauto/apps/lidar_perception/bin/lidar_node"
+    args: ["--calibration-file", "/opt/nexigenauto/etc/lidar_calib.json"]
+    
+    dependencies: ["nexigen_state_manager"]
+    
+    function_groups:
+      MachineState: ["NormalRunning"]
+      ADAS_FG: ["Calibration", "Active", "DegradedMode"]
+
+    lifecycle:
+      startup_timeout_ms: 1500
+      shutdown_timeout_ms: 500
+      restart_attempts: 2
+
+    security:
+      user: "app_lidar"
+      group: "nexigen_metrics" # Членство в группе позволяет регистрировать сегменты метрик
+      capabilities: ["CAP_SYS_NICE"]
+      sha256_checksum: "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a"
+
+    resources:
+      max_memory_mb: 512
+      scheduling_policy: "SCHED_FIFO"
+      priority: 60
+      # Вычислительные потоки получают эксклюзивные ядра CPU 2 и 3 (REQ_APP_008)
+      worker_cpu_affinity: "2,3"
+      # Фоновые потоки процесса уходят на сервисное ядро CPU 0 (REQ_APP_007)
+      background_cpu_affinity: "0"
+
+    environment_variables:
+      NEXIGEN_WORKER_CPU_MASK: "2,3"
+      NEXIGEN_BG_CPU_MASK: "0"
+      NEXIGEN_DEFAULT_LOG_LEVEL: "Warn"
+      NEXIGEN_MAX_METRICS_PER_APP: "256"
+      NEXIGEN_INSTANCE_ID: "front_center_lidar"
+
+    communication:
+      provided_services:
+        - service_name: "adas/perception/point_cloud"
+          max_subscribers: 4
+          history_size: 1
+      required_services:
+        - service_name: "vehicle/ego_motion/odometry"
+          buffer_capacity: 5
+          report_overflow_to_phm: true
+
+    phm_supervision:
+      alive_checkpoint_id: 101
+      cycle_time_ms: 50
+      max_margin_ms: 10
+      deadline_supervision:
+        source_checkpoint_id: 101
+        target_checkpoint_id: 102
+        max_duration_ms: 35
+      recovery_action: "SwitchFunctionGroupToSafeState"

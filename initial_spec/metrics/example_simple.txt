@@ -1,0 +1,20 @@
+#include "easy/metrics/registry.h"
+
+void LidarWorkerLoop() {
+    // 1. Один раз при старте создаем метрики (выделяются слоты в shm iceoryx2)
+    auto& frames_counter = easy::metrics::CreateCounter("lidar_frames_processed_total", "Total lidar scans");
+    auto& objects_gauge  = easy::metrics::CreateGauge("lidar_detected_objects", "Current obstacles count");
+    auto& calc_histogram = easy::metrics::CreateHistogram("lidar_processing_time_us", {500, 1000, 5000, 10000});
+
+    while (running) {
+        auto start_time = easy::time::NowUs();
+
+        // --- Тяжелая математика на Real-Time ядре ---
+        int obstacles = ProcessPointCloud();
+
+        // 2. Обновление метрик за ~2 наносекунды (просто std::atomic store/add в память!)
+        frames_counter.Increment();
+        objects_gauge.Set(obstacles);
+        calc_histogram.Observe(easy::time::NowUs() - start_time);
+    }
+}

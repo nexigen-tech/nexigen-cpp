@@ -1,0 +1,140 @@
+version: 1.0
+daemon_name: "easy_metrics_daemon"
+
+# ==============================================================================
+# 1. СИСТЕМНЫЕ РЕСУРСЫ И ИЗОЛЯЦИЯ НА СЕРВИСНОМ ЯДРЕ (REQ_METD_002)
+# ==============================================================================
+resources:
+  # Жесткая привязка потоков демона (опрос, математика, HTTP, диск) к CPU 0.
+  # Исключает влияние на Real-Time ядра (CPU 1-3).
+  bg_cpu_affinity: [0]
+  scheduling_policy: "SCHED_OTHER"
+  priority_nice: 10
+  max_memory_mb: 48
+
+# ==============================================================================
+# 2. ДВИЖОК ОПРОСА РАЗДЕЛЯЕМОЙ ПАМЯТИ И ОС (REQ_METD_003 - REQ_METD_006)
+# ==============================================================================
+scraping:
+  # Базовый период опроса сегментов iceoryx2 и виртуальных ФС (/proc, cgroups)
+  scrape_interval_ms: 500
+  
+  # Настройки доступа к разделяемой памяти iceoryx2
+  shm_registry:
+    root_path: "/dev/shm/easyauto_iox2/metrics"
+    # Монтирование в режиме Read-Write необходимо для атомарного сброса 
+    # метрик с политикой ResetPolicy::ResetOnRead (REQ_METD_003)
+    access_mode: "read_write"
+    
+    # Параметры протокола чтения строковых метрик StateGauge (REQ_METD_004)
+    seqlock_reader:
+      max_retries: 3
+      fallback_to_last_valid: true
+
+  # Правила обработки политик сброса (ResetOnRead Handling)
+  reset_policies:
+    # Для скалярных типов (Counter/Gauge): использовать atomic::exchange(0)
+    scalar_reset_method: "atomic_exchange"
+    # Для составных типов (DescriptiveStats / Histograms): переключение 
+    # индекса активного банка памяти (active_bank_idx ^= 1)
+    composite_reset_method: "ping_pong_double_buffer"
+
+  # Источники аппаратной и системной телеметрии Linux (REQ_METD_006)
+  os_telemetry:
+    enabled: true
+    cgroup_root: "/sys/fs/cgroup/easyauto"
+    proc_fs_path: "/proc"
+    
+    # Отслеживаемые датчики температуры кристалла (SoC)
+    thermal_zones:
+      - name: "soc_cpu_cluster"
+        path: "/sys/class/thermal/thermal_zone0/temp"
+      - name: "soc_npu_accelerator"
+        path: "/sys/class/thermal/thermal_zone1/temp"
+        
+    # Сетевые интерфейсы и шины для контроля ошибок и потерь пакетов
+    network_interfaces: ["eth0", "can0", "can1"]
+
+# ==============================================================================
+# 3. МАТЕМАТИЧЕСКАЯ ПОСТОБРАБОТКА НА СТОРОНЕ ДЕМОНА (REQ_METD_005)
+# ==============================================================================
+math_post_processing:
+
+  # Настройки расчета для метрик типа DescriptiveStatistics
+  descriptive_statistics:
+    compute_mean: true
+    compute_stddev: true          # Вычисление квадратного корня дисперсии на CPU 0
+    compute_min_max: true
+    zero_count_behavior: "output_zero" # При count == 0 отдавать 0.0 (или "nan")
+
+  # Настройки расчета для метрик типа ExponentialHistogram
+  exponential_histogram:
+    # Список квантилей (перцентилей), которые демон интерполирует из корзин
+    target_quantiles: [0.50, 0.90, 0.95, 0.99, 0.999]
+    export_raw_buckets: false     # Отключить выгрузку всех 64 сырых корзин для экономии трафика
+
+# ==============================================================================
+# 4. ПОРОГОВЫЕ ОПОВЕЩЕНИЯ И ИНТЕГРАЦИЯ С PHM (REQ_METD_007)
+# ==============================================================================
+phm_health_alerts:
+  enabled: true
+  phm_ipc_channel: "easy/phm/health_channels/resource_monitor"
+
+  # 4.1. Глобальные аппаратные пороги ЭБУ
+  hardware_limits:
+    soc_temp_warning_celsius: 80.0
+    soc_temp_critical_celsius: 92.0
+    shm_free_space_min_mb: 16     # Контроль исчерпания памяти в /dev/shm
+
+  # 4.2. Контроль ресурсов дочерних процессов (по данным cgroups и /proc)
+  process_resource_limits:
+    # Процент использования RAM от квоты max_memory_mb процесса в манифесте EM
+    memory_quota_warning_percent: 85.0
+    memory_quota_critical_percent: 95.0
+    
+    # Детекция вытеснения потоков реального времени (SCHED_FIFO):
+    # Если у RT-процесса за интервал опроса растут принудительные переключения контекста
+    max_involuntary_ctxt_switches_per_sec: 10
+
+  # 4.3. Правила контроля прикладных метрик (SLA бизнес-логики)
+  custom_metric_rules:
+    - app_id: "LIDR"
+      metric_name: "adas_pipeline_latency_us"
+      statistic: "p99"            # Контролируем 99-й перцентиль из ExponentialHistogram
+      warning_threshold: 28000.0  # 28 мс (при жестком дедлайне в PHM 35 мс)
+      critical_threshold: 33000.0 # 33 мс — превентивный сигнал в PHM до срабатывания дедлайна!
+      phm_Fault_id: 501
+
+    - app_id: "LIDR"
+      metric_name: "easy_com_queue_overflow_total"
+      statistic: "value"          # Счетчик потерь пакетов сохр. со сбросом ResetOnRead
+      critical_threshold: 1.0     # Даже 1 потерянный кадр за цикл — сигнал деградации
+      phm_Fault_id: 502
+
+# ==============================================================================
+# 5. ЭКСПОРТ ДАННЫХ И ЗАПИСЬ ИСТОРИИ (REQ_METD_008, REQ_METD_009)
+# ==============================================================================
+exporters:
+
+  # 5.1. Веб-интерфейс для Prometheus / Grafana (Низкий порог входа)
+  prometheus_http:
+    enabled: true
+    bind_address: "0.0.0.0"
+    port: 9100
+    endpoint: "/metrics"
+    include_timestamp: true
+
+  # 5.2. Внутренняя шина телеметрии в iceoryx2 (для экрана авто и облака)
+  ipc_summary_publisher:
+    enabled: true
+    service_name: "easy/metrics/ecu_summary"
+    history_size: 1
+
+  # 5.3. Кольцевой «черный ящик» на диске (Flight Recorder TSDB)
+  disk_flight_recorder:
+    enabled: true
+    storage_directory: "/var/log/easyauto/metrics_history"
+    file_format: "binary_zstd"    # Сжатые бинарные чанки для минимального износа eMMC
+    flush_interval_sec: 15        # Пакетный сброс на диск раз в 15 секунд
+    max_total_storage_mb: 50      # Жесткая квота (хранит ~3 часа детальной телеметрии)
+    flush_on_safestate: true      # Мгновенный fsync() при переходе системы в аварию
