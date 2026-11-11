@@ -28,6 +28,22 @@
   JSON-библиотеки). YAML-конвертер — будущий аддитивный change; канонический
   формат остаётся JSON.
 
+## Переименование под SRS-номенклатуру (planned)
+
+- [ ] **`nexigen::logging` → `nexigen::log`, `nexigen::tracing` → `nexigen::trace`**,
+  плюс макросы `NEXIGEN_TRACE_*` → `nexigen_TRACE_*` (и `nexigen_TRACE_NEW_ROOT`).
+  Решение 2026-11-11: текущие имена оставлены, переименование — отдельный
+  BREAKING-change (обновить include-пути, namespace, CMake-таргеты, спеки/примеры).
+
+## SM — event-нотификация смены состояния (future)
+
+- [ ] **Event-нотификация `StatePublication`**: сейчас SM публикует состояния
+  Function Groups только через Field (`history_size=1`); приложения читают
+  значение в своём цикле (`SupervisedEntity::current_group_state()`).
+  Задел: добавить `com::EventNotifier` в `StatePublication::publish`, чтобы
+  подписчики просыпались без polling (REQ_APP_016, «no polling»).
+
+
 ## Контекст аудита EM (2026-11-10)
 
 Полный статус REQ_EM_* — в TODO.md не дублируется; кратко: реализованы 003, 004
