@@ -55,6 +55,33 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_logd_help PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
+    add_test(NAME nexigen_logd_hostile_config
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hostile_config_test.sh
+                $<TARGET_FILE:nexigen-logd>)
+    set_tests_properties(nexigen_logd_hostile_config PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
+    # nexigen-metricsd — Metrics Daemon (change add-metrics-daemon).
+    add_executable(nexigen-metricsd nexigen-metricsd/main.cpp)
+    target_link_libraries(nexigen-metricsd PRIVATE nexigen_metrics_com Threads::Threads)
+    target_include_directories(nexigen-metricsd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+    add_test(NAME nexigen_metricsd_help COMMAND nexigen-metricsd --help)
+    set_tests_properties(nexigen_metricsd_help PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
+    add_test(NAME nexigen_metricsd_hostile_config
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hostile_config_test.sh
+                $<TARGET_FILE:nexigen-metricsd>)
+    set_tests_properties(nexigen_metricsd_hostile_config PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
+    add_test(NAME nexigen_metricsd_smoke
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-metricsd/smoke_test.sh
+                $<TARGET_FILE:nexigen-metricsd>)
+    set_tests_properties(nexigen_metricsd_smoke PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
     install(TARGETS nexigen-phmd nexigen-sm
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()

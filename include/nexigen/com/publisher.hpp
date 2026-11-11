@@ -40,8 +40,20 @@ public:
     /// must carry the same overflow contract (iceoryx2 verifies it on
     /// connect).
     [[nodiscard]] static Result<Publisher> create(Node& node, const ServiceName& name) noexcept {
+        return create(node, name, 0U);
+    }
+
+    /// Open (or create) the service with an explicit `subscriber_max_buffer_size`
+    /// (0 leaves the service default of 2). A larger value lets one publish
+    /// burst of N frames reach a subscriber without deterministic discards.
+    [[nodiscard]] static Result<Publisher> create(Node& node, const ServiceName& name,
+                                                  std::uint64_t subscriber_max_buffer_size) noexcept {
+        auto builder = node.handle().service_builder(name.handle()).publish_subscribe<T>();
+        if (subscriber_max_buffer_size > 0U) {
+            static_cast<void>(
+                std::move(builder).subscriber_max_buffer_size(subscriber_max_buffer_size));
+        }
         auto service = [&]() {
-            auto builder = node.handle().service_builder(name.handle()).publish_subscribe<T>();
             if constexpr (std::is_void_v<H>) {
                 return std::move(builder).enable_safe_overflow(false).open_or_create();
             } else {

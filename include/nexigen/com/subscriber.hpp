@@ -32,7 +32,7 @@ public:
     /// Open (or create) the service on the node and create the subscriber
     /// with the service-default buffer size.
     [[nodiscard]] static Result<Subscriber> create(Node& node, const ServiceName& name) noexcept {
-        return create_impl(node, name, std::nullopt);
+        return create_impl(node, name, std::nullopt, 0U);
     }
 
     /// Open (or create) the service on the node and create the subscriber
@@ -40,7 +40,17 @@ public:
     /// tests and diagnostics exercise the overflow path deterministically.
     [[nodiscard]] static Result<Subscriber> create(Node& node, const ServiceName& name,
                                                    std::uint64_t buffer_size) noexcept {
-        return create_impl(node, name, buffer_size);
+        return create_impl(node, name, buffer_size, 0U);
+    }
+
+    /// Open (or create) the service with an explicit `subscriber_max_buffer_size`
+    /// (0 leaves the service default of 2) and request `buffer_size` samples.
+    /// Raising the service maximum lets a subscriber hold a full publish burst
+    /// without deterministic discards.
+    [[nodiscard]] static Result<Subscriber> create(Node& node, const ServiceName& name,
+                                                   std::uint64_t subscriber_max_buffer_size,
+                                                   std::uint64_t buffer_size) noexcept {
+        return create_impl(node, name, buffer_size, subscriber_max_buffer_size);
     }
 
     Subscriber(const Subscriber&) = delete;
@@ -68,9 +78,14 @@ public:
 
 private:
     static Result<Subscriber> create_impl(Node& node, const ServiceName& name,
-                                          std::optional<std::uint64_t> buffer_size) noexcept {
+                                          std::optional<std::uint64_t> buffer_size,
+                                          std::uint64_t subscriber_max_buffer_size) noexcept {
+        auto builder = node.handle().service_builder(name.handle()).publish_subscribe<T>();
+        if (subscriber_max_buffer_size > 0U) {
+            static_cast<void>(
+                std::move(builder).subscriber_max_buffer_size(subscriber_max_buffer_size));
+        }
         auto service = [&]() {
-            auto builder = node.handle().service_builder(name.handle()).publish_subscribe<T>();
             if constexpr (std::is_void_v<H>) {
                 return std::move(builder).enable_safe_overflow(false).open_or_create();
             } else {

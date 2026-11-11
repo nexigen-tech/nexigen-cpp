@@ -27,7 +27,7 @@ Every logger SHALL expose `set_level(nexigen::core::LogLevel) noexcept` and `lev
 
 ### Requirement: Sub-threshold calls short-circuit
 
-A log call whose level is below the active threshold, or any call while the threshold is `Off`, SHALL complete in approximately 1 ns (measured median on the target hardware in Release): the path performs at most one relaxed atomic load, one comparison, and an immediate return, touching neither a shard ring buffer, nor a timestamp source, nor the message payload or argument packing. Record methods return `void`, so filtering is simply an immediate return.
+A log call whose level is below the active threshold, or any call while the threshold is `Off`, SHALL return control to the application within a hard ceiling of 2 ns (or 10 CPU cycles) on the target hardware in Release. The path performs at most one relaxed atomic load, one comparison, and an immediate return, touching no shard ring buffer, timestamp source, or payload; the steady-state median is approximately 1 ns.
 
 #### Scenario: Filtered call performs no logging work
 
@@ -41,5 +41,5 @@ A log call whose level is below the active threshold, or any call while the thre
 
 #### Scenario: Filtered-path latency is bounded
 
-- **WHEN** a filtered call is issued in a measured loop in a Release build
-- **THEN** its median latency is within the short-circuit budget (≈ 1 ns), materially below the accepted-record budget
+- **WHEN** a logging method is called with a level below the active threshold (for example, a debug call while `Warn` is active) in a measured loop in a Release build
+- **THEN** its median latency is approximately 1 ns and its p99.9 does not exceed 2 ns (or 10 CPU cycles), with the maximum reported for visibility

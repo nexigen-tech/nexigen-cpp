@@ -476,6 +476,17 @@ if(NEXIGEN_ENABLE_COM)
         $<INSTALL_INTERFACE:include>
     )
     target_link_libraries(nexigen_logging_com INTERFACE nexigen_logging nexigen_com)
+
+    # nexigen::metrics_com — Iceoryx2MetricSink (change add-metrics-daemon):
+    # header-only sink поверх nexigen::com. Гейт отдельным INTERFACE-таргетом,
+    # ядро nexigen_metrics остаётся свободным от iceoryx2.
+    add_library(nexigen_metrics_com INTERFACE)
+    add_library(nexigen::metrics_com ALIAS nexigen_metrics_com)
+    target_include_directories(nexigen_metrics_com INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_link_libraries(nexigen_metrics_com INTERFACE nexigen_metrics nexigen_com)
 endif()
 
 # =============================================================================

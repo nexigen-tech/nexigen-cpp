@@ -77,6 +77,11 @@ add_executable(nexigen_metrics_tests
     metrics/metric_provider_test.cpp
     metrics/serialization_test.cpp
     metrics/sinks_test.cpp
+    metrics/metric_frame_test.cpp
+    metrics/prometheus_render_test.cpp
+    metrics/metric_daemon_config_test.cpp
+    metrics/iceoryx2_metric_sink_config_test.cpp
+    metrics/daemon_components_test.cpp
     metrics/latency_test.cpp)
 target_link_libraries(nexigen_metrics_tests PRIVATE nexigen_metrics Threads::Threads)
 # Ворота латентности включаются только в Release/RelWithDebInfo (design D16):
@@ -253,6 +258,22 @@ if(NEXIGEN_ENABLE_COM)
 
     add_test(NAME nexigen_logging_com_daemon_tests COMMAND nexigen_logging_com_daemon_tests)
     set_tests_properties(nexigen_logging_com_daemon_tests PROPERTIES TIMEOUT 600)
+
+    # Юнит-тесты nexigen::metrics::Iceoryx2MetricSink (change add-metrics-daemon).
+    add_executable(nexigen_metrics_com_tests metrics/iceoryx2_metric_sink_test.cpp)
+    target_link_libraries(nexigen_metrics_com_tests PRIVATE
+        nexigen_metrics_com Threads::Threads)
+
+    add_test(NAME nexigen_metrics_com_tests COMMAND nexigen_metrics_com_tests)
+    set_tests_properties(nexigen_metrics_com_tests PROPERTIES TIMEOUT 600)
+
+    # End-to-end MetricsDaemon pipeline (change add-metrics-daemon).
+    add_executable(nexigen_metrics_daemon_tests metrics/metrics_daemon_test.cpp)
+    target_link_libraries(nexigen_metrics_daemon_tests PRIVATE
+        nexigen_metrics_com Threads::Threads)
+
+    add_test(NAME nexigen_metrics_daemon_tests COMMAND nexigen_metrics_daemon_tests)
+    set_tests_properties(nexigen_metrics_daemon_tests PROPERTIES TIMEOUT 600)
 
     # Negative-compile probe: non-trivially-copyable payloads (owning string,
     # virtuals, containers) must be rejected by concepts::Message at compile
