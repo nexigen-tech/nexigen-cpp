@@ -47,9 +47,9 @@ void test_prometheus_counter() {
         text, "requests_total{app=\"LIDR\",meter=\"perception\",version=\"1.0\",pid=\"42\"} 7\n"));
     // No per-sample timestamp suffix: the output is exactly the TYPE line plus
     // one sample line ending in the value and a newline.
-    NX_CHECK(text ==
-             "# TYPE requests_total counter\n"
-             "requests_total{app=\"LIDR\",meter=\"perception\",version=\"1.0\",pid=\"42\"} 7\n");
+    NX_CHECK(
+        text ==
+        "# TYPE requests_total counter\nrequests_total{app=\"LIDR\",meter=\"perception\",version=\"1.0\",pid=\"42\"} 7\n");
 }
 
 void test_prometheus_gauge() {
@@ -104,14 +104,18 @@ void test_prometheus_histogram() {
     frame.record.histogram.sum = 20.0;
     const std::string text = render(frame);
     NX_CHECK(contains(text, "# TYPE request_ms histogram\n"));
-    NX_CHECK(contains(text, "request_ms_bucket{app=\"LIDR\",meter=\"perception\",version=\"1.0\","
-                            "pid=\"42\",le=\"1\"} 1\n"));
-    NX_CHECK(contains(text, "request_ms_bucket{app=\"LIDR\",meter=\"perception\",version=\"1.0\","
-                            "pid=\"42\",le=\"2\"} 3\n"));
-    NX_CHECK(contains(text, "request_ms_bucket{app=\"LIDR\",meter=\"perception\",version=\"1.0\","
-                            "pid=\"42\",le=\"10\"} 6\n"));
-    NX_CHECK(contains(text, "request_ms_bucket{app=\"LIDR\",meter=\"perception\",version=\"1.0\","
-                            "pid=\"42\",le=\"+Inf\"} 10\n"));
+    NX_CHECK(contains(
+        text,
+        "request_ms_bucket{app=\"LIDR\",meter=\"perception\",version=\"1.0\",pid=\"42\",le=\"1\"} 1\n"));
+    NX_CHECK(contains(
+        text,
+        "request_ms_bucket{app=\"LIDR\",meter=\"perception\",version=\"1.0\",pid=\"42\",le=\"2\"} 3\n"));
+    NX_CHECK(contains(
+        text,
+        "request_ms_bucket{app=\"LIDR\",meter=\"perception\",version=\"1.0\",pid=\"42\",le=\"10\"} 6\n"));
+    NX_CHECK(contains(
+        text,
+        "request_ms_bucket{app=\"LIDR\",meter=\"perception\",version=\"1.0\",pid=\"42\",le=\"+Inf\"} 10\n"));
     NX_CHECK(contains(
         text, "request_ms_sum{app=\"LIDR\",meter=\"perception\",version=\"1.0\",pid=\"42\"} 20\n"));
     NX_CHECK(contains(
@@ -125,8 +129,9 @@ void test_prometheus_state() {
     std::snprintf(frame.record.state.value, sizeof(frame.record.state.value), "CALIBRATING");
     const std::string text = render(frame);
     NX_CHECK(contains(text, "# TYPE app_mode_state gauge\n"));
-    NX_CHECK(contains(text, "app_mode_state{app=\"LIDR\",meter=\"perception\",version=\"1.0\",pid="
-                            "\"42\",state=\"CALIBRATING\"} 1\n"));
+    NX_CHECK(contains(
+        text,
+        "app_mode_state{app=\"LIDR\",meter=\"perception\",version=\"1.0\",pid=\"42\",state=\"CALIBRATING\"} 1\n"));
 }
 
 void test_prometheus_overflow() {

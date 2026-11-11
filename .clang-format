@@ -25,6 +25,10 @@ AllowShortCaseLabelsOnASingleLine: true
 AllowShortFunctionsOnASingleLine: Inline
 AllowShortIfStatementsOnASingleLine: WithoutElse
 AllowShortLoopsOnASingleLine: false
+# Long literals stay on one line: tests and diagnostics embed JSON/Prometheus
+# expectations that must remain greppable as a single searchable string. Lines
+# holding such a literal may exceed ColumnLimit, which clang-format allows.
+BreakStringLiterals: false
 BreakBeforeBraces: Attach
 IncludeBlocks: Preserve
 IndentCaseLabels: true
