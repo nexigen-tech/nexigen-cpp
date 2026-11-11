@@ -105,7 +105,8 @@ add_executable(nexigen_tracing_tests
     tracing/latency_test.cpp
     tracing/tracing_settings_test.cpp
     tracing/tracer_provider_test.cpp
-    tracing/record_format_test.cpp)
+    tracing/record_format_test.cpp
+    tracing/trace_propagation_test.cpp)
 target_link_libraries(nexigen_tracing_tests PRIVATE nexigen_tracing Threads::Threads)
 # Ворота латентности (≤20 ns lifecycle / ≤2 ns short-circuit) включаются
 # только в Release/RelWithDebInfo (design D14): числа под Debug/санитайзерами
@@ -228,6 +229,15 @@ if(NEXIGEN_ENABLE_COM)
     add_test(NAME nexigen_em_orchestration_tests COMMAND nexigen_em_orchestration_tests)
     set_tests_properties(nexigen_em_orchestration_tests PROPERTIES TIMEOUT 600)
 
+    # End-to-end trace propagation: com custom header + tracing context
+    # (change add-trace-propagation).
+    add_executable(nexigen_trace_roundtrip_tests tracing/trace_roundtrip_test.cpp)
+    target_link_libraries(nexigen_trace_roundtrip_tests PRIVATE
+        nexigen_com nexigen_tracing Threads::Threads)
+
+    add_test(NAME nexigen_trace_roundtrip_tests COMMAND nexigen_trace_roundtrip_tests)
+    set_tests_properties(nexigen_trace_roundtrip_tests PROPERTIES TIMEOUT 600)
+
     # Юнит-тесты nexigen::logging::Iceoryx2Logger (change add-iceoryx2-logger).
     add_executable(nexigen_logging_com_tests logging/iceoryx2_logger_test.cpp)
     target_link_libraries(nexigen_logging_com_tests PRIVATE
@@ -319,6 +329,7 @@ foreach(_nexigen_test
         nexigen_sm_tests
         nexigen_state_client_tests
         nexigen_em_orchestration_tests
+        nexigen_trace_roundtrip_tests
         nexigen_logging_com_tests
         nexigen_logging_com_daemon_tests
         nexigen_hub_tests)

@@ -158,6 +158,23 @@ struct OtherPayload {
     double c;
 };
 
+/// Custom header for the trace-propagation round-trip test.
+struct TestHeader {
+    std::uint64_t value;
+    std::uint32_t seq;
+};
+
+template <class S, class = void>
+struct has_user_header : std::false_type {};
+template <class S>
+struct has_user_header<S, std::void_t<decltype(std::declval<const S&>().user_header())>>
+    : std::true_type {};
+
+static_assert(!has_user_header<com::Sample<int>>::value,
+              "user_header() must be hidden when H = void");
+static_assert(has_user_header<com::Sample<int, TestHeader>>::value,
+              "user_header() must exist when H is a custom header");
+
 void test_message_concept() {
     static_assert(com::concepts::Message<PodPayload>);
     static_assert(com::concepts::Message<std::int32_t>);
@@ -716,8 +733,7 @@ void test_pub_sub_type_mismatch() {
     NX_CHECK(bad_subscriber.error() == com::Error::IncompatibleTypeLayout);
 }
 
-void test_pub_sub_two_process() {
-    // The parent process is the subscriber, the forked child is the
+void test_pub_sub_two_process() {    // The parent process is the subscriber, the forked child is the
     // publisher — a real two-process loan-send-receive round-trip over the
     // shared-memory transport.
     auto node = com::Node::create();
@@ -769,6 +785,40 @@ void test_pub_sub_two_process() {
     NX_CHECK(received_x[2] == 43);
 }
 
+void test_custom_header() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/CustomHeader");
+    NX_CHECK(name.has_value());
+
+    auto publisher = com::Publisher<int, TestHeader>::create(*node, *name);
+    NX_CHECK(publisher.has_value());
+    auto subscriber = com::Subscriber<int, TestHeader>::create(*node, *name);
+    NX_CHECK(subscriber.has_value());
+
+    auto loaned = publisher->loan_uninit();
+    NX_CHECK(loaned.has_value());
+    auto sample = loaned->write_payload(42);
+    sample.user_header_mut() = TestHeader{0xCAFEULL, 5};
+    NX_CHECK(publisher->send(std::move(sample)).has_value());
+
+    bool received = false;
+    for (int i = 0; i < 500 && !received; ++i) {
+        const auto got = subscriber->receive();
+        NX_CHECK(got.has_value());
+        if (got->has_value()) {
+            NX_CHECK((*got)->payload() == 42);
+            const TestHeader& header = (*got)->user_header();
+            NX_CHECK(header.value == 0xCAFEULL);
+            NX_CHECK(header.seq == 5U);
+            received = true;
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    NX_CHECK(received);
+}
+
 } // namespace
 
 int main() {
@@ -780,6 +830,7 @@ int main() {
     run_suite("pub_sub_overflow", test_pub_sub_overflow);
     run_suite("pub_sub_type_mismatch", test_pub_sub_type_mismatch);
     run_suite("pub_sub_two_process", test_pub_sub_two_process);
+    run_suite("custom_header", test_custom_header);
     run_suite("event", test_event);
     run_suite("waitset", test_waitset);
     run_suite("field", test_field);

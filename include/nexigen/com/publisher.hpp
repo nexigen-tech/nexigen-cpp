@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <format>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 #include <iox2/iceoryx2.hpp>
@@ -24,9 +25,12 @@
 
 namespace nexigen::com {
 
-/// Zero-copy publisher of payload type T for one service.
-template <concepts::Message T>
+/// Zero-copy publisher of payload type T for one service (optional custom
+/// header H, default void = no header).
+template <concepts::Message T, typename H = void>
 class Publisher {
+    static_assert(std::is_void_v<H> || concepts::Message<H>,
+                  "the custom header must satisfy com::concepts::Message");
 public:
     /// Open (or create) the service on the node and create the publisher.
     /// Delivery policy is DiscardData (design D6/REQ_COM_007): safe overflow
@@ -36,11 +40,16 @@ public:
     /// must carry the same overflow contract (iceoryx2 verifies it on
     /// connect).
     [[nodiscard]] static Result<Publisher> create(Node& node, const ServiceName& name) noexcept {
-        auto service = node.handle()
-                           .service_builder(name.handle())
-                           .publish_subscribe<T>()
-                           .enable_safe_overflow(false)
-                           .open_or_create();
+        auto service = [&]() {
+            auto builder = node.handle().service_builder(name.handle()).publish_subscribe<T>();
+            if constexpr (std::is_void_v<H>) {
+                return std::move(builder).enable_safe_overflow(false).open_or_create();
+            } else {
+                return std::move(builder).template user_header<H>()
+                    .enable_safe_overflow(false)
+                    .open_or_create();
+            }
+        }();
         if (!service) {
             return std::unexpected(detail::map_error(service.error()));
         }
@@ -91,19 +100,19 @@ public:
     }
 
     /// Borrow a slot from the shared pool (zero-copy loan).
-    [[nodiscard]] Result<SampleMutUninit<T>> loan_uninit() noexcept {
+    [[nodiscard]] Result<SampleMutUninit<T, H>> loan_uninit() noexcept {
         auto loaned = inner_.loan_uninit();
         if (!loaned) {
             return std::unexpected(detail::map_error(loaned.error()));
         }
-        return SampleMutUninit<T>{std::move(*loaned)};
+        return SampleMutUninit<T, H>{std::move(*loaned)};
     }
 
     /// Hand the initialized sample over to every subscriber (non-blocking).
     /// The return value of the transport is the number of subscribers the
     /// sample was delivered to; the lag telemetry below derives the evicted-
     /// sample count from it.
-    [[nodiscard]] Status send(SampleMut<T> sample) noexcept {
+    [[nodiscard]] Status send(SampleMut<T, H> sample) noexcept {
         auto sent = iox2::send(std::move(sample.handle()));
         if (!sent) {
             return std::unexpected(detail::map_error(sent.error()));
@@ -133,7 +142,7 @@ public:
     }
 
 private:
-    Publisher(ServiceName name, iox2::Publisher<iox2::ServiceType::Ipc, T, void> inner) noexcept
+    Publisher(ServiceName name, iox2::Publisher<iox2::ServiceType::Ipc, T, H> inner) noexcept
         : service_name_(std::move(name)), inner_(std::move(inner)) {}
 
     /// Per-publisher telemetry (design D7): relaxed atomics touched only on
@@ -150,23 +159,23 @@ private:
     };
 
     ServiceName service_name_;
-    iox2::Publisher<iox2::ServiceType::Ipc, T, void> inner_;
+    iox2::Publisher<iox2::ServiceType::Ipc, T, H> inner_;
     Telemetry telemetry_{};
 };
 
 /// Free helper (mandate 9): mirrors the member.
-template <concepts::Message T>
-[[nodiscard]] inline std::string to_string(const Publisher<T>& publisher) {
+template <concepts::Message T, typename H = void>
+[[nodiscard]] inline std::string to_string(const Publisher<T, H>& publisher) {
     return publisher.to_string();
 }
 
 } // namespace nexigen::com
 
 /// The publisher formats as its diagnostic string (mandate 11).
-template <nexigen::com::concepts::Message T>
-struct std::formatter<nexigen::com::Publisher<T>> : std::formatter<std::string_view> {
+template <nexigen::com::concepts::Message T, typename H>
+struct std::formatter<nexigen::com::Publisher<T, H>> : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::com::Publisher<T>& publisher, Ctx& ctx) const {
+    auto format(const nexigen::com::Publisher<T, H>& publisher, Ctx& ctx) const {
         const std::string text = publisher.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

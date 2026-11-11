@@ -20,6 +20,7 @@
 
 #include <nexigen/tracing/span_context.hpp>
 #include <nexigen/tracing/span_record.hpp>
+#include <nexigen/tracing/trace_header.hpp>
 #include <nexigen/tracing/tracer_provider.hpp>
 
 namespace nexigen::tracing {
@@ -132,6 +133,13 @@ std::string SpanId::to_string() const {
     char hex[16];
     format_hex16(value_, hex);
     return std::string(hex, 16U);
+}
+
+std::string TraceHeader::to_string() const {
+    return std::format("TraceHeader(trace_id={}, source_span_id={}, publish_timestamp_ns={}, "
+                       "sequence_number={})",
+                       trace_id.to_string(), source_span_id.to_string(), publish_timestamp_ns,
+                       sequence_number);
 }
 
 std::string to_string(const TraceId& id) {

@@ -50,6 +50,7 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/tracing/detail/active_span_stack.hpp>
 #include <nexigen/tracing/detail/id_generator.hpp>
+#include <nexigen/tracing/detail/trace_context.hpp>
 #include <nexigen/tracing/scoped_span.hpp>
 #include <nexigen/tracing/span_context.hpp>
 #include <nexigen/tracing/span_enums.hpp>
@@ -168,6 +169,14 @@ public:
         } else if (const detail::ActiveFrame* top = stack.top(); top != nullptr) {
             trace_id = top->trace_id; // inherit the active trace
             parent_span_id = top->span_id;
+        } else if (const TraceContext& context = current_trace_context();
+                   !context.trace_id.is_unset()) {
+            // Cross-process fallback (change add-trace-propagation): a trace
+            // received from another process via TraceHeader links the first
+            // local span. The context is NOT consumed — subsequent same-thread
+            // spans keep the same trace.
+            trace_id = context.trace_id;
+            parent_span_id = context.source_span_id;
         } else {
             trace_id = TraceId::generate(); // fresh root
         }

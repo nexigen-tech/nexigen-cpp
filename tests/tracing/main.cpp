@@ -18,6 +18,7 @@ void suite_serialization_full();
 void suite_provider();
 void suite_tracing_required_thread_failure();
 void suite_tracing_worker_thread_settings();
+void suite_trace_propagation();
 
 int main() {
     run_suite("harness", test_harness);
@@ -36,6 +37,7 @@ int main() {
     suite_provider();
     suite_tracing_required_thread_failure();
     suite_tracing_worker_thread_settings();
+    suite_trace_propagation();
     std::printf("tracing: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }
