@@ -141,7 +141,14 @@ cmake --build build --target format-check  # fail if any file differs
 ```
 
 The targets cover `include/`, `src/`, `tests/`, `examples/`, and `tools/`;
-`openspec/` is documentation and is never reformatted. The profile keeps the
+`openspec/` is documentation and is never reformatted.
+
+The bulk reformat in commit `838d1b0` plus `.git-blame-ignore-revs` keeps
+`git blame` readable; enable it once per clone:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+``` The profile keeps the
 house style: 4-space indentation, attached braces, a 100-column limit, and
 left-aligned pointers/references. Include order is preserved because modules
 deliberately group headers by ownership.
