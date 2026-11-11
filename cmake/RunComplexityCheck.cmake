@@ -45,6 +45,7 @@ execute_process(
         "${NEXIGEN_SOURCE_DIR}/include"
         "${NEXIGEN_SOURCE_DIR}/src"
         "${NEXIGEN_SOURCE_DIR}/tests"
+        "${NEXIGEN_SOURCE_DIR}/tools"
     WORKING_DIRECTORY "${NEXIGEN_SOURCE_DIR}"
     RESULT_VARIABLE result
     ECHO_ERROR_VARIABLE

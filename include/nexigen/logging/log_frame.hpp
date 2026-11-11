@@ -76,81 +76,10 @@ static_assert(sizeof(core::LogLevel) == 1, "LogLevel must occupy one byte in the
 }
 
 /// Cold-path diagnostic JSON (mandate 10): full round-trip under
-/// JSON_NOEXCEPTION=1; hostile input leaves the target unchanged.
-inline void to_json(nlohmann::json& j, const LogFrame& frame) {
-    j = nlohmann::json{
-        {"timestamp_ns", frame.timestamp_ns},
-        {"app_id", std::string(frame.app_id_text())},
-        {"context_id", frame.context_id},
-        {"thread_id", frame.thread_id},
-        {"pid", frame.pid},
-        {"dropped_counter", frame.dropped_counter},
-        {"payload_size", frame.payload_size},
-        {"log_level", frame.log_level},
-        {"payload", std::string(frame.payload_text())},
-    };
-}
-
-inline void from_json(const nlohmann::json& j, LogFrame& out) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
-    LogFrame parsed{};
-    const auto read_u64 = [&j](const char* key, std::uint64_t& dst) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number_unsigned()) {
-            dst = it->get<std::uint64_t>();
-        }
-    };
-    const auto read_u32 = [&j](const char* key, std::uint32_t& dst) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number_unsigned()) {
-            dst = it->get<std::uint32_t>();
-        }
-    };
-    const auto read_u16 = [&j](const char* key, std::uint16_t& dst) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number_unsigned()) {
-            dst = it->get<std::uint16_t>();
-        }
-    };
-    const auto read_str = [&j](const char* key, std::string& dst) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_string()) {
-            dst = it->get<std::string>();
-        }
-    };
-    read_u64("timestamp_ns", parsed.timestamp_ns);
-    read_u32("context_id", parsed.context_id);
-    read_u32("thread_id", parsed.thread_id);
-    read_u32("pid", parsed.pid);
-    read_u32("dropped_counter", parsed.dropped_counter);
-    read_u16("payload_size", parsed.payload_size);
-
-    std::string app;
-    read_str("app_id", app);
-    const std::size_t app_take = app.size() < sizeof(parsed.app_id) ? app.size() : sizeof(parsed.app_id);
-    for (std::size_t i = 0; i < app_take; ++i) {
-        parsed.app_id[i] = app[i];
-    }
-
-    std::string payload;
-    read_str("payload", payload);
-    const std::size_t payload_take =
-        payload.size() < sizeof(parsed.payload) ? payload.size() : sizeof(parsed.payload);
-    for (std::size_t i = 0; i < payload_take; ++i) {
-        parsed.payload[i] = static_cast<std::uint8_t>(payload[i]);
-    }
-
-    const auto lv = j.find("log_level");
-    if (lv != j.end() && lv->is_string()) {
-        core::LogLevel level = core::LogLevel::Info;
-        if (core::from_string(lv->get<std::string>(), level)) {
-            parsed.log_level = level;
-        }
-    }
-    out = parsed;
-}
+/// JSON_NOEXCEPTION=1; hostile input leaves the target unchanged. Bodies live in
+/// src/logging/log_frame.cpp so consumers do not recompile them.
+void to_json(nlohmann::json& j, const LogFrame& frame);
+void from_json(const nlohmann::json& j, LogFrame& out) noexcept;
 
 } // namespace nexigen::logging
 

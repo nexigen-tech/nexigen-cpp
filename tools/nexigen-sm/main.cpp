@@ -139,7 +139,7 @@ using EmClient = nexigen::com::Client<nexigen::exec::StateCommand, nexigen::exec
 /// Serve one TriggerIn request: arbitrate, journal, publish, prepare.
 void serve_one_request(TriggerServer& server, nexigen::sm::StateManager& manager,
                        nexigen::sm::StatePublication& publication,
-                       nexigen::com::Result<nexigen::sm::TransitionPreparation>& preparation,
+                       nexigen::sm::TransitionPreparation* preparation,
                        nexigen::sm::TransitionAudit& audit, nexigen::sm::SmMetrics& metrics,
                        std::vector<PendingTransition>& pending, Clock::time_point now) {
     auto received = server.receive();
@@ -177,7 +177,7 @@ void serve_one_request(TriggerServer& server, nexigen::sm::StateManager& manager
     (void)(*received)->send_copy(nexigen::sm::TriggerResponse{result});
     if (result == nexigen::sm::TransitionResult::Success) {
         (void)publication.publish(index, manager.state(index));
-        if (preparation) {
+        if (preparation != nullptr) {
             (void)preparation->notify(manager.state(index));
         }
         const auto timeout = std::chrono::milliseconds(
@@ -238,34 +238,51 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
     }
 }
 
-[[nodiscard]] int run_sm(const Options& options) {
-    // 1. Manifest (REQ_SM_019).
+/// Every endpoint the arbitration loop touches. Guards are held here so the
+/// attachments outlive the loop.
+struct Session {
+    std::optional<nexigen::com::Node> node{};
+    std::optional<nexigen::com::WaitSet> waitset{};
+    std::optional<nexigen::sm::StatePublication> publication{};
+    std::optional<TriggerServer> trigger_server{};
+    std::optional<nexigen::sm::RecoveryHandler> recovery{};
+    std::optional<nexigen::com::WaitSetGuard> recovery_guard{};
+    std::optional<EmClient> em_client{};
+    std::optional<EmClient> em_emergency_client{};
+    std::optional<nexigen::phm::CheckpointEmitter> health{};
+    std::optional<nexigen::sm::TransitionPreparation> preparation{};
+    std::optional<nexigen::com::WaitSetGuard> tick_guard{};
+};
+
+/// Load the manifest (REQ_SM_019) and require at least one function group.
+[[nodiscard]] bool load_manifest(const Options& options, nexigen::sm::SmManifest& manifest) {
     std::ifstream input(options.config_path);
     if (!input.is_open()) {
         std::fprintf(stderr, "nexigen-sm: cannot open config '%s'\n", options.config_path.c_str());
-        return 1;
+        return false;
     }
     const nlohmann::json parsed = nlohmann::json::parse(input, nullptr, false);
     if (parsed.is_discarded()) {
         std::fprintf(stderr, "nexigen-sm: config '%s' is not valid JSON\n",
                      options.config_path.c_str());
-        return 1;
+        return false;
     }
-    nexigen::sm::SmManifest manifest;
     from_json(parsed, manifest);
     if (manifest.function_groups.empty()) {
         std::fprintf(stderr, "nexigen-sm: config declares no function groups\n");
-        return 1;
+        return false;
     }
+    return true;
+}
 
-    // 2. Memory locking (REQ_SM_012). The EM grants CAP_IPC_LOCK in
-    // production; in unprivileged dev environments the call may fail, so it
-    // is best-effort with a warning instead of a hard stop.
+/// Lock pages (REQ_SM_012), pin to the RT core and apply SCHED_FIFO
+/// (REQ_SM_015/016). mlockall is best-effort: unprivileged dev environments may
+/// lack CAP_IPC_LOCK, so it only warns.
+[[nodiscard]] bool configure_realtime(const Options& options) {
     if (::mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
         std::fprintf(stderr, "nexigen-sm: warning: mlockall failed (CAP_IPC_LOCK?)\n");
     }
 
-    // 3. RT-core pin + SCHED_FIFO (REQ_SM_015/016).
     std::uint64_t rt_mask = options.rt_core_mask;
     if (rt_mask == 0U) {
         const char* env = std::getenv("EASY_SM_RT_CPU_MASK");
@@ -277,7 +294,7 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
         const auto pinned = nexigen::core::affinity::pin_self(rt_mask);
         if (!pinned) {
             std::fprintf(stderr, "nexigen-sm: core pinning failed\n");
-            return 1;
+            return false;
         }
     }
     nexigen::core::ThreadSpec spec;
@@ -289,95 +306,181 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
         spec.set_scheduler(nexigen::core::SchedulingPolicy::FIFO, options.priority);
     if (!scheduled) {
         std::fprintf(stderr, "nexigen-sm: invalid scheduler config\n");
-        return 1;
+        return false;
     }
     nexigen::core::ThreadApplyReport report;
     const auto applied = nexigen::core::apply_thread_spec_self(spec, report);
     if (!applied) {
         std::fprintf(stderr, "nexigen-sm: applying thread spec failed\n");
-        return 1;
+        return false;
     }
+    return true;
+}
 
-    // 4. Transport: Node + WaitSet + channels.
+/// Node + WaitSet.
+[[nodiscard]] bool open_transport(Session& session) {
     auto node = nexigen::com::Node::create();
     if (!node) {
         std::fprintf(stderr, "nexigen-sm: node creation failed\n");
-        return 1;
+        return false;
     }
+    session.node.emplace(std::move(*node));
+
     auto waitset = nexigen::com::WaitSet::create_without_signal_handling();
     if (!waitset) {
         std::fprintf(stderr, "nexigen-sm: waitset creation failed\n");
+        return false;
+    }
+    session.waitset.emplace(std::move(*waitset));
+    return true;
+}
+
+/// State publication, TriggerIn server, and the PHM recovery channel.
+[[nodiscard]] bool open_state_channels(Session& session, nexigen::sm::StateManager& manager,
+                                      const nexigen::sm::SmManifest& manifest) {
+    auto publication = nexigen::sm::StatePublication::create(*session.node, manifest);
+    if (!publication) {
+        std::fprintf(stderr, "nexigen-sm: state publication failed\n");
+        return false;
+    }
+    session.publication.emplace(std::move(*publication));
+
+    const auto trigger_name = nexigen::com::ServiceName::create("Nexigen/SM/TriggerIn");
+    if (!trigger_name) {
+        std::fprintf(stderr, "nexigen-sm: trigger server creation failed\n");
+        return false;
+    }
+    auto trigger_server = TriggerServer::create(*session.node, *trigger_name);
+    if (!trigger_server) {
+        std::fprintf(stderr, "nexigen-sm: trigger server creation failed\n");
+        return false;
+    }
+    session.trigger_server.emplace(std::move(*trigger_server));
+
+    const auto recovery_channel = nexigen::com::ServiceName::create("Nexigen/SM/Recovery");
+    const auto recovery_event = nexigen::com::ServiceName::create("Nexigen/SM/RecoveryEvent");
+    if (!recovery_channel || !recovery_event) {
+        std::fprintf(stderr, "nexigen-sm: recovery handler creation failed\n");
+        return false;
+    }
+    auto recovery = nexigen::sm::RecoveryHandler::create(*session.node, *recovery_channel,
+                                                         *recovery_event, manager);
+    if (!recovery) {
+        std::fprintf(stderr, "nexigen-sm: recovery handler creation failed\n");
+        return false;
+    }
+    session.recovery.emplace(std::move(*recovery));
+    auto recovery_guard = session.waitset->attach_notification(session.recovery->listener());
+    if (!recovery_guard) {
+        std::fprintf(stderr, "nexigen-sm: recovery attach failed\n");
+        return false;
+    }
+    session.recovery_guard.emplace(std::move(*recovery_guard));
+    return true;
+}
+
+/// Optional EM/PHM channels plus the flush tick. A failed optional client stays
+/// absent, exactly like the pre-refactor Result it replaces.
+void open_control_channels(Session& session, const nexigen::sm::SmManifest& manifest) {
+    const auto em_channel = nexigen::com::ServiceName::create("Nexigen/EM/StateCommand");
+    const auto em_emergency_channel =
+        nexigen::com::ServiceName::create("Nexigen/EM/StateCommandEmergency");
+    if (em_channel) {
+        auto client = EmClient::create(*session.node, *em_channel);
+        if (client) {
+            session.em_client.emplace(std::move(*client));
+        }
+    }
+    if (em_emergency_channel) {
+        auto client = EmClient::create(*session.node, *em_emergency_channel);
+        if (client) {
+            session.em_emergency_client.emplace(std::move(*client));
+        }
+    }
+
+    const auto health_name = nexigen::com::ServiceName::create("Nexigen/SM/Health");
+    if (health_name) {
+        auto health = nexigen::phm::CheckpointEmitter::create(*session.node, *health_name);
+        if (health) {
+            session.health.emplace(std::move(*health));
+        }
+    }
+
+    const auto prep_name = nexigen::com::ServiceName::create("Nexigen/SM/Preparation");
+    if (prep_name) {
+        auto preparation = nexigen::sm::TransitionPreparation::create(*session.node, *prep_name);
+        if (preparation) {
+            session.preparation.emplace(std::move(*preparation));
+        }
+    }
+
+    const auto tick_interval = std::chrono::milliseconds(
+        manifest.metrics_flush_interval_ms == 0U ? 100U : manifest.metrics_flush_interval_ms);
+    auto tick_guard = session.waitset->attach_interval(tick_interval);
+    if (!tick_guard) {
+        std::fprintf(stderr, "nexigen-sm: interval attach failed\n");
+        return;
+    }
+    session.tick_guard.emplace(std::move(*tick_guard));
+}
+
+/// Arbitration loop (REQ_SM_013): block in the kernel, wake on the recovery
+/// event or the flush tick, and exit when the stop handler fires.
+void run_loop(Session& session, nexigen::sm::StateManager& manager,
+              nexigen::sm::TransitionAudit& audit, nexigen::sm::SmMetrics& metrics,
+              std::vector<PendingTransition>& pending) {
+    while (g_stop == 0) {
+        const auto waited = session.waitset->wait_and_process_once_with_timeout(
+            [&](nexigen::com::WaitSetAttachmentId attachment)
+                -> nexigen::com::CallbackProgression {
+                const Clock::time_point now = Clock::now();
+                if (attachment.has_event_from(*session.recovery_guard)) {
+                    (void)session.recovery->listener().try_wait([](nexigen::com::EventId) {});
+                    session.recovery->handle_pending();
+                    metrics.emergency_transitions_total.fetch_add(1,
+                                                                 std::memory_order_relaxed);
+                }
+                if (attachment.has_event_from(*session.tick_guard)) {
+                    for (std::size_t i = 0; i < manager.group_count() * 2U; ++i) {
+                        serve_one_request(*session.trigger_server, manager,
+                                          *session.publication,
+                                          session.preparation ? &*session.preparation : nullptr,
+                                          audit, metrics, pending, now);
+                    }
+                    if (session.em_client && session.em_emergency_client) {
+                        drive_pending(manager, *session.em_client,
+                                      *session.em_emergency_client, metrics, pending, now);
+                    }
+                    if (session.health) {
+                        (void)session.health->emit(1);
+                    }
+                }
+                return nexigen::com::CallbackProgression::Continue;
+            },
+            std::chrono::milliseconds(200));
+        (void)waited;
+    }
+}
+
+[[nodiscard]] int run_sm(const Options& options) {
+    nexigen::sm::SmManifest manifest;
+    if (!load_manifest(options, manifest)) {
+        return 1;
+    }
+    if (!configure_realtime(options)) {
+        return 1;
+    }
+
+    Session session;
+    if (!open_transport(session)) {
         return 1;
     }
 
     nexigen::sm::StateManager manager(manifest);
-    auto publication = nexigen::sm::StatePublication::create(*node, manifest);
-    if (!publication) {
-        std::fprintf(stderr, "nexigen-sm: state publication failed\n");
+    if (!open_state_channels(session, manager, manifest)) {
         return 1;
     }
-
-    const auto trigger_name = nexigen::com::ServiceName::create("Nexigen/SM/TriggerIn");
-    auto trigger_server =
-        trigger_name ? TriggerServer::create(*node, *trigger_name)
-                     : nexigen::com::Result<TriggerServer>{
-                           std::unexpected(nexigen::com::Error::InvalidArgument)};
-    if (!trigger_server) {
-        std::fprintf(stderr, "nexigen-sm: trigger server creation failed\n");
-        return 1;
-    }
-
-    const auto recovery_channel = nexigen::com::ServiceName::create("Nexigen/SM/Recovery");
-    const auto recovery_event = nexigen::com::ServiceName::create("Nexigen/SM/RecoveryEvent");
-    auto recovery =
-        recovery_channel && recovery_event
-            ? nexigen::sm::RecoveryHandler::create(*node, *recovery_channel, *recovery_event,
-                                                   manager)
-            : nexigen::com::Result<nexigen::sm::RecoveryHandler>{
-                  std::unexpected(nexigen::com::Error::InvalidArgument)};
-    if (!recovery) {
-        std::fprintf(stderr, "nexigen-sm: recovery handler creation failed\n");
-        return 1;
-    }
-    auto recovery_guard = waitset->attach_notification(recovery->listener());
-    if (!recovery_guard) {
-        std::fprintf(stderr, "nexigen-sm: recovery attach failed\n");
-        return 1;
-    }
-
-    const auto em_channel = nexigen::com::ServiceName::create("Nexigen/EM/StateCommand");
-    const auto em_emergency_channel =
-        nexigen::com::ServiceName::create("Nexigen/EM/StateCommandEmergency");
-    auto em_client =
-        em_channel ? EmClient::create(*node, *em_channel)
-                   : nexigen::com::Result<EmClient>{
-                         std::unexpected(nexigen::com::Error::InvalidArgument)};
-    auto em_emergency_client =
-        em_emergency_channel ? EmClient::create(*node, *em_emergency_channel)
-                             : nexigen::com::Result<EmClient>{
-                                   std::unexpected(nexigen::com::Error::InvalidArgument)};
-
-    const auto health_name = nexigen::com::ServiceName::create("Nexigen/SM/Health");
-    auto health =
-        health_name
-            ? nexigen::phm::CheckpointEmitter::create(*node, *health_name)
-            : nexigen::com::Result<nexigen::phm::CheckpointEmitter>{
-                  std::unexpected(nexigen::com::Error::InvalidArgument)};
-
-    const auto prep_name = nexigen::com::ServiceName::create("Nexigen/SM/Preparation");
-    auto preparation =
-        prep_name
-            ? nexigen::sm::TransitionPreparation::create(*node, *prep_name)
-            : nexigen::com::Result<nexigen::sm::TransitionPreparation>{
-                  std::unexpected(nexigen::com::Error::InvalidArgument)};
-
-    const auto tick_interval = std::chrono::milliseconds(
-        manifest.metrics_flush_interval_ms == 0U ? 100U : manifest.metrics_flush_interval_ms);
-    auto tick_guard = waitset->attach_interval(tick_interval);
-    if (!tick_guard) {
-        std::fprintf(stderr, "nexigen-sm: interval attach failed\n");
-        return 1;
-    }
+    open_control_channels(session, manifest);
 
     nexigen::sm::TransitionAudit audit(options.audit_log);
     nexigen::sm::SmMetrics metrics;
@@ -387,7 +490,7 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
     std::signal(SIGINT, stop_handler);
     std::signal(SIGTERM, stop_handler);
 
-    // 5. Startup sequencing + readiness report within startup_timeout
+    // Startup sequencing + readiness report within startup_timeout
     // (REQ_SM_001/005).
     (void)manager.advance_startup();
     (void)manager.confirm_startup_step();
@@ -395,39 +498,9 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
                 manager.group_count());
     std::fflush(stdout);
 
-    // 6. Arbitration loop (REQ_SM_013): sleep in the kernel, wake on the
-    // recovery event or on the flush tick.
-    while (g_stop == 0) {
-        const auto waited = waitset->wait_and_process_once_with_timeout(
-            [&](nexigen::com::WaitSetAttachmentId attachment)
-                -> nexigen::com::CallbackProgression {
-                const Clock::time_point now = Clock::now();
-                if (attachment.has_event_from(*recovery_guard)) {
-                    (void)recovery->listener().try_wait([](nexigen::com::EventId) {});
-                    recovery->handle_pending();
-                    metrics.emergency_transitions_total.fetch_add(1,
-                                                                  std::memory_order_relaxed);
-                }
-                if (attachment.has_event_from(*tick_guard)) {
-                    for (std::size_t i = 0; i < manager.group_count() * 2U; ++i) {
-                        serve_one_request(*trigger_server, manager, *publication, preparation,
-                                          audit, metrics, pending, now);
-                    }
-                    if (em_client && em_emergency_client) {
-                        drive_pending(manager, *em_client, *em_emergency_client, metrics,
-                                      pending, now);
-                    }
-                    if (health) {
-                        (void)health->emit(1);
-                    }
-                }
-                return nexigen::com::CallbackProgression::Continue;
-            },
-            std::chrono::milliseconds(200));
-        (void)waited;
-    }
+    run_loop(session, manager, audit, metrics, pending);
 
-    // 7. Shutdown sequencing (REQ_SM_005).
+    // Shutdown sequencing (REQ_SM_005).
     manager.begin_shutdown();
     std::printf("nexigen-sm: stopping\n");
     return 0;

@@ -116,33 +116,45 @@ struct MonitoredProcess {
     nexigen::com::WaitSetAttachmentId attachment;
 };
 
-[[nodiscard]] int run_phmd(const Options& options) {
-    // 1. Manifest.
+/// Every endpoint the monitoring loop touches. Guards are owned here so the
+/// attachments outlive the loop.
+struct Session {
+    std::optional<nexigen::com::Node> node{};
+    std::optional<nexigen::com::WaitSet> waitset{};
+    std::vector<MonitoredProcess> monitored{};
+    std::optional<nexigen::com::WaitSetGuard> tick_guard{};
+    std::optional<nexigen::phm::RecoveryClient> recovery{};
+};
+
+/// Load the PHM manifest and require at least one supervised process.
+[[nodiscard]] bool load_manifest(const Options& options, nexigen::phm::PhmManifest& manifest) {
     std::ifstream input(options.manifest_path);
     if (!input.is_open()) {
         std::fprintf(stderr, "nexigen-phmd: cannot open manifest '%s'\n",
                      options.manifest_path.c_str());
-        return 1;
+        return false;
     }
     const nlohmann::json parsed = nlohmann::json::parse(input, nullptr, false);
     if (parsed.is_discarded()) {
         std::fprintf(stderr, "nexigen-phmd: manifest '%s' is not valid JSON\n",
                      options.manifest_path.c_str());
-        return 1;
+        return false;
     }
-    nexigen::phm::PhmManifest manifest;
     from_json(parsed, manifest);
     if (manifest.processes.empty()) {
         std::fprintf(stderr, "nexigen-phmd: manifest declares no processes\n");
-        return 1;
+        return false;
     }
+    return true;
+}
 
-    // 2. Core isolation + SCHED_FIFO (REQ_PHM_009).
+/// Core isolation + SCHED_FIFO (REQ_PHM_009).
+[[nodiscard]] bool configure_realtime(const Options& options) {
     if (options.core_mask != 0U) {
         const auto pinned = nexigen::core::affinity::pin_self(options.core_mask);
         if (!pinned) {
             std::fprintf(stderr, "nexigen-phmd: core pinning failed\n");
-            return 1;
+            return false;
         }
     }
     nexigen::core::ThreadSpec spec;
@@ -154,48 +166,57 @@ struct MonitoredProcess {
         spec.set_scheduler(nexigen::core::SchedulingPolicy::FIFO, options.priority);
     if (!scheduled) {
         std::fprintf(stderr, "nexigen-phmd: invalid scheduler config\n");
-        return 1;
+        return false;
     }
     nexigen::core::ThreadApplyReport report;
     const auto applied = nexigen::core::apply_thread_spec_self(spec, report);
     if (!applied) {
         std::fprintf(stderr, "nexigen-phmd: applying thread spec failed\n");
-        return 1;
+        return false;
     }
+    return true;
+}
 
-    // 3. Transport: one Node, one WaitSet, one listener per process.
+/// One Node and one WaitSet shared by every monitored channel.
+[[nodiscard]] bool open_transport(Session& session) {
     auto node = nexigen::com::Node::create();
     if (!node) {
         std::fprintf(stderr, "nexigen-phmd: node creation failed\n");
-        return 1;
+        return false;
     }
+    session.node.emplace(std::move(*node));
+
     auto waitset = nexigen::com::WaitSet::create_without_signal_handling();
     if (!waitset) {
         std::fprintf(stderr, "nexigen-phmd: waitset creation failed\n");
-        return 1;
+        return false;
     }
+    session.waitset.emplace(std::move(*waitset));
+    return true;
+}
 
-    std::vector<MonitoredProcess> monitored;
-    std::uint64_t min_cycle_ms = 0;
+/// Attach one listener per supervised process and track the shortest cycle.
+[[nodiscard]] bool attach_processes(Session& session, const nexigen::phm::PhmManifest& manifest,
+                                    std::uint64_t& min_cycle_ms) {
     for (std::size_t i = 0; i < manifest.processes.size(); ++i) {
         const auto name =
             nexigen::com::ServiceName::create(manifest.processes[i].service_name.c_str());
         if (!name) {
             std::fprintf(stderr, "nexigen-phmd: bad service name for '%s'\n",
                          manifest.processes[i].name.c_str());
-            return 1;
+            return false;
         }
-        auto listener = nexigen::com::EventListener::create(*node, *name);
+        auto listener = nexigen::com::EventListener::create(*session.node, *name);
         if (!listener) {
             std::fprintf(stderr, "nexigen-phmd: cannot open channel for '%s'\n",
                          manifest.processes[i].name.c_str());
-            return 1;
+            return false;
         }
-        auto guard = waitset->attach_notification(*listener);
+        auto guard = session.waitset->attach_notification(*listener);
         if (!guard) {
             std::fprintf(stderr, "nexigen-phmd: cannot attach channel for '%s'\n",
                          manifest.processes[i].name.c_str());
-            return 1;
+            return false;
         }
         const std::uint64_t cycle = manifest.processes[i].alive_reference_cycle_ms;
         if (min_cycle_ms == 0U || cycle < min_cycle_ms) {
@@ -203,65 +224,93 @@ struct MonitoredProcess {
         }
         // The attachment id must be captured BEFORE the guard moves.
         auto attachment = nexigen::com::WaitSetAttachmentId::from_guard(*guard);
-        MonitoredProcess entry{i, std::move(*listener), std::move(*guard),
-                               std::move(attachment)};
-        monitored.push_back(std::move(entry));
+        MonitoredProcess entry{i, std::move(*listener), std::move(*guard), std::move(attachment)};
+        session.monitored.push_back(std::move(entry));
     }
+    return true;
+}
 
-    // One shared alive tick at the shortest configured cycle.
-    const auto tick_interval = std::chrono::milliseconds(
-        min_cycle_ms == 0U ? 100U : min_cycle_ms);
-    auto tick_guard = waitset->attach_interval(tick_interval);
+/// One shared alive tick at the shortest configured cycle.
+[[nodiscard]] bool attach_alive_tick(Session& session, std::uint64_t min_cycle_ms) {
+    const auto tick_interval =
+        std::chrono::milliseconds(min_cycle_ms == 0U ? 100U : min_cycle_ms);
+    auto tick_guard = session.waitset->attach_interval(tick_interval);
     if (!tick_guard) {
         std::fprintf(stderr, "nexigen-phmd: cannot attach alive tick\n");
-        return 1;
+        return false;
     }
+    session.tick_guard.emplace(std::move(*tick_guard));
+    return true;
+}
 
-    nexigen::phm::Supervisor supervisor(manifest);
-    nexigen::phm::FaultStorage faults(options.fault_log);
-    std::vector<nexigen::phm::SupervisionStatus> seen(manifest.processes.size(),
-                                                      nexigen::phm::SupervisionStatus::Ok);
+/// Optional recovery channel toward the SM; a failed creation leaves it absent.
+void open_recovery(Session& session) {
+    const auto recovery_name = nexigen::com::ServiceName::create("Nexigen/PHM/Recovery");
+    const auto sm_notification_name = nexigen::com::ServiceName::create("Nexigen/SM/Recovery");
+    const auto sm_event_name = nexigen::com::ServiceName::create("Nexigen/SM/RecoveryEvent");
+    if (!recovery_name || !sm_notification_name || !sm_event_name) {
+        return;
+    }
+    auto recovery = nexigen::phm::RecoveryClient::create(*session.node, *recovery_name,
+                                                         *sm_notification_name, *sm_event_name);
+    if (recovery) {
+        session.recovery.emplace(std::move(*recovery));
+    }
+}
 
-    const auto recovery_name =
-        nexigen::com::ServiceName::create("Nexigen/PHM/Recovery");
-    const auto sm_notification_name =
-        nexigen::com::ServiceName::create("Nexigen/SM/Recovery");
-    const auto sm_event_name =
-        nexigen::com::ServiceName::create("Nexigen/SM/RecoveryEvent");
-    auto recovery =
-        recovery_name && sm_notification_name && sm_event_name
-            ? nexigen::phm::RecoveryClient::create(*node, *recovery_name,
-                                                   *sm_notification_name, *sm_event_name)
-            : nexigen::com::Result<nexigen::phm::RecoveryClient>{
-                  std::unexpected(nexigen::com::Error::InvalidArgument)};
+/// Dispatch one WaitSet notification: alive tick or per-process checkpoints.
+void handle_attachment(Session& session, nexigen::phm::Supervisor& supervisor,
+                       const nexigen::com::WaitSetAttachmentId& attachment) {
+    const auto now = nexigen::phm::Supervisor::Clock::now();
+    if (attachment.has_event_from(*session.tick_guard)) {
+        for (std::size_t i = 0; i < session.monitored.size(); ++i) {
+            supervisor.on_alive_tick(i, now);
+        }
+    }
+    for (MonitoredProcess& process : session.monitored) {
+        if (attachment.has_event_from(process.guard)) {
+            const auto drained = process.listener.try_wait([&](nexigen::com::EventId id) {
+                supervisor.on_checkpoint(process.index,
+                                         static_cast<std::uint32_t>(id.as_value()), now);
+            });
+            (void)drained;
+        }
+    }
+}
 
-    std::signal(SIGINT, stop_handler);
-    std::signal(SIGTERM, stop_handler);
-    std::printf("nexigen-phmd: supervising %zu process(es)\n", manifest.processes.size());
-    std::fflush(stdout);
+/// React to a fresh transition into Expired: journal the fault and apply the
+/// configured recovery rule.
+void apply_recovery(Session& session, nexigen::phm::Supervisor& supervisor,
+                    nexigen::phm::FaultStorage& faults, const nexigen::phm::PhmManifest& manifest,
+                    std::vector<nexigen::phm::SupervisionStatus>& seen) {
+    for (std::size_t i = 0; i < manifest.processes.size(); ++i) {
+        const nexigen::phm::SupervisionStatus status = supervisor.status(i);
+        if (status == nexigen::phm::SupervisionStatus::Expired && seen[i] != status) {
+            const auto now = nexigen::phm::Supervisor::Clock::now();
+            const auto timestamp = static_cast<std::uint64_t>(now.time_since_epoch().count());
+            faults.record(nexigen::phm::FaultRecord{nexigen::phm::FaultKind::AliveFailure,
+                                                    static_cast<std::uint32_t>(i), 0U, timestamp});
+            if (session.recovery) {
+                (void)session.recovery->apply_rule(manifest.processes[i],
+                                                   std::chrono::milliseconds(500));
+            }
+            std::fprintf(stderr, "nexigen-phmd: '%s' expired -> recovery\n",
+                         manifest.processes[i].name.c_str());
+        }
+        seen[i] = status;
+    }
+}
 
-    // 4. Monitoring loop (REQ_PHM_012): sleep in the kernel, wake on a
-    // checkpoint or on the alive tick.
+/// Monitoring loop (REQ_PHM_012): sleep in the kernel, wake on a checkpoint or
+/// on the alive tick.
+void run_loop(Session& session, nexigen::phm::Supervisor& supervisor,
+              nexigen::phm::FaultStorage& faults, const nexigen::phm::PhmManifest& manifest,
+              std::vector<nexigen::phm::SupervisionStatus>& seen) {
     while (g_stop == 0) {
-        const auto waited = waitset->wait_and_process_once_with_timeout(
-            [&](nexigen::com::WaitSetAttachmentId attachment) -> nexigen::com::CallbackProgression {
-                const auto now = nexigen::phm::Supervisor::Clock::now();
-                if (attachment.has_event_from(*tick_guard)) {
-                    for (std::size_t i = 0; i < monitored.size(); ++i) {
-                        supervisor.on_alive_tick(i, now);
-                    }
-                }
-                for (MonitoredProcess& process : monitored) {
-                    if (attachment.has_event_from(process.guard)) {
-                        const auto drained =
-                            process.listener.try_wait([&](nexigen::com::EventId id) {
-                                supervisor.on_checkpoint(
-                                    process.index,
-                                    static_cast<std::uint32_t>(id.as_value()), now);
-                            });
-                        (void)drained;
-                    }
-                }
+        const auto waited = session.waitset->wait_and_process_once_with_timeout(
+            [&](nexigen::com::WaitSetAttachmentId attachment)
+                -> nexigen::com::CallbackProgression {
+                handle_attachment(session, supervisor, attachment);
                 return nexigen::com::CallbackProgression::Continue;
             },
             std::chrono::milliseconds(200));
@@ -272,26 +321,45 @@ struct MonitoredProcess {
             std::fprintf(stderr, "nexigen-phmd: wait failed\n");
         }
 
-        // 5. Recovery: react to a fresh transition into Expired.
-        for (std::size_t i = 0; i < manifest.processes.size(); ++i) {
-            const nexigen::phm::SupervisionStatus status = supervisor.status(i);
-            if (status == nexigen::phm::SupervisionStatus::Expired && seen[i] != status) {
-                const auto now = nexigen::phm::Supervisor::Clock::now();
-                const auto timestamp =
-                    static_cast<std::uint64_t>(now.time_since_epoch().count());
-                faults.record(nexigen::phm::FaultRecord{nexigen::phm::FaultKind::AliveFailure,
-                                                        static_cast<std::uint32_t>(i), 0U,
-                                                        timestamp});
-                if (recovery) {
-                    (void)recovery->apply_rule(manifest.processes[i],
-                                               std::chrono::milliseconds(500));
-                }
-                std::fprintf(stderr, "nexigen-phmd: '%s' expired -> recovery\n",
-                             manifest.processes[i].name.c_str());
-            }
-            seen[i] = status;
-        }
+        apply_recovery(session, supervisor, faults, manifest, seen);
     }
+}
+
+[[nodiscard]] int run_phmd(const Options& options) {
+    nexigen::phm::PhmManifest manifest;
+    if (!load_manifest(options, manifest)) {
+        return 1;
+    }
+    if (!configure_realtime(options)) {
+        return 1;
+    }
+
+    Session session;
+    if (!open_transport(session)) {
+        return 1;
+    }
+
+    std::uint64_t min_cycle_ms = 0;
+    if (!attach_processes(session, manifest, min_cycle_ms)) {
+        return 1;
+    }
+    if (!attach_alive_tick(session, min_cycle_ms)) {
+        return 1;
+    }
+
+    nexigen::phm::Supervisor supervisor(manifest);
+    nexigen::phm::FaultStorage faults(options.fault_log);
+    std::vector<nexigen::phm::SupervisionStatus> seen(manifest.processes.size(),
+                                                      nexigen::phm::SupervisionStatus::Ok);
+
+    open_recovery(session);
+
+    std::signal(SIGINT, stop_handler);
+    std::signal(SIGTERM, stop_handler);
+    std::printf("nexigen-phmd: supervising %zu process(es)\n", manifest.processes.size());
+    std::fflush(stdout);
+
+    run_loop(session, supervisor, faults, manifest, seen);
 
     std::printf("nexigen-phmd: stopping\n");
     return 0;

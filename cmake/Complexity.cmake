@@ -1,7 +1,7 @@
 # Cyclomatic complexity gate — lizard integration.
 #
 # Adds the custom target:
-#   complexity-check — run lizard on include/ src/ tests/ and fail if any
+#   complexity-check — run lizard on include/ src/ tests/ tools/ and fail if any
 #                      C++ function exceeds the project threshold (CCN 15)
 #                      after filtering out alignas false positives.
 #
@@ -25,4 +25,4 @@ add_custom_target(complexity-check
         -D NEXIGEN_COMPLEXITY_THRESHOLD=15
         -P "${NEXIGEN_CMAKE_DIR}/RunComplexityCheck.cmake"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMENT "Checking cyclomatic complexity (CCN ≤ 15, exclude examples/, filter alignas)" VERBATIM)
+    COMMENT "Checking cyclomatic complexity (CCN ≤ 15 over include/ src/ tests/ tools/, filter alignas)" VERBATIM)

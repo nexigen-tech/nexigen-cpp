@@ -11,6 +11,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/detail/json_field.hpp>
+
 #include <nexigen/exec/child_process.hpp>
 #include <nexigen/exec/instance_layout.hpp>
 #include <nexigen/exec/instance_file_io.hpp>
@@ -85,37 +87,17 @@ void from_json(const nlohmann::json& j, ChildProcess& child) noexcept {
     if (!j.is_object()) {
         return;
     }
-    const auto app = j.find("app");
-    if (app != j.end() && app->is_string()) {
-        child.spec.app = *app->get_ptr<const nlohmann::json::string_t*>();
+    core::detail::read_string(j, "app", child.spec.app);
+    core::detail::read_string(j, "instance", child.spec.instance);
+    core::detail::read_signed(j, "pid", child.child_pid);
+    core::detail::read_signed(j, "supervisor_pid", child.supervisor_pid);
+    // Non-throwing enum parse; a miss leaves the current state unchanged.
+    std::string state;
+    if (core::detail::read_string(j, "state", state)) {
+        static_cast<void>(from_string(std::string_view(state), child.state));
     }
-    const auto instance = j.find("instance");
-    if (instance != j.end() && instance->is_string()) {
-        child.spec.instance = *instance->get_ptr<const nlohmann::json::string_t*>();
-    }
-    const auto pid = j.find("pid");
-    if (pid != j.end() && pid->is_number_integer()) {
-        child.child_pid = static_cast<std::int32_t>(pid->get<std::int64_t>());
-    }
-    const auto supervisor_pid = j.find("supervisor_pid");
-    if (supervisor_pid != j.end() && supervisor_pid->is_number_integer()) {
-        child.supervisor_pid = static_cast<std::int32_t>(supervisor_pid->get<std::int64_t>());
-    }
-    const auto state = j.find("state");
-    if (state != j.end() && state->is_string()) {
-        const auto* const name = state->get_ptr<const nlohmann::json::string_t*>();
-        if (name != nullptr) {
-            static_cast<void>(from_string(std::string_view(*name), child.state));
-        }
-    }
-    const auto attempt = j.find("attempt");
-    if (attempt != j.end() && attempt->is_number_unsigned()) {
-        child.attempt = static_cast<std::uint32_t>(attempt->get<std::uint64_t>());
-    }
-    const auto restarts_used = j.find("restarts_used");
-    if (restarts_used != j.end() && restarts_used->is_number_unsigned()) {
-        child.restarts_used = static_cast<std::uint32_t>(restarts_used->get<std::uint64_t>());
-    }
+    core::detail::read_unsigned(j, "attempt", child.attempt);
+    core::detail::read_unsigned(j, "restarts_used", child.restarts_used);
 }
 
 } // namespace nexigen::exec

@@ -2,6 +2,9 @@
 
 #include "logging_test_support.hpp"
 
+#include <algorithm>
+#include <limits>
+
 namespace {
 
 // --- latency suite (task 3.4 / design D18): Release-x86-64 gates the
@@ -11,6 +14,101 @@ namespace {
 // allowed to the process — measurement placement, NOT a library policy — so
 // SMT-sibling co-scheduling can't bill cross-thread cache noise to the
 // enqueue median.
+constexpr int kN = 10'000;
+constexpr int kWarmup = 2'000;
+
+/// Benchmark thread placement: producer on the lowest permitted core, consumer
+/// on the highest. Measurement placement, not a library policy.
+struct Placement {
+    cpu_set_t orig{};
+    std::size_t lo{CPU_SETSIZE};
+    std::size_t hi{CPU_SETSIZE};
+    bool pinned{false};
+};
+
+Placement place_benchmark_threads() {
+    Placement placement;
+    if (::pthread_getaffinity_np(pthread_self(), sizeof(placement.orig), &placement.orig) != 0) {
+        return placement;
+    }
+    for (std::size_t c = 0; c < static_cast<std::size_t>(CPU_SETSIZE); ++c) {
+        if (CPU_ISSET(c, &placement.orig)) {
+            if (placement.lo == CPU_SETSIZE) {
+                placement.lo = c;
+            }
+            placement.hi = c;
+        }
+    }
+    if (placement.lo != CPU_SETSIZE && placement.hi != placement.lo) {
+        cpu_set_t mine{};
+        CPU_SET(placement.lo, &mine);
+        placement.pinned = ::pthread_setaffinity_np(pthread_self(), sizeof(mine), &mine) == 0;
+    }
+    return placement;
+}
+
+/// Best-of-passes medians: a window may only improve them.
+struct Medians {
+    double accepted{-1.0};
+    double filtered{-1.0};
+    double filtered_p999{std::numeric_limits<double>::infinity()};
+    double filtered_max{std::numeric_limits<double>::infinity()};
+    double overhead{0.0};
+
+    void observe(double acc_ns, double flt_ns, double p999_ns, double max_ns) {
+        if (accepted < 0.0 || acc_ns < accepted) {
+            accepted = acc_ns;
+        }
+        if (filtered < 0.0 || flt_ns < filtered) {
+            filtered = flt_ns;
+        }
+        filtered_p999 = std::min(filtered_p999, p999_ns);
+        filtered_max = std::min(filtered_max, max_ns);
+    }
+};
+
+/// One measured window: (a) accepted enqueue, (b) filtered short-circuit,
+/// (c) empty rdtsc pairs for the measurement overhead.
+void measure_one_pass(detail::Producer<8192, 128, 1>& bench, std::uint64_t* raw, std::uint64_t* flt,
+                      std::uint64_t* ovr, double ns_per_tick, Medians& medians) {
+    for (int i = 0; i < kN; ++i) {
+        const std::uint64_t r0 = __rdtsc();
+        bench.emit(LogLevel::Info, "latency {} {}", 0.0025, std::string_view("payload"));
+        const std::uint64_t r1 = __rdtsc();
+        raw[i] = r1 - r0;
+    }
+    // (b) filtered latency (short-circuit path, ring untouched).
+    bench.set_level(LogLevel::Off);
+    for (int i = 0; i < kN; ++i) {
+        const std::uint64_t r0 = __rdtsc();
+        bench.emit(LogLevel::Info, "latency {} {}", 0.0025, std::string_view("payload"));
+        const std::uint64_t r1 = __rdtsc();
+        flt[i] = r1 - r0;
+    }
+    bench.set_level(LogLevel::Info);
+    // (c) measurement overhead samples (empty rdtsc pairs).
+    for (int i = 0; i < kN; ++i) {
+        const std::uint64_t r0 = __rdtsc();
+        const std::uint64_t r1 = __rdtsc();
+        ovr[i] = r1 - r0;
+    }
+    std::sort(raw, raw + kN);
+    std::sort(flt, flt + kN);
+    std::sort(ovr, ovr + kN);
+    medians.overhead = static_cast<double>(ovr[kN / 2]) * ns_per_tick;
+    const double acc_ns = static_cast<double>(raw[kN / 2] - ovr[kN / 2]) * ns_per_tick;
+    const double flt_ns = static_cast<double>(flt[kN / 2]) * ns_per_tick - medians.overhead;
+    // Filtered tail: p99.9 and max (spec ceiling 2 ns / 10 CPU cycles). A rare
+    // OS interrupt can inflate a single max sample, so p99.9 is the enforceable
+    // ceiling and the max is reported for visibility.
+    const int i999 = static_cast<int>(static_cast<double>(kN) * 0.999);
+    const double flt_p999_ns = static_cast<double>(flt[i999]) * ns_per_tick - medians.overhead;
+    const double flt_max_ns = static_cast<double>(flt[kN - 1]) * ns_per_tick - medians.overhead;
+    medians.observe(acc_ns, flt_ns, flt_p999_ns, flt_max_ns);
+}
+
+/// Hot-path latency gates: median accepted enqueue and the filtered
+/// short-circuit ceiling.
 void test_latency() {
 #if defined(__x86_64__)
     // MaxThreads=1 keeps the bench pool a single ring (design D6 sizing): the
@@ -18,44 +116,25 @@ void test_latency() {
     // SPSC contract, same footprint, same drain geometry.
     static detail::Producer<8192, 128, 1> bench{};
     NX_CHECK(bench.initialize().has_value());
-    constexpr int WARMUP = 2'000;
-    constexpr int N = 10'000;
-    alignas(64) static std::uint64_t raw[N];
-    alignas(64) static std::uint64_t ovr[N];
-    alignas(64) static std::uint64_t flt[N];
+    alignas(64) static std::uint64_t raw[kN];
+    alignas(64) static std::uint64_t ovr[kN];
+    alignas(64) static std::uint64_t flt[kN];
 
-    std::size_t lo = CPU_SETSIZE; // sentinel: "no permitted core found"
-    std::size_t hi = CPU_SETSIZE;
-    cpu_set_t orig{};
-    bool pinned = false;
-    if (::pthread_getaffinity_np(pthread_self(), sizeof(orig), &orig) == 0) {
-        for (std::size_t c = 0; c < static_cast<std::size_t>(CPU_SETSIZE); ++c) {
-            if (CPU_ISSET(c, &orig)) {
-                if (lo == CPU_SETSIZE) {
-                    lo = c;
-                }
-                hi = c;
-            }
-        }
-        if (lo != CPU_SETSIZE && hi != lo) {
-            cpu_set_t mine{};
-            CPU_SET(lo, &mine);
-            pinned = ::pthread_setaffinity_np(pthread_self(), sizeof(mine), &mine) == 0;
-        }
-    }
+    const Placement placement = place_benchmark_threads();
 
     // Warmup accepted enqueues BEFORE the measured window (branch predictors,
     // caches, first-use paths). No consumer yet: ring holds the warmup tail.
     const std::uint64_t warm_drops = bench.dropped().buffer_full;
-    for (int i = 0; i < WARMUP; ++i) {
+    for (int i = 0; i < kWarmup; ++i) {
         bench.emit(LogLevel::Info, "latency {} {}", 0.0025, std::string_view("payload"));
     }
     const std::uint64_t accepted_warm =
-        static_cast<std::uint64_t>(WARMUP) - (bench.dropped().buffer_full - warm_drops);
+        static_cast<std::uint64_t>(kWarmup) - (bench.dropped().buffer_full - warm_drops);
 
     std::atomic<bool> stop{false};
     std::uint64_t popped = 0;
-    const std::size_t consumer_core = hi; // distinct from the producer's lo
+    const std::size_t consumer_core = placement.hi; // distinct from the producer's lo
+    const bool pinned = placement.pinned;
     std::jthread consumer([&stop, &popped, consumer_core, pinned] {
         if (pinned) { // bench is static: referenced, not captured
             // Burst drain + short sleep, modeling a real formatting consumer:
@@ -88,17 +167,15 @@ void test_latency() {
     const double ns_per_tick = static_cast<double>(m_end->nanoseconds() - m_start->nanoseconds()) /
                                static_cast<double>(t_end - t_start);
 
-    // (a..c) sampled windows. In the strict (Release, no-sanitizer) config the
-    // full set runs up to 3 times and the GATE sees the BEST median: a window
-    // degraded by external load (frequency transitions, noisy neighbors —
-    // design risk R2) must not mask the machine's demonstrated capability.
-    // Non-strict configs run one pass and only report numbers.
+    // In the strict (Release, no-sanitizer) config the full set runs up to 3
+    // times and the GATE sees the BEST median: a window degraded by external
+    // load (frequency transitions, noisy neighbors — design risk R2) must not
+    // mask the machine's demonstrated capability. Non-strict configs run one
+    // pass and only report numbers.
     const std::size_t arena_before = g_alloc_used;
     const std::size_t heap_before = heap_in_use();
 
-    double best_accepted_ns = -1.0;
-    double best_filtered_ns = -1.0;
-    double ovh_ns = 0.0;
+    Medians medians;
 #if defined(NEXIGEN_LOGGING_STRICT_LATENCY) && !defined(NX_SANITIZER_BUILD)
     constexpr int passes = 3;
 #else
@@ -106,44 +183,11 @@ void test_latency() {
 #endif
     const std::uint64_t drops0 = bench.dropped().buffer_full;
     for (int pass = 0; pass < passes; ++pass) {
-        // (a) accepted enqueue latency, consumer draining concurrently.
-        for (int i = 0; i < N; ++i) {
-            const std::uint64_t r0 = __rdtsc();
-            bench.emit(LogLevel::Info, "latency {} {}", 0.0025, std::string_view("payload"));
-            const std::uint64_t r1 = __rdtsc();
-            raw[i] = r1 - r0;
-        }
-        // (b) filtered latency (short-circuit path, ring untouched).
-        bench.set_level(LogLevel::Off);
-        for (int i = 0; i < N; ++i) {
-            const std::uint64_t r0 = __rdtsc();
-            bench.emit(LogLevel::Info, "latency {} {}", 0.0025, std::string_view("payload"));
-            const std::uint64_t r1 = __rdtsc();
-            flt[i] = r1 - r0;
-        }
-        bench.set_level(LogLevel::Info);
-        // (c) measurement overhead samples (empty rdtsc pairs).
-        for (int i = 0; i < N; ++i) {
-            const std::uint64_t r0 = __rdtsc();
-            const std::uint64_t r1 = __rdtsc();
-            ovr[i] = r1 - r0;
-        }
-        std::sort(raw, raw + N);
-        std::sort(flt, flt + N);
-        std::sort(ovr, ovr + N);
-        ovh_ns = static_cast<double>(ovr[N / 2]) * ns_per_tick;
-        const double acc_ns = static_cast<double>(raw[N / 2] - ovr[N / 2]) * ns_per_tick;
-        const double flt_ns = static_cast<double>(flt[N / 2]) * ns_per_tick - ovh_ns;
-        if (best_accepted_ns < 0.0 || acc_ns < best_accepted_ns) {
-            best_accepted_ns = acc_ns;
-        }
-        if (best_filtered_ns < 0.0 || flt_ns < best_filtered_ns) {
-            best_filtered_ns = flt_ns;
-        }
+        measure_one_pass(bench, raw, flt, ovr, ns_per_tick, medians);
     }
 
     const std::uint64_t accepted =
-        static_cast<std::uint64_t>(passes) * static_cast<std::uint64_t>(N) -
+        static_cast<std::uint64_t>(passes) * static_cast<std::uint64_t>(kN) -
         (bench.dropped().buffer_full - drops0);
 
     // Zero-allocation across every measured traffic window.
@@ -155,22 +199,26 @@ void test_latency() {
     NX_CHECK(popped ==
              accepted_warm + accepted); // everything accepted (warmup included) is delivered
     if (pinned) {                       // restore the process's original placement for later suites
-        static_cast<void>(::pthread_setaffinity_np(pthread_self(), sizeof(orig), &orig));
+        static_cast<void>(
+            ::pthread_setaffinity_np(pthread_self(), sizeof(placement.orig), &placement.orig));
     }
 
     std::printf("latency: best-of-%d accepted median %.2f ns (gate 20), filtered median %.3f ns "
-                "(gate ~1, harness 3), meas-overhead %.2f ns, ns/tick %.4f\n",
-                passes, best_accepted_ns, best_filtered_ns, ovh_ns, ns_per_tick);
+                "p99.9 %.3f ns max %.3f ns (ceiling 2), meas-overhead %.2f ns, ns/tick %.4f\n",
+                passes, medians.accepted, medians.filtered, medians.filtered_p999,
+                medians.filtered_max, medians.overhead, ns_per_tick);
 
 #if defined(NEXIGEN_LOGGING_STRICT_LATENCY) && !defined(NX_SANITIZER_BUILD)
-    // The spec numbers: <= 20 ns median accepted enqueue, filtered ≈ 1 ns
-    // (3 ns harness tolerance budget — design D18). No lower bound on
-    // filtered: it can sit under rdtsc-pair resolution and read as ~0/-1 ns.
-    NX_CHECK(best_accepted_ns <= 20.0);
-    NX_CHECK(best_filtered_ns <= 3.0);
+    // The spec numbers: <= 20 ns median accepted enqueue; the filtered path's
+    // hard ceiling is 2 ns / 10 CPU cycles (spec "Sub-threshold calls
+    // short-circuit"). Gate the p99.9 tail — a rare OS interrupt dominates a
+    // single max sample, so the max is reported above for visibility only.
+    NX_CHECK(medians.accepted <= 20.0);
+    NX_CHECK(medians.filtered <= 3.0);
+    NX_CHECK(medians.filtered_p999 <= 2.0);
 #else
     // Non-gated configuration: correctness-only, latencies recorded above.
-    NX_CHECK(best_accepted_ns > 0.0);
+    NX_CHECK(medians.accepted > 0.0);
 #endif
 #else
     // Non-x86: accounting-only run (no rdtsc), bounded-time correctness.

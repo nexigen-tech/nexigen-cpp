@@ -4,26 +4,37 @@
 
 namespace {
 
-void test_file_logger() {
-    // Unique per-run base under the scratch dir; mkdir via the logger itself
-    // (open_period creates base), parent /tmp/opencode pre-exists.
-    alignas(64) static char flbase[512];
-    std::snprintf(flbase, sizeof flbase, "/tmp/opencode/nexigen-fl-%d", ::getpid());
+/// Per-run base directory under the shared scratch root; the logger itself
+/// creates it (open_period), the parent /tmp/opencode pre-exists.
+const char* file_logger_base() {
+    alignas(64) static char base[512];
+    static const bool initialized = [] {
+        std::snprintf(base, sizeof base, "/tmp/opencode/nexigen-fl-%d", ::getpid());
+        return true;
+    }();
+    (void)initialized;
+    return base;
+}
 
-    auto wait_writer = [](auto& lg) {
-        for (int i = 0; i < 5000 && !lg.writer_started(); ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-        NX_CHECK(lg.writer_started());
-    };
+template <class Logger> void wait_writer(Logger& lg) {
+    for (int i = 0; i < 5000 && !lg.writer_started(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    NX_CHECK(lg.writer_started());
+}
 
-    // --- (a) config validation rejects bad setups WITHOUT starting the worker.
-    auto is_invalid = [](Status s) {
-        NX_CHECK(!s.has_value());
-        if (!s.has_value()) {
-            NX_CHECK(s.error() == ErrorCode::InvalidArgument);
-        }
-    };
+/// A rejected configuration: InvalidArgument and no worker launched.
+void expect_invalid(Status status) {
+    NX_CHECK(!status.has_value());
+    if (!status.has_value()) {
+        NX_CHECK(status.error() == ErrorCode::InvalidArgument);
+    }
+}
+
+/// (a) config validation rejects bad setups WITHOUT starting the worker.
+void test_file_logger_validation() {
+    const char* flbase = file_logger_base();
+
     static const char long_name[] =
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; // 70
                                                                                             // a's
@@ -31,18 +42,23 @@ void test_file_logger() {
     {
         FileLoggerConfig bad{};
         bad.base_dir = ""; // required
-        is_invalid(flv.initialize(bad));
+        expect_invalid(flv.initialize(bad));
         bad.base_dir = flbase;
         bad.rotation = RotationConfig{RotationSchedule::Custom, 0ULL}; // zero period
-        is_invalid(flv.initialize(bad));
+        expect_invalid(flv.initialize(bad));
         bad.rotation = RotationConfig{RotationSchedule::Hourly, 0ULL};
         bad.throttle = ThrottleConfig{true, 5ULL, 0ULL}; // zero window
-        is_invalid(flv.initialize(bad));
+        expect_invalid(flv.initialize(bad));
         bad.throttle = {};
         bad.file_name = std::string_view(long_name, sizeof long_name - 1); // > 63
-        is_invalid(flv.initialize(bad));
+        expect_invalid(flv.initialize(bad));
         NX_CHECK(!flv.writer_started()); // nothing was launched by rejected configs
     }
+}
+
+/// (b) happy path, Rotation::None: one fixed file, structural schema.
+void test_file_logger_happy_path() {
+    const char* flbase = file_logger_base();
 
     // --- (b) happy path, Rotation::None: one fixed file, structural schema.
     static FileLogger<256, 128> flh{};
@@ -99,7 +115,10 @@ void test_file_logger() {
         NX_CHECK(fl_dump.find("dropped=") != std::string::npos);
         NX_CHECK(to_string(flh) == fl_dump);
     }
+}
 
+/// (c) flush surfaces a real write failure: /dev/full answers ENOSPC.
+void test_file_logger_write_failure() {
     // --- (c) flush surfaces a real write failure: /dev/full answers ENOSPC.
     static FileLogger<64, 128> fld{};
     {
@@ -115,6 +134,11 @@ void test_file_logger() {
         NX_CHECK(!f.has_value());
         NX_CHECK(f.error() == ErrorCode::SystemError); // spec: "Flush surfaces write failure"
     }
+}
+
+/// (d) throttling: budget + RateLimited + automatic drop summary (6.2).
+void test_file_logger_throttling() {
+    const char* flbase = file_logger_base();
 
     // --- (d) throttling: budget + RateLimited + automatic drop summary (6.2).
     static FileLogger<256, 128> flt{};
@@ -174,6 +198,11 @@ void test_file_logger() {
         std::printf("file_logger: throttle ok=%d rl=%llu summary line verified\n", ok,
                     static_cast<unsigned long long>(rl));
     }
+}
+
+/// (e) rotation + affinity during a live stream (6.3).
+void test_file_logger_rotation() {
+    const char* flbase = file_logger_base();
 
     // --- (e) rotation + affinity during a live stream (6.3).
     static FileLogger<256, 128> flr{};
@@ -248,6 +277,12 @@ void test_file_logger() {
                     period_dirs, static_cast<unsigned long long>(lines_total),
                     static_cast<unsigned long long>(accepted));
     }
+}
+
+/// (f) soak (6.4): producers flat-out against a formatting consumer —
+/// wait-free drops, zero allocation in BOTH threads across the window.
+void test_file_logger_soak() {
+    const char* flbase = file_logger_base();
 
     // --- (f) soak (6.4): producers flat-out against a formatting consumer —
     // wait-free drops, zero allocation in BOTH threads across the window.
@@ -295,6 +330,16 @@ void test_file_logger() {
     }
 }
 
+/// FileLogger cold path: validation, schema, write failure, throttling,
+/// rotation/affinity and the allocation-free soak (spec logging/file-logger).
+void test_file_logger() {
+    test_file_logger_validation();
+    test_file_logger_happy_path();
+    test_file_logger_write_failure();
+    test_file_logger_throttling();
+    test_file_logger_rotation();
+    test_file_logger_soak();
+}
 } // namespace
 
 void suite_file_logger() {

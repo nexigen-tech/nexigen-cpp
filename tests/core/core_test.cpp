@@ -30,6 +30,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/core/enum_traits.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/serialization_mandate.hpp>
@@ -578,6 +579,123 @@ void test_json_smoke() {
     nexigen::mandate_demo::DemoMode back{nexigen::mandate_demo::DemoMode::Idle};
     nexigen::mandate_demo::from_json(mode, back);
     NX_CHECK(back == nexigen::mandate_demo::DemoMode::Active);
+}
+
+// --- cold-path JSON field vocabulary (change refactor-complexity-hotspots;
+// spec core/serialization): one probe for every manifest/config from_json,
+// non-throwing on hostile input — including out-of-range unsigned values that
+// used to abort inside get<T>() under JSON_NOEXCEPTION=1.
+
+void test_json_field_scalars() {
+    const nlohmann::json doc =
+        nlohmann::json::parse(R"({"s":"hello","n":7,"big":4294967296,"huge":18446744073709551615,)"
+                              R"("neg":-5,"b":true,"float":1.5})",
+                              nullptr, false);
+    NX_CHECK(!doc.is_discarded());
+
+    // read_string: present / wrong type / absent all leave a defined state.
+    std::string text = "sentinel";
+    NX_CHECK(nexigen::core::detail::read_string(doc, "s", text));
+    NX_CHECK(text == "hello");
+    text = "sentinel";
+    NX_CHECK(!nexigen::core::detail::read_string(doc, "n", text));
+    NX_CHECK(!nexigen::core::detail::read_string(doc, "absent", text));
+    NX_CHECK(text == "sentinel");
+
+    // read_bool.
+    bool flag = false;
+    NX_CHECK(nexigen::core::detail::read_bool(doc, "b", flag));
+    NX_CHECK(flag);
+    flag = true;
+    NX_CHECK(!nexigen::core::detail::read_bool(doc, "s", flag));
+    NX_CHECK(flag);
+
+    // read_unsigned: 2^32 into uint32 is rejected (no abort), uint64 accepts it.
+    std::uint32_t small = 1U;
+    NX_CHECK(nexigen::core::detail::read_unsigned(doc, "n", small));
+    NX_CHECK(small == 7U);
+    small = 9U;
+    NX_CHECK(!nexigen::core::detail::read_unsigned(doc, "big", small));
+    NX_CHECK(!nexigen::core::detail::read_unsigned(doc, "neg", small));
+    NX_CHECK(!nexigen::core::detail::read_unsigned(doc, "float", small));
+    NX_CHECK(small == 9U);
+    std::uint64_t wide = 0U;
+    NX_CHECK(nexigen::core::detail::read_unsigned(doc, "big", wide));
+    NX_CHECK(wide == 4294967296ULL);
+
+    // read_signed: negatives, unsigned values that fit, uint64 max rejected.
+    std::int64_t number = 0;
+    NX_CHECK(nexigen::core::detail::read_signed(doc, "neg", number));
+    NX_CHECK(number == -5);
+    NX_CHECK(nexigen::core::detail::read_signed(doc, "n", number));
+    NX_CHECK(number == 7);
+    number = 21;
+    NX_CHECK(!nexigen::core::detail::read_signed(doc, "huge", number));
+    NX_CHECK(!nexigen::core::detail::read_signed(doc, "s", number));
+    NX_CHECK(number == 21);
+
+    // Narrowed destinations reject values above their own maximum.
+    std::uint8_t byte = 3U;
+    NX_CHECK(!nexigen::core::detail::read_unsigned(doc, "big", byte));
+    NX_CHECK(byte == 3U);
+    std::int8_t tiny = 4;
+    NX_CHECK(!nexigen::core::detail::read_signed(doc, "n", tiny) || tiny == 7);
+    NX_CHECK(!nexigen::core::detail::read_signed(doc, "big", tiny));
+    NX_CHECK(tiny == 7);
+}
+
+void test_json_field_structures() {
+    const nlohmann::json doc =
+        nlohmann::json::parse(R"({"s":"hello","short":"ab","obj":{"inner":3},)"
+                              R"("arr":[{"k":1},{"k":2}],"mixed":[{"k":1},7]})",
+                              nullptr, false);
+    NX_CHECK(!doc.is_discarded());
+
+    // read_object: only objects reach the callback.
+    bool visited = false;
+    std::int64_t inner = 0;
+    NX_CHECK(
+        nexigen::core::detail::read_object(doc, "obj", [&](const nlohmann::json& nested) noexcept {
+            visited = true;
+            static_cast<void>(nexigen::core::detail::read_signed(nested, "inner", inner));
+        }));
+    NX_CHECK(visited);
+    NX_CHECK(inner == 3);
+    visited = false;
+    NX_CHECK(!nexigen::core::detail::read_object(
+        doc, "s", [&](const nlohmann::json&) noexcept { visited = true; }));
+    NX_CHECK(!visited);
+
+    // collect_object_array: all-or-nothing — a non-object element rejects it.
+    std::vector<std::uint32_t> collected;
+    NX_CHECK(nexigen::core::detail::collect_object_array(
+        doc, "arr", collected, [](const nlohmann::json& element, std::uint32_t& k) noexcept {
+            static_cast<void>(nexigen::core::detail::read_unsigned(element, "k", k));
+        }));
+    NX_CHECK(collected.size() == 2U);
+    NX_CHECK(collected[0] == 1U && collected[1] == 2U);
+    NX_CHECK(!nexigen::core::detail::collect_object_array(
+        doc, "mixed", collected, [](const nlohmann::json&, std::uint32_t&) noexcept {}));
+    NX_CHECK(collected.size() == 2U); // a rejected collection leaves it untouched
+    // An absent key succeeds and changes nothing (optional collection).
+    NX_CHECK(nexigen::core::detail::collect_object_array(
+        doc, "absent", collected, [](const nlohmann::json&, std::uint32_t&) noexcept {}));
+    NX_CHECK(collected.size() == 2U);
+    NX_CHECK(nexigen::core::detail::collect_array(
+        doc, "arr", [](const nlohmann::json& element) noexcept { return element.is_object(); }));
+    NX_CHECK(!nexigen::core::detail::collect_array(
+        doc, "mixed", [](const nlohmann::json& element) noexcept { return element.is_object(); }));
+
+    // Bound-copy helpers: truncate at capacity, zero-fill the remainder.
+    char app[4] = {'x', 'x', 'x', 'x'};
+    NX_CHECK(nexigen::core::detail::read_fixed_string(doc, "s", app, sizeof app));
+    NX_CHECK(std::memcmp(app, "hell", sizeof app) == 0);
+    char shortbuf[4] = {'x', 'x', 'x', 'x'};
+    NX_CHECK(nexigen::core::detail::read_fixed_string(doc, "short", shortbuf, sizeof shortbuf));
+    NX_CHECK(shortbuf[2] == '\0' && shortbuf[3] == '\0');
+    std::uint8_t payload[4] = {9U, 9U, 9U, 9U};
+    NX_CHECK(nexigen::core::detail::read_fixed_bytes(doc, "s", payload, sizeof payload));
+    NX_CHECK(payload[0] == 'h' && payload[3] == 'l');
 }
 
 void test_error_code_vocabulary() {
@@ -2008,6 +2126,8 @@ void test_settings_fields() {
 int main() {
     run_suite("result", test_result);
     run_suite("json_smoke", test_json_smoke);
+    run_suite("json_field_scalars", test_json_field_scalars);
+    run_suite("json_field_structures", test_json_field_structures);
     run_suite("ec_vocab", test_error_code_vocabulary);
     run_suite("settings_vocab", test_settings_vocabulary);
     run_suite("enum_traits", test_enum_traits);

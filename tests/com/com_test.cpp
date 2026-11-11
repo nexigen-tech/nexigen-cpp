@@ -164,8 +164,7 @@ struct TestHeader {
     std::uint32_t seq;
 };
 
-template <class S, class = void>
-struct has_user_header : std::false_type {};
+template <class S, class = void> struct has_user_header : std::false_type {};
 template <class S>
 struct has_user_header<S, std::void_t<decltype(std::declval<const S&>().user_header())>>
     : std::true_type {};
@@ -202,8 +201,7 @@ void test_event() {
     NX_CHECK(notifier->notify_with(com::EventId{7}).has_value());
 
     int activations = 0;
-    const com::Status waited =
-        listener->blocking_wait([&](com::EventId) { ++activations; });
+    const com::Status waited = listener->blocking_wait([&](com::EventId) { ++activations; });
     NX_CHECK(waited.has_value());
     NX_CHECK(activations >= 1);
 
@@ -298,7 +296,7 @@ void test_waitset() {
         NX_CHECK(std::format("{}", *waitset) == text);
 
         // Dropped guards detach.
-        guard_a = std::move(*guard_a);  // keep a moved-from no-op via scope
+        guard_a = std::move(*guard_a); // keep a moved-from no-op via scope
     }
     {
         const auto name = com::ServiceName::create("Nexigen/Test/WsDetach");
@@ -464,7 +462,9 @@ void test_field() {
     NX_CHECK(std::format("{}", *listener) == ltext);
 }
 
-void test_method() {
+/// Synchronous round-trip: the server receives the request bytes and the client
+/// harvests the answer.
+void test_method_roundtrip() {
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
 
@@ -503,6 +503,13 @@ void test_method() {
         NX_CHECK(com::to_string(*client) == ctext);
         NX_CHECK(std::format("{}", *client) == ctext);
     }
+}
+
+/// Out-of-order correlation: each pending handle harvests only its own
+/// response and carries its own correlation id.
+void test_method_out_of_order() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
 
     // Out-of-order correlation: two outstanding requests, the server answers
     // in reverse order; each pending handle harvests only its own response
@@ -580,7 +587,8 @@ void test_method() {
         NX_CHECK(response_b->value == 200);
 
         // Every response was delivered through its own pending handle.
-        NX_CHECK(pending_a->to_string().find("PendingResponse(correlation_id=") != std::string::npos);
+        NX_CHECK(pending_a->to_string().find("PendingResponse(correlation_id=") !=
+                 std::string::npos);
         NX_CHECK(std::format("{}", *pending_a) == pending_a->to_string());
 
         // Server diagnostics: pending drains to zero after both answers.
@@ -590,6 +598,13 @@ void test_method() {
         NX_CHECK(stext.find("pending=0") != std::string::npos);
         NX_CHECK(std::format("{}", *server) == stext);
     }
+}
+
+/// Timeout: a server exists but never answers; call() reports Timeout and
+/// abandons the request.
+void test_method_timeout() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
 
     // Timeout: a server exists but never answers; call() reports Timeout and
     // abandons the request (the pending handle is dropped — no response is
@@ -607,6 +622,13 @@ void test_method() {
         NX_CHECK(response.error() == com::Error::Timeout);
         NX_CHECK(client->pending_count() == 0U);
     }
+}
+
+/// Request-response method channel (spec com/request-response).
+void test_method() {
+    test_method_roundtrip();
+    test_method_out_of_order();
+    test_method_timeout();
 }
 
 void test_pub_sub_roundtrip() {
@@ -733,7 +755,7 @@ void test_pub_sub_type_mismatch() {
     NX_CHECK(bad_subscriber.error() == com::Error::IncompatibleTypeLayout);
 }
 
-void test_pub_sub_two_process() {    // The parent process is the subscriber, the forked child is the
+void test_pub_sub_two_process() { // The parent process is the subscriber, the forked child is the
     // publisher — a real two-process loan-send-receive round-trip over the
     // shared-memory transport.
     auto node = com::Node::create();

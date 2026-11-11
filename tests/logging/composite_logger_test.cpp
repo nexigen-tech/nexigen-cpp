@@ -11,13 +11,27 @@ namespace {
 // member, the empty pack is silent, and fold failures surface (last failure
 // wins). The "invalid access" compile-time claim is proven by the scratch TU
 // documented at the top of this file.
-void test_composite() {
-    // Local aliases (commas inside <> would split the NX_CHECK macro).
-    using CompConsole = ConsoleLogger<64, 128>;
-    using CompFile = FileLogger<64, 128>;
-    using NestFile = FileLogger<32, 128>;
-    using MixFile = FileLogger<16, 128>;
 
+// Local aliases (commas inside <> would split the NX_CHECK macro).
+using CompConsole = ConsoleLogger<64, 128>;
+using CompFile = FileLogger<64, 128>;
+using NestFile = FileLogger<32, 128>;
+using MixFile = FileLogger<16, 128>;
+
+/// Per-run composite scratch root under the shared scratch directory.
+const char* composite_base() {
+    alignas(64) static char base[512];
+    static const bool initialized = [] {
+        std::snprintf(base, sizeof base, "/tmp/opencode/nexigen-comp-%d", ::getpid());
+        static_cast<void>(::mkdir(base, 0755));
+        return true;
+    }();
+    (void)initialized;
+    return base;
+}
+
+/// (a)+(b) empty pack is silent; one set_level re-thresholds the whole tree.
+void test_composite_empty_and_propagation() {
     // --- (a) empty composite: concept-pinned above; every call OK, nothing emitted.
     {
         static CompositeLogger<> quiet{};
@@ -45,6 +59,11 @@ void test_composite() {
         NX_CHECK(pair.get<1>().level() == LogLevel::Warning);
         pair.warning("passes");
     }
+}
+
+/// (c) console + file fan-out through captured pipes.
+void test_composite_fanout() {
+    const char* comp_base = composite_base();
 
     // --- (c) console + file fan-out through captured pipes.
     int out_pipe[2]{};
@@ -56,10 +75,6 @@ void test_composite() {
     NX_CHECK(saved_out >= 0 && saved_err >= 0);
     NX_CHECK(::dup2(out_pipe[1], STDOUT_FILENO) == STDOUT_FILENO);
     NX_CHECK(::dup2(err_pipe[1], STDERR_FILENO) == STDERR_FILENO);
-
-    alignas(64) static char comp_base[512];
-    std::snprintf(comp_base, sizeof comp_base, "/tmp/opencode/nexigen-comp-%d", ::getpid());
-    static_cast<void>(::mkdir(comp_base, 0755));
 
     {
         static CompositeLogger<ConsoleLogger<64, 128>, FileLogger<64, 128>> comp{};
@@ -144,6 +159,11 @@ void test_composite() {
     NX_CHECK(std::strstr(ccontent, "shortcircuit info") == nullptr); // composite short-circuit
     NX_CHECK(std::strstr(ccontent, "\"message\":\"[composite_logger_test.cpp:") != nullptr);
     NX_CHECK(std::strstr(ccontent, "test_composite") != nullptr);
+}
+
+/// (d) composite of composites reaches every leaf.
+void test_composite_nested() {
+    const char* comp_base = composite_base();
 
     // --- (d) composite of composites reaches every leaf (spec scenario):
     // two file leaves through different tree depths must hold the identical line.
@@ -199,6 +219,11 @@ void test_composite() {
         }
         NX_CHECK(std::strstr(ca, "nested leaf\"}") != nullptr);
     }
+}
+
+/// (e)+(f) log-fold and flush-fold failures surface from the first member.
+void test_composite_failure_fold() {
+    const char* comp_base = composite_base();
 
     // --- (e) log-fold failure surfacing: the FIRST member's RateLimited must
     // not be masked by the later NullLogger's OK (task 7.1: last FAILURE wins).
@@ -259,11 +284,19 @@ void test_composite() {
         NX_CHECK(!f.has_value());
         NX_CHECK(f.error() == ErrorCode::SystemError);
     }
+}
 
+/// CompositeLogger: virtual-free fan-out, tree-wide thresholds, sub-config,
+/// short-circuit, nested trees and fold-failure surfacing
+/// (spec logging/composite-logger).
+void test_composite() {
+    test_composite_empty_and_propagation();
+    test_composite_fanout();
+    test_composite_nested();
+    test_composite_failure_fold();
     std::printf("composite: fan-out identity, propagation, sub-config, short-circuit, "
                 "empty pack, last-failure surfacing all verified\n");
 }
-
 } // namespace
 
 void suite_composite() {

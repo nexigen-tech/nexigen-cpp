@@ -3,31 +3,60 @@
 
 #include <utility>
 
+#include <nexigen/core/detail/json_field.hpp>
+
 namespace nexigen::phm {
 
 namespace {
 
-// Reads a field into `out` when it is present and of the right JSON type;
-// a hostile/malformed input leaves `out` unchanged (mandate 10).
-void read_string(const nlohmann::json& j, const char* key, std::string& out) noexcept {
-    const auto it = j.find(key);
-    if (it != j.end() && it->is_string()) {
-        out = it->get<std::string>();
-    }
+// Identity and supervision parameters of one supervised process. Every field is
+// tolerant: a missing or wrong-typed value keeps the destination's default.
+void parse_supervised_identity(const nlohmann::json& j, SupervisedProcess& process) noexcept {
+    core::detail::read_string(j, "name", process.name);
+    core::detail::read_string(j, "service_name", process.service_name);
+    core::detail::read_unsigned(j, "alive_reference_cycle_ms", process.alive_reference_cycle_ms);
+    core::detail::read_unsigned(j, "alive_min_margin_ms", process.alive_min_margin_ms);
+    core::detail::read_unsigned(j, "alive_max_margin_ms", process.alive_max_margin_ms);
+    core::detail::read_unsigned(j, "failed_supervision_cycles_tolerance",
+                                process.failed_supervision_cycles_tolerance);
+    core::detail::read_bool(j, "safety_critical", process.safety_critical);
 }
 
-void read_uint(const nlohmann::json& j, const char* key, std::uint64_t& out) noexcept {
-    const auto it = j.find(key);
-    if (it != j.end() && it->is_number_unsigned()) {
-        out = it->get<std::uint64_t>();
-    }
+// A present checkpoint array with a non-unsigned (or out-of-range) element
+// rejects the whole process, leaving the array untouched.
+[[nodiscard]] bool parse_checkpoints(const nlohmann::json& j,
+                                     std::vector<std::uint32_t>& out) noexcept {
+    return core::detail::collect_array_into<std::uint32_t>(
+        j, "checkpoints", out, [](const nlohmann::json& item, std::uint32_t& id) noexcept {
+            return core::detail::to_unsigned(item, id);
+        });
 }
 
-void read_u32(const nlohmann::json& j, const char* key, std::uint32_t& out) noexcept {
-    const auto it = j.find(key);
-    if (it != j.end() && it->is_number_unsigned()) {
-        out = it->get<std::uint32_t>();
-    }
+// Checkpoint transitions are tolerant per element: from_json on a non-object
+// element leaves the element's defaults in place.
+void parse_transitions(const nlohmann::json& j, std::vector<CheckpointTransition>& out) noexcept {
+    static_cast<void>(core::detail::collect_array_into<CheckpointTransition>(
+        j, "transitions", out,
+        [](const nlohmann::json& item, CheckpointTransition& transition) noexcept {
+            from_json(item, transition);
+            return true;
+        }));
+}
+
+void parse_deadlines(const nlohmann::json& j, std::vector<DeadlinePair>& out) noexcept {
+    static_cast<void>(core::detail::collect_array_into<DeadlinePair>(
+        j, "deadlines", out, [](const nlohmann::json& item, DeadlinePair& pair) noexcept {
+            from_json(item, pair);
+            return true;
+        }));
+}
+
+void parse_recovery_rules(const nlohmann::json& j, std::vector<RecoveryRule>& out) noexcept {
+    static_cast<void>(core::detail::collect_array_into<RecoveryRule>(
+        j, "recovery_rules", out, [](const nlohmann::json& item, RecoveryRule& rule) noexcept {
+            from_json(item, rule);
+            return true;
+        }));
 }
 
 } // namespace
@@ -132,105 +161,57 @@ void from_json(const nlohmann::json& j, CheckpointTransition& transition) noexce
     if (!j.is_object()) {
         return;
     }
-    read_u32(j, "from_id", transition.from_id);
-    read_u32(j, "to_id", transition.to_id);
+    core::detail::read_unsigned(j, "from_id", transition.from_id);
+    core::detail::read_unsigned(j, "to_id", transition.to_id);
 }
 
 void from_json(const nlohmann::json& j, DeadlinePair& pair) noexcept {
     if (!j.is_object()) {
         return;
     }
-    read_u32(j, "source_id", pair.source_id);
-    read_u32(j, "target_id", pair.target_id);
-    read_uint(j, "min_ms", pair.min_ms);
-    read_uint(j, "max_ms", pair.max_ms);
+    core::detail::read_unsigned(j, "source_id", pair.source_id);
+    core::detail::read_unsigned(j, "target_id", pair.target_id);
+    core::detail::read_unsigned(j, "min_ms", pair.min_ms);
+    core::detail::read_unsigned(j, "max_ms", pair.max_ms);
 }
 
 void from_json(const nlohmann::json& j, RecoveryRule& rule) noexcept {
     if (!j.is_object()) {
         return;
     }
-    const auto action = j.find("action");
-    if (action != j.end() && action->is_string()) {
-        // Non-throwing parse; a miss leaves the current action unchanged.
-        const auto name = action->get<std::string>();
-        (void)nexigen::phm::from_string(name, rule.action);
+    // Non-throwing parse; a miss leaves the current action unchanged.
+    std::string action;
+    if (core::detail::read_string(j, "action", action)) {
+        static_cast<void>(nexigen::phm::from_string(action, rule.action));
     }
-    read_string(j, "function_group", rule.function_group);
+    core::detail::read_string(j, "function_group", rule.function_group);
 }
 
 void from_json(const nlohmann::json& j, SupervisedProcess& process) noexcept {
     if (!j.is_object()) {
         return;
     }
-    read_string(j, "name", process.name);
-    read_string(j, "service_name", process.service_name);
-    read_uint(j, "alive_reference_cycle_ms", process.alive_reference_cycle_ms);
-    read_uint(j, "alive_min_margin_ms", process.alive_min_margin_ms);
-    read_uint(j, "alive_max_margin_ms", process.alive_max_margin_ms);
-    read_uint(j, "failed_supervision_cycles_tolerance",
-              process.failed_supervision_cycles_tolerance);
-    const auto critical = j.find("safety_critical");
-    if (critical != j.end() && critical->is_boolean()) {
-        process.safety_critical = critical->get<bool>();
+    parse_supervised_identity(j, process);
+    if (!parse_checkpoints(j, process.checkpoints)) {
+        return;
     }
-    const auto checkpoints = j.find("checkpoints");
-    if (checkpoints != j.end() && checkpoints->is_array()) {
-        std::vector<std::uint32_t> parsed;
-        for (const auto& item : *checkpoints) {
-            if (!item.is_number_unsigned()) {
-                return;
-            }
-            parsed.push_back(item.get<std::uint32_t>());
-        }
-        process.checkpoints = std::move(parsed);
-    }
-    const auto transitions = j.find("transitions");
-    if (transitions != j.end() && transitions->is_array()) {
-        std::vector<CheckpointTransition> parsed;
-        for (const auto& item : *transitions) {
-            CheckpointTransition transition;
-            from_json(item, transition);
-            parsed.push_back(transition);
-        }
-        process.transitions = std::move(parsed);
-    }
-    const auto deadlines = j.find("deadlines");
-    if (deadlines != j.end() && deadlines->is_array()) {
-        std::vector<DeadlinePair> parsed;
-        for (const auto& item : *deadlines) {
-            DeadlinePair pair;
-            from_json(item, pair);
-            parsed.push_back(pair);
-        }
-        process.deadlines = std::move(parsed);
-    }
-    const auto rules = j.find("recovery_rules");
-    if (rules != j.end() && rules->is_array()) {
-        std::vector<RecoveryRule> parsed;
-        for (const auto& item : *rules) {
-            RecoveryRule rule;
-            from_json(item, rule);
-            parsed.push_back(rule);
-        }
-        process.recovery_rules = std::move(parsed);
-    }
+    parse_transitions(j, process.transitions);
+    parse_deadlines(j, process.deadlines);
+    parse_recovery_rules(j, process.recovery_rules);
 }
 
 void from_json(const nlohmann::json& j, PhmManifest& manifest) noexcept {
     if (!j.is_object()) {
         return;
     }
-    const auto processes = j.find("processes");
-    if (processes != j.end() && processes->is_array()) {
-        std::vector<SupervisedProcess> parsed;
-        for (const auto& item : *processes) {
-            SupervisedProcess process;
+    // A non-object element is tolerated: from_json leaves its defaults, which are
+    // appended (pre-refactor behavior).
+    static_cast<void>(core::detail::collect_array_into<SupervisedProcess>(
+        j, "processes", manifest.processes,
+        [](const nlohmann::json& item, SupervisedProcess& process) noexcept {
             from_json(item, process);
-            parsed.push_back(std::move(process));
-        }
-        manifest.processes = std::move(parsed);
-    }
+            return true;
+        }));
 }
 
 } // namespace nexigen::phm

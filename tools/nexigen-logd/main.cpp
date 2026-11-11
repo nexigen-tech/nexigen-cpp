@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <optional>
 #include <fstream>
 #include <string>
 #include <string_view>
@@ -122,36 +123,103 @@ core::Status validate_config(const logging::LogDaemonConfig& cfg) noexcept {
     return {};
 }
 
-} // namespace
+/// Parsed command line. `--help` reports an early exit code through the return
+/// value; everything else fills the options.
+struct Options {
+    const char* config_path{nullptr};
+};
 
-int main(int argc, char* argv[]) {
-    const char* config_path = nullptr;
+[[nodiscard]] std::optional<int> parse_args(int argc, char* argv[], Options& options) {
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
-            config_path = argv[++i];
+            options.config_path = argv[++i];
         } else if (std::strcmp(argv[i], "--help") == 0) {
             std::printf("nexigen-logd - Log Daemon\nUsage: nexigen-logd --config <path>\n");
             return 0;
         }
     }
-    if (config_path == nullptr) {
+    if (options.config_path == nullptr) {
         std::fprintf(stderr, "nexigen-logd: missing --config <path>\n");
         return 1;
     }
+    return std::nullopt;
+}
 
-    logging::LogDaemonConfig cfg;
-    if (!load_config(config_path, cfg)) {
-        std::fprintf(stderr, "nexigen-logd: failed to load config from %s\n", config_path);
-        return 1;
+constexpr std::size_t kBufSz = 65536U;
+
+/// Open log file plus the pending batch behind it.
+struct Sink {
+    int fd{-1};
+    std::int64_t hour_key{0}; ///< UTC hour key of the open file (0 = not rotated yet)
+    std::size_t used{0};      ///< bytes pending in `buffer`
+    alignas(64) char buffer[kBufSz]{};
+};
+
+/// Re-open the log file when the frame's UTC hour differs from the open one.
+void rotate_if_needed(const logging::LogFrame& frame, const logging::LogDaemonConfig& cfg,
+                      std::int64_t utc_offset_ns, Sink& sink) {
+    const std::int64_t frame_utc = chrono::utc_from_mono_ns(frame.timestamp_ns, utc_offset_ns);
+    const chrono::CivilTime civil = chrono::civil_from_utc_ns(frame_utc);
+    const std::int64_t hour_key = static_cast<std::int64_t>(civil.year) * 1000000LL +
+                                  civil.month * 10000LL + civil.day * 100LL + civil.hour;
+    if (hour_key == sink.hour_key) {
+        return;
     }
-    if (!validate_config(cfg)) {
-        std::fprintf(stderr, "nexigen-logd: invalid config\n");
-        return 1;
+    if (sink.fd >= 0) {
+        ::fsync(sink.fd);
+        ::close(sink.fd);
     }
+    sink.fd = open_log_file(cfg.log_directory, utc_offset_ns);
+    sink.hour_key = hour_key;
+}
 
-    std::signal(SIGTERM, signal_handler);
-    std::signal(SIGINT, signal_handler);
+/// Append one rendered frame to the pending batch, flushing at half a buffer.
+void append_frame(const logging::LogFrame& frame, std::int64_t utc_offset_ns, Sink& sink) {
+    if (sink.fd < 0) {
+        return;
+    }
+    const std::size_t line_len =
+        format_frame(frame, sink.buffer + sink.used, kBufSz - sink.used - 1U, utc_offset_ns);
+    if (line_len == 0U) {
+        return;
+    }
+    sink.used += line_len;
+    if (sink.used >= kBufSz / 2U) {
+        write_all(sink.fd, sink.buffer, sink.used);
+        sink.used = 0U;
+    }
+}
 
+/// Drain every frame the subscriber has queued, applying the storage threshold.
+void drain_subscriber(com::Subscriber<logging::LogFrame>& sub, const logging::LogDaemonConfig& cfg,
+                      std::int64_t utc_offset_ns, Sink& sink) {
+    for (;;) {
+        auto got = sub.receive();
+        if (!got || !got->has_value()) {
+            break;
+        }
+        const logging::LogFrame& frame = (*got)->payload();
+        if (frame.log_level < cfg.min_log_level_storage) {
+            continue;
+        }
+        rotate_if_needed(frame, cfg, utc_offset_ns, sink);
+        append_frame(frame, utc_offset_ns, sink);
+    }
+}
+
+/// Flush the pending batch and close the open file.
+void flush_and_close(Sink& sink) {
+    if (sink.used > 0U && sink.fd >= 0) {
+        write_all(sink.fd, sink.buffer, sink.used);
+    }
+    if (sink.fd >= 0) {
+        ::fsync(sink.fd);
+        ::close(sink.fd);
+    }
+}
+
+/// Open every endpoint, run the drain loop until SIGTERM, then flush.
+int run_session(const logging::LogDaemonConfig& cfg) {
     auto node = com::Node::create();
     if (!node) {
         std::fprintf(stderr, "nexigen-logd: failed to create iceoryx2 node\n");
@@ -187,13 +255,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Открываем первый лог-файл
-    int fd = open_log_file(cfg.log_directory, utc_offset_ns);
-    std::int64_t current_utc_key = 0; // будет обновлён в цикле
-
-    constexpr std::size_t kBufSz = 65536U;
-    alignas(64) char buffer[kBufSz]{};
-    std::size_t used = 0;
+    Sink sink{};
+    sink.fd = open_log_file(cfg.log_directory, utc_offset_ns);
 
     auto ws = com::WaitSet::create();
     if (!ws) {
@@ -213,43 +276,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::printf("nexigen-logd: listening on %s, writing to %s\n",
-                cfg.service_name.c_str(), cfg.log_directory.c_str());
+    std::printf("nexigen-logd: listening on %s, writing to %s\n", cfg.service_name.c_str(),
+                cfg.log_directory.c_str());
 
     while (!g_stop.load(std::memory_order_relaxed)) {
         const auto status = ws->wait_and_process([&](com::WaitSetAttachmentId id) {
-            for (;;) {
-                auto got = sub->receive();
-                if (!got || !got->has_value()) break;
-                const logging::LogFrame& frame = (*got)->payload();
-                if (frame.log_level < cfg.min_log_level_storage) continue;
-
-                // Проверка ротации: если час сменился — открыть новый файл
-                const std::int64_t frame_utc =
-                    chrono::utc_from_mono_ns(frame.timestamp_ns, utc_offset_ns);
-                const chrono::CivilTime civil = chrono::civil_from_utc_ns(frame_utc);
-                const std::int64_t hour_key =
-                    static_cast<std::int64_t>(civil.year) * 1000000LL +
-                    civil.month * 10000LL + civil.day * 100LL + civil.hour;
-                if (hour_key != current_utc_key) {
-                    if (fd >= 0) {
-                        ::fsync(fd);
-                        ::close(fd);
-                    }
-                    fd = open_log_file(cfg.log_directory, utc_offset_ns);
-                    current_utc_key = hour_key;
-                }
-                if (fd < 0) continue;
-
-                const std::size_t line_len =
-                    format_frame(frame, buffer + used, kBufSz - used - 1U, utc_offset_ns);
-                if (line_len == 0U) continue;
-                used += line_len;
-                if (used >= kBufSz / 2U) {
-                    write_all(fd, buffer, used);
-                    used = 0U;
-                }
-            }
+            drain_subscriber(*sub, cfg, utc_offset_ns, sink);
             if (id.has_event_from(*guard_ev)) {
                 // drained above
             }
@@ -260,13 +292,35 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (used > 0U && fd >= 0) {
-        write_all(fd, buffer, used);
-    }
-    if (fd >= 0) {
-        ::fsync(fd);
-        ::close(fd);
-    }
+    flush_and_close(sink);
     std::printf("nexigen-logd: stopped\n");
     return 0;
+}
+
+/// Load the configuration, install the stop handlers, then run one session.
+int run_daemon(const Options& options) {
+    logging::LogDaemonConfig cfg;
+    if (!load_config(options.config_path, cfg)) {
+        std::fprintf(stderr, "nexigen-logd: failed to load config from %s\n", options.config_path);
+        return 1;
+    }
+    if (!validate_config(cfg)) {
+        std::fprintf(stderr, "nexigen-logd: invalid config\n");
+        return 1;
+    }
+
+    std::signal(SIGTERM, signal_handler);
+    std::signal(SIGINT, signal_handler);
+    return run_session(cfg);
+}
+
+} // namespace
+
+int main(int argc, char* argv[]) {
+    Options options;
+    const std::optional<int> early_exit = parse_args(argc, argv, options);
+    if (early_exit.has_value()) {
+        return *early_exit;
+    }
+    return run_daemon(options);
 }

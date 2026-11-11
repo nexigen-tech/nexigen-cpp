@@ -48,74 +48,10 @@ struct Iceoryx2LoggerConfig {
     return cfg.to_string();
 }
 
-/// Cold-path JSON round-trip (mandate 10), hostile-safe under JSON_NOEXCEPTION=1.
-inline void to_json(nlohmann::json& j, const Iceoryx2LoggerConfig& cfg) {
-    j = nlohmann::json{
-        {"service_name", cfg.service_name},
-        {"app_id", cfg.app_id},
-        {"max_subscribers", cfg.max_subscribers},
-        {"history_size", cfg.history_size},
-        {"initial_level", cfg.initial_level},
-        {"throttle",
-         nlohmann::json{{"enabled", cfg.throttle.enabled},
-                        {"max_records_per_window", cfg.throttle.max_records_per_window},
-                        {"window_ns", cfg.throttle.window_ns}}},
-        {"worker_thread", cfg.worker_thread},
-        {"worker_poll_interval_us", cfg.worker_poll_interval_us},
-    };
-}
-
-inline void from_json(const nlohmann::json& j, Iceoryx2LoggerConfig& out) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
-    Iceoryx2LoggerConfig parsed{};
-    const auto read_str = [&j](const char* key, std::string& dst) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_string()) {
-            dst = it->get<std::string>();
-        }
-    };
-    const auto read_u32 = [&j](const char* key, std::uint32_t& dst) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number_unsigned()) {
-            dst = it->get<std::uint32_t>();
-        }
-    };
-    read_str("service_name", parsed.service_name);
-    read_str("app_id", parsed.app_id);
-    read_u32("max_subscribers", parsed.max_subscribers);
-    read_u32("history_size", parsed.history_size);
-    read_u32("worker_poll_interval_us", parsed.worker_poll_interval_us);
-
-    const auto lv = j.find("initial_level");
-    if (lv != j.end() && lv->is_string()) {
-        core::LogLevel level = core::LogLevel::Info;
-        if (core::from_string(lv->get<std::string>(), level)) {
-            parsed.initial_level = level;
-        }
-    }
-    const auto th = j.find("throttle");
-    if (th != j.end() && th->is_object()) {
-        const auto en = th->find("enabled");
-        if (en != th->end() && en->is_boolean()) {
-            parsed.throttle.enabled = en->get<bool>();
-        }
-        const auto mr = th->find("max_records_per_window");
-        if (mr != th->end() && mr->is_number_unsigned()) {
-            parsed.throttle.max_records_per_window = mr->get<std::uint64_t>();
-        }
-        const auto wn = th->find("window_ns");
-        if (wn != th->end() && wn->is_number_unsigned()) {
-            parsed.throttle.window_ns = wn->get<std::uint64_t>();
-        }
-    }
-    const auto wt = j.find("worker_thread");
-    if (wt != j.end() && wt->is_object()) {
-        from_json(*wt, parsed.worker_thread);
-    }
-    out = std::move(parsed);
-}
+/// Cold-path JSON round-trip (mandate 10), hostile-safe under JSON_NOEXCEPTION=1;
+/// bodies live in src/logging/iceoryx2_logger_config.cpp.
+void to_json(nlohmann::json& j, const Iceoryx2LoggerConfig& cfg);
+void from_json(const nlohmann::json& j, Iceoryx2LoggerConfig& out) noexcept;
 
 } // namespace nexigen::logging
 

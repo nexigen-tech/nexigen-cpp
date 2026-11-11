@@ -91,9 +91,7 @@ struct LatencyStats {
 [[nodiscard]] LatencyStats stats_of(std::uint64_t* ticks, int n, double ns_per_tick,
                                     double ovh_ns) {
     std::sort(ticks, ticks + n);
-    const auto at = [&](int i) {
-        return (static_cast<double>(ticks[i]) - ovh_ns) * ns_per_tick;
-    };
+    const auto at = [&](int i) { return (static_cast<double>(ticks[i]) - ovh_ns) * ns_per_tick; };
     const int i50 = n / 2;
     const int i99 = static_cast<int>(static_cast<double>(n) * 0.99);
     const int i999 = static_cast<int>(static_cast<double>(n) * 0.999);
@@ -105,28 +103,152 @@ void print_stats(const char* label, const LatencyStats& s) {
                 s.median_ns, s.p99_ns, s.p999_ns, s.max_ns);
 }
 
+constexpr int kN = 10'000;
+constexpr int kWarmup = 2'000;
+
+/// Benchmark placement: publisher on the lowest permitted core, consumer thread
+/// on the highest. Measurement placement, not a library policy.
+struct Placement {
+    cpu_set_t orig{};
+    std::size_t lo{CPU_SETSIZE};
+    std::size_t hi{CPU_SETSIZE};
+    bool pinned{false};
+};
+
+Placement place_benchmark_threads() {
+    Placement placement;
+    if (::pthread_getaffinity_np(pthread_self(), sizeof(placement.orig), &placement.orig) != 0) {
+        return placement;
+    }
+    for (std::size_t c = 0; c < static_cast<std::size_t>(CPU_SETSIZE); ++c) {
+        if (CPU_ISSET(c, &placement.orig)) {
+            if (placement.lo == CPU_SETSIZE) {
+                placement.lo = c;
+            }
+            placement.hi = c;
+        }
+    }
+    if (placement.lo != CPU_SETSIZE && placement.hi != placement.lo) {
+        cpu_set_t mine{};
+        CPU_SET(placement.lo, &mine);
+        placement.pinned = ::pthread_setaffinity_np(pthread_self(), sizeof(mine), &mine) == 0;
+    }
+    return placement;
+}
+
+/// Best-of-passes medians for the two direct paths.
+struct BestMedians {
+    double direct{-1.0};
+    double with_event{-1.0};
+    LatencyStats direct_stats{};
+    LatencyStats event_stats{};
+
+    void observe_direct(const LatencyStats& s) {
+        if (direct < 0.0 || s.median_ns < direct) {
+            direct = s.median_ns;
+            direct_stats = s;
+        }
+    }
+
+    void observe_event(const LatencyStats& s) {
+        if (with_event < 0.0 || s.median_ns < with_event) {
+            with_event = s.median_ns;
+            event_stats = s;
+        }
+    }
+};
+
+/// One measured window of the direct paths: loan/write/send, then + notify.
+void measure_direct_pass(com::Publisher<LogFrame256>& publisher, com::EventNotifier& notifier,
+                         LogFrame256& frame, std::uint64_t* raw, double ns_per_tick, double ovh_ns,
+                         BestMedians& medians) {
+    // (a) прямой: loan -> write_payload -> send.
+    for (int i = 0; i < kN; ++i) {
+        const std::uint64_t r0 = __rdtsc();
+        auto loaned = publisher.loan_uninit();
+        auto sample = loaned->write_payload(frame);
+        static_cast<void>(publisher.send(std::move(sample)));
+        const std::uint64_t r1 = __rdtsc();
+        raw[i] = r1 - r0;
+    }
+    medians.observe_direct(stats_of(raw, kN, ns_per_tick, ovh_ns));
+
+    // (a+event): полный путь REQ_LOGC_005 (+ notify).
+    for (int i = 0; i < kN; ++i) {
+        const std::uint64_t r0 = __rdtsc();
+        auto loaned = publisher.loan_uninit();
+        auto sample = loaned->write_payload(frame);
+        static_cast<void>(publisher.send(std::move(sample)));
+        static_cast<void>(notifier.notify());
+        const std::uint64_t r1 = __rdtsc();
+        raw[i] = r1 - r0;
+    }
+    medians.observe_event(stats_of(raw, kN, ns_per_tick, ovh_ns));
+}
+
+/// Producer/worker split of the worker-publish path.
+struct WorkerPathStats {
+    LatencyStats producer{};
+    LatencyStats worker{};
+    std::uint64_t worker_count{0};
+};
+
+/// (b) worker-publish: the producer try_pushes locally, the worker pops and runs
+/// the full transport. Ring capacity 16384 > kN keeps the pop count honest.
+WorkerPathStats measure_worker_path(com::Publisher<LogFrame256>& publisher,
+                                    com::EventNotifier& notifier, LogFrame256& frame, bool pinned,
+                                    std::size_t consumer_core, double ns_per_tick, double ovh_ns) {
+    core::SpscRingBuffer<LogFrame256, 16384> ring{};
+    std::atomic<bool> stop{false};
+    std::uint64_t producer_raw[kN];
+    std::uint64_t worker_raw[kN];
+    WorkerPathStats result;
+    std::jthread consumer([&] {
+        if (pinned) {
+            cpu_set_t s{};
+            CPU_SET(consumer_core, &s);
+            static_cast<void>(::pthread_setaffinity_np(pthread_self(), sizeof(s), &s));
+        }
+        LogFrame256 rec{};
+        while (!stop.load(std::memory_order_relaxed) || !ring.is_empty()) {
+            if (ring.try_pop(rec)) {
+                const std::uint64_t r0 = __rdtsc();
+                auto loaned = publisher.loan_uninit();
+                auto sample = loaned->write_payload(rec);
+                static_cast<void>(publisher.send(std::move(sample)));
+                static_cast<void>(notifier.notify());
+                const std::uint64_t r1 = __rdtsc();
+                if (result.worker_count < kN) {
+                    worker_raw[result.worker_count++] = r1 - r0;
+                }
+            } else {
+                std::this_thread::sleep_for(std::chrono::microseconds(50));
+            }
+        }
+    });
+
+    for (int i = 0; i < kN; ++i) {
+        const std::uint64_t r0 = __rdtsc();
+        static_cast<void>(ring.try_push(frame));
+        const std::uint64_t r1 = __rdtsc();
+        producer_raw[i] = r1 - r0;
+    }
+    stop.store(true, std::memory_order_relaxed);
+    consumer.join();
+
+    result.producer = stats_of(producer_raw, kN, ns_per_tick, ovh_ns);
+    result.worker =
+        stats_of(worker_raw, static_cast<int>(result.worker_count), ns_per_tick, ovh_ns);
+    return result;
+}
+
+/// Transport latency gates: direct loan/send, +notify, and the worker path.
 void test_latency() {
 #if defined(__x86_64__)
     // --- Размещение: producer/consumer на разные разрешённые ядра ---
-    std::size_t lo = CPU_SETSIZE;
-    std::size_t hi = CPU_SETSIZE;
-    cpu_set_t orig{};
-    bool pinned = false;
-    if (::pthread_getaffinity_np(pthread_self(), sizeof(orig), &orig) == 0) {
-        for (std::size_t c = 0; c < static_cast<std::size_t>(CPU_SETSIZE); ++c) {
-            if (CPU_ISSET(c, &orig)) {
-                if (lo == CPU_SETSIZE) {
-                    lo = c;
-                }
-                hi = c;
-            }
-        }
-        if (lo != CPU_SETSIZE && hi != lo) {
-            cpu_set_t mine{};
-            CPU_SET(lo, &mine);
-            pinned = ::pthread_setaffinity_np(pthread_self(), sizeof(mine), &mine) == 0;
-        }
-    }
+    const Placement placement = place_benchmark_threads();
+    const std::size_t hi = placement.hi;
+    const bool pinned = placement.pinned;
 
     // --- Транспорт: один узел, издатель и нотификатор (без подписчика) ---
     auto node = com::Node::create();
@@ -149,17 +271,15 @@ void test_latency() {
     const auto m_end = std::chrono::steady_clock::now();
     const std::uint64_t t_end = __rdtsc();
     const double ns_per_tick =
-        static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(m_end - m_start)
-                                .count()) /
+        static_cast<double>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(m_end - m_start).count()) /
         static_cast<double>(t_end - t_start);
 
-    constexpr int WARMUP = 2'000;
-    constexpr int N = 10'000;
-    alignas(64) static std::uint64_t raw[N];
-    alignas(64) static std::uint64_t ovr[N];
+    alignas(64) static std::uint64_t raw[kN];
+    alignas(64) static std::uint64_t ovr[kN];
 
     // Прогрев: первый loan/send/notify аллоцирует ленивые пути iceoryx2.
-    for (int i = 0; i < WARMUP; ++i) {
+    for (int i = 0; i < kWarmup; ++i) {
         auto loaned = publisher->loan_uninit();
         auto sample = loaned->write_payload(frame);
         static_cast<void>(publisher->send(std::move(sample)));
@@ -167,13 +287,13 @@ void test_latency() {
     }
 
     // Накладные расходы измерения (пустые пары rdtsc).
-    for (int i = 0; i < N; ++i) {
+    for (int i = 0; i < kN; ++i) {
         const std::uint64_t r0 = __rdtsc();
         const std::uint64_t r1 = __rdtsc();
         ovr[i] = r1 - r0;
     }
-    std::sort(ovr, ovr + N);
-    const double ovh_ns = static_cast<double>(ovr[N / 2]) * ns_per_tick;
+    std::sort(ovr, ovr + kN);
+    const double ovh_ns = static_cast<double>(ovr[kN / 2]) * ns_per_tick;
 
 #if defined(NEXIGEN_COM_STRICT_LATENCY) && !defined(NX_SANITIZER_BUILD)
     constexpr int passes = 3;
@@ -183,41 +303,9 @@ void test_latency() {
 
     const std::size_t heap_before = heap_in_use();
 
-    double best_a_median = -1.0;
-    double best_ae_median = -1.0;
-    LatencyStats best_a{};
-    LatencyStats best_ae{};
+    BestMedians medians;
     for (int pass = 0; pass < passes; ++pass) {
-        // (a) прямой: loan -> write_payload -> send.
-        for (int i = 0; i < N; ++i) {
-            const std::uint64_t r0 = __rdtsc();
-            auto loaned = publisher->loan_uninit();
-            auto sample = loaned->write_payload(frame);
-            static_cast<void>(publisher->send(std::move(sample)));
-            const std::uint64_t r1 = __rdtsc();
-            raw[i] = r1 - r0;
-        }
-        const LatencyStats a = stats_of(raw, N, ns_per_tick, ovh_ns);
-        if (best_a_median < 0.0 || a.median_ns < best_a_median) {
-            best_a_median = a.median_ns;
-            best_a = a;
-        }
-
-        // (a+event): полный путь REQ_LOGC_005 (+ notify).
-        for (int i = 0; i < N; ++i) {
-            const std::uint64_t r0 = __rdtsc();
-            auto loaned = publisher->loan_uninit();
-            auto sample = loaned->write_payload(frame);
-            static_cast<void>(publisher->send(std::move(sample)));
-            static_cast<void>(notifier->notify());
-            const std::uint64_t r1 = __rdtsc();
-            raw[i] = r1 - r0;
-        }
-        const LatencyStats ae = stats_of(raw, N, ns_per_tick, ovh_ns);
-        if (best_ae_median < 0.0 || ae.median_ns < best_ae_median) {
-            best_ae_median = ae.median_ns;
-            best_ae = ae;
-        }
+        measure_direct_pass(*publisher, *notifier, frame, raw, ns_per_tick, ovh_ns, medians);
     }
 
     // Ноль аллокаций на чистом транспортном пути (a + a+event): до/после
@@ -226,70 +314,30 @@ void test_latency() {
     const std::size_t heap_after = heap_in_use();
     NX_CHECK(heap_after == heap_before);
 
-    // (b) worker-publish: продюсер try_push (локально), воркер pop -> полный
-    // транспорт. Ёмкость 16384 > N, чтобы кольцо не переполнялось и счёт
-    // pop был честным. Обе стороны меряются на своих ядрах отдельно.
-    core::SpscRingBuffer<LogFrame256, 16384> ring{};
-    std::atomic<bool> stop{false};
-    std::uint64_t producer_raw[N];
-    std::uint64_t worker_raw[N];
-    std::uint64_t worker_count = 0;
-    std::jthread consumer([&] {
-        if (pinned) {
-            cpu_set_t s{};
-            CPU_SET(hi, &s);
-            static_cast<void>(::pthread_setaffinity_np(pthread_self(), sizeof(s), &s));
-        }
-        LogFrame256 rec{};
-        while (!stop.load(std::memory_order_relaxed) || !ring.is_empty()) {
-            if (ring.try_pop(rec)) {
-                const std::uint64_t r0 = __rdtsc();
-                auto loaned = publisher->loan_uninit();
-                auto sample = loaned->write_payload(rec);
-                static_cast<void>(publisher->send(std::move(sample)));
-                static_cast<void>(notifier->notify());
-                const std::uint64_t r1 = __rdtsc();
-                if (worker_count < N) {
-                    worker_raw[worker_count++] = r1 - r0;
-                }
-            } else {
-                std::this_thread::sleep_for(std::chrono::microseconds(50));
-            }
-        }
-    });
-
-    for (int i = 0; i < N; ++i) {
-        const std::uint64_t r0 = __rdtsc();
-        static_cast<void>(ring.try_push(frame));
-        const std::uint64_t r1 = __rdtsc();
-        producer_raw[i] = r1 - r0;
-    }
-    stop.store(true, std::memory_order_relaxed);
-    consumer.join();
+    const WorkerPathStats worker_path =
+        measure_worker_path(*publisher, *notifier, frame, pinned, hi, ns_per_tick, ovh_ns);
 
     if (pinned) {
-        static_cast<void>(::pthread_setaffinity_np(pthread_self(), sizeof(orig), &orig));
+        static_cast<void>(
+            ::pthread_setaffinity_np(pthread_self(), sizeof(placement.orig), &placement.orig));
     }
 
-    const LatencyStats b_producer = stats_of(producer_raw, N, ns_per_tick, ovh_ns);
-    const LatencyStats b_worker = stats_of(worker_raw, static_cast<int>(worker_count), ns_per_tick,
-                                           ovh_ns);
+    // Корректность: все kN продюсер-сэмплов прошли через кольцо и воркер.
+    NX_CHECK(worker_path.worker_count == static_cast<std::uint64_t>(kN));
 
-    // Корректность: все N продюсер-сэмплов прошли через кольцо и воркер.
-    NX_CHECK(worker_count == static_cast<std::uint64_t>(N));
-
-    print_stats("(a) direct loan/send", best_a);
-    print_stats("(a+event) +notify", best_ae);
-    print_stats("(b) producer try_push", b_producer);
-    print_stats("(b) worker loan+send+notify", b_worker);
-    std::printf("latency: best-of-%d passes, ns/tick %.4f, meas-overhead %.2f ns, heap-delta %zd B\n",
-                passes, ns_per_tick, ovh_ns, static_cast<std::ptrdiff_t>(heap_after - heap_before));
+    print_stats("(a) direct loan/send", medians.direct_stats);
+    print_stats("(a+event) +notify", medians.event_stats);
+    print_stats("(b) producer try_push", worker_path.producer);
+    print_stats("(b) worker loan+send+notify", worker_path.worker);
+    std::printf(
+        "latency: best-of-%d passes, ns/tick %.4f, meas-overhead %.2f ns, heap-delta %zd B\n",
+        passes, ns_per_tick, ovh_ns, static_cast<std::ptrdiff_t>(heap_after - heap_before));
 
 #if defined(NEXIGEN_COM_STRICT_LATENCY) && !defined(NX_SANITIZER_BUILD)
     // Sanity-потолок (защита от катастрофы, НЕ порог приёмки): полный путь
     // (a+event) не должен выходить за 2 мкс — вдвое над WCET из REQ_LOGC_006
     // (1.5 мкс). Реальный порог введёт отдельный change после цифр.
-    NX_CHECK(best_ae_median <= 2000.0);
+    NX_CHECK(medians.with_event <= 2000.0);
 #endif
 #else
     // Не-x86: accounting-only прогон (без rdtsc) — корректность bounded-time.

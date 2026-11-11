@@ -338,3 +338,23 @@ foreach(_nexigen_test
     endif()
 endforeach()
 unset(_nexigen_test)
+
+# Cyclomatic complexity gate (spec quality/code-structure): the same check the
+# `complexity-check` target runs, reachable from ctest so a local run reaches
+# the CI verdict. The script exits 77 when lizard is missing, which CTest
+# reports as "Skipped" instead of a false pass.
+find_program(NEXIGEN_COMPLEXITY_PYTHON NAMES python3 python)
+if(NEXIGEN_COMPLEXITY_PYTHON)
+    add_test(NAME nexigen_complexity_gate
+        COMMAND "${NEXIGEN_COMPLEXITY_PYTHON}"
+                "${PROJECT_SOURCE_DIR}/cmake/check_complexity.py"
+                --threshold 15
+                "${PROJECT_SOURCE_DIR}/include"
+                "${PROJECT_SOURCE_DIR}/src"
+                "${PROJECT_SOURCE_DIR}/tests"
+                "${PROJECT_SOURCE_DIR}/tools")
+    set_tests_properties(nexigen_complexity_gate PROPERTIES
+        SKIP_RETURN_CODE 77 LABELS "quality" TIMEOUT 300)
+else()
+    message(WARNING "nexigen_complexity_gate not registered — python3 not found")
+endif()

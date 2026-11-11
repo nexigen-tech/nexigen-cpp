@@ -18,7 +18,7 @@ namespace {
     return v;
 }
 
-void test_producer() {
+void test_producer_filter_and_fields() {
     detail::Producer<8, 128> prod{};
     NX_CHECK(prod.initialize().has_value());
 
@@ -61,6 +61,12 @@ void test_producer() {
     NX_CHECK(prod.pop(out).has_value());
     const std::size_t ru_len = out.render_into(msg, sizeof msg);
     NX_CHECK(std::string_view(msg, ru_len) == "Прямой вызов метода debug. Давление: 0.0025");
+}
+
+void test_producer_capacity_and_fifo() {
+    detail::Producer<8, 128> prod{};
+    NX_CHECK(prod.initialize().has_value());
+    LogRecord<128> out{};
 
     // Fill to capacity (8): next push drops + counts; stored elements intact;
     // a FILTERED call never probes the full ring (spec log-level scenario).
@@ -89,6 +95,10 @@ void test_producer() {
     }
     NX_CHECK(order_bad == 0);
     NX_CHECK(prod.ring_empty());
+}
+
+void test_producer_zero_allocation() {
+    LogRecord<128> out{};
 
     // Zero-allocation window: 4000 accepted emits + full drain, both counters
     // flat across the whole sequence (heap allocator sees nothing).
@@ -107,7 +117,9 @@ void test_producer() {
     NX_CHECK(heap_in_use() == heap_before);
     NX_CHECK(drained == 4000); // ring big enough: no drops
     NX_CHECK(bulk.dropped().total() == 0);
+}
 
+void test_producer_concurrent_wrap() {
     // Concurrent wrap: 50k emits while the consumer drains; values strictly
     // increasing, every accepted record accounted (wait-free under pressure).
     alignas(64) static detail::Producer<64, 128> wrap{};
@@ -146,6 +158,30 @@ void test_producer() {
     std::printf("producer: 50k concurrent wrap, accepted=%llu dropped=%llu seq_bad=%d\n",
                 static_cast<unsigned long long>(accept_count),
                 static_cast<unsigned long long>(wrap.dropped().buffer_full), seq_bad);
+}
+
+/// Per-value-range bookkeeping for the shard-exclusivity check: every value of
+/// one producer range must arrive with one thread id, in non-decreasing order.
+struct PerThreadOrder {
+    std::uint32_t tid{0};
+    std::size_t count{0};
+    std::uint64_t last{0};
+    bool order_ok{true};
+
+    void observe(const LogRecord<128>& rec, std::uint64_t value) {
+        if (tid == 0U) {
+            tid = rec.thread_id;
+        }
+        if (rec.thread_id != tid || value < last) {
+            order_ok = false;
+        }
+        last = value;
+        ++count;
+    }
+};
+
+void test_producer_multi_producer_isolation() {
+    LogRecord<128> out{};
 
     // --- multi-producer isolation (spec logging/multi-producer): thread A
     // emits values 0..4, thread B emits 100..104. Records draining from the
@@ -168,40 +204,22 @@ void test_producer() {
     go.store(true, std::memory_order_relaxed);
     a.join();
     b.join();
-    std::uint32_t tid_low = 0, tid_high = 0;
-    std::size_t cnt_low = 0, cnt_high = 0;
-    std::uint64_t last_low = 0, last_high = 0;
-    bool order_ok = true;
+    PerThreadOrder low_range;
+    PerThreadOrder high_range;
     std::size_t total_popped = 0;
     while (mp.pop(out)) {
         const std::uint64_t v = rendered_value(out);
         ++total_popped;
-        if (v < 50U) { // thread A range
-            if (tid_low == 0U) {
-                tid_low = out.thread_id;
-            }
-            if (out.thread_id != tid_low || v < last_low) {
-                order_ok = false;
-            }
-            last_low = v;
-            ++cnt_low;
-        } else { // thread B range
-            if (tid_high == 0U) {
-                tid_high = out.thread_id;
-            }
-            if (out.thread_id != tid_high || v < last_high) {
-                order_ok = false;
-            }
-            last_high = v;
-            ++cnt_high;
-        }
+        (v < 50U ? low_range : high_range).observe(out, v);
     }
     NX_CHECK(total_popped == 10U);
-    NX_CHECK(cnt_low == 5U && cnt_high == 5U);
-    NX_CHECK(tid_low != tid_high && tid_low != 0U && tid_high != 0U);
-    NX_CHECK(order_ok);
+    NX_CHECK(low_range.count == 5U && high_range.count == 5U);
+    NX_CHECK(low_range.tid != high_range.tid && low_range.tid != 0U && high_range.tid != 0U);
+    NX_CHECK(low_range.order_ok && high_range.order_ok);
     NX_CHECK(mp.dropped().total() == 0); // nobody starved another thread
+}
 
+void test_producer_shard_limits() {
     // Full shard drops ONLY its own producer (spec scenario): main fills slot,
     // a fresh thread's own shard still accepts.
     static detail::Producer<4, 128> isolation{};
@@ -241,6 +259,17 @@ void test_producer() {
     }
     NX_CHECK(tiny_popped == 2U); // both registered producers' records intact
     std::printf("producer: multi-thread isolation + exhaustion counting verified\n");
+}
+
+/// Producer hot path: filtering, FIFO, zero-allocation, concurrent wrap,
+/// per-thread shard isolation and slot exhaustion (spec logging/multi-producer).
+void test_producer() {
+    test_producer_filter_and_fields();
+    test_producer_capacity_and_fifo();
+    test_producer_zero_allocation();
+    test_producer_concurrent_wrap();
+    test_producer_multi_producer_isolation();
+    test_producer_shard_limits();
 }
 
 // --- producer_edge_cases suite (coverage gaps in producer.hpp):

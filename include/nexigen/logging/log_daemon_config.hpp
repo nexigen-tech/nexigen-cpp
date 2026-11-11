@@ -42,61 +42,10 @@ struct LogDaemonConfig {
     return cfg.to_string();
 }
 
-/// Cold-path JSON round-trip (mandate 10), hostile-safe under JSON_NOEXCEPTION=1.
-inline void to_json(nlohmann::json& j, const LogDaemonConfig& cfg) {
-    j = nlohmann::json{
-        {"service_name", cfg.service_name},
-        {"log_directory", cfg.log_directory},
-        {"max_file_size_mb", cfg.max_file_size_mb},
-        {"max_archive_files", cfg.max_archive_files},
-        {"min_log_level_storage", cfg.min_log_level_storage},
-        {"bg_cpu_affinity", cfg.bg_cpu_affinity},
-        {"batch_flush_interval_ms", cfg.batch_flush_interval_ms},
-    };
-}
-
-inline void from_json(const nlohmann::json& j, LogDaemonConfig& out) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
-    LogDaemonConfig parsed{};
-    const auto read_str = [&j](const char* key, std::string& dst) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_string()) {
-            dst = it->get<std::string>();
-        }
-    };
-    const auto read_u64 = [&j](const char* key, std::uint64_t& dst) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number_unsigned()) {
-            dst = it->get<std::uint64_t>();
-        }
-    };
-    const auto read_u32 = [&j](const char* key, std::uint32_t& dst) {
-        const auto it = j.find(key);
-        if (it != j.end() && it->is_number_unsigned()) {
-            dst = it->get<std::uint32_t>();
-        }
-    };
-    read_str("service_name", parsed.service_name);
-    read_str("log_directory", parsed.log_directory);
-    read_u64("max_file_size_mb", parsed.max_file_size_mb);
-    read_u32("max_archive_files", parsed.max_archive_files);
-    read_u32("batch_flush_interval_ms", parsed.batch_flush_interval_ms);
-
-    const auto lv = j.find("min_log_level_storage");
-    if (lv != j.end() && lv->is_string()) {
-        core::LogLevel level = core::LogLevel::Warning;
-        if (core::from_string(lv->get<std::string>(), level)) {
-            parsed.min_log_level_storage = level;
-        }
-    }
-    const auto af = j.find("bg_cpu_affinity");
-    if (af != j.end() && af->is_object()) {
-        from_json(*af, parsed.bg_cpu_affinity);
-    }
-    out = std::move(parsed);
-}
+/// Cold-path JSON round-trip (mandate 10), hostile-safe under JSON_NOEXCEPTION=1;
+/// bodies live in src/logging/log_daemon_config.cpp.
+void to_json(nlohmann::json& j, const LogDaemonConfig& cfg);
+void from_json(const nlohmann::json& j, LogDaemonConfig& out) noexcept;
 
 } // namespace nexigen::logging
 

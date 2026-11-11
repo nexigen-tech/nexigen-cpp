@@ -25,6 +25,12 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_phmd_help PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
+    add_test(NAME nexigen_phmd_hostile_config
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hostile_config_test.sh
+                $<TARGET_FILE:nexigen-phmd> --manifest)
+    set_tests_properties(nexigen_phmd_hostile_config PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
     # nexigen-sm — State Manager process (change add-sm).
     add_executable(nexigen-sm nexigen-sm/main.cpp)
     target_link_libraries(nexigen-sm PRIVATE nexigen_sm nexigen_phm Threads::Threads)
@@ -32,6 +38,12 @@ if(NEXIGEN_ENABLE_COM)
 
     add_test(NAME nexigen_sm_help COMMAND nexigen-sm --help)
     set_tests_properties(nexigen_sm_help PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
+    add_test(NAME nexigen_sm_hostile_config
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hostile_config_test.sh
+                $<TARGET_FILE:nexigen-sm>)
+    set_tests_properties(nexigen_sm_hostile_config PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
     # nexigen-logd — Log Daemon (change add-log-daemon).

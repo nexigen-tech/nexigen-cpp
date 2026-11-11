@@ -4,13 +4,23 @@
 
 namespace {
 
-void test_stress() {
-    constexpr int k_threads = 6;
-    constexpr int k_per_thread = 400;
+constexpr int k_threads = 6;
+constexpr int k_per_thread = 400;
 
-    alignas(64) static char stress_base[512];
-    std::snprintf(stress_base, sizeof stress_base, "/tmp/opencode/nexigen-stress-%d", ::getpid());
+/// Per-run scratch directory under the shared scratch root.
+const char* stress_base() {
+    alignas(64) static char base[512];
+    static const bool initialized = [] {
+        std::snprintf(base, sizeof base, "/tmp/opencode/nexigen-stress-%d", ::getpid());
+        return true;
+    }();
+    (void)initialized;
+    return base;
+}
 
+/// (a) FileLogger: exact per-thread content in the JSONL file.
+void test_stress_file() {
+    const char* sb = stress_base();
     // --- (a) FileLogger: verify exact per-thread content in the JSONL file.
     // Shard capacity 1024 > per-thread burst (400): under drained conditions
     // NOTHING drops (spec 7.1 acceptance), the flush barrier drains the pool.
@@ -18,7 +28,7 @@ void test_stress() {
     {
         FileLoggerConfig cfg{};
         cfg.app_name = "stress";
-        cfg.base_dir = stress_base;
+        cfg.base_dir = sb;
         cfg.file_name = "stress.jsonl";
         cfg.initial_level = LogLevel::Verbose;
         cfg.rotation.kind = RotationSchedule::None;
@@ -41,7 +51,7 @@ void test_stress() {
     }
     NX_CHECK(fl.flush().has_value());
     char fpath[560];
-    std::snprintf(fpath, sizeof fpath, "%s/stress.jsonl", stress_base);
+    std::snprintf(fpath, sizeof fpath, "%s/stress.jsonl", sb);
     alignas(64) static char fcontent[1 << 20];
     const int ffd = ::open(fpath, O_RDONLY);
     NX_CHECK(ffd >= 0);
@@ -69,7 +79,10 @@ void test_stress() {
     NX_CHECK(fl.dropped().total() == 0ULL); // flush drained every shard
     std::printf("stress: %d threads x %d records -> file sink, all present once, 0 dropped\n",
                 k_threads, k_per_thread);
+}
 
+/// (b) ConsoleLogger: count distinct lines through a captured pipe.
+void test_stress_console() {
     // --- (b) ConsoleLogger: count distinct lines through a captured pipe.
     int out_pipe[2]{};
     NX_CHECK(::pipe(out_pipe) == 0);
@@ -105,10 +118,14 @@ void test_stress() {
     NX_CHECK(count_char(cbuf, clen, '\n') == static_cast<std::size_t>(k_threads * 16));
     std::printf("stress: console sink delivered %d lines from %d producers\n", k_threads * 16,
                 k_threads);
+}
 
+/// (c) Composite fan-out under concurrency: both leaves see everything.
+void test_stress_composite() {
+    const char* sb = stress_base();
     // --- (c) Composite fan-out under concurrency: both leaves see everything.
     alignas(64) static char comp_stress[512];
-    std::snprintf(comp_stress, sizeof comp_stress, "%.400s/comp", stress_base);
+    std::snprintf(comp_stress, sizeof comp_stress, "%.400s/comp", sb);
     static_cast<void>(::mkdir(comp_stress, 0755));
     {
         static CompositeLogger<NullLogger, FileLogger<64, 128>> comp{};
@@ -152,6 +169,14 @@ void test_stress() {
         NX_CHECK(comp.get<1>().dropped().total() == 0ULL);
     }
     std::printf("stress: composite fan-out reached every leaf from %d producers\n", k_threads);
+}
+
+/// Multi-thread stress: file sink, console sink and composite fan-out
+/// (spec logging/multi-producer).
+void test_stress() {
+    test_stress_file();
+    test_stress_console();
+    test_stress_composite();
 }
 
 } // namespace
