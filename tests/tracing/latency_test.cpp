@@ -38,12 +38,12 @@ void test_latency_non_x86();
 // (measurement placement, NOT a library policy), so SMT-sibling co-scheduling
 // cannot bill cross-thread cache noise to the enqueue median.
 void test_latency() {
-    using Bench_provider = tracing::TracerProvider<1024, 1>;
+    using BenchProvider = tracing::TracerProvider<1024, 1>;
 #if defined(__x86_64__)
     // MaxThreads=1 keeps the bench pool a single ring: the gate measures
     // the start+enqueue path of ONE producer exactly like the logging gate.
     tracing::NullTraceSink null_sink{};
-    alignas(Bench_provider) static std::byte bench_storage[sizeof(Bench_provider)];
+    alignas(BenchProvider) static std::byte bench_storage[sizeof(BenchProvider)];
     std::uint64_t bench_core = 1ULL; // fallback: core 0
     std::size_t lo = 64U;            // producer placement (first allowed core)
     std::size_t hi = 0U;             // worker placement (last allowed core)
@@ -53,7 +53,7 @@ void test_latency() {
 
     tracing::TracerProviderConfig bench_config{};
     bench_config.worker_thread.set_cpus(core::CpuSet::from_core_mask(bench_core));
-    auto* bench = new (static_cast<void*>(bench_storage)) Bench_provider(bench_config, null_sink);
+    auto* bench = new (static_cast<void*>(bench_storage)) BenchProvider(bench_config, null_sink);
     NX_CHECK(bench->initialize().has_value());
     const auto bench_tracer = bench->get_tracer("latency");
     NX_CHECK(bench_tracer.has_value());
@@ -235,11 +235,11 @@ void test_latency_report(tracing::TracerProvider<1024, 1>* bench, std::size_t ar
 #if !defined(__x86_64__)
 // Non-x86: accounting-only run (no rdtsc), bounded-time correctness.
 void test_latency_non_x86() {
-    using Bench_provider = tracing::TracerProvider<1024, 1>;
+    using BenchProvider = tracing::TracerProvider<1024, 1>;
     tracing::NullTraceSink null_sink{};
-    alignas(Bench_provider) static std::byte bench_storage[sizeof(Bench_provider)];
+    alignas(BenchProvider) static std::byte bench_storage[sizeof(BenchProvider)];
     auto* bench = new (static_cast<void*>(bench_storage))
-        Bench_provider(tracing::TracerProviderConfig{}, null_sink);
+        BenchProvider(tracing::TracerProviderConfig{}, null_sink);
     NX_CHECK(bench->initialize().has_value());
     const auto bench_tracer = bench->get_tracer("latency");
     NX_CHECK(bench_tracer.has_value());

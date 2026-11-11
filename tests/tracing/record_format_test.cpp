@@ -180,9 +180,9 @@ void test_record_serialization_full() {
     }
     // Wrong-typed readers leave the whole value untouched.
     {
-        tracing::SpanId span_keep{7};
-        tracing::from_json(nlohmann::json(1), span_keep);
-        NX_CHECK(span_keep.value() == 7U);
+        tracing::SpanId span{7};
+        tracing::from_json(nlohmann::json(1), span);
+        NX_CHECK(span.value() == 7U);
         tracing::SpanContext context_keep{};
         context_keep.trace_id = tracing::TraceId{5};
         tracing::from_json(nlohmann::json(1), context_keep);

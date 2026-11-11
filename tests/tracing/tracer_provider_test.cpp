@@ -6,15 +6,15 @@ namespace {
 
 void provider_lifecycle() {
     using Provider = tracing::TracerProvider<64, 32>;
-    using Big_provider = tracing::TracerProvider<1024, 32>;
+    using BigProvider = tracing::TracerProvider<1024, 32>;
 
     // Compile-time shape pins: default footprint is the ~10 MiB one-block
     // budget (design D5) and the object is cache-line aligned (never stack).
-    static_assert(sizeof(Big_provider) > 10 * 1024 * 1024);
-    static_assert(sizeof(Big_provider) % 64 == 0);
-    static_assert(alignof(Big_provider) == 64);
-    static_assert(Big_provider::capacity() == 1024);
-    static_assert(Big_provider::max_threads() == 32);
+    static_assert(sizeof(BigProvider) > 10 * 1024 * 1024);
+    static_assert(sizeof(BigProvider) % 64 == 0);
+    static_assert(alignof(BigProvider) == 64);
+    static_assert(BigProvider::capacity() == 1024);
+    static_assert(BigProvider::max_threads() == 32);
 
     tracing::NullTraceSink null_sink{};
 

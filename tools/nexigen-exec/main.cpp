@@ -212,7 +212,7 @@ void finish_logging() {
     return 0;
 }
 
-struct Start_args {
+struct StartArgs {
     std::string run_id{};
     std::string app_name{};
     std::string instance_id{};
@@ -223,7 +223,7 @@ struct Start_args {
     std::vector<std::string> command{};
 };
 
-struct Stop_args {
+struct StopArgs {
     std::string instance_dir{};
     std::string config{};
     std::string suite_dir{};
@@ -232,7 +232,7 @@ struct Stop_args {
     bool have_dir = false;
 };
 
-struct Status_args {
+struct StatusArgs {
     std::string instance_dir{};
     std::string config{};
     std::string suite_dir{};
@@ -240,42 +240,42 @@ struct Status_args {
     bool json_output = false;
 };
 
-enum class Start_scan { Scanned, Missing_value, Unknown };
+enum class StartScan { Scanned, Missing_value, Unknown };
 
 /// Consume one `--name value` start option. `--timeout` is numeric; every
 /// other option writes a string field. Leaves `index` on the value.
-[[nodiscard]] Start_scan scan_start_value(Start_args& args, std::string_view argument, int argc,
-                                          char* argv[], int& index) {
-    using String_field = std::string Start_args::*;
-    static constexpr std::pair<std::string_view, String_field> string_options[] = {
-        {"--run-id", &Start_args::run_id},
-        {"--app", &Start_args::app_name},
-        {"--instance", &Start_args::instance_id},
-        {"--run-dir", &Start_args::run_dir},
-        {"--instance-dir", &Start_args::instance_dir},
-        {"--config", &Start_args::config},
+[[nodiscard]] StartScan scan_start_value(StartArgs& args, std::string_view argument, int argc,
+                                         char* argv[], int& index) {
+    using StringField = std::string StartArgs::*;
+    static constexpr std::pair<std::string_view, StringField> string_options[] = {
+        {"--run-id", &StartArgs::run_id},
+        {"--app", &StartArgs::app_name},
+        {"--instance", &StartArgs::instance_id},
+        {"--run-dir", &StartArgs::run_dir},
+        {"--instance-dir", &StartArgs::instance_dir},
+        {"--config", &StartArgs::config},
     };
     for (const auto& [name, field] : string_options) {
         if (argument == name) {
             if (index + 1 >= argc) {
-                return Start_scan::Missing_value;
+                return StartScan::Missing_value;
             }
             args.*field = argv[++index];
-            return Start_scan::Scanned;
+            return StartScan::Scanned;
         }
     }
     if (argument == "--timeout") {
         if (index + 1 >= argc || !tools::parse_u64(argv[index + 1], args.timeout_s)) {
-            return Start_scan::Missing_value;
+            return StartScan::Missing_value;
         }
         ++index;
-        return Start_scan::Scanned;
+        return StartScan::Scanned;
     }
-    return Start_scan::Unknown;
+    return StartScan::Unknown;
 }
 
 /// Final start-mode validation (the shared command/--config tail).
-[[nodiscard]] int validate_start_args(const Start_args& args) {
+[[nodiscard]] int validate_start_args(const StartArgs& args) {
     if (args.command.empty() && args.config.empty()) {
         std::fprintf(stderr, "nexigen-exec: missing command or --config\n");
         print_usage(stderr);
@@ -290,7 +290,7 @@ enum class Start_scan { Scanned, Missing_value, Unknown };
 }
 
 /// Parse `start` arguments. nullopt = parsed; a value is the process exit code.
-[[nodiscard]] std::optional<int> parse_start_args(int argc, char* argv[], Start_args& args) {
+[[nodiscard]] std::optional<int> parse_start_args(int argc, char* argv[], StartArgs& args) {
     int index = 2;
     bool command_mode = false;
     while (index < argc) {
@@ -308,12 +308,12 @@ enum class Start_scan { Scanned, Missing_value, Unknown };
             print_usage(stdout);
             return 0;
         }
-        const Start_scan scanned = scan_start_value(args, argument, argc, argv, index);
-        if (scanned == Start_scan::Missing_value) {
+        const StartScan scanned = scan_start_value(args, argument, argc, argv, index);
+        if (scanned == StartScan::Missing_value) {
             print_usage(stderr);
             return exit_usage;
         }
-        if (scanned == Start_scan::Unknown) {
+        if (scanned == StartScan::Unknown) {
             std::fprintf(stderr, "nexigen-exec: unknown option '%s'\n",
                          std::string(argument).c_str());
             print_usage(stderr);
@@ -335,7 +335,7 @@ enum class Start_scan { Scanned, Missing_value, Unknown };
 }
 
 /// Parse `stop` arguments. nullopt = parsed; a value is the process exit code.
-[[nodiscard]] std::optional<int> parse_stop_args(int argc, char* argv[], Stop_args& args) {
+[[nodiscard]] std::optional<int> parse_stop_args(int argc, char* argv[], StopArgs& args) {
     int index = 2;
     while (index < argc) {
         const std::string_view argument{argv[index]};
@@ -384,7 +384,7 @@ enum class Start_scan { Scanned, Missing_value, Unknown };
 }
 
 /// Parse `status` arguments. nullopt = parsed; a value is the process exit code.
-[[nodiscard]] std::optional<int> parse_status_args(int argc, char* argv[], Status_args& args) {
+[[nodiscard]] std::optional<int> parse_status_args(int argc, char* argv[], StatusArgs& args) {
     for (int index = 2; index < argc; ++index) {
         const std::string_view argument{argv[index]};
         if (argument == "--help") {
@@ -458,7 +458,7 @@ enum class Start_scan { Scanned, Missing_value, Unknown };
 }
 
 /// Single-instance start path.
-[[nodiscard]] int start_instance(const Start_args& args) {
+[[nodiscard]] int start_instance(const StartArgs& args) {
     app::RunIdentity identity = app::load_run_identity();
     if (!args.run_id.empty()) {
         identity.run_id = args.run_id;
@@ -486,7 +486,7 @@ enum class Start_scan { Scanned, Missing_value, Unknown };
 }
 
 /// Suite stop path (`--config` or `--suite-dir`).
-[[nodiscard]] int stop_suite_process(const Stop_args& args) {
+[[nodiscard]] int stop_suite_process(const StopArgs& args) {
     std::string target = args.suite_dir;
     CliLogTarget log_target = fallback_log_target();
     if (!args.config.empty()) {
@@ -524,7 +524,7 @@ enum class Start_scan { Scanned, Missing_value, Unknown };
 }
 
 /// Single-instance stop path.
-[[nodiscard]] int stop_instance(const Stop_args& args) {
+[[nodiscard]] int stop_instance(const StopArgs& args) {
     const CliLogTarget log_target = fallback_log_target();
     static_cast<void>(activate_logging(log_target));
     exec::ExecutionManager execution_manager;
@@ -537,7 +537,7 @@ enum class Start_scan { Scanned, Missing_value, Unknown };
 }
 
 /// Suite status path (`--config` or `--suite-dir`).
-[[nodiscard]] int status_suite_process(const Status_args& args) {
+[[nodiscard]] int status_suite_process(const StatusArgs& args) {
     std::string target = args.suite_dir;
     CliLogTarget log_target = fallback_log_target();
     if (!args.config.empty()) {
@@ -582,7 +582,7 @@ enum class Start_scan { Scanned, Missing_value, Unknown };
 }
 
 /// Single-instance status path.
-[[nodiscard]] int status_instance(const Status_args& args) {
+[[nodiscard]] int status_instance(const StatusArgs& args) {
     const CliLogTarget log_target = fallback_log_target();
     static_cast<void>(activate_logging(log_target));
     exec::ExecutionManager execution_manager;
@@ -599,7 +599,7 @@ enum class Start_scan { Scanned, Missing_value, Unknown };
 }
 
 int cmd_start(int argc, char* argv[]) {
-    Start_args args{};
+    StartArgs args{};
     if (const std::optional<int> code = parse_start_args(argc, argv, args)) {
         return *code;
     }
@@ -610,7 +610,7 @@ int cmd_start(int argc, char* argv[]) {
 }
 
 int cmd_stop(int argc, char* argv[]) {
-    Stop_args args{};
+    StopArgs args{};
     if (const std::optional<int> code = parse_stop_args(argc, argv, args)) {
         return *code;
     }
@@ -634,7 +634,7 @@ int cmd_stop(int argc, char* argv[]) {
 }
 
 int cmd_status(int argc, char* argv[]) {
-    Status_args args{};
+    StatusArgs args{};
     if (const std::optional<int> code = parse_status_args(argc, argv, args)) {
         return *code;
     }

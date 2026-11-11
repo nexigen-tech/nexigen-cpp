@@ -48,7 +48,7 @@ void hub_diagnostic(void* context, std::string_view message) noexcept {
     std::fprintf(stderr, "nexigen-hub: %.*s\n", static_cast<int>(message.size()), message.data());
 }
 
-struct Hub_options {
+struct HubOptions {
     std::vector<std::string> run_dirs{};
     std::string listen = "127.0.0.1:8080";
     std::uint64_t ring_records = 4096;
@@ -72,7 +72,7 @@ struct Hub_options {
 }
 
 /// Parse argv. Returns std::nullopt to continue, or the process exit code.
-[[nodiscard]] std::optional<int> parse_hub_args(int argc, char* argv[], Hub_options& options) {
+[[nodiscard]] std::optional<int> parse_hub_args(int argc, char* argv[], HubOptions& options) {
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument{argv[index]};
         if (argument == "--help" || argument == "-h") {
@@ -159,7 +159,7 @@ void warn_if_non_loopback(const std::string& host) {
                  host.c_str());
 }
 
-[[nodiscard]] int run_hub(const Hub_options& options) {
+[[nodiscard]] int run_hub(const HubOptions& options) {
     std::signal(SIGINT, stop_handler);
     std::signal(SIGTERM, stop_handler);
 
@@ -196,7 +196,7 @@ void warn_if_non_loopback(const std::string& host) {
 } // namespace
 
 int main(int argc, char* argv[]) {
-    Hub_options options{};
+    HubOptions options{};
     if (const std::optional<int> code = parse_hub_args(argc, argv, options)) {
         return *code;
     }
