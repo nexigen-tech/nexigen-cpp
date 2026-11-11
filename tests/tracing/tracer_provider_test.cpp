@@ -347,11 +347,11 @@ void provider_stress_fifo() {
     // ShardCapacity 1024 ≥ per-thread span count: drops are impossible by
     // construction, so the assertions check ORDER, not queueing luck.
     {
-        using Stress_provider = tracing::TracerProvider<1024, 32>;
+        using StressProvider = tracing::TracerProvider<1024, 32>;
         RecordingSink sink{};
-        alignas(Stress_provider) static std::byte storage[sizeof(Stress_provider)];
-        auto* provider = new (static_cast<void*>(storage))
-            Stress_provider(tracing::TracerProviderConfig{}, sink);
+        alignas(StressProvider) static std::byte storage[sizeof(StressProvider)];
+        auto* provider =
+            new (static_cast<void*>(storage)) StressProvider(tracing::TracerProviderConfig{}, sink);
         NX_CHECK(provider->initialize().has_value());
         const auto tracer = provider->get_tracer("stress");
         NX_CHECK(tracer.has_value());

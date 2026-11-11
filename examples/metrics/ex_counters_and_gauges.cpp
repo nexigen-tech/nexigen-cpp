@@ -63,7 +63,7 @@ void expect(bool condition, const char* what) {
 
 /// Sink that prints harvested batches and remembers the records it saw, so
 /// the example can verify what the provider harvested (design D5).
-class Capture_sink {
+class CaptureSink {
 public:
     [[nodiscard]] core::Status on_batch(const metrics::MetricBatchSnapshot& batch) noexcept {
         for (std::uint32_t i = 0; i < batch.record_count; ++i) {
@@ -179,7 +179,7 @@ bool step_multi_threaded(metrics::Meter& meter) {
 /// (3) Readable vs WriteOnly: only the provider harvest observes a WriteOnly
 /// instrument, Readable code reads and snapshots directly.
 bool step_access_policies(metrics::Meter& meter, metrics::MetricProvider& provider,
-                          Capture_sink& capture) {
+                          CaptureSink& capture) {
     std::printf("== Readable vs WriteOnly ==\n");
     const auto readable = meter.create_counter<MT, Readable, Cumulative>("visible");
     const auto write_only = meter.create_counter<MT, WriteOnly, Cumulative>("hot_events");
@@ -270,7 +270,7 @@ void step_diagnostics(const std::string& counter_text, const std::string& gauge_
 int main() {
     // (0) Setup: no background thread; one sink that remembers harvested
     // records so the WriteOnly scenario can be checked.
-    Capture_sink capture;
+    CaptureSink capture;
     metrics::MetricProviderConfig config{};
     config.collect_interval = std::chrono::nanoseconds{0}; // no background thread
     metrics::MetricProvider provider{config, capture};

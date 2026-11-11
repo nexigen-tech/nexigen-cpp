@@ -376,6 +376,15 @@ if(NEXIGEN_COMPLEXITY_PYTHON)
                 "${PROJECT_SOURCE_DIR}/tools")
     set_tests_properties(nexigen_complexity_gate PROPERTIES
         SKIP_RETURN_CODE 77 LABELS "quality" TIMEOUT 300)
+
+    # Regression self-tests for the lint guards (change
+    # fix-naming-guard-digit-separators): an apostrophe digit separator must not
+    # hide a following violation from the literal stripper.
+    add_test(NAME nexigen_lint_guard_selftest
+        COMMAND bash -c
+                "\"${NEXIGEN_COMPLEXITY_PYTHON}\" \"${PROJECT_SOURCE_DIR}/cmake/check_naming.py\" --self-test && \"${NEXIGEN_COMPLEXITY_PYTHON}\" \"${PROJECT_SOURCE_DIR}/cmake/check_result_value.py\" --self-test")
+    set_tests_properties(nexigen_lint_guard_selftest PROPERTIES
+        LABELS "quality" TIMEOUT 120)
 else()
     message(WARNING "nexigen_complexity_gate not registered — python3 not found")
 endif()

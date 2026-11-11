@@ -75,6 +75,20 @@ def tracked_sources(root: Path) -> list[Path]:
     ]
 
 
+HEX_DIGITS = "0123456789abcdefABCDEF"
+
+
+def is_digit_separator(text: str, index: int) -> bool:
+    """True for a C++14 digit separator (``1'000``, ``0xA'B``).
+
+    The apostrophe is only a separator when it sits between two hex digits;
+    everything else (``'x'``, ``L'x'``) is a character literal.
+    """
+    if index == 0 or index + 1 >= len(text):
+        return False
+    return text[index - 1] in HEX_DIGITS and text[index + 1] in HEX_DIGITS
+
+
 def blank_literals_and_comments(text: str) -> str:
     """Replace comments and literals with spaces while preserving newlines."""
     out = list(text)
@@ -114,6 +128,10 @@ def blank_literals_and_comments(text: str) -> str:
                 index = end
                 continue
 
+        if char == "'" and is_digit_separator(text, index):
+            index += 1
+            continue
+
         if char in {'"', "'"}:
             quote = char
             position = index + 1
@@ -135,6 +153,23 @@ def blank_literals_and_comments(text: str) -> str:
     return "".join(out)
 
 
+def find_in_text(text: str) -> list[tuple[int, str]]:
+    """(line, name) for every snake_case declaration in one source text."""
+    stripped = blank_literals_and_comments(text)
+    original_lines = text.splitlines()
+    found: list[tuple[int, str]] = []
+    for pattern in (TYPE_DECL, ALIAS_DECL):
+        for match in pattern.finditer(stripped):
+            line_number = stripped.count("\n", 0, match.start()) + 1
+            original = (
+                original_lines[line_number - 1] if line_number - 1 < len(original_lines) else ""
+            )
+            if "NX_ALLOW_NAMING" in original:
+                continue
+            found.append((line_number, match.group(len(match.groups()))))
+    return found
+
+
 def scan(root: Path) -> list[tuple[str, int, str]]:
     violations: list[tuple[str, int, str]] = []
     for path in tracked_sources(root):
@@ -142,25 +177,39 @@ def scan(root: Path) -> list[tuple[str, int, str]]:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        stripped = blank_literals_and_comments(text)
-        original_lines = text.splitlines()
-        for pattern in (TYPE_DECL, ALIAS_DECL):
-            for match in pattern.finditer(stripped):
-                line_number = stripped.count("\n", 0, match.start()) + 1
-                original = (
-                    original_lines[line_number - 1]
-                    if line_number - 1 < len(original_lines)
-                    else ""
-                )
-                if "NX_ALLOW_NAMING" in original:
-                    continue
-                name = match.group(len(match.groups()))
-                try:
-                    relative = path.relative_to(root)
-                except ValueError:
-                    relative = path
-                violations.append((str(relative), line_number, name))
+        try:
+            relative = path.relative_to(root)
+        except ValueError:
+            relative = path
+        for line_number, name in find_in_text(text):
+            violations.append((str(relative), line_number, name))
     return violations
+
+
+SELF_TEST_FIXTURES: list[tuple[str, list[str]]] = [
+    # A digit separator must not hide the declaration after it.
+    ("constexpr int k = 250'000;\nstruct Bad_name {};\n", ["Bad_name"]),
+    ("constexpr int k = 0xA'B;\nstruct Also_bad {};\n", ["Also_bad"]),
+    # Literal and comment contents stay invisible.
+    ('// struct In_comment {};\nconst char* s = "struct In_string {};";\n', []),
+    # Prefixed character literals are not digit separators.
+    ("int f(char c) { return c == L'x' ? 1 : 0; }\nstruct Good {};\n", []),
+    # A plain violation is still reported.
+    ("struct Plain_bad {};\n", ["Plain_bad"]),
+]
+
+
+def self_test() -> int:
+    failures = 0
+    for source, expected in SELF_TEST_FIXTURES:
+        found = sorted(name for _, name in find_in_text(source))
+        if found != expected:
+            failures += 1
+            print(f"self-test FAIL: expected {expected}, got {found} in {source!r}")
+    if failures:
+        return 1
+    print("naming guard self-test: ok (digit separators, literals, comments, prefixed literals)")
+    return 0
 
 
 def main() -> int:
@@ -170,7 +219,14 @@ def main() -> int:
         default=".",
         help="repository root to scan (default: current directory)",
     )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="run the embedded fixtures instead of scanning a tree",
+    )
     args = parser.parse_args()
+    if args.self_test:
+        return self_test()
     root = Path(args.root).resolve()
     violations = scan(root)
     if not violations:
