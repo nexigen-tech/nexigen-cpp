@@ -256,7 +256,7 @@ int run_session(const logging::LogDaemonConfig& cfg) {
     Sink sink{};
     sink.fd = open_log_file(cfg.log_directory, utc_offset_ns);
 
-    auto ws = com::WaitSet::create();
+    auto ws = com::WaitSet::create_without_signal_handling();
     if (!ws) {
         std::fprintf(stderr, "nexigen-logd: failed to create WaitSet\n");
         return 1;

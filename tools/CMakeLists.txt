@@ -61,6 +61,14 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_logd_hostile_config PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
+    # Lifecycle: SIGTERM must take the graceful path (spec logging/log-daemon,
+    # "Flush empties the buffer on shutdown").
+    add_test(NAME nexigen_logd_smoke
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-logd/smoke_test.sh
+                $<TARGET_FILE:nexigen-logd>)
+    set_tests_properties(nexigen_logd_smoke PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
     # nexigen-metricsd — Metrics Daemon (change add-metrics-daemon).
     add_executable(nexigen-metricsd nexigen-metricsd/main.cpp)
     target_link_libraries(nexigen-metricsd PRIVATE nexigen_metrics_com Threads::Threads)
