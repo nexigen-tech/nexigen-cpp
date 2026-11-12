@@ -708,6 +708,15 @@ brings `nexigen_core` and `nexigen_chrono` transitively.
 * **Sinks** — `ConsoleTraceSink` (one line per span), `JsonFileTraceSink`
   (JSONL with UTC ISO-8601 stamps), `ChromeTraceSink` (Perfetto-loadable JSON),
   `CompositeTraceSink<Sinks...>` (fan-out), and `NullTraceSink`.
+* **Cross-process transport** — `Iceoryx2TraceSink` publishes one 384-byte
+  pointer-free `SpanFrame` per span over iceoryx2; link `nexigen::tracing_com`
+  (only available with `NEXIGEN_ENABLE_COM=ON`). The frame carries the publisher
+  identity (`app_id`, `pid`, `sequence`, `publish_ts_ns`) and `version` inline,
+  source locations as pinned FNV-1a hashes (a 64-entry memo cache avoids
+  rehashing repeated call sites), and up to four attributes. Delivery is
+  `DiscardData` with counted drops; consumers drain by interval (no per-span
+  event) and detect gaps from the sequence. Release x86-64 gates `on_span` at a
+  400 ns median.
 
 ```cpp
 #include <nexigen/tracing/console_trace_sink.hpp>

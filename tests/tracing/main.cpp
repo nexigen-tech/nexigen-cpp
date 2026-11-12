@@ -7,6 +7,7 @@ void suite_span_enums();
 void suite_ids_and_context();
 void suite_attributes();
 void suite_span_record();
+void suite_span_frame();
 void suite_parent_stack();
 void suite_concepts();
 void suite_scoped_span();
@@ -26,6 +27,7 @@ int main() {
     suite_ids_and_context();
     suite_attributes();
     suite_span_record();
+    suite_span_frame();
     suite_parent_stack();
     suite_concepts();
     suite_scoped_span();

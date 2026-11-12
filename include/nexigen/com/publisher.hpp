@@ -148,6 +148,14 @@ public:
         return {};
     }
 
+    /// Cumulative receiver-eviction count (relaxed; diagnostic/telemetry
+    /// only, never a control-flow decision). A publisher compares snapshots
+    /// around one send to learn that a receiver's queue was full under the
+    /// DiscardData policy; `send()` still succeeds in that case.
+    [[nodiscard]] std::uint64_t lost_samples() const noexcept {
+        return telemetry_.lost_samples_.load(std::memory_order_relaxed);
+    }
+
     /// Cold-path diagnostic (mandate 9): the service name and the telemetry.
     [[nodiscard]] std::string to_string() const {
         return std::format("Publisher(service={}, sent={}, queued={}, lost={})",

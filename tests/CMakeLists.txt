@@ -104,6 +104,7 @@ add_executable(nexigen_tracing_tests
     tracing/span_context_test.cpp
     tracing/attributes_test.cpp
     tracing/span_record_test.cpp
+    tracing/span_frame_test.cpp
     tracing/tracer_concept_test.cpp
     tracing/sinks_test.cpp
     tracing/scoped_span_test.cpp
@@ -242,6 +243,22 @@ if(NEXIGEN_ENABLE_COM)
 
     add_test(NAME nexigen_trace_roundtrip_tests COMMAND nexigen_trace_roundtrip_tests)
     set_tests_properties(nexigen_trace_roundtrip_tests PROPERTIES TIMEOUT 600)
+
+    # Юнит-тесты nexigen::tracing::Iceoryx2TraceSink (change
+    # add-iceoryx2-trace-sink): round-trip, memo cache, overflow/sequence,
+    # allocation freedom and the 400 ns on_span latency gate.
+    add_executable(nexigen_tracing_com_tests
+        tracing/iceoryx2_trace_sink_test.cpp
+        tracing/tracing_test_support.cpp)
+    target_link_libraries(nexigen_tracing_com_tests PRIVATE
+        nexigen_tracing_com Threads::Threads)
+    if(NEXIGEN_STRICT_LATENCY_TESTS)
+        target_compile_definitions(nexigen_tracing_com_tests PRIVATE
+            $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:NEXIGEN_TRACING_STRICT_LATENCY>)
+    endif()
+
+    add_test(NAME nexigen_tracing_com_tests COMMAND nexigen_tracing_com_tests)
+    set_tests_properties(nexigen_tracing_com_tests PROPERTIES TIMEOUT 600)
 
     # Юнит-тесты nexigen::logging::Iceoryx2Logger (change add-iceoryx2-logger).
     add_executable(nexigen_logging_com_tests logging/iceoryx2_logger_test.cpp)

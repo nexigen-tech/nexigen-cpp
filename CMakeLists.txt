@@ -487,6 +487,17 @@ if(NEXIGEN_ENABLE_COM)
         $<INSTALL_INTERFACE:include>
     )
     target_link_libraries(nexigen_metrics_com INTERFACE nexigen_metrics nexigen_com)
+
+    # nexigen::tracing_com — Iceoryx2TraceSink (change add-iceoryx2-trace-sink):
+    # header-only span sink поверх nexigen::com. Гейт отдельным INTERFACE-
+    # таргетом, ядро nexigen_tracing остаётся свободным от iceoryx2.
+    add_library(nexigen_tracing_com INTERFACE)
+    add_library(nexigen::tracing_com ALIAS nexigen_tracing_com)
+    target_include_directories(nexigen_tracing_com INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_link_libraries(nexigen_tracing_com INTERFACE nexigen_tracing nexigen_com)
 endif()
 
 # =============================================================================
