@@ -6,6 +6,13 @@ add_test(NAME nexigen_core_tests COMMAND nexigen_core_tests)
 # Поднять таймаут: 1M-элементный стресс-тест медленно работает под TSan.
 set_tests_properties(nexigen_core_tests PROPERTIES TIMEOUT 600)
 
+# WorkerThread + ThreadSpec fallback (change add-worker-thread).
+add_executable(nexigen_core_worker_thread_tests core/worker_thread_test.cpp)
+target_link_libraries(nexigen_core_worker_thread_tests PRIVATE nexigen_core Threads::Threads)
+
+add_test(NAME nexigen_core_worker_thread_tests COMMAND nexigen_core_worker_thread_tests)
+set_tests_properties(nexigen_core_worker_thread_tests PROPERTIES TIMEOUT 120)
+
 # Negative-compile probe (dedup-sink-plumbing, spec core/sink-plumbing):
 # probe TU должен НЕ собраться — static_assert'ы пака обязаны сработать.
 # SCR-файл намеренно вне таргетов (см. tests/core/neg/).

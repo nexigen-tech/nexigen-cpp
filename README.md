@@ -222,6 +222,16 @@ Header-only, C++23, no exceptions/RTTI, no heap allocation on hot paths. Link th
   `ThreadApplyReport`; required failures roll back, best-effort failures remain visible.
   See [`docs/thread-management.md`](docs/thread-management.md) for the full
   configuration and diagnostics guide.
+* **`<nexigen/core/worker_thread.hpp>`** — `WorkerThread<Body>`, the one owner for a
+  background `std::jthread`: it validates and self-applies a `ThreadSpec` before
+  any body hook, publishes `ready`/`start_code`/`report`/`mask`, returns the
+  `Required` attribute error and joins on failure, and requests stop + joins on
+  destruction. The body is stored inline (no `std::function`): optional
+  `on_start() -> Status` then required `run(std::stop_token)`. Declare the worker
+  **last** in its owner. `ThreadSpec::has_requests()` and
+  `effective_thread_spec(primary, fallback)` select a daemon fallback for an empty
+  per-thread spec; `probe_thread_spec(spec)` checks a spec on a one-shot thread
+  without touching the caller.
 * **`<nexigen/core/affinity.hpp>`** — `core::affinity::pin_self`/`self_affinity`, the
   compatibility uint64-core-mask thread-affinity surface for observability modules
   (calling-thread-only semantics: pin the worker as its first act; zero mask →

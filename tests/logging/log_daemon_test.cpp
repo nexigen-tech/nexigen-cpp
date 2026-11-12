@@ -15,6 +15,9 @@
 #include <nexigen/com/waitset.hpp>
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/iceoryx2_logger.hpp>
+#include <nexigen/logging/log_daemon_config.hpp>
+
+#include <type_traits>
 #include <nexigen/logging/log_frame.hpp>
 
 namespace com = nexigen::com;
@@ -41,6 +44,42 @@ void run_suite(const char* name, void (*body)()) {
 template <class L> void wait_writer(L& l) {
     for (int i = 0; i < 5000 && !l.writer_started(); ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
+}
+
+void test_config_compatibility() {
+    static_assert(std::is_aggregate_v<logging::LogDaemonConfig>);
+    // Legacy positional initialization (pre-main_thread member order) still
+    // compiles because main_thread is appended last.
+    [[maybe_unused]] logging::LogDaemonConfig positional{
+        std::string{"svc"},      std::string{"/tmp"}, std::uint64_t{20}, std::uint32_t{5},
+        core::LogLevel::Warning, core::CpuSet{},      std::uint32_t{500}};
+}
+
+void test_config_thread_fields() {
+    logging::LogDaemonConfig config{};
+    NX_CHECK(config.main_thread.set_name("logd-main").has_value());
+    config.main_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(1ULL));
+    config.bg_cpu_affinity = nexigen::core::CpuSet::from_core_mask(0b10ULL);
+
+    const nlohmann::json json = config;
+    logging::LogDaemonConfig parsed{};
+    logging::from_json(json, parsed);
+    NX_CHECK(parsed.main_thread == config.main_thread);
+    NX_CHECK(parsed.bg_cpu_affinity == config.bg_cpu_affinity);
+    NX_CHECK(parsed.to_string().find("main_thread") != std::string::npos);
+
+    // Effective spec: explicit main wins; empty main inherits legacy bg.
+    NX_CHECK(logging::effective_main_thread_spec(config) == config.main_thread);
+    logging::LogDaemonConfig legacy_affinity{};
+    legacy_affinity.bg_cpu_affinity = nexigen::core::CpuSet::from_core_mask(0b10ULL);
+    const nexigen::core::ThreadSpec inherited =
+        logging::effective_main_thread_spec(legacy_affinity);
+    NX_CHECK(inherited.cpus() == legacy_affinity.bg_cpu_affinity);
+    NX_CHECK(!inherited.has_requests() == false);
+
+    logging::LogDaemonConfig legacy{};
+    logging::from_json(nlohmann::json{{"service_name", "Nexigen/Test/Legacy"}}, legacy);
+    NX_CHECK(!legacy.main_thread.has_requests());
 }
 
 void test_e2e() {
@@ -101,6 +140,8 @@ void test_e2e() {
 } // namespace
 
 int main() {
+    run_suite("config_compat", test_config_compatibility);
+    run_suite("config", test_config_thread_fields);
     run_suite("e2e", test_e2e);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

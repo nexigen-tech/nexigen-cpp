@@ -26,6 +26,7 @@
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
+#include <nexigen/core/worker_thread.hpp>
 
 namespace nexigen::chrono {
 
@@ -63,30 +64,14 @@ public:
         if (worker_.joinable()) {
             return {};
         }
-        if (config_.collect_interval > std::chrono::nanoseconds{0}) {
-            const core::Status valid_thread = config_.worker_thread.validate();
-            if (!valid_thread) {
-                return valid_thread;
-            }
-            startup_published_.store(false, std::memory_order_relaxed);
-            worker_ = std::jthread([this](std::stop_token stop) { snapshot_loop(stop); });
-            if (config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
-                while (!startup_published_.load(std::memory_order_acquire)) {
-                    std::this_thread::yield();
-                }
-                const core::ErrorCode attribute_error = worker_thread_report_.first_error();
-                if (attribute_error != core::ErrorCode::Ok) {
-                    worker_.request_stop();
-                    {
-                        std::lock_guard<std::mutex> lock(wake_mutex_);
-                        wake_cv_.notify_all();
-                    }
-                    worker_.join();
-                    return std::unexpected(attribute_error);
-                }
-            }
+        if (config_.collect_interval <= std::chrono::nanoseconds{0}) {
+            return {};
         }
-        return {};
+        const core::Status valid_thread = config_.worker_thread.validate();
+        if (!valid_thread) {
+            return valid_thread;
+        }
+        return worker_.start(config_.worker_thread, Body{this});
     }
 
     /// Bind a logger and start the background worker. The logger MUST outlive
@@ -107,7 +92,7 @@ public:
 
     /// Result of the worker's startup steps (affinity pinning).
     [[nodiscard]] core::Status startup_status() const noexcept {
-        const core::ErrorCode error = startup_error_.load(std::memory_order_acquire);
+        const core::ErrorCode error = worker_.start_code();
         if (error != core::ErrorCode::Ok) {
             return std::unexpected(error);
         }
@@ -115,13 +100,10 @@ public:
     }
 
     /// The post-pin affinity mask as the worker observed it (0 before start).
-    [[nodiscard]] std::uint64_t worker_mask() const noexcept {
-        return worker_mask_.load(std::memory_order_relaxed);
-    }
+    [[nodiscard]] std::uint64_t worker_mask() const noexcept { return worker_.mask(); }
 
     [[nodiscard]] const core::ThreadApplyReport& worker_thread_report() const noexcept {
-        static_cast<void>(startup_published_.load(std::memory_order_acquire));
-        return worker_thread_report_;
+        return worker_.report();
     }
 
     /// Cold-path diagnostic (mandate 9).
@@ -129,27 +111,12 @@ public:
         return std::format("ChronoWorker(collect_interval_ns={}, worker_thread={}, "
                            "worker_mask=0x{:x}, startup_error={})",
                            config_.collect_interval.count(), config_.worker_thread.to_string(),
-                           worker_mask(),
-                           core::to_string(startup_error_.load(std::memory_order_acquire)));
+                           worker_mask(), core::to_string(worker_.start_code()));
     }
 
 private:
     /// Background snapshot worker body.
     void snapshot_loop(std::stop_token stop) noexcept {
-        const core::Status attributes =
-            core::apply_thread_spec_self(config_.worker_thread, worker_thread_report_);
-        startup_error_.store(worker_thread_report_.first_error(), std::memory_order_relaxed);
-        startup_published_.store(true, std::memory_order_release);
-        if (!attributes && config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
-            return;
-        }
-        if (worker_thread_report_.first_error() != core::ErrorCode::Ok) {
-            log(core::LogLevel::Warning, "chrono worker: thread attribute application failed");
-        }
-        std::uint64_t mask = 0;
-        if (detail::self_affinity(mask)) {
-            worker_mask_.store(mask, std::memory_order_relaxed);
-        }
         log(core::LogLevel::Info, "chrono worker started");
 
         auto next = std::chrono::steady_clock::now() + config_.collect_interval;
@@ -181,20 +148,18 @@ private:
         }
     }
 
+    struct Body {
+        ChronoWorker* self{nullptr};
+        void run(std::stop_token stop) noexcept { self->snapshot_loop(stop); }
+    };
+
     P& provider_;
     ProviderConfig config_{};
     detail::LogBinding log_binding_{};
-
-    std::jthread worker_{};
     std::mutex wake_mutex_{};
     std::condition_variable_any wake_cv_{};
 
-    // Cache-line-separated so the control plane never false-shares with the
-    // worker's hot cells (mandate 5).
-    alignas(64) std::atomic<std::uint64_t> worker_mask_{0};
-    alignas(64) std::atomic<core::ErrorCode> startup_error_{core::ErrorCode::Ok};
-    core::ThreadApplyReport worker_thread_report_{};
-    std::atomic<bool> startup_published_{false};
+    core::WorkerThread<Body> worker_{}; ///< LAST member: joins before the provider
 };
 
 } // namespace nexigen::chrono

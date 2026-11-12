@@ -61,7 +61,9 @@ std::string SmManifest::to_string() const {
         }
         out += function_groups[i].name;
     }
-    out += "], metrics_flush_interval_ms=" + std::to_string(metrics_flush_interval_ms) + ")";
+    out += "], metrics_flush_interval_ms=" + std::to_string(metrics_flush_interval_ms);
+    out += ", bg_thread=" + bg_thread.to_string();
+    out += ", audit_thread=" + audit_thread.to_string() + ")";
     return out;
 }
 
@@ -117,7 +119,9 @@ void to_json(nlohmann::json& j, const SmManifest& manifest) {
     j = nlohmann::json{{"function_groups", std::move(groups)},
                        {"requester_priorities", std::move(priorities)},
                        {"metrics_flush_interval_ms", manifest.metrics_flush_interval_ms},
-                       {"startup_timeout_ms", manifest.startup_timeout_ms}};
+                       {"startup_timeout_ms", manifest.startup_timeout_ms},
+                       {"bg_thread", manifest.bg_thread},
+                       {"audit_thread", manifest.audit_thread}};
 }
 
 void from_json(const nlohmann::json& j, AllowedTransition& transition) noexcept {
@@ -173,6 +177,12 @@ void from_json(const nlohmann::json& j, SmManifest& manifest) noexcept {
     }
     read_uint(j, "metrics_flush_interval_ms", manifest.metrics_flush_interval_ms);
     read_uint(j, "startup_timeout_ms", manifest.startup_timeout_ms);
+    if (const auto bg = j.find("bg_thread"); bg != j.end()) {
+        from_json(*bg, manifest.bg_thread);
+    }
+    if (const auto audit = j.find("audit_thread"); audit != j.end()) {
+        from_json(*audit, manifest.audit_thread);
+    }
     const auto groups = j.find("function_groups");
     if (groups != j.end() && groups->is_array()) {
         std::vector<FunctionGroup> parsed;

@@ -90,7 +90,8 @@ std::string PhmManifest::to_string() const {
         }
         out += processes[i].name;
     }
-    out += "])";
+    out += "], bg_thread=" + bg_thread.to_string();
+    out += ", fault_storage_thread=" + fault_storage_thread.to_string() + ")";
     return out;
 }
 
@@ -154,7 +155,9 @@ void to_json(nlohmann::json& j, const PhmManifest& manifest) {
         to_json(p, process);
         processes.push_back(std::move(p));
     }
-    j = nlohmann::json{{"processes", std::move(processes)}};
+    j = nlohmann::json{{"processes", std::move(processes)},
+                       {"bg_thread", manifest.bg_thread},
+                       {"fault_storage_thread", manifest.fault_storage_thread}};
 }
 
 void from_json(const nlohmann::json& j, CheckpointTransition& transition) noexcept {
@@ -212,6 +215,13 @@ void from_json(const nlohmann::json& j, PhmManifest& manifest) noexcept {
             from_json(item, process);
             return true;
         }));
+    core::detail::read_object(j, "bg_thread", [&manifest](const nlohmann::json& value) noexcept {
+        from_json(value, manifest.bg_thread);
+    });
+    core::detail::read_object(j, "fault_storage_thread",
+                              [&manifest](const nlohmann::json& value) noexcept {
+                                  from_json(value, manifest.fault_storage_thread);
+                              });
 }
 
 } // namespace nexigen::phm

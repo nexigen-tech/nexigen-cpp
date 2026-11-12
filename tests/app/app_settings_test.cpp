@@ -2,6 +2,8 @@
 
 #include "app_test_support.hpp"
 
+#include <type_traits>
+
 void test_settings_loaders() {
     EnvGuard interval_env{"NEXIGEN_METRICS_COLLECT_INTERVAL_NS"};
     EnvGuard metrics_mask_env{"NEXIGEN_METRICS_CORE_MASK"};
@@ -530,9 +532,14 @@ void test_app_settings_full_coverage() {
     NX_CHECK(std::format("{}", path_texts).find("g-tra") != std::string::npos);
     NX_CHECK(aggregate.to_string().find("Settings") != std::string::npos);
     NX_CHECK(std::format("{}", aggregate).find("Settings") != std::string::npos);
+    NX_CHECK(aggregate.signal_thread.set_name("sig").has_value());
+    aggregate.signal_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(1ULL));
+    NX_CHECK(aggregate.to_string().find("signal_thread") != std::string::npos);
     nlohmann::json json;
     app::to_json(json, aggregate);
     NX_CHECK(json.contains("logging") && json.contains("metrics") && json.contains("tracing"));
+    NX_CHECK(json["signal_thread"]["name"] == "sig");
+    NX_CHECK(json["signal_thread"]["cpus"][0] == 0U);
     app::to_json(json, path_texts);
     NX_CHECK(json["metrics"]["global_file"] == "g-met");
 
@@ -550,8 +557,19 @@ void test_app_settings_full_coverage() {
     static_cast<void>(std::remove(tracing_local.c_str()));
 }
 
+void test_settings_compatibility() {
+    static_assert(std::is_aggregate_v<app::Settings>);
+    // Legacy positional initialization (pre-signal_thread member order) still
+    // compiles because the new field is appended last.
+    [[maybe_unused]] app::Settings positional{
+        std::string{"legacy"}, nexigen::logging::Settings{}, nexigen::metrics::Settings{},
+        nexigen::tracing::Settings{}, nexigen::chrono::Settings{}};
+    NX_CHECK(app::Settings::create("svc").app_name == "svc");
+}
+
 void run_app_settings_suites() {
     run_suite("settings", test_settings_loaders);
     run_suite("settings_sink", test_settings_sink);
     run_suite("settings_full", test_app_settings_full_coverage);
+    run_suite("settings_compat", test_settings_compatibility);
 }

@@ -46,6 +46,18 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_sm_hostile_config PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
+    add_test(NAME nexigen_phmd_required_spec
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-phmd/required_spec_test.sh
+                $<TARGET_FILE:nexigen-phmd>)
+    set_tests_properties(nexigen_phmd_required_spec PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
+    add_test(NAME nexigen_sm_required_spec
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-sm/required_spec_test.sh
+                $<TARGET_FILE:nexigen-sm>)
+    set_tests_properties(nexigen_sm_required_spec PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
     # nexigen-logd — Log Daemon (change add-log-daemon).
     add_executable(nexigen-logd nexigen-logd/main.cpp)
     target_link_libraries(nexigen-logd PRIVATE nexigen_logging nexigen_com Threads::Threads)
@@ -67,6 +79,12 @@ if(NEXIGEN_ENABLE_COM)
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-logd/smoke_test.sh
                 $<TARGET_FILE:nexigen-logd>)
     set_tests_properties(nexigen_logd_smoke PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
+    add_test(NAME nexigen_logd_required_spec
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-logd/required_spec_test.sh
+                $<TARGET_FILE:nexigen-logd>)
+    set_tests_properties(nexigen_logd_required_spec PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
     # nexigen-metricsd — Metrics Daemon (change add-metrics-daemon).

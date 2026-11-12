@@ -35,10 +35,11 @@
 #include <nexigen/com/waitset.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
+#include <nexigen/core/worker_thread.hpp>
 #include <nexigen/metrics/detail/exposition_buffer.hpp>
 #include <nexigen/metrics/detail/history_writer.hpp>
 #include <nexigen/metrics/detail/metric_aggregator.hpp>
-#include <nexigen/metrics/detail/metric_http_server.hpp>
+#include <nexigen/metrics/detail/http_front.hpp>
 #include <nexigen/metrics/metric_daemon_config.hpp>
 #include <nexigen/metrics/metric_frame.hpp>
 
@@ -48,6 +49,10 @@ namespace core = nexigen::core;
 namespace chrono = nexigen::chrono;
 
 namespace {
+
+using metrics::detail::HttpFront;
+using metrics::detail::start_http;
+using metrics::detail::stop_http;
 
 std::atomic<bool> g_stop{false};
 void signal_handler(int) {
@@ -116,37 +121,6 @@ struct Window {
         count = 0U;
     }
 };
-
-/// HTTP scrape front end: the server, its stop flag and its serving thread.
-struct HttpFront {
-    metrics::detail::MetricHttpServer server{};
-    std::atomic<bool> stop{false};
-    std::jthread thread{};
-};
-
-bool start_http(HttpFront& front, const metrics::MetricDaemonConfig& cfg,
-                const metrics::detail::ExpositionBuffer& exposition) {
-    if (!cfg.enable_http) {
-        return true;
-    }
-    if (!front.server.start(cfg.bind_address, cfg.port, cfg.endpoint)) {
-        std::fprintf(stderr, "nexigen-metricsd: cannot bind %s:%u%s\n", cfg.bind_address.c_str(),
-                     static_cast<unsigned>(cfg.port), cfg.endpoint.c_str());
-        return false;
-    }
-    auto& server = front.server;
-    auto& stop = front.stop;
-    front.thread = std::jthread([&server, &stop, &exposition] { server.serve(stop, exposition); });
-    return true;
-}
-
-void stop_http(HttpFront& front) {
-    front.stop.store(true, std::memory_order_relaxed);
-    if (front.thread.joinable()) {
-        front.thread.join();
-    }
-    front.server.stop_listen();
-}
 
 /// Flush/render cadence: the configured interval, or 500 ms when unset.
 std::chrono::milliseconds flush_interval_of(const metrics::MetricDaemonConfig& cfg) {

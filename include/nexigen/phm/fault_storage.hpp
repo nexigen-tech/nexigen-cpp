@@ -12,10 +12,10 @@
 #include <cstdio>
 #include <format>
 #include <string>
-#include <thread>
 #include <utility>
 
 #include <nexigen/core/spsc_ring_buffer.hpp>
+#include <nexigen/core/worker_thread.hpp>
 #include <nexigen/phm/fault_kind.hpp>
 
 namespace nexigen::phm {
@@ -45,8 +45,8 @@ struct FaultRecord {
 class FaultStorage {
 public:
     /// Open (or append to) the fault log at `path` and start the storage
-    /// thread.
-    explicit FaultStorage(std::string path);
+    /// thread with the effective ThreadSpec (empty = inherited attributes).
+    explicit FaultStorage(std::string path, core::ThreadSpec spec = {});
 
     /// Stop the storage thread, flush what is queued, and close the log.
     ~FaultStorage();
@@ -69,6 +69,18 @@ public:
         return dropped_.load(std::memory_order_relaxed);
     }
 
+    /// Thread-attribute application result (Ok when the worker started).
+    [[nodiscard]] core::Status startup_status() const noexcept {
+        const core::ErrorCode error = worker_.start_code();
+        return error == core::ErrorCode::Ok ? core::Status{} : core::Status{std::unexpected(error)};
+    }
+
+    [[nodiscard]] bool thread_ready() const noexcept { return worker_.ready(); }
+    [[nodiscard]] std::uint64_t thread_mask() const noexcept { return worker_.mask(); }
+    [[nodiscard]] const core::ThreadApplyReport& thread_report() const noexcept {
+        return worker_.report();
+    }
+
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
         return std::format("FaultStorage(path={}, recorded={}, dropped={})", path_, recorded(),
@@ -76,15 +88,19 @@ public:
     }
 
 private:
-    void worker_loop() noexcept;
+    void worker_loop(std::stop_token stop) noexcept;
+
+    struct Body {
+        FaultStorage* self{nullptr};
+        void run(std::stop_token stop) noexcept { self->worker_loop(stop); }
+    };
 
     std::string path_;
     std::FILE* file_{nullptr};
     core::SpscRingBuffer<FaultRecord, 1024> queue_;
-    std::atomic<bool> shutdown_{false};
     std::atomic<std::uint64_t> recorded_{0};
     std::atomic<std::uint64_t> dropped_{0};
-    std::thread worker_;
+    core::WorkerThread<Body> worker_; ///< LAST member: joins before file_ closes
 };
 
 /// Free helper (mandate 9): mirrors the member.

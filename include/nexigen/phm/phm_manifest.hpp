@@ -16,6 +16,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/phm/recovery_action.hpp>
 
 namespace nexigen::phm {
@@ -66,6 +67,8 @@ struct SupervisedProcess {
 /// The health-logic manifest the daemon loads at startup.
 struct PhmManifest {
     std::vector<SupervisedProcess> processes{};
+    core::ThreadSpec bg_thread{};            ///< fallback for infrastructure threads
+    core::ThreadSpec fault_storage_thread{}; ///< fault-log writer spec
 
     /// Cold-path diagnostic (mandate 9): lists the supervised processes.
     [[nodiscard]] std::string to_string() const;

@@ -5,16 +5,13 @@
 
 namespace nexigen::sm {
 
-TransitionAudit::TransitionAudit(std::string path) : path_(std::move(path)) {
+TransitionAudit::TransitionAudit(std::string path, core::ThreadSpec spec) : path_(std::move(path)) {
     file_ = std::fopen(path_.c_str(), "a");
-    worker_ = std::thread([this] { worker_loop(); });
+    static_cast<void>(worker_.start(spec, Body{this}));
 }
 
 TransitionAudit::~TransitionAudit() {
-    shutdown_.store(true, std::memory_order_release);
-    if (worker_.joinable()) {
-        worker_.join();
-    }
+    worker_.stop();
     if (file_ != nullptr) {
         std::fclose(file_);
         file_ = nullptr;
@@ -28,9 +25,9 @@ void TransitionAudit::record(const TransitionRecord& record) noexcept {
     }
 }
 
-void TransitionAudit::worker_loop() noexcept {
+void TransitionAudit::worker_loop(std::stop_token stop) noexcept {
     TransitionRecord record;
-    for (;;) {
+    while (!stop.stop_requested()) {
         bool drained_any = false;
         while (queue_.try_pop(record).has_value()) {
             drained_any = true;
@@ -44,7 +41,7 @@ void TransitionAudit::worker_loop() noexcept {
             }
             recorded_.fetch_add(1, std::memory_order_relaxed);
         }
-        if (shutdown_.load(std::memory_order_acquire)) {
+        if (stop.stop_requested()) {
             return;
         }
         if (!drained_any) {

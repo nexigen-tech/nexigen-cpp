@@ -22,9 +22,9 @@ std::string AppSettingsPaths::to_string() const {
 }
 
 std::string Settings::to_string() const {
-    return "Settings(app_name=\"" + app_name + "\", logging=" + logging.to_string() +
-           ", metrics=" + metrics.to_string() + ", tracing=" + tracing.to_string() +
-           ", chrono=" + chrono.to_string() + ")";
+    return "Settings(app_name=\"" + app_name + "\", signal_thread=" + signal_thread.to_string() +
+           ", logging=" + logging.to_string() + ", metrics=" + metrics.to_string() +
+           ", tracing=" + tracing.to_string() + ", chrono=" + chrono.to_string() + ")";
 }
 
 void to_json(nlohmann::json& j, const AppSettingsPaths& paths) {
@@ -47,11 +47,10 @@ void to_json(nlohmann::json& j, const Settings& settings) {
     to_json(tracing_json, settings.tracing);
     nlohmann::json chrono_json;
     to_json(chrono_json, settings.chrono);
-    j = nlohmann::json{{"app_name", settings.app_name},
-                       {"logging", std::move(logging_json)},
-                       {"metrics", std::move(metrics_json)},
-                       {"tracing", std::move(tracing_json)},
-                       {"chrono", std::move(chrono_json)}};
+    j = nlohmann::json{
+        {"app_name", settings.app_name},      {"signal_thread", settings.signal_thread},
+        {"logging", std::move(logging_json)}, {"metrics", std::move(metrics_json)},
+        {"tracing", std::move(tracing_json)}, {"chrono", std::move(chrono_json)}};
 }
 
 core::Status load_app_settings(const AppSettingsPaths& paths, Settings& out) noexcept {

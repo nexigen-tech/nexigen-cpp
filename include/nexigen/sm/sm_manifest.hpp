@@ -15,6 +15,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/thread_management.hpp>
+
 namespace nexigen::sm {
 
 /// One allowed transition of a Function Group graph.
@@ -51,6 +53,8 @@ struct SmManifest {
     std::vector<RequesterPriority> requester_priorities{};
     std::uint64_t metrics_flush_interval_ms{1000};
     std::uint64_t startup_timeout_ms{5000};
+    core::ThreadSpec bg_thread{};    ///< fallback for infrastructure threads
+    core::ThreadSpec audit_thread{}; ///< transition-audit writer spec
 
     /// Cold-path diagnostic (mandate 9): lists the Function Groups.
     [[nodiscard]] std::string to_string() const;

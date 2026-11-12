@@ -17,7 +17,9 @@
 #include <nexigen/metrics/detail/exposition_buffer.hpp>
 #include <nexigen/metrics/detail/history_writer.hpp>
 #include <nexigen/metrics/detail/metric_aggregator.hpp>
+#include <nexigen/metrics/detail/http_front.hpp>
 #include <nexigen/metrics/detail/metric_http_server.hpp>
+#include <nexigen/metrics/metric_daemon_config.hpp>
 #include <nexigen/metrics/metric_frame.hpp>
 
 namespace {
@@ -150,10 +152,52 @@ void test_history_append_and_rotation() {
     ::unlink(rotated.c_str());
 }
 
+void test_http_front_thread_spec() {
+    metrics::MetricDaemonConfig config{};
+    config.enable_http = true;
+    config.bind_address = "127.0.0.1";
+    config.port = 0;
+    config.endpoint = "/metrics";
+    NX_CHECK(config.bg_cpu_affinity.set_name("bg-http").has_value());
+
+    metrics::detail::ExpositionBuffer exposition{};
+
+    // Empty http_thread: the effective spec is the bg fallback.
+    {
+        metrics::detail::HttpFront front{};
+        NX_CHECK(metrics::detail::start_http(front, config, exposition));
+        for (int i = 0; i < 2000 && !front.worker.ready(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        NX_CHECK(front.worker.ready());
+        NX_CHECK(front.worker.spec().name() == "bg-http");
+        NX_CHECK((front.worker.report().applied() & nexigen::core::ThreadApplyReport::name_mask) !=
+                 0U);
+        metrics::detail::stop_http(front);
+        NX_CHECK(!front.worker.joinable());
+    }
+
+    // Explicit http_thread wins over the bg fallback.
+    {
+        metrics::MetricDaemonConfig explicit_config = config;
+        NX_CHECK(explicit_config.http_thread.set_name("http-w").has_value());
+        metrics::detail::HttpFront front{};
+        NX_CHECK(metrics::detail::start_http(front, explicit_config, exposition));
+        for (int i = 0; i < 2000 && !front.worker.ready(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        NX_CHECK(front.worker.ready());
+        NX_CHECK(front.worker.spec().name() == "http-w");
+        metrics::detail::stop_http(front);
+        NX_CHECK(!front.worker.joinable());
+    }
+}
+
 void test_daemon_components() {
     test_aggregation_latest_wins();
     test_exposition_and_http();
     test_history_append_and_rotation();
+    test_http_front_thread_spec();
 }
 
 } // namespace

@@ -32,6 +32,7 @@
 #include <nexigen/com/subscriber.hpp>
 #include <nexigen/com/waitset.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/logging/log_daemon_config.hpp>
 #include <nexigen/logging/log_frame.hpp>
 
@@ -217,7 +218,25 @@ void flush_and_close(Sink& sink) {
 }
 
 /// Open every endpoint, run the drain loop until SIGTERM, then flush.
+/// Apply the main-thread policy: an explicit main_thread wins; otherwise the
+/// legacy bg_cpu_affinity CpuSet becomes a placement-only spec.
+[[nodiscard]] bool apply_main_thread_spec(const logging::LogDaemonConfig& cfg) noexcept {
+    const core::ThreadSpec effective = logging::effective_main_thread_spec(cfg);
+    core::ThreadApplyReport report{};
+    const core::Status applied = core::apply_thread_spec_self(effective, report);
+    if (!applied) {
+        std::fprintf(stderr, "nexigen-logd: main thread spec failed (%s)\n",
+                     std::string(core::to_string(applied.error())).c_str());
+        return false;
+    }
+    return true;
+}
+
 int run_session(const logging::LogDaemonConfig& cfg) {
+    if (!apply_main_thread_spec(cfg)) {
+        return 1;
+    }
+
     auto node = com::Node::create();
     if (!node) {
         std::fprintf(stderr, "nexigen-logd: failed to create iceoryx2 node\n");

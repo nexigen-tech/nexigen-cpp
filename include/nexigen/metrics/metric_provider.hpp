@@ -27,6 +27,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
+#include <nexigen/core/worker_thread.hpp>
 #include <nexigen/metrics/concepts/metric_sink_concept.hpp>
 #include <nexigen/metrics/detail/instrument_helpers.hpp>
 #include <nexigen/metrics/detail/layout.hpp>
@@ -78,8 +79,7 @@ public:
 
     /// Immutable worker-attribute report, valid after startup publication.
     [[nodiscard]] const core::ThreadApplyReport& worker_thread_report() const noexcept {
-        static_cast<void>(startup_published_.load(std::memory_order_acquire));
-        return worker_thread_report_;
+        return worker_.report();
     }
 
     /// Cold-path diagnostic (mandate 9).
@@ -147,15 +147,18 @@ private:
     MetricRecord* records_{nullptr};
     std::uint32_t record_capacity_{0};
 
-    std::jthread harvester_{};
+    struct Body {
+        MetricProvider* self{nullptr};
+        void run(std::stop_token stop) noexcept { self->harvest_loop(stop); }
+    };
+
     std::mutex harvest_mutex_{};
     std::mutex wake_mutex_{};
     std::condition_variable_any wake_cv_{};
     std::atomic<bool> alive_{true};
     std::atomic<core::ErrorCode> startup_error_{core::ErrorCode::Ok};
-    core::ThreadApplyReport worker_thread_report_{};
-    std::atomic<bool> startup_published_{false};
     std::int64_t utc_offset_ns_{0};
+    core::WorkerThread<Body> worker_{}; ///< LAST member: joins before the registry
 };
 
 } // namespace nexigen::metrics

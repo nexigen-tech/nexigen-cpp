@@ -3,12 +3,14 @@
 #pragma once
 
 #include <string>
+#include <utility>
 
 #include <nlohmann/json.hpp>
 
 #include <nexigen/app/app_settings_paths.hpp>
 #include <nexigen/chrono/settings.hpp>
 #include <nexigen/core/settings_source.hpp>
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/logging/settings.hpp>
 #include <nexigen/metrics/metrics_settings.hpp>
 #include <nexigen/tracing/tracing_settings.hpp>
@@ -22,6 +24,16 @@ struct Settings {
     metrics::Settings metrics{};
     tracing::Settings tracing{};
     chrono::Settings chrono{};
+    core::ThreadSpec signal_thread{}; ///< signal-watcher spec (empty = inherited)
+
+    /// Stable factory: one named construction path without making the type a
+    /// non-aggregate (legacy positional initialization stays valid because
+    /// `signal_thread` is appended last).
+    [[nodiscard]] static Settings create(std::string name) {
+        Settings settings;
+        settings.app_name = std::move(name);
+        return settings;
+    }
 
     [[nodiscard]] std::string to_string() const;
 };

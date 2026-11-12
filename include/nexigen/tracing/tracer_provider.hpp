@@ -53,12 +53,12 @@
 #include <nexigen/chrono/stamp_source.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
+#include <nexigen/core/worker_thread.hpp>
 #include <nexigen/core/shard_pool.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
 #include <nexigen/core/worker_tuning.hpp>
 #include <nexigen/tracing/concepts/tracer_concept.hpp>
 #include <nexigen/tracing/detail/active_span_stack.hpp>
-#include <nexigen/tracing/detail/affinity.hpp>
 #include <nexigen/tracing/detail/id_generator.hpp>
 #include <nexigen/tracing/dropped_stats.hpp>
 #include <nexigen/tracing/scoped_span.hpp>
@@ -193,17 +193,13 @@ public:
     /// configured mask" / "Pin failures are visible without stopping the
     /// pipeline"): the worker publishes its post-pin mask and the first
     /// start-phase error (pin failure or sink start failure) after launch.
-    [[nodiscard]] bool worker_started() const noexcept {
-        return start_.started.load(std::memory_order_acquire);
-    }
+    [[nodiscard]] bool worker_started() const noexcept { return worker_.ready(); }
     [[nodiscard]] core::ErrorCode worker_start_code() const noexcept {
-        return static_cast<core::ErrorCode>(start_.code.load(std::memory_order_relaxed));
+        return worker_.start_code();
     }
-    [[nodiscard]] std::uint64_t worker_mask() const noexcept {
-        return start_.mask.load(std::memory_order_relaxed);
-    }
+    [[nodiscard]] std::uint64_t worker_mask() const noexcept { return worker_.mask(); }
     [[nodiscard]] const core::ThreadApplyReport& worker_thread_report() const noexcept {
-        return start_.thread_report;
+        return worker_.report();
     }
 
     /// Compile-time capacities.
@@ -276,11 +272,6 @@ private:
     /// sleeps), flush handshake, shutdown drain-on-join + sink stop.
     void consume_loop(std::stop_token stop) noexcept;
 
-    /// Worker startup: self-pin, mask snapshot, sink cold start, publish the
-    /// one-shot snapshot. False means a Required thread spec failed, so no
-    /// sink start and no drain loop follow.
-    [[nodiscard]] bool start_worker() noexcept;
-
     /// Drain at most one bounded batch (64 records) into the sink.
     [[nodiscard]] std::size_t deliver_batch(Record& out) noexcept;
 
@@ -315,15 +306,6 @@ private:
                                    << control_sampling_shift))};
         std::uint8_t pad_[63]{};
     } control_{};
-
-    /// Worker startup snapshot: one-shot release/acquire publication.
-    struct alignas(64) StartCell {
-        std::atomic<bool> launched{};            ///< set (release) once the jthread exists
-        std::atomic<bool> started{};             ///< set (release) after the start sequence
-        std::atomic<std::uint8_t> code{};        ///< first start-phase ErrorCode snapshot
-        std::atomic<std::uint64_t> mask{};       ///< post-pin affinity as the worker sees it
-        core::ThreadApplyReport thread_report{}; ///< written before started (release)
-    } start_{};
 
     /// Flush handshake (D10): requested fetch_add(release) by the flushing
     /// thread; drained store(release) by the worker after sink flush;
@@ -370,14 +352,22 @@ private:
     /// span start — handle-after-death detection (NotInitialized).
     std::atomic<bool> alive_{true};
 
-    /// The background consumer — LAST member: std::jthread requests stop +
-    /// joins before the pool, cells, sink binding, and registry die, and the
-    /// final drain in consume_loop still sees all of them alive.
-    std::jthread worker_{};
+    /// Worker body: the wrapper applies the spec, starts the sink, and runs
+    /// the consumer loop. Captures `this`; worker_ is the LAST member.
+    struct Body {
+        TracerProvider* self{nullptr};
+
+        [[nodiscard]] core::Status on_start() noexcept {
+            return self->binding_.start != nullptr ? self->binding_.start(self->binding_.self)
+                                                   : core::Status{};
+        }
+        void run(std::stop_token stop) noexcept { self->consume_loop(stop); }
+    };
+
+    core::WorkerThread<Body> worker_{};
 
     // Layout self-verification (design D5): the cells own whole cache lines.
     static_assert(sizeof(ControlCell) == 64);
-    static_assert(sizeof(StartCell) == 128);
     static_assert(sizeof(FlushCell) == 64);
 };
 
@@ -398,7 +388,7 @@ TracerProvider<ShardCapacity, MaxThreads>::TracerProvider(const TracerProviderCo
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
 core::Status TracerProvider<ShardCapacity, MaxThreads>::initialize() noexcept {
-    if (start_.launched.load(std::memory_order_acquire)) {
+    if (worker_.joinable()) {
         return {}; // idempotent: already initialized
     }
     const core::Status valid_thread = config_.worker_thread.validate();
@@ -411,22 +401,7 @@ core::Status TracerProvider<ShardCapacity, MaxThreads>::initialize() noexcept {
             return calibrated;
         }
     }
-    worker_ = std::jthread([this](std::stop_token stop) { consume_loop(stop); });
-    start_.launched.store(true, std::memory_order_release);
-    if (config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
-        while (!start_.started.load(std::memory_order_acquire)) {
-            std::this_thread::sleep_for(std::chrono::microseconds(200));
-        }
-        const core::ErrorCode attribute_error = start_.thread_report.first_error();
-        if (attribute_error != core::ErrorCode::Ok) {
-            worker_.request_stop();
-            worker_.join();
-            start_.launched.store(false, std::memory_order_release);
-            start_.started.store(false, std::memory_order_release);
-            return std::unexpected(attribute_error);
-        }
-    }
-    return {};
+    return worker_.start(config_.worker_thread, Body{this});
 }
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
@@ -434,13 +409,11 @@ TracerProvider<ShardCapacity, MaxThreads>::~TracerProvider() {
     if (worker_.joinable()) {
         // consume_loop's shutdown path drains every accepted record, then
         // publishes + stops the sink, all while this object is still whole
-        // (the jthread member is destroyed AFTER this body runs, and it is
-        // declared last so it joins before the pool dies anyway).
-        worker_.request_stop();
-        worker_.join();
+        // (the worker member is declared last and joins before the pool dies).
+        worker_.stop();
     } else if (binding_.on_span != nullptr &&
                !(config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required &&
-                 start_.thread_report.first_error() != core::ErrorCode::Ok)) {
+                 worker_.report().first_error() != core::ErrorCode::Ok)) {
         // Never initialized: no worker ever touched the sink — drain inline
         // on the destroying thread so accepted records are not lost (no
         // concurrent consumer exists by construction).
@@ -500,36 +473,6 @@ TracerProvider<ShardCapacity, MaxThreads>::get_tracer(std::string_view scope_nam
 }
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
-bool TracerProvider<ShardCapacity, MaxThreads>::start_worker() noexcept {
-    // Start sequence ON the worker (design D10): self-pin first so no
-    // scheduling window can run the body off-core; snapshot the resulting
-    // mask for third-thread verification; then the sink's cold start. First
-    // error wins the code snapshot; a failure never stops the pipeline.
-    const core::Status attributes =
-        core::apply_thread_spec_self(config_.worker_thread, start_.thread_report);
-    const std::uint8_t first_error = static_cast<std::uint8_t>(start_.thread_report.first_error());
-    if (!attributes && config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
-        start_.code.store(first_error, std::memory_order_relaxed);
-        start_.started.store(true, std::memory_order_release);
-        return false; // required failure: no sink start and no drain loop
-    }
-    std::uint64_t mask_now = 0ULL;
-    static_cast<void>(detail::self_affinity(mask_now));
-    start_.mask.store(mask_now, std::memory_order_relaxed);
-
-    std::uint8_t code = first_error;
-    if (binding_.start != nullptr) {
-        const core::Status started = binding_.start(binding_.self);
-        if (!started && code == 0U) {
-            code = static_cast<std::uint8_t>(started.error());
-        }
-    }
-    start_.code.store(code, std::memory_order_relaxed);
-    start_.started.store(true, std::memory_order_release);
-    return true;
-}
-
-template <std::size_t ShardCapacity, std::size_t MaxThreads>
 std::size_t TracerProvider<ShardCapacity, MaxThreads>::deliver_batch(Record& out) noexcept {
     std::size_t delivered = 0;
     while (delivered < 64 && pop(out)) { // bounded batch
@@ -569,10 +512,6 @@ void TracerProvider<ShardCapacity, MaxThreads>::shutdown_drain(Record& out) noex
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
 void TracerProvider<ShardCapacity, MaxThreads>::consume_loop(std::stop_token stop) noexcept {
-    if (!start_worker()) {
-        return;
-    }
-
     // Idle policy shared with the logging consumer (core/worker_tuning.hpp).
     const core::WorkerTuning tuning{.poll_interval_us = config_.worker_poll_interval_us};
     const std::uint64_t poll_max_us = core::WorkerTuning::clamp_poll_us(tuning.poll_interval_us);
@@ -612,7 +551,7 @@ void TracerProvider<ShardCapacity, MaxThreads>::publish_sync(std::uint64_t seque
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
 core::Status TracerProvider<ShardCapacity, MaxThreads>::flush() noexcept {
-    if (!start_.launched.load(std::memory_order_acquire)) {
+    if (!worker_.joinable()) {
         return std::unexpected(core::ErrorCode::NotInitialized); // not initialized
     }
     const std::uint64_t sequence = flush_.requested.fetch_add(1U, std::memory_order_release) + 1U;

@@ -5,6 +5,8 @@
 // deadline/tolerance), recovery (RecoveryClient против mock-EM + fault
 // storage), manifest (round-trip + hostile input).
 #include <chrono>
+#include <cstdint>
+#include <unistd.h>
 #include <cstdio>
 #include <format>
 #include <string>
@@ -19,7 +21,9 @@
 #include <nexigen/com/server.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
+#include <nexigen/core/affinity.hpp>
 #include <nexigen/core/serialization_mandate.hpp>
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/phm/checkpoint.hpp>
 #include <nexigen/phm/fault_kind.hpp>
 #include <nexigen/phm/fault_storage.hpp>
@@ -332,6 +336,10 @@ void test_manifest() {
     phm::SupervisedProcess process = make_process("camera");
     process.recovery_rules.push_back({phm::RecoveryAction::RestartProcess, "ignored_group"});
     manifest.processes.push_back(process);
+    manifest.bg_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(0b10ULL));
+    NX_CHECK(manifest.bg_thread.set_name("phm-bg").has_value());
+    manifest.fault_storage_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(1ULL));
+    NX_CHECK(manifest.fault_storage_thread.set_name("phm-faults").has_value());
 
     nlohmann::json j;
     to_json(j, manifest);
@@ -351,9 +359,19 @@ void test_manifest() {
     NX_CHECK(back.processes[0].deadlines[0].max_ms == 100U);
     NX_CHECK(back.processes[0].recovery_rules.size() == 1U);
     NX_CHECK(back.processes[0].recovery_rules[0].action == phm::RecoveryAction::RestartProcess);
+    NX_CHECK(back.bg_thread == manifest.bg_thread);
+    NX_CHECK(back.fault_storage_thread == manifest.fault_storage_thread);
+
+    // Backward compatibility: an old manifest without thread fields parses
+    // with empty specs (inherited attributes).
+    phm::PhmManifest legacy;
+    from_json(nlohmann::json{{"processes", nlohmann::json::array()}}, legacy);
+    NX_CHECK(!legacy.bg_thread.has_requests());
+    NX_CHECK(!legacy.fault_storage_thread.has_requests());
 
     const std::string text = manifest.to_string();
     NX_CHECK(text.find("camera") != std::string::npos);
+    NX_CHECK(text.find("fault_storage_thread") != std::string::npos);
     NX_CHECK(to_string(manifest) == text);
     NX_CHECK(std::format("{}", manifest) == text);
 
@@ -426,6 +444,66 @@ void test_supervised_entity() {
     NX_CHECK(std::format("{}", *entity) == text);
 }
 
+bool wait_thread_ready(const phm::FaultStorage& storage) {
+    for (int i = 0; i < 2000 && !storage.thread_ready(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return storage.thread_ready();
+}
+
+void test_thread_spec() {
+    std::uint64_t available = 0U;
+    if (!nexigen::core::affinity::self_affinity(available) || available == 0U) {
+        return;
+    }
+    const std::uint64_t first = available & (~available + 1ULL);
+    const std::uint64_t rest = available & ~first;
+    const std::uint64_t second = rest == 0U ? first : (rest & (~rest + 1ULL));
+
+    nexigen::core::ThreadSpec bg{};
+    NX_CHECK(bg.set_name("phm-bg").has_value());
+    bg.set_cpus(nexigen::core::CpuSet::from_core_mask(first));
+
+    nexigen::core::ThreadSpec storage{};
+    NX_CHECK(storage.set_name("phm-store").has_value());
+    storage.set_cpus(nexigen::core::CpuSet::from_core_mask(second));
+
+    const std::string path_a =
+        "/tmp/opencode/phm_thread_spec_a_" + std::to_string(static_cast<unsigned long>(::getpid()));
+    const std::string path_b =
+        "/tmp/opencode/phm_thread_spec_b_" + std::to_string(static_cast<unsigned long>(::getpid()));
+    const std::string path_c =
+        "/tmp/opencode/phm_thread_spec_c_" + std::to_string(static_cast<unsigned long>(::getpid()));
+    {
+        phm::FaultStorage primary(path_a, nexigen::core::effective_thread_spec(storage, bg));
+        NX_CHECK(wait_thread_ready(primary));
+        NX_CHECK((primary.thread_report().applied() &
+                  nexigen::core::ThreadApplyReport::name_mask) != 0U);
+        NX_CHECK((primary.thread_mask() & second) != 0U);
+    }
+    {
+        phm::FaultStorage fallback(
+            path_b, nexigen::core::effective_thread_spec(nexigen::core::ThreadSpec{}, bg));
+        NX_CHECK(wait_thread_ready(fallback));
+        NX_CHECK((fallback.thread_report().applied() &
+                  nexigen::core::ThreadApplyReport::name_mask) != 0U);
+        NX_CHECK((fallback.thread_mask() & first) != 0U);
+    }
+    std::uint64_t inherited = 0U;
+    NX_CHECK(nexigen::core::affinity::self_affinity(inherited).has_value());
+    {
+        phm::FaultStorage neutral(
+            path_c, nexigen::core::effective_thread_spec(nexigen::core::ThreadSpec{},
+                                                         nexigen::core::ThreadSpec{}));
+        NX_CHECK(wait_thread_ready(neutral));
+        NX_CHECK(neutral.thread_report().requested() == 0U);
+        NX_CHECK(neutral.thread_mask() == inherited);
+    }
+    static_cast<void>(std::remove(path_a.c_str()));
+    static_cast<void>(std::remove(path_b.c_str()));
+    static_cast<void>(std::remove(path_c.c_str()));
+}
+
 } // namespace
 
 int main() {
@@ -434,6 +512,7 @@ int main() {
     run_suite("supervision", test_supervision);
     run_suite("recovery", test_recovery);
     run_suite("manifest", test_manifest);
+    run_suite("thread_spec", test_thread_spec);
     run_suite("supervised_entity", test_supervised_entity);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

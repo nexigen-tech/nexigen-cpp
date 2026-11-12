@@ -345,7 +345,15 @@ void run_loop(Session& session, nexigen::phm::Supervisor& supervisor,
     }
 
     nexigen::phm::Supervisor supervisor(manifest);
-    nexigen::phm::FaultStorage faults(options.fault_log);
+    const nexigen::core::ThreadSpec storage_spec =
+        nexigen::core::effective_thread_spec(manifest.fault_storage_thread, manifest.bg_thread);
+    nexigen::phm::FaultStorage faults(options.fault_log, storage_spec);
+    if (!faults.startup_status()) {
+        std::fprintf(
+            stderr, "nexigen-phmd: fault storage thread not started (%s)\n",
+            std::string(nexigen::core::to_string(faults.startup_status().error())).c_str());
+        return 1;
+    }
     std::vector<nexigen::phm::SupervisionStatus> seen(manifest.processes.size(),
                                                       nexigen::phm::SupervisionStatus::Ok);
 

@@ -1388,11 +1388,7 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
         if (spec.apply_mode() != core::ThreadApplyMode::Required) {
             return {};
         }
-        core::Status applied{};
-        core::ThreadApplyReport report{};
-        std::jthread probe([&] { applied = core::apply_thread_spec_self(spec, report); });
-        probe.join();
-        return applied;
+        return core::probe_thread_spec(spec);
     };
     if (const core::Status control = preflight(manifest.execution_manager_control_thread);
         !control) {

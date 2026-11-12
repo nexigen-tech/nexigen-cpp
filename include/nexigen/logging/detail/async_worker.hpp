@@ -65,6 +65,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
+#include <nexigen/core/worker_thread.hpp>
 #include <nexigen/core/worker_tuning.hpp>
 #include <nexigen/logging/detail/affinity.hpp>
 
@@ -90,36 +91,25 @@ template <class Producer, class Sink> class AsyncWorker {
         std::uint8_t pad_[47]{};
     } flush_{};
 
-    /// Worker start state: one line, read by initialize-time pollers only.
-    struct alignas(64) StartCell {
-        std::atomic<bool> launched{};            ///< set (release) once the jthread exists
-        std::atomic<bool> started{};             ///< set (release) after the start sequence ran
-        std::atomic<std::uint8_t> code{};        ///< first start-phase ErrorCode snapshot
-        std::atomic<std::uint64_t> mask{};       ///< post-pin affinity as the worker sees it
-        core::ThreadApplyReport thread_report{}; ///< written before started (release)
-    } start_{};
+    Producer* producer_{};       ///< owned by the logger; stable address
+    WorkerTuning tuning_{};      ///< set_tuning() before start(); read by the worker only
+    std::optional<Sink> sink_{}; ///< constructed by start()
 
-    Producer* producer_{};           ///< owned by the logger; stable address
-    core::ThreadSpec thread_spec_{}; ///< copied by start() before the thread exists
-    WorkerTuning tuning_{};          ///< set_tuning() before start(); read by the worker only
-    std::optional<Sink> sink_{};     ///< constructed by start()
-    std::jthread thread_{};          ///< LAST member: joins before sink_/producer_ die
+    /// Worker body: the wrapper applies the spec, then runs this start hook and
+    /// the drain loop on the consumer thread.
+    struct Body {
+        AsyncWorker* self{nullptr};
 
-    void run(std::stop_token st) noexcept {
-        // Start sequence ON the worker thread (design D15): self-pin first so
-        // no scheduling window can run the body off-core; snapshot the
-        // resulting mask for third-thread verification; then the sink's cold
-        // start (fd/rotation/open). First error wins the code snapshot; a
-        // failure never prevents the logging loop from running.
-        std::uint8_t first_error = 0U;
-        const core::Status attributes =
-            core::apply_thread_spec_self(thread_spec_, start_.thread_report);
-        first_error = static_cast<std::uint8_t>(start_.thread_report.first_error());
-        if (!attributes && thread_spec_.apply_mode() == core::ThreadApplyMode::Required) {
-            start_.code.store(first_error, std::memory_order_relaxed);
-            start_.started.store(true, std::memory_order_release);
-            return; // required failure: no sink start and no main loop
+        [[nodiscard]] core::Status on_start() noexcept {
+            return self->sink_.has_value() ? self->sink_->start()
+                                           : std::unexpected(core::ErrorCode::NotInitialized);
         }
+        void run(std::stop_token stop) noexcept { self->run_loop(stop); }
+    };
+
+    core::WorkerThread<Body> worker_{}; ///< LAST member: joins before sink_/producer_ die
+
+    void run_loop(std::stop_token st) noexcept {
         if (!sink_.has_value()) {
             return;
         }
@@ -127,17 +117,6 @@ template <class Producer, class Sink> class AsyncWorker {
         const std::uint64_t poll_max_us = WorkerTuning::clamp_poll_us(tuning_.poll_interval_us);
         const std::uint64_t spin_budget = tuning_.spin_budget;
         WorkerTuning::apply_timer_slack(poll_max_us);
-
-        std::uint64_t mask_now = 0ULL;
-        static_cast<void>(self_affinity(mask_now));
-        start_.mask.store(mask_now, std::memory_order_relaxed);
-
-        const core::Status started = sink.start();
-        if (!started && first_error == 0U) {
-            first_error = static_cast<std::uint8_t>(started.error());
-        }
-        start_.code.store(first_error, std::memory_order_relaxed);
-        start_.started.store(true, std::memory_order_release);
 
         record_type rec{};
         std::uint64_t idle = 0;
@@ -221,23 +200,11 @@ public:
             return valid;
         }
         producer_ = &producer;
-        thread_spec_ = thread_spec;
         sink_.emplace(std::forward<Args>(sink_args)...);
-        thread_ = std::jthread([this](std::stop_token st) { run(st); });
-        start_.launched.store(true, std::memory_order_release);
-        if (thread_spec_.apply_mode() == core::ThreadApplyMode::Required) {
-            while (!start_.started.load(std::memory_order_acquire)) {
-                std::this_thread::sleep_for(std::chrono::microseconds(200));
-            }
-            const core::ErrorCode attribute_error = start_.thread_report.first_error();
-            if (attribute_error != core::ErrorCode::Ok) {
-                thread_.request_stop();
-                thread_.join();
-                sink_.reset(); // sink.start() never ran on this path
-                start_.launched.store(false, std::memory_order_release);
-                start_.started.store(false, std::memory_order_release);
-                return std::unexpected(attribute_error);
-            }
+        const core::Status started = worker_.start(thread_spec, Body{this});
+        if (!started) {
+            sink_.reset(); // the worker never ran the start hook
+            return started;
         }
         return {};
     }
@@ -249,7 +216,7 @@ public:
     /// spec logging/multi-producer "Drop summaries are synthesized by the
     /// worker").
     [[nodiscard]] core::Status flush() noexcept {
-        if (!start_.launched.load(std::memory_order_acquire)) {
+        if (!worker_.joinable()) {
             return std::unexpected(core::ErrorCode::NotInitialized); // not started yet
         }
         const std::uint64_t seq = flush_.requested.fetch_add(1U, std::memory_order_release) + 1U;
@@ -268,22 +235,18 @@ public:
     }
 
     /// Pollable start snapshot for initialize-time validation/tests.
-    [[nodiscard]] bool writer_started() const noexcept {
-        return start_.started.load(std::memory_order_acquire);
-    }
+    [[nodiscard]] bool writer_started() const noexcept { return worker_.ready(); }
     [[nodiscard]] core::ErrorCode writer_start_code() const noexcept {
-        return static_cast<core::ErrorCode>(start_.code.load(std::memory_order_relaxed));
+        return worker_.start_code();
     }
     /// Immutable thread-attribute application report, valid after writer_started().
     [[nodiscard]] const core::ThreadApplyReport& writer_thread_report() const noexcept {
-        return start_.thread_report;
+        return worker_.report();
     }
     /// Post-start affinity mask as the worker itself observed it (design D15
     /// verification surface: the test compares this against the configured
     /// mask instead of reaching into std::jthread handles).
-    [[nodiscard]] std::uint64_t writer_mask() const noexcept {
-        return start_.mask.load(std::memory_order_relaxed);
-    }
+    [[nodiscard]] std::uint64_t writer_mask() const noexcept { return worker_.mask(); }
 };
 
 } // namespace nexigen::logging::detail

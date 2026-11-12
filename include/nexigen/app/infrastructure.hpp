@@ -40,6 +40,8 @@
 #include <nexigen/chrono/concepts/sink_concept.hpp>
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/thread_management.hpp>
+#include <nexigen/core/worker_thread.hpp>
 #include <nexigen/logging/concepts/logger_concept.hpp>
 #include <nexigen/metrics/concepts/metric_sink_concept.hpp>
 #include <nexigen/metrics/metric_provider.hpp>
@@ -98,37 +100,58 @@ public:
     ~SignalWatcher() { stop(); }
 
     template <class Target>
-    [[nodiscard]] core::Status start(Target* target, const sigset_t& mask) noexcept {
+    [[nodiscard]] core::Status start(Target* target, const sigset_t& mask,
+                                     const core::ThreadSpec& spec) noexcept {
         // Double-start guard (app/application "the second call returns
         // Conflict and installs no watcher"; analysis #22): a second
         // signalfd would leak a descriptor and a second watcher thread.
-        if (active() || thread_.joinable()) {
+        if (active() || worker_.joinable()) {
             return std::unexpected(core::ErrorCode::Conflict);
         }
         fd_ = ::signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK);
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
-        // Under -fno-exceptions a failed thread creation terminates; this is
-        // the same cold-path deployment assumption as the providers.
-        thread_ = std::jthread{[this, target](std::stop_token token) { run(target, token); }};
+        target_ = target;
+        dispatch_ = [](void* raw, SignalWatcher& self, std::stop_token token) noexcept {
+            self.run<Target>(static_cast<Target*>(raw), token);
+        };
+        const core::Status started = worker_.start(spec, Body{this});
+        if (!started) {
+            target_ = nullptr;
+            dispatch_ = nullptr;
+            static_cast<void>(::close(fd_));
+            fd_ = -1;
+            return started;
+        }
         return {};
     }
 
     void stop() noexcept {
-        if (thread_.joinable()) {
-            thread_.request_stop();
-            thread_.join();
-        }
+        worker_.stop();
         if (fd_ >= 0) {
             static_cast<void>(::close(fd_));
             fd_ = -1;
         }
+        target_ = nullptr;
+        dispatch_ = nullptr;
     }
 
     [[nodiscard]] bool active() const noexcept { return fd_ >= 0; }
+    [[nodiscard]] bool thread_ready() const noexcept { return worker_.ready(); }
+    [[nodiscard]] std::uint64_t thread_mask() const noexcept { return worker_.mask(); }
+    [[nodiscard]] const core::ThreadApplyReport& thread_report() const noexcept {
+        return worker_.report();
+    }
 
 private:
+    using Dispatch = void (*)(void*, SignalWatcher&, std::stop_token) noexcept;
+
+    struct Body {
+        SignalWatcher* self{nullptr};
+        void run(std::stop_token token) noexcept { self->dispatch_(self->target_, *self, token); }
+    };
+
     template <class Target> void run(Target* target, std::stop_token token) noexcept {
         while (!token.stop_requested()) {
             pollfd descriptor{fd_, POLLIN, 0};
@@ -150,7 +173,9 @@ private:
     }
 
     int fd_{-1};
-    std::jthread thread_{};
+    void* target_{nullptr};
+    Dispatch dispatch_{nullptr};
+    core::WorkerThread<Body> worker_{}; ///< LAST member: joins before fd_ closes
 };
 
 /// Bridges the application logger to the chrono worker's module-local log hook
@@ -246,7 +271,8 @@ public:
             return step;
         }
 
-        if (const core::Status status = signals_.start(this, mask); !status) {
+        if (const core::Status status = signals_.start(this, mask, settings.signal_thread);
+            !status) {
             return fail(status);
         }
 

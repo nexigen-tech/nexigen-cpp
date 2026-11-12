@@ -5,6 +5,8 @@
 // ipc (Field-публикация + prepare), recovery_handler (PHM fault → SafeState),
 // telemetry (audit + метрики), manifest (round-trip).
 #include <chrono>
+#include <cstdint>
+#include <unistd.h>
 #include <cstdio>
 #include <format>
 #include <string>
@@ -20,7 +22,9 @@
 #include <nexigen/com/publisher.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
+#include <nexigen/core/affinity.hpp>
 #include <nexigen/core/serialization_mandate.hpp>
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/sm/machine_state.hpp>
 #include <nexigen/sm/recovery_handler.hpp>
 #include <nexigen/sm/sm_manifest.hpp>
@@ -292,6 +296,10 @@ void test_telemetry() {
 
 void test_manifest() {
     sm::SmManifest manifest = make_manifest();
+    manifest.bg_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(0b10ULL));
+    NX_CHECK(manifest.bg_thread.set_name("sm-bg").has_value());
+    manifest.audit_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(1ULL));
+    NX_CHECK(manifest.audit_thread.set_name("sm-audit").has_value());
     nlohmann::json j;
     to_json(j, manifest);
     sm::SmManifest back;
@@ -307,9 +315,17 @@ void test_manifest() {
     NX_CHECK(back.requester_priorities[0].priority == 90);
     NX_CHECK(back.priority_of("phm") == 90);
     NX_CHECK(back.priority_of("unknown") == 0);
+    NX_CHECK(back.bg_thread == manifest.bg_thread);
+    NX_CHECK(back.audit_thread == manifest.audit_thread);
+
+    sm::SmManifest legacy;
+    from_json(nlohmann::json{{"function_groups", nlohmann::json::array()}}, legacy);
+    NX_CHECK(!legacy.bg_thread.has_requests());
+    NX_CHECK(!legacy.audit_thread.has_requests());
 
     const std::string text = manifest.to_string();
     NX_CHECK(text.find("motion_control") != std::string::npos);
+    NX_CHECK(text.find("audit_thread") != std::string::npos);
     NX_CHECK(to_string(manifest) == text);
     NX_CHECK(std::format("{}", manifest) == text);
 
@@ -318,6 +334,66 @@ void test_manifest() {
     NX_CHECK(manifest.function_groups.size() == 1U);
     from_json(nlohmann::json{{"function_groups", nlohmann::json::array({42})}}, manifest);
     NX_CHECK(manifest.function_groups.size() == 1U);
+}
+
+bool wait_thread_ready(const sm::TransitionAudit& audit) {
+    for (int i = 0; i < 2000 && !audit.thread_ready(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return audit.thread_ready();
+}
+
+void test_thread_spec() {
+    std::uint64_t available = 0U;
+    if (!nexigen::core::affinity::self_affinity(available) || available == 0U) {
+        return;
+    }
+    const std::uint64_t first = available & (~available + 1ULL);
+    const std::uint64_t rest = available & ~first;
+    const std::uint64_t second = rest == 0U ? first : (rest & (~rest + 1ULL));
+
+    nexigen::core::ThreadSpec bg{};
+    NX_CHECK(bg.set_name("sm-bg").has_value());
+    bg.set_cpus(nexigen::core::CpuSet::from_core_mask(first));
+
+    nexigen::core::ThreadSpec audit_spec{};
+    NX_CHECK(audit_spec.set_name("sm-audit").has_value());
+    audit_spec.set_cpus(nexigen::core::CpuSet::from_core_mask(second));
+
+    const std::string path_a =
+        "/tmp/opencode/sm_thread_spec_a_" + std::to_string(static_cast<unsigned long>(::getpid()));
+    const std::string path_b =
+        "/tmp/opencode/sm_thread_spec_b_" + std::to_string(static_cast<unsigned long>(::getpid()));
+    const std::string path_c =
+        "/tmp/opencode/sm_thread_spec_c_" + std::to_string(static_cast<unsigned long>(::getpid()));
+    {
+        sm::TransitionAudit primary(path_a, nexigen::core::effective_thread_spec(audit_spec, bg));
+        NX_CHECK(wait_thread_ready(primary));
+        NX_CHECK((primary.thread_report().applied() &
+                  nexigen::core::ThreadApplyReport::name_mask) != 0U);
+        NX_CHECK((primary.thread_mask() & second) != 0U);
+    }
+    {
+        sm::TransitionAudit fallback(
+            path_b, nexigen::core::effective_thread_spec(nexigen::core::ThreadSpec{}, bg));
+        NX_CHECK(wait_thread_ready(fallback));
+        NX_CHECK((fallback.thread_report().applied() &
+                  nexigen::core::ThreadApplyReport::name_mask) != 0U);
+        NX_CHECK((fallback.thread_mask() & first) != 0U);
+    }
+    std::uint64_t inherited = 0U;
+    NX_CHECK(nexigen::core::affinity::self_affinity(inherited).has_value());
+    {
+        sm::TransitionAudit neutral(
+            path_c, nexigen::core::effective_thread_spec(nexigen::core::ThreadSpec{},
+                                                         nexigen::core::ThreadSpec{}));
+        NX_CHECK(wait_thread_ready(neutral));
+        NX_CHECK(neutral.thread_report().requested() == 0U);
+        NX_CHECK(neutral.thread_mask() == inherited);
+    }
+    static_cast<void>(std::remove(path_a.c_str()));
+    static_cast<void>(std::remove(path_b.c_str()));
+    static_cast<void>(std::remove(path_c.c_str()));
 }
 
 } // namespace
@@ -329,6 +405,7 @@ int main() {
     run_suite("recovery_handler", test_recovery_handler);
     run_suite("telemetry", test_telemetry);
     run_suite("manifest", test_manifest);
+    run_suite("thread_spec", test_thread_spec);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

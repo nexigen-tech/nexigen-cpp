@@ -30,6 +30,7 @@ void to_json(nlohmann::json& j, const LogDaemonConfig& cfg) {
         {"max_archive_files", cfg.max_archive_files},
         {"min_log_level_storage", cfg.min_log_level_storage},
         {"bg_cpu_affinity", cfg.bg_cpu_affinity},
+        {"main_thread", cfg.main_thread},
         {"batch_flush_interval_ms", cfg.batch_flush_interval_ms},
     };
 }
@@ -53,10 +54,13 @@ void from_json(const nlohmann::json& j, LogDaemonConfig& out) noexcept {
             parsed.min_log_level_storage = level;
         }
     }
-    core::detail::read_object(j, "bg_cpu_affinity",
-                              [&parsed](const nlohmann::json& affinity) noexcept {
-                                  from_json(affinity, parsed.bg_cpu_affinity);
-                              });
+    // CpuSet serializes as a JSON array, not an object: parse it directly.
+    if (const auto affinity = j.find("bg_cpu_affinity"); affinity != j.end()) {
+        from_json(*affinity, parsed.bg_cpu_affinity);
+    }
+    core::detail::read_object(j, "main_thread", [&parsed](const nlohmann::json& thread) noexcept {
+        from_json(thread, parsed.main_thread);
+    });
     out = std::move(parsed);
 }
 

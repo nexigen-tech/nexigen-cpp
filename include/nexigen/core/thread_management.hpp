@@ -272,6 +272,12 @@ public:
         return scheduler_configured_;
     }
 
+    /// True when the spec requests at least one attribute (name, CPUs, or an
+    /// explicit scheduler). An empty spec preserves every inherited attribute.
+    [[nodiscard]] constexpr bool has_requests() const noexcept {
+        return name_[0] != '\0' || !cpus_.empty() || scheduler_configured_;
+    }
+
     /// Full validation before any operating-system operation.
     [[nodiscard]] constexpr Status validate() const noexcept {
         if (mode_ != ThreadApplyMode::BestEffort && mode_ != ThreadApplyMode::Required) {
@@ -320,6 +326,14 @@ private:
 
 static_assert(sizeof(ThreadSpec) == 192, "ThreadSpec must keep its fixed cold layout");
 static_assert(alignof(ThreadSpec) == 64, "ThreadSpec layout is cache-line aligned");
+
+/// Variant-A fallback: use the primary spec when it requests anything,
+/// otherwise inherit the fallback (for example a daemon's bg_thread).
+/// Neither argument is modified.
+[[nodiscard]] constexpr ThreadSpec effective_thread_spec(const ThreadSpec& primary,
+                                                         const ThreadSpec& fallback) noexcept {
+    return primary.has_requests() ? primary : fallback;
+}
 
 /// Cold JSON parser with all-or-nothing semantics. The ADL from_json below and
 /// ThreadSpec's parser share this helper so invalid input never leaves a

@@ -19,6 +19,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
+#include <nexigen/core/worker_thread.hpp>
 #include <nexigen/exec/detail/path_utils.hpp>
 #include <nexigen/exec/detail/suite_reporting.hpp>
 #include <nexigen/exec/detail/suite_supervisor.hpp>
@@ -53,11 +54,7 @@ using detail::suite_poll_interval_ms;
         if (spec.apply_mode() != core::ThreadApplyMode::Required) {
             return {};
         }
-        core::Status applied{};
-        core::ThreadApplyReport report{};
-        std::jthread probe([&] { applied = core::apply_thread_spec_self(spec, report); });
-        probe.join();
-        return applied;
+        return core::probe_thread_spec(spec);
     };
     if (const core::Status control = preflight(manifest.execution_manager_control_thread);
         !control) {

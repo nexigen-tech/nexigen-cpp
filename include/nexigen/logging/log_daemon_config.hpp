@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/affinity.hpp>
+#include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/log_level.hpp>
 
 namespace nexigen::logging {
@@ -21,8 +22,9 @@ struct LogDaemonConfig {
     std::uint64_t max_file_size_mb{20};              ///< 0 = no size-based rotation
     std::uint32_t max_archive_files{5};              ///< rotated files kept
     core::LogLevel min_log_level_storage{core::LogLevel::Warning}; ///< threshold for disk
-    core::CpuSet bg_cpu_affinity{};             ///< service-core mask (empty = inhertit)
+    core::CpuSet bg_cpu_affinity{};             ///< legacy service-core mask (empty = inherit)
     std::uint32_t batch_flush_interval_ms{500}; ///< flush timer (ms)
+    core::ThreadSpec main_thread{};             ///< main-thread spec (empty = bg_cpu_affinity)
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
@@ -32,7 +34,8 @@ struct LogDaemonConfig {
         out += ", max_archives=" + std::to_string(max_archive_files);
         out += ", min_level=" + std::string(core::to_string(min_log_level_storage));
         out += ", flush_interval_ms=" + std::to_string(batch_flush_interval_ms);
-        out += ", bg_affinity=" + bg_cpu_affinity.to_string() + ")";
+        out += ", bg_affinity=" + bg_cpu_affinity.to_string();
+        out += ", main_thread=" + main_thread.to_string() + ")";
         return out;
     }
 };
@@ -40,6 +43,17 @@ struct LogDaemonConfig {
 /// Free helper (mandate 9): mirrors the member.
 [[nodiscard]] inline std::string to_string(const LogDaemonConfig& cfg) {
     return cfg.to_string();
+}
+
+/// Effective main-thread spec: an explicit `main_thread` wins; otherwise the
+/// legacy `bg_cpu_affinity` CpuSet becomes a placement-only fallback.
+[[nodiscard]] inline core::ThreadSpec
+effective_main_thread_spec(const LogDaemonConfig& cfg) noexcept {
+    core::ThreadSpec legacy{};
+    if (!cfg.bg_cpu_affinity.empty()) {
+        legacy.set_cpus(cfg.bg_cpu_affinity);
+    }
+    return core::effective_thread_spec(cfg.main_thread, legacy);
 }
 
 /// Cold-path JSON round-trip (mandate 10), hostile-safe under JSON_NOEXCEPTION=1;

@@ -262,6 +262,68 @@ void test_infrastructure_tick_allocation() {
     NX_CHECK(infra->shutdown().has_value());
 }
 
+void test_watcher_empty_spec_inherits() {
+    sigset_t previous{};
+    sigset_t blocked{};
+    ::sigemptyset(&previous);
+    ::sigemptyset(&blocked);
+    ::sigaddset(&blocked, SIGUSR2);
+    NX_CHECK(::pthread_sigmask(SIG_BLOCK, &blocked, &previous) == 0);
+
+    struct WatchTarget {
+        void request_stop(app::InfrastructureStopReason) const noexcept {}
+    };
+    std::uint64_t inherited = 0U;
+    NX_CHECK(core::affinity::self_affinity(inherited).has_value());
+    app::detail::SignalWatcher watcher{};
+    const core::Status started = watcher.start<WatchTarget>(nullptr, blocked, core::ThreadSpec{});
+    NX_CHECK(started.has_value());
+    if (started) {
+        for (int i = 0; i < 2000 && !watcher.thread_ready(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        NX_CHECK(watcher.thread_ready());
+        NX_CHECK(watcher.thread_report().requested() == 0U);
+        NX_CHECK(watcher.thread_mask() == inherited);
+        watcher.stop();
+    }
+    NX_CHECK(::pthread_sigmask(SIG_SETMASK, &previous, nullptr) == 0);
+}
+
+void test_watcher_required_failure() {
+    sigset_t previous{};
+    sigset_t blocked{};
+    ::sigemptyset(&previous);
+    ::sigemptyset(&blocked);
+    ::sigaddset(&blocked, SIGUSR2);
+    NX_CHECK(::pthread_sigmask(SIG_BLOCK, &blocked, &previous) == 0);
+
+    struct WatchTarget {
+        void request_stop(app::InfrastructureStopReason) const noexcept {}
+    };
+    core::ThreadSpec failing_spec{};
+    NX_CHECK(failing_spec.set_scheduler(core::SchedulingPolicy::FIFO, 1).has_value());
+    failing_spec.set_apply_mode(core::ThreadApplyMode::Required);
+    if (!core::probe_thread_spec(failing_spec).has_value()) {
+        const auto count_fds = [] {
+            std::size_t count = 0U;
+            for (const auto& entry : std::filesystem::directory_iterator("/proc/self/fd")) {
+                static_cast<void>(entry);
+                ++count;
+            }
+            return count;
+        };
+        const std::size_t fds_before = count_fds();
+        app::detail::SignalWatcher failing_watcher{};
+        const core::Status failed =
+            failing_watcher.start<WatchTarget>(nullptr, blocked, failing_spec);
+        NX_CHECK(!failed.has_value());
+        NX_CHECK(!failing_watcher.active());
+        NX_CHECK(count_fds() == fds_before);
+    }
+    NX_CHECK(::pthread_sigmask(SIG_SETMASK, &previous, nullptr) == 0);
+}
+
 void test_infrastructure_conflict() {
     // SignalWatcher double-start guard (analysis #22; change
     // fix-p2-observability-and-writers): a second start on the same
@@ -282,15 +344,25 @@ void test_infrastructure_conflict() {
         struct WatchTarget {
             void request_stop(app::InfrastructureStopReason) const noexcept {}
         };
-        const core::Status started = watcher_probe.start<WatchTarget>(nullptr, blocked);
+        core::ThreadSpec watcher_spec{};
+        NX_CHECK(watcher_spec.set_name("sig-watch").has_value());
+        const core::Status started =
+            watcher_probe.start<WatchTarget>(nullptr, blocked, watcher_spec);
         NX_CHECK(started.has_value());
         if (started) {
+            for (int i = 0; i < 2000 && !watcher_probe.thread_ready(); ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            NX_CHECK(watcher_probe.thread_ready());
+            NX_CHECK((watcher_probe.thread_report().applied() &
+                      core::ThreadApplyReport::name_mask) != 0U);
             for (const auto& entry : std::filesystem::directory_iterator("/proc/self/fd")) {
                 static_cast<void>(entry);
                 ++fds_with_watcher;
             }
             NX_CHECK(fds_with_watcher >= 1U);
-            const core::Status second_start = watcher_probe.start<WatchTarget>(nullptr, blocked);
+            const core::Status second_start =
+                watcher_probe.start<WatchTarget>(nullptr, blocked, core::ThreadSpec{});
             NX_CHECK(!second_start.has_value());
             NX_CHECK(second_start.error() == core::ErrorCode::Conflict);
             std::size_t fds_after_conflict = 0;
@@ -397,6 +469,8 @@ void run_app_infrastructure_suites() {
     run_suite("failures", test_infrastructure_failures);
     run_suite("required_thread_rollback", test_infrastructure_required_thread_rollback);
     run_suite("conflict", test_infrastructure_conflict);
+    run_suite("watcher_empty_spec", test_watcher_empty_spec_inherits);
+    run_suite("watcher_required_failure", test_watcher_required_failure);
     run_suite("stop_and_mask", test_infrastructure_stop_and_mask);
     run_suite("signals", test_infrastructure_signals);
     run_suite("tick_allocation", test_infrastructure_tick_allocation);

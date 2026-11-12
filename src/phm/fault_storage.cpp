@@ -5,16 +5,13 @@
 
 namespace nexigen::phm {
 
-FaultStorage::FaultStorage(std::string path) : path_(std::move(path)) {
+FaultStorage::FaultStorage(std::string path, core::ThreadSpec spec) : path_(std::move(path)) {
     file_ = std::fopen(path_.c_str(), "a");
-    worker_ = std::thread([this] { worker_loop(); });
+    static_cast<void>(worker_.start(spec, Body{this}));
 }
 
 FaultStorage::~FaultStorage() {
-    shutdown_.store(true, std::memory_order_release);
-    if (worker_.joinable()) {
-        worker_.join();
-    }
+    worker_.stop();
     if (file_ != nullptr) {
         std::fclose(file_);
         file_ = nullptr;
@@ -28,9 +25,9 @@ void FaultStorage::record(const FaultRecord& record) noexcept {
     }
 }
 
-void FaultStorage::worker_loop() noexcept {
+void FaultStorage::worker_loop(std::stop_token stop) noexcept {
     FaultRecord record;
-    for (;;) {
+    while (!stop.stop_requested()) {
         // Drain everything currently queued, then check shutdown; a short
         // sleep avoids busy-spinning while idle.
         bool drained_any = false;
@@ -44,7 +41,7 @@ void FaultStorage::worker_loop() noexcept {
             }
             recorded_.fetch_add(1, std::memory_order_relaxed);
         }
-        if (shutdown_.load(std::memory_order_acquire)) {
+        if (stop.stop_requested()) {
             return;
         }
         if (!drained_any) {

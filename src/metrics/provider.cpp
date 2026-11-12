@@ -125,13 +125,10 @@ MetricProvider::MetricProvider(const MetricProviderConfig& config, detail::SinkB
     const core::Status valid_thread = config_.worker_thread.validate();
     if (!valid_thread) {
         startup_error_.store(valid_thread.error(), std::memory_order_relaxed);
-        startup_published_.store(true, std::memory_order_release);
     } else if (config_.collect_interval > std::chrono::nanoseconds{0}) {
-        harvester_ = std::jthread([this](std::stop_token stop) { harvest_loop(stop); });
-        if (config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
-            while (!startup_published_.load(std::memory_order_acquire)) {
-                std::this_thread::yield();
-            }
+        const core::Status started = worker_.start(config_.worker_thread, Body{this});
+        if (!started) {
+            startup_error_.store(started.error(), std::memory_order_relaxed);
         }
     }
 }
@@ -139,14 +136,7 @@ MetricProvider::MetricProvider(const MetricProviderConfig& config, detail::SinkB
 MetricProvider::~MetricProvider() {
     // Stop the harvester first: no collection may run while the registry is
     // being torn down.
-    if (harvester_.joinable()) {
-        harvester_.request_stop();
-        {
-            std::lock_guard<std::mutex> lock(wake_mutex_);
-            wake_cv_.notify_all();
-        }
-        harvester_.join();
-    }
+    worker_.stop();
 
     // Drain the sink once more so the last window is not lost.
     if (binding_.on_batch != nullptr) {
@@ -369,9 +359,13 @@ core::Status MetricProvider::flush() noexcept {
 }
 
 core::Status MetricProvider::startup_status() const noexcept {
-    const core::ErrorCode error = startup_error_.load(std::memory_order_acquire);
-    if (error != core::ErrorCode::Ok) {
-        return std::unexpected(error);
+    const core::ErrorCode pre_start = startup_error_.load(std::memory_order_acquire);
+    if (pre_start != core::ErrorCode::Ok) {
+        return std::unexpected(pre_start);
+    }
+    const core::ErrorCode worker_error = worker_.start_code();
+    if (worker_error != core::ErrorCode::Ok) {
+        return std::unexpected(worker_error);
     }
     return {};
 }
@@ -387,17 +381,6 @@ std::string MetricProvider::to_string() const {
 }
 
 void MetricProvider::harvest_loop(std::stop_token stop) noexcept {
-    // Apply the copied worker attributes before the first batch. Best effort
-    // publishes partial application and continues; Required returns before the
-    // fixed-rate loop, leaving startup_status() as the failure surface.
-    const core::Status attributes =
-        core::apply_thread_spec_self(config_.worker_thread, worker_thread_report_);
-    startup_error_.store(worker_thread_report_.first_error(), std::memory_order_relaxed);
-    startup_published_.store(true, std::memory_order_release);
-    if (!attributes && config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required) {
-        return;
-    }
-
     auto next = std::chrono::steady_clock::now() + config_.collect_interval;
     while (!stop.stop_requested()) {
         {

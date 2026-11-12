@@ -46,6 +46,7 @@ void to_json(nlohmann::json& j, const MetricDaemonConfig& config) {
         {"batch_flush_interval_ms", config.batch_flush_interval_ms},
         {"max_metrics", config.max_metrics},
         {"bg_cpu_affinity", config.bg_cpu_affinity},
+        {"http_thread", config.http_thread},
     };
 }
 
@@ -67,6 +68,9 @@ void from_json(const nlohmann::json& j, MetricDaemonConfig& out) noexcept {
                               [&parsed](const nlohmann::json& affinity) noexcept {
                                   from_json(affinity, parsed.bg_cpu_affinity);
                               });
+    core::detail::read_object(j, "http_thread", [&parsed](const nlohmann::json& thread) noexcept {
+        from_json(thread, parsed.http_thread);
+    });
     out = std::move(parsed);
 }
 

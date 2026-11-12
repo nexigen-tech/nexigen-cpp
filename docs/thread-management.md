@@ -167,6 +167,87 @@ Omitting `policy` and `priority` preserves inherited scheduling. Omitting `cpus`
 preserves inherited affinity. The legacy `runner_control_cpus` and
 `runner_logger_cpus` arrays remain valid and normalize to best-effort specs.
 
+## WorkerThread
+
+`nexigen::core::WorkerThread<Body>` is the one owner for a background thread.
+It replaces the per-provider start/ready/rollback/join protocol; the module
+supplies only the loop body.
+
+```cpp
+struct Body {
+    core::Status on_start() noexcept;              // optional
+    void run(std::stop_token stop) noexcept;       // required
+};
+
+core::WorkerThread<Body> worker;   // declare LAST in the owner
+worker.start(spec, Body{this});
+// ... ready()/start_code()/report()/mask() are published by the worker ...
+worker.stop();                     // request_stop + join (destructor does this too)
+```
+
+Start sequence (always on the worker itself):
+
+1. `apply_thread_spec_self(spec, report)`; a `Required` failure publishes the
+   report/code and returns without calling `on_start` or `run`;
+2. `on_start()` (if present); the first error wins and lands in `start_code`;
+3. affinity snapshot and release publication of `ready`/`report`/`mask`;
+4. `run(stop)`.
+
+`start()` blocks for the readiness snapshot only in `Required` mode and returns
+the attribute error (joining the worker). `BestEffort` returns after thread
+creation and publishes a partial report. An `on_start` failure is recorded but
+does not suppress `run`.
+
+Stop is cooperative: `request_stop()` reaches the body through its stop token
+(`condition_variable_any::wait_until(lock, stop, ...)` wakes without an external
+notify), `join()` waits, and `stop()` does both. `request_stop`/`join` are safe
+without a running thread. A second `start` while joinable returns `Conflict`.
+
+The owner must outlive the worker, and the `WorkerThread` member must be
+declared **last** so its destructor joins before the members captured by the
+body are destroyed.
+
+### Fallback selection (variant A)
+
+`ThreadSpec::has_requests()` is true when a name, a CPU set, or an explicit
+scheduler is requested (an explicit `Other,0` reset counts).
+`effective_thread_spec(primary, fallback)` returns the primary when it requests
+anything, otherwise the fallback — the building block for a daemon-level
+`bg_thread` that every secondary thread inherits.
+
+### Platform thread fields
+
+Every project-owned long-lived thread now accepts a `ThreadSpec`. Empty specs
+preserve inherited attributes; the daemon-level fallback (variant A) is applied
+only where a background policy exists.
+
+| Thread | Configuration | Fallback |
+|---|---|---|
+| PHM fault storage | `PhmManifest::fault_storage_thread` | `PhmManifest::bg_thread` |
+| SM transition audit | `SmManifest::audit_thread` | `SmManifest::bg_thread` |
+| app signal watcher | `app::Settings::signal_thread` | inherited |
+| metricsd HTTP | `MetricDaemonConfig::http_thread` | `MetricDaemonConfig::bg_cpu_affinity` |
+| logd main | `LogDaemonConfig::main_thread` | legacy `LogDaemonConfig::bg_cpu_affinity` |
+| logging/tracing/metrics/chrono workers | `worker_thread` | inherited |
+
+`logd` now actually applies its legacy `bg_cpu_affinity` on the main thread
+(previously the field was read but ignored); an explicit `main_thread` wins over
+it. A `Required` application failure fails the affected daemon start: `logd`,
+`phmd`, and `sm` return 1 before opening their ports, and `metricsd` reports a
+failed HTTP start. `FaultStorage` and `TransitionAudit` expose
+`startup_status()`, `thread_ready()`, `thread_report()`, and `thread_mask()` for
+diagnostics.
+
+`app::Settings::signal_thread` is supplied programmatically by the host
+application; the app settings loader has no separate app-level file for it.
+`app::Settings::create(name)` is the named construction path, while the type
+remains an aggregate with the new field appended last for positional
+compatibility. `LogDaemonConfig::main_thread` is likewise appended last.
+
+`core::probe_thread_spec(spec)` runs the same self-application on a one-shot
+thread and returns the status; the Execution Manager uses it to preflight its
+control/logger specs without touching its own thread.
+
 ## Diagnostics
 
 Best-effort warnings are rendered from the report, not from the requested spec.

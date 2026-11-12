@@ -28,6 +28,7 @@ struct MetricDaemonConfig {
     std::uint32_t batch_flush_interval_ms{500};                ///< render/flush timer (ms)
     std::uint32_t max_metrics{256};                            ///< aggregation table capacity
     core::ThreadSpec bg_cpu_affinity{};                        ///< drain worker affinity
+    core::ThreadSpec http_thread{};                            ///< HTTP thread (empty = bg)
 
     /// Cold-path diagnostic (mandate 9).
     [[nodiscard]] std::string to_string() const {
@@ -39,7 +40,8 @@ struct MetricDaemonConfig {
         out += ", max_storage_mb=" + std::to_string(max_storage_mb);
         out += ", flush_interval_ms=" + std::to_string(batch_flush_interval_ms);
         out += ", max_metrics=" + std::to_string(max_metrics);
-        out += ", bg_affinity=" + bg_cpu_affinity.to_string() + ")";
+        out += ", bg_affinity=" + bg_cpu_affinity.to_string();
+        out += ", http_thread=" + http_thread.to_string() + ")";
         return out;
     }
 
@@ -58,6 +60,12 @@ struct MetricDaemonConfig {
         if (storage_directory.empty() || storage_directory.front() != '/' ||
             storage_directory.size() > 511U) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        if (http_thread.has_requests()) {
+            const core::Status valid = http_thread.validate();
+            if (!valid) {
+                return valid;
+            }
         }
         return {};
     }

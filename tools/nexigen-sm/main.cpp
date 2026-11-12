@@ -470,7 +470,14 @@ void run_loop(Session& session, nexigen::sm::StateManager& manager,
     }
     open_control_channels(session, manifest);
 
-    nexigen::sm::TransitionAudit audit(options.audit_log);
+    const nexigen::core::ThreadSpec audit_spec =
+        nexigen::core::effective_thread_spec(manifest.audit_thread, manifest.bg_thread);
+    nexigen::sm::TransitionAudit audit(options.audit_log, audit_spec);
+    if (!audit.startup_status()) {
+        std::fprintf(stderr, "nexigen-sm: audit thread not started (%s)\n",
+                     std::string(nexigen::core::to_string(audit.startup_status().error())).c_str());
+        return 1;
+    }
     nexigen::sm::SmMetrics metrics;
     std::vector<PendingTransition> pending;
     pending.reserve(manifest.function_groups.size());

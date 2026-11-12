@@ -18,6 +18,8 @@ void test_metric_daemon_config_roundtrip() {
     config.max_storage_mb = 64;
     config.batch_flush_interval_ms = 250;
     config.max_metrics = 128;
+    NX_CHECK(config.http_thread.set_name("metrics-http").has_value());
+    config.http_thread.set_cpus(nexigen::core::CpuSet::from_core_mask(1ULL));
 
     const nlohmann::json j = config;
     NX_CHECK(j.is_object());
@@ -26,6 +28,7 @@ void test_metric_daemon_config_roundtrip() {
     NX_CHECK(parsed.to_string() == config.to_string());
     NX_CHECK(parsed.port == 9200);
     NX_CHECK(parsed.max_metrics == 128U);
+    NX_CHECK(parsed.http_thread == config.http_thread);
 
     NX_CHECK(metrics::to_string(config) == config.to_string());
     NX_CHECK(std::format("{}", config) == config.to_string());
