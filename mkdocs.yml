@@ -1,0 +1,56 @@
+site_name: nexigen platform
+theme:
+  name: material
+  language: ru
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Переключить на тёмную тему
+    - scheme: slate
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Переключить на светлую тему
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdoxy:
+      projects:
+        platform_api:
+          src-dirs: include/
+          full-doc: True
+          doxy-cfg:
+            FILE_PATTERNS: "*.hpp *.h"
+            RECURSIVE: True
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - admonition
+  - pymdownx.details
+
+nav:
+  - Главная: index.md
+  - Архитектура: architecture.md
+  - Спецификации (OpenSpec):
+      - Обзор требований: specs/index.md
+      # Сюда будут подтягиваться файлы из openspec/specs/
+  - Справочник C++ API:
+      - Классы: platform_api/annotated.md
+      - Пространства имён: platform_api/namespaces.md
+      - Файлы: platform_api/files.md

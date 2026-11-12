@@ -60,3 +60,5 @@ rules:
     - Specify exact memory layout (`alignas(64)`), per-thread shard sizing, and `std::memory_order` choices for any concurrent/atomic component.
   tasks:
     - Always include a task to compile and pass 100% of unit tests under Debug, Release (`-O3 -march=native -flto` with latency gates), ThreadSanitizer (`-DNEXIGEN_ENABLE_TSAN=ON`), and AddressSanitizer (`-DNEXIGEN_ENABLE_ASAN=ON`).
+    - "Обновить Doxygen-комментарии (/// @brief, @param, @return, @tparam) в затронутых заголовочных файлах include/"
+    - "При изменении архитектуры обновить Mermaid-схемы в docs/architecture.md"
