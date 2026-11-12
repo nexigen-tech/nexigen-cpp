@@ -2700,15 +2700,15 @@
     "semantic_hash": ""
   },
   "tests/com/com_test.cpp": {
-    "mtime": 1794512733.3793414,
-    "seen": 1794512759.7029114,
-    "ast_hash": "cdf5ab8ef582823423162cbbc7a3c85e",
+    "mtime": 1794518071.4172428,
+    "seen": 1794518629.2433908,
+    "ast_hash": "34c5619df5dfdb418b84ebe123e1a1fe",
     "semantic_hash": ""
   },
   "tests/com/latency_test.cpp": {
-    "mtime": 1794510846.6524386,
-    "seen": 1794512759.7029126,
-    "ast_hash": "1b83df0f8395cdec83213152bddba538",
+    "mtime": 1794518074.09224,
+    "seen": 1794518629.2433918,
+    "ast_hash": "8d2424e7b04cd79a58c36a75a19ce40b",
     "semantic_hash": ""
   },
   "tests/com/neg/message_non_pod_negative.cpp": {
@@ -6654,9 +6654,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/com/publish-subscribe/spec.md": {
-    "mtime": 1794420770.131021,
-    "seen": 1794421302.8841228,
-    "ast_hash": "020b36c21ed6e67a541bc7358f6e29e5",
+    "mtime": 1794518507.057482,
+    "seen": 1794518629.2528186,
+    "ast_hash": "e8b3eed044698a02ed3749c8cb01f474",
     "semantic_hash": ""
   },
   "openspec/specs/com/request-response/spec.md": {
@@ -8123,46 +8123,46 @@
     "ast_hash": "ffdef4c8dfb42ac1bd7c0a9eea2b6171",
     "semantic_hash": ""
   },
-  "openspec/changes/add-publisher-send-copy/.openspec.yaml": {
-    "mtime": 1794510325.2779195,
-    "seen": 1794512759.702748,
-    "ast_hash": "3d81d1267eddd749eda85fff90308b20",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-publisher-send-copy/design.md": {
-    "mtime": 1794510389.3657377,
-    "seen": 1794512759.7030442,
-    "ast_hash": "4e468a3cefc866e7954afeee8f59b96b",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-publisher-send-copy/measurements.md": {
-    "mtime": 1794510891.3493118,
-    "seen": 1794512759.7030451,
-    "ast_hash": "760fb32f3bcbc3f1c01b5ab68bfdd43f",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-publisher-send-copy/proposal.md": {
-    "mtime": 1794510360.36482,
-    "seen": 1794512759.7030458,
-    "ast_hash": "94cdc087fd2c456f8da7bd618b828c9e",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-publisher-send-copy/specs/com/publish-subscribe/spec.md": {
-    "mtime": 1794510405.013693,
-    "seen": 1794512759.7030466,
-    "ast_hash": "88efb6ea53503b1b6c5bc1a18b2a5aec",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-publisher-send-copy/tasks.md": {
-    "mtime": 1794512762.7707245,
-    "seen": 1794513011.648058,
-    "ast_hash": "eb2a629648ecf8ca6921af92be122295",
-    "semantic_hash": ""
-  },
   ".opencode/commands/doc-cpp.md": {
     "mtime": 1794513176.1872106,
     "seen": 1794516334.6693437,
     "ast_hash": "a7a7439d480a1d229b05603525b3b93a",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-13-add-publisher-send-copy/.openspec.yaml": {
+    "mtime": 1794510325.2779195,
+    "seen": 1794518629.24256,
+    "ast_hash": "3d81d1267eddd749eda85fff90308b20",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-13-add-publisher-send-copy/design.md": {
+    "mtime": 1794518078.116236,
+    "seen": 1794518629.2526054,
+    "ast_hash": "11f84b197de11c01d2616e133d54bde7",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-13-add-publisher-send-copy/measurements.md": {
+    "mtime": 1794510891.3493118,
+    "seen": 1794518629.2526062,
+    "ast_hash": "760fb32f3bcbc3f1c01b5ab68bfdd43f",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-13-add-publisher-send-copy/proposal.md": {
+    "mtime": 1794510360.36482,
+    "seen": 1794518629.2526069,
+    "ast_hash": "94cdc087fd2c456f8da7bd618b828c9e",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-13-add-publisher-send-copy/specs/com/publish-subscribe/spec.md": {
+    "mtime": 1794510405.013693,
+    "seen": 1794518629.2526078,
+    "ast_hash": "88efb6ea53503b1b6c5bc1a18b2a5aec",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-13-add-publisher-send-copy/tasks.md": {
+    "mtime": 1794512762.7707245,
+    "seen": 1794518629.2526085,
+    "ast_hash": "eb2a629648ecf8ca6921af92be122295",
     "semantic_hash": ""
   }
 }
