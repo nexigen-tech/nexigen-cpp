@@ -88,8 +88,8 @@ else if (delivered > peak) peak_recipients_.store(delivered, relaxed);
 `iox2::Publisher::send_copy` возвращает один `SendError` и на неудачный loan, и на неудачный send. Все три hot-path синка уже трактуют оба случая одинаково:
 
 - `Iceoryx2TraceSink::on_span` — `++dropped_`, вернуть `Ok` (спека «Publication never blocks and drops are counted»);
-- `logging::detail::Iceoryx2Sink::handle` — молча пропустить кадр (ошибка `send()` и так игнорировалась);
-- `Iceoryx2MetricSink::on_batch` — `continue`, кадр не считается опубликованным.
+- `logging::detail::Iceoryx2Sink::handle` — молча пропустить кадр и не отправлять `notify()`: будить демон без опубликованного кадра незачем (в старой схеме ошибка `send()` игнорировалась и notify всё равно уходил);
+- `Iceoryx2MetricSink::on_batch` — `continue`, кадр не считается опубликованным; `published` инкрементируется только после успешного `send_copy`, поэтому notify уходит лишь когда в батче есть хотя бы один доставленный кадр.
 
 Метод всё равно возвращает `Status`, чтобы будущий вызывающий мог увидеть сбой; менять контракт `send()` не нужно.
 
