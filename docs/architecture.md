@@ -16,13 +16,17 @@ in the OpenSpec capabilities under [`openspec/specs/`](../openspec/specs).
 | `nexigen::tracing` | `include/nexigen/tracing/`, `src/tracing/` | `nexigen_tracing` (alias `nexigen::tracing`) | STATIC |
 | `nexigen::diagnostics` | `include/nexigen/diagnostics/`, `src/diagnostics/` | `nexigen_diagnostics` (alias `nexigen::diagnostics`) | STATIC |
 | `nexigen::app` | `include/nexigen/app/`, `src/app/` | `nexigen_app` (alias `nexigen::app`) | STATIC |
-| `nexigen::runner` | `include/nexigen/runner/`, `src/runner/` | `nexigen_runner` (alias `nexigen::runner`) | STATIC |
+| `nexigen::exec` | `include/nexigen/exec/`, `src/exec/` | `nexigen_exec` (alias `nexigen::exec`) | STATIC |
+| `nexigen::com` | `include/nexigen/com/`, `src/com/` | `nexigen_com` (alias `nexigen::com`) | STATIC |
+| `nexigen::phm` | `include/nexigen/phm/`, `src/phm/` | `nexigen_phm` (alias `nexigen::phm`) | STATIC |
+| `nexigen::sm` | `include/nexigen/sm/`, `src/sm/` | `nexigen_sm` (alias `nexigen::sm`) | STATIC |
 | `nexigen::hub` | `include/nexigen/hub/`, `src/hub/` | `nexigen_hub` (alias `nexigen::hub`) | STATIC |
 | examples | `examples/<module>/` | `NEXIGEN_BUILD_EXAMPLES` option | executables |
 | tests | `tests/<module>/` | `NEXIGEN_BUILD_TESTS` option | CTest suites |
 
 `nexigen::core` is INTERFACE because it is pure templates; `chrono`, `logging`,
-`metrics`, `tracing`, `diagnostics`, `app`, `runner`, and `hub` are STATIC because
+`metrics`, `tracing`, `diagnostics`, `app`, `exec`, `com`, `phm`, `sm`, and `hub`
+are STATIC because
 they own compiled cold paths (calibration, the harvest loop, sink I/O, snapshot
 serialisation, process supervision, HTTP/SSE serving) that must not be inlined into
 every consumer. Modules never consume another module's `detail/` — the chrono extraction
@@ -53,7 +57,7 @@ construction path; a second initialized infrastructure receives
 per tick, and the watcher only records a reason. Dependency arrows stay one-way:
 `app → logging, metrics, tracing, chrono, core`.
 
-`nexigen::runner` owns detached per-instance and per-suite supervision: instance
+`nexigen::exec` owns detached per-instance and per-suite supervision: instance
 directory layout, generated settings, fork/exec with `setsid`, signal escalation,
 restart policy, and JSON-lines runner logging. Control and logger worker threads
 apply a copied `ThreadSpec` and report per-attribute outcomes; warnings render the
@@ -62,7 +66,180 @@ claiming the thread is unpinned. `nexigen::hub` is a read-only observatory over
 explicit run roots: inotify discovery, bounded stream rings with replay/gap
 markers, and an epoll HTTP/SSE server with an embedded web UI. Neither module adds
 work to the application tick, producer, snapshot, or sink paths; both depend on
-`core`/`chrono`/`runner` in one direction only.
+`core`/`chrono`/`exec` in one direction only.
+
+## Platform layers
+
+Dependencies run strictly downward; a lower layer never knows about an upper one.
+The include graph is the check: `core` includes only the standard library,
+`chrono`/`com` include only `core`, telemetry includes only L0/L1, and services
+may use everything below themselves.
+
+```mermaid
+flowchart TD
+    subgraph L3["L3 · platform services"]
+        APP["app<br/>command line, settings,<br/>telemetry-layout, infrastructure"]
+        EXEC["exec<br/>suite/instance lifecycle,<br/>process supervision, state-client"]
+        HUB["hub<br/>discovery, streaming with gap markers,<br/>HTTP/SSE server, web-assets"]
+        PHM["phm<br/>health-channel, manifest,<br/>recovery, supervised-entity"]
+        SM["sm<br/>manifest, state machine,<br/>transitions, audit, recovery-handler"]
+    end
+
+    subgraph L2["L2 · telemetry"]
+        LOG["logging<br/>loggers, LogRecord, spam-protection,<br/>frame/daemon transport"]
+        MET["metrics<br/>counter/gauge, histograms,<br/>snapshot, sinks, prometheus"]
+        TRC["tracing<br/>TracerProvider, ScopedSpan,<br/>span-context, sinks, record-format"]
+        DIA["diagnostics<br/>Stopwatch, ScopedStopwatch,<br/>stopwatch-state"]
+    end
+
+    subgraph L1["L1 · primitives"]
+        CHR["chrono<br/>Timestamp, CivilTime, utc-offset,<br/>StampSource, Provider/Worker"]
+        COM["com<br/>Message, Field, Client/Server,<br/>Publisher/Subscriber, WaitSet"]
+    end
+
+    CORE["core · L0<br/>Result/ErrorCode, serialization, LogLevel,<br/>thread-management/affinity, SPSC ring, sink_io"]
+
+    APP --> LOG
+    APP --> MET
+    APP --> TRC
+    APP --> CHR
+    EXEC --> APP
+    EXEC --> COM
+    EXEC --> LOG
+    HUB --> EXEC
+    PHM --> COM
+    PHM --> SM
+    SM --> COM
+    LOG --> CHR
+    LOG --> COM
+    MET --> CHR
+    TRC --> CHR
+    TRC --> COM
+    DIA --> CHR
+    CHR --> CORE
+    COM --> CORE
+    LOG --> CORE
+    MET --> CORE
+    TRC --> CORE
+    DIA --> CORE
+    APP --> CORE
+    EXEC --> CORE
+    HUB --> CORE
+    PHM --> CORE
+    SM --> CORE
+```
+
+Known deviations (both inside `detail/`, i.e. private to the module, never part
+of a module's public contract):
+
+- `metrics/detail/metric_http_server.hpp` → `hub/detail/http_parse.hpp`
+  (reuses the HTTP parser instead of copying it);
+- `tracing/detail/trace_daemon_session.hpp` → `exec/app_state.hpp`,
+  `exec/application_state.hpp`, `sm/recovery_notification.hpp`
+  (trace-daemon session state).
+
+Candidates for a future promotion into `core`/`com` to keep the layers clean.
+
+## Capabilities per module
+
+Each capability under `openspec/specs/` describes one subsystem; the spec path
+mirrors the module directory (`logging/log-level` → `include/nexigen/logging/`).
+
+| Module | Headers | Purpose | Capability specs |
+|---|---:|---|---|
+| `core` | 20 | Shared primitives: `Result`/`ErrorCode`, the serialization mandate, the `LogLevel` vocabulary, `EnumTraits`, thread management and CPU affinity, SPSC rings, `sink_io`, settings vocabulary | `core/result`, `core/serialization`, `core/log-level`, `core/settings-vocabulary`, `core/affinity`, `core/thread-management`, `core/worker-thread`, `core/worker-tuning`, `core/spsc-ring-buffer`, `core/sink-plumbing` |
+| `chrono` | 23 | Time: `Timestamp`, `CivilTime`, UTC offset, `StampSource` (rdtsc), time-source providers and their workers, sinks | `chrono/timestamp`, `chrono/time-format`, `chrono/clock-id`, `chrono/stamp-source`, `chrono/provider`, `chrono/worker`, `chrono/chrono-sink`, `chrono/chrono-snapshot`, `chrono/chrono-settings` |
+| `com` | 20 | Communication: the `Message` contract, `Field`, request/response `Client`/`Server`, publish/subscribe, `EventNotifier`, `WaitSet`, service manifest | `com/field`, `com/request-response`, `com/publish-subscribe`, `com/service-management`, `com/waitset` |
+| `logging` | 37 | Logging: the logger concept, the logger family (console/file/composite/null/iceoryx2), `LogRecord`, levels, spam protection, multi-producer, frame/daemon transport | `logging/logger-concept`, `logging/console-logger`, `logging/file-logger`, `logging/composite-logger`, `logging/null-logger`, `logging/iceoryx2-logger`, `logging/log-record`, `logging/log-level`, `logging/format-api`, `logging/logger-options`, `logging/logging-settings`, `logging/spam-protection`, `logging/multi-producer`, `logging/log-daemon` |
+| `metrics` | 49 | Metrics: `Counter`/`Gauge`, explicit and exponential histograms, descriptive statistics, state gauge, `MetricProvider`, sinks and Prometheus rendering, daemon | `metrics/metric-concepts`, `metrics/counter-gauge`, `metrics/explicit-histogram`, `metrics/exponential-histogram`, `metrics/descriptive-statistics`, `metrics/state-gauge`, `metrics/metric-provider`, `metrics/metric-sinks`, `metrics/iceoryx2-metric-sink`, `metrics/metrics-settings`, `metrics/metrics-daemon`, `metrics/snapshot-format`, `metrics/policy-enums`, `metrics/examples` |
+| `tracing` | 35 | Tracing: `TracerProvider` with per-thread SPSC shards, `ScopedSpan`, trace context (`TraceId`/`SpanId`/`SpanContext`), sinks (chrome/json/iceoryx2), record format, daemon transport | `tracing/tracer-concepts`, `tracing/tracer-provider`, `tracing/scoped-span`, `tracing/span-context`, `tracing/span-enums`, `tracing/trace-sinks`, `tracing/iceoryx2-trace-sink`, `tracing/record-format`, `tracing/tracing-settings`, `tracing/trace-daemon`, `tracing/trace-propagation`, `tracing/examples` |
+| `diagnostics` | 5 | Measurement: `Stopwatch`, `ScopedStopwatch`, stopwatch state | `diagnostics/stopwatch`, `diagnostics/scoped-stopwatch`, `diagnostics/stopwatch-state`, `diagnostics/examples` |
+| `app` | 11 | Application layer: command-line parsing, application settings, telemetry layout, infrastructure (subsystem init/shutdown) | `app/command-line`, `app/settings`, `app/application`, `app/telemetry-layout` |
+| `exec` | 37 | Execution: suite and application-instance lifecycle, process supervision, child processes, state client, run logging | `exec/app-suite`, `exec/instance-lifecycle`, `exec/process-supervision`, `exec/application-state`, `exec/state-client`, `exec/logging` |
+| `hub` | 15 | Observatory: run-tree discovery, streaming delivery with gap markers, HTTP/SSE server, web assets | `hub/discovery`, `hub/streaming`, `hub/http-api`, `hub/web-ui` |
+| `phm` | 13 | Health and reliability: manifest, supervisor, health channel, checkpoints, recovery | `phm/manifest`, `phm/supervision`, `phm/health-channel`, `phm/supervised-entity`, `phm/recovery` |
+| `sm` | 14 | State machine: manifest, state manager, transitions and their preparation, audit, recovery, IPC | `sm/manifest`, `sm/state-machine`, `sm/lifecycle`, `sm/telemetry`, `sm/ipc`, `sm/recovery-handler` |
+
+Cross-cutting capabilities that are not tied to a single module:
+`quality/code-structure`, `quality/coverage`, `quality/reproducible-builds`,
+`packaging`, `examples`.
+
+## Telemetry flow
+
+Producer code calls a logger, a tracer or the metric instruments. Each provider
+owns a per-thread SPSC shard; a background consumer drains batches into the
+sinks; the daemons transport frames between processes, and `hub` reads the
+streams from disk and serves them over HTTP/SSE.
+
+```mermaid
+flowchart LR
+    APP["Application code<br/>producer"] -->|log call| LOG["logging::Logger"]
+    APP -->|span start/end| TRC["tracing::Tracer"]
+    APP -->|counter/gauge/histogram| MET["metrics::MetricProvider"]
+
+    LOG --> LSINK["sinks: console / file / iceoryx2"]
+    TRC --> TSINK["sinks: chrome-trace / jsonl / iceoryx2"]
+    MET --> MSINK["sinks: console / jsonl / iceoryx2 / prometheus"]
+
+    LSINK -->|frame| LDM["nexigen-logd"]
+    TSINK -->|frame| TDM["nexigen-traced"]
+    MSINK -->|frame| MDM["nexigen-metricsd"]
+
+    LDM -->|frames over IPC| LSINK
+    TDM -->|frames over IPC| TSINK
+    MDM -->|frames over IPC| MSINK
+
+    LSINK -->|"jsonl on disk"| HUB["hub::StreamManager"]
+    TSINK -->|"jsonl on disk"| HUB
+    MSINK -->|"jsonl on disk"| HUB
+    HUB -->|"gap marker on ring overflow"| HUB
+
+    HUB -->|"HTTP + SSE"| CLI["nexigen-hub<br/>UI / clients"]
+```
+
+Invariants of the flow:
+
+- **No allocation and no blocking on the hot path.** The producer only writes to
+  its own SPSC shard; logging, metrics and tracing share no state and never
+  block each other.
+- **Bounded rings.** When a ring overflows the consumer emits a `gap` marker
+  (the lost sequence range) — loss is visible, not masked.
+- **Cold path.** JSON serialization, name parsing and formatting live off the
+  hot path; `core::mandate` provides the shared non-throwing contract.
+
+## Suite and application-instance lifecycle
+
+`nexigen-exec` reads the suite manifest, validates it, starts the supervisor
+process and the application instances, then governs their restarts and shutdown.
+`phm`/`sm` layer health, transitions and recovery on top of that.
+
+```mermaid
+flowchart TD
+    MAN["Suite manifest<br/>SuiteManifest"] --> VAL["validate_suite_manifest"]
+    VAL --> PRE["preflight_suite_threads<br/>CPU mask and priority check"]
+    PRE --> SUP["run_suite_supervisor_child<br/>fork supervisor"]
+    SUP --> APPS["start application instances<br/>start_app / restart_attempts"]
+    APPS --> STATE["AppState / SuiteStatus<br/>app_state + suite_state"]
+    STATE --> REPORT["suite_status / metadata<br/>suite_reporting"]
+    REPORT --> META["suite.json / run log<br/>on disk"]
+    META --> HUB2["hub::Discovery<br/>run → suite → app → instance tree"]
+    STATE --> STOP["stop_suite / stop_suite_apps<br/>grace period, SIGTERM → SIGKILL"]
+    STOP --> SUP
+    STATE --> PHM2["phm::Supervisor<br/>health-channel, recovery"]
+    STATE --> SM2["sm::StateManager<br/>transitions and audit"]
+```
+
+## CLI tools
+
+| Tool | Purpose | Key options |
+|---|---|---|
+| `nexigen-exec` | Drive suites and application instances | `--help` |
+| `nexigen-hub` | HTTP/SSE observatory over run roots | `--help` |
+| `nexigen-logd` | Log-frame transport daemon | `--config <path>` |
+| `nexigen-traced` | Trace-frame transport daemon | `--config <trace-daemon-config.json>` |
+| `nexigen-metricsd` | Metric-frame transport daemon | `--config <path>` |
+| `nexigen-phmd` | Health/reliability (PHM) daemon | `--manifest <path> [--core <mask>] [--priority <n>] [--fault-log <path>]` |
+| `nexigen-sm` | State-machine daemon | `--config <path> [--rt-core <mask>] [--priority <n>] [--audit-log <path>]` |
 
 ## The hard mandates
 
@@ -178,7 +355,8 @@ Current unit-test line coverage is **95.2%** (≈11 191 / 11 753 lines):
 | `hub` | 95.2% (≈1 570 / 1 650) |
 
 The project target is **≥95%**. CI enforces the **≥95%** project gate
-(`-DNEXIGEN_COVERAGE_FAIL_UNDER=95`) plus the 90% runner and hub module gates.
+(`-DNEXIGEN_COVERAGE_FAIL_UNDER=95`) plus the 90% exec and hub module gates.
+(The coverage snapshot above predates the `runner` → `exec` module rename.)
 Remaining uncovered lines are concentrated in platform-specific calibration
 branches, sink open/read failure paths, `std::to_chars` error arms, and
 retry/fork failure arms that cannot be triggered without fault injection. The
@@ -204,7 +382,7 @@ structure.
 Optional verification depth:
 
 - `-DNEXIGEN_ENABLE_FAULT_INJECTION=ON` enables test-only cold-path hooks for
-  runner `pipe2`/`fork`/`/dev/null` and hub `socket`/`bind`/`epoll`/`eventfd`.
+  exec `pipe2`/`fork`/`/dev/null` and hub `socket`/`bind`/`epoll`/`eventfd`.
   The Debug and coverage CI builds use it; production builds compile the checks
   to constant `false`.
 - `-DNEXIGEN_BUILD_FUZZERS=ON` (Clang only) builds
