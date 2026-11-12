@@ -162,7 +162,8 @@ mirrors the module directory (`logging/log-level` → `include/nexigen/logging/`
 
 Cross-cutting capabilities that are not tied to a single module:
 `quality/code-structure`, `quality/coverage`, `quality/reproducible-builds`,
-`packaging`, `examples`.
+`packaging`, `examples` (plus `examples/suite-demo`, the runnable suite
+walkthrough).
 
 ## Telemetry flow
 
