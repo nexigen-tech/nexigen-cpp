@@ -738,6 +738,73 @@ void test_pub_sub_overflow() {
     NX_CHECK(received_x[1] == 1);
 }
 
+void test_pub_sub_send_copy() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/SendCopy");
+    NX_CHECK(name.has_value());
+
+    auto publisher = com::Publisher<PodPayload>::create(*node, *name);
+    NX_CHECK(publisher.has_value());
+    auto subscriber = com::Subscriber<PodPayload>::create(*node, *name);
+    NX_CHECK(subscriber.has_value());
+
+    // One transport call publishes the caller-owned value byte for byte.
+    NX_CHECK(publisher->send_copy(PodPayload{21, 42, 6.25}).has_value());
+
+    PodPayload received_value{};
+    bool received = false;
+    for (int i = 0; i < 500 && !received; ++i) {
+        const auto sample = subscriber->receive();
+        NX_CHECK(sample.has_value());
+        if (sample->has_value()) {
+            received_value = (*sample)->payload();
+            received = true;
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    NX_CHECK(received);
+    NX_CHECK(received_value.x == 21 && received_value.y == 42 && received_value.funky == 6.25);
+
+    // Diagnostics: the send_copy counts as a publication and the formatter
+    // matches the member text.
+    const std::string ptext = publisher->to_string();
+    NX_CHECK(ptext.find("Nexigen/Test/SendCopy") != std::string::npos);
+    NX_CHECK(ptext.find("sent=1") != std::string::npos);
+    NX_CHECK(com::to_string(*publisher) == ptext);
+    NX_CHECK(std::format("{}", *publisher) == ptext);
+
+    // Slot starvation is an error, not a block: the default pool is two
+    // loans, so holding both leaves send_copy with nothing to borrow.
+    {
+        auto first = publisher->loan_uninit();
+        NX_CHECK(first.has_value());
+        auto second = publisher->loan_uninit();
+        NX_CHECK(second.has_value());
+        NX_CHECK(!publisher->send_copy(PodPayload{1, 2, 3.0}).has_value());
+    }
+
+    // Releasing the loans frees the slot again.
+    NX_CHECK(publisher->send_copy(PodPayload{3, 4, 5.0}).has_value());
+
+    // The lost-sample snapshot spans the call: a 2-deep receiver queue is
+    // saturated, so the next publication evicts a sample and the counter grows.
+    const auto overflow_name = com::ServiceName::create("Nexigen/Test/SendCopyOverflow");
+    NX_CHECK(overflow_name.has_value());
+    auto slow_publisher = com::Publisher<PodPayload>::create(*node, *overflow_name);
+    NX_CHECK(slow_publisher.has_value());
+    auto slow_subscriber = com::Subscriber<PodPayload>::create(*node, *overflow_name, 2U);
+    NX_CHECK(slow_subscriber.has_value());
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    for (int i = 0; i < 4; ++i) {
+        NX_CHECK(slow_publisher->send_copy(PodPayload{i, 0, 0.0}).has_value());
+    }
+    const std::uint64_t lost_before = slow_publisher->lost_samples();
+    NX_CHECK(slow_publisher->send_copy(PodPayload{9, 9, 9.0}).has_value());
+    NX_CHECK(slow_publisher->lost_samples() > lost_before);
+}
+
 void test_pub_sub_type_mismatch() {
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
@@ -850,6 +917,7 @@ int main() {
     run_suite("message_concept", test_message_concept);
     run_suite("pub_sub_roundtrip", test_pub_sub_roundtrip);
     run_suite("pub_sub_overflow", test_pub_sub_overflow);
+    run_suite("pub_sub_send_copy", test_pub_sub_send_copy);
     run_suite("pub_sub_type_mismatch", test_pub_sub_type_mismatch);
     run_suite("pub_sub_two_process", test_pub_sub_two_process);
     run_suite("custom_header", test_custom_header);

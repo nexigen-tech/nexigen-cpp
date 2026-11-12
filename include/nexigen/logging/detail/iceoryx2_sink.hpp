@@ -24,31 +24,70 @@
 
 namespace nexigen::logging::detail {
 
-/// Publishes rendered LogFrames on the worker thread. Templated on the
-/// Producer only so the drop-delta can read the producer's dropped() snapshot
-/// (third-thread relaxed read, safe on the consumer thread).
+/// @brief Consumer-thread sink publishing rendered `LogFrame`s to iceoryx2.
+///
+/// Implements the duck-typed Sink contract (`start()` / `handle(Record&)` /
+/// `synchronize()` / `stop()`) and is constructed in place by
+/// `AsyncWorker::start` on the worker thread. Unlike the file sink, it renders
+/// the message text, packs a fixed `LogFrame`, publishes it over pub-sub, then
+/// notifies the companion event service; final line formatting and disk I/O
+/// belong to the `LogDaemon` (out of scope).
+///
+/// @tparam Producer Producer type exposing `dropped()`, whose snapshot has
+///         `total()`; read relaxed from the consumer thread only.
+/// @note Spec `logging/iceoryx2-logger`, requirement "Worker publishes frames
+///       off the hot path"; the producer never formats or touches the
+///       transport.
 template <class Producer> class Iceoryx2Sink {
 public:
-    /// Fixed-footprint snapshot of the validated config (copied at
-    /// initialize() — the sink never holds caller string_views at runtime).
+    /// @brief Fixed-footprint snapshot of the validated config.
+    ///
+    /// Copied at `initialize()` so the sink never holds caller string_views at
+    /// runtime; the service name is staged NUL-terminated in place, so
+    /// `start()` can hand it to the transport without allocating.
+    ///
+    /// @note Spec `logging/iceoryx2-logger`, requirement "Iceoryx2 logger
+    ///       configuration".
     struct Settings {
+        /// @brief Service name bytes, NUL-terminated inside the fixed array.
         char service_name[512]{};
+        /// @brief Number of meaningful bytes in `service_name`.
         std::size_t service_name_len = 0;
+        /// @brief Fixed 4-byte application tag copied into every frame.
         char app_id[4]{};
+        /// @brief Configured subscriber ceiling, validated before the worker.
         std::uint32_t max_subscribers = 16;
+        /// @brief Configured history depth, validated before the worker.
         std::uint32_t history_size = 4;
     };
 
+    /// @brief Construct the sink around a config snapshot and transport node.
+    ///
+    /// @param settings Validated config copy; stored by value.
+    /// @param producer Producer supplying the drop snapshot; may be null.
+    /// @param node Transport node used by `start()`; may be null (then
+    ///        `start()` fails) and must outlive the sink.
     Iceoryx2Sink(Settings settings, const Producer* producer, com::Node* node) noexcept
         : settings_{settings}, producer_(producer), node_(node) {}
 
+    /// @brief Copy construction is deleted: the sink owns transport handles.
     Iceoryx2Sink(const Iceoryx2Sink&) = delete;
+    /// @brief Copy assignment is deleted: the sink owns transport handles.
     Iceoryx2Sink& operator=(const Iceoryx2Sink&) = delete;
 
-    /// Worker-thread cold start: open_or_create the pub/sub service and the
-    /// event service (two services per REQ_LOGC_005), and create the publisher
-    /// and notifier. A failure is reported in the worker start-code snapshot
-    /// and never stops the drain loop (design D15 philosophy).
+    /// @brief Worker-thread cold start: create the pub/sub and event services.
+    ///
+    /// Opens or creates the service and its `"<service>Event"` companion (two
+    /// services per REQ_LOGC_005), then creates the publisher and notifier and
+    /// caches the process id. A failure is reported in the worker start-code
+    /// snapshot and never stops the drain loop.
+    ///
+    /// @return `Status`: OK when both services are ready; `SystemError` when
+    ///         the node is null, the service names are rejected, or the
+    ///         publisher/notifier cannot be created.
+    /// @note Spec `logging/iceoryx2-logger`, requirement "Iceoryx2 logger
+    ///       configuration" and requirement "Worker publishes frames off the
+    ///       hot path"; cold path, may allocate inside the transport.
     [[nodiscard]] core::Status start() noexcept {
         if (node_ == nullptr) {
             return std::unexpected(core::ErrorCode::SystemError);
@@ -78,9 +117,21 @@ public:
         return {};
     }
 
-    /// Render the deferred format into the frame payload, pack the metadata,
-    /// and publish. Deferred rendering executes HERE (spec logging/log-record),
-    /// allocation-free; the producer never formats.
+    /// @brief Render one record into a frame, pack the metadata, and publish.
+    ///
+    /// Deferred rendering executes here, on the consumer thread, into the
+    /// frame payload, allocation-free. A frame has a single transport call
+    /// (loan, copy, send); a failed publish drops that frame and never blocks
+    /// (`DiscardData`), and the event notify is best-effort.
+    ///
+    /// @tparam Record Record type exposing `render_into`, `stamp`,
+    ///         `thread_id`, and `level`.
+    /// @param rec Drained record; read only, never retained.
+    /// @note Spec `logging/iceoryx2-logger`, requirement "Worker publishes
+    ///       frames off the hot path" and requirement "Log frame is a fixed
+    ///       zero-copy frame"; deferred rendering per `logging/log-record`,
+    ///       requirement "Consumer-side rendering of packed records".
+    ///       Publication works with zero subscribers.
     template <class Record> void handle(Record& rec) noexcept {
         if (!publisher_.has_value()) {
             return;
@@ -97,30 +148,42 @@ public:
         frame_.dropped_counter = dropped_delta();
         std::memcpy(frame_.app_id, settings_.app_id, sizeof(frame_.app_id));
 
-        auto loaned = publisher_->loan_uninit();
-        if (!loaned) {
-            return; // transport out of samples: dropped, never blocks (DiscardData)
+        // One transport call: loan, copy and send. A failed publish drops the
+        // frame and never blocks (DiscardData).
+        if (!publisher_->send_copy(frame_)) {
+            return;
         }
-        auto sample = loaned->write_payload(frame_);
-        static_cast<void>(publisher_->send(std::move(sample)));
         if (notifier_.has_value()) {
             static_cast<void>(notifier_->notify());
         }
     }
 
-    /// Data is already in shared memory at send() time; no fsync equivalent.
+    /// @brief No-op synchronization: frame data is already in shared memory.
+    ///
+    /// @return `Status`: always OK; there is no fsync equivalent for a
+    ///         published frame.
+    /// @note Spec `logging/iceoryx2-logger`, requirement "Worker publishes
+    ///       frames off the hot path".
     [[nodiscard]] core::Status synchronize() noexcept { return {}; }
 
+    /// @brief Release the publisher and notifier; safe to call repeatedly.
     void stop() noexcept {
         publisher_.reset();
         notifier_.reset();
     }
 
 private:
-    /// Drop delta since the previous frame (REQ_LOGC_007): the worker packs the
-    /// freshly dropped count into the next frame and then treats the current
-    /// total as the new baseline. Saturating: a summary-reset (counter drop)
-    /// yields 0 rather than a bogus huge delta.
+    /// @brief Compute the drop delta carried by the next frame.
+    ///
+    /// Reads the producer's relaxed `dropped().total()` snapshot, subtracts
+    /// the previous baseline, then makes the current total the new baseline.
+    /// Saturating: a summary-driven counter reset yields 0, never a bogus huge
+    /// delta.
+    ///
+    /// @return Drops since the previous frame, clamped to `UINT32_MAX`; 0 when
+    ///         no producer is attached or the total went backwards.
+    /// @note Spec `logging/iceoryx2-logger`, requirement "Drop count crosses
+    ///       the process boundary"; consumer-thread only.
     [[nodiscard]] std::uint32_t dropped_delta() noexcept {
         const std::uint64_t total = producer_ != nullptr ? producer_->dropped().total() : 0ULL;
         const std::uint64_t delta =
@@ -129,13 +192,21 @@ private:
         return static_cast<std::uint32_t>(delta < UINT32_MAX ? delta : UINT32_MAX);
     }
 
+    /// @brief Validated config snapshot; never re-read from the caller.
     Settings settings_{};
+    /// @brief Producer drop-snapshot source; may be null.
     const Producer* producer_{};
+    /// @brief Transport node supplied by the logger; owned by the logger.
     com::Node* node_{};
+    /// @brief Live publisher, empty until `start()` succeeds.
     std::optional<com::Publisher<LogFrame>> publisher_{};
+    /// @brief Live event notifier, empty until `start()` succeeds.
     std::optional<com::EventNotifier> notifier_{};
+    /// @brief Previous `dropped().total()` baseline for the frame delta.
     std::uint64_t last_dropped_total_{0};
+    /// @brief Cached OS pid published in every frame.
     std::uint32_t sink_pid_{0};
+    /// @brief Reused frame storage; packed in place before each publication.
     LogFrame frame_{};
 };
 

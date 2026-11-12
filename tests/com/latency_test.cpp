@@ -136,17 +136,26 @@ Placement place_benchmark_threads() {
     return placement;
 }
 
-/// Best-of-passes medians for the two direct paths.
+/// Best-of-passes medians for the direct paths.
 struct BestMedians {
     double direct{-1.0};
+    double copy{-1.0};
     double with_event{-1.0};
     LatencyStats direct_stats{};
+    LatencyStats copy_stats{};
     LatencyStats event_stats{};
 
     void observe_direct(const LatencyStats& s) {
         if (direct < 0.0 || s.median_ns < direct) {
             direct = s.median_ns;
             direct_stats = s;
+        }
+    }
+
+    void observe_copy(const LatencyStats& s) {
+        if (copy < 0.0 || s.median_ns < copy) {
+            copy = s.median_ns;
+            copy_stats = s;
         }
     }
 
@@ -172,6 +181,16 @@ void measure_direct_pass(com::Publisher<LogFrame256>& publisher, com::EventNotif
         raw[i] = r1 - r0;
     }
     medians.observe_direct(stats_of(raw, kN, ns_per_tick, ovh_ns));
+
+    // (a2) send_copy: тот же payload одним транспортным вызовом
+    // (loan + copy + send внутри iceoryx2).
+    for (int i = 0; i < kN; ++i) {
+        const std::uint64_t r0 = __rdtsc();
+        static_cast<void>(publisher.send_copy(frame));
+        const std::uint64_t r1 = __rdtsc();
+        raw[i] = r1 - r0;
+    }
+    medians.observe_copy(stats_of(raw, kN, ns_per_tick, ovh_ns));
 
     // (a+event): полный путь REQ_LOGC_005 (+ notify).
     for (int i = 0; i < kN; ++i) {
@@ -326,6 +345,7 @@ void test_latency() {
     NX_CHECK(worker_path.worker_count == static_cast<std::uint64_t>(kN));
 
     print_stats("(a) direct loan/send", medians.direct_stats);
+    print_stats("(a2) send_copy", medians.copy_stats);
     print_stats("(a+event) +notify", medians.event_stats);
     print_stats("(b) producer try_push", worker_path.producer);
     print_stats("(b) worker loan+send+notify", worker_path.worker);
