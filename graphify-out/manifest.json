@@ -546,9 +546,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/core/enum_traits.hpp": {
-    "mtime": 1794516165.9208417,
-    "seen": 1794516334.6647854,
-    "ast_hash": "40dfca57fe90bf9b7a5b8efd400774d0",
+    "mtime": 1794521825.8288372,
+    "seen": 1794522036.2739084,
+    "ast_hash": "5adcf7399ac419408ab8d089a7f554a9",
     "semantic_hash": ""
   },
   "include/nexigen/core/fixed_writer.hpp": {
@@ -738,9 +738,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/exec/detail/sys_helpers.hpp": {
-    "mtime": 1794516642.2783518,
-    "seen": 1794517299.3883,
-    "ast_hash": "1cd26ef6bb0df0ffb0e8bf81100858d2",
+    "mtime": 1794520231.385954,
+    "seen": 1794520340.585311,
+    "ast_hash": "b00cbbcec4b33c144d4d315cbf5de108",
     "semantic_hash": ""
   },
   "include/nexigen/exec/execution_manager.hpp": {
@@ -2340,9 +2340,9 @@
     "semantic_hash": ""
   },
   "src/app/telemetry_layout.cpp": {
-    "mtime": 1794249156.95018,
-    "seen": 1794351957.9654946,
-    "ast_hash": "6c3c6de844ee4177917b950d6c730490",
+    "mtime": 1794520998.842559,
+    "seen": 1794521208.3528123,
+    "ast_hash": "aae9180a0e67be2b7235c131eca78faa",
     "semantic_hash": ""
   },
   "src/chrono/civil_time.cpp": {
@@ -2406,9 +2406,9 @@
     "semantic_hash": ""
   },
   "src/exec/app_suite.cpp": {
-    "mtime": 1794500517.156737,
-    "seen": 1794501693.5797136,
-    "ast_hash": "843628e1a97f94851274176982cb04d8",
+    "mtime": 1794520549.9431403,
+    "seen": 1794520617.1612337,
+    "ast_hash": "53785f4c8dfa27002b2d0f0448a9a55e",
     "semantic_hash": ""
   },
   "src/exec/child_process.cpp": {
@@ -2448,9 +2448,9 @@
     "semantic_hash": ""
   },
   "src/exec/instance_lifecycle.cpp": {
-    "mtime": 1794251518.6956182,
-    "seen": 1794351957.9655087,
-    "ast_hash": "428f4cdd5b6b04ae5930a5102ab2ac89",
+    "mtime": 1794521817.342422,
+    "seen": 1794522036.278175,
+    "ast_hash": "68d3617e3dd4dc00cd416013903028f4",
     "semantic_hash": ""
   },
   "src/exec/state_client.cpp": {
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "src/exec/suite_manifest.cpp": {
-    "mtime": 1794426383.2498376,
-    "seen": 1794441260.9740388,
-    "ast_hash": "30844b401d13ebc5d902046636214ea5",
+    "mtime": 1794520549.9432847,
+    "seen": 1794520617.1613328,
+    "ast_hash": "019d296dafafef3aeb806556c5520296",
     "semantic_hash": ""
   },
   "src/exec/suite_reporting.cpp": {
@@ -2514,9 +2514,9 @@
     "semantic_hash": ""
   },
   "src/hub/hub_format.cpp": {
-    "mtime": 1794251518.6931784,
-    "seen": 1794351957.9655142,
-    "ast_hash": "3cc1d54e6677c24ce8e455c0f24432ca",
+    "mtime": 1794520198.505382,
+    "seen": 1794520340.5892625,
+    "ast_hash": "310c7e360d54b3e7fce81c59b4a95edb",
     "semantic_hash": ""
   },
   "src/hub/streaming.cpp": {
@@ -2532,15 +2532,15 @@
     "semantic_hash": ""
   },
   "src/logging/console_logger_config.cpp": {
-    "mtime": 1794203434.3592749,
-    "seen": 1794351957.965516,
-    "ast_hash": "aea15b833520a512dc7bf251ce2c1c89",
+    "mtime": 1794521920.1973925,
+    "seen": 1794522036.2783089,
+    "ast_hash": "cb1314c96379cbd4ca6cda72b4acbdac",
     "semantic_hash": ""
   },
   "src/logging/file_logger_config.cpp": {
-    "mtime": 1794203434.3602045,
-    "seen": 1794351957.9655166,
-    "ast_hash": "635f3ade1dd8c6d4ce7d525511451d76",
+    "mtime": 1794521920.1972935,
+    "seen": 1794522036.2783098,
+    "ast_hash": "47b546b2857dda1f7f16a1c6b37c786b",
     "semantic_hash": ""
   },
   "src/logging/json_format.cpp": {
@@ -2550,9 +2550,9 @@
     "semantic_hash": ""
   },
   "src/logging/logger_options.cpp": {
-    "mtime": 1794203577.0186782,
-    "seen": 1794351957.9655175,
-    "ast_hash": "6cc9841edc18f37d160b590a00db6807",
+    "mtime": 1794520998.8426626,
+    "seen": 1794521208.353231,
+    "ast_hash": "5d70bfabc81bcdec937afc9ccdf54c4c",
     "semantic_hash": ""
   },
   "src/logging/rotation.cpp": {
@@ -2568,9 +2568,9 @@
     "semantic_hash": ""
   },
   "src/logging/spam_protection_config.cpp": {
-    "mtime": 1794203577.018759,
-    "seen": 1794351957.9655192,
-    "ast_hash": "337ece4b0f8740d8e7b7da1589ab1206",
+    "mtime": 1794520998.8427022,
+    "seen": 1794521208.3532536,
+    "ast_hash": "51cc4149155ee165eaa1d96766d762be",
     "semantic_hash": ""
   },
   "src/metrics/metrics_settings.cpp": {
@@ -2586,9 +2586,9 @@
     "semantic_hash": ""
   },
   "src/metrics/snapshot_format.cpp": {
-    "mtime": 1794054691.4722342,
-    "seen": 1794351957.9655209,
-    "ast_hash": "6c86d29d15a1e97556b4ec2b2c117815",
+    "mtime": 1794522608.850859,
+    "seen": 1794523016.253493,
+    "ast_hash": "92d66438a256576e0b81ee8db440f9ee",
     "semantic_hash": ""
   },
   "src/phm/fault_storage.cpp": {
@@ -2610,9 +2610,9 @@
     "semantic_hash": ""
   },
   "src/sm/sm_manifest.cpp": {
-    "mtime": 1794500193.5513246,
-    "seen": 1794501693.5797558,
-    "ast_hash": "09c269f931c4179dd22b53d53f7760fc",
+    "mtime": 1794521147.925027,
+    "seen": 1794521208.3533783,
+    "ast_hash": "3b062c41129c55ee3180e6b53e9d512d",
     "semantic_hash": ""
   },
   "src/sm/state_manager.cpp": {
@@ -2634,9 +2634,9 @@
     "semantic_hash": ""
   },
   "src/tracing/record_format.cpp": {
-    "mtime": 1794355568.6388402,
-    "seen": 1794355953.5559883,
-    "ast_hash": "3c3499ed566a0546384e1c9fd4404e92",
+    "mtime": 1794522787.505058,
+    "seen": 1794523016.2535782,
+    "ast_hash": "448a2c7139e0bd6009cb6459bfe3b670",
     "semantic_hash": ""
   },
   "src/tracing/sink_format.cpp": {
@@ -3396,9 +3396,9 @@
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1794035949.6339526,
-    "seen": 1794351957.9655924,
-    "ast_hash": "46c067c9316a4b72d3b5ec8dc709bb49",
+    "mtime": 1794523596.6178062,
+    "seen": 1794523753.8983095,
+    "ast_hash": "7e02d80a7698c892588af7e2cf2912e1",
     "semantic_hash": ""
   },
   "docs/code-analysis-2026-11-03.md": {
@@ -6696,9 +6696,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/core/serialization/spec.md": {
-    "mtime": 1794424585.0915349,
-    "seen": 1794441260.974958,
-    "ast_hash": "dc1fa0ddec79e56a18052216e58803da",
+    "mtime": 1794523599.2828047,
+    "seen": 1794523753.90643,
+    "ast_hash": "bf59cc9c04b9b51db28395b1a5bc783f",
     "semantic_hash": ""
   },
   "openspec/specs/core/settings-vocabulary/spec.md": {
@@ -7110,9 +7110,9 @@
     "semantic_hash": ""
   },
   "tests/CMakeLists.txt": {
-    "mtime": 1794463110.3400493,
-    "seen": 1794465771.9181414,
-    "ast_hash": "c630ee83a54754a9bf7a1637e8ba2a26",
+    "mtime": 1794522851.3315923,
+    "seen": 1794523016.2643065,
+    "ast_hash": "2dd0212f12afb4233a1d87c375969487",
     "semantic_hash": ""
   },
   "tests/packaging/consumer/CMakeLists.txt": {
@@ -7464,9 +7464,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/core/detail/json_field.hpp": {
-    "mtime": 1794516753.0162508,
-    "seen": 1794517299.388156,
-    "ast_hash": "bb6cea341a758b6c5813080b0bb475a3",
+    "mtime": 1794522586.5028834,
+    "seen": 1794523016.2490082,
+    "ast_hash": "2b554f6a5d236453935ef054c30e7f4b",
     "semantic_hash": ""
   },
   "src/logging/iceoryx2_logger_config.cpp": {
@@ -7632,9 +7632,9 @@
     "semantic_hash": ""
   },
   "src/tracing/span_frame_format.cpp": {
-    "mtime": 1794441465.932035,
-    "seen": 1794441676.5676634,
-    "ast_hash": "85a829a96cab277743becc7936c7d019",
+    "mtime": 1794522787.5051935,
+    "seen": 1794523016.2535894,
+    "ast_hash": "1f9ee4276aada404fb093fbc701e5eb4",
     "semantic_hash": ""
   },
   "tests/tracing/iceoryx2_trace_sink_test.cpp": {
@@ -8163,6 +8163,72 @@
     "mtime": 1794512762.7707245,
     "seen": 1794518629.2526085,
     "ast_hash": "eb2a629648ecf8ca6921af92be122295",
+    "semantic_hash": ""
+  },
+  "include/nexigen/exec/detail/suite_json.hpp": {
+    "mtime": 1794520517.6674817,
+    "seen": 1794520617.157593,
+    "ast_hash": "56d0f41dd08fc88a04320a5f0893a617",
+    "semantic_hash": ""
+  },
+  "cmake/check_json_field_vocabulary.py": {
+    "mtime": 1794522837.6336074,
+    "seen": 1794523016.247991,
+    "ast_hash": "24f195c25dde3ed873bbf4f2dd3e745a",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-13-strengthen-json-field-vocabulary/.openspec.yaml": {
+    "mtime": 1794519808.734505,
+    "seen": 1794523753.8959806,
+    "ast_hash": "a7bca74b5c4712d81aa95dda1da62d6f",
+    "semantic_hash": ""
+  },
+  "openspec/changes/finish-exec-module-extraction/.openspec.yaml": {
+    "mtime": 1794523362.9460301,
+    "seen": 1794523753.8959951,
+    "ast_hash": "2fe6555c757f8849b79ed0b5f966231d",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-13-strengthen-json-field-vocabulary/design.md": {
+    "mtime": 1794520317.8028414,
+    "seen": 1794523753.9061205,
+    "ast_hash": "b757b70beb831797a62df99ae59970e7",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-13-strengthen-json-field-vocabulary/proposal.md": {
+    "mtime": 1794519819.1734915,
+    "seen": 1794523753.90613,
+    "ast_hash": "635ec2e97dc9ff8427c70928ecad0854",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-13-strengthen-json-field-vocabulary/specs/core/serialization/spec.md": {
+    "mtime": 1794519832.4024742,
+    "seen": 1794523753.906131,
+    "ast_hash": "c4c712578620cecedf10daec95267a15",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-13-strengthen-json-field-vocabulary/tasks.md": {
+    "mtime": 1794523002.3544264,
+    "seen": 1794523753.9061317,
+    "ast_hash": "ad2569a2a9fcd72ccc7b47aba9b175c1",
+    "semantic_hash": ""
+  },
+  "openspec/changes/finish-exec-module-extraction/design.md": {
+    "mtime": 1794523393.8559961,
+    "seen": 1794523753.9061697,
+    "ast_hash": "ee44a2da2dc3b064b3e309fe45d76460",
+    "semantic_hash": ""
+  },
+  "openspec/changes/finish-exec-module-extraction/proposal.md": {
+    "mtime": 1794523373.0460188,
+    "seen": 1794523753.9061704,
+    "ast_hash": "16892f3eb3d5978ff863a9cd6ba339c3",
+    "semantic_hash": ""
+  },
+  "openspec/changes/finish-exec-module-extraction/tasks.md": {
+    "mtime": 1794523407.3819811,
+    "seen": 1794523753.906171,
+    "ast_hash": "7c2e97c37c37caab5111607ed4c9f949",
     "semantic_hash": ""
   }
 }
