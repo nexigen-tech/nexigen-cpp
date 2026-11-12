@@ -31,26 +31,81 @@
 
 namespace nexigen::tracing::detail {
 
+/// @brief Size in bytes of the fixed `.nxtr` snapshot header.
+///
+/// Pinned by the `sizeof(TraceDumpHeader)` static assertion; readers skip
+/// exactly this many bytes before the frame area.
+///
+/// @note Spec `tracing/trace-daemon`, requirement "A snapshot is a versioned
+///       binary record"; design D4.
 inline constexpr std::size_t trace_dump_header_size = 96U;
+
+/// @brief Current snapshot format version written into the header.
+///
+/// A reader comparing a different version may reject the file without
+/// interpreting the frame area.
+///
+/// @note Spec `tracing/trace-daemon`, requirement "A snapshot is a versioned
+///       binary record"; design D4.
 inline constexpr std::uint16_t trace_dump_format_version = 1U;
+
+/// @brief Magic marker at the start of every snapshot: `"NXTRA001"`.
+///
+/// Identifies the file as a Nexigen trace dump; a different marker lets a
+/// reader reject the file before parsing anything else.
+///
+/// @note Spec `tracing/trace-daemon`, requirement "A snapshot is a versioned
+///       binary record"; design D4.
 inline constexpr std::array<char, 8> trace_dump_magic{'N', 'X', 'T', 'R', 'A', '0', '0', '1'};
+
+/// @brief Capacity of the header's inline trigger-group field, in bytes.
+///
+/// The writer stores at most `trace_dump_trigger_group_size - 1` characters
+/// plus a NUL terminator.
+///
+/// @note Spec `tracing/trace-daemon`, requirement "A snapshot is a versioned
+///       binary record"; design D4.
 inline constexpr std::size_t trace_dump_trigger_group_size = 32U;
 
-/// Fixed header of one `.nxtr` snapshot (little-endian host layout).
+/// @brief Fixed header of one `.nxtr` snapshot (little-endian host layout).
+///
+/// 96 bytes, 8-byte aligned, pointer-free. It is followed immediately by
+/// `frame_count` `SpanFrame` records in chronological (oldest-first) order, so
+/// the whole file is a flat dump of the retained window. Every field has a
+/// fixed width pinned by `static_assert` and `offsetof` checks below. Built and
+/// written on the daemon's cold dump path only.
+///
+/// @note Spec `tracing/trace-daemon`, requirement "A snapshot is a versioned
+///       binary record"; design D4–D6.
 struct alignas(8) TraceDumpHeader {
-    char magic[8]{};                                     ///< "NXTRA001"
-    std::uint16_t version{trace_dump_format_version};    ///< format version
-    std::uint16_t header_size{trace_dump_header_size};   ///< 96
-    std::uint32_t flags{0U};                             ///< bit0 = recovery-triggered
-    std::uint64_t frame_count{0U};                       ///< retained frames
-    std::uint64_t first_start_ns{0U};                    ///< oldest retained start
-    std::uint64_t last_end_ns{0U};                       ///< newest retained end
-    std::uint64_t ring_overwrites{0U};                   ///< frames evicted by the ring
-    char trigger_group[trace_dump_trigger_group_size]{}; ///< PHM function group
-    std::uint64_t trigger_ts_ns{0U};                     ///< monotonic trigger time
+    /// Magic marker; equals `trace_dump_magic` (`"NXTRA001"`).
+    char magic[8]{};
+    /// On-disk format version; equals `trace_dump_format_version` for this
+    /// writer.
+    std::uint16_t version{trace_dump_format_version};
+    /// Header size in bytes; always `trace_dump_header_size` (96).
+    std::uint16_t header_size{trace_dump_header_size};
+    /// Bit 0 set means the snapshot was recovery-triggered; other bits are
+    /// written as zero.
+    std::uint32_t flags{0U};
+    /// Number of `SpanFrame` records following the header.
+    std::uint64_t frame_count{0U};
+    /// Monotonic start timestamp of the oldest retained frame (0 when empty).
+    std::uint64_t first_start_ns{0U};
+    /// Monotonic end timestamp of the newest retained frame (0 when empty).
+    std::uint64_t last_end_ns{0U};
+    /// Cumulative frames the ring evicted before this dump.
+    std::uint64_t ring_overwrites{0U};
+    /// PHM function group of the trigger, NUL-terminated within 32 bytes.
+    char trigger_group[trace_dump_trigger_group_size]{};
+    /// Monotonic time the recovery trigger was observed.
+    std::uint64_t trigger_ts_ns{0U};
+    /// Zeroed padding reserved for future header fields.
     std::uint64_t reserved{0U};
 };
 
+// Layout contract (design D4): exact size, alignment, and field offsets are
+// part of the on-disk format, not an implementation detail.
 static_assert(sizeof(TraceDumpHeader) == trace_dump_header_size);
 static_assert(alignof(TraceDumpHeader) == 8);
 static_assert(offsetof(TraceDumpHeader, magic) == 0);
@@ -65,7 +120,18 @@ static_assert(offsetof(TraceDumpHeader, trigger_group) == 48);
 static_assert(offsetof(TraceDumpHeader, trigger_ts_ns) == 80);
 static_assert(offsetof(TraceDumpHeader, reserved) == 88);
 
-/// Create an absolute directory tree (`mkdir -p`), tolerating existing entries.
+/// @brief Create an absolute directory tree (`mkdir -p`), tolerating existing
+/// entries.
+///
+/// Cold path only. Each path component is created with mode `0755`; an
+/// existing entry is accepted, any other failure aborts the walk.
+///
+/// @param path Absolute directory path to create; must start with `/`.
+/// @return Success, `core::ErrorCode::InvalidArgument` when `path` is empty or
+///         relative, or `core::ErrorCode::SystemError` when a `mkdir` fails
+///         for a reason other than `EEXIST`.
+/// @note Spec `tracing/trace-daemon`, requirement "Snapshot retention is
+///       bounded". Called once at daemon startup.
 [[nodiscard]] inline core::Status create_directories(std::string_view path) noexcept {
     if (path.empty() || path.front() != '/') {
         return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -95,9 +161,18 @@ static_assert(offsetof(TraceDumpHeader, reserved) == 88);
     return {};
 }
 
-/// `incident_trace_<YYYYMMDDTHHMMSSZ>.nxtr`, with `-<collision>` before the
-/// extension when a second snapshot lands in the same second. UTC names sort
-/// chronologically.
+/// @brief Build a snapshot file name from a UTC timestamp.
+///
+/// Produces `incident_trace_<YYYYMMDDTHHMMSSZ>.nxtr`, inserting
+/// `-<collision>` before the extension when a second snapshot lands in the same
+/// second. UTC names sort chronologically, which `prune_dumps` relies on.
+///
+/// @param utc_ns Trigger time as nanoseconds since the Unix epoch, UTC.
+/// @param collision Collision index; `0` omits the suffix, non-zero appends
+///        `-<collision>`.
+/// @return The bare file name (no directory component).
+/// @note Spec `tracing/trace-daemon`, requirement "Snapshot retention is
+///       bounded". Cold path; allocates the result string.
 [[nodiscard]] inline std::string snapshot_file_name(std::int64_t utc_ns,
                                                     std::uint32_t collision = 0U) {
     const chrono::CivilTime civil = chrono::civil_from_utc_ns(utc_ns);
@@ -116,8 +191,33 @@ static_assert(offsetof(TraceDumpHeader, reserved) == 88);
     return name;
 }
 
-/// Write one snapshot atomically (temp + fsync + rename). The ring is not
-/// modified; the caller clears it only after success.
+/// @brief Write one snapshot atomically: temp file, fill, fsync, rename.
+///
+/// Serializes the 96-byte header (magic, version, flags, frame count, first
+/// start and last end timestamps, ring overwrite count, trigger group, trigger
+/// timestamp) followed by the ring's retained `SpanFrame` records oldest-first,
+/// copied in fixed batches of 64 so the frame loop performs no per-frame
+/// allocation. The frames are written to `<final_path>.tmp`, `fsync`ed, and only
+/// then renamed into place, so a partial file never appears under the final
+/// name. The ring itself is not modified; the caller clears it only after
+/// success.
+///
+/// @param final_path Destination path for the snapshot (absolute, in the
+///        configured dump directory).
+/// @param ring Source ring; read-only, consulted through `count()`, `at()`,
+///        and `overwritten()`.
+/// @param trigger_group PHM function group recorded in the header; truncated
+///        to at most 31 characters plus a NUL.
+/// @param trigger_ts_ns Monotonic trigger time recorded in the header.
+/// @param recovery_triggered Sets header bit 0 when `true` (recovery-triggered
+///        dump), leaves it clear otherwise.
+/// @return Success, or `core::ErrorCode::SystemError` when the temp file
+///         cannot be opened, a write fails, `fsync` fails, `close` fails, or
+///         the final rename fails. On every failure the temp file is unlinked
+///         and no partial snapshot remains.
+/// @note Spec `tracing/trace-daemon`, requirements "A snapshot is a versioned
+///       binary record" and "Snapshot retention is bounded"; design D4–D6.
+///       Cold path only — steady-state draining performs no disk I/O.
 [[nodiscard]] inline core::Status
 write_trace_dump(std::string_view final_path, const SpanRing& ring, std::string_view trigger_group,
                  std::uint64_t trigger_ts_ns, bool recovery_triggered = true) noexcept {
@@ -188,9 +288,19 @@ write_trace_dump(std::string_view final_path, const SpanRing& ring, std::string_
     return {};
 }
 
-/// Delete the oldest `incident_trace_*.nxtr` files until at most `max_files`
-/// remain. Returns the number of removed files; directory errors are ignored
-/// (the caller reports its own dump status).
+/// @brief Delete the oldest snapshots until at most `max_files` remain.
+///
+/// Scans `directory` for names matching `incident_trace_*.nxtr`, sorts them
+/// lexicographically (UTC names sort chronologically), and unlinks the excess
+/// from the front. Directory errors are ignored: the caller reports its own
+/// dump status, and pruning never fails the trigger.
+///
+/// @param directory Dump directory to prune.
+/// @param max_files Maximum number of snapshots to retain.
+/// @return Number of files actually removed (`0` when the directory cannot be
+///         opened or the count is already within the limit).
+/// @note Spec `tracing/trace-daemon`, requirement "Snapshot retention is
+///       bounded". Cold path, run after a successful dump only.
 [[nodiscard]] inline std::uint32_t prune_dumps(std::string_view directory,
                                                std::uint32_t max_files) noexcept {
     DIR* dir = ::opendir(std::string{directory}.c_str());

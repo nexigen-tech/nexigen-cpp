@@ -49,13 +49,26 @@
 
 namespace nexigen::tracing {
 
-/// The fixed, pointer-free span record published over iceoryx2.
+/// @brief The fixed, pointer-free span record published over iceoryx2.
+///
+/// The cross-process mirror of `SpanRecord`: hashes replace the two
+/// program-static source pointers, and publisher identity
+/// (application code, pid, sequence, publish timestamp) plus the wire format
+/// version travel inside the frame. Trivially copyable, 384 bytes and
+/// `alignas(64)`, so a publisher can write it in place into a shared-memory slot
+/// and a receiver can read the same bytes in another process with no pointer
+/// fix-up.
+///
+/// @note Spec `tracing/iceoryx2-trace-sink`, requirement "SpanFrame is a fixed
+///       pointer-free wire record".
 struct alignas(64) SpanFrame {
-    /// Wire format version carried by every frame; a receiver rejects
-    /// unknown versions instead of misinterpreting the layout.
+    /// @brief Wire format version carried by every frame.
+    ///
+    /// A receiver rejects unknown versions instead of misinterpreting the
+    /// layout; the value is pinned alongside the offsets below.
     static constexpr std::uint16_t format_version = 1;
 
-    /// Inline span name capacity in bytes (≤ 47 chars + NUL).
+    /// @brief Inline span name capacity in bytes (≤ 47 chars + NUL).
     static constexpr std::size_t name_capacity = 47;
 
     TraceId trace_id{};                        ///< causal group
@@ -81,12 +94,17 @@ struct alignas(64) SpanFrame {
     std::uint16_t version{format_version};     ///< wire format version
     std::uint8_t reserved[46]{};               ///< forward-compatible tail
 
-    /// The span name as a bounded view.
+    /// @brief The span name as a bounded view.
+    ///
+    /// @return View over `name`, without the NUL; never allocates.
     [[nodiscard]] std::string_view name_view() const noexcept {
         return std::string_view{name, std::char_traits<char>::length(name)};
     }
 
-    /// The application code as a non-NUL-terminated view (trimmed at NUL).
+    /// @brief The application code as a non-NUL-terminated view (trimmed at NUL).
+    ///
+    /// @return Up to four ASCII bytes, stopping at the first NUL; empty when
+    ///         the field is all zeros.
     [[nodiscard]] std::string_view app_id_text() const noexcept {
         std::size_t n = 0U;
         while (n < sizeof(app_id) && app_id[n] != '\0') {
@@ -95,12 +113,19 @@ struct alignas(64) SpanFrame {
         return std::string_view{app_id, n};
     }
 
-    /// The end-minus-start duration in nanoseconds (0 for a malformed pair).
+    /// @brief The end-minus-start duration in nanoseconds (0 for a malformed pair).
+    ///
+    /// @return Elapsed nanoseconds, or `0` when `end_ns < start_ns`.
     [[nodiscard]] std::uint64_t duration_ns() const noexcept {
         return end_ns >= start_ns ? end_ns - start_ns : 0ULL;
     }
 
-    /// Cold-path diagnostic (mandate 9); body in span_frame_format.cpp.
+    /// @brief Cold-path diagnostic (mandate 9).
+    ///
+    /// @return Text naming the identifiers, span name, application code and
+    ///         sequence.
+    /// @note Allocates; never reached from the publishing worker's hot loop.
+    ///       Body in `span_frame_format.cpp`.
     [[nodiscard]] std::string to_string() const;
 };
 
@@ -130,20 +155,43 @@ static_assert(offsetof(SpanFrame, publish_ts_ns) == 328);
 static_assert(offsetof(SpanFrame, version) == 336);
 static_assert(offsetof(SpanFrame, reserved) == 338);
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free helper (mandate 9): mirrors `SpanFrame::to_string`.
+///
+/// @param frame Frame to render.
+/// @return The same text as the member.
 [[nodiscard]] inline std::string to_string(const SpanFrame& frame) {
     return frame.to_string();
 }
 
-/// ADL JSON (cold path, full round-trip under JSON_NOEXCEPTION=1); bodies in
-/// span_frame_format.cpp.
+/// @brief ADL JSON writer for a frame (cold path, full field set).
+///
+/// @param j Destination document or field to overwrite.
+/// @param frame Frame to serialize; hashes and publisher identity included.
+/// @note Spec `tracing/iceoryx2-trace-sink`, requirement "SpanFrame is a fixed
+///       pointer-free wire record". Body in `span_frame_format.cpp`.
 void to_json(nlohmann::json& j, const SpanFrame& frame);
+
+/// @brief Non-throwing JSON reader for a frame (full round-trip).
+///
+/// @param j JSON value to read; malformed or wrong-typed fields are ignored.
+/// @param out Destination; only recognized fields are updated.
+/// @note Spec `tracing/iceoryx2-trace-sink`, requirement "SpanFrame is a fixed
+///       pointer-free wire record". Body in `span_frame_format.cpp`.
 void from_json(const nlohmann::json& j, SpanFrame& out) noexcept;
 
 } // namespace nexigen::tracing
 
-/// The frame formats as its diagnostic string (mandate 11).
+/// @brief `std::formatter` for `SpanFrame` (mandate 11).
+///
+/// Renders exactly `SpanFrame::to_string()` through the `std::string_view`
+/// formatter, so fill, alignment and width options still apply.
 template <> struct std::formatter<nexigen::tracing::SpanFrame> : std::formatter<std::string_view> {
+    /// @brief Render one frame as its diagnostic text.
+    ///
+    /// @tparam Ctx `std::format` context type.
+    /// @param frame Frame to render.
+    /// @param ctx Format context receiving the output.
+    /// @return Iterator past the last written character.
     template <class Ctx> auto format(const nexigen::tracing::SpanFrame& frame, Ctx& ctx) const {
         const std::string text = frame.to_string();
         return std::formatter<std::string_view>::format(text, ctx);

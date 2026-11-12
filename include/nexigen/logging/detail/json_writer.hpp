@@ -29,17 +29,50 @@
 
 namespace nexigen::logging::detail {
 
-using nexigen::core::FixedWriter; ///< shared bounds-checked appender
+/// @brief Shared bounds-checked appender re-exported for logging JSON lines.
+///
+/// Stages bytes into caller-owned fixed storage; the first overflow marks the
+/// writer failed permanently so the caller skips the whole record. Re-exporting
+/// this single core type keeps the module free of a private escaping copy.
+///
+/// @note Spec `logging/file-logger`, requirement "Strict JSON record schema";
+///       the escaping policy is inherited from the shared core writer.
+using nexigen::core::FixedWriter;
 
-/// Scratch size for one line: timestamp(29)+decoration(~70)+app(≤64)+
-/// tid(≤10)+function name (bounded by escaping) + message (≤128×6 worst-case
-/// escape expansion) — 4 KiB is a generous static bound (design D12).
+/// @brief Scratch capacity for one fully escaped JSON line, in bytes.
+///
+/// Budget: timestamp (29) + decoration (~70) + app (≤64) + thread id (≤10) +
+/// function name (bounded by escaping) + message (≤128 × 6 worst-case escape
+/// expansion); 4 KiB is a generous static bound.
+///
+/// @note Spec `logging/file-logger`, requirement "Asynchronous wait-free
+///       JSON-lines file output": the buffer is pre-allocated, so line
+///       rendering never allocates.
 inline constexpr std::size_t json_scratch_capacity = 4096;
 
-/// Format one record line into scratch. Returns the byte length (a full line
-/// including trailing '\n'), or 0 when the line would not fit — the caller
-/// then skips the record (a malformed/overflowing record must never emit a
-/// half line into the file).
+/// @brief Format one record as a complete JSON line in `scratch`.
+///
+/// Emits the exact schema and field order
+/// `timestamp, level, app, thread_id, message`; the message is decorated as
+/// `"[<basename>:<line>] (<function>) <user message>"`. Escaping uses the
+/// shared `FixedWriter` policy, so UTF-8 passes through verbatim.
+///
+/// @param utc_ns UTC timestamp in nanoseconds since the Unix epoch.
+/// @param level Severity whose lowercase name is emitted.
+/// @param app Configured application name, escaped.
+/// @param thread_id Producing thread id, emitted as a JSON number.
+/// @param file_name Source path; only its basename is emitted.
+/// @param line Source line number.
+/// @param function_name Function text exactly as `std::source_location`
+///        reports it (no demangling).
+/// @param message Rendered user message, escaped.
+/// @param scratch Caller-owned buffer of exactly `json_scratch_capacity` bytes.
+/// @return Line length in bytes including the trailing `'\n'`, or 0 when the
+///         line would not fit; the caller then skips the record.
+/// @note Spec `logging/file-logger`, requirement "Strict JSON record schema"
+///       and requirement "Nanosecond UTC timestamps via calibrated clocks".
+///       Mandate 10 (JSON serialization): rendering is allocation-free and
+///       never emits a half line.
 [[nodiscard]] std::size_t format_json_line(std::int64_t utc_ns, core::LogLevel level,
                                            std::string_view app, std::uint32_t thread_id,
                                            std::string_view file_name, std::uint32_t line,

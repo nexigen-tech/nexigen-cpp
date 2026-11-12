@@ -41,25 +41,61 @@
 
 namespace nexigen::tracing {
 
-/// The Chrome Trace Event sink.
+/// @brief Chrome Trace Event sink: one Perfetto-loadable JSON object per run.
+///
+/// `start()` truncates the configured file and writes the `traceEvents` array
+/// header; every `on_span` appends one complete (`"ph": "X"`) event, and
+/// `stop()` writes the closing footer so the whole file parses as a single
+/// JSON value. Timestamps are integer microseconds relative to the first
+/// drained span, the process id is cached once at `start()`, and `args`
+/// carries the trace/span/parent ids as hexadecimal strings plus every typed
+/// attribute.
+///
+/// All state is consumer-thread plain state: the provider's single background
+/// worker is the only caller. The event is composed in fixed scratch with no
+/// allocation and no iostreams, so delivery never touches a producer thread.
+///
+/// @note Spec `tracing/trace-sinks`, requirement "ChromeTraceSink
+///       Perfetto-compatible output".
 class ChromeTraceSink {
 public:
+    /// @brief Construct the sink from its configuration; the file opens later.
+    ///
+    /// @param config Configuration carrying the trace path; copied by value so
+    ///        the caller may release it immediately.
+    /// @note Spec `tracing/trace-sinks`, requirement "ChromeTraceSink
+    ///       Perfetto-compatible output".
     explicit ChromeTraceSink(const ChromeTraceSinkConfig& config) noexcept : config_(config) {}
 
+    /// @brief Copy construction is deleted: the sink owns a descriptor.
     ChromeTraceSink(const ChromeTraceSink&) = delete;
+    /// @brief Copy assignment is deleted: the sink owns a descriptor.
     ChromeTraceSink& operator=(const ChromeTraceSink&) = delete;
 
-    /// Move transfers the descriptor, configuration, and base state; the
-    /// source is left closed so the destructors never double-close.
+    /// @brief Move the descriptor, configuration, and timestamp base state.
+    ///
+    /// @param other Source sink; left closed (`fd_ == -1`) so neither
+    ///        destructor can double-close.
+    /// @warning A moved-from sink must not be used for delivery.
     ChromeTraceSink(ChromeTraceSink&& other) noexcept
         : config_(std::move(other.config_)), pid_(other.pid_), base_ns_(other.base_ns_),
           base_set_(other.base_set_), first_event_(other.first_event_), fd_(other.fd_) {
         other.fd_ = -1;
     }
-    ChromeTraceSink& operator=(ChromeTraceSink&&) = delete; // stateful sink
+    /// @brief Move assignment is deleted: rebinding a live sink is a
+    ///        construction action, not an assignment.
+    ChromeTraceSink& operator=(ChromeTraceSink&&) = delete;
 
-    /// Create/truncate the trace file and write the header. An unopenable
-    /// path surfaces SystemError; nothing partial is written.
+    /// @brief Create/truncate the trace file and write the array header.
+    ///
+    /// Also caches the process id and resets the timestamp base and the
+    /// first-event flag, so a restarted sink begins a fresh timeline.
+    ///
+    /// @return Success once the header is written; `SystemError` when the path
+    ///         cannot be opened or the header write fails. An unopenable path
+    ///         leaves no partial file content.
+    /// @note Spec `tracing/trace-sinks`, requirement "ChromeTraceSink
+    ///       Perfetto-compatible output".
     [[nodiscard]] core::Status start() noexcept {
         pid_ = static_cast<std::uint64_t>(::getpid());
         // Truncating open (append=false shares the policy with O_TRUNC).
@@ -76,7 +112,21 @@ public:
         return {};
     }
 
-    /// Write one complete event for one span.
+    /// @brief Write one complete Chrome event for one drained span.
+    ///
+    /// The first delivered span establishes the microsecond base, so its `ts`
+    /// is `0`; later `ts` values are non-negative deltas and `dur` is the span
+    /// duration truncated to microseconds. A record that pre-dates the base
+    /// clamps to `0` rather than underflowing. The event is composed in fixed
+    /// scratch and written whole, so a scratch overflow never emits a partial
+    /// line.
+    ///
+    /// @param record Span to render; copied field-by-field into the event.
+    /// @return Success when the full line was written; `BufferFull` when the
+    ///         event does not fit the scratch (nothing is written), or
+    ///         `SystemError` when no file is open or the write fails.
+    /// @note Spec `tracing/trace-sinks`, requirement "ChromeTraceSink
+    ///       Perfetto-compatible output"; the delivery path allocates nothing.
     [[nodiscard]] core::Status on_span(const SpanRecord& record) noexcept {
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
@@ -153,7 +203,12 @@ public:
         return {};
     }
 
-    /// Push the data to the file.
+    /// @brief Synchronize the open trace file with `fsync`.
+    ///
+    /// @return Success when the descriptor is open and `fsync` succeeds;
+    ///         `SystemError` when no file is open or synchronization fails.
+    /// @note Spec `tracing/trace-sinks`, requirement "ChromeTraceSink
+    ///       Perfetto-compatible output".
     [[nodiscard]] core::Status flush() noexcept {
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
@@ -164,7 +219,12 @@ public:
         return {};
     }
 
-    /// Write the footer and close: the file parses as one JSON object.
+    /// @brief Write the footer and close so the file parses as one object.
+    ///
+    /// Idempotent: an already-closed sink is a no-op.
+    ///
+    /// @note Spec `tracing/trace-sinks`, requirement "ChromeTraceSink
+    ///       Perfetto-compatible output".
     void stop() noexcept {
         if (fd_ >= 0) {
             static_cast<void>(write_bytes("\n]}\n"));
@@ -173,10 +233,16 @@ public:
         }
     }
 
-    /// Cold-path diagnostic (mandate 9).
+    /// @brief Render the sink state as a cold-path diagnostic string.
+    ///
+    /// @return Text naming the trace path and the live/open flags; allocates,
+    ///         never called on the delivery path.
+    /// @note Project mandate 9 (`to_string`).
     [[nodiscard]] std::string to_string() const;
 
-    /// True while the trace file is open.
+    /// @brief Report whether the trace file is currently open.
+    ///
+    /// @return `true` while the sink holds a valid descriptor.
     [[nodiscard]] bool is_open() const noexcept { return fd_ >= 0; }
 
 private:
@@ -203,12 +269,20 @@ private:
     char scratch_[detail::json_scratch_capacity]{};
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free diagnostic helper mirroring `ChromeTraceSink::to_string()`.
+///
+/// @param sink Sink to describe.
+/// @return The same text the member returns.
+/// @note Project mandate 9 (`to_string`); cold path only.
 [[nodiscard]] std::string to_string(const ChromeTraceSink& sink);
 
-/// Diagnostic JSON of the live state (cold path); deliberately NO from_json
-/// (constructed from configuration, not parsed from data); body in
-/// src/tracing/sink_format.cpp.
+/// @brief Serialize the live sink's configuration and state as JSON.
+///
+/// @param j Destination JSON value, overwritten with the diagnostic object.
+/// @param sink Sink to describe.
+/// @note Spec `tracing/trace-sinks`, requirement "Live sink serialization
+///       surfaces"; project mandate 10 (JSON). No `from_json` exists: live
+///       sinks are constructed from configuration, not parsed from data.
 void to_json(nlohmann::json& j, const ChromeTraceSink& sink);
 
 static_assert(concepts::TraceSink<ChromeTraceSink>,
@@ -216,10 +290,17 @@ static_assert(concepts::TraceSink<ChromeTraceSink>,
 
 } // namespace nexigen::tracing
 
-/// The configuration and the live sink format as their diagnostic texts
-/// (mandate 11).
+/// @brief `std::formatter` for `ChromeTraceSink`, rendering its diagnostic text.
+///
+/// @note Project mandate 11 (`std::formatter`); formatting is cold path only.
 template <>
 struct std::formatter<nexigen::tracing::ChromeTraceSink> : std::formatter<std::string_view> {
+    /// @brief Format the sink through its `to_string()` text.
+    ///
+    /// @tparam Ctx Format context type supplied by `std::format`.
+    /// @param sink Sink to render.
+    /// @param ctx Output context receiving the text.
+    /// @return Iterator past the last written character.
     template <class Ctx>
     auto format(const nexigen::tracing::ChromeTraceSink& sink, Ctx& ctx) const {
         const std::string text = sink.to_string();

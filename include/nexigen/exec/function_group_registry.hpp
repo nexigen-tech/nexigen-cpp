@@ -17,59 +17,128 @@
 
 namespace nexigen::exec {
 
-/// The EM's Function Group registry: groups -> bound applications + state.
+/// @brief The EM's Function Group registry: groups -> bound applications +
+///        state.
+///
+/// Built from `SuiteManifest::function_groups` and each application's
+/// `function_groups` list. Owns only the binding table and current group-state
+/// indices; it borrows the manifest and must not outlive it. Mutated by the
+/// `StateClient` on its control thread and read by status/diagnostics, so it
+/// is single-threaded by design. Cold path only.
+///
+/// @note Spec `exec/app-suite`, requirement "Function Group configuration".
+/// @note Spec `exec/app-suite`, requirement "Function Group diagnostics".
+/// @warning The manifest passed to the constructor must outlive the registry.
 class FunctionGroupRegistry {
 public:
-    /// Build the registry from the suite manifest (groups + per-app bindings).
+    /// @brief Build the registry from the suite manifest.
+    ///
+    /// Copies group names, their state vocabularies, and the per-application
+    /// bindings in manifest order. The initial state of each group is the
+    /// first declared state.
+    ///
+    /// @param manifest Parsed manifest; borrowed, not copied.
+    /// @note Spec `exec/app-suite`, requirement "Function Group configuration".
     explicit FunctionGroupRegistry(const SuiteManifest& manifest);
 
-    /// Number of configured groups.
+    /// @brief Number of configured groups.
+    ///
+    /// @return The size of the group table.
     [[nodiscard]] std::size_t group_count() const noexcept;
 
-    /// The name of one group.
+    /// @brief The name of one group.
+    ///
+    /// @param index Group index; must be below `group_count()`.
+    /// @return The group name.
+    /// @warning Passing an out-of-range index is undefined behavior.
     [[nodiscard]] std::string_view group_name(std::size_t index) const noexcept;
 
-    /// The current state of one group.
+    /// @brief The current state of one group.
+    ///
+    /// @param index Group index; must be below `group_count()`.
+    /// @return The current state name, or an empty view when the group declares
+    ///         no states.
+    /// @warning Passing an out-of-range index is undefined behavior.
     [[nodiscard]] std::string_view group_state(std::size_t index) const noexcept;
 
-    /// The applications bound to one group (in manifest order).
+    /// @brief The applications bound to one group.
+    ///
+    /// @param index Group index; must be below `group_count()`.
+    /// @return The bound names in manifest order.
+    /// @warning Passing an out-of-range index is undefined behavior.
     [[nodiscard]] const std::vector<std::string>& bound_apps(std::size_t index) const noexcept;
 
-    /// The launch command of one bound application; empty = app name itself.
+    /// @brief The launch command of one bound application.
+    ///
+    /// @param app_name Application name to look up.
+    /// @return The manifest command, or an empty view meaning the application
+    ///         name itself is the command; empty also for an unknown name.
     [[nodiscard]] std::string_view command_of(std::string_view app_name) const noexcept;
 
-    /// Index of the group with `name`; npos when unknown.
+    /// @brief Index of the group with `name`.
+    ///
+    /// @param name Group name to find.
+    /// @return The group index, or `std::string::npos` when unknown.
     [[nodiscard]] std::size_t find_group(std::string_view name) const noexcept;
 
-    /// Update one group's current state (the StateClient drives this).
+    /// @brief Update one group's current state.
+    ///
+    /// Driven by the `StateClient` after it executes a switch. The registry is
+    /// the EM's execution-side state; the SM owns the authoritative
+    /// arbitration.
+    ///
+    /// @param index Group index; must be below `group_count()`.
+    /// @param state New state name; an unknown name leaves the state unchanged.
+    /// @note Spec `exec/state-client`, requirement "Function Group execution".
+    /// @warning Passing an out-of-range index is undefined behavior.
     void set_state(std::size_t index, std::string_view state) noexcept;
 
-    /// True for Off-like targets (stop the group's processes).
+    /// @brief Whether a target state means "stop the group's processes".
+    ///
+    /// Only the exact, case-sensitive targets `Off`, `Stopped`, and `Shutdown`
+    /// are Off-like; any other target starts the bound applications.
+    ///
+    /// @param target Target state from a `SetState` command.
+    /// @return `true` when the target is Off-like.
+    /// @note Spec `exec/state-client`, requirement "Function Group execution".
     [[nodiscard]] static bool is_off_target(std::string_view target) noexcept;
 
-    /// Cold-path diagnostic (mandate 9): groups and their states.
+    /// @brief Cold-path diagnostic (mandate 9): groups and their states.
+    ///
+    /// @return Text naming every group and its current state.
+    /// @note Spec `exec/app-suite`, requirement "Function Group diagnostics".
     [[nodiscard]] std::string to_string() const;
 
 private:
+    /// @brief Per-group runtime record: bound applications and current state.
     struct GroupRuntime {
-        std::vector<std::string> app_names{};
-        std::size_t state_index{0};
+        std::vector<std::string> app_names{}; ///< Applications bound to the group.
+        std::size_t state_index{0};           ///< Index into the group's state list.
     };
 
-    const SuiteManifest* manifest_{nullptr};
-    std::vector<GroupRuntime> groups_{};
+    const SuiteManifest* manifest_{nullptr}; ///< Borrowed source manifest.
+    std::vector<GroupRuntime> groups_{};     ///< Group table in manifest order.
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free helper (mandate 9): mirrors the member.
+///
+/// @param registry Registry to render.
+/// @return The same text as `registry.to_string()`.
 [[nodiscard]] inline std::string to_string(const FunctionGroupRegistry& registry) {
     return registry.to_string();
 }
 
 } // namespace nexigen::exec
 
-/// The registry formats as its diagnostic string (mandate 11).
+/// @brief The registry formats as its diagnostic string (mandate 11).
 template <>
 struct std::formatter<nexigen::exec::FunctionGroupRegistry> : std::formatter<std::string_view> {
+    /// @brief Format the registry through its `to_string()` member.
+    ///
+    /// @tparam Ctx `std::formatter` context type.
+    /// @param registry Registry to format.
+    /// @param ctx Format context receiving the text.
+    /// @return The context's output iterator.
     template <class Ctx>
     auto format(const nexigen::exec::FunctionGroupRegistry& registry, Ctx& ctx) const {
         const std::string text = registry.to_string();

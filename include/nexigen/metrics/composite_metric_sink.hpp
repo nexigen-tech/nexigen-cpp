@@ -32,23 +32,47 @@
 
 namespace nexigen::metrics {
 
-/// Fan-out over heterogeneous conforming sinks, zero virtual dispatch.
+/// @brief Variadic fan-out over heterogeneous conforming sinks with no virtual dispatch.
+///
+/// Stores members in a base tuple (`core::sink_pack::Fanout<Sinks...>`) and
+/// forwards each batch through fold expressions, so every member call resolves
+/// statically. Fan-out never short-circuits: a failing member does not starve
+/// the rest, and the first failure is the one returned. `get<Index>()` and
+/// `get<Type>()` come from the pack base and return references.
+///
+/// @tparam Sinks Member sink types; each must satisfy `concepts::MetricSink`
+///         (the concept is enforced by the template parameter list, so a
+///         non-conforming member is rejected at compile time).
+/// @note Spec `metrics/metric-sinks`, requirement "Composite metric sink
+///       fan-out".
 template <concepts::MetricSink... Sinks>
 class CompositeMetricSink : public core::sink_pack::Fanout<Sinks...> {
 public:
-    /// Constructor surface inherited from the pack: default construction
-    /// only for default-constructible member packs (design D3), member
-    /// injection (moving configured, possibly non-default-constructible
-    /// sinks, e.g. CompositeMetricSink<ConsoleMetricSink, JsonFileMetricSink,
-    /// NullMetricSink> around a path-configured file sink) otherwise.
+    /// @brief Inherit the pack's construction surface.
+    ///
+    /// Default construction exists only for default-constructible member packs
+    /// (design D3); the injecting constructors move configured, possibly
+    /// non-default-constructible sinks, e.g.
+    /// `CompositeMetricSink<ConsoleMetricSink, JsonFileMetricSink,
+    /// NullMetricSink>` around a path-configured file sink.
     using core::sink_pack::Fanout<Sinks...>::Fanout;
 
+    /// @brief Copy construction is deleted: members are owned in place.
     CompositeMetricSink(const CompositeMetricSink&) = delete;
+    /// @brief Copy assignment is deleted: members are owned in place.
     CompositeMetricSink& operator=(const CompositeMetricSink&) = delete;
+    /// @brief Move construction is deleted: members are owned in place.
     CompositeMetricSink(CompositeMetricSink&&) = delete;
+    /// @brief Move assignment is deleted: members are owned in place.
     CompositeMetricSink& operator=(CompositeMetricSink&&) = delete;
 
-    /// Deliver the batch to every member; the first failure is returned.
+    /// @brief Deliver one batch to every member and return the first failure.
+    ///
+    /// @param batch Snapshot forwarded unchanged to each member, once.
+    /// @return Success when every member succeeded, otherwise the first
+    ///         non-success status in member order.
+    /// @note Spec `metrics/metric-sinks`, requirement "Composite metric sink
+    ///       fan-out"; the delivery path stays allocation-free.
     [[nodiscard]] core::Status on_batch(const MetricBatchSnapshot& batch) noexcept {
         core::Status result{};
         this->for_each([&batch, &result](auto& sink) noexcept {
@@ -57,7 +81,12 @@ public:
         return result;
     }
 
-    /// Flush every member; the first failure is returned.
+    /// @brief Flush every member and return the first failure.
+    ///
+    /// @return Success when every member flushed, otherwise the first
+    ///         non-success status in member order.
+    /// @note Spec `metrics/metric-sinks`, requirement "Composite metric sink
+    ///       fan-out".
     [[nodiscard]] core::Status flush() noexcept {
         core::Status result{};
         this->for_each([&result](auto& sink) noexcept {
@@ -66,8 +95,12 @@ public:
         return result;
     }
 
-    /// Cold-path diagnostic (mandate 9): the member count and each member's
-    /// own description.
+    /// @brief Render the member count and each member's own description.
+    ///
+    /// @return `"CompositeMetricSink(members=<n>, [<member>], ...)"`; allocates,
+    ///         cold path only.
+    /// @note Spec `metrics/metric-sinks`, scenario "Composite diagnostics
+    ///       contract"; project mandate 9 (`to_string`).
     [[nodiscard]] std::string to_string() const {
         std::string out = "CompositeMetricSink(members=" + std::to_string(sizeof...(Sinks));
         std::apply(
@@ -81,14 +114,28 @@ public:
     }
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free `to_string` helper mirroring the member function.
+///
+/// @tparam Sinks Member sink types of the composite.
+/// @param sink Composite to describe.
+/// @return The same text as `CompositeMetricSink::to_string`.
+/// @note Spec `metrics/metric-sinks`, scenario "Composite diagnostics
+///       contract"; project mandate 9.
 template <concepts::MetricSink... Sinks>
 [[nodiscard]] std::string to_string(const CompositeMetricSink<Sinks...>& sink) {
     return sink.to_string();
 }
 
-/// Diagnostic JSON (cold path). The variadic composite cannot be
-/// reconstructed from JSON — deserialization is deliberately absent.
+/// @brief Serialize the composite as its type tag plus member count.
+///
+/// The variadic composite cannot be reconstructed from JSON: there is
+/// deliberately no `from_json`, matching its factory-only nature.
+///
+/// @tparam Sinks Member sink types of the composite.
+/// @param j Destination JSON value.
+/// @param sink Composite to describe; only its arity is written.
+/// @note Spec `metrics/metric-sinks`, scenario "Composite diagnostics
+///       contract"; project mandate 10 (JSON).
 template <concepts::MetricSink... Sinks>
 void to_json(nlohmann::json& j, const CompositeMetricSink<Sinks...>& sink) {
     j = nlohmann::json{{"type", "CompositeMetricSink"},
@@ -101,10 +148,21 @@ static_assert(concepts::MetricSink<CompositeMetricSink<>>,
 
 } // namespace nexigen::metrics
 
-/// Composite sinks format as their diagnostic string (mandate 11).
+/// @brief `std::formatter` for every composite instantiation.
+///
+/// @tparam Sinks Member sink types of the composite, each satisfying
+///         `concepts::MetricSink`.
+/// @note Spec `metrics/metric-sinks`, scenario "Composite diagnostics
+///       contract"; project mandate 11 (`std::formatter`).
 template <nexigen::metrics::concepts::MetricSink... Sinks>
 struct std::formatter<nexigen::metrics::CompositeMetricSink<Sinks...>>
     : std::formatter<std::string_view> {
+    /// @brief Write the composite's `to_string` text through the string formatter.
+    ///
+    /// @tparam Ctx Formatting context type supplied by `std::format`.
+    /// @param sink Composite being formatted.
+    /// @param ctx Destination formatting context.
+    /// @return Iterator past the last written character.
     template <class Ctx>
     auto format(const nexigen::metrics::CompositeMetricSink<Sinks...>& sink, Ctx& ctx) const {
         const std::string text = sink.to_string();

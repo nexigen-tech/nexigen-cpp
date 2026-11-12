@@ -20,7 +20,27 @@
 
 namespace nexigen::metrics::concepts {
 
-/// A metrics instrument: policy metadata + diagnostic string.
+/// @brief Structural contract for every published metrics instrument.
+///
+/// `Metric` is satisfied by a type that exposes, without virtual functions
+/// and without RTTI, four compile-time policy constants and one cold-path
+/// diagnostic renderer:
+/// - `static constexpr MetricKind kind`;
+/// - `static constexpr ConcurrencyPolicy concurrency`;
+/// - `static constexpr AccessPolicy access`;
+/// - `static constexpr ResetPolicy reset`;
+/// - `std::string to_string() const`, callable on a `const T&` and
+///   convertible to `std::string`.
+///
+/// The concept costs nothing at runtime: it is used only in constant
+/// expressions and `static_assert`s, never as a check on the recording path.
+///
+/// @tparam T Instrument type under test. Every policy member must be
+///         convertible to its enum type, so an integer-valued `kind` fails
+///         the concept; a missing policy member or `to_string()` also fails
+///         it, at compile time.
+/// @note Spec `metrics/metric-concepts`, requirement "Metric concept core
+///       surface".
 template <class T>
 concept Metric = requires(const T& value) {
     { T::kind } -> std::convertible_to<MetricKind>;
@@ -30,7 +50,23 @@ concept Metric = requires(const T& value) {
     { value.to_string() } -> std::convertible_to<std::string>;
 };
 
-/// A readable instrument: adds the public read side.
+/// @brief Refinement of `Metric` for instruments with a public read side.
+///
+/// Adds the two const-callable operations published by instruments built
+/// with `AccessPolicy::Readable`: `read()`, returning the instrument's
+/// current value summary (the concrete type is instrument-specific), and
+/// `snapshot()`, returning a full `MetricRecord` convertible to that type.
+/// Both are allocation-free and non-blocking. A `WriteOnly` instrument fails
+/// this concept, and the same `requires` constraint is what removes those
+/// members from its surface.
+///
+/// @tparam T Instrument type under test. It must first satisfy `Metric`,
+///         then expose a const-callable `read()` and a const-callable
+///         `snapshot()` convertible to `MetricRecord`.
+/// @note Spec `metrics/metric-concepts`, requirement "Readable metric
+///       concept".
+/// @note Spec `metrics/metric-concepts`, requirement "Compile-time access
+///       gating".
 template <class T>
 concept ReadableMetric = Metric<T> && requires(const T& value) {
     { value.read() };

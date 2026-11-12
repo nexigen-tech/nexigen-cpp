@@ -23,10 +23,27 @@
 
 namespace nexigen::sm {
 
-/// Publishes the current state of every configured Function Group as a Field.
+/// @brief Publishes every configured Function Group's current state as a Field.
+///
+/// One Field per group is created on the node under
+/// `Nexigen/SM/State/<group>`, seeded with the group's first declared state.
+/// Because the Field keeps only the latest sample, a late reader observes the
+/// current state immediately and no request-response round trip is needed.
+/// The publisher is move-only and confined to the arbitration thread; it holds
+/// the Field handles for its whole lifetime.
+///
+/// @note Spec `sm/ipc`, requirement "Current state publication".
 class StatePublication {
 public:
-    /// Create one Field per Function Group on the node.
+    /// @brief Create one Field per Function Group on the node.
+    ///
+    /// @param node Node on which the Fields are created.
+    /// @param manifest Manifest whose groups and initial states are published.
+    /// @return The publication by value on success, or the first
+    ///         `ServiceName::create`/`Field::create` error; never calls
+    ///         `value()` on a failed result.
+    /// @note Spec `sm/ipc`, requirement "Current state publication"
+    ///       (`history_size = 1`).
     [[nodiscard]] static com::Result<StatePublication> create(com::Node& node,
                                                               const SmManifest& manifest) noexcept {
         StatePublication publication;
@@ -50,37 +67,73 @@ public:
         return publication;
     }
 
+    /// @brief Move the Field handles to a new owner.
     StatePublication(StatePublication&&) noexcept = default;
+
+    /// @brief Move-assign the Field handles.
     StatePublication& operator=(StatePublication&&) noexcept = default;
 
-    /// Publish one group's current state; late readers observe it immediately.
+    /// @brief Publish one group's current state.
+    ///
+    /// Overwrites the group's Field sample, so a late reader observes the new
+    /// value immediately. The name is copied as a C string and truncated to
+    /// `k_group_state_length - 1` bytes.
+    ///
+    /// @param index Group index in manifest order.
+    /// @param state New NUL-terminated state name.
+    /// @return Empty `com::Status` on success, or the Field publish error.
+    /// @warning `index` must be below `manifest.function_groups.size()`; the
+    ///          accessor performs no bounds check. `state` must be
+    ///          NUL-terminated because it is formatted as a C string.
+    /// @note Spec `sm/ipc`, requirement "Current state publication".
     [[nodiscard]] com::Status publish(std::size_t index, std::string_view state) noexcept {
         GroupStatePayload payload{};
         std::snprintf(payload.state, sizeof(payload.state), "%s", state.data());
         return fields_[index].set(std::move(payload));
     }
 
-    /// Cold-path diagnostic (mandate 9).
+    /// @brief Render the publication as a diagnostic string.
+    ///
+    /// @return Text naming the number of published groups; allocates.
+    /// @note Spec `sm/ipc`, requirement "Current state publication".
+    /// @note Cold-path diagnostic only (project mandate 9).
     [[nodiscard]] std::string to_string() const {
         return std::format("StatePublication(groups={})", fields_.size());
     }
 
 private:
+    /// @brief Construct an empty publication; `create()` fills the Fields.
     StatePublication() = default;
 
-    std::vector<com::Field<GroupStatePayload>> fields_;
+    std::vector<com::Field<GroupStatePayload>> fields_; ///< One Field per group.
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free diagnostic helper mirroring `StatePublication::to_string`.
+///
+/// @param publication Publication to render.
+/// @return The member `to_string()` output.
+/// @note Spec `sm/ipc`, requirement "Current state publication".
+/// @note Cold-path diagnostic only (project mandate 9).
 [[nodiscard]] inline std::string to_string(const StatePublication& publication) {
     return publication.to_string();
 }
 
 } // namespace nexigen::sm
 
-/// The publication formats as its diagnostic string (mandate 11).
+/// @brief `std::formatter` for `StatePublication` (project mandate 11).
+///
+/// Delegates to `std::formatter<std::string_view>` after rendering the member
+/// diagnostic, so `std::format("{}", publication)` equals `to_string()`.
+///
+/// @note Spec `sm/ipc`, requirement "Current state publication".
 template <>
 struct std::formatter<nexigen::sm::StatePublication> : std::formatter<std::string_view> {
+    /// @brief Format the publication as its diagnostic string.
+    ///
+    /// @tparam Ctx Format context type supplied by `std::format`.
+    /// @param publication Publication to render.
+    /// @param ctx Output iterator context receiving the text.
+    /// @return Iterator past the written characters.
     template <class Ctx>
     auto format(const nexigen::sm::StatePublication& publication, Ctx& ctx) const {
         const std::string text = publication.to_string();

@@ -40,10 +40,26 @@
 
 namespace nexigen::core::settings_io {
 
-/// File-read outcome for optional settings sources (same tri-state the
-/// per-module loaders carried).
-enum class FileRead : std::uint8_t { Absent, Ok, Failed };
+/// @brief File-read outcome for optional settings sources.
+///
+/// The tri-state the per-module loaders carried: an absent source is not an
+/// error, an unreadable one is.
+///
+/// @note Spec `core/sink-plumbing`, requirement "Shared settings loader
+///       vocabulary" (one `FileRead` implementation for all loaders).
+enum class FileRead : std::uint8_t {
+    Absent, ///< Path empty or file does not exist; source disabled.
+    Ok,     ///< Whole file read into the destination string.
+    Failed  ///< File exists but could not be opened or read.
+};
 
+/// @brief Read a whole text file into a string.
+///
+/// @param path File path; an empty path reports `Absent` without a syscall.
+/// @param out Destination resized to the file; empty on `Absent`/`Failed`.
+/// @return `Absent` for an empty path or a missing file, `Ok` after a complete
+///         read, `Failed` for any other open/read error.
+/// @note Cold path only: allocates the destination and copies the path.
 [[nodiscard]] inline FileRead read_text_file(std::string_view path, std::string& out) noexcept {
     if (path.empty()) {
         return FileRead::Absent;
@@ -76,7 +92,11 @@ enum class FileRead : std::uint8_t { Absent, Ok, Failed };
     return FileRead::Ok;
 }
 
-/// Numeric contract part 1: an unsigned JSON number.
+/// @brief Numeric contract part 1: accept an unsigned JSON number.
+///
+/// @param value JSON value to inspect.
+/// @param out Destination assigned only for an unsigned number.
+/// @return `true` when `value` is a JSON unsigned number.
 [[nodiscard]] inline bool unsigned_value(const nlohmann::json& value, std::uint64_t& out) noexcept {
     if (!value.is_number_unsigned()) {
         return false;
@@ -85,7 +105,11 @@ enum class FileRead : std::uint8_t { Absent, Ok, Failed };
     return true;
 }
 
-/// Numeric contract part 2: a full-token decimal digit string.
+/// @brief Numeric contract part 2: parse a full-token decimal digit string.
+///
+/// @param text Candidate text; must be non-empty and entirely decimal digits.
+/// @param out Destination assigned only on success.
+/// @return `true` when the whole view parsed as a `std::uint64_t`.
 [[nodiscard]] inline bool parse_u64(std::string_view text, std::uint64_t& out) noexcept {
     if (text.empty()) {
         return false;
@@ -96,9 +120,15 @@ enum class FileRead : std::uint8_t { Absent, Ok, Failed };
     return result.ec == std::errc{} && result.ptr == end;
 }
 
-/// Append one merge-layer finding to a settings diagnostics vector (the
-/// type every loader carries; the logging loader forwards its Settings'
-/// vector here).
+/// @brief Append one merge-layer finding to a settings diagnostics vector.
+///
+/// @param diagnostics Vector receiving the finding (the one every loader
+///        carries).
+/// @param source Merge layer that found it.
+/// @param field Offending field name.
+/// @param message Human-readable finding; moved into the diagnostic.
+/// @note Spec `core/settings-vocabulary`, requirement "Settings diagnostic
+///       records a finding". Cold path only.
 inline void add_diagnostic(std::vector<SettingsDiagnostic>& diagnostics, SettingsSource source,
                            std::string field, std::string message) {
     diagnostics.push_back(SettingsDiagnostic{source, std::move(field), std::move(message)});
@@ -110,7 +140,19 @@ inline void add_diagnostic(std::vector<SettingsDiagnostic>& diagnostics, Setting
 // target untouched and produces no diagnostic, an invalid value reports
 // once and leaves the previous target intact.
 
-/// Read a JSON key into a uint64 target when present and within its bound.
+/// @brief Read a JSON key into a `std::uint64_t` when present and in range.
+///
+/// An absent key leaves the target untouched and produces no diagnostic; an
+/// invalid value reports once and leaves the previous target intact.
+///
+/// @param document JSON object to probe.
+/// @param key Field name to look up.
+/// @param max_value Inclusive upper bound for the accepted value.
+/// @param target Destination assigned only for a valid value.
+/// @param diagnostics Vector receiving a finding on rejection.
+/// @param source Merge layer attributed to a finding.
+/// @note Spec `core/sink-plumbing`, requirement "Shared settings loader
+///       vocabulary" (diagnostics byte-identical to the module originals).
 inline void read_uint(const nlohmann::json& document, const char* key, std::uint64_t max_value,
                       std::uint64_t& target, std::vector<SettingsDiagnostic>& diagnostics,
                       SettingsSource source) {
@@ -126,12 +168,25 @@ inline void read_uint(const nlohmann::json& document, const char* key, std::uint
     }
 }
 
-/// The "sink.<key>" nested-field name shared by every sink-reader diagnostic.
+/// @brief Build the `sink.<key>` field name used in sink diagnostics.
+///
+/// @param key Sink-relative key.
+/// @return Newly allocated `"sink.<key>"` text.
+/// @note Spec `core/sink-plumbing`, requirement "Shared settings loader
+///       vocabulary".
 [[nodiscard]] inline std::string sink_field(const char* key) {
     return std::string("sink.") + key;
 }
 
-/// Read an optional string key out of the sink object.
+/// @brief Read an optional string key out of the sink object.
+///
+/// @param sink Sink JSON object supplied by `find_sink`.
+/// @param key Sink-relative field name.
+/// @param target Destination, untouched when the key is absent.
+/// @param diagnostics Vector receiving a finding for a non-string value.
+/// @param source Merge layer attributed to a finding.
+/// @note Spec `core/sink-plumbing`, requirement "Shared settings loader
+///       vocabulary" (`expected a string` wording).
 inline void read_sink_string(const nlohmann::json& sink, const char* key, std::string& target,
                              std::vector<SettingsDiagnostic>& diagnostics, SettingsSource source) {
     const auto it = sink.find(key);
@@ -148,7 +203,15 @@ inline void read_sink_string(const nlohmann::json& sink, const char* key, std::s
     }
 }
 
-/// Read an optional boolean key out of the sink object.
+/// @brief Read an optional boolean key out of the sink object.
+///
+/// @param sink Sink JSON object supplied by `find_sink`.
+/// @param key Sink-relative field name.
+/// @param target Destination, untouched when the key is absent.
+/// @param diagnostics Vector receiving a finding for a non-boolean value.
+/// @param source Merge layer attributed to a finding.
+/// @note Spec `core/sink-plumbing`, requirement "Shared settings loader
+///       vocabulary" (`expected a boolean` wording).
 inline void read_sink_bool(const nlohmann::json& sink, const char* key, bool& target,
                            std::vector<SettingsDiagnostic>& diagnostics, SettingsSource source) {
     const auto it = sink.find(key);
@@ -162,7 +225,15 @@ inline void read_sink_bool(const nlohmann::json& sink, const char* key, bool& ta
     target = it->get<bool>();
 }
 
-/// Read an optional unsigned key out of the sink object.
+/// @brief Read an optional unsigned key out of the sink object.
+///
+/// @param sink Sink JSON object supplied by `find_sink`.
+/// @param key Sink-relative field name.
+/// @param target Destination, untouched when the key is absent.
+/// @param diagnostics Vector receiving a finding for a non-unsigned value.
+/// @param source Merge layer attributed to a finding.
+/// @note Spec `core/sink-plumbing`, requirement "Shared settings loader
+///       vocabulary" (`expected a non-negative integer` wording).
 inline void read_sink_uint(const nlohmann::json& sink, const char* key, std::uint64_t& target,
                            std::vector<SettingsDiagnostic>& diagnostics, SettingsSource source) {
     const auto it = sink.find(key);
@@ -177,8 +248,15 @@ inline void read_sink_uint(const nlohmann::json& sink, const char* key, std::uin
     }
 }
 
-/// Locate the optional sink object. Returns nullptr when absent or invalid;
-/// an invalid value is reported once and leaves the previous sink intact.
+/// @brief Locate the optional `sink` object.
+///
+/// @param document JSON object to probe.
+/// @param diagnostics Vector receiving a finding for a non-object `sink`.
+/// @param source Merge layer attributed to a finding.
+/// @return Pointer to the sink object, or `nullptr` when absent or invalid (an
+///         invalid value is reported once and leaves previous settings intact).
+/// @note Spec `core/sink-plumbing`, requirement "Shared settings loader
+///       vocabulary" (`expected a JSON object` wording).
 [[nodiscard]] inline const nlohmann::json* find_sink(const nlohmann::json& document,
                                                      std::vector<SettingsDiagnostic>& diagnostics,
                                                      SettingsSource source) {
@@ -201,29 +279,56 @@ inline void read_sink_uint(const nlohmann::json& sink, const char* key, std::uin
 // one-liners binding key + target member (no per-module copy of the parsing
 // logic, which is what the clone scan flagged).
 
-/// One document field: the key names it in JSON, the hook reads it.
+/// @brief One document field: the key names it in JSON, the hook reads it.
+///
+/// @tparam Settings Settings type the hook fills and the table merges into.
+/// @note Spec `core/sink-plumbing`, requirement "Shared settings loader
+///       vocabulary": table order is read order, preserving diagnostic order.
 template <class Settings> struct ReadField {
+    /// @brief JSON key naming the field.
     const char* key;
+    /// @brief Hook invoked as `read(key, document, source, diagnostics,
+    ///        settings)`.
     void (*read)(const char* key, const nlohmann::json& document, SettingsSource source,
                  std::vector<SettingsDiagnostic>& diagnostics, Settings& settings);
 };
 
-/// One document field of the sink sub-object: same contract, `sink` is the
-/// object handed over by find_sink.
+/// @brief One field of the sink sub-object.
+///
+/// Same contract as `ReadField`, but the hook receives the object handed over by
+/// `find_sink`.
+///
+/// @tparam Settings Settings type the hook fills and the table merges into.
 template <class Settings> struct SinkReadField {
+    /// @brief Sink-relative JSON key naming the field.
     const char* key;
+    /// @brief Hook invoked as `read(key, sink, source, diagnostics, settings)`.
     void (*read)(const char* key, const nlohmann::json& sink, SettingsSource source,
                  std::vector<SettingsDiagnostic>& diagnostics, Settings& settings);
 };
 
-/// One JSON write slot: the key names it, the hook fills it.
+/// @brief One JSON write slot: the key names it, the hook fills it.
+///
+/// @tparam Settings Settings type the hook reads.
+/// @note Spec `core/sink-plumbing`, requirement "Shared settings loader
+///       vocabulary": table order is write order, preserving JSON key order.
 template <class Settings> struct WriteField {
+    /// @brief JSON key naming the field.
     const char* key;
+    /// @brief Hook invoked as `write(object, key, settings)`.
     void (*write)(nlohmann::json& object, const char* key, const Settings& settings);
 };
 
-/// Nanoseconds field with the int64 ceiling: staged through uint64, committed
-/// only when no diagnostic was appended (the collect_interval pattern).
+/// @brief Read a nanosecond field bounded by the `std::int64_t` ceiling.
+///
+/// Staged through `std::uint64_t` and committed only when no diagnostic was
+/// appended (the `collect_interval` pattern).
+///
+/// @param document JSON object to probe.
+/// @param key Field name to look up.
+/// @param source Merge layer attributed to a finding.
+/// @param diagnostics Vector receiving a finding on rejection.
+/// @param target Duration, replaced only when the field parses in range.
 inline void read_duration_ns(const nlohmann::json& document, const char* key, SettingsSource source,
                              std::vector<SettingsDiagnostic>& diagnostics,
                              std::chrono::nanoseconds& target) {
@@ -236,9 +341,17 @@ inline void read_duration_ns(const nlohmann::json& document, const char* key, Se
     }
 }
 
-/// Legacy core_mask into a ThreadSpec: parsed with the uint vocabulary, the
-/// spec applies it whenever the key is PRESENT (even if invalid — the mask
-/// stays 0 then, matching the historical merge order).
+/// @brief Read the legacy `core_mask` key into a `ThreadSpec`.
+///
+/// Parsed with the uint vocabulary; the spec applies the mask whenever the key
+/// is PRESENT, even if invalid (the mask then stays 0, matching the historical
+/// merge order).
+///
+/// @param document JSON object to probe.
+/// @param key Field name to look up.
+/// @param source Merge layer attributed to a finding.
+/// @param diagnostics Vector receiving a finding on rejection.
+/// @param spec Spec whose CPU set is replaced when the key is present.
 inline void read_core_mask_into(const nlohmann::json& document, const char* key,
                                 SettingsSource source, std::vector<SettingsDiagnostic>& diagnostics,
                                 ThreadSpec& spec) {
@@ -250,7 +363,15 @@ inline void read_core_mask_into(const nlohmann::json& document, const char* key,
     }
 }
 
-/// Full worker_thread object parsed through the shared ThreadSpec vocabulary.
+/// @brief Read a full `worker_thread` object through the shared vocabulary.
+///
+/// @param document JSON object to probe.
+/// @param key Field name holding the worker object.
+/// @param source Merge layer attributed to a finding.
+/// @param diagnostics Vector receiving a finding for an invalid spec.
+/// @param spec Destination replaced only when the object parses fully.
+/// @note Invalid `name`/`cpus`/`policy`/`priority`/`mode` fields report one
+///       finding and leave the previous spec intact.
 inline void read_worker_spec(const nlohmann::json& document, const char* key, SettingsSource source,
                              std::vector<SettingsDiagnostic>& diagnostics, ThreadSpec& spec) {
     const auto worker = document.find(key);
@@ -266,8 +387,16 @@ inline void read_worker_spec(const nlohmann::json& document, const char* key, Se
     }
 }
 
-/// uint32 field staged through uint64 with a bound; committed only when no
-/// diagnostic was appended (the max_* counters pattern).
+/// @brief Read a `std::uint32_t` field staged through `std::uint64_t`.
+///
+/// Committed only when no diagnostic was appended (the `max_*` counters
+/// pattern).
+///
+/// @param document JSON object to probe.
+/// @param key Field name to look up.
+/// @param source Merge layer attributed to a finding.
+/// @param diagnostics Vector receiving a finding on rejection.
+/// @param target Value, replaced only for an in-range field.
 inline void read_bounded_u32(const nlohmann::json& document, const char* key, SettingsSource source,
                              std::vector<SettingsDiagnostic>& diagnostics, std::uint32_t& target) {
     std::uint64_t value = target;
@@ -278,9 +407,17 @@ inline void read_bounded_u32(const nlohmann::json& document, const char* key, Se
     }
 }
 
-/// uint32 field staged through uint64, assigned unconditionally (invalid
-/// reads leave the staged copy of the old value — net no-op) — the
-/// worker_poll_interval_us pattern.
+/// @brief Read a `std::uint32_t` field staged through `std::uint64_t`.
+///
+/// Assigned unconditionally: an invalid read leaves the staged copy of the old
+/// value, so the net effect is a no-op (the `worker_poll_interval_us` pattern).
+///
+/// @param document JSON object to probe.
+/// @param key Field name to look up.
+/// @param max_value Inclusive upper bound for the accepted value.
+/// @param source Merge layer attributed to a finding.
+/// @param diagnostics Vector receiving a finding on rejection.
+/// @param target Value, rewritten from the staged copy on every call.
 inline void read_staged_u32(const nlohmann::json& document, const char* key,
                             std::uint64_t max_value, SettingsSource source,
                             std::vector<SettingsDiagnostic>& diagnostics, std::uint32_t& target) {
@@ -289,9 +426,17 @@ inline void read_staged_u32(const nlohmann::json& document, const char* key,
     target = static_cast<std::uint32_t>(value);
 }
 
-/// uint64 field read through the uint vocabulary and assigned unconditionally
-/// (invalid reads keep the staged copy of the old value — net no-op), the
-/// max_spans/window_ns pattern.
+/// @brief Read a `std::uint64_t` field assigned unconditionally.
+///
+/// An invalid read keeps the staged copy of the old value, so the net effect is
+/// a no-op (the `max_spans`/`window_ns` pattern).
+///
+/// @param document JSON object to probe.
+/// @param key Field name to look up.
+/// @param max_value Inclusive upper bound for the accepted value.
+/// @param source Merge layer attributed to a finding.
+/// @param diagnostics Vector receiving a finding on rejection.
+/// @param target Value, rewritten from the staged copy on every call.
 inline void read_staged_u64(const nlohmann::json& document, const char* key,
                             std::uint64_t max_value, SettingsSource source,
                             std::vector<SettingsDiagnostic>& diagnostics, std::uint64_t& target) {
@@ -300,9 +445,18 @@ inline void read_staged_u64(const nlohmann::json& document, const char* key,
     target = value;
 }
 
-/// Enum vocabulary field inside the sink object: string type-checked, parsed
-/// through the enum's own ADL from_string; `allowed` is the historical
-/// wording of the rejection diagnostic.
+/// @brief Read an enum field inside the sink object.
+///
+/// Type-checks the string and parses it through the enum's own ADL
+/// `from_string`; `allowed` supplies the historical rejection wording.
+///
+/// @tparam Enum Enum type providing the `from_string` vocabulary.
+/// @param sink Sink JSON object supplied by `find_sink`.
+/// @param key Sink-relative field name.
+/// @param source Merge layer attributed to a finding.
+/// @param diagnostics Vector receiving a finding on rejection.
+/// @param target Enum, replaced only on a successful parse.
+/// @param allowed Diagnostic text used for a wrong type or unknown name.
 template <class Enum>
 inline void read_sink_enum(const nlohmann::json& sink, const char* key, SettingsSource source,
                            std::vector<SettingsDiagnostic>& diagnostics, Enum& target,
@@ -324,7 +478,16 @@ inline void read_sink_enum(const nlohmann::json& sink, const char* key, Settings
     }
 }
 
-/// Run the document table in order.
+/// @brief Run a document table in order.
+///
+/// @tparam Settings Settings type merged into.
+/// @tparam N Number of table rows.
+/// @param document JSON object to read.
+/// @param source Merge layer attributed to every finding.
+/// @param fields Field table; table order is read order.
+/// @param settings Destination carrying `diagnostics` and the target fields.
+/// @note One driver per direction: per-module tables list `{key, hook}` and the
+///       table order is the read order.
 template <class Settings, std::size_t N>
 inline void read_fields(const nlohmann::json& document, SettingsSource source,
                         const ReadField<Settings> (&fields)[N], Settings& settings) {
@@ -333,8 +496,19 @@ inline void read_fields(const nlohmann::json& document, SettingsSource source,
     }
 }
 
-/// Run the sink table: find_sink once, then every field reads from it. A
-/// missing or invalid sink produces the one shared diagnostic and stops.
+/// @brief Run a sink table: locate the sink once, then read every field.
+///
+/// A missing sink is silent; an invalid (non-object) sink produces the one
+/// shared diagnostic and stops.
+///
+/// @tparam Settings Settings type merged into.
+/// @tparam N Number of table rows.
+/// @param document JSON object to read.
+/// @param source Merge layer attributed to every finding.
+/// @param fields Sink field table; table order is read order.
+/// @param settings Destination carrying `diagnostics` and the target fields.
+/// @note Spec `core/sink-plumbing`, requirement "Shared settings loader
+///       vocabulary".
 template <class Settings, std::size_t N>
 inline void read_sink_fields(const nlohmann::json& document, SettingsSource source,
                              const SinkReadField<Settings> (&fields)[N], Settings& settings) {
@@ -347,7 +521,13 @@ inline void read_sink_fields(const nlohmann::json& document, SettingsSource sour
     }
 }
 
-/// Run the write table in order.
+/// @brief Run a write table in order.
+///
+/// @tparam Settings Settings type read by the hooks.
+/// @tparam N Number of table rows.
+/// @param object JSON object filled in place.
+/// @param fields Write table; table order is JSON key order.
+/// @param settings Source settings rendered into `object`.
 template <class Settings, std::size_t N>
 inline void write_fields(nlohmann::json& object, const WriteField<Settings> (&fields)[N],
                          const Settings& settings) {
@@ -356,8 +536,11 @@ inline void write_fields(nlohmann::json& object, const WriteField<Settings> (&fi
     }
 }
 
-/// The diagnostics array every module settings JSON ends with (shared shape;
-/// the writer body lives in the SettingsDiagnostic ADL pair).
+/// @brief Append the shared `diagnostics` array to a settings JSON object.
+///
+/// @param object JSON object receiving the `diagnostics` member.
+/// @param diagnostics Findings to serialize through the diagnostic ADL writer.
+/// @note Shape shared by every module settings JSON (mandates 9/10).
 inline void write_diagnostics(nlohmann::json& object,
                               const std::vector<SettingsDiagnostic>& diagnostics) {
     nlohmann::json entries = nlohmann::json::array();
@@ -369,10 +552,19 @@ inline void write_diagnostics(nlohmann::json& object,
     object["diagnostics"] = std::move(entries);
 }
 
-/// The identical `Settings(global_loaded=.., local_loaded=.., options=..,
-/// sink=.., diagnostics=[..])` summary line every module settings struct
-/// renders (design D6): the modules pass their own to_string views, the
-/// joining/living lives here once.
+/// @brief Render the shared `Settings(...)` summary line.
+///
+/// The modules pass their own `to_string` views; joining and quoting lives here
+/// once.
+///
+/// @param global_loaded Whether the global file was read and merged.
+/// @param local_loaded Whether the local file was read and merged.
+/// @param options Rendered options view from the module.
+/// @param sink Rendered sink view from the module.
+/// @param diagnostics Findings joined with `; ` in report order.
+/// @return Text such as `Settings(global_loaded=..., ..., diagnostics=[...])`.
+/// @note Spec `core/settings-vocabulary`, requirement "Settings vocabulary is
+///       cold path only"; mandate 9.
 [[nodiscard]] inline std::string
 format_settings_summary(bool global_loaded, bool local_loaded, std::string_view options,
                         std::string_view sink, const std::vector<SettingsDiagnostic>& diagnostics) {
@@ -390,12 +582,24 @@ format_settings_summary(bool global_loaded, bool local_loaded, std::string_view 
     return out;
 }
 
-/// The three-state settings loader skeleton (design D5): reset, global file,
-/// local file, environment overlay, error precedence SystemError >
-/// InvalidArgument. `Settings` must carry global_loaded/local_loaded/
-/// diagnostics; `merge` and `apply_env` are the module's own field-table merge
-/// and env appliers. Byte-identical diagnostics to the per-module bodies this
-/// replaces (same wordings, same order).
+/// @brief The three-state settings loader skeleton.
+///
+/// Resets the destination, reads the global file, the local file, and the
+/// environment overlay in that order; error precedence is `SystemError` over
+/// `InvalidArgument`. Diagnostics are byte-identical to the per-module bodies
+/// this replaces (same wordings, same order).
+///
+/// @tparam Settings Settings type carrying `global_loaded`/`local_loaded`/
+///         `diagnostics` and whatever the merge hook fills.
+/// @param paths Explicit global/local file pair; an empty path disables a layer.
+/// @param out Destination reset and then merged into.
+/// @param merge Module field-table merge applied per file layer.
+/// @param apply_env Module environment-overlay applier.
+/// @return `Status{}` when every present source was valid; `SystemError` when a
+///         present file could not be read; `InvalidArgument` when a document was
+///         malformed or a field was rejected (diagnostics retained either way).
+/// @note Spec `core/settings-vocabulary`, requirement "Settings paths carry an
+///       explicit global/local pair".
 template <class Settings>
 [[nodiscard]] inline core::Status load_settings_document(
     const SettingsPaths& paths, Settings& out,
@@ -461,21 +665,34 @@ template <class Settings>
 // apply_env_fields walks the module table; the typed helpers carry the exact
 // wordings the hand-written blocks produced.
 
-/// Raw environment value or an empty view when unset/empty.
+/// @brief Raw environment value, or an empty view when unset or empty.
+///
+/// @param name Environment variable name.
+/// @return View over the process environment value; empty when unset.
 [[nodiscard]] inline std::string_view env_value(const char* name) noexcept {
     const char* const value = std::getenv(name);
     return value == nullptr ? std::string_view{} : std::string_view{value};
 }
 
-/// One environment field: variable name, diagnostic field, apply hook.
+/// @brief One environment field: variable name, diagnostic field, hook.
+///
+/// @tparam Settings Settings type the hook merges into.
 template <class Settings> struct EnvField {
+    /// @brief Environment variable name to read.
     const char* env_name;
+    /// @brief Diagnostic field name attributed to a finding.
     const char* field;
+    /// @brief Hook invoked as `apply(env_name, field, diagnostics, settings)`.
     void (*apply)(const char* env_name, const char* field,
                   std::vector<SettingsDiagnostic>& diagnostics, Settings& settings);
 };
 
-/// Apply every present (non-empty) environment field in table order.
+/// @brief Apply every present (non-empty) environment field in table order.
+///
+/// @tparam Settings Settings type merged into.
+/// @tparam N Number of table rows.
+/// @param fields Environment field table.
+/// @param settings Destination receiving the overrides and findings.
 template <class Settings, std::size_t N>
 inline void apply_env_fields(const EnvField<Settings> (&fields)[N], Settings& settings) {
     for (const EnvField<Settings>& field : fields) {
@@ -486,9 +703,16 @@ inline void apply_env_fields(const EnvField<Settings> (&fields)[N], Settings& se
     }
 }
 
-/// Nanosecond interval env override: unsigned parse with the int64 ceiling,
-/// "expected a non-negative nanosecond count" on any failure (the
-/// collect_interval pattern of every module).
+/// @brief Nanosecond interval environment override.
+///
+/// Parses an unsigned value bounded by the `std::int64_t` ceiling and reports
+/// `expected a non-negative nanosecond count` on any failure (the
+/// `collect_interval` pattern of every module).
+///
+/// @param env_name Environment variable name.
+/// @param field Diagnostic field name attributed to a finding.
+/// @param diagnostics Vector receiving a finding on rejection.
+/// @param target Duration, replaced only on a successful parse.
 inline void read_env_duration_ns(const char* env_name, const char* field,
                                  std::vector<SettingsDiagnostic>& diagnostics,
                                  std::chrono::nanoseconds& target) {
@@ -502,7 +726,13 @@ inline void read_env_duration_ns(const char* env_name, const char* field,
     }
 }
 
-/// Core-mask env override applied onto a ThreadSpec (shared wording).
+/// @brief Core-mask environment override applied onto a `ThreadSpec`.
+///
+/// @param env_name Environment variable name.
+/// @param field Diagnostic field name attributed to a finding.
+/// @param diagnostics Vector receiving a finding on rejection.
+/// @param spec Spec whose CPU set is replaced on a successful parse.
+/// @note Shared `expected a non-negative integer mask` wording.
 inline void read_env_core_mask(const char* env_name, const char* field,
                                std::vector<SettingsDiagnostic>& diagnostics, ThreadSpec& spec) {
     std::uint64_t parsed = 0;
@@ -514,7 +744,13 @@ inline void read_env_core_mask(const char* env_name, const char* field,
     }
 }
 
-/// Plain unsigned env override ("expected a non-negative integer").
+/// @brief Plain unsigned environment override.
+///
+/// @param env_name Environment variable name.
+/// @param field Diagnostic field name attributed to a finding.
+/// @param diagnostics Vector receiving a finding on rejection.
+/// @param target Value, replaced only on a successful parse.
+/// @note Reports `expected a non-negative integer` on failure.
 inline void read_env_plain_u64(const char* env_name, const char* field,
                                std::vector<SettingsDiagnostic>& diagnostics,
                                std::uint64_t& target) {
@@ -527,8 +763,15 @@ inline void read_env_plain_u64(const char* env_name, const char* field,
     }
 }
 
-/// Checked-range unsigned env override with a bespoke wording (the
-/// max_tracers 1..64 pattern).
+/// @brief Checked-range unsigned environment override.
+///
+/// @param env_name Environment variable name.
+/// @param field Diagnostic field name attributed to a finding.
+/// @param lo Inclusive lower bound.
+/// @param hi Inclusive upper bound.
+/// @param diagnostics Vector receiving a finding on rejection.
+/// @param target Value, replaced only for an in-range parse.
+/// @param message Bespoke diagnostic wording (the `max_tracers` 1..64 pattern).
 inline void read_env_range_u32(const char* env_name, const char* field, std::uint64_t lo,
                                std::uint64_t hi, std::vector<SettingsDiagnostic>& diagnostics,
                                std::uint32_t& target, const char* message) {

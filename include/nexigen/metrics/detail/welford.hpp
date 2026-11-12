@@ -15,16 +15,37 @@
 
 namespace nexigen::metrics::detail {
 
-/// Plain moment state (the observable summary shape).
+/// @brief Plain moment state (the observable summary shape).
+///
+/// Holds count/mean/M2 plus the running extremes. Kept as a trivially copyable
+/// aggregate so a shard slot and a merged summary have the same layout; an empty
+/// state has every field zeroed.
+///
+/// @note Spec `metrics/descriptive-statistics`, requirement "Online moment
+///       statistics".
 struct WelfordState {
+    /// Number of samples folded in; `0` means empty.
     std::uint64_t count{0};
+    /// Running mean of the samples.
     double mean{0.0};
+    /// Sum of squared deviations from the mean (Welford's M2).
     double m2{0.0};
+    /// Smallest observed sample; `0.0` when empty.
     double min{0.0};
+    /// Largest observed sample; `0.0` when empty.
     double max{0.0};
 };
 
-/// Population standard deviation of a moment state.
+/// @brief Population standard deviation of a moment state.
+///
+/// Computes `sqrt(m2 / count)`, the population (not sample) deviation: it is `0`
+/// for an empty state and `0` for a single sample, where the sample deviation
+/// would be undefined.
+///
+/// @param state Moment state to summarize.
+/// @return Population standard deviation, or `0.0` when `count == 0`.
+/// @note Spec `metrics/descriptive-statistics`, requirement "Online moment
+///       statistics".
 [[nodiscard]] inline double population_std(const WelfordState& state) noexcept {
     if (state.count == 0U) {
         return 0.0;
@@ -32,8 +53,15 @@ struct WelfordState {
     return std::sqrt(state.m2 / static_cast<double>(state.count));
 }
 
-/// Fold one sample into a moment state (Welford). The caller owns the state;
-/// no allocation, no locks.
+/// @brief Fold one sample into a moment state (Welford's update).
+///
+/// O(1) per sample with no allocation and no locks; the first sample seeds
+/// count/mean/min/max and leaves `m2` at zero. The caller owns the state.
+///
+/// @param state Moment state updated in place.
+/// @param value Sample to fold in.
+/// @note Spec `metrics/descriptive-statistics`, requirement "Online moment
+///       statistics".
 inline void welford_add(WelfordState& state, double value) noexcept {
     if (state.count == 0U) {
         state.count = 1U;
@@ -56,7 +84,17 @@ inline void welford_add(WelfordState& state, double value) noexcept {
     }
 }
 
-/// Merge two moment states (Chan et al. parallel merge).
+/// @brief Merge two moment states with Chan's parallel merge formula.
+///
+/// Combines counts, means, M2 terms and extremes so a sharded instrument reports
+/// the same moments as a single-threaded one. An empty operand is returned
+/// unchanged as the result.
+///
+/// @param a Left moment state; not modified.
+/// @param b Right moment state; not modified.
+/// @return Merged state covering both inputs.
+/// @note Spec `metrics/descriptive-statistics`, requirement "Multi-threaded
+///       statistics merging".
 [[nodiscard]] inline WelfordState welford_merge(const WelfordState& a,
                                                 const WelfordState& b) noexcept {
     if (a.count == 0U) {

@@ -17,18 +17,44 @@
 
 namespace nexigen::exec::detail {
 
-/// Everything needed to start one application attempt from a valid manifest.
+/// @brief Everything needed to start one application attempt from a valid
+///        manifest.
+///
+/// The resolved, immutable result of merging the suite manifest and the
+/// application entry: the attempt artifact directory, `StartOptions`, the run
+/// identity, and the exact argv. Built once per attempt and consumed by the
+/// supervisor; it holds no process state.
+///
+/// @note Spec `exec/app-suite`, requirement "Manifest launch settings reach
+///       each child".
+/// @note Spec `exec/app-suite`, requirement "Settings sources merge per
+///       application".
 struct SuiteLaunchPlan {
-    std::string artifact_dir{};
-    StartOptions options{};
-    app::RunIdentity identity{};
-    std::vector<std::string> command{};
+    std::string artifact_dir{};         ///< Attempt artifact directory; stream root.
+    StartOptions options{};             ///< Environment, CPU set, settings sources, level.
+    app::RunIdentity identity{};        ///< Identity recorded in `resource.json` and env.
+    std::vector<std::string> command{}; ///< Resolved argv, executable first.
 };
 
-/// Resolve the effective launch settings for `spec` attempt `attempt`:
-/// artifact directory, settings sources, log level, environment, CPU set,
-/// argv, and run identity. `instance_dir` is the control directory owned by
-/// the suite supervisor.
+/// @brief Resolve the effective launch settings for one attempt.
+///
+/// Merges the suite manifest with `spec`: artifact directory from
+/// `attempt_dir_path`, settings sources (suite global replaced by the
+/// application global, then the manifest-relative local path), effective log
+/// level (application over suite), environment additions, CPU set, argv, and
+/// run identity. `instance_dir` is the control directory owned by the suite
+/// supervisor and stays fixed across attempts.
+///
+/// @param manifest Suite manifest supplying shared roots and defaults.
+/// @param spec Application entry for this attempt.
+/// @param attempt 1-based attempt number used for the artifact directory.
+/// @param instance_dir Control instance directory.
+/// @return The resolved launch plan.
+/// @note Spec `exec/app-suite`, requirement "Each attempt writes to a new
+///       artifact directory".
+/// @note Spec `exec/app-suite`, requirement "Effective log level applies to
+///       each application".
+/// @note Spec `exec/app-suite`, scenario "Application global path replaces the suite path".
 [[nodiscard]] SuiteLaunchPlan resolve_suite_launch(const SuiteManifest& manifest,
                                                    const AppSpec& spec, std::uint32_t attempt,
                                                    std::string_view instance_dir);

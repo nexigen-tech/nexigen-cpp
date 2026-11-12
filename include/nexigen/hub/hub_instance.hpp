@@ -14,23 +14,58 @@
 
 namespace nexigen::hub {
 
-/// One application instance (control directory + attempts).
+/// @brief One application instance: its control directory and attempts.
+///
+/// `instance_dir` is the directory the execution_manager records for the
+/// instance; state is derived from `resource.json`/`exit.json` and reported as
+/// `unknown` when no usable record exists.
 struct HubInstance {
-    std::string instance{};
-    std::string instance_dir{};
-    exec::AppState state{exec::AppState::Unknown};
-    std::vector<HubAttempt> attempts{};
+    std::string instance{};                        ///< Instance name, unique within the app.
+    std::string instance_dir{};                    ///< Control directory reported by the suite.
+    exec::AppState state{exec::AppState::Unknown}; ///< Derived application state.
+    std::vector<HubAttempt> attempts{};            ///< Attempts in discovery order.
 
+    /// @brief Render the instance as a diagnostic string.
+    ///
+    /// @return Text naming the instance, directory, state, and attempt count;
+    ///         allocates.
+    /// @note Spec `hub/discovery`, requirement "Discovery types follow the
+    ///       serialization contract".
+    /// @note Cold-path diagnostic only (project mandate 9).
     [[nodiscard]] std::string to_string() const;
 };
 
-// --- free to_string helper
+/// @brief Free diagnostic helper mirroring `HubInstance::to_string`.
+///
+/// @param value Instance to render.
+/// @return The member `to_string()` output.
+/// @note Spec `hub/discovery`, requirement "Discovery types follow the
+///       serialization contract".
+/// @note Cold-path diagnostic only (project mandate 9).
 [[nodiscard]] inline std::string to_string(const HubInstance& value) {
     return value.to_string();
 }
 
-// --- cold-path ADL serialization (bodies in src/hub/hub_format.cpp)
+/// @brief ADL JSON writer for an application instance.
+///
+/// @param j Output JSON value replaced with the instance object.
+/// @param value Instance to serialize.
+/// @note Spec `hub/discovery`, requirement "Discovery types follow the
+///       serialization contract".
+/// @note Cold-path JSON only (project mandate 10).
 void to_json(nlohmann::json& j, const HubInstance& value);
+
+/// @brief ADL JSON reader for an application instance.
+///
+/// Hostile or malformed input leaves `value` unchanged; nothing is thrown
+/// under `JSON_NOEXCEPTION=1`.
+///
+/// @param j JSON value to read.
+/// @param value Destination, untouched unless the whole object parses.
+/// @note Spec `hub/discovery`, requirement "Discovery types follow the
+///       serialization contract" (hostile tree JSON is ignored).
+/// @note Cold-path JSON only (project mandate 10); safe under
+///       `JSON_NOEXCEPTION=1`.
 void from_json(const nlohmann::json& j, HubInstance& value) noexcept;
 
 } // namespace nexigen::hub

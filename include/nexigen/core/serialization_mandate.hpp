@@ -45,12 +45,17 @@
 
 namespace nexigen::core::mandate {
 
-/// True when the `to_string` resolve is found at ADL/unqualified lookup for
-/// `T` and yields a renderable view (std::string converts to string_view;
-/// per-enum constexpr helpers return string_view directly): the contract
-/// the generic formatter and the generic JSON pair rely on. Member
-/// to_string participates through the `v.to_string()` arm; free/namespace
-/// functions through the plain call arm.
+/// @brief True when `T` renders to a string view via member or free
+///        `to_string`.
+///
+/// Accepts either `v.to_string()` or a `to_string(v)` found by ordinary/ADL
+/// lookup, each convertible to `std::string_view`. This is the contract the
+/// generic formatter and the generic JSON pair rely on: the member arm covers
+/// structs, the free arm covers per-enum constexpr helpers.
+///
+/// @tparam T Type probed for a renderable `to_string` resolution.
+/// @note Spec `core/serialization`, requirement "Universal cold-path to_string
+///       contract".
 template <typename T>
 concept MandateToString = (requires(const T& v) {
                               { v.to_string() } -> std::convertible_to<std::string_view>;
@@ -58,8 +63,15 @@ concept MandateToString = (requires(const T& v) {
                               { to_string(v) } -> std::convertible_to<std::string_view>;
                           });
 
-/// True when an enum resolves its canonical parser: together with the
-/// string mandate this is what JSON serialization dispatches on.
+/// @brief True when `T` resolves a canonical parser from a name.
+///
+/// Accepts `from_string(std::string_view, T&)` returning `bool` or returning
+/// nothing; together with `MandateToString` this is what JSON serialization
+/// dispatches on.
+///
+/// @tparam T Type probed for a `from_string` overload.
+/// @note Spec `core/serialization`, requirement "Universal enum string and JSON
+///       vocabulary".
 template <typename T>
 concept MandateFromString = (requires(T& v, std::string_view name) {
                                 { from_string(name, v) } -> std::same_as<bool>;
@@ -67,14 +79,32 @@ concept MandateFromString = (requires(T& v, std::string_view name) {
                                 { from_string(name, v) };
                             });
 
-/// Enum with both vocabulary arms.
+/// @brief Enum satisfying both vocabulary arms.
+///
+/// @tparam T Type constrained to `std::is_enum_v<T>`, `MandateToString<T>` and
+///         `MandateFromString<T>`.
+/// @note Spec `core/serialization`, requirement "Universal enum string and JSON
+///       vocabulary".
 template <typename T>
 concept MandateEnum = std::is_enum_v<T> && MandateToString<T> && MandateFromString<T>;
 
-/// The one delegate formatter: renders through `to_string(T)`. Because
-/// the ADL supplied candidates include the member through `v.to_string()`
-/// the body dispatches per arm.
+/// @brief The one delegate formatter: renders any mandate type through
+///        `to_string`.
+///
+/// Derives from `std::formatter<std::string_view>`, so fill, width and
+/// alignment specs follow the string-view rules. The body dispatches per arm:
+/// member `v.to_string()` when present, otherwise free `to_string(v)`.
+///
+/// @tparam T Type satisfying `MandateToString`.
+/// @note Spec `core/serialization`, requirement "Universal enum std::formatter
+///       specialization"; mandate 11. Cold path only.
 template <MandateToString T> struct MandateFormatter : std::formatter<std::string_view> {
+    /// @brief Format `value` into `ctx` as its `to_string` text.
+    ///
+    /// @tparam Ctx Format context type, for example `std::format_context`.
+    /// @param value Object to render.
+    /// @param ctx Format context receiving the output.
+    /// @return Iterator past the last character written into the context.
     template <class Ctx> constexpr auto format(const T& value, Ctx& ctx) const {
         if constexpr (requires {
                           { value.to_string() };
@@ -90,12 +120,20 @@ template <MandateToString T> struct MandateFormatter : std::formatter<std::strin
 
 namespace nexigen {
 
-/// The one mandate free function: a constrained generic forwarder over the
-/// member contract. Enclosing-scope ordinary lookup makes a bare
-/// `to_string(v)` call inside nexigen::<module> TUs resolve here whenever
-/// no closer non-template (per-type) definition exists, so NEW types need
-/// only the member to reach every caller. Existing per-type friends
-/// outrank this template (non-template beats template) — no ambiguity.
+/// @brief The one mandate free function: a constrained forwarder over the
+///        member contract.
+///
+/// Enclosing-scope ordinary lookup makes a bare `to_string(v)` call inside
+/// `nexigen::<module>` translation units resolve here whenever no closer
+/// non-template definition exists, so a new type needs only its member.
+/// Existing per-type functions outrank this template (non-template beats
+/// template), so there is no ambiguity.
+///
+/// @tparam T Type satisfying `nexigen::core::mandate::MandateToString`.
+/// @param value Object to render.
+/// @return Owned copy of the rendered text (allocates).
+/// @note Spec `core/serialization`, requirement "Universal cold-path to_string
+///       contract"; mandate 9. Cold path only.
 template <nexigen::core::mandate::MandateToString T>
 [[nodiscard]] std::string to_string(const T& value) {
     if constexpr (requires {
@@ -111,9 +149,14 @@ template <nexigen::core::mandate::MandateToString T>
 
 namespace std {
 
-/// Render any mandate type through its own to_string — one definition for
-/// the whole delegate family (spec core/serialization "Universal
-/// std::formatter" outcome).
+/// @brief Render any mandate type through its own `to_string`.
+///
+/// One definition for the whole delegate family; the base supplies parsing and
+/// the string-view fill/align rules.
+///
+/// @tparam T Type satisfying `nexigen::core::mandate::MandateToString`.
+/// @note Spec `core/serialization`, requirement "Universal enum std::formatter
+///       specialization"; mandate 11.
 template <nexigen::core::mandate::MandateToString T>
 struct formatter<T> : nexigen::core::mandate::MandateFormatter<T> {};
 

@@ -40,8 +40,14 @@ namespace nexigen::core::affinity {
 
 namespace {
 
-constexpr std::size_t mask_bits = 8U * sizeof(std::uint64_t); // 64 representable cores
+/// @brief Number of cores representable by the legacy uint64 mask (64).
+constexpr std::size_t mask_bits = 8U * sizeof(std::uint64_t);
 
+/// @brief Convert a native CPU set into the 64-bit legacy mask.
+///
+/// @param set Native `cpu_set_t` to read.
+/// @return Mask with bit `i` set when CPU `i` belongs to `set`; CPUs above 63
+///         are outside the uint64 domain and silently dropped.
 std::uint64_t cpuset_to_mask(const cpu_set_t& set) noexcept {
     std::uint64_t mask = 0ULL;
     for (std::size_t bit = 0; bit < mask_bits; ++bit) {
@@ -54,9 +60,21 @@ std::uint64_t cpuset_to_mask(const cpu_set_t& set) noexcept {
 
 } // namespace
 
-/// Pin the calling thread to the cores set in core_mask (bit i == CPU i).
-/// core_mask == 0: InvalidArgument without touching the affinity. pthread
-/// failure (or a mask naming cores beyond the allowed set): SystemError.
+/// @brief Pin the calling thread to the CPUs selected by `core_mask`.
+///
+/// Bit `i` selects CPU `i`. The mask is converted through the shared
+/// `core/thread-management` machinery and applied with
+/// `pthread_setaffinity_np` to the calling thread only; `noexcept`,
+/// allocation-free, cold-path only (worker or provider start).
+///
+/// @param core_mask Bit mask of CPUs to pin to; bit `i` means CPU `i`.
+/// @return `Status{}` on success; `InvalidArgument` for a zero mask (no syscall
+///         runs and the affinity is untouched); `SystemError` when the pthread
+///         call fails, including a mask naming cores the process may not use.
+/// @note Spec `core/affinity`, requirement "Pinning the calling thread by core
+///       mask".
+/// @warning Call it on the thread to be pinned as that thread's first act;
+///          never call `.value()` on the returned status (see `result.hpp`).
 [[nodiscard]] inline core::Status pin_self(std::uint64_t core_mask) noexcept {
     if (core_mask == 0ULL) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -69,9 +87,19 @@ std::uint64_t cpuset_to_mask(const cpu_set_t& set) noexcept {
     return {};
 }
 
-/// Read the calling thread's current affinity into core_mask_out. Cores above
-/// bit 63 are unrepresentable in the uint64_t mask and silently dropped.
-/// On pthread failure: SystemError.
+/// @brief Read the calling thread's current affinity into a uint64 mask.
+///
+/// Cores above bit 63 are unrepresentable in the uint64 mask and silently
+/// dropped; `noexcept`, allocation-free, cold-path only.
+///
+/// @param core_mask_out Receives the affinity mask; untouched when the call
+///        fails.
+/// @return `Status{}` on success; `SystemError` when `pthread_getaffinity_np`
+///         fails.
+/// @note Spec `core/affinity`, requirement "Querying the calling thread's
+///       affinity".
+/// @warning Call it on the thread whose mask is requested; never call
+///          `.value()` on the returned status (see `result.hpp`).
 [[nodiscard]] inline core::Status self_affinity(std::uint64_t& core_mask_out) noexcept {
     cpu_set_t set{};
     if (::pthread_getaffinity_np(::pthread_self(), sizeof(set), &set) != 0) {

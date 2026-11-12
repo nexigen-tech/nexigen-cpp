@@ -12,6 +12,18 @@
 
 namespace nexigen::hub::detail {
 
+/// @brief Percent-decode one URL component.
+///
+/// `+` becomes a space and every valid `%XX` escape becomes its byte. An
+/// invalid or truncated escape is copied literally, keeping the helper total
+/// for hostile request bytes. The result is a new string: no view into the
+/// input is retained.
+///
+/// @param text Encoded component, typically a query value.
+/// @return Decoded string; empty for an empty input.
+/// @note Spec `hub/http-api`, requirement "Malformed requests are rejected
+///       consistently" (an invalid percent escape is treated literally).
+/// @note Cold path only; allocates the returned string.
 [[nodiscard]] inline std::string url_decode(std::string_view text) {
     std::string out;
     out.reserve(text.size());
@@ -36,10 +48,28 @@ namespace nexigen::hub::detail {
     return out;
 }
 
+/// @brief Lowercase one ASCII letter, leaving every other byte unchanged.
+///
+/// Only `A`-`Z` are mapped; digits, punctuation, and non-ASCII bytes pass
+/// through untouched, which is what HTTP token comparison needs.
+///
+/// @param value Byte to fold.
+/// @return Lowercase ASCII letter, or `value` itself.
+/// @note Cold path only; no locale dependency.
 [[nodiscard]] inline char ascii_lower(char value) noexcept {
     return value >= 'A' && value <= 'Z' ? static_cast<char>(value - 'A' + 'a') : value;
 }
 
+/// @brief Compare two ASCII strings without regard to letter case.
+///
+/// Lengths must match exactly before any byte comparison. Non-ASCII bytes are
+/// compared through `ascii_lower`, so they only match themselves.
+///
+/// @param left First view (for example a parsed header name).
+/// @param right Second view (for example the canonical name).
+/// @return `true` when both views have equal length and equal folded bytes.
+/// @note Spec `hub/http-api`, requirement "Request headers are matched
+///       case-insensitively".
 [[nodiscard]] inline bool equals_ignore_case(std::string_view left,
                                              std::string_view right) noexcept {
     if (left.size() != right.size()) {
@@ -53,6 +83,15 @@ namespace nexigen::hub::detail {
     return true;
 }
 
+/// @brief Strip optional whitespace from both ends of a header field.
+///
+/// Only SP and HTAB are removed, per the HTTP optional-whitespace rule; other
+/// bytes (including CR/LF) are left in place.
+///
+/// @param text View to trim.
+/// @return Sub-view of `text` without leading or trailing SP/HTAB.
+/// @note Spec `hub/http-api`, requirement "Request headers are matched
+///       case-insensitively" (whitespace around a value is ignored).
 [[nodiscard]] inline std::string_view trim_header(std::string_view text) noexcept {
     while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) {
         text.remove_prefix(1);
@@ -63,8 +102,21 @@ namespace nexigen::hub::detail {
     return text;
 }
 
-/// Case-insensitive header lookup. Returns a view into `request` or an empty
-/// view when the header is absent. Only the header block is inspected.
+/// @brief Case-insensitive lookup of one header field in a raw request.
+///
+/// The request line is skipped and only the header block up to the first empty
+/// line is inspected. The name must match a whole field name exactly (after
+/// case folding), so a similarly named field such as `X-Last-Event-ID` is not
+/// a match for `Last-Event-ID`. The returned view points into `request`.
+///
+/// @param request Raw request bytes, including the request line.
+/// @param name Canonical header name to find.
+/// @return Value view with surrounding SP/HTAB trimmed, or an empty view when
+///         the header is absent, the block is incomplete, or no request line
+///         exists.
+/// @note Spec `hub/http-api`, requirement "Request headers are matched
+///       case-insensitively".
+/// @warning The view is only valid while `request` stays alive and unmodified.
 [[nodiscard]] inline std::string_view header_value(std::string_view request,
                                                    std::string_view name) noexcept {
     std::size_t position = request.find("\r\n");
@@ -91,6 +143,19 @@ namespace nexigen::hub::detail {
     return {};
 }
 
+/// @brief Extract and decode one query-string parameter.
+///
+/// Pairs are separated by `&` and split at the first `=`; the name is compared
+/// byte-exactly. A pair without `=` yields an empty value, and the first match
+/// wins. The returned value is percent-decoded with `url_decode`.
+///
+/// @param query Query string without the leading `?`.
+/// @param key Parameter name to look up.
+/// @return Decoded value of the first matching pair, or an empty string when
+///         the key is absent or carries no `=`.
+/// @note Spec `hub/http-api`, requirement "Malformed requests are rejected
+///       consistently" (invalid `limit`/`since` values fall back to defaults).
+/// @note Cold path only; allocates the returned string.
 [[nodiscard]] inline std::string query_value(std::string_view query, std::string_view key) {
     std::size_t position = 0;
     while (position < query.size()) {
@@ -111,19 +176,43 @@ namespace nexigen::hub::detail {
     return {};
 }
 
+/// @brief Decomposed HTTP request line.
+///
+/// All three members are non-owning views into the request buffer, so the
+/// structure is valid only while that buffer lives and is not modified.
 struct RequestLine {
-    std::string_view method{};
-    std::string_view path{};
-    std::string_view version{};
+    std::string_view method{};  ///< Request method token, e.g. `GET`.
+    std::string_view path{};    ///< Request target including its query string.
+    std::string_view version{}; ///< Protocol token, `HTTP/1.0` or `HTTP/1.1`.
 };
 
+/// @brief Outcome of parsing one request line.
+///
+/// The enumerators map directly onto the server's bounded error responses;
+/// a parse never throws and leaves the output partially filled on failure.
+///
+/// @note Spec `hub/http-api`, requirement "Malformed requests are rejected
+///       consistently".
 enum class RequestLineError : std::uint8_t {
-    None,
-    BadRequest,
-    BadVersion,
-    MethodNotAllowed,
+    None,             ///< The line parsed and the method is `GET`.
+    BadRequest,       ///< The line has no method/target/version separation.
+    BadVersion,       ///< The version is neither `HTTP/1.0` nor `HTTP/1.1`.
+    MethodNotAllowed, ///< The version is supported but the method is not `GET`.
 };
 
+/// @brief Parse method, target, and version from the first request line.
+///
+/// The request line ends at the first `\r\n`; the method ends at the first
+/// space and the target at the second. Only `GET` and `HTTP/1.0`/`HTTP/1.1`
+/// are accepted, so the server can answer `405` and `400` respectively.
+///
+/// @param request Raw request bytes; only the first line is inspected.
+/// @param out Destination receiving the three views. It may be partially
+///        assigned even when an error is returned.
+/// @return `RequestLineError::None` on success, otherwise the first failed
+///         validation.
+/// @note Spec `hub/http-api`, requirement "HTTP parsing and errors are
+///       bounded" (only `GET`, only HTTP/1.0 and HTTP/1.1).
 [[nodiscard]] inline RequestLineError parse_request_line(std::string_view request,
                                                          RequestLine& out) noexcept {
     const std::size_t first_line_end = request.find("\r\n");

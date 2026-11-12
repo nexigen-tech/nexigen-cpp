@@ -15,21 +15,40 @@
 
 namespace nexigen::logging {
 
-/// Construction-time configuration. All views are copied into fixed buffers
-/// during initialize(); lengths beyond the buffers are rejected.
+/// @brief Construction-time configuration for the shared-memory `Iceoryx2Logger` sink.
+///
+/// Cold-path aggregate read once by `initialize()`: the service name and app code
+/// are copied into fixed buffers, and the publisher, receiver pool, and worker
+/// thread are created from these values. Producers never touch the struct; the
+/// worker alone publishes `LogFrame`s after initialization.
+///
+/// @note Spec `logging/iceoryx2-logger`, requirement "Iceoryx2 logger configuration".
 struct Iceoryx2LoggerConfig {
-    std::string service_name{"Nexigen/Log/nexigen"}; ///< pub/sub service (≤ 511 B)
-    std::string app_id{"NEXG"};                      ///< 4-byte code into LogFrame.app_id
-    std::uint32_t max_subscribers{16};               ///< receiver pool (REQ_COM_009)
-    std::uint32_t history_size{4};                   ///< receiver queue depth
+    /// @brief Pub/sub service name the daemon subscribes to (at most 511 bytes).
+    std::string service_name{"Nexigen/Log/nexigen"};
+    /// @brief Four-byte application code copied into `LogFrame::app_id`.
+    std::string app_id{"NEXG"};
+    /// @brief Maximum subscriber/receiver pool size (requirement `REQ_COM_009`).
+    std::uint32_t max_subscribers{16};
+    /// @brief Per-subscriber receiver queue depth in frames.
+    std::uint32_t history_size{4};
+    /// @brief Severity threshold applied at initialization.
     core::LogLevel initial_level{core::LogLevel::Info};
-    ThrottleConfig throttle{};        ///< rate limit (drop semantics)
-    core::ThreadSpec worker_thread{}; ///< empty = inherited worker attributes
-    /// Ceiling of the worker's idle sleep (backoff grows up to it); clamped to
-    /// [50, 100000] us — bounds the worker's idle CPU consumption.
+    /// @brief Window throttle policy; over-limit frames are dropped, never queued.
+    ThrottleConfig throttle{};
+    /// @brief Worker thread attributes; an empty CPU set inherits the creator's affinity.
+    core::ThreadSpec worker_thread{};
+    /// @brief Ceiling of the worker's idle sleep (backoff grows up to it); clamped to
+    ///        `[50, 100000]` us.
+    ///
+    /// Bounds the worker's idle CPU consumption.
     std::uint32_t worker_poll_interval_us{core::WorkerTuning::default_poll_interval_us};
 
-    /// Cold-path diagnostic (mandate 9).
+    /// @brief Cold-path diagnostic rendering of every configuration field.
+    ///
+    /// @return Text containing the service, app code, pool sizes, level, throttle, worker
+    ///         spec, and poll ceiling.
+    /// @note Project mandate 9 (`to_string` on every public value type).
     [[nodiscard]] std::string to_string() const {
         std::string out = "Iceoryx2LoggerConfig(service=" + service_name;
         out += ", app=" + app_id;
@@ -43,21 +62,49 @@ struct Iceoryx2LoggerConfig {
     }
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free `to_string` entry point for the iceoryx2 config (mandate 9).
+///
+/// @param cfg Config to render.
+/// @return Exactly `cfg.to_string()`.
+/// @note Project mandate 9; ADL-friendly mirror of the member function.
 [[nodiscard]] inline std::string to_string(const Iceoryx2LoggerConfig& cfg) {
     return cfg.to_string();
 }
 
-/// Cold-path JSON round-trip (mandate 10), hostile-safe under JSON_NOEXCEPTION=1;
-/// bodies live in src/logging/iceoryx2_logger_config.cpp.
+/// @brief Cold-path JSON writer for the iceoryx2 logger configuration.
+///
+/// @param j Destination JSON object; overwritten with the config's field map.
+/// @param cfg Config to serialize.
+/// @note Project mandate 10; the body lives in `iceoryx2_logger_config.cpp`.
+/// @note Spec `logging/iceoryx2-logger`, requirement "Iceoryx2 logger configuration".
 void to_json(nlohmann::json& j, const Iceoryx2LoggerConfig& cfg);
+/// @brief Cold-path JSON reader that is hostile-input safe.
+///
+/// Absent or ill-typed fields leave the corresponding member untouched, so the
+/// call never throws under `JSON_NOEXCEPTION=1`.
+///
+/// @param j Source JSON object.
+/// @param out Destination config, updated field by field.
+/// @note Project mandate 10; the body lives in `iceoryx2_logger_config.cpp`.
 void from_json(const nlohmann::json& j, Iceoryx2LoggerConfig& out) noexcept;
 
 } // namespace nexigen::logging
 
-/// The config formats as its diagnostic string (mandate 11).
+/// @brief `std::formatter` specialization: the config formats as its diagnostic string.
+///
+/// Forwards to `std::formatter<std::string_view>` after materializing
+/// `to_string()`, so every standard format spec accepted for strings applies.
+///
+/// @note Project mandate 11 (`std::formatter` for every public value type).
 template <>
 struct std::formatter<nexigen::logging::Iceoryx2LoggerConfig> : std::formatter<std::string_view> {
+    /// @brief Write the config's diagnostic text into the format output.
+    ///
+    /// @tparam Ctx Format context type supplied by `std::format`.
+    /// @param cfg Config to render.
+    /// @param ctx Format context receiving the text.
+    /// @return Iterator past the last written character, as returned by the string formatter.
+    /// @note Allocates the temporary diagnostic string; cold path only.
     template <class Ctx>
     auto format(const nexigen::logging::Iceoryx2LoggerConfig& cfg, Ctx& ctx) const {
         const std::string text = cfg.to_string();

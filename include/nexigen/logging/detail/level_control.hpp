@@ -28,34 +28,62 @@
 
 namespace nexigen::logging::detail {
 
-/// Cache-line-padded runtime threshold shared by all concrete loggers.
+/// @brief Cache-line-padded runtime threshold shared by all concrete loggers.
+///
+/// Each concrete logger composes exactly one `LevelControl`; the atomic lives
+/// alone on its own cache line, so throttle windows, drop counters, and ring
+/// indices of the surrounding logger never dirty it while a producer polls
+/// `level()`. Both edges are single relaxed-atomic operations: reading is the
+/// whole filtered-call cost (no timestamp, ring access, TLS, or lock), and
+/// publishing is one store. Non-copyable and non-movable because of the
+/// `std::atomic` member; instances are embedded in long-lived loggers.
+///
+/// @note Spec `logging/log-level`, requirement "Runtime level control" and
+///       requirement "Sub-threshold calls short-circuit".
 class LevelControl {
     static_assert(std::atomic<core::LogLevel>::is_always_lock_free,
                   "core::LogLevel atomics must be lock-free");
 
+    /// @brief Cache-line-aligned storage for the threshold plus padding.
     struct alignas(64) Cell {
-        std::atomic<core::LogLevel> level{core::LogLevel::Info}; ///< Relaxed load/store only.
-        std::uint8_t pad_[63]{};                                 ///< Padding, never written.
-    } cell_{};
+        /// @brief Active threshold; relaxed loads and stores only.
+        std::atomic<core::LogLevel> level{core::LogLevel::Info};
+        /// @brief Tail padding, never written; keeps `Cell` one cache line.
+        std::uint8_t pad_[63]{};
+    } cell_{}; ///< The single padded cell holding the runtime threshold.
 
 public:
+    /// @brief Construct with the default `Info` threshold.
     constexpr LevelControl() noexcept = default;
 
-    /// Start at a non-default threshold (config-driven construction time).
+    /// @brief Construct with a non-default initial threshold.
+    ///
+    /// @param initial Threshold published at construction time.
     explicit constexpr LevelControl(core::LogLevel initial) noexcept : cell_{.level = initial} {}
 
+    /// @brief Copy construction is deleted: the cell owns an atomic.
     LevelControl(const LevelControl&) = delete;
+    /// @brief Copy assignment is deleted: the cell owns an atomic.
     LevelControl& operator=(const LevelControl&) = delete;
+    /// @brief Move construction is deleted: the cell owns an atomic.
     LevelControl(LevelControl&&) = delete;
+    /// @brief Move assignment is deleted: the cell owns an atomic.
     LevelControl& operator=(LevelControl&&) = delete;
 
-    /// Producer/agent edge: publish a new threshold. Relaxed store — the new
-    /// value becomes visible with no ordering obligations (see header).
+    /// @brief Producer/agent edge: publish a new threshold.
+    ///
+    /// @param new_level Threshold visible to subsequent `level()` reads.
+    /// @note Spec `logging/log-level`, requirement "Runtime level control": one
+    ///       relaxed store, no lock or ordering handshake.
     void set_level(core::LogLevel new_level) noexcept {
         cell_.level.store(new_level, std::memory_order_relaxed);
     }
 
-    /// Hot-path read: current threshold as last visible to this thread.
+    /// @brief Hot-path read: current threshold as last visible to this thread.
+    ///
+    /// @return The threshold this thread would filter against.
+    /// @note Spec `logging/log-level`, requirement "Sub-threshold calls
+    ///       short-circuit": one relaxed load plus the caller's compare.
     [[nodiscard]] core::LogLevel level() const noexcept {
         return cell_.level.load(std::memory_order_relaxed);
     }

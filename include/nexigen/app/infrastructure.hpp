@@ -50,10 +50,26 @@
 
 namespace nexigen::app {
 
+/// @brief Forward declaration of the heap-only infrastructure service.
+///
+/// @tparam Policy Stateless policy type satisfying `InfrastructurePolicy`.
+/// @tparam TracerCapacity Ring capacity forwarded to `tracing::TracerProvider`.
+/// @tparam TracerThreads Per-thread lane count forwarded to the tracer provider.
 template <class Policy, std::size_t TracerCapacity = 1024, std::size_t TracerThreads = 32>
 class Infrastructure;
 
-/// Stateless policy contract: component types plus static emplacement hooks.
+/// @brief Stateless policy contract: component types plus static emplacement hooks.
+///
+/// A policy names the four component types and provides the static hooks that
+/// construct them into the infrastructure's optionals. Every hook is `noexcept`
+/// and returns `core::Status`; the logger, metrics-sink and trace-sink hooks also
+/// receive the application name, while the chrono-sink hook does not. A policy
+/// holds no runtime state.
+///
+/// @tparam Policy Candidate policy type checked for the nested aliases and the
+///         four static hooks.
+/// @note Spec `app/application`, requirement "Stateless infrastructure policy".
+/// @note Cold path only: the hooks run once during `Infrastructure::initialize`.
 template <class Policy>
 concept InfrastructurePolicy =
     requires(std::optional<typename Policy::Logger>& logger,
@@ -83,22 +99,71 @@ concept InfrastructurePolicy =
 
 namespace detail {
 
-/// Non-template process-global signal ownership. alignas(64) keeps the
-/// contended CAS off neighbouring state; control plane only.
+/// @brief Non-template process-global signal ownership token.
+///
+/// Holds the address of the one initialized `Infrastructure` (of any policy),
+/// or null. `alignas(64)` keeps the contended CAS off neighbouring state; this
+/// is control-plane state only, never touched by a tick or sink.
+///
+/// @note Spec `app/application`, requirement "Process-global signal ownership
+///       guard". Acquisition and release are cold path only.
 alignas(64) inline std::atomic<const void*> signal_owner{nullptr};
 
-/// signalfd watcher: masks are blocked by initialize before any worker
-/// starts; this thread is the only consumer of SIGINT/SIGTERM.
+/// @brief Dedicated `signalfd` watcher translating signals into stop requests.
+///
+/// The owning `Infrastructure` blocks `SIGINT`/`SIGTERM` before any worker
+/// starts; this watcher is then the only consumer of those signals and calls
+/// `Target::request_stop` with `Sigint` or `Sigterm`. Application code never
+/// runs here. The type is non-copyable and non-movable because it directly owns
+/// a signalfd descriptor and one `core::WorkerThread`; the worker is the last
+/// member so it joins before the descriptor closes.
+///
+/// @note Spec `app/application`, requirement "SIGINT and SIGTERM request a
+///       graceful stop".
+/// @note Cold path only: one watcher thread that polls every 100 ms and runs no
+///       application callbacks.
 class SignalWatcher {
 public:
+    /// @brief Construct an inactive watcher (no descriptor, no thread).
     SignalWatcher() noexcept = default;
+
+    /// @brief Copying is impossible: the watcher owns a descriptor and a thread.
     SignalWatcher(const SignalWatcher&) = delete;
+
+    /// @brief Copy assignment is impossible: the watcher owns a descriptor and a thread.
     SignalWatcher& operator=(const SignalWatcher&) = delete;
+
+    /// @brief Moving is impossible: the watcher owns a descriptor and a thread.
     SignalWatcher(SignalWatcher&&) = delete;
+
+    /// @brief Move assignment is impossible: the watcher owns a descriptor and a thread.
     SignalWatcher& operator=(SignalWatcher&&) = delete;
 
+    /// @brief Stop and join the watcher, then close the descriptor.
     ~SignalWatcher() { stop(); }
 
+    /// @brief Create the signalfd and start the watcher thread.
+    ///
+    /// A second start while a watcher is active or joinable is rejected before
+    /// a descriptor or thread is created. On a worker-start failure the
+    /// descriptor and dispatch state are rolled back.
+    ///
+    /// @tparam Target Type providing `request_stop(InfrastructureStopReason)`.
+    /// @param target Receiver of the translated stop request; must outlive the
+    ///        watcher.
+    /// @param mask Signal mask to consume; the caller must already have blocked
+    ///        `SIGINT`/`SIGTERM` (the watcher blocks nothing itself).
+    /// @param spec Thread specification applied by the watcher on its own
+    ///        thread before polling; an empty spec preserves inheritance.
+    /// @return OK when the thread started; `Conflict` when a watcher is already
+    ///         active or joinable; `SystemError` when `signalfd` fails; the
+    ///         worker's status when the thread cannot start.
+    /// @note Spec `app/application`, requirement "SIGINT and SIGTERM request a
+    ///       graceful stop".
+    /// @note Spec `app/settings`, requirement "Application settings carry the
+    ///       signal-watcher thread spec".
+    /// @warning `Target` and `mask` must outlive the watcher; the mask must be
+    ///          blocked by the caller before any worker thread exists.
     template <class Target>
     [[nodiscard]] core::Status start(Target* target, const sigset_t& mask,
                                      const core::ThreadSpec& spec) noexcept {
@@ -127,6 +192,13 @@ public:
         return {};
     }
 
+    /// @brief Request a stop, join the watcher thread, close the descriptor.
+    ///
+    /// Safe to call when the watcher is inactive; the watcher does not release
+    /// process-global signal ownership, which remains the infrastructure's job.
+    ///
+    /// @note Spec `app/application`, requirement "Shutdown is idempotent and
+    ///       flushes in order".
     void stop() noexcept {
         worker_.stop();
         if (fd_ >= 0) {
@@ -137,21 +209,58 @@ public:
         dispatch_ = nullptr;
     }
 
+    /// @brief Whether a signalfd is currently installed.
+    ///
+    /// @return `true` while a descriptor is open (started and not yet stopped).
     [[nodiscard]] bool active() const noexcept { return fd_ >= 0; }
+
+    /// @brief Whether the watcher thread published its readiness snapshot.
+    ///
+    /// @return The worker's `ready()` flag.
+    /// @note Spec `core/worker-thread`, requirement "Start publishes a readable
+    ///       readiness snapshot".
     [[nodiscard]] bool thread_ready() const noexcept { return worker_.ready(); }
+
+    /// @brief Diagnostic affinity snapshot of the watcher thread.
+    ///
+    /// @return The legacy 64-bit mask view of the applied affinity; CPUs above
+    ///         63 are dropped by that diagnostic form.
+    /// @note Spec `core/worker-thread`, requirement "WorkerThread keeps its
+    ///       lifetime contract observable".
     [[nodiscard]] std::uint64_t thread_mask() const noexcept { return worker_.mask(); }
+
+    /// @brief Startup attribute report of the watcher thread.
+    ///
+    /// @return The published `ThreadApplyReport`; safe to read after `start`.
+    /// @note Spec `core/thread-management`, requirement "ThreadApplyReport is a
+    ///       serializable startup snapshot".
     [[nodiscard]] const core::ThreadApplyReport& thread_report() const noexcept {
         return worker_.report();
     }
 
 private:
+    /// @brief Type-erased dispatch shim binding `Target` to the worker body.
     using Dispatch = void (*)(void*, SignalWatcher&, std::stop_token) noexcept;
 
+    /// @brief Worker body invoking the bound `Target` dispatch once per thread.
     struct Body {
-        SignalWatcher* self{nullptr};
+        SignalWatcher* self{nullptr}; ///< Owning watcher; outlived by the worker.
+
+        /// @brief Worker entry point; forwards to the bound `Target` dispatch.
+        ///
+        /// @param token Stop token owned by the worker thread.
         void run(std::stop_token token) noexcept { self->dispatch_(self->target_, *self, token); }
     };
 
+    /// @brief Poll the signalfd until the stop token is requested.
+    ///
+    /// A 100 ms poll timeout keeps the loop stop-aware without another
+    /// descriptor. Only `SIGINT`/`SIGTERM` map to a stop reason; a short read or
+    /// timeout simply re-checks the token.
+    ///
+    /// @tparam Target Receiver of `request_stop`.
+    /// @param target Receiver bound at `start`.
+    /// @param token Stop token owned by the worker thread.
     template <class Target> void run(Target* target, std::stop_token token) noexcept {
         while (!token.stop_requested()) {
             pollfd descriptor{fd_, POLLIN, 0};
@@ -178,12 +287,26 @@ private:
     core::WorkerThread<Body> worker_{}; ///< LAST member: joins before fd_ closes
 };
 
-/// Bridges the application logger to the chrono worker's module-local log hook
-/// (chrono must not depend on logging): forwards a pre-formatted message
-/// through the logger at the matching core::LogLevel.
+/// @brief Bridges the application logger to the chrono worker's log hook.
+///
+/// Chrono must not depend on logging, so the worker reports through a
+/// module-local hook; this adapter forwards a pre-formatted message through the
+/// application logger at the matching `core::LogLevel`. The pointer is borrowed
+/// and must outlive the chrono worker.
+///
+/// @tparam Logger Logger type satisfying `logging::concepts::Logger`.
+/// @note Spec `app/application`, requirement "Initialization follows a fixed
+///       order"; the bridge lives on the cold worker path only.
 template <class Logger> struct ChronoLoggerBridge {
-    Logger* logger{nullptr};
+    Logger* logger{nullptr}; ///< Borrowed application logger (non-null while running).
 
+    /// @brief Forward one worker message at the equivalent log level.
+    ///
+    /// @param level Severity reported by the chrono worker; `Off` produces no
+    ///        record.
+    /// @param message Pre-formatted message forwarded as a `{}` argument.
+    /// @warning Only valid while `logger` points at a live logger, i.e. while
+    ///          the chrono worker started by the infrastructure is running.
     void log(core::LogLevel level, std::string_view message) noexcept {
         switch (level) {
             case core::LogLevel::Verbose: logger->verbose("{}", message); break;
@@ -199,14 +322,39 @@ template <class Logger> struct ChronoLoggerBridge {
 
 } // namespace detail
 
+/// @brief Heap-only infrastructure service composing logging, metrics, tracing and time.
+///
+/// An application owns exactly one `Infrastructure` through
+/// `make_infrastructure<Policy>()` and uses it as the provider of logging,
+/// metrics, tracing and chrono. The constructor is private, so automatic and
+/// static objects are impossible; the factory allocates once on the cold path.
+/// Only one infrastructure (of any policy) may hold process-global signal
+/// ownership at a time. The type is non-copyable and non-movable because it owns
+/// threads and borrowed component relationships; component members are optional
+/// and ordered so that reverse-declaration teardown releases each dependency
+/// after its users.
+///
+/// @tparam Policy Stateless policy type constrained by `InfrastructurePolicy`.
+/// @tparam TracerCapacity Ring capacity of the `tracing::TracerProvider`.
+/// @tparam TracerThreads Per-thread lane count of the tracer provider.
+/// @note Spec `app/application`, requirement "Heap-only infrastructure factory".
+/// @note Spec `app/application`, requirement "Stateless infrastructure policy".
+/// @note Spec `app/application`, requirement "Initialization follows a fixed
+///       order".
 template <class Policy, std::size_t TracerCapacity, std::size_t TracerThreads>
 class Infrastructure {
 public:
+    /// @brief Logger component type produced by `Policy::emplace_logger`.
     using Logger = typename Policy::Logger;
+    /// @brief Metrics sink type produced by `Policy::emplace_metrics_sink`.
     using MetricsSink = typename Policy::MetricsSink;
+    /// @brief Trace sink type produced by `Policy::emplace_trace_sink`.
     using TraceSink = typename Policy::TraceSink;
+    /// @brief Chrono sink type produced by `Policy::emplace_chrono_sink`.
     using Sink = typename Policy::Sink;
+    /// @brief Tracer provider owned by this infrastructure.
     using TracerProvider = tracing::TracerProvider<TracerCapacity, TracerThreads>;
+    /// @brief Tracer handle type returned by `tracer_for`.
     using TracerType = tracing::Tracer<TracerCapacity, TracerThreads>;
 
     static_assert(InfrastructurePolicy<Policy>,
@@ -220,20 +368,46 @@ public:
                   "Policy::TraceSink must satisfy tracing::concepts::TraceSink");
     static_assert(chrono::concepts::Sink<Sink>, "Policy::Sink must satisfy chrono::concepts::Sink");
 
+    /// @brief Copying is impossible: the infrastructure owns threads and signals.
     Infrastructure(const Infrastructure&) = delete;
+    /// @brief Copy assignment is impossible: the infrastructure owns threads and signals.
     Infrastructure& operator=(const Infrastructure&) = delete;
+    /// @brief Moving is impossible: the infrastructure owns threads and signals.
     Infrastructure(Infrastructure&&) = delete;
+    /// @brief Move assignment is impossible: the infrastructure owns threads and signals.
     Infrastructure& operator=(Infrastructure&&) = delete;
 
+    /// @brief Shut down when initialization succeeded; otherwise do nothing.
+    ///
+    /// Faults are swallowed because a destructor cannot report them; call
+    /// `shutdown()` explicitly to observe the flush status.
     ~Infrastructure() {
         if (initialized_) {
             static_cast<void>(shutdown());
         }
     }
 
-    /// Claim signal ownership, block SIGINT/SIGTERM, build the policy
-    /// components and providers, start the watcher. Idempotent on this
-    /// instance; Conflict when another infrastructure owns the signals.
+    /// @brief Claim signals, build components, and start the watcher.
+    ///
+    /// Claims process-global signal ownership, blocks `SIGINT`/`SIGTERM`, builds
+    /// the chrono provider, logger, chrono worker, metrics provider and tracer
+    /// provider in that order, then starts the signal watcher. A failure at any
+    /// step rolls back partial state, restores the previous mask, releases
+    /// ownership and returns the failure status. Repeated calls on this instance
+    /// are idempotent.
+    ///
+    /// @param settings Merged settings applied to every component.
+    /// @return OK when initialized (or already initialized); `Conflict` when
+    ///         another infrastructure owns the signals; `NotInitialized` after
+    ///         `shutdown()` began; `SystemError` on a mask or required
+    ///         thread-attribute failure; otherwise the failing component status.
+    /// @note Spec `app/application`, requirement "Initialization follows a fixed
+    ///       order".
+    /// @note Spec `app/application`, requirement "Process-global signal
+    ///       ownership guard".
+    /// @note Spec `app/application`, scenario "Required worker-attribute failure
+    ///       starts no non-RT fallback".
+    /// @note Cold path only; never called from a tick.
     [[nodiscard]] core::Status initialize(const Settings& settings) noexcept {
         if (initialized_) {
             return {};
@@ -280,11 +454,23 @@ public:
         return {};
     }
 
-    /// Load settings from parsed command-line options and initialize through
-    /// the existing path. Loading is fail-fast: on a loader diagnostic this
-    /// returns the failure without claiming signals or creating components,
-    /// while `loaded` keeps the best-effort settings and diagnostics. Help is a
-    /// caller action and is rejected as an initialization input.
+    /// @brief Load command-line settings and initialize through the existing path.
+    ///
+    /// Loading is fail-fast: on a loader diagnostic this returns the failure
+    /// without claiming signals or creating components, while `loaded` keeps the
+    /// best-effort settings and diagnostics. Help is a caller action and is
+    /// rejected as an initialization input.
+    ///
+    /// @param options Parsed command line; a set help flag is rejected.
+    /// @param loaded Destination carrying the loaded settings even on failure.
+    /// @return `InvalidArgument` when help was requested or no settings directory
+    ///         was supplied; otherwise the loader status; otherwise the result of
+    ///         `initialize(loaded)`.
+    /// @note Spec `app/application`, requirement "Initialization follows a fixed
+    ///       order".
+    /// @note Spec `app/command-line`, requirement "At least one settings
+    ///       directory is required".
+    /// @note Cold path only.
     [[nodiscard]] core::Status initialize(const CommandLineOptions& options,
                                           Settings& loaded) noexcept {
         if (options.help) {
@@ -299,8 +485,22 @@ public:
         return initialize(loaded);
     }
 
-    /// Run the caller's tick until a stop is requested; returns the reason.
-    /// A bool-returning tick requests a host stop when it yields false.
+    /// @brief Run the caller's tick until a stop is requested.
+    ///
+    /// A bool-returning tick requests a host stop when it yields false and the
+    /// loop stops before calling it again; a void tick runs until a signal or an
+    /// explicit `request_stop` call. The loop performs no allocation and no
+    /// locking.
+    ///
+    /// @tparam Tick Callable invoked as `tick()`; a `bool` return value makes it
+    ///         a host-stop source.
+    /// @param tick Callback executed once per iteration on the caller's thread.
+    /// @return The first recorded stop reason, or `None` if the loop never saw a
+    ///         request.
+    /// @note Spec `app/application`, requirement "Run loop observes the stop
+    ///       request".
+    /// @note Signal delivery is observed through the watcher thread's atomic
+    ///       stop reason, not through the caller's signal mask.
     template <class Tick> [[nodiscard]] InfrastructureStopReason run(Tick&& tick) noexcept {
         while (!stop_requested()) {
             if constexpr (std::is_invocable_r_v<bool, Tick&>) {
@@ -315,7 +515,13 @@ public:
         return stop_reason();
     }
 
-    /// First stop cause wins; later requests leave the reason unchanged.
+    /// @brief Record the first stop cause; later requests leave it unchanged.
+    ///
+    /// `None` is ignored so it can never overwrite a real cause. Safe to call
+    /// from the signal watcher and the host thread concurrently.
+    ///
+    /// @param reason Cause to record; ignored when `None`.
+    /// @note Spec `app/application`, scenario "First stop reason wins".
     void request_stop(InfrastructureStopReason reason) noexcept {
         if (reason == InfrastructureStopReason::None) {
             return;
@@ -325,16 +531,39 @@ public:
             expected, reason, std::memory_order_acq_rel, std::memory_order_relaxed));
     }
 
+    /// @brief Whether any stop cause has been recorded.
+    ///
+    /// @return `true` once a non-`None` reason is visible.
+    /// @note Spec `app/application`, requirement "Run loop observes the stop
+    ///       request". Acquire load; allocation-free and lock-free.
     [[nodiscard]] bool stop_requested() const noexcept {
         return stop_reason_.load(std::memory_order_acquire) != InfrastructureStopReason::None;
     }
 
+    /// @brief The recorded stop cause.
+    ///
+    /// @return The first reason recorded, or `None` when no stop was requested.
+    /// @note Spec `app/application`, scenario "First stop reason wins".
     [[nodiscard]] InfrastructureStopReason stop_reason() const noexcept {
         return stop_reason_.load(std::memory_order_acquire);
     }
 
-    /// Stop the watcher, log the reason once, flush tracer → metrics → logger,
-    /// restore the mask, release signal ownership and destroy the components.
+    /// @brief Stop the watcher, flush every component, and release ownership.
+    ///
+    /// Stops and joins the watcher, drains the logger, logs exactly one final
+    /// record naming the stop reason, flushes the tracer and metrics, then lets
+    /// the chrono worker deliver its final snapshot and flush. Afterwards the
+    /// caller's previous signal mask is restored, process-global ownership is
+    /// released, and components are destroyed in reverse dependency order.
+    /// Repeated calls after the first perform no work.
+    ///
+    /// @return OK, or the first flush failure encountered; the remaining flushes
+    ///         still run.
+    /// @note Spec `app/application`, requirement "Shutdown is idempotent and
+    ///       flushes in order".
+    /// @note The logger is drained both before and after the final record, which
+    ///       is what makes the "every accepted record is flushed" guarantee hold
+    ///       for a full ring.
     [[nodiscard]] core::Status shutdown() noexcept {
         if (!initialized_) {
             return {};
@@ -402,13 +631,51 @@ public:
         return first;
     }
 
-    /// Precondition: initialized successfully.
+    /// @brief Access the application logger.
+    ///
+    /// @return Reference to the logger built at initialization; every record
+    ///         goes through it and is flushed on shutdown.
+    /// @warning Only valid after a successful `initialize`; the returned handle
+    ///          stays valid while this infrastructure is alive.
+    /// @note Spec `app/application`, requirement "Infrastructure exposes logger,
+    ///       metric and tracer factories".
     [[nodiscard]] Logger& logger() noexcept { return *logger_; }
+
+    /// @brief Access the metrics provider.
+    ///
+    /// @return Reference to the provider built at initialization.
+    /// @warning Only valid after a successful `initialize`; instruments created
+    ///          from it are owned by this provider.
+    /// @note Spec `app/application`, requirement "Infrastructure exposes logger,
+    ///       metric and tracer factories".
     [[nodiscard]] metrics::MetricProvider& metrics() noexcept { return *metrics_; }
+
+    /// @brief Access the tracer provider.
+    ///
+    /// @return Reference to the provider built at initialization.
+    /// @warning Only valid after a successful `initialize`.
+    /// @note Spec `app/application`, requirement "Infrastructure exposes logger,
+    ///       metric and tracer factories".
     [[nodiscard]] TracerProvider& tracer() noexcept { return *tracer_; }
+
+    /// @brief Access the chrono provider.
+    ///
+    /// @return Reference to the provider built at initialization.
+    /// @warning Only valid after a successful `initialize`; snapshots are
+    ///          delivered through the configured chrono sink and flushed on
+    ///          shutdown.
+    /// @note Spec `app/application`, requirement "Infrastructure exposes logger,
+    ///       metric and tracer factories".
     [[nodiscard]] chrono::Provider<>& chrono() noexcept { return *provider_; }
 
-    /// Thin factory conveniences; NotInitialized before initialize().
+    /// @brief Create or fetch a meter through the metrics provider.
+    ///
+    /// @param name Meter name.
+    /// @param version Meter version string.
+    /// @return The meter handle on success; `NotInitialized` before a successful
+    ///         `initialize`, otherwise the provider's status.
+    /// @note Spec `app/application`, requirement "Infrastructure exposes logger,
+    ///       metric and tracer factories".
     [[nodiscard]] core::Result<metrics::Meter*> meter(std::string_view name,
                                                       std::string_view version) noexcept {
         if (!metrics_) {
@@ -417,6 +684,13 @@ public:
         return metrics_->get_meter(name, version);
     }
 
+    /// @brief Create or fetch a tracer through the tracer provider.
+    ///
+    /// @param scope Tracer scope name.
+    /// @return The tracer handle on success; `NotInitialized` before a successful
+    ///         `initialize`, otherwise the provider's status.
+    /// @note Spec `app/application`, requirement "Infrastructure exposes logger,
+    ///       metric and tracer factories".
     [[nodiscard]] core::Result<TracerType*> tracer_for(std::string_view scope) noexcept {
         if (!tracer_) {
             return std::unexpected(core::ErrorCode::NotInitialized);
@@ -425,21 +699,41 @@ public:
     }
 
 private:
+    /// @brief Private constructor: only `make_infrastructure` may allocate one.
     Infrastructure() noexcept = default;
 
+    /// @brief Factory access to the private constructor.
+    ///
+    /// @tparam P Policy of the infrastructure being allocated.
+    /// @tparam C Tracer ring capacity.
+    /// @tparam T Traced thread-lane count.
+    /// @return The allocated infrastructure, or `SystemError` on allocation
+    ///         failure.
     template <class P, std::size_t C, std::size_t T>
     friend core::Result<std::unique_ptr<Infrastructure<P, C, T>>> make_infrastructure() noexcept;
 
-    /// Roll back a partially built infrastructure and surface the status.
+    /// @brief Roll back a partially built infrastructure and surface the status.
+    ///
+    /// @param status Failure to return after the rollback.
+    /// @return `status` unchanged.
+    /// @note Spec `app/application`, scenario "Failure rolls back partial
+    ///       initialization".
     [[nodiscard]] core::Status fail(core::Status status) noexcept {
         rollback();
         return status;
     }
 
-    // Shared step guard (analysis #22): every Policy emplace is
-    // "construct a component or fail with the returned status (a plain
-    // null from an invalid-policy stub maps to InvalidArgument)"
-    // followed by rollback — one helper instead of four copies.
+    /// @brief Shared guard for one policy emplacement step.
+    ///
+    /// Every policy hook either constructs a component or fails: a failing
+    /// status rolls back; a success that left the optional empty (an
+    /// invalid-policy stub returning a plain null) maps to `InvalidArgument` and
+    /// also rolls back.
+    ///
+    /// @param status Result returned by the policy hook.
+    /// @param constructed Whether the hook actually populated the optional.
+    /// @return OK when the step produced a component; otherwise the hook status
+    ///         or `InvalidArgument`, after rollback.
     [[nodiscard]] core::Status emplace_checked(core::Status status, bool constructed) noexcept {
         if (!status) {
             return fail(status);
@@ -450,7 +744,19 @@ private:
         return {};
     }
 
-    /// Chrono foundation, logger, bridge, and chrono worker start.
+    /// @brief Build the chrono sink/provider, logger, bridge and chrono worker.
+    ///
+    /// Chrono is the time foundation, so its sink and provider are constructed
+    /// first (the worker is not started yet); the logger is configured next, the
+    /// bridge is bound, and only then does the chrono worker start.
+    ///
+    /// @param settings Merged settings supplying the chrono and logging
+    ///        configuration plus the application name.
+    /// @return OK when all four pieces exist; otherwise the failing status after
+    ///         rollback.
+    /// @note Spec `app/application`, scenario "Logger is ready before providers
+    ///       start".
+    /// @note Spec `app/settings`, requirement "Application name is app-level".
     [[nodiscard]] core::Status build_time_and_logging(const Settings& settings) noexcept {
         const core::Status chrono_status =
             Policy::emplace_chrono_sink(chrono_sink_, settings.chrono);
@@ -474,7 +780,19 @@ private:
         return {};
     }
 
-    /// Metrics sink and provider, including the Required startup-status gate.
+    /// @brief Build the metrics sink and provider, applying the startup gate.
+    ///
+    /// When the provider's worker thread spec uses `ThreadApplyMode::Required`,
+    /// the provider's startup status must be OK or the step fails and rolls back;
+    /// otherwise a best-effort partial application is accepted.
+    ///
+    /// @param settings Merged metrics settings plus the application name.
+    /// @return OK when the provider exists and any required startup check
+    ///         passed; otherwise the failing status after rollback.
+    /// @note Spec `app/application`, scenario "Required worker-attribute failure
+    ///       starts no non-RT fallback".
+    /// @note Spec `app/application`, scenario "Best-effort partial application
+    ///       does not trigger rollback".
     [[nodiscard]] core::Status build_metrics(const Settings& settings) noexcept {
         const core::Status sink_status =
             Policy::emplace_metrics_sink(metrics_sink_, settings.metrics, settings.app_name);
@@ -493,7 +811,13 @@ private:
         return {};
     }
 
-    /// Trace sink and provider startup.
+    /// @brief Build the trace sink and initialize the tracer provider.
+    ///
+    /// @param settings Merged tracing settings plus the application name.
+    /// @return OK when the provider initialized; otherwise the failing status
+    ///         after rollback.
+    /// @note Spec `app/application`, scenario "Failure rolls back partial
+    ///       initialization".
     [[nodiscard]] core::Status build_tracing(const Settings& settings) noexcept {
         const core::Status sink_status =
             Policy::emplace_trace_sink(trace_sink_, settings.tracing, settings.app_name);
@@ -509,6 +833,16 @@ private:
         return {};
     }
 
+    /// @brief Tear down every partially built component and release ownership.
+    ///
+    /// Stops the watcher first, then destroys providers, sinks, the chrono
+    /// worker and the logger in reverse dependency order; restores the previous
+    /// signal mask and clears process-global signal ownership.
+    ///
+    /// @note Spec `app/application`, scenario "Failure rolls back partial
+    ///       initialization".
+    /// @note Safe on a partially built instance: every component is an optional
+    ///       and every release is idempotent.
     void rollback() noexcept {
         signals_.stop();
         tracer_.reset();
@@ -529,25 +863,38 @@ private:
     // teardown destroys worker -> provider -> sink. The chrono worker is
     // declared after the logger/sink bridge it references, so the bridge, the
     // chrono sink, and the logger all outlive the chrono worker.
-    std::optional<Logger> logger_{};
-    detail::ChronoLoggerBridge<Logger> chrono_logger_bridge_{};
-    std::optional<MetricsSink> metrics_sink_{};
-    std::optional<metrics::MetricProvider> metrics_{};
-    std::optional<TraceSink> trace_sink_{};
-    std::optional<TracerProvider> tracer_{};
-    std::optional<Sink> chrono_sink_{};
-    std::optional<chrono::Provider<>> provider_{};
-    std::optional<chrono::ChronoWorker<chrono::Provider<>>> worker_{};
-    detail::SignalWatcher signals_{};
+    std::optional<Logger> logger_{};                            ///< Logger component, built first.
+    detail::ChronoLoggerBridge<Logger> chrono_logger_bridge_{}; ///< Borrows `logger_`.
+    std::optional<MetricsSink> metrics_sink_{};                 ///< Metrics sink component.
+    std::optional<metrics::MetricProvider> metrics_{};          ///< Metrics provider over the sink.
+    std::optional<TraceSink> trace_sink_{};                     ///< Trace sink component.
+    std::optional<TracerProvider> tracer_{};                    ///< Tracer provider over the sink.
+    std::optional<Sink> chrono_sink_{};                         ///< Chrono sink component.
+    std::optional<chrono::Provider<>> provider_{};              ///< Chrono provider over the sink.
+    std::optional<chrono::ChronoWorker<chrono::Provider<>>> worker_{}; ///< Chrono worker.
+    detail::SignalWatcher signals_{}; ///< Signal watcher, stopped first on teardown.
 
-    sigset_t previous_mask_{};
-    bool initialized_{false};
-    std::atomic<bool> shutdown_started_{false};
+    sigset_t previous_mask_{};                  ///< Mask restored by shutdown/rollback.
+    bool initialized_{false};                   ///< Set once every component and the watcher exist.
+    std::atomic<bool> shutdown_started_{false}; ///< One-shot shutdown latch.
+    /// @brief First recorded stop cause; cache-line isolated from the latch.
     alignas(64) std::atomic<InfrastructureStopReason> stop_reason_{InfrastructureStopReason::None};
 };
 
-/// Heap-only factory: the private constructor makes automatic/static
-/// Infrastructure objects impossible. Allocation failure is a SystemError.
+/// @brief Heap-only factory for an `Infrastructure`.
+///
+/// The private constructor makes automatic and static `Infrastructure` objects
+/// impossible: this factory is the only construction path and it allocates once
+/// on the cold path.
+///
+/// @tparam Policy Stateless policy type satisfying `InfrastructurePolicy`.
+/// @tparam TracerCapacity Ring capacity of the tracer provider.
+/// @tparam TracerThreads Per-thread lane count of the tracer provider.
+/// @return A fully constructed infrastructure on the heap, or `SystemError` when
+///         the allocation fails (never `std::terminate`).
+/// @note Spec `app/application`, requirement "Heap-only infrastructure factory".
+/// @note The returned pointer must be initialized before use and destroyed
+///       before the process exits so `shutdown()` can flush.
 template <class Policy, std::size_t TracerCapacity = 1024, std::size_t TracerThreads = 32>
 [[nodiscard]] core::Result<std::unique_ptr<Infrastructure<Policy, TracerCapacity, TracerThreads>>>
 make_infrastructure() noexcept {

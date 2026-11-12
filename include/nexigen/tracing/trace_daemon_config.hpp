@@ -15,8 +15,16 @@
 
 namespace nexigen::tracing {
 
-/// TraceDaemon construction-time configuration. Validated at startup; invalid
+/// @brief Construction-time configuration of the central trace daemon.
+///
+/// A plain value type validated once at startup: the span and recovery service
+/// names, the recovery event name, subscriber depth, drain interval, ring
+/// capacity, dump directory and retention, the recovery trigger flag, the
+/// readiness application name, and the background thread specification. Invalid
 /// values are rejected before any port, thread, or directory is created.
+///
+/// @note Spec `tracing/trace-daemon`, requirement "Trace daemon
+///       configuration".
 struct TraceDaemonConfig {
     std::string service_name{"nexigen/trace/stream"};            ///< span subscription (≤ 511 B)
     std::string recovery_service_name{"Nexigen/SM/Recovery"};    ///< PHM→SM notification
@@ -30,7 +38,17 @@ struct TraceDaemonConfig {
     std::string app_name{"TRCD"};                                ///< readiness channel (≤ 63 B)
     core::ThreadSpec bg_cpu_affinity{};                          ///< empty = inherited placement
 
-    /// Startup validation: names, interval, ring, directory and retention.
+    /// @brief Validate every field before the daemon creates any resource.
+    ///
+    /// Rejects an empty or oversized service/recovery/event name (`> 511`
+    /// bytes), an empty or oversized application name (`> 63` bytes), a drain
+    /// interval outside `[5, 1000]` ms, a zero ring capacity, a relative or
+    /// empty dump directory, and a zero dump-file limit.
+    ///
+    /// @return Success when all fields are in range, otherwise
+    ///         `core::ErrorCode::InvalidArgument`.
+    /// @note Spec `tracing/trace-daemon`, requirement "Trace daemon
+    ///       configuration"; validation runs before any port exists.
     [[nodiscard]] core::Status validate() const noexcept {
         if (service_name.empty() || service_name.size() > 511U) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -59,7 +77,13 @@ struct TraceDaemonConfig {
         return {};
     }
 
-    /// Cold-path diagnostic (mandate 9).
+    /// @brief Render the configuration as a cold-path diagnostic string.
+    ///
+    /// @return Text naming both services, the recovery event, interval, ring
+    ///         capacity, dump directory, retention, trigger flag, application
+    ///         name, and background thread specification.
+    /// @note Spec `tracing/trace-daemon`, requirement "Trace daemon
+    ///       configuration diagnostics"; project mandate 9 (`to_string`).
     [[nodiscard]] std::string to_string() const {
         std::string out = "TraceDaemonConfig(service=" + service_name;
         out += ", recovery=" + recovery_service_name;
@@ -75,21 +99,48 @@ struct TraceDaemonConfig {
     }
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free diagnostic helper mirroring `TraceDaemonConfig::to_string()`.
+///
+/// @param config Configuration to render.
+/// @return The same text the member returns.
+/// @note Spec `tracing/trace-daemon`, requirement "Trace daemon configuration
+///       diagnostics"; project mandate 9 (`to_string`).
 [[nodiscard]] inline std::string to_string(const TraceDaemonConfig& config) {
     return config.to_string();
 }
 
-/// Cold-path JSON round-trip (mandate 10), hostile-safe under JSON_NOEXCEPTION=1;
-/// body lives in src/tracing/trace_daemon_config.cpp.
+/// @brief Serialize the configuration as JSON (cold path).
+///
+/// @param j Destination JSON value, overwritten with every configuration field.
+/// @param config Configuration to serialize.
+/// @note Spec `tracing/trace-daemon`, requirement "Trace daemon configuration
+///       diagnostics"; project mandate 10 (JSON).
 void to_json(nlohmann::json& j, const TraceDaemonConfig& config);
+
+/// @brief Parse the configuration from JSON without throwing.
+///
+/// Safe under `JSON_NOEXCEPTION=1`: missing or wrongly typed fields keep their
+/// prior value and malformed input leaves the parsed values unchanged.
+///
+/// @param j JSON object to read.
+/// @param out Destination configuration, updated field by field.
+/// @note Spec `tracing/trace-daemon`, requirement "Trace daemon configuration
+///       diagnostics"; project mandate 10 (JSON).
 void from_json(const nlohmann::json& j, TraceDaemonConfig& out) noexcept;
 
 } // namespace nexigen::tracing
 
-/// The configuration formats as its diagnostic string (mandate 11).
+/// @brief `std::formatter` for `TraceDaemonConfig`.
+///
+/// @note Project mandate 11 (`std::formatter`); formatting is cold path only.
 template <>
 struct std::formatter<nexigen::tracing::TraceDaemonConfig> : std::formatter<std::string_view> {
+    /// @brief Format the configuration through its `to_string()` text.
+    ///
+    /// @tparam Ctx Format context type supplied by `std::format`.
+    /// @param config Configuration to render.
+    /// @param ctx Output context receiving the text.
+    /// @return Iterator past the last written character.
     template <class Ctx>
     auto format(const nexigen::tracing::TraceDaemonConfig& config, Ctx& ctx) const {
         const std::string text = config.to_string();

@@ -76,9 +76,14 @@
 
 namespace nexigen::logging::detail {
 
-/// Per-thread cached Linux thread id (design D5): the SYS_gettid syscall runs
-/// once per thread on first use; steady-state calls read the thread_local.
-/// TIDs are positive, so 0 doubles as "unresolved" — no separate flag byte.
+/// @brief Resolve and cache this thread's Linux OS thread id.
+///
+/// The `SYS_gettid` syscall runs once per thread on first use; steady-state
+/// calls read the `thread_local` value. TIDs are positive, so 0 doubles as
+/// "unresolved" without a separate flag byte.
+///
+/// @return Positive Linux thread id for the calling thread.
+/// @note Spec `logging/log-record`, requirement "Cached thread identity".
 [[nodiscard]] inline std::uint32_t cached_thread_id() noexcept {
     thread_local std::uint32_t tid = 0U;
     if (tid == 0U) {
@@ -87,58 +92,98 @@ namespace nexigen::logging::detail {
     return tid;
 }
 
-/// Window throttle parameters live in the public nexigen::logging::ThrottleConfig
-/// (throttle_config.hpp). configure_throttle copies it as-is and only enables
-/// when max/window are non-zero.
-
-/// The hot-path pipeline shared by ConsoleLogger/FileLogger: a fixed array of
-/// per-thread SPSC shards (spec logging/multi-producer). Composed (not
-/// inherited) by each concrete logger, which exposes the concepts::Logger
-/// surface over it.
+/// @brief The hot-path pipeline shared by `ConsoleLogger` and `FileLogger`.
+///
+/// Composed (not inherited) by each concrete logger, which exposes the
+/// `concepts::Logger` surface over it. Holds a fixed array of per-thread SPSC
+/// shards plus all calibration, throttle, anti-spam and staging storage inline,
+/// so an initialized producer never allocates.
+///
+/// Each producer thread owns exactly one shard slot; the single consumer (the
+/// logger's worker thread) drains all shards. The first call per (thread,
+/// producer) claims a slot with one relaxed `fetch_add` on the registration
+/// counter plus a release publish; afterwards the `thread_local` cache resolves
+/// the slot with no shared atomic touched. Threads beyond the pool are dropped
+/// and counted (`slot_exhausted`) instead of blocking. The accepted path is
+/// wait-free: no mutex, spin, yield, sleep or CAS loop. A full shard drops and
+/// counts on the owner's cache line, so one thread's stall never slows another
+/// thread's shard.
+///
+/// @tparam ShardCapacity Records per shard ring; must be a positive power of
+///         two (enforced by `static_assert`).
+/// @tparam MessageCapacity Inline argument-blob bytes per record.
+/// @tparam MaxThreads Number of registrable producer slots (at least 1).
+/// @note Spec `logging/multi-producer`, requirements "Pre-allocated per-thread
+///       shard array", "Thread-local slot registration", and "Sharded drop
+///       accounting without contention".
 template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t MaxThreads = 32>
 class Producer {
     static_assert(ShardCapacity >= 1 && (ShardCapacity & (ShardCapacity - 1)) == 0,
                   "shard capacity must be a positive power of two");
     static_assert(MaxThreads >= 1, "shard pool must hold at least one slot");
 
+    /// @brief Record type stored in every shard and rendered by the sinks.
     using Record = LogRecord<MessageCapacity>;
 
-    /// Shard pool: one SPSC ring + accounting cell per thread, slot
-    /// registration, exhaustion, and the consumer drain (core/
-    /// shard_pool.hpp). Slot s's producer end is touched ONLY by its owner
-    /// thread; the worker consumes all.
+    /// @brief Shard pool: one SPSC ring plus accounting cell per thread slot.
+    ///
+    /// Slot registration, exhaustion counting and the consumer drain live in
+    /// `core/ShardPool` (core/shard_pool.hpp). Slot `s`'s producer end is
+    /// touched ONLY by its owner thread; the worker consumes all shards.
     core::ShardPool<Record, ShardCapacity, MaxThreads> pool_{};
 
-    /// One stamp source PER SLOT (design D6): sample() writes last_ns_/anchors,
-    /// so single-writer per slot keeps the clock race-free with zero atomics.
+    /// @brief One stamp source per slot (design D6).
+    ///
+    /// `sample()` writes `last_ns_` and the re-anchoring state, so single-writer
+    /// per slot keeps the clock race-free with zero atomics.
     std::array<chrono::StampSource, MaxThreads> stamps_{};
 
-    /// Shared runtime threshold (relaxed cell, own cache line).
+    /// @brief Shared runtime level threshold (relaxed cell, own cache line).
     LevelControl level_{};
 
-    /// Shared throttle policy: plain fields written once by configure_throttle
-    /// (before the worker starts — happens-before via thread creation) and
-    /// read by producers on the emit path.
+    /// @brief Shared throttle policy read by producers on the emit path.
+    ///
+    /// Plain fields written once by `configure_throttle()` before the worker
+    /// starts; the happens-before edge is thread creation.
     struct {
+        /// Accepted records per window; 0 disables the budget.
         std::uint64_t max_records_per_window{0};
+        /// Window length in nanoseconds; 0 disables the budget.
         std::uint64_t window_ns{0};
+        /// Whether both quotas above are non-zero and throttle is active.
         bool enabled{false};
     } policy_{};
 
-    /// Anti-spam: repeat suppression + token-bucket rate limiting.
-    /// Default: both OFF (opt-in via set_spam_protection_config).
+    /// @brief Anti-spam: repeat suppression plus token-bucket rate limiting.
+    ///
+    /// Default: both OFF (opt-in via `set_spam_protection_config()`).
     SpamProtection spam_{SpamProtectionConfig{
         .enable_repeat_suppression = false,
         .max_messages_per_sec_per_shard = 0,
     }};
+    /// Per-shard anti-spam mutable state; index-aligned with the shard slots.
     SpamShardState spam_state_[MaxThreads];
 
-    /// Shared cold-path body (design D9): build the "Dropped N record(s) ..."
-    /// warning summary record from the given counts (spec: same text, all
-    /// four causes). Returns false when the formatting failed (nothing is
-    /// synthesized, cells keep their values). Never touches a ring: ownership
-    /// of the ring push belongs to the caller's domain (owner `try_push` or
-    /// direct sink delivery).
+    /// @brief Build a "Dropped N record(s)" warning summary record (cold path).
+    ///
+    /// Shared by the owner-side summary that is pushed into its own ring and by
+    /// the worker-side flush summary that is delivered straight to a sink. All
+    /// four drop causes use the same text; the record renders the text verbatim
+    /// from its blob (`fmt` is empty, `render` is `render_text`). Never touches a
+    /// ring: ownership of the push belongs to the caller's domain.
+    ///
+    /// @param rl Rate-limited drops since the previous summary.
+    /// @param bf Buffer-full drops since the previous summary.
+    /// @param se Cumulative global slot-exhaustion drops.
+    /// @param th Token-bucket throttled drops since the previous summary.
+    /// @param stamp Timestamp to publish with the summary.
+    /// @param rec Output record; overwritten only on success.
+    /// @return `true` when the record was composed; `false` when formatting
+    ///         failed (nothing synthesized, caller keeps its counters).
+    /// @note Spec `logging/multi-producer`, requirement "Drop summaries are
+    ///       synthesized by the worker"; automatic summaries also satisfy
+    ///       `logging/file-logger`, requirement "Automatic dropped-record
+    ///       summary".
     [[nodiscard]] static bool compose_summary_record(std::uint64_t rl, std::uint64_t bf,
                                                      std::uint64_t se, std::uint64_t th,
                                                      const chrono::Timestamp stamp,
@@ -174,9 +219,15 @@ class Producer {
         return true;
     }
 
-    /// Owner thread only: zero the summary-backed cells of one slot (the
-    /// cells a summary's counts were composed from, except the global
-    /// slot-exhaustion counter which stays cumulative).
+    /// @brief Zero the summary-backed drop cells of one shard (owner only).
+    ///
+    /// Clears the cells a composed summary's counts came from, except the global
+    /// slot-exhaustion counter, which stays cumulative by specification.
+    ///
+    /// @param slot Shard slot whose per-cause cells are reset.
+    /// @warning Owner thread only; `slot` must be the caller's own slot.
+    /// @note Spec `logging/multi-producer`, requirement "Reported drop cells
+    ///       reset after synthesis".
     void reset_summary_cells(std::size_t slot) noexcept {
         core::ShardPoolState& st = pool_.state(slot);
         st.rate_limited.store(0, std::memory_order_relaxed);
@@ -184,12 +235,21 @@ class Producer {
         spam_state_[slot].throttled_count.store(0, std::memory_order_relaxed);
     }
 
-    /// Owner thread only (its own slot): when drops are pending, pull them
-    /// per-cause and try_push the composed summary into the OWNER'S OWN ring.
-    /// Called on window transitions and before try_push when drops are
-    /// pending. Counters reset only on push success (retry safety — spec
-    /// logging/multi-producer "Failed summary push preserves counters").
-    /// Includes all four causes.
+    /// @brief Push a drop summary into the owner's own ring when drops pend.
+    ///
+    /// Owner thread only (its own slot). When any cause is non-zero, pulls the
+    /// per-cause counts, composes the summary record and `try_push`-es it into
+    /// the OWNER'S OWN ring. Called on window transitions and before a user
+    /// `try_push` when drops are pending. Counters reset only on push success,
+    /// preserving retry safety.
+    ///
+    /// @param slot Caller's own shard slot.
+    /// @param stamp Timestamp to publish with the summary.
+    /// @warning Never call on a shard this thread does not own: an SPSC ring slot
+    ///          may be pushed only by its owner.
+    /// @note Spec `logging/multi-producer`, requirement "Reported drop cells
+    ///       reset after synthesis" (the failed-push retry scenario) and "Drop
+    ///       summaries are synthesized by the worker" for the flush path.
     void emit_summary_if_needed(std::size_t slot, const chrono::Timestamp stamp) noexcept {
         core::ShardPoolState& st = pool_.state(slot);
         const std::uint64_t rl = st.rate_limited.load(std::memory_order_relaxed);
@@ -210,42 +270,58 @@ class Producer {
         // On failure: counters preserved; summary retried at next opportunity.
     }
 
-    /// One relaxed atomic increment on the shard's own line (owner thread
-    /// only). `fetch_add` — not `store(load+1)`: the consumer may reset the
-    /// cell after reporting it (flush-time drop summary), so every increment
-    /// must survive as an atomic RMW.
+    /// @brief Commit one drop on the shard's own counter (owner only).
+    ///
+    /// One relaxed atomic increment on the shard's own cache line. `fetch_add`
+    /// rather than `store(load + 1)`: the consumer may reset a reported cell
+    /// (flush-time drop summary), so every increment must survive as an atomic
+    /// RMW.
+    ///
+    /// @param counter Per-shard drop cell owned by the calling thread.
+    /// @note Spec `logging/multi-producer`, requirement "Sharded drop accounting
+    ///       without contention".
     static void bump(std::atomic<std::uint64_t>& counter) noexcept {
         counter.fetch_add(1U, std::memory_order_relaxed);
     }
 
 public:
-    /// Worker's own fresh monotonic stamp for synthesized summaries. The
-    /// worker NEVER calls a per-slot `StampSource::sample()`: every
-    /// `stamps_[i]` is producer-owned single-writer state (see
-    /// stamp_source.hpp lines "written exclusively by the producer thread"),
-    /// and a foreign sample() races the owner's `last_ns_` clamp — TSan
-    /// reports exactly that on the multithreaded flush race test. The flush
-    /// answer is a cold path: one `clock_gettime(CLOCK_MONOTONIC_RAW)` read
-    /// (same clock domain as the producer stamps, so the summary stays in
-    /// the same timeline). A clock failure degrades to a zero stamp.
+    /// @brief Worker's own fresh monotonic stamp for synthesized summaries.
+    ///
+    /// The worker NEVER calls a per-slot `StampSource::sample()`: every
+    /// `stamps_[i]` is producer-owned single-writer state (see stamp_source.hpp
+    /// lines "written exclusively by the producer thread"), and a foreign
+    /// `sample()` races the owner's `last_ns_` clamp — TSan reports exactly that
+    /// on the multithreaded flush race test. The flush answer is a cold path:
+    /// one `clock_gettime(CLOCK_MONOTONIC_RAW)` read (the same clock domain as
+    /// the producer stamps, so the summary stays in the same timeline). A clock
+    /// failure degrades to a zero stamp.
+    ///
+    /// @return Fresh monotonic timestamp, or a zero stamp on clock failure.
+    /// @note Spec `logging/log-record`, requirement "Monotonic nanosecond
+    ///       stamping"; used by "Drop summaries are synthesized by the worker".
     [[nodiscard]] static chrono::Timestamp worker_stamp() noexcept {
         const core::Result<chrono::Timestamp> now = chrono::Timestamp::now();
         return now ? *now : chrono::Timestamp{};
     }
 
-    /// Consumer end only (the logging worker): flush-time drop summary
-    /// (spec logging/multi-producer "Drop summaries are synthesized by the
-    /// worker"). Scans all shards relaxed; on the first shard (or the global
+    /// @brief Consumer-only flush-time drop summary.
+    ///
+    /// Scans all shards with relaxed loads; on the first shard (or the global
     /// slot-exhaustion counter) with pending drops, builds the same summary
-    /// record the owner would push (stamp read worker-side via
-    /// `worker_stamp()`) and resets exactly the cells reported
-    /// (rate-limited / buffer-full / throttled; the global slot-exhaustion
-    /// counter stays cumulative). NEVER pushes into any ring — a ring slot
-    /// is `try_push`-ed only by its owner (SPSC invariant), and never touches
-    /// producer-owned stamp state — the caller delivers `out` directly to
-    /// its sink. One summary per flush answer is enough; a later flush
-    /// reports fresh drops only.
-    /// Returns true with `out` filled after a summary was synthesized.
+    /// record the owner would push — stamped worker-side via `worker_stamp()` —
+    /// and resets exactly the cells it reported (rate-limited, buffer-full,
+    /// throttled; the global slot-exhaustion counter stays cumulative). NEVER
+    /// pushes into any ring: a shard ring is `try_push`-ed only by its owner
+    /// (SPSC invariant), so the caller delivers `out` directly to its sink. One
+    /// summary per flush answer is enough; a later flush reports fresh drops
+    /// only.
+    ///
+    /// @param out Output record; filled only when a summary was synthesized.
+    /// @return `true` when `out` holds a summary; `false` when nothing was
+    ///         pending or composing the text failed.
+    /// @note Spec `logging/multi-producer`, requirement "Drop summaries are
+    ///       synthesized by the worker"; reset semantics are "Reported drop
+    ///       cells reset after synthesis".
     [[nodiscard]] bool synthesize_flush_summary(Record& out) noexcept {
         const std::uint64_t global_se = pool_.slot_exhausted();
         for (std::size_t i = 0; i < MaxThreads; ++i) {
@@ -266,38 +342,69 @@ public:
         }
         return false;
     }
+    /// @brief Record type consumed by the `detail::AsyncWorker`/Sink APIs.
     using record_type = Record; ///< consumed by detail::AsyncWorker/Sink APIs
 
+    /// @brief Default-construct all inline shard and calibration storage.
     Producer() noexcept = default;
+    /// @brief Copying is deleted: shard state is thread-owned and non-copyable.
     Producer(const Producer&) = delete;
+    /// @brief Copy assignment is deleted: shard state is thread-owned.
     Producer& operator=(const Producer&) = delete;
+    /// @brief Moving is deleted: thread-local slot caches key on this address.
     Producer(Producer&&) = delete;
+    /// @brief Move assignment is deleted: thread-local slot caches key on this address.
     Producer& operator=(Producer&&) = delete;
 
+    /// @brief Records per shard ring.
+    ///
+    /// @return `ShardCapacity`.
     [[nodiscard]] static constexpr std::size_t capacity() noexcept { return ShardCapacity; }
+    /// @brief Number of registrable producer shard slots.
+    ///
+    /// @return `MaxThreads`.
     [[nodiscard]] static constexpr std::size_t max_threads() noexcept { return MaxThreads; }
+    /// @brief Inline argument-blob bytes per record.
+    ///
+    /// @return `MessageCapacity`.
     [[nodiscard]] static constexpr std::size_t message_capacity() noexcept {
         return MessageCapacity;
     }
 
-    /// Cold-path diagnostic/testing accessor for one shard slot. The live
-    /// engine's overflow policy is fixed (DropNewest, counted per-cause in
-    /// `ShardPoolState`); a per-shard OverwriteOldest mode does not exist —
-    /// the unwired duplicate `logging::detail::SpscShardRing` was deleted
-    /// (change fix-p1-races-process-correctness, analysis #7). Out-of-range
-    /// indices fall back to slot 0 so tests cannot read out of bounds.
+    /// @brief Cold-path diagnostic accessor for one shard ring.
+    ///
+    /// The live engine's overflow policy is fixed (`DropNewest`, counted
+    /// per-cause in `ShardPoolState`); a per-shard overwrite-oldest mode does not
+    /// exist (the unwired duplicate `logging::detail::SpscShardRing` was
+    /// deleted). Out-of-range indices fall back to slot 0 so tests cannot read
+    /// out of bounds.
+    ///
+    /// @param index Shard slot index.
+    /// @return Mutable ring for `index`.
+    /// @note Spec `logging/multi-producer`, requirement "Pre-allocated per-thread
+    ///       shard array".
     [[nodiscard]] core::SpscRingBuffer<Record, ShardCapacity>& shard(std::size_t index) noexcept {
         return pool_.shard(index);
     }
+    /// @brief Const cold-path accessor for one shard ring.
+    ///
+    /// @param index Shard slot index; values at or above `MaxThreads` map to 0.
+    /// @return Const ring for `index`.
     [[nodiscard]] const core::SpscRingBuffer<Record, ShardCapacity>&
     shard(std::size_t index) const noexcept {
         return pool_.ring(index < MaxThreads ? index : 0U);
     }
 
-    /// Cold path (logger initialize): calibrate the per-slot stamp sources.
-    /// Any clock failure aborts initialization (SystemError) exactly like the
-    /// old single-source contract; uncalibrated slots would still work via
-    /// the clock_gettime fallback, just slower.
+    /// @brief Cold path (logger initialize): calibrate the per-slot stamps.
+    ///
+    /// Any clock failure aborts initialization exactly like the old
+    /// single-source contract; uncalibrated slots would still work through the
+    /// `clock_gettime` fallback, just slower.
+    ///
+    /// @return OK when every slot's stamp source calibrated; the first
+    ///         calibration error otherwise.
+    /// @note Spec `logging/log-record`, requirement "Monotonic nanosecond
+    ///       stamping" (calibrated cycle-counter fast path).
     [[nodiscard]] core::Status initialize() noexcept {
         for (auto& stamp : stamps_) {
             const core::Status calibrated = stamp.calibrate();
@@ -308,7 +415,15 @@ public:
         return {};
     }
 
-    /// Cold path (before the worker starts): install throttle policy.
+    /// @brief Cold path (before the worker starts): install the throttle policy.
+    ///
+    /// Copies the public `ThrottleConfig` as-is and enables the budget only when
+    /// both the maximum and the window are non-zero. Mirrors
+    /// `nexigen::logging::ThrottleConfig` (throttle_config.hpp), which owns the
+    /// public spelling of these parameters.
+    ///
+    /// @param cfg Windowed record budget; zero fields disable the throttle.
+    /// @note Spec `logging/file-logger`, requirement "Hot-path rate limiting".
     void configure_throttle(const ThrottleConfig& cfg) noexcept {
         policy_.enabled =
             cfg.enabled && cfg.max_records_per_window != 0ULL && cfg.window_ns != 0ULL;
@@ -316,22 +431,54 @@ public:
         policy_.window_ns = cfg.window_ns;
     }
 
-    /// Field-atomic runtime reconfiguration of anti-spam quotas (relaxed
-    /// stores; hot path stays lock-free — see spam_protection.hpp / design
-    /// D5 of change fix-p1-races-process-correctness).
+    /// @brief Field-atomic runtime reconfiguration of anti-spam quotas.
+    ///
+    /// Relaxed stores only, so the hot path stays lock-free and producers never
+    /// block (see spam_protection.hpp; design D5 of change
+    /// fix-p1-races-process-correctness).
+    ///
+    /// @param cfg New quotas published field by field.
+    /// @note Spec `logging/spam-protection`, requirement "Dynamic quota updates
+    ///       are race-free".
     void set_spam_protection_config(const SpamProtectionConfig& cfg) noexcept {
         spam_.set_config(cfg);
     }
 
-    /// Level control forwards to the shared relaxed cell (design D2).
+    /// @brief Publish a new level threshold through the shared relaxed cell.
+    ///
+    /// @param new_level New minimum level for accepted records.
+    /// @note Spec `logging/logger-options`, requirement "Runtime reconfiguration
+    ///       is wait-free".
     void set_level(core::LogLevel new_level) noexcept { level_.set_level(new_level); }
+    /// @brief Read the published level threshold.
+    ///
+    /// @return Current minimum accepted level.
     [[nodiscard]] core::LogLevel level() const noexcept { return level_.level(); }
 
-    /// The hot path (spec logging/log-record, logging/multi-producer).
+    /// @brief The hot path: filter, pack and enqueue one record.
+    ///
+    /// Order is fixed by the latency budget: one relaxed level load, thread-local
+    /// shard resolution, cached thread id, shard-owned stamp, optional windowed
+    /// throttle, fixed-offset argument packing plus the type-erased render
+    /// callback, anti-spam checks, then a wait-free `try_push` on the caller's
+    /// ring. Nothing formats on this thread.
+    ///
     /// Returns void: every outcome (accepted, filtered, dropped) completes in
-    /// bounded steps; drops are counted per-cause in the shard's own state
-    /// and surfaced through dropped(). Every Packable argument is serialized
-    /// inline; NOTHING formats on this thread.
+    /// bounded steps. Drops are counted per-cause in the shard's own state and
+    /// surfaced through `dropped()`.
+    ///
+    /// @tparam Args Argument types; all must satisfy `Packable`. The pack size is
+    ///         `static_assert`-checked against `MessageCapacity` at compile time.
+    /// @param level Severity of the record.
+    /// @param fmt Type-checked format string (`std::format_string`), carrying the
+    ///        source location; only its program-static pointer is stored.
+    /// @param args Values serialized into the record's inline blob. String views
+    ///        are copied (safely truncated) at emit time, never referenced.
+    /// @note Spec `logging/log-record`, requirements "Wait-free producer enqueue",
+    ///       "Hot-path latency budget", "Zero runtime allocation in record
+    ///       handling", and "Deferred type-erased argument formatting";
+    ///       `logging/multi-producer`, requirements "Thread-local slot
+    ///       registration" and "Slot exhaustion drops instead of blocking".
     template <class... Args>
         requires(Packable<std::remove_cvref_t<Args>> && ...)
     void emit(core::LogLevel level, detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
@@ -417,12 +564,29 @@ public:
         }
     }
 
-    /// Consumer end only (the internal worker via the async machinery):
-    /// delegates to the pool's round-robin drain.
+    /// @brief Consumer end: dequeue one record from the round-robin drain.
+    ///
+    /// Delegates to the pool's round-robin drain, which takes at most a bounded
+    /// slice per shard per sweep so no shard can be starved.
+    ///
+    /// @param out Output record; filled only when a record was popped.
+    /// @return OK when a record was popped; `ErrorCode::BufferEmpty` when every
+    ///         registered shard is momentarily empty. Never returns a
+    ///         partially filled record.
+    /// @note Spec `logging/multi-producer`, requirement "Consumer drains every
+    ///       active shard".
     [[nodiscard]] core::Status pop(Record& out) noexcept { return pool_.pop(out); }
 
-    /// Third-thread snapshot diagnostics (never hot-path synchronization):
-    /// relaxed aggregate over all shards + the shared exhaustion counter.
+    /// @brief Third-thread snapshot of per-cause drop totals.
+    ///
+    /// Relaxed aggregate over all shards plus the shared exhaustion counter. This
+    /// is an observation, never synchronization: values may mix epochs, but each
+    /// counter is a valid whole value.
+    ///
+    /// @return Aggregated rate-limited, buffer-full and slot-exhausted counts.
+    /// @note Spec `logging/multi-producer`, requirement "Sharded drop accounting
+    ///       without contention"; project mandate 9 for the `DroppedStats`
+    ///       diagnostic surface.
     [[nodiscard]] DroppedStats dropped() const noexcept {
         DroppedStats agg{};
         agg.rate_limited = pool_.rate_limited_total();
@@ -430,7 +594,15 @@ public:
         agg.slot_exhausted = pool_.slot_exhausted();
         return agg;
     }
+    /// @brief Relaxed snapshot of all pending records across shards.
+    ///
+    /// @return Sum of the shard ring sizes at observation time.
+    /// @note Spec `logging/multi-producer`, requirement "Sharded drop accounting
+    ///       without contention" (snapshot semantics).
     [[nodiscard]] std::size_t ring_size() const noexcept { return pool_.ring_size(); }
+    /// @brief Relaxed snapshot: is every shard ring empty right now?
+    ///
+    /// @return `true` when no shard holds a pending record.
     [[nodiscard]] bool ring_empty() const noexcept { return pool_.ring_empty(); }
 };
 

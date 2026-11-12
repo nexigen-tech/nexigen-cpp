@@ -14,19 +14,39 @@
 
 namespace nexigen::logging {
 
-/// LogDaemon construction-time configuration. Validated at startup; invalid
-/// values are rejected before the subscriber or worker thread is created.
+/// @brief `LogDaemon` construction-time configuration.
+///
+/// Validated at startup: invalid values are rejected before the subscriber or the
+/// worker thread is created, so a typo never leaves a half-initialized daemon.
+/// After construction the daemon owns the values and no producer process ever
+/// reads them.
+///
+/// @note Spec `logging/log-daemon`, requirement "LogDaemon configuration".
 struct LogDaemonConfig {
-    std::string service_name{"Nexigen/Log/nexigen"}; ///< subscription (≤ 511 B)
-    std::string log_directory{"/var/log/nexigen"};   ///< absolute output root (≤ 511 B)
-    std::uint64_t max_file_size_mb{20};              ///< 0 = no size-based rotation
-    std::uint32_t max_archive_files{5};              ///< rotated files kept
-    core::LogLevel min_log_level_storage{core::LogLevel::Warning}; ///< threshold for disk
-    core::CpuSet bg_cpu_affinity{};             ///< legacy service-core mask (empty = inherit)
-    std::uint32_t batch_flush_interval_ms{500}; ///< flush timer (ms)
-    core::ThreadSpec main_thread{};             ///< main-thread spec (empty = bg_cpu_affinity)
+    /// @brief Pub/sub service to subscribe to (at most 511 bytes).
+    std::string service_name{"Nexigen/Log/nexigen"};
+    /// @brief Absolute root of the output tree (at most 511 bytes).
+    std::string log_directory{"/var/log/nexigen"};
+    /// @brief Size-based rotation threshold in megabytes; `0` disables size rotation.
+    std::uint64_t max_file_size_mb{20};
+    /// @brief Number of rotated archive files kept after the active one.
+    std::uint32_t max_archive_files{5};
+    /// @brief Severity threshold for records persisted to disk.
+    core::LogLevel min_log_level_storage{core::LogLevel::Warning};
+    /// @brief Legacy service-core affinity mask; empty means "inherit".
+    ///
+    /// Kept for compatibility: an explicit `main_thread` wins over this field.
+    core::CpuSet bg_cpu_affinity{};
+    /// @brief Buffer flush timer interval in milliseconds.
+    std::uint32_t batch_flush_interval_ms{500};
+    /// @brief Main-thread specification; empty means derive from `bg_cpu_affinity`.
+    core::ThreadSpec main_thread{};
 
-    /// Cold-path diagnostic (mandate 9).
+    /// @brief Cold-path diagnostic rendering of every configuration field.
+    ///
+    /// @return Text containing the service, directory, size/archive limits, storage level,
+    ///         flush interval, legacy mask, and main-thread spec.
+    /// @note Project mandate 9 (`to_string` on every public value type).
     [[nodiscard]] std::string to_string() const {
         std::string out = "LogDaemonConfig(service=" + service_name;
         out += ", log_dir=" + log_directory;
@@ -40,13 +60,25 @@ struct LogDaemonConfig {
     }
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free `to_string` entry point for the daemon config (mandate 9).
+///
+/// @param cfg Config to render.
+/// @return Exactly `cfg.to_string()`.
+/// @note Project mandate 9; ADL-friendly mirror of the member function.
 [[nodiscard]] inline std::string to_string(const LogDaemonConfig& cfg) {
     return cfg.to_string();
 }
 
-/// Effective main-thread spec: an explicit `main_thread` wins; otherwise the
-/// legacy `bg_cpu_affinity` CpuSet becomes a placement-only fallback.
+/// @brief Resolve the effective main-thread specification for the daemon.
+///
+/// An explicit `main_thread` wins; otherwise the legacy `bg_cpu_affinity` mask is
+/// converted into a placement-only fallback spec, which is what pre-existing
+/// configuration files carry.
+///
+/// @param cfg Daemon configuration to resolve.
+/// @return The merged `core::ThreadSpec`; never throws.
+/// @note Spec `logging/log-daemon`, requirement
+///       "LogDaemon main thread applies a configurable spec".
 [[nodiscard]] inline core::ThreadSpec
 effective_main_thread_spec(const LogDaemonConfig& cfg) noexcept {
     core::ThreadSpec legacy{};
@@ -56,16 +88,40 @@ effective_main_thread_spec(const LogDaemonConfig& cfg) noexcept {
     return core::effective_thread_spec(cfg.main_thread, legacy);
 }
 
-/// Cold-path JSON round-trip (mandate 10), hostile-safe under JSON_NOEXCEPTION=1;
-/// bodies live in src/logging/log_daemon_config.cpp.
+/// @brief Cold-path JSON writer for the daemon configuration.
+///
+/// @param j Destination JSON object; overwritten with the config's field map.
+/// @param cfg Config to serialize.
+/// @note Project mandate 10; the body lives in `log_daemon_config.cpp`.
+/// @note Spec `logging/log-daemon`, requirement "LogDaemon configuration".
 void to_json(nlohmann::json& j, const LogDaemonConfig& cfg);
+/// @brief Cold-path JSON reader that is hostile-input safe.
+///
+/// Absent or ill-typed fields leave the corresponding member untouched, so the
+/// call never throws under `JSON_NOEXCEPTION=1`.
+///
+/// @param j Source JSON object.
+/// @param out Destination config, updated field by field.
+/// @note Project mandate 10; the body lives in `log_daemon_config.cpp`.
 void from_json(const nlohmann::json& j, LogDaemonConfig& out) noexcept;
 
 } // namespace nexigen::logging
 
-/// The config formats as its diagnostic string (mandate 11).
+/// @brief `std::formatter` specialization: the config formats as its diagnostic string.
+///
+/// Forwards to `std::formatter<std::string_view>` after materializing
+/// `to_string()`, so every string format spec applies.
+///
+/// @note Project mandate 11 (`std::formatter` for every public value type).
 template <>
 struct std::formatter<nexigen::logging::LogDaemonConfig> : std::formatter<std::string_view> {
+    /// @brief Write the config's diagnostic text into the format output.
+    ///
+    /// @tparam Ctx Format context type supplied by `std::format`.
+    /// @param cfg Config to render.
+    /// @param ctx Format context receiving the text.
+    /// @return Iterator past the last written character, as returned by the string formatter.
+    /// @note Allocates the temporary diagnostic string; cold path only.
     template <class Ctx> auto format(const nexigen::logging::LogDaemonConfig& cfg, Ctx& ctx) const {
         const std::string text = cfg.to_string();
         return std::formatter<std::string_view>::format(text, ctx);

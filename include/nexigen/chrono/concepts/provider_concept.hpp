@@ -16,8 +16,20 @@
 
 namespace nexigen::chrono::concepts {
 
-/// A threadless clock authority: issue calibrated stampers on the cold path,
-/// sample the UTC offset, and deliver snapshots/flush on demand.
+/// @brief A threadless clock authority: issue calibrated stampers, sample UTC, deliver on demand.
+///
+/// Satisfied by `nexigen::chrono::Provider`. The concept fixes the whole cold
+/// surface: a nested `Stamper` satisfying `concepts::Stamper`, an issuing
+/// `acquire()` on the cold path, the signed UTC offset and current UTC instant,
+/// manual snapshot delivery, sink flush, and a diagnostic `to_string()`. Only
+/// `to_string()` may allocate; every other operation is `noexcept` and stays
+/// off producer hot paths.
+///
+/// @tparam P Candidate authority type; its `Stamper` must itself satisfy
+///         `concepts::Stamper` and `acquire()` must return a `Stamper*` arm.
+/// @note Spec `chrono/provider`, requirement "Stamper concept and issuance";
+///       requirement "UTC offset authority"; requirement "Manual snapshot
+///       delivery".
 template <class P>
 concept Provider = requires(P& p) {
     typename P::Stamper;

@@ -54,12 +54,36 @@
 
 namespace nexigen::tracing {
 
-/// The JSONL trace sink. All state is consumer-thread plain state (the
-/// provider's single worker is the only caller).
+/// @brief Rotating, rate-limited JSON-lines sink (one JSON object per span).
+///
+/// Every `on_span` advances the UTC window, optionally rotates the file
+/// (`Hourly`/`Daily` names the next file from the span's own UTC time, `None`
+/// keeps one file), applies the per-window span budget, then appends one
+/// complete escaped JSON line with UTC ISO-8601 timestamps, hexadecimal ids,
+/// canonical kind/status, and typed attributes. `flush()` is an `fsync` so I/O
+/// failures surface as `SystemError`.
+///
+/// Rotation and rate limiting are driven by incoming spans only: no timer and
+/// no polling runs. Over-budget spans are counted and not written, and the
+/// exact drop count is emitted as a summary line at the next window boundary
+/// before any newer record. All state, including the UTC offset snapshot and
+/// window anchor, is consumer-thread plain state (the provider's single
+/// background worker is the only caller). The write path uses fixed scratch
+/// and allocates nothing; `std::string` exists only in the configuration.
+///
+/// @note Spec `tracing/trace-sinks`, requirements "JsonFileTraceSink JSONL
+///       output" and "JsonFileTraceSink rotation and rate limiting".
 class JsonFileTraceSink {
 public:
-    /// The path/prefix is captured at construction (configuration time);
-    /// the file itself opens at start().
+    /// @brief Capture the configuration; the file itself opens at `start()`.
+    ///
+    /// Copies the path into fixed storage (truncating only if it exceeds the
+    /// buffer) and the application name into its 63-byte field.
+    ///
+    /// @param config Path/prefix, application name, rotation policy, and rate
+    ///        limits; the sink snapshots them, so the source may be released.
+    /// @note Spec `tracing/trace-sinks`, requirement "Sink configuration
+    ///       serialization".
     explicit JsonFileTraceSink(const JsonFileTraceSinkConfig& config) noexcept
         : rotation_(config.rotation), max_per_window_(config.max_spans_per_window),
           window_ns_(config.window_ns) {
@@ -71,12 +95,18 @@ public:
         app_len_ = take;
     }
 
+    /// @brief Copy construction is deleted: the sink owns a descriptor.
     JsonFileTraceSink(const JsonFileTraceSink&) = delete;
+    /// @brief Copy assignment is deleted: the sink owns a descriptor.
     JsonFileTraceSink& operator=(const JsonFileTraceSink&) = delete;
 
-    /// Move transfers the descriptor and all window state; the source is
-    /// left closed (fd = -1) so the destructors never double-close. This is
-    /// what makes member-injection construction of composites work.
+    /// @brief Move the descriptor and all rotation/rate-limit window state.
+    ///
+    /// This is what makes member-injection construction of composites work.
+    ///
+    /// @param other Source sink; left closed (`fd_ == -1`) so neither
+    ///        destructor can double-close.
+    /// @warning A moved-from sink must not be used for delivery.
     JsonFileTraceSink(JsonFileTraceSink&& other) noexcept
         : rotation_(other.rotation_), max_per_window_(other.max_per_window_),
           window_ns_(other.window_ns_), offset_ns_(other.offset_ns_),
@@ -88,12 +118,20 @@ public:
         std::memcpy(app_, other.app_, sizeof(app_));
         other.fd_ = -1;
     }
-    JsonFileTraceSink& operator=(JsonFileTraceSink&&) = delete; // stateful sink:
-    // rebinding a live sink is a construction action, not an assignment
+    /// @brief Move assignment is deleted: rebinding a live sink is a
+    ///        construction action, not an assignment.
+    JsonFileTraceSink& operator=(JsonFileTraceSink&&) = delete;
 
-    /// Open the initial file for the current UTC window. An unopenable path
-    /// leaves the sink without a descriptor; on_span then reports
-    /// SystemError without writing partial lines.
+    /// @brief Open the initial file for the current UTC window.
+    ///
+    /// Samples the UTC offset first, then opens the configured file/path with
+    /// append semantics.
+    ///
+    /// @return Success when the file opened; `SystemError` when the path is
+    ///         unopenable, which leaves the sink without a descriptor and makes
+    ///         later `on_span` calls report `SystemError` without partial lines.
+    /// @note Spec `tracing/trace-sinks`, requirement "JsonFileTraceSink JSONL
+    ///       output".
     [[nodiscard]] core::Status start() noexcept {
         std::int64_t offset_ns = 0;
         if (chrono::sample_utc_offset(offset_ns).has_value()) {
@@ -102,7 +140,22 @@ public:
         return open_for_window(now_utc_ns());
     }
 
-    /// Write one span as one JSON line (rotation + rate limiting first).
+    /// @brief Write one span as one complete JSON line.
+    ///
+    /// Rotation and rate limiting run first: a window change closes and opens
+    /// the next file and resets the token budget, and a span beyond the budget
+    /// is counted but not written. At a rate-limit window boundary the pending
+    /// exact drop summary is written before the new window's first record.
+    ///
+    /// @param record Span to render.
+    /// @return Success when the line was written (or the span was deliberately
+    ///         dropped by the budget); `SystemError` when rotation or the write
+    ///         fails, or `BufferFull` when the line exceeds the fixed scratch
+    ///         (the line is discarded whole and counted).
+    /// @note Spec `tracing/trace-sinks`, requirements "JsonFileTraceSink JSONL
+    ///       output" (scratch overflow discards and counts) and
+    ///       "JsonFileTraceSink rotation and rate limiting". The delivery path
+    ///       allocates nothing.
     [[nodiscard]] core::Status on_span(const SpanRecord& record) noexcept {
         const std::int64_t utc_ns =
             chrono::utc_from_mono_ns(record.start.nanoseconds(), offset_ns_);
@@ -141,7 +194,12 @@ public:
         return write_record_line(record, utc_ns);
     }
 
-    /// Push the data to the file (spec: flush surfaces I/O failures).
+    /// @brief Synchronize the active file with `fsync`.
+    ///
+    /// @return Success when the descriptor is open and `fsync` succeeds;
+    ///         `SystemError` when no file is open or synchronization fails.
+    /// @note Spec `tracing/trace-sinks`, requirement "JsonFileTraceSink JSONL
+    ///       output" (flush surfaces I/O failures).
     [[nodiscard]] core::Status flush() noexcept {
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
@@ -152,7 +210,12 @@ public:
         return {};
     }
 
-    /// Close the active file (rotation closes earlier files itself).
+    /// @brief Close the active file.
+    ///
+    /// Rotation already closed earlier files; an already-closed sink is a
+    /// no-op. Idempotent.
+    /// @note Spec `tracing/trace-sinks`, requirement "JsonFileTraceSink JSONL
+    ///       output".
     void stop() noexcept {
         if (fd_ >= 0) {
             static_cast<void>(::close(fd_));
@@ -160,10 +223,17 @@ public:
         }
     }
 
-    /// Cold-path diagnostic (mandate 9).
+    /// @brief Render the sink state as a cold-path diagnostic string.
+    ///
+    /// @return Text naming the path/prefix, rotation, rate-limit budget, active
+    ///         window, and discarded-line counter; allocates.
+    /// @note Project mandate 9 (`to_string`); the discarded-line counter makes
+    ///       scratch-overflow discards visible as required by the spec.
     [[nodiscard]] std::string to_string() const;
 
-    /// True when a file is open.
+    /// @brief Report whether a file is currently open.
+    ///
+    /// @return `true` while the sink holds a valid descriptor.
     [[nodiscard]] bool is_open() const noexcept { return fd_ >= 0; }
 
 private:
@@ -296,12 +366,22 @@ private:
     char scratch_[detail::json_scratch_capacity]{};
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free diagnostic helper mirroring `JsonFileTraceSink::to_string()`.
+///
+/// @param sink Sink to describe.
+/// @return The same text the member returns.
+/// @note Project mandate 9 (`to_string`); cold path only.
 [[nodiscard]] std::string to_string(const JsonFileTraceSink& sink);
 
-/// Diagnostic JSON of the live state (cold path); deliberately NO from_json
-/// — sinks are constructed from configuration, not parsed from data; body
-/// in src/tracing/sink_format.cpp.
+/// @brief Serialize the live sink's configuration and state as JSON.
+///
+/// Deliberately no `from_json`: sinks are constructed from configuration, not
+/// parsed from data (spec "Live sink serialization surfaces").
+///
+/// @param j Destination JSON value, overwritten with the sink state.
+/// @param sink Sink to describe.
+/// @note Spec `tracing/trace-sinks`, requirement "Live sink serialization
+///       surfaces"; project mandate 10 (JSON).
 void to_json(nlohmann::json& j, const JsonFileTraceSink& sink);
 
 static_assert(concepts::TraceSink<JsonFileTraceSink>,
@@ -309,9 +389,17 @@ static_assert(concepts::TraceSink<JsonFileTraceSink>,
 
 } // namespace nexigen::tracing
 
-/// The live sink formats as its diagnostic string (mandate 11).
+/// @brief `std::formatter` for `JsonFileTraceSink`.
+///
+/// @note Project mandate 11 (`std::formatter`); formatting is cold path only.
 template <>
 struct std::formatter<nexigen::tracing::JsonFileTraceSink> : std::formatter<std::string_view> {
+    /// @brief Format the sink through its `to_string()` text.
+    ///
+    /// @tparam Ctx Format context type supplied by `std::format`.
+    /// @param sink Sink to render.
+    /// @param ctx Output context receiving the text.
+    /// @return Iterator past the last written character.
     template <class Ctx>
     auto format(const nexigen::tracing::JsonFileTraceSink& sink, Ctx& ctx) const {
         const std::string text = sink.to_string();

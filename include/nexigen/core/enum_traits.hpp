@@ -33,17 +33,30 @@
 
 namespace nexigen::core {
 
-/// Vocabulary table for enum `E`: specialize with `Entry` + `entries` in the
-/// enum's own header. The primary template intentionally fails: an enum
-/// reaching the engine without a specialization is a programming error.
+/// @brief Vocabulary table for enum `E`: specialize with `Entry` + `entries`.
+///
+/// A specialization lives in the enum's own header, beside the enumerators, and
+/// provides a nested `Entry` type plus a `static constexpr` `entries` range; an
+/// optional `fallback` member overrides the `"Unknown"` rendering. The primary
+/// template intentionally fails to compile: an enum reaching the engine without
+/// a specialization is a programming error.
+///
+/// @tparam E Enum type described by the specialization.
+/// @note Spec `core/serialization`, requirement "Universal enum string and JSON
+///       vocabulary"; cold path only.
 template <class E> struct EnumTraits {
     static_assert(sizeof(E) == 0,
                   "nexigen::core::EnumTraits<E> requires a specialization with Entry + entries");
 };
 
-/// Canonical name of `value`; out-of-table values render the fallback: the
-/// specialization's optional `fallback` member, else "Unknown" (mirrors the
-/// legacy `default:` arm of the per-enum switches).
+/// @brief Canonical name of `value`, read from the `EnumTraits<E>` table.
+///
+/// @tparam E Enum type constrained by `std::is_enum_v<E>`.
+/// @param value Enumerator to render.
+/// @return Static-storage view of the matching row; an out-of-table value
+///         renders the specialization's optional `fallback`, else `"Unknown"`.
+/// @note Spec `core/serialization`, requirement "Universal enum string and JSON
+///       vocabulary". `constexpr`, allocation-free and cold path only.
 template <class E>
     requires std::is_enum_v<E>
 [[nodiscard]] constexpr std::string_view enum_name(E value) noexcept {
@@ -60,8 +73,16 @@ template <class E>
     }
 }
 
-/// Parse `name` into `out` on an exact, case-sensitive match; a miss leaves
-/// `out` untouched and returns false (legacy `from_string` semantics).
+/// @brief Parse `name` into `out` on an exact, case-sensitive table match.
+///
+/// @tparam E Enum type constrained by `std::is_enum_v<E>`.
+/// @param name Candidate vocabulary spelling.
+/// @param out Destination, untouched on a miss.
+/// @return `true` when a row matched exactly and `out` was assigned; `false`
+///         otherwise.
+/// @note Spec `core/serialization`, requirement "Universal enum string and JSON
+///       vocabulary". Misses leave the destination unchanged, matching the
+///       legacy `from_string` semantics.
 template <class E>
     requires std::is_enum_v<E>
 [[nodiscard]] constexpr bool enum_value(std::string_view name, E& out) noexcept {
@@ -79,16 +100,27 @@ template <class E>
 
 namespace nexigen::core::mandate {
 
-/// Serialize an enum as its canonical name via ADL `to_string` (mandate 10).
-/// Lifted from nexigen::exec::detail (refactor-enum-traits-helper): one
-/// engine for every module; the enum's own header keeps the one-line ADL glue.
+/// @brief Serialize an enum as its canonical name via ADL `to_string`.
+///
+/// @tparam Enum Enum type providing an ADL-visible `to_string(Enum)`.
+/// @param j JSON value overwritten with the vocabulary string.
+/// @param value Enumerator to serialize.
+/// @note Spec `core/serialization`, requirement "Universal enum string and JSON
+///       vocabulary"; mandate 10. Cold path only.
 template <class Enum> void enum_to_json(nlohmann::json& j, Enum value) {
     j = std::string(to_string(value));
 }
 
-/// Parse an enum from its canonical name via ADL `from_string`; a missing,
-/// non-string or unknown value leaves `value` unchanged (non-throwing under
-/// JSON_NOEXCEPTION).
+/// @brief Parse an enum from its canonical name via ADL `from_string`.
+///
+/// @tparam Enum Enum type providing an ADL-visible `from_string` taking a
+///         `std::string_view` and the out-parameter.
+/// @param j JSON value to read; a missing, non-string, or unknown value leaves
+///        `value` unchanged.
+/// @param value Destination, untouched unless the name parses.
+/// @note Spec `core/serialization`, requirement "Non-throwing enum from_json
+///       under -fno-exceptions"; mandate 10. Never aborts under
+///       `JSON_NOEXCEPTION=1`.
 template <class Enum> void enum_from_json(const nlohmann::json& j, Enum& value) noexcept {
     const auto* const name = j.get_ptr<const nlohmann::json::string_t*>();
     if (name != nullptr) {
@@ -96,8 +128,17 @@ template <class Enum> void enum_from_json(const nlohmann::json& j, Enum& value) 
     }
 }
 
-/// Read an enum field from a JSON object by key, delegating to
-/// `enum_from_json`. A missing or wrong-typed key leaves `target` unchanged.
+/// @brief Read an enum field from a JSON object by key.
+///
+/// Delegates to `enum_from_json` only for a present string field, so a missing
+/// or wrong-typed key leaves `target` unchanged.
+///
+/// @tparam Enum Enum type providing the ADL `from_string` vocabulary.
+/// @param document JSON object to probe; a non-object is ignored.
+/// @param key Field name to look up.
+/// @param target Destination, untouched unless the field parses.
+/// @note Spec `core/serialization`, requirement "Non-throwing enum from_json
+///       under -fno-exceptions"; cold path only.
 template <class Enum>
 void read_enum(const nlohmann::json& document, const char* key, Enum& target) noexcept {
     if (!document.is_object()) {

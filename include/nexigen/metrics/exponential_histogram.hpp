@@ -45,27 +45,45 @@ template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::Acc
           nexigen::metrics::ResetPolicy Reset>
 class ExponentialHistogram;
 
-/// Construction guard: only a Meter may create instruments.
+/// @brief Construction guard: only a Meter may create instruments.
+///
+/// Forward-declared so instrument constructors can take it by reference; the
+/// complete definition lives in `meter.hpp`.
 class MeterPasskey;
 
 namespace detail {
 
-/// Number of buckets kept per recording slot.
+/// @brief Number of inline bucket counters kept per recording slot.
+///
+/// A slot that cannot hold the observed value range coarsens until it fits
+/// within this fixed window, so recording never allocates.
 inline constexpr std::size_t max_exponential_buckets = 256;
 
-/// Highest supported scale (finest resolution).
+/// @brief Highest supported scale, i.e. the finest bucket resolution.
+///
+/// At scale 20 each power-of-two octave is split into `2^20` intervals, one per
+/// entry of the shared boundary table.
 inline constexpr std::int32_t max_exponential_scale = 20;
 
-/// Sentinel for "the window has not been anchored yet".
+/// @brief Sentinel for "the window has not been anchored yet".
 inline constexpr std::int64_t unanchored_index = std::numeric_limits<std::int64_t>::min();
 
-/// Lower octave of the shared fallback window: the fixed scale-0 bucket range
-/// [fallback_window_base, fallback_window_base + 256) covers octaves
-/// 2^-128 .. 2^128; more extreme values fold into the edge buckets.
+/// @brief Lower octave of the shared fallback window.
+///
+/// The fixed scale-0 bucket range `[fallback_window_base, fallback_window_base +
+/// 256)` covers octaves 2^-128 .. 2^128; more extreme values fold into the edge
+/// buckets. The window never coarsens, so the fallback shard stays exact under
+/// contention.
 inline constexpr std::int64_t fallback_window_base = -128;
 
-/// Floor division by a power of two (portable, no implementation-defined
-/// right shift of negative values).
+/// @brief Floor division by a power of two, portable for negative values.
+///
+/// Avoids the implementation-defined right shift of negative integers, so index
+/// rebasing is well-defined on every platform.
+///
+/// @param value Dividend (may be negative).
+/// @param shift Base-2 logarithm of the divisor; `0` returns `value` unchanged.
+/// @return `floor(value / 2^shift)`.
 [[nodiscard]] inline std::int64_t floor_div_pow2(std::int64_t value, std::uint32_t shift) noexcept {
     if (shift == 0U) {
         return value;
@@ -77,16 +95,26 @@ inline constexpr std::int64_t fallback_window_base = -128;
     return -((magnitude + ((1LL << shift) - 1LL)) >> shift);
 }
 
-/// Lower edge of bucket i at the given scale: B(i) = 2^(i / 2^scale), the
-/// exact geometric boundary for base = 2^(2^-scale) (design D11). One shared
-/// 2^20-entry table serves every scale: factor_s[r] = master[r << (20 - s)],
-/// so boundary values agree bit-for-bit with std::pow(2.0, r / 2^s). The
-/// table is generated once on the first exponential-histogram creation
-/// (cold path, static storage — zero heap allocation; demand-paged, so a
-/// scale-10 user touches only 8 KiB of it).
+/// @brief Bit width of the shared boundary table: `2^20` entries.
+///
+/// Bucket `i`'s exact geometric lower edge at scale `s` is
+/// `B(i) = 2^(i / 2^s)` for base `2^(2^-s)` (design D11). One table serves every
+/// scale: `factor_s[r] = master[r << (20 - s)]`, so the edges agree bit-for-bit
+/// with `std::pow(2.0, r / 2^s)`.
 inline constexpr std::int32_t boundary_master_bits = 20;
+/// @brief Number of entries in the shared boundary table.
 inline constexpr std::size_t boundary_master_size = std::size_t{1} << boundary_master_bits;
 
+/// @brief Lazily generated, process-wide table of exact bucket lower edges.
+///
+/// Entry `r` holds `2^(r / 2^20)`; a scale `s` bucket edge reads
+/// `master[r << (20 - s)]`. Generated once on the first exponential-histogram
+/// creation, in static storage: zero heap allocation and demand-paged, so a
+/// scale-10 user touches only 8 KiB of it.
+///
+/// @return Pointer to the first of `boundary_master_size` doubles, valid for
+///         the lifetime of the process.
+/// @note Cold path; thread-safe initialization is guaranteed by the language.
 [[nodiscard]] inline const double* boundary_master() noexcept {
     static const std::array<double, boundary_master_size> table = [] {
         std::array<double, boundary_master_size> out{};
@@ -99,6 +127,14 @@ inline constexpr std::size_t boundary_master_size = std::size_t{1} << boundary_m
     return table.data();
 }
 
+/// @brief Exact lower edge `B(i) = 2^(i / 2^scale)` of bucket `i`.
+///
+/// @param index Bucket index; may be negative.
+/// @param scale Effective scale, clamped to `[0, boundary_master_bits]` here.
+/// @return The exact, representable double lower bound of the bucket.
+/// @note Spec `metrics/exponential-histogram`, requirement "Bitwise bucket index
+///       mapping".
+/// @note Cold path: only snapshots and the bounded index correction call it.
 [[nodiscard]] inline double bucket_lower_edge(std::int64_t index, std::int32_t scale) noexcept {
     const std::int32_t s =
         (scale < 0) ? 0 : ((scale > boundary_master_bits) ? boundary_master_bits : scale);
@@ -109,11 +145,19 @@ inline constexpr std::size_t boundary_master_size = std::size_t{1} << boundary_m
         static_cast<int>(quotient));
 }
 
-/// Bucket index of a positive finite value at the given scale: the exact
-/// floor(2^scale * log2(v)), so bucket i covers [B(i), B(i+1)) (design D11).
-/// Pure bit extraction plus a bounded boundary correction — no std::log,
-/// std::log2 or allocation per record (spec metrics/exponential-histogram
-/// "Bitwise bucket index mapping").
+/// @brief Bucket index of a positive finite value at the given scale.
+///
+/// Computes the exact `floor(2^scale * log2(v))`, so bucket `i` covers
+/// `[B(i), B(i+1))` (design D11). Work is O(1) and bounded: IEEE-754 exponent
+/// and mantissa extraction via `std::bit_cast`, a small log2 lookup, and at most
+/// four boundary corrections — no `std::log`, `std::log2` or allocation per
+/// record.
+///
+/// @param value Positive, finite sample value.
+/// @param scale Effective scale in `[0, max_exponential_scale]`.
+/// @return The bucket index; monotonic in `value`.
+/// @note Spec `metrics/exponential-histogram`, requirement "Bitwise bucket index
+///       mapping".
 [[nodiscard]] inline std::int64_t exponential_index(double value, std::int32_t scale) noexcept {
     // Normalize subnormals exactly (v * 2^64 is normal) and work entirely in
     // the scaled domain: there the boundary doubles cannot collapse onto the
@@ -164,28 +208,57 @@ inline constexpr std::size_t boundary_master_size = std::size_t{1} << boundary_m
     return index - (shift << scale);
 }
 
-/// One exponential bank: buckets, window and running summary.
+/// @brief One exponential bank: buckets, window anchor and running summary.
+///
+/// `base_index` anchors the 256-entry bucket window in index space and
+/// `effective_scale` records the resolution in force after any coarsening. A
+/// bank is the consistency unit of the instrument, copied out under the
+/// sequence handshake. `alignas(64)` keeps neighbouring slots' banks apart.
+///
+/// @note Spec `metrics/exponential-histogram`, requirement "Bounded bucket
+///       storage and coarsening".
 struct alignas(64) ExponentialBank {
-    /// Plain copy of one bank's contents (harvest side).
+    /// @brief Plain, non-atomic copy of one bank's contents (harvest side).
+    ///
+    /// `base_index == unanchored_index` means the bank has not seen a sample
+    /// yet; `count` excludes zeros, which the instrument tracks separately.
     struct View {
+        /// @brief Per-bucket sample counts; index `j` is `base_index + j`.
         std::uint64_t buckets[max_exponential_buckets]{};
+        /// @brief Total positive samples folded into the bank.
         std::uint64_t count{0};
+        /// @brief Sum of the recorded values.
         double sum{0.0};
+        /// @brief Smallest recorded value; meaningful only when `count > 0`.
         double minimum{0.0};
+        /// @brief Largest recorded value; meaningful only when `count > 0`.
         double maximum{0.0};
+        /// @brief Resolution in force after any coarsening.
         std::int32_t effective_scale{0};
+        /// @brief Bucket index of `buckets[0]`, or `unanchored_index`.
         std::int64_t base_index{unanchored_index};
     };
 
+    /// @brief Bucket counters, indexed relative to `base_index`.
     std::atomic<std::uint64_t> buckets[max_exponential_buckets]{};
+    /// @brief Total positive samples in the bank.
     std::atomic<std::uint64_t> count{0};
+    /// @brief Samples recorded at exactly zero (tracked per bank).
     std::atomic<std::uint64_t> zero_count{0};
+    /// @brief Sum of the recorded values.
     std::atomic<double> sum{0.0};
+    /// @brief Smallest recorded value, seeded at +infinity.
     std::atomic<double> minimum{std::numeric_limits<double>::infinity()};
+    /// @brief Largest recorded value, seeded at -infinity.
     std::atomic<double> maximum{-std::numeric_limits<double>::infinity()};
+    /// @brief First bucket index of the window, or `unanchored_index`.
     std::atomic<std::int64_t> base_index{unanchored_index};
+    /// @brief Current resolution of the window.
     std::atomic<std::int32_t> effective_scale{0};
 
+    /// @brief Reset the bank to empty, unanchored and at scale 0.
+    ///
+    /// Cold path; only a harvest holding the sequence handshake may call it.
     void clear() noexcept {
         for (std::size_t i = 0; i < max_exponential_buckets; ++i) {
             buckets[i].store(0, std::memory_order_relaxed);
@@ -198,7 +271,11 @@ struct alignas(64) ExponentialBank {
         base_index.store(unanchored_index, std::memory_order_relaxed);
     }
 
-    /// Non-consuming copy (single-writer banks, under the seq handshake).
+    /// @brief Copy the bank without consuming it (Cumulative harvests).
+    ///
+    /// @return A plain `View` of the current buckets, window and summary.
+    /// @note Callers must hold the sequence handshake while copying a
+    ///       multi-writer bank; the loads themselves are relaxed.
     [[nodiscard]] View load_view() const noexcept {
         View view{};
         for (std::size_t i = 0; i < max_exponential_buckets; ++i) {
@@ -213,9 +290,16 @@ struct alignas(64) ExponentialBank {
         return view;
     }
 
-    /// Consuming copy for the multi-writer fallback cell: per-field RMW
-    /// exchanges land each update in exactly one window (record-level
-    /// straddle across fields is documented; design D15).
+    /// @brief Consuming copy for the multi-writer fallback bank.
+    ///
+    /// Each counter and summary field is exchanged to its empty value, so every
+    /// update lands in exactly one window. A single record can straddle two
+    /// fields because the exchanges are not one atomic operation; that
+    /// record-level straddle is documented in design D15.
+    ///
+    /// @return A plain `View` of the harvested buckets and summary.
+    /// @note Spec `metrics/exponential-histogram`, requirement "Exponential
+    ///       histogram reset windows".
     [[nodiscard]] View take_view() noexcept {
         View view{};
         for (std::size_t i = 0; i < max_exponential_buckets; ++i) {
@@ -232,12 +316,29 @@ struct alignas(64) ExponentialBank {
         return view;
     }
 
-    /// Fold one bank view into the merged frame (rebase onto the merged
-    /// scale, folding out-of-window buckets into the edge buckets).
+    /// @brief Fold one bank view into a merged frame at a common scale.
+    ///
+    /// Rebases the bank's index space onto `merged_scale` (finer banks shift
+    /// down, the scale-0 fallback up) and folds out-of-window buckets into the
+    /// edge buckets, so no sample is dropped.
+    ///
+    /// @param view Bank copy to absorb.
+    /// @param merged Accumulator receiving the rebased buckets and summary.
+    /// @param merged_scale Scale of the merged frame (the coarsest in play).
+    /// @note Spec `metrics/exponential-histogram`, requirement "Bounded bucket
+    ///       storage and coarsening".
     static void merge_view(const View& view, struct ExponentialMerge& merged,
                            std::int32_t merged_scale) noexcept;
 
-    /// Fold one sample in (exclusive slot — single writer).
+    /// @brief Fold one sample into an exclusive bank (single writer).
+    ///
+    /// Plain load/store pairs at the caller-computed window position; the first
+    /// sample seeds `minimum` and `maximum`.
+    ///
+    /// @param value Positive finite sample value.
+    /// @param position Window position in `[0, max_exponential_buckets)`.
+    /// @warning Exclusive-slot use only: the caller must be the sole writer of
+    ///          this bank, guarded by the sequence handshake.
     void apply(double value, std::size_t position) noexcept {
         const std::uint64_t seen = count.load(std::memory_order_relaxed);
         buckets[position].store(buckets[position].load(std::memory_order_relaxed) + 1U,
@@ -257,9 +358,18 @@ struct alignas(64) ExponentialBank {
         }
     }
 
-    /// Fold one sample in at a fixed window position (shared fallback cell —
-    /// several writers; the caller derives the position from the octave, so
-    /// the window never coarsens and totals stay exact under contention).
+    /// @brief Fold one sample into the fixed-window shared fallback bank.
+    ///
+    /// Every update is an atomic read-modify-write: `fetch_add` for counters and
+    /// sum, a compare-exchange loop for the extrema. The caller derives `position`
+    /// from the octave, so the window never coarsens and totals stay exact under
+    /// contention.
+    ///
+    /// @param position Fixed scale-0 window position in
+    ///        `[0, max_exponential_buckets)`.
+    /// @param value Positive finite sample value.
+    /// @note Spec `metrics/exponential-histogram`, requirement "Multi-threaded
+    ///       exponential histogram recording".
     void apply_multi_at(std::size_t position, double value) noexcept {
         buckets[position].fetch_add(1U, std::memory_order_relaxed);
         count.fetch_add(1U, std::memory_order_relaxed);
@@ -274,7 +384,18 @@ struct alignas(64) ExponentialBank {
                                               std::memory_order_relaxed)) {}
     }
 
-    /// Halve the resolution: buckets collapse pairwise, the window widens.
+    /// @brief Halve the resolution: buckets collapse pairwise, the window widens.
+    ///
+    /// Re-anchors `base_index` to the new coarser window and sums each pair of
+    /// adjacent buckets into one. Buckets that fall outside the new window fold
+    /// into its edge buckets, so the bucket totals still equal the sample count.
+    ///
+    /// @param lowest_index Lowest bucket index that must remain representable
+    ///        after coarsening.
+    /// @note Spec `metrics/exponential-histogram`, requirement "Bounded bucket
+    ///       storage and coarsening".
+    /// @note Scales down to 0; `apply_to_bank` folds into an edge bucket instead
+    ///       of coarsening further.
     void coarsen(std::int64_t lowest_index) noexcept {
         const std::int32_t scale = effective_scale.load(std::memory_order_relaxed);
         const std::int64_t base = base_index.load(std::memory_order_relaxed);
@@ -313,31 +434,62 @@ struct alignas(64) ExponentialBank {
     }
 };
 
-/// A recording slot: double-buffered banks plus the sequence handshake.
+/// @brief A recording slot: double-buffered banks plus the sequence handshake.
+///
+/// `active` selects the bank receiving new samples; `seq` is odd while a
+/// producer is mid-record. `alignas(64)` keeps each thread's slot on its own
+/// cache line.
 struct alignas(64) ExponentialSlot {
+    /// @brief The two banks a reset-on-read harvest swaps between.
     ExponentialBank bank[2];
+    /// @brief Sequence handshake: odd during a record, even when stable.
     std::atomic<std::uint32_t> seq{0};
+    /// @brief Index of the bank currently receiving samples.
     std::atomic<std::uint8_t> active{0};
 };
 
+/// @brief Bounded retry budget for the harvest sequence handshake.
+///
+/// A slot that stays busy for this many attempts is deferred to the next window
+/// with its contents untouched, so no sample is lost.
 inline constexpr int exponential_handshake_attempts = 64;
 
-/// Merged view of the exponential buckets at a common scale.
+/// @brief Merged view of exponential buckets at a common scale.
+///
+/// Harvests rebase every slot and the fallback bank into this frame, then render
+/// a `HistogramSnapshot` from it. `zeros` counts samples at exactly zero, which
+/// rank below every bucket; `empty` keeps min/max meaningful for an empty window.
 struct ExponentialMerge {
+    /// @brief Accumulated per-bucket counts in the merged window.
     std::uint64_t buckets[max_exponential_buckets]{};
+    /// @brief Accumulated positive sample count.
     std::uint64_t total{0};
+    /// @brief Accumulated count of exact-zero samples in the frame.
+    ///
+    /// Zeros rank below every positive bucket; the instrument tracks them in its
+    /// own zero counter, so harvests may leave this at zero.
     std::uint64_t zeros{0};
+    /// @brief Accumulated sum of recorded values.
     double sum{0.0};
+    /// @brief Smallest recorded value across banks; valid when `!empty`.
     double minimum{0.0};
+    /// @brief Largest recorded value across banks; valid when `!empty`.
     double maximum{0.0};
+    /// @brief Scale all buckets were rebased onto.
     std::int32_t scale{0};
+    /// @brief Bucket index of `buckets[0]`, or `unanchored_index`.
     std::int64_t base{unanchored_index};
+    /// @brief True until a bank with a non-zero count has been absorbed.
     bool empty{true};
 };
 
-/// Fold one bank view into the merged frame: rebase the bank's index space
-/// onto the merged scale (finer banks shift down, the scale-0 fallback up),
-/// folding out-of-window buckets into the edge buckets.
+/// @brief Fold one bank view into the merged frame at `merged_scale`.
+///
+/// Definition of the in-class declaration; see it for the full rebasing and
+/// edge-folding contract.
+///
+/// @note Spec `metrics/exponential-histogram`, requirement "Bounded bucket
+///       storage and coarsening".
 inline void ExponentialBank::merge_view(const View& view, ExponentialMerge& merged,
                                         std::int32_t merged_scale) noexcept {
     if (view.base_index == unanchored_index) {
@@ -389,24 +541,70 @@ inline void ExponentialBank::merge_view(const View& view, ExponentialMerge& merg
 
 } // namespace detail
 
-/// An exponentially bucketed histogram. Constructible only through a Meter.
+/// @brief A histogram with automatic base-2 exponential buckets.
+///
+/// Maps each positive finite sample to a bucket index in O(1) bounded work from
+/// the IEEE-754 exponent and mantissa, so recording needs no logarithm and no
+/// allocation. The configured `scale` sets the finest resolution: octave `e` is
+/// split into `2^scale` intervals of ratio `base = 2^(2^-scale)`. When the
+/// observed range cannot fit the 256 inline buckets, the instrument coarsens its
+/// effective scale (halving resolution) while keeping every sample counted.
+///
+/// `SingleThreaded` recording folds into one plain bank. `MultiThreaded`
+/// recording uses a `thread_local`-assigned exclusive slot per thread plus a
+/// shared, fixed-scale-0 fallback bank beyond the shard pool. Harvests are
+/// cold-path and merge the banks under a sequence handshake; `ResetOnRead` swaps
+/// the double-buffered bank so a racing record still lands in exactly one
+/// window.
+///
+/// @tparam Concurrency Recording policy: `SingleThreaded` (single writer) or
+///         `MultiThreaded` (per-thread shards plus a shared fallback).
+/// @tparam Access `Readable` exposes `read()` and `snapshot()`; `WriteOnly`
+///         removes both at compile time.
+/// @tparam Reset `Cumulative` keeps totals across reads; `ResetOnRead` reports
+///         and clears one window per observation.
+///
+/// @note Spec `metrics/exponential-histogram`, requirement "Exponential scale
+///       configuration".
+/// @note Construction is Meter-only: spec `metrics/metric-provider`,
+///       requirement "Factory hierarchy and passkey construction".
+/// @warning A `SingleThreaded` instrument is single-writer: reads and harvests
+///          must not run concurrently with recording unless the caller
+///          establishes happens-before.
 template <ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,
           AccessPolicy Access = AccessPolicy::Readable, ResetPolicy Reset = ResetPolicy::Cumulative>
 class ExponentialHistogram {
 public:
+    /// @brief `MetricKind` tag consumed by the concept and registry.
     static constexpr MetricKind kind = MetricKind::ExponentialHistogram;
+    /// @brief Concurrency policy this instantiation was created with.
     static constexpr ConcurrencyPolicy concurrency = Concurrency;
+    /// @brief Access policy this instantiation was created with.
     static constexpr AccessPolicy access = Access;
+    /// @brief Reset policy this instantiation was created with.
     static constexpr ResetPolicy reset = Reset;
 
+    /// @brief Deleted: instruments are non-copyable registry-owned handles.
     ExponentialHistogram(const ExponentialHistogram&) = delete;
+    /// @brief Deleted: instruments are non-copyable registry-owned handles.
     ExponentialHistogram& operator=(const ExponentialHistogram&) = delete;
+    /// @brief Deleted: instruments live at a fixed registry address.
     ExponentialHistogram(ExponentialHistogram&&) = delete;
+    /// @brief Deleted: instruments live at a fixed registry address.
     ExponentialHistogram& operator=(ExponentialHistogram&&) = delete;
 
-    /// Record one sample. Positive finite values land in a bucket, zeros are
-    /// counted separately (they rank below every bucket), negative and
-    /// non-finite values are ignored (and counted).
+    /// @brief Record one sample into its bucket and the running summary.
+    ///
+    /// Positive finite values land in a bucket, coarsening the window if needed.
+    /// Positive and negative zeros increment the zero counter (they rank below
+    /// every bucket in percentiles). Negative and non-finite values leave the
+    /// buckets and summary untouched and increment the ignored-sample counter.
+    ///
+    /// @param value Sample to record; sign and finiteness select its disposition.
+    /// @note Spec `metrics/exponential-histogram`, requirement "Value domain
+    ///       handling".
+    /// @warning Under `ConcurrencyPolicy::SingleThreaded` the caller must be the
+    ///          only writer.
     void record(double value) noexcept {
         if (!std::isfinite(value)) {
             ignored_.fetch_add(1U, std::memory_order_relaxed);
@@ -449,8 +647,20 @@ public:
         }
     }
 
-    /// Current snapshot (buckets, summary, percentiles). Available only for
-    /// Readable instruments.
+    /// @brief Take a snapshot of the current (or current window's) values.
+    ///
+    /// Finds the coarsest effective scale in play so every slot can be rebased
+    /// onto one axis, merges the slots and the fallback bank, then renders bucket
+    /// edges and computes `p50`/`p90`/`p99`/`p99.9` from bucket representatives
+    /// with zeros ranked first. Under `ResetOnRead` the merged banks and the zero
+    /// counter are consumed as they are read.
+    ///
+    /// @return `HistogramSnapshot` with effective scale, bucket edges and counts,
+    ///         summary, zero count, percentiles and ignored samples.
+    /// @note Spec `metrics/exponential-histogram`, requirement "Exponential
+    ///       histogram read surface".
+    /// @note Spec `metrics/exponential-histogram`, requirement "Exponential
+    ///       histogram reset windows".
     [[nodiscard]] HistogramSnapshot read() const
         requires(Access == AccessPolicy::Readable)
     {
@@ -526,7 +736,15 @@ public:
         return snapshot;
     }
 
-    /// Full record for this instrument (identity, classification, values).
+    /// @brief Build the full `MetricRecord` for this instrument.
+    ///
+    /// Combines the identity installed by the Meter, the policy classification
+    /// and the current histogram values from `read()`.
+    ///
+    /// @return `MetricRecord` carrying `MetricKind::ExponentialHistogram` and the
+    ///         histogram snapshot from `read()`.
+    /// @note Spec `metrics/exponential-histogram`, requirement "Exponential
+    ///       histogram read surface".
     [[nodiscard]] MetricRecord snapshot() const
         requires(Access == AccessPolicy::Readable)
     {
@@ -535,7 +753,14 @@ public:
         return record;
     }
 
-    /// Cold-path diagnostic (mandate 9). Never resets a window.
+    /// @brief Cold-path diagnostic string; never resets a window.
+    ///
+    /// @return Implementation-defined text naming the kind, policies and
+    ///         configured scale; the free `to_string` and `std::formatter`
+    ///         mirror it.
+    /// @note Project mandate 9: every public type renders `to_string()`.
+    /// @note Spec `metrics/exponential-histogram`, requirement "Exponential
+    ///       histogram serialization contract".
     [[nodiscard]] std::string to_string() const {
         std::string out = "ExponentialHistogram(kind=";
         detail::append_classification(out, kind, concurrency, access, reset);
@@ -544,8 +769,16 @@ public:
         return out;
     }
 
-    /// Diagnostic JSON (cold path). The instrument is NOT deserializable: its
-    /// construction is Meter-only.
+    /// @brief Diagnostic JSON for the instrument (cold path, write-only).
+    ///
+    /// Emits the policy classification and the configured scale. The instrument
+    /// is deliberately NOT deserializable: its construction is Meter-only.
+    ///
+    /// @param j JSON value overwritten with the instrument diagnostics.
+    /// @param histogram Instrument to describe.
+    /// @note Project mandate 10: JSON is the structured diagnostic surface.
+    /// @note Spec `metrics/exponential-histogram`, requirement "Exponential
+    ///       histogram serialization contract".
     friend void to_json(nlohmann::json& j, const ExponentialHistogram& histogram) {
         j = detail::classification_json(ExponentialHistogram::kind,
                                         ExponentialHistogram::concurrency,
@@ -557,6 +790,16 @@ private:
     friend class Meter;
     friend class MetricProvider;
 
+    /// @brief Meter-only constructor; the passkey proves factory authority.
+    ///
+    /// Seeds the configured scale into the single-threaded bank, both banks of
+    /// every slot, and the fallback bank, then warms the boundary table while
+    /// still on the cold path. The fallback bank keeps its fixed scale-0 window.
+    /// The unnamed `MeterPasskey` argument proves factory authority and carries
+    /// no state.
+    ///
+    /// @param scale Configured scale in `[0, max_exponential_scale]`, already
+    ///        validated by the Meter.
     explicit ExponentialHistogram(const MeterPasskey&, std::int32_t scale) noexcept
         : scale_(scale) {
         cell_.effective_scale.store(scale, std::memory_order_relaxed);
@@ -571,12 +814,28 @@ private:
         static_cast<void>(detail::bucket_lower_edge(0, scale));
     }
 
+    /// @brief Registry harvest hook: fill `record.histogram` from the instrument.
+    ///
+    /// @param object Type-erased pointer to this instrument.
+    /// @param record Record to populate in place.
+    /// @note Spec `metrics/metric-provider`, requirement "Background harvesting
+    ///       and collection period".
     static void harvest_thunk(void* object, MetricRecord& record) noexcept {
         const auto& self = *static_cast<const ExponentialHistogram*>(object);
         record.histogram = self.read();
     }
 
-    /// Map the value into the bank's window, coarsening when it does not fit.
+    /// @brief Map a value into the bank's window, coarsening when it does not fit.
+    ///
+    /// Anchors the window on the first sample. A position inside the 256 inline
+    /// buckets is recorded directly; otherwise the bank coarsens and retries, and
+    /// at scale 0 the sample folds into the nearest edge bucket so totals stay
+    /// exact.
+    ///
+    /// @param bank Bank to receive the sample.
+    /// @param value Positive finite sample value.
+    /// @note Spec `metrics/exponential-histogram`, requirement "Bounded bucket
+    ///       storage and coarsening".
     void apply_to_bank(detail::ExponentialBank& bank, double value) const noexcept {
         for (int guard = 0; guard < 64; ++guard) {
             const std::int32_t scale = bank.effective_scale.load(std::memory_order_relaxed);
@@ -605,7 +864,14 @@ private:
         }
     }
 
-    /// The lowest bucket index in play, expressed at the merged scale.
+    /// @brief Lowest bucket index in play, expressed at the merged scale.
+    ///
+    /// Scans the live bank(s) and, when no recorded slot is anchored, the
+    /// fallback bank's fixed scale-0 frame, so all banks share one rendered axis.
+    ///
+    /// @param merged_scale Coarsest scale among the contributing banks.
+    /// @return The lowest rebased index, or `detail::unanchored_index` when
+    ///         nothing has been recorded.
     [[nodiscard]] std::int64_t compute_merged_base(std::int32_t merged_scale) const noexcept {
         std::int64_t lowest = detail::unanchored_index;
         const auto consider = [&](const detail::ExponentialBank& bank) {
@@ -640,17 +906,30 @@ private:
         return lowest;
     }
 
-    /// Merge one bank without consuming it (Cumulative paths).
+    /// @brief Merge one bank without consuming it (Cumulative fallback path).
+    ///
+    /// @param bank Bank to copy and absorb.
+    /// @param merged Accumulator receiving the rebased buckets and summary.
+    /// @param merged_scale Scale of the merged frame.
     void merge_bank(detail::ExponentialBank& bank, detail::ExponentialMerge& merged,
                     std::int32_t merged_scale) const noexcept {
         detail::ExponentialBank::merge_view(bank.load_view(), merged, merged_scale);
     }
 
-    /// Merge one slot under the seq handshake (design D9): the bank is copied
-    /// into a plain view and — for ResetOnRead — cleared only while the
-    /// sequence proves no producer is mid-record. A stalled slot is deferred
-    /// to a later window with its contents untouched, so every record lands
-    /// in exactly one window.
+    /// @brief Merge one recording slot under the sequence handshake (design D9).
+    ///
+    /// The bank is copied into a plain view and, for `ResetOnRead`, cleared only
+    /// while the sequence proves no producer is mid-record. A stalled slot is
+    /// deferred to a later window with its contents untouched, so every record
+    /// lands in exactly one window.
+    ///
+    /// @param index Recording-slot index in `[0, detail::shard_count)`.
+    /// @param merged Accumulator receiving the rebased buckets and summary.
+    /// @param merged_scale Scale of the merged frame.
+    /// @note Spec `metrics/exponential-histogram`, requirement "Exponential
+    ///       histogram reset windows".
+    /// @note Spec `metrics/exponential-histogram`, requirement "Multi-threaded
+    ///       exponential histogram recording".
     void merge_slot(std::size_t index, detail::ExponentialMerge& merged,
                     std::int32_t merged_scale) const noexcept {
         auto& slot = slots_[index];
@@ -683,7 +962,14 @@ private:
         // Deferred to a later window: the bank is left untouched (no loss).
     }
 
-    /// Percentiles from the bucket table (bucket midpoints, zeros first).
+    /// @brief Fill the four percentiles from the rendered bucket table.
+    ///
+    /// Leaves them at zero when no samples were recorded.
+    ///
+    /// @param snapshot Snapshot whose buckets, zero count and summary are read
+    ///        and whose `p50`/`p90`/`p99`/`p999` fields are written.
+    /// @note Spec `metrics/exponential-histogram`, requirement "Exponential
+    ///       histogram percentile snapshots".
     void compute_percentiles(HistogramSnapshot& snapshot) const noexcept {
         if (snapshot.count == 0U) {
             return;
@@ -697,6 +983,16 @@ private:
         snapshot.p999 = percentile_of(snapshot, rank_of(0.999));
     }
 
+    /// @brief Interpolate one quantile from the bucket table.
+    ///
+    /// Zeros rank first and report `0.0`; a positive sample reports the midpoint
+    /// between its bucket's lower edge and the next bucket's lower edge.
+    ///
+    /// @param snapshot Merged snapshot supplying buckets, zero count and max.
+    /// @param rank Absolute rank in `(0, count]`, not a fraction.
+    /// @return Representative value, or `snapshot.max` when no bucket matches.
+    /// @note Spec `metrics/exponential-histogram`, requirement "Exponential
+    ///       histogram percentile snapshots".
     [[nodiscard]] double percentile_of(const HistogramSnapshot& snapshot,
                                        double rank) const noexcept {
         if (snapshot.zero_count > 0U && rank <= static_cast<double>(snapshot.zero_count)) {
@@ -719,15 +1015,21 @@ private:
         return snapshot.max;
     }
 
-    /// Identity of the owning registry slot (set by the Meter at creation).
+    /// @brief Identity of the owning registry slot (set by the Meter).
     const MetricIdentity* identity_{nullptr};
 
+    /// @brief Configured (finest) scale reported by `to_string()` and snapshots.
     std::int32_t scale_{0};
 
-    mutable detail::ExponentialBank cell_{};                       // SingleThreaded
-    mutable detail::ExponentialSlot slots_[detail::shard_count]{}; // MultiThreaded
-    mutable detail::ExponentialBank fallback_{};                   // shared >32-thread cell
+    /// @brief SingleThreaded recording bank.
+    mutable detail::ExponentialBank cell_{};
+    /// @brief MultiThreaded per-thread recording slots.
+    mutable detail::ExponentialSlot slots_[detail::shard_count]{};
+    /// @brief Shared fixed-scale fallback bank beyond the shard pool.
+    mutable detail::ExponentialBank fallback_{};
+    /// @brief Count of rejected negative/non-finite samples.
     mutable std::atomic<std::uint64_t> ignored_{0};
+    /// @brief Count of accepted samples at exactly zero (both signed zeros).
     mutable std::atomic<std::uint64_t> zero_count_{0};
 };
 
@@ -756,7 +1058,15 @@ static_assert(
                                               AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
     "a WriteOnly exponential histogram must not expose snapshot()");
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free `to_string` overload mirroring the member (project mandate 9).
+///
+/// @tparam Concurrency Recording policy of the instrument.
+/// @tparam Access Access policy of the instrument.
+/// @tparam Reset Reset policy of the instrument.
+/// @param histogram Instrument to render.
+/// @return The same diagnostic text as `histogram.to_string()`.
+/// @note Spec `metrics/exponential-histogram`, requirement "Exponential
+///       histogram serialization contract".
 template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::AccessPolicy Access,
           nexigen::metrics::ResetPolicy Reset>
 [[nodiscard]] std::string
@@ -766,11 +1076,27 @@ to_string(const nexigen::metrics::ExponentialHistogram<Concurrency, Access, Rese
 
 } // namespace nexigen::metrics
 
-/// Exponential histograms format as their diagnostic string (mandate 11).
+/// @brief `std::formatter` that renders a histogram as its diagnostic string.
+///
+/// Inherits the `std::string_view` formatter, so format specs apply to the
+/// rendered text (project mandate 11).
+///
+/// @tparam Concurrency Recording policy of the instrument.
+/// @tparam Access Access policy of the instrument.
+/// @tparam Reset Reset policy of the instrument.
+/// @note Spec `metrics/exponential-histogram`, requirement "Exponential
+///       histogram serialization contract".
 template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::AccessPolicy Access,
           nexigen::metrics::ResetPolicy Reset>
 struct std::formatter<nexigen::metrics::ExponentialHistogram<Concurrency, Access, Reset>>
     : std::formatter<std::string_view> {
+    /// @brief Format the instrument by delegating to its `to_string()`.
+    ///
+    /// @tparam Ctx Format context type supplied by `std::format`.
+    /// @param histogram Instrument to render.
+    /// @param ctx Output context to append the text to.
+    /// @return Iterator past the last character written.
+    /// @note Project mandate 11: `std::formatter` support for diagnostics.
     template <class Ctx>
     auto format(const nexigen::metrics::ExponentialHistogram<Concurrency, Access, Reset>& histogram,
                 Ctx& ctx) const {

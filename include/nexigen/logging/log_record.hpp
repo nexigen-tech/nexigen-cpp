@@ -42,14 +42,14 @@
 #pragma once
 
 #ifndef NEXIGEN_LOG_MESSAGE_CAPACITY
+/// @brief Default inline argument-blob size of `LogRecord`, in bytes.
+///
+/// Define `NEXIGEN_LOG_MESSAGE_CAPACITY` before including this header (for
+/// example `-DNEXIGEN_LOG_MESSAGE_CAPACITY=256`) to override the default; when
+/// it is left undefined the blob holds 128 bytes. The value must stay within
+/// the `LogRecord` static assertion's `[16, 0xFFFF]` window.
 #define NEXIGEN_LOG_MESSAGE_CAPACITY 128
 #endif
-/*
- * Configurable message capacity for LogRecord.
- * Users can define NEXIGEN_LOG_MESSAGE_CAPACITY before including this header
- * (e.g. via -DNEXIGEN_LOG_MESSAGE_CAPACITY=256) to change the default.
- * If undefined, the default is 128.
- */
 
 #include <array>
 #include <cstddef>
@@ -65,29 +65,64 @@
 
 namespace nexigen::logging {
 
-/// Type-erased render callback: reads the record's format pointer + argument
-/// blob, writes at most `cap` bytes into `out`, returns bytes written.
-/// noexcept; matched exactly by detail::render_impl<MessageCapacity, Args...>.
+/// @brief Type-erased render callback invoked on the consumer thread.
+///
+/// Reads the record's format pointer and argument blob, renders into `out` with
+/// at most `cap` bytes, and returns the bytes written. The signature is matched
+/// exactly by `detail::render_impl<MessageCapacity, Args...>`, generated at
+/// compile time for each argument pack; the producer never invokes it.
+///
+/// @note Spec `logging/log-record`, requirement "Deferred type-erased argument
+///       formatting" and requirement "Consumer-side rendering of packed records".
 using record_render_fn = std::size_t (*)(const char* fmt, const char* blob,
                                          std::uint16_t blob_length, char* out,
                                          std::size_t cap) noexcept;
 
-/// Fixed-capacity log record: template over the inline argument blob size.
+/// @brief Fixed-capacity, cache-line-aligned record crossing the shard boundary.
+///
+/// The value type stored in the per-thread SPSC shards. It is trivially
+/// copyable and owns no heap memory: the format-string pointer, the location
+/// pointers and the type-erased render callback all reference program-static or
+/// record-owned storage, and string-like arguments are copied into
+/// `arg_payload_` at emit time. The producer only packs; the consumer renders.
+///
+/// @tparam MessageCapacity Inline argument-blob size in bytes; must lie in
+///         `[16, 0xFFFF]` so `arg_length` can address it. Defaults to
+///         `NEXIGEN_LOG_MESSAGE_CAPACITY`.
+/// @note Spec `logging/log-record`, requirement "Fixed-size trivially-copyable
+///       record".
+/// @note Spec `logging/multi-producer`, requirement "Pre-allocated per-thread
+///       shard array": one record lives in exactly one shard owned by one
+///       producer thread.
 template <std::size_t MessageCapacity = NEXIGEN_LOG_MESSAGE_CAPACITY> struct alignas(64) LogRecord {
     static_assert(MessageCapacity >= 16 && MessageCapacity <= 0xFFFF,
                   "argument blob must be positive and addressable by uint16 length");
 
+    /// @brief Report the compile-time inline argument-blob size.
+    ///
+    /// @return `MessageCapacity`, the usable bytes of `arg_payload_`.
+    /// @note Spec `logging/log-record`, requirement "Fixed-size trivially-copyable
+    ///       record": the size is a compile-time constant with no heap indirection.
     [[nodiscard]] static constexpr std::size_t message_capacity() noexcept {
         return MessageCapacity;
     }
 
-    /// Render the deferred format into caller scratch (consumer thread).
-    /// Returns bytes written; sets the render-truncation flag when the output
-    /// consumed the whole buffer (the text is complete-or-bounded, never
-    /// half-emitted downstream because sinks cap at the returned length).
-    /// A default record (no render callback) produces an empty message.
-    /// Non-const by design: the flag write documents the truncation in the
-    /// consumer's own popped copy, never in a producer-visible slot.
+    /// @brief Render the deferred format into caller-provided scratch.
+    ///
+    /// Consumer-side only: invokes `render` with this record's format pointer and
+    /// argument blob. A default record (no callback) or a zero-capacity buffer
+    /// yields an empty message. The returned length is authoritative — sinks cap
+    /// their copy at it, so truncated text is complete-or-bounded, never
+    /// half-emitted downstream.
+    ///
+    /// @param out Destination scratch; must hold at least `cap` writable bytes.
+    /// @param cap Capacity of `out` in bytes; `0` disables rendering.
+    /// @return Bytes written into `out`, in `[0, cap]`.
+    /// @note Sets the render-truncation flag when the output consumed the whole
+    ///       buffer. Non-const by design: the flag is written in the consumer's
+    ///       own popped copy, never in a producer-visible slot.
+    /// @note Spec `logging/log-record`, requirement "Consumer-side rendering of
+    ///       packed records", scenario "Render overflow is bounded".
     std::size_t render_into(char* out, std::size_t cap) noexcept {
         if (render == nullptr || cap == 0U) {
             return 0U;
@@ -99,16 +134,32 @@ template <std::size_t MessageCapacity = NEXIGEN_LOG_MESSAGE_CAPACITY> struct ali
         return written;
     }
 
+    /// @brief Test whether the packer had to shorten an inline argument copy.
+    ///
+    /// @return `true` when the argument blob was truncated at pack time (bit 0
+    ///         of `flags`), so the rendered message is shorter than the call
+    ///         site's full argument text.
+    /// @note Spec `logging/log-record`, requirement "Fixed-size trivially-copyable
+    ///       record", scenario "String-like arguments are copied into
+    ///       record-owned storage".
     [[nodiscard]] bool args_truncated() const noexcept {
         return (flags & detail::flag_args_truncated) != 0U;
     }
+    /// @brief Test whether consumer rendering ran out of scratch capacity.
+    ///
+    /// @return `true` when the last `render_into()` filled its whole buffer (bit
+    ///         1 of `flags`).
     [[nodiscard]] bool render_truncated() const noexcept {
         return (flags & detail::flag_render_truncated) != 0U;
     }
 
-    /// Cold-path diagnostic (mandate 9; spec logging/log-record): raw record
-    /// dump — stamps/level/location/format text/argument accounting. For a
-    /// rendered view, format into scratch first and inspect the buffer.
+    /// @brief Render a raw record dump for cold-path diagnostics.
+    ///
+    /// @return Stamp, level, thread id, location triplet, format text, used
+    ///         argument bytes and the raw flags — not the rendered message.
+    /// @note Mandate 9 (`to_string`), and spec `logging/log-record`, requirement
+    ///       "LogRecord diagnostic string"; for a rendered view, format into
+    ///       scratch first and inspect that buffer. Never call this on a hot path.
     [[nodiscard]] std::string to_string() const {
         std::string out = "LogRecord(";
         out += "stamp=" + chrono::to_string(stamp);
@@ -123,21 +174,31 @@ template <std::size_t MessageCapacity = NEXIGEN_LOG_MESSAGE_CAPACITY> struct ali
         return out;
     }
 
-    chrono::Timestamp stamp{};                  ///< monotonic nanoseconds
-    std::uint32_t thread_id{};                  ///< cached SYS_gettid
-    core::LogLevel level{core::LogLevel::Info}; ///< severity
-    std::uint8_t flags{};                       ///< bit0 args, bit1 render
-    std::uint16_t arg_length{};                 ///< bytes of arg_payload_ in use
-    const char* file_name{};                    ///< source_location::file_name
-    const char* function_name{};                ///< source_location::function_name
-    std::uint32_t line{};                       ///< source_location::line
-    const char* fmt{};                          ///< checked format literal
-    record_render_fn render{};                  ///< type-erased pack renderer
-    /// 8-aligned so the payload starts at offset 56 (design D4 layout table).
-    alignas(std::uint64_t) std::array<char, MessageCapacity> arg_payload_{}; ///< inline pack blob
+    chrono::Timestamp stamp{};                  ///< Monotonic nanoseconds, chrono domain.
+    std::uint32_t thread_id{};                  ///< Cached Linux `SYS_gettid` of the producer.
+    core::LogLevel level{core::LogLevel::Info}; ///< Severity carried by the record.
+    std::uint8_t flags{};                       ///< Bit 0 args trunc; bit 1 render trunc.
+    std::uint16_t arg_length{};                 ///< Used bytes of `arg_payload_` (per pack).
+    const char* file_name{};                    ///< `source_location::file_name`, static.
+    const char* function_name{};                ///< `source_location::function_name`, static.
+    std::uint32_t line{};                       ///< `source_location::line` of the call site.
+    const char* fmt{};                          ///< Checked format literal, static storage.
+    record_render_fn render{};                  ///< Pack renderer (`nullptr` = default record).
+    /// @brief Inline argument blob, 8-aligned so it starts at offset 56.
+    ///
+    /// Holds the packed, trivially copyable argument bytes; string-like values
+    /// are copied in and truncated to capacity when too long. The layout matches
+    /// the design D4 offset table.
+    alignas(std::uint64_t) std::array<char, MessageCapacity> arg_payload_{};
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free helper mirroring `LogRecord::to_string` for generic call sites.
+///
+/// @tparam MessageCapacity Inline argument-blob size of the record being dumped.
+/// @param rec Record to render; may be a default-populated record.
+/// @return The same text as `rec.to_string()`.
+/// @note Mandate 9 (`to_string`), and spec `logging/log-record`, requirement
+///       "LogRecord diagnostic string".
 template <std::size_t MessageCapacity = NEXIGEN_LOG_MESSAGE_CAPACITY>
 [[nodiscard]] std::string to_string(const LogRecord<MessageCapacity>& rec) {
     return rec.to_string();

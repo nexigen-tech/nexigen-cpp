@@ -38,31 +38,62 @@ template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::Acc
           nexigen::metrics::ResetPolicy Reset>
 class ExplicitBucketHistogram;
 
-/// Construction guard: only a Meter may create instruments.
+/// @brief Construction guard: only a Meter may create instruments.
+///
+/// Forward-declared so instrument constructors can take it by reference; the
+/// complete definition lives in `meter.hpp`.
 class MeterPasskey;
 
 namespace detail {
 
-/// Maximum number of explicit bucket upper bounds.
+/// @brief Maximum number of explicit bucket upper bounds an instrument stores.
+///
+/// The inline array adds one overflow bucket on top of these, so a bank owns at
+/// most `max_explicit_bounds + 1` bucket counters.
 inline constexpr std::size_t max_explicit_bounds = 64;
 
-/// One histogram bank: bucket counts plus the running summary.
+/// @brief One histogram bank: per-bucket counters plus the running summary.
+///
+/// A bank is the consistency unit of the instrument: recording folds a sample
+/// into one bank, and a harvest copies the whole bank out under the sequence
+/// handshake. The `alignas(64)` keeps a slot's banks off neighbouring threads'
+/// cache lines.
+///
+/// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+///       recording and aggregation".
 struct alignas(64) HistogramBank {
-    /// Plain copy of one bank's contents (harvest side).
+    /// @brief Plain, non-atomic copy of one bank's contents (harvest side).
+    ///
+    /// `buckets` holds `max_explicit_bounds + 1` counters, the last one being
+    /// the overflow bucket. A bank with `count == 0` yields `minimum` at
+    /// +infinity and `maximum` at -infinity.
     struct View {
+        /// @brief Per-bucket sample counts, overflow bucket last.
         std::uint64_t buckets[max_explicit_bounds + 1]{};
+        /// @brief Total samples folded into the bank.
         std::uint64_t count{0};
+        /// @brief Sum of the recorded values.
         double sum{0.0};
+        /// @brief Smallest recorded value; meaningful only when `count > 0`.
         double minimum{0.0};
+        /// @brief Largest recorded value; meaningful only when `count > 0`.
         double maximum{0.0};
     };
 
+    /// @brief Bucket counters, indexed as in `View::buckets`.
     std::atomic<std::uint64_t> buckets[max_explicit_bounds + 1]{};
+    /// @brief Total samples folded into the bank.
     std::atomic<std::uint64_t> count{0};
+    /// @brief Sum of the recorded values.
     std::atomic<double> sum{0.0};
+    /// @brief Smallest recorded value, seeded at +infinity.
     std::atomic<double> minimum{std::numeric_limits<double>::infinity()};
+    /// @brief Largest recorded value, seeded at -infinity.
     std::atomic<double> maximum{-std::numeric_limits<double>::infinity()};
 
+    /// @brief Reset the bank to empty: zero counts and both extrema at infinity.
+    ///
+    /// Cold path; only a harvest holding the sequence handshake may call it.
     void clear() noexcept {
         for (std::size_t i = 0; i < max_explicit_bounds + 1U; ++i) {
             buckets[i].store(0, std::memory_order_relaxed);
@@ -73,7 +104,11 @@ struct alignas(64) HistogramBank {
         maximum.store(-std::numeric_limits<double>::infinity(), std::memory_order_relaxed);
     }
 
-    /// Non-consuming copy (single-writer banks, under the seq handshake).
+    /// @brief Copy the bank without consuming it (Cumulative harvests).
+    ///
+    /// @return A plain `View` of the current counts and summary.
+    /// @note Callers must hold the sequence handshake while copying a
+    ///       multi-writer bank; the loads themselves are relaxed.
     [[nodiscard]] View load_view() const noexcept {
         View view{};
         for (std::size_t i = 0; i < max_explicit_bounds + 1U; ++i) {
@@ -86,8 +121,14 @@ struct alignas(64) HistogramBank {
         return view;
     }
 
-    /// Consuming copy for the multi-writer fallback cell: per-field RMW
-    /// exchanges land each update in exactly one window (design D15).
+    /// @brief Consuming copy for the multi-writer fallback bank.
+    ///
+    /// Each field is exchanged to its empty value, so every update lands in
+    /// exactly one window even when several threads record concurrently.
+    ///
+    /// @return A plain `View` of the harvested counts and summary.
+    /// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+    ///       reset windows"; per-field straddle is documented in design D15.
     [[nodiscard]] View take_view() noexcept {
         View view{};
         for (std::size_t i = 0; i < max_explicit_bounds + 1U; ++i) {
@@ -102,7 +143,15 @@ struct alignas(64) HistogramBank {
         return view;
     }
 
-    /// Fold one sample in (exclusive slot — single writer).
+    /// @brief Fold one sample into an exclusive bank (single writer).
+    ///
+    /// Plain load/store pairs: no atomic RMW and no cross-core contention.
+    /// The first sample seeds `minimum` and `maximum`.
+    ///
+    /// @param value Sample to account for; must be finite.
+    /// @param bucket Bucket index in `[0, max_explicit_bounds]`.
+    /// @warning Exclusive-slot use only: the caller must be the sole writer of
+    ///          this bank, guarded by the sequence handshake.
     void apply(double value, std::size_t bucket) noexcept {
         const std::uint64_t seen = count.load(std::memory_order_relaxed);
         buckets[bucket].store(buckets[bucket].load(std::memory_order_relaxed) + 1U,
@@ -122,7 +171,15 @@ struct alignas(64) HistogramBank {
         }
     }
 
-    /// Fold one sample in (shared fallback cell — several writers).
+    /// @brief Fold one sample into the shared fallback bank (several writers).
+    ///
+    /// Every update is an atomic read-modify-write: `fetch_add` for counters and
+    /// sum, a compare-exchange loop for the extrema.
+    ///
+    /// @param value Sample to account for; must be finite.
+    /// @param bucket Bucket index in `[0, max_explicit_bounds]`.
+    /// @note Spec `metrics/explicit-histogram`, requirement "Multi-threaded
+    ///       explicit histogram recording".
     void apply_multi(double value, std::size_t bucket) noexcept {
         buckets[bucket].fetch_add(1U, std::memory_order_relaxed);
         count.fetch_add(1U, std::memory_order_relaxed);
@@ -138,24 +195,55 @@ struct alignas(64) HistogramBank {
     }
 };
 
-/// A recording slot: double-buffered banks plus the sequence handshake.
+/// @brief A recording slot: double-buffered banks plus the sequence handshake.
+///
+/// `active` selects the bank receiving new samples; `seq` is odd while a
+/// producer is mid-record. Harvests read the inactive bank (ResetOnRead) or the
+/// active one (Cumulative) only while `seq` is stable. `alignas(64)` keeps each
+/// thread's slot on its own cache line.
 struct alignas(64) HistogramSlot {
+    /// @brief The two banks a reset-on-read harvest swaps between.
     HistogramBank bank[2];
+    /// @brief Sequence handshake: odd during a record, even when stable.
     std::atomic<std::uint32_t> seq{0};
+    /// @brief Index of the bank currently receiving samples.
     std::atomic<std::uint8_t> active{0};
 };
 
+/// @brief Bounded retry budget for the harvest sequence handshake.
+///
+/// A slot that stays busy for this many attempts is deferred to the next
+/// window with its contents untouched, so no sample is lost.
 inline constexpr int histogram_handshake_attempts = 64;
 
-/// Merged view of one or more banks.
+/// @brief Merged view of one or more banks in a common bucket layout.
+///
+/// Harvests accumulate every slot and the fallback bank into one `HistogramMerge`,
+/// then render a `HistogramSnapshot` from it. `empty` records whether any bank
+/// contributed a sample, keeping min/max meaningful for an empty window.
 struct HistogramMerge {
+    /// @brief Accumulated per-bucket counts, overflow bucket last.
     std::uint64_t buckets[max_explicit_bounds + 1]{};
+    /// @brief Accumulated sample count across all contributing banks.
     std::uint64_t total{0};
+    /// @brief Accumulated sum of recorded values.
     double sum{0.0};
+    /// @brief Smallest recorded value across banks; valid when `!empty`.
     double minimum{0.0};
+    /// @brief Largest recorded value across banks; valid when `!empty`.
     double maximum{0.0};
+    /// @brief True until a bank with a non-zero count has been absorbed.
     bool empty{true};
 
+    /// @brief Fold one bank view into the merged totals.
+    ///
+    /// Adds bucket counts, count and sum; min/max widen only for a view that
+    /// carries samples, so an empty bank cannot poison the extrema.
+    ///
+    /// @param view Bank copy produced by `HistogramBank::load_view` or
+    ///        `HistogramBank::take_view`.
+    /// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+    ///       percentile snapshots".
     void absorb_view(const detail::HistogramBank::View& view) noexcept {
         for (std::size_t i = 0; i < max_explicit_bounds + 1U; ++i) {
             buckets[i] += view.buckets[i];
@@ -185,22 +273,67 @@ struct HistogramMerge {
 
 } // namespace detail
 
-/// A histogram with caller-defined buckets. Constructible only through a Meter.
+/// @brief A histogram with caller-defined bucket upper bounds.
+///
+/// Counts samples into one bucket per caller-supplied bound plus a final
+/// overflow bucket. The bounds are installed once by the owning Meter and are
+/// immutable afterwards, so the bucket layout of every snapshot is stable.
+///
+/// `SingleThreaded` recording folds into one plain bank. `MultiThreaded`
+/// recording uses a `thread_local`-assigned exclusive slot per thread and a
+/// shared fallback bank beyond the shard pool, so `record()` is allocation-free
+/// and needs no lock in either mode. Harvests are cold-path and merge the banks
+/// under a sequence handshake; `ResetOnRead` swaps the double-buffered bank so a
+/// racing record still lands in exactly one window.
+///
+/// @tparam Concurrency Recording policy: `SingleThreaded` (single writer) or
+///         `MultiThreaded` (per-thread shards plus a shared fallback).
+/// @tparam Access `Readable` exposes `read()` and `snapshot()`; `WriteOnly`
+///         removes both at compile time.
+/// @tparam Reset `Cumulative` keeps totals across reads; `ResetOnRead` reports
+///         and clears one window per observation.
+///
+/// @note Spec `metrics/explicit-histogram`, requirement "Explicit bucket
+///       configuration".
+/// @note Construction is Meter-only: spec `metrics/metric-provider`,
+///       requirement "Factory hierarchy and passkey construction".
+/// @warning A `SingleThreaded` instrument is single-writer: reads and harvests
+///          must not run concurrently with recording unless the caller
+///          establishes happens-before.
 template <ConcurrencyPolicy Concurrency = ConcurrencyPolicy::SingleThreaded,
           AccessPolicy Access = AccessPolicy::Readable, ResetPolicy Reset = ResetPolicy::Cumulative>
 class ExplicitBucketHistogram {
 public:
+    /// @brief `MetricKind` tag consumed by the concept and registry.
     static constexpr MetricKind kind = MetricKind::ExplicitHistogram;
+    /// @brief Concurrency policy this instantiation was created with.
     static constexpr ConcurrencyPolicy concurrency = Concurrency;
+    /// @brief Access policy this instantiation was created with.
     static constexpr AccessPolicy access = Access;
+    /// @brief Reset policy this instantiation was created with.
     static constexpr ResetPolicy reset = Reset;
 
+    /// @brief Deleted: instruments are non-copyable registry-owned handles.
     ExplicitBucketHistogram(const ExplicitBucketHistogram&) = delete;
+    /// @brief Deleted: instruments are non-copyable registry-owned handles.
     ExplicitBucketHistogram& operator=(const ExplicitBucketHistogram&) = delete;
+    /// @brief Deleted: instruments live at a fixed registry address.
     ExplicitBucketHistogram(ExplicitBucketHistogram&&) = delete;
+    /// @brief Deleted: instruments live at a fixed registry address.
     ExplicitBucketHistogram& operator=(ExplicitBucketHistogram&&) = delete;
 
-    /// Record one sample. Non-finite samples are ignored (and counted).
+    /// @brief Record one sample into its bucket and the running summary.
+    ///
+    /// Non-finite samples leave the buckets and summary untouched and increment
+    /// the ignored-sample counter instead. Finite samples increment exactly one
+    /// bucket, the count, the sum, and widen min/max as needed, with bounded
+    /// comparison work over the inline bounds and no heap allocation.
+    ///
+    /// @param value Sample to record; NaN and infinities are ignored visibly.
+    /// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+    ///       recording and aggregation".
+    /// @warning Under `ConcurrencyPolicy::SingleThreaded` the caller must be the
+    ///          only writer.
     void record(double value) noexcept {
         if (!std::isfinite(value)) {
             ignored_.fetch_add(1U, std::memory_order_relaxed);
@@ -226,8 +359,20 @@ public:
         }
     }
 
-    /// Current snapshot (bucket counts, summary, percentiles). Available only
-    /// for Readable instruments.
+    /// @brief Take a snapshot of the current (or current window's) values.
+    ///
+    /// Merges every recording slot plus the shared fallback bank, renders the
+    /// bounds and bucket counts, and computes `p50`/`p90`/`p99`/`p99.9` by
+    /// linear interpolation inside the containing bucket. Under `ResetOnRead`
+    /// the merged bank is cleared as it is consumed, so each call reports only
+    /// samples recorded since the previous one.
+    ///
+    /// @return `HistogramSnapshot` with bounds, counts, summary, percentiles and
+    ///         the ignored-sample count.
+    /// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+    ///       read surface".
+    /// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+    ///       reset windows".
     [[nodiscard]] HistogramSnapshot read() const
         requires(Access == AccessPolicy::Readable)
     {
@@ -262,7 +407,15 @@ public:
         return snapshot;
     }
 
-    /// Full record for this instrument (identity, classification, values).
+    /// @brief Build the full `MetricRecord` for this instrument.
+    ///
+    /// Combines the identity installed by the Meter, the policy classification
+    /// and the current histogram values from `read()`.
+    ///
+    /// @return `MetricRecord` carrying `MetricKind::ExplicitHistogram` and the
+    ///         histogram snapshot from `read()`.
+    /// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+    ///       read surface".
     [[nodiscard]] MetricRecord snapshot() const
         requires(Access == AccessPolicy::Readable)
     {
@@ -271,7 +424,13 @@ public:
         return record;
     }
 
-    /// Cold-path diagnostic (mandate 9). Never resets a window.
+    /// @brief Cold-path diagnostic string; never resets a window.
+    ///
+    /// @return Implementation-defined text naming the kind, policies and bound
+    ///         count; the free `to_string` and `std::formatter` mirror it.
+    /// @note Project mandate 9: every public type renders `to_string()`.
+    /// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+    ///       serialization contract".
     [[nodiscard]] std::string to_string() const {
         std::string out = "ExplicitBucketHistogram(kind=";
         detail::append_classification(out, kind, concurrency, access, reset);
@@ -280,8 +439,16 @@ public:
         return out;
     }
 
-    /// Diagnostic JSON (cold path). The instrument is NOT deserializable: its
-    /// construction is Meter-only.
+    /// @brief Diagnostic JSON for the instrument (cold path, write-only).
+    ///
+    /// Emits the policy classification and the bound count. The instrument is
+    /// deliberately NOT deserializable: its construction is Meter-only.
+    ///
+    /// @param j JSON value overwritten with the instrument diagnostics.
+    /// @param histogram Instrument to describe.
+    /// @note Project mandate 10: JSON is the structured diagnostic surface.
+    /// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+    ///       serialization contract".
     friend void to_json(nlohmann::json& j, const ExplicitBucketHistogram& histogram) {
         j = detail::classification_json(
             ExplicitBucketHistogram::kind, ExplicitBucketHistogram::concurrency,
@@ -293,9 +460,24 @@ private:
     friend class Meter;
     friend class MetricProvider;
 
+    /// @brief Meter-only constructor; the passkey proves factory authority.
+    ///
+    /// Creates an empty instrument with no bounds installed yet; the Meter
+    /// follows up with `install_bounds` before publishing the slot. The
+    /// unnamed `MeterPasskey` argument proves factory authority and carries no
+    /// state.
     explicit ExplicitBucketHistogram(const MeterPasskey&) noexcept {}
 
-    /// The Meter installs the validated bounds after construction.
+    /// @brief Install the validated bucket bounds (Meter cold path).
+    ///
+    /// Copies up to `max_explicit_bounds` finite, strictly increasing upper
+    /// bounds into the inline array and records their count. Called once,
+    /// before the instrument is published to the harvester.
+    ///
+    /// @param bounds Caller-owned bounds array; must be validated by the caller.
+    /// @param count Number of bounds, at most `detail::max_explicit_bounds`.
+    /// @warning Must not race recording: only the Meter calls this, on the
+    ///          freshly constructed object.
     void install_bounds(const double* bounds, std::uint32_t count) noexcept {
         for (std::uint32_t i = 0; i < count; ++i) {
             bounds_[i] = bounds[i];
@@ -303,13 +485,26 @@ private:
         bound_count_ = count;
     }
 
+    /// @brief Registry harvest hook: fill `record.histogram` from the instrument.
+    ///
+    /// @param object Type-erased pointer to this instrument.
+    /// @param record Record to populate in place.
+    /// @note Spec `metrics/metric-provider`, requirement "Background harvesting
+    ///       and collection period".
     static void harvest_thunk(void* object, MetricRecord& record) noexcept {
         const auto& self = *static_cast<const ExplicitBucketHistogram*>(object);
         record.histogram = self.read();
     }
 
-    /// Bucket index: the first bucket whose upper bound is >= value, or the
-    /// overflow bucket when the value is above the last bound.
+    /// @brief Locate the bucket for a value with a binary search over the bounds.
+    ///
+    /// Returns the first bucket whose upper bound is `>= value`, or the overflow
+    /// bucket when the value is above the last bound.
+    ///
+    /// @param value Finite sample value.
+    /// @return Bucket index in `[0, bound_count_]`.
+    /// @note Spec `metrics/explicit-histogram`, requirement "Explicit bucket
+    ///       configuration".
     [[nodiscard]] std::size_t bucket_of(double value) const noexcept {
         std::size_t low = 0;
         std::size_t high = bound_count_;
@@ -324,7 +519,10 @@ private:
         return low;
     }
 
-    /// Lower edge of a bucket (used for percentile interpolation).
+    /// @brief Lower edge of a bucket, used for percentile interpolation.
+    ///
+    /// @param bucket Bucket index.
+    /// @return Previous bound, or `0.0` for bucket 0 and out-of-range indices.
     [[nodiscard]] double lower_edge(std::size_t bucket) const noexcept {
         if (bucket == 0U || bucket > bound_count_) {
             return 0.0;
@@ -332,7 +530,10 @@ private:
         return bounds_[bucket - 1U];
     }
 
-    /// Upper edge of a bucket.
+    /// @brief Upper edge of a bucket.
+    ///
+    /// @param bucket Bucket index.
+    /// @return The bucket's own bound, or `0.0` for the unbounded overflow bucket.
     [[nodiscard]] double upper_edge(std::size_t bucket) const noexcept {
         if (bucket < bound_count_) {
             return bounds_[bucket];
@@ -340,7 +541,14 @@ private:
         return 0.0;
     }
 
-    /// Interpolated percentiles over the merged bucket counts.
+    /// @brief Fill the four percentiles of a merged snapshot.
+    ///
+    /// Leaves them at zero when no samples were recorded.
+    ///
+    /// @param snapshot Snapshot whose bucket counts and summary are read and
+    ///        whose `p50`/`p90`/`p99`/`p999` fields are written.
+    /// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+    ///       percentile snapshots".
     void compute_percentiles(HistogramSnapshot& snapshot) const noexcept {
         if (snapshot.count == 0U) {
             return;
@@ -351,6 +559,17 @@ private:
         snapshot.p999 = percentile(snapshot, 0.999);
     }
 
+    /// @brief Interpolate one quantile from the merged bucket counts.
+    ///
+    /// Finds the containing bucket and linearly interpolates between its edges;
+    /// the first bucket uses the observed minimum, the overflow bucket the
+    /// observed maximum.
+    ///
+    /// @param snapshot Merged snapshot supplying buckets, count and extrema.
+    /// @param quantile Rank in `(0, 1]`, e.g. `0.99` for `p99`.
+    /// @return Interpolated value, or `snapshot.max` when no bucket matches.
+    /// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+    ///       percentile snapshots".
     [[nodiscard]] double percentile(const HistogramSnapshot& snapshot,
                                     double quantile) const noexcept {
         const double rank = quantile * static_cast<double>(snapshot.count);
@@ -376,11 +595,19 @@ private:
         return snapshot.max;
     }
 
-    /// Merge one slot under the seq handshake (design D9): the bank is copied
-    /// into a plain view and — for ResetOnRead — cleared only while the
-    /// sequence proves no producer is mid-record. A stalled slot is deferred
-    /// to a later window with its contents untouched, so every record lands
-    /// in exactly one window.
+    /// @brief Merge one recording slot under the sequence handshake (design D9).
+    ///
+    /// The bank is copied into a plain view and, for `ResetOnRead`, cleared only
+    /// while the sequence proves no producer is mid-record. A stalled slot is
+    /// deferred to a later window with its contents untouched, so every record
+    /// lands in exactly one window.
+    ///
+    /// @param index Recording-slot index in `[0, detail::shard_count)`.
+    /// @param merged Accumulator that absorbs the bank view.
+    /// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+    ///       reset windows".
+    /// @note Spec `metrics/explicit-histogram`, requirement "Multi-threaded
+    ///       explicit histogram recording".
     void merge_slot(std::size_t index, detail::HistogramMerge& merged) const noexcept {
         auto& slot = slots_[index];
         const bool consuming = (Reset == ResetPolicy::ResetOnRead);
@@ -412,15 +639,21 @@ private:
         // Deferred to a later window: the bank is left untouched (no loss).
     }
 
-    /// Identity of the owning registry slot (set by the Meter at creation).
+    /// @brief Identity of the owning registry slot (set by the Meter).
     const MetricIdentity* identity_{nullptr};
 
+    /// @brief Inline bucket upper bounds, installed once by the Meter.
     double bounds_[detail::max_explicit_bounds]{};
+    /// @brief Number of live entries in `bounds_`.
     std::uint32_t bound_count_{0};
 
-    mutable detail::HistogramBank cell_{};                       // SingleThreaded
-    mutable detail::HistogramSlot slots_[detail::shard_count]{}; // MultiThreaded
-    mutable detail::HistogramBank fallback_{};                   // shared overflow cell
+    /// @brief SingleThreaded recording bank.
+    mutable detail::HistogramBank cell_{};
+    /// @brief MultiThreaded per-thread recording slots.
+    mutable detail::HistogramSlot slots_[detail::shard_count]{};
+    /// @brief Shared bank for threads beyond the shard pool.
+    mutable detail::HistogramBank fallback_{};
+    /// @brief Count of non-finite samples rejected by `record()`.
     std::atomic<std::uint64_t> ignored_{0};
 };
 
@@ -449,7 +682,15 @@ static_assert(
                                                  AccessPolicy::WriteOnly, ResetPolicy::Cumulative>>,
     "a WriteOnly histogram must not expose snapshot()");
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free `to_string` overload mirroring the member (project mandate 9).
+///
+/// @tparam Concurrency Recording policy of the instrument.
+/// @tparam Access Access policy of the instrument.
+/// @tparam Reset Reset policy of the instrument.
+/// @param histogram Instrument to render.
+/// @return The same diagnostic text as `histogram.to_string()`.
+/// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+///       serialization contract".
 template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::AccessPolicy Access,
           nexigen::metrics::ResetPolicy Reset>
 [[nodiscard]] std::string
@@ -459,11 +700,27 @@ to_string(const nexigen::metrics::ExplicitBucketHistogram<Concurrency, Access, R
 
 } // namespace nexigen::metrics
 
-/// Explicit histograms format as their diagnostic string (mandate 11).
+/// @brief `std::formatter` that renders a histogram as its diagnostic string.
+///
+/// Inherits the `std::string_view` formatter, so format specs apply to the
+/// rendered text (project mandate 11).
+///
+/// @tparam Concurrency Recording policy of the instrument.
+/// @tparam Access Access policy of the instrument.
+/// @tparam Reset Reset policy of the instrument.
+/// @note Spec `metrics/explicit-histogram`, requirement "Explicit histogram
+///       serialization contract".
 template <nexigen::metrics::ConcurrencyPolicy Concurrency, nexigen::metrics::AccessPolicy Access,
           nexigen::metrics::ResetPolicy Reset>
 struct std::formatter<nexigen::metrics::ExplicitBucketHistogram<Concurrency, Access, Reset>>
     : std::formatter<std::string_view> {
+    /// @brief Format the instrument by delegating to its `to_string()`.
+    ///
+    /// @tparam Ctx Format context type supplied by `std::format`.
+    /// @param histogram Instrument to render.
+    /// @param ctx Output context to append the text to.
+    /// @return Iterator past the last character written.
+    /// @note Project mandate 11: `std::formatter` support for diagnostics.
     template <class Ctx>
     auto
     format(const nexigen::metrics::ExplicitBucketHistogram<Concurrency, Access, Reset>& histogram,

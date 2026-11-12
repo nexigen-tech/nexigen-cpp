@@ -11,27 +11,63 @@
 
 namespace nexigen::tracing {
 
-/// Chrome sink configuration (value type, full serialization trio; body in
-/// src/tracing/sink_format.cpp).
+/// @brief Configuration of the Chrome Trace Event sink.
+///
+/// A plain value type consumed once when a `ChromeTraceSink` is constructed;
+/// it carries only the target path. Full serialization trio: member and free
+/// `to_string`, non-throwing JSON round-trip, and `std::formatter`.
+///
+/// @note Spec `tracing/trace-sinks`, requirement "Sink configuration
+///       serialization".
 struct ChromeTraceSinkConfig {
-    std::string path{}; ///< the trace file to (re)create at start().
+    std::string path{}; ///< Trace file created (truncated) at the sink's `start()`.
 
-    /// Cold-path diagnostic (mandate 9).
+    /// @brief Render the configuration as a cold-path diagnostic string.
+    ///
+    /// @return Text naming the configured trace path.
+    /// @note Project mandate 9 (`to_string`); diagnostic only.
     [[nodiscard]] std::string to_string() const;
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free diagnostic helper mirroring `ChromeTraceSinkConfig::to_string()`.
+///
+/// @param config Configuration to render.
+/// @return The same text the member returns.
+/// @note Project mandate 9 (`to_string`); cold path only.
 [[nodiscard]] std::string to_string(const ChromeTraceSinkConfig& config);
 
-/// ADL JSON (cold path, full round-trip); bodies in sink_format.cpp.
+/// @brief Serialize the configuration as JSON (cold path).
+///
+/// @param j Destination JSON value, overwritten with the configuration fields.
+/// @param config Configuration to serialize.
+/// @note Spec `tracing/trace-sinks`, requirement "Sink configuration
+///       serialization"; project mandate 10 (JSON).
 void to_json(nlohmann::json& j, const ChromeTraceSinkConfig& config);
+
+/// @brief Parse the configuration from JSON without throwing.
+///
+/// Fields that are missing or wrongly typed keep their prior value, so a
+/// hostile document never aborts under `JSON_NOEXCEPTION=1`.
+///
+/// @param j JSON object to read.
+/// @param out Destination configuration, updated field by field.
+/// @note Spec `tracing/trace-sinks`, requirement "Sink configuration
+///       serialization"; project mandate 10 (JSON).
 void from_json(const nlohmann::json& j, ChromeTraceSinkConfig& out) noexcept;
 
 } // namespace nexigen::tracing
 
-/// The configuration formats as its diagnostic string (mandate 11).
+/// @brief `std::formatter` for `ChromeTraceSinkConfig`.
+///
+/// @note Project mandate 11 (`std::formatter`); formatting is cold path only.
 template <>
 struct std::formatter<nexigen::tracing::ChromeTraceSinkConfig> : std::formatter<std::string_view> {
+    /// @brief Format the configuration through its `to_string()` text.
+    ///
+    /// @tparam Ctx Format context type supplied by `std::format`.
+    /// @param config Configuration to render.
+    /// @param ctx Output context receiving the text.
+    /// @return Iterator past the last written character.
     template <class Ctx>
     auto format(const nexigen::tracing::ChromeTraceSinkConfig& config, Ctx& ctx) const {
         const std::string text = config.to_string();

@@ -64,16 +64,27 @@
 #include <nexigen/core/enum_traits.hpp>
 namespace nexigen::tracing {
 
-/// Inline attribute capacity per span (request-mandated spelling, design D3).
+/// @brief Inline attribute capacity per span (request-mandated spelling, design D3).
+///
+/// A span carries at most four attributes; a fifth `set_attribute` is rejected
+/// without side effects. The bound sizes `SpanRecord::attributes` and therefore
+/// the pinned 320-byte record.
+///
+/// @note Spec `tracing/span-context`, requirement "Span attribute capacity bounds".
 inline constexpr std::size_t MaxAttributes = 4;
 
-/// Type tag of a SpanAttribute value (enum contract of mandates 9–11).
+/// @brief Type tag of a `SpanAttribute` value (enum contract of mandates 9–11).
+///
+/// Selects which arm of `SpanAttribute::value` is live; the string arm is
+/// further split into inline text versus zero-copy view by
+/// `SpanAttribute::text_inline`. Values are append-only and, with `String`
+/// last, the tag fits the 1-byte field at offset 16.
 enum class SpanAttributeType : std::uint8_t {
-    Int64,  ///< std::int64_t payload.
-    Uint64, ///< std::uint64_t payload.
-    Double, ///< double payload (bit-for-bit through copies/JSON).
-    Bool,   ///< bool payload.
-    String, ///< inline_text (≤ 23 B copy) or view (longer, zero-copy).
+    Int64,  ///< `std::int64_t` payload.
+    Uint64, ///< `std::uint64_t` payload.
+    Double, ///< `double` payload (bit-for-bit through copies/JSON).
+    Bool,   ///< `bool` payload.
+    String, ///< `inline_text` (≤ 23 B copy) or `view` (longer, zero-copy).
 };
 
 } // namespace nexigen::tracing
@@ -81,11 +92,19 @@ enum class SpanAttributeType : std::uint8_t {
 // Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
 namespace nexigen::core {
 
+/// @brief Vocabulary table mapping every `SpanAttributeType` to its canonical name.
+///
+/// The shared enum engine backs `to_string`/`from_string` and the attribute JSON
+/// surface with one spelling set. Static constexpr storage; cold path only.
+///
+/// @note Spec `tracing/span-enums`, requirement "Constexpr span enum names".
 template <> struct EnumTraits<nexigen::tracing::SpanAttributeType> {
+    /// @brief One table row: a tag and the exact text it renders as.
     struct Entry {
-        nexigen::tracing::SpanAttributeType value;
-        std::string_view name;
+        nexigen::tracing::SpanAttributeType value; ///< Tag described by the row.
+        std::string_view name;                     ///< Canonical, case-sensitive spelling.
     };
+    /// @brief One row per tag, in declaration order (append-only).
     static constexpr std::array<Entry, 5> entries{{
         {nexigen::tracing::SpanAttributeType::Int64, "Int64"},
         {nexigen::tracing::SpanAttributeType::Uint64, "Uint64"},
@@ -99,47 +118,85 @@ template <> struct EnumTraits<nexigen::tracing::SpanAttributeType> {
 
 namespace nexigen::tracing {
 
-/// Compile-time canonical name; static storage; "Unknown" for garbage casts.
+/// @brief Compile-time canonical name; static storage; "Unknown" for garbage casts.
+///
+/// @param type Tag to render.
+/// @return Exact tag spelling (`"Int64"`, `"String"`, ...).
+/// @note Spec `tracing/span-enums`, requirement "Constexpr span enum names".
 [[nodiscard]] constexpr std::string_view to_string(SpanAttributeType type) noexcept {
     return core::enum_name(type);
 }
 
-/// Parse a canonical tag name; false leaves the out-parameter unchanged.
+/// @brief Parse a canonical tag name; false leaves the out-parameter unchanged.
+///
+/// @param name Exact, case-sensitive tag spelling.
+/// @param out Destination updated only on a successful match.
+/// @return `true` when the name matched a tag; `false` otherwise.
 [[nodiscard]] constexpr bool from_string(std::string_view name, SpanAttributeType& out) noexcept {
     return core::enum_value(name, out);
 }
 
-/// ADL JSON writer/reader (cold path only; result.hpp get_ptr pattern).
+/// @brief ADL JSON writer for the attribute tag (cold path only).
+///
+/// @param j Destination document or field to overwrite.
+/// @param type Tag to serialize as its canonical-name string.
+/// @note Spec `tracing/span-enums`, requirement "Non-throwing span enum JSON
+///       serialization"; result.hpp get_ptr pattern.
 inline void to_json(nlohmann::json& j, const SpanAttributeType type) {
     core::mandate::enum_to_json(j, type);
 }
+
+/// @brief ADL JSON reader for the attribute tag (cold path only).
+///
+/// @param j JSON value to read.
+/// @param out Destination left unchanged for non-string or unknown input.
+/// @note Spec `tracing/span-enums`, requirement "Non-throwing span enum JSON
+///       serialization"; never throws under `JSON_NOEXCEPTION=1`.
 inline void from_json(const nlohmann::json& j, SpanAttributeType& out) noexcept {
     core::mandate::enum_from_json(j, out);
 }
 
-/// Inline bounds (design D5): key and value text capacities.
+/// @brief Inline bounds (design D5): key and value text capacities.
+///
+/// A longer key is rejected whole; a longer string value is stored as a
+/// zero-copy view instead of being truncated.
+/// @note Spec `tracing/span-context`, requirement "Span attribute capacity bounds".
 inline constexpr std::size_t attribute_key_capacity = 15;         ///< chars, + NUL
 inline constexpr std::size_t attribute_inline_text_capacity = 23; ///< chars, + length byte
 
-/// Fixed-size trivially copyable tagged-union attribute (design D5 layout,
-/// pinned by static_assert at the bottom of this header).
+/// @brief Fixed-size trivially copyable tagged-union attribute (design D5 layout,
+///        pinned by static_assert at the bottom of this header).
+///
+/// Exactly 48 bytes with a 16-byte inline key, a 1-byte type tag and a 24-byte
+/// value union. Storage is fixed-offset: `store` never allocates, never locks
+/// and never grows the record, which is what keeps it usable on the span hot
+/// path. String values ≤ 23 bytes are copied into `inline_text`; longer values
+/// become a zero-copy `view` over caller-owned storage that must outlive the
+/// span's drain (string literals and program-static tables qualify).
+///
+/// @note Spec `tracing/span-context`, requirement "Fixed-size span attribute union".
+/// @note Spec `tracing/span-context`, requirement "Span attribute string storage".
 struct alignas(8) SpanAttribute {
-    /// The value union: exactly one arm active, selected by `type`.
+    /// @brief The value union: exactly one arm active, selected by `type`.
+    ///
+    /// The `String` tag needs the extra `text_inline` discriminator because
+    /// the union alone cannot tell the two string arms apart.
     union Value {
-        std::int64_t i64{};
-        std::uint64_t u64;
-        double f64;
-        bool b;
+        std::int64_t i64{}; ///< Payload for `SpanAttributeType::Int64`.
+        std::uint64_t u64;  ///< Payload for `SpanAttributeType::Uint64`.
+        double f64;         ///< Payload for `SpanAttributeType::Double`.
+        bool b;             ///< Payload for `SpanAttributeType::Bool`.
         struct {
-            char text[attribute_inline_text_capacity];
-            std::uint8_t length;
-        } inline_text; ///< 24 B, always NUL-safe
+            char text[attribute_inline_text_capacity]; ///< Copied text bytes.
+            std::uint8_t length;                       ///< Valid byte count.
+        } inline_text;                                 ///< 24 B, always NUL-safe
         struct {
             const char* data;     ///< caller-owned storage
             std::uint32_t length; ///< bytes of text
         } view;                   ///< zero-copy, 16 B w/ padding
 
-        Value() noexcept : i64{} {} // trivial default: Int64 zero
+        /// @brief Trivial default: leave the union in its `Int64` zero state.
+        Value() noexcept : i64{} {}
     };
 
     char key[attribute_key_capacity + 1]{};           ///< inline bounded key + NUL
@@ -153,15 +210,28 @@ struct alignas(8) SpanAttribute {
 
     // -- hot-path stores (fixed-offset, no allocation, no lock) -------------
 
-    /// Store a key + int value (plain integer literals land here and widen to
-    /// the Int64 arm — without this overload `store("k", 42)` would be
-    /// ambiguous between the four numeric arms). Same rejection contract.
+    /// @brief Store a key + int value.
+    ///
+    /// Plain integer literals land here and widen to the `Int64` arm — without
+    /// this overload `store("k", 42)` would be ambiguous between the four
+    /// numeric arms.
+    ///
+    /// @param key_ Attribute key; must fit `attribute_key_capacity`.
+    /// @param v Value to store.
+    /// @return `true` when stored; `false` for an oversized key with the
+    ///         attribute untouched.
+    /// @note Spec `tracing/span-context`, requirement "Span attribute capacity bounds".
     [[nodiscard]] bool store(std::string_view key_, int v) noexcept {
         return store(key_, static_cast<std::int64_t>(v));
     }
 
-    /// Store a key + int64 value; false (attr untouched) when the key is
-    /// longer than the inline bound — never truncated.
+    /// @brief Store a key + int64 value.
+    ///
+    /// @param key_ Attribute key; rejected whole when longer than the inline bound.
+    /// @param v Value to store.
+    /// @return `true` when stored; `false` (attribute untouched) for an
+    ///         oversized key — the key is never truncated.
+    /// @note Spec `tracing/span-context`, requirement "Span attribute capacity bounds".
     [[nodiscard]] bool store(std::string_view key_, std::int64_t v) noexcept {
         if (!key_fits(key_)) {
             return false;
@@ -172,7 +242,11 @@ struct alignas(8) SpanAttribute {
         return true;
     }
 
-    /// Store a key + uint64 value; same rejection contract.
+    /// @brief Store a key + uint64 value.
+    ///
+    /// @param key_ Attribute key; rejected whole when longer than the inline bound.
+    /// @param v Value to store.
+    /// @return `true` when stored; `false` with the attribute untouched otherwise.
     [[nodiscard]] bool store(std::string_view key_, std::uint64_t v) noexcept {
         if (!key_fits(key_)) {
             return false;
@@ -183,7 +257,11 @@ struct alignas(8) SpanAttribute {
         return true;
     }
 
-    /// Store a key + double value; same rejection contract.
+    /// @brief Store a key + double value; bit-for-bit preserved.
+    ///
+    /// @param key_ Attribute key; rejected whole when longer than the inline bound.
+    /// @param v Value to store.
+    /// @return `true` when stored; `false` with the attribute untouched otherwise.
     [[nodiscard]] bool store(std::string_view key_, double v) noexcept {
         if (!key_fits(key_)) {
             return false;
@@ -194,7 +272,11 @@ struct alignas(8) SpanAttribute {
         return true;
     }
 
-    /// Store a key + bool value; same rejection contract.
+    /// @brief Store a key + bool value.
+    ///
+    /// @param key_ Attribute key; rejected whole when longer than the inline bound.
+    /// @param v Value to store.
+    /// @return `true` when stored; `false` with the attribute untouched otherwise.
     [[nodiscard]] bool store(std::string_view key_, bool v) noexcept {
         if (!key_fits(key_)) {
             return false;
@@ -205,11 +287,18 @@ struct alignas(8) SpanAttribute {
         return true;
     }
 
-    /// Store a key + string value. Values within the inline bound are copied
-    /// into inline_text (always safe); longer values become a ZERO-COPY view
-    /// whose storage the caller guarantees outlives the span's drain (see the
-    /// header contract). Returns false (attr untouched) only for an oversized
-    /// KEY; any string VALUE length is representable (inline or view).
+    /// @brief Store a key + string value.
+    ///
+    /// Values within the inline bound are copied into `inline_text` (always
+    /// safe); longer values become a ZERO-COPY view whose storage the caller
+    /// guarantees outlives the span's drain (see the header contract).
+    ///
+    /// @param key_ Attribute key; rejected whole when longer than the inline bound.
+    /// @param v Value text; any length is representable (inline copy or view).
+    /// @return `false` (attribute untouched) only for an oversized KEY.
+    /// @note Spec `tracing/span-context`, requirement "Span attribute string storage".
+    /// @warning A view value must point at string-literal or program-static
+    ///          storage; a temporary buffer dangles by drain time.
     [[nodiscard]] bool store(std::string_view key_, std::string_view v) noexcept {
         if (!key_fits(key_)) {
             return false;
@@ -230,13 +319,18 @@ struct alignas(8) SpanAttribute {
         return true;
     }
 
-    /// The stored key as a view (NUL-terminated inline storage).
+    /// @brief The stored key as a view (NUL-terminated inline storage).
+    ///
+    /// @return View over `key`, without the terminator; empty for a default
+    ///         attribute.
     [[nodiscard]] std::string_view key_view() const noexcept {
         return std::string_view(key, std::char_traits<char>::length(key));
     }
 
-    /// The stored text value as a view (inline or view arm); meaningful only
-    /// for SpanAttributeType::String.
+    /// @brief The stored text value as a view (inline or view arm).
+    ///
+    /// @return The string payload; an empty view when the tag is not
+    ///         `SpanAttributeType::String`.
     [[nodiscard]] std::string_view text_view() const noexcept {
         if (type != SpanAttributeType::String) {
             return std::string_view{};
@@ -247,14 +341,25 @@ struct alignas(8) SpanAttribute {
         return std::string_view(value.view.data, value.view.length);
     }
 
-    /// Cold-path diagnostic (mandate 9); body in src/tracing/record_format.cpp.
+    /// @brief Cold-path diagnostic (mandate 9).
+    ///
+    /// @return `key=value` style text for logs, diagnostics and tests.
+    /// @note Allocates; never called from the span hot path. Body in
+    ///       `src/tracing/record_format.cpp`.
     [[nodiscard]] std::string to_string() const;
 
 private:
+    /// @brief Whether `key_` fits the inline key bound (NUL excluded).
+    ///
+    /// @param key_ Candidate key.
+    /// @return `true` when `key_.size() <= attribute_key_capacity`.
     [[nodiscard]] static bool key_fits(std::string_view key_) noexcept {
         return key_.size() <= attribute_key_capacity;
     }
 
+    /// @brief Copy `key_` into the inline key buffer and NUL-terminate it.
+    ///
+    /// @param key_ Key already validated by `key_fits`.
     void copy_key(std::string_view key_) noexcept {
         for (std::size_t i = 0; i < key_.size(); ++i) {
             key[i] = key_[i];
@@ -263,12 +368,19 @@ private:
     }
 };
 
-/// The 320-byte (5 cache lines) span record (design D5 layout, pinned).
+/// @brief The 320-byte (5 cache lines) span record (design D5 layout, pinned).
+///
+/// The one value that crosses the producer/consumer boundary: the owner thread
+/// fills it with fixed-offset stores through `ScopedSpan`, the SPSC shard
+/// carries it by copy, and the sink renders it cold-side. Trivially copyable
+/// and `alignas(64)`, so a shard slot never straddles a cache line.
+///
+/// @note Spec `tracing/span-context`, requirement "Cache-line-aligned span record".
 struct alignas(64) SpanRecord {
-    /// bit0: the span ended through an explicit end() call (vs destruction).
+    /// @brief bit0: the span ended through an explicit end() call (vs destruction).
     static constexpr std::uint8_t flag_ended_explicit = 0x1U;
 
-    /// Span name bound: ≤ 47 chars + NUL (bounded copy, longer names truncated).
+    /// @brief Span name bound: ≤ 47 chars + NUL (bounded copy, longer names truncated).
     static constexpr std::size_t name_capacity = 47;
 
     TraceId trace_id{};                        ///< causal group (root generates fresh).
@@ -288,17 +400,26 @@ struct alignas(64) SpanRecord {
     char name[name_capacity + 1]{};            ///< inline span name + NUL.
     SpanAttribute attributes[MaxAttributes]{}; ///< inline attribute array.
 
-    /// The span name as a view (bounded copy stored inline).
+    /// @brief The span name as a view (bounded copy stored inline).
+    ///
+    /// @return View over `name`, without the NUL; never allocates.
     [[nodiscard]] std::string_view name_view() const noexcept {
         return std::string_view(name, std::char_traits<char>::length(name));
     }
 
-    /// The end-minus-start duration in nanoseconds (monotonic domain).
+    /// @brief The end-minus-start duration in nanoseconds (monotonic domain).
+    ///
+    /// @return Elapsed nanoseconds, or `0` for an inverted/malformed pair
+    ///         (`end < start`).
     [[nodiscard]] std::uint64_t duration_ns() const noexcept {
         return end >= start ? (end - start).nanoseconds() : 0ULL;
     }
 
-    /// Cold-path diagnostic (mandate 9); body in src/tracing/record_format.cpp.
+    /// @brief Cold-path diagnostic (mandate 9).
+    ///
+    /// @return Rendered record text for diagnostics and tests.
+    /// @note Allocates; the producer never calls it. Body in
+    ///       `src/tracing/record_format.cpp`.
     [[nodiscard]] std::string to_string() const;
 };
 
@@ -331,26 +452,69 @@ static_assert(offsetof(SpanRecord, name) == 72);
 static_assert(offsetof(SpanRecord, attributes) == 120);
 static_assert(320U % 64U == 0, "sizeof must be a whole number of cache lines");
 
-/// Free helpers (mandate 9): mirror the members.
+/// @brief Free helper (mandate 9): mirrors `SpanAttribute::to_string`.
+///
+/// @param attribute Attribute to render.
+/// @return The same text as the member.
 [[nodiscard]] std::string to_string(const SpanAttribute& attribute);
+
+/// @brief Free helper (mandate 9): mirrors `SpanRecord::to_string`.
+///
+/// @param record Record to render.
+/// @return The same text as the member.
 [[nodiscard]] std::string to_string(const SpanRecord& record);
 
-/// ADL JSON (cold path): the attribute as {"key","type","value"}; the record
-/// as an object with hex ids, canonical kind/status, ns timestamps, location,
-/// name and the typed attribute array. Non-throwing readers; wrong-typed
-/// input leaves values unchanged. Bodies in src/tracing/record_format.cpp.
+/// @brief ADL JSON writer for an attribute: `{"key","type","value"}` (cold path).
+///
+/// @param j Destination document or field to overwrite.
+/// @param attribute Attribute to serialize; string values render their text.
+/// @note Spec `tracing/record-format`, requirement "SpanAttribute deserialization
+///       is all-or-nothing".
 void to_json(nlohmann::json& j, const SpanAttribute& attribute);
+
+/// @brief Whole-attribute JSON reader; rejects on any mismatch.
+///
+/// @param j JSON object to read.
+/// @param out Destination left unchanged when the key is missing/oversized,
+///        the tag is unknown, or the value type does not match the tag.
+/// @note Spec `tracing/record-format`, requirement "SpanAttribute deserialization
+///       is all-or-nothing".
 void from_json(const nlohmann::json& j, SpanAttribute& out) noexcept;
+
+/// @brief ADL JSON writer for a record: hex ids, canonical kind/status, ns
+///        timestamps, location, name and the typed attribute array.
+///
+/// @param j Destination document or field to overwrite.
+/// @param record Record to serialize.
+/// @note Spec `tracing/record-format`, requirement "SpanRecord deserialization
+///       delegates to substructure helpers". Cold path only.
 void to_json(nlohmann::json& j, const SpanRecord& record);
+
+/// @brief Non-throwing record JSON reader composed of substructure helpers.
+///
+/// @param j JSON value to read.
+/// @param out Destination; missing or wrong-typed fields keep their previous
+///        values and are never partially applied.
+/// @note Spec `tracing/record-format`, requirement "SpanRecord deserialization
+///       delegates to substructure helpers".
 void from_json(const nlohmann::json& j, SpanRecord& out) noexcept;
 
 } // namespace nexigen::tracing
 
 /// The tag enum formats as its canonical name (mandate 11).
 
-/// Attributes format as their diagnostic text (mandate 11).
+/// @brief `std::formatter` for `SpanAttribute` (mandate 11).
+///
+/// Renders exactly `SpanAttribute::to_string()` through the
+/// `std::string_view` formatter, so fill/width/alignment options still apply.
 template <>
 struct std::formatter<nexigen::tracing::SpanAttribute> : std::formatter<std::string_view> {
+    /// @brief Render one attribute as its diagnostic text.
+    ///
+    /// @tparam Ctx `std::format` context type.
+    /// @param attribute Attribute to render.
+    /// @param ctx Format context receiving the output.
+    /// @return Iterator past the last written character.
     template <class Ctx>
     auto format(const nexigen::tracing::SpanAttribute& attribute, Ctx& ctx) const {
         const std::string text = attribute.to_string();
@@ -358,8 +522,17 @@ struct std::formatter<nexigen::tracing::SpanAttribute> : std::formatter<std::str
     }
 };
 
-/// Records format as their diagnostic text (mandate 11).
+/// @brief `std::formatter` for `SpanRecord` (mandate 11).
+///
+/// Renders exactly `SpanRecord::to_string()`; diagnostics only, never reached
+/// from a producer or a ring drain.
 template <> struct std::formatter<nexigen::tracing::SpanRecord> : std::formatter<std::string_view> {
+    /// @brief Render one record as its diagnostic text.
+    ///
+    /// @tparam Ctx `std::format` context type.
+    /// @param record Record to render.
+    /// @param ctx Format context receiving the output.
+    /// @return Iterator past the last written character.
     template <class Ctx> auto format(const nexigen::tracing::SpanRecord& record, Ctx& ctx) const {
         const std::string text = record.to_string();
         return std::formatter<std::string_view>::format(text, ctx);

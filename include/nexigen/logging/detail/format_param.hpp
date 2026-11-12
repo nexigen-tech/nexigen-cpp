@@ -14,10 +14,30 @@
 
 namespace nexigen::logging::detail {
 
+/// @brief Identity metafunction that names `FormatWithLocation<Args...>`
+///        without making it a deduced parameter.
+///
+/// Logger calls spell the format parameter as `format_param_t<Args...>`, so
+/// `Args` deduce from the trailing arguments only and a string literal still
+/// converts through `FormatWithLocation`'s single `consteval` constructor.
+/// Compile-time-only helper: no state, no runtime work.
+///
+/// @tparam Args Format argument types of the logger call; each must be
+///         formattable by `std::format_string` and packable into `LogRecord`.
+/// @note Spec `logging/format-api`, requirement "FormatWithLocation wrapper
+///       type"; the non-deduced spelling keeps requirement "Compile-time
+///       format/argument checking" effective before any logging code runs.
 template <class... Args> struct format_param {
+    /// @brief The wrapper type the logger call accepts.
     using type = FormatWithLocation<Args...>;
 };
 
+/// @brief Convenience alias for `format_param<Args...>::type`.
+///
+/// @tparam Args Format argument types of the logger call; each must be
+///         formattable by `std::format_string` and packable into `LogRecord`.
+/// @note Spec `logging/format-api`, requirement "FormatWithLocation wrapper
+///       type".
 template <class... Args> using format_param_t = typename format_param<Args...>::type;
 
 } // namespace nexigen::logging::detail

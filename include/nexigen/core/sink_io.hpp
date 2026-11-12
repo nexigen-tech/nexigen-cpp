@@ -42,19 +42,34 @@
 
 namespace nexigen::core::sink_io {
 
-/// Open an output file for the file-backed sinks: close-on-exec,
-/// create-if-missing, mode 0644, with the append policy selecting appended
-/// writes (O_APPEND) vs truncating (O_TRUNC). Returns the descriptor, or -1
-/// when the path cannot be opened (callers report their own SystemError).
+/// @brief Open an output file under the shared sink open policy.
+///
+/// Close-on-exec, create-if-missing, mode 0644, with the append policy selecting
+/// appended writes (`O_APPEND`) or truncation (`O_TRUNC`).
+///
+/// @param path File path to open; copied once, so cold path only.
+/// @param append `true` appends to existing content, `false` truncates it.
+/// @return Open descriptor, or `-1` when the path cannot be opened (each caller
+///         reports its own `SystemError`).
+/// @note Spec `core/sink-plumbing`, requirement "Shared file-open policy".
 [[nodiscard]] inline int open_output(std::string_view path, bool append) noexcept {
     const std::string path_buf{path};
     const int flags = O_WRONLY | O_CREAT | O_CLOEXEC | (append ? O_APPEND : O_TRUNC);
     return ::open(path_buf.c_str(), flags, 0644);
 }
 
-/// Complete one write across partial transfers in order. The loop is moved
-/// verbatim from the per-module sink copies (EINTR retry, failure mapping)
-/// and now reports through the project Result vocabulary.
+/// @brief Write all bytes across partial transfers, in file order.
+///
+/// Retries `EINTR` without losing or duplicating data and maps every other
+/// failure to a first-failure status. Moved verbatim from the per-module sink
+/// copies; cold path only.
+///
+/// @param fd Open descriptor to write to.
+/// @param data Bytes to write; must remain valid for the call.
+/// @param bytes Number of bytes at `data`.
+/// @return `Status{}` once every byte was written; `SystemError` on the first
+///         failed `write` call.
+/// @note Spec `core/sink-plumbing`, requirement "Shared full-write loop".
 [[nodiscard]] inline core::Status write_all(int fd, const char* data, std::size_t bytes) noexcept {
     std::size_t offset = 0;
     while (offset < bytes) {
@@ -70,8 +85,12 @@ namespace nexigen::core::sink_io {
     return {};
 }
 
-/// Request durable persistence for an open descriptor (the per-sink flush
-/// path); failure is a first-failure error status.
+/// @brief Request durable persistence for an open descriptor.
+///
+/// @param fd Open descriptor to flush with `fsync`.
+/// @return `Status{}` on success; `SystemError` when `fsync` fails.
+/// @note Spec `core/sink-plumbing`, requirement "Shared full-write loop": the
+///       per-sink flush path requests durable persistence.
 [[nodiscard]] inline core::Status fsync_fd(int fd) noexcept {
     if (::fsync(fd) != 0) {
         return std::unexpected(core::ErrorCode::SystemError);

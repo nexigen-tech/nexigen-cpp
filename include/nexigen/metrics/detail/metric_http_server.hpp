@@ -27,16 +27,42 @@
 
 namespace nexigen::metrics::detail {
 
+/// @brief Minimal Prometheus HTTP responder used by the metrics daemon.
+///
+/// One blocking `poll`/`accept` loop on its own thread: a `GET` to the
+/// configured endpoint returns the current exposition snapshot with status 200
+/// and the Prometheus text content type; every other path returns 404.
+/// Request-line parsing reuses the pure `hub::detail` helpers. No SSE and no
+/// discovery coupling. Owns its listening socket and closes it on destruction.
+///
+/// @note Spec `metrics/metrics-daemon`, requirement "Daemon serves GET /metrics
+///       over HTTP".
 class MetricHttpServer {
 public:
+    /// @brief Construct an unbound server.
     MetricHttpServer() = default;
 
+    /// @brief Copy construction is deleted: the server owns a listening socket.
     MetricHttpServer(const MetricHttpServer&) = delete;
+    /// @brief Copy assignment is deleted: the server owns a listening socket.
     MetricHttpServer& operator=(const MetricHttpServer&) = delete;
 
+    /// @brief Close the listening socket.
     ~MetricHttpServer() { stop_listen(); }
 
-    /// Bind and listen; port 0 asks the kernel for an ephemeral port.
+    /// @brief Bind and listen; port 0 asks the kernel for an ephemeral port.
+    ///
+    /// Creates an IPv4 stream socket with `SO_REUSEADDR`, binds it to the parsed
+    /// address and listens with a backlog of 16. All failures close the socket
+    /// and leave the server unbound.
+    ///
+    /// @param bind_address Dotted-quad IPv4 address accepted by `inet_pton`.
+    /// @param port TCP port, or 0 for an ephemeral port (see `port()`).
+    /// @param endpoint Request path answered with exposition, e.g. `"/metrics"`.
+    /// @return `true` when bound and listening; `false` on invalid address, bind
+    ///         failure, listen failure or socket creation failure.
+    /// @note Spec `metrics/metrics-daemon`, requirement "Daemon serves GET
+    ///       /metrics over HTTP".
     [[nodiscard]] bool start(std::string_view bind_address, std::uint16_t port,
                              std::string endpoint) noexcept {
         endpoint_ = std::move(endpoint);
@@ -60,7 +86,12 @@ public:
         return true;
     }
 
-    /// The actual bound port (useful when start() was asked for port 0).
+    /// @brief Read the actual bound TCP port.
+    ///
+    /// @return The port from `getsockname`, 0 when unbound or on failure. Useful
+    ///         when `start()` was asked for port 0.
+    /// @note Spec `metrics/metrics-daemon`, requirement "Daemon serves GET
+    ///       /metrics over HTTP".
     [[nodiscard]] std::uint16_t port() const noexcept {
         if (listen_fd_ < 0) {
             return 0;
@@ -73,7 +104,18 @@ public:
         return ntohs(address.sin_port);
     }
 
-    /// Serve requests until `stop` is set. Runs on a dedicated thread.
+    /// @brief Serve requests until `stop` is set.
+    ///
+    /// Polls the listening socket with a 200 ms timeout, accepts one connection
+    /// at a time, answers it and closes it. Runs on a dedicated thread driven by
+    /// `HttpFront`.
+    ///
+    /// @param stop Stop flag; a `true` value ends the loop without draining.
+    /// @param exposition Published snapshot served for the configured endpoint.
+    /// @warning Blocking call: it does not return until `stop` is set or the
+    ///          listener is closed.
+    /// @note Spec `metrics/metrics-daemon`, requirement "Daemon serves GET
+    ///       /metrics over HTTP".
     void serve(std::atomic<bool>& stop, const ExpositionBuffer& exposition) noexcept {
         while (!stop.load(std::memory_order_relaxed) && listen_fd_ >= 0) {
             pollfd descriptor{listen_fd_, POLLIN, 0};
@@ -93,6 +135,11 @@ public:
         }
     }
 
+    /// @brief Close the listening socket and mark the server unbound.
+    ///
+    /// Idempotent; a subsequent `serve` loop exits immediately.
+    /// @note Spec `metrics/metrics-daemon`, requirement "Daemon serves GET
+    ///       /metrics over HTTP".
     void stop_listen() noexcept {
         if (listen_fd_ >= 0) {
             static_cast<void>(::close(listen_fd_));
@@ -101,6 +148,13 @@ public:
     }
 
 private:
+    /// @brief Write a whole buffer with `send`, retrying partial writes and `EINTR`.
+    ///
+    /// @param fd Connected client socket.
+    /// @param data Bytes to send.
+    /// @param size Number of bytes in `data`.
+    /// @note Uses `MSG_NOSIGNAL` so a peer reset cannot raise `SIGPIPE`; aborts
+    ///       quietly on any other error.
     static void send_all(int fd, const char* data, std::size_t size) noexcept {
         std::size_t offset = 0;
         while (offset < size) {
@@ -113,6 +167,19 @@ private:
         }
     }
 
+    /// @brief Read one request, answer it, and leave the socket for the caller to close.
+    ///
+    /// Applies a 2 s receive timeout, reads until the header terminator or the
+    /// 8 KiB request buffer is full, and parses the request line. A `GET` whose
+    /// path equals the configured endpoint gets the exposition with status 200
+    /// and `text/plain; version=0.0.4`; anything else gets 404.
+    ///
+    /// @param client Connected client socket; borrowed, closed by the caller.
+    /// @param exposition Snapshot whose `current()` text forms the 200 body.
+    /// @warning Single-connection, single-threaded: it blocks for the receive
+    ///          timeout if the peer sends nothing.
+    /// @note Spec `metrics/metrics-daemon`, requirement "Daemon serves GET
+    ///       /metrics over HTTP".
     void handle_connection(int client, const ExpositionBuffer& exposition) noexcept {
         timeval timeout{2, 0};
         static_cast<void>(::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));

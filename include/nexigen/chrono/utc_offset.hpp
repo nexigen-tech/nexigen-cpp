@@ -15,14 +15,32 @@
 
 namespace nexigen::chrono {
 
-/// Snapshot the offset such that utc_ns ≈ monotonic_ns + offset (logging
-/// design D10). Cold path (initialize / rotation boundary / flush hook): two
-/// clock reads, no allocation. The producer never calls CLOCK_REALTIME —
-/// conversion to UTC happens on the consumer thread through this offset
-/// snapshot.
+/// @brief Sample the signed `realtime` minus `monotonic_raw` clock offset.
+///
+/// Cold-path operation for initialize / rotation boundaries / flush hooks: two
+/// clock reads at one instant, no heap allocation. The producer never calls
+/// `CLOCK_REALTIME`; consumers apply this offset through `utc_from_mono_ns`.
+/// The body lives in `src/chrono/utc_offset.cpp`.
+///
+/// @param offset_ns_out Destination for the signed offset in nanoseconds;
+///        assigned only on success.
+/// @return Success with `offset_ns_out` set, or `core::ErrorCode::SystemError`
+///         when either clock read fails (the destination keeps its old value).
+/// @note Spec `chrono/stamp-source`, requirement "UTC offset snapshot
+///       calibration".
 [[nodiscard]] core::Status sample_utc_offset(std::int64_t& offset_ns_out) noexcept;
 
-/// Apply an offset snapshot: the consumer-side UTC time of a record stamp.
+/// @brief Convert a monotonic stamp to UTC using a previously sampled offset.
+///
+/// Pure consumer-side arithmetic: no clock access, no allocation, no shared
+/// state, so any thread may call it. A monotonic event is re-bound to wall
+/// time as `mono_ns + offset_ns`.
+///
+/// @param mono_ns Monotonic-raw nanoseconds of the event or snapshot.
+/// @param offset_ns Signed offset produced by `sample_utc_offset`.
+/// @return UTC nanoseconds since the Unix epoch.
+/// @note Spec `chrono/stamp-source`, requirement "Monotonic-to-UTC conversion".
+/// @warning Precision is bounded by the offset's two-read latency.
 [[nodiscard]] inline std::int64_t utc_from_mono_ns(std::uint64_t mono_ns,
                                                    std::int64_t offset_ns) noexcept {
     return static_cast<std::int64_t>(mono_ns) + offset_ns;

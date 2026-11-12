@@ -30,21 +30,42 @@
 
 namespace nexigen::core {
 
-/// Per-shard accounting + throttle window. The two counters commit
-/// increments ONLY by the slot's owner via a single relaxed atomic
-/// `fetch_add` (never `store(load+1)` — the consumer resets cells it has
-/// reported, so each increment must survive as an atomic RMW); the window
-/// fields are plain single-writer state. One cache line per shard.
+/// @brief Per-shard accounting plus throttle window.
+///
+/// The slot's owner commits increments of the two counters with a single
+/// relaxed atomic `fetch_add` (never `store(load + 1)`: the consumer resets
+/// cells it has reported, so each increment must survive as an atomic RMW). The
+/// window fields are plain single-writer state. One cache line per shard.
+///
+/// @note The composition follows Spec `core/spsc-ring-buffer`, requirement
+///       "Single-producer single-consumer contract": each cell belongs to one
+///       producer slot.
 struct alignas(64) ShardPoolState {
     std::atomic<std::uint64_t> rate_limited{}; ///< owner fetch_add, others load
     std::atomic<std::uint64_t> buffer_full{};  ///< owner fetch_add, others load
     std::uint64_t window_start_ns{};           ///< owner-only plain state
     std::uint64_t tokens_used{};               ///< owner-only plain state
-    std::uint8_t pad_[32]{};
+    std::uint8_t pad_[32]{};                   ///< Padding so each cell owns whole cache lines.
 };
 static_assert(sizeof(ShardPoolState) % 64 == 0, "shard pool state owns whole cache lines");
 
-/// The shared shard pool (see file header for the full contract).
+/// @brief Shared shard pool (see the file header for the full contract).
+///
+/// A fixed array of SPSC rings (one per registered thread), per-shard accounting
+/// cells, a slot-registration cell with a thread-local claim cache, a
+/// pool-exhaustion counter, and a single-consumer round-robin drain. At most
+/// `MaxThreads` distinct producer threads call `claim_slot()`/`ring()`/
+/// `state()`, each owning one ring; the single consumer calls `pop()`. Threads
+/// beyond the pool are dropped and counted, never blocked.
+///
+/// @tparam Record Element type stored in each shard ring.
+/// @tparam ShardCapacity Slots per ring; `static_assert` requires a positive
+///         power of two.
+/// @tparam MaxThreads Maximum number of producer slots; `static_assert`
+///         requires at least one.
+/// @note Spec `core/spsc-ring-buffer`, requirement "Single-producer
+///       single-consumer contract" applies per shard; the pool adds the
+///       multi-producer registration layer on top.
 template <class Record, std::size_t ShardCapacity, std::size_t MaxThreads>
 class alignas(64) ShardPool {
     static_assert(ShardCapacity >= 1 && (ShardCapacity & (ShardCapacity - 1)) == 0,
@@ -52,76 +73,148 @@ class alignas(64) ShardPool {
     static_assert(MaxThreads >= 1, "shard pool must hold at least one slot");
 
 public:
+    /// @brief Default-construct an empty pool with no registered slots.
     ShardPool() = default;
+    /// @brief Copy construction is deleted: shards hold unique ownership.
     ShardPool(const ShardPool&) = delete;
+    /// @brief Copy assignment is deleted: shards hold unique ownership.
     ShardPool& operator=(const ShardPool&) = delete;
+    /// @brief Move construction is deleted: atomics are address-bound.
     ShardPool(ShardPool&&) = delete;
+    /// @brief Move assignment is deleted: atomics are address-bound.
     ShardPool& operator=(ShardPool&&) = delete;
 
+    /// @brief Compile-time capacity of each shard ring.
+    ///
+    /// @return The `ShardCapacity` template argument.
     [[nodiscard]] static constexpr std::size_t capacity() noexcept { return ShardCapacity; }
+    /// @brief Compile-time number of producer slots.
+    ///
+    /// @return The `MaxThreads` template argument.
     [[nodiscard]] static constexpr std::size_t max_threads() noexcept { return MaxThreads; }
 
-    /// Producer hot path: resolve this thread's shard slot. thread_local
-    /// cached; the first call per (thread, this) claims a slot with one relaxed
-    /// fetch_add plus a release high-water publish, then caches it. A cached
-    /// slot is re-validated against the high-water mark so a pool destroyed
-    /// and re-created at the same address never hands out a slot the consumer
-    /// cannot drain. Returns -1 when the pool is exhausted (already counted).
+    /// @brief Resolve this thread's shard slot (producer hot path).
+    ///
+    /// `thread_local` cached: the first call per (thread, pool) claims a slot
+    /// with one relaxed `fetch_add` plus a release high-water publish, then
+    /// caches it. A cached slot is re-validated against the high-water mark so a
+    /// pool destroyed and re-created at the same address never hands out a slot
+    /// the consumer cannot drain.
+    ///
+    /// @return Slot index in `[0, MaxThreads)`; `-1` when the pool (or this
+    ///         thread's TLS cache) is exhausted, already counted in
+    ///         `slot_exhausted()`.
+    /// @note Spec `core/spsc-ring-buffer`, requirement "Single-producer
+    ///       single-consumer contract"; each returned slot is drained by exactly
+    ///       one consumer.
+    /// @warning Never blocks: exhaustion is a counted drop.
     [[nodiscard]] std::int32_t claim_slot() noexcept;
 
-    /// Producer accessors (owner thread only).
+    /// @brief Ring belonging to `slot` (producer accessor).
+    ///
+    /// @param slot Slot index previously returned by `claim_slot()`.
+    /// @return Reference to that slot's ring; the owner thread is its only
+    ///         producer.
+    /// @note Spec `core/spsc-ring-buffer`, requirement "Single-producer
+    ///       single-consumer contract".
+    /// @warning Owner thread only; no bounds check is performed.
     [[nodiscard]] core::SpscRingBuffer<Record, ShardCapacity>& ring(std::size_t slot) noexcept {
         return shards_[slot];
     }
+    /// @brief Const ring access for diagnostics.
+    ///
+    /// @param slot Slot index previously returned by `claim_slot()`.
+    /// @return Const reference to that slot's ring.
+    /// @warning Cold-path diagnostics only; no bounds check is performed.
     [[nodiscard]] const core::SpscRingBuffer<Record, ShardCapacity>&
     ring(std::size_t slot) const noexcept {
         return shards_[slot];
     }
+    /// @brief Accounting cell belonging to `slot` (owner thread only).
+    ///
+    /// @param slot Slot index previously returned by `claim_slot()`.
+    /// @return Reference to that slot's accounting cell.
+    /// @warning Owner thread writes it; other threads may only load the
+    ///          counters.
     [[nodiscard]] ShardPoolState& state(std::size_t slot) noexcept { return state_[slot]; }
 
-    /// Registered high-water mark (acquire): the consumer bounds a sweep by it.
+    /// @brief Registered high-water mark of producer slots.
+    ///
+    /// Read with acquire ordering; the consumer bounds its sweep by it.
+    ///
+    /// @return Number of slots that may currently hold records.
     [[nodiscard]] std::uint32_t active() const noexcept {
         return registration_.active.load(std::memory_order_acquire);
     }
 
-    /// Consumer end (single worker): round-robin with a 16-record slice per
-    /// shard per sweep (one flooded shard cannot starve the others); a shard
-    /// skipped at its cap is retried once before any "empty" verdict.
-    /// BufferEmpty when every registered shard is momentarily empty.
+    /// @brief Pop one record round-robin across registered shards (consumer).
+    ///
+    /// Gives each shard a 16-record slice per sweep so one flooded shard cannot
+    /// starve the others; a shard skipped at its cap is retried once before any
+    /// "empty" verdict.
+    ///
+    /// @param out Destination assigned only on success.
+    /// @return `Status{}` with one record moved into `out`; `BufferEmpty` when
+    ///         every registered shard is momentarily empty.
+    /// @note Spec `core/spsc-ring-buffer`, requirement "First-in/first-out
+    ///       ordering and element integrity" is preserved per shard.
+    /// @warning Only the single consumer thread may call this.
     [[nodiscard]] core::Status pop(Record& out) noexcept;
 
     // -- third-thread relaxed snapshots (diagnostics, never synchronization)
+    /// @brief Total records currently pending across every shard.
+    ///
+    /// @return Sum of the per-shard snapshot sizes; relaxed, not linearizable.
     [[nodiscard]] std::size_t ring_size() const noexcept;
+    /// @brief Whether every shard snapshot is empty.
+    ///
+    /// @return `true` when no shard reports a pending record.
     [[nodiscard]] bool ring_empty() const noexcept;
+    /// @brief Sum of the per-shard rate-limited drop counters.
+    ///
+    /// @return Counted rate-limit rejections across all shards.
     [[nodiscard]] std::uint64_t rate_limited_total() const noexcept;
+    /// @brief Sum of the per-shard buffer-full drop counters.
+    ///
+    /// @return Counted full-ring rejections across all shards.
     [[nodiscard]] std::uint64_t buffer_full_total() const noexcept;
+    /// @brief Records dropped because no producer slot was available.
+    ///
+    /// @return Counted slot-exhaustion drops across the pool's lifetime.
     [[nodiscard]] std::uint64_t slot_exhausted() const noexcept {
         return exhausted_.slot_exhausted.load(std::memory_order_relaxed);
     }
 
-    /// Cold-path test/diagnostic accessor for one shard (out-of-range → 0).
+    /// @brief Cold-path test/diagnostic accessor for one shard.
+    ///
+    /// @param index Shard index; out-of-range values fall back to shard 0.
+    /// @return Reference to the selected shard ring.
     [[nodiscard]] core::SpscRingBuffer<Record, ShardCapacity>& shard(std::size_t index) noexcept {
         return shards_[index < MaxThreads ? index : 0U];
     }
 
 private:
+    /// @brief Registration state: next slot to hand out and the active mark.
     struct alignas(64) RegistrationCell {
-        std::atomic<std::uint32_t> next_slot{}; ///< relaxed fetch_add
-        std::atomic<std::uint32_t> active{};    ///< release fetch_max (CAS loop)
-        std::uint8_t pad_[56]{};
+        std::atomic<std::uint32_t> next_slot{}; ///< Relaxed `fetch_add` counter.
+        std::atomic<std::uint32_t> active{};    ///< Release `fetch_max` (CAS loop).
+        std::uint8_t pad_[56]{};                ///< Padding to one cache line.
     };
+    /// @brief Pool-exhaustion counter, isolated on its own cache line.
     struct alignas(64) ExhaustedCell {
-        std::atomic<std::uint64_t> slot_exhausted{};
-        std::uint8_t pad_[56]{};
+        std::atomic<std::uint64_t> slot_exhausted{}; ///< Relaxed counted drops.
+        std::uint8_t pad_[56]{};                     ///< Padding to one cache line.
     };
 
-    alignas(64) std::array<core::SpscRingBuffer<Record, ShardCapacity>, MaxThreads> shards_{};
-    ShardPoolState state_[MaxThreads]{};
-    RegistrationCell registration_{};
-    ExhaustedCell exhausted_{};
+    alignas(64) std::array<core::SpscRingBuffer<Record, ShardCapacity>,
+                           MaxThreads> shards_{}; ///< Per-slot SPSC rings.
+    ShardPoolState state_[MaxThreads]{};          ///< Per-slot accounting cells.
+    RegistrationCell registration_{};             ///< Slot registration state.
+    ExhaustedCell exhausted_{};                   ///< Pool-exhaustion counter.
 
-    /// Consumer-only round-robin cursor (the worker is the sole pop() caller).
+    /// @brief Consumer-only round-robin cursor (the sole `pop()` caller).
     std::uint32_t drain_shard_{};
+    /// @brief Records drained from `drain_shard_` in the current sweep.
     std::uint32_t drain_shard_pops_{};
 
     static_assert(sizeof(RegistrationCell) == 64);
@@ -130,11 +223,19 @@ private:
 
 // --- out-of-line definitions ------------------------------------------------
 
+/// @brief Resolve this thread's shard slot (out-of-line definition).
+///
+/// @tparam Record Element type stored in each shard ring.
+/// @tparam ShardCapacity Slots per ring.
+/// @tparam MaxThreads Maximum number of producer slots.
+/// @return Slot index in `[0, MaxThreads)`, or `-1` on exhaustion (counted).
+/// @note Steady path touches TLS only: no shared atomics after the first claim.
 template <class Record, std::size_t ShardCapacity, std::size_t MaxThreads>
 std::int32_t ShardPool<Record, ShardCapacity, MaxThreads>::claim_slot() noexcept {
+    /// @brief One thread-local (pool, slot) cache entry.
     struct Entry {
-        const void* owner{nullptr};
-        std::int32_t slot{-1};
+        const void* owner{nullptr}; ///< Pool identity owning the slot.
+        std::int32_t slot{-1};      ///< Cached slot, -1 when the entry is free.
     };
     // Per-thread (pool → slot) cache. 8 distinct pools per thread: the
     // realistic population is logging · metrics · tracing · chrono plus
@@ -199,6 +300,7 @@ std::int32_t ShardPool<Record, ShardCapacity, MaxThreads>::claim_slot() noexcept
     return static_cast<std::int32_t>(claimed);
 }
 
+/// @brief Out-of-line definition of `ShardPool::pop`; see the declaration.
 template <class Record, std::size_t ShardCapacity, std::size_t MaxThreads>
 core::Status ShardPool<Record, ShardCapacity, MaxThreads>::pop(Record& out) noexcept {
     const std::uint32_t active = registration_.active.load(std::memory_order_acquire);
@@ -220,6 +322,12 @@ core::Status ShardPool<Record, ShardCapacity, MaxThreads>::pop(Record& out) noex
     return std::unexpected(core::ErrorCode::BufferEmpty);
 }
 
+/// @brief Sum of the per-shard snapshot sizes (definition).
+///
+/// @tparam Record Element type stored in each shard ring.
+/// @tparam ShardCapacity Slots per ring.
+/// @tparam MaxThreads Maximum number of producer slots.
+/// @return Records currently pending across every shard.
 template <class Record, std::size_t ShardCapacity, std::size_t MaxThreads>
 std::size_t ShardPool<Record, ShardCapacity, MaxThreads>::ring_size() const noexcept {
     std::size_t pending = 0;
@@ -229,6 +337,12 @@ std::size_t ShardPool<Record, ShardCapacity, MaxThreads>::ring_size() const noex
     return pending;
 }
 
+/// @brief Whether every shard snapshot is empty (definition).
+///
+/// @tparam Record Element type stored in each shard ring.
+/// @tparam ShardCapacity Slots per ring.
+/// @tparam MaxThreads Maximum number of producer slots.
+/// @return `true` when no shard reports a pending record.
 template <class Record, std::size_t ShardCapacity, std::size_t MaxThreads>
 bool ShardPool<Record, ShardCapacity, MaxThreads>::ring_empty() const noexcept {
     for (const auto& shard : shards_) {
@@ -239,6 +353,12 @@ bool ShardPool<Record, ShardCapacity, MaxThreads>::ring_empty() const noexcept {
     return true;
 }
 
+/// @brief Sum of the per-shard rate-limited counters (definition).
+///
+/// @tparam Record Element type stored in each shard ring.
+/// @tparam ShardCapacity Slots per ring.
+/// @tparam MaxThreads Maximum number of producer slots.
+/// @return Counted rate-limit rejections across all shards.
 template <class Record, std::size_t ShardCapacity, std::size_t MaxThreads>
 std::uint64_t ShardPool<Record, ShardCapacity, MaxThreads>::rate_limited_total() const noexcept {
     std::uint64_t total = 0;
@@ -248,6 +368,12 @@ std::uint64_t ShardPool<Record, ShardCapacity, MaxThreads>::rate_limited_total()
     return total;
 }
 
+/// @brief Sum of the per-shard buffer-full counters (definition).
+///
+/// @tparam Record Element type stored in each shard ring.
+/// @tparam ShardCapacity Slots per ring.
+/// @tparam MaxThreads Maximum number of producer slots.
+/// @return Counted full-ring rejections across all shards.
 template <class Record, std::size_t ShardCapacity, std::size_t MaxThreads>
 std::uint64_t ShardPool<Record, ShardCapacity, MaxThreads>::buffer_full_total() const noexcept {
     std::uint64_t total = 0;

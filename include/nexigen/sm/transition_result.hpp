@@ -15,7 +15,14 @@
 
 namespace nexigen::sm {
 
-/// Outcome of a state-change request processed by the arbitration engine.
+/// @brief Outcome of a state-change request processed by the arbitration engine.
+///
+/// The value distinguishes a graph rejection from a priority rejection and from
+/// a watchdog expiry, so the audit record and the trigger response can name the
+/// reason. Byte-sized and append-only; the canonical spelling is the enumerator
+/// name.
+///
+/// @note Spec `sm/state-machine`, requirement "Transition result vocabulary".
 enum class TransitionResult : std::uint8_t {
     Success,            ///< The transition was accepted and applied.
     RejectedByPriority, ///< A higher-priority requester holds the state.
@@ -23,22 +30,47 @@ enum class TransitionResult : std::uint8_t {
     Timeout,            ///< The EM did not confirm the switch in time.
 };
 
-/// Canonical name of a transition result; allocation-free, constexpr.
+/// @brief Canonical name of a transition result.
+///
+/// @param value Enumerator to render.
+/// @return Static-storage view of the enumerator spelling; an out-of-table
+///         value renders the engine fallback. Never allocates or throws.
+/// @note Spec `sm/state-machine`, requirement "Transition result vocabulary".
+/// @note Diagnostic string only (project mandate 9).
 [[nodiscard]] constexpr std::string_view to_string(TransitionResult value) noexcept {
     return core::enum_name(value);
 }
 
-/// Parse a canonical transition-result name; false leaves the out-parameter UNCHANGED.
+/// @brief Parse a canonical transition-result name.
+///
+/// @param name View to parse; matching is exact and case-sensitive.
+/// @param out Destination, assigned only on success.
+/// @return `true` on an exact canonical spelling; `false` otherwise, leaving
+///         `out` UNCHANGED.
+/// @note Spec `sm/state-machine`, requirement "Transition result vocabulary".
 [[nodiscard]] constexpr bool from_string(std::string_view name, TransitionResult& out) noexcept {
     return core::enum_value(name, out);
 }
 
-/// ADL JSON writer (cold path only): the value is exactly to_string(result).
+/// @brief ADL JSON writer: the value is exactly `to_string(result)`.
+///
+/// @param j Output JSON value replaced with the name string.
+/// @param value Enumerator to serialize.
+/// @note Spec `sm/state-machine`, requirement "Transition result vocabulary".
+/// @note Cold-path JSON only (project mandate 10).
 inline void to_json(nlohmann::json& j, const TransitionResult value) {
     core::mandate::enum_to_json(j, value);
 }
 
-/// ADL JSON reader, strictly non-throwing under JSON_NOEXCEPTION=1.
+/// @brief ADL JSON reader, strictly non-throwing under `JSON_NOEXCEPTION=1`.
+///
+/// A non-string or unrecognized value leaves the destination unchanged.
+///
+/// @param j JSON value to read.
+/// @param out Destination, unchanged on any failure.
+/// @note Spec `sm/state-machine`, requirement "Transition result vocabulary".
+/// @note Cold-path JSON only (project mandate 10); safe under
+///       `JSON_NOEXCEPTION=1`.
 inline void from_json(const nlohmann::json& j, TransitionResult& out) noexcept {
     core::mandate::enum_from_json(j, out);
 }
@@ -48,11 +80,20 @@ inline void from_json(const nlohmann::json& j, TransitionResult& out) noexcept {
 // Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
 namespace nexigen::core {
 
+/// @brief Vocabulary table mapping `TransitionResult` enumerators to names.
+///
+/// Backs `core::enum_name`/`enum_value`, hence `to_string`, `from_string`, and
+/// the JSON adapters. The table is `constexpr` static storage and lookup is a
+/// linear scan over four rows, so no allocation occurs.
+///
+/// @note Spec `sm/state-machine`, requirement "Transition result vocabulary".
 template <> struct EnumTraits<nexigen::sm::TransitionResult> {
+    /// @brief One enumerator/name pair of the vocabulary table.
     struct Entry {
-        nexigen::sm::TransitionResult value;
-        std::string_view name;
+        nexigen::sm::TransitionResult value; ///< Enumerator being named.
+        std::string_view name;               ///< Canonical PascalCase spelling.
     };
+    /// @brief Canonical enumerator table, in declaration order.
     static constexpr std::array<Entry, 4> entries{{
         {nexigen::sm::TransitionResult::Success, "Success"},
         {nexigen::sm::TransitionResult::RejectedByPriority, "RejectedByPriority"},

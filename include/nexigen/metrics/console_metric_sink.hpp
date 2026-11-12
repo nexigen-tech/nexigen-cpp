@@ -26,12 +26,35 @@
 
 namespace nexigen::metrics {
 
-/// A sink that writes human-readable metric lines to a file descriptor.
+/// @brief Sink that writes one human-readable line per record to a descriptor.
+///
+/// Rendering uses fixed stack buffers and `std::to_chars`, so `on_batch` never
+/// touches the heap; bytes go out through raw `::write` (no iostreams, whose
+/// lazy initialization and locale state allocate and can block). Partial writes
+/// and `EINTR` are retried. The sink holds no buffers between batches, so a
+/// single instance may be driven by one harvester thread at a time.
+///
+/// @note Spec `metrics/metric-sinks`, requirement "Console metric sink".
 class ConsoleMetricSink {
 public:
+    /// @brief Bind the sink to a destination descriptor.
+    ///
+    /// @param descriptor Open file descriptor that receives the rendered lines;
+    ///        defaults to `STDOUT_FILENO`. The sink borrows it and never closes
+    ///        it, so the caller keeps ownership for the sink's lifetime.
     explicit ConsoleMetricSink(int descriptor = STDOUT_FILENO) noexcept : fd_(descriptor) {}
 
-    /// Render and write one batch.
+    /// @brief Render every record of one batch and write it out.
+    ///
+    /// Each record becomes one line: `meter/version metric kind <payload>`,
+    /// where the payload is `value=`, the statistics summary, or the histogram
+    /// percentiles depending on `record.kind`.
+    ///
+    /// @param batch Snapshot harvested by the provider; `records` may be null,
+    ///        in which case nothing is written.
+    /// @return Success, or `core::ErrorCode::SystemError` when a write fails
+    ///         unrecoverably after the `EINTR`/partial-write retries.
+    /// @note Spec `metrics/metric-sinks`, requirement "Console metric sink".
     [[nodiscard]] core::Status on_batch(const MetricBatchSnapshot& batch) noexcept {
         for (std::uint32_t i = 0; i < batch.record_count; ++i) {
             if (batch.records == nullptr) {
@@ -98,26 +121,45 @@ public:
         return {};
     }
 
-    /// Console output is unbuffered: every write is already complete.
+    /// @brief Complete a flush request; console output is already unbuffered.
+    ///
+    /// @return Success status, always: every line is written before `on_batch`
+    ///         returns.
+    /// @note Spec `metrics/metric-sinks`, requirement "Console metric sink".
     [[nodiscard]] core::Status flush() noexcept { return {}; }
 
-    /// Cold-path diagnostic (mandate 9).
+    /// @brief Render the diagnostic string, including the destination descriptor.
+    ///
+    /// @return `"ConsoleMetricSink(fd=<n>)"`; allocates, cold path only.
+    /// @note Spec `metrics/metric-sinks`, scenario "Console sink diagnostics
+    ///       contract"; project mandate 9 (`to_string`).
     [[nodiscard]] std::string to_string() const {
         return "ConsoleMetricSink(fd=" + std::to_string(fd_) + ")";
     }
 
-    /// The destination descriptor.
+    /// @brief Read the destination descriptor this sink writes to.
+    ///
+    /// @return The descriptor supplied at construction.
     [[nodiscard]] int descriptor() const noexcept { return fd_; }
 
 private:
+    /// Maximum rendered line length in bytes; longer lines are truncated.
     static constexpr std::size_t line_capacity = 512;
 
+    /// @brief Append one byte to the line buffer, ignoring overflow.
+    ///
+    /// @param c Byte to append.
+    /// @warning Silent truncation at `line_capacity`; the write path never
+    ///          overflows, it only shortens the line.
     void append_char(char c) noexcept {
         if (len_ < line_capacity) {
             line_[len_++] = c;
         }
     }
 
+    /// @brief Append a string view to the line buffer, truncating on overflow.
+    ///
+    /// @param text Bytes to append; only the part that fits is copied.
     void append_str(std::string_view text) noexcept {
         const std::size_t room = (len_ < line_capacity) ? (line_capacity - len_) : 0U;
         const std::size_t take = text.size() < room ? text.size() : room;
@@ -126,6 +168,9 @@ private:
         }
     }
 
+    /// @brief Append an unsigned integer through the allocation-free `to_chars`.
+    ///
+    /// @param value Value to render.
     void append_u64(std::uint64_t value) noexcept {
         char digits[24];
         const auto result = std::to_chars(digits, digits + sizeof(digits), value);
@@ -134,6 +179,9 @@ private:
         }
     }
 
+    /// @brief Append a signed integer through the allocation-free `to_chars`.
+    ///
+    /// @param value Value to render.
     void append_i64(std::int64_t value) noexcept {
         char digits[24];
         const auto result = std::to_chars(digits, digits + sizeof(digits), value);
@@ -142,6 +190,9 @@ private:
         }
     }
 
+    /// @brief Append a double through the allocation-free `to_chars`.
+    ///
+    /// @param value Value to render.
     void append_double(double value) noexcept {
         char digits[40];
         const auto result = std::to_chars(digits, digits + sizeof(digits), value);
@@ -150,6 +201,10 @@ private:
         }
     }
 
+    /// @brief Write the whole line buffer to the descriptor, retrying short writes.
+    ///
+    /// @return `true` when every buffered byte was written; `false` on any error
+    ///         other than `EINTR`.
     [[nodiscard]] bool write_all() noexcept {
         std::size_t offset = 0;
         while (offset < len_) {
@@ -170,14 +225,34 @@ private:
     std::size_t len_{0};
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free `to_string` helper mirroring the member function.
+///
+/// @param sink Sink to describe.
+/// @return The same text as `ConsoleMetricSink::to_string`.
+/// @note Spec `metrics/metric-sinks`, scenario "Console sink diagnostics
+///       contract"; project mandate 9.
 [[nodiscard]] inline std::string to_string(const ConsoleMetricSink& sink) {
     return sink.to_string();
 }
 
-/// Diagnostic JSON (cold path): the sink round-trips its descriptor.
-/// Declarations: bodies live in console_metric_sink.cpp.
+/// @brief Serialize the console sink, including its destination descriptor.
+///
+/// Declarations only: bodies live in `console_metric_sink.cpp`.
+///
+/// @param j Destination JSON value.
+/// @param sink Sink to describe.
+/// @note Spec `metrics/metric-sinks`, scenario "Console sink diagnostics
+///       contract"; project mandate 10 (JSON).
 void to_json(nlohmann::json& j, const ConsoleMetricSink& sink);
+
+/// @brief Restore the console sink descriptor from JSON; never throws.
+///
+/// Declarations only: bodies live in `console_metric_sink.cpp`.
+///
+/// @param j Source JSON value.
+/// @param sink Sink whose descriptor is rebound; unchanged on malformed input.
+/// @note Spec `metrics/metric-sinks`, scenario "Console sink diagnostics
+///       contract"; must stay non-throwing under `JSON_NOEXCEPTION=1`.
 void from_json(const nlohmann::json& j, ConsoleMetricSink& sink) noexcept;
 
 static_assert(concepts::MetricSink<ConsoleMetricSink>,
@@ -185,9 +260,18 @@ static_assert(concepts::MetricSink<ConsoleMetricSink>,
 
 } // namespace nexigen::metrics
 
-/// The console sink formats as its diagnostic string (mandate 11).
+/// @brief `std::formatter` for the console sink; renders its diagnostic string.
+///
+/// @note Spec `metrics/metric-sinks`, scenario "Console sink diagnostics
+///       contract"; project mandate 11 (`std::formatter`).
 template <>
 struct std::formatter<nexigen::metrics::ConsoleMetricSink> : std::formatter<std::string_view> {
+    /// @brief Write the sink's `to_string` text through the string formatter.
+    ///
+    /// @tparam Ctx Formatting context type supplied by `std::format`.
+    /// @param sink Sink being formatted.
+    /// @param ctx Destination formatting context.
+    /// @return Iterator past the last written character.
     template <class Ctx>
     auto format(const nexigen::metrics::ConsoleMetricSink& sink, Ctx& ctx) const {
         const std::string text = sink.to_string();

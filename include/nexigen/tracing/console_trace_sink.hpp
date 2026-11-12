@@ -33,18 +33,49 @@
 
 namespace nexigen::tracing {
 
-/// A sink that writes one human-readable line per span to a descriptor.
+/// @brief Sink that writes one human-readable line per span to a descriptor.
+///
+/// Each `on_span` renders the full identity (trace/span/parent ids, kind,
+/// status, name, duration, thread id, source location) and every attribute
+/// into a fixed 1024-byte line buffer using `std::to_chars`, then writes it
+/// with `::write` retrying `EINTR` and partial writes. No iostreams, no
+/// per-record heap allocation, and no locale state are involved.
+///
+/// The descriptor is owned by the caller (stdout by default); the sink only
+/// writes to it. Unrecoverable write failures surface as `SystemError`
+/// without aborting, leaving the sink usable for error reporting. All state is
+/// consumer-thread plain state.
+///
+/// @note Spec `tracing/trace-sinks`, requirement "ConsoleTraceSink".
 class ConsoleTraceSink {
 public:
-    /// fd = 1 (stdout) by default; tests capture through a pipe fixture.
+    /// @brief Construct the sink around an already-open descriptor.
+    ///
+    /// @param descriptor Destination descriptor; defaults to `1` (stdout),
+    ///        and tests capture output through a pipe fixture.
+    /// @note The descriptor is borrowed, not owned: `stop()` never closes it.
     explicit ConsoleTraceSink(int descriptor = 1) noexcept : fd_(descriptor) {}
 
+    /// @brief Copy construction is deleted: the sink renders into its own
+    ///        scratch buffer.
     ConsoleTraceSink(const ConsoleTraceSink&) = delete;
+    /// @brief Copy assignment is deleted: the sink renders into its own
+    ///        scratch buffer.
     ConsoleTraceSink& operator=(const ConsoleTraceSink&) = delete;
 
-    /// Move transfers the descriptor and leaves the source unusable (fd =
-    /// -1) so the destructors can never double-close.
+    /// @brief Move the descriptor, leaving the source unusable.
+    ///
+    /// @param other Source sink; set to `fd_ == -1` so neither destructor can
+    ///        double-close.
+    /// @warning A moved-from sink must not be used for delivery.
     ConsoleTraceSink(ConsoleTraceSink&& other) noexcept : fd_(other.fd_) { other.fd_ = -1; }
+
+    /// @brief Move-assign the descriptor, closing the previous one.
+    ///
+    /// @param other Source sink; set to `fd_ == -1` afterwards.
+    /// @return This sink.
+    /// @warning Self-assignment is a no-op; the previous descriptor is closed
+    ///          when it differs from the source.
     ConsoleTraceSink& operator=(ConsoleTraceSink&& other) noexcept {
         if (this != &other) {
             if (fd_ >= 0 && fd_ != other.fd_) {
@@ -56,7 +87,17 @@ public:
         return *this;
     }
 
-    /// Render and write one span line (no iostreams, no allocation).
+    /// @brief Render and write one span line without allocation or iostreams.
+    ///
+    /// The line carries ids, root/child marker, kind, status, name, duration,
+    /// thread id, source location, and every typed attribute; it is truncated
+    /// to the fixed buffer rather than overflowing.
+    ///
+    /// @param record Span to render.
+    /// @return Success when the whole line was written; `SystemError` when the
+    ///         descriptor write fails, without aborting the process.
+    /// @note Spec `tracing/trace-sinks`, requirement "ConsoleTraceSink";
+    ///       delivery allocates nothing per record.
     [[nodiscard]] core::Status on_span(const SpanRecord& record) noexcept {
         len_ = 0;
         append_sv("[trace ");
@@ -112,21 +153,37 @@ public:
         return {};
     }
 
-    /// Nothing to start for a raw descriptor.
+    /// @brief Complete a start request without doing any work.
+    ///
+    /// @return Success status, always; a raw descriptor needs no setup.
+    /// @note Spec `tracing/trace-sinks`, requirement "ConsoleTraceSink".
     [[nodiscard]] core::Status start() noexcept { return {}; }
 
-    /// Console output is unbuffered: every write is already complete.
+    /// @brief Complete a flush request without doing any work.
+    ///
+    /// @return Success status, always; the descriptor is unbuffered by
+    ///         contract, so every write is already complete.
+    /// @note Spec `tracing/trace-sinks`, requirement "ConsoleTraceSink".
     [[nodiscard]] core::Status flush() noexcept { return {}; }
 
-    /// Nothing to stop.
+    /// @brief Complete a stop request without doing any work.
+    ///
+    /// The borrowed descriptor is deliberately left open.
+    /// @note Spec `tracing/trace-sinks`, requirement "ConsoleTraceSink".
     void stop() noexcept {}
 
-    /// Cold-path diagnostic (mandate 9).
+    /// @brief Render the sink state as a cold-path diagnostic string.
+    ///
+    /// @return Text naming the destination descriptor; allocates, cold path
+    ///         only.
+    /// @note Project mandate 9 (`to_string`).
     [[nodiscard]] std::string to_string() const {
         return "ConsoleTraceSink(fd=" + std::to_string(fd_) + ")";
     }
 
-    /// The destination descriptor.
+    /// @brief Report the destination descriptor.
+    ///
+    /// @return The descriptor passed at construction (`-1` after a move).
     [[nodiscard]] int descriptor() const noexcept { return fd_; }
 
 private:
@@ -200,15 +257,25 @@ private:
     std::size_t len_{0};
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free diagnostic helper mirroring `ConsoleTraceSink::to_string()`.
+///
+/// @param sink Sink to describe.
+/// @return The same text the member returns.
+/// @note Project mandate 9 (`to_string`); cold path only.
 [[nodiscard]] inline std::string to_string(const ConsoleTraceSink& sink) {
     return sink.to_string();
 }
 
-/// Diagnostic JSON (cold path): the sink round-trips its descriptor. The
-/// live sink has deliberately NO from_json — sinks are constructed from
-/// configuration objects, not parsed from data (spec "Live sinks render
-/// diagnostics and refuse deserialization"); body in sink_format.cpp.
+/// @brief Serialize the live sink's descriptor as JSON (cold path).
+///
+/// The live sink deliberately has no `from_json`: sinks are constructed from
+/// configuration objects, not parsed from data (spec "Live sink serialization
+/// surfaces").
+///
+/// @param j Destination JSON value, overwritten with the sink state.
+/// @param sink Sink to describe.
+/// @note Spec `tracing/trace-sinks`, requirement "Live sink serialization
+///       surfaces"; project mandate 10 (JSON).
 void to_json(nlohmann::json& j, const ConsoleTraceSink& sink);
 
 static_assert(concepts::TraceSink<ConsoleTraceSink>,
@@ -216,9 +283,17 @@ static_assert(concepts::TraceSink<ConsoleTraceSink>,
 
 } // namespace nexigen::tracing
 
-/// The console sink formats as its diagnostic string (mandate 11).
+/// @brief `std::formatter` for `ConsoleTraceSink`.
+///
+/// @note Project mandate 11 (`std::formatter`); formatting is cold path only.
 template <>
 struct std::formatter<nexigen::tracing::ConsoleTraceSink> : std::formatter<std::string_view> {
+    /// @brief Format the sink through its `to_string()` text.
+    ///
+    /// @tparam Ctx Format context type supplied by `std::format`.
+    /// @param sink Sink to render.
+    /// @param ctx Output context receiving the text.
+    /// @return Iterator past the last written character.
     template <class Ctx>
     auto format(const nexigen::tracing::ConsoleTraceSink& sink, Ctx& ctx) const {
         const std::string text = sink.to_string();

@@ -42,9 +42,25 @@
 
 namespace nexigen::core {
 
-/// Wait-free SPSC ring buffer with compile-time fixed, power-of-two capacity.
-/// One producer thread (try_push), one consumer thread (try_pop). See the
-/// file header for the full thread-safety contract.
+/// @brief Wait-free SPSC ring buffer with compile-time fixed, power-of-two
+///        capacity.
+///
+/// Exactly one producer thread calls `try_push` and exactly one consumer thread
+/// calls `try_pop` through the same object; any other topology is outside the
+/// contract. Storage is a fixed inline array (no heap), the index atomics are
+/// lock-free, and each endpoint keeps a private mirror of the peer index so the
+/// common path never touches the other thread's cache line. The snapshot
+/// accessors may be called from third threads but are not linearizable:
+/// diagnostics only.
+///
+/// @tparam T Element type; `static_assert` requires
+///         `std::is_default_constructible_v<T>` and
+///         `std::is_move_assignable_v<T>`.
+/// @tparam Capacity Number of slots; `static_assert` requires a positive power
+///         of two.
+/// @note Spec `core/spsc-ring-buffer`, requirements "Fixed-capacity queue
+///       declared at compile time" and "Single-producer single-consumer
+///       contract".
 template <class T, std::size_t Capacity> class alignas(64) SpscRingBuffer {
     static_assert(Capacity >= 1 && (Capacity & (Capacity - 1)) == 0,
                   "Capacity must be a positive power of two");
@@ -52,26 +68,32 @@ template <class T, std::size_t Capacity> class alignas(64) SpscRingBuffer {
     static_assert(std::is_default_constructible_v<T> && std::is_move_assignable_v<T>,
                   "T must be default-constructible and move-assignable");
 
-    /// Mask for mapping monotonic indices onto the fixed slot array.
+    /// @brief Mask mapping monotonic indices onto the fixed slot array.
     static constexpr std::size_t mask_ = Capacity - 1;
 
-    /// Producer-owned cache line: tail is written only by the producer thread;
-    /// head_cache is its private mirror of the consumer's head (plain data).
+    /// @brief Producer-owned cache line.
+    ///
+    /// The producer thread alone writes `tail`; `head_cache` is its private,
+    /// plain-data mirror of the consumer's head.
     struct alignas(64) ProducerCell {
         std::atomic<std::size_t> tail{0}; ///< One past the newest stored element.
         std::size_t head_cache{0};        ///< Producer's cached view of consumer head.
     } producer_{};
 
-    /// Consumer-owned cache line: head is written only by the consumer thread;
-    /// tail_cache is its private mirror of the producer's tail (plain data).
+    /// @brief Consumer-owned cache line.
+    ///
+    /// The consumer thread alone writes `head`; `tail_cache` is its private,
+    /// plain-data mirror of the producer's tail.
     struct alignas(64) ConsumerCell {
         std::atomic<std::size_t> head{0}; ///< Oldest not-yet-consumed element.
         std::size_t tail_cache{0};        ///< Consumer's cached view of producer tail.
     } consumer_{};
 
-    /// Fixed payload storage; written by the producer, read by the consumer,
-    /// ordered by the index release/acquire pairs below. A popped-from slot
-    /// holds a valid moved-from value until the next overwrite.
+    /// @brief Fixed payload storage.
+    ///
+    /// Written by the producer and read by the consumer, ordered by the index
+    /// release/acquire pairs. A popped-from slot holds a valid moved-from value
+    /// until the next overwrite.
     alignas(64) std::array<T, Capacity> slots_{};
 
     // Layout self-verification: if a refactor ever collapses the two index
@@ -83,27 +105,48 @@ template <class T, std::size_t Capacity> class alignas(64) SpscRingBuffer {
     static_assert(sizeof(ConsumerCell) % 64 == 0, "consumer cell must be a whole number of lines");
 
 public:
+    /// @brief Construct an empty queue with zeroed indices and slots.
     SpscRingBuffer() = default;
+    /// @brief Destroy the queue; no allocation is released.
     ~SpscRingBuffer() = default;
 
+    /// @brief Copy construction is deleted: endpoints hold unique ownership.
     SpscRingBuffer(const SpscRingBuffer&) = delete;
+    /// @brief Copy assignment is deleted: endpoints hold unique ownership.
     SpscRingBuffer& operator=(const SpscRingBuffer&) = delete;
+    /// @brief Move construction is deleted: the atomics are address-bound.
     SpscRingBuffer(SpscRingBuffer&&) = delete;
+    /// @brief Move assignment is deleted: the atomics are address-bound.
     SpscRingBuffer& operator=(SpscRingBuffer&&) = delete;
 
-    /// Compile-time power-of-two predicate (also used by the static_assert above).
+    /// @brief Compile-time power-of-two predicate.
+    ///
+    /// @param value Candidate capacity.
+    /// @return `true` when `value` is at least 1 and has exactly one bit set.
+    /// @note Also used by the `static_assert` above and the spec's
+    ///       "Rejecting a non-power-of-two capacity" scenario.
     [[nodiscard]] static constexpr bool is_power_of_two(std::size_t value) noexcept {
         return value >= 1 && (value & (value - 1)) == 0;
     }
 
-    /// Fixed capacity, known at compile time.
+    /// @brief Fixed capacity, known at compile time.
+    ///
+    /// @return The `Capacity` template argument.
     [[nodiscard]] static constexpr std::size_t capacity() noexcept { return Capacity; }
 
-    /// Producer end only. Inserts at the back; BufferFull when all Capacity
-    /// slots are occupied (the pushed element is not taken into the queue).
-    /// Wait-free: the cached peer index keeps the common path on the
-    /// producer's own cache line; an apparent full refreshes once (acquire)
-    /// and re-checks, so there is no spurious failure.
+    /// @brief Insert a copy at the back (producer end only).
+    ///
+    /// Wait-free: the cached peer index keeps the common path on the producer's
+    /// own cache line; an apparent full state refreshes once with an acquire
+    /// load and re-checks, so there is no spurious failure.
+    ///
+    /// @param value Element to copy into the queue.
+    /// @return `Status{}` when the element was enqueued; `BufferFull` when all
+    ///         `Capacity` slots are occupied (the element is not taken into the
+    ///         queue).
+    /// @note Spec `core/spsc-ring-buffer`, requirement "Non-blocking push and
+    ///       pop with classified outcomes".
+    /// @warning Only the single producer thread may call this.
     [[nodiscard]] Status try_push(const T& value) noexcept {
         const std::size_t t = producer_.tail.load(std::memory_order_relaxed);
         if (t - producer_.head_cache >= Capacity) {
@@ -117,7 +160,17 @@ public:
         return {};
     }
 
-    /// Producer end only. Move-inserting overload; same semantics as above.
+    /// @brief Move-insert an element at the back (producer end only).
+    ///
+    /// Same semantics and wait-free behaviour as the copying overload.
+    ///
+    /// @param value Element to move into the queue.
+    /// @return `Status{}` when the element was enqueued; `BufferFull` when all
+    ///         `Capacity` slots are occupied (the element is not taken into the
+    ///         queue).
+    /// @note Spec `core/spsc-ring-buffer`, requirement "Non-blocking push and
+    ///       pop with classified outcomes".
+    /// @warning Only the single producer thread may call this.
     [[nodiscard]] Status try_push(T&& value) noexcept {
         const std::size_t t = producer_.tail.load(std::memory_order_relaxed);
         if (t - producer_.head_cache >= Capacity) {
@@ -131,10 +184,18 @@ public:
         return {};
     }
 
-    /// Consumer end only. Removes from the front into `out` (moved out);
-    /// BufferEmpty when no element is available (`out` is left untouched).
-    /// The acquire reload orders these reads after the producer's release
-    /// store of tail, making the pushed element fully visible here.
+    /// @brief Remove the front element into `out` (consumer end only).
+    ///
+    /// The acquire reload orders these reads after the producer's release store
+    /// of `tail`, making the pushed element fully visible here.
+    ///
+    /// @param out Destination assigned only on success; left untouched when the
+    ///        queue is empty.
+    /// @return `Status{}` when an element was moved out; `BufferEmpty` when no
+    ///         element is available.
+    /// @note Spec `core/spsc-ring-buffer`, requirement "Cross-thread visibility
+    ///       of transferred elements".
+    /// @warning Only the single consumer thread may call this.
     [[nodiscard]] Status try_pop(T& out) noexcept {
         const std::size_t h = consumer_.head.load(std::memory_order_relaxed);
         if (h == consumer_.tail_cache) {
@@ -148,23 +209,35 @@ public:
         return {};
     }
 
-    /// Snapshot count of stored elements (diagnostics only, not linearizable).
+    /// @brief Snapshot count of stored elements.
+    ///
+    /// @return `tail - head` read with relaxed loads; not linearizable and valid
+    ///         from any thread, for diagnostics only.
     [[nodiscard]] std::size_t size() const noexcept {
         const std::size_t t = producer_.tail.load(std::memory_order_relaxed);
         const std::size_t h = consumer_.head.load(std::memory_order_relaxed);
         return t - h;
     }
 
-    /// Snapshot emptiness check (diagnostics only).
+    /// @brief Snapshot emptiness check (diagnostics only).
+    ///
+    /// @return `true` when the snapshot count is zero.
     [[nodiscard]] bool is_empty() const noexcept { return size() == 0; }
 
-    /// Snapshot fullness check (diagnostics only).
+    /// @brief Snapshot fullness check (diagnostics only).
+    ///
+    /// @return `true` when the snapshot count equals `Capacity`.
     [[nodiscard]] bool is_full() const noexcept { return size() == Capacity; }
 
-    /// Cold-path diagnostic snapshot (mandate 9): capacity, occupancy, and
-    /// empty/full state. Reads the same relaxed counters as size(), so a third
-    /// thread may call it; the returned std::string allocates, which is exactly
-    /// why it is a diagnostics helper and never a hot-path primitive.
+    /// @brief Cold-path diagnostic snapshot: capacity, occupancy, state.
+    ///
+    /// Reads the same relaxed counters as `size()`, so a third thread may call
+    /// it; the returned `std::string` allocates, which is exactly why it is a
+    /// diagnostics helper and never a hot-path primitive.
+    ///
+    /// @return Text such as `SpscRingBuffer(capacity=8, size=3, partial)`.
+    /// @note Spec `core/spsc-ring-buffer`, requirement "Ring buffer diagnostic
+    ///       string"; mandate 9.
     [[nodiscard]] std::string to_string() const {
         const std::size_t n = size();
         std::string out = "SpscRingBuffer(capacity=";
@@ -178,7 +251,14 @@ public:
     }
 };
 
-/// Free helper (mandate 9): to_string(const T&) mirrors the member.
+/// @brief Free mirror of the member `to_string` (mandate 9).
+///
+/// @tparam T Element type of the queue.
+/// @tparam Capacity Slot count of the queue.
+/// @param ring Queue to render.
+/// @return The same text as `ring.to_string()`.
+/// @note Spec `core/spsc-ring-buffer`, requirement "Ring buffer diagnostic
+///       string".
 template <class T, std::size_t Capacity>
 [[nodiscard]] std::string to_string(const SpscRingBuffer<T, Capacity>& ring) {
     return ring.to_string();

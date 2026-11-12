@@ -15,19 +15,33 @@
 
 namespace nexigen::sm {
 
-/// Maximum length of the name buffers in an audit record.
+/// @brief Maximum length of the name buffers in an audit record.
+///
+/// Each buffer includes its terminating NUL, so a stored name is at most 31
+/// bytes and is truncated rather than rejected.
 inline constexpr std::size_t k_audit_name_length = 32;
 
-/// One journaled transition event.
+/// @brief One journaled transition event.
+///
+/// Fixed inline buffers and a `std::uint8_t`-backed result make the type
+/// trivially copyable, which is what lets the arbitration thread push it into
+/// the lock-free SPSC ring in O(1) without allocating.
+///
+/// @note Spec `sm/telemetry`, requirement "Transition audit log".
 struct TransitionRecord {
-    std::uint64_t timestamp_ns{0};
-    char function_group[k_audit_name_length]{};
-    char old_state[k_audit_name_length]{};
-    char new_state[k_audit_name_length]{};
-    char requester_id[k_audit_name_length]{};
-    TransitionResult result{TransitionResult::Success};
+    std::uint64_t timestamp_ns{0};                      ///< Monotonic event timestamp.
+    char function_group[k_audit_name_length]{};         ///< Affected group name.
+    char old_state[k_audit_name_length]{};              ///< State before the request.
+    char new_state[k_audit_name_length]{};              ///< Requested or applied state.
+    char requester_id[k_audit_name_length]{};           ///< Requester identity.
+    TransitionResult result{TransitionResult::Success}; ///< Arbitration outcome.
 
-    /// Cold-path diagnostic (mandate 9).
+    /// @brief Render the record as a diagnostic string.
+    ///
+    /// @return Text naming the timestamp, group, states, requester, and
+    ///         result; allocates.
+    /// @note Spec `sm/telemetry`, requirement "Transition audit log".
+    /// @note Cold-path diagnostic only (project mandate 9).
     [[nodiscard]] std::string to_string() const {
         return std::format(
             "TransitionRecord(timestamp_ns={}, function_group={}, old_state={}, new_state={}, "
@@ -37,16 +51,32 @@ struct TransitionRecord {
     }
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free diagnostic helper mirroring `TransitionRecord::to_string`.
+///
+/// @param record Record to render.
+/// @return The member `to_string()` output.
+/// @note Spec `sm/telemetry`, requirement "Transition audit log".
+/// @note Cold-path diagnostic only (project mandate 9).
 [[nodiscard]] inline std::string to_string(const TransitionRecord& record) {
     return record.to_string();
 }
 
 } // namespace nexigen::sm
 
-/// The record formats as its diagnostic string (mandate 11).
+/// @brief `std::formatter` for `TransitionRecord` (project mandate 11).
+///
+/// Delegates to `std::formatter<std::string_view>` after rendering the member
+/// diagnostic, so `std::format("{}", record)` equals `to_string()`.
+///
+/// @note Spec `sm/telemetry`, requirement "Transition audit log".
 template <>
 struct std::formatter<nexigen::sm::TransitionRecord> : std::formatter<std::string_view> {
+    /// @brief Format the record as its diagnostic string.
+    ///
+    /// @tparam Ctx Format context type supplied by `std::format`.
+    /// @param record Record to render.
+    /// @param ctx Output iterator context receiving the text.
+    /// @return Iterator past the written characters.
     template <class Ctx> auto format(const nexigen::sm::TransitionRecord& record, Ctx& ctx) const {
         const std::string text = record.to_string();
         return std::formatter<std::string_view>::format(text, ctx);

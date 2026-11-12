@@ -29,7 +29,16 @@
 
 namespace nexigen::core {
 
-/// Severity levels in strictly increasing order; `Off` silences everything.
+/// @brief Severity levels in strictly increasing order; `Off` silences
+///        everything.
+///
+/// The built-in relational order of the scoped enum is severity order
+/// (`Verbose < Debug < ... < Fatal < Off`), so a filter compare needs no lookup
+/// table, and `Off` being the largest value makes "everything filtered" the
+/// top-of-range state. The `std::uint8_t` underlying type keeps a level one
+/// byte wide inside `LogRecord` and atomically loadable.
+///
+/// @note Spec `core/log-level`, requirement "Severity catalogue".
 enum class LogLevel : std::uint8_t {
     Verbose, ///< Chatty diagnostics; below typical production threshold.
     Debug,   ///< Developer-facing detail.
@@ -40,12 +49,16 @@ enum class LogLevel : std::uint8_t {
     Off,     ///< Filter everything: the only value no record can reach.
 };
 
-// Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).
+/// @brief Vocabulary table for `LogLevel` (`core::enum_name`/`enum_value`).
+///
+/// The single source of truth for the lowercase wire names, in severity order.
 template <> struct EnumTraits<nexigen::core::LogLevel> {
+    /// @brief One table row: an enumerator and its canonical spelling.
     struct Entry {
-        nexigen::core::LogLevel value;
-        std::string_view name;
+        nexigen::core::LogLevel value; ///< Enumerator described by the row.
+        std::string_view name;         ///< Canonical lowercase wire name.
     };
+    /// @brief Name table covering every enumerator, lowest severity first.
     static constexpr std::array<Entry, 7> entries{{
         {nexigen::core::LogLevel::Verbose, "verbose"},
         {nexigen::core::LogLevel::Debug, "debug"},
@@ -57,26 +70,48 @@ template <> struct EnumTraits<nexigen::core::LogLevel> {
     }};
 };
 
-/// Compile-time lowercase name of a level — the exact spelling used by the
-/// JSON `"level"` field and console lines. Static storage, allocation-free.
+/// @brief Compile-time lowercase name of a level.
+///
+/// The exact spelling used by the JSON `"level"` field and console lines;
+/// static storage, allocation-free, no exception path.
+///
+/// @param level Severity level to render.
+/// @return View over the canonical lowercase name; a value outside the table
+///         renders `"Unknown"`.
+/// @note Spec `core/log-level`, requirement "Compile-time level naming";
+///       mandate 9.
 [[nodiscard]] constexpr std::string_view to_string(LogLevel level) noexcept {
     return core::enum_name(level);
 }
 
-/// Parse a canonical lowercase level name (the exact to_string spelling).
-/// Returns false leaving the out-parameter UNCHANGED otherwise ("Unknown"
-/// is a rendering, not an enumerator).
+/// @brief Parse a canonical lowercase level name.
+///
+/// @param name Candidate spelling (the exact `to_string` output).
+/// @param out Destination, untouched unless the name matches exactly.
+/// @return `true` with the enumerator on an exact, case-sensitive match;
+///         `false` otherwise (`"Unknown"` is a rendering, not an enumerator).
+/// @note Spec `core/log-level`, requirement "LogLevel name parsing".
 [[nodiscard]] constexpr bool from_string(std::string_view name, LogLevel& out) noexcept {
     return core::enum_value(name, out);
 }
 
-/// ADL JSON writer (cold path only): the JSON value is exactly to_string(level).
+/// @brief ADL JSON writer: the value is exactly `to_string(level)`.
+///
+/// @param j JSON value overwritten with the lowercase name.
+/// @param level Level to serialize.
+/// @note Spec `core/log-level`, requirement "LogLevel JSON serialization";
+///       mandate 10. Cold path only.
 inline void to_json(nlohmann::json& j, const LogLevel level) {
     core::mandate::enum_to_json(j, level);
 }
 
-/// ADL JSON reader, strictly non-throwing under JSON_NOEXCEPTION=1: non-string
-/// values yield nullptr from get_ptr, unknown names leave `out` unchanged.
+/// @brief ADL JSON reader, strictly non-throwing under `JSON_NOEXCEPTION=1`.
+///
+/// @param j JSON value to read; a non-string value yields no pointer and leaves
+///        `out` unchanged.
+/// @param out Destination, untouched on a non-string value or unknown name.
+/// @note Spec `core/log-level`, requirement "LogLevel JSON serialization";
+///       mandate 10. Never aborts.
 inline void from_json(const nlohmann::json& j, LogLevel& out) noexcept {
     core::mandate::enum_from_json(j, out);
 }

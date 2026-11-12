@@ -10,30 +10,61 @@
 
 namespace nexigen::core {
 
-/// One best-effort finding: which source, which field, what went wrong.
+/// @brief One best-effort settings finding: source, field, and message.
+///
+/// Loaders append a finding instead of failing hard, so a malformed field keeps
+/// the previous value while the operator still learns what was rejected. Cold
+/// path only: constructing, reading, or serializing a diagnostic never happens
+/// in a producer or worker loop.
+///
+/// @note Spec `core/settings-vocabulary`, requirement "Settings diagnostic
+///       records a finding".
 struct SettingsDiagnostic {
-    SettingsSource source{SettingsSource::Global};
-    std::string field{};
-    std::string message{};
+    SettingsSource source{SettingsSource::Global}; ///< Merge layer that found it.
+    std::string field{};                           ///< Offending field name, if any.
+    std::string message{};                         ///< Human-readable finding.
 
+    /// @brief Render source, field, and message as one diagnostic line.
+    ///
+    /// @return Newly allocated `SettingsDiagnostic(source=..., field=...,
+    ///         message=...)` text.
+    /// @note Spec `core/settings-vocabulary`, requirement "Settings diagnostic
+    ///       records a finding"; mandate 9.
     [[nodiscard]] std::string to_string() const {
         return "SettingsDiagnostic(source=" + std::string(nexigen::core::to_string(source)) +
                ", field=" + field + ", message=" + message + ")";
     }
 };
+/// @brief Free mirror of the member `to_string`.
+///
+/// @param diag Diagnostic to render.
+/// @return The same text as `diag.to_string()`.
+/// @note Spec `core/settings-vocabulary`, requirement "Settings diagnostic
+///       records a finding"; mandate 9.
 [[nodiscard]] inline std::string to_string(const SettingsDiagnostic& diag) {
     return diag.to_string();
 }
 
-/// ADL JSON writer for a diagnostic (cold path only).
+/// @brief ADL JSON writer for a diagnostic: source, field, and message.
+///
+/// @param j JSON value overwritten with the diagnostic object.
+/// @param diag Diagnostic to serialize.
+/// @note Spec `core/settings-vocabulary`, requirement "Settings diagnostic
+///       records a finding"; mandate 10. Cold path only.
 inline void to_json(nlohmann::json& j, const SettingsDiagnostic& diag) {
     j = nlohmann::json{{"source", std::string(to_string(diag.source))},
                        {"field", diag.field},
                        {"message", diag.message}};
 }
 
-/// ADL JSON reader, non-throwing under JSON_NOEXCEPTION=1: non-object values
-/// and mistyped fields leave the target unchanged.
+/// @brief ADL JSON reader, non-throwing under `JSON_NOEXCEPTION=1`.
+///
+/// A non-object value and any mistyped field leave the target unchanged.
+///
+/// @param j JSON value to read.
+/// @param out Destination updated field by field only from valid strings.
+/// @note Spec `core/settings-vocabulary`, requirement "Settings diagnostic
+///       records a finding"; mandate 10.
 inline void from_json(const nlohmann::json& j, SettingsDiagnostic& out) noexcept {
     if (!j.is_object()) {
         return;

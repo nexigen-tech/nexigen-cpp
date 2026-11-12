@@ -29,11 +29,28 @@
 
 namespace nexigen::metrics {
 
-/// A sink that appends one JSON object per batch to a file.
+/// @brief Sink that appends one JSON object per harvested batch to a file.
+///
+/// The descriptor is opened at construction (the sink owns it) and closed by the
+/// destructor or by move-assignment. One line per batch carries the UTC
+/// ISO-8601 timestamp, the configured application name and the record array;
+/// the write path is allocation-free (fixed scratch plus the bounds-checked
+/// `detail::FixedWriter`) and `flush` pushes the data with `fsync`. Not
+/// copyable; movable so a configured sink can be injected into a composite.
+///
+/// @note Spec `metrics/metric-sinks`, requirement "JSON-lines file sink".
 class JsonFileMetricSink {
 public:
-    /// Open the file. An unopenable path leaves the sink without a
-    /// descriptor; on_batch then reports SystemError.
+    /// @brief Open the configured path and copy the application name.
+    ///
+    /// An unopenable path leaves the sink without a descriptor (`is_open()` is
+    /// `false`) instead of failing construction; `on_batch` then reports
+    /// `SystemError`, so the error stays visible through the sink contract.
+    ///
+    /// @param config Sink configuration: file path, append flag and application
+    ///        name (truncated to 63 bytes in a fixed buffer).
+    /// @note Spec `metrics/metric-sinks`, requirement "Metric batches carry the
+    ///       application name".
     explicit JsonFileMetricSink(const JsonFileMetricSinkConfig& config) noexcept
         : fd_(core::sink_io::open_output(config.path, config.append)) {
         const std::size_t take = config.app_name.size() < 63 ? config.app_name.size() : 63;
@@ -43,17 +60,28 @@ public:
         app_len_ = take;
     }
 
+    /// @brief Copy construction is deleted: the sink owns a descriptor.
     JsonFileMetricSink(const JsonFileMetricSink&) = delete;
+    /// @brief Copy assignment is deleted: the sink owns a descriptor.
     JsonFileMetricSink& operator=(const JsonFileMetricSink&) = delete;
 
-    /// Move transfers the descriptor and leaves the source closed (fd = -1),
-    /// so the destructors can never double-close (design D3).
+    /// @brief Move-construct, transferring the descriptor and disarming the source.
+    ///
+    /// The source is left with `fd == -1` so neither destructor can double-close
+    /// (design D3).
+    ///
+    /// @param other Sink to move from; left disarmed but otherwise intact.
     JsonFileMetricSink(JsonFileMetricSink&& other) noexcept
         : fd_(other.fd_), app_len_(other.app_len_) {
         std::memcpy(app_, other.app_, sizeof(app_));
         other.fd_ = -1;
     }
 
+    /// @brief Move-assign, closing this sink's descriptor before taking the other's.
+    ///
+    /// @param other Sink to move from; left closed so it cannot close the
+    ///        transferred descriptor.
+    /// @return Reference to this sink.
     JsonFileMetricSink& operator=(JsonFileMetricSink&& other) noexcept {
         if (this != &other) {
             if (fd_ >= 0) {
@@ -67,6 +95,7 @@ public:
         return *this;
     }
 
+    /// @brief Close the owned descriptor when it is still open.
     ~JsonFileMetricSink() {
         if (fd_ >= 0) {
             ::close(fd_);
@@ -74,7 +103,19 @@ public:
         }
     }
 
-    /// Write one batch as a single JSON line.
+    /// @brief Write one batch as a single JSON line.
+    ///
+    /// Renders `timestamp`, `app` and the `records` array into the fixed
+    /// scratch buffer and writes it with one `write_all`; a rendering that does
+    /// not fit is discarded whole (no partial line) and counted.
+    ///
+    /// @param batch Snapshot harvested by the provider; `records` may be null.
+    /// @return Success, `core::ErrorCode::SystemError` when the descriptor is
+    ///         closed or the write fails, or `core::ErrorCode::BufferFull` when
+    ///         the rendered line exceeds `detail::json_scratch_capacity`.
+    /// @note Spec `metrics/metric-sinks`, requirement "JSON-lines file sink"
+    ///       and scenario "Scratch overflow discards the batch and counts
+    ///       it"; the callback stays allocation-free.
     [[nodiscard]] core::Status on_batch(const MetricBatchSnapshot& batch) noexcept {
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
@@ -186,7 +227,11 @@ public:
         return {};
     }
 
-    /// Push the data to the file.
+    /// @brief Push buffered data to stable storage with `fsync`.
+    ///
+    /// @return Success, or `core::ErrorCode::SystemError` when the descriptor is
+    ///         closed or `fsync` fails.
+    /// @note Spec `metrics/metric-sinks`, requirement "JSON-lines file sink".
     [[nodiscard]] core::Status flush() noexcept {
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
@@ -197,13 +242,20 @@ public:
         return {};
     }
 
-    /// Cold-path diagnostic (mandate 9).
+    /// @brief Render the diagnostic string, including descriptor and discard count.
+    ///
+    /// @return `"JsonFileMetricSink(fd=<n>, discarded_batches=<n>)"`; allocates,
+    ///         cold path only.
+    /// @note Spec `metrics/metric-sinks`, scenario "Scratch overflow discards
+    ///       the batch and counts it"; project mandate 9 (`to_string`).
     [[nodiscard]] std::string to_string() const {
         return "JsonFileMetricSink(fd=" + std::to_string(fd_) +
                ", discarded_batches=" + std::to_string(discarded_batches_) + ")";
     }
 
-    /// True when the file was opened successfully.
+    /// @brief Report whether construction succeeded in opening the file.
+    ///
+    /// @return `true` when the descriptor is valid.
     [[nodiscard]] bool is_open() const noexcept { return fd_ >= 0; }
 
 private:
@@ -215,17 +267,45 @@ private:
     char scratch_[detail::json_scratch_capacity]{};
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free `to_string` helper mirroring the member function.
+///
+/// @param sink Sink to describe.
+/// @return The same text as `JsonFileMetricSink::to_string`.
+/// @note Spec `metrics/metric-sinks`, requirement "JSON-lines file sink";
+///       project mandate 9.
 [[nodiscard]] inline std::string to_string(const JsonFileMetricSink& sink) {
     return sink.to_string();
 }
 
-/// Configuration JSON (cold path).
-/// Declarations: bodies live in json_file_metric_sink.cpp.
+/// @brief Serialize the file-sink configuration.
+///
+/// Declarations only: bodies live in `json_file_metric_sink.cpp`.
+///
+/// @param j Destination JSON value.
+/// @param config Configuration to serialize (path, append flag, app name).
+/// @note Spec `metrics/metric-sinks`, requirement "File sink configuration
+///       serialization"; project mandate 10 (JSON).
 void to_json(nlohmann::json& j, const JsonFileMetricSinkConfig& config);
+
+/// @brief Restore the file-sink configuration from JSON; never throws.
+///
+/// Declarations only: bodies live in `json_file_metric_sink.cpp`.
+///
+/// @param j Source JSON value.
+/// @param out Configuration to update; malformed fields are left unchanged.
+/// @note Spec `metrics/metric-sinks`, requirement "File sink configuration
+///       serialization"; must stay non-throwing under `JSON_NOEXCEPTION=1`.
 void from_json(const nlohmann::json& j, JsonFileMetricSinkConfig& out) noexcept;
-/// The sink itself is not deserializable: rebinding it opens a file, which is
-/// a construction-time action, not a deserialization.
+
+/// @brief Serialize the sink itself as diagnostic JSON.
+///
+/// The sink is deliberately not deserializable: rebinding it opens a file, which
+/// is a construction-time action, not a deserialization.
+///
+/// @param j Destination JSON value.
+/// @param sink Sink to describe.
+/// @note Spec `metrics/metric-sinks`, requirement "File sink configuration
+///       serialization"; project mandate 10 (JSON).
 void to_json(nlohmann::json& j, const JsonFileMetricSink& sink);
 
 static_assert(concepts::MetricSink<JsonFileMetricSink>,
@@ -233,9 +313,18 @@ static_assert(concepts::MetricSink<JsonFileMetricSink>,
 
 } // namespace nexigen::metrics
 
-/// The file sink formats as its diagnostic string (mandate 11).
+/// @brief `std::formatter` for the file sink; renders its diagnostic string.
+///
+/// @note Spec `metrics/metric-sinks`, requirement "JSON-lines file sink";
+///       project mandate 11 (`std::formatter`).
 template <>
 struct std::formatter<nexigen::metrics::JsonFileMetricSink> : std::formatter<std::string_view> {
+    /// @brief Write the sink's `to_string` text through the string formatter.
+    ///
+    /// @tparam Ctx Formatting context type supplied by `std::format`.
+    /// @param sink Sink being formatted.
+    /// @param ctx Destination formatting context.
+    /// @return Iterator past the last written character.
     template <class Ctx>
     auto format(const nexigen::metrics::JsonFileMetricSink& sink, Ctx& ctx) const {
         const std::string text = sink.to_string();

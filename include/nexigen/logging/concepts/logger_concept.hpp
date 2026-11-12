@@ -53,34 +53,63 @@
 
 namespace nexigen::logging::concepts {
 
-/// Structural requirements of a nexigen logger. All record members noexcept
-/// and returning void; the control plane (flush) still reports through
-/// nexigen::core::Status; no virtual anywhere.
+/// @brief Structural C++23 contract every `nexigen::logging` sink satisfies.
+///
+/// A type satisfies `Logger` when it offers runtime threshold control
+/// (`set_level`/`level`), the explicit-level variadic entry `log`, the six
+/// severity conveniences, and the `flush` control-plane barrier — with no
+/// virtual dispatch anywhere. Each concrete sink pins conformance with a
+/// `static_assert` in its own header, so the contract is compile law.
+///
+/// Record members are `noexcept` and return `void`: accepted, filtered and
+/// dropped calls are indistinguishable at the call site, and losses are audited
+/// through `dropped()` snapshots instead. Only the control plane (`flush`)
+/// reports through `nexigen::core::Status`.
+///
+/// The message-only literal call shape is the minimum contract, which makes the
+/// implicit `FormatWithLocation` conversion (a `consteval` constructor
+/// defaulting its `std::source_location` to `current()`) part of the concept: a
+/// candidate demanding an explicit argument pack or an explicit location does
+/// not conform, while a conforming record carries the caller's
+/// file/line/function — never a library-internal frame.
+///
+/// @tparam T Type under test; the concept constrains it, no external constraint
+///         is imposed.
+/// @note Spec `logging/logger-concept`, requirement "Logger concept core
+///       surface".
+/// @note Spec `logging/logger-concept`, requirement "Logger concept convenience
+///       methods".
+/// @note Spec `logging/logger-concept`, requirement "Convenience methods carry
+///       call-site location".
+/// @note Spec `logging/logger-concept`, requirement "Drop reporting moves to
+///       snapshots".
 template <class T>
 concept Logger = requires(T t, const T ct, core::LogLevel lv) {
-    /// Runtime threshold control (see detail::LevelControl, design D2).
+    /// @brief Runtime threshold control; relaxed cell, safe from any thread.
     { t.set_level(lv) } noexcept -> std::same_as<void>;
+    /// @brief Read the active threshold (a relaxed snapshot, not sync).
     { ct.level() } noexcept -> std::same_as<core::LogLevel>;
 
-    /// Explicit-level entry point: filter → pack → enqueue, never blocks,
-    /// never returns a per-call outcome. Literal call shape (empty pack) is
-    /// the minimum contract; argument packs are exercised by every sink test.
+    /// @brief Explicit-level entry point: filter, pack, enqueue; never blocks,
+    ///        never returns a per-call outcome. The empty pack is the minimum
+    ///        contract; argument packs are exercised by every sink test.
     { t.log(lv, "explicit") } noexcept -> std::same_as<void>;
     { t.log(lv, "explicit {}", 1) } noexcept -> std::same_as<void>;
 
-    /// Severity conveniences with implicit FormatWithLocation capture (the
-    /// message-only call shape is the requirement — see header).
+    /// @brief Severity conveniences with implicit `FormatWithLocation` capture
+    ///        (the message-only call shape is the requirement).
     { t.verbose("v") } noexcept -> std::same_as<void>;
     { t.debug("d") } noexcept -> std::same_as<void>;
     { t.info("i") } noexcept -> std::same_as<void>;
     { t.warning("w") } noexcept -> std::same_as<void>;
     { t.error("e") } noexcept -> std::same_as<void>;
     { t.fatal("f") } noexcept -> std::same_as<void>;
-    /// One convenience checked with an argument pack (spec "Argument packs
-    /// are accepted"); all six accept the same variadic shape.
+    /// @brief One convenience checked with an argument pack (spec "Argument
+    ///        packs are accepted"); all six accept the same variadic shape.
     { t.info("i {}", 1) } noexcept -> std::same_as<void>;
 
-    /// Control-plane drain barrier (never a hot-path call — design D8).
+    /// @brief Control-plane drain barrier; never a hot-path call, and outside
+    ///        the never-block guarantee that binds the record members.
     { t.flush() } noexcept -> std::same_as<nexigen::core::Status>;
 };
 

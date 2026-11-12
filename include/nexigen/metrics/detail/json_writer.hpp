@@ -27,9 +27,27 @@
 
 namespace nexigen::metrics::detail {
 
-using nexigen::core::FixedWriter; ///< shared bounds-checked appender
+/// @brief Shared bounds-checked JSON appender used by the metrics sinks.
+///
+/// Stages into caller-owned fixed storage: every append is bounds-checked, a
+/// rejected append marks the writer failed permanently, and the caller drops the
+/// record or batch. The escaping policy matches the project-wide JSON writer
+/// (`"` and `\` in two-char form, short escapes for control characters, other
+/// bytes below `0x20` as `\u00XX`, UTF-8 passed through verbatim). No
+/// reallocation, no exceptions, no allocation.
+///
+/// @note Spec `metrics/metric-sinks`, scenario "Sink callbacks are
+///       allocation-free"; project mandate 10 (JSON).
+using nexigen::core::FixedWriter;
 
-/// Scratch size for one metric batch line — 16 KiB (design D13).
+/// @brief Scratch size for one metric batch line — 16 KiB (design D13).
+///
+/// A batch can carry every counter, gauge and histogram of one harvest window,
+/// so the metrics budget is larger than the logging/tracing ones. A rendering
+/// that does not fit is a counted, whole-batch loss.
+///
+/// @note Spec `metrics/metric-sinks`, scenario "Scratch overflow discards the
+///       batch and counts it".
 inline constexpr std::size_t json_scratch_capacity = 16384;
 
 } // namespace nexigen::metrics::detail

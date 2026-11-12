@@ -28,21 +28,42 @@
 
 namespace nexigen::logging {
 
-/// Checked format string + the source location of the statement that passed it.
+/// @brief Checked format string bundled with the source location of the statement that passed it.
+///
+/// The value is a short-lived call-site object: the producer constructs it,
+/// copies the two fields into the record, and formats nothing. `fmt` points
+/// into static literal storage and `loc` into the compiler's static location
+/// table, so neither field aliases caller memory after the call returns.
+///
+/// @tparam Args Argument types accepted by the format string; each must satisfy
+///         `std::formattable` for the corresponding replacement field, which
+///         `std::format_string` enforces at compile time.
+/// @note Spec `logging/format-api`, requirement "FormatWithLocation wrapper type".
 template <typename... Args> struct FormatWithLocation {
-    /// Checked compile-time format (pointer into static literal storage).
+    /// @brief Checked compile-time format; a pointer into static literal storage.
     std::format_string<Args...> fmt;
-    /// Location captured at the call site (consteval evaluation context).
+    /// @brief Location of the call site, captured in the consteval evaluation context.
     std::source_location loc;
 
-    /// The only way to build one: a character-array literal whose format/
-    /// argument types are checked by std::format_string's consteval scanner,
-    /// plus the implicit location of the caller's statement. Constructing
-    /// directly from the array keeps the implicit conversion a SINGLE
-    /// user-defined step (char*→format_string→wrapper would chain two and be
-    /// rejected by overload resolution). Not runtime-constructible: with the
-    /// location defaulted inside a consteval constructor, current() resolves
-    /// where the call is written, not inside library machinery.
+    /// @brief Build the wrapper from a literal, checking format/argument types at compile time.
+    ///
+    /// Constructing directly from the character array keeps the implicit
+    /// conversion a SINGLE user-defined step: `char*` → `format_string` →
+    /// wrapper would chain two conversions and be rejected by overload
+    /// resolution.
+    ///
+    /// @tparam N Size of the literal array including the terminating NUL, deduced
+    ///         from the argument.
+    /// @param literal NUL-terminated format literal whose replacement fields must
+    ///        match `Args`.
+    /// @param location Call-site location; defaults to `std::source_location::current()`,
+    ///        which resolves where the statement is written because the constructor
+    ///        is `consteval`.
+    /// @note Spec `logging/format-api`, requirement "Compile-time format/argument checking".
+    /// @note Spec `logging/format-api`, requirement "Wrapper adds no producer-side formatting".
+    /// @warning Not runtime-constructible: a non-constant format string is a
+    ///          compile error, so this type can never reach a hot path with an
+    ///          unchecked literal.
     template <std::size_t N>
     consteval FormatWithLocation(
         const char (&literal)[N],

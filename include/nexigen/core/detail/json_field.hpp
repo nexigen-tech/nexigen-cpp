@@ -28,8 +28,16 @@
 
 namespace nexigen::core::detail {
 
-/// Read a string field. Returns true only when the key exists, holds a string
-/// and the destination was assigned.
+/// @brief Read a string field, assigning only on success.
+///
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination, left untouched unless the field exists and is a
+///        string.
+/// @return `true` when the key exists, holds a string, and `out` was assigned;
+///         `false` otherwise.
+/// @note Spec `core/serialization`, requirement "Manifest and config
+///       deserialization uses a shared field vocabulary".
 inline bool read_string(const nlohmann::json& object, const char* key, std::string& out) noexcept {
     const auto it = object.find(key);
     if (it == object.end() || !it->is_string()) {
@@ -39,7 +47,16 @@ inline bool read_string(const nlohmann::json& object, const char* key, std::stri
     return true;
 }
 
-/// Read a boolean field.
+/// @brief Read a boolean field, assigning only on success.
+///
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination, left untouched unless the field exists and is a
+///        boolean.
+/// @return `true` when the key exists, holds a boolean, and `out` was assigned;
+///         `false` otherwise.
+/// @note Spec `core/serialization`, requirement "Manifest and config
+///       deserialization uses a shared field vocabulary".
 inline bool read_bool(const nlohmann::json& object, const char* key, bool& out) noexcept {
     const auto it = object.find(key);
     if (it == object.end() || !it->is_boolean()) {
@@ -49,8 +66,19 @@ inline bool read_bool(const nlohmann::json& object, const char* key, bool& out) 
     return true;
 }
 
-/// Convert a bare JSON number to a signed destination bounded by its type.
-/// Unsigned JSON values are accepted only when they fit; nothing aborts.
+/// @brief Convert a bare JSON number to a signed destination bounded by `T`.
+///
+/// Unsigned JSON values are accepted only when they fit in `std::int64_t`;
+/// negative and out-of-range values are rejected without aborting.
+///
+/// @tparam T Signed destination type (constrained by
+///         `std::is_signed_v<T>`).
+/// @param value JSON value to convert.
+/// @param out Destination, assigned only when the value is in range.
+/// @return `true` when `value` is a number representable in `T` and `out` was
+///         assigned; `false` otherwise.
+/// @note Spec `core/serialization`, requirement "Field-extraction helpers are
+///       non-throwing and cold-path only".
 template <class T> bool to_signed(const nlohmann::json& value, T& out) noexcept {
     static_assert(std::is_signed_v<T>, "to_signed requires a signed destination");
     std::int64_t wide = 0;
@@ -73,15 +101,36 @@ template <class T> bool to_signed(const nlohmann::json& value, T& out) noexcept 
     return true;
 }
 
-/// Read a signed field bounded by the destination type.
+/// @brief Read a signed field bounded by the destination type.
+///
+/// @tparam T Signed destination type (constrained by
+///         `std::is_signed_v<T>`).
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination, left untouched unless the field is a number in
+///        range.
+/// @return `true` when the key exists, holds an in-range number, and `out` was
+///         assigned; `false` otherwise.
+/// @note Spec `core/serialization`, requirement "Manifest and config
+///       deserialization uses a shared field vocabulary".
 template <class T>
 bool read_signed(const nlohmann::json& object, const char* key, T& out) noexcept {
     const auto it = object.find(key);
     return it != object.end() && to_signed(*it, out);
 }
 
-/// Convert a bare JSON number to an unsigned destination bounded by its type.
-/// A non-number or an out-of-range value is rejected (no abort).
+/// @brief Convert a bare JSON number to an unsigned destination bounded by `T`.
+///
+/// A negative, non-integer, or out-of-range value is rejected; nothing aborts.
+///
+/// @tparam T Unsigned destination type (constrained by
+///         `std::is_unsigned_v<T>`).
+/// @param value JSON value to convert.
+/// @param out Destination, assigned only when the value is in range.
+/// @return `true` when `value` is a non-negative integer representable in `T`
+///         and `out` was assigned; `false` otherwise.
+/// @note Spec `core/serialization`, requirement "Field-extraction helpers are
+///       non-throwing and cold-path only".
 template <class T> bool to_unsigned(const nlohmann::json& value, T& out) noexcept {
     static_assert(std::is_unsigned_v<T>, "to_unsigned requires an unsigned destination");
     if (!value.is_number_unsigned()) {
@@ -95,16 +144,39 @@ template <class T> bool to_unsigned(const nlohmann::json& value, T& out) noexcep
     return true;
 }
 
-/// Read an unsigned field bounded by the destination type. A value above
-/// std::numeric_limits<T>::max() is rejected (destination untouched, no abort).
+/// @brief Read an unsigned field bounded by the destination type.
+///
+/// A value above `std::numeric_limits<T>::max()` is rejected: the destination
+/// is left untouched and nothing aborts.
+///
+/// @tparam T Unsigned destination type (constrained by
+///         `std::is_unsigned_v<T>`).
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination, left untouched unless the field is a non-negative
+///        integer in range.
+/// @return `true` when the key exists, holds an in-range value, and `out` was
+///         assigned; `false` otherwise.
+/// @note Spec `core/serialization`, requirement "Manifest and config
+///       deserialization uses a shared field vocabulary".
 template <class T>
 bool read_unsigned(const nlohmann::json& object, const char* key, T& out) noexcept {
     const auto it = object.find(key);
     return it != object.end() && to_unsigned(*it, out);
 }
 
-/// Read a nested object and hand it to `fn`. Returns false when the key is
-/// absent or not an object; the destination object is then left untouched.
+/// @brief Read a nested object and hand it to a callable.
+///
+/// @tparam Fn Callable invocable as `fn(const nlohmann::json&)`; not required
+///         to be `noexcept`, but the helper itself is.
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param fn Callable invoked with the nested object when the field is present
+///        and an object.
+/// @return `true` when the key exists, holds an object, and `fn` was invoked;
+///         `false` otherwise (the destination stays untouched).
+/// @note Spec `core/serialization`, scenario "Object and array composition
+///       keep the current semantics".
 template <class Fn>
 bool read_object(const nlohmann::json& object, const char* key, Fn&& fn) noexcept {
     const auto it = object.find(key);
@@ -115,9 +187,20 @@ bool read_object(const nlohmann::json& object, const char* key, Fn&& fn) noexcep
     return true;
 }
 
-/// Walk a present array. `fn(const nlohmann::json&)` returns false to reject the
-/// document. An absent key or a non-array value is ignored (returns true), which
-/// is how the manifests treat an optional collection.
+/// @brief Walk a present array in document order.
+///
+/// An absent key or a non-array value is ignored and reported as success,
+/// which is how the manifests treat an optional collection.
+///
+/// @tparam Fn Callable invocable as `fn(const nlohmann::json&) -> bool`.
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param fn Visitor for each element; returning `false` rejects the whole
+///        document.
+/// @return `false` when `fn` rejected an element; `true` otherwise, including
+///         for an absent or non-array field.
+/// @note Spec `core/serialization`, scenario "Object and array composition
+///       keep the current semantics".
 template <class Fn>
 bool collect_array(const nlohmann::json& object, const char* key, Fn&& fn) noexcept {
     const auto it = object.find(key);
@@ -133,10 +216,23 @@ bool collect_array(const nlohmann::json& object, const char* key, Fn&& fn) noexc
     return true;
 }
 
-/// Collect a present array into `out`. `convert(const nlohmann::json&, T&)`
-/// fills one element and returns false to reject the collection. An absent key or
-/// a non-array value leaves `out` unchanged and succeeds; a rejected collection
-/// also leaves `out` unchanged.
+/// @brief Collect a present array of values into `out`.
+///
+/// An absent key or a non-array value leaves `out` unchanged and succeeds; a
+/// rejected element also leaves `out` unchanged.
+///
+/// @tparam T Element type collected into the vector.
+/// @tparam Convert Callable invocable as
+///         `convert(const nlohmann::json&, T&) -> bool`; returning `false`
+///         rejects the collection.
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination vector, replaced only on full success.
+/// @param convert Per-element converter filling one `T`.
+/// @return `true` on success (including an absent or non-array field);
+///         `false` when any element was rejected.
+/// @note Spec `core/serialization`, scenario "Object and array composition
+///       keep the current semantics".
 template <class T, class Convert>
 bool collect_array_into(const nlohmann::json& object, const char* key, std::vector<T>& out,
                         Convert&& convert) noexcept {
@@ -158,10 +254,23 @@ bool collect_array_into(const nlohmann::json& object, const char* key, std::vect
     return true;
 }
 
-/// Collect a present array of objects into `out`. `parse(const nlohmann::json&, T&)`
-/// fills one element. A non-object element rejects the whole collection (returns
-/// false and leaves `out` unchanged); an absent key or a non-array value leaves
-/// `out` unchanged and succeeds.
+/// @brief Collect a present array of objects into `out`.
+///
+/// A non-object element rejects the whole collection (returns `false` and
+/// leaves `out` unchanged); an absent key or a non-array value leaves `out`
+/// unchanged and succeeds.
+///
+/// @tparam T Element type collected into the vector.
+/// @tparam Parse Callable invocable as `parse(const nlohmann::json&, T&)`,
+///         filling one element from an object.
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination vector, replaced only when every element parses.
+/// @param parse Per-element parser.
+/// @return `true` on success (including an absent or non-array field);
+///         `false` when a non-object element was found.
+/// @note Spec `core/serialization`, scenario "Object and array composition
+///       keep the current semantics".
 template <class T, class Parse>
 bool collect_object_array(const nlohmann::json& object, const char* key, std::vector<T>& out,
                           Parse&& parse) noexcept {
@@ -176,8 +285,19 @@ bool collect_object_array(const nlohmann::json& object, const char* key, std::ve
                                  });
 }
 
-/// Copy a string field into a fixed-size char buffer, truncating at `capacity`
-/// and zero-filling the remainder. Empty JSON strings clear the buffer.
+/// @brief Copy a string field into a fixed-size char buffer.
+///
+/// Truncates at `capacity` and zero-fills the remainder; an empty JSON string
+/// clears the buffer.
+///
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param destination Caller-owned buffer of at least `capacity` bytes.
+/// @param capacity Number of bytes writable in `destination`.
+/// @return `true` when the key exists, holds a string, and the buffer was
+///         written; `false` for a missing/wrong-typed field or a null buffer.
+/// @note Spec `core/serialization`, requirement "Manifest and config
+///       deserialization uses a shared field vocabulary".
 inline bool read_fixed_string(const nlohmann::json& object, const char* key, char* destination,
                               std::size_t capacity) noexcept {
     const auto it = object.find(key);
@@ -195,8 +315,18 @@ inline bool read_fixed_string(const nlohmann::json& object, const char* key, cha
     return true;
 }
 
-/// Copy a string field into a fixed-size byte buffer, truncating at `capacity`
-/// and zero-filling the remainder.
+/// @brief Copy a string field into a fixed-size byte buffer.
+///
+/// Truncates at `capacity` and zero-fills the remainder.
+///
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param destination Caller-owned buffer of at least `capacity` bytes.
+/// @param capacity Number of bytes writable in `destination`.
+/// @return `true` when the key exists, holds a string, and the buffer was
+///         written; `false` for a missing/wrong-typed field or a null buffer.
+/// @note Spec `core/serialization`, requirement "Manifest and config
+///       deserialization uses a shared field vocabulary".
 inline bool read_fixed_bytes(const nlohmann::json& object, const char* key,
                              std::uint8_t* destination, std::size_t capacity) noexcept {
     const auto it = object.find(key);

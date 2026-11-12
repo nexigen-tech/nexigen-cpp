@@ -13,12 +13,22 @@
 
 namespace nexigen::metrics::detail {
 
-/// Render one frame's exposition lines into `out[used..cap)`.
+/// @brief Render one frame's exposition lines into `out[used..cap)`.
 ///
-/// Appends the `# TYPE`/`# UNIT` comments and every sample line for the
-/// record. Returns the new length on success, or `used` unchanged when the
-/// lines do not fit (the caller may skip the record). Never allocates, never
-/// throws.
+/// Appends the `# TYPE`/`# UNIT` comments and every sample line for the record,
+/// including the `app`, `meter`, `version` and `pid` labels. The client already
+/// computed every value (mean, stddev, percentiles, per-bucket counts); this
+/// unit only formats them as text.
+///
+/// @param frame Aggregated frame to render.
+/// @param out Destination buffer.
+/// @param used Current write offset; also the fallback return value.
+/// @param cap Total destination capacity in bytes.
+/// @return The new length on success, or `used` unchanged when the lines do not
+///         fit, so the caller may skip the record. Never allocates, never
+///         throws.
+/// @note Spec `metrics/metrics-daemon`, requirement "Daemon renders Prometheus
+///       text exposition" and requirement "Prometheus labels and metadata".
 [[nodiscard]] std::size_t render_prometheus(const MetricFrame& frame, char* out, std::size_t used,
                                             std::size_t cap) noexcept;
 

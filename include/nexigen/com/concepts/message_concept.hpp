@@ -12,8 +12,16 @@
 
 namespace nexigen::com::concepts {
 
-/// A payload type safe for zero-copy transfer: trivially copyable, no
-/// pointers, no virtual functions, no owning members.
+/// @brief Payload contract for every `com` port template.
+///
+/// Satisfied exactly when `std::is_trivially_copyable_v<T>` holds, so the
+/// payload is plain bytes that survive a zero-copy shared-memory exchange
+/// unchanged: no pointers, no virtual tables, and no owning members.
+///
+/// @tparam T Candidate payload type.
+/// @note Spec `com/publish-subscribe`, requirement "Trivially-copyable message
+///       contract". A violating type is rejected at compile time, never at
+///       runtime.
 template <class T>
 concept Message = std::is_trivially_copyable_v<T>;
 

@@ -8,17 +8,36 @@
 
 namespace nexigen::logging {
 
-/// Snapshot of dropped-record accounting.
+/// @brief Snapshot of dropped-record accounting returned by `dropped()`.
+///
+/// The three drop causes are counted independently by the engine, and a
+/// snapshot aggregates every shard. Reading it from any thread is safe, but the
+/// result is a best-effort snapshot rather than a linearized total: concurrent
+/// owners may commit further drops while the aggregate is assembled.
+///
+/// @note Spec `logging/multi-producer`, requirement "Sharded drop accounting without contention".
 struct DroppedStats {
-    std::uint64_t rate_limited{};   ///< Rejected by the throttle window (D9).
-    std::uint64_t buffer_full{};    ///< Rejected by a full shard ring.
-    std::uint64_t slot_exhausted{}; ///< Dropped: no free shard slot (D6).
+    /// @brief Rejected by the per-shard throttle window (design D9).
+    std::uint64_t rate_limited{};
+    /// @brief Rejected by a full shard ring.
+    std::uint64_t buffer_full{};
+    /// @brief Dropped because the thread had no free shard slot (design D6).
+    std::uint64_t slot_exhausted{};
 
+    /// @brief Sum of the three per-cause counters.
+    ///
+    /// @return `rate_limited + buffer_full + slot_exhausted`.
+    /// @note `constexpr` and `noexcept`, so it is usable in constant expressions
+    ///       and on log-free code paths.
     [[nodiscard]] constexpr std::uint64_t total() const noexcept {
         return rate_limited + buffer_full + slot_exhausted;
     }
 
-    /// Cold-path diagnostic (mandate 9): per-cause counts + total.
+    /// @brief Cold-path diagnostic rendering of the per-cause counts and their total.
+    ///
+    /// @return Text of the form `DroppedStats(rate_limited=<n>, buffer_full=<n>,
+    ///         slot_exhausted=<n>, total=<n>)`.
+    /// @note Project mandate 9 (`to_string` on every public value type).
     [[nodiscard]] std::string to_string() const {
         return "DroppedStats(rate_limited=" + std::to_string(rate_limited) +
                ", buffer_full=" + std::to_string(buffer_full) +
@@ -27,7 +46,11 @@ struct DroppedStats {
     }
 };
 
-/// Free helper (mandate 9): mirrors the member.
+/// @brief Free `to_string` entry point for a drop snapshot (mandate 9).
+///
+/// @param stats Snapshot to render.
+/// @return Exactly `stats.to_string()`.
+/// @note Project mandate 9; ADL-friendly mirror of the member function.
 [[nodiscard]] inline std::string to_string(const DroppedStats& stats) {
     return stats.to_string();
 }

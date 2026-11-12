@@ -9,11 +9,26 @@
 
 namespace nexigen::metrics::detail {
 
-/// True when T exposes a public read().
+/// @brief True when `T` exposes a public, const-callable `read()`.
+///
+/// Lives in a concept so the probe is only substituted when the concept is
+/// evaluated; an eager non-dependent `requires` would make a `WriteOnly`
+/// instrument a hard error instead of a `false` result.
+///
+/// @tparam T Type probed for the read surface.
+/// @note Spec `metrics/metric-concepts`, requirement "Compile-time access
+///       gating".
 template <class T>
 concept HasRead = requires(const T& value) { value.read(); };
 
-/// True when T exposes a public snapshot().
+/// @brief True when `T` exposes a public, const-callable `snapshot()`.
+///
+/// Same substitution rationale as `HasRead`: the probe must fail softly so that
+/// `ReadableMetric` can refine `Metric` without breaking `WriteOnly` types.
+///
+/// @tparam T Type probed for the snapshot surface.
+/// @note Spec `metrics/metric-concepts`, requirement "Compile-time access
+///       gating".
 template <class T>
 concept HasSnapshot = requires(const T& value) { value.snapshot(); };
 

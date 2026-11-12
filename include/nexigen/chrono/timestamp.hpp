@@ -27,16 +27,37 @@
 
 namespace nexigen::chrono {
 
-/// A point in time: nanoseconds in the raw monotonic clock domain.
+/// @brief A point in time: nanoseconds in the raw monotonic clock domain.
+///
+/// 8-byte, trivially copyable value type wrapping a `CLOCK_MONOTONIC_RAW`
+/// nanosecond count. It carries no ownership and no clock state; reading the
+/// current instant costs one `clock_gettime` call (vDSO on Linux/x86-64),
+/// allocates nothing, and takes no lock, so it is safe on producer and enqueue
+/// hot paths. The raw monotonic clock is unaffected by wall-clock steps but is
+/// deliberately not frequency-disciplined: use it for intervals, ordering and
+/// deadlines, not absolute-time scheduling.
+///
+/// @note Spec `chrono/timestamp`, requirement "Nanosecond timestamp value
+///       type"; requirement "Hot-path safety of timestamps".
 class Timestamp {
 public:
+    /// @brief Construct the epoch value (zero nanoseconds).
     constexpr Timestamp() noexcept = default;
 
-    /// Wraps a raw nanosecond count (unit-bearing: nanoseconds, not a bare integer).
+    /// @brief Wrap a raw nanosecond count.
+    ///
+    /// @param nanoseconds Unit-bearing count of nanoseconds, not a bare integer.
     explicit constexpr Timestamp(std::uint64_t nanoseconds) noexcept : ns_{nanoseconds} {}
 
-    /// Current instant from CLOCK_MONOTONIC_RAW; SystemError if the read fails.
-    /// Successive calls on the same thread never decrease.
+    /// @brief Read the current instant from `CLOCK_MONOTONIC_RAW`.
+    ///
+    /// Successive reads on the same thread never decrease. A failed clock read
+    /// surfaces in the error arm; the call never throws and never terminates.
+    ///
+    /// @return The current timestamp on success, or `core::ErrorCode::SystemError`
+    ///         when the clock read fails.
+    /// @note Spec `chrono/timestamp`, requirement "Monotonic clock sourcing";
+    ///       branch on the result, never call `value()`.
     [[nodiscard]] static core::Result<Timestamp> now() noexcept {
         ::timespec ts{};
         if (::clock_gettime(CLOCK_MONOTONIC_RAW, &ts) != 0) {
@@ -48,32 +69,64 @@ public:
                          static_cast<std::uint64_t>(ts.tv_nsec)};
     }
 
-    /// Raw nanosecond count.
+    /// @brief Raw nanosecond count since the monotonic-raw epoch.
+    ///
+    /// @return The stored count, without unit conversion.
     [[nodiscard]] constexpr std::uint64_t nanoseconds() const noexcept { return ns_; }
 
-    /// Total ordering on the nanosecond count; == included (deadline compares).
+    /// @brief Total ordering on the nanosecond count.
+    ///
+    /// Equality is part of the generated comparison, so deadline checks and
+    /// map/set use resolve against the stored count alone.
+    ///
+    /// The right-hand operand is compared by its stored nanosecond count.
+    ///
+    /// @return The synthesized comparison category.
+    /// @note Spec `chrono/timestamp`, requirement "Timestamp arithmetic".
     [[nodiscard]] constexpr auto operator<=>(const Timestamp&) const = default;
 
-    /// Deadline arithmetic: instant + offset in nanoseconds.
+    /// @brief Deadline arithmetic: instant plus an offset.
+    ///
+    /// @param offset Nanoseconds to add.
+    /// @return A new timestamp advanced by `offset`; wraps on `uint64_t`
+    ///         overflow, which callers avoid by keeping offsets small.
     [[nodiscard]] constexpr Timestamp operator+(std::uint64_t offset) const noexcept {
         return Timestamp{ns_ + offset};
     }
 
-    /// Deadline arithmetic: instant - offset in nanoseconds (saturating at 0).
+    /// @brief Deadline arithmetic: instant minus an offset, saturating at zero.
+    ///
+    /// @param offset Nanoseconds to subtract.
+    /// @return The advanced timestamp, or the epoch value when `offset` exceeds
+    ///         the stored count.
     [[nodiscard]] constexpr Timestamp operator-(std::uint64_t offset) const noexcept {
         return ns_ >= offset ? Timestamp{ns_ - offset} : Timestamp{0};
     }
 
-    /// Elapsed nanoseconds (a - b) as a Timestamp-valued delta; saturates at 0
-    /// when `earlier` > this, because unsigned wrap-around would hand the caller
-    /// a ~584-year interval instead of a detectable bug.
+    /// @brief Elapsed nanoseconds between two instants, saturating at zero.
+    ///
+    /// `earlier > *this` yields zero instead of an unsigned wrap-around
+    /// (~584 years) so a reversed subtraction stays a detectable bug.
+    ///
+    /// @param earlier Timestamp that should precede this one.
+    /// @return The non-negative difference in nanoseconds as a Timestamp-valued
+    ///         delta.
+    /// @note Spec `chrono/timestamp`, requirement "Timestamp arithmetic",
+    ///       scenario "Saturating backwards difference".
     [[nodiscard]] constexpr Timestamp operator-(const Timestamp& earlier) const noexcept {
         return ns_ >= earlier.ns_ ? Timestamp{ns_ - earlier.ns_} : Timestamp{0};
     }
 
-    /// Cold-path diagnostic (mandate 9): renders the monotonic nanosecond count
-    /// as whole seconds with a 9-digit nanosecond remainder. Allocates a
-    /// std::string, so it is a diagnostics/config utility, never a hot-path call.
+    /// @brief Render this instant as a diagnostic string.
+    ///
+    /// Shows whole monotonic seconds with a nine-digit nanosecond remainder,
+    /// for example `Timestamp(1.000000001s monotonic)`. Allocates a
+    /// `std::string`, so it is a diagnostics/config utility and never a
+    /// hot-path call.
+    ///
+    /// @return The rendered text.
+    /// @note Spec `chrono/timestamp`, requirement "Timestamp diagnostic
+    ///       string"; project mandate 9.
     [[nodiscard]] std::string to_string() const {
         std::string frac = std::to_string(ns_ % 1'000'000'000ULL);
         const std::size_t digits = frac.size();
@@ -87,7 +140,12 @@ private:
     std::uint64_t ns_{};
 };
 
-/// Free helper (mandate 9): mirrors the member for generic/ADL call sites.
+/// @brief Free-helper mirror of `Timestamp::to_string`.
+///
+/// @param ts Timestamp to render.
+/// @return The same text as `ts.to_string()`.
+/// @note Spec `chrono/timestamp`, requirement "Timestamp diagnostic string";
+///       project mandate 9.
 [[nodiscard]] inline std::string to_string(const Timestamp& ts) {
     return ts.to_string();
 }
@@ -97,10 +155,23 @@ static_assert(std::is_trivially_copyable_v<Timestamp>, "Timestamp must be trivia
 
 } // namespace nexigen::chrono
 
-/// Timestamp formats as its raw nanosecond count (integer fill/align rules).
-/// Required because logging's Packable surface accepts Timestamps and
-/// std::format_string<Timestamp> checks formattability at the call site.
+/// @brief `std::formatter` specialization rendering the raw nanosecond count.
+///
+/// Formats through `std::formatter<std::uint64_t>`, so integer fill, width and
+/// alignment rules apply. Required because the logging `Packable` surface
+/// accepts timestamps and `std::format_string<Timestamp>` checks formattability
+/// at the call site.
+///
+/// @note Spec `chrono/timestamp`, requirement "Nanosecond timestamp value
+///       type"; project mandate 11.
 template <> struct std::formatter<nexigen::chrono::Timestamp> : std::formatter<std::uint64_t> {
+    /// @brief Format a timestamp as its raw nanosecond count.
+    ///
+    /// @tparam Ctx Format context type carrying the parsed integer specifiers.
+    /// @param ts Timestamp to format.
+    /// @param ctx Format context; the inherited integer fill/align rules apply.
+    /// @return Iterator past the last written character.
+    /// @note Project mandate 11 (`std::formatter`).
     template <class Ctx>
     constexpr auto format(const nexigen::chrono::Timestamp& ts, Ctx& ctx) const {
         return std::formatter<std::uint64_t>::format(ts.nanoseconds(), ctx);

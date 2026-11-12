@@ -13,7 +13,17 @@
 
 namespace nexigen::chrono::concepts {
 
-/// A per-source monotonic stamp source: one noexcept sample().
+/// @brief A per-source monotonic stamp source: exactly one noexcept `sample()`.
+///
+/// The single producer-owned instrument producers call directly in their
+/// enqueue path. `sample()` must be allocation-free, lock-free, and free of
+/// wall-clock reads; the returned series is non-decreasing per source object.
+///
+/// @tparam S Candidate stamp source type; it must expose
+///         `sample() noexcept -> Timestamp`.
+/// @note Spec `chrono/provider`, requirement "Stamper concept and issuance";
+///       spec `chrono/stamp-source`, requirement "Calibrated monotonic stamp
+///       source".
 template <class S>
 concept Stamper = requires(S& s) {
     { s.sample() } noexcept -> std::same_as<Timestamp>;
