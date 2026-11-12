@@ -8,6 +8,8 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnull-dereference"
 #include <nlohmann/json.hpp>
+#include <nexigen/core/detail/json_field.hpp>
+#include <nexigen/core/enum_traits.hpp>
 #pragma GCC diagnostic pop
 
 #include <cstdint>
@@ -28,80 +30,11 @@ namespace {
 
 constexpr std::uint64_t kNanoseconds_per_second = 1'000'000'000ULL;
 
-[[nodiscard]] bool try_read_string_field(const nlohmann::json& j, const char* key,
-                                         std::string& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end()) {
-        return true;
-    }
-    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
-    if (text == nullptr) {
-        return false;
-    }
-    out = *text;
-    return true;
-}
 
-[[nodiscard]] bool try_read_u64_field(const nlohmann::json& j, const char* key,
-                                      std::uint64_t& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end()) {
-        return true;
-    }
-    if (!it->is_number_unsigned()) {
-        return false;
-    }
-    out = it->get<std::uint64_t>();
-    return true;
-}
 
-[[nodiscard]] bool try_read_bool_field(const nlohmann::json& j, const char* key,
-                                       bool& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end()) {
-        return true;
-    }
-    if (!it->is_boolean()) {
-        return false;
-    }
-    out = it->get<bool>();
-    return true;
-}
 
-[[nodiscard]] bool try_read_log_level_field(const nlohmann::json& j, const char* key,
-                                            core::LogLevel& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end()) {
-        return true;
-    }
-    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
-    if (text == nullptr) {
-        return false;
-    }
-    return from_string(std::string_view(*text), out);
-}
 
-[[nodiscard]] bool try_read_rotation_kind_field(const nlohmann::json& j, const char* key,
-                                                RotationSchedule& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end()) {
-        return true;
-    }
-    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
-    if (text == nullptr) {
-        return false;
-    }
-    return from_string(std::string_view(*text), out);
-}
 
-[[nodiscard]] bool try_read_worker_thread_field(const nlohmann::json& j, const char* key,
-                                                core::ThreadSpec& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end()) {
-        return true;
-    }
-    return core::parse_thread_spec_json(*it, out);
-}
 
 [[nodiscard]] bool try_read_throttle_field(const nlohmann::json& j,
                                            FileLoggerConfig& out) noexcept {
@@ -112,9 +45,9 @@ constexpr std::uint64_t kNanoseconds_per_second = 1'000'000'000ULL;
     if (!it->is_object()) {
         return false;
     }
-    return try_read_bool_field(*it, "enabled", out.throttle.enabled) &&
-           try_read_u64_field(*it, "max_records_per_window", out.throttle.max_records_per_window) &&
-           try_read_u64_field(*it, "window_ns", out.throttle.window_ns);
+    return core::detail::read_optional_bool(*it, "enabled", out.throttle.enabled) &&
+           core::detail::read_optional_unsigned(*it, "max_records_per_window", out.throttle.max_records_per_window) &&
+           core::detail::read_optional_unsigned(*it, "window_ns", out.throttle.window_ns);
 }
 
 [[nodiscard]] bool try_read_rotation_field(const nlohmann::json& j,
@@ -126,8 +59,8 @@ constexpr std::uint64_t kNanoseconds_per_second = 1'000'000'000ULL;
     if (!it->is_object()) {
         return false;
     }
-    return try_read_rotation_kind_field(*it, "kind", out.rotation.kind) &&
-           try_read_u64_field(*it, "custom_ns", out.rotation.custom_ns);
+    return core::mandate::read_optional_enum(*it, "kind", out.rotation.kind) &&
+           core::detail::read_optional_unsigned(*it, "custom_ns", out.rotation.custom_ns);
 }
 
 } // namespace
@@ -160,12 +93,12 @@ void from_json(const nlohmann::json& j, FileLoggerConfig& out) noexcept {
         return;
     }
     FileLoggerConfig parsed = out;
-    if (!try_read_string_field(j, "app_name", parsed.app_name) ||
-        !try_read_string_field(j, "base_dir", parsed.base_dir) ||
-        !try_read_string_field(j, "file_name", parsed.file_name)) {
+    if (!core::detail::read_optional_string(j, "app_name", parsed.app_name) ||
+        !core::detail::read_optional_string(j, "base_dir", parsed.base_dir) ||
+        !core::detail::read_optional_string(j, "file_name", parsed.file_name)) {
         return;
     }
-    if (!try_read_log_level_field(j, "initial_level", parsed.initial_level)) {
+    if (!core::mandate::read_optional_enum(j, "initial_level", parsed.initial_level)) {
         return;
     }
     if (!try_read_throttle_field(j, parsed)) {
@@ -174,14 +107,18 @@ void from_json(const nlohmann::json& j, FileLoggerConfig& out) noexcept {
     if (!try_read_rotation_field(j, parsed)) {
         return;
     }
-    if (!try_read_worker_thread_field(j, "worker_thread", parsed.worker_thread)) {
+    if (!core::detail::read_optional_object(
+            j, "worker_thread",
+            [&](const nlohmann::json& obj) {
+                return core::parse_thread_spec_json(obj, parsed.worker_thread);
+            })) {
         return;
     }
-    if (!try_read_u64_field(j, "max_file_size_bytes", parsed.max_file_size_bytes)) {
+    if (!core::detail::read_optional_unsigned(j, "max_file_size_bytes", parsed.max_file_size_bytes)) {
         return;
     }
     std::uint64_t poll = parsed.worker_poll_interval_us;
-    if (!try_read_u64_field(j, "worker_poll_interval_us", poll) || poll > 0xffffffffULL) {
+    if (!core::detail::read_optional_unsigned(j, "worker_poll_interval_us", poll) || poll > 0xffffffffULL) {
         return;
     }
     parsed.worker_poll_interval_us = static_cast<std::uint32_t>(poll);

@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -119,6 +120,85 @@ bool read_signed(const nlohmann::json& object, const char* key, T& out) noexcept
     return it != object.end() && to_signed(*it, out);
 }
 
+/// @brief Read a nullable signed field bounded by the destination type.
+///
+/// A JSON `null` clears `out` to `std::nullopt`; a wrong-typed or out-of-range
+/// value leaves `out` untouched and returns `false`.
+///
+/// @tparam T Signed destination type (constrained by
+///         `std::is_signed_v<T>`).
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination `std::optional`, set to `std::nullopt` on a JSON
+///        `null` and to the value on an in-range number.
+/// @return `true` when the key exists and is a `null` or an in-range integer;
+///         `false` otherwise (including a missing key).
+/// @note Spec `core/serialization`, requirement "Field-extraction helpers are
+///       non-throwing and cold-path only".
+template <class T>
+bool read_nullable_signed(const nlohmann::json& object, const char* key,
+                          std::optional<T>& out) noexcept {
+    static_assert(std::is_signed_v<T>, "read_nullable_signed requires a signed destination");
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return false;
+    }
+    if (it->is_null()) {
+        out = std::nullopt;
+        return true;
+    }
+    T value{};
+    if (!to_signed(*it, value)) {
+        return false;
+    }
+    out = value;
+    return true;
+}
+
+/// @brief Read an optional string field: absent is valid, wrong type rejects.
+///
+/// The `true` result for a missing key distinguishes this from `read_string`,
+/// which reports a missing key as `false`. It is the canonical form of the
+/// all-or-nothing validation pattern where an absent field keeps its default
+/// but a wrong-typed field rejects the whole document.
+///
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination, assigned only when the field is a string.
+/// @return `true` when the key is absent or holds a string; `false` when the
+///         key holds a non-string.
+inline bool read_optional_string(const nlohmann::json& object, const char* key,
+                                 std::string& out) noexcept {
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return true;
+    }
+    if (!it->is_string()) {
+        return false;
+    }
+    out = it->get<std::string>();
+    return true;
+}
+
+/// @brief Read an optional boolean field: absent is valid, wrong type rejects.
+///
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination, assigned only when the field is a boolean.
+/// @return `true` when the key is absent or holds a boolean; `false` when the
+///         key holds a non-boolean.
+inline bool read_optional_bool(const nlohmann::json& object, const char* key, bool& out) noexcept {
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return true;
+    }
+    if (!it->is_boolean()) {
+        return false;
+    }
+    out = it->get<bool>();
+    return true;
+}
+
 /// @brief Convert a bare JSON number to an unsigned destination bounded by `T`.
 ///
 /// A negative, non-integer, or out-of-range value is rejected; nothing aborts.
@@ -144,6 +224,47 @@ template <class T> bool to_unsigned(const nlohmann::json& value, T& out) noexcep
     return true;
 }
 
+/// @brief Read an optional unsigned field: absent is valid, wrong type rejects.
+///
+/// @tparam T Unsigned destination type (constrained by `std::is_unsigned_v<T>`).
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination, assigned only when the field is an in-range unsigned.
+/// @return `true` when the key is absent or holds an in-range value; `false`
+///         when the key holds a non-unsigned or out-of-range value.
+template <class T>
+bool read_optional_unsigned(const nlohmann::json& object, const char* key, T& out) noexcept {
+    static_assert(std::is_unsigned_v<T>, "read_optional_unsigned requires an unsigned destination");
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return true;
+    }
+    return to_unsigned(*it, out);
+}
+
+/// @brief Validate an optional field through a callable: absent is valid.
+///
+/// When the key is absent, returns `true` and does not invoke `fn`. Otherwise
+/// forwards the JSON value to `fn`, which returns whether the value is valid.
+/// This is the canonical form for an optional nested object validated by an
+/// existing parser (for example a ThreadSpec parsed by
+/// `core::parse_thread_spec_json`).
+///
+/// @tparam Fn Callable invocable as `fn(const nlohmann::json&) -> bool`.
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param fn Validator invoked only when the key is present.
+/// @return `true` when the key is absent or `fn` accepts the value; `false`
+///         when `fn` rejects it.
+template <class Fn>
+bool read_optional_object(const nlohmann::json& object, const char* key, Fn&& fn) noexcept {
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return true;
+    }
+    return std::forward<Fn>(fn)(*it);
+}
+
 /// @brief Read an unsigned field bounded by the destination type.
 ///
 /// A value above `std::numeric_limits<T>::max()` is rejected: the destination
@@ -163,6 +284,54 @@ template <class T>
 bool read_unsigned(const nlohmann::json& object, const char* key, T& out) noexcept {
     const auto it = object.find(key);
     return it != object.end() && to_unsigned(*it, out);
+}
+
+/// @brief Read any JSON number into a double target.
+///
+/// A missing or non-numeric field leaves `out` untouched.
+///
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination, assigned only when the field is a JSON number.
+/// @return `true` when the key exists and holds a number; `false` otherwise.
+inline bool read_number(const nlohmann::json& object, const char* key, double& out) noexcept {
+    const auto it = object.find(key);
+    if (it == object.end() || !it->is_number()) {
+        return false;
+    }
+    out = it->get<double>();
+    return true;
+}
+
+/// @brief Read a counter value into an unsigned 64-bit target.
+///
+/// Accepts either a JSON unsigned number or a positive signed integer (for
+/// compatibility with counters historically serialized as signed); a negative
+/// or non-integer value leaves `out` untouched.
+///
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination, assigned only when the field is a non-negative
+///        integer.
+/// @return `true` when the key holds a non-negative integer; `false` otherwise.
+inline bool read_counter(const nlohmann::json& object, const char* key,
+                         std::uint64_t& out) noexcept {
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return false;
+    }
+    if (it->is_number_unsigned()) {
+        out = it->get<std::uint64_t>();
+        return true;
+    }
+    if (it->is_number_integer()) {
+        const std::int64_t value = it->get<std::int64_t>();
+        if (value > 0) {
+            out = static_cast<std::uint64_t>(value);
+            return true;
+        }
+    }
+    return false;
 }
 
 /// @brief Read a nested object and hand it to a callable.

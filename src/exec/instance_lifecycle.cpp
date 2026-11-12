@@ -17,6 +17,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/exec/detail/path_utils.hpp>
 #include <nexigen/exec/detail/sys_helpers.hpp>
 #include <nexigen/exec/instance_lifecycle.hpp>
@@ -27,10 +28,6 @@ namespace nexigen::exec {
 using detail::absolute_path;
 using detail::max_path_bytes;
 using detail::monotonic_now_ns;
-using detail::read_i32;
-using detail::read_optional_i32;
-using detail::read_string;
-using detail::read_u64;
 using detail::utc_now_rfc3339;
 
 namespace {
@@ -126,16 +123,16 @@ void to_json(nlohmann::json& j, const ResourceMetadata& metadata) {
 }
 
 void from_json(const nlohmann::json& j, ResourceMetadata& metadata) noexcept {
-    static_cast<void>(read_string(j, "run_id", metadata.run_id));
-    static_cast<void>(read_string(j, "app_name", metadata.app_name));
-    static_cast<void>(read_string(j, "instance_id", metadata.instance_id));
-    static_cast<void>(read_string(j, "instance_dir", metadata.instance_dir));
-    static_cast<void>(read_i32(j, "pid", metadata.pid));
-    static_cast<void>(read_i32(j, "ppid", metadata.ppid));
-    static_cast<void>(read_string(j, "start_time_rfc3339", metadata.start_time_rfc3339));
-    static_cast<void>(read_u64(j, "start_time_mono_ns", metadata.start_time_mono_ns));
-    static_cast<void>(read_u64(j, "proc_start_ticks", metadata.proc_start_ticks));
-    static_cast<void>(read_string(j, "version", metadata.version));
+    static_cast<void>(core::detail::read_string(j, "run_id", metadata.run_id));
+    static_cast<void>(core::detail::read_string(j, "app_name", metadata.app_name));
+    static_cast<void>(core::detail::read_string(j, "instance_id", metadata.instance_id));
+    static_cast<void>(core::detail::read_string(j, "instance_dir", metadata.instance_dir));
+    static_cast<void>(core::detail::read_signed(j, "pid", metadata.pid));
+    static_cast<void>(core::detail::read_signed(j, "ppid", metadata.ppid));
+    static_cast<void>(core::detail::read_string(j, "start_time_rfc3339", metadata.start_time_rfc3339));
+    static_cast<void>(core::detail::read_unsigned(j, "start_time_mono_ns", metadata.start_time_mono_ns));
+    static_cast<void>(core::detail::read_unsigned(j, "proc_start_ticks", metadata.proc_start_ticks));
+    static_cast<void>(core::detail::read_string(j, "version", metadata.version));
 }
 
 // --- ExitMetadata ---
@@ -182,9 +179,9 @@ void from_json(const nlohmann::json& j, ExitMetadata& metadata) noexcept {
     if (!j.is_object()) {
         return;
     }
-    static_cast<void>(read_optional_i32(j, "exit_code", metadata.exit_code));
-    static_cast<void>(read_optional_i32(j, "signal", metadata.signal));
-    static_cast<void>(read_u64(j, "uptime_s", metadata.uptime_s));
+    static_cast<void>(core::detail::read_nullable_signed(j, "exit_code", metadata.exit_code));
+    static_cast<void>(core::detail::read_nullable_signed(j, "signal", metadata.signal));
+    static_cast<void>(core::detail::read_unsigned(j, "uptime_s", metadata.uptime_s));
     if (const auto it = j.find("terminated_by"); it != j.end() && it->is_string()) {
         const auto* const name = it->get_ptr<const nlohmann::json::string_t*>();
         if (name != nullptr) {

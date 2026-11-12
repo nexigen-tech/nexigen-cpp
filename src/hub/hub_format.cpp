@@ -10,6 +10,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/core/enum_traits.hpp>
 #include <nexigen/hub/gap_marker.hpp>
 #include <nexigen/hub/hub_app.hpp>
@@ -27,11 +28,10 @@ namespace nexigen::hub {
 
 using nexigen::core::mandate::enum_from_json;
 using nexigen::core::mandate::enum_to_json;
-using nexigen::exec::detail::read_bool;
+using nexigen::core::detail::read_bool;
 using nexigen::core::mandate::read_enum;
-using nexigen::exec::detail::read_string;
-using nexigen::exec::detail::read_u32;
-using nexigen::exec::detail::read_u64;
+using nexigen::core::detail::read_string;
+using nexigen::core::detail::read_unsigned;
 
 std::string HubStream::to_string() const {
     return std::format("HubStream(id={}, kind={}, path={})", id, nexigen::hub::to_string(kind),
@@ -115,18 +115,11 @@ void to_json(nlohmann::json& j, const HubAttempt& value) {
 }
 
 void from_json(const nlohmann::json& j, HubAttempt& value) noexcept {
-    static_cast<void>(read_u32(j, "attempt", value.attempt));
+    static_cast<void>(read_unsigned(j, "attempt", value.attempt));
     static_cast<void>(read_string(j, "artifact_dir", value.artifact_dir));
-    if (const auto it = j.find("streams"); it != j.end() && it->is_array()) {
-        std::vector<HubStream> streams;
-        streams.reserve(it->size());
-        for (const auto& entry : *it) {
-            HubStream stream;
-            from_json(entry, stream);
-            streams.push_back(std::move(stream));
-        }
-        value.streams = std::move(streams);
-    }
+    static_cast<void>(nexigen::core::detail::collect_object_array(
+        j, "streams", value.streams,
+        [](const nlohmann::json& entry, HubStream& stream) { from_json(entry, stream); }));
 }
 
 void to_json(nlohmann::json& j, const HubInstance& value) {
@@ -146,16 +139,9 @@ void from_json(const nlohmann::json& j, HubInstance& value) noexcept {
     static_cast<void>(read_string(j, "instance", value.instance));
     static_cast<void>(read_string(j, "instance_dir", value.instance_dir));
     read_enum(j, "state", value.state);
-    if (const auto it = j.find("attempts"); it != j.end() && it->is_array()) {
-        std::vector<HubAttempt> attempts;
-        attempts.reserve(it->size());
-        for (const auto& entry : *it) {
-            HubAttempt attempt;
-            from_json(entry, attempt);
-            attempts.push_back(std::move(attempt));
-        }
-        value.attempts = std::move(attempts);
-    }
+    static_cast<void>(nexigen::core::detail::collect_object_array(
+        j, "attempts", value.attempts,
+        [](const nlohmann::json& entry, HubAttempt& attempt) { from_json(entry, attempt); }));
 }
 
 void to_json(nlohmann::json& j, const HubApp& value) {
@@ -173,16 +159,9 @@ void to_json(nlohmann::json& j, const HubApp& value) {
 void from_json(const nlohmann::json& j, HubApp& value) noexcept {
     static_cast<void>(read_string(j, "app", value.app));
     read_enum(j, "state", value.state);
-    if (const auto it = j.find("instances"); it != j.end() && it->is_array()) {
-        std::vector<HubInstance> instances;
-        instances.reserve(it->size());
-        for (const auto& entry : *it) {
-            HubInstance instance;
-            from_json(entry, instance);
-            instances.push_back(std::move(instance));
-        }
-        value.instances = std::move(instances);
-    }
+    static_cast<void>(nexigen::core::detail::collect_object_array(
+        j, "instances", value.instances,
+        [](const nlohmann::json& entry, HubInstance& instance) { from_json(entry, instance); }));
 }
 
 void to_json(nlohmann::json& j, const HubSuite& value) {
@@ -211,21 +190,15 @@ void from_json(const nlohmann::json& j, HubSuite& value) noexcept {
     static_cast<void>(read_string(j, "suite_dir", value.suite_dir));
     static_cast<void>(read_string(j, "artifacts_path", value.artifacts_path));
     read_enum(j, "state", value.state);
-    static_cast<void>(read_u32(j, "suite_restarts_used", value.suite_restarts_used));
+    static_cast<void>(read_unsigned(j, "suite_restarts_used", value.suite_restarts_used));
     static_cast<void>(read_string(j, "reason", value.reason));
-    if (const auto it = j.find("execution_manager_log"); it != j.end()) {
-        from_json(*it, value.execution_manager_log);
-    }
-    if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
-        std::vector<HubApp> apps;
-        apps.reserve(it->size());
-        for (const auto& entry : *it) {
-            HubApp app;
-            from_json(entry, app);
-            apps.push_back(std::move(app));
-        }
-        value.apps = std::move(apps);
-    }
+    nexigen::core::detail::read_object(j, "execution_manager_log",
+                                     [&](const nlohmann::json& obj) {
+                                         from_json(obj, value.execution_manager_log);
+                                     });
+    static_cast<void>(nexigen::core::detail::collect_object_array(
+        j, "apps", value.apps,
+        [](const nlohmann::json& entry, HubApp& app) { from_json(entry, app); }));
 }
 
 void to_json(nlohmann::json& j, const HubRun& value) {
@@ -250,26 +223,12 @@ void to_json(nlohmann::json& j, const HubRun& value) {
 void from_json(const nlohmann::json& j, HubRun& value) noexcept {
     static_cast<void>(read_string(j, "run_key", value.run_key));
     static_cast<void>(read_string(j, "run_dir", value.run_dir));
-    if (const auto it = j.find("suites"); it != j.end() && it->is_array()) {
-        std::vector<HubSuite> suites;
-        suites.reserve(it->size());
-        for (const auto& entry : *it) {
-            HubSuite suite;
-            from_json(entry, suite);
-            suites.push_back(std::move(suite));
-        }
-        value.suites = std::move(suites);
-    }
-    if (const auto it = j.find("standalone_instances"); it != j.end() && it->is_array()) {
-        std::vector<HubInstance> instances;
-        instances.reserve(it->size());
-        for (const auto& entry : *it) {
-            HubInstance instance;
-            from_json(entry, instance);
-            instances.push_back(std::move(instance));
-        }
-        value.standalone_instances = std::move(instances);
-    }
+    static_cast<void>(nexigen::core::detail::collect_object_array(
+        j, "suites", value.suites,
+        [](const nlohmann::json& entry, HubSuite& suite) { from_json(entry, suite); }));
+    static_cast<void>(nexigen::core::detail::collect_object_array(
+        j, "standalone_instances", value.standalone_instances,
+        [](const nlohmann::json& entry, HubInstance& instance) { from_json(entry, instance); }));
 }
 
 void to_json(nlohmann::json& j, const HubTree& value) {
@@ -283,16 +242,9 @@ void to_json(nlohmann::json& j, const HubTree& value) {
 }
 
 void from_json(const nlohmann::json& j, HubTree& value) noexcept {
-    if (const auto it = j.find("runs"); it != j.end() && it->is_array()) {
-        std::vector<HubRun> runs;
-        runs.reserve(it->size());
-        for (const auto& entry : *it) {
-            HubRun run;
-            from_json(entry, run);
-            runs.push_back(std::move(run));
-        }
-        value.runs = std::move(runs);
-    }
+    static_cast<void>(nexigen::core::detail::collect_object_array(
+        j, "runs", value.runs,
+        [](const nlohmann::json& entry, HubRun& run) { from_json(entry, run); }));
 }
 
 void to_json(nlohmann::json& j, const StreamRecord& value) {
@@ -304,7 +256,7 @@ void to_json(nlohmann::json& j, const StreamRecord& value) {
 void from_json(const nlohmann::json& j, StreamRecord& value) noexcept {
     static_cast<void>(read_string(j, "stream_id", value.stream_id));
     read_enum(j, "kind", value.kind);
-    static_cast<void>(read_u64(j, "sequence", value.sequence));
+    static_cast<void>(read_unsigned(j, "sequence", value.sequence));
     static_cast<void>(read_string(j, "received_at", value.received_at_rfc3339));
     static_cast<void>(read_string(j, "line", value.line));
     static_cast<void>(read_bool(j, "truncated", value.truncated));
@@ -319,9 +271,9 @@ void to_json(nlohmann::json& j, const GapMarker& value) {
 
 void from_json(const nlohmann::json& j, GapMarker& value) noexcept {
     static_cast<void>(read_string(j, "stream_id", value.stream_id));
-    static_cast<void>(read_u64(j, "dropped", value.dropped));
-    static_cast<void>(read_u64(j, "first_missing_sequence", value.first_missing_sequence));
-    static_cast<void>(read_u64(j, "last_missing_sequence", value.last_missing_sequence));
+    static_cast<void>(read_unsigned(j, "dropped", value.dropped));
+    static_cast<void>(read_unsigned(j, "first_missing_sequence", value.first_missing_sequence));
+    static_cast<void>(read_unsigned(j, "last_missing_sequence", value.last_missing_sequence));
 }
 
 std::vector<HubStream> all_streams(const HubTree& tree) {

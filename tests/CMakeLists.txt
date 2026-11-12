@@ -412,12 +412,22 @@ if(NEXIGEN_COMPLEXITY_PYTHON)
     set_tests_properties(nexigen_complexity_gate PROPERTIES
         SKIP_RETURN_CODE 77 LABELS "quality" TIMEOUT 300)
 
+    # JSON field-extraction vocabulary gate (spec core/serialization): the
+    # `read_*`/`collect_*` field readers keep a single definition site in
+    # core, so a new module cannot re-fork the vocabulary.
+    add_test(NAME nexigen_json_vocabulary_gate
+        COMMAND "${NEXIGEN_COMPLEXITY_PYTHON}"
+                "${PROJECT_SOURCE_DIR}/cmake/check_json_field_vocabulary.py"
+                --root "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(nexigen_json_vocabulary_gate PROPERTIES
+        LABELS "quality" TIMEOUT 300)
+
     # Regression self-tests for the lint guards (change
     # fix-naming-guard-digit-separators): an apostrophe digit separator must not
     # hide a following violation from the literal stripper.
     add_test(NAME nexigen_lint_guard_selftest
         COMMAND bash -c
-                "\"${NEXIGEN_COMPLEXITY_PYTHON}\" \"${PROJECT_SOURCE_DIR}/cmake/check_naming.py\" --self-test && \"${NEXIGEN_COMPLEXITY_PYTHON}\" \"${PROJECT_SOURCE_DIR}/cmake/check_result_value.py\" --self-test")
+                "\"${NEXIGEN_COMPLEXITY_PYTHON}\" \"${PROJECT_SOURCE_DIR}/cmake/check_naming.py\" --self-test && \"${NEXIGEN_COMPLEXITY_PYTHON}\" \"${PROJECT_SOURCE_DIR}/cmake/check_result_value.py\" --self-test && \"${NEXIGEN_COMPLEXITY_PYTHON}\" \"${PROJECT_SOURCE_DIR}/cmake/check_json_field_vocabulary.py\" --self-test")
     set_tests_properties(nexigen_lint_guard_selftest PROPERTIES
         LABELS "quality" TIMEOUT 120)
 else()

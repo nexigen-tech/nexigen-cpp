@@ -8,6 +8,8 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnull-dereference"
 #include <nlohmann/json.hpp>
+#include <nexigen/core/detail/json_field.hpp>
+#include <nexigen/core/enum_traits.hpp>
 #pragma GCC diagnostic pop
 
 #include <cstdint>
@@ -22,40 +24,8 @@ namespace nexigen::logging {
 
 namespace {
 
-[[nodiscard]] bool try_read_u64_field(const nlohmann::json& j, const char* key,
-                                      std::uint64_t& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end()) {
-        return true;
-    }
-    if (!it->is_number_unsigned()) {
-        return false;
-    }
-    out = it->get<std::uint64_t>();
-    return true;
-}
 
-[[nodiscard]] bool try_read_log_level_field(const nlohmann::json& j, const char* key,
-                                            core::LogLevel& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end()) {
-        return true;
-    }
-    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
-    if (text == nullptr) {
-        return false;
-    }
-    return from_string(std::string_view(*text), out);
-}
 
-[[nodiscard]] bool try_read_worker_thread_field(const nlohmann::json& j, const char* key,
-                                                core::ThreadSpec& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end()) {
-        return true;
-    }
-    return core::parse_thread_spec_json(*it, out);
-}
 
 } // namespace
 
@@ -72,14 +42,18 @@ void from_json(const nlohmann::json& j, ConsoleLoggerConfig& out) noexcept {
         return;
     }
     ConsoleLoggerConfig parsed = out;
-    if (!try_read_log_level_field(j, "initial_level", parsed.initial_level)) {
+    if (!core::mandate::read_optional_enum(j, "initial_level", parsed.initial_level)) {
         return;
     }
-    if (!try_read_worker_thread_field(j, "worker_thread", parsed.worker_thread)) {
+    if (!core::detail::read_optional_object(
+            j, "worker_thread",
+            [&](const nlohmann::json& obj) {
+                return core::parse_thread_spec_json(obj, parsed.worker_thread);
+            })) {
         return;
     }
     std::uint64_t poll = parsed.worker_poll_interval_us;
-    if (!try_read_u64_field(j, "worker_poll_interval_us", poll) || poll > 0xffffffffULL) {
+    if (!core::detail::read_optional_unsigned(j, "worker_poll_interval_us", poll) || poll > 0xffffffffULL) {
         return;
     }
     parsed.worker_poll_interval_us = static_cast<std::uint32_t>(poll);

@@ -8,6 +8,8 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnull-dereference"
 #include <nlohmann/json.hpp>
+#include <nexigen/core/enum_traits.hpp>
+#include <nexigen/core/detail/json_field.hpp>
 #pragma GCC diagnostic pop
 
 #include <cstdint>
@@ -21,39 +23,8 @@ namespace nexigen::logging {
 
 namespace {
 
-void read_u32_field(const nlohmann::json& j, const char* key, std::uint32_t& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end()) {
-        return;
-    }
-    if (!it->is_number_unsigned()) {
-        return;
-    }
-    out = it->get<std::uint32_t>();
-}
 
-void read_bool_field(const nlohmann::json& j, const char* key, bool& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end()) {
-        return;
-    }
-    if (!it->is_boolean()) {
-        return;
-    }
-    out = it->get<bool>();
-}
 
-void read_log_level_field(const nlohmann::json& j, const char* key, core::LogLevel& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end()) {
-        return;
-    }
-    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
-    if (text == nullptr) {
-        return;
-    }
-    static_cast<void>(from_string(std::string_view(*text), out));
-}
 
 } // namespace
 
@@ -70,10 +41,10 @@ void from_json(const nlohmann::json& j, SpamProtectionConfig& out) noexcept {
     if (!j.is_object()) {
         return;
     }
-    read_bool_field(j, "enable_repeat_suppression", out.enable_repeat_suppression);
-    read_u32_field(j, "repeat_suppression_window_ms", out.repeat_suppression_window_ms);
-    read_u32_field(j, "max_messages_per_sec_per_shard", out.max_messages_per_sec_per_shard);
-    read_log_level_field(j, "bypass_min_level", out.bypass_min_level);
+    core::detail::read_bool(j, "enable_repeat_suppression", out.enable_repeat_suppression);
+    core::detail::read_unsigned(j, "repeat_suppression_window_ms", out.repeat_suppression_window_ms);
+    core::detail::read_unsigned(j, "max_messages_per_sec_per_shard", out.max_messages_per_sec_per_shard);
+    core::mandate::read_enum(j, "bypass_min_level", out.bypass_min_level);
 }
 
 std::string SpamProtectionConfig::to_string() const {

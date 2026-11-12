@@ -17,6 +17,7 @@
 #include <string_view>
 
 #include <nlohmann/json.hpp>
+#include <nexigen/core/detail/json_field.hpp>
 
 #include <nexigen/tracing/span_context.hpp>
 #include <nexigen/tracing/span_record.hpp>
@@ -109,15 +110,6 @@ LocationIntern& location_intern() noexcept {
 }
 
 /// Reads an unsigned JSON number into `out` when present and valid.
-template <typename T>
-[[nodiscard]] bool read_unsigned(const nlohmann::json& j, const char* key, T& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end() || !it->is_number_unsigned()) {
-        return false;
-    }
-    out = static_cast<T>(it->get<std::uint64_t>());
-    return true;
-}
 
 } // namespace
 
@@ -432,9 +424,9 @@ void from_json_header(const nlohmann::json& j, SpanRecord& out) noexcept {
     if (status != j.end()) {
         nlohmann::from_json(*status, out.status);
     }
-    static_cast<void>(read_unsigned(j, "flags", out.flags));
-    static_cast<void>(read_unsigned(j, "attribute_count", out.attribute_count));
-    static_cast<void>(read_unsigned(j, "thread_id", out.thread_id));
+    static_cast<void>(core::detail::read_unsigned(j, "flags", out.flags));
+    static_cast<void>(core::detail::read_unsigned(j, "attribute_count", out.attribute_count));
+    static_cast<void>(core::detail::read_unsigned(j, "thread_id", out.thread_id));
     const auto start_ns = j.find("start_ns");
     if (start_ns != j.end() && start_ns->is_number_unsigned()) {
         out.start = chrono::Timestamp{start_ns->get<std::uint64_t>()};
@@ -486,8 +478,8 @@ void from_json_location(const nlohmann::json& j, SpanRecord& out) noexcept {
             }
         }
     }
-    static_cast<void>(read_unsigned(j, "line", out.line));
-    static_cast<void>(read_unsigned(j, "column", out.column));
+    static_cast<void>(core::detail::read_unsigned(j, "line", out.line));
+    static_cast<void>(core::detail::read_unsigned(j, "column", out.column));
 }
 
 void from_json_attributes(const nlohmann::json& j, SpanRecord& out) noexcept {
@@ -562,9 +554,9 @@ void from_json(const nlohmann::json& j, TracerProviderConfig& out) noexcept {
     if (worker != j.end()) {
         static_cast<void>(core::parse_thread_spec_json(*worker, out.worker_thread));
     }
-    static_cast<void>(read_unsigned(j, "max_tracers", out.max_tracers));
-    static_cast<void>(read_unsigned(j, "max_spans_per_window", out.max_spans_per_window));
-    static_cast<void>(read_unsigned(j, "window_ns", out.window_ns));
+    static_cast<void>(core::detail::read_unsigned(j, "max_tracers", out.max_tracers));
+    static_cast<void>(core::detail::read_unsigned(j, "max_spans_per_window", out.max_spans_per_window));
+    static_cast<void>(core::detail::read_unsigned(j, "window_ns", out.window_ns));
     const auto poll = j.find("worker_poll_interval_us");
     if (poll != j.end() && poll->is_number_unsigned()) {
         out.worker_poll_interval_us = static_cast<std::uint32_t>(std::min<std::uint64_t>(
@@ -595,9 +587,9 @@ void from_json(const nlohmann::json& j, DroppedStats& out) noexcept {
     if (!j.is_object()) {
         return;
     }
-    static_cast<void>(read_unsigned(j, "rate_limited", out.rate_limited));
-    static_cast<void>(read_unsigned(j, "buffer_full", out.buffer_full));
-    static_cast<void>(read_unsigned(j, "slot_exhausted", out.slot_exhausted));
+    static_cast<void>(core::detail::read_unsigned(j, "rate_limited", out.rate_limited));
+    static_cast<void>(core::detail::read_unsigned(j, "buffer_full", out.buffer_full));
+    static_cast<void>(core::detail::read_unsigned(j, "slot_exhausted", out.slot_exhausted));
 }
 
 } // namespace nexigen::tracing

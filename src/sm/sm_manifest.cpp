@@ -1,41 +1,10 @@
 // nexigen::sm — cold-path state-management manifest serialization (change add-sm).
+#include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/sm/sm_manifest.hpp>
 
 #include <utility>
 
 namespace nexigen::sm {
-
-namespace {
-
-void read_string(const nlohmann::json& j, const char* key, std::string& out) noexcept {
-    const auto it = j.find(key);
-    if (it != j.end() && it->is_string()) {
-        out = it->get<std::string>();
-    }
-}
-
-void read_uint(const nlohmann::json& j, const char* key, std::uint64_t& out) noexcept {
-    const auto it = j.find(key);
-    if (it != j.end() && it->is_number_unsigned()) {
-        out = it->get<std::uint64_t>();
-    }
-}
-
-void read_int(const nlohmann::json& j, const char* key, std::int32_t& out) noexcept {
-    const auto it = j.find(key);
-    if (it != j.end() && it->is_number_integer()) {
-        out = it->get<std::int32_t>();
-    }
-}
-
-void read_bool(const nlohmann::json& j, const char* key, bool& out) noexcept {
-    const auto it = j.find(key);
-    if (it != j.end() && it->is_boolean()) {
-        out = it->get<bool>();
-    }
-}
-
-} // namespace
 
 std::string AllowedTransition::to_string() const {
     return std::format("AllowedTransition(from={}, to={})", from, to);
@@ -128,18 +97,18 @@ void from_json(const nlohmann::json& j, AllowedTransition& transition) noexcept 
     if (!j.is_object()) {
         return;
     }
-    read_string(j, "from", transition.from);
-    read_string(j, "to", transition.to);
+    core::detail::read_string(j, "from", transition.from);
+    core::detail::read_string(j, "to", transition.to);
 }
 
 void from_json(const nlohmann::json& j, FunctionGroup& group) noexcept {
     if (!j.is_object()) {
         return;
     }
-    read_string(j, "name", group.name);
-    read_uint(j, "transition_max_time_ms", group.transition_max_time_ms);
-    read_uint(j, "preparation_timeout_ms", group.preparation_timeout_ms);
-    read_bool(j, "application_group", group.application_group);
+    core::detail::read_string(j, "name", group.name);
+    core::detail::read_unsigned(j, "transition_max_time_ms", group.transition_max_time_ms);
+    core::detail::read_unsigned(j, "preparation_timeout_ms", group.preparation_timeout_ms);
+    core::detail::read_bool(j, "application_group", group.application_group);
     const auto states = j.find("states");
     if (states != j.end() && states->is_array()) {
         std::vector<std::string> parsed;
@@ -167,16 +136,16 @@ void from_json(const nlohmann::json& j, RequesterPriority& priority) noexcept {
     if (!j.is_object()) {
         return;
     }
-    read_string(j, "requester_id", priority.requester_id);
-    read_int(j, "priority", priority.priority);
+    core::detail::read_string(j, "requester_id", priority.requester_id);
+    core::detail::read_signed(j, "priority", priority.priority);
 }
 
 void from_json(const nlohmann::json& j, SmManifest& manifest) noexcept {
     if (!j.is_object()) {
         return;
     }
-    read_uint(j, "metrics_flush_interval_ms", manifest.metrics_flush_interval_ms);
-    read_uint(j, "startup_timeout_ms", manifest.startup_timeout_ms);
+    core::detail::read_unsigned(j, "metrics_flush_interval_ms", manifest.metrics_flush_interval_ms);
+    core::detail::read_unsigned(j, "startup_timeout_ms", manifest.startup_timeout_ms);
     if (const auto bg = j.find("bg_thread"); bg != j.end()) {
         from_json(*bg, manifest.bg_thread);
     }

@@ -157,4 +157,37 @@ void read_enum(const nlohmann::json& document, const char* key, Enum& target) no
     target = parsed;
 }
 
+/// @brief Read an optional enum field: absent is valid, wrong type/name rejects.
+///
+/// Differs from `read_enum` in two ways: it returns a `bool`, and it treats an
+/// absent key as valid (`true`) rather than "unchanged". A wrong-typed or
+/// unknown-named field returns `false` and leaves `target` unchanged.
+///
+/// @tparam Enum Enum type providing the ADL `from_string` vocabulary.
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param target Destination, assigned only when the field parses.
+/// @return `true` when the key is absent or parses to a known enumerator;
+///         `false` when the key holds a non-string or an unknown name.
+template <class Enum>
+bool read_optional_enum(const nlohmann::json& object, const char* key, Enum& target) noexcept {
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return true;
+    }
+    if (!it->is_string()) {
+        return false;
+    }
+    const auto* const name = it->get_ptr<const nlohmann::json::string_t*>();
+    if (name == nullptr) {
+        return false;
+    }
+    Enum parsed = target;
+    if (!from_string(std::string_view(*name), parsed)) {
+        return false;
+    }
+    target = parsed;
+    return true;
+}
+
 } // namespace nexigen::core::mandate

@@ -8,6 +8,7 @@
 #include <string_view>
 
 #include <nlohmann/json.hpp>
+#include <nexigen/core/detail/json_field.hpp>
 
 #include <nexigen/tracing/span_frame.hpp>
 
@@ -30,15 +31,6 @@ void force_inline_string(SpanAttribute& attribute) noexcept {
     attribute.text_inline = true;
 }
 
-[[nodiscard]] bool read_unsigned(const nlohmann::json& j, const char* key,
-                                 std::uint64_t& out) noexcept {
-    const auto it = j.find(key);
-    if (it == j.end() || !it->is_number_unsigned()) {
-        return false;
-    }
-    out = it->get<std::uint64_t>();
-    return true;
-}
 
 void read_name(const nlohmann::json& j, char (&out)[SpanFrame::name_capacity + 1]) noexcept {
     const auto it = j.find("name");
@@ -148,51 +140,51 @@ void read_vocabulary(const nlohmann::json& j, SpanFrame& out) noexcept {
 
 void read_span_numbers(const nlohmann::json& j, SpanFrame& out) noexcept {
     std::uint64_t number = 0U;
-    if (read_unsigned(j, "flags", number)) {
+    if (core::detail::read_unsigned(j, "flags", number)) {
         out.flags = static_cast<std::uint8_t>(number);
     }
-    if (read_unsigned(j, "attribute_count", number)) {
+    if (core::detail::read_unsigned(j, "attribute_count", number)) {
         out.attribute_count = static_cast<std::uint8_t>(number);
     }
-    if (read_unsigned(j, "thread_id", number)) {
+    if (core::detail::read_unsigned(j, "thread_id", number)) {
         out.thread_id = static_cast<std::uint32_t>(number);
     }
-    if (read_unsigned(j, "start_ns", number)) {
+    if (core::detail::read_unsigned(j, "start_ns", number)) {
         out.start_ns = number;
     }
-    if (read_unsigned(j, "end_ns", number)) {
+    if (core::detail::read_unsigned(j, "end_ns", number)) {
         out.end_ns = number;
     }
 }
 
 void read_source_numbers(const nlohmann::json& j, SpanFrame& out) noexcept {
     std::uint64_t number = 0U;
-    if (read_unsigned(j, "file_hash", number)) {
+    if (core::detail::read_unsigned(j, "file_hash", number)) {
         out.file_hash = number;
     }
-    if (read_unsigned(j, "function_hash", number)) {
+    if (core::detail::read_unsigned(j, "function_hash", number)) {
         out.function_hash = number;
     }
-    if (read_unsigned(j, "line", number)) {
+    if (core::detail::read_unsigned(j, "line", number)) {
         out.line = static_cast<std::uint32_t>(number);
     }
-    if (read_unsigned(j, "column", number)) {
+    if (core::detail::read_unsigned(j, "column", number)) {
         out.column = static_cast<std::uint32_t>(number);
     }
 }
 
 void read_identity_numbers(const nlohmann::json& j, SpanFrame& out) noexcept {
     std::uint64_t number = 0U;
-    if (read_unsigned(j, "pid", number)) {
+    if (core::detail::read_unsigned(j, "pid", number)) {
         out.pid = static_cast<std::uint32_t>(number);
     }
-    if (read_unsigned(j, "sequence", number)) {
+    if (core::detail::read_unsigned(j, "sequence", number)) {
         out.sequence = number;
     }
-    if (read_unsigned(j, "publish_ts_ns", number)) {
+    if (core::detail::read_unsigned(j, "publish_ts_ns", number)) {
         out.publish_ts_ns = number;
     }
-    if (read_unsigned(j, "version", number)) {
+    if (core::detail::read_unsigned(j, "version", number)) {
         out.version = static_cast<std::uint16_t>(number);
     }
 }

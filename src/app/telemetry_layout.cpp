@@ -6,6 +6,7 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnull-dereference"
 #include <nlohmann/json.hpp>
+#include <nexigen/core/detail/json_field.hpp>
 #pragma GCC diagnostic pop
 
 #include <nexigen/app/telemetry_layout.hpp>
@@ -64,19 +65,6 @@ namespace {
     return {};
 }
 
-void read_string_field(const nlohmann::json& j, const char* key, std::string& target) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
-    const auto it = j.find(key);
-    if (it == j.end() || !it->is_string()) {
-        return;
-    }
-    const auto* const text = it->get_ptr<const nlohmann::json::string_t*>();
-    if (text != nullptr) {
-        target = std::string(*text);
-    }
-}
 
 } // namespace
 
@@ -151,10 +139,10 @@ void to_json(nlohmann::json& j, const RunIdentity& identity) {
 }
 
 void from_json(const nlohmann::json& j, RunIdentity& identity) noexcept {
-    read_string_field(j, "run_id", identity.run_id);
-    read_string_field(j, "run_dir", identity.run_dir);
-    read_string_field(j, "instance_id", identity.instance_id);
-    read_string_field(j, "instance_dir", identity.instance_dir);
+    core::detail::read_string(j, "run_id", identity.run_id);
+    core::detail::read_string(j, "run_dir", identity.run_dir);
+    core::detail::read_string(j, "instance_id", identity.instance_id);
+    core::detail::read_string(j, "instance_dir", identity.instance_dir);
 }
 
 void to_json(nlohmann::json& j, const TelemetryPaths& paths) {
@@ -163,9 +151,9 @@ void to_json(nlohmann::json& j, const TelemetryPaths& paths) {
 }
 
 void from_json(const nlohmann::json& j, TelemetryPaths& paths) noexcept {
-    read_string_field(j, "metrics", paths.metrics);
-    read_string_field(j, "traces", paths.traces);
-    read_string_field(j, "chrono", paths.chrono);
+    core::detail::read_string(j, "metrics", paths.metrics);
+    core::detail::read_string(j, "traces", paths.traces);
+    core::detail::read_string(j, "chrono", paths.chrono);
 }
 
 } // namespace nexigen::app

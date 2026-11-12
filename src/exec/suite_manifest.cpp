@@ -13,7 +13,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <nexigen/core/enum_traits.hpp>
+#include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/core/enum_traits.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/log_level.hpp>
@@ -22,6 +22,7 @@
 #include <nexigen/exec/detail/cpu_validation.hpp>
 #include <nexigen/exec/detail/path_utils.hpp>
 #include <nexigen/exec/detail/sys_helpers.hpp>
+#include <nexigen/exec/detail/suite_json.hpp>
 #include <nexigen/exec/impact_on_app_suite_operability.hpp>
 #include <nexigen/exec/instance_file_io.hpp>
 #include <nexigen/exec/suite_app_metadata.hpp>
@@ -41,10 +42,14 @@ using detail::has_parent_segment;
 using detail::instance_dir_path;
 using detail::max_path_bytes;
 using core::mandate::read_enum;
-using detail::read_i32;
-using detail::read_string;
-using detail::read_u32;
-using detail::read_u64;
+using detail::log_level_json;
+using detail::read_canonical_thread;
+using detail::read_cpu_array;
+using detail::read_cpu_set;
+using detail::read_env_object;
+using detail::read_legacy_execution_manager_cpus;
+using detail::read_log_level;
+using detail::read_string_array;
 using detail::safe_id;
 using detail::validate_env_entries;
 
@@ -53,143 +58,6 @@ namespace {
 constexpr std::size_t max_apps = 256;
 constexpr std::uint32_t max_restart_attempts = 1000;
 constexpr std::uint64_t max_delay_seconds = 86400;
-
-// --- JSON helpers ----------------------------------------------------------
-
-[[nodiscard]] bool read_log_level(const nlohmann::json& document, const char* key,
-                                  std::optional<core::LogLevel>& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end()) {
-        return false;
-    }
-    if (it->is_null()) {
-        target = std::nullopt;
-        return true;
-    }
-    if (!it->is_string()) {
-        return false;
-    }
-    const auto* const name = it->get_ptr<const nlohmann::json::string_t*>();
-    if (name == nullptr) {
-        return false;
-    }
-    core::LogLevel level = core::LogLevel::Info;
-    if (!core::from_string(std::string_view(*name), level)) {
-        return false;
-    }
-    target = level;
-    return true;
-}
-
-[[nodiscard]] nlohmann::json log_level_json(const std::optional<core::LogLevel>& level) {
-    if (!level.has_value()) {
-        return nullptr;
-    }
-    return std::string(core::to_string(*level));
-}
-
-[[nodiscard]] bool read_string_array(const nlohmann::json& document, const char* key,
-                                     std::vector<std::string>& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end() || !it->is_array()) {
-        return false;
-    }
-    std::vector<std::string> values;
-    values.reserve(it->size());
-    for (const auto& item : *it) {
-        if (!item.is_string()) {
-            return false;
-        }
-        values.emplace_back(item.get<std::string>());
-    }
-    target = std::move(values);
-    return true;
-}
-
-[[nodiscard]] bool read_cpu_array(const nlohmann::json& document, const char* key,
-                                  std::vector<std::uint32_t>& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end() || !it->is_array()) {
-        return false;
-    }
-    std::vector<std::uint32_t> values;
-    values.reserve(it->size());
-    for (const auto& item : *it) {
-        if (!item.is_number_unsigned()) {
-            return false;
-        }
-        const std::uint64_t value = item.get<std::uint64_t>();
-        if (value > UINT32_MAX) {
-            return false;
-        }
-        values.push_back(static_cast<std::uint32_t>(value));
-    }
-    target = std::move(values);
-    return true;
-}
-
-[[nodiscard]] bool read_cpu_set(const nlohmann::json& document, const char* key,
-                                core::CpuSet& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end()) {
-        return false;
-    }
-    return core::parse_cpu_set_json(*it, target);
-}
-
-void read_legacy_execution_manager_cpus(const nlohmann::json& document, const char* key,
-                                        core::ThreadSpec& target) noexcept {
-    std::vector<std::uint32_t> values;
-    if (!read_cpu_array(document, key, values)) {
-        return;
-    }
-    const core::Result<core::CpuSet> converted = core::CpuSet::from_cpus(values);
-    if (converted) {
-        target.set_cpus(*converted);
-    }
-}
-
-void read_canonical_thread(const nlohmann::json& document, const char* key,
-                           core::ThreadSpec& target) noexcept {
-    const auto it = document.find(key);
-    if (it != document.end()) {
-        static_cast<void>(core::parse_thread_spec_json(*it, target));
-    }
-}
-
-[[nodiscard]] bool
-read_env_object(const nlohmann::json& document, const char* key,
-                std::vector<std::pair<std::string, std::string>>& target) noexcept {
-    if (!document.is_object()) {
-        return false;
-    }
-    const auto it = document.find(key);
-    if (it == document.end() || !it->is_object()) {
-        return false;
-    }
-    std::vector<std::pair<std::string, std::string>> values;
-    values.reserve(it->size());
-    for (auto entry = it->begin(); entry != it->end(); ++entry) {
-        if (!entry.value().is_string()) {
-            return false;
-        }
-        values.emplace_back(entry.key(), entry.value().get<std::string>());
-    }
-    target = std::move(values);
-    return true;
-}
 
 // --- to_string -------------------------------------------------------------
 
@@ -284,21 +152,21 @@ void to_json(nlohmann::json& j, const AppSpec& spec) {
 }
 
 void from_json(const nlohmann::json& j, AppSpec& spec) noexcept {
-    static_cast<void>(read_string(j, "app", spec.app));
-    static_cast<void>(read_string(j, "instance", spec.instance));
-    static_cast<void>(read_string(j, "command", spec.command));
+    static_cast<void>(core::detail::read_string(j, "app", spec.app));
+    static_cast<void>(core::detail::read_string(j, "instance", spec.instance));
+    static_cast<void>(core::detail::read_string(j, "command", spec.command));
     static_cast<void>(read_string_array(j, "args", spec.args));
     static_cast<void>(read_env_object(j, "env", spec.env));
     static_cast<void>(read_cpu_set(j, "cpus", spec.cpus));
-    static_cast<void>(read_u64(j, "idle_timeout_s", spec.idle_timeout_s));
-    static_cast<void>(read_u64(j, "stop_grace_s", spec.stop_grace_s));
-    static_cast<void>(read_u32(j, "restart_attempts", spec.restart_attempts));
-    static_cast<void>(read_u64(j, "restart_delay_s", spec.restart_delay_s));
+    static_cast<void>(core::detail::read_unsigned(j, "idle_timeout_s", spec.idle_timeout_s));
+    static_cast<void>(core::detail::read_unsigned(j, "stop_grace_s", spec.stop_grace_s));
+    static_cast<void>(core::detail::read_unsigned(j, "restart_attempts", spec.restart_attempts));
+    static_cast<void>(core::detail::read_unsigned(j, "restart_delay_s", spec.restart_delay_s));
     static_cast<void>(read_string_array(j, "dependencies", spec.dependencies));
     static_cast<void>(read_string_array(j, "function_groups", spec.function_groups));
     read_enum(j, "impact_on_app_suite_operability", spec.impact);
-    static_cast<void>(read_string(j, "global_settings_path", spec.global_settings_path));
-    static_cast<void>(read_string(j, "local_settings_path", spec.local_settings_path));
+    static_cast<void>(core::detail::read_string(j, "global_settings_path", spec.global_settings_path));
+    static_cast<void>(core::detail::read_string(j, "local_settings_path", spec.local_settings_path));
     static_cast<void>(read_log_level(j, "log_level", spec.log_level));
 }
 
@@ -333,17 +201,17 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
 }
 
 void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
-    static_cast<void>(read_u32(j, "version", manifest.version));
-    static_cast<void>(read_string(j, "suite_id", manifest.suite_id));
-    static_cast<void>(read_string(j, "execution_manager_name", manifest.execution_manager_name));
-    static_cast<void>(read_string(j, "run_id", manifest.run_id));
-    static_cast<void>(read_string(j, "run_dir", manifest.run_dir));
-    static_cast<void>(read_string(j, "global_settings_path", manifest.global_settings_path));
-    static_cast<void>(read_string(j, "artifacts_path", manifest.artifacts_path));
+    static_cast<void>(core::detail::read_unsigned(j, "version", manifest.version));
+    static_cast<void>(core::detail::read_string(j, "suite_id", manifest.suite_id));
+    static_cast<void>(core::detail::read_string(j, "execution_manager_name", manifest.execution_manager_name));
+    static_cast<void>(core::detail::read_string(j, "run_id", manifest.run_id));
+    static_cast<void>(core::detail::read_string(j, "run_dir", manifest.run_dir));
+    static_cast<void>(core::detail::read_string(j, "global_settings_path", manifest.global_settings_path));
+    static_cast<void>(core::detail::read_string(j, "artifacts_path", manifest.artifacts_path));
     static_cast<void>(read_log_level(j, "log_level", manifest.log_level));
-    static_cast<void>(read_u32(j, "suite_restart_attempts", manifest.suite_restart_attempts));
-    static_cast<void>(read_u64(j, "suite_restart_delay_s", manifest.suite_restart_delay_s));
-    static_cast<void>(read_string(j, "manifest_path", manifest.manifest_path));
+    static_cast<void>(core::detail::read_unsigned(j, "suite_restart_attempts", manifest.suite_restart_attempts));
+    static_cast<void>(core::detail::read_unsigned(j, "suite_restart_delay_s", manifest.suite_restart_delay_s));
+    static_cast<void>(core::detail::read_string(j, "manifest_path", manifest.manifest_path));
     read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus",
                                        manifest.execution_manager_control_thread);
     read_legacy_execution_manager_cpus(j, "execution_manager_logger_cpus",
@@ -360,7 +228,7 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
                 continue;
             }
             FunctionGroupConfig group;
-            static_cast<void>(read_string(entry, "name", group.name));
+            static_cast<void>(core::detail::read_string(entry, "name", group.name));
             static_cast<void>(read_string_array(entry, "states", group.states));
             groups.push_back(std::move(group));
         }
@@ -386,10 +254,10 @@ void to_json(nlohmann::json& j, const SuiteAppMetadata& app) {
 }
 
 void from_json(const nlohmann::json& j, SuiteAppMetadata& app) noexcept {
-    static_cast<void>(read_string(j, "app", app.app));
-    static_cast<void>(read_string(j, "instance", app.instance));
-    static_cast<void>(read_string(j, "instance_dir", app.instance_dir));
-    static_cast<void>(read_u64(j, "stop_grace_s", app.stop_grace_s));
+    static_cast<void>(core::detail::read_string(j, "app", app.app));
+    static_cast<void>(core::detail::read_string(j, "instance", app.instance));
+    static_cast<void>(core::detail::read_string(j, "instance_dir", app.instance_dir));
+    static_cast<void>(core::detail::read_unsigned(j, "stop_grace_s", app.stop_grace_s));
 }
 
 void to_json(nlohmann::json& j, const SuiteMetadata& metadata) {
@@ -418,17 +286,17 @@ void to_json(nlohmann::json& j, const SuiteMetadata& metadata) {
 }
 
 void from_json(const nlohmann::json& j, SuiteMetadata& metadata) noexcept {
-    static_cast<void>(read_string(j, "suite_id", metadata.suite_id));
-    static_cast<void>(read_string(j, "execution_manager_name", metadata.execution_manager_name));
-    static_cast<void>(read_string(j, "run_id", metadata.run_id));
-    static_cast<void>(read_string(j, "run_dir", metadata.run_dir));
-    static_cast<void>(read_string(j, "global_settings_path", metadata.global_settings_path));
-    static_cast<void>(read_string(j, "artifacts_path", metadata.artifacts_path));
-    static_cast<void>(read_i32(j, "pid", metadata.pid));
-    static_cast<void>(read_string(j, "start_time_rfc3339", metadata.start_time_rfc3339));
-    static_cast<void>(read_u64(j, "start_time_mono_ns", metadata.start_time_mono_ns));
-    static_cast<void>(read_u64(j, "proc_start_ticks", metadata.proc_start_ticks));
-    static_cast<void>(read_string(j, "manifest_path", metadata.manifest_path));
+    static_cast<void>(core::detail::read_string(j, "suite_id", metadata.suite_id));
+    static_cast<void>(core::detail::read_string(j, "execution_manager_name", metadata.execution_manager_name));
+    static_cast<void>(core::detail::read_string(j, "run_id", metadata.run_id));
+    static_cast<void>(core::detail::read_string(j, "run_dir", metadata.run_dir));
+    static_cast<void>(core::detail::read_string(j, "global_settings_path", metadata.global_settings_path));
+    static_cast<void>(core::detail::read_string(j, "artifacts_path", metadata.artifacts_path));
+    static_cast<void>(core::detail::read_signed(j, "pid", metadata.pid));
+    static_cast<void>(core::detail::read_string(j, "start_time_rfc3339", metadata.start_time_rfc3339));
+    static_cast<void>(core::detail::read_unsigned(j, "start_time_mono_ns", metadata.start_time_mono_ns));
+    static_cast<void>(core::detail::read_unsigned(j, "proc_start_ticks", metadata.proc_start_ticks));
+    static_cast<void>(core::detail::read_string(j, "manifest_path", metadata.manifest_path));
     read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus",
                                        metadata.execution_manager_control_thread);
     read_legacy_execution_manager_cpus(j, "execution_manager_logger_cpus",
@@ -457,8 +325,8 @@ void to_json(nlohmann::json& j, const SuiteExit& exit) {
 
 void from_json(const nlohmann::json& j, SuiteExit& exit) noexcept {
     read_enum(j, "state", exit.state);
-    static_cast<void>(read_string(j, "reason", exit.reason));
-    static_cast<void>(read_u64(j, "uptime_s", exit.uptime_s));
+    static_cast<void>(core::detail::read_string(j, "reason", exit.reason));
+    static_cast<void>(core::detail::read_unsigned(j, "uptime_s", exit.uptime_s));
 }
 
 void to_json(nlohmann::json& j, const SuiteAppStatus& status) {
@@ -472,13 +340,13 @@ void to_json(nlohmann::json& j, const SuiteAppStatus& status) {
 }
 
 void from_json(const nlohmann::json& j, SuiteAppStatus& status) noexcept {
-    static_cast<void>(read_string(j, "app", status.app));
-    static_cast<void>(read_string(j, "instance", status.instance));
-    static_cast<void>(read_string(j, "instance_dir", status.instance_dir));
-    static_cast<void>(read_string(j, "artifact_dir", status.artifact_dir));
-    static_cast<void>(read_u32(j, "attempt", status.attempt));
+    static_cast<void>(core::detail::read_string(j, "app", status.app));
+    static_cast<void>(core::detail::read_string(j, "instance", status.instance));
+    static_cast<void>(core::detail::read_string(j, "instance_dir", status.instance_dir));
+    static_cast<void>(core::detail::read_string(j, "artifact_dir", status.artifact_dir));
+    static_cast<void>(core::detail::read_unsigned(j, "attempt", status.attempt));
     read_enum(j, "state", status.state);
-    static_cast<void>(read_u32(j, "restarts_used", status.restarts_used));
+    static_cast<void>(core::detail::read_unsigned(j, "restarts_used", status.restarts_used));
 }
 
 void to_json(nlohmann::json& j, const SuiteStatus& status) {
@@ -498,10 +366,10 @@ void to_json(nlohmann::json& j, const SuiteStatus& status) {
 
 void from_json(const nlohmann::json& j, SuiteStatus& status) noexcept {
     read_enum(j, "state", status.state);
-    static_cast<void>(read_string(j, "suite_id", status.suite_id));
-    static_cast<void>(read_string(j, "run_dir", status.run_dir));
-    static_cast<void>(read_string(j, "artifacts_path", status.artifacts_path));
-    static_cast<void>(read_u32(j, "suite_restarts_used", status.suite_restarts_used));
+    static_cast<void>(core::detail::read_string(j, "suite_id", status.suite_id));
+    static_cast<void>(core::detail::read_string(j, "run_dir", status.run_dir));
+    static_cast<void>(core::detail::read_string(j, "artifacts_path", status.artifacts_path));
+    static_cast<void>(core::detail::read_unsigned(j, "suite_restarts_used", status.suite_restarts_used));
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
         std::vector<SuiteAppStatus> apps;
         apps.reserve(it->size());
