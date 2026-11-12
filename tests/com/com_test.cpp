@@ -105,6 +105,21 @@ void test_error() {
     NX_CHECK(ok_value.has_value() && *ok_value == 42);
     const com::Result<int> failed = std::unexpected(com::Error::Timeout);
     NX_CHECK(!failed.has_value() && failed.error() == com::Error::Timeout);
+
+    // Delivery-failure classification used by send_copy(): a broken or corrupted
+    // connection is ConnectionFailure, an exhausted loan pool is OutOfSamples,
+    // and an unclassified transport error is Unknown. End-to-end delivery
+    // failure has no deterministic injection point, so the mapping is pinned
+    // directly; Publisher::send_copy() wraps exactly this call.
+    NX_CHECK(com::detail::map_error(iox2::SendError::ConnectionBrokenSinceSenderNoLongerExists) ==
+             com::Error::ConnectionFailure);
+    NX_CHECK(com::detail::map_error(iox2::SendError::ConnectionCorrupted) ==
+             com::Error::ConnectionFailure);
+    NX_CHECK(com::detail::map_error(iox2::SendError::LoanErrorOutOfMemory) ==
+             com::Error::OutOfSamples);
+    NX_CHECK(com::detail::map_error(iox2::SendError::LoanErrorExceedsMaxLoans) ==
+             com::Error::OutOfSamples);
+    NX_CHECK(com::detail::map_error(iox2::SendError::UnableToDeliver) == com::Error::Unknown);
 }
 
 void test_service_name() {

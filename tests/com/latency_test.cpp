@@ -327,7 +327,7 @@ void test_latency() {
         measure_direct_pass(*publisher, *notifier, frame, raw, ns_per_tick, ovh_ns, medians);
     }
 
-    // Ноль аллокаций на чистом транспортном пути (a + a+event): до/после
+    // Ноль аллокаций на чистом транспортном пути (a, a2 и a+event): до/после
     // измерительного окна, после прогрева. Вариант (b) ниже не входит в это
     // окно — создание std::jthread аллоцирует и зашумляет сигнал.
     const std::size_t heap_after = heap_in_use();
