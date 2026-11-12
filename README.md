@@ -717,6 +717,14 @@ brings `nexigen_core` and `nexigen_chrono` transitively.
   `DiscardData` with counted drops; consumers drain by interval (no per-span
   event) and detect gaps from the sequence. Release x86-64 gates `on_span` at a
   400 ns median.
+* **Flight recorder (`nexigen-traced`)** — built with `NEXIGEN_ENABLE_COM=ON`,
+  drains the span service every `drain_interval_ms` (default 20 ms) into a
+  `ring_capacity_records` RAM ring (default 65 536 ≈ 24 MiB, drop-oldest), and
+  writes one versioned `incident_trace_<UTC>.nxtr` snapshot when the PHM
+  recovery channel reports an incident (bounded by `max_dump_files`). Steady
+  state writes 0 bytes/s; `SIGTERM` exits without a snapshot. See
+  [`docs/trace-daemon.md`](docs/trace-daemon.md) for the config and the
+  96-byte snapshot header.
 
 ```cpp
 #include <nexigen/tracing/console_trace_sink.hpp>

@@ -260,6 +260,17 @@ if(NEXIGEN_ENABLE_COM)
     add_test(NAME nexigen_tracing_com_tests COMMAND nexigen_tracing_com_tests)
     set_tests_properties(nexigen_tracing_com_tests PROPERTIES TIMEOUT 600)
 
+    # Юнит- и e2e-тесты TraceDaemon (change add-trace-daemon): ring, snapshot
+    # format, retention, session drain/trigger/coalescing, readiness, mlock.
+    add_executable(nexigen_trace_daemon_tests
+        tracing/trace_daemon_test.cpp
+        tracing/tracing_test_support.cpp)
+    target_link_libraries(nexigen_trace_daemon_tests PRIVATE
+        nexigen_tracing_com nexigen_chrono Threads::Threads)
+
+    add_test(NAME nexigen_trace_daemon_tests COMMAND nexigen_trace_daemon_tests)
+    set_tests_properties(nexigen_trace_daemon_tests PROPERTIES TIMEOUT 600)
+
     # Юнит-тесты nexigen::logging::Iceoryx2Logger (change add-iceoryx2-logger).
     add_executable(nexigen_logging_com_tests logging/iceoryx2_logger_test.cpp)
     target_link_libraries(nexigen_logging_com_tests PRIVATE

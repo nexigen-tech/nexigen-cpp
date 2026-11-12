@@ -90,7 +90,22 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_metricsd_smoke PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
-    install(TARGETS nexigen-phmd nexigen-sm
+    # nexigen-traced — Trace Daemon (change add-trace-daemon).
+    add_executable(nexigen-traced nexigen-traced/main.cpp)
+    target_link_libraries(nexigen-traced PRIVATE nexigen_tracing_com nexigen_chrono Threads::Threads)
+    target_include_directories(nexigen-traced PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+    add_test(NAME nexigen_traced_help COMMAND nexigen-traced --help)
+    set_tests_properties(nexigen_traced_help PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
+    add_test(NAME nexigen_traced_smoke
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-traced/smoke_test.sh
+                $<TARGET_FILE:nexigen-traced>)
+    set_tests_properties(nexigen_traced_smoke PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
+    install(TARGETS nexigen-phmd nexigen-sm nexigen-traced
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 
