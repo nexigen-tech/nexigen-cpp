@@ -286,12 +286,20 @@ if(NEXIGEN_ENABLE_COM)
     add_test(NAME nexigen_logging_com_tests COMMAND nexigen_logging_com_tests)
     set_tests_properties(nexigen_logging_com_tests PROPERTIES TIMEOUT 600)
 
-    # Юнит-тесты nexigen-logd (change add-log-daemon).
+    # Юнит-тесты nexigen-logd (change add-log-daemon). The real-daemon e2e suite
+    # runs the actual binary, so it is passed the target path when tools are
+    # built (tests configure before tools, but the generator expression resolves
+    # after both).
     add_executable(nexigen_logging_com_daemon_tests logging/log_daemon_test.cpp)
     target_link_libraries(nexigen_logging_com_daemon_tests PRIVATE
         nexigen_logging_com Threads::Threads)
 
-    add_test(NAME nexigen_logging_com_daemon_tests COMMAND nexigen_logging_com_daemon_tests)
+    if(NEXIGEN_BUILD_TOOLS)
+        add_test(NAME nexigen_logging_com_daemon_tests
+            COMMAND nexigen_logging_com_daemon_tests $<TARGET_FILE:nexigen-logd>)
+    else()
+        add_test(NAME nexigen_logging_com_daemon_tests COMMAND nexigen_logging_com_daemon_tests)
+    endif()
     set_tests_properties(nexigen_logging_com_daemon_tests PROPERTIES TIMEOUT 600)
 
     # Юнит-тесты nexigen::metrics::Iceoryx2MetricSink (change add-metrics-daemon).

@@ -3,9 +3,19 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <csignal>
+#include <cstdlib>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <nlohmann/json.hpp>
 
@@ -28,6 +38,7 @@ namespace {
 
 int g_checks = 0;
 int g_failures = 0;
+const char* g_daemon_bin = nullptr;
 #define NX_CHECK(...)                                                                              \
     do {                                                                                           \
         ++g_checks;                                                                                \
@@ -137,12 +148,192 @@ void test_e2e() {
     NX_CHECK(frames[0].pid != 0U);
 }
 
+// Helpers shared by the real-daemon e2e tests: a per-PID unique service, the
+// daemon config, a forked daemon child, a log-directory poll, and cleanup.
+
+std::string make_unique_service(const char* prefix) {
+    return std::string(prefix) + std::to_string(::getpid());
+}
+
+void write_logd_config(const std::string& cfg_path, const std::string& service,
+                       const std::string& log_dir) {
+    std::ofstream cfg_file(cfg_path, std::ios::out | std::ios::trunc);
+    cfg_file << "{\"service_name\":\"" << service << "\",\"log_directory\":\"" << log_dir
+             << "\",\"min_log_level_storage\":\"verbose\",\"batch_flush_interval_ms\":50}";
+}
+
+void prepare_root(const std::string& root, const std::string& log_dir) {
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
+    std::filesystem::create_directories(log_dir, ec);
+}
+
+pid_t spawn_logd(const char* bin, const std::string& cfg_path, const std::string& out_path) {
+    const pid_t pid = ::fork();
+    if (pid != 0) {
+        return pid;
+    }
+    const int fd = ::open(out_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) {
+        ::dup2(fd, 1);
+        ::dup2(fd, 2);
+        ::close(fd);
+    }
+    ::execl(bin, bin, "--config", cfg_path.c_str(), static_cast<char*>(nullptr));
+    ::_exit(127);
+}
+
+bool logdir_contains(const std::string& log_dir, std::string_view needle) {
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(log_dir)) {
+            if (!entry.is_regular_file() || entry.file_size() == 0U) {
+                continue;
+            }
+            std::ifstream in(entry.path());
+            const std::string content((std::istreambuf_iterator<char>(in)),
+                                      std::istreambuf_iterator<char>());
+            if (content.find(needle) != std::string::npos) {
+                return true;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return false;
+}
+
+void stop_logd(pid_t pid) {
+    ::kill(pid, SIGTERM);
+    int status = 0;
+    for (int i = 0; i < 50; ++i) {
+        const pid_t reaped = ::waitpid(pid, &status, WNOHANG);
+        if (reaped == pid || reaped < 0) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ::kill(pid, SIGKILL);
+    ::waitpid(pid, &status, 0);
+}
+
+void cleanup_root(const std::string& root) {
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
+}
+
+// Publish one LogFrame from a main-thread publisher, mirroring how the metrics
+// sink constructs its transport (node + publisher + notifier on the caller's
+// thread), then notify the companion event service.
+bool publish_main_thread(const std::string& service, std::string_view msg) {
+    auto node = com::Node::create();
+    if (!node) {
+        return false;
+    }
+    const auto name = com::ServiceName::create(service.c_str());
+    if (!name) {
+        return false;
+    }
+    auto publisher = com::Publisher<logging::LogFrame>::create(*node, *name);
+    if (!publisher) {
+        return false;
+    }
+    const auto ev_name = com::ServiceName::create((service + "Event").c_str());
+    auto notifier =
+        ev_name ? com::EventNotifier::create(*node, *ev_name)
+                : com::Result<com::EventNotifier>{std::unexpected(com::Error::Unknown)};
+
+    logging::LogFrame frame{};
+    frame.timestamp_ns = 123;
+    std::memcpy(frame.app_id, "TEST", 4);
+    frame.pid = static_cast<std::uint32_t>(::getpid());
+    frame.log_level = core::LogLevel::Info;
+    const std::size_t n = msg.size();
+    std::memcpy(frame.payload, msg.data(), n);
+    frame.payload_size = static_cast<std::uint16_t>(n);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    const auto sent = publisher->send_copy(frame);
+    if (sent.has_value() && notifier) {
+        static_cast<void>(notifier->notify());
+    }
+    return sent.has_value();
+}
+
+// Real-daemon end-to-end: spawn `nexigen-logd` and assert it writes a record
+// published by an Iceoryx2Logger. `g_daemon_bin` is the executable path supplied
+// by CTest; when empty the suite is skipped.
+void test_real_daemon_e2e() {
+    if (g_daemon_bin == nullptr || g_daemon_bin[0] == '\0') {
+        std::printf("  (skipped: no daemon binary path)\n");
+        return;
+    }
+    const std::string service = make_unique_service("Nexigen/Test/LogdE2E");
+    const std::string root = "/tmp/opencode/logd_e2e_" + std::to_string(::getpid());
+    const std::string log_dir = root + "/logs";
+    prepare_root(root, log_dir);
+    write_logd_config(root + "/config.json", service, log_dir);
+    const pid_t pid = spawn_logd(g_daemon_bin, root + "/config.json", root + "/out");
+    NX_CHECK(pid >= 0);
+    if (pid < 0) {
+        return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    bool published = false;
+    {
+        logging::Iceoryx2Logger<> logger;
+        logging::Iceoryx2LoggerConfig cfg;
+        cfg.service_name = service;
+        cfg.app_id = "TEST";
+        if (logger.initialize(cfg).has_value()) {
+            wait_writer(logger);
+            logger.info("hello e2e daemon");
+            static_cast<void>(logger.flush());
+            published = true;
+        }
+    }
+
+    NX_CHECK(published);
+    NX_CHECK(logdir_contains(log_dir, "hello e2e daemon"));
+
+    stop_logd(pid);
+    cleanup_root(root);
+}
+
+// Main-thread publisher variant, used to bisect the worker-thread hypothesis.
+void test_real_daemon_main_thread_publisher() {
+    if (g_daemon_bin == nullptr || g_daemon_bin[0] == '\0') {
+        std::printf("  (skipped: no daemon binary path)\n");
+        return;
+    }
+    const std::string service = make_unique_service("Nexigen/Test/LogdMainThread");
+    const std::string root = "/tmp/opencode/logd_mt_" + std::to_string(::getpid());
+    const std::string log_dir = root + "/logs";
+    prepare_root(root, log_dir);
+    write_logd_config(root + "/config.json", service, log_dir);
+    const pid_t pid = spawn_logd(g_daemon_bin, root + "/config.json", root + "/out");
+    NX_CHECK(pid >= 0);
+    if (pid < 0) {
+        return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    const bool published = publish_main_thread(service, "hello main thread");
+    NX_CHECK(published);
+    NX_CHECK(logdir_contains(log_dir, "hello main thread"));
+
+    stop_logd(pid);
+    cleanup_root(root);
+}
+
 } // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
     run_suite("config_compat", test_config_compatibility);
     run_suite("config", test_config_thread_fields);
     run_suite("e2e", test_e2e);
+    g_daemon_bin = argc > 1 ? argv[1] : nullptr;
+    run_suite("real_daemon_e2e", test_real_daemon_e2e);
+    run_suite("real_daemon_main_thread", test_real_daemon_main_thread_publisher);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

@@ -151,6 +151,7 @@ struct Sink {
     int fd{-1};
     std::int64_t hour_key{0}; ///< UTC hour key of the open file (0 = not rotated yet)
     std::size_t used{0};      ///< bytes pending in `buffer`
+    std::chrono::steady_clock::time_point last_flush{}; ///< last time-based flush
     alignas(64) char buffer[kBufSz]{};
 };
 
@@ -203,6 +204,20 @@ void drain_subscriber(com::Subscriber<logging::LogFrame>& sub, const logging::Lo
         }
         rotate_if_needed(frame, cfg, utc_offset_ns, sink);
         append_frame(frame, utc_offset_ns, sink);
+    }
+    // Time-based flush: the batch-flush timer wakes the WaitSet, but the pending
+    // bytes must actually reach the file on that cadence (the size-based flush
+    // in append_frame only fires at half the buffer). Without this a low-rate
+    // producer leaves the log file empty until ~32 KiB accumulate or shutdown.
+    const std::chrono::milliseconds flush_ms(
+        cfg.batch_flush_interval_ms > 0U ? cfg.batch_flush_interval_ms : 500U);
+    const auto now = std::chrono::steady_clock::now();
+    if (now - sink.last_flush >= flush_ms) {
+        if (sink.used > 0U && sink.fd >= 0) {
+            write_all(sink.fd, sink.buffer, sink.used);
+            sink.used = 0U;
+        }
+        sink.last_flush = now;
     }
 }
 
