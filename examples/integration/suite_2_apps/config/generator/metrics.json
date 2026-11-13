@@ -1,0 +1,3 @@
+{
+  "worker_thread": { "cpus": [7], "name": "gen-metrics" }
+}

@@ -1142,6 +1142,8 @@ does this for you):
 ./build/debug/examples/app/ex_app_lifecycle
 ./build/debug/examples/app/ex_app_cli_settings
 ./build/debug/examples/suite/ex_suite_app
+./build-com/examples/integration/suite_2_apps/ex_generator
+./build-com/examples/integration/suite_2_apps/ex_receiver
 ```
 
 * **`ex_spsc_ring_buffer`** — a two-thread telemetry pipeline over
@@ -1243,6 +1245,12 @@ does this for you):
   metric kind (`ResetOnRead` with a one-second collection cadence and ~1–2 logs/s); the
   `degrade` role exits non-zero on its interval and the `failure` role aborts (SIGABRT).
   See the suite runner below for the orchestrated scenario.
+* **`ex_generator`** / **`ex_receiver`** — the two-application integration
+  demonstration (built only with `-DNEXIGEN_ENABLE_COM=ON`, which needs the Rust
+  toolchain): `ex_generator` publishes one `DataSample` per second over `nexigen::com`
+  with a `TraceHeader`, and `ex_receiver` subscribes and inherits the trace into its own
+  spans; both publish their logs/metrics/traces to the three daemons through the iceoryx2
+  sinks. See the integration runner below for the orchestrated scenario.
 
 ### Command-line settings example: runner and cleanup
 
@@ -1310,6 +1318,35 @@ Set `BUILD_DIR` to point the runner at a non-default build tree. The interval kn
 `NEXIGEN_DEMO_EXIT_AFTER_S`, `NEXIGEN_DEMO_ABORT_AFTER_S`, `NEXIGEN_DEMO_RESTART_ATTEMPTS`,
 `NEXIGEN_DEMO_RESTART_DELAY_S`, `NEXIGEN_DEMO_SUITE_RESTART_ATTEMPTS` and
 `NEXIGEN_DEMO_SUITE_RESTART_DELAY_S` compress the scenario for a quick smoke run.
+
+### Two-application integration example: runner and cleanup
+
+`examples/integration/suite_2_apps/run_suite_2_apps.sh` (requires
+`-DNEXIGEN_ENABLE_COM=ON` and the Rust toolchain) starts the three telemetry daemons —
+`nexigen-logd`, `nexigen-metricsd`, `nexigen-traced` — then `nexigen-exec` running a
+suite that launches `ex_receiver` first and `ex_generator` second over `nexigen::com` with
+cross-process trace propagation, CPU affinity (`EM` on cores 2-3, daemons on 4-5,
+generator on 6-7, receiver on 8-9), and `debug` logging throughout:
+
+```bash
+./examples/integration/suite_2_apps/run_suite_2_apps.sh
+./build-com/tools/nexigen-exec status --config /tmp/opencode/nexigen-suite-2-apps/suite.json
+curl -s http://127.0.0.1:9100/metrics
+```
+
+The script generates the manifest, daemon configs, and per-app settings under the demo
+root (`/tmp/opencode/nexigen-suite-2-apps` by default, overridable via
+`NEXIGEN_DEMO_ROOT`). Logs land in the demo root's `logs/` directory, metrics history in
+`metrics/`, and the trace daemon's flight recorder in `traces/`.
+
+`examples/integration/suite_2_apps/clean_suite_2_apps.sh` stops the daemons and removes
+the demo root idempotently:
+
+```bash
+./examples/integration/suite_2_apps/clean_suite_2_apps.sh
+```
+
+Set `BUILD_DIR` to point the runner at a non-default build tree.
 
 Every example is also registered as a CTest smoke test (label `examples`): each must run
 to completion and exit with status 0.

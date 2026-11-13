@@ -1,0 +1,5 @@
+{
+  "collect_interval_ns": 1000000000,
+  "max_counters": 16,
+  "max_gauges": 16
+}
