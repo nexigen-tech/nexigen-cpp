@@ -14,8 +14,11 @@ cat >"$CFG" <<JSON
   "function_groups": [
     {
       "name": "FG",
-      "states": ["Startup", "Running"],
-      "allowed_transitions": [{ "from": "Startup", "to": "Running" }],
+      "states": ["Off", "Startup", "Running"],
+      "allowed_transitions": [
+        { "from": "Off", "to": "Startup" },
+        { "from": "Startup", "to": "Running" }
+      ],
       "transition_max_time_ms": 500,
       "preparation_timeout_ms": 100
     }

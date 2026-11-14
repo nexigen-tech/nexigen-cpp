@@ -82,7 +82,7 @@ flowchart TD
         EXEC["exec<br/>suite/instance lifecycle,<br/>process supervision, state-client"]
         HUB["hub<br/>discovery, streaming with gap markers,<br/>HTTP/SSE server, web-assets"]
         PHM["phm<br/>health-channel, manifest,<br/>recovery, supervised-entity"]
-        SM["sm<br/>manifest, state machine,<br/>transitions, audit, recovery-handler"]
+        SM["sm<br/>manifest, PlatformFG state machine,<br/>transitions, audit, recovery-handler"]
     end
 
     subgraph L2["L2 · telemetry"]
@@ -158,7 +158,7 @@ mirrors the module directory (`logging/log-level` → `include/nexigen/logging/`
 | `exec` | 37 | Execution: suite and application-instance lifecycle, process supervision, child processes, state client, run logging | `exec/app-suite`, `exec/instance-lifecycle`, `exec/process-supervision`, `exec/application-state`, `exec/state-client`, `exec/logging` |
 | `hub` | 15 | Observatory: run-tree discovery, streaming delivery with gap markers, HTTP/SSE server, web assets | `hub/discovery`, `hub/streaming`, `hub/http-api`, `hub/web-ui` |
 | `phm` | 13 | Health and reliability: manifest, supervisor, health channel, checkpoints, recovery | `phm/manifest`, `phm/supervision`, `phm/health-channel`, `phm/supervised-entity`, `phm/recovery` |
-| `sm` | 14 | State machine: manifest, state manager, transitions and their preparation, audit, recovery, IPC | `sm/manifest`, `sm/state-machine`, `sm/lifecycle`, `sm/telemetry`, `sm/ipc`, `sm/recovery-handler` |
+| `sm` | 14 | State machine: manifest, `PlatformFG` (`Off`/`Startup`/`Verify`/`Run`/`Shutdown`/`Restart`) state manager, transitions and their preparation, audit, recovery, IPC | `sm/manifest`, `sm/state-machine`, `sm/lifecycle`, `sm/telemetry`, `sm/ipc`, `sm/recovery-handler` |
 
 Cross-cutting capabilities that are not tied to a single module:
 `quality/code-structure`, `quality/coverage`, `quality/reproducible-builds`,
@@ -227,8 +227,44 @@ flowchart TD
     STATE --> STOP["stop_suite / stop_suite_apps<br/>grace period, SIGTERM → SIGKILL"]
     STOP --> SUP
     STATE --> PHM2["phm::Supervisor<br/>health-channel, recovery"]
-    STATE --> SM2["sm::StateManager<br/>transitions and audit"]
+    STATE --> SM2["sm::StateManager<br/>PlatformFG transitions and audit"]
 ```
+
+## PlatformFG state management
+
+`PlatformFG` is the platform-foundation Function Group: it owns the message
+broker, SM, PHM, EM and the future DataRecorder. `Off` is the mandatory initial
+state, `Startup` brings the foundation up, `Verify` runs its self-diagnosis,
+`Run` is the target state, `Shutdown` transitions back into `Off`, and
+`Restart` is a fast reboot that returns to `Startup` without passing through
+`Off`. Application Function Groups are gated on `Run`: no application group
+leaves an off-like state before the platform foundation is ready.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Off
+    Off --> Startup: begin_startup()
+    Startup --> Verify: advance_startup()
+    Verify --> Run: confirm_startup_step()
+    Run --> Shutdown: begin_shutdown()
+    Shutdown --> Off: complete_shutdown()
+    Run --> Restart: begin_restart()
+    Restart --> Startup: advance_restart()
+
+    note right of Off
+        Initial state; no platform process is bound.
+    end note
+    note right of Run
+        Target state; application groups may start.
+    end note
+    note right of Restart
+        Fast reboot; skips Off.
+    end note
+```
+
+The `StateManager` applies each step only after the Execution Manager reports
+the previous one, and `request_transition` rejects an application-group start
+until `PlatformFG` is `Run`.
 
 ## CLI tools
 
@@ -241,6 +277,7 @@ flowchart TD
 | `nexigen-metricsd` | Metric-frame transport daemon | `--config <path>` |
 | `nexigen-phmd` | Health/reliability (PHM) daemon | `--manifest <path> [--core <mask>] [--priority <n>] [--fault-log <path>]` |
 | `nexigen-sm` | State-machine daemon | `--config <path> [--rt-core <mask>] [--priority <n>] [--audit-log <path>]` |
+| `nexigen-em` | Execution Manager host: StateClient + readiness tracker | `--config <suite-manifest> [--service <name>] [--instance <id>]` |
 
 ## The hard mandates
 

@@ -26,8 +26,10 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/app_suite.hpp>
+#include <nexigen/exec/execution_state_tracker.hpp>
 #include <nexigen/exec/instance_lifecycle.hpp>
 #include <nexigen/exec/execution_manager.hpp>
+#include <nexigen/exec/unrecoverable_state.hpp>
 
 namespace core = nexigen::core;
 namespace exec = nexigen::exec;
@@ -211,6 +213,19 @@ void test_enums_and_serialization() {
     }
     NX_CHECK(exec::to_string(static_cast<exec::ImpactOnAppSuiteOperability>(0x7f)) == "unknown");
 
+    for (const auto value : {exec::ProcessType::Daemon, exec::ProcessType::Oneshot}) {
+        const std::string_view text = exec::to_string(value);
+        exec::ProcessType parsed = static_cast<exec::ProcessType>(0xff);
+        NX_CHECK(exec::from_string(text, parsed));
+        NX_CHECK(parsed == value);
+        NX_CHECK(std::format("{}", value) == text);
+        nlohmann::json json;
+        exec::to_json(json, value);
+        exec::from_json(json, parsed);
+        NX_CHECK(parsed == value);
+    }
+    NX_CHECK(exec::to_string(static_cast<exec::ProcessType>(0x7f)) == "unknown");
+
     for (const auto value :
          {exec::SuiteState::Running, exec::SuiteState::Degraded, exec::SuiteState::Failed,
           exec::SuiteState::Stopped, exec::SuiteState::Unknown}) {
@@ -245,6 +260,7 @@ void test_enums_and_serialization() {
     spec.log_level = core::LogLevel::Warning;
     spec.global_settings_path = "/etc/nexigen";
     spec.local_settings_path = "local";
+    spec.type = exec::ProcessType::Oneshot;
     nlohmann::json spec_json;
     exec::to_json(spec_json, spec);
     exec::AppSpec spec_round;
@@ -254,6 +270,8 @@ void test_enums_and_serialization() {
     NX_CHECK(spec_round.env.size() == 2);
     NX_CHECK(spec_round.cpus.count() == 2U && spec_round.cpus.contains(64U));
     NX_CHECK(spec_round.log_level == core::LogLevel::Warning);
+    NX_CHECK(spec_round.type == exec::ProcessType::Oneshot);
+    NX_CHECK(spec_json["type"] == "oneshot");
     NX_CHECK(!spec.to_string().empty());
     NX_CHECK(!std::format("{}", spec).empty());
 
@@ -716,6 +734,12 @@ void test_manifest_validation() {
     document["apps"][0]["impact_on_app_suite_operability"] = 3;
     NX_CHECK(rejected(document));
     exec::to_json(document, manifest);
+    document["apps"][0]["type"] = "batch";
+    NX_CHECK(rejected(document));
+    exec::to_json(document, manifest);
+    document["apps"][0]["type"] = 3;
+    NX_CHECK(rejected(document));
+    exec::to_json(document, manifest);
     document["apps"][0]["log_level"] = "chatty";
     NX_CHECK(rejected(document));
     exec::to_json(document, manifest);
@@ -888,8 +912,10 @@ void test_suite_edge_paths() {
     exec::SuiteManifest bad_log = base_manifest(log_root, log_artifacts);
     bad_log.suite_id = "bad_log";
     bad_log.global_settings_path = log_settings;
-    bad_log.apps.push_back(
-        app_spec("alpha", "1", "/bin/true", exec::ImpactOnAppSuiteOperability::Degrade));
+    exec::AppSpec bad_log_app =
+        app_spec("alpha", "1", "/bin/true", exec::ImpactOnAppSuiteOperability::Degrade);
+    bad_log_app.type = exec::ProcessType::Oneshot;
+    bad_log.apps.push_back(bad_log_app);
     std::string bad_log_dir;
     NX_CHECK(exec::start_suite(bad_log, bad_log_dir).has_value());
     NX_CHECK(exec::stop_suite(bad_log_dir, 1).has_value());
@@ -1173,6 +1199,12 @@ void test_failure_impact_restarts_suite() {
         NX_CHECK((*exit_document)["state"] == "failed");
         NX_CHECK((*exit_document)["reason"] == "restart_exhausted");
     }
+    // Unrecoverable State (spec exec/process-types): the failure path must
+    // terminate the still-running managed process and invoke the project hook.
+    NX_CHECK(find_app(status, "healthy").state == exec::AppState::Stopped);
+    const std::string log_path = artifacts + "/" + manifest.suite_id + "/execution_manager.jsonl";
+    NX_CHECK(wait_until([&] { return contains(read_text(log_path), "event=unrecoverable_state"); },
+                        5000));
 
     remove_tree(root);
     remove_tree(artifacts);
@@ -1185,6 +1217,7 @@ void test_clean_exit_is_final() {
     exec::AppSpec spec =
         app_spec("clean", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
     spec.args = {"-c", "exit 0"};
+    spec.type = exec::ProcessType::Oneshot;
     spec.restart_attempts = 3;
     spec.restart_delay_s = 0;
     manifest.apps.push_back(spec);
@@ -1211,6 +1244,124 @@ void test_clean_exit_is_final() {
 
     remove_tree(root);
     remove_tree(artifacts);
+}
+
+void test_daemon_exit_is_unexpected() {
+    const std::string root = unique_dir("daemon_exit");
+    const std::string artifacts = unique_dir("daemon_exit_artifacts");
+    exec::SuiteManifest manifest = base_manifest(root, artifacts);
+    exec::AppSpec spec =
+        app_spec("daemon", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
+    spec.args = {"-c", "exit 0"};
+    spec.type = exec::ProcessType::Daemon;
+    spec.restart_attempts = 0;
+    manifest.apps.push_back(spec);
+
+    std::string suite_dir;
+    NX_CHECK(exec::start_suite(manifest, suite_dir).has_value());
+    if (!file_exists(suite_dir + "/suite.json")) {
+        remove_tree(root);
+        remove_tree(artifacts);
+        return;
+    }
+
+    // A daemon exiting 0 without a stop request is an unexpected
+    // self-termination, not a normal exit.
+    NX_CHECK(wait_until(
+        [&] { return find_app(read_status(suite_dir), "daemon").state == exec::AppState::Failed; },
+        10000));
+    const exec::SuiteStatus status = read_status(suite_dir);
+    NX_CHECK(find_app(status, "daemon").state == exec::AppState::Failed);
+    NX_CHECK(find_app(status, "daemon").attempt == 1);
+    NX_CHECK(exec::stop_suite(suite_dir, 2).has_value());
+
+    remove_tree(root);
+    remove_tree(artifacts);
+}
+
+void test_execution_state_tracker() {
+    exec::ExecutionStateTracker tracker;
+    tracker.register_process("sensor", exec::ProcessType::Daemon);
+    tracker.register_process("setup", exec::ProcessType::Oneshot);
+    NX_CHECK(tracker.process_count() == 2U);
+    NX_CHECK(!tracker.ready("sensor"));
+    NX_CHECK(tracker.state("sensor") == exec::AppState::Unknown);
+    NX_CHECK(!tracker.run_confirmed());
+
+    // A daemon that never reports stays non-running; a oneshot does not report.
+    NX_CHECK(!tracker.report_execution_state("setup", exec::AppState::Running));
+    NX_CHECK(!tracker.report_execution_state("missing", exec::AppState::Running));
+    NX_CHECK(tracker.state("setup") == exec::AppState::Unknown);
+
+    // A daemon reporting Run reaches running but the oneshot still blocks.
+    NX_CHECK(tracker.report_execution_state("sensor", exec::AppState::Running));
+    NX_CHECK(tracker.ready("sensor"));
+    NX_CHECK(tracker.state("sensor") == exec::AppState::Running);
+    NX_CHECK(!tracker.run_confirmed());
+
+    NX_CHECK(tracker.on_exit("setup", 0));
+    NX_CHECK(tracker.state("setup") == exec::AppState::Exited);
+    NX_CHECK(tracker.run_confirmed());
+    const std::vector<std::string> bound{"sensor", "setup"};
+    NX_CHECK(tracker.run_confirmed(bound));
+
+    // A daemon exiting without a stop request is a failure.
+    NX_CHECK(!tracker.on_exit("sensor", 0));
+    NX_CHECK(tracker.state("sensor") == exec::AppState::Failed);
+    NX_CHECK(!tracker.run_confirmed());
+
+    // A requested stop resets readiness; re-registration keeps the record.
+    tracker.on_stop("sensor");
+    NX_CHECK(tracker.state("sensor") == exec::AppState::Unknown);
+    tracker.register_process("sensor", exec::ProcessType::Daemon);
+    NX_CHECK(tracker.process_count() == 2U);
+
+    // A relaunch resets a stale `Exited` oneshot so the new launch must exit
+    // again before the switch can be confirmed.
+    NX_CHECK(tracker.state("setup") == exec::AppState::Exited);
+    tracker.on_start("setup");
+    NX_CHECK(tracker.state("setup") == exec::AppState::Unknown);
+    NX_CHECK(!tracker.run_confirmed());
+    NX_CHECK(tracker.report_execution_state("sensor", exec::AppState::Running));
+    NX_CHECK(tracker.on_exit("setup", 0));
+    NX_CHECK(tracker.run_confirmed());
+
+    // A non-zero oneshot exit is a failure too.
+    tracker.register_process("setup2", exec::ProcessType::Oneshot);
+    NX_CHECK(!tracker.on_exit("setup2", 3));
+    NX_CHECK(tracker.state("setup2") == exec::AppState::Failed);
+    NX_CHECK(std::format("{}", tracker) == tracker.to_string());
+}
+
+void test_unrecoverable_state() {
+    exec::UnrecoverableState unrecoverable;
+    int terminations = 0;
+    int project_hooks = 0;
+    unrecoverable.set_process_terminator([&] { ++terminations; });
+    unrecoverable.set_project_hook([&] { ++project_hooks; });
+    NX_CHECK(unrecoverable.active());
+    NX_CHECK(!unrecoverable.entered());
+
+    // An unresolvable failure terminates all managed processes and invokes the
+    // project-specific hook exactly once.
+    unrecoverable.enter();
+    NX_CHECK(unrecoverable.entered());
+    NX_CHECK(!unrecoverable.active());
+    NX_CHECK(terminations == 1);
+    NX_CHECK(project_hooks == 1);
+
+    // Re-entering stops further action: the manager does not act again.
+    unrecoverable.enter();
+    NX_CHECK(terminations == 1);
+    NX_CHECK(project_hooks == 1);
+    NX_CHECK(std::format("{}", unrecoverable) == unrecoverable.to_string());
+    NX_CHECK(unrecoverable.to_string().find("entered=true") != std::string::npos);
+
+    // A state without installed hooks still latches cleanly.
+    exec::UnrecoverableState bare;
+    bare.enter();
+    NX_CHECK(bare.entered());
+    NX_CHECK(!bare.active());
 }
 
 void test_execution_manager_logging_and_affinity() {
@@ -1420,6 +1571,9 @@ int main() {
     run_suite("not_impact_retries", test_not_impact_retries_new_attempts);
     run_suite("failure_restarts_suite", test_failure_impact_restarts_suite);
     run_suite("clean_exit_is_final", test_clean_exit_is_final);
+    run_suite("daemon_exit_unexpected", test_daemon_exit_is_unexpected);
+    run_suite("execution_state_tracker", test_execution_state_tracker);
+    run_suite("unrecoverable_state", test_unrecoverable_state);
     run_suite("execution_manager_logging_affinity", test_execution_manager_logging_and_affinity);
     run_suite("invalid_affinity", test_invalid_affinity_nonfatal);
     run_suite("required_affinity_failure", test_required_affinity_failure);

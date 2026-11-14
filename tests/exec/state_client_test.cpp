@@ -15,6 +15,7 @@
 #include <nexigen/app/run_identity.hpp>
 #include <nexigen/com/client.hpp>
 #include <nexigen/com/node.hpp>
+#include <nexigen/exec/application_state.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/exec/execution_manager.hpp>
 #include <nexigen/exec/function_group_registry.hpp>
@@ -188,10 +189,86 @@ void test_state_client() {
     std::filesystem::remove_all(run_dir);
 }
 
+void test_run_confirmation() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/StateCommandRun");
+    NX_CHECK(name.has_value());
+
+    exec::SuiteManifest manifest;
+    exec::FunctionGroupConfig group;
+    group.name = "run_group";
+    group.states = {"Off", "Run"};
+    manifest.function_groups.push_back(group);
+    exec::AppSpec app;
+    app.app = "daemon_app";
+    app.command = "/bin/true";
+    app.function_groups = {"run_group"};
+    app.type = exec::ProcessType::Daemon;
+    manifest.apps.push_back(app);
+
+    exec::FunctionGroupRegistry registry(manifest);
+    exec::ExecutionStateTracker tracker;
+    exec::ExecutionManager manager;
+    const std::string run_dir = "/tmp/opencode/state_client_run_confirm";
+    std::filesystem::create_directories(run_dir);
+    app::RunIdentity identity;
+    identity.run_id = "test";
+    identity.run_dir = run_dir;
+    identity.instance_id = "inst1";
+
+    auto state_client =
+        exec::StateClient::create(*node, *name, registry, manager, identity, &tracker);
+    NX_CHECK(state_client.has_value());
+    auto client = com::Client<exec::StateCommand, exec::StateAck>::create(*node, *name);
+    NX_CHECK(client.has_value());
+
+    // The application reports readiness over its real Nexigen/EM/State/<app>
+    // event channel; the StateClient listener feeds the tracker.
+    auto reporter = exec::ApplicationStateReporter::create(*node, "daemon_app");
+    NX_CHECK(reporter.has_value());
+
+    auto request = [&](const char* target) {
+        std::thread server_loop([&] {
+            for (int i = 0; i < 200; ++i) {
+                auto served = state_client->serve_once();
+                if (!served || !*served) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
+            }
+        });
+        const auto response =
+            client->call(make_command("run_group", target), std::chrono::milliseconds(2000));
+        server_loop.join();
+        return response;
+    };
+
+    // A daemon that never reports readiness blocks the Run confirmation.
+    exec::StateAck blocked = request("Run").value_or(exec::StateAck{0});
+    NX_CHECK(blocked.accepted == 0U);
+    NX_CHECK(registry.group_state(0) == "Off");
+    NX_CHECK(tracker.state("daemon_app") == exec::AppState::Unknown);
+
+    // Once every bound daemon has reported, the switch is confirmed.
+    NX_CHECK(reporter->report(exec::AppState::Running).has_value());
+    for (int i = 0; i < 50 && tracker.state("daemon_app") != exec::AppState::Running; ++i) {
+        const auto served = state_client->serve_once();
+        NX_CHECK(served.has_value());
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    NX_CHECK(tracker.state("daemon_app") == exec::AppState::Running);
+    exec::StateAck confirmed = request("Run").value_or(exec::StateAck{0});
+    NX_CHECK(confirmed.accepted == 1U);
+    NX_CHECK(registry.group_state(0) == "Run");
+
+    std::filesystem::remove_all(run_dir);
+}
+
 } // namespace
 
 int main() {
     test_state_client();
+    test_run_confirmation();
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

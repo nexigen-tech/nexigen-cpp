@@ -79,7 +79,8 @@ cpp_changed_files() {
     # Tracked working set only (diff against HEAD): untracked WIP files of
     # the parallel session must not gate this conveyor; format them before
     # they are staged instead.
-    git diff --name-only HEAD | grep -E '\.(cpp|hpp|cc|h)$' | sort -u
+    # ACMRT excludes deleted paths: a removed file cannot be formatted.
+    git diff --name-only --diff-filter=ACMRT HEAD | grep -E '\.(cpp|hpp|cc|h)$' | sort -u
 }
 
 # Full-tree gate; failing rows attributed to the working set only.

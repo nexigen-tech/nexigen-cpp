@@ -64,15 +64,15 @@ constexpr std::uint64_t max_delay_seconds = 86400;
 } // namespace
 
 std::string AppSpec::to_string() const {
-    return std::format("AppSpec(app={}, instance={}, command={}, args={}, env={}, cpus={}, "
-                       "idle_timeout_s={}, stop_grace_s={}, restart_attempts={}, "
-                       "restart_delay_s={}, impact={}, global_settings_path={}, "
-                       "local_settings_path={}, log_level={})",
-                       app, instance, command, args.size(), env.size(), cpus.count(),
-                       idle_timeout_s, stop_grace_s, restart_attempts, restart_delay_s,
-                       nexigen::exec::to_string(impact), global_settings_path, local_settings_path,
-                       log_level.has_value() ? std::string(core::to_string(*log_level))
-                                             : std::string("inherit"));
+    return std::format(
+        "AppSpec(app={}, instance={}, command={}, args={}, env={}, cpus={}, "
+        "idle_timeout_s={}, stop_grace_s={}, restart_attempts={}, "
+        "restart_delay_s={}, impact={}, type={}, global_settings_path={}, "
+        "local_settings_path={}, log_level={})",
+        app, instance, command, args.size(), env.size(), cpus.count(), idle_timeout_s, stop_grace_s,
+        restart_attempts, restart_delay_s, nexigen::exec::to_string(impact),
+        nexigen::exec::to_string(type), global_settings_path, local_settings_path,
+        log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"));
 }
 
 std::string FunctionGroupConfig::to_string() const {
@@ -80,14 +80,13 @@ std::string FunctionGroupConfig::to_string() const {
 }
 
 std::string SuiteManifest::to_string() const {
-    return std::format(
-        "SuiteManifest(version={}, suite_id={}, run_id={}, run_dir={}, "
-        "global_settings_path={}, artifacts_path={}, log_level={}, "
-        "suite_restart_attempts={}, suite_restart_delay_s={}, "
-        "function_groups={}, apps={})",
-        version, suite_id, run_id, run_dir, global_settings_path, artifacts_path,
-        log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"),
-        suite_restart_attempts, suite_restart_delay_s, function_groups.size(), apps.size());
+    return std::format("SuiteManifest(version={}, suite_id={}, run_id={}, run_dir={}, "
+                       "global_settings_path={}, artifacts_path={}, log_level={}, "
+                       "suite_restart_attempts={}, suite_restart_delay_s={}, apps={})",
+                       version, suite_id, run_id, run_dir, global_settings_path, artifacts_path,
+                       log_level.has_value() ? std::string(core::to_string(*log_level))
+                                             : std::string("inherit"),
+                       suite_restart_attempts, suite_restart_delay_s, apps.size());
 }
 
 std::string SuiteAppMetadata::to_string() const {
@@ -145,6 +144,7 @@ void to_json(nlohmann::json& j, const AppSpec& spec) {
         {"dependencies", spec.dependencies},
         {"function_groups", spec.function_groups},
         {"impact_on_app_suite_operability", std::string(to_string(spec.impact))},
+        {"type", std::string(to_string(spec.type))},
         {"global_settings_path", spec.global_settings_path},
         {"local_settings_path", spec.local_settings_path},
         {"log_level", log_level_json(spec.log_level)},
@@ -165,8 +165,11 @@ void from_json(const nlohmann::json& j, AppSpec& spec) noexcept {
     static_cast<void>(read_string_array(j, "dependencies", spec.dependencies));
     static_cast<void>(read_string_array(j, "function_groups", spec.function_groups));
     read_enum(j, "impact_on_app_suite_operability", spec.impact);
-    static_cast<void>(core::detail::read_string(j, "global_settings_path", spec.global_settings_path));
-    static_cast<void>(core::detail::read_string(j, "local_settings_path", spec.local_settings_path));
+    read_enum(j, "type", spec.type);
+    static_cast<void>(
+        core::detail::read_string(j, "global_settings_path", spec.global_settings_path));
+    static_cast<void>(
+        core::detail::read_string(j, "local_settings_path", spec.local_settings_path));
     static_cast<void>(read_log_level(j, "log_level", spec.log_level));
 }
 
@@ -203,14 +206,18 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
 void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
     static_cast<void>(core::detail::read_unsigned(j, "version", manifest.version));
     static_cast<void>(core::detail::read_string(j, "suite_id", manifest.suite_id));
-    static_cast<void>(core::detail::read_string(j, "execution_manager_name", manifest.execution_manager_name));
+    static_cast<void>(
+        core::detail::read_string(j, "execution_manager_name", manifest.execution_manager_name));
     static_cast<void>(core::detail::read_string(j, "run_id", manifest.run_id));
     static_cast<void>(core::detail::read_string(j, "run_dir", manifest.run_dir));
-    static_cast<void>(core::detail::read_string(j, "global_settings_path", manifest.global_settings_path));
+    static_cast<void>(
+        core::detail::read_string(j, "global_settings_path", manifest.global_settings_path));
     static_cast<void>(core::detail::read_string(j, "artifacts_path", manifest.artifacts_path));
     static_cast<void>(read_log_level(j, "log_level", manifest.log_level));
-    static_cast<void>(core::detail::read_unsigned(j, "suite_restart_attempts", manifest.suite_restart_attempts));
-    static_cast<void>(core::detail::read_unsigned(j, "suite_restart_delay_s", manifest.suite_restart_delay_s));
+    static_cast<void>(
+        core::detail::read_unsigned(j, "suite_restart_attempts", manifest.suite_restart_attempts));
+    static_cast<void>(
+        core::detail::read_unsigned(j, "suite_restart_delay_s", manifest.suite_restart_delay_s));
     static_cast<void>(core::detail::read_string(j, "manifest_path", manifest.manifest_path));
     read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus",
                                        manifest.execution_manager_control_thread);
@@ -287,15 +294,20 @@ void to_json(nlohmann::json& j, const SuiteMetadata& metadata) {
 
 void from_json(const nlohmann::json& j, SuiteMetadata& metadata) noexcept {
     static_cast<void>(core::detail::read_string(j, "suite_id", metadata.suite_id));
-    static_cast<void>(core::detail::read_string(j, "execution_manager_name", metadata.execution_manager_name));
+    static_cast<void>(
+        core::detail::read_string(j, "execution_manager_name", metadata.execution_manager_name));
     static_cast<void>(core::detail::read_string(j, "run_id", metadata.run_id));
     static_cast<void>(core::detail::read_string(j, "run_dir", metadata.run_dir));
-    static_cast<void>(core::detail::read_string(j, "global_settings_path", metadata.global_settings_path));
+    static_cast<void>(
+        core::detail::read_string(j, "global_settings_path", metadata.global_settings_path));
     static_cast<void>(core::detail::read_string(j, "artifacts_path", metadata.artifacts_path));
     static_cast<void>(core::detail::read_signed(j, "pid", metadata.pid));
-    static_cast<void>(core::detail::read_string(j, "start_time_rfc3339", metadata.start_time_rfc3339));
-    static_cast<void>(core::detail::read_unsigned(j, "start_time_mono_ns", metadata.start_time_mono_ns));
-    static_cast<void>(core::detail::read_unsigned(j, "proc_start_ticks", metadata.proc_start_ticks));
+    static_cast<void>(
+        core::detail::read_string(j, "start_time_rfc3339", metadata.start_time_rfc3339));
+    static_cast<void>(
+        core::detail::read_unsigned(j, "start_time_mono_ns", metadata.start_time_mono_ns));
+    static_cast<void>(
+        core::detail::read_unsigned(j, "proc_start_ticks", metadata.proc_start_ticks));
     static_cast<void>(core::detail::read_string(j, "manifest_path", metadata.manifest_path));
     read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus",
                                        metadata.execution_manager_control_thread);
@@ -369,7 +381,8 @@ void from_json(const nlohmann::json& j, SuiteStatus& status) noexcept {
     static_cast<void>(core::detail::read_string(j, "suite_id", status.suite_id));
     static_cast<void>(core::detail::read_string(j, "run_dir", status.run_dir));
     static_cast<void>(core::detail::read_string(j, "artifacts_path", status.artifacts_path));
-    static_cast<void>(core::detail::read_unsigned(j, "suite_restarts_used", status.suite_restarts_used));
+    static_cast<void>(
+        core::detail::read_unsigned(j, "suite_restarts_used", status.suite_restarts_used));
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
         std::vector<SuiteAppStatus> apps;
         apps.reserve(it->size());
@@ -651,6 +664,10 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
     }
     ImpactOnAppSuiteOperability parsed = ImpactOnAppSuiteOperability::Degrade;
     if (!from_string(std::string_view(*name), parsed)) {
+        return false;
+    }
+    ProcessType parsed_type = ProcessType::Daemon;
+    if (!core::mandate::read_optional_enum(entry, "type", parsed_type)) {
         return false;
     }
     return valid_json_log_level(entry, "log_level");

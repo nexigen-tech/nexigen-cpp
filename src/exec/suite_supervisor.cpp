@@ -35,6 +35,7 @@
 #include <nexigen/exec/suite_manifest.hpp>
 #include <nexigen/exec/suite_state.hpp>
 #include <nexigen/exec/suite_status.hpp>
+#include <nexigen/exec/unrecoverable_state.hpp>
 
 #include "coverage_flush.hpp"
 
@@ -58,6 +59,7 @@ struct RuntimeSuite {
     std::uint64_t next_suite_restart_ns{0};
     std::uint64_t start_mono_ns{0};
     std::vector<RuntimeApp> apps{};
+    UnrecoverableState unrecoverable{};
     bool dirty{false};
 };
 
@@ -161,7 +163,9 @@ void schedule_retry_or_fail(RuntimeSuite& suite, RuntimeApp& app) {
 }
 
 void finish_failed(RuntimeSuite& suite) {
-    stop_all(suite);
+    // Unrecoverable State (spec exec/process-types): the suite owns a one-way
+    // latch, so a repeated failure path cannot re-run the terminator or hook.
+    suite.unrecoverable.enter();
     for (RuntimeApp& app : suite.apps) {
         if (app.state != AppState::Failed) {
             app.state = AppState::Stopped;
@@ -385,7 +389,11 @@ private:
 
     [[nodiscard]] bool on_exit_consumed(const ExitMetadata& exit) {
         log_exit(exit);
-        if (exit.exit_code.has_value() && *exit.exit_code == 0) {
+        // A oneshot exiting 0 is a normal termination; a daemon exiting at all
+        // without a stop request is an unexpected self-termination, and any
+        // non-zero status is a failure (spec exec/process-types).
+        if (exit.exit_code.has_value() && *exit.exit_code == 0 &&
+            app_.spec.type == ProcessType::Oneshot) {
             app_.state = AppState::Exited;
             suite_.dirty = true;
             return false;
@@ -555,6 +563,12 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
     suite.exit_path = join_path(suite_dir, "suite-exit.json");
     suite.stop_path = join_path(suite_dir, "stop.request");
     suite.start_mono_ns = monotonic_now_ns();
+    suite.unrecoverable.set_process_terminator([&suite] { stop_all(suite); });
+    suite.unrecoverable.set_project_hook([&suite] {
+        log_execution_manager(
+            core::LogLevel::Error,
+            std::format("event=unrecoverable_state suite={}", suite.manifest->suite_id));
+    });
 
     const SuiteMetadata metadata = build_suite_metadata(manifest, ::getpid(), suite.start_mono_ns);
     if (!write_suite_metadata_file(metadata, suite_dir)) {

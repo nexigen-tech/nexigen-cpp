@@ -263,6 +263,12 @@ struct Session {
         std::fprintf(stderr, "nexigen-sm: config declares no function groups\n");
         return false;
     }
+    if (!nexigen::sm::validate(manifest)) {
+        std::fprintf(stderr,
+                     "nexigen-sm: config has an application group that does not declare Off or "
+                     "does not start Off/SafeState\n");
+        return false;
+    }
     return true;
 }
 
@@ -459,17 +465,17 @@ void run_loop(Session& session, nexigen::sm::StateManager& manager,
         return 1;
     }
 
-    Session session;
-    if (!open_transport(session)) {
+    auto manager_result = nexigen::sm::StateManager::create(manifest);
+    if (!manager_result) {
+        std::fprintf(stderr, "nexigen-sm: manifest rejected: application group must declare Off "
+                             "and start Off/SafeState\n");
         return 1;
     }
+    nexigen::sm::StateManager& manager = *manager_result;
 
-    nexigen::sm::StateManager manager(manifest);
-    if (!open_state_channels(session, manager, manifest)) {
-        return 1;
-    }
-    open_control_channels(session, manifest);
-
+    // A required audit-thread failure must be reported before transport and
+    // recovery-handler setup, so the diagnostic is deterministic even when the
+    // transport environment is unavailable.
     const nexigen::core::ThreadSpec audit_spec =
         nexigen::core::effective_thread_spec(manifest.audit_thread, manifest.bg_thread);
     nexigen::sm::TransitionAudit audit(options.audit_log, audit_spec);
@@ -478,6 +484,15 @@ void run_loop(Session& session, nexigen::sm::StateManager& manager,
                      std::string(nexigen::core::to_string(audit.startup_status().error())).c_str());
         return 1;
     }
+
+    Session session;
+    if (!open_transport(session)) {
+        return 1;
+    }
+    if (!open_state_channels(session, manager, manifest)) {
+        return 1;
+    }
+    open_control_channels(session, manifest);
     nexigen::sm::SmMetrics metrics;
     std::vector<PendingTransition> pending;
     pending.reserve(manifest.function_groups.size());
@@ -485,8 +500,11 @@ void run_loop(Session& session, nexigen::sm::StateManager& manager,
     std::signal(SIGINT, stop_handler);
     std::signal(SIGTERM, stop_handler);
 
-    // Startup sequencing + readiness report within startup_timeout
-    // (REQ_SM_001/005).
+    // Startup sequencing (REQ_SM_001/005): Off -> Startup -> Verify -> Run.
+    // The host advances synchronously; an explicit EM lifecycle report gate is
+    // future integration (the EM reports application readiness, not platform
+    // phases).
+    (void)manager.begin_startup();
     (void)manager.advance_startup();
     (void)manager.confirm_startup_step();
     std::printf("nexigen-sm: ready (kRunning), supervising %zu function group(s)\n",
@@ -495,8 +513,11 @@ void run_loop(Session& session, nexigen::sm::StateManager& manager,
 
     run_loop(session, manager, audit, metrics, pending);
 
-    // Shutdown sequencing (REQ_SM_005).
+    // Shutdown sequencing (REQ_SM_005): application groups to Off, then
+    // PlatformFG Shutdown -> Off. The host advances synchronously; an explicit
+    // EM stop-report gate is future integration.
     manager.begin_shutdown();
+    (void)manager.complete_shutdown();
     std::printf("nexigen-sm: stopping\n");
     return 0;
 }

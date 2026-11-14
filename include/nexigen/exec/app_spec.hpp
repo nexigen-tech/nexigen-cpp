@@ -13,6 +13,7 @@
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/exec/impact_on_app_suite_operability.hpp>
+#include <nexigen/exec/process_type.hpp>
 
 namespace nexigen::exec {
 
@@ -48,6 +49,10 @@ struct AppSpec {
     /// Function Groups whose active states keep this application running (REQ_EM_005/006).
     std::vector<std::string> function_groups{};
     ImpactOnAppSuiteOperability impact{ImpactOnAppSuiteOperability::Degrade};
+    /// Termination behavior (`daemon`/`oneshot`), mirroring AUTOSAR
+    /// `terminationBehavior`; daemons stay up and report readiness, oneshots
+    /// self-terminate and exit 0 is success (REQ_EXEC_PROCESS_TYPES).
+    ProcessType type{ProcessType::Daemon};
     /// Per-application global settings directory; replaces the suite value.
     std::string global_settings_path{};
     /// Per-application local settings path; resolved relative to the manifest.

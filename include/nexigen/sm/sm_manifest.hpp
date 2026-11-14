@@ -15,6 +15,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
 
 namespace nexigen::sm {
@@ -126,6 +127,20 @@ struct SmManifest {
 [[nodiscard]] inline std::string to_string(const SmManifest& manifest) {
     return manifest.to_string();
 }
+
+/// @brief Validate the application-group startup and shutdown preconditions.
+///
+/// Every group marked `application_group` must declare `Off` (shutdown
+/// sequencing moves it there) and must start in an off-like state (`Off` or
+/// `SafeState`), so no application group is active before `PlatformFG` reaches
+/// `Run`.
+///
+/// @param manifest Manifest to validate.
+/// @return Success, or `InvalidArgument` when an application group violates
+///         either precondition.
+/// @note Spec `sm/state-machine`, requirement "Startup and shutdown
+///       sequencing".
+[[nodiscard]] core::Status validate(const SmManifest& manifest) noexcept;
 
 /// @brief ADL JSON writer for one graph edge.
 ///

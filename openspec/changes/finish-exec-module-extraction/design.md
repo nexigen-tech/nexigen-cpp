@@ -65,8 +65,10 @@ See proposal.md — Why. Verified facts (measured on the current tree):
      `create_suite_pipes`, `effective_stop_grace`, `wait_for_suite_exit`,
      `write_stop_request`.
    - `suite_reporting.cpp` — `suite_status`.
-   - `app_suite.cpp` — the application-instance lifecycle it uniquely owns
-     (per-app start/stop/restart, `RuntimeSuite`, app-level status writing).
+   - `app_suite.cpp` — removed entirely: the extracted units define every
+     external entity, and the application-instance lifecycle lives in
+     `child_process.cpp` / `suite_supervisor.cpp`, so the file retained no
+     owned definitions.
 2. **D2 — Drift protocol: the effective body wins.** For the four drifted
    pairs, the implementation that runs today (`app_suite.cpp`'s) is moved
    **into** the owning unit, replacing the owner's stale copy. The owner's

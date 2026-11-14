@@ -13,6 +13,7 @@
 #include <string_view>
 #include <vector>
 
+#include <nexigen/exec/process_type.hpp>
 #include <nexigen/exec/suite_manifest.hpp>
 
 namespace nexigen::exec {
@@ -74,6 +75,13 @@ public:
     /// @return The manifest command, or an empty view meaning the application
     ///         name itself is the command; empty also for an unknown name.
     [[nodiscard]] std::string_view command_of(std::string_view app_name) const noexcept;
+
+    /// @brief The declared termination behavior of one application.
+    ///
+    /// @param app_name Application name to look up.
+    /// @return The manifest `type`; `Daemon` (the manifest default) for an
+    ///         unknown name.
+    [[nodiscard]] ProcessType type_of(std::string_view app_name) const noexcept;
 
     /// @brief Index of the group with `name`.
     ///

@@ -48,8 +48,9 @@ of the two copies is authoritative, and the build cannot prove it either.
 - **Establish one owner per entity**: `suite_manifest.cpp` owns the manifest
   vocabulary and its serialization, `suite_control.cpp` owns the suite control
   surface, `suite_reporting.cpp` owns status reporting, `suite_supervisor.cpp`
-  owns the supervisor loop; `app_suite.cpp` keeps only the application-instance
-  lifecycle it actually owns.
+  owns the supervisor loop; `app_suite.cpp` is removed because the
+  application-instance lifecycle lives in `child_process.cpp` /
+  `suite_supervisor.cpp` and the file retained no owned definitions.
 - No public header changes, no signature changes, no wire-format or vocabulary
   changes: the same symbols with the same declarations keep existing in the same
   headers (`include/nexigen/exec/suite_manifest.hpp`,

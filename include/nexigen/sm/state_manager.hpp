@@ -1,7 +1,7 @@
 // nexigen::sm — central arbitration engine (change add-sm; spec
-// sm/state-machine; design D3).
+// sm/state-machine; design D3; change introduce-platformfg-process-model).
 //
-// Headless per-group state machines plus the one MachineState machine. A
+// Headless per-group state machines plus the one PlatformFG Function Group. A
 // request is checked against the group's transition graph, then arbitrated
 // against the current holder's priority; the highest requester wins. Startup
 // and shutdown are explicit sequencing steps. All hot paths are O(1) in the
@@ -31,10 +31,13 @@ inline constexpr std::size_t k_holder_requester_length = 32;
 ///
 /// Builds one headless machine per group from an immutable manifest snapshot,
 /// starting each group in its first declared state, plus the single
-/// `MachineState` machine in `Startup`. A request is validated against the
+/// `PlatformFG` Function Group in `Off`. A request is validated against the
 /// group's allowed-transition graph, then arbitrated against the current
 /// holder's configured priority; the accepted request becomes the new holder.
-/// Startup and shutdown are explicit steps instead of graph edges.
+/// Startup and shutdown are explicit steps instead of graph edges. An
+/// application group cannot leave an off-like state until `PlatformFG` reaches
+/// `Run`, so no application group starts before the platform foundation is
+/// ready.
 ///
 /// The arbiter is confined to the SM's arbitration thread: every mutation is a
 /// plain store, so there are no locks, atomics, or allocations on the hot
@@ -45,14 +48,18 @@ inline constexpr std::size_t k_holder_requester_length = 32;
 /// @note Spec `sm/state-machine`, requirement "Request arbitration".
 class StateManager {
 public:
-    /// @brief Build the arbiter from an immutable manifest snapshot.
+    /// @brief Validate a manifest and build the arbiter.
     ///
-    /// Every group starts in its first declared state and with no holder, so
-    /// the first request only has to pass the graph check.
+    /// This is the only construction path: the raw constructor is private so a
+    /// manifest that violates the application-group preconditions cannot be
+    /// used to initialize a group in a non-off-like state.
     ///
-    /// @param manifest Manifest to take ownership of; it backs every state-name
-    ///        view returned by this manager.
-    explicit StateManager(SmManifest manifest);
+    /// @param manifest Manifest to validate and copy.
+    /// @return A ready manager, or `InvalidArgument` when `validate()` rejects
+    ///         the manifest.
+    /// @note Spec `sm/state-machine`, requirement "Startup and shutdown
+    ///       sequencing".
+    [[nodiscard]] static core::Result<StateManager> create(const SmManifest& manifest) noexcept;
 
     /// @brief Number of configured Function Groups.
     ///
@@ -74,10 +81,10 @@ public:
     /// @warning `index` must be below `group_count()`; no bounds check occurs.
     [[nodiscard]] std::string_view state(std::size_t index) const noexcept;
 
-    /// @brief The main machine's current state.
+    /// @brief The PlatformFG Function Group's current state.
     ///
-    /// @return Current `MachineState`, `Startup` until sequencing advances it.
-    [[nodiscard]] MachineState machine_state() const noexcept { return machine_; }
+    /// @return Current `PlatformFG` state, `Off` until sequencing advances it.
+    [[nodiscard]] PlatformFG platform_fg() const noexcept { return platform_fg_; }
 
     /// @brief Index of the Function Group with the given name.
     ///
@@ -116,7 +123,10 @@ public:
     /// The request is validated against the group's graph first: an unknown
     /// target or a `from -> to` pair absent from the graph (including a
     /// no-op request whose target is the current state) yields `InvalidGraph`
-    /// and leaves the group untouched. Otherwise the requester priority is
+    /// and leaves the group untouched. An application group that is not yet
+    /// off-like cannot leave its off-like state until `PlatformFG` reaches
+    /// `Run`; that start attempt is also rejected with `InvalidGraph`.
+    /// Otherwise the requester priority is
     /// compared with the current holder: below it yields `RejectedByPriority`;
     /// equal or higher applies the target, records the requester as the new
     /// holder, and returns `Success`.
@@ -133,6 +143,16 @@ public:
     [[nodiscard]] TransitionResult request_transition(std::size_t index, std::string_view target,
                                                       std::string_view requester_id) noexcept;
 
+    /// @brief Startup sequencing step: `Off` -> `Startup`.
+    ///
+    /// The wake-up sequence begins in the mandatory `Off` state.
+    ///
+    /// @return `true` when the machine was in `Off` and advanced; `false`
+    ///         when the step is out of order.
+    /// @note Spec `sm/state-machine`, requirement "Startup and shutdown
+    ///       sequencing".
+    [[nodiscard]] bool begin_startup() noexcept;
+
     /// @brief Startup sequencing step: `Startup` -> `Verify`.
     ///
     /// @return `true` when the machine was in `Startup` and advanced; `false`
@@ -141,7 +161,7 @@ public:
     ///       sequencing".
     [[nodiscard]] bool advance_startup() noexcept;
 
-    /// @brief Startup sequencing step: `Verify` -> `NormalRunning`.
+    /// @brief Startup sequencing step: `Verify` -> `Run`.
     ///
     /// Called only after the execution_manager reported successful
     /// self-diagnosis.
@@ -152,15 +172,55 @@ public:
     ///       sequencing".
     [[nodiscard]] bool confirm_startup_step() noexcept;
 
-    /// @brief Shutdown sequencing: application groups to `Off`, then shutdown.
+    /// @brief Shutdown sequencing: application groups to `Off`, then
+    ///        `Shutdown`.
     ///
     /// Every group marked `application_group` is forced to `Off` (only when it
     /// declares that state), and the machine then enters
-    /// `MachineState::Shutdown`.
+    /// `PlatformFG::Shutdown`. The final `Off` transition is
+    /// `complete_shutdown()` after the EM reports the stop.
     ///
     /// @note Spec `sm/state-machine`, requirement "Startup and shutdown
     ///       sequencing".
     void begin_shutdown() noexcept;
+
+    /// @brief Shutdown sequencing step: `Shutdown` -> `Off`.
+    ///
+    /// @return `true` when the machine was in `Shutdown` and reached `Off`;
+    ///         `false` when the step is out of order.
+    /// @note Spec `sm/state-machine`, requirement "Startup and shutdown
+    ///       sequencing".
+    [[nodiscard]] bool complete_shutdown() noexcept;
+
+    /// @brief Restart sequencing step: `Run` -> `Restart`.
+    ///
+    /// A restart is a fast reboot: it does not pass through `Off`.
+    ///
+    /// @return `true` when the machine was in `Run` and entered `Restart`;
+    ///         `false` when the step is out of order.
+    /// @note Spec `sm/state-machine`, requirement "Startup and shutdown
+    ///       sequencing".
+    [[nodiscard]] bool begin_restart() noexcept;
+
+    /// @brief Restart sequencing step: `Restart` -> `Startup`.
+    ///
+    /// @return `true` when the machine was in `Restart` and re-entered
+    ///         `Startup`; `false` when the step is out of order.
+    /// @note Spec `sm/state-machine`, requirement "Startup and shutdown
+    ///       sequencing".
+    [[nodiscard]] bool advance_restart() noexcept;
+
+    /// @brief Whether application groups may start.
+    ///
+    /// Application groups are gated on the platform foundation: no application
+    /// Function Group may leave an off-like state before `PlatformFG::Run`.
+    ///
+    /// @return `true` when `PlatformFG` is in `Run`.
+    /// @note Spec `sm/state-machine`, requirement "Startup and shutdown
+    ///       sequencing".
+    [[nodiscard]] bool application_groups_may_start() const noexcept {
+        return platform_fg_ == PlatformFG::Run;
+    }
 
     /// @brief Force one group into a state, bypassing arbitration.
     ///
@@ -179,13 +239,23 @@ public:
 
     /// @brief Render the manager state as a diagnostic string.
     ///
-    /// @return Text naming the machine state and every group's current state;
-    ///         allocates.
+    /// @return Text naming the PlatformFG state and every group's current
+    ///         state; allocates.
     /// @note Spec `sm/state-machine`, requirement "State machines execution".
     /// @note Cold-path diagnostic only (project mandate 9).
     [[nodiscard]] std::string to_string() const;
 
 private:
+    /// @brief Build the arbiter from an already validated manifest snapshot.
+    ///
+    /// Every group starts in its first declared state and with no holder, so
+    /// the first request only has to pass the graph check. Callers must use
+    /// `create()` so the application-group preconditions are checked first.
+    ///
+    /// @param manifest Manifest to take ownership of; it backs every state-name
+    ///        view returned by this manager.
+    explicit StateManager(SmManifest manifest);
+
     /// @brief Per-group mutable state, separate from the immutable manifest.
     struct GroupRuntime {
         std::size_t state_index{0};                         ///< Index into `states`.
@@ -209,9 +279,9 @@ private:
     [[nodiscard]] bool is_allowed(std::size_t index, std::string_view from,
                                   std::string_view to) const noexcept;
 
-    SmManifest manifest_;                         ///< Immutable configuration snapshot.
-    std::vector<GroupRuntime> groups_;            ///< Mutable runtime, one per group.
-    MachineState machine_{MachineState::Startup}; ///< Main machine state.
+    SmManifest manifest_;                     ///< Immutable configuration snapshot.
+    std::vector<GroupRuntime> groups_;        ///< Mutable runtime, one per group.
+    PlatformFG platform_fg_{PlatformFG::Off}; ///< PlatformFG Function Group state.
 };
 
 /// @brief Free diagnostic helper mirroring `StateManager::to_string`.

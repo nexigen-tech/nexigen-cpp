@@ -15,18 +15,23 @@
 // on nexigen::com, which only exists behind the gate).
 #pragma once
 
+#include <cstddef>
 #include <format>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include <nexigen/app/run_identity.hpp>
 #include <nexigen/com/error.hpp>
+#include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/server.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/exec/application_state.hpp>
 #include <nexigen/exec/execution_manager.hpp>
+#include <nexigen/exec/execution_state_tracker.hpp>
 #include <nexigen/exec/function_group_registry.hpp>
 #include <nexigen/exec/state_ack.hpp>
 #include <nexigen/exec/state_command.hpp>
@@ -64,13 +69,24 @@ public:
     ///        borrowed, must outlive the client.
     /// @param identity Run identity used to derive `<run_dir>/<app>/<instance>`
     ///        directories.
-    /// @return A ready client, or the com error from either server creation.
+    /// @param tracker Optional readiness/completion tracker; borrowed, must
+    ///        outlive the client. When present, a switch to `Run` is confirmed
+    ///        only after every bound daemon reported readiness and every bound
+    ///        oneshot exited 0. A null tracker keeps the legacy unconditional
+    ///        confirmation. The client opens the per-application
+    ///        `Nexigen/EM/State/<app>` event listeners and feeds the tracker
+    ///        from them, so the host only has to pump `serve_once`.
+    /// @return A ready client, or the com error from either server or a state
+    ///         channel creation.
     /// @note Spec `exec/state-client`, requirement "StateClient command
     ///       reception".
     /// @note Spec `exec/state-client`, requirement "SafeState priority".
+    /// @note Spec `exec/process-types`, requirement "State change is confirmed
+    ///       by readiness and completion".
     [[nodiscard]] static com::Result<StateClient>
     create(com::Node& node, const com::ServiceName& name, FunctionGroupRegistry& registry,
-           ExecutionManager& manager, const app::RunIdentity& identity) noexcept;
+           ExecutionManager& manager, const app::RunIdentity& identity,
+           ExecutionStateTracker* tracker = nullptr) noexcept;
 
     /// @brief Move construct a client, transferring both servers.
     StateClient(StateClient&&) noexcept = default;
@@ -81,15 +97,27 @@ public:
 
     /// @brief Serve one pending command.
     ///
-    /// Drains the emergency channel first (SafeState overtakes), then the
-    /// ordinary channel. A handled command is executed and acknowledged; the
+    /// First drains the per-application readiness channels into the tracker,
+    /// then the emergency channel (SafeState overtakes), then the ordinary
+    /// channel. A handled command is executed and acknowledged; the
     /// last-command diagnostic is updated.
     ///
     /// @return `true` when a command was handled, `false` when none was
-    ///         pending, or the com error from receive or acknowledge.
+    ///         pending, or the com error from a state channel, receive, or
+    ///         acknowledge.
     /// @note Spec `exec/state-client`, requirement "SafeState priority".
     /// @note Spec `exec/state-client`, scenario "Ordinary transitions proceed afterwards".
+    /// @note Spec `exec/process-types`, requirement "Daemon readiness is
+    ///       reported".
     [[nodiscard]] com::Result<bool> serve_once() noexcept;
+
+    /// @brief Stop every application bound to a group and reset the tracker.
+    ///
+    /// Used by the EM host on shutdown. Unknown and duplicate bindings are
+    /// handled once; a failed stop does not prevent the remaining stops.
+    ///
+    /// @note Spec `exec/state-client`, requirement "Function Group execution".
+    void stop_all() noexcept;
 
     /// @brief Cold-path diagnostic (mandate 9): service name + last command.
     ///
@@ -98,6 +126,12 @@ public:
     [[nodiscard]] std::string to_string() const;
 
 private:
+    /// @brief One application's readiness event channel.
+    struct StateChannel {
+        std::string app{};           ///< Application whose state is reported.
+        com::EventListener listener; ///< Bound `Nexigen/EM/State/<app>` listener.
+    };
+
     /// @brief Construct a client from prepared servers and borrowed services.
     ///
     /// @param name Ordinary command service name.
@@ -106,10 +140,13 @@ private:
     /// @param registry Borrowed Function Group registry.
     /// @param manager Borrowed execution manager.
     /// @param identity Run identity for instance directory derivation.
+    /// @param tracker Optional readiness/completion tracker.
+    /// @param state_channels Per-application readiness listeners.
     StateClient(com::ServiceName name, com::Server<StateCommand, StateAck> server,
                 com::Server<StateCommand, StateAck> emergency_server,
                 FunctionGroupRegistry* registry, ExecutionManager* manager,
-                app::RunIdentity identity) noexcept;
+                app::RunIdentity identity, ExecutionStateTracker* tracker,
+                std::vector<StateChannel> state_channels) noexcept;
 
     /// @brief Receive from one channel, execute the command, and acknowledge.
     ///
@@ -132,6 +169,36 @@ private:
     /// @note Spec `exec/state-client`, requirement "Function Group execution".
     [[nodiscard]] bool execute(const StateCommand& command) noexcept;
 
+    /// @brief Stop every application bound to one group.
+    ///
+    /// @param index Group index.
+    /// @return `true` when every stop succeeded.
+    [[nodiscard]] bool stop_group(std::size_t index) noexcept;
+
+    /// @brief Start every application bound to one group.
+    ///
+    /// @param index Group index.
+    /// @return `true` when every start succeeded.
+    [[nodiscard]] bool start_group(std::size_t index) noexcept;
+
+    /// @brief Whether a bound application must not be started again.
+    ///
+    /// A ready daemon, an already-exited or failed process, and a oneshot
+    /// still awaiting its `exit.json` are skipped so a retried `Run` cannot
+    /// launch a second instance.
+    ///
+    /// @param app_name Application name.
+    /// @return `true` when the application must be skipped.
+    [[nodiscard]] bool should_skip_start(std::string_view app_name) const noexcept;
+
+    /// @brief Drain pending readiness events into the tracker.
+    ///
+    /// @return Empty status, or a com error from a listener.
+    [[nodiscard]] com::Status poll_state_channels() noexcept;
+
+    /// @brief Poll `exit.json` for pending oneshots and record their result.
+    void poll_oneshot_exits() noexcept;
+
     /// @brief Control instance directory of one application.
     ///
     /// @param app_name Application name.
@@ -144,6 +211,9 @@ private:
     FunctionGroupRegistry* registry_{nullptr};             ///< Borrowed group registry.
     ExecutionManager* manager_{nullptr};                   ///< Borrowed execution manager.
     app::RunIdentity identity_;                            ///< Run identity for instance paths.
+    ExecutionStateTracker* tracker_{nullptr};              ///< Optional readiness tracker.
+    std::vector<StateChannel> state_channels_{};           ///< Per-application readiness channels.
+    std::vector<std::string> pending_oneshots_{};          ///< Oneshots awaiting `exit.json`.
     std::string last_command_{};                           ///< Last handled command diagnostic.
 };
 

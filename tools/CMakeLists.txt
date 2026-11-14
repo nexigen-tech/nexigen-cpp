@@ -46,6 +46,28 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_sm_hostile_config PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
+    # nexigen-em — Execution Manager host (change
+    # introduce-platformfg-process-model): serves StateClient and feeds the
+    # readiness tracker from the per-application state channels.
+    add_executable(nexigen-em nexigen-em/main.cpp)
+    target_link_libraries(nexigen-em PRIVATE nexigen_state_client nexigen_app Threads::Threads)
+    target_include_directories(nexigen-em PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+    add_test(NAME nexigen_em_help COMMAND nexigen-em --help)
+    set_tests_properties(nexigen_em_help PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
+    # End-to-end host smoke: start nexigen-em, retry Run until the one-shot
+    # completes, and assert the host launched it exactly once.
+    add_executable(nexigen_em_smoke_tests nexigen-em/smoke_test.cpp)
+    target_link_libraries(nexigen_em_smoke_tests PRIVATE
+        nexigen_exec nexigen_com nexigen_app Threads::Threads)
+    target_include_directories(nexigen_em_smoke_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+    add_test(NAME nexigen_em_smoke
+        COMMAND nexigen_em_smoke_tests $<TARGET_FILE:nexigen-em>)
+    set_tests_properties(nexigen_em_smoke PROPERTIES TIMEOUT 60 LABELS "tools")
+
     add_test(NAME nexigen_phmd_required_spec
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-phmd/required_spec_test.sh
                 $<TARGET_FILE:nexigen-phmd>)
@@ -123,7 +145,7 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_traced_smoke PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
-    install(TARGETS nexigen-phmd nexigen-sm nexigen-traced
+    install(TARGETS nexigen-phmd nexigen-sm nexigen-em nexigen-traced
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 

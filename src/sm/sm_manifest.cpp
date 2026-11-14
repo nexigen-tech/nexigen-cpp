@@ -36,6 +36,27 @@ std::string SmManifest::to_string() const {
     return out;
 }
 
+core::Status validate(const SmManifest& manifest) noexcept {
+    for (const FunctionGroup& group : manifest.function_groups) {
+        if (!group.application_group) {
+            continue;
+        }
+        const bool starts_off_like = !group.states.empty() && (group.states.front() == "Off" ||
+                                                               group.states.front() == "SafeState");
+        bool declares_off = false;
+        for (const std::string& state : group.states) {
+            if (state == "Off") {
+                declares_off = true;
+                break;
+            }
+        }
+        if (!starts_off_like || !declares_off) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+    }
+    return {};
+}
+
 std::int32_t SmManifest::priority_of(std::string_view requester_id) const noexcept {
     for (const RequesterPriority& entry : requester_priorities) {
         if (entry.requester_id == requester_id) {
@@ -144,34 +165,36 @@ void from_json(const nlohmann::json& j, SmManifest& manifest) noexcept {
     if (!j.is_object()) {
         return;
     }
-    core::detail::read_unsigned(j, "metrics_flush_interval_ms", manifest.metrics_flush_interval_ms);
-    core::detail::read_unsigned(j, "startup_timeout_ms", manifest.startup_timeout_ms);
+    SmManifest parsed = manifest;
+    core::detail::read_unsigned(j, "metrics_flush_interval_ms", parsed.metrics_flush_interval_ms);
+    core::detail::read_unsigned(j, "startup_timeout_ms", parsed.startup_timeout_ms);
     if (const auto bg = j.find("bg_thread"); bg != j.end()) {
-        from_json(*bg, manifest.bg_thread);
+        from_json(*bg, parsed.bg_thread);
     }
     if (const auto audit = j.find("audit_thread"); audit != j.end()) {
-        from_json(*audit, manifest.audit_thread);
+        from_json(*audit, parsed.audit_thread);
     }
     const auto groups = j.find("function_groups");
     if (groups != j.end() && groups->is_array()) {
-        std::vector<FunctionGroup> parsed;
+        std::vector<FunctionGroup> parsed_groups;
         for (const auto& item : *groups) {
             FunctionGroup group;
             from_json(item, group);
-            parsed.push_back(std::move(group));
+            parsed_groups.push_back(std::move(group));
         }
-        manifest.function_groups = std::move(parsed);
+        parsed.function_groups = std::move(parsed_groups);
     }
     const auto priorities = j.find("requester_priorities");
     if (priorities != j.end() && priorities->is_array()) {
-        std::vector<RequesterPriority> parsed;
+        std::vector<RequesterPriority> parsed_priorities;
         for (const auto& item : *priorities) {
             RequesterPriority priority;
             from_json(item, priority);
-            parsed.push_back(std::move(priority));
+            parsed_priorities.push_back(std::move(priority));
         }
-        manifest.requester_priorities = std::move(parsed);
+        parsed.requester_priorities = std::move(parsed_priorities);
     }
+    manifest = std::move(parsed);
 }
 
 } // namespace nexigen::sm

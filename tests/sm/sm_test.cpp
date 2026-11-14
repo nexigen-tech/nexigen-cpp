@@ -6,6 +6,7 @@
 // telemetry (audit + метрики), manifest (round-trip).
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <unistd.h>
 #include <cstdio>
 #include <format>
@@ -74,11 +75,36 @@ sm::SmManifest make_manifest() {
     };
     motion.transition_max_time_ms = 500;
     motion.preparation_timeout_ms = 100;
+    motion.application_group = false;
     manifest.function_groups.push_back(motion);
+
+    // An application group gated on PlatformFG::Run (spec scenario
+    // "Application groups wait for PlatformFG Run").
+    sm::FunctionGroup adas;
+    adas.name = "adas";
+    adas.states = {"Off", "Active", "SafeState"};
+    adas.allowed_transitions = {
+        {"Off", "Active"},
+        {"Active", "Off"},
+        {"Active", "SafeState"},
+    };
+    adas.application_group = true;
+    manifest.function_groups.push_back(adas);
+
     manifest.requester_priorities = {{"phm", 90}, {"diagnostics", 50}, {"app", 10}};
     manifest.metrics_flush_interval_ms = 100;
     manifest.startup_timeout_ms = 5000;
     return manifest;
+}
+
+[[nodiscard]] sm::StateManager make_manager() {
+    auto result = sm::StateManager::create(make_manifest());
+    NX_CHECK(result.has_value());
+    if (!result) {
+        std::fprintf(stderr, "invalid test manifest\n");
+        std::exit(1);
+    }
+    return std::move(*result);
 }
 
 void test_vocabulary() {
@@ -98,15 +124,26 @@ void test_vocabulary() {
         NX_CHECK(parsed == value);
         NX_CHECK(std::format("{}", value) == std::string(name));
     }
-    for (const sm::MachineState value :
-         {sm::MachineState::Startup, sm::MachineState::Verify, sm::MachineState::NormalRunning,
-          sm::MachineState::Shutdown}) {
+    for (const sm::PlatformFG value :
+         {sm::PlatformFG::Off, sm::PlatformFG::Startup, sm::PlatformFG::Verify, sm::PlatformFG::Run,
+          sm::PlatformFG::Shutdown, sm::PlatformFG::Restart}) {
         const std::string_view name = to_string(value);
-        sm::MachineState back{};
+        NX_CHECK(!name.empty());
+        sm::PlatformFG back{};
         NX_CHECK(from_string(name, back));
         NX_CHECK(back == value);
+        nlohmann::json j;
+        to_json(j, value);
+        NX_CHECK(j == std::string(name));
+        sm::PlatformFG parsed{};
+        from_json(j, parsed);
+        NX_CHECK(parsed == value);
         NX_CHECK(std::format("{}", value) == std::string(name));
     }
+    sm::PlatformFG legacy_state = sm::PlatformFG::Off;
+    NX_CHECK(!sm::from_string("NormalRunning", legacy_state));
+    NX_CHECK(legacy_state == sm::PlatformFG::Off);
+    NX_CHECK(to_string(static_cast<sm::PlatformFG>(0x7f)) == "Unknown");
     static_assert(com::concepts::Message<sm::TriggerRequest>);
     static_assert(com::concepts::Message<sm::TriggerResponse>);
     static_assert(com::concepts::Message<sm::RecoveryNotification>);
@@ -118,7 +155,7 @@ void test_vocabulary() {
 void test_state_machine() {
     // Invalid transition is rejected and the state stays.
     {
-        sm::StateManager manager(make_manifest());
+        sm::StateManager manager = make_manager();
         const sm::TransitionResult result = manager.request_transition(0, "Off", "app");
         NX_CHECK(result == sm::TransitionResult::InvalidGraph);
         NX_CHECK(manager.state(0) == "Active");
@@ -126,7 +163,7 @@ void test_state_machine() {
 
     // Valid transition is applied.
     {
-        sm::StateManager manager(make_manifest());
+        sm::StateManager manager = make_manager();
         const sm::TransitionResult result = manager.request_transition(0, "Parking", "app");
         NX_CHECK(result == sm::TransitionResult::Success);
         NX_CHECK(manager.state(0) == "Parking");
@@ -134,7 +171,7 @@ void test_state_machine() {
 
     // Arbitration: a higher-priority requester wins over the lower holder.
     {
-        sm::StateManager manager(make_manifest());
+        sm::StateManager manager = make_manager();
         NX_CHECK(manager.request_transition(0, "Parking", "app") == sm::TransitionResult::Success);
         // diagnostics (50) can move it further; app (10) cannot reverse it.
         NX_CHECK(manager.request_transition(0, "Off", "diagnostics") ==
@@ -146,24 +183,62 @@ void test_state_machine() {
         NX_CHECK(manager.request_transition(0, "Parking", "phm") == sm::TransitionResult::Success);
     }
 
-    // Startup/shutdown sequencing.
+    // Startup/shutdown sequencing: Off -> Startup -> Verify -> Run for
+    // wake-up, Run -> Shutdown -> Off for shutdown, Restart -> Startup for a
+    // fast reboot that does not pass through Off.
     {
-        sm::StateManager manager(make_manifest());
-        NX_CHECK(manager.machine_state() == sm::MachineState::Startup);
+        sm::StateManager manager = make_manager();
+        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Off);
+        NX_CHECK(!manager.advance_startup()); // out of order from Off
+        NX_CHECK(manager.begin_startup());
+        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Startup);
         NX_CHECK(manager.advance_startup());
-        NX_CHECK(manager.machine_state() == sm::MachineState::Verify);
+        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Verify);
         NX_CHECK(manager.confirm_startup_step());
-        NX_CHECK(manager.machine_state() == sm::MachineState::NormalRunning);
+        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Run);
+
+        NX_CHECK(manager.begin_restart());
+        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Restart);
+        NX_CHECK(manager.advance_restart());
+        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Startup);
+        NX_CHECK(manager.advance_startup());
+        NX_CHECK(manager.confirm_startup_step());
+
+        NX_CHECK(manager.request_transition(1, "Active", "app") == sm::TransitionResult::Success);
         manager.begin_shutdown();
-        NX_CHECK(manager.machine_state() == sm::MachineState::Shutdown);
-        NX_CHECK(manager.state(0) == "Off");
+        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Shutdown);
+        NX_CHECK(manager.state(1) == "Off");
+        NX_CHECK(manager.complete_shutdown());
+        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Off);
+        NX_CHECK(!manager.complete_shutdown());
     }
 
-    // Diagnostics render machine + group states.
+    // Application groups wait for PlatformFG::Run: no application group
+    // starts while the platform foundation is in Startup/Verify.
     {
-        sm::StateManager manager(make_manifest());
+        sm::StateManager manager = make_manager();
+        NX_CHECK(manager.request_transition(1, "Active", "app") ==
+                 sm::TransitionResult::InvalidGraph);
+        NX_CHECK(manager.state(1) == "Off");
+        NX_CHECK(manager.begin_startup());
+        NX_CHECK(!manager.application_groups_may_start());
+        NX_CHECK(manager.request_transition(1, "Active", "app") ==
+                 sm::TransitionResult::InvalidGraph);
+        NX_CHECK(manager.advance_startup());
+        NX_CHECK(manager.request_transition(1, "Active", "app") ==
+                 sm::TransitionResult::InvalidGraph);
+        NX_CHECK(manager.state(1) == "Off");
+        NX_CHECK(manager.confirm_startup_step());
+        NX_CHECK(manager.application_groups_may_start());
+        NX_CHECK(manager.request_transition(1, "Active", "app") == sm::TransitionResult::Success);
+        NX_CHECK(manager.state(1) == "Active");
+    }
+
+    // Diagnostics render PlatformFG + group states.
+    {
+        sm::StateManager manager = make_manager();
         const std::string text = manager.to_string();
-        NX_CHECK(text.find("machine=Startup") != std::string::npos);
+        NX_CHECK(text.find("platform_fg=Off") != std::string::npos);
         NX_CHECK(text.find("motion_control=Active") != std::string::npos);
         NX_CHECK(to_string(manager) == text);
         NX_CHECK(std::format("{}", manager) == text);
@@ -176,7 +251,7 @@ void test_ipc() {
 
     // Current-state publication: a late reader reads the latest value.
     {
-        sm::StateManager manager(make_manifest());
+        sm::StateManager manager = make_manager();
         auto publication = sm::StatePublication::create(*node, make_manifest());
         NX_CHECK(publication.has_value());
         NX_CHECK(publication->publish(0, "Parking").has_value());
@@ -186,7 +261,7 @@ void test_ipc() {
         auto listener = com::FieldListener<sm::GroupStatePayload>::open(*node, *field_name);
         NX_CHECK(listener.has_value());
         NX_CHECK(std::string(listener->get().state) == "Parking");
-        NX_CHECK(publication->to_string().find("groups=1") != std::string::npos);
+        NX_CHECK(publication->to_string().find("groups=2") != std::string::npos);
     }
 
     // Prepare-for-transition: the pre-notification reaches a subscriber.
@@ -222,7 +297,7 @@ void test_recovery_handler() {
     NX_CHECK(channel.has_value());
     NX_CHECK(event.has_value());
 
-    sm::StateManager manager(make_manifest());
+    sm::StateManager manager = make_manager();
     auto handler = sm::RecoveryHandler::create(*node, *channel, *event, manager);
     NX_CHECK(handler.has_value());
 
@@ -304,12 +379,15 @@ void test_manifest() {
     to_json(j, manifest);
     sm::SmManifest back;
     from_json(j, back);
-    NX_CHECK(back.function_groups.size() == 1U);
+    NX_CHECK(back.function_groups.size() == 2U);
     NX_CHECK(back.function_groups[0].name == "motion_control");
     NX_CHECK(back.function_groups[0].states.size() == 4U);
     NX_CHECK(back.function_groups[0].allowed_transitions.size() == 6U);
     NX_CHECK(back.function_groups[0].transition_max_time_ms == 500U);
     NX_CHECK(back.function_groups[0].preparation_timeout_ms == 100U);
+    NX_CHECK(!back.function_groups[0].application_group);
+    NX_CHECK(back.function_groups[1].name == "adas");
+    NX_CHECK(back.function_groups[1].application_group);
     NX_CHECK(back.requester_priorities.size() == 3U);
     NX_CHECK(back.requester_priorities[0].requester_id == "phm");
     NX_CHECK(back.requester_priorities[0].priority == 90);
@@ -331,9 +409,32 @@ void test_manifest() {
 
     // Hostile input leaves the target unchanged.
     from_json(nlohmann::json::array(), manifest);
-    NX_CHECK(manifest.function_groups.size() == 1U);
+    NX_CHECK(manifest.function_groups.size() == 2U);
     from_json(nlohmann::json{{"function_groups", nlohmann::json::array({42})}}, manifest);
     NX_CHECK(manifest.function_groups.size() == 1U);
+
+    // Application groups must declare Off and start Off/SafeState
+    // (spec sm/state-machine "Startup and shutdown sequencing").
+    sm::SmManifest valid = make_manifest();
+    NX_CHECK(sm::validate(valid));
+    sm::SmManifest bypass = make_manifest();
+    bypass.function_groups[1].states = {"Active", "Off"};
+    NX_CHECK(!sm::validate(bypass));
+    sm::SmManifest no_off = make_manifest();
+    no_off.function_groups[1].states = {"SafeState", "Active"};
+    NX_CHECK(!sm::validate(no_off));
+
+    nlohmann::json invalid = j;
+    invalid["function_groups"][1]["states"] = {"Active", "Off"};
+    sm::SmManifest parsed_invalid;
+    from_json(invalid, parsed_invalid);
+    NX_CHECK(parsed_invalid.function_groups.size() == 2U);
+    NX_CHECK(!sm::validate(parsed_invalid));
+
+    // The production factory rejects an invalid manifest before constructing
+    // a manager that could initialize an application group in the wrong state.
+    NX_CHECK(sm::StateManager::create(make_manifest()).has_value());
+    NX_CHECK(!sm::StateManager::create(parsed_invalid).has_value());
 }
 
 bool wait_thread_ready(const sm::TransitionAudit& audit) {

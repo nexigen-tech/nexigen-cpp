@@ -62,6 +62,15 @@ std::size_t FunctionGroupRegistry::find_group(std::string_view name) const noexc
     return static_cast<std::size_t>(-1);
 }
 
+ProcessType FunctionGroupRegistry::type_of(std::string_view app_name) const noexcept {
+    for (const AppSpec& app : manifest_->apps) {
+        if (app.app == app_name) {
+            return app.type;
+        }
+    }
+    return ProcessType::Daemon;
+}
+
 void FunctionGroupRegistry::set_state(std::size_t index, std::string_view state) noexcept {
     const FunctionGroupConfig& group = manifest_->function_groups[index];
     for (std::size_t i = 0; i < group.states.size(); ++i) {
