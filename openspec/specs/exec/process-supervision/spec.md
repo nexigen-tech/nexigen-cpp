@@ -327,7 +327,7 @@ Every function introduced or modified by this refactor SHALL have cyclomatic com
 
 ### Requirement: Dependency-ordered startup
 
-Applications SHALL declare execution dependencies that name a process and the required process state, limited to `Running` or `Terminated`. A dependency and its dependent SHALL belong to the same Function Group State; a dependency on a process outside the requested state, a mutual dependency, or a cycle SHALL be rejected at manifest validation. The `nexigen-em`/`StateClient` control path SHALL start a process only after every dependency has reached its required state during the current transition; the suite supervisor’s readiness inbox is the follow-up `unify-exec-suite-control-path` change. Both paths SHALL terminate processes in reverse dependency order.
+Applications SHALL declare execution dependencies that name a process and the required process state, limited to `Running` or `Terminated`. A dependency and its dependent SHALL belong to the same Function Group State; a dependency on a process outside the requested state, a mutual dependency, or a cycle SHALL be rejected at manifest validation. Both the suite supervisor and the `nexigen-em` control path SHALL start a process only after every dependency has reached its required state during the current transition, and both SHALL terminate processes in reverse dependency order.
 
 #### Scenario: Dependent waits for its dependency
 
@@ -361,7 +361,7 @@ Applications SHALL declare execution dependencies that name a process and the re
 
 ### Requirement: Startup-timeout recovery policy
 
-When a process exceeds the startup timeout of its startup configuration, the EM SHALL log the failure, retry up to the configured restart attempts with the configured delay, and hand the failure to the transition when the budget is exhausted. A termination timeout SHALL force-terminate the process and let the transition continue.
+When a process exceeds the startup timeout of its startup configuration, the EM SHALL log the failure, retry up to the configured restart attempts with the configured delay, and hand the failure to the transition when the budget is exhausted. A termination timeout SHALL force-terminate the process and let the transition continue. This policy applies to both the suite supervisor and the `nexigen-em` control path.
 
 #### Scenario: Timed-out process is logged and recovered
 

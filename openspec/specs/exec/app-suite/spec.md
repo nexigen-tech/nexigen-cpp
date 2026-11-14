@@ -553,16 +553,17 @@ Each application SHALL carry a non-empty set of startup configurations, each nam
 
 ### Requirement: Function Group initial state
 
-Each Function Group SHALL declare an optional `initial_state` naming a declared
-state. The group still starts in `Off`; at suite start the supervisor SHALL
-start the processes configured for `initial_state`. Omitted `initial_state`
-SHALL default to the first non-`Off` state; a group with only `Off` stays idle.
-Unknown states SHALL be rejected.
+Each Function Group SHALL declare an optional `initial_state` naming a declared state. The group still starts in `Off`; at suite start the supervisor SHALL request `initial_state` through the control host and the shared transition engine. Omitted `initial_state` SHALL default to the first non-`Off` state; a group with only `Off` remains idle. Unknown states SHALL be rejected.
 
 #### Scenario: Suite start enters the configured state
 
 - **WHEN** the suite starts and `ADAS` declares `initial_state: "Running"`
-- **THEN** the supervisor starts the processes configured for `ADAS:Running`
+- **THEN** the supervisor requests `ADAS:Running` through the transition engine, which starts the configured processes and confirms readiness
+
+#### Scenario: Initial-state transition failure is visible
+
+- **WHEN** the initial-state transition exhausts a startup budget
+- **THEN** the group becomes `Undefined` and the suite reports the failed transition
 
 #### Scenario: Default initial state is the first non-Off state
 
