@@ -6762,9 +6762,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/exec/app-suite/spec.md": {
-    "mtime": 1794695418.4007816,
-    "seen": 1794697158.4966688,
-    "ast_hash": "9944f38239478d0b565d3dd93ee34422",
+    "mtime": 1794697642.4628491,
+    "seen": 1794697663.797023,
+    "ast_hash": "abcc7a50a709c3febe1feb198e287a9b",
     "semantic_hash": ""
   },
   "openspec/specs/exec/application-state/spec.md": {
@@ -6786,15 +6786,15 @@
     "semantic_hash": ""
   },
   "openspec/specs/exec/process-supervision/spec.md": {
-    "mtime": 1794695418.4012892,
-    "seen": 1794697158.496709,
-    "ast_hash": "140f3e231632edfca086dffbed83b59a",
+    "mtime": 1794697642.4628491,
+    "seen": 1794697663.7970748,
+    "ast_hash": "3a2713ccfa48fd809d577ac3ffbd330a",
     "semantic_hash": ""
   },
   "openspec/specs/exec/state-client/spec.md": {
-    "mtime": 1794695418.4016643,
-    "seen": 1794697158.4967113,
-    "ast_hash": "02e159c42be4b8df23efe58e1f8f43d1",
+    "mtime": 1794697642.4628491,
+    "seen": 1794697663.7970881,
+    "ast_hash": "2b9d08b37f41c1c58a23353d954c76e5",
     "semantic_hash": ""
   },
   "openspec/specs/hub/discovery/spec.md": {
@@ -7116,9 +7116,9 @@
     "semantic_hash": ""
   },
   "tools/CMakeLists.txt": {
-    "mtime": 1794695865.6807022,
-    "seen": 1794697158.4974673,
-    "ast_hash": "c842b63c8ee75c240ad2c5f626b0f561",
+    "mtime": 1794697491.8681555,
+    "seen": 1794697663.7978432,
+    "ast_hash": "e76a935e4977e8232c7f646d36409d1e",
     "semantic_hash": ""
   },
   "tests/logging/log_daemon_test.cpp": {
@@ -8525,18 +8525,6 @@
     "ast_hash": "f2a0c1dce15271613cc97a3d2e416829",
     "semantic_hash": ""
   },
-  "openspec/changes/unify-exec-suite-control-path/.openspec.yaml": {
-    "mtime": 1794693810.3498085,
-    "seen": 1794694099.2284477,
-    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
-    "semantic_hash": ""
-  },
-  "openspec/changes/unify-exec-suite-control-path/proposal.md": {
-    "mtime": 1794693823.423776,
-    "seen": 1794694099.2396567,
-    "ast_hash": "59f9492249fcd059445b1b496a6356ab",
-    "semantic_hash": ""
-  },
   "include/nexigen/exec/control_host.hpp": {
     "mtime": 1794696414.196824,
     "seen": 1794697158.481682,
@@ -8615,40 +8603,52 @@
     "ast_hash": "589c1c4ebf0e517d081dcdd36a3df8bd",
     "semantic_hash": ""
   },
-  "openspec/changes/unify-exec-suite-control-path/design.md": {
-    "mtime": 1794697474.0441916,
-    "seen": 1794697486.4669077,
-    "ast_hash": "6fb13984865438c8e9721119a9471cb5",
-    "semantic_hash": ""
-  },
-  "openspec/changes/unify-exec-suite-control-path/specs/exec/app-suite/spec.md": {
-    "mtime": 1794695758.4869683,
-    "seen": 1794697158.4962232,
-    "ast_hash": "3209f2208578a09efe7afdf6da82effa",
-    "semantic_hash": ""
-  },
-  "openspec/changes/unify-exec-suite-control-path/specs/exec/process-supervision/spec.md": {
-    "mtime": 1794695754.221979,
-    "seen": 1794697158.4962237,
-    "ast_hash": "5ea689f2248f239d8fa4907f16a26d80",
-    "semantic_hash": ""
-  },
-  "openspec/changes/unify-exec-suite-control-path/specs/exec/state-client/spec.md": {
-    "mtime": 1794695764.9289522,
-    "seen": 1794697158.4962249,
-    "ast_hash": "73a865960e68bdb58d6d08dae413ab8f",
-    "semantic_hash": ""
-  },
-  "openspec/changes/unify-exec-suite-control-path/tasks.md": {
-    "mtime": 1794697162.0482776,
-    "seen": 1794697486.4669678,
-    "ast_hash": "eb8cc9ecd862d201fb2b2a042b7e13ee",
-    "semantic_hash": ""
-  },
   "openspec/specs/exec/function-group-state/spec.md": {
     "mtime": 1794695418.401808,
     "seen": 1794697158.4966824,
     "ast_hash": "65017def6f516f2fd8d3f19a76c19f20",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-unify-exec-suite-control-path/.openspec.yaml": {
+    "mtime": 1794693810.3498085,
+    "seen": 1794697663.785702,
+    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-unify-exec-suite-control-path/design.md": {
+    "mtime": 1794697474.0441916,
+    "seen": 1794697663.7964993,
+    "ast_hash": "6fb13984865438c8e9721119a9471cb5",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-unify-exec-suite-control-path/proposal.md": {
+    "mtime": 1794693823.423776,
+    "seen": 1794697663.7965002,
+    "ast_hash": "59f9492249fcd059445b1b496a6356ab",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-unify-exec-suite-control-path/specs/exec/app-suite/spec.md": {
+    "mtime": 1794695758.4869683,
+    "seen": 1794697663.796501,
+    "ast_hash": "3209f2208578a09efe7afdf6da82effa",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-unify-exec-suite-control-path/specs/exec/process-supervision/spec.md": {
+    "mtime": 1794695754.221979,
+    "seen": 1794697663.796502,
+    "ast_hash": "5ea689f2248f239d8fa4907f16a26d80",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-unify-exec-suite-control-path/specs/exec/state-client/spec.md": {
+    "mtime": 1794695764.9289522,
+    "seen": 1794697663.7965028,
+    "ast_hash": "73a865960e68bdb58d6d08dae413ab8f",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-unify-exec-suite-control-path/tasks.md": {
+    "mtime": 1794697162.0482776,
+    "seen": 1794697663.7965035,
+    "ast_hash": "eb8cc9ecd862d201fb2b2a042b7e13ee",
     "semantic_hash": ""
   }
 }
