@@ -22,7 +22,7 @@ The EM SHALL expose the `StateClient` receiver as a request-response service acc
 
 ### Requirement: Function Group execution
 
-On `SetState`, the EM SHALL validate the group and target state, drive the group through the transition, and report `InProgress` while the switch is running and `Success` when the target state becomes current. A group the EM does not manage, an unknown state, or an invalid transition SHALL be rejected with the matching result; the acknowledgement SHALL never report success before the target state is reached.
+On `SetState`, the EM SHALL validate the group and target state, drive the group through the transition, and report `InProgress` while the switch is running and `Success` when the target state becomes current. A group the EM does not manage, an unknown state, or an invalid transition SHALL be rejected with the matching result; the acknowledgement SHALL never report success before the target state is reached. A `SetState` that targets `MachineFG:Off` SHALL be rejected with `InvalidTransition`: `Off` is reachable only through the EM's own shutdown path.
 
 #### Scenario: Group processes are switched
 
@@ -38,6 +38,11 @@ On `SetState`, the EM SHALL validate the group and target state, drive the group
 
 - **WHEN** `SetState` names a group the EM does not manage
 - **THEN** the acknowledgement reports `InvalidArgument` or `InvalidTransition`
+
+#### Scenario: MachineFG Off is rejected
+
+- **WHEN** `SetState` requests `MachineFG:Off`
+- **THEN** the acknowledgement reports `InvalidTransition` and the group stays in its current state
 
 ### Requirement: StateClient diagnostics
 

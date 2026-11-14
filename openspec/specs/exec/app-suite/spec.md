@@ -553,7 +553,7 @@ Each application SHALL carry a non-empty set of startup configurations, each nam
 
 ### Requirement: Function Group initial state
 
-Each Function Group SHALL declare an optional `initial_state` naming a declared state. The group still starts in `Off`; at suite start the supervisor SHALL request `initial_state` through the control host and the shared transition engine. Omitted `initial_state` SHALL default to the first non-`Off` state; a group with only `Off` remains idle. Unknown states SHALL be rejected.
+Each Function Group SHALL declare an optional `initial_state` naming a declared state. The group still starts in `Off`; at suite start the supervisor SHALL request `initial_state` through the control host and the shared transition engine. Omitted `initial_state` SHALL default to the first non-`Off` state; a group with only `Off` remains idle. For the reserved `MachineFG`, the suite start state SHALL be `Startup` even when `initial_state` is omitted, and the only accepted explicit values SHALL be `Off` and `Startup`. Unknown states SHALL be rejected.
 
 #### Scenario: Suite start enters the configured state
 
@@ -569,6 +569,11 @@ Each Function Group SHALL declare an optional `initial_state` naming a declared 
 
 - **WHEN** a Function Group declares `Off`, `Starting`, and `Running` and omits `initial_state`
 - **THEN** the supervisor uses `Starting` as the suite initial state
+
+#### Scenario: MachineFG starts in Startup
+
+- **WHEN** `MachineFG` omits `initial_state` or declares `Startup`
+- **THEN** the supervisor requests `MachineFG:Startup` through the transition engine
 
 #### Scenario: Unknown initial state is rejected
 
