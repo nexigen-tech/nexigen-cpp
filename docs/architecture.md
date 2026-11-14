@@ -214,6 +214,15 @@ Invariants of the flow:
 process and the application instances, then governs their restarts and shutdown.
 `phm`/`sm` layer health, transitions and recovery on top of that.
 
+The manifest uses one Function Group per application and a non-empty
+`startup_configs` list; each entry names a Function Group State and supplies the
+arguments, environment, startup/termination timeouts, restart budget, and
+execution dependencies for that state. `Off` remains the manifest initial state.
+A group may declare `initial_state`; after start the supervisor drives each
+group from `Off` to that state (default: its first non-`Off` state) through the
+state-transition path, preserving the `nexigen-exec start --config` auto-start
+contract without mapping processes to `Off`.
+
 ```mermaid
 flowchart TD
     MAN["Suite manifest<br/>SuiteManifest"] --> VAL["validate_suite_manifest"]
@@ -229,6 +238,30 @@ flowchart TD
     STATE --> PHM2["phm::Supervisor<br/>health-channel, recovery"]
     STATE --> SM2["sm::StateManager<br/>PlatformFG transitions and audit"]
 ```
+
+### State-driven EM control (`nexigen-em`)
+
+The `nexigen-em` host owns the COM-facing control path. `StateClient` accepts
+`SetState(FunctionGroup, State)`, the registry resolves the state to its process
+set, and the transition engine stops, restarts, and starts processes through the
+`ExecutionManager`. A process table tracks `Idle`/`Starting`/`Running`/
+`Terminating`/`Terminated`; reporting processes wait for `Run`, non-reporting
+processes become `Running` immediately.
+
+```mermaid
+flowchart LR
+    SM3["SM<br/>SetState"] --> SC3["StateClient"]
+    SC3 --> REG3["FunctionGroupRegistry<br/>state -> processes"]
+    SC3 --> PT3["ProcessTable<br/>Idle/Starting/Running/<br/>Terminating/Terminated"]
+    SC3 --> TR3["FunctionGroupTransition<br/>stop / restart / start"]
+    TR3 --> EM3["ExecutionManager<br/>SIGTERM -> SIGKILL"]
+    APP3["Applications"] -->|Nexigen/EM/State/app| SC3
+    PT3 --> SC3
+```
+
+The suite supervisor path keeps its existing launch loop and selects the
+processes configured for `initial_state`. Moving this path into the same control
+loop is the follow-up `unify-exec-suite-control-path` change.
 
 ## PlatformFG state management
 

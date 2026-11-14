@@ -102,7 +102,7 @@ using StateClient = com::Client<exec::StateCommand, exec::StateAck>;
 
 [[nodiscard]] std::optional<exec::StateAck>
 wait_for_confirmation(StateClient& client, std::optional<exec::StateAck> ack) {
-    for (int i = 0; i < 200 && (!ack || ack->accepted == 0U); ++i) {
+    for (int i = 0; i < 200 && (!ack || ack->result != exec::StateResult::Success); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         ack = call_run(client);
     }
@@ -156,14 +156,18 @@ int main(int argc, char* argv[]) {
     exec::FunctionGroupConfig group{};
     group.name = "smoke_group";
     group.states = {"Off", "Run"};
+    group.initial_state = "Run";
     manifest.function_groups.push_back(group);
     exec::AppSpec app{};
     app.app = "oneshot_app";
     app.instance = "1";
     app.command = script;
     app.type = exec::ProcessType::Oneshot;
-    app.function_groups = {"smoke_group"};
+    app.function_group = "smoke_group";
     app.impact = exec::ImpactOnAppSuiteOperability::Not_impact;
+    exec::StateDependentStartupConfig config;
+    config.state = "Run";
+    app.startup_configs.push_back(config);
     manifest.apps.push_back(app);
 
     const std::string manifest_path = root + "/manifest.json";
@@ -199,10 +203,12 @@ int main(int argc, char* argv[]) {
 
     std::optional<exec::StateAck> ack = wait_for_first_ack(*client);
     NX_CHECK(ack.has_value());
-    NX_CHECK(ack.has_value() && ack->accepted == 0U);
+    NX_CHECK(ack.has_value() && ack->accepted == 1U);
+    NX_CHECK(ack.has_value() && ack->result == exec::StateResult::InProgress);
 
     ack = wait_for_confirmation(*client, ack);
     NX_CHECK(ack.has_value() && ack->accepted == 1U);
+    NX_CHECK(ack.has_value() && ack->result == exec::StateResult::Success);
     NX_CHECK(count_lines(marker) == 1);
 
     terminate_child(child);

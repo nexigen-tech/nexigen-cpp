@@ -29,6 +29,8 @@
 #include <nexigen/exec/execution_state_tracker.hpp>
 #include <nexigen/exec/instance_lifecycle.hpp>
 #include <nexigen/exec/execution_manager.hpp>
+#include <nexigen/exec/process_state.hpp>
+#include <nexigen/exec/state_result.hpp>
 #include <nexigen/exec/unrecoverable_state.hpp>
 
 namespace core = nexigen::core;
@@ -130,6 +132,14 @@ bool failed_with(const core::Status& result, core::ErrorCode expected) {
     return !result.has_value() && result.error() == expected;
 }
 
+exec::StateDependentStartupConfig& first_config(exec::AppSpec& spec) {
+    if (spec.startup_configs.empty()) {
+        spec.startup_configs.push_back(exec::StateDependentStartupConfig{});
+        spec.startup_configs.front().state = "Running";
+    }
+    return spec.startup_configs.front();
+}
+
 exec::AppSpec app_spec(std::string app_name, std::string instance, std::string command,
                        exec::ImpactOnAppSuiteOperability impact) {
     exec::AppSpec spec{};
@@ -137,6 +147,9 @@ exec::AppSpec app_spec(std::string app_name, std::string instance, std::string c
     spec.instance = std::move(instance);
     spec.command = std::move(command);
     spec.impact = impact;
+    spec.function_group = "default";
+    spec.startup_configs.push_back(exec::StateDependentStartupConfig{});
+    spec.startup_configs.front().state = "Running";
     return spec;
 }
 
@@ -150,6 +163,11 @@ exec::SuiteManifest base_manifest(const std::string& root, const std::string& ar
     manifest.manifest_path = root + "/manifest.json";
     manifest.suite_restart_attempts = 0;
     manifest.suite_restart_delay_s = 0;
+    exec::FunctionGroupConfig group{};
+    group.name = "default";
+    group.states = {"Off", "Running"};
+    group.initial_state = "Running";
+    manifest.function_groups.push_back(std::move(group));
     return manifest;
 }
 
@@ -157,10 +175,10 @@ exec::SuiteManifest two_app_manifest(const std::string& root, const std::string&
     exec::SuiteManifest manifest = base_manifest(root, artifacts);
     exec::AppSpec alpha =
         app_spec("alpha", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Degrade);
-    alpha.args = {"-c", "echo alpha-out; exec sleep 60"};
+    first_config(alpha).args = {"-c", "echo alpha-out; exec sleep 60"};
     exec::AppSpec beta =
         app_spec("beta", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    beta.args = {"-c", "echo beta-out; exec sleep 60"};
+    first_config(beta).args = {"-c", "echo beta-out; exec sleep 60"};
     manifest.apps.push_back(std::move(alpha));
     manifest.apps.push_back(std::move(beta));
     return manifest;
@@ -227,6 +245,38 @@ void test_enums_and_serialization() {
     NX_CHECK(exec::to_string(static_cast<exec::ProcessType>(0x7f)) == "unknown");
 
     for (const auto value :
+         {exec::ProcessState::Idle, exec::ProcessState::Starting, exec::ProcessState::Running,
+          exec::ProcessState::Terminating, exec::ProcessState::Terminated}) {
+        const std::string_view text = exec::to_string(value);
+        exec::ProcessState parsed = static_cast<exec::ProcessState>(0xff);
+        NX_CHECK(exec::from_string(text, parsed));
+        NX_CHECK(parsed == value);
+        NX_CHECK(std::format("{}", value) == text);
+        nlohmann::json json;
+        exec::to_json(json, value);
+        exec::from_json(json, parsed);
+        NX_CHECK(parsed == value);
+    }
+    NX_CHECK(exec::to_string(static_cast<exec::ProcessState>(0x7f)) == "unknown");
+
+    for (const auto value :
+         {exec::StateResult::Success, exec::StateResult::InProgress,
+          exec::StateResult::OperationFailed, exec::StateResult::OperationCanceled,
+          exec::StateResult::UnexpectedTermination, exec::StateResult::InvalidTransition,
+          exec::StateResult::InvalidArgument}) {
+        const std::string_view text = exec::to_string(value);
+        exec::StateResult parsed = static_cast<exec::StateResult>(0xff);
+        NX_CHECK(exec::from_string(text, parsed));
+        NX_CHECK(parsed == value);
+        NX_CHECK(std::format("{}", value) == text);
+        nlohmann::json json;
+        exec::to_json(json, value);
+        exec::from_json(json, parsed);
+        NX_CHECK(parsed == value);
+    }
+    NX_CHECK(exec::to_string(static_cast<exec::StateResult>(0x7f)) == "unknown");
+
+    for (const auto value :
          {exec::SuiteState::Running, exec::SuiteState::Degraded, exec::SuiteState::Failed,
           exec::SuiteState::Stopped, exec::SuiteState::Unknown}) {
         exec::SuiteState parsed = static_cast<exec::SuiteState>(0xff);
@@ -251,12 +301,12 @@ void test_enums_and_serialization() {
 
     exec::AppSpec spec =
         app_spec("app", "1", "/bin/true", exec::ImpactOnAppSuiteOperability::Failure);
-    spec.args = {"--a", "b"};
-    spec.env = {{"A", "1"}, {"B", "2"}};
+    first_config(spec).args = {"--a", "b"};
+    first_config(spec).env = {{"A", "1"}, {"B", "2"}};
     spec.cpus = core::CpuSet::from_core_mask(1ULL);
     NX_CHECK(spec.cpus.add(64).has_value());
-    spec.restart_attempts = 3;
-    spec.restart_delay_s = 4;
+    first_config(spec).restart_attempts = 3;
+    first_config(spec).restart_delay_s = 4;
     spec.log_level = core::LogLevel::Warning;
     spec.global_settings_path = "/etc/nexigen";
     spec.local_settings_path = "local";
@@ -266,8 +316,8 @@ void test_enums_and_serialization() {
     exec::AppSpec spec_round;
     exec::from_json(spec_json, spec_round);
     NX_CHECK(spec_round.app == "app");
-    NX_CHECK(spec_round.args.size() == 2 && spec_round.args[1] == "b");
-    NX_CHECK(spec_round.env.size() == 2);
+    NX_CHECK(first_config(spec_round).args.size() == 2 && first_config(spec_round).args[1] == "b");
+    NX_CHECK(first_config(spec_round).env.size() == 2);
     NX_CHECK(spec_round.cpus.count() == 2U && spec_round.cpus.contains(64U));
     NX_CHECK(spec_round.log_level == core::LogLevel::Warning);
     NX_CHECK(spec_round.type == exec::ProcessType::Oneshot);
@@ -335,34 +385,31 @@ void test_enums_and_serialization() {
     nlohmann::json wrong_spec{{"app", 1},
                               {"instance", 2},
                               {"command", 3},
-                              {"args", 4},
-                              {"env", 5},
+                              {"function_group", 4},
+                              {"startup_configs", 5},
                               {"cpus", 6},
                               {"impact_on_app_suite_operability", 7},
-                              {"restart_attempts", "x"},
-                              {"restart_delay_s", "x"},
                               {"idle_timeout_s", "x"},
-                              {"stop_grace_s", "x"},
                               {"log_level", 8},
                               {"global_settings_path", 9},
                               {"local_settings_path", 10}};
     exec::from_json(wrong_spec, hostile);
     NX_CHECK(hostile.app == "app");
-    NX_CHECK(hostile.args.size() == 2);
-    NX_CHECK(hostile.env.size() == 2);
+    NX_CHECK(first_config(hostile).args.size() == 2);
+    NX_CHECK(first_config(hostile).env.size() == 2);
     NX_CHECK(hostile.cpus.count() == 2U);
-    NX_CHECK(hostile.restart_attempts == 3);
+    NX_CHECK(first_config(hostile).restart_attempts == 3);
     NX_CHECK(hostile.log_level == core::LogLevel::Warning);
 
     exec::from_json(nlohmann::json::object(), hostile);
-    exec::from_json(nlohmann::json{{"args", nlohmann::json::array({1})}}, hostile);
+    exec::from_json(nlohmann::json{{"startup_configs", 3}}, hostile);
     exec::from_json(nlohmann::json{{"cpus", nlohmann::json::array({-1})}}, hostile);
     exec::from_json(nlohmann::json{{"cpus", nlohmann::json::array({0, 0})}}, hostile);
     NX_CHECK(hostile.cpus.count() == 2U); // duplicates leave the old set intact
     exec::from_json(nlohmann::json{{"cpus", nlohmann::json::array({std::uint64_t{4294967296ULL}})}},
                     hostile);
-    exec::from_json(nlohmann::json{{"env", {{"A", 1}}}}, hostile);
-    exec::from_json(nlohmann::json{{"restart_attempts", std::uint64_t{4294967296ULL}}}, hostile);
+    exec::from_json(nlohmann::json{{"startup_configs", 4}}, hostile);
+    exec::from_json(nlohmann::json{{"startup_configs", 5}}, hostile);
     exec::from_json(nlohmann::json{{"log_level", "chatty"}}, hostile);
     NX_CHECK(hostile.log_level == core::LogLevel::Warning);
 
@@ -589,19 +636,19 @@ void test_manifest_validation() {
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.apps.front().args = {std::string("a\0b", 3)};
+    first_config(bad.apps.front()).args = {std::string("a\0b", 3)};
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.apps.front().env = {{"", "x"}};
+    first_config(bad.apps.front()).env = {{"", "x"}};
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.apps.front().env = {{"A=B", "x"}};
+    first_config(bad.apps.front()).env = {{"A=B", "x"}};
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.apps.front().env = {{"A", std::string("x\0y", 3)}};
+    first_config(bad.apps.front()).env = {{"A", std::string("x\0y", 3)}};
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
@@ -609,7 +656,7 @@ void test_manifest_validation() {
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.apps.front().restart_attempts = 1001;
+    first_config(bad.apps.front()).restart_attempts = 1001;
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
@@ -617,7 +664,7 @@ void test_manifest_validation() {
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.apps.front().stop_grace_s = 86401;
+    first_config(bad.apps.front()).termination_timeout_ms = 86401000;
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
@@ -649,16 +696,59 @@ void test_manifest_validation() {
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.apps.front().restart_delay_s = 86401;
+    first_config(bad.apps.front()).restart_delay_s = 86401;
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.apps.front().env = {{std::string("A\0B", 3), "x"}};
+    first_config(bad.apps.front()).env = {{std::string("A\0B", 3), "x"}};
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     bad = manifest;
-    bad.apps.back().env = {{"C", "d"}};
+    first_config(bad.apps.back()).env = {{"C", "d"}};
     NX_CHECK(exec::validate_suite_manifest(bad).has_value());
+
+    bad = manifest;
+    bad.function_groups.front().initial_state = "Missing";
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().function_group.clear();
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().function_group = "missing";
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().startup_configs.clear();
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    first_config(bad.apps.front()).state = "Off";
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    first_config(bad.apps.front()).state = "Missing";
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().startup_configs.push_back(first_config(bad.apps.front()));
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    first_config(bad.apps.front()).dependencies.push_back({"ghost", exec::ProcessState::Running});
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.back().function_group = "other";
+    bad.function_groups.push_back({"other", {"Off", "Running"}, "Running"});
+    first_config(bad.apps.front()).dependencies.push_back({"beta", exec::ProcessState::Running});
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    first_config(bad.apps.front()).dependencies.push_back({"beta", exec::ProcessState::Running});
+    first_config(bad.apps.back()).dependencies.push_back({"alpha", exec::ProcessState::Running});
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     const std::string path = root + "/manifest.json";
     NX_CHECK(write_manifest(path, manifest));
@@ -828,6 +918,48 @@ void test_start_status_stop() {
     remove_tree(artifacts);
 }
 
+void test_initial_state_selection() {
+    const std::string root = unique_dir("initial_state");
+    const std::string artifacts = unique_dir("initial_state_artifacts");
+    exec::SuiteManifest manifest = base_manifest(root, artifacts);
+    manifest.function_groups.front().initial_state.clear();
+    exec::AppSpec spec =
+        app_spec("initial_app", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
+    first_config(spec).args = {"-c", "exec sleep 60"};
+    manifest.apps.push_back(spec);
+
+    std::string suite_dir;
+    NX_CHECK(exec::start_suite(manifest, suite_dir).has_value());
+    if (file_exists(suite_dir + "/suite.json")) {
+        NX_CHECK(wait_until(
+            [&] {
+                return find_app(read_status(suite_dir), "initial_app").state ==
+                       exec::AppState::Running;
+            },
+            5000));
+        NX_CHECK(exec::stop_suite(suite_dir, 2).has_value());
+    }
+    remove_tree(root);
+    remove_tree(artifacts);
+
+    const std::string off_root = unique_dir("initial_off");
+    const std::string off_artifacts = unique_dir("initial_off_artifacts");
+    exec::SuiteManifest off_manifest = base_manifest(off_root, off_artifacts);
+    off_manifest.function_groups.front().initial_state = "Off";
+    exec::AppSpec off_spec =
+        app_spec("off_app", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
+    first_config(off_spec).args = {"-c", "exec sleep 60"};
+    off_manifest.apps.push_back(off_spec);
+    std::string off_dir;
+    NX_CHECK(exec::start_suite(off_manifest, off_dir).has_value());
+    if (file_exists(off_dir + "/suite.json")) {
+        NX_CHECK(find_app(read_status(off_dir), "off_app").state == exec::AppState::Stopped);
+        NX_CHECK(exec::stop_suite(off_dir, 2).has_value());
+    }
+    remove_tree(off_root);
+    remove_tree(off_artifacts);
+}
+
 void test_suite_edge_paths() {
     exec::SuiteStatus status{};
     NX_CHECK(failed_with(exec::stop_suite(""), core::ErrorCode::InvalidArgument));
@@ -869,7 +1001,7 @@ void test_suite_edge_paths() {
     manifest.suite_id = "stale";
     manifest.apps.push_back(
         app_spec("alpha", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Degrade));
-    manifest.apps.front().args = {"-c", "exec sleep 60"};
+    first_config(manifest.apps.front()).args = {"-c", "exec sleep 60"};
     const std::string stale_dir = root + "/.suite/stale";
     std::filesystem::create_directories(stale_dir, error);
     exec::SuiteMetadata stale{};
@@ -994,9 +1126,9 @@ void test_env_affinity_and_log_level() {
     exec::SuiteManifest manifest = base_manifest(root, artifacts);
     exec::AppSpec spec =
         app_spec("envapp", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    spec.args = {"-c", "echo SUITE_ENV=$SUITE_ENV; "
-                       "echo LEVEL=$NEXIGEN_LOG_LEVEL; exec sleep 60"};
-    spec.env = {{"SUITE_ENV", "visible"}, {"NEXIGEN_LOG_LEVEL", "debug"}};
+    first_config(spec).args = {"-c", "echo SUITE_ENV=$SUITE_ENV; "
+                                     "echo LEVEL=$NEXIGEN_LOG_LEVEL; exec sleep 60"};
+    first_config(spec).env = {{"SUITE_ENV", "visible"}, {"NEXIGEN_LOG_LEVEL", "debug"}};
     spec.cpus = core::CpuSet::from_core_mask(1ULL);
     spec.log_level = core::LogLevel::Error;
     manifest.apps.push_back(spec);
@@ -1071,16 +1203,16 @@ void test_settings_precedence() {
     manifest.global_settings_path = global;
     exec::AppSpec inherited =
         app_spec("inherited", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    inherited.args = {"-c", "exec sleep 60"};
+    first_config(inherited).args = {"-c", "exec sleep 60"};
     inherited.local_settings_path = "local";
     exec::AppSpec overridden =
         app_spec("overridden", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    overridden.args = {"-c", "exec sleep 60"};
+    first_config(overridden).args = {"-c", "exec sleep 60"};
     overridden.local_settings_path = "local";
     overridden.log_level = core::LogLevel::Error;
     exec::AppSpec replaced =
         app_spec("replaced", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    replaced.args = {"-c", "exec sleep 60"};
+    first_config(replaced).args = {"-c", "exec sleep 60"};
     replaced.global_settings_path = app_global;
     manifest.apps.push_back(inherited);
     manifest.apps.push_back(overridden);
@@ -1121,9 +1253,9 @@ void test_not_impact_retries_new_attempts() {
     exec::SuiteManifest manifest = base_manifest(root, artifacts);
     exec::AppSpec spec =
         app_spec("crash", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    spec.args = {"-c", "exit 1"};
-    spec.restart_attempts = 2;
-    spec.restart_delay_s = 0;
+    first_config(spec).args = {"-c", "exit 1"};
+    first_config(spec).restart_attempts = 2;
+    first_config(spec).restart_delay_s = 0;
     manifest.apps.push_back(spec);
 
     std::string suite_dir;
@@ -1164,12 +1296,12 @@ void test_failure_impact_restarts_suite() {
     manifest.suite_restart_delay_s = 0;
     exec::AppSpec crashing =
         app_spec("crashing", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Failure);
-    crashing.args = {"-c", "exit 1"};
-    crashing.restart_attempts = 5;
-    crashing.restart_delay_s = 0;
+    first_config(crashing).args = {"-c", "exit 1"};
+    first_config(crashing).restart_attempts = 5;
+    first_config(crashing).restart_delay_s = 0;
     exec::AppSpec healthy =
         app_spec("healthy", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    healthy.args = {"-c", "exec sleep 60"};
+    first_config(healthy).args = {"-c", "exec sleep 60"};
     manifest.apps.push_back(crashing);
     manifest.apps.push_back(healthy);
 
@@ -1216,10 +1348,10 @@ void test_clean_exit_is_final() {
     exec::SuiteManifest manifest = base_manifest(root, artifacts);
     exec::AppSpec spec =
         app_spec("clean", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    spec.args = {"-c", "exit 0"};
+    first_config(spec).args = {"-c", "exit 0"};
     spec.type = exec::ProcessType::Oneshot;
-    spec.restart_attempts = 3;
-    spec.restart_delay_s = 0;
+    first_config(spec).restart_attempts = 3;
+    first_config(spec).restart_delay_s = 0;
     manifest.apps.push_back(spec);
 
     std::string suite_dir;
@@ -1252,9 +1384,9 @@ void test_daemon_exit_is_unexpected() {
     exec::SuiteManifest manifest = base_manifest(root, artifacts);
     exec::AppSpec spec =
         app_spec("daemon", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    spec.args = {"-c", "exit 0"};
+    first_config(spec).args = {"-c", "exit 0"};
     spec.type = exec::ProcessType::Daemon;
-    spec.restart_attempts = 0;
+    first_config(spec).restart_attempts = 0;
     manifest.apps.push_back(spec);
 
     std::string suite_dir;
@@ -1294,6 +1426,7 @@ void test_execution_state_tracker() {
     NX_CHECK(tracker.state("setup") == exec::AppState::Unknown);
 
     // A daemon reporting Run reaches running but the oneshot still blocks.
+    tracker.on_launch("sensor");
     NX_CHECK(tracker.report_execution_state("sensor", exec::AppState::Running));
     NX_CHECK(tracker.ready("sensor"));
     NX_CHECK(tracker.state("sensor") == exec::AppState::Running);
@@ -1322,6 +1455,7 @@ void test_execution_state_tracker() {
     tracker.on_start("setup");
     NX_CHECK(tracker.state("setup") == exec::AppState::Unknown);
     NX_CHECK(!tracker.run_confirmed());
+    tracker.on_launch("sensor");
     NX_CHECK(tracker.report_execution_state("sensor", exec::AppState::Running));
     NX_CHECK(tracker.on_exit("setup", 0));
     NX_CHECK(tracker.run_confirmed());
@@ -1330,6 +1464,35 @@ void test_execution_state_tracker() {
     tracker.register_process("setup2", exec::ProcessType::Oneshot);
     NX_CHECK(!tracker.on_exit("setup2", 3));
     NX_CHECK(tracker.state("setup2") == exec::AppState::Failed);
+    NX_CHECK(std::format("{}", tracker) == tracker.to_string());
+
+    // Reporting and non-reporting are independent of termination behavior.
+    tracker.register_process("reporting_daemon", exec::ProcessType::Daemon, true);
+    tracker.on_launch("reporting_daemon");
+    NX_CHECK(tracker.process_state("reporting_daemon") == exec::ProcessState::Starting);
+    NX_CHECK(tracker.report_execution_state("reporting_daemon", exec::AppState::Running));
+    NX_CHECK(tracker.process_state("reporting_daemon") == exec::ProcessState::Running);
+
+    tracker.register_process("nonreporting_daemon", exec::ProcessType::Daemon, false);
+    tracker.on_launch("nonreporting_daemon");
+    NX_CHECK(tracker.process_state("nonreporting_daemon") == exec::ProcessState::Running);
+    NX_CHECK(tracker.state("nonreporting_daemon") == exec::AppState::Running);
+    NX_CHECK(!tracker.report_execution_state("nonreporting_daemon", exec::AppState::Running));
+
+    tracker.on_stop("reporting_daemon");
+    NX_CHECK(tracker.process_state("reporting_daemon") == exec::ProcessState::Terminating);
+    tracker.on_reaped("reporting_daemon");
+    NX_CHECK(tracker.process_state("reporting_daemon") == exec::ProcessState::Terminated);
+    NX_CHECK(tracker.state("reporting_daemon") == exec::AppState::Exited);
+    NX_CHECK(!tracker.on_exit("nonreporting_daemon", 0));
+    NX_CHECK(tracker.process_state("nonreporting_daemon") == exec::ProcessState::Terminated);
+
+    exec::StateDependentStartupConfig config;
+    config.state = "Run";
+    tracker.register_process("configured_daemon", exec::ProcessType::Daemon, false, &config, 2);
+    tracker.on_launch("configured_daemon", &config, 2);
+    NX_CHECK(tracker.config("configured_daemon") == &config);
+    NX_CHECK(tracker.attempt("configured_daemon") == 2U);
     NX_CHECK(std::format("{}", tracker) == tracker.to_string());
 }
 
@@ -1377,7 +1540,7 @@ void test_execution_manager_logging_and_affinity() {
     manifest.execution_manager_logger_thread.set_cpus(core::CpuSet::from_core_mask(1ULL << cpu));
     exec::AppSpec spec =
         app_spec("logged", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    spec.args = {"-c", "exec sleep 60"};
+    first_config(spec).args = {"-c", "exec sleep 60"};
     manifest.apps.push_back(spec);
 
     std::string suite_dir;
@@ -1454,7 +1617,7 @@ void test_required_affinity_failure() {
         }
         exec::AppSpec spec_app = app_spec("must_not_start", "1", "/bin/sh",
                                           exec::ImpactOnAppSuiteOperability::Not_impact);
-        spec_app.args = {"-c", "exec sleep 60"};
+        first_config(spec_app).args = {"-c", "exec sleep 60"};
         manifest.apps.push_back(spec_app);
 
         nexigen::core::fault_injection::set_fault_hook(fail_affinity);
@@ -1480,7 +1643,7 @@ void test_invalid_affinity_nonfatal() {
     manifest.execution_manager_logger_thread.set_cpus(invalid_cpu_set());
     exec::AppSpec spec =
         app_spec("bad_pin", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    spec.args = {"-c", "exec sleep 60"};
+    first_config(spec).args = {"-c", "exec sleep 60"};
     manifest.apps.push_back(spec);
 
     std::string suite_dir;
@@ -1521,7 +1684,7 @@ void test_forced_stop() {
     exec::SuiteManifest manifest = base_manifest(root, artifacts);
     exec::AppSpec spec =
         app_spec("forced", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    spec.args = {"-c", "exec sleep 60"};
+    first_config(spec).args = {"-c", "exec sleep 60"};
     manifest.apps.push_back(spec);
 
     std::string suite_dir;
@@ -1564,6 +1727,7 @@ int main() {
     run_suite("enums_serialization", test_enums_and_serialization);
     run_suite("manifest_validation", test_manifest_validation);
     run_suite("start_status_stop", test_start_status_stop);
+    run_suite("initial_state", test_initial_state_selection);
     run_suite("suite_edge_paths", test_suite_edge_paths);
     run_suite("relative_manifest", test_relative_manifest_path);
     run_suite("env_affinity_level", test_env_affinity_and_log_level);

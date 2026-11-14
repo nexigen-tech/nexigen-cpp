@@ -132,6 +132,16 @@ private:
         com::EventListener listener; ///< Bound `Nexigen/EM/State/<app>` listener.
     };
 
+    /// @brief One in-flight Function Group transition.
+    struct GroupTransition {
+        bool active{false};                       ///< Transition currently running.
+        std::string requested{};                  ///< Requested state.
+        std::vector<std::string> target_apps{};   ///< Applications configured for the target.
+        std::vector<std::string> pending_start{}; ///< Applications waiting for dependencies.
+        std::uint64_t deadline_ns{0};             ///< Startup deadline for the current attempt.
+        std::uint32_t attempts{0};                ///< Startup attempts used.
+    };
+
     /// @brief Construct a client from prepared servers and borrowed services.
     ///
     /// @param name Ordinary command service name.
@@ -167,19 +177,63 @@ private:
     /// @return `true` when the whole group switched, `false` on an unknown
     ///         group or a failed process step.
     /// @note Spec `exec/state-client`, requirement "Function Group execution".
-    [[nodiscard]] bool execute(const StateCommand& command) noexcept;
+    [[nodiscard]] StateResult execute(const StateCommand& command) noexcept;
+
+    /// @brief Start or replace one group transition.
+    ///
+    /// @param index Group index.
+    /// @param target Requested state.
+    /// @return Transition result for the new request.
+    [[nodiscard]] StateResult begin_transition(std::size_t index, std::string_view target) noexcept;
+
+    /// @brief Advance an in-flight transition.
+    ///
+    /// @param index Group index.
+    /// @return `InProgress`, `Success`, or a terminal failure.
+    [[nodiscard]] StateResult advance_transition(std::size_t index) noexcept;
+
+    /// @brief Stop applications that are not needed or that change configuration.
+    ///
+    /// @param index Group index.
+    /// @param current Current/in-flight state.
+    /// @param target Requested state.
+    /// @return `Success` or `OperationFailed`.
+    [[nodiscard]] StateResult stop_unneeded(std::size_t index, std::string_view current,
+                                            std::string_view target) noexcept;
+
+    /// @brief Stop one application using the current state's termination timeout.
+    ///
+    /// @param index Group index.
+    /// @param app_name Application name.
+    /// @return `Success` or `OperationFailed`.
+    [[nodiscard]] StateResult stop_app(std::size_t index, std::string_view app_name) noexcept;
+
+    /// @brief Start one application in one state.
+    ///
+    /// @param index Group index.
+    /// @param app_name Application name.
+    /// @param state Target state.
+    /// @return `Success` or `OperationFailed`.
+    [[nodiscard]] StateResult start_app(std::size_t index, std::string_view app_name,
+                                        std::string_view state) noexcept;
+
+    /// @brief Start target applications whose dependencies are satisfied.
+    ///
+    /// @param index Group index.
+    void launch_ready_apps(std::size_t index) noexcept;
 
     /// @brief Stop every application bound to one group.
     ///
     /// @param index Group index.
-    /// @return `true` when every stop succeeded.
-    [[nodiscard]] bool stop_group(std::size_t index) noexcept;
+    /// @return `Success` when every stop succeeded; `OperationFailed` otherwise.
+    [[nodiscard]] StateResult stop_group(std::size_t index) noexcept;
 
-    /// @brief Start every application bound to one group.
+    /// @brief Start every application configured for one state.
     ///
     /// @param index Group index.
-    /// @return `true` when every start succeeded.
-    [[nodiscard]] bool start_group(std::size_t index) noexcept;
+    /// @param state Target state.
+    /// @return `Success` when every start succeeded; `OperationFailed` otherwise.
+    [[nodiscard]] StateResult start_group(std::size_t index, std::string_view state) noexcept;
 
     /// @brief Whether a bound application must not be started again.
     ///
@@ -196,8 +250,8 @@ private:
     /// @return Empty status, or a com error from a listener.
     [[nodiscard]] com::Status poll_state_channels() noexcept;
 
-    /// @brief Poll `exit.json` for pending oneshots and record their result.
-    void poll_oneshot_exits() noexcept;
+    /// @brief Poll `exit.json` for all pending processes and record their result.
+    void poll_process_exits() noexcept;
 
     /// @brief Control instance directory of one application.
     ///
@@ -213,8 +267,9 @@ private:
     app::RunIdentity identity_;                            ///< Run identity for instance paths.
     ExecutionStateTracker* tracker_{nullptr};              ///< Optional readiness tracker.
     std::vector<StateChannel> state_channels_{};           ///< Per-application readiness channels.
-    std::vector<std::string> pending_oneshots_{};          ///< Oneshots awaiting `exit.json`.
-    std::string last_command_{};                           ///< Last handled command diagnostic.
+    std::vector<std::string> pending_exits_{};   ///< Started processes awaiting `exit.json`.
+    std::vector<GroupTransition> transitions_{}; ///< One transition state per group.
+    std::string last_command_{};                 ///< Last handled command diagnostic.
 };
 
 /// @brief Free helper (mandate 9): mirrors the member.

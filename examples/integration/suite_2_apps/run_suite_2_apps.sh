@@ -128,13 +128,22 @@ cat > "${manifest}" <<EOF
   "log_level": "debug",
   "execution_manager_control_thread": { "cpus": [2], "name": "em-ctrl" },
   "execution_manager_logger_thread": { "cpus": [3], "name": "em-log" },
+  "function_groups": [
+    { "name": "demo", "states": ["Off", "Running"], "initial_state": "Running" }
+  ],
   "apps": [
     {
       "app": "receiver",
       "instance": "1",
       "command": "${receiver_bin}",
-      "args": ["--global-settings", "${demo_root}/run/receiver/1/settings"],
-      "env": {"NEXIGEN_RUN_FOREVER": "1"},
+      "function_group": "demo",
+      "startup_configs": [
+        {
+          "state": "Running",
+          "args": ["--global-settings", "${demo_root}/run/receiver/1/settings"],
+          "env": {"NEXIGEN_RUN_FOREVER": "1"}
+        }
+      ],
       "cpus": [8, 9],
       "local_settings_path": "config/receiver",
       "impact_on_app_suite_operability": "not_impact"
@@ -143,11 +152,17 @@ cat > "${manifest}" <<EOF
       "app": "generator",
       "instance": "1",
       "command": "${generator_bin}",
-      "args": ["--global-settings", "${demo_root}/run/generator/1/settings"],
-      "env": {"NEXIGEN_RUN_FOREVER": "1"},
+      "function_group": "demo",
+      "startup_configs": [
+        {
+          "state": "Running",
+          "args": ["--global-settings", "${demo_root}/run/generator/1/settings"],
+          "env": {"NEXIGEN_RUN_FOREVER": "1"},
+          "dependencies": [{ "process": "receiver", "state": "running" }]
+        }
+      ],
       "cpus": [6, 7],
       "local_settings_path": "config/generator",
-      "dependencies": ["receiver"],
       "impact_on_app_suite_operability": "not_impact"
     }
   ]

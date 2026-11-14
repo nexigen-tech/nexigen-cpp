@@ -47,6 +47,7 @@ struct SuiteLaunchPlan {
 ///
 /// @param manifest Suite manifest supplying shared roots and defaults.
 /// @param spec Application entry for this attempt.
+/// @param config State-dependent startup configuration selecting argv/env/timeouts.
 /// @param attempt 1-based attempt number used for the artifact directory.
 /// @param instance_dir Control instance directory.
 /// @return The resolved launch plan.
@@ -56,7 +57,9 @@ struct SuiteLaunchPlan {
 ///       each application".
 /// @note Spec `exec/app-suite`, scenario "Application global path replaces the suite path".
 [[nodiscard]] SuiteLaunchPlan resolve_suite_launch(const SuiteManifest& manifest,
-                                                   const AppSpec& spec, std::uint32_t attempt,
+                                                   const AppSpec& spec,
+                                                   const StateDependentStartupConfig& config,
+                                                   std::uint32_t attempt,
                                                    std::string_view instance_dir);
 
 } // namespace nexigen::exec::detail

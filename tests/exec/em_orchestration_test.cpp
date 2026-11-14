@@ -73,13 +73,18 @@ void test_manifest_fields() {
     exec::SuiteManifest manifest;
     exec::FunctionGroupConfig group;
     group.name = "motion_control";
-    group.states = {"Active", "Off", "SafeState"};
+    group.states = {"Off", "Active", "SafeState"};
+    group.initial_state = "Active";
     manifest.function_groups.push_back(group);
     exec::AppSpec camera;
     camera.app = "camera";
     camera.command = "/bin/camera";
-    camera.dependencies = {"telemetry"};
-    camera.function_groups = {"motion_control"};
+    camera.function_group = "motion_control";
+    exec::StateDependentStartupConfig config;
+    config.state = "Active";
+    config.dependencies.push_back(
+        exec::ExecutionDependency{"telemetry", exec::ProcessState::Running});
+    camera.startup_configs.push_back(config);
     manifest.apps.push_back(camera);
 
     nlohmann::json j;
@@ -89,23 +94,28 @@ void test_manifest_fields() {
     NX_CHECK(back.function_groups.size() == 1U);
     NX_CHECK(back.function_groups[0].name == "motion_control");
     NX_CHECK(back.function_groups[0].states.size() == 3U);
+    NX_CHECK(back.function_groups[0].initial_state == "Active");
     NX_CHECK(back.apps.size() == 1U);
-    NX_CHECK(back.apps[0].dependencies.size() == 1U);
-    NX_CHECK(back.apps[0].dependencies[0] == "telemetry");
-    NX_CHECK(back.apps[0].function_groups.size() == 1U);
-    NX_CHECK(back.apps[0].function_groups[0] == "motion_control");
+    NX_CHECK(back.apps[0].startup_configs.size() == 1U);
+    NX_CHECK(back.apps[0].startup_configs[0].dependencies.size() == 1U);
+    NX_CHECK(back.apps[0].startup_configs[0].dependencies[0].process == "telemetry");
+    NX_CHECK(back.apps[0].function_group == "motion_control");
 }
 
 void test_function_group_registry() {
     exec::SuiteManifest manifest;
     exec::FunctionGroupConfig group;
     group.name = "motion_control";
-    group.states = {"Active", "Off", "SafeState"};
+    group.states = {"Off", "Active", "SafeState"};
+    group.initial_state = "Active";
     manifest.function_groups.push_back(group);
     exec::AppSpec camera;
     camera.app = "camera";
     camera.command = "/bin/camera";
-    camera.function_groups = {"motion_control"};
+    camera.function_group = "motion_control";
+    exec::StateDependentStartupConfig config;
+    config.state = "Active";
+    camera.startup_configs.push_back(config);
     manifest.apps.push_back(camera);
     exec::AppSpec unrelated;
     unrelated.app = "infotainment";
@@ -115,9 +125,11 @@ void test_function_group_registry() {
     exec::FunctionGroupRegistry registry(manifest);
     NX_CHECK(registry.group_count() == 1U);
     NX_CHECK(registry.group_name(0) == "motion_control");
-    NX_CHECK(registry.group_state(0) == "Active");
+    NX_CHECK(registry.group_state(0) == "Off");
     NX_CHECK(registry.bound_apps(0).size() == 1U);
     NX_CHECK(registry.bound_apps(0)[0] == "camera");
+    NX_CHECK(registry.apps_in_state(0, "Active").size() == 1U);
+    NX_CHECK(registry.apps_in_state(0, "Off").empty());
     NX_CHECK(registry.command_of("camera") == "/bin/camera");
     NX_CHECK(registry.command_of("infotainment") == "/bin/info");
     NX_CHECK(registry.find_group("motion_control") == 0U);

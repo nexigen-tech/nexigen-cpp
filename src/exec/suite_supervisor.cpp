@@ -3,6 +3,7 @@
 //
 // COLD PATH ONLY. The suite supervisor launches one per-instance supervisor
 // per application, polls instance files, and applies restart/impact policy.
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <format>
@@ -63,6 +64,35 @@ struct RuntimeSuite {
     bool dirty{false};
 };
 
+[[nodiscard]] std::string initial_state_for_group(const SuiteManifest& manifest,
+                                                  std::string_view group_name) {
+    for (const FunctionGroupConfig& group : manifest.function_groups) {
+        if (group.name != group_name) {
+            continue;
+        }
+        if (!group.initial_state.empty()) {
+            return group.initial_state;
+        }
+        for (const std::string& state : group.states) {
+            if (state != "Off") {
+                return state;
+            }
+        }
+        return "Off";
+    }
+    return "Off";
+}
+
+[[nodiscard]] const StateDependentStartupConfig& active_config(const RuntimeApp& app) noexcept {
+    const StateDependentStartupConfig* config = find_startup_config(app.spec, app.active_state);
+    return config == nullptr ? app.spec.startup_configs.front() : *config;
+}
+
+[[nodiscard]] std::uint64_t
+termination_grace_s(const StateDependentStartupConfig& config) noexcept {
+    return (config.termination_timeout_ms + 999U) / 1000U;
+}
+
 void reap_supervisors() noexcept {
     int status = 0;
     while (::waitpid(-1, &status, WNOHANG) > 0) {}
@@ -111,13 +141,53 @@ void write_suite_exit(RuntimeSuite& suite, SuiteState state, std::string_view re
     write_suite_status(suite);
 }
 
-void stop_all(RuntimeSuite& suite) {
-    for (RuntimeApp& app : suite.apps) {
-        if (app.state == AppState::Running || app.state == AppState::Restarting ||
-            app.child_pid > 0 || app.supervisor_pid > 0) {
-            static_cast<void>(app.stop(app.spec.stop_grace_s));
+[[nodiscard]] const RuntimeApp* find_runtime_app(const RuntimeSuite& suite,
+                                                 std::string_view name) noexcept {
+    for (const RuntimeApp& app : suite.apps) {
+        if (app.spec.app == name) {
+            return &app;
         }
-        const std::int32_t pgid = app.child_pid;
+    }
+    return nullptr;
+}
+
+void collect_stop_order(const RuntimeSuite& suite, const RuntimeApp& app,
+                        std::vector<std::string>& visited, std::vector<std::string>& order) {
+    if (std::find(visited.begin(), visited.end(), app.spec.app) != visited.end()) {
+        return;
+    }
+    visited.push_back(app.spec.app);
+    for (const ExecutionDependency& dependency : active_config(app).dependencies) {
+        if (const RuntimeApp* target = find_runtime_app(suite, dependency.process);
+            target != nullptr) {
+            collect_stop_order(suite, *target, visited, order);
+        }
+    }
+    order.push_back(app.spec.app);
+}
+
+void stop_all(RuntimeSuite& suite) {
+    std::vector<std::string> visited;
+    std::vector<std::string> order;
+    for (const RuntimeApp& app : suite.apps) {
+        collect_stop_order(suite, app, visited, order);
+    }
+    for (auto it = order.rbegin(); it != order.rend(); ++it) {
+        RuntimeApp* app = nullptr;
+        for (RuntimeApp& candidate : suite.apps) {
+            if (candidate.spec.app == *it) {
+                app = &candidate;
+                break;
+            }
+        }
+        if (app == nullptr) {
+            continue;
+        }
+        if (app->state == AppState::Running || app->state == AppState::Restarting ||
+            app->child_pid > 0 || app->supervisor_pid > 0) {
+            static_cast<void>(app->stop(termination_grace_s(active_config(*app))));
+        }
+        const std::int32_t pgid = app->child_pid;
         if (pgid > 0 && group_alive(pgid)) {
             static_cast<void>(::kill(-static_cast<pid_t>(pgid), SIGKILL));
         }
@@ -127,8 +197,8 @@ void stop_all(RuntimeSuite& suite) {
 
 [[nodiscard]] bool launch_app(RuntimeSuite& suite, RuntimeApp& app) {
     ++app.attempt;
-    const SuiteLaunchPlan plan =
-        resolve_suite_launch(*suite.manifest, app.spec, app.attempt, app.instance_dir);
+    const SuiteLaunchPlan plan = resolve_suite_launch(*suite.manifest, app.spec, active_config(app),
+                                                      app.attempt, app.instance_dir);
     app.artifact_dir = plan.artifact_dir;
 
     const core::Status started = app.launch(plan.identity, plan.command, plan.options);
@@ -136,17 +206,17 @@ void stop_all(RuntimeSuite& suite) {
 }
 
 void schedule_retry_or_fail(RuntimeSuite& suite, RuntimeApp& app) {
-    if (app.restarts_used < app.spec.restart_attempts) {
+    const StateDependentStartupConfig& config = active_config(app);
+    if (app.restarts_used < config.restart_attempts) {
         ++app.restarts_used;
         app.state = AppState::Restarting;
-        app.next_restart_ns =
-            monotonic_now_ns() + app.spec.restart_delay_s * nanoseconds_per_second;
+        app.next_restart_ns = monotonic_now_ns() + config.restart_delay_s * nanoseconds_per_second;
         log_execution_manager(core::LogLevel::Info,
                               std::format("event=retry_scheduled app={} instance={} "
                                           "attempt={} impact={} delay_s={}",
                                           app.spec.app, app.spec.instance, app.attempt,
                                           nexigen::exec::to_string(app.spec.impact),
-                                          app.spec.restart_delay_s));
+                                          config.restart_delay_s));
     } else {
         app.state = AppState::Failed;
         if (app.spec.impact == ImpactOnAppSuiteOperability::Degrade) {
@@ -227,46 +297,68 @@ void handle_abnormal(RuntimeSuite& suite, RuntimeApp& app) {
     return nullptr;
 }
 
-/// All declared dependencies are Running; an unknown dependency is never
-/// ready (the dependent fails visibly instead of launching blind).
+[[nodiscard]] bool dependency_satisfied(const RuntimeApp& dependency,
+                                        ProcessState required) noexcept {
+    if (required == ProcessState::Terminated) {
+        return dependency.state == AppState::Exited;
+    }
+    return dependency.state == AppState::Running;
+}
+
+/// All declared dependencies have reached their required state; an unknown
+/// dependency is never ready (the dependent fails visibly instead of launching
+/// blind).
 [[nodiscard]] bool dependencies_ready(const RuntimeSuite& suite, const RuntimeApp& app) noexcept {
-    for (const std::string& dependency : app.spec.dependencies) {
-        const RuntimeApp* dep = find_app_by_name(suite, dependency);
-        if (dep == nullptr || dep->state != AppState::Running) {
+    for (const ExecutionDependency& dependency : active_config(app).dependencies) {
+        const RuntimeApp* dep = find_app_by_name(suite, dependency.process);
+        if (dep == nullptr || !dependency_satisfied(*dep, dependency.state)) {
             return false;
         }
     }
     return true;
 }
 
-/// A dependency that failed or exited can never report Running.
+/// A dependency that failed or exited can never satisfy a Running dependency.
 [[nodiscard]] bool dependency_failed(const RuntimeSuite& suite, const RuntimeApp& app) noexcept {
-    for (const std::string& dependency : app.spec.dependencies) {
-        const RuntimeApp* dep = find_app_by_name(suite, dependency);
-        if (dep != nullptr && (dep->state == AppState::Failed || dep->state == AppState::Exited)) {
+    for (const ExecutionDependency& dependency : active_config(app).dependencies) {
+        const RuntimeApp* dep = find_app_by_name(suite, dependency.process);
+        if (dep == nullptr) {
+            continue;
+        }
+        if (dep->state == AppState::Failed ||
+            (dep->state == AppState::Exited && dependency.state == ProcessState::Running)) {
             return true;
         }
     }
     return false;
 }
 
-/// The longest configured startup timeout among the dependencies (0 = unset).
+/// The longest configured dependency startup timeout (0 = unset).
 [[nodiscard]] std::uint64_t max_dependency_startup_ns(const RuntimeSuite& suite,
                                                       const RuntimeApp& app) noexcept {
-    std::uint64_t max_s = 0;
-    for (const std::string& dependency : app.spec.dependencies) {
-        const RuntimeApp* dep = find_app_by_name(suite, dependency);
-        if (dep != nullptr && dep->spec.idle_timeout_s > max_s) {
-            max_s = dep->spec.idle_timeout_s;
+    std::uint64_t max_ms = 0;
+    for (const ExecutionDependency& dependency : active_config(app).dependencies) {
+        const RuntimeApp* dep = find_app_by_name(suite, dependency.process);
+        if (dep != nullptr) {
+            const auto& config = active_config(*dep);
+            if (config.startup_timeout_ms > max_ms) {
+                max_ms = config.startup_timeout_ms;
+            }
         }
     }
-    return max_s * nanoseconds_per_second;
+    return max_ms * 1'000'000U; // milliseconds to nanoseconds.
 }
 
 void launch_all(RuntimeSuite& suite) {
     const std::uint64_t now = monotonic_now_ns();
     for (RuntimeApp& app : suite.apps) {
-        if (!app.spec.dependencies.empty() && !dependencies_ready(suite, app)) {
+        app.active_state = initial_state_for_group(*suite.manifest, app.spec.function_group);
+        if (find_startup_config(app.spec, app.active_state) == nullptr) {
+            app.state = AppState::Stopped;
+            suite.dirty = true;
+            continue;
+        }
+        if (!active_config(app).dependencies.empty() && !dependencies_ready(suite, app)) {
             // Dependency gating (REQ_EM_001): wait until every dependency
             // reports Running.
             app.dependencies_pending = true;

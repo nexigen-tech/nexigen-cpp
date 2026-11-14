@@ -9,6 +9,7 @@
 #include <string>
 
 #include <nexigen/com/concepts/message_concept.hpp>
+#include <nexigen/exec/state_result.hpp>
 
 namespace nexigen::exec {
 
@@ -22,13 +23,15 @@ namespace nexigen::exec {
 /// @note Spec `exec/state-client`, requirement "StateClient command reception".
 /// @note Spec `exec/state-client`, requirement "Function Group execution".
 struct StateAck {
-    std::uint32_t accepted{0}; ///< 1 = the EM applied the switch, 0 = rejected.
+    std::uint32_t accepted{0}; ///< 1 = the request was accepted, 0 = rejected.
+    StateResult result{StateResult::InvalidArgument}; ///< Transition outcome.
 
     /// @brief Cold-path diagnostic (mandate 9).
     ///
-    /// @return `StateAck(accepted=<0|1>)`.
+    /// @return `StateAck(accepted=<0|1>, result=<name>)`.
     [[nodiscard]] std::string to_string() const {
-        return std::format("StateAck(accepted={})", accepted);
+        return std::format("StateAck(accepted={}, result={})", accepted,
+                           nexigen::exec::to_string(result));
     }
 };
 

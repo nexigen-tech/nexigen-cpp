@@ -11,14 +11,22 @@ FunctionGroupRegistry::FunctionGroupRegistry(const SuiteManifest& manifest) : ma
     for (std::size_t i = 0; i < manifest.function_groups.size(); ++i) {
         GroupRuntime runtime;
         runtime.state_index = 0U; // first declared state
+        runtime.apps_by_state.resize(manifest.function_groups[i].states.size());
         groups_.push_back(std::move(runtime));
     }
-    // Bind every application to the groups it declares.
+    // Bind every application to the states of its single Function Group.
     for (const AppSpec& app : manifest.apps) {
-        for (const std::string& group_name : app.function_groups) {
-            const std::size_t index = find_group(group_name);
-            if (index != static_cast<std::size_t>(-1)) {
-                groups_[index].app_names.push_back(app.app);
+        const std::size_t index = find_group(app.function_group);
+        if (index == static_cast<std::size_t>(-1)) {
+            continue;
+        }
+        groups_[index].app_names.push_back(app.app);
+        for (const StateDependentStartupConfig& config : app.startup_configs) {
+            for (std::size_t state_index = 0;
+                 state_index < manifest.function_groups[index].states.size(); ++state_index) {
+                if (manifest.function_groups[index].states[state_index] == config.state) {
+                    groups_[index].apps_by_state[state_index].push_back(app.app);
+                }
             }
         }
     }
@@ -33,15 +41,87 @@ std::string_view FunctionGroupRegistry::group_name(std::size_t index) const noex
 }
 
 std::string_view FunctionGroupRegistry::group_state(std::size_t index) const noexcept {
+    if (groups_[index].undefined) {
+        return "Undefined";
+    }
     const FunctionGroupConfig& group = manifest_->function_groups[index];
     const std::size_t state_index = groups_[index].state_index;
     return state_index < group.states.size() ? std::string_view(group.states[state_index])
                                              : std::string_view{};
 }
 
+bool FunctionGroupRegistry::has_state(std::size_t index, std::string_view state) const noexcept {
+    for (const std::string& candidate : manifest_->function_groups[index].states) {
+        if (candidate == state) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void FunctionGroupRegistry::set_undefined(std::size_t index) noexcept {
+    groups_[index].undefined = true;
+}
+
 const std::vector<std::string>&
 FunctionGroupRegistry::bound_apps(std::size_t index) const noexcept {
     return groups_[index].app_names;
+}
+
+const std::vector<std::string>&
+FunctionGroupRegistry::apps_in_state(std::size_t index, std::string_view state) const noexcept {
+    const FunctionGroupConfig& group = manifest_->function_groups[index];
+    for (std::size_t state_index = 0; state_index < group.states.size(); ++state_index) {
+        if (group.states[state_index] == state) {
+            return groups_[index].apps_by_state[state_index];
+        }
+    }
+    static const std::vector<std::string> empty;
+    return empty;
+}
+
+const StateDependentStartupConfig*
+FunctionGroupRegistry::config_of(std::string_view app_name, std::string_view state) const noexcept {
+    for (const AppSpec& app : manifest_->apps) {
+        if (app.app != app_name) {
+            continue;
+        }
+        for (const StateDependentStartupConfig& config : app.startup_configs) {
+            if (config.state == state) {
+                return &config;
+            }
+        }
+        return nullptr;
+    }
+    return nullptr;
+}
+
+std::vector<std::string> FunctionGroupRegistry::command_vector(std::string_view app_name,
+                                                               std::string_view state) const {
+    std::vector<std::string> command;
+    const StateDependentStartupConfig* config = config_of(app_name, state);
+    for (const AppSpec& app : manifest_->apps) {
+        if (app.app == app_name) {
+            command.reserve((config == nullptr ? 0U : config->args.size()) + 1U);
+            command.push_back(app.command);
+            if (config != nullptr) {
+                for (const std::string& argument : config->args) {
+                    command.push_back(argument);
+                }
+            }
+            break;
+        }
+    }
+    return command;
+}
+
+bool FunctionGroupRegistry::reporting_of(std::string_view app_name) const noexcept {
+    for (const AppSpec& app : manifest_->apps) {
+        if (app.app == app_name) {
+            return app.reporting;
+        }
+    }
+    return true;
 }
 
 std::string_view FunctionGroupRegistry::command_of(std::string_view app_name) const noexcept {
@@ -76,6 +156,7 @@ void FunctionGroupRegistry::set_state(std::size_t index, std::string_view state)
     for (std::size_t i = 0; i < group.states.size(); ++i) {
         if (group.states[i] == state) {
             groups_[index].state_index = i;
+            groups_[index].undefined = false;
             return;
         }
     }

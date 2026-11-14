@@ -19,11 +19,12 @@ namespace nexigen::exec::detail {
 
 namespace {
 
-[[nodiscard]] std::vector<std::string> command_vector(const AppSpec& spec) {
+[[nodiscard]] std::vector<std::string> command_vector(const AppSpec& spec,
+                                                      const StateDependentStartupConfig& config) {
     std::vector<std::string> command;
-    command.reserve(spec.args.size() + 1);
+    command.reserve(config.args.size() + 1);
     command.push_back(spec.command);
-    for (const std::string& argument : spec.args) {
+    for (const std::string& argument : config.args) {
         command.push_back(argument);
     }
     return command;
@@ -32,6 +33,7 @@ namespace {
 } // namespace
 
 SuiteLaunchPlan resolve_suite_launch(const SuiteManifest& manifest, const AppSpec& spec,
+                                     const StateDependentStartupConfig& config,
                                      std::uint32_t attempt, std::string_view instance_dir) {
     SuiteLaunchPlan plan{};
     plan.artifact_dir = attempt_dir_path(manifest.artifacts_path, manifest.suite_id, spec.app,
@@ -46,12 +48,12 @@ SuiteLaunchPlan resolve_suite_launch(const SuiteManifest& manifest, const AppSpe
             join_path(directory_of(manifest.manifest_path), spec.local_settings_path);
     }
     plan.options.log_level = spec.log_level.has_value() ? spec.log_level : manifest.log_level;
-    plan.options.env = spec.env;
+    plan.options.env = config.env;
     plan.options.cpus = spec.cpus;
 
     plan.identity = app::RunIdentity{manifest.run_id, manifest.run_dir, spec.instance,
                                      std::string(instance_dir)};
-    plan.command = command_vector(spec);
+    plan.command = command_vector(spec, config);
     return plan;
 }
 

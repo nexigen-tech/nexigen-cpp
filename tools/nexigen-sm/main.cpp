@@ -215,6 +215,21 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
             std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started).count());
         if (ack.has_value()) {
             metrics.last_transition_duration_us.store(elapsed_us, std::memory_order_relaxed);
+            if (ack->result == nexigen::exec::StateResult::InProgress) {
+                // The EM accepted the request but is still waiting for
+                // readiness/completion; retry while the transition is alive.
+                pending[i].deadline = Clock::now() + std::chrono::milliseconds(50);
+                ++i;
+                continue;
+            }
+            if (ack->result != nexigen::exec::StateResult::Success) {
+                metrics.transition_timeouts_total.fetch_add(1, std::memory_order_relaxed);
+                if (manager.has_state(index, "SafeState")) {
+                    manager.force_state(index, "SafeState");
+                } else if (manager.has_state(index, "Off")) {
+                    manager.force_state(index, "Off");
+                }
+            }
         } else {
             // Transition watchdog (REQ_SM_014): force the stalled group into
             // SafeState or Off instead of staying in an intermediate state.

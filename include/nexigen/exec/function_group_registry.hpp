@@ -62,12 +62,63 @@ public:
     /// @warning Passing an out-of-range index is undefined behavior.
     [[nodiscard]] std::string_view group_state(std::size_t index) const noexcept;
 
+    /// @brief Whether one group declares a state.
+    ///
+    /// @param index Group index; must be below `group_count()`.
+    /// @param state State name.
+    /// @return `true` when the state is in the group's vocabulary.
+    /// @warning Passing an out-of-range index is undefined behavior.
+    [[nodiscard]] bool has_state(std::size_t index, std::string_view state) const noexcept;
+
+    /// @brief Mark a group's current state as `Undefined`.
+    ///
+    /// The group stays in `Undefined` until a subsequent successful transition
+    /// selects a declared state.
+    ///
+    /// @param index Group index; must be below `group_count()`.
+    /// @note Spec `exec/function-group-state`, requirement "Failed transition
+    ///       leaves the group Undefined".
+    /// @warning Passing an out-of-range index is undefined behavior.
+    void set_undefined(std::size_t index) noexcept;
+
     /// @brief The applications bound to one group.
     ///
     /// @param index Group index; must be below `group_count()`.
     /// @return The bound names in manifest order.
     /// @warning Passing an out-of-range index is undefined behavior.
     [[nodiscard]] const std::vector<std::string>& bound_apps(std::size_t index) const noexcept;
+
+    /// @brief The applications whose configuration selects one state.
+    ///
+    /// @param index Group index; must be below `group_count()`.
+    /// @param state State name.
+    /// @return The applications configured for that state, or an empty vector.
+    /// @warning Passing an out-of-range index is undefined behavior.
+    [[nodiscard]] const std::vector<std::string>&
+    apps_in_state(std::size_t index, std::string_view state) const noexcept;
+
+    /// @brief The startup configuration of one application for one state.
+    ///
+    /// @param app_name Application name.
+    /// @param state State name.
+    /// @return The configuration, or `nullptr` when absent.
+    [[nodiscard]] const StateDependentStartupConfig*
+    config_of(std::string_view app_name, std::string_view state) const noexcept;
+
+    /// @brief Full argv of one application in one state.
+    ///
+    /// @param app_name Application name.
+    /// @param state State name.
+    /// @return Executable first, then the configured arguments; empty for an
+    ///         unknown application.
+    [[nodiscard]] std::vector<std::string> command_vector(std::string_view app_name,
+                                                          std::string_view state) const;
+
+    /// @brief Whether an application reports readiness.
+    ///
+    /// @param app_name Application name.
+    /// @return The manifest reporting flag; `true` for an unknown application.
+    [[nodiscard]] bool reporting_of(std::string_view app_name) const noexcept;
 
     /// @brief The launch command of one bound application.
     ///
@@ -120,8 +171,10 @@ public:
 private:
     /// @brief Per-group runtime record: bound applications and current state.
     struct GroupRuntime {
-        std::vector<std::string> app_names{}; ///< Applications bound to the group.
-        std::size_t state_index{0};           ///< Index into the group's state list.
+        std::vector<std::string> app_names{}; ///< Applications bound to the group (union).
+        std::vector<std::vector<std::string>> apps_by_state{}; ///< State -> applications.
+        std::size_t state_index{0}; ///< Index into the group's state list.
+        bool undefined{false};      ///< Current state is Undefined.
     };
 
     const SuiteManifest* manifest_{nullptr}; ///< Borrowed source manifest.

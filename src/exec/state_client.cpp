@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cstdint>
 
+#include <nexigen/exec/detail/sys_helpers.hpp>
+#include <nexigen/exec/execution_manager_logging.hpp>
 #include <nexigen/exec/exit_metadata.hpp>
 #include <nexigen/exec/instance_file_io.hpp>
 
@@ -24,6 +26,54 @@ namespace {
         }
     }
     return names;
+}
+
+[[nodiscard]] bool configs_equal(const StateDependentStartupConfig* left,
+                                 const StateDependentStartupConfig* right) noexcept {
+    if (left == right) {
+        return true;
+    }
+    if (left == nullptr || right == nullptr) {
+        return false;
+    }
+    return left->args == right->args && left->env == right->env &&
+           left->startup_timeout_ms == right->startup_timeout_ms &&
+           left->termination_timeout_ms == right->termination_timeout_ms &&
+           left->restart_attempts == right->restart_attempts &&
+           left->restart_delay_s == right->restart_delay_s;
+}
+
+void collect_termination_order(const FunctionGroupRegistry& registry,
+                               const std::vector<std::string>& bound, std::string_view state,
+                               std::string_view app, std::vector<std::string>& visited,
+                               std::vector<std::string>& order) {
+    if (std::find(visited.begin(), visited.end(), app) != visited.end()) {
+        return;
+    }
+    visited.emplace_back(app);
+    if (const StateDependentStartupConfig* config = registry.config_of(app, state);
+        config != nullptr) {
+        for (const ExecutionDependency& dependency : config->dependencies) {
+            if (std::find(bound.begin(), bound.end(), dependency.process) != bound.end()) {
+                collect_termination_order(registry, bound, state, dependency.process, visited,
+                                          order);
+            }
+        }
+    }
+    order.emplace_back(app);
+}
+
+[[nodiscard]] std::uint64_t max_startup_timeout_ms(const FunctionGroupRegistry& registry,
+                                                   const std::vector<std::string>& apps,
+                                                   std::string_view state) noexcept {
+    std::uint64_t max_ms = 0;
+    for (const std::string& app : apps) {
+        if (const StateDependentStartupConfig* config = registry.config_of(app, state);
+            config != nullptr && config->startup_timeout_ms > max_ms) {
+            max_ms = config->startup_timeout_ms;
+        }
+    }
+    return max_ms == 0U ? 5000U : max_ms;
 }
 
 } // namespace
@@ -64,7 +114,7 @@ com::Result<StateClient> StateClient::create(com::Node& node, const com::Service
         }
         // Register after the listener exists so an early activation is queued
         // and drained against a known record, not dropped.
-        tracker->register_process(app, registry.type_of(app));
+        tracker->register_process(app, registry.type_of(app), registry.reporting_of(app));
         channels.push_back(StateChannel{app, std::move(*listener)});
     }
     return StateClient{name,      std::move(*server), std::move(*emergency_server),
@@ -80,7 +130,11 @@ StateClient::StateClient(com::ServiceName name, com::Server<StateCommand, StateA
     : service_name_(std::move(name)), server_(std::move(server)),
       emergency_server_(std::move(emergency_server)), registry_(registry), manager_(manager),
       identity_(std::move(identity)), tracker_(tracker),
-      state_channels_(std::move(state_channels)) {}
+      state_channels_(std::move(state_channels)) {
+    if (registry_ != nullptr) {
+        transitions_.resize(registry_->group_count());
+    }
+}
 
 com::Result<bool> StateClient::serve_once() noexcept {
     // Readiness/completion first: the tracker must see the state channel
@@ -109,29 +163,52 @@ com::Result<bool> StateClient::serve_from(com::Server<StateCommand, StateAck>& s
         return false;
     }
     const StateCommand& command = (*received)->payload();
-    const std::uint32_t accepted = execute(command) ? 1U : 0U;
+    const StateResult result = execute(command);
+    const bool accepted = result == StateResult::Success || result == StateResult::InProgress;
     last_command_ = command.to_string();
-    auto sent = (*received)->send_copy(StateAck{accepted});
+    auto sent = (*received)->send_copy(StateAck{accepted ? 1U : 0U, result});
     if (!sent) {
         return std::unexpected(sent.error());
     }
     return true;
 }
 
-bool StateClient::stop_group(std::size_t index) noexcept {
-    for (const std::string& app_name : registry_->bound_apps(index)) {
-        const core::Status step = manager_->stop(instance_dir_for(app_name));
-        if (!step) {
-            return false;
-        }
-        if (tracker_ != nullptr) {
-            tracker_->on_stop(app_name);
-        }
-        pending_oneshots_.erase(
-            std::remove(pending_oneshots_.begin(), pending_oneshots_.end(), app_name),
-            pending_oneshots_.end());
+StateResult StateClient::stop_app(std::size_t index, std::string_view app_name) noexcept {
+    const std::string current(registry_->group_state(index));
+    std::uint64_t grace_s = 5;
+    if (const StateDependentStartupConfig* config = registry_->config_of(app_name, current);
+        config != nullptr) {
+        grace_s = (config->termination_timeout_ms + 999U) / 1000U;
     }
-    return true;
+    pending_exits_.erase(std::remove(pending_exits_.begin(), pending_exits_.end(), app_name),
+                         pending_exits_.end());
+    if (tracker_ != nullptr) {
+        tracker_->on_stop(app_name);
+    }
+    const core::Status step = manager_->stop(instance_dir_for(app_name), grace_s);
+    if (!step) {
+        return StateResult::OperationFailed;
+    }
+    if (tracker_ != nullptr) {
+        tracker_->on_reaped(app_name);
+    }
+    return StateResult::Success;
+}
+
+StateResult StateClient::stop_group(std::size_t index) noexcept {
+    const std::vector<std::string>& bound = registry_->bound_apps(index);
+    const std::string current(registry_->group_state(index));
+    std::vector<std::string> visited;
+    std::vector<std::string> order;
+    for (const std::string& app_name : bound) {
+        collect_termination_order(*registry_, bound, current, app_name, visited, order);
+    }
+    for (auto it = order.rbegin(); it != order.rend(); ++it) {
+        if (const StateResult step = stop_app(index, *it); step != StateResult::Success) {
+            return step;
+        }
+    }
+    return StateResult::Success;
 }
 
 bool StateClient::should_skip_start(std::string_view app_name) const noexcept {
@@ -142,58 +219,217 @@ bool StateClient::should_skip_start(std::string_view app_name) const noexcept {
         tracker_->state(app_name) == AppState::Failed) {
         return true;
     }
-    return std::find(pending_oneshots_.begin(), pending_oneshots_.end(), app_name) !=
-           pending_oneshots_.end();
+    return std::find(pending_exits_.begin(), pending_exits_.end(), app_name) !=
+           pending_exits_.end();
 }
 
-bool StateClient::start_group(std::size_t index) noexcept {
-    for (const std::string& app_name : registry_->bound_apps(index)) {
-        if (tracker_ != nullptr) {
-            tracker_->register_process(app_name, registry_->type_of(app_name));
+StateResult StateClient::start_app(std::size_t index, std::string_view app_name,
+                                   std::string_view state) noexcept {
+    const StateDependentStartupConfig* config = registry_->config_of(app_name, state);
+    if (tracker_ != nullptr) {
+        tracker_->register_process(app_name, registry_->type_of(app_name),
+                                   registry_->reporting_of(app_name), config, 1);
+    }
+    if (should_skip_start(app_name)) {
+        return StateResult::Success;
+    }
+    std::vector<std::string> command = registry_->command_vector(app_name, state);
+    if (command.empty()) {
+        command.emplace_back(app_name);
+    }
+    if (tracker_ != nullptr) {
+        tracker_->on_launch(app_name, config, 1);
+    }
+    const core::Status step = manager_->start(identity_, app_name, command);
+    if (!step) {
+        pending_exits_.erase(std::remove(pending_exits_.begin(), pending_exits_.end(), app_name),
+                             pending_exits_.end());
+        return StateResult::OperationFailed;
+    }
+    if (tracker_ != nullptr &&
+        std::find(pending_exits_.begin(), pending_exits_.end(), app_name) == pending_exits_.end()) {
+        pending_exits_.push_back(std::string(app_name));
+    }
+    (void)index;
+    return StateResult::Success;
+}
+
+StateResult StateClient::start_group(std::size_t index, std::string_view state) noexcept {
+    for (const std::string& app_name : registry_->apps_in_state(index, state)) {
+        if (const StateResult step = start_app(index, app_name, state);
+            step != StateResult::Success) {
+            return step;
         }
-        if (should_skip_start(app_name)) {
+    }
+    return StateResult::Success;
+}
+
+void StateClient::launch_ready_apps(std::size_t index) noexcept {
+    GroupTransition& transition = transitions_[index];
+    for (auto it = transition.pending_start.begin(); it != transition.pending_start.end();) {
+        bool ready = true;
+        if (tracker_ != nullptr) {
+            const StateDependentStartupConfig* config =
+                registry_->config_of(*it, transition.requested);
+            if (config != nullptr) {
+                for (const ExecutionDependency& dependency : config->dependencies) {
+                    if (tracker_->process_state(dependency.process) != dependency.state) {
+                        ready = false;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!ready) {
+            ++it;
             continue;
         }
-        const std::string_view command_binary = registry_->command_of(app_name);
-        const std::string binary = command_binary.empty() ? app_name : std::string(command_binary);
-        if (tracker_ != nullptr) {
-            tracker_->on_start(app_name);
+        if (start_app(index, *it, transition.requested) != StateResult::Success) {
+            return;
         }
-        const core::Status step =
-            manager_->start(identity_, app_name, std::vector<std::string>{binary});
-        if (!step) {
-            pending_oneshots_.erase(
-                std::remove(pending_oneshots_.begin(), pending_oneshots_.end(), app_name),
-                pending_oneshots_.end());
-            return false;
-        }
-        if (tracker_ != nullptr && registry_->type_of(app_name) == ProcessType::Oneshot &&
-            std::find(pending_oneshots_.begin(), pending_oneshots_.end(), app_name) ==
-                pending_oneshots_.end()) {
-            pending_oneshots_.push_back(app_name);
-        }
+        it = transition.pending_start.erase(it);
     }
-    return true;
 }
 
-bool StateClient::execute(const StateCommand& command) noexcept {
+StateResult StateClient::stop_unneeded(std::size_t index, std::string_view current,
+                                       std::string_view target) noexcept {
+    std::vector<std::string> current_apps = registry_->apps_in_state(index, current);
+    if (current == "Undefined" || current.empty()) {
+        current_apps = registry_->bound_apps(index);
+    }
+    const std::vector<std::string>& target_apps = registry_->apps_in_state(index, target);
+    for (const std::string& app_name : current_apps) {
+        const bool needed =
+            std::find(target_apps.begin(), target_apps.end(), app_name) != target_apps.end();
+        const bool changed = !configs_equal(registry_->config_of(app_name, current),
+                                            registry_->config_of(app_name, target));
+        if ((!needed || changed) && stop_app(index, app_name) != StateResult::Success) {
+            return StateResult::OperationFailed;
+        }
+    }
+    return StateResult::Success;
+}
+
+StateResult StateClient::begin_transition(std::size_t index, std::string_view target) noexcept {
+    GroupTransition& transition = transitions_[index];
+    std::string current;
+    if (transition.active) {
+        if (transition.requested == target) {
+            return advance_transition(index);
+        }
+        log_execution_manager(core::LogLevel::Info,
+                              std::format("event=transition_canceled group={} from={} to={}",
+                                          registry_->group_name(index), transition.requested,
+                                          target));
+        current = transition.requested;
+        transition = GroupTransition{}; // A newer request replaces the old one.
+    } else {
+        current = std::string(registry_->group_state(index));
+    }
+    if (current == target) {
+        return StateResult::Success;
+    }
+    if (!registry_->has_state(index, target)) {
+        return StateResult::InvalidTransition;
+    }
+    if (FunctionGroupRegistry::is_off_target(target)) {
+        if (const StateResult stopped = stop_group(index); stopped != StateResult::Success) {
+            return stopped;
+        }
+        registry_->set_state(index, target);
+        return StateResult::Success;
+    }
+    const std::vector<std::string>& target_apps = registry_->apps_in_state(index, target);
+    if (const StateResult stopped = stop_unneeded(index, current, target);
+        stopped != StateResult::Success) {
+        return stopped;
+    }
+    transition.active = true;
+    transition.requested = std::string(target);
+    transition.target_apps = target_apps;
+    transition.pending_start = target_apps;
+    transition.attempts = 1;
+    transition.deadline_ns = detail::monotonic_now_ns() +
+                             max_startup_timeout_ms(*registry_, target_apps, target) * 1'000'000ULL;
+    launch_ready_apps(index);
+    if (tracker_ != nullptr &&
+        (!transition.pending_start.empty() || !tracker_->run_confirmed(target_apps))) {
+        return StateResult::InProgress;
+    }
+    registry_->set_state(index, target);
+    transition = GroupTransition{};
+    return StateResult::Success;
+}
+
+StateResult StateClient::advance_transition(std::size_t index) noexcept {
+    GroupTransition& transition = transitions_[index];
+    if (!transition.active) {
+        return StateResult::Success;
+    }
+    launch_ready_apps(index);
+    if (tracker_ == nullptr || tracker_->run_confirmed(transition.target_apps)) {
+        registry_->set_state(index, transition.requested);
+        transition = GroupTransition{};
+        return StateResult::Success;
+    }
+    for (const std::string& app_name : transition.target_apps) {
+        if (tracker_->state(app_name) == AppState::Failed) {
+            log_execution_manager(core::LogLevel::Error,
+                                  std::format("event=transition_failed group={} state={} app={}",
+                                              registry_->group_name(index), transition.requested,
+                                              app_name));
+            registry_->set_undefined(index);
+            transition = GroupTransition{};
+            return StateResult::UnexpectedTermination;
+        }
+    }
+    const std::uint64_t now = detail::monotonic_now_ns();
+    if (now < transition.deadline_ns) {
+        return StateResult::InProgress;
+    }
+    std::uint32_t restart_budget = 0;
+    for (const std::string& app_name : transition.target_apps) {
+        if (const StateDependentStartupConfig* config =
+                registry_->config_of(app_name, transition.requested);
+            config != nullptr && config->restart_attempts > restart_budget) {
+            restart_budget = config->restart_attempts;
+        }
+    }
+    if (transition.attempts <= restart_budget) {
+        log_execution_manager(core::LogLevel::Warning,
+                              std::format("event=transition_timeout group={} state={} attempt={}",
+                                          registry_->group_name(index), transition.requested,
+                                          transition.attempts));
+        for (const std::string& app_name : transition.target_apps) {
+            if (!tracker_->ready(app_name) && tracker_->state(app_name) != AppState::Exited) {
+                static_cast<void>(stop_app(index, app_name));
+                static_cast<void>(start_app(index, app_name, transition.requested));
+            }
+        }
+        ++transition.attempts;
+        transition.deadline_ns =
+            now + max_startup_timeout_ms(*registry_, transition.target_apps, transition.requested) *
+                      1'000'000ULL;
+        return StateResult::InProgress;
+    }
+    log_execution_manager(
+        core::LogLevel::Error,
+        std::format("event=transition_failed group={} state={} reason=startup_exhausted",
+                    registry_->group_name(index), transition.requested));
+    registry_->set_undefined(index);
+    transition = GroupTransition{};
+    return StateResult::OperationFailed;
+}
+
+StateResult StateClient::execute(const StateCommand& command) noexcept {
     const std::size_t index = registry_->find_group(command.function_group);
     if (index == static_cast<std::size_t>(-1)) {
-        return false; // unknown group -> rejection ack
+        return StateResult::InvalidArgument;
     }
-    const bool stopping = FunctionGroupRegistry::is_off_target(command.target_state);
-    if (!(stopping ? stop_group(index) : start_group(index))) {
-        return false;
+    if (!registry_->has_state(index, command.target_state)) {
+        return StateResult::InvalidTransition;
     }
-    // State-transition confirmation (REQ_EXEC_PROCESS_CONFIRM): a switch to
-    // Run is confirmed only after every bound daemon reported readiness and
-    // every bound oneshot exited 0.
-    if (!stopping && tracker_ != nullptr && command.target_state == std::string_view("Run") &&
-        !tracker_->run_confirmed(registry_->bound_apps(index))) {
-        return false;
-    }
-    registry_->set_state(index, command.target_state);
-    return true;
+    return begin_transition(index, command.target_state);
 }
 
 com::Status StateClient::poll_state_channels() noexcept {
@@ -209,15 +445,15 @@ com::Status StateClient::poll_state_channels() noexcept {
             return std::unexpected(drained.error());
         }
     }
-    poll_oneshot_exits();
+    poll_process_exits();
     return {};
 }
 
-void StateClient::poll_oneshot_exits() noexcept {
-    if (tracker_ == nullptr || pending_oneshots_.empty()) {
+void StateClient::poll_process_exits() noexcept {
+    if (tracker_ == nullptr || pending_exits_.empty()) {
         return;
     }
-    for (auto it = pending_oneshots_.begin(); it != pending_oneshots_.end();) {
+    for (auto it = pending_exits_.begin(); it != pending_exits_.end();) {
         const core::Result<nlohmann::json> document =
             read_json_file(instance_dir_for(*it) + "/exit.json");
         if (!document) {
@@ -228,7 +464,7 @@ void StateClient::poll_oneshot_exits() noexcept {
         from_json(*document, exit);
         const int exit_code = exit.exit_code.has_value() ? *exit.exit_code : 1;
         static_cast<void>(tracker_->on_exit(*it, exit_code));
-        it = pending_oneshots_.erase(it);
+        it = pending_exits_.erase(it);
     }
 }
 
@@ -242,7 +478,7 @@ void StateClient::stop_all() noexcept {
             tracker_->on_stop(app_name);
         }
     }
-    pending_oneshots_.clear();
+    pending_exits_.clear();
 }
 
 std::string StateClient::instance_dir_for(std::string_view app_name) const {

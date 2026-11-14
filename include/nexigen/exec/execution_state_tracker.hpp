@@ -17,7 +17,9 @@
 #include <vector>
 
 #include <nexigen/exec/app_state.hpp>
+#include <nexigen/exec/process_state.hpp>
 #include <nexigen/exec/process_type.hpp>
+#include <nexigen/exec/state_dependent_startup_config.hpp>
 
 namespace nexigen::exec {
 
@@ -44,12 +46,21 @@ public:
     ///
     /// @param name Application name.
     /// @param type Declared termination behavior.
-    void register_process(std::string_view name, ProcessType type) noexcept {
+    /// @param reporting Whether the process reports readiness.
+    /// @param config Startup configuration associated with the current state.
+    /// @param attempt Attempt number for the current launch.
+    void register_process(std::string_view name, ProcessType type, bool reporting = true,
+                          const StateDependentStartupConfig* config = nullptr,
+                          std::uint32_t attempt = 0) noexcept {
         if (Record* existing = find(name); existing != nullptr) {
             existing->type = type;
+            existing->reporting = reporting;
+            existing->config = config;
+            existing->attempt = attempt;
             return;
         }
-        processes_.push_back(Record{std::string(name), type, AppState::Unknown});
+        processes_.push_back(
+            Record{std::string(name), type, reporting, ProcessState::Idle, false, config, attempt});
     }
 
     /// @brief Report the readiness of a daemon.
@@ -62,11 +73,14 @@ public:
     /// @return `true` when the report was accepted and recorded.
     [[nodiscard]] bool report_execution_state(std::string_view name, AppState state) noexcept {
         Record* record = find(name);
-        if (record == nullptr || record->type != ProcessType::Daemon ||
-            state != AppState::Running) {
+        if (record == nullptr || record->type != ProcessType::Daemon || !record->reporting ||
+            state != AppState::Running ||
+            (record->process_state != ProcessState::Starting &&
+             record->process_state != ProcessState::Running)) {
             return false;
         }
-        record->state = AppState::Running;
+        record->process_state = ProcessState::Running;
+        record->failed = false;
         return true;
     }
 
@@ -85,11 +99,12 @@ public:
         if (record == nullptr) {
             return false;
         }
+        record->process_state = ProcessState::Terminated;
         if (record->type == ProcessType::Oneshot && exit_code == 0) {
-            record->state = AppState::Exited;
+            record->failed = false;
             return true;
         }
-        record->state = AppState::Failed;
+        record->failed = true;
         return false;
     }
 
@@ -101,22 +116,45 @@ public:
     /// @param name Application name.
     void on_stop(std::string_view name) noexcept {
         if (Record* record = find(name); record != nullptr) {
-            record->state = AppState::Unknown;
+            record->process_state = ProcessState::Terminating;
+            record->failed = false;
         }
     }
 
-    /// @brief Reset one record before a relaunch.
+    /// @brief Record a successful launch.
     ///
-    /// A repeated switch may relaunch a process whose previous record was
-    /// `Exited`; resetting to `Unknown` prevents the stale success from
-    /// confirming the new launch before it has reported readiness or exited.
+    /// A reporting process starts in `Starting` and must report `Running`; a
+    /// non-reporting process enters `Running` immediately. A previous terminal
+    /// or failed record is cleared so a relaunch cannot confirm on stale data.
     ///
     /// @param name Application name.
-    void on_start(std::string_view name) noexcept {
+    /// @param config Startup configuration associated with the launch.
+    /// @param attempt Attempt number for the launch.
+    void on_launch(std::string_view name, const StateDependentStartupConfig* config = nullptr,
+                   std::uint32_t attempt = 0) noexcept {
         if (Record* record = find(name); record != nullptr) {
-            record->state = AppState::Unknown;
+            record->failed = false;
+            record->config = config;
+            record->attempt = attempt;
+            record->process_state =
+                record->reporting ? ProcessState::Starting : ProcessState::Running;
         }
     }
+
+    /// @brief Record a successful reap after a deliberate stop.
+    ///
+    /// @param name Application name.
+    void on_reaped(std::string_view name) noexcept {
+        if (Record* record = find(name); record != nullptr) {
+            record->failed = false;
+            record->process_state = ProcessState::Terminated;
+        }
+    }
+
+    /// @brief Backward-compatible alias for `on_launch`.
+    ///
+    /// @param name Application name.
+    void on_start(std::string_view name) noexcept { on_launch(name); }
 
     /// @brief Current state of one process.
     ///
@@ -124,7 +162,45 @@ public:
     /// @return The recorded state, or `AppState::Unknown` for an unknown name.
     [[nodiscard]] AppState state(std::string_view name) const noexcept {
         const Record* record = find(name);
-        return record == nullptr ? AppState::Unknown : record->state;
+        if (record == nullptr) {
+            return AppState::Unknown;
+        }
+        switch (record->process_state) {
+            case ProcessState::Running: return AppState::Running;
+            case ProcessState::Terminated:
+                return record->failed ? AppState::Failed : AppState::Exited;
+            case ProcessState::Idle:
+            case ProcessState::Starting:
+            case ProcessState::Terminating: return AppState::Unknown;
+        }
+        return AppState::Unknown;
+    }
+
+    /// @brief Current AUTOSAR process state.
+    ///
+    /// @param name Application name.
+    /// @return The recorded process state, or `Idle` for an unknown name.
+    [[nodiscard]] ProcessState process_state(std::string_view name) const noexcept {
+        const Record* record = find(name);
+        return record == nullptr ? ProcessState::Idle : record->process_state;
+    }
+
+    /// @brief Whether an application reports readiness.
+    [[nodiscard]] bool reporting(std::string_view name) const noexcept {
+        const Record* record = find(name);
+        return record != nullptr && record->reporting;
+    }
+
+    /// @brief Startup configuration associated with the last launch.
+    [[nodiscard]] const StateDependentStartupConfig* config(std::string_view name) const noexcept {
+        const Record* record = find(name);
+        return record == nullptr ? nullptr : record->config;
+    }
+
+    /// @brief Attempt number associated with the last launch.
+    [[nodiscard]] std::uint32_t attempt(std::string_view name) const noexcept {
+        const Record* record = find(name);
+        return record == nullptr ? 0U : record->attempt;
     }
 
     /// @brief Whether a daemon has reported readiness.
@@ -134,7 +210,7 @@ public:
     [[nodiscard]] bool ready(std::string_view name) const noexcept {
         const Record* record = find(name);
         return record != nullptr && record->type == ProcessType::Daemon &&
-               record->state == AppState::Running;
+               record->process_state == ProcessState::Running;
     }
 
     /// @brief Number of registered processes.
@@ -181,7 +257,7 @@ public:
             }
             out += std::format("{}/{}/{}", processes_[i].name,
                                nexigen::exec::to_string(processes_[i].type),
-                               nexigen::exec::to_string(processes_[i].state));
+                               nexigen::exec::to_string(processes_[i].process_state));
         }
         out += ")";
         return out;
@@ -190,9 +266,13 @@ public:
 private:
     /// @brief One process's declared type and current state.
     struct Record {
-        std::string name{};                    ///< Application name.
-        ProcessType type{ProcessType::Daemon}; ///< Declared termination behavior.
-        AppState state{AppState::Unknown};     ///< Current readiness/completion state.
+        std::string name{};                                 ///< Application name.
+        ProcessType type{ProcessType::Daemon};              ///< Declared termination behavior.
+        bool reporting{true};                               ///< Whether readiness is reported.
+        ProcessState process_state{ProcessState::Idle};     ///< AUTOSAR process state.
+        bool failed{false};                                 ///< Last termination was abnormal.
+        const StateDependentStartupConfig* config{nullptr}; ///< Last launch configuration.
+        std::uint32_t attempt{0};                           ///< Last launch attempt.
     };
 
     /// @brief Mutable lookup by application name.
@@ -227,9 +307,9 @@ private:
     /// @return `true` for a ready daemon or a successfully exited oneshot.
     [[nodiscard]] static bool confirmed(const Record& record) noexcept {
         if (record.type == ProcessType::Daemon) {
-            return record.state == AppState::Running;
+            return record.process_state == ProcessState::Running;
         }
-        return record.state == AppState::Exited;
+        return record.process_state == ProcessState::Terminated && !record.failed;
     }
 
     std::vector<Record> processes_{}; ///< Records in registration order.

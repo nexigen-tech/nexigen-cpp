@@ -26,15 +26,24 @@ cat > "$MANIFEST" <<EOF
   "log_level": "info",
   "suite_restart_attempts": 0,
   "suite_restart_delay_s": 0,
+  "function_groups": [
+    { "name": "cli", "states": ["Off", "Running"], "initial_state": "Running" }
+  ],
   "apps": [
     {
       "app": "cli_app",
       "instance": "1",
       "command": "/bin/sh",
-      "args": ["-c", "echo cli-out; exec sleep 60"],
-      "impact_on_app_suite_operability": "not_impact",
-      "restart_attempts": 0,
-      "restart_delay_s": 0
+      "function_group": "cli",
+      "startup_configs": [
+        {
+          "state": "Running",
+          "args": ["-c", "echo cli-out; exec sleep 60"],
+          "restart_attempts": 0,
+          "restart_delay_s": 0
+        }
+      ],
+      "impact_on_app_suite_operability": "not_impact"
     }
   ]
 }

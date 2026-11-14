@@ -90,6 +90,7 @@ public:
     // --- Runtime state (public value-type fields) ---
 
     AppSpec spec{};                          ///< Manifest entry for this app.
+    std::string active_state{};              ///< Function Group State currently selected.
     std::string instance_dir{};              ///< Control directory.
     std::string artifact_dir{};              ///< Stream directory for this attempt.
     AppState state{AppState::Unknown};       ///< Lifecycle state.

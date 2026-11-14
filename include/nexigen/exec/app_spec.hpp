@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -14,6 +15,7 @@
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/exec/impact_on_app_suite_operability.hpp>
 #include <nexigen/exec/process_type.hpp>
+#include <nexigen/exec/state_dependent_startup_config.hpp>
 
 namespace nexigen::exec {
 
@@ -34,25 +36,22 @@ namespace nexigen::exec {
 /// @note Spec `exec/app-suite`, requirement "Suite types follow the
 ///       serialization contract".
 struct AppSpec {
-    std::string app{};               ///< Application name; part of the instance identity.
-    std::string instance{};          ///< Instance id; part of the instance identity.
-    std::string command{};           ///< Executable path or command name.
-    std::vector<std::string> args{}; ///< Arguments passed verbatim, without shell interpretation.
-    std::vector<std::pair<std::string, std::string>> env{}; ///< Child-only environment additions.
-    core::CpuSet cpus{};               ///< Affinity request; empty means unrestricted.
-    std::uint64_t idle_timeout_s{0};   ///< Run time before the stop sequence; 0 = no timeout.
-    std::uint64_t stop_grace_s{5};     ///< SIGTERM grace before SIGKILL.
-    std::uint32_t restart_attempts{0}; ///< Per-application retries for degrade/not-impact.
-    std::uint64_t restart_delay_s{0};  ///< Delay before each per-application retry.
-    /// Applications that must report Running before this one starts (REQ_EM_001).
-    std::vector<std::string> dependencies{};
-    /// Function Groups whose active states keep this application running (REQ_EM_005/006).
-    std::vector<std::string> function_groups{};
+    std::string app{};      ///< Application name; part of the instance identity.
+    std::string instance{}; ///< Instance id; part of the instance identity.
+    std::string command{};  ///< Executable path or command name.
+    /// The single Function Group this application belongs to.
+    std::string function_group{};
+    /// One or more state-dependent launch configurations for that group.
+    std::vector<StateDependentStartupConfig> startup_configs{};
+    core::CpuSet cpus{};             ///< Affinity request; empty means unrestricted.
+    std::uint64_t idle_timeout_s{0}; ///< Run time before the stop sequence; 0 = no timeout.
     ImpactOnAppSuiteOperability impact{ImpactOnAppSuiteOperability::Degrade};
     /// Termination behavior (`daemon`/`oneshot`), mirroring AUTOSAR
-    /// `terminationBehavior`; daemons stay up and report readiness, oneshots
-    /// self-terminate and exit 0 is success (REQ_EXEC_PROCESS_TYPES).
+    /// `terminationBehavior`; independent of reporting mode.
     ProcessType type{ProcessType::Daemon};
+    /// Reporting processes wait for `ReportExecutionState(Run)`; non-reporting
+    /// processes enter Running immediately after creation.
+    bool reporting{true};
     /// Per-application global settings directory; replaces the suite value.
     std::string global_settings_path{};
     /// Per-application local settings path; resolved relative to the manifest.
@@ -73,6 +72,22 @@ struct AppSpec {
 /// @return The same text as `value.to_string()`.
 [[nodiscard]] inline std::string to_string(const AppSpec& value) {
     return value.to_string();
+}
+
+/// @brief Find the startup configuration for one Function Group State.
+///
+/// @param spec Application entry.
+/// @param state State name.
+/// @return The matching configuration, or `nullptr` when the application has no
+///         configuration for that state.
+[[nodiscard]] inline const StateDependentStartupConfig*
+find_startup_config(const AppSpec& spec, std::string_view state) noexcept {
+    for (const StateDependentStartupConfig& config : spec.startup_configs) {
+        if (config.state == state) {
+            return &config;
+        }
+    }
+    return nullptr;
 }
 
 /// @brief Serialize an application entry into its manifest object.

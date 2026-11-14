@@ -3,6 +3,7 @@
 //
 // COLD PATH ONLY. This translation unit parses, validates, and resolves suite
 // manifests; it never creates or signals a process.
+#include <algorithm>
 #include <cstdint>
 #include <format>
 #include <optional>
@@ -65,18 +66,18 @@ constexpr std::uint64_t max_delay_seconds = 86400;
 
 std::string AppSpec::to_string() const {
     return std::format(
-        "AppSpec(app={}, instance={}, command={}, args={}, env={}, cpus={}, "
-        "idle_timeout_s={}, stop_grace_s={}, restart_attempts={}, "
-        "restart_delay_s={}, impact={}, type={}, global_settings_path={}, "
-        "local_settings_path={}, log_level={})",
-        app, instance, command, args.size(), env.size(), cpus.count(), idle_timeout_s, stop_grace_s,
-        restart_attempts, restart_delay_s, nexigen::exec::to_string(impact),
-        nexigen::exec::to_string(type), global_settings_path, local_settings_path,
+        "AppSpec(app={}, instance={}, command={}, function_group={}, startup_configs={}, "
+        "cpus={}, idle_timeout_s={}, impact={}, type={}, reporting={}, "
+        "global_settings_path={}, local_settings_path={}, log_level={})",
+        app, instance, command, function_group, startup_configs.size(), cpus.count(),
+        idle_timeout_s, nexigen::exec::to_string(impact), nexigen::exec::to_string(type), reporting,
+        global_settings_path, local_settings_path,
         log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"));
 }
 
 std::string FunctionGroupConfig::to_string() const {
-    return std::format("FunctionGroupConfig(name={}, states={})", name, states.size());
+    return std::format("FunctionGroupConfig(name={}, states={}, initial_state={})", name,
+                       states.size(), initial_state);
 }
 
 std::string SuiteManifest::to_string() const {
@@ -126,25 +127,23 @@ std::string SuiteStatus::to_string() const {
 // --- struct JSON -----------------------------------------------------------
 
 void to_json(nlohmann::json& j, const AppSpec& spec) {
-    nlohmann::json env = nlohmann::json::object();
-    for (const auto& [key, value] : spec.env) {
-        env[key] = value;
+    auto startup_configs = nlohmann::json::array();
+    for (const StateDependentStartupConfig& config : spec.startup_configs) {
+        nlohmann::json item;
+        to_json(item, config);
+        startup_configs.push_back(std::move(item));
     }
     j = nlohmann::json{
         {"app", spec.app},
         {"instance", spec.instance},
         {"command", spec.command},
-        {"args", spec.args},
-        {"env", std::move(env)},
+        {"function_group", spec.function_group},
+        {"startup_configs", std::move(startup_configs)},
         {"cpus", spec.cpus},
         {"idle_timeout_s", spec.idle_timeout_s},
-        {"stop_grace_s", spec.stop_grace_s},
-        {"restart_attempts", spec.restart_attempts},
-        {"restart_delay_s", spec.restart_delay_s},
-        {"dependencies", spec.dependencies},
-        {"function_groups", spec.function_groups},
         {"impact_on_app_suite_operability", std::string(to_string(spec.impact))},
         {"type", std::string(to_string(spec.type))},
+        {"reporting", spec.reporting},
         {"global_settings_path", spec.global_settings_path},
         {"local_settings_path", spec.local_settings_path},
         {"log_level", log_level_json(spec.log_level)},
@@ -155,17 +154,22 @@ void from_json(const nlohmann::json& j, AppSpec& spec) noexcept {
     static_cast<void>(core::detail::read_string(j, "app", spec.app));
     static_cast<void>(core::detail::read_string(j, "instance", spec.instance));
     static_cast<void>(core::detail::read_string(j, "command", spec.command));
-    static_cast<void>(read_string_array(j, "args", spec.args));
-    static_cast<void>(read_env_object(j, "env", spec.env));
+    static_cast<void>(core::detail::read_string(j, "function_group", spec.function_group));
+    if (const auto configs = j.find("startup_configs"); configs != j.end() && configs->is_array()) {
+        std::vector<StateDependentStartupConfig> parsed;
+        parsed.reserve(configs->size());
+        for (const auto& item : *configs) {
+            StateDependentStartupConfig config;
+            from_json(item, config);
+            parsed.push_back(std::move(config));
+        }
+        spec.startup_configs = std::move(parsed);
+    }
     static_cast<void>(read_cpu_set(j, "cpus", spec.cpus));
     static_cast<void>(core::detail::read_unsigned(j, "idle_timeout_s", spec.idle_timeout_s));
-    static_cast<void>(core::detail::read_unsigned(j, "stop_grace_s", spec.stop_grace_s));
-    static_cast<void>(core::detail::read_unsigned(j, "restart_attempts", spec.restart_attempts));
-    static_cast<void>(core::detail::read_unsigned(j, "restart_delay_s", spec.restart_delay_s));
-    static_cast<void>(read_string_array(j, "dependencies", spec.dependencies));
-    static_cast<void>(read_string_array(j, "function_groups", spec.function_groups));
     read_enum(j, "impact_on_app_suite_operability", spec.impact);
     read_enum(j, "type", spec.type);
+    static_cast<void>(core::detail::read_bool(j, "reporting", spec.reporting));
     static_cast<void>(
         core::detail::read_string(j, "global_settings_path", spec.global_settings_path));
     static_cast<void>(
@@ -182,7 +186,9 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
     }
     nlohmann::json groups = nlohmann::json::array();
     for (const FunctionGroupConfig& group : manifest.function_groups) {
-        groups.push_back(nlohmann::json{{"name", group.name}, {"states", group.states}});
+        groups.push_back(nlohmann::json{{"name", group.name},
+                                        {"states", group.states},
+                                        {"initial_state", group.initial_state}});
     }
     j = nlohmann::json{
         {"version", manifest.version},
@@ -237,6 +243,8 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
             FunctionGroupConfig group;
             static_cast<void>(core::detail::read_string(entry, "name", group.name));
             static_cast<void>(read_string_array(entry, "states", group.states));
+            static_cast<void>(
+                core::detail::read_string(entry, "initial_state", group.initial_state));
             groups.push_back(std::move(group));
         }
         manifest.function_groups = std::move(groups);
@@ -492,10 +500,56 @@ validate_suite_version_and_log_level(const SuiteManifest& manifest) noexcept {
     return {};
 }
 
+[[nodiscard]] const AppSpec* find_app(const std::vector<AppSpec>& apps,
+                                      std::string_view name) noexcept {
+    for (const AppSpec& app : apps) {
+        if (app.app == name) {
+            return &app;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] const StateDependentStartupConfig* find_config(const AppSpec& app,
+                                                             std::string_view state) noexcept {
+    for (const StateDependentStartupConfig& config : app.startup_configs) {
+        if (config.state == state) {
+            return &config;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] bool dependency_cycle(const std::vector<AppSpec>& apps, std::string_view app_name,
+                                    std::string_view state,
+                                    std::vector<std::string>& stack) noexcept {
+    if (std::find(stack.begin(), stack.end(), app_name) != stack.end()) {
+        return true;
+    }
+    const AppSpec* app = find_app(apps, app_name);
+    if (app == nullptr) {
+        return false;
+    }
+    const StateDependentStartupConfig* config = find_config(*app, state);
+    if (config == nullptr) {
+        return false;
+    }
+    stack.emplace_back(app_name);
+    for (const ExecutionDependency& dependency : config->dependencies) {
+        if (dependency_cycle(apps, dependency.process, state, stack)) {
+            return true;
+        }
+    }
+    stack.pop_back();
+    return false;
+}
+
 [[nodiscard]] core::Status validate_app_arguments(const AppSpec& app) noexcept {
-    for (const std::string& argument : app.args) {
-        if (argument.find('\0') != std::string::npos) {
-            return invalid_argument();
+    for (const StateDependentStartupConfig& config : app.startup_configs) {
+        for (const std::string& argument : config.args) {
+            if (argument.find('\0') != std::string::npos) {
+                return invalid_argument();
+            }
         }
     }
     return {};
@@ -514,9 +568,95 @@ validate_suite_version_and_log_level(const SuiteManifest& manifest) noexcept {
 }
 
 [[nodiscard]] core::Status validate_app_timeouts(const AppSpec& app) noexcept {
-    if (app.restart_attempts > max_restart_attempts || app.restart_delay_s > max_delay_seconds ||
-        app.idle_timeout_s > max_delay_seconds || app.stop_grace_s > max_delay_seconds) {
+    if (app.idle_timeout_s > max_delay_seconds) {
         return invalid_argument();
+    }
+    for (const StateDependentStartupConfig& config : app.startup_configs) {
+        if (config.restart_attempts > max_restart_attempts ||
+            config.restart_delay_s > max_delay_seconds ||
+            config.startup_timeout_ms > max_delay_seconds * 1000U ||
+            config.termination_timeout_ms > max_delay_seconds * 1000U) {
+            return invalid_argument();
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] const FunctionGroupConfig* find_group_config(const SuiteManifest& manifest,
+                                                           std::string_view name) noexcept {
+    for (const FunctionGroupConfig& group : manifest.function_groups) {
+        if (group.name == name) {
+            return &group;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] core::Status
+validate_dependency_entries(const AppSpec& app, const SuiteManifest& manifest,
+                            const StateDependentStartupConfig& config) noexcept {
+    for (const ExecutionDependency& dependency : config.dependencies) {
+        if (!safe_id(dependency.process) || (dependency.state != ProcessState::Running &&
+                                             dependency.state != ProcessState::Terminated)) {
+            return invalid_argument();
+        }
+        const AppSpec* target = find_app(manifest.apps, dependency.process);
+        if (target == nullptr || target->function_group != app.function_group ||
+            find_config(*target, config.state) == nullptr) {
+            return invalid_argument();
+        }
+    }
+    std::vector<std::string> stack;
+    if (dependency_cycle(manifest.apps, app.app, config.state, stack)) {
+        return invalid_argument();
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_one_startup_config(const AppSpec& app,
+                                                       const SuiteManifest& manifest,
+                                                       const FunctionGroupConfig& group,
+                                                       std::size_t index) noexcept {
+    const StateDependentStartupConfig& config = app.startup_configs[index];
+    if (config.state.empty() || config.state == "Off" ||
+        std::find(group.states.begin(), group.states.end(), config.state) == group.states.end()) {
+        return invalid_argument();
+    }
+    for (std::size_t other = 0; other < index; ++other) {
+        if (app.startup_configs[other].state == config.state) {
+            return invalid_argument();
+        }
+    }
+    return validate_dependency_entries(app, manifest, config);
+}
+
+[[nodiscard]] core::Status validate_startup_configs(const AppSpec& app,
+                                                    const SuiteManifest& manifest) noexcept {
+    if (!safe_id(app.function_group)) {
+        return invalid_argument();
+    }
+    const FunctionGroupConfig* group = find_group_config(manifest, app.function_group);
+    if (group == nullptr || app.startup_configs.empty()) {
+        return invalid_argument();
+    }
+    for (std::size_t i = 0; i < app.startup_configs.size(); ++i) {
+        if (const core::Status status = validate_one_startup_config(app, manifest, *group, i);
+            !status) {
+            return status;
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_function_groups(const SuiteManifest& manifest) noexcept {
+    for (const FunctionGroupConfig& group : manifest.function_groups) {
+        if (!safe_id(group.name) || group.states.empty()) {
+            return invalid_argument();
+        }
+        if (!group.initial_state.empty() && std::find(group.states.begin(), group.states.end(),
+                                                      group.initial_state) == group.states.end()) {
+            return invalid_argument();
+        }
     }
     return {};
 }
@@ -558,8 +698,13 @@ validate_suite_version_and_log_level(const SuiteManifest& manifest) noexcept {
     if (const core::Status status = validate_app_arguments(app); !status) {
         return status;
     }
-    if (const core::Status status = validate_env_entries(app.env); !status) {
+    if (const core::Status status = validate_startup_configs(app, manifest); !status) {
         return status;
+    }
+    for (const StateDependentStartupConfig& config : app.startup_configs) {
+        if (const core::Status status = validate_env_entries(config.env); !status) {
+            return status;
+        }
     }
     if (const core::Status status = validate_app_impact_and_log_level(app); !status) {
         return status;
@@ -596,6 +741,9 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
         return status;
     }
     if (const core::Status status = validate_app_count(manifest); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_function_groups(manifest); !status) {
         return status;
     }
     for (const AppSpec& app : manifest.apps) {

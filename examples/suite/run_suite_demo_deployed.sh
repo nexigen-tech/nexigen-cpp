@@ -72,23 +72,38 @@ cat > "${manifest}" <<EOF
   "log_level": "info",
   "suite_restart_attempts": ${suite_restart_attempts},
   "suite_restart_delay_s": ${suite_restart_delay_s},
+  "function_groups": [
+    { "name": "demo", "states": ["Off", "Running"], "initial_state": "Running" }
+  ],
   "apps": [
     {
       "app": "worker",
       "instance": "1",
       "command": "${app_bin}",
-      "args": ["--global-settings", "${run_dir}/worker/1/settings"],
-      "env": {"NEXIGEN_DEMO_ROLE": "worker", "NEXIGEN_DEMO_RUN_FOREVER": "1"},
+      "function_group": "demo",
+      "startup_configs": [
+        {
+          "state": "Running",
+          "args": ["--global-settings", "${run_dir}/worker/1/settings"],
+          "env": {"NEXIGEN_DEMO_ROLE": "worker", "NEXIGEN_DEMO_RUN_FOREVER": "1"}
+        }
+      ],
       "impact_on_app_suite_operability": "not_impact"
     },
     {
       "app": "degrade",
       "instance": "1",
       "command": "${app_bin}",
-      "args": ["--global-settings", "${run_dir}/degrade/1/settings"],
-      "env": {"NEXIGEN_DEMO_ROLE": "degrade", "NEXIGEN_DEMO_EXIT_AFTER_S": "${degrade_exit_s}"},
-      "restart_attempts": ${restart_attempts},
-      "restart_delay_s": ${restart_delay_s},
+      "function_group": "demo",
+      "startup_configs": [
+        {
+          "state": "Running",
+          "args": ["--global-settings", "${run_dir}/degrade/1/settings"],
+          "env": {"NEXIGEN_DEMO_ROLE": "degrade", "NEXIGEN_DEMO_EXIT_AFTER_S": "${degrade_exit_s}"},
+          "restart_attempts": ${restart_attempts},
+          "restart_delay_s": ${restart_delay_s}
+        }
+      ],
       "local_settings_path": "local_settings/degrade",
       "impact_on_app_suite_operability": "degrade"
     },
@@ -96,8 +111,14 @@ cat > "${manifest}" <<EOF
       "app": "failure",
       "instance": "1",
       "command": "${app_bin}",
-      "args": ["--global-settings", "${run_dir}/failure/1/settings"],
-      "env": {"NEXIGEN_DEMO_ROLE": "failure", "NEXIGEN_DEMO_ABORT_AFTER_S": "${failure_abort_s}"},
+      "function_group": "demo",
+      "startup_configs": [
+        {
+          "state": "Running",
+          "args": ["--global-settings", "${run_dir}/failure/1/settings"],
+          "env": {"NEXIGEN_DEMO_ROLE": "failure", "NEXIGEN_DEMO_ABORT_AFTER_S": "${failure_abort_s}"}
+        }
+      ],
       "impact_on_app_suite_operability": "failure"
     }
   ]

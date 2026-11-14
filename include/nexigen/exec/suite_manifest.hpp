@@ -29,10 +29,12 @@ namespace nexigen::exec {
 struct FunctionGroupConfig {
     std::string name{};                ///< Group name, e.g. `ADAS`.
     std::vector<std::string> states{}; ///< States the group can be in.
+    /// Optional suite-start state; empty = first non-Off state.
+    std::string initial_state{};
 
     /// @brief Cold-path diagnostic rendering of the group configuration.
     ///
-    /// @return Human-readable text naming the group and its states.
+    /// @return Human-readable text naming the group, its states, and its initial state.
     /// @note Project mandate 9.
     [[nodiscard]] std::string to_string() const;
 };

@@ -114,7 +114,13 @@ SuiteMetadata build_suite_metadata(const SuiteManifest& manifest, std::int32_t p
         entry.app = app.app;
         entry.instance = app.instance;
         entry.instance_dir = instance_dir_path(manifest.run_dir, app.app, app.instance);
-        entry.stop_grace_s = app.stop_grace_s;
+        std::uint64_t timeout_ms = 0;
+        for (const StateDependentStartupConfig& config : app.startup_configs) {
+            if (config.termination_timeout_ms > timeout_ms) {
+                timeout_ms = config.termination_timeout_ms;
+            }
+        }
+        entry.stop_grace_s = (timeout_ms + 999U) / 1000U;
         metadata.apps.push_back(std::move(entry));
     }
     return metadata;
