@@ -2,6 +2,10 @@
 add_executable(nexigen-exec nexigen-exec/main.cpp)
 target_link_libraries(nexigen-exec PRIVATE nexigen_exec nexigen_app Threads::Threads)
 target_include_directories(nexigen-exec PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(NEXIGEN_ENABLE_COM)
+    target_link_libraries(nexigen-exec PRIVATE nexigen_exec_control)
+    target_compile_definitions(nexigen-exec PRIVATE NEXIGEN_ENABLE_COM=1)
+endif()
 
 add_test(NAME nexigen_exec_help COMMAND nexigen-exec --help)
 set_tests_properties(nexigen_exec_help PROPERTIES
@@ -46,19 +50,22 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_sm_hostile_config PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
-    # nexigen-em — Execution Manager host (change
-    # introduce-platformfg-process-model): serves StateClient and feeds the
+    # nexigen-em — Execution Manager suite front-end (changes
+    # introduce-platformfg-process-model, unify-exec-suite-control-path): starts
+    # the detached suite supervisor, which hosts the StateClient and feeds the
     # readiness tracker from the per-application state channels.
     add_executable(nexigen-em nexigen-em/main.cpp)
-    target_link_libraries(nexigen-em PRIVATE nexigen_state_client nexigen_app Threads::Threads)
+    target_link_libraries(nexigen-em PRIVATE nexigen_exec_control nexigen_app Threads::Threads)
+    target_compile_definitions(nexigen-em PRIVATE NEXIGEN_ENABLE_COM=1)
     target_include_directories(nexigen-em PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
     add_test(NAME nexigen_em_help COMMAND nexigen-em --help)
     set_tests_properties(nexigen_em_help PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
-    # End-to-end host smoke: start nexigen-em, retry Run until the one-shot
-    # completes, and assert the host launched it exactly once.
+    # End-to-end suite smoke: nexigen-em starts a detached supervisor, Run is
+    # sent to the standard command channel until the one-shot completes, and the
+    # supervisor is stopped through its control file.
     add_executable(nexigen_em_smoke_tests nexigen-em/smoke_test.cpp)
     target_link_libraries(nexigen_em_smoke_tests PRIVATE
         nexigen_exec nexigen_com nexigen_app Threads::Threads)

@@ -14,6 +14,9 @@
 #include <nexigen/app/telemetry_layout.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/app_suite.hpp>
+#ifdef NEXIGEN_ENABLE_COM
+#include <nexigen/exec/control_host.hpp>
+#endif
 #include <nexigen/exec/instance_lifecycle.hpp>
 #include <nexigen/exec/execution_manager.hpp>
 #include <nexigen/exec/execution_manager_logging.hpp>
@@ -665,6 +668,9 @@ int cmd_status(int argc, char* argv[]) {
 } // namespace
 
 int main(int argc, char* argv[]) {
+#ifdef NEXIGEN_ENABLE_COM
+    exec::install_control_host_factory();
+#endif
     if (argc < 2) {
         print_usage(stderr);
         return exit_usage;

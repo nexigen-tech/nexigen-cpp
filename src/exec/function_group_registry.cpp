@@ -63,6 +63,11 @@ void FunctionGroupRegistry::set_undefined(std::size_t index) noexcept {
     groups_[index].undefined = true;
 }
 
+void FunctionGroupRegistry::reset_state(std::size_t index) noexcept {
+    groups_[index].state_index = 0U;
+    groups_[index].undefined = false;
+}
+
 const std::vector<std::string>&
 FunctionGroupRegistry::bound_apps(std::size_t index) const noexcept {
     return groups_[index].app_names;
@@ -128,6 +133,15 @@ std::string_view FunctionGroupRegistry::command_of(std::string_view app_name) co
     for (const AppSpec& app : manifest_->apps) {
         if (app.app == app_name) {
             return app.command;
+        }
+    }
+    return {};
+}
+
+std::string_view FunctionGroupRegistry::instance_of(std::string_view app_name) const noexcept {
+    for (const AppSpec& app : manifest_->apps) {
+        if (app.app == app_name) {
+            return app.instance;
         }
     }
     return {};

@@ -29,6 +29,7 @@
 namespace com = nexigen::com;
 namespace exec = nexigen::exec;
 namespace app = nexigen::app;
+namespace core = nexigen::core;
 
 namespace {
 
@@ -284,7 +285,7 @@ void test_run_confirmation() {
 
 bool app_running(exec::ExecutionManager& manager, const std::string& run_dir, const char* app) {
     std::string state;
-    static_cast<void>(manager.status(run_dir + "/" + app + "/inst1", state));
+    static_cast<void>(manager.status(run_dir + "/" + app + "/1", state));
     return state == "running";
 }
 
@@ -925,6 +926,103 @@ void test_transition_cancellation() {
     std::filesystem::remove_all(run_dir);
 }
 
+void test_process_handlers() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/StateHandlers");
+    NX_CHECK(name.has_value());
+    const std::string run_dir = "/tmp/opencode/state_client_handlers";
+    std::filesystem::create_directories(run_dir);
+
+    exec::SuiteManifest manifest;
+    exec::FunctionGroupConfig group;
+    group.name = "handler_group";
+    group.states = {"Off", "Run"};
+    manifest.function_groups.push_back(group);
+    exec::AppSpec app;
+    app.app = "handler_app";
+    app.instance = "node7";
+    app.command = "/bin/true";
+    app.function_group = "handler_group";
+    app.reporting = false;
+    exec::StateDependentStartupConfig config;
+    config.state = "Run";
+    app.startup_configs.push_back(config);
+    manifest.apps.push_back(app);
+
+    exec::FunctionGroupRegistry registry(manifest);
+    NX_CHECK(registry.instance_of("handler_app") == "node7");
+    exec::ExecutionStateTracker tracker;
+    exec::ExecutionManager manager;
+    app::RunIdentity identity{"test", run_dir, "generic", {}};
+    auto state_client =
+        exec::StateClient::create(*node, *name, registry, manager, identity, &tracker);
+    NX_CHECK(state_client.has_value());
+
+    std::vector<std::string> started;
+    std::vector<std::string> stopped;
+    state_client->set_process_handlers(
+        [&started](std::string_view app_name, std::string_view) -> core::Status {
+            started.emplace_back(app_name);
+            return {};
+        },
+        [&stopped](std::string_view app_name, std::string_view) -> core::Status {
+            stopped.emplace_back(app_name);
+            return {};
+        });
+
+    NX_CHECK(state_client->request_state("handler_group", "Run") == exec::StateResult::Success);
+    NX_CHECK(started.size() == 1U && started.front() == "handler_app");
+    NX_CHECK(registry.group_state(0) == "Run");
+
+    NX_CHECK(state_client->request_state("handler_group", "Off") == exec::StateResult::Success);
+    NX_CHECK(stopped.size() == 1U && stopped.front() == "handler_app");
+    NX_CHECK(registry.group_state(0) == "Off");
+
+    std::filesystem::remove_all(run_dir);
+}
+
+void test_instance_directory_uses_manifest_instance() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/StateInstanceDir");
+    NX_CHECK(name.has_value());
+    const std::string run_dir = "/tmp/opencode/state_client_instance_dir";
+    std::filesystem::remove_all(run_dir);
+    std::filesystem::create_directories(run_dir);
+
+    exec::SuiteManifest manifest;
+    exec::FunctionGroupConfig group;
+    group.name = "instance_group";
+    group.states = {"Off", "Run"};
+    manifest.function_groups.push_back(group);
+    exec::AppSpec app;
+    app.app = "instance_app";
+    app.instance = "node7";
+    app.command = "/bin/true";
+    app.function_group = "instance_group";
+    app.reporting = false;
+    exec::StateDependentStartupConfig config;
+    config.state = "Run";
+    app.startup_configs.push_back(config);
+    manifest.apps.push_back(app);
+
+    exec::FunctionGroupRegistry registry(manifest);
+    exec::ExecutionStateTracker tracker;
+    exec::ExecutionManager manager;
+    // The run identity's own instance id must not override the manifest one.
+    app::RunIdentity identity{"test", run_dir, "generic", {}};
+    auto state_client =
+        exec::StateClient::create(*node, *name, registry, manager, identity, &tracker);
+    NX_CHECK(state_client.has_value());
+
+    NX_CHECK(state_client->request_state("instance_group", "Run") == exec::StateResult::Success);
+    NX_CHECK(std::filesystem::exists(run_dir + "/instance_app/node7/resource.json"));
+    NX_CHECK(!std::filesystem::exists(run_dir + "/instance_app/generic/resource.json"));
+
+    std::filesystem::remove_all(run_dir);
+}
+
 } // namespace
 
 int main() {
@@ -939,6 +1037,8 @@ int main() {
     test_reverse_termination_order();
     test_daemon_exit_detection();
     test_termination_timeout();
+    test_process_handlers();
+    test_instance_directory_uses_manifest_instance();
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

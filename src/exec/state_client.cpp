@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 
 #include <nexigen/exec/detail/sys_helpers.hpp>
 #include <nexigen/exec/execution_manager_logging.hpp>
@@ -185,7 +186,8 @@ StateResult StateClient::stop_app(std::size_t index, std::string_view app_name) 
     if (tracker_ != nullptr) {
         tracker_->on_stop(app_name);
     }
-    const core::Status step = manager_->stop(instance_dir_for(app_name), grace_s);
+    const core::Status step = stop_handler_ ? stop_handler_(app_name, current)
+                                            : manager_->stop(instance_dir_for(app_name), grace_s);
     if (!step) {
         return StateResult::OperationFailed;
     }
@@ -233,14 +235,21 @@ StateResult StateClient::start_app(std::size_t index, std::string_view app_name,
     if (should_skip_start(app_name)) {
         return StateResult::Success;
     }
-    std::vector<std::string> command = registry_->command_vector(app_name, state);
-    if (command.empty()) {
-        command.emplace_back(app_name);
-    }
     if (tracker_ != nullptr) {
         tracker_->on_launch(app_name, config, 1);
     }
-    const core::Status step = manager_->start(identity_, app_name, command);
+    core::Status step{};
+    if (start_handler_) {
+        step = start_handler_(app_name, state);
+    } else {
+        std::vector<std::string> command = registry_->command_vector(app_name, state);
+        if (command.empty()) {
+            command.emplace_back(app_name);
+        }
+        app::RunIdentity start_identity = identity_;
+        start_identity.instance_dir = instance_dir_for(app_name);
+        step = manager_->start(start_identity, app_name, command);
+    }
     if (!step) {
         pending_exits_.erase(std::remove(pending_exits_.begin(), pending_exits_.end(), app_name),
                              pending_exits_.end());
@@ -482,7 +491,56 @@ void StateClient::stop_all() noexcept {
 }
 
 std::string StateClient::instance_dir_for(std::string_view app_name) const {
-    return identity_.run_dir + "/" + std::string(app_name) + "/" + identity_.instance_id;
+    std::string_view instance =
+        registry_ == nullptr ? std::string_view{} : registry_->instance_of(app_name);
+    if (instance.empty()) {
+        instance = identity_.instance_id;
+    }
+    return identity_.run_dir + "/" + std::string(app_name) + "/" + std::string(instance);
+}
+
+StateResult StateClient::request_state(std::string_view group, std::string_view target) noexcept {
+    StateCommand command{};
+    std::snprintf(command.function_group, sizeof(command.function_group), "%.*s",
+                  static_cast<int>(group.size()), group.data());
+    std::snprintf(command.target_state, sizeof(command.target_state), "%.*s",
+                  static_cast<int>(target.size()), target.data());
+    return execute(command);
+}
+
+std::string_view StateClient::group_state(std::string_view group) const noexcept {
+    if (registry_ == nullptr) {
+        return {};
+    }
+    const std::size_t index = registry_->find_group(group);
+    if (index == static_cast<std::size_t>(-1) || index >= transitions_.size()) {
+        return {};
+    }
+    return registry_->group_state(index);
+}
+
+bool StateClient::transition_active(std::string_view group) const noexcept {
+    if (registry_ == nullptr) {
+        return false;
+    }
+    const std::size_t index = registry_->find_group(group);
+    return index != static_cast<std::size_t>(-1) && index < transitions_.size() &&
+           transitions_[index].active;
+}
+
+void StateClient::reset_groups() noexcept {
+    if (registry_ != nullptr) {
+        for (const std::string& app_name : bound_app_names(*registry_)) {
+            if (tracker_ != nullptr) {
+                tracker_->on_stop(app_name);
+            }
+        }
+        for (std::size_t index = 0; index < transitions_.size(); ++index) {
+            transitions_[index] = GroupTransition{};
+            registry_->reset_state(index);
+        }
+    }
+    pending_exits_.clear();
 }
 
 std::string StateClient::to_string() const {

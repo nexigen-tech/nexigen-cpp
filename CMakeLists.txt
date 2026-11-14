@@ -367,6 +367,7 @@ file(GLOB NEXIGEN_EXEC_SOURCES CONFIGURE_DEPENDS
 # nexigen_state_client target (change add-sm); it must never enter nexigen_exec,
 # which builds with the gate OFF.
 list(FILTER NEXIGEN_EXEC_SOURCES EXCLUDE REGEX "state_client\\.cpp$")
+list(FILTER NEXIGEN_EXEC_SOURCES EXCLUDE REGEX "control_host_com\\.cpp$")
 
 add_library(nexigen_exec STATIC ${NEXIGEN_EXEC_SOURCES})
 add_library(nexigen::exec ALIAS nexigen_exec)
@@ -465,6 +466,19 @@ if(NEXIGEN_ENABLE_COM)
     )
     target_compile_definitions(nexigen_state_client PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
     target_link_libraries(nexigen_state_client PUBLIC nexigen_exec nexigen_com)
+
+    # nexigen::exec suite control host (change unify-exec-suite-control-path):
+    # the COM-enabled ControlHost implementation linked only into tools, never
+    # into nexigen_exec (which stays COM-free).
+    add_library(nexigen_exec_control STATIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/exec/control_host_com.cpp")
+    target_include_directories(nexigen_exec_control PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_compile_definitions(nexigen_exec_control PUBLIC
+        $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+    target_link_libraries(nexigen_exec_control PUBLIC nexigen_state_client nexigen_com)
 
     # nexigen::logging_com — Iceoryx2Logger (change add-iceoryx2-logger):
     # header-only logger поверх nexigen::com. Гейт отдельным INTERFACE-таргетом,

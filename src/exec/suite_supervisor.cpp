@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <format>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -19,8 +20,10 @@
 #include <unistd.h>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/app/run_identity.hpp>
 #include <nexigen/exec/app_state.hpp>
 #include <nexigen/exec/child_process.hpp>
+#include <nexigen/exec/control_host.hpp>
 #include <nexigen/exec/detail/path_utils.hpp>
 #include <nexigen/exec/detail/suite_launch_plan.hpp>
 #include <nexigen/exec/detail/suite_reporting.hpp>
@@ -48,6 +51,13 @@ namespace {
 /// the former local `RuntimeApp` struct (extract-child-process-class).
 using RuntimeApp = ChildProcess;
 
+/// One configured initial state still being entered through the transition
+/// engine.
+struct PendingGroupState {
+    std::string group{};  ///< Function Group name.
+    std::string target{}; ///< Requested state name.
+};
+
 struct RuntimeSuite {
     const SuiteManifest* manifest{nullptr};
     std::string suite_dir{};
@@ -60,6 +70,8 @@ struct RuntimeSuite {
     std::uint64_t next_suite_restart_ns{0};
     std::uint64_t start_mono_ns{0};
     std::vector<RuntimeApp> apps{};
+    std::unique_ptr<ControlHost> control{};
+    std::vector<PendingGroupState> pending_states{};
     UnrecoverableState unrecoverable{};
     bool dirty{false};
 };
@@ -151,6 +163,15 @@ void write_suite_exit(RuntimeSuite& suite, SuiteState state, std::string_view re
     return nullptr;
 }
 
+[[nodiscard]] RuntimeApp* find_runtime_app(RuntimeSuite& suite, std::string_view name) noexcept {
+    for (RuntimeApp& app : suite.apps) {
+        if (app.spec.app == name) {
+            return &app;
+        }
+    }
+    return nullptr;
+}
+
 void collect_stop_order(const RuntimeSuite& suite, const RuntimeApp& app,
                         std::vector<std::string>& visited, std::vector<std::string>& order) {
     if (std::find(visited.begin(), visited.end(), app.spec.app) != visited.end()) {
@@ -202,6 +223,9 @@ void stop_all(RuntimeSuite& suite) {
     app.artifact_dir = plan.artifact_dir;
 
     const core::Status started = app.launch(plan.identity, plan.command, plan.options);
+    if (started && suite.control != nullptr) {
+        suite.control->on_launched(app.spec.app);
+    }
     return started.has_value();
 }
 
@@ -261,6 +285,7 @@ void trigger_suite_restart(RuntimeSuite& suite) {
                                       suite.manifest->suite_restart_attempts,
                                       suite.manifest->suite_restart_delay_s));
     stop_all(suite);
+    suite.pending_states.clear();
     for (RuntimeApp& app : suite.apps) {
         app.state = AppState::Restarting;
         app.restarts_used = 0;
@@ -297,8 +322,11 @@ void handle_abnormal(RuntimeSuite& suite, RuntimeApp& app) {
     return nullptr;
 }
 
-[[nodiscard]] bool dependency_satisfied(const RuntimeApp& dependency,
+[[nodiscard]] bool dependency_satisfied(const RuntimeSuite& suite, const RuntimeApp& dependency,
                                         ProcessState required) noexcept {
+    if (suite.control != nullptr) {
+        return suite.control->process_state(dependency.spec.app) == required;
+    }
     if (required == ProcessState::Terminated) {
         return dependency.state == AppState::Exited;
     }
@@ -311,7 +339,7 @@ void handle_abnormal(RuntimeSuite& suite, RuntimeApp& app) {
 [[nodiscard]] bool dependencies_ready(const RuntimeSuite& suite, const RuntimeApp& app) noexcept {
     for (const ExecutionDependency& dependency : active_config(app).dependencies) {
         const RuntimeApp* dep = find_app_by_name(suite, dependency.process);
-        if (dep == nullptr || !dependency_satisfied(*dep, dependency.state)) {
+        if (dep == nullptr || !dependency_satisfied(suite, *dep, dependency.state)) {
             return false;
         }
     }
@@ -374,6 +402,62 @@ void launch_all(RuntimeSuite& suite) {
     }
 }
 
+/// Advance every configured initial state through the shared transition engine.
+/// Each request returns `InProgress` until readiness confirms or the transition
+/// fails; a failed transition leaves the group `Undefined` and the suite
+/// `Degraded`.
+void advance_pending_states(RuntimeSuite& suite) {
+    if (suite.control == nullptr || suite.pending_states.empty()) {
+        return;
+    }
+    for (auto it = suite.pending_states.begin(); it != suite.pending_states.end();) {
+        const StateResult result = suite.control->request_state(it->group, it->target);
+        if (result == StateResult::InProgress) {
+            ++it;
+            continue;
+        }
+        if (result == StateResult::Success) {
+            log_execution_manager(core::LogLevel::Info,
+                                  std::format("event=state_entered group={} state={}", it->group,
+                                              suite.control->group_state(it->group)));
+        } else {
+            if (suite.state == SuiteState::Running) {
+                suite.state = SuiteState::Degraded;
+            }
+            log_execution_manager(
+                core::LogLevel::Error,
+                std::format("event=state_transition_failed group={} state={} result={}", it->group,
+                            it->target, nexigen::exec::to_string(result)));
+        }
+        suite.dirty = true;
+        it = suite.pending_states.erase(it);
+    }
+}
+
+/// Enter the suite's configured initial states: through the control host when
+/// one is installed, or through the legacy direct launcher (gate OFF).
+void start_suite_apps(RuntimeSuite& suite) {
+    if (suite.control == nullptr) {
+        launch_all(suite);
+        return;
+    }
+    suite.control->reset_groups();
+    for (RuntimeApp& app : suite.apps) {
+        app.state = AppState::Stopped;
+        app.dependencies_pending = false;
+        app.dependency_deadline_ns = 0;
+        app.exit_consumed = false;
+        app.launch_failed = false;
+    }
+    suite.pending_states.clear();
+    suite.pending_states.reserve(suite.manifest->function_groups.size());
+    for (const FunctionGroupConfig& group : suite.manifest->function_groups) {
+        suite.pending_states.push_back(
+            PendingGroupState{group.name, initial_state_for_group(*suite.manifest, group.name)});
+    }
+    advance_pending_states(suite);
+}
+
 void apply_launch_failures(RuntimeSuite& suite) {
     bool failure_impact_failed = false;
     for (const RuntimeApp& app : suite.apps) {
@@ -417,9 +501,11 @@ void apply_launch_failures(RuntimeSuite& suite) {
     if (now >= suite.next_suite_restart_ns) {
         suite.suite_restart_pending = false;
         suspend_execution_manager_logging();
-        launch_all(suite);
+        start_suite_apps(suite);
+        if (suite.control == nullptr) {
+            apply_launch_failures(suite);
+        }
         static_cast<void>(resume_execution_manager_logging());
-        apply_launch_failures(suite);
         log_execution_manager(core::LogLevel::Info,
                               std::format("event=suite_restart suite={} used={} limit={}",
                                           manifest.suite_id, suite.suite_restarts_used,
@@ -481,12 +567,24 @@ private:
 
     [[nodiscard]] bool on_exit_consumed(const ExitMetadata& exit) {
         log_exit(exit);
+        if (suite_.control != nullptr) {
+            suite_.control->on_exited(app_.spec.app, exit.exit_code.value_or(1));
+        }
         // A oneshot exiting 0 is a normal termination; a daemon exiting at all
         // without a stop request is an unexpected self-termination, and any
         // non-zero status is a failure (spec exec/process-types).
         if (exit.exit_code.has_value() && *exit.exit_code == 0 &&
             app_.spec.type == ProcessType::Oneshot) {
             app_.state = AppState::Exited;
+            suite_.dirty = true;
+            return false;
+        }
+        // While the control host drives a transition, the shared transition
+        // engine owns the failure result; do not race it with the supervisor's
+        // own retry policy.
+        if (suite_.control != nullptr &&
+            suite_.control->transition_active(app_.spec.function_group)) {
+            app_.state = AppState::Failed;
             suite_.dirty = true;
             return false;
         }
@@ -592,6 +690,58 @@ void initialize_runtime_apps(RuntimeSuite& suite, const SuiteManifest& manifest)
     }
 }
 
+/// Create the COM control host through the factory inherited from the
+/// executable, or return null for the gate-OFF fallback.
+[[nodiscard]] std::unique_ptr<ControlHost> create_suite_control(const SuiteManifest& manifest) {
+    const ControlHostFactory factory = control_host_factory();
+    if (factory == nullptr) {
+        return nullptr;
+    }
+    app::RunIdentity identity{};
+    identity.run_id = manifest.run_id;
+    identity.run_dir = manifest.run_dir;
+    identity.instance_id = "1";
+    return factory(manifest, identity);
+}
+
+/// Start handler: the transition engine asked for one application in one state.
+[[nodiscard]] core::Status suite_start_process(RuntimeSuite& suite, std::string_view app_name,
+                                               std::string_view state_name) {
+    RuntimeApp* app = find_runtime_app(suite, app_name);
+    if (app == nullptr) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    app->active_state = std::string(state_name);
+    if (find_startup_config(app->spec, app->active_state) == nullptr) {
+        return {}; // Not configured for this state: nothing to launch.
+    }
+    if (!launch_app(suite, *app)) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return {};
+}
+
+/// Stop handler: the transition engine asked to stop one application.
+[[nodiscard]] core::Status suite_stop_process(RuntimeSuite& suite, std::string_view app_name,
+                                              std::string_view state_name) {
+    RuntimeApp* app = find_runtime_app(suite, app_name);
+    if (app == nullptr) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    std::uint64_t grace_s = 5;
+    if (const StateDependentStartupConfig* config = find_startup_config(app->spec, state_name);
+        config != nullptr) {
+        grace_s = termination_grace_s(*config);
+    }
+    const core::Status stopped = app->stop(grace_s);
+    app->state = AppState::Stopped;
+    app->child_pid = 0;
+    app->supervisor_pid = 0;
+    app->exit_consumed = true;
+    suite.dirty = true;
+    return stopped;
+}
+
 void init_suite_logging(const SuiteManifest& manifest) {
     logging::Settings log_settings{};
     const core::Status settings_status =
@@ -630,6 +780,11 @@ void supervisor_tick(RuntimeSuite& suite, const SuiteManifest& manifest, std::ui
         finish_suite_stop(suite, manifest);
     }
     reap_supervisors();
+
+    if (suite.control != nullptr) {
+        suite.control->poll();
+        advance_pending_states(suite);
+    }
 
     if (!advance_suite_restart(suite, manifest, now)) {
         advance_suite_apps(suite, now);
@@ -671,7 +826,16 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
     }
 
     initialize_runtime_apps(suite, manifest);
-    launch_all(suite);
+    suite.control = create_suite_control(manifest);
+    if (suite.control != nullptr) {
+        suite.control->set_start_handler([&suite](std::string_view app, std::string_view state) {
+            return suite_start_process(suite, app, state);
+        });
+        suite.control->set_stop_handler([&suite](std::string_view app, std::string_view state) {
+            return suite_stop_process(suite, app, state);
+        });
+    }
+    start_suite_apps(suite);
     write_suite_status(suite);
 
     StartReport report{::getpid(), 0};
@@ -681,7 +845,9 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
     init_suite_logging(manifest);
     log_initial_app_launches(suite);
 
-    apply_launch_failures(suite);
+    if (suite.control == nullptr) {
+        apply_launch_failures(suite);
+    }
     write_suite_status(suite);
 
     for (;;) {

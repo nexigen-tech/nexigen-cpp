@@ -8,6 +8,7 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -26,6 +27,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/app_suite.hpp>
+#include <nexigen/exec/control_host.hpp>
 #include <nexigen/exec/execution_state_tracker.hpp>
 #include <nexigen/exec/instance_lifecycle.hpp>
 #include <nexigen/exec/execution_manager.hpp>
@@ -1721,9 +1723,25 @@ void test_forced_stop() {
     remove_tree(artifacts);
 }
 
+/// @brief Stand-in factory proving the COM-free slot round-trips.
+[[nodiscard]] std::unique_ptr<exec::ControlHost> dummy_control_factory(const exec::SuiteManifest&,
+                                                                       const app::RunIdentity&) {
+    return nullptr;
+}
+
+void test_control_host_factory_slot() {
+    NX_CHECK(exec::control_host_factory() == nullptr);
+    exec::set_control_host_factory(&dummy_control_factory);
+    NX_CHECK(exec::control_host_factory() == &dummy_control_factory);
+    NX_CHECK(exec::control_host_factory()(exec::SuiteManifest{}, app::RunIdentity{}) == nullptr);
+    exec::set_control_host_factory(nullptr);
+    NX_CHECK(exec::control_host_factory() == nullptr);
+}
+
 } // namespace
 
 int main() {
+    run_suite("control_host_factory", test_control_host_factory_slot);
     run_suite("enums_serialization", test_enums_and_serialization);
     run_suite("manifest_validation", test_manifest_validation);
     run_suite("start_status_stop", test_start_status_stop);

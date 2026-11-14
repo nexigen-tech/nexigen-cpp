@@ -242,6 +242,15 @@ if(NEXIGEN_ENABLE_COM)
     add_test(NAME nexigen_em_orchestration_tests COMMAND nexigen_em_orchestration_tests)
     set_tests_properties(nexigen_em_orchestration_tests PROPERTIES TIMEOUT 600)
 
+    # Suite control host (change unify-exec-suite-control-path): readiness
+    # gating, start/stop handlers, and restart reset through the COM host.
+    add_executable(nexigen_suite_control_tests exec/suite_control_test.cpp)
+    target_link_libraries(nexigen_suite_control_tests PRIVATE
+        nexigen_exec_control nexigen_com Threads::Threads)
+
+    add_test(NAME nexigen_suite_control_tests COMMAND nexigen_suite_control_tests)
+    set_tests_properties(nexigen_suite_control_tests PROPERTIES TIMEOUT 600)
+
     # End-to-end trace propagation: com custom header + tracing context
     # (change add-trace-propagation).
     add_executable(nexigen_trace_roundtrip_tests tracing/trace_roundtrip_test.cpp)
@@ -393,6 +402,7 @@ foreach(_nexigen_test
         nexigen_sm_tests
         nexigen_state_client_tests
         nexigen_em_orchestration_tests
+        nexigen_suite_control_tests
         nexigen_trace_roundtrip_tests
         nexigen_logging_com_tests
         nexigen_logging_com_daemon_tests

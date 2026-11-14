@@ -1,33 +1,22 @@
-// nexigen-em — Execution Manager host (change
-// introduce-platformfg-process-model; spec exec/process-types).
+// nexigen-em — Execution Manager suite front-end (change
+// unify-exec-suite-control-path; spec exec/process-types).
 //
-// Hosts the EM-side StateClient receiver plus the per-application readiness
-// event listeners. The listeners feed an ExecutionStateTracker, so a
-// Function Group switch to Run is confirmed only after every bound daemon has
-// reported readiness and every bound oneshot has exited 0.
+// `nexigen-em --config` starts the same detached suite supervisor as
+// `nexigen-exec start --config` and returns once the supervisor owns the
+// suite. The supervisor child hosts the EM-side StateClient receiver and the
+// per-application readiness listeners through the COM control host, so the
+// Function Group transition path is identical to `nexigen-exec`.
 //
 // Built only when NEXIGEN_ENABLE_COM=ON.
-#include <atomic>
-#include <chrono>
-#include <csignal>
 #include <cstdio>
-#include <cstdint>
 #include <string>
 #include <string_view>
-#include <thread>
 
-#include <nexigen/app/run_identity.hpp>
-#include <nexigen/com/node.hpp>
-#include <nexigen/com/service_name.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/exec/control_host.hpp>
 #include <nexigen/exec/execution_manager.hpp>
-#include <nexigen/exec/execution_state_tracker.hpp>
-#include <nexigen/exec/function_group_registry.hpp>
-#include <nexigen/exec/state_client.hpp>
 #include <nexigen/exec/suite_manifest.hpp>
 
-namespace app = nexigen::app;
-namespace com = nexigen::com;
 namespace core = nexigen::core;
 namespace exec = nexigen::exec;
 
@@ -35,31 +24,21 @@ namespace {
 
 constexpr int exit_usage = 2;
 constexpr int exit_failure = 1;
-constexpr std::string_view default_service = "Nexigen/EM/StateCommand";
-constexpr auto poll_interval = std::chrono::milliseconds(5);
-
-std::atomic<bool> g_stop{false};
-
-void request_stop(int) {
-    g_stop.store(true, std::memory_order_release);
-}
 
 void print_usage(std::FILE* out) {
     std::fprintf(out, R"(Usage:
-  nexigen-em --config <suite-manifest> [--service <name>]
-              [--run-id <id>] [--instance <id>] [--run-dir <path>]
+  nexigen-em --config <suite-manifest> [--run-id <id>] [--run-dir <path>]
   nexigen-em --help
 
-The EM host serves SetState commands on <name> and <name>Emergency, feeds the
-readiness tracker from Nexigen/EM/State/<app>, and runs until SIGINT/SIGTERM.
+Starts a detached suite supervisor. The supervisor serves SetState commands on
+Nexigen/EM/StateCommand, feeds the readiness tracker from
+Nexigen/EM/State/<app>, and runs until the suite is stopped.
 )");
 }
 
 struct Options {
     std::string config{};
-    std::string service{default_service};
     std::string run_id{};
-    std::string instance_id{"1"};
     std::string run_dir{};
 };
 
@@ -71,8 +50,11 @@ struct Options {
             print_usage(stdout);
             return false;
         }
-        if (argument == "--config" || argument == "--service" || argument == "--run-id" ||
-            argument == "--instance" || argument == "--run-dir") {
+        // `--service` and `--instance` were accepted by the former direct host.
+        // They are parsed for CLI compatibility; the suite path uses the
+        // standard `Nexigen/EM/StateCommand` channel and per-app instances.
+        if (argument == "--config" || argument == "--run-id" || argument == "--run-dir" ||
+            argument == "--service" || argument == "--instance") {
             if (index + 1 >= argc) {
                 print_usage(stderr);
                 exit_code = exit_usage;
@@ -81,13 +63,9 @@ struct Options {
             const std::string value{argv[++index]};
             if (argument == "--config") {
                 options.config = value;
-            } else if (argument == "--service") {
-                options.service = value;
             } else if (argument == "--run-id") {
                 options.run_id = value;
-            } else if (argument == "--instance") {
-                options.instance_id = value;
-            } else {
+            } else if (argument == "--run-dir") {
                 options.run_dir = value;
             }
             continue;
@@ -110,6 +88,8 @@ struct Options {
 } // namespace
 
 int main(int argc, char* argv[]) {
+    exec::install_control_host_factory();
+
     Options options{};
     int exit_code = 0;
     if (!parse_args(argc, argv, options, exit_code)) {
@@ -134,47 +114,15 @@ int main(int argc, char* argv[]) {
         manifest.run_dir = options.run_dir;
     }
 
-    auto node = com::Node::create();
-    if (!node) {
-        std::fprintf(stderr, "nexigen-em: com node failed: %s\n",
-                     std::string(com::to_string(node.error())).c_str());
-        return exit_failure;
-    }
-    const auto service = com::ServiceName::create(options.service.c_str());
-    if (!service) {
-        std::fprintf(stderr, "nexigen-em: invalid service name: %s\n",
-                     std::string(com::to_string(service.error())).c_str());
-        return exit_failure;
-    }
-
-    exec::FunctionGroupRegistry registry(manifest);
     exec::ExecutionManager manager;
-    exec::ExecutionStateTracker tracker;
-    const app::RunIdentity identity{manifest.run_id, manifest.run_dir, options.instance_id, {}};
-    auto client = exec::StateClient::create(*node, *service, registry, manager, identity, &tracker);
-    if (!client) {
-        std::fprintf(stderr, "nexigen-em: StateClient creation failed: %s\n",
-                     std::string(com::to_string(client.error())).c_str());
+    std::string suite_dir;
+    const core::Status started = manager.start_suite(manifest, suite_dir);
+    if (!started) {
+        std::fprintf(stderr, "nexigen-em: start failed: %s\n",
+                     std::string(core::to_string(started.error())).c_str());
         return exit_failure;
     }
-
-    std::signal(SIGINT, request_stop);
-    std::signal(SIGTERM, request_stop);
-    std::fprintf(stdout, "nexigen-em: serving %s for suite %s\n", options.service.c_str(),
-                 manifest.suite_id.c_str());
-    std::fflush(stdout);
-
-    while (!g_stop.load(std::memory_order_acquire)) {
-        const auto served = client->serve_once();
-        if (!served) {
-            std::fprintf(stderr, "nexigen-em: serve failed: %s\n",
-                         std::string(com::to_string(served.error())).c_str());
-            client->stop_all();
-            return exit_failure;
-        }
-        std::this_thread::sleep_for(poll_interval);
-    }
-    client->stop_all();
-    std::fprintf(stdout, "nexigen-em: stopped\n");
+    std::printf("nexigen-em: started suite %s at %s\n", manifest.suite_id.c_str(),
+                suite_dir.c_str());
     return 0;
 }

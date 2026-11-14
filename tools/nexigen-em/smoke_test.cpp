@@ -1,8 +1,9 @@
-// nexigen-em smoke test (change introduce-platformfg-process-model).
+// nexigen-em smoke test (changes introduce-platformfg-process-model,
+// unify-exec-suite-control-path).
 //
-// Starts the real nexigen-em host with a one-shot application, sends Run
-// repeatedly, and asserts that the host confirms the switch without launching
-// the one-shot more than once.
+// Starts the real nexigen-em suite front-end with a one-shot application, sends
+// Run to the standard suite supervisor command channel, and asserts that the
+// switch is confirmed without launching the one-shot more than once.
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -89,41 +90,29 @@ using StateClient = com::Client<exec::StateCommand, exec::StateAck>;
     return *response;
 }
 
-[[nodiscard]] std::optional<exec::StateAck> wait_for_first_ack(StateClient& client) {
-    std::optional<exec::StateAck> ack;
-    for (int i = 0; i < 100 && !ack; ++i) {
-        ack = call_run(client);
-        if (!ack) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-    }
-    return ack;
-}
-
-[[nodiscard]] std::optional<exec::StateAck>
-wait_for_confirmation(StateClient& client, std::optional<exec::StateAck> ack) {
-    for (int i = 0; i < 200 && (!ack || ack->result != exec::StateResult::Success); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        ack = call_run(client);
-    }
-    return ack;
-}
-
-void terminate_child(pid_t child) {
-    if (child <= 0) {
-        return;
-    }
-    static_cast<void>(::kill(child, SIGTERM));
-    for (int i = 0; i < 100; ++i) {
+/// Wait for the launcher to exit after handing the suite to the supervisor.
+[[nodiscard]] bool wait_for_exit(pid_t child, int timeout_ms) {
+    for (int waited = 0; waited < timeout_ms; waited += 10) {
         int status = 0;
         if (::waitpid(child, &status, WNOHANG) == child) {
-            return;
+            return WIFEXITED(status) && WEXITSTATUS(status) == 0;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     static_cast<void>(::kill(child, SIGKILL));
     int status = 0;
     static_cast<void>(::waitpid(child, &status, 0));
+    return false;
+}
+
+[[nodiscard]] bool wait_for_file(const std::string& path, int timeout_ms) {
+    for (int waited = 0; waited < timeout_ms; waited += 20) {
+        if (std::filesystem::exists(path)) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return false;
 }
 
 } // namespace
@@ -180,38 +169,44 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const std::string service_name = "Nexigen/Test/EmSmoke";
     const pid_t child = ::fork();
     NX_CHECK(child >= 0);
     if (child == 0) {
-        ::execl(host.c_str(), "nexigen-em", "--config", manifest_path.c_str(), "--service",
-                service_name.c_str(), "--run-dir", run_dir.c_str(), "--instance", "1",
-                static_cast<char*>(nullptr));
+        ::execl(host.c_str(), "nexigen-em", "--config", manifest_path.c_str(), "--run-dir",
+                run_dir.c_str(), static_cast<char*>(nullptr));
         ::_exit(127);
     }
     if (child < 0) {
         std::filesystem::remove_all(root);
         return 1;
     }
+    NX_CHECK(wait_for_exit(child, 20000));
+
+    const std::string suite_dir = run_dir + "/.suite/em_smoke";
+    NX_CHECK(wait_for_file(suite_dir + "/suite.json", 5000));
 
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
-    const auto name = com::ServiceName::create(service_name.c_str());
+    const auto name = com::ServiceName::create("Nexigen/EM/StateCommand");
     NX_CHECK(name.has_value());
     auto client = com::Client<exec::StateCommand, exec::StateAck>::create(*node, *name);
     NX_CHECK(client.has_value());
 
-    std::optional<exec::StateAck> ack = wait_for_first_ack(*client);
-    NX_CHECK(ack.has_value());
-    NX_CHECK(ack.has_value() && ack->accepted == 1U);
-    NX_CHECK(ack.has_value() && ack->result == exec::StateResult::InProgress);
-
-    ack = wait_for_confirmation(*client, ack);
+    std::optional<exec::StateAck> ack;
+    for (int i = 0; i < 200 && (!ack || ack->result != exec::StateResult::Success); ++i) {
+        ack = call_run(*client);
+        if (!ack || ack->result == exec::StateResult::InProgress) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    }
     NX_CHECK(ack.has_value() && ack->accepted == 1U);
     NX_CHECK(ack.has_value() && ack->result == exec::StateResult::Success);
     NX_CHECK(count_lines(marker) == 1);
 
-    terminate_child(child);
+    // Stop through the standard suite control file and wait for the supervisor.
+    { std::ofstream stop(suite_dir + "/stop.request", std::ios::binary | std::ios::trunc); }
+    NX_CHECK(wait_for_file(suite_dir + "/suite-exit.json", 10000));
+
     std::filesystem::remove_all(root);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

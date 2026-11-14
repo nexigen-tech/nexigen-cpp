@@ -228,7 +228,7 @@ flowchart TD
     MAN["Suite manifest<br/>SuiteManifest"] --> VAL["validate_suite_manifest"]
     VAL --> PRE["preflight_suite_threads<br/>CPU mask and priority check"]
     PRE --> SUP["run_suite_supervisor_child<br/>fork supervisor"]
-    SUP --> APPS["start application instances<br/>start_app / restart_attempts"]
+    SUP --> APPS["ControlHost + transition engine<br/>initial_state -> start/stop handlers"]
     APPS --> STATE["AppState / SuiteStatus<br/>app_state + suite_state"]
     STATE --> REPORT["suite_status / metadata<br/>suite_reporting"]
     REPORT --> META["suite.json / run log<br/>on disk"]
@@ -239,14 +239,30 @@ flowchart TD
     STATE --> SM2["sm::StateManager<br/>PlatformFG transitions and audit"]
 ```
 
-### State-driven EM control (`nexigen-em`)
+### State-driven EM control (suite supervisor)
 
-The `nexigen-em` host owns the COM-facing control path. `StateClient` accepts
-`SetState(FunctionGroup, State)`, the registry resolves the state to its process
-set, and the transition engine stops, restarts, and starts processes through the
-`ExecutionManager`. A process table tracks `Idle`/`Starting`/`Running`/
-`Terminating`/`Terminated`; reporting processes wait for `Run`, non-reporting
-processes become `Running` immediately.
+The suite supervisor owns the COM-facing control path. `nexigen-exec start` and
+`nexigen-em --config` both start the same detached supervisor; the executable
+installs a COM-gated `ControlHostFactory` before `fork`, so the supervisor child
+creates the `ComControlHost` that hosts `StateClient`, the per-application
+readiness listeners, the process table, and the transition engine. `nexigen-em`
+is only a thin front-end that hands the manifest to `start_suite`; it no longer
+runs a direct per-app launch loop.
+
+`nexigen_exec` itself stays COM-free: it defines only the `ControlHost`
+interface and the factory slot. `nexigen_exec_control` (built only with
+`NEXIGEN_ENABLE_COM=ON`) holds the concrete host. The supervisor keeps
+ownership of `ChildProcess`, attempt artifacts, and the restart policy through
+the start/stop handlers, while the control host drives transitions.
+
+`StateClient` accepts `SetState(FunctionGroup, State)`, the registry resolves the
+state to its process set, and the transition engine stops, restarts, and starts
+processes through the suite handlers. A process table tracks
+`Idle`/`Starting`/`Running`/`Terminating`/`Terminated`; reporting processes wait
+for `Run`, non-reporting processes become `Running` immediately. The suite's
+configured `initial_state` is entered through the same transition engine, not by
+a direct launch loop, and readiness gates dependent startup and transition
+confirmation.
 
 ```mermaid
 flowchart LR
@@ -254,14 +270,17 @@ flowchart LR
     SC3 --> REG3["FunctionGroupRegistry<br/>state -> processes"]
     SC3 --> PT3["ProcessTable<br/>Idle/Starting/Running/<br/>Terminating/Terminated"]
     SC3 --> TR3["FunctionGroupTransition<br/>stop / restart / start"]
-    TR3 --> EM3["ExecutionManager<br/>SIGTERM -> SIGKILL"]
+    TR3 -->|start/stop handler| SUP3["Suite supervisor<br/>ChildProcess + artifacts"]
+    SUP3 --> EM3["ExecutionManager<br/>SIGTERM -> SIGKILL"]
     APP3["Applications"] -->|Nexigen/EM/State/app| SC3
     PT3 --> SC3
+    EXEC3["nexigen-exec / nexigen-em"] -->|start_suite + factory| SUP3
 ```
 
-The suite supervisor path keeps its existing launch loop and selects the
-processes configured for `initial_state`. Moving this path into the same control
-loop is the follow-up `unify-exec-suite-control-path` change.
+With `NEXIGEN_ENABLE_COM=OFF` no factory is installed. The supervisor keeps the
+documented file-based/non-reporting fallback: it selects the processes configured
+for `initial_state` directly and exposes no `StateClient`. No COM symbol enters
+`nexigen_exec`.
 
 ## PlatformFG state management
 
@@ -310,7 +329,7 @@ until `PlatformFG` is `Run`.
 | `nexigen-metricsd` | Metric-frame transport daemon | `--config <path>` |
 | `nexigen-phmd` | Health/reliability (PHM) daemon | `--manifest <path> [--core <mask>] [--priority <n>] [--fault-log <path>]` |
 | `nexigen-sm` | State-machine daemon | `--config <path> [--rt-core <mask>] [--priority <n>] [--audit-log <path>]` |
-| `nexigen-em` | Execution Manager host: StateClient + readiness tracker | `--config <suite-manifest> [--service <name>] [--instance <id>]` |
+| `nexigen-em` | Execution Manager suite front-end (`start_suite`; the supervisor hosts StateClient + readiness tracker) | `--config <suite-manifest> [--run-id <id>] [--run-dir <path>]` |
 
 ## The hard mandates
 

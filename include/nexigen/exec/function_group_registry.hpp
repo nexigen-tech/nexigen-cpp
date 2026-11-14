@@ -81,6 +81,15 @@ public:
     /// @warning Passing an out-of-range index is undefined behavior.
     void set_undefined(std::size_t index) noexcept;
 
+    /// @brief Reset a group to its first declared state.
+    ///
+    /// Also clears a sticky `Undefined`. Used before a whole-suite restart so
+    /// re-entering the configured initial state starts its processes again.
+    ///
+    /// @param index Group index; must be below `group_count()`.
+    /// @warning Passing an out-of-range index is undefined behavior.
+    void reset_state(std::size_t index) noexcept;
+
     /// @brief The applications bound to one group.
     ///
     /// @param index Group index; must be below `group_count()`.
@@ -126,6 +135,12 @@ public:
     /// @return The manifest command, or an empty view meaning the application
     ///         name itself is the command; empty also for an unknown name.
     [[nodiscard]] std::string_view command_of(std::string_view app_name) const noexcept;
+
+    /// @brief The manifest instance id of one application.
+    ///
+    /// @param app_name Application name to look up.
+    /// @return The instance id, or an empty view for an unknown name.
+    [[nodiscard]] std::string_view instance_of(std::string_view app_name) const noexcept;
 
     /// @brief The declared termination behavior of one application.
     ///

@@ -30,6 +30,7 @@
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/application_state.hpp>
+#include <nexigen/exec/control_host.hpp>
 #include <nexigen/exec/execution_manager.hpp>
 #include <nexigen/exec/execution_state_tracker.hpp>
 #include <nexigen/exec/function_group_registry.hpp>
@@ -94,6 +95,43 @@ public:
     /// @brief Move assign a client, transferring both servers.
     /// @return The destination client.
     StateClient& operator=(StateClient&&) noexcept = default;
+
+    /// @brief Install suite-owned process start/stop handlers.
+    ///
+    /// @param start Handler invoked instead of `ExecutionManager::start`.
+    /// @param stop Handler invoked instead of `ExecutionManager::stop`.
+    void set_process_handlers(ProcessHandler start, ProcessHandler stop) noexcept {
+        start_handler_ = std::move(start);
+        stop_handler_ = std::move(stop);
+    }
+
+    /// @brief Request one Function Group state through the receiver logic.
+    ///
+    /// @param group Function Group name.
+    /// @param target Target state name.
+    /// @return Transition result.
+    [[nodiscard]] StateResult request_state(std::string_view group,
+                                            std::string_view target) noexcept;
+
+    /// @brief Current state of one Function Group.
+    ///
+    /// @param group Function Group name.
+    /// @return The state name, `Undefined` after a failed transition, or an
+    ///         empty view for an unknown group.
+    [[nodiscard]] std::string_view group_state(std::string_view group) const noexcept;
+
+    /// @brief Whether a transition is currently running for one group.
+    ///
+    /// @param group Function Group name.
+    /// @return `true` while a requested state has not been confirmed yet.
+    [[nodiscard]] bool transition_active(std::string_view group) const noexcept;
+
+    /// @brief Reset every group to its first declared state.
+    ///
+    /// Drops in-flight transitions and re-arms the tracker so a subsequent
+    /// request starts the configured processes again. Used before a
+    /// whole-suite restart.
+    void reset_groups() noexcept;
 
     /// @brief Serve one pending command.
     ///
@@ -269,6 +307,8 @@ private:
     std::vector<StateChannel> state_channels_{};           ///< Per-application readiness channels.
     std::vector<std::string> pending_exits_{};   ///< Started processes awaiting `exit.json`.
     std::vector<GroupTransition> transitions_{}; ///< One transition state per group.
+    ProcessHandler start_handler_{};             ///< Suite-owned start callback.
+    ProcessHandler stop_handler_{};              ///< Suite-owned stop callback.
     std::string last_command_{};                 ///< Last handled command diagnostic.
 };
 
