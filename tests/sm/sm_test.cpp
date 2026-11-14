@@ -8,11 +8,13 @@
 #include <cstdint>
 #include <cstdlib>
 #include <unistd.h>
+#include <atomic>
 #include <cstdio>
 #include <format>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <variant>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -21,11 +23,16 @@
 #include <nexigen/com/field.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/publisher.hpp>
+#include <nexigen/com/server.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
 #include <nexigen/core/affinity.hpp>
 #include <nexigen/core/serialization_mandate.hpp>
 #include <nexigen/core/thread_management.hpp>
+#include <nexigen/exec/machine_state_query.hpp>
+#include <nexigen/exec/state_ack.hpp>
+#include <nexigen/exec/state_command.hpp>
+#include <nexigen/sm/machine_lifecycle.hpp>
 #include <nexigen/sm/machine_state.hpp>
 #include <nexigen/sm/recovery_handler.hpp>
 #include <nexigen/sm/sm_manifest.hpp>
@@ -497,6 +504,59 @@ void test_thread_spec() {
     static_cast<void>(std::remove(path_c.c_str()));
 }
 
+void test_machine_lifecycle_client() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+
+    const auto query_name =
+        com::ServiceName::create("Nexigen/EM/InitialMachineStateTransitionResult");
+    const auto command_name = com::ServiceName::create("Nexigen/EM/StateCommand");
+    NX_CHECK(query_name.has_value() && command_name.has_value());
+    auto query_server =
+        com::Server<std::monostate, nexigen::exec::InitialMachineStateTransitionResultResponse>::
+            create(*node, *query_name);
+    auto command_server = com::Server<nexigen::exec::StateCommand, nexigen::exec::StateAck>::create(
+        *node, *command_name);
+    NX_CHECK(query_server.has_value() && command_server.has_value());
+
+    std::atomic<bool> stop{false};
+    std::atomic<int> command_calls{0};
+    std::thread serve([&] {
+        while (!stop.load(std::memory_order_acquire)) {
+            auto query = query_server->receive();
+            if (query && query->has_value()) {
+                static_cast<void>(
+                    (*query)->send_copy(nexigen::exec::InitialMachineStateTransitionResultResponse{
+                        nexigen::exec::StateResult::Success}));
+            }
+            auto command = command_server->receive();
+            if (command && command->has_value()) {
+                const int call = command_calls.fetch_add(1, std::memory_order_relaxed);
+                const nexigen::exec::StateResult result =
+                    call == 0 ? nexigen::exec::StateResult::InProgress
+                              : nexigen::exec::StateResult::Success;
+                static_cast<void>((*command)->send_copy(nexigen::exec::StateAck{1U, result}));
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    auto client = sm::MachineLifecycleClient::create(*node, "sm_app");
+    NX_CHECK(client.has_value());
+    if (client) {
+        NX_CHECK(client->available());
+        NX_CHECK(client->report_ready().has_value());
+        const auto initial = client->initial_transition_result(std::chrono::milliseconds(500));
+        NX_CHECK(initial.has_value() && *initial == nexigen::exec::StateResult::Success);
+        const auto verify = client->request_state("Verify", std::chrono::milliseconds(500));
+        NX_CHECK(verify.has_value() && *verify == nexigen::exec::StateResult::Success);
+        NX_CHECK(command_calls.load(std::memory_order_relaxed) >= 2);
+    }
+
+    stop.store(true, std::memory_order_release);
+    serve.join();
+}
+
 } // namespace
 
 int main() {
@@ -507,6 +567,7 @@ int main() {
     run_suite("telemetry", test_telemetry);
     run_suite("manifest", test_manifest);
     run_suite("thread_spec", test_thread_spec);
+    run_suite("machine_lifecycle", test_machine_lifecycle_client);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

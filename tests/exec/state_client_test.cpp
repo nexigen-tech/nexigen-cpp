@@ -1023,6 +1023,53 @@ void test_instance_directory_uses_manifest_instance() {
     std::filesystem::remove_all(run_dir);
 }
 
+void test_machine_function_group() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/StateMachineFg");
+    NX_CHECK(name.has_value());
+    const std::string run_dir = "/tmp/opencode/state_client_machinefg";
+    std::filesystem::remove_all(run_dir);
+    std::filesystem::create_directories(run_dir);
+
+    exec::SuiteManifest manifest;
+    exec::FunctionGroupConfig machine;
+    machine.name = "MachineFG";
+    machine.states = {"Off", "Startup", "Verify", "Run", "Shutdown", "Restart"};
+    machine.initial_state = "Startup";
+    manifest.function_groups.push_back(machine);
+    exec::AppSpec app;
+    app.app = "platform_app";
+    app.instance = "1";
+    app.command = "/bin/true";
+    app.function_group = "MachineFG";
+    app.reporting = false;
+    exec::StateDependentStartupConfig config;
+    config.state = "Startup";
+    app.startup_configs.push_back(config);
+    manifest.apps.push_back(app);
+
+    exec::FunctionGroupRegistry registry(manifest);
+    NX_CHECK(registry.is_machine_group(0));
+    exec::ExecutionStateTracker tracker;
+    exec::ExecutionManager manager;
+    app::RunIdentity identity{"test", run_dir, "1", {}};
+    auto state_client =
+        exec::StateClient::create(*node, *name, registry, manager, identity, &tracker);
+    NX_CHECK(state_client.has_value());
+
+    NX_CHECK(state_client->request_state("MachineFG", "Off") ==
+             exec::StateResult::InvalidTransition);
+    NX_CHECK(registry.group_state(0) == "Off");
+    NX_CHECK(state_client->request_state("MachineFG", "Startup") == exec::StateResult::Success);
+    NX_CHECK(registry.group_state(0) == "Startup");
+
+    state_client->shutdown_machine();
+    NX_CHECK(registry.group_state(0) == "Off");
+
+    std::filesystem::remove_all(run_dir);
+}
+
 } // namespace
 
 int main() {
@@ -1039,6 +1086,7 @@ int main() {
     test_termination_timeout();
     test_process_handlers();
     test_instance_directory_uses_manifest_instance();
+    test_machine_function_group();
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

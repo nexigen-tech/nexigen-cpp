@@ -42,6 +42,13 @@ public:
     /// @note Spec `exec/app-suite`, requirement "Function Group configuration".
     explicit FunctionGroupRegistry(const SuiteManifest& manifest);
 
+    /// @brief Whether one group is the reserved `MachineFG`.
+    ///
+    /// @param index Group index; must be below `group_count()`.
+    /// @return `true` when the group name is `MachineFG`.
+    /// @warning Passing an out-of-range index is undefined behavior.
+    [[nodiscard]] bool is_machine_group(std::size_t index) const noexcept;
+
     /// @brief Number of configured groups.
     ///
     /// @return The size of the group table.

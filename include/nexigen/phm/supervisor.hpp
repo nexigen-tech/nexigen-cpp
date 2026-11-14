@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include <nexigen/phm/em_lifecycle.hpp>
 #include <nexigen/phm/phm_manifest.hpp>
 #include <nexigen/phm/supervision_status.hpp>
 
@@ -120,6 +121,31 @@ public:
     ///          writer.
     void on_alive_tick(std::size_t index, Clock::time_point now) noexcept;
 
+    /// @brief Apply one EM execution-state notification.
+    ///
+    /// `Running` arms supervision and clears the failure streak and every
+    /// pending deadline clock. `Terminating` and `Terminated` suspend the
+    /// process: later ticks and checkpoints are ignored and the status stays
+    /// `Ok`, so a deliberate stop cannot trigger recovery. `Unknown` preserves
+    /// the legacy behavior.
+    ///
+    /// @param index Process index in `[0, process_count())`.
+    /// @param state Reported EM lifecycle state.
+    /// @note Spec `phm/supervision`, requirement "Lifecycle-armed supervision".
+    /// @warning The index is not bounds-checked.
+    void on_execution_state(std::size_t index, EmLifecycleState state) noexcept;
+
+    /// @brief Current EM lifecycle state of one process.
+    ///
+    /// @param index Process index in `[0, process_count())`.
+    /// @return The last applied state; `Unknown` when no notification arrived.
+    [[nodiscard]] EmLifecycleState em_lifecycle(std::size_t index) const noexcept;
+
+    /// @brief Number of lifecycle notifications applied so far.
+    [[nodiscard]] std::uint64_t lifecycle_notifications() const noexcept {
+        return lifecycle_notifications_;
+    }
+
     /// @brief Cold-path diagnostic listing per-process status.
     ///
     /// @return Text of the form `Supervisor([<name>=<status>, ...])`.
@@ -140,6 +166,7 @@ private:
         std::uint64_t checkpoints_this_window{0};        ///< Checkpoints since the last alive tick.
         std::optional<std::uint32_t> last_checkpoint{};  ///< Previous checkpoint id.
         std::optional<Clock::time_point> last_checkpoint_time{}; ///< Previous arrival time.
+        EmLifecycleState lifecycle{EmLifecycleState::Unknown};   ///< Last EM lifecycle state.
         std::vector<DeadlineClock> deadline_clocks{};            ///< One clock per Deadline pair.
     };
 
@@ -167,8 +194,9 @@ private:
     [[nodiscard]] bool is_allowed_transition(std::size_t index, std::uint32_t from,
                                              std::uint32_t to) const noexcept;
 
-    PhmManifest manifest_;                   ///< Immutable configuration snapshot.
-    std::vector<ProcessSupervision> states_; ///< One mutable state per process.
+    PhmManifest manifest_;                     ///< Immutable configuration snapshot.
+    std::vector<ProcessSupervision> states_;   ///< One mutable state per process.
+    std::uint64_t lifecycle_notifications_{0}; ///< Applied lifecycle notifications.
 };
 
 /// @brief Free helper mirroring `Supervisor::to_string()` (mandate 9).

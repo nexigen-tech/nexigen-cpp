@@ -26,6 +26,7 @@
 #include <nexigen/exec/detail/suite_json.hpp>
 #include <nexigen/exec/impact_on_app_suite_operability.hpp>
 #include <nexigen/exec/instance_file_io.hpp>
+#include <nexigen/exec/machine_function_group.hpp>
 #include <nexigen/exec/suite_app_metadata.hpp>
 #include <nexigen/exec/suite_app_status.hpp>
 #include <nexigen/exec/suite_exit.hpp>
@@ -656,6 +657,9 @@ validate_dependency_entries(const AppSpec& app, const SuiteManifest& manifest,
         if (!group.initial_state.empty() && std::find(group.states.begin(), group.states.end(),
                                                       group.initial_state) == group.states.end()) {
             return invalid_argument();
+        }
+        if (const core::Status machine = validate_machine_function_group(group); !machine) {
+            return machine;
         }
     }
     return {};

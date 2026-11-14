@@ -25,6 +25,7 @@
 #include <nexigen/core/serialization_mandate.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/phm/checkpoint.hpp>
+#include <nexigen/phm/em_lifecycle.hpp>
 #include <nexigen/phm/fault_kind.hpp>
 #include <nexigen/phm/fault_storage.hpp>
 #include <nexigen/phm/health_channel.hpp>
@@ -92,6 +93,8 @@ void test_vocabulary() {
                            phm::RecoveryAction::TriggerWatchdogReset});
     check_enum_round_trip({phm::FaultKind::AliveFailure, phm::FaultKind::LogicalFailure,
                            phm::FaultKind::DeadlineFailure});
+    check_enum_round_trip({phm::EmLifecycleState::Unknown, phm::EmLifecycleState::Running,
+                           phm::EmLifecycleState::Terminating, phm::EmLifecycleState::Terminated});
     NX_CHECK(to_string(static_cast<phm::HealthState>(0x7f)) == "Unknown");
 }
 
@@ -237,6 +240,31 @@ void test_supervision() {
         NX_CHECK(text.find("diag=Ok") != std::string::npos);
         NX_CHECK(to_string(supervisor) == text);
         NX_CHECK(std::format("{}", supervisor) == text);
+    }
+
+    // EM lifecycle: Running arms, Terminating/Terminated suspend.
+    {
+        phm::PhmManifest manifest;
+        manifest.processes.push_back(make_process("lifecycle"));
+        phm::Supervisor supervisor(manifest);
+        const auto t0 = phm::Supervisor::Clock::now();
+        supervisor.on_execution_state(0, phm::EmLifecycleState::Running);
+        NX_CHECK(supervisor.em_lifecycle(0) == phm::EmLifecycleState::Running);
+        supervisor.on_alive_tick(0, t0 + std::chrono::milliseconds(100));
+        NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Failed);
+
+        supervisor.on_execution_state(0, phm::EmLifecycleState::Terminating);
+        NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Ok);
+        supervisor.on_alive_tick(0, t0 + std::chrono::milliseconds(200));
+        NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Ok);
+        supervisor.on_checkpoint(0, 2, t0 + std::chrono::milliseconds(250));
+        NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Ok);
+
+        supervisor.on_execution_state(0, phm::EmLifecycleState::Terminated);
+        supervisor.on_alive_tick(0, t0 + std::chrono::milliseconds(300));
+        NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Ok);
+        NX_CHECK(supervisor.lifecycle_notifications() == 3U);
+        NX_CHECK(supervisor.to_string().find("lifecycle=3") != std::string::npos);
     }
 }
 

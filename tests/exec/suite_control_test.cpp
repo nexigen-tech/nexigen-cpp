@@ -17,14 +17,18 @@
 
 #include <nexigen/app/run_identity.hpp>
 #include <nexigen/com/client.hpp>
+#include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
+#include <nexigen/com/subscriber.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/application_state.hpp>
 #include <nexigen/exec/control_host.hpp>
 #include <nexigen/exec/execution_dependency.hpp>
 #include <nexigen/exec/execution_manager.hpp>
 #include <nexigen/exec/instance_file_io.hpp>
+#include <nexigen/exec/machine_state_query.hpp>
+#include <nexigen/exec/process_lifecycle.hpp>
 #include <nexigen/exec/process_state.hpp>
 #include <nexigen/exec/process_type.hpp>
 #include <nexigen/exec/state_ack.hpp>
@@ -163,6 +167,102 @@ void test_control_host() {
     exec::set_control_host_factory(nullptr);
 }
 
+/// Drain every buffered lifecycle sample into a readable list.
+void drain_lifecycle(com::Subscriber<exec::ProcessLifecycleEvent>& subscriber,
+                     std::vector<std::string>& out) {
+    for (;;) {
+        auto received = subscriber.receive();
+        if (!received || !received->has_value()) {
+            return;
+        }
+        const exec::ProcessLifecycleEvent& event = (*received)->payload();
+        out.push_back(std::string(event.app) + ":" + std::string(exec::to_string(event.state)));
+    }
+}
+
+/// Whether one application's sample with the given state is present.
+[[nodiscard]] bool lifecycle_seen(const std::vector<std::string>& events, std::string_view app,
+                                  std::string_view state) {
+    for (const std::string& event : events) {
+        if (event == std::string(app) + ":" + std::string(state)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Whether one application's samples are ordered Running -> Terminating -> Terminated.
+[[nodiscard]] bool lifecycle_order_ok(const std::vector<std::string>& events,
+                                      std::string_view app) {
+    std::optional<std::size_t> running;
+    std::optional<std::size_t> terminating;
+    std::optional<std::size_t> terminated;
+    for (std::size_t i = 0; i < events.size(); ++i) {
+        if (events[i] == std::string(app) + ":Running") {
+            running = i;
+        } else if (events[i] == std::string(app) + ":Terminating") {
+            terminating = i;
+        } else if (events[i] == std::string(app) + ":Terminated") {
+            terminated = i;
+        }
+    }
+    return running && terminating && terminated && *running < *terminating &&
+           *terminating < *terminated;
+}
+
+/// Observe the EM→PHM lifecycle samples across one Run/Off cycle.
+void test_lifecycle_publication() {
+    exec::install_control_host_factory();
+    const exec::SuiteManifest manifest = make_manifest("/tmp/opencode/suite_control_lifecycle");
+    app::RunIdentity identity{manifest.run_id, manifest.run_dir, "1", {}};
+    auto host = exec::control_host_factory()(manifest, identity);
+    NX_CHECK(host != nullptr);
+    if (host == nullptr) {
+        return;
+    }
+    host->set_start_handler([](std::string_view, std::string_view) -> core::Status { return {}; });
+    host->set_stop_handler([](std::string_view, std::string_view) -> core::Status { return {}; });
+
+    auto observer_node = com::Node::create();
+    NX_CHECK(observer_node.has_value());
+    const auto lifecycle_name = com::ServiceName::create("Nexigen/PHM/ExecutionState");
+    const auto lifecycle_event_name = com::ServiceName::create("Nexigen/PHM/ExecutionStateEvent");
+    NX_CHECK(lifecycle_name.has_value() && lifecycle_event_name.has_value());
+    auto subscriber = com::Subscriber<exec::ProcessLifecycleEvent>::create(*observer_node,
+                                                                           *lifecycle_name, 64, 64);
+    auto listener = com::EventListener::create(*observer_node, *lifecycle_event_name);
+    NX_CHECK(subscriber.has_value() && listener.has_value());
+    std::vector<std::string> lifecycle;
+
+    NX_CHECK(host->request_state("ready_group", "Run") == exec::StateResult::InProgress);
+    auto reporter_node = com::Node::create();
+    NX_CHECK(reporter_node.has_value());
+    auto reporter = exec::ApplicationStateReporter::create(*reporter_node, "service");
+    NX_CHECK(reporter.has_value());
+    if (reporter) {
+        NX_CHECK(reporter->report(exec::AppState::Running).has_value());
+    }
+    for (int i = 0; i < 100 && !host->ready("service"); ++i) {
+        host->poll();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    host->poll();
+    drain_lifecycle(*subscriber, lifecycle);
+    NX_CHECK(lifecycle_seen(lifecycle, "service", "Running"));
+
+    NX_CHECK(host->request_state("ready_group", "Run") == exec::StateResult::Success);
+    host->poll();
+    drain_lifecycle(*subscriber, lifecycle);
+    NX_CHECK(lifecycle_seen(lifecycle, "client", "Running"));
+
+    NX_CHECK(host->request_state("ready_group", "Off") == exec::StateResult::Success);
+    host->poll();
+    drain_lifecycle(*subscriber, lifecycle);
+    NX_CHECK(lifecycle_order_ok(lifecycle, "service"));
+    NX_CHECK(lifecycle_order_ok(lifecycle, "client"));
+    exec::set_control_host_factory(nullptr);
+}
+
 /// Wait until a path exists, polling at a fixed interval.
 [[nodiscard]] bool wait_for_path(const std::string& path, int attempts, int interval_ms) {
     for (int i = 0; i < attempts; ++i) {
@@ -191,6 +291,26 @@ void test_control_host() {
     group.states = {"Off", "Run"};
     group.initial_state = "Run";
     manifest.function_groups.push_back(group);
+
+    exec::FunctionGroupConfig machine;
+    machine.name = "MachineFG";
+    machine.states = {"Off", "Startup", "Verify", "Run", "Shutdown", "Restart"};
+    machine.initial_state = "Startup";
+    manifest.function_groups.push_back(machine);
+
+    exec::AppSpec platform_init;
+    platform_init.app = "platform_init";
+    platform_init.instance = "1";
+    platform_init.command = "/bin/sh";
+    platform_init.function_group = "MachineFG";
+    platform_init.reporting = false;
+    platform_init.type = exec::ProcessType::Oneshot;
+    platform_init.impact = exec::ImpactOnAppSuiteOperability::Not_impact;
+    exec::StateDependentStartupConfig platform_config;
+    platform_config.state = "Startup";
+    platform_config.args = {"-c", "exit 0"};
+    platform_init.startup_configs.push_back(platform_config);
+    manifest.apps.push_back(platform_init);
 
     exec::AppSpec provider;
     provider.app = "provider";
@@ -243,6 +363,92 @@ request_state(com::Client<exec::StateCommand, exec::StateAck>& client, const cha
     return ack;
 }
 
+/// A MachineFG that starts Off is recorded as a successful EM-owned result.
+void test_machinefg_off_initial() {
+    exec::install_control_host_factory();
+    exec::SuiteManifest manifest = make_manifest("/tmp/opencode/suite_control_machine_off");
+    exec::FunctionGroupConfig machine;
+    machine.name = "MachineFG";
+    machine.states = {"Off", "Startup", "Verify", "Run", "Shutdown", "Restart"};
+    machine.initial_state = "Off";
+    manifest.function_groups.push_back(machine);
+    app::RunIdentity identity{manifest.run_id, manifest.run_dir, "1", {}};
+    auto host = exec::control_host_factory()(manifest, identity);
+    NX_CHECK(host != nullptr);
+    if (host == nullptr) {
+        return;
+    }
+    NX_CHECK(host->request_state("MachineFG", "Off") == exec::StateResult::Success);
+    NX_CHECK(host->group_state("MachineFG") == "Off");
+
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto query_name =
+        com::ServiceName::create("Nexigen/EM/InitialMachineStateTransitionResult");
+    NX_CHECK(query_name.has_value());
+    auto query =
+        com::Client<std::monostate, exec::InitialMachineStateTransitionResultResponse>::create(
+            *node, *query_name);
+    NX_CHECK(query.has_value());
+    exec::StateResult result = exec::StateResult::InProgress;
+    std::thread poller([&host] {
+        for (int i = 0; i < 100; ++i) {
+            host->poll();
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    });
+    const auto response = query->call(std::monostate{}, std::chrono::milliseconds(500));
+    if (response) {
+        result = response->result;
+    }
+    poller.join();
+    NX_CHECK(result == exec::StateResult::Success);
+    exec::set_control_host_factory(nullptr);
+}
+
+/// Wait until the EM reports a terminal initial MachineFG result.
+[[nodiscard]] exec::StateResult wait_for_initial_machine_result(
+    com::Client<std::monostate, exec::InitialMachineStateTransitionResultResponse>& query) {
+    exec::StateResult result = exec::StateResult::InProgress;
+    for (int i = 0; i < 100 && result == exec::StateResult::InProgress; ++i) {
+        const auto response = query.call(std::monostate{}, std::chrono::milliseconds(200));
+        if (response) {
+            result = response->result;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return result;
+}
+
+/// Switch the application group Off and wait until both apps are Stopped.
+[[nodiscard]] bool stop_group_and_wait(const std::string& suite_dir,
+                                       com::Client<exec::StateCommand, exec::StateAck>& client) {
+    const auto stopped = request_state(client, "e2e_group", "Off");
+    if (!stopped || stopped->result != exec::StateResult::Success) {
+        return false;
+    }
+    for (int i = 0; i < 100; ++i) {
+        exec::SuiteStatus status{};
+        if (!exec::suite_status(suite_dir, status).has_value()) {
+            return false;
+        }
+        bool all_stopped = true;
+        bool saw_group_app = false;
+        for (const exec::SuiteAppStatus& app : status.apps) {
+            if (app.app != "provider" && app.app != "consumer") {
+                continue;
+            }
+            saw_group_app = true;
+            all_stopped = all_stopped && app.state == exec::AppState::Stopped;
+        }
+        if (all_stopped && saw_group_app) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return false;
+}
+
 /// End-to-end through the real detached suite supervisor: a reporting daemon
 /// gates its dependent, the initial state enters through the transition engine,
 /// and a SetState command switches the group.
@@ -276,6 +482,17 @@ void test_suite_control_path() {
 
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
+
+    // The EM owns the initial MachineFG transition and exposes its result.
+    const auto query_name =
+        com::ServiceName::create("Nexigen/EM/InitialMachineStateTransitionResult");
+    NX_CHECK(query_name.has_value());
+    auto query =
+        com::Client<std::monostate, exec::InitialMachineStateTransitionResultResponse>::create(
+            *node, *query_name);
+    NX_CHECK(query.has_value());
+    NX_CHECK(wait_for_initial_machine_result(*query) == exec::StateResult::Success);
+
     auto reporter = exec::ApplicationStateReporter::create(*node, "provider");
     NX_CHECK(reporter.has_value());
     for (int i = 0; i < 200 && !std::filesystem::exists(marker); ++i) {
@@ -291,31 +508,21 @@ void test_suite_control_path() {
     auto client = com::Client<exec::StateCommand, exec::StateAck>::create(*node, *service);
     NX_CHECK(client.has_value());
 
+    // MachineFG Off is EM-owned and rejected over the public channel.
+    {
+        exec::StateCommand off{};
+        std::snprintf(off.function_group, sizeof(off.function_group), "%s", "MachineFG");
+        std::snprintf(off.target_state, sizeof(off.target_state), "%s", "Off");
+        const auto ack = client->call(off, std::chrono::milliseconds(500));
+        NX_CHECK(ack.has_value() && ack->result == exec::StateResult::InvalidTransition);
+    }
+
     // The initial Run confirms through the same transition engine.
     const auto confirmed = request_state(*client, "e2e_group", "Run");
     NX_CHECK(confirmed.has_value() && confirmed->result == exec::StateResult::Success);
 
     // A state command switches the group off and stops both processes.
-    const auto stopped = request_state(*client, "e2e_group", "Off");
-    NX_CHECK(stopped.has_value() && stopped->result == exec::StateResult::Success);
-    for (int i = 0; i < 100; ++i) {
-        exec::SuiteStatus status{};
-        if (exec::suite_status(suite_dir, status).has_value()) {
-            bool all_stopped = !status.apps.empty();
-            for (const exec::SuiteAppStatus& app : status.apps) {
-                all_stopped = all_stopped && app.state == exec::AppState::Stopped;
-            }
-            if (all_stopped) {
-                break;
-            }
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-    exec::SuiteStatus final_status{};
-    NX_CHECK(exec::suite_status(suite_dir, final_status).has_value());
-    for (const exec::SuiteAppStatus& app : final_status.apps) {
-        NX_CHECK(app.state == exec::AppState::Stopped);
-    }
+    NX_CHECK(stop_group_and_wait(suite_dir, *client));
 
     NX_CHECK(exec::stop_suite(suite_dir, 2).has_value());
     std::filesystem::remove_all(root, error);
@@ -325,7 +532,9 @@ void test_suite_control_path() {
 } // namespace
 
 int main() {
+    test_machinefg_off_initial();
     test_control_host();
+    test_lifecycle_publication();
     test_suite_control_path();
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

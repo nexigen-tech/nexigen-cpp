@@ -282,29 +282,38 @@ documented file-based/non-reporting fallback: it selects the processes configure
 for `initial_state` directly and exposes no `StateClient`. No COM symbol enters
 `nexigen_exec`.
 
-## PlatformFG state management
+## MachineFG state management
 
-`PlatformFG` is the platform-foundation Function Group: it owns the message
-broker, SM, PHM, EM and the future DataRecorder. `Off` is the mandatory initial
-state, `Startup` brings the foundation up, `Verify` runs its self-diagnosis,
-`Run` is the target state, `Shutdown` transitions back into `Off`, and
-`Restart` is a fast reboot that returns to `Startup` without passing through
-`Off`. Application Function Groups are gated on `Run`: no application group
-leaves an off-like state before the platform foundation is ready.
+`MachineFG` is the reserved platform-foundation Function Group: it owns the
+message broker, SM, PHM, EM and the future DataRecorder. A suite manifest may
+declare it with the fixed states `Off`, `Startup`, `Verify`, `Run`, `Shutdown`,
+and `Restart`. `Off` has no bound processes, `Startup` brings the foundation up,
+`Verify` runs its self-diagnosis, `Run` is the target state, `Shutdown` stops the
+foundation, and `Restart` is a fast reboot that returns to `Startup` without
+passing through `Off`.
+
+The EM owns the initial `Off -> Startup` transition: the suite supervisor
+requests it through the same transition engine as any other group and records
+the first terminal result. A State Manager reads that result from
+`Nexigen/EM/InitialMachineStateTransitionResult`, then commands `Verify` and
+`Run` through `StateClient`. An external `SetState(MachineFG, Off)` is rejected
+with `InvalidTransition`; only the EM's own shutdown path records `Off`.
+Application Function Groups are gated on `Run`: no application group leaves an
+off-like state before the platform foundation is ready.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Off
-    Off --> Startup: begin_startup()
-    Startup --> Verify: advance_startup()
-    Verify --> Run: confirm_startup_step()
-    Run --> Shutdown: begin_shutdown()
-    Shutdown --> Off: complete_shutdown()
-    Run --> Restart: begin_restart()
-    Restart --> Startup: advance_restart()
+    Off --> Startup: EM initial transition
+    Startup --> Verify: SM SetState(Verify)
+    Verify --> Run: SM SetState(Run)
+    Run --> Shutdown: SM SetState(Shutdown)
+    Shutdown --> Off: EM shutdown path
+    Run --> Restart: SM restart
+    Restart --> Startup: fast reboot
 
     note right of Off
-        Initial state; no platform process is bound.
+        EM-owned; external SetState(Off) is rejected.
     end note
     note right of Run
         Target state; application groups may start.
@@ -314,9 +323,12 @@ stateDiagram-v2
     end note
 ```
 
-The `StateManager` applies each step only after the Execution Manager reports
-the previous one, and `request_transition` rejects an application-group start
-until `PlatformFG` is `Run`.
+When an EM control path is reachable, the SM reports its own readiness, waits
+for the initial result, and advances `Verify -> Run` only after the EM confirms
+each state. Without an EM it keeps the synchronous fallback. The EM process
+table also publishes `Running`/`Terminating`/`Terminated` lifecycle samples on
+`Nexigen/PHM/ExecutionState`; PHM arms supervision on `Running` and suspends it
+during a deliberate stop, so shutdown cannot be misread as an Alive fault.
 
 ## CLI tools
 
@@ -327,8 +339,8 @@ until `PlatformFG` is `Run`.
 | `nexigen-logd` | Log-frame transport daemon | `--config <path>` |
 | `nexigen-traced` | Trace-frame transport daemon | `--config <trace-daemon-config.json>` |
 | `nexigen-metricsd` | Metric-frame transport daemon | `--config <path>` |
-| `nexigen-phmd` | Health/reliability (PHM) daemon | `--manifest <path> [--core <mask>] [--priority <n>] [--fault-log <path>]` |
-| `nexigen-sm` | State-machine daemon | `--config <path> [--rt-core <mask>] [--priority <n>] [--audit-log <path>]` |
+| `nexigen-phmd` | Health/reliability (PHM) daemon | `--manifest <path> [--core <mask>] [--priority <n>] [--fault-log <path>] [--app-name <name>]` |
+| `nexigen-sm` | State-machine daemon | `--config <path> [--rt-core <mask>] [--priority <n>] [--audit-log <path>] [--app-name <name>]` |
 | `nexigen-em` | Execution Manager suite front-end (`start_suite`; the supervisor hosts StateClient + readiness tracker) | `--config <suite-manifest> [--run-id <id>] [--run-dir <path>]` |
 
 ## The hard mandates

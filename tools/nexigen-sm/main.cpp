@@ -38,6 +38,7 @@
 #include <nexigen/sm/recovery_handler.hpp>
 #include <nexigen/sm/sm_manifest.hpp>
 #include <nexigen/sm/sm_metrics.hpp>
+#include <nexigen/sm/machine_lifecycle.hpp>
 #include <nexigen/sm/state_manager.hpp>
 #include <nexigen/sm/state_publication.hpp>
 #include <nexigen/sm/transition_audit.hpp>
@@ -67,6 +68,7 @@ struct Options {
     std::uint64_t rt_core_mask{0};
     std::int32_t priority{85};
     std::string audit_log{"/tmp/nexigen-sm-audit.log"};
+    std::string app_name{};
 };
 
 [[nodiscard]] bool take_value(int argc, char* argv[], int& index, std::string& target) {
@@ -77,18 +79,26 @@ struct Options {
     return true;
 }
 
+/// @brief Handle the repeated `--flag <value>` string options.
+[[nodiscard]] bool take_string_option(std::string_view argument, int argc, char* argv[], int& index,
+                                      Options& options) {
+    std::string* target = nullptr;
+    if (argument == "--config") {
+        target = &options.config_path;
+    } else if (argument == "--audit-log") {
+        target = &options.audit_log;
+    } else if (argument == "--app-name") {
+        target = &options.app_name;
+    }
+    return target != nullptr && take_value(argc, argv, index, *target);
+}
+
 [[nodiscard]] std::optional<int> parse_args(int argc, char* argv[], Options& options) {
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
         if (argument == "--help" || argument == "-h") {
             print_usage();
             return 0;
-        }
-        if (argument == "--config") {
-            if (!take_value(argc, argv, index, options.config_path)) {
-                return 2;
-            }
-            continue;
         }
         if (argument == "--rt-core") {
             std::string text;
@@ -106,8 +116,8 @@ struct Options {
             options.priority = static_cast<std::int32_t>(std::strtol(text.c_str(), nullptr, 10));
             continue;
         }
-        if (argument == "--audit-log") {
-            if (!take_value(argc, argv, index, options.audit_log)) {
+        if (argument == "--config" || argument == "--audit-log" || argument == "--app-name") {
+            if (!take_string_option(argument, argc, argv, index, options)) {
                 return 2;
             }
             continue;
@@ -118,6 +128,11 @@ struct Options {
     if (options.config_path.empty()) {
         std::fprintf(stderr, "nexigen-sm: --config <path> is required\n");
         return 2;
+    }
+    if (options.app_name.empty()) {
+        if (const char* env = std::getenv("NEXIGEN_APP_NAME"); env != nullptr) {
+            options.app_name = env;
+        }
     }
     return std::nullopt;
 }
@@ -471,6 +486,53 @@ void run_loop(Session& session, nexigen::sm::StateManager& manager,
     }
 }
 
+/// Result of the EM-gated startup attempt.
+enum class StartupGate { Success, Failed, Unavailable };
+
+/// Report SM readiness, read the EM's initial MachineFG result, and command
+/// `Verify` and `Run` before the SM advances its own platform state.
+[[nodiscard]] StartupGate gate_machine_startup(nexigen::sm::StateManager& manager,
+                                               nexigen::sm::MachineLifecycleClient& lifecycle,
+                                               const nexigen::sm::SmManifest& manifest) {
+    const std::uint64_t budget_ms =
+        manifest.startup_timeout_ms == 0U ? 5000U : manifest.startup_timeout_ms;
+    const auto timeout = std::chrono::milliseconds(budget_ms);
+    (void)lifecycle.report_ready();
+    const auto initial = lifecycle.initial_transition_result(timeout);
+    if (!initial) {
+        std::fprintf(stderr, "nexigen-sm: EM lifecycle unavailable (%s); synchronous fallback\n",
+                     std::string(nexigen::com::to_string(initial.error())).c_str());
+        return StartupGate::Unavailable;
+    }
+    if (*initial == nexigen::exec::StateResult::InvalidArgument ||
+        *initial == nexigen::exec::StateResult::InvalidTransition) {
+        std::fprintf(stderr, "nexigen-sm: no MachineFG integration; synchronous fallback\n");
+        return StartupGate::Unavailable;
+    }
+    if (*initial != nexigen::exec::StateResult::Success) {
+        std::fprintf(stderr, "nexigen-sm: initial MachineFG transition failed: %s\n",
+                     std::string(nexigen::exec::to_string(*initial)).c_str());
+        return StartupGate::Failed;
+    }
+    (void)manager.advance_startup();
+    const auto verify = lifecycle.request_state("Verify", timeout);
+    if (!verify || *verify != nexigen::exec::StateResult::Success) {
+        std::fprintf(stderr, "nexigen-sm: MachineFG Verify failed: %s\n",
+                     verify ? std::string(nexigen::exec::to_string(*verify)).c_str()
+                            : std::string(nexigen::com::to_string(verify.error())).c_str());
+        return StartupGate::Failed;
+    }
+    (void)manager.confirm_startup_step();
+    const auto run = lifecycle.request_state("Run", timeout);
+    if (!run || *run != nexigen::exec::StateResult::Success) {
+        std::fprintf(stderr, "nexigen-sm: MachineFG Run failed: %s\n",
+                     run ? std::string(nexigen::exec::to_string(*run)).c_str()
+                         : std::string(nexigen::com::to_string(run.error())).c_str());
+        return StartupGate::Failed;
+    }
+    return StartupGate::Success;
+}
+
 [[nodiscard]] int run_sm(const Options& options) {
     nexigen::sm::SmManifest manifest;
     if (!load_manifest(options, manifest)) {
@@ -512,26 +574,48 @@ void run_loop(Session& session, nexigen::sm::StateManager& manager,
     std::vector<PendingTransition> pending;
     pending.reserve(manifest.function_groups.size());
 
+    std::optional<nexigen::sm::MachineLifecycleClient> lifecycle;
+    if (!options.app_name.empty()) {
+        auto created = nexigen::sm::MachineLifecycleClient::create(*session.node, options.app_name);
+        if (created) {
+            lifecycle.emplace(std::move(*created));
+        }
+    }
+
     std::signal(SIGINT, stop_handler);
     std::signal(SIGTERM, stop_handler);
 
     // Startup sequencing (REQ_SM_001/005): Off -> Startup -> Verify -> Run.
-    // The host advances synchronously; an explicit EM lifecycle report gate is
-    // future integration (the EM reports application readiness, not platform
-    // phases).
+    // The SM enters its own Startup, reports readiness, then gates Verify/Run
+    // on the EM's MachineFG result. Without an EM the synchronous fallback
+    // remains.
     (void)manager.begin_startup();
-    (void)manager.advance_startup();
-    (void)manager.confirm_startup_step();
+    if (lifecycle) {
+        const StartupGate gate = gate_machine_startup(manager, *lifecycle, manifest);
+        if (gate == StartupGate::Failed) {
+            return 1;
+        }
+        if (gate == StartupGate::Unavailable) {
+            (void)manager.advance_startup();
+            (void)manager.confirm_startup_step();
+        }
+    } else {
+        (void)manager.advance_startup();
+        (void)manager.confirm_startup_step();
+    }
     std::printf("nexigen-sm: ready (kRunning), supervising %zu function group(s)\n",
                 manager.group_count());
     std::fflush(stdout);
 
     run_loop(session, manager, audit, metrics, pending);
 
-    // Shutdown sequencing (REQ_SM_005): application groups to Off, then
-    // PlatformFG Shutdown -> Off. The host advances synchronously; an explicit
-    // EM stop-report gate is future integration.
+    // Shutdown sequencing (REQ_SM_005): application groups to Off, request
+    // MachineFG Shutdown (never Off), then EM owns the final Off. The host
+    // advances synchronously when no EM lifecycle client is available.
     manager.begin_shutdown();
+    if (lifecycle) {
+        (void)lifecycle->request_state("Shutdown", std::chrono::milliseconds(500));
+    }
     (void)manager.complete_shutdown();
     std::printf("nexigen-sm: stopping\n");
     return 0;

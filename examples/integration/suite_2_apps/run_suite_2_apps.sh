@@ -129,6 +129,7 @@ cat > "${manifest}" <<EOF
   "execution_manager_control_thread": { "cpus": [2], "name": "em-ctrl" },
   "execution_manager_logger_thread": { "cpus": [3], "name": "em-log" },
   "function_groups": [
+    { "name": "MachineFG", "states": ["Off", "Startup", "Verify", "Run", "Shutdown", "Restart"], "initial_state": "Startup" },
     { "name": "demo", "states": ["Off", "Running"], "initial_state": "Running" }
   ],
   "apps": [

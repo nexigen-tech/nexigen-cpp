@@ -11,6 +11,7 @@
 #include <nexigen/exec/execution_manager_logging.hpp>
 #include <nexigen/exec/exit_metadata.hpp>
 #include <nexigen/exec/instance_file_io.hpp>
+#include <nexigen/exec/machine_function_group.hpp>
 
 namespace nexigen::exec {
 
@@ -435,6 +436,12 @@ StateResult StateClient::execute(const StateCommand& command) noexcept {
     if (index == static_cast<std::size_t>(-1)) {
         return StateResult::InvalidArgument;
     }
+    // `MachineFG:Off` is EM-owned (spec exec/machine-function-group): an
+    // external SetState never reaches the internal shutdown path.
+    if (registry_->is_machine_group(index) &&
+        std::string_view(command.target_state) == k_machine_state_off) {
+        return StateResult::InvalidTransition;
+    }
     if (!registry_->has_state(index, command.target_state)) {
         return StateResult::InvalidTransition;
     }
@@ -541,6 +548,20 @@ void StateClient::reset_groups() noexcept {
         }
     }
     pending_exits_.clear();
+}
+
+void StateClient::shutdown_machine() noexcept {
+    if (registry_ == nullptr) {
+        return;
+    }
+    const std::size_t index = registry_->find_group(k_machine_function_group_name);
+    if (index == static_cast<std::size_t>(-1)) {
+        return;
+    }
+    if (index < transitions_.size()) {
+        transitions_[index] = GroupTransition{};
+    }
+    registry_->set_state(index, k_machine_state_off);
 }
 
 std::string StateClient::to_string() const {

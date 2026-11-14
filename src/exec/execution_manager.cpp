@@ -485,6 +485,7 @@ struct SupervisorContext {
     const std::vector<const char*>* argv{nullptr};
     std::uint64_t timeout_s{0};
     std::string log_level{};
+    std::string app_name{};
     ResourceMetadata metadata{};
 };
 
@@ -552,6 +553,7 @@ struct SupervisorContext {
     const app::RunIdentity& resolved = *context.resolved;
     static_cast<void>(::setenv("NEXIGEN_RUN_ID", resolved.run_id.c_str(), 1));
     static_cast<void>(::setenv("NEXIGEN_EXEC_DIR", resolved.run_dir.c_str(), 1));
+    static_cast<void>(::setenv("NEXIGEN_APP_NAME", context.app_name.c_str(), 1));
     static_cast<void>(::setenv("NEXIGEN_INSTANCE_ID", resolved.instance_id.c_str(), 1));
     static_cast<void>(::setenv("NEXIGEN_INSTANCE_DIR", context.instance_dir->c_str(), 1));
     if (!context.log_level.empty()) {
@@ -900,6 +902,7 @@ core::Status ExecutionManager::start(const app::RunIdentity& identity, std::stri
     context.instance_dir = &layout.instance_dir;
     context.argv = &argv;
     context.timeout_s = timeout_s;
+    context.app_name = app_name_arg;
     context.metadata = metadata;
     if (options.log_level.has_value()) {
         context.log_level = std::string(core::to_string(*options.log_level));

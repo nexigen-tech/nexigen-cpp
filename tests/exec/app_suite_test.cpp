@@ -32,6 +32,7 @@
 #include <nexigen/exec/instance_lifecycle.hpp>
 #include <nexigen/exec/execution_manager.hpp>
 #include <nexigen/exec/process_state.hpp>
+#include <nexigen/exec/process_lifecycle.hpp>
 #include <nexigen/exec/state_result.hpp>
 #include <nexigen/exec/unrecoverable_state.hpp>
 
@@ -1723,6 +1724,78 @@ void test_forced_stop() {
     remove_tree(artifacts);
 }
 
+void test_machine_function_group_validation() {
+    const std::string root = unique_dir("machinefg");
+    const std::string artifacts = unique_dir("machinefg_artifacts");
+    const std::string root2 = unique_dir("machinefg_root2");
+    const std::string artifacts2 = unique_dir("machinefg_artifacts2");
+
+    exec::SuiteManifest good = base_manifest(root, artifacts);
+    exec::FunctionGroupConfig machine{};
+    machine.name = "MachineFG";
+    machine.states = {"Off", "Startup", "Verify", "Run", "Shutdown", "Restart"};
+    machine.initial_state = "Startup";
+    good.function_groups.push_back(machine);
+    exec::AppSpec platform =
+        app_spec("platform_init", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
+    platform.function_group = "MachineFG";
+    platform.reporting = false;
+    platform.type = exec::ProcessType::Oneshot;
+    first_config(platform).state = "Startup";
+    first_config(platform).args = {"-c", "exit 0"};
+    good.apps.push_back(std::move(platform));
+    NX_CHECK(exec::validate_suite_manifest(good).has_value());
+
+    exec::SuiteManifest missing = good;
+    missing.function_groups.back().states = {"Off", "Startup", "Run", "Shutdown", "Restart"};
+    NX_CHECK(failed_with(exec::validate_suite_manifest(missing), core::ErrorCode::InvalidArgument));
+
+    exec::SuiteManifest bad_initial = good;
+    bad_initial.function_groups.back().initial_state = "Run";
+    NX_CHECK(
+        failed_with(exec::validate_suite_manifest(bad_initial), core::ErrorCode::InvalidArgument));
+
+    exec::SuiteManifest legacy = base_manifest(root2, artifacts2);
+    legacy.apps.push_back(
+        app_spec("legacy_app", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact));
+    first_config(legacy.apps.front()).args = {"-c", "exec sleep 60"};
+    NX_CHECK(exec::validate_suite_manifest(legacy).has_value());
+}
+
+void test_process_lifecycle_serialization() {
+    for (const auto value :
+         {exec::ProcessLifecycleState::Running, exec::ProcessLifecycleState::Terminating,
+          exec::ProcessLifecycleState::Terminated}) {
+        const std::string_view text = exec::to_string(value);
+        exec::ProcessLifecycleState parsed = static_cast<exec::ProcessLifecycleState>(0xff);
+        NX_CHECK(exec::from_string(text, parsed));
+        NX_CHECK(parsed == value);
+        NX_CHECK(std::format("{}", value) == text);
+        nlohmann::json json;
+        exec::to_json(json, value);
+        exec::from_json(json, parsed);
+        NX_CHECK(parsed == value);
+    }
+    NX_CHECK(exec::to_string(static_cast<exec::ProcessLifecycleState>(0x7f)) == "Unknown");
+
+    exec::ProcessLifecycleEvent event{};
+    std::snprintf(event.app, sizeof(event.app), "%s", "alpha");
+    event.state = exec::ProcessLifecycleState::Terminating;
+    NX_CHECK(event.to_string().find("alpha") != std::string::npos);
+    NX_CHECK(std::format("{}", event) == event.to_string());
+    nlohmann::json json;
+    exec::to_json(json, event);
+    exec::ProcessLifecycleEvent parsed{};
+    exec::from_json(json, parsed);
+    NX_CHECK(std::string(parsed.app) == "alpha");
+    NX_CHECK(parsed.state == exec::ProcessLifecycleState::Terminating);
+
+    nlohmann::json hostile = "not-an-object";
+    exec::from_json(hostile, parsed);
+    NX_CHECK(std::string(parsed.app) == "alpha");
+    NX_CHECK(parsed.state == exec::ProcessLifecycleState::Terminating);
+}
+
 /// @brief Stand-in factory proving the COM-free slot round-trips.
 [[nodiscard]] std::unique_ptr<exec::ControlHost> dummy_control_factory(const exec::SuiteManifest&,
                                                                        const app::RunIdentity&) {
@@ -1742,6 +1815,8 @@ void test_control_host_factory_slot() {
 
 int main() {
     run_suite("control_host_factory", test_control_host_factory_slot);
+    run_suite("machinefg_validation", test_machine_function_group_validation);
+    run_suite("process_lifecycle", test_process_lifecycle_serialization);
     run_suite("enums_serialization", test_enums_and_serialization);
     run_suite("manifest_validation", test_manifest_validation);
     run_suite("start_status_stop", test_start_status_stop);

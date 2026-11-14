@@ -133,6 +133,12 @@ public:
     /// whole-suite restart.
     void reset_groups() noexcept;
 
+    /// @brief Record the EM-owned `MachineFG` `Off` state.
+    ///
+    /// `Off` cannot be requested through `execute`; the suite supervisor calls
+    /// this on operator stop or terminal failure.
+    void shutdown_machine() noexcept;
+
     /// @brief Serve one pending command.
     ///
     /// First drains the per-application readiness channels into the tracker,

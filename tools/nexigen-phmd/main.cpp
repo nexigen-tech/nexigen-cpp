@@ -24,9 +24,13 @@
 #include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
+#include <nexigen/com/subscriber.hpp>
 #include <nexigen/com/waitset.hpp>
 #include <nexigen/core/affinity.hpp>
 #include <nexigen/core/thread_management.hpp>
+#include <nexigen/exec/application_state.hpp>
+#include <nexigen/exec/process_lifecycle.hpp>
+#include <nexigen/phm/em_lifecycle.hpp>
 #include <nexigen/phm/fault_kind.hpp>
 #include <nexigen/phm/fault_storage.hpp>
 #include <nexigen/phm/phm_manifest.hpp>
@@ -52,6 +56,7 @@ struct Options {
     std::uint64_t core_mask{0};
     std::int32_t priority{80};
     std::string fault_log{"/tmp/nexigen-phmd-faults.log"};
+    std::string app_name{};
 };
 
 [[nodiscard]] bool take_value(int argc, char* argv[], int& index, std::string& target) {
@@ -62,18 +67,26 @@ struct Options {
     return true;
 }
 
+/// @brief Handle the repeated `--flag <value>` string options.
+[[nodiscard]] bool take_string_option(std::string_view argument, int argc, char* argv[], int& index,
+                                      Options& options) {
+    std::string* target = nullptr;
+    if (argument == "--manifest") {
+        target = &options.manifest_path;
+    } else if (argument == "--fault-log") {
+        target = &options.fault_log;
+    } else if (argument == "--app-name") {
+        target = &options.app_name;
+    }
+    return target != nullptr && take_value(argc, argv, index, *target);
+}
+
 [[nodiscard]] std::optional<int> parse_args(int argc, char* argv[], Options& options) {
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
         if (argument == "--help" || argument == "-h") {
             print_usage();
             return 0;
-        }
-        if (argument == "--manifest") {
-            if (!take_value(argc, argv, index, options.manifest_path)) {
-                return 2;
-            }
-            continue;
         }
         if (argument == "--core") {
             std::string text;
@@ -91,8 +104,8 @@ struct Options {
             options.priority = static_cast<std::int32_t>(std::strtol(text.c_str(), nullptr, 10));
             continue;
         }
-        if (argument == "--fault-log") {
-            if (!take_value(argc, argv, index, options.fault_log)) {
+        if (argument == "--manifest" || argument == "--fault-log" || argument == "--app-name") {
+            if (!take_string_option(argument, argc, argv, index, options)) {
                 return 2;
             }
             continue;
@@ -103,6 +116,11 @@ struct Options {
     if (options.manifest_path.empty()) {
         std::fprintf(stderr, "nexigen-phmd: --manifest <path> is required\n");
         return 2;
+    }
+    if (options.app_name.empty()) {
+        if (const char* env = std::getenv("NEXIGEN_APP_NAME"); env != nullptr) {
+            options.app_name = env;
+        }
     }
     return std::nullopt;
 }
@@ -123,6 +141,11 @@ struct Session {
     std::vector<MonitoredProcess> monitored{};
     std::optional<nexigen::com::WaitSetGuard> tick_guard{};
     std::optional<nexigen::phm::RecoveryClient> recovery{};
+    std::optional<nexigen::com::Subscriber<nexigen::exec::ProcessLifecycleEvent>>
+        lifecycle_subscriber{};
+    std::optional<nexigen::com::EventListener> lifecycle_listener{};
+    std::optional<nexigen::com::WaitSetGuard> lifecycle_guard{};
+    std::optional<nexigen::exec::ApplicationStateReporter> reporter{};
 };
 
 /// Load the PHM manifest and require at least one supervised process.
@@ -256,10 +279,73 @@ void open_recovery(Session& session) {
     }
 }
 
-/// Dispatch one WaitSet notification: alive tick or per-process checkpoints.
+/// Optional EM lifecycle channel; absent when the transport cannot open it.
+void open_lifecycle(Session& session) {
+    const auto sample_name = nexigen::com::ServiceName::create("Nexigen/PHM/ExecutionState");
+    const auto event_name = nexigen::com::ServiceName::create("Nexigen/PHM/ExecutionStateEvent");
+    if (!sample_name || !event_name) {
+        return;
+    }
+    auto subscriber = nexigen::com::Subscriber<nexigen::exec::ProcessLifecycleEvent>::create(
+        *session.node, *sample_name, 64, 64);
+    auto listener = nexigen::com::EventListener::create(*session.node, *event_name);
+    if (!subscriber || !listener) {
+        return;
+    }
+    auto guard = session.waitset->attach_notification(*listener);
+    if (!guard) {
+        return;
+    }
+    session.lifecycle_subscriber.emplace(std::move(*subscriber));
+    session.lifecycle_listener.emplace(std::move(*listener));
+    session.lifecycle_guard.emplace(std::move(*guard));
+}
+
+/// Map the EM vocabulary onto the supervisor vocabulary.
+[[nodiscard]] nexigen::phm::EmLifecycleState
+to_phm_lifecycle(nexigen::exec::ProcessLifecycleState state) noexcept {
+    using nexigen::exec::ProcessLifecycleState;
+    switch (state) {
+        case ProcessLifecycleState::Running:     return nexigen::phm::EmLifecycleState::Running;
+        case ProcessLifecycleState::Terminating: return nexigen::phm::EmLifecycleState::Terminating;
+        case ProcessLifecycleState::Terminated:  return nexigen::phm::EmLifecycleState::Terminated;
+    }
+    return nexigen::phm::EmLifecycleState::Unknown;
+}
+
+/// Drain every pending lifecycle sample and apply it by process name.
+void drain_lifecycle(Session& session, nexigen::phm::Supervisor& supervisor,
+                     const nexigen::phm::PhmManifest& manifest) {
+    if (!session.lifecycle_subscriber) {
+        return;
+    }
+    for (;;) {
+        auto received = session.lifecycle_subscriber->receive();
+        if (!received) {
+            return;
+        }
+        if (!received->has_value()) {
+            return;
+        }
+        const nexigen::exec::ProcessLifecycleEvent& event = (*received)->payload();
+        for (std::size_t i = 0; i < manifest.processes.size(); ++i) {
+            if (manifest.processes[i].name == event.app) {
+                supervisor.on_execution_state(i, to_phm_lifecycle(event.state));
+                break;
+            }
+        }
+    }
+}
+
+/// Dispatch one WaitSet notification: lifecycle, alive tick, or per-process
+/// checkpoints.
 void handle_attachment(Session& session, nexigen::phm::Supervisor& supervisor,
+                       const nexigen::phm::PhmManifest& manifest,
                        const nexigen::com::WaitSetAttachmentId& attachment) {
     const auto now = nexigen::phm::Supervisor::Clock::now();
+    if (session.lifecycle_guard && attachment.has_event_from(*session.lifecycle_guard)) {
+        drain_lifecycle(session, supervisor, manifest);
+    }
     if (attachment.has_event_from(*session.tick_guard)) {
         for (std::size_t i = 0; i < session.monitored.size(); ++i) {
             supervisor.on_alive_tick(i, now);
@@ -307,7 +393,7 @@ void run_loop(Session& session, nexigen::phm::Supervisor& supervisor,
     while (g_stop == 0) {
         const auto waited = session.waitset->wait_and_process_once_with_timeout(
             [&](nexigen::com::WaitSetAttachmentId attachment) -> nexigen::com::CallbackProgression {
-                handle_attachment(session, supervisor, attachment);
+                handle_attachment(session, supervisor, manifest, attachment);
                 return nexigen::com::CallbackProgression::Continue;
             },
             std::chrono::milliseconds(200));
@@ -358,9 +444,20 @@ void run_loop(Session& session, nexigen::phm::Supervisor& supervisor,
                                                       nexigen::phm::SupervisionStatus::Ok);
 
     open_recovery(session);
+    open_lifecycle(session);
+    if (!options.app_name.empty()) {
+        auto reporter =
+            nexigen::exec::ApplicationStateReporter::create(*session.node, options.app_name);
+        if (reporter) {
+            session.reporter.emplace(std::move(*reporter));
+        }
+    }
 
     std::signal(SIGINT, stop_handler);
     std::signal(SIGTERM, stop_handler);
+    if (session.reporter) {
+        (void)session.reporter->report(nexigen::exec::AppState::Running);
+    }
     std::printf("nexigen-phmd: supervising %zu process(es)\n", manifest.processes.size());
     std::fflush(stdout);
 

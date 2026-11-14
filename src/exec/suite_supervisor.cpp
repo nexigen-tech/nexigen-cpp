@@ -34,6 +34,7 @@
 #include <nexigen/exec/instance_file_io.hpp>
 #include <nexigen/exec/instance_layout.hpp>
 #include <nexigen/exec/execution_manager_logging.hpp>
+#include <nexigen/exec/machine_function_group.hpp>
 #include <nexigen/exec/suite_app_status.hpp>
 #include <nexigen/exec/suite_exit.hpp>
 #include <nexigen/exec/suite_manifest.hpp>
@@ -81,6 +82,9 @@ struct RuntimeSuite {
     for (const FunctionGroupConfig& group : manifest.function_groups) {
         if (group.name != group_name) {
             continue;
+        }
+        if (is_machine_function_group(group.name)) {
+            return std::string(machine_function_group_initial_state(group.initial_state));
         }
         if (!group.initial_state.empty()) {
             return group.initial_state;
@@ -260,6 +264,9 @@ void finish_failed(RuntimeSuite& suite) {
     // Unrecoverable State (spec exec/process-types): the suite owns a one-way
     // latch, so a repeated failure path cannot re-run the terminator or hook.
     suite.unrecoverable.enter();
+    if (suite.control != nullptr) {
+        suite.control->shutdown_machine();
+    }
     for (RuntimeApp& app : suite.apps) {
         if (app.state != AppState::Failed) {
             app.state = AppState::Stopped;
@@ -481,6 +488,9 @@ void apply_launch_failures(RuntimeSuite& suite) {
 [[noreturn]] void finish_suite_stop(RuntimeSuite& suite, const SuiteManifest& manifest) {
     log_execution_manager(core::LogLevel::Info,
                           std::format("event=stop_requested suite={}", manifest.suite_id));
+    if (suite.control != nullptr) {
+        suite.control->shutdown_machine();
+    }
     stop_all(suite);
     for (RuntimeApp& app : suite.apps) {
         app.state = AppState::Stopped;

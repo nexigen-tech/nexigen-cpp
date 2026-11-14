@@ -38,6 +38,10 @@ bool Supervisor::is_allowed_transition(std::size_t index, std::uint32_t from,
 
 void Supervisor::record_failure(std::size_t index) noexcept {
     ProcessSupervision& state = states_[index];
+    if (state.lifecycle == EmLifecycleState::Terminating ||
+        state.lifecycle == EmLifecycleState::Terminated) {
+        return; // Deliberate EM stop: never turn it into a supervision fault.
+    }
     const std::uint64_t tolerance = manifest_.processes[index].failed_supervision_cycles_tolerance;
     state.consecutive_failures += 1U;
     if (state.consecutive_failures > tolerance) {
@@ -56,6 +60,10 @@ void Supervisor::reset_failures(std::size_t index) noexcept {
 void Supervisor::on_checkpoint(std::size_t index, std::uint32_t checkpoint_id,
                                Clock::time_point now) noexcept {
     ProcessSupervision& state = states_[index];
+    if (state.lifecycle == EmLifecycleState::Terminating ||
+        state.lifecycle == EmLifecycleState::Terminated) {
+        return;
+    }
     const SupervisedProcess& process = manifest_.processes[index];
 
     // Babbling-idiot protection: checkpoints faster than the alive min margin
@@ -96,12 +104,38 @@ void Supervisor::on_checkpoint(std::size_t index, std::uint32_t checkpoint_id,
 
 void Supervisor::on_alive_tick(std::size_t index, Clock::time_point /*now*/) noexcept {
     ProcessSupervision& state = states_[index];
+    if (state.lifecycle == EmLifecycleState::Terminating ||
+        state.lifecycle == EmLifecycleState::Terminated) {
+        state.checkpoints_this_window = 0U;
+        return;
+    }
     if (state.checkpoints_this_window == 0U) {
         record_failure(index);
     } else {
         reset_failures(index);
     }
     state.checkpoints_this_window = 0U;
+}
+
+void Supervisor::on_execution_state(std::size_t index, EmLifecycleState state) noexcept {
+    ProcessSupervision& supervision = states_[index];
+    supervision.lifecycle = state;
+    ++lifecycle_notifications_;
+    if (state == EmLifecycleState::Running || state == EmLifecycleState::Terminating ||
+        state == EmLifecycleState::Terminated) {
+        supervision.consecutive_failures = 0U;
+        supervision.status = SupervisionStatus::Ok;
+        supervision.checkpoints_this_window = 0U;
+        supervision.last_checkpoint.reset();
+        supervision.last_checkpoint_time.reset();
+        for (DeadlineClock& clock : supervision.deadline_clocks) {
+            clock.started.reset();
+        }
+    }
+}
+
+EmLifecycleState Supervisor::em_lifecycle(std::size_t index) const noexcept {
+    return states_[index].lifecycle;
 }
 
 std::string Supervisor::to_string() const {
@@ -113,7 +147,7 @@ std::string Supervisor::to_string() const {
         out += std::format("{}={}", manifest_.processes[i].name,
                            nexigen::phm::to_string(states_[i].status));
     }
-    out += "])";
+    out += std::format("], lifecycle={})", lifecycle_notifications_);
     return out;
 }
 
