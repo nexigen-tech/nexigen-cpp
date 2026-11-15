@@ -34,6 +34,8 @@
 #include <nexigen/exec/state_command.hpp>
 #include <nexigen/sm/machine_lifecycle.hpp>
 #include <nexigen/sm/machine_state.hpp>
+#include <nexigen/sm/ucm.hpp>
+#include <nexigen/sm/update_coordinator.hpp>
 #include <nexigen/sm/recovery_handler.hpp>
 #include <nexigen/sm/sm_manifest.hpp>
 #include <nexigen/sm/sm_metrics.hpp>
@@ -117,7 +119,8 @@ sm::SmManifest make_manifest() {
 void test_vocabulary() {
     for (const sm::TransitionResult value :
          {sm::TransitionResult::Success, sm::TransitionResult::RejectedByPriority,
-          sm::TransitionResult::InvalidGraph, sm::TransitionResult::Timeout}) {
+          sm::TransitionResult::RejectedByUpdate, sm::TransitionResult::InvalidGraph,
+          sm::TransitionResult::Timeout}) {
         const std::string_view name = to_string(value);
         NX_CHECK(!name.empty());
         sm::TransitionResult back{};
@@ -567,6 +570,127 @@ void test_machine_lifecycle_client() {
     }
 }
 
+void test_ucm_coordination() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    sm::SmManifest manifest = make_manifest();
+    sm::FunctionGroup ucm;
+    ucm.name = "ucm_group";
+    ucm.states = {"Off", "Run", "Update"};
+    ucm.allowed_transitions = {{"Off", "Run"}, {"Run", "Off"}, {"Run", "Update"}};
+    ucm.application_group = true;
+    ucm.transition_max_time_ms = 500;
+    manifest.function_groups.push_back(ucm);
+    sm::FunctionGroup machine;
+    machine.name = "MachineFG";
+    machine.states = {"Off", "Update"};
+    machine.application_group = false;
+    manifest.function_groups.push_back(machine);
+
+    auto manager_result = sm::StateManager::create(manifest);
+    NX_CHECK(manager_result.has_value());
+    if (!manager_result) {
+        return;
+    }
+    sm::StateManager& manager = *manager_result;
+    NX_CHECK(manager.begin_startup());
+    NX_CHECK(manager.advance_startup());
+    NX_CHECK(manager.confirm_startup_step());
+
+    const auto em_name = com::ServiceName::create("Nexigen/Test/UcmEm");
+    NX_CHECK(em_name.has_value());
+    auto em_server =
+        com::Server<nexigen::exec::StateCommand, nexigen::exec::StateAck>::create(*node, *em_name);
+    auto em_client =
+        com::Client<nexigen::exec::StateCommand, nexigen::exec::StateAck>::create(*node, *em_name);
+    NX_CHECK(em_server.has_value() && em_client.has_value());
+    std::atomic<bool> stop{false};
+    std::atomic<int> mode{0}; // 0 = Success, 1 = OperationFailed
+    std::thread serve([&] {
+        while (!stop.load(std::memory_order_acquire)) {
+            auto request = em_server->receive();
+            if (request && request->has_value()) {
+                const auto result = mode.load(std::memory_order_relaxed) == 0
+                                        ? nexigen::exec::StateResult::Success
+                                        : nexigen::exec::StateResult::OperationFailed;
+                static_cast<void>((*request)->send_copy(nexigen::exec::StateAck{1U, result}));
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    sm::UpdateCoordinator coordinator(manager, *em_client, "sm");
+    auto request = [](sm::UpdateAction action, const char* id, const char* target) {
+        sm::UpdateRequest value{};
+        std::snprintf(value.function_group, sizeof(value.function_group), "%s", "ucm_group");
+        std::snprintf(value.update_id, sizeof(value.update_id), "%s", id);
+        std::snprintf(value.target_state, sizeof(value.target_state), "%s", target);
+        value.action = action;
+        return value;
+    };
+
+    const std::size_t ucm_index = manager.find_group_index("ucm_group");
+    const std::size_t adas_index = manager.find_group_index("adas");
+    NX_CHECK(manager.request_transition(ucm_index, "Run", "sm") == sm::TransitionResult::Success);
+    NX_CHECK(coordinator.handle(request(sm::UpdateAction::Start, "u1", "")).result ==
+             sm::UpdateResult::Accepted);
+    NX_CHECK(manager.state(ucm_index) == "Update");
+    NX_CHECK(coordinator.locked(ucm_index));
+    NX_CHECK(sm::request_with_update_lock(manager, &coordinator, ucm_index, "Run", "sm") ==
+             sm::TransitionResult::RejectedByUpdate);
+    NX_CHECK(sm::request_with_update_lock(manager, &coordinator, adas_index, "Active", "app") ==
+             sm::TransitionResult::Success);
+    NX_CHECK(coordinator.handle(request(sm::UpdateAction::Start, "u2", "")).result ==
+             sm::UpdateResult::Busy);
+    NX_CHECK(coordinator.handle(request(sm::UpdateAction::Complete, "wrong", "Run")).result ==
+             sm::UpdateResult::Rejected);
+    NX_CHECK(coordinator.handle(request(sm::UpdateAction::Complete, "u1", "Run")).result ==
+             sm::UpdateResult::Accepted);
+    NX_CHECK(manager.state(ucm_index) == "Run");
+    NX_CHECK(!coordinator.locked(ucm_index));
+
+    NX_CHECK(coordinator.handle(request(sm::UpdateAction::Start, "u3", "")).result ==
+             sm::UpdateResult::Accepted);
+    NX_CHECK(coordinator.handle(request(sm::UpdateAction::Cancel, "u3", "")).result ==
+             sm::UpdateResult::Accepted);
+    NX_CHECK(manager.state(ucm_index) == "Run");
+
+    sm::UpdateRequest machine_request{};
+    std::snprintf(machine_request.function_group, sizeof(machine_request.function_group), "%s",
+                  "MachineFG");
+    std::snprintf(machine_request.update_id, sizeof(machine_request.update_id), "%s", "u4");
+    machine_request.action = sm::UpdateAction::Start;
+    NX_CHECK(coordinator.handle(machine_request).result == sm::UpdateResult::Rejected);
+
+    mode.store(1, std::memory_order_relaxed);
+    NX_CHECK(coordinator.handle(request(sm::UpdateAction::Start, "u5", "")).result ==
+             sm::UpdateResult::EmFailure);
+    NX_CHECK(!coordinator.locked(ucm_index));
+
+    mode.store(0, std::memory_order_relaxed);
+    const auto ucm_name = com::ServiceName::create("Nexigen/Test/Ucm");
+    NX_CHECK(ucm_name.has_value());
+    auto ucm_server = com::Server<sm::UpdateRequest, sm::UpdateResponse>::create(*node, *ucm_name);
+    auto ucm_client = com::Client<sm::UpdateRequest, sm::UpdateResponse>::create(*node, *ucm_name);
+    NX_CHECK(ucm_server.has_value() && ucm_client.has_value());
+    std::thread ucm_loop([&] {
+        for (int i = 0; i < 200; ++i) {
+            (void)coordinator.serve_once(*ucm_server);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+    const auto start_response = ucm_client->call(request(sm::UpdateAction::Start, "u6", ""),
+                                                 std::chrono::milliseconds(500));
+    NX_CHECK(start_response.has_value() && start_response->result == sm::UpdateResult::Accepted);
+    const auto cancel_response = ucm_client->call(request(sm::UpdateAction::Cancel, "u6", ""),
+                                                  std::chrono::milliseconds(500));
+    NX_CHECK(cancel_response.has_value() && cancel_response->result == sm::UpdateResult::Accepted);
+    ucm_loop.join();
+
+    stop.store(true, std::memory_order_release);
+    serve.join();
+}
+
 } // namespace
 
 int main() {
@@ -578,6 +702,7 @@ int main() {
     run_suite("manifest", test_manifest);
     run_suite("thread_spec", test_thread_spec);
     run_suite("machine_lifecycle", test_machine_lifecycle_client);
+    run_suite("ucm_coordination", test_ucm_coordination);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

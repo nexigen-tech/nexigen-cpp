@@ -196,7 +196,7 @@ void FunctionGroupRegistry::set_state(std::size_t index, std::string_view state)
 }
 
 bool FunctionGroupRegistry::is_off_target(std::string_view target) noexcept {
-    return target == "Off" || target == "Stopped" || target == "Shutdown";
+    return target == "Off" || target == "Stopped" || target == "Shutdown" || target == "Update";
 }
 
 std::string FunctionGroupRegistry::to_string() const {

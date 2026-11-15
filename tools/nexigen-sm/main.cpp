@@ -46,6 +46,8 @@
 #include <nexigen/sm/transition_record.hpp>
 #include <nexigen/sm/trigger_request.hpp>
 #include <nexigen/sm/trigger_response.hpp>
+#include <nexigen/sm/ucm.hpp>
+#include <nexigen/sm/update_coordinator.hpp>
 
 namespace {
 
@@ -151,14 +153,15 @@ struct PendingTransition {
 using TriggerServer =
     nexigen::com::Server<nexigen::sm::TriggerRequest, nexigen::sm::TriggerResponse>;
 using EmClient = nexigen::com::Client<nexigen::exec::StateCommand, nexigen::exec::StateAck>;
+using UpdateServer = nexigen::com::Server<nexigen::sm::UpdateRequest, nexigen::sm::UpdateResponse>;
 
 /// Serve one TriggerIn request: arbitrate, journal, publish, prepare.
 void serve_one_request(TriggerServer& server, nexigen::sm::StateManager& manager,
                        nexigen::sm::StatePublication& publication,
                        nexigen::sm::TransitionPreparation* preparation,
-                       nexigen::sm::TransitionAudit& audit, nexigen::sm::SmMetrics& metrics,
-                       std::vector<PendingTransition>& pending, std::uint64_t request_id,
-                       Clock::time_point now) {
+                       nexigen::sm::UpdateCoordinator* update, nexigen::sm::TransitionAudit& audit,
+                       nexigen::sm::SmMetrics& metrics, std::vector<PendingTransition>& pending,
+                       std::uint64_t request_id, Clock::time_point now) {
     auto received = server.receive();
     if (!received || !received->has_value()) {
         return;
@@ -169,13 +172,15 @@ void serve_one_request(TriggerServer& server, nexigen::sm::StateManager& manager
     const bool known = index != static_cast<std::size_t>(-1);
     const std::string_view old_state = known ? manager.state(index) : std::string_view{};
     const nexigen::sm::TransitionResult result =
-        known ? manager.request_transition(index, request.target_state, request.requester_id)
+        known ? nexigen::sm::request_with_update_lock(manager, update, index, request.target_state,
+                                                      request.requester_id)
               : nexigen::sm::TransitionResult::InvalidGraph;
     metrics.arbitration_latency_us.store(
         static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started).count()),
         std::memory_order_relaxed);
-    if (result == nexigen::sm::TransitionResult::RejectedByPriority) {
+    if (result == nexigen::sm::TransitionResult::RejectedByPriority ||
+        result == nexigen::sm::TransitionResult::RejectedByUpdate) {
         metrics.rejected_requests_total.fetch_add(1, std::memory_order_relaxed);
     }
 
@@ -288,6 +293,7 @@ struct Session {
     std::optional<nexigen::phm::CheckpointEmitter> health{};
     std::optional<nexigen::sm::TransitionPreparation> preparation{};
     std::optional<nexigen::com::WaitSetGuard> tick_guard{};
+    std::optional<UpdateServer> update_server{};
     std::uint64_t next_request_id{1};
 };
 
@@ -471,7 +477,7 @@ void open_control_channels(Session& session, const nexigen::sm::SmManifest& mani
 /// event or the flush tick, and exit when the stop handler fires.
 void run_loop(Session& session, nexigen::sm::StateManager& manager,
               nexigen::sm::TransitionAudit& audit, nexigen::sm::SmMetrics& metrics,
-              std::vector<PendingTransition>& pending) {
+              std::vector<PendingTransition>& pending, nexigen::sm::UpdateCoordinator* update) {
     while (g_stop == 0) {
         const auto waited = session.waitset->wait_and_process_once_with_timeout(
             [&](nexigen::com::WaitSetAttachmentId attachment) -> nexigen::com::CallbackProgression {
@@ -482,10 +488,14 @@ void run_loop(Session& session, nexigen::sm::StateManager& manager,
                     metrics.emergency_transitions_total.fetch_add(1, std::memory_order_relaxed);
                 }
                 if (attachment.has_event_from(*session.tick_guard)) {
+                    if (session.update_server && update != nullptr) {
+                        (void)update->serve_once(*session.update_server);
+                    }
                     for (std::size_t i = 0; i < manager.group_count() * 2U; ++i) {
                         serve_one_request(*session.trigger_server, manager, *session.publication,
                                           session.preparation ? &*session.preparation : nullptr,
-                                          audit, metrics, pending, session.next_request_id++, now);
+                                          update, audit, metrics, pending,
+                                          session.next_request_id++, now);
                     }
                     if (session.em_client && session.em_emergency_client) {
                         drive_pending(manager, *session.em_client, *session.em_emergency_client,
@@ -549,6 +559,23 @@ enum class StartupGate { Success, Failed, Unavailable };
     return StartupGate::Success;
 }
 
+/// Open the UCM channel and coordinator when the EM client is available.
+[[nodiscard]] std::optional<nexigen::sm::UpdateCoordinator>
+open_update_coordinator(Session& session, nexigen::sm::StateManager& manager,
+                        const Options& options) {
+    const auto name = nexigen::com::ServiceName::create("Nexigen/UCM/UpdateRequest");
+    if (!name) {
+        return std::nullopt;
+    }
+    auto server = UpdateServer::create(*session.node, *name);
+    if (!server || !session.em_client) {
+        return std::nullopt;
+    }
+    session.update_server.emplace(std::move(*server));
+    return nexigen::sm::UpdateCoordinator(manager, *session.em_client,
+                                          options.app_name.empty() ? "sm" : options.app_name);
+}
+
 [[nodiscard]] int run_sm(const Options& options) {
     nexigen::sm::SmManifest manifest;
     if (!load_manifest(options, manifest)) {
@@ -590,6 +617,8 @@ enum class StartupGate { Success, Failed, Unavailable };
     std::vector<PendingTransition> pending;
     pending.reserve(manifest.function_groups.size());
 
+    auto update = open_update_coordinator(session, manager, options);
+
     std::optional<nexigen::sm::MachineLifecycleClient> lifecycle;
     if (!options.app_name.empty()) {
         auto created = nexigen::sm::MachineLifecycleClient::create(*session.node, options.app_name);
@@ -623,7 +652,7 @@ enum class StartupGate { Success, Failed, Unavailable };
                 manager.group_count());
     std::fflush(stdout);
 
-    run_loop(session, manager, audit, metrics, pending);
+    run_loop(session, manager, audit, metrics, pending, update ? &*update : nullptr);
 
     // Shutdown sequencing (REQ_SM_005): application groups to Off, request
     // MachineFG Shutdown (never Off), then EM owns the final Off. The host

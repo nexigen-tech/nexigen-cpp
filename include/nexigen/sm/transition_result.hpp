@@ -26,6 +26,7 @@ namespace nexigen::sm {
 enum class TransitionResult : std::uint8_t {
     Success,            ///< The transition was accepted and applied.
     RejectedByPriority, ///< A higher-priority requester holds the state.
+    RejectedByUpdate,   ///< The group is locked by an active UCM update.
     InvalidGraph,       ///< The graph forbids the requested transition.
     Timeout,            ///< The EM did not confirm the switch in time.
 };
@@ -94,9 +95,10 @@ template <> struct EnumTraits<nexigen::sm::TransitionResult> {
         std::string_view name;               ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical enumerator table, in declaration order.
-    static constexpr std::array<Entry, 4> entries{{
+    static constexpr std::array<Entry, 5> entries{{
         {nexigen::sm::TransitionResult::Success, "Success"},
         {nexigen::sm::TransitionResult::RejectedByPriority, "RejectedByPriority"},
+        {nexigen::sm::TransitionResult::RejectedByUpdate, "RejectedByUpdate"},
         {nexigen::sm::TransitionResult::InvalidGraph, "InvalidGraph"},
         {nexigen::sm::TransitionResult::Timeout, "Timeout"},
     }};

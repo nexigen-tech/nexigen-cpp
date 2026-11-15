@@ -219,8 +219,14 @@ bool StateClient::should_skip_start(std::string_view app_name) const noexcept {
     if (tracker_ == nullptr) {
         return false;
     }
-    if (tracker_->ready(app_name) || tracker_->state(app_name) == AppState::Exited ||
-        tracker_->state(app_name) == AppState::Failed) {
+    if (tracker_->ready(app_name) || tracker_->state(app_name) == AppState::Failed) {
+        return true;
+    }
+    // A daemon that was deliberately stopped is "Exited" in the tracker; it
+    // must be launched again for a later state. Only a completed oneshot is a
+    // terminal state that must not be relaunched.
+    if (tracker_->state(app_name) == AppState::Exited &&
+        registry_->type_of(app_name) == ProcessType::Oneshot) {
         return true;
     }
     return std::find(pending_exits_.begin(), pending_exits_.end(), app_name) !=

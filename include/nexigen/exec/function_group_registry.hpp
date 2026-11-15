@@ -187,12 +187,13 @@ public:
 
     /// @brief Whether a target state means "stop the group's processes".
     ///
-    /// Only the exact, case-sensitive targets `Off`, `Stopped`, and `Shutdown`
-    /// are Off-like; any other target starts the bound applications.
+    /// `Off`, `Stopped`, `Shutdown`, and `Update` are Off-like; any other
+    /// target starts the bound applications.
     ///
     /// @param target Target state from a `SetState` command.
     /// @return `true` when the target is Off-like.
     /// @note Spec `exec/state-client`, requirement "Function Group execution".
+    /// @note Spec `exec/update-state`, requirement "Update is an off-like EM state".
     [[nodiscard]] static bool is_off_target(std::string_view target) noexcept;
 
     /// @brief Cold-path diagnostic (mandate 9): groups and their states.

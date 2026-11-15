@@ -136,6 +136,7 @@ void test_function_group_registry() {
     NX_CHECK(registry.find_group("unknown") == static_cast<std::size_t>(-1));
     NX_CHECK(exec::FunctionGroupRegistry::is_off_target("Off"));
     NX_CHECK(exec::FunctionGroupRegistry::is_off_target("Shutdown"));
+    NX_CHECK(exec::FunctionGroupRegistry::is_off_target("Update"));
     NX_CHECK(!exec::FunctionGroupRegistry::is_off_target("Active"));
 
     registry.set_state(0, "SafeState");

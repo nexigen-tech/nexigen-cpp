@@ -1184,6 +1184,57 @@ void test_request_ids() {
     std::filesystem::remove_all(run_dir);
 }
 
+void test_update_state() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/StateUpdate");
+    NX_CHECK(name.has_value());
+    const std::string run_dir = "/tmp/opencode/state_client_update";
+    std::filesystem::remove_all(run_dir);
+    std::filesystem::create_directories(run_dir);
+
+    exec::SuiteManifest manifest;
+    exec::FunctionGroupConfig group;
+    group.name = "update_group";
+    group.states = {"Off", "Run", "Update"};
+    manifest.function_groups.push_back(group);
+    exec::AppSpec app;
+    app.app = "update_app";
+    app.instance = "1";
+    app.command = "/bin/sh";
+    app.function_group = "update_group";
+    app.reporting = false;
+    exec::StateDependentStartupConfig config;
+    config.state = "Run";
+    config.args = {"-c", "exec sleep 60"};
+    app.startup_configs.push_back(config);
+    manifest.apps.push_back(app);
+
+    exec::FunctionGroupRegistry registry(manifest);
+    exec::ExecutionStateTracker tracker;
+    exec::ExecutionManager manager;
+    app::RunIdentity identity{"test", run_dir, "1", {}};
+    auto state_client =
+        exec::StateClient::create(*node, *name, registry, manager, identity, &tracker);
+    NX_CHECK(state_client.has_value());
+
+    auto command = [](const char* target) {
+        exec::StateCommand cmd{};
+        std::snprintf(cmd.function_group, sizeof(cmd.function_group), "%s", "update_group");
+        std::snprintf(cmd.target_state, sizeof(cmd.target_state), "%s", target);
+        return cmd;
+    };
+    const auto first = state_client->execute(command("Run"));
+    NX_CHECK(first == exec::StateResult::Success);
+    NX_CHECK(registry.group_state(0) == "Run");
+    NX_CHECK(state_client->execute(command("Update")) == exec::StateResult::Success);
+    NX_CHECK(registry.group_state(0) == "Update");
+    NX_CHECK(state_client->execute(command("Run")) == exec::StateResult::Success);
+    NX_CHECK(registry.group_state(0) == "Run");
+
+    std::filesystem::remove_all(run_dir);
+}
+
 } // namespace
 
 int main() {
@@ -1203,6 +1254,7 @@ int main() {
     test_machine_function_group();
     test_access_control();
     test_request_ids();
+    test_update_state();
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

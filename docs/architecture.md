@@ -364,6 +364,18 @@ flowchart LR
     AUTH --> EM4["EM transition engine"]
 ```
 
+## UCM update coordination
+
+The SM serves `Nexigen/UCM/UpdateRequest`. `Start` checks that `PlatformFG` is
+`Run`, the target group is not `MachineFG`, and the group declares `Update`;
+the EM then enters `Update` (an off-like state that stops the group's
+processes), and the SM records the previous state and locks the group. A
+TriggerIn for a locked group is rejected with `RejectedByUpdate` while other
+groups remain controllable. `Complete` moves to the requested target (or the
+previous state), `Cancel` restores the previous state, and both clear the lock.
+Only one update is active at a time (`Busy` otherwise). The coordinator owns
+the UCM/EM handshake; the arbitration thread stays the single writer.
+
 ## CLI tools
 
 | Tool | Purpose | Key options |
