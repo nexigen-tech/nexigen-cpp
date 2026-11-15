@@ -1348,6 +1348,30 @@ the demo root idempotently:
 
 Set `BUILD_DIR` to point the runner at a non-default build tree.
 
+### Simulation suite example: supervised crash and recovery
+
+`examples/integration/simulation_suite/run_simulation_suite.sh` (requires
+`-DNEXIGEN_ENABLE_COM=ON`) starts the three telemetry daemons, `nexigen-exec` running a
+`Simulation` Function Group, `nexigen-sm` owning that group, and `nexigen-phmd`
+supervising all three applications: a generator publishing ten-value vectors with a fresh
+trace per vector, a healthy receiver, and a receiver that terminates every 15 seconds so
+the platform has to raise it again.
+
+```bash
+BUILD_DIR=build-release-com \
+  ./examples/integration/simulation_suite/run_simulation_suite.sh
+./build-com/tools/nexigen-exec status --config /tmp/opencode/nexigen-simulation-suite/suite.json
+tail -f /tmp/opencode/nexigen-simulation-suite/artifacts/simulation-suite/vector_receiver/1/attempt-0001/stdout.log
+./examples/integration/simulation_suite/clean_simulation_suite.sh
+```
+
+The script generates the suite manifest, the State Manager manifest, the Platform Health
+Management health manifest, and the daemon configs under the demo root. Receivers wake on
+the generator's publish event instead of polling, and the generator pre-loans its next
+sample; `NEXIGEN_SIM_SPIN=1` trades a core for the shortest wake-to-read path. The
+measured effect of each step is documented in
+[`docs/low-latency-guide.md`](docs/low-latency-guide.md).
+
 Every example is also registered as a CTest smoke test (label `examples`): each must run
 to completion and exit with status 0.
 

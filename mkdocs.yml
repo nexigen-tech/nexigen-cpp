@@ -47,6 +47,8 @@ markdown_extensions:
 nav:
   - Главная: index.md
   - Архитектура: architecture.md
+  - Руководства:
+      - Минимальные задержки: low-latency-guide.md
   - Безопасность:
       - Трассировка требований: safety/traceability.md
   - Спецификации (OpenSpec):

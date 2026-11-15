@@ -5,6 +5,7 @@
 // deadline/tolerance), recovery (RecoveryClient против mock-EM + fault
 // storage), manifest (round-trip + hostile input).
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -518,15 +519,20 @@ void test_recovery_restart() {
     NX_CHECK(client.has_value());
     auto server = com::Server<phm::RecoveryRequest, phm::RecoveryResponse>::create(*node, *em_name);
     NX_CHECK(server.has_value());
-    std::thread mock_em([&server] {
+    // Asserting from the mock thread would race on the harness counters; the
+    // thread only reports whether the answer was delivered.
+    std::atomic<bool> answered{false};
+    std::thread mock_em([&server, &answered] {
         for (int i = 0; i < 200; ++i) {
             auto request = server->receive();
             if (request.has_value() && request->has_value()) {
-                NX_CHECK((*request)
-                             ->send_copy(phm::RecoveryResponse{
-                                 (*request)->payload().request_id,
-                                 phm::RecoveryOutcome::Accepted, phm::RecoveryReason::None})
-                             .has_value());
+                answered.store((*request)
+                                   ->send_copy(phm::RecoveryResponse{
+                                       (*request)->payload().request_id,
+                                       phm::RecoveryOutcome::Accepted,
+                                       phm::RecoveryReason::None})
+                                   .has_value(),
+                               std::memory_order_release);
                 return;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -535,6 +541,7 @@ void test_recovery_restart() {
 
     const auto restart = client->restart_process(42, "camera", std::chrono::milliseconds(2000));
     mock_em.join();
+    NX_CHECK(answered.load(std::memory_order_acquire));
     NX_CHECK(restart.has_value());
     NX_CHECK(restart->outcome == phm::RecoveryOutcome::Accepted);
     NX_CHECK(restart->request_id != 0U);
@@ -613,15 +620,18 @@ void test_recovery_rejected() {
         com::Subscriber<nexigen::sm::RecoveryNotification>::create(*node, *sm_notif_name);
     NX_CHECK(subscriber.has_value());
 
-    std::thread reject_em([&server] {
+    std::atomic<bool> rejected_answered{false};
+    std::thread reject_em([&server, &rejected_answered] {
         for (int i = 0; i < 200; ++i) {
             auto request = server->receive();
             if (request.has_value() && request->has_value()) {
-                NX_CHECK((*request)
-                             ->send_copy(phm::RecoveryResponse{
-                                 (*request)->payload().request_id, phm::RecoveryOutcome::Rejected,
-                                 phm::RecoveryReason::AlreadyRestarting})
-                             .has_value());
+                rejected_answered.store(
+                    (*request)
+                        ->send_copy(phm::RecoveryResponse{
+                            (*request)->payload().request_id, phm::RecoveryOutcome::Rejected,
+                            phm::RecoveryReason::AlreadyRestarting})
+                        .has_value(),
+                    std::memory_order_release);
                 return;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -632,8 +642,10 @@ void test_recovery_rejected() {
     process.name = "steering";
     process.recovery_rules = {{phm::RecoveryAction::RestartProcess, ""},
                               {phm::RecoveryAction::SwitchFunctionGroupState, "motion_control"}};
-    NX_CHECK(client->apply_rule(process, "motion_control", std::chrono::milliseconds(2000)).has_value());
+    NX_CHECK(client->apply_rule(process, "motion_control", std::chrono::milliseconds(2000))
+                 .has_value());
     reject_em.join();
+    NX_CHECK(rejected_answered.load(std::memory_order_acquire));
     NX_CHECK(client->last_action() == phm::RecoveryAction::SwitchFunctionGroupState);
 
     int notifications = 0;

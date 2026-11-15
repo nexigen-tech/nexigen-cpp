@@ -3072,9 +3072,9 @@
     "semantic_hash": ""
   },
   "tests/phm/phm_test.cpp": {
-    "mtime": 1794772122.8220317,
-    "seen": 1794772154.398952,
-    "ast_hash": "c23860e591c750c2c382c47dfae233a2",
+    "mtime": 1794777758.070793,
+    "seen": 1794777820.4413476,
+    "ast_hash": "5f7771a87bb810ff0059816af2f6b868",
     "semantic_hash": ""
   },
   "tests/sm/sm_test.cpp": {
@@ -3372,9 +3372,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1794528643.618829,
-    "seen": 1794547625.2886395,
-    "ast_hash": "23acc67e22759dcb454af92c4d68b5a5",
+    "mtime": 1794782309.557495,
+    "seen": 1794782346.175133,
+    "ast_hash": "903e3b243cb9cb3f95ecd06ba316fb21",
     "semantic_hash": ""
   },
   "TODO.md": {
@@ -6780,9 +6780,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/exec/process-supervision/spec.md": {
-    "mtime": 1794762831.6421154,
-    "seen": 1794762861.3345523,
-    "ast_hash": "4978353941be992eab89f200cf59bb81",
+    "mtime": 1794773746.3302698,
+    "seen": 1794777820.4562354,
+    "ast_hash": "2f78c4e7907b60b1fdbb80db100f3354",
     "semantic_hash": ""
   },
   "openspec/specs/exec/state-client/spec.md": {
@@ -6978,21 +6978,21 @@
     "semantic_hash": ""
   },
   "openspec/specs/phm/manifest/spec.md": {
-    "mtime": 1794762832.2901137,
-    "seen": 1794762861.3350894,
-    "ast_hash": "20b78f9824a9ce67f7125219246ad234",
+    "mtime": 1794773746.3303742,
+    "seen": 1794777820.4568985,
+    "ast_hash": "5763ff407fbfe313a7b4de22755fbf8c",
     "semantic_hash": ""
   },
   "openspec/specs/phm/recovery/spec.md": {
-    "mtime": 1794754008.422493,
-    "seen": 1794756430.764192,
-    "ast_hash": "37fd19a5fec491ed3135942e6d77a450",
+    "mtime": 1794773746.3306444,
+    "seen": 1794777820.4568994,
+    "ast_hash": "482c679b8a7282a26ef8476517006ceb",
     "semantic_hash": ""
   },
   "openspec/specs/phm/supervision/spec.md": {
-    "mtime": 1794753123.726395,
-    "seen": 1794756430.7642074,
-    "ast_hash": "7af93f7758f466ce152fc531789b1b72",
+    "mtime": 1794773746.330931,
+    "seen": 1794777820.4569151,
+    "ast_hash": "0daa1f7ea91d9d2ab0d0656ab432682a",
     "semantic_hash": ""
   },
   "openspec/specs/quality/coverage/spec.md": {
@@ -7008,9 +7008,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/sm/ipc/spec.md": {
-    "mtime": 1794744929.9198408,
-    "seen": 1794745732.010898,
-    "ast_hash": "c3465f0246ccae74a8cd955eb8bfceec",
+    "mtime": 1794773746.3310144,
+    "seen": 1794777820.4569957,
+    "ast_hash": "2bb4e47ebf0f4f554a2978aa5f9af605",
     "semantic_hash": ""
   },
   "openspec/specs/sm/lifecycle/spec.md": {
@@ -7026,9 +7026,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/sm/recovery-handler/spec.md": {
-    "mtime": 1794328308.6343985,
-    "seen": 1794351957.965948,
-    "ast_hash": "f9121ee703e4813cf5a4e09732543cee",
+    "mtime": 1794773746.331166,
+    "seen": 1794777820.4570577,
+    "ast_hash": "33c6099921bac876c9ff1d40ad3b5b5b",
     "semantic_hash": ""
   },
   "openspec/specs/sm/state-machine/spec.md": {
@@ -8286,9 +8286,9 @@
     "semantic_hash": ""
   },
   "examples/integration/CMakeLists.txt": {
-    "mtime": 1794527531.74237,
-    "seen": 1794547625.2888038,
-    "ast_hash": "11536e9ecd8547771425801690225afb",
+    "mtime": 1794775628.5680752,
+    "seen": 1794777820.4424841,
+    "ast_hash": "fdee27e842b083c34b066026c1c3ff9e",
     "semantic_hash": ""
   },
   "examples/integration/suite_2_apps/CMakeLists.txt": {
@@ -8730,9 +8730,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/exec/process-lifecycle-events/spec.md": {
-    "mtime": 1794700047.5274944,
-    "seen": 1794700626.4584563,
-    "ast_hash": "ff0d12357d6b0aef1bae96a5f9f9648f",
+    "mtime": 1794773746.3300524,
+    "seen": 1794777820.4562345,
+    "ast_hash": "09e62cc214fa5b9eb8d4a9c953f7efaa",
     "semantic_hash": ""
   },
   "include/nexigen/exec/deterministic_client.hpp": {
@@ -10175,72 +10175,6 @@
     "ast_hash": "2177fe34d1fb493d35808bd50b180f06",
     "semantic_hash": ""
   },
-  "openspec/changes/complete-phm-safety-loop/.openspec.yaml": {
-    "mtime": 1794770666.5432181,
-    "seen": 1794772154.397039,
-    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
-    "semantic_hash": ""
-  },
-  "openspec/changes/complete-phm-safety-loop/design.md": {
-    "mtime": 1794770783.4439423,
-    "seen": 1794772154.4102092,
-    "ast_hash": "ee0e07cfecb5df4f4ee20d6883d0cd06",
-    "semantic_hash": ""
-  },
-  "openspec/changes/complete-phm-safety-loop/proposal.md": {
-    "mtime": 1794770683.996177,
-    "seen": 1794772154.4102104,
-    "ast_hash": "2cac991cefd6601d765d48d87f092c60",
-    "semantic_hash": ""
-  },
-  "openspec/changes/complete-phm-safety-loop/specs/exec/process-lifecycle-events/spec.md": {
-    "mtime": 1794770724.241082,
-    "seen": 1794772154.410211,
-    "ast_hash": "18a52f70dcb028bb061d446debc46a36",
-    "semantic_hash": ""
-  },
-  "openspec/changes/complete-phm-safety-loop/specs/exec/process-supervision/spec.md": {
-    "mtime": 1794770729.829721,
-    "seen": 1794772154.4102116,
-    "ast_hash": "98257a076c9e41e383d1335c3f76c0a0",
-    "semantic_hash": ""
-  },
-  "openspec/changes/complete-phm-safety-loop/specs/phm/manifest/spec.md": {
-    "mtime": 1794770717.2840984,
-    "seen": 1794772154.4102125,
-    "ast_hash": "dd1cb613328868fd335bfeb8d56f4e10",
-    "semantic_hash": ""
-  },
-  "openspec/changes/complete-phm-safety-loop/specs/phm/recovery/spec.md": {
-    "mtime": 1794770758.0420022,
-    "seen": 1794772154.4102137,
-    "ast_hash": "623d9282bc679e3f8dd5015d39139d8b",
-    "semantic_hash": ""
-  },
-  "openspec/changes/complete-phm-safety-loop/specs/phm/supervision/spec.md": {
-    "mtime": 1794770713.3781075,
-    "seen": 1794772154.4102144,
-    "ast_hash": "90e5ddcbd358f4ec054fec23813846ff",
-    "semantic_hash": ""
-  },
-  "openspec/changes/complete-phm-safety-loop/specs/sm/ipc/spec.md": {
-    "mtime": 1794770739.2770464,
-    "seen": 1794772154.410215,
-    "ast_hash": "b8c82eec026f29d1598d21aa1dfcd657",
-    "semantic_hash": ""
-  },
-  "openspec/changes/complete-phm-safety-loop/specs/sm/recovery-handler/spec.md": {
-    "mtime": 1794770735.8170547,
-    "seen": 1794772154.4102156,
-    "ast_hash": "1c93f92c7afa68ca629f9f309dfa63cd",
-    "semantic_hash": ""
-  },
-  "openspec/changes/complete-phm-safety-loop/tasks.md": {
-    "mtime": 1794773056.160482,
-    "seen": 1794773463.3333607,
-    "ast_hash": "41e4dc5532d665dbaa26b22b9a438856",
-    "semantic_hash": ""
-  },
   "tests/tools/phmd_safety_loop_helper.cpp": {
     "mtime": 1794773252.5665572,
     "seen": 1794773463.3219166,
@@ -10251,6 +10185,240 @@
     "mtime": 1794772989.6729567,
     "seen": 1794773463.322256,
     "ast_hash": "2fabe1d0eaaf1c4bd87955d9d6d05667",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/clean_simulation_suite.sh": {
+    "mtime": 1794781100.5130143,
+    "seen": 1794781216.321847,
+    "ast_hash": "af21cb328382698d4a4d2ad6697fadd5",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/config/flaky_receiver/logging.json": {
+    "mtime": 1794779931.2395122,
+    "seen": 1794780315.2907467,
+    "ast_hash": "9f7c86f7495971316e5c337f1e96bbdc",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/config/flaky_receiver/metrics.json": {
+    "mtime": 1794779931.239548,
+    "seen": 1794780315.2907486,
+    "ast_hash": "e4d4cc06a1785536a2b6f764e20897a6",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/config/flaky_receiver/tracing.json": {
+    "mtime": 1794779931.243283,
+    "seen": 1794780315.2907505,
+    "ast_hash": "c26a39ad807cf2850a9c2a2ecbf3502e",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/config/generator/logging.json": {
+    "mtime": 1794779931.2393727,
+    "seen": 1794780315.2907526,
+    "ast_hash": "661047d3b3e04122effc260aef740a84",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/config/generator/metrics.json": {
+    "mtime": 1794779931.239402,
+    "seen": 1794780315.290754,
+    "ast_hash": "ca1233aea180ee8959cf5a5a974eafc2",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/config/generator/tracing.json": {
+    "mtime": 1794779931.239422,
+    "seen": 1794780315.290755,
+    "ast_hash": "9ad487816f2bfe5303301a96b208f3e6",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/config/receiver/logging.json": {
+    "mtime": 1794779931.2394452,
+    "seen": 1794780315.2907567,
+    "ast_hash": "f06fc68373a35dd87acd5c5bc6f24e58",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/config/receiver/metrics.json": {
+    "mtime": 1794779931.239464,
+    "seen": 1794780315.290758,
+    "ast_hash": "a0dc8638dcd13583e7daeb8093c49639",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/config/receiver/tracing.json": {
+    "mtime": 1794779931.2394857,
+    "seen": 1794780315.2907593,
+    "ast_hash": "205e7c79f668855ac93a45defdbe7bed",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/ex_sim_flaky_receiver.cpp": {
+    "mtime": 1794780629.0088308,
+    "seen": 1794780804.8037763,
+    "ast_hash": "65281810c5f34be074e6c4d010063558",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/ex_sim_generator.cpp": {
+    "mtime": 1794781628.0147817,
+    "seen": 1794781752.1446798,
+    "ast_hash": "702b381001ebc41075e75c663bf154a0",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/ex_sim_receiver.cpp": {
+    "mtime": 1794780629.0087605,
+    "seen": 1794780804.8037949,
+    "ast_hash": "866ebd01b3a3f32450e4f73c35a2586a",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/receiver_app.hpp": {
+    "mtime": 1794780106.930103,
+    "seen": 1794780315.290781,
+    "ast_hash": "f9273498874b3eca770b9ed905e243be",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/run_simulation_suite.sh": {
+    "mtime": 1794781133.8123255,
+    "seen": 1794781216.322092,
+    "ast_hash": "f42fb959eb4f308718924fcef69e8b78",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/settings/chrono.json": {
+    "mtime": 1794775625.6768298,
+    "seen": 1794777820.4313014,
+    "ast_hash": "9a642fcfc8b982eb1292b0bb44391159",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/settings/logging.json": {
+    "mtime": 1794775625.6728299,
+    "seen": 1794777820.431302,
+    "ast_hash": "37782d476f2fa7ec2feb0e0c31034064",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/settings/metrics.json": {
+    "mtime": 1794775625.6738298,
+    "seen": 1794777820.431303,
+    "ast_hash": "86acf68a7c47a0750e44895eef3350ee",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/settings/tracing.json": {
+    "mtime": 1794775625.6758296,
+    "seen": 1794777820.4313035,
+    "ast_hash": "8060b78bb9294bbac0f937da320369fe",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/sim_common.hpp": {
+    "mtime": 1794780670.9086158,
+    "seen": 1794780804.8038793,
+    "ast_hash": "86536a79331efd9c2dfa32127cf1dada",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/vector_sample.hpp": {
+    "mtime": 1794775506.8288238,
+    "seen": 1794777820.4313047,
+    "ast_hash": "e79518b9d588217d6014abf6aafbfc3a",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-simulation-suite-example/.openspec.yaml": {
+    "mtime": 1794775103.388758,
+    "seen": 1794777820.436744,
+    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/.openspec.yaml": {
+    "mtime": 1794770666.5432181,
+    "seen": 1794777820.438692,
+    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
+    "semantic_hash": ""
+  },
+  "examples/integration/simulation_suite/CMakeLists.txt": {
+    "mtime": 1794775625.6708298,
+    "seen": 1794777820.442485,
+    "ast_hash": "6ab38cc5435aa0d27521e00aa3fdda69",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-simulation-suite-example/design.md": {
+    "mtime": 1794781686.4957032,
+    "seen": 1794781752.158329,
+    "ast_hash": "344254eabcf60d8d098c52c7c2d7c8fe",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-simulation-suite-example/proposal.md": {
+    "mtime": 1794775115.7057598,
+    "seen": 1794777820.4427607,
+    "ast_hash": "2efbca132880193772120cab6e5d7ea7",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-simulation-suite-example/specs/examples/simulation-suite/spec.md": {
+    "mtime": 1794781686.4946876,
+    "seen": 1794781752.1583474,
+    "ast_hash": "2adc6ce7dbc69398d767980e738afab9",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-simulation-suite-example/tasks.md": {
+    "mtime": 1794782321.6277387,
+    "seen": 1794782346.175726,
+    "ast_hash": "61afe3cf92385a8d09a1eaf3743c6f48",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/design.md": {
+    "mtime": 1794770783.4439423,
+    "seen": 1794777820.4537373,
+    "ast_hash": "ee0e07cfecb5df4f4ee20d6883d0cd06",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/proposal.md": {
+    "mtime": 1794770683.996177,
+    "seen": 1794777820.453738,
+    "ast_hash": "2cac991cefd6601d765d48d87f092c60",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/specs/exec/process-lifecycle-events/spec.md": {
+    "mtime": 1794770724.241082,
+    "seen": 1794777820.4537385,
+    "ast_hash": "18a52f70dcb028bb061d446debc46a36",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/specs/exec/process-supervision/spec.md": {
+    "mtime": 1794770729.829721,
+    "seen": 1794777820.453739,
+    "ast_hash": "98257a076c9e41e383d1335c3f76c0a0",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/specs/phm/manifest/spec.md": {
+    "mtime": 1794770717.2840984,
+    "seen": 1794777820.4537401,
+    "ast_hash": "dd1cb613328868fd335bfeb8d56f4e10",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/specs/phm/recovery/spec.md": {
+    "mtime": 1794770758.0420022,
+    "seen": 1794777820.453741,
+    "ast_hash": "623d9282bc679e3f8dd5015d39139d8b",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/specs/phm/supervision/spec.md": {
+    "mtime": 1794770713.3781075,
+    "seen": 1794777820.4537418,
+    "ast_hash": "90e5ddcbd358f4ec054fec23813846ff",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/specs/sm/ipc/spec.md": {
+    "mtime": 1794770739.2770464,
+    "seen": 1794777820.4537423,
+    "ast_hash": "b8c82eec026f29d1598d21aa1dfcd657",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/specs/sm/recovery-handler/spec.md": {
+    "mtime": 1794770735.8170547,
+    "seen": 1794777820.4537427,
+    "ast_hash": "1c93f92c7afa68ca629f9f309dfa63cd",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/tasks.md": {
+    "mtime": 1794773056.160482,
+    "seen": 1794777820.4537435,
+    "ast_hash": "41e4dc5532d665dbaa26b22b9a438856",
+    "semantic_hash": ""
+  },
+  "docs/low-latency-guide.md": {
+    "mtime": 1794782321.6276133,
+    "seen": 1794782346.1751966,
+    "ast_hash": "8a13c18afe8fc8e62fee0b5b48e4b6dc",
     "semantic_hash": ""
   }
 }

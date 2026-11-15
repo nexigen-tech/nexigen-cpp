@@ -1,0 +1,3 @@
+{
+  "worker_thread": { "cpus": [10], "name": "flaky-log" }
+}

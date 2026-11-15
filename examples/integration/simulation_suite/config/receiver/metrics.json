@@ -1,0 +1,3 @@
+{
+  "worker_thread": { "cpus": [8], "name": "recv-metrics" }
+}
