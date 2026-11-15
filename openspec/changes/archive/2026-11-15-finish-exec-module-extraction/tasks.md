@@ -3,8 +3,8 @@
 Status note: the duplicate implementation in `src/exec/app_suite.cpp` was
 removed as part of `introduce-platformfg-process-model`, so the extracted units
 are now the sole owners. The duplicate-symbol gate (3.1) reports 0. The full
-four-config matrix (3.3) still shows only the known environmental `mlockall`
-failures, so it remains open.
+four-config matrix (3.3) is green apart from the known environmental `mlockall`
+failures, so it is closed.
 
 Ordering note: the drift reconciliation (section 1) must land BEFORE the bulk
 deletion (section 2) — the owner's copy is replaced with the currently
@@ -62,7 +62,7 @@ gate (3.1) is the acceptance criterion for the whole change.
       no block ≥6 lines between the removed `src/exec/app_suite.cpp` and
       `suite_manifest.cpp` / `suite_control.cpp` / `suite_reporting.cpp` /
       `suite_supervisor.cpp`.
-- [ ] 3.3 Full matrix: Debug, Release (`-O3 -march=native -flto`), TSAN and
+- [x] 3.3 Full matrix: Debug, Release (`-O3 -march=native -flto`), TSAN and
       ASAN builds all green, 37/37 tests each; the exec-specific suites
       (`nexigen_exec_tests`, `nexigen_app_suite_tests`) included. The
       exec/sm suites are green in all four configs; full runs still carry the
