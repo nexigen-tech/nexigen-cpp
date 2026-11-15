@@ -8,7 +8,7 @@ Defines the EM-side receiver of state commands: the `nexigen::exec::StateClient`
 
 ### Requirement: StateClient command reception
 
-The EM SHALL expose the `StateClient` receiver as a request-response service accepting typed `SetState(FunctionGroup, TargetState)` commands from the SM. Every command SHALL be acknowledged with an acceptance flag and a result value from `Success`, `InProgress`, `OperationFailed`, `OperationCanceled`, `UnexpectedTermination`, `InvalidTransition`, or `InvalidArgument`; the result vocabulary SHALL round-trip through text, formatting, and JSON. `OperationCanceled` is reserved for a future request-id/async-ack protocol and is not emitted by the current one-ack transport.
+The EM SHALL expose the `StateClient` receiver as a request-response service accepting typed `SetState(FunctionGroup, TargetState)` commands from the SM. Every command SHALL be acknowledged with an acceptance flag and a result value from `Success`, `InProgress`, `OperationFailed`, `OperationCanceled`, `UnexpectedTermination`, `InvalidTransition`, `InvalidArgument`, or `AccessDenied`; the result vocabulary SHALL round-trip through text, formatting, and JSON. `OperationCanceled` SHALL be emitted when a newer request-id supersedes an older in-flight or already-completed request. The command SHALL carry a 64-bit `request_id`; `0` keeps the legacy no-cancellation behavior.
 
 #### Scenario: EM receives a SetState command
 
@@ -19,6 +19,11 @@ The EM SHALL expose the `StateClient` receiver as a request-response service acc
 
 - **WHEN** each state-result value passes through `to_string`, `from_string`, `to_json`, `from_json`, and `std::format`
 - **THEN** every canonical name round-trips and the formatter renders the name
+
+#### Scenario: Superseded request is canceled
+
+- **WHEN** a newer request id replaces an in-flight transition and the older request is retried
+- **THEN** the acknowledgement reports `OperationCanceled`
 
 ### Requirement: Function Group execution
 
