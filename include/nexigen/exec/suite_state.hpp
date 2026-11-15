@@ -28,6 +28,18 @@ enum class SuiteState : std::uint8_t {
     Unknown,  ///< No readable `suite.json` exists or no state has been recorded.
 };
 
+/// @brief Whether a PHM recovery restart may run in this suite state.
+///
+/// Only an operational suite accepts a forced restart; a failed, stopped, or
+/// unknown suite would race its own teardown or restart.
+///
+/// @param state Current aggregate suite state.
+/// @return `true` for `Running` and `Degraded`.
+/// @note Spec `exec/app-suite`, requirement "PHM recovery requests are served".
+[[nodiscard]] constexpr bool accepts_recovery_restart(SuiteState state) noexcept {
+    return state == SuiteState::Running || state == SuiteState::Degraded;
+}
+
 } // namespace nexigen::exec
 
 // Vocabulary table for core::enum_name/enum_value (change refactor-enum-traits-helper).

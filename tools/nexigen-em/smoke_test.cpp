@@ -23,11 +23,14 @@
 #include <nexigen/com/client.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
+#include <nexigen/core/integrity/sha256.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/instance_file_io.hpp>
 #include <nexigen/exec/state_ack.hpp>
 #include <nexigen/exec/state_command.hpp>
 #include <nexigen/exec/suite_manifest.hpp>
+#include <nexigen/phm/recovery_request.hpp>
+#include <nexigen/phm/recovery_response.hpp>
 
 namespace com = nexigen::com;
 namespace core = nexigen::core;
@@ -117,6 +120,72 @@ using StateClient = com::Client<exec::StateCommand, exec::StateAck>;
 
 } // namespace
 
+/// PHM recovery: the EM force-restarts the named application in a new attempt
+/// and does not consume the abnormal-termination retry budget.
+void verify_phm_restart(com::Node& node, const std::string& marker,
+                        const std::string& suite_dir) {
+    const auto recovery_name = com::ServiceName::create("Nexigen/PHM/Recovery");
+    NX_CHECK(recovery_name.has_value());
+    auto recovery =
+        com::Client<nexigen::phm::RecoveryRequest, nexigen::phm::RecoveryResponse>::create(
+            node, *recovery_name);
+    NX_CHECK(recovery.has_value());
+    nexigen::phm::RecoveryRequest request{};
+    request.action = nexigen::phm::RecoveryAction::RestartProcess;
+    std::snprintf(request.name, sizeof(request.name), "%s", "oneshot_app");
+    const auto response = recovery->call(request, std::chrono::milliseconds(2000));
+    NX_CHECK(response.has_value());
+    NX_CHECK(response.has_value() && response->accepted == 1U);
+    for (int i = 0; i < 200 && count_lines(marker) < 2; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    NX_CHECK(count_lines(marker) == 2);
+
+    // The relaunch bumps the attempt counter asynchronously; poll the report.
+    std::uint32_t attempt = 0;
+    std::uint32_t restarts_used = 1;
+    for (int i = 0; i < 200; ++i) {
+        std::ifstream state_in(suite_dir + "/suite-state.json");
+        if (state_in.is_open()) {
+            const nlohmann::json state = nlohmann::json::parse(state_in, nullptr, false);
+            if (!state.is_discarded() && state.contains("apps") && state["apps"].is_array() &&
+                !state["apps"].empty()) {
+                attempt = state["apps"][0]["attempt"].get<std::uint32_t>();
+                restarts_used = state["apps"][0]["restarts_used"].get<std::uint32_t>();
+            }
+        }
+        if (attempt >= 2U) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    NX_CHECK(attempt >= 2U);
+    NX_CHECK(restarts_used == 0U);
+}
+
+/// A wrong manifest digest starts nothing: the loader runs before any fork.
+void verify_digest_gate(const std::string& host, const std::string& manifest_path,
+                        const std::string& root) {
+    const auto digest = core::integrity::sha256_file(manifest_path);
+    NX_CHECK(digest.has_value());
+    std::string wrong = *digest;
+    wrong[0] = wrong[0] == 'a' ? 'b' : 'a';
+    const std::string bad_dir = root + "/bad-run";
+    std::filesystem::create_directories(bad_dir);
+    const pid_t bad_child = ::fork();
+    NX_CHECK(bad_child >= 0);
+    if (bad_child == 0) {
+        ::execl(host.c_str(), "nexigen-em", "--config", manifest_path.c_str(),
+                "--manifest-sha256", wrong.c_str(), "--run-dir", bad_dir.c_str(),
+                static_cast<char*>(nullptr));
+        ::_exit(127);
+    }
+    int status = 0;
+    NX_CHECK(::waitpid(bad_child, &status, 0) == bad_child);
+    NX_CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 1);
+    NX_CHECK(!std::filesystem::exists(bad_dir + "/.suite/em_smoke/suite.json"));
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: %s <nexigen-em>\n", argv[0]);
@@ -169,11 +238,15 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // The positive path starts the suite only after the digest matches.
+    const auto manifest_digest = core::integrity::sha256_file(manifest_path);
+    NX_CHECK(manifest_digest.has_value());
     const pid_t child = ::fork();
     NX_CHECK(child >= 0);
     if (child == 0) {
-        ::execl(host.c_str(), "nexigen-em", "--config", manifest_path.c_str(), "--run-dir",
-                run_dir.c_str(), static_cast<char*>(nullptr));
+        ::execl(host.c_str(), "nexigen-em", "--config", manifest_path.c_str(),
+                "--manifest-sha256", manifest_digest->c_str(), "--run-dir", run_dir.c_str(),
+                static_cast<char*>(nullptr));
         ::_exit(127);
     }
     if (child < 0) {
@@ -202,6 +275,10 @@ int main(int argc, char* argv[]) {
     NX_CHECK(ack.has_value() && ack->accepted == 1U);
     NX_CHECK(ack.has_value() && ack->result == exec::StateResult::Success);
     NX_CHECK(count_lines(marker) == 1);
+
+    verify_phm_restart(*node, marker, suite_dir);
+
+    verify_digest_gate(host, manifest_path, root);
 
     // Stop through the standard suite control file and wait for the supervisor.
     { std::ofstream stop(suite_dir + "/stop.request", std::ios::binary | std::ios::trunc); }

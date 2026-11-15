@@ -4,8 +4,10 @@
 // Наборы: health_channel (каналы + чекпоинты), supervision (alive/logical/
 // deadline/tolerance), recovery (RecoveryClient против mock-EM + fault
 // storage), manifest (round-trip + hostile input).
+#include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <unistd.h>
 #include <cstdio>
 #include <format>
@@ -27,10 +29,12 @@
 #include <nexigen/phm/checkpoint.hpp>
 #include <nexigen/phm/em_lifecycle.hpp>
 #include <nexigen/phm/fault_kind.hpp>
+#include <nexigen/phm/fault_log_verify.hpp>
 #include <nexigen/phm/fault_storage.hpp>
 #include <nexigen/phm/health_channel.hpp>
 #include <nexigen/phm/health_state.hpp>
 #include <nexigen/phm/phm_manifest.hpp>
+#include <nexigen/phm/posix_watchdog_device.hpp>
 #include <nexigen/phm/recovery.hpp>
 #include <nexigen/phm/recovery_action.hpp>
 #include <nexigen/phm/recovery_request.hpp>
@@ -38,11 +42,52 @@
 #include <nexigen/phm/supervision_status.hpp>
 #include <nexigen/phm/supervised_entity.hpp>
 #include <nexigen/phm/supervisor.hpp>
+#include <nexigen/phm/watchdog.hpp>
+#include <nexigen/phm/watchdog_state.hpp>
 #include <nexigen/sm/group_state_payload.hpp>
 #include <nexigen/sm/recovery_notification.hpp>
 
+#include "fake_watchdog_device.hpp"
+
 namespace com = nexigen::com;
 namespace phm = nexigen::phm;
+
+namespace {
+// Allocation detector: the C++ free store is re-backed by a fixed static bump
+// arena, so any operator new in the process moves g_alloc_used. The supervision
+// hot path must leave it flat. 32 MiB covers every manifest, diagnostic string,
+// and transport wrapper the suite constructs.
+alignas(16) unsigned char g_arena[32U << 20U]{};
+} // namespace
+
+std::size_t g_alloc_used = 0;
+
+void* operator new(std::size_t size) {
+    const std::size_t rounded = (size + 15U) & ~static_cast<std::size_t>(15U);
+    if (g_alloc_used + rounded > sizeof(g_arena)) {
+        std::abort();
+    }
+    void* p = g_arena + g_alloc_used;
+    g_alloc_used += rounded;
+    return p;
+}
+
+void* operator new[](std::size_t size) {
+    return ::operator new(size);
+}
+
+void operator delete(void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete(void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr) noexcept {
+    static_cast<void>(ptr);
+}
+void operator delete[](void* ptr, std::size_t) noexcept {
+    static_cast<void>(ptr);
+}
 
 namespace {
 
@@ -95,6 +140,8 @@ void test_vocabulary() {
                            phm::FaultKind::DeadlineFailure});
     check_enum_round_trip({phm::EmLifecycleState::Unknown, phm::EmLifecycleState::Running,
                            phm::EmLifecycleState::Terminating, phm::EmLifecycleState::Terminated});
+    check_enum_round_trip({phm::WatchdogState::Disabled, phm::WatchdogState::Armed,
+                           phm::WatchdogState::Stopped});
     NX_CHECK(to_string(static_cast<phm::HealthState>(0x7f)) == "Unknown");
 }
 
@@ -266,25 +313,182 @@ void test_supervision() {
         NX_CHECK(supervisor.lifecycle_notifications() == 3U);
         NX_CHECK(supervisor.to_string().find("lifecycle=3") != std::string::npos);
     }
+
+    // Alive counts: expected indications with inclusive count margins.
+    {
+        phm::PhmManifest manifest;
+        phm::SupervisedProcess process;
+        process.name = "counted";
+        process.alive_min_margin_ms = 0;
+        process.alive_expected_indications = 3;
+        process.failed_supervision_cycles_tolerance = 1;
+        process.transitions = {{5, 5}};
+        manifest.processes.push_back(process);
+        phm::Supervisor supervisor(manifest);
+        const auto t0 = phm::Supervisor::Clock::now();
+
+        // Too few: two checkpoints where three are expected.
+        supervisor.on_checkpoint(0, 5, t0);
+        supervisor.on_checkpoint(0, 5, t0 + std::chrono::milliseconds(10));
+        supervisor.on_alive_tick(0, t0 + std::chrono::milliseconds(100));
+        NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Failed);
+
+        // Exactly the expected count passes and clears the failure.
+        for (int i = 0; i < 3; ++i) {
+            supervisor.on_checkpoint(0, 5, t0 + std::chrono::milliseconds(110 + i * 10));
+        }
+        supervisor.on_alive_tick(0, t0 + std::chrono::milliseconds(200));
+        NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Ok);
+
+        // Too many: four checkpoints exceed expected + max margin (3).
+        for (int i = 0; i < 4; ++i) {
+            supervisor.on_checkpoint(0, 5, t0 + std::chrono::milliseconds(210 + i * 10));
+        }
+        supervisor.on_alive_tick(0, t0 + std::chrono::milliseconds(300));
+        NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Failed);
+
+        // Inclusive margins: [2, 4] accepts both ends.
+        manifest.processes[0].alive_min_margin_cycles = 1;
+        manifest.processes[0].alive_max_margin_cycles = 1;
+        phm::Supervisor wide(manifest);
+        wide.on_checkpoint(0, 5, t0);
+        wide.on_checkpoint(0, 5, t0 + std::chrono::milliseconds(10));
+        wide.on_alive_tick(0, t0 + std::chrono::milliseconds(100));
+        NX_CHECK(wide.status(0) == phm::SupervisionStatus::Ok);
+        for (int i = 0; i < 4; ++i) {
+            wide.on_checkpoint(0, 5, t0 + std::chrono::milliseconds(110 + i * 10));
+        }
+        wide.on_alive_tick(0, t0 + std::chrono::milliseconds(200));
+        NX_CHECK(wide.status(0) == phm::SupervisionStatus::Ok);
+    }
+
+    // Fork/join: every declared branch must be entered before the join.
+    {
+        phm::SupervisedProcess process;
+        process.name = "forked";
+        process.alive_min_margin_ms = 0;
+        process.failed_supervision_cycles_tolerance = 0;
+        process.checkpoints = {10, 11, 12, 13};
+        process.transitions = {{10, 11}, {11, 12}, {12, 13}};
+        process.logical_forks = {{10, {11, 12}, 13}};
+        phm::PhmManifest manifest;
+        manifest.processes.push_back(process);
+
+        // Complete fork: both branches entered, join accepted.
+        {
+            phm::Supervisor supervisor(manifest);
+            const auto t0 = phm::Supervisor::Clock::now();
+            supervisor.on_checkpoint(0, 10, t0);
+            supervisor.on_checkpoint(0, 11, t0 + std::chrono::milliseconds(10));
+            supervisor.on_checkpoint(0, 12, t0 + std::chrono::milliseconds(20));
+            supervisor.on_checkpoint(0, 13, t0 + std::chrono::milliseconds(30));
+            NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Ok);
+        }
+
+        // Missing branch: join reached with one branch unentered.
+        {
+            phm::PhmManifest sparse = manifest;
+            sparse.processes[0].transitions = {{10, 11}, {11, 13}};
+            phm::Supervisor supervisor(sparse);
+            const auto t0 = phm::Supervisor::Clock::now();
+            supervisor.on_checkpoint(0, 10, t0);
+            supervisor.on_checkpoint(0, 11, t0 + std::chrono::milliseconds(10));
+            supervisor.on_checkpoint(0, 13, t0 + std::chrono::milliseconds(20));
+            NX_CHECK(supervisor.status(0) != phm::SupervisionStatus::Ok);
+        }
+
+        // Out-of-order join: the inner join never opened its frame.
+        {
+            phm::PhmManifest nested = manifest;
+            nested.processes[0].checkpoints = {10, 11, 12, 13, 20, 21, 22};
+            nested.processes[0].logical_forks = {{10, {11}, 12}, {20, {21}, 22}};
+            nested.processes[0].transitions = {{10, 20}, {20, 21}, {21, 12}};
+            phm::Supervisor supervisor(nested);
+            const auto t0 = phm::Supervisor::Clock::now();
+            supervisor.on_checkpoint(0, 10, t0);
+            supervisor.on_checkpoint(0, 20, t0 + std::chrono::milliseconds(10));
+            supervisor.on_checkpoint(0, 21, t0 + std::chrono::milliseconds(20));
+            supervisor.on_checkpoint(0, 12, t0 + std::chrono::milliseconds(30));
+            NX_CHECK(supervisor.status(0) != phm::SupervisionStatus::Ok);
+        }
+
+        // Nested forks unwind in order.
+        {
+            phm::PhmManifest nested = manifest;
+            nested.processes[0].checkpoints = {10, 11, 12, 20, 21, 22};
+            nested.processes[0].logical_forks = {{10, {11}, 12}, {20, {21}, 22}};
+            nested.processes[0].transitions = {{10, 20}, {20, 21}, {21, 22}, {22, 11}, {11, 12}};
+            phm::Supervisor supervisor(nested);
+            const auto t0 = phm::Supervisor::Clock::now();
+            supervisor.on_checkpoint(0, 10, t0);
+            supervisor.on_checkpoint(0, 20, t0 + std::chrono::milliseconds(10));
+            supervisor.on_checkpoint(0, 21, t0 + std::chrono::milliseconds(20));
+            supervisor.on_checkpoint(0, 22, t0 + std::chrono::milliseconds(30));
+            supervisor.on_checkpoint(0, 11, t0 + std::chrono::milliseconds(40));
+            supervisor.on_checkpoint(0, 12, t0 + std::chrono::milliseconds(50));
+            NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Ok);
+        }
+
+        // A process without forks is unaffected.
+        {
+            phm::Supervisor supervisor(manifest);
+            const auto t0 = phm::Supervisor::Clock::now();
+            supervisor.on_checkpoint(0, 10, t0);
+            supervisor.on_checkpoint(0, 11, t0 + std::chrono::milliseconds(10));
+            NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Ok);
+        }
+    }
+
+    // Hot path with eight declared forks: allocation-free and bounded.
+    {
+        phm::SupervisedProcess process;
+        process.name = "bounded";
+        process.alive_min_margin_ms = 0;
+        process.failed_supervision_cycles_tolerance = 1;
+        for (std::uint32_t i = 0; i < phm::k_max_logical_forks; ++i) {
+            const std::uint32_t fork = 4U * i + 1U;
+            process.logical_forks.push_back({fork, {fork + 1U, fork + 2U}, fork + 3U});
+            process.checkpoints.push_back(fork);
+            process.checkpoints.push_back(fork + 1U);
+            process.checkpoints.push_back(fork + 2U);
+            process.checkpoints.push_back(fork + 3U);
+            process.transitions.push_back({fork, fork + 1U});
+            process.transitions.push_back({fork + 1U, fork + 2U});
+            process.transitions.push_back({fork + 2U, fork + 3U});
+            if (i + 1U < phm::k_max_logical_forks) {
+                process.transitions.push_back({fork + 3U, fork + 4U});
+            }
+        }
+        process.transitions.push_back({4U * phm::k_max_logical_forks, 1U});
+        phm::PhmManifest manifest;
+        manifest.processes.push_back(process);
+        phm::Supervisor supervisor(manifest);
+        const auto t0 = phm::Supervisor::Clock::now();
+        const std::size_t before = g_alloc_used;
+        for (int cycle = 0; cycle < 1000; ++cycle) {
+            for (std::uint32_t id = 1; id <= 4U * phm::k_max_logical_forks; ++id) {
+                supervisor.on_checkpoint(
+                    0, id, t0 + std::chrono::microseconds(cycle * 32 + static_cast<int>(id)));
+            }
+        }
+        NX_CHECK(g_alloc_used == before);
+        NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Ok);
+    }
 }
 
-void test_recovery() {
+void test_recovery_restart() {
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
     const auto em_name = com::ServiceName::create("Nexigen/Test/Recovery");
     const auto sm_notif_name = com::ServiceName::create("Nexigen/Test/SmRecovery");
     const auto sm_event_name = com::ServiceName::create("Nexigen/Test/SmRecoveryEvent");
-    NX_CHECK(em_name.has_value());
-    NX_CHECK(sm_notif_name.has_value());
-    NX_CHECK(sm_event_name.has_value());
+    NX_CHECK(em_name.has_value() && sm_notif_name.has_value() && sm_event_name.has_value());
 
-    // Mock EM responder: a com::Server that accepts every request and answers
-    // accepted=1 (the real StateClient lives in nexigen::exec).
+    // Mock EM responder: accepts every request and answers accepted=1.
     auto client = phm::RecoveryClient::create(*node, *em_name, *sm_notif_name, *sm_event_name);
     NX_CHECK(client.has_value());
     auto server = com::Server<phm::RecoveryRequest, phm::RecoveryResponse>::create(*node, *em_name);
     NX_CHECK(server.has_value());
-
     std::thread mock_em([&server] {
         for (int i = 0; i < 200; ++i) {
             auto request = server->receive();
@@ -296,7 +500,6 @@ void test_recovery() {
         }
     });
 
-    // Local recovery: restart a failed process by identity (direct PHM->EM).
     const auto restart = client->restart_process(42, "camera", std::chrono::milliseconds(2000));
     mock_em.join();
     NX_CHECK(restart.has_value());
@@ -306,57 +509,162 @@ void test_recovery() {
     NX_CHECK(text.find("RestartProcess") != std::string::npos);
     NX_CHECK(std::format("{}", *client) == text);
 
-    // SafeState escalation (re-routed per HLR-SM-030): the fault notification
-    // is published to the SM channel, not to the EM.
-    {
-        phm::SupervisedProcess process;
-        process.name = "steering";
-        process.safety_critical = true;
-        process.recovery_rules.push_back(
-            {phm::RecoveryAction::SwitchFunctionGroupState, "motion_control"});
+    // SafeState escalation publishes to the SM channel, not to the EM.
+    phm::SupervisedProcess process;
+    process.name = "steering";
+    process.safety_critical = true;
+    process.recovery_rules.push_back(
+        {phm::RecoveryAction::SwitchFunctionGroupState, "motion_control"});
+    auto sm_subscriber =
+        com::Subscriber<nexigen::sm::RecoveryNotification>::create(*node, *sm_notif_name);
+    auto sm_listener = com::EventListener::create(*node, *sm_event_name);
+    NX_CHECK(sm_subscriber.has_value() && sm_listener.has_value());
 
-        auto sm_subscriber =
-            com::Subscriber<nexigen::sm::RecoveryNotification>::create(*node, *sm_notif_name);
-        auto sm_listener = com::EventListener::create(*node, *sm_event_name);
-        NX_CHECK(sm_subscriber.has_value());
-        NX_CHECK(sm_listener.has_value());
+    NX_CHECK(client->apply_rule(process, std::chrono::milliseconds(2000)).has_value());
+    NX_CHECK(client->last_action() == phm::RecoveryAction::SwitchFunctionGroupState);
 
-        const auto escalated = client->apply_rule(process, std::chrono::milliseconds(2000));
-        NX_CHECK(escalated.has_value());
-        NX_CHECK(client->last_action() == phm::RecoveryAction::SwitchFunctionGroupState);
-
-        // The SM channel carries the failed function group.
-        bool observed = false;
-        for (int i = 0; i < 200 && !observed; ++i) {
-            auto received = sm_subscriber->receive();
-            NX_CHECK(received.has_value());
-            if (received->has_value()) {
-                observed = std::string((*received)->payload().function_group) == "motion_control";
-            } else {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
-        }
-        NX_CHECK(observed);
-        // The wake event fires so the SM's WaitSet wakes without polling.
-        bool woken = false;
-        const auto collected = sm_listener->try_wait([&](com::EventId) { woken = true; });
-        NX_CHECK(collected.has_value());
-        NX_CHECK(woken);
-    }
-
-    // Fault storage: records land in the log asynchronously.
-    {
-        phm::FaultStorage storage("/tmp/opencode/phm_fault_test.log");
-        for (std::uint32_t i = 0; i < 3; ++i) {
-            storage.record(phm::FaultRecord{phm::FaultKind::AliveFailure, 0, i, 1000 + i});
-        }
-        for (int i = 0; i < 200 && storage.recorded() < 3U; ++i) {
+    bool observed = false;
+    for (int i = 0; i < 200 && !observed; ++i) {
+        auto received = sm_subscriber->receive();
+        NX_CHECK(received.has_value());
+        if (received->has_value()) {
+            observed = std::string((*received)->payload().function_group) == "motion_control";
+        } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-        NX_CHECK(storage.recorded() == 3U);
-        NX_CHECK(storage.dropped() == 0U);
-        NX_CHECK(storage.to_string().find("recorded=3") != std::string::npos);
     }
+    NX_CHECK(observed);
+    bool woken = false;
+    const auto collected = sm_listener->try_wait([&](com::EventId) { woken = true; });
+    NX_CHECK(collected.has_value());
+    NX_CHECK(woken);
+}
+
+void test_recovery_watchdog() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto em_name = com::ServiceName::create("Nexigen/Test/RecoveryWatchdog");
+    const auto sm_notif_name = com::ServiceName::create("Nexigen/Test/SmWatchdog");
+    const auto sm_event_name = com::ServiceName::create("Nexigen/Test/SmWatchdogEvent");
+    NX_CHECK(em_name.has_value() && sm_notif_name.has_value() && sm_event_name.has_value());
+    auto client = phm::RecoveryClient::create(*node, *em_name, *sm_notif_name, *sm_event_name);
+    NX_CHECK(client.has_value());
+
+    // No EM server exists on this channel: a watchdog action that tried the
+    // transport would time out instead of firing the callback.
+    phm::SupervisedProcess process;
+    process.name = "brake";
+    process.recovery_rules.push_back({phm::RecoveryAction::TriggerWatchdogReset, ""});
+    bool stopped = false;
+    const auto status = client->apply_rule(process, std::chrono::milliseconds(50),
+                                           [&stopped] { stopped = true; });
+    NX_CHECK(status.has_value());
+    NX_CHECK(stopped);
+    NX_CHECK(client->last_action() == phm::RecoveryAction::TriggerWatchdogReset);
+}
+
+void test_recovery_rejected() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto em_name = com::ServiceName::create("Nexigen/Test/RecoveryReject");
+    const auto sm_notif_name = com::ServiceName::create("Nexigen/Test/SmReject");
+    const auto sm_event_name = com::ServiceName::create("Nexigen/Test/SmRejectEvent");
+    NX_CHECK(em_name.has_value() && sm_notif_name.has_value() && sm_event_name.has_value());
+    auto client = phm::RecoveryClient::create(*node, *em_name, *sm_notif_name, *sm_event_name);
+    NX_CHECK(client.has_value());
+    auto server = com::Server<phm::RecoveryRequest, phm::RecoveryResponse>::create(*node, *em_name);
+    NX_CHECK(server.has_value());
+    auto subscriber =
+        com::Subscriber<nexigen::sm::RecoveryNotification>::create(*node, *sm_notif_name);
+    NX_CHECK(subscriber.has_value());
+
+    std::thread reject_em([&server] {
+        for (int i = 0; i < 200; ++i) {
+            auto request = server->receive();
+            if (request.has_value() && request->has_value()) {
+                NX_CHECK((*request)->send_copy(phm::RecoveryResponse{0}).has_value());
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    });
+
+    phm::SupervisedProcess process;
+    process.name = "steering";
+    process.recovery_rules = {{phm::RecoveryAction::RestartProcess, ""},
+                              {phm::RecoveryAction::SwitchFunctionGroupState, "motion_control"}};
+    NX_CHECK(client->apply_rule(process, std::chrono::milliseconds(2000)).has_value());
+    reject_em.join();
+    NX_CHECK(client->last_action() == phm::RecoveryAction::SwitchFunctionGroupState);
+
+    int notifications = 0;
+    for (int i = 0; i < 200; ++i) {
+        auto received = subscriber->receive();
+        NX_CHECK(received.has_value());
+        if (received->has_value()) {
+            ++notifications;
+            continue;
+        }
+        if (notifications > 0) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    NX_CHECK(notifications == 1);
+}
+
+void test_recovery_timeout() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto em_name = com::ServiceName::create("Nexigen/Test/RecoveryDead");
+    const auto sm_notif_name = com::ServiceName::create("Nexigen/Test/SmDead");
+    const auto sm_event_name = com::ServiceName::create("Nexigen/Test/SmDeadEvent");
+    NX_CHECK(em_name.has_value() && sm_notif_name.has_value() && sm_event_name.has_value());
+    auto client = phm::RecoveryClient::create(*node, *em_name, *sm_notif_name, *sm_event_name);
+    NX_CHECK(client.has_value());
+    auto subscriber =
+        com::Subscriber<nexigen::sm::RecoveryNotification>::create(*node, *sm_notif_name);
+    NX_CHECK(subscriber.has_value());
+
+    phm::SupervisedProcess process;
+    process.name = "throttle";
+    process.recovery_rules = {{phm::RecoveryAction::RestartProcess, ""},
+                              {phm::RecoveryAction::SwitchFunctionGroupState, "powertrain"}};
+    NX_CHECK(client->apply_rule(process, std::chrono::milliseconds(50)).has_value());
+    NX_CHECK(client->last_action() == phm::RecoveryAction::SwitchFunctionGroupState);
+
+    bool observed = false;
+    for (int i = 0; i < 200 && !observed; ++i) {
+        auto received = subscriber->receive();
+        NX_CHECK(received.has_value());
+        if (received->has_value()) {
+            observed = std::string((*received)->payload().function_group) == "powertrain";
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    NX_CHECK(observed);
+}
+
+void test_recovery_storage() {
+    phm::FaultStorage storage("/tmp/opencode/phm_fault_test.log");
+    for (std::uint32_t i = 0; i < 3; ++i) {
+        storage.record(phm::FaultRecord{phm::FaultKind::AliveFailure, 0, i, 1000 + i});
+    }
+    for (int i = 0; i < 200 && storage.recorded() < 3U; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    NX_CHECK(storage.recorded() == 3U);
+    NX_CHECK(storage.dropped() == 0U);
+    NX_CHECK(storage.to_string().find("recorded=3") != std::string::npos);
+}
+
+void test_recovery() {
+    test_recovery_restart();
+    test_recovery_watchdog();
+    test_recovery_rejected();
+    test_recovery_timeout();
+    test_recovery_storage();
 }
 
 void test_manifest() {
@@ -408,6 +716,316 @@ void test_manifest() {
     NX_CHECK(manifest.processes.size() == 1U);
     from_json(nlohmann::json{{"processes", nlohmann::json::array({42})}}, manifest);
     NX_CHECK(manifest.processes.size() == 1U);
+
+    // Safety sections round-trip: alive counts, fork regions, watchdog.
+    {
+        phm::PhmManifest extended;
+        phm::SupervisedProcess entry = make_process("extended");
+        entry.alive_expected_indications = 4;
+        entry.alive_min_margin_cycles = 1;
+        entry.alive_max_margin_cycles = 2;
+        entry.logical_forks.push_back({7, {8, 9}, 10});
+        extended.processes.push_back(entry);
+        extended.watchdog.enabled = true;
+        extended.watchdog.device = "/dev/watchdog";
+        extended.watchdog.timeout_ms = 1000;
+        extended.watchdog.feed_period_ms = 200;
+
+        nlohmann::json encoded;
+        to_json(encoded, extended);
+        phm::PhmManifest restored;
+        from_json(encoded, restored);
+        NX_CHECK(restored.processes[0].alive_expected_indications == 4);
+        NX_CHECK(restored.processes[0].alive_min_margin_cycles == 1);
+        NX_CHECK(restored.processes[0].alive_max_margin_cycles == 2);
+        NX_CHECK(restored.processes[0].logical_forks.size() == 1U);
+        NX_CHECK(restored.processes[0].logical_forks[0].fork_id == 7U);
+        NX_CHECK(restored.processes[0].logical_forks[0].branch_entries.size() == 2U);
+        NX_CHECK(restored.processes[0].logical_forks[0].branch_entries[1] == 9U);
+        NX_CHECK(restored.processes[0].logical_forks[0].join_id == 10U);
+        NX_CHECK(restored.watchdog.enabled);
+        NX_CHECK(restored.watchdog.device == "/dev/watchdog");
+        NX_CHECK(restored.watchdog.timeout_ms == 1000U);
+        NX_CHECK(restored.watchdog.feed_period_ms == 200U);
+        NX_CHECK(back.to_string().find("watchdog=") != std::string::npos);
+        NX_CHECK(std::format("{}", restored.watchdog).find("timeout_ms=1000") != std::string::npos);
+    }
+
+    // Validation rejects each unsafe section and names the process.
+    {
+        std::string error;
+        phm::PhmManifest valid;
+        phm::SupervisedProcess entry;
+        entry.name = "gate";
+        entry.checkpoints = {1, 2, 3, 4};
+        entry.transitions = {{1, 2}, {2, 3}, {3, 4}};
+        entry.logical_forks = {{1, {2, 3}, 4}};
+        valid.processes.push_back(entry);
+        NX_CHECK(phm::validate_phm_manifest(valid, error).has_value());
+        NX_CHECK(error.empty());
+
+        auto rejects = [](phm::PhmManifest candidate, const char* needle) {
+            std::string message;
+            const auto status = phm::validate_phm_manifest(candidate, message);
+            return !status.has_value() && message.find(needle) != std::string::npos;
+        };
+
+        phm::PhmManifest negative = valid;
+        negative.processes[0].alive_expected_indications = -1;
+        NX_CHECK(rejects(negative, "gate"));
+
+        phm::PhmManifest negative_json;
+        from_json(nlohmann::json{{"processes",
+                                  nlohmann::json::array({{{"name", "neg"},
+                                                          {"alive_max_margin_cycles", -3}}})}},
+                  negative_json);
+        NX_CHECK(rejects(negative_json, "neg"));
+
+        phm::PhmManifest bad_branch = valid;
+        bad_branch.processes[0].logical_forks[0].join_id = 99;
+        NX_CHECK(rejects(bad_branch, "gate"));
+
+        phm::PhmManifest unknown_branch = valid;
+        unknown_branch.processes[0].logical_forks[0].branch_entries = {42};
+        NX_CHECK(rejects(unknown_branch, "gate"));
+
+        phm::PhmManifest empty_branch = valid;
+        empty_branch.processes[0].logical_forks[0].branch_entries.clear();
+        NX_CHECK(rejects(empty_branch, "gate"));
+
+        phm::PhmManifest duplicate = valid;
+        duplicate.processes[0].logical_forks.push_back({1, {2}, 3});
+        NX_CHECK(rejects(duplicate, "gate"));
+
+        phm::PhmManifest too_many = valid;
+        too_many.processes[0].logical_forks.clear();
+        too_many.processes[0].checkpoints.clear();
+        for (std::uint32_t i = 0; i < phm::k_max_logical_forks + 1U; ++i) {
+            const std::uint32_t fork = 100U + i * 3U;
+            too_many.processes[0].logical_forks.push_back({fork, {fork + 1U}, fork + 2U});
+            too_many.processes[0].checkpoints.push_back(fork);
+            too_many.processes[0].checkpoints.push_back(fork + 1U);
+            too_many.processes[0].checkpoints.push_back(fork + 2U);
+        }
+        NX_CHECK(rejects(too_many, "gate"));
+
+        phm::PhmManifest slow_feed = valid;
+        slow_feed.watchdog.enabled = true;
+        slow_feed.watchdog.timeout_ms = 1000;
+        slow_feed.watchdog.feed_period_ms = 600;
+        NX_CHECK(rejects(slow_feed, "watchdog"));
+
+        phm::PhmManifest zero_timeout = valid;
+        zero_timeout.watchdog.enabled = true;
+        zero_timeout.watchdog.timeout_ms = 0;
+        NX_CHECK(rejects(zero_timeout, "watchdog"));
+    }
+}
+
+void test_watchdog() {
+    using namespace std::chrono;
+
+    // Disabled by default: no device is touched.
+    {
+        nexigen::test::FakeWatchdogDevice device;
+        auto created = phm::Watchdog::create(device, phm::WatchdogConfig{});
+        NX_CHECK(created.has_value());
+        NX_CHECK(!created->enabled());
+        NX_CHECK(created->state() == phm::WatchdogState::Disabled);
+        created->tick(phm::Watchdog::Clock::now(), false);
+        NX_CHECK(device.opens == 0);
+        NX_CHECK(device.feeds == 0);
+    }
+
+    phm::WatchdogConfig config;
+    config.enabled = true;
+    config.device = "/dev/watchdog";
+    config.timeout_ms = 1000;
+    config.feed_period_ms = 100;
+
+    // Armed: the device is opened and the timeout negotiated.
+    {
+        nexigen::test::FakeWatchdogDevice device;
+        auto created = phm::Watchdog::create(device, config);
+        NX_CHECK(created.has_value());
+        NX_CHECK(created->enabled());
+        NX_CHECK(created->state() == phm::WatchdogState::Armed);
+        NX_CHECK(created->timeout_ms() == 1000U);
+        NX_CHECK(created->feeds() == 0U);
+        NX_CHECK(device.opens == 1);
+        NX_CHECK(device.path() == "/dev/watchdog");
+
+        const auto t0 = phm::Watchdog::Clock::now();
+        created->tick(t0, false);                       // first feed
+        created->tick(t0 + milliseconds(100), false);   // period elapsed
+        created->tick(t0 + milliseconds(150), false);   // too soon
+        NX_CHECK(created->feeds() == 2U);
+
+        created->tick(t0 + milliseconds(160), true);    // expired stops the feed
+        NX_CHECK(created->state() == phm::WatchdogState::Stopped);
+        NX_CHECK(!created->feeding());
+        NX_CHECK(created->feeds() == 2U);
+
+        created->tick(t0 + milliseconds(200), false);   // healthy resumes
+        NX_CHECK(created->state() == phm::WatchdogState::Armed);
+        NX_CHECK(created->feeds() == 3U);
+
+        created->tick(t0 + milliseconds(700), false);   // stalled loop: skip
+        NX_CHECK(created->feeds() == 3U);
+        created->tick(t0 + milliseconds(800), false);   // clean cycle feeds
+        NX_CHECK(created->feeds() == 4U);
+
+        const std::string text = created->to_string();
+        NX_CHECK(text.find("timeout_ms=1000") != std::string::npos);
+        NX_CHECK(text.find("feeds=4") != std::string::npos);
+        NX_CHECK(text.find("Armed") != std::string::npos);
+        NX_CHECK(std::format("{}", *created) == text);
+
+        created->stop_feeding();
+        NX_CHECK(!created->feeding());
+        NX_CHECK(created->state() == phm::WatchdogState::Stopped);
+        created->disarm();
+        NX_CHECK(device.disarms >= 1);
+    }
+
+    // The driver may grant a shorter timeout than requested.
+    {
+        nexigen::test::FakeWatchdogDevice device;
+        device.max_granted = 500;
+        auto created = phm::Watchdog::create(device, config);
+        NX_CHECK(created.has_value());
+        NX_CHECK(created->timeout_ms() == 500U);
+        created->disarm();
+    }
+
+    // An enabled watchdog that cannot open its device aborts creation.
+    {
+        nexigen::test::FakeWatchdogDevice device;
+        device.fail_open = true;
+        const auto created = phm::Watchdog::create(device, config);
+        NX_CHECK(!created.has_value());
+    }
+
+    // Real-device smoke test is opt-in; a developer machine must not reset.
+    {
+        const char* path = std::getenv("NEXIGEN_WATCHDOG_DEVICE");
+        if (path == nullptr || ::access(path, F_OK) != 0) {
+            std::printf("[watchdog-real       ] skipped (set NEXIGEN_WATCHDOG_DEVICE)\n");
+        } else {
+            phm::PosixWatchdogDevice device;
+            NX_CHECK(device.open(path).has_value());
+            const auto granted = device.set_timeout(2000);
+            NX_CHECK(granted.has_value());
+            NX_CHECK(device.feed().has_value());
+            NX_CHECK(device.disarm().has_value());
+        }
+    }
+}
+
+
+std::string read_text_file(const std::string& path) {
+    std::FILE* file = std::fopen(path.c_str(), "rb");
+    if (file == nullptr) {
+        return {};
+    }
+    std::string text;
+    std::array<char, 4096> buffer{};
+    for (;;) {
+        const std::size_t count = std::fread(buffer.data(), 1, buffer.size(), file);
+        text.append(buffer.data(), count);
+        if (count < buffer.size()) {
+            break;
+        }
+    }
+    static_cast<void>(std::fclose(file));
+    return text;
+}
+
+void write_text_file(const std::string& path, std::string_view text) {
+    std::FILE* file = std::fopen(path.c_str(), "wb");
+    if (file == nullptr) {
+        return;
+    }
+    static_cast<void>(std::fwrite(text.data(), 1, text.size(), file));
+    static_cast<void>(std::fclose(file));
+}
+
+void test_fault_log() {
+    const std::string base =
+        "/tmp/opencode/phm_fault_log_" + std::to_string(static_cast<long>(::getpid()));
+    const std::string intact_path = base + "_intact.log";
+    static_cast<void>(std::remove(intact_path.c_str()));
+
+    {
+        phm::FaultStorage storage(intact_path);
+        for (std::uint32_t i = 0; i < 3; ++i) {
+            storage.record(phm::FaultRecord{phm::FaultKind::AliveFailure, i, i + 1, 1000 + i});
+        }
+        for (int i = 0; i < 200 && storage.recorded() < 3U; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        NX_CHECK(storage.recorded() == 3U);
+    }
+
+    // Written records carry sequence and checksum and verify intact.
+    {
+        phm::FaultLogReport report{};
+        NX_CHECK(phm::verify_fault_log(intact_path, report).has_value());
+        NX_CHECK(report.intact == 3U);
+        NX_CHECK(report.corrupted == 0U);
+        NX_CHECK(report.truncated == 0U);
+        NX_CHECK(report.legacy == 0U);
+        NX_CHECK(report.to_string().find("intact=3") != std::string::npos);
+        NX_CHECK(std::format("{}", report) == report.to_string());
+    }
+
+    const std::string text = read_text_file(intact_path);
+    NX_CHECK(!text.empty());
+
+    // One flipped checksum character is reported corrupted; the scan continues.
+    {
+        std::string corrupted = text;
+        const std::size_t newline = corrupted.find('\n');
+        NX_CHECK(newline != std::string::npos && newline > 0U);
+        char& last = corrupted[newline - 1U];
+        last = last == '0' ? '1' : '0';
+        const std::string path = base + "_corrupt.log";
+        write_text_file(path, corrupted);
+        phm::FaultLogReport report{};
+        NX_CHECK(phm::verify_fault_log(path, report).has_value());
+        NX_CHECK(report.corrupted == 1U);
+        NX_CHECK(report.intact == 2U);
+    }
+
+    // A tail cut before the checksum is truncated, not corrupted.
+    {
+        std::string truncated = text;
+        const std::size_t final_newline = truncated.rfind('\n');
+        NX_CHECK(final_newline != std::string::npos);
+        truncated.erase(final_newline);
+        const std::size_t last_space = truncated.rfind(' ');
+        NX_CHECK(last_space != std::string::npos);
+        truncated.erase(last_space);
+        const std::string path = base + "_truncated.log";
+        write_text_file(path, truncated);
+        phm::FaultLogReport report{};
+        NX_CHECK(phm::verify_fault_log(path, report).has_value());
+        NX_CHECK(report.truncated == 1U);
+        NX_CHECK(report.corrupted == 0U);
+        NX_CHECK(report.intact == 2U);
+    }
+
+    // Pre-change four-field lines are accepted as legacy and unverified.
+    {
+        const std::string path = base + "_legacy.log";
+        write_text_file(path, "AliveFailure 0 7 1234\n");
+        phm::FaultLogReport report{};
+        NX_CHECK(phm::verify_fault_log(path, report).has_value());
+        NX_CHECK(report.legacy == 1U);
+        NX_CHECK(report.corrupted == 0U);
+    }
+
+    static_cast<void>(std::remove(intact_path.c_str()));
 }
 
 void test_supervised_entity() {
@@ -540,6 +1158,8 @@ int main() {
     run_suite("supervision", test_supervision);
     run_suite("recovery", test_recovery);
     run_suite("manifest", test_manifest);
+    run_suite("watchdog", test_watchdog);
+    run_suite("fault_log", test_fault_log);
     run_suite("thread_spec", test_thread_spec);
     run_suite("supervised_entity", test_supervised_entity);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);

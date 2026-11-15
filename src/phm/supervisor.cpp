@@ -74,11 +74,13 @@ void Supervisor::on_checkpoint(std::size_t index, std::uint32_t checkpoint_id,
         return;
     }
 
-    // Logical supervision: the transition graph must allow last -> current.
+    // Logical supervision: the transition graph must allow last -> current,
+    // and the declared fork/join regions must be respected.
     if (state.last_checkpoint.has_value() &&
         !is_allowed_transition(index, *state.last_checkpoint, checkpoint_id)) {
         record_failure(index);
     }
+    apply_fork_join(index, checkpoint_id);
 
     // Deadline supervision: source starts a clock, target checks min/max.
     for (std::size_t i = 0; i < process.deadlines.size(); ++i) {
@@ -109,10 +111,27 @@ void Supervisor::on_alive_tick(std::size_t index, Clock::time_point /*now*/) noe
         state.checkpoints_this_window = 0U;
         return;
     }
-    if (state.checkpoints_this_window == 0U) {
-        record_failure(index);
+    const SupervisedProcess& process = manifest_.processes[index];
+    const std::int64_t expected = process.alive_expected_indications;
+    if (expected <= 0) {
+        // Legacy rule: at least one checkpoint per window.
+        if (state.checkpoints_this_window == 0U) {
+            record_failure(index);
+        } else {
+            reset_failures(index);
+        }
     } else {
-        reset_failures(index);
+        const std::uint64_t wanted = static_cast<std::uint64_t>(expected);
+        const std::uint64_t shortfall = static_cast<std::uint64_t>(process.alive_min_margin_cycles);
+        const std::uint64_t excess = static_cast<std::uint64_t>(process.alive_max_margin_cycles);
+        const std::uint64_t lower = wanted > shortfall ? wanted - shortfall : 0U;
+        const std::uint64_t upper = wanted + excess;
+        const std::uint64_t count = state.checkpoints_this_window;
+        if (count < lower || count > upper) {
+            record_failure(index);
+        } else {
+            reset_failures(index);
+        }
     }
     state.checkpoints_this_window = 0U;
 }
@@ -128,8 +147,73 @@ void Supervisor::on_execution_state(std::size_t index, EmLifecycleState state) n
         supervision.checkpoints_this_window = 0U;
         supervision.last_checkpoint.reset();
         supervision.last_checkpoint_time.reset();
+        supervision.fork_depth = 0U;
+        for (ForkFrame& frame : supervision.fork_stack) {
+            frame.entered.reset();
+        }
         for (DeadlineClock& clock : supervision.deadline_clocks) {
             clock.started.reset();
+        }
+    }
+}
+
+void Supervisor::apply_fork_join(std::size_t index, std::uint32_t checkpoint_id) noexcept {
+    const std::vector<LogicalFork>& forks = manifest_.processes[index].logical_forks;
+    if (forks.empty()) {
+        return;
+    }
+    ProcessSupervision& state = states_[index];
+
+    // A join closes its frame, which must be the innermost one and must have
+    // every branch entered. Skipping frames or missing branches is a fault.
+    for (std::size_t depth = state.fork_depth; depth > 0U; --depth) {
+        const ForkFrame& frame = state.fork_stack[depth - 1U];
+        const LogicalFork& fork = forks[frame.fork_index];
+        if (fork.join_id != checkpoint_id) {
+            continue;
+        }
+        if (depth != state.fork_depth) {
+            record_failure(index); // Frames above this one were skipped.
+        }
+        if (frame.entered.count() != fork.branch_entries.size()) {
+            record_failure(index); // Join reached with unentered branches.
+        }
+        state.fork_depth = depth - 1U;
+        return;
+    }
+
+    // A declared join with no open frame is out of order.
+    for (const LogicalFork& fork : forks) {
+        if (fork.join_id == checkpoint_id) {
+            record_failure(index);
+            return;
+        }
+    }
+
+    // A fork opens a new frame; the manifest bound guarantees capacity.
+    for (std::size_t f = 0; f < forks.size(); ++f) {
+        if (forks[f].fork_id != checkpoint_id) {
+            continue;
+        }
+        if (state.fork_depth >= state.fork_stack.size()) {
+            record_failure(index);
+            return;
+        }
+        state.fork_stack[state.fork_depth] = ForkFrame{f, {}};
+        ++state.fork_depth;
+        return;
+    }
+
+    // A branch entry marks its bit in the innermost open frame.
+    if (state.fork_depth == 0U) {
+        return;
+    }
+    const ForkFrame& frame = state.fork_stack[state.fork_depth - 1U];
+    const LogicalFork& fork = forks[frame.fork_index];
+    for (std::size_t b = 0; b < fork.branch_entries.size(); ++b) {
+        if (fork.branch_entries[b] == checkpoint_id) {
+            state.fork_stack[state.fork_depth - 1U].entered.set(b);
+            return;
         }
     }
 }

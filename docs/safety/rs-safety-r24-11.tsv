@@ -1,0 +1,64 @@
+# AUTOSAR_FO_RS_Safety | document 986 | release R24-11 | 44 pages | source sha256 fc399ce112443ef6705bbe74ac65abd488618282ad2d982078cd637884688e1d | columns: id, title, level
+id	title	level
+RS_SAF_00001	Safe Execution	top-level
+RS_SAF_00002	Safe Configuration	top-level
+RS_SAF_00003	Safe Update or Safe Upgrade	top-level
+RS_SAF_00004	Safe Exchange of Information	top-level
+RS_SAF_00005	Detection of Data Corruption	top-level
+RS_SAF_00006	Safe Storage	top-level
+RS_SAF_00007	Recovery upon failure	top-level
+RS_SAF_10001	AUTOSAR shall provide mechanisms to support safe initialization of software components.	functional
+RS_SAF_10002	AUTOSAR shall provide mechanisms to support safe verification mechanisms of platform basic software modules, functional-clusters, software components, applications, services and their respective configuration data.	functional
+RS_SAF_10005	AUTOSAR shall provide mechanisms to support safe shutdown and termination of applications, software components, basic software modules and services.	functional
+RS_SAF_10006	AUTOSAR shall provide mechanisms to support safe transition of states in a basic software module, software component, application or service life cycle.	functional
+RS_SAF_10008	AUTOSAR shall provide mechanisms to support safe resource management for the AUTOSAR Adaptive Platform functional-clusters, applications and services and AUTOSAR Classic Platform basic software modules and software components.	functional
+RS_SAF_10014	AUTOSAR shall provide an interface to support safe communication for basic software module, software component, application or services.	functional
+RS_SAF_10027	AUTOSAR shall provide mechanisms to prevent the loss of a valid configuration.	functional
+RS_SAF_10028	AUTOSAR shall provide mechanisms to support dependable scheduling of AUTOSAR Adaptive Platform functional-clusters, applications and services and AUTOSAR Classic Platform basic software modules and software components.	functional
+RS_SAF_10030	AUTOSAR shall provide mechanisms to support safe program execution.	functional
+RS_SAF_10031	AUTOSAR shall provide mechanisms to detect program execution time violation	functional
+RS_SAF_10037	AUTOSAR shall provide mechanisms to prevent unintended alteration of data.	functional
+RS_SAF_10038	AUTOSAR shall provide mechanisms to support that the safety relevant software is only updated/upgraded in a state that cannot cause a hazardous situation.	functional
+RS_SAF_10039	AUTOSAR shall support mechanisms to detect unintended alteration of data.	functional
+RS_SAF_10040	AUTOSAR shall support data recovery mechanisms.	functional
+RS_SAF_10041	AUTOSAR shall allow integrators to select and configure the set of safety mechanisms to detect communication faults.	functional
+RS_SAF_10042	AUTOSAR shall provide mechanisms to detect time synchronization violations.	functional
+RS_HM_09125	Health Monitoring shall provide an Alive Supervision	technical-ap
+RS_HM_09222	Health Monitoring shall provide a Logical Supervision	technical-ap
+RS_HM_09235	Health Monitoring shall provide a Deadline Supervision	technical-ap
+RS_PHM_00115	If supervision of State Management fails then Platform Health Management shall trigger a watchdog reset.	technical-ap
+RS_PHM_00116	If supervision of Execution Management fails then Platform Health Management shall trigger a watchdog reset.	technical-ap
+RS_PHM_00117	Platform Health Management shall notify State Management in case an AUTOSAR Adaptive Platform functional cluster, Adaptive Application or service other than Execution Management and State Management fails.	technical-ap
+RS_PHM_00118	PHM shall only process a checkpoint reported from corresponding processes.	technical-ap
+RS_PHM_00119	A security event shall be raised if a checkpoint is reported from a non-corresponding process.	technical-ap
+RS_EM_00002	Execution Management shall set-up one process for the execution of each Modelled Process.	technical-ap
+RS_EM_00005	Execution Management shall support the configuration of OS resource budgets for process and groups of processes.	technical-ap
+RS_EM_00008	Execution Management shall support the binding of all threads of a given process to a specified set of processor cores.	technical-ap
+RS_EM_00009	Execution Management shall control the right to create child process for each process it starts.	technical-ap
+RS_EM_00151	Execution Management shall be implemented at least according the highest safety integrity level from any process that is supported on the platform.	technical-ap
+RS_SM_00600	State Management shall be implemented at least according to the highest safety integrity level from any process that is managed by State Management.	technical-ap
+RS_SM_00601	State Management shall coordinate recovery actions.	technical-ap
+RS_OSI_00201	The Operating System shall provide mechanisms for system memory budgeting.	technical-ap
+RS_OSI_00202	The Operating System shall provide mechanisms for CPU time budgeting.	technical-ap
+RS_OSI_00203	The Operating System should provide mechanisms for binding Processes to CPU cores.	technical-ap
+RS_OSI_00206	The Operating System shall provide multi-Process support for isolation of applications.	technical-ap
+RS_PER_00008	Detection of Data Corruption	technical-ap
+RS_PER_00009	Recovery of Corrupted Data	technical-ap
+RS_CM_00223	The Communication Management shall protect the transmission of events using E2E protocol. The E2E Protection has to be executed behind the event API.	technical-ap
+RS_CM_00224	The communication management shall provide the E2E information of the received event to the application.	technical-ap
+RS_CM_00400	Communication Management shall protect the transmission of methods using E2E protocol.	technical-ap
+RS_CM_00401	The communication management shall provide the E2E information of the received method call to the application.	technical-ap
+RS_CM_00403	Communication management shall provide an interface to detect delay of E2E protected service responses at the client side by supervision of a predefined response deadline.	technical-ap
+RS_CM_00404	The communication management shall provide the E2E information of the method response to the application.	technical-ap
+RS_UCM_00008	UCM shall support a recovery mechanism in case of failed activation	technical-ap
+RS_UCM_00012	UCM shall check the consistency of transferred Software Package	technical-ap
+RS_UCM_00027	UCM shall be able to safely recover from unexpected interruption.	technical-ap
+RS_UCM_00030	UCM shall be able to verify the updated software during activation	technical-ap
+RS_SAF_31101	Watchdog Manager inherits highest safety integrity level from Software Component.	technical-cp
+RS_SAF_31102	Watchdog Manager monitors aliveness.	technical-cp
+RS_SAF_31103	Watchdog Manager monitors control flow.	technical-cp
+RS_SAF_31104	Watchdog Manager monitors deadline.	technical-cp
+RS_SAF_31201	Memory Protection of Applications	technical-cp
+RS_SAF_31202	Timing Protection of Applications	technical-cp
+RS_SAF_31301	E2E Protection with E2E Transformer and E2E Library	technical-cp
+RS_SAF_31302	Allow integrators to configure safety mechanisms to detect communication faults	technical-cp

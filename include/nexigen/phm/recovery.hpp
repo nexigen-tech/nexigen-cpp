@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <format>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -130,21 +131,6 @@ public:
         return send(request, timeout);
     }
 
-    /// @brief Escalate: trigger the hardware watchdog reset (direct channel).
-    ///
-    /// @param timeout Upper bound on the request-response round trip.
-    /// @return The EM's `RecoveryResponse`, or the mapped `com::Error` from the
-    ///         request-response call.
-    /// @note Spec `phm/recovery`, requirement "SafeState escalation": the
-    ///       daemon may trigger a hardware watchdog reset when escalation
-    ///       cannot be handled in software.
-    [[nodiscard]] com::Result<RecoveryResponse>
-    trigger_watchdog_reset(std::chrono::milliseconds timeout) noexcept {
-        RecoveryRequest request;
-        request.action = RecoveryAction::TriggerWatchdogReset;
-        return send(request, timeout);
-    }
-
     /// @brief Escalate a critical fault to the State Manager.
     ///
     /// Publishes the `RecoveryNotification` for the failed Function Group and
@@ -185,46 +171,74 @@ public:
         return {};
     }
 
-    /// @brief Apply the first configured recovery rule of an expired process.
+    /// @brief Callback that stops feeding the daemon-owned watchdog.
     ///
-    /// Dispatches on `process.recovery_rules.front().action`: `RestartProcess`
-    /// calls `restart_process`, `SwitchFunctionGroupState` calls
-    /// `notify_sm_recovery` (falling back to the process name when the rule has
-    /// no function group), and `TriggerWatchdogReset` calls
-    /// `trigger_watchdog_reset`. A process with no rules escalates its name to
-    /// the State Manager as the safety-critical default.
+    /// `TriggerWatchdogReset` is local actuation: the daemon owns the device,
+    /// so the recovery path must not send a request to the Execution Manager.
+    /// An empty callback makes the action fail (the daemon has no watchdog).
+    using StopFeedingHook = std::function<void()>;
+
+    /// @brief Apply the configured recovery rules of an expired process.
     ///
-    /// @param process Expired process whose first rule selects the action.
+    /// Rules are tried in order. `RestartProcess` calls `restart_process`,
+    /// `SwitchFunctionGroupState` calls `notify_sm_recovery` (falling back to
+    /// the process name when the rule has no function group), and
+    /// `TriggerWatchdogReset` calls `stop_feeding` locally without touching the
+    /// EM channel. The first successful rule ends the sequence. When every
+    /// rule fails — or the list is empty — the process is escalated once to the
+    /// State Manager as the safety-critical default.
+    ///
+    /// @param process Expired process whose rules select the actions.
     /// @param timeout Upper bound on a direct EM request-response call;
     ///        ignored by the SM escalation path.
-    /// @return Empty `com::Status` when the selected action succeeded, the
-    ///         mapped `com::Error` it propagated, or `InvalidArgument` for an
-    ///         action outside the documented vocabulary.
+    /// @param stop_feeding Local watchdog actuation for `TriggerWatchdogReset`;
+    ///        empty when the daemon has no watchdog.
+    /// @return Empty `com::Status` when a rule (or the final escalation)
+    ///         succeeded, or the last mapped error.
     /// @note Spec `phm/recovery`, requirements "Local process recovery" and
     ///       "SafeState escalation".
     [[nodiscard]] com::Status apply_rule(const SupervisedProcess& process,
-                                         std::chrono::milliseconds timeout) noexcept {
+                                         std::chrono::milliseconds timeout,
+                                         const StopFeedingHook& stop_feeding = {}) noexcept {
         if (process.recovery_rules.empty()) {
-            // No configured rule: escalate the safety-critical default to SM.
             return notify_sm_recovery(process.name);
         }
-        const RecoveryRule& rule = process.recovery_rules.front();
-        switch (rule.action) {
-            case RecoveryAction::RestartProcess: {
-                const auto response = restart_process(0, process.name, timeout);
-                return response.has_value() ? com::Status{}
-                                            : com::Status{std::unexpected(response.error())};
-            }
-            case RecoveryAction::SwitchFunctionGroupState:
-                return notify_sm_recovery(rule.function_group.empty() ? process.name
-                                                                      : rule.function_group);
-            case RecoveryAction::TriggerWatchdogReset: {
-                const auto response = trigger_watchdog_reset(timeout);
-                return response.has_value() ? com::Status{}
-                                            : com::Status{std::unexpected(response.error())};
+        com::Status last = std::unexpected(com::Error::InvalidArgument);
+        for (const RecoveryRule& rule : process.recovery_rules) {
+            switch (rule.action) {
+                case RecoveryAction::RestartProcess: {
+                    const auto response = restart_process(0, process.name, timeout);
+                    if (response.has_value() && response->accepted != 0U) {
+                        return {};
+                    }
+                    last = response.has_value()
+                               ? std::unexpected(com::Error::ConnectionFailure)
+                               : std::unexpected(response.error());
+                    break;
+                }
+                case RecoveryAction::SwitchFunctionGroupState: {
+                    const com::Status escalated =
+                        notify_sm_recovery(rule.function_group.empty() ? process.name
+                                                                       : rule.function_group);
+                    if (escalated) {
+                        return escalated;
+                    }
+                    last = escalated;
+                    break;
+                }
+                case RecoveryAction::TriggerWatchdogReset: {
+                    if (!stop_feeding) {
+                        last = std::unexpected(com::Error::InvalidArgument);
+                        break;
+                    }
+                    stop_feeding();
+                    last_action_ = RecoveryAction::TriggerWatchdogReset;
+                    return {};
+                }
             }
         }
-        return std::unexpected(com::Error::InvalidArgument);
+        // Every configured rule failed: escalate the process once to SM.
+        return notify_sm_recovery(process.name);
     }
 
     /// @brief The last action this client sent.

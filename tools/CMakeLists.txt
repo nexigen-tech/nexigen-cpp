@@ -81,6 +81,12 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_phmd_required_spec PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
+    add_test(NAME nexigen_phmd_safety_sections
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-phmd/safety_sections_test.sh
+                $<TARGET_FILE:nexigen-phmd> ${CMAKE_SOURCE_DIR})
+    set_tests_properties(nexigen_phmd_safety_sections PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
     add_test(NAME nexigen_sm_required_spec
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-sm/required_spec_test.sh
                 $<TARGET_FILE:nexigen-sm>)

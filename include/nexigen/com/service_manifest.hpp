@@ -14,6 +14,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/com/e2e/e2e_config.hpp>
+
 namespace nexigen::com {
 
 /// @brief One provided (published) service in a `ServiceManifest`.
@@ -27,6 +29,7 @@ struct ProvidedService {
     std::string service_name{};       ///< Service identity.
     std::uint64_t max_subscribers{1}; ///< Upper bound on connected subscribers.
     std::uint64_t history_size{0}; ///< Samples kept for late subscribers; `0` = transport default.
+    E2eConfig e2e{};               ///< Optional end-to-end protection.
 
     /// @brief Render the cold-path diagnostic string.
     ///
@@ -47,6 +50,7 @@ struct RequiredService {
     std::string service_name{};         ///< Service identity.
     std::uint64_t buffer_capacity{2};   ///< Samples the subscriber may hold.
     bool report_overflow_to_phm{false}; ///< Report an overflow to the PHM.
+    E2eConfig e2e{};                    ///< Optional end-to-end protection.
 
     /// @brief Render the cold-path diagnostic string.
     ///
@@ -67,6 +71,9 @@ struct RequiredService {
 struct ServiceManifest {
     std::vector<ProvidedService> provided_services{}; ///< Services this application publishes.
     std::vector<RequiredService> required_services{}; ///< Services this application consumes.
+    /// Cold-path parse findings (for example an unknown E2E profile name);
+    /// never serialized and never touched on a runtime path.
+    std::vector<std::string> diagnostics{};
 
     /// @brief Render the cold-path diagnostic string.
     ///
@@ -103,6 +110,24 @@ void to_json(nlohmann::json& j, const ServiceManifest& manifest);
 ///       requirement "Minimal service manifest": a hostile input must not
 ///       throw and must leave the target untouched.
 void from_json(const nlohmann::json& j, ServiceManifest& manifest) noexcept;
+
+/// @brief Validate the parsed E2E sections of every service entry.
+///
+/// @param manifest Manifest to check.
+/// @return `false` when parsing recorded a diagnostic (for example an unknown
+///         profile name), a protected service has no data id, or the maximum
+///         delta is zero.
+/// @note Spec `com/e2e`, requirement "E2E service configuration".
+[[nodiscard]] bool valid_service_manifest(const ServiceManifest& manifest) noexcept;
+
+/// @brief Validate and describe the first problem.
+///
+/// @param manifest Manifest to check.
+/// @param error Receives the first diagnostic or a section error; cleared on
+///        success.
+/// @return `true` when the manifest is valid.
+[[nodiscard]] bool valid_service_manifest(const ServiceManifest& manifest,
+                                          std::string& error) noexcept;
 
 } // namespace nexigen::com
 

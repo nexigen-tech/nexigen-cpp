@@ -5,6 +5,10 @@ contributor must keep. For per-module usage, start with
 [`metrics-guide.md`](metrics-guide.md); the authoritative behaviour contract lives
 in the OpenSpec capabilities under [`openspec/specs/`](../openspec/specs).
 
+Coverage of the AUTOSAR `RS_Safety` requirements is tracked in
+[`safety/traceability.md`](safety/traceability.md), which is validated by
+`cmake/check_safety_traceability.py`.
+
 ## Module map
 
 | Namespace | Directory | Build target | Kind |
@@ -330,6 +334,96 @@ table also publishes `Running`/`Terminating`/`Terminated` lifecycle samples on
 `Nexigen/PHM/ExecutionState`; PHM arms supervision on `Running` and suspends it
 during a deliberate stop, so shutdown cannot be misread as an Alive fault.
 
+## Safety mechanisms
+
+The PHM daemon closes the detect → actuate loop:
+
+- **Alive counts** — `alive_expected_indications` with `alive_min_margin_cycles`
+  and `alive_max_margin_cycles` fails a window whose count leaves the inclusive
+  range; an entry without counts keeps the legacy at-least-one rule.
+- **Fork/join** — `logical_forks` declares `{fork_id, branch_entries, join_id}`;
+  a join reached without every branch is a logical failure. The supervisor keeps
+  a fixed-depth stack of entered-branch bitsets, so the checkpoint path stays
+  allocation-free and bounded.
+- **Watchdog** — `phm::Watchdog` owns `/dev/watchdog` (feed period at most half
+  the timeout), feeds only while no armed process is `Expired`, disarms with the
+  magic close on shutdown, and is **disabled by default**:
+  ```json
+  "watchdog": { "enabled": true, "device": "/dev/watchdog",
+                "timeout_ms": 1000, "feed_period_ms": 200 }
+  ```
+  To exercise it on a development machine, load `softdog` and point the manifest
+  at the resulting device; never enable it on a host you cannot reboot.
+- **Recovery** — `RestartProcess` is served by the EM on
+  `Nexigen/PHM/Recovery` (forced restart in a new attempt, no retry-budget
+  consumption); `TriggerWatchdogReset` is local to PHM (stop feeding, no EM
+  request).
+
+The complete example manifest is `examples/phm/safety_manifest.json`.
+
+## Integrity primitives
+
+`nexigen::core::integrity` is header-only and allocation-free on the hashing
+path: CRC-32C and CRC-64/XZ (one-shot and streaming), FIPS 180-4 SHA-256 (the
+`nexigen::exec` names are now aliases), a constant-time hex digest comparison,
+and `read_verified(path, sha256)`, which reads a file once and hashes exactly
+the bytes it returns.
+
+The tools accept an optional expected digest before parsing:
+
+```
+nexigen-em         --config <manifest> --manifest-sha256 <hex>
+nexigen-exec start --config <manifest> --manifest-sha256 <hex>
+nexigen-phmd       --manifest <manifest> --manifest-sha256 <hex>
+nexigen-sm         --config <manifest> --config-sha256 <hex>
+```
+
+Digest verification is JSON-only; ARXML manifests have no byte-digest contract.
+A mismatch fails with `SecurityError` before anything is launched.
+
+Every fault record now appends a monotonic sequence number and a CRC-32C over
+the exact bytes before it. `nexigen-phmd --verify-fault-log <path>` reports
+intact, corrupted, truncated, and legacy counts, and exits non-zero when a
+record is corrupted; four-field lines written before this change are accepted
+as legacy.
+
+## End-to-end protection
+
+`nexigen::com::e2e` protects service exchange against corruption, repetition,
+loss, reordering, and misdelivery:
+
+- **Envelope** — `E2eMessage<T>` carries a fixed 16-byte `E2eHeader` (`data_id`,
+  `counter`, `length`, `crc`) beside the payload and travels as an ordinary
+  `Message`, so the existing ports carry it unchanged.
+- **Profiles** — `None`, `P04`/`P07` (CRC-32/AUTOSAR), `P05`/`P06`
+  (CRC-16/CCITT); counter widths are 16/8/16/32 bits.
+- **Ports** — `E2ePublisher<T>`, `E2eSubscriber<T>`, `E2eClient<Req, Resp>`, and
+  `E2eServer<Req, Resp>` keep the loan/write/send style and return the check
+  result next to the payload. The server hands the request status to the
+  handler, so a corrupt request can still be answered safely.
+- **Counters** — the sender starts at 1 and wraps at the profile width; the
+  receiver accepts a forward gap up to `max_delta_counter`, reports an exact
+  repeat as `Repeated`, and a larger or backwards jump as `WrongSequence`.
+  Integrity is checked first, so a corrupt message never advances sequence
+  state.
+- **Configuration** — `ServiceManifest` entries accept an optional
+  `e2e: {profile, data_id, max_delta_counter}` section; absent means `None`.
+  `None` selects plain communication: use the ordinary ports. The E2E wrappers
+  reject `None` with `InvalidArgument` at creation, so a wrapper can never send
+  an envelope without a checksum.
+
+The framing is ours, not byte-compatible with AUTOSAR wire profiles (there is
+no shared bus here); only the CRC polynomials are AUTOSAR's. Checksums cover the
+payload's object representation, so a payload with padding should provide its
+own `e2e_bytes` view. Both ends must migrate to the wrappers together.
+
+Cost: seal+check measures about 175 ns for a 64-byte and 790 ns for a 256-byte
+payload on the reference machine in Release (about 1.1 us / 3.2 us under
+Debug+ASan). These numbers are the performance contract enforced by
+`e2e_overhead` (1 us / 2.5 us in Release, 5 us / 10 us in sanitizer builds).
+The table-driven CRC dominates; a slicing-by-8 or hardware path may lower the
+numbers behind the same API without changing the contract.
+
 ## P2 platform controls
 
 The manifest carries optional platform controls that apply before a child is
@@ -418,9 +512,9 @@ created, so a reference mismatch forks no process.
 | `nexigen-logd` | Log-frame transport daemon | `--config <path>` |
 | `nexigen-traced` | Trace-frame transport daemon | `--config <trace-daemon-config.json>` |
 | `nexigen-metricsd` | Metric-frame transport daemon | `--config <path>` |
-| `nexigen-phmd` | Health/reliability (PHM) daemon | `--manifest <path> [--core <mask>] [--priority <n>] [--fault-log <path>] [--app-name <name>]` |
-| `nexigen-sm` | State-machine daemon | `--config <path> [--rt-core <mask>] [--priority <n>] [--audit-log <path>] [--app-name <name>]` |
-| `nexigen-em` | Execution Manager suite front-end (`start_suite`; the supervisor hosts StateClient + readiness tracker) | `--config <suite-manifest> [--run-id <id>] [--run-dir <path>]` |
+| `nexigen-phmd` | Health/reliability (PHM) daemon | `--manifest <path> [--manifest-sha256 <hex>] [--core <mask>] [--priority <n>] [--fault-log <path>] [--app-name <name>]`; `--verify-fault-log <path>` |
+| `nexigen-sm` | State-machine daemon | `--config <path> [--config-sha256 <hex>] [--rt-core <mask>] [--priority <n>] [--audit-log <path>] [--app-name <name>]` |
+| `nexigen-em` | Execution Manager suite front-end (`start_suite`; the supervisor hosts StateClient + readiness tracker) | `--config <suite-manifest> [--manifest-sha256 <hex>] [--run-id <id>] [--run-dir <path>]` |
 
 ## The hard mandates
 

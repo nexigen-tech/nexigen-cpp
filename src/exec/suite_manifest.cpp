@@ -16,6 +16,7 @@
 
 #include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/core/enum_traits.hpp>
+#include <nexigen/core/integrity/verified_file.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/exec/app_spec.hpp>
@@ -984,16 +985,17 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
     return valid_json_apps(document);
 }
 
-core::Status load_suite_manifest(std::string_view path, SuiteManifest& out) noexcept {
-    const core::Result<nlohmann::json> document = read_json_file(path);
-    if (!document) {
-        return std::unexpected(document.error());
-    }
-    if (!json_enum_fields_valid(*document)) {
+namespace {
+
+/// @brief Finish a load from an already parsed document.
+[[nodiscard]] core::Status install_suite_manifest(std::string_view path,
+                                                  const nlohmann::json& document,
+                                                  SuiteManifest& out) noexcept {
+    if (!json_enum_fields_valid(document)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     SuiteManifest parsed{};
-    from_json(*document, parsed);
+    from_json(document, parsed);
     parsed.manifest_path = absolute_from_cwd(path);
     const core::Status valid = validate_suite_manifest(parsed);
     if (!valid) {
@@ -1001,6 +1003,33 @@ core::Status load_suite_manifest(std::string_view path, SuiteManifest& out) noex
     }
     out = std::move(parsed);
     return {};
+}
+
+} // namespace
+
+core::Status load_suite_manifest(std::string_view path, SuiteManifest& out) noexcept {
+    const core::Result<nlohmann::json> document = read_json_file(path);
+    if (!document) {
+        return std::unexpected(document.error());
+    }
+    return install_suite_manifest(path, *document, out);
+}
+
+core::Status load_suite_manifest(std::string_view path, std::string_view expected_sha256_hex,
+                                 SuiteManifest& out) noexcept {
+    if (expected_sha256_hex.empty()) {
+        return load_suite_manifest(path, out);
+    }
+    core::Result<std::string> text =
+        core::integrity::read_verified(path, expected_sha256_hex);
+    if (!text) {
+        return std::unexpected(text.error());
+    }
+    const nlohmann::json document = nlohmann::json::parse(*text, nullptr, false);
+    if (document.is_discarded()) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    return install_suite_manifest(path, document, out);
 }
 
 } // namespace nexigen::exec

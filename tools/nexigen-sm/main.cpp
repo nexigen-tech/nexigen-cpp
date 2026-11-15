@@ -32,6 +32,8 @@
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/waitset.hpp>
 #include <nexigen/core/affinity.hpp>
+#include <nexigen/core/integrity/verified_file.hpp>
+#include <nexigen/core/settings_io.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/exec/state_ack.hpp>
 #include <nexigen/exec/state_command.hpp>
@@ -63,12 +65,14 @@ void stop_handler(int /*signal*/) {
 
 void print_usage() {
     std::printf("nexigen-sm - State Manager\n"
-                "Usage: nexigen-sm --config <path> [--rt-core <mask>] [--priority <n>]\n"
+                "Usage: nexigen-sm --config <path> [--config-sha256 <hex>]\n"
+                "                  [--rt-core <mask>] [--priority <n>]\n"
                 "                  [--audit-log <path>] [--help]\n");
 }
 
 struct Options {
     std::string config_path{};
+    std::string config_sha256{};
     std::uint64_t rt_core_mask{0};
     std::int32_t priority{85};
     std::string audit_log{"/tmp/nexigen-sm-audit.log"};
@@ -89,12 +93,43 @@ struct Options {
     std::string* target = nullptr;
     if (argument == "--config") {
         target = &options.config_path;
+    } else if (argument == "--config-sha256") {
+        target = &options.config_sha256;
     } else if (argument == "--audit-log") {
         target = &options.audit_log;
     } else if (argument == "--app-name") {
         target = &options.app_name;
     }
     return target != nullptr && take_value(argc, argv, index, *target);
+}
+
+enum class OptionScan { Handled, MissingValue, Unknown };
+
+/// @brief Consume the numeric options; leaves `index` on the value.
+[[nodiscard]] OptionScan scan_numeric_option(Options& options, std::string_view argument, int argc,
+                                             char* argv[], int& index) {
+    std::string text;
+    if (argument == "--rt-core") {
+        if (!take_value(argc, argv, index, text)) {
+            return OptionScan::MissingValue;
+        }
+        options.rt_core_mask = std::strtoull(text.c_str(), nullptr, 0);
+        return OptionScan::Handled;
+    }
+    if (argument == "--priority") {
+        if (!take_value(argc, argv, index, text)) {
+            return OptionScan::MissingValue;
+        }
+        options.priority = static_cast<std::int32_t>(std::strtol(text.c_str(), nullptr, 10));
+        return OptionScan::Handled;
+    }
+    return OptionScan::Unknown;
+}
+
+/// @brief Whether `argument` is one of the string options.
+[[nodiscard]] bool is_string_option(std::string_view argument) noexcept {
+    return argument == "--config" || argument == "--config-sha256" ||
+           argument == "--audit-log" || argument == "--app-name";
 }
 
 [[nodiscard]] std::optional<int> parse_args(int argc, char* argv[], Options& options) {
@@ -104,23 +139,14 @@ struct Options {
             print_usage();
             return 0;
         }
-        if (argument == "--rt-core") {
-            std::string text;
-            if (!take_value(argc, argv, index, text)) {
-                return 2;
-            }
-            options.rt_core_mask = std::strtoull(text.c_str(), nullptr, 0);
+        const OptionScan numeric = scan_numeric_option(options, argument, argc, argv, index);
+        if (numeric == OptionScan::Handled) {
             continue;
         }
-        if (argument == "--priority") {
-            std::string text;
-            if (!take_value(argc, argv, index, text)) {
-                return 2;
-            }
-            options.priority = static_cast<std::int32_t>(std::strtol(text.c_str(), nullptr, 10));
-            continue;
+        if (numeric == OptionScan::MissingValue) {
+            return 2;
         }
-        if (argument == "--config" || argument == "--audit-log" || argument == "--app-name") {
+        if (is_string_option(argument)) {
             if (!take_string_option(argument, argc, argv, index, options)) {
                 return 2;
             }
@@ -308,12 +334,24 @@ struct Session {
 
 /// Load the manifest (REQ_SM_019) and require at least one function group.
 [[nodiscard]] bool load_manifest(const Options& options, nexigen::sm::SmManifest& manifest) {
-    std::ifstream input(options.config_path);
-    if (!input.is_open()) {
-        std::fprintf(stderr, "nexigen-sm: cannot open config '%s'\n", options.config_path.c_str());
-        return false;
+    std::string text;
+    if (options.config_sha256.empty()) {
+        const auto read = nexigen::core::settings_io::read_text_file(options.config_path, text);
+        if (read != nexigen::core::settings_io::FileRead::Ok) {
+            std::fprintf(stderr, "nexigen-sm: cannot open config '%s'\n",
+                         options.config_path.c_str());
+            return false;
+        }
+    } else {
+        auto verified =
+            nexigen::core::integrity::read_verified(options.config_path, options.config_sha256);
+        if (!verified) {
+            std::fprintf(stderr, "nexigen-sm: config digest verification failed\n");
+            return false;
+        }
+        text = std::move(*verified);
     }
-    const nlohmann::json parsed = nlohmann::json::parse(input, nullptr, false);
+    const nlohmann::json parsed = nlohmann::json::parse(text, nullptr, false);
     if (parsed.is_discarded()) {
         std::fprintf(stderr, "nexigen-sm: config '%s' is not valid JSON\n",
                      options.config_path.c_str());

@@ -4,6 +4,7 @@
 // run_suite печатает строку-резюме на каждый набор, main возвращает число
 // падений — ненулевой код выхода роняет тест в CTest.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <atomic>
@@ -32,6 +33,11 @@
 
 #include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/core/enum_traits.hpp>
+#include <nexigen/core/integrity/crc32c.hpp>
+#include <nexigen/core/integrity/crc64.hpp>
+#include <nexigen/core/integrity/digest_compare.hpp>
+#include <nexigen/core/integrity/sha256.hpp>
+#include <nexigen/core/integrity/verified_file.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/serialization_mandate.hpp>
 #include <nexigen/core/settings_diagnostic.hpp>
@@ -2131,11 +2137,105 @@ void test_settings_fields() {
     NX_CHECK(out_json["diagnostics"][0]["field"] == "counter");
 }
 
+
+void test_integrity() {
+    namespace integrity = nexigen::core::integrity;
+
+    // Published check values and the empty input.
+    NX_CHECK(integrity::crc32c(std::string_view("123456789")) == 0xE3069283U);
+    NX_CHECK(integrity::crc64(std::string_view("123456789")) == 0x995DC9BBDF1939FAULL);
+    NX_CHECK(integrity::crc32c(std::string_view{}) == 0U);
+    NX_CHECK(integrity::crc64(std::string_view{}) == 0U);
+
+    // Streaming equals one-shot.
+    const std::string_view text = "streaming-crc-check-0123456789";
+    integrity::Crc32c crc32;
+    crc32.update(text.substr(0, 7));
+    crc32.update(text.substr(7));
+    NX_CHECK(crc32.finish() == integrity::crc32c(text));
+    integrity::Crc64 crc64;
+    crc64.update(text.substr(0, 3));
+    crc64.update(text.substr(3));
+    NX_CHECK(crc64.finish() == integrity::crc64(text));
+
+    // FIPS 180-4 vectors and incremental equality.
+    NX_CHECK(integrity::sha256_hex(std::string_view{}) ==
+             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    NX_CHECK(integrity::sha256_hex(std::string_view("abc")) ==
+             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    integrity::Sha256 incremental;
+    incremental.update(std::string_view("a"));
+    incremental.update(std::string_view("bc"));
+    const auto incremental_digest = incremental.finish();
+    integrity::Sha256 whole;
+    whole.update(std::string_view("abc"));
+    NX_CHECK(incremental_digest == whole.finish());
+
+    // Constant-time comparison: equal, case-folded, first/last mismatch, length.
+    NX_CHECK(integrity::digests_equal("abcdef", "abcdef"));
+    NX_CHECK(integrity::digests_equal("ABCDEF", "abcdef"));
+    NX_CHECK(!integrity::digests_equal("abcdef", "bbcdef"));
+    NX_CHECK(!integrity::digests_equal("abcdef", "abcdee"));
+    NX_CHECK(!integrity::digests_equal("abc", "abcd"));
+
+    // Verified load: matching content, wrong digest, missing file.
+    const std::string path =
+        "/tmp/opencode/core_integrity_" + std::to_string(static_cast<long>(::getpid())) + ".json";
+    const std::string first = "{\"value\":42}\n";
+    {
+        const int fd = ::open(path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0600);
+        NX_CHECK(fd >= 0);
+        NX_CHECK(::write(fd, first.data(), first.size()) ==
+                 static_cast<ssize_t>(first.size()));
+        static_cast<void>(::close(fd));
+    }
+    const std::string first_digest = integrity::sha256_hex(std::string_view(first));
+    const auto loaded = integrity::read_verified(path, first_digest);
+    NX_CHECK(loaded.has_value() && *loaded == first);
+    const auto refused = integrity::read_verified(path, std::string(64, '0'));
+    NX_CHECK(!refused.has_value() && refused.error() == nexigen::core::ErrorCode::SecurityError);
+    const auto absent = integrity::read_verified(path + ".missing", first_digest);
+    NX_CHECK(!absent.has_value() &&
+             absent.error() == nexigen::core::ErrorCode::InvalidArgument);
+
+    // A file replaced between two loads cannot pass with the old digest.
+    const std::string second = "{\"value\":43}\n";
+    {
+        const int fd = ::open(path.c_str(), O_TRUNC | O_WRONLY);
+        NX_CHECK(fd >= 0);
+        NX_CHECK(::write(fd, second.data(), second.size()) ==
+                 static_cast<ssize_t>(second.size()));
+        static_cast<void>(::close(fd));
+    }
+    const auto stale = integrity::read_verified(path, first_digest);
+    NX_CHECK(!stale.has_value() && stale.error() == nexigen::core::ErrorCode::SecurityError);
+    const auto fresh = integrity::read_verified(
+        path, integrity::sha256_hex(std::string_view(second)));
+    NX_CHECK(fresh.has_value() && *fresh == second);
+    static_cast<void>(std::remove(path.c_str()));
+
+    // The hashing path itself allocates nothing.
+    std::array<std::uint8_t, 128> buffer{};
+    const std::size_t before = g_alloc_used;
+    integrity::Crc32c plain_crc32;
+    plain_crc32.update(buffer);
+    static_cast<void>(plain_crc32.finish());
+    integrity::Crc64 plain_crc64;
+    plain_crc64.update(buffer);
+    static_cast<void>(plain_crc64.finish());
+    integrity::Sha256 plain_sha;
+    plain_sha.update(buffer);
+    const auto digest = plain_sha.finish();
+    static_cast<void>(digest);
+    NX_CHECK(g_alloc_used == before);
+}
+
 int main() {
     run_suite("result", test_result);
     run_suite("json_smoke", test_json_smoke);
     run_suite("json_field_scalars", test_json_field_scalars);
     run_suite("json_field_structures", test_json_field_structures);
+    run_suite("integrity", test_integrity);
     run_suite("ec_vocab", test_error_code_vocabulary);
     run_suite("settings_vocab", test_settings_vocabulary);
     run_suite("enum_traits", test_enum_traits);

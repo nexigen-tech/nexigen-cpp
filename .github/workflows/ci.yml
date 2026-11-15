@@ -167,6 +167,9 @@ jobs:
       - name: Check PascalCase type naming
         run: python3 cmake/check_naming.py
 
+      - name: Check safety traceability
+        run: python3 cmake/check_safety_traceability.py
+
       - name: Configure
         run: |
           cmake -S . -B build/coverage -G Ninja \

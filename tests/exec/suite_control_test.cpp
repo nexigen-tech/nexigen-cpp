@@ -31,12 +31,16 @@
 #include <nexigen/exec/process_lifecycle.hpp>
 #include <nexigen/exec/process_state.hpp>
 #include <nexigen/exec/process_type.hpp>
+#include <nexigen/exec/recovery_handler.hpp>
 #include <nexigen/exec/state_ack.hpp>
 #include <nexigen/exec/state_command.hpp>
 #include <nexigen/exec/state_result.hpp>
 #include <nexigen/exec/suite_control.hpp>
 #include <nexigen/exec/suite_manifest.hpp>
+#include <nexigen/exec/suite_state.hpp>
 #include <nexigen/exec/suite_status.hpp>
+#include <nexigen/phm/recovery_request.hpp>
+#include <nexigen/phm/recovery_response.hpp>
 
 namespace app = nexigen::app;
 namespace com = nexigen::com;
@@ -130,6 +134,17 @@ void test_control_host() {
     NX_CHECK(host->group_state("ready_group") == "Off");
     NX_CHECK(!host->ready("service"));
 
+    // Recovery restart: rejected while the application is starting, allowed
+    // once it is running, and never budgeted as an abnormal-termination retry.
+    int restarts = 0;
+    host->set_restart_handler([&restarts](std::string_view) -> core::Status {
+        ++restarts;
+        return {};
+    });
+    host->on_launched("service");
+    NX_CHECK(!host->restart_process("service").has_value());
+    NX_CHECK(restarts == 0);
+
     auto reporter_node = com::Node::create();
     NX_CHECK(reporter_node.has_value());
     auto reporter = exec::ApplicationStateReporter::create(*reporter_node, "service");
@@ -143,6 +158,11 @@ void test_control_host() {
     }
     NX_CHECK(host->ready("service"));
     NX_CHECK(host->app_state("service") == exec::AppState::Running);
+
+    // A running application accepts the recovery restart and the callback runs
+    // exactly once.
+    NX_CHECK(host->restart_process("service").has_value());
+    NX_CHECK(restarts == 1);
 
     // Readiness releases the dependent and confirms the target state.
     NX_CHECK(host->request_state("ready_group", "Run") == exec::StateResult::Success);
@@ -529,12 +549,94 @@ void test_suite_control_path() {
     exec::set_control_host_factory(nullptr);
 }
 
+void test_recovery_handler() {
+    namespace phm = nexigen::phm;
+    const auto name = com::ServiceName::create("Nexigen/Test/ExecRecovery");
+    NX_CHECK(name.has_value());
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const exec::SuiteManifest manifest = make_manifest("/tmp/opencode/recovery_handler");
+    auto handler = exec::RecoveryHandler::create(*node, *name, manifest);
+    NX_CHECK(handler.has_value());
+    if (!handler) {
+        return;
+    }
+
+    phm::RecoveryRequest request{};
+    request.action = phm::RecoveryAction::RestartProcess;
+    std::snprintf(request.name, sizeof(request.name), "%s", "service");
+
+    // No callback installed: rejected.
+    NX_CHECK(handler->to_string().find("restart=unset") != std::string::npos);
+    NX_CHECK(handler->handle(request).accepted == 0U);
+
+    std::string restarted;
+    handler->set_restart([&restarted](std::string_view app) -> core::Status {
+        restarted = std::string(app);
+        return {};
+    });
+    NX_CHECK(handler->handle(request).accepted == 1U);
+    NX_CHECK(restarted == "service");
+    NX_CHECK(handler->to_string().find("restart=set") != std::string::npos);
+
+    // An application outside the suite is rejected.
+    phm::RecoveryRequest unknown = request;
+    std::snprintf(unknown.name, sizeof(unknown.name), "%s", "ghost");
+    NX_CHECK(handler->handle(unknown).accepted == 0U);
+
+    // The watchdog belongs to PHM, so the EM rejects the action.
+    phm::RecoveryRequest watchdog = request;
+    watchdog.action = phm::RecoveryAction::TriggerWatchdogReset;
+    NX_CHECK(handler->handle(watchdog).accepted == 0U);
+
+    // A failed restart is reported as rejected.
+    handler->set_restart([](std::string_view) -> core::Status {
+        return std::unexpected(core::ErrorCode::SystemError);
+    });
+    NX_CHECK(handler->handle(request).accepted == 0U);
+
+    // A suite that is not operational rejects recovery (teardown race).
+    NX_CHECK(exec::accepts_recovery_restart(exec::SuiteState::Running));
+    NX_CHECK(exec::accepts_recovery_restart(exec::SuiteState::Degraded));
+    NX_CHECK(!exec::accepts_recovery_restart(exec::SuiteState::Stopped));
+    NX_CHECK(!exec::accepts_recovery_restart(exec::SuiteState::Failed));
+    NX_CHECK(!exec::accepts_recovery_restart(exec::SuiteState::Unknown));
+
+    // The real channel answers instead of timing out.
+    handler->set_restart([&restarted](std::string_view app) -> core::Status {
+        restarted = std::string(app);
+        return {};
+    });
+    auto client = com::Client<phm::RecoveryRequest, phm::RecoveryResponse>::create(*node, *name);
+    NX_CHECK(client.has_value());
+    if (!client) {
+        return;
+    }
+    std::atomic<bool> done{false};
+    phm::RecoveryResponse answer{};
+    std::thread caller([&] {
+        const auto response = client->call(request, std::chrono::milliseconds(2000));
+        if (response.has_value()) {
+            answer = *response;
+        }
+        done.store(true, std::memory_order_release);
+    });
+    for (int i = 0; i < 1000 && !done.load(std::memory_order_acquire); ++i) {
+        static_cast<void>(handler->serve_once());
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    caller.join();
+    NX_CHECK(done.load(std::memory_order_acquire));
+    NX_CHECK(answer.accepted == 1U);
+}
+
 } // namespace
 
 int main() {
     test_machinefg_off_initial();
     test_control_host();
     test_lifecycle_publication();
+    test_recovery_handler();
     test_suite_control_path();
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

@@ -450,6 +450,15 @@ core::Status load_suite_manifest_auto(std::string_view path, SuiteManifest& out)
     return ManifestAccessor::load(path, out);
 }
 
+core::Status load_suite_manifest_auto(std::string_view path, std::string_view expected_sha256_hex,
+                                      SuiteManifest& out) noexcept {
+    if (expected_sha256_hex.empty()) {
+        return ManifestAccessor::load(path, out);
+    }
+    // The verified path is JSON-only: ARXML has no byte-digest contract.
+    return load_suite_manifest(path, expected_sha256_hex, out);
+}
+
 core::Status ManifestAccessor::load_machine(std::string_view path, MachineManifest& out) noexcept {
     std::string text;
     const core::settings_io::FileRead read = core::settings_io::read_text_file(path, text);

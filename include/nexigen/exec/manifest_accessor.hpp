@@ -66,6 +66,21 @@ public:
 [[nodiscard]] core::Status load_suite_manifest_auto(std::string_view path,
                                                     SuiteManifest& out) noexcept;
 
+/// @brief Load a JSON suite manifest after verifying its SHA-256.
+///
+/// ARXML manifests carry no byte-level digest contract, so a non-empty
+/// `expected_sha256_hex` restricts this path to JSON.
+///
+/// @param path Manifest path.
+/// @param expected_sha256_hex Expected digest; empty disables the check.
+/// @param out Receives the parsed and validated manifest.
+/// @return Success, `SecurityError` on a digest mismatch, or the usual parse
+///         and validation errors.
+/// @note Spec `core/integrity`, requirement "Verified file load".
+[[nodiscard]] core::Status load_suite_manifest_auto(std::string_view path,
+                                                    std::string_view expected_sha256_hex,
+                                                    SuiteManifest& out) noexcept;
+
 /// @brief Load a Machine Manifest with automatic JSON/ARXML detection.
 [[nodiscard]] core::Status load_machine_manifest_auto(std::string_view path,
                                                       MachineManifest& out) noexcept;

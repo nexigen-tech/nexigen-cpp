@@ -1,0 +1,38 @@
+{
+  "processes": [
+    {
+      "name": "safety_app",
+      "service_name": "Nexigen/Example/Safety/App",
+      "alive_reference_cycle_ms": 5000,
+      "alive_min_margin_ms": 1,
+      "alive_max_margin_ms": 2000,
+      "alive_expected_indications": 4,
+      "alive_min_margin_cycles": 0,
+      "alive_max_margin_cycles": 1,
+      "failed_supervision_cycles_tolerance": 2,
+      "safety_critical": true,
+      "checkpoints": [1, 2, 3, 4],
+      "transitions": [
+        { "from_id": 1, "to_id": 2 },
+        { "from_id": 1, "to_id": 3 },
+        { "from_id": 2, "to_id": 4 },
+        { "from_id": 3, "to_id": 4 }
+      ],
+      "logical_forks": [
+        { "fork_id": 1, "branch_entries": [2, 3], "join_id": 4 }
+      ],
+      "deadlines": [
+        { "source_id": 1, "target_id": 4, "min_ms": 5, "max_ms": 1000 }
+      ],
+      "recovery_rules": [
+        { "action": "RestartProcess", "function_group": "" }
+      ]
+    }
+  ],
+  "watchdog": {
+    "enabled": false,
+    "device": "/dev/watchdog",
+    "timeout_ms": 1000,
+    "feed_period_ms": 200
+  }
+}

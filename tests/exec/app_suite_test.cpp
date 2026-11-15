@@ -25,6 +25,7 @@
 
 #include "../support/test_temp.hpp"
 
+#include <nexigen/core/integrity/sha256.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/app_suite.hpp>
 #include <nexigen/exec/control_host.hpp>
@@ -863,6 +864,36 @@ void test_manifest_validation() {
 
     remove_tree(root);
     remove_tree(artifacts);
+}
+
+
+void test_manifest_digest() {
+    const std::string root = unique_dir("manifest_digest");
+    const std::string artifacts = unique_dir("manifest_digest_artifacts");
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    exec::SuiteManifest manifest = two_app_manifest(root, artifacts);
+    const std::string path = root + "/manifest.json";
+    NX_CHECK(write_manifest(path, manifest));
+
+    const auto digest = nexigen::core::integrity::sha256_file(path);
+    NX_CHECK(digest.has_value());
+
+    exec::SuiteManifest verified{};
+    NX_CHECK(exec::load_suite_manifest(path, *digest, verified).has_value());
+    NX_CHECK(verified.apps.size() == 2U);
+
+    exec::SuiteManifest tampered{};
+    const core::Status mismatch =
+        exec::load_suite_manifest(path, std::string(64, '0'), tampered);
+    NX_CHECK(!mismatch.has_value() && mismatch.error() == core::ErrorCode::SecurityError);
+
+    // An empty digest keeps the unverified path.
+    exec::SuiteManifest plain{};
+    NX_CHECK(exec::load_suite_manifest(path, std::string_view{}, plain).has_value());
+
+    std::filesystem::remove_all(root, error);
+    std::filesystem::remove_all(artifacts, error);
 }
 
 void test_start_status_stop() {
@@ -2073,6 +2104,7 @@ int main() {
     run_suite("machine_manifest", test_machine_manifest);
     run_suite("enums_serialization", test_enums_and_serialization);
     run_suite("manifest_validation", test_manifest_validation);
+    run_suite("manifest_digest", test_manifest_digest);
     run_suite("start_status_stop", test_start_status_stop);
     run_suite("initial_state", test_initial_state_selection);
     run_suite("suite_edge_paths", test_suite_edge_paths);

@@ -368,6 +368,7 @@ file(GLOB NEXIGEN_EXEC_SOURCES CONFIGURE_DEPENDS
 # which builds with the gate OFF.
 list(FILTER NEXIGEN_EXEC_SOURCES EXCLUDE REGEX "state_client\\.cpp$")
 list(FILTER NEXIGEN_EXEC_SOURCES EXCLUDE REGEX "control_host_com\\.cpp$")
+list(FILTER NEXIGEN_EXEC_SOURCES EXCLUDE REGEX "recovery_handler\\.cpp$")
 
 add_library(nexigen_exec STATIC ${NEXIGEN_EXEC_SOURCES})
 add_library(nexigen::exec ALIAS nexigen_exec)
@@ -471,7 +472,8 @@ if(NEXIGEN_ENABLE_COM)
     # the COM-enabled ControlHost implementation linked only into tools, never
     # into nexigen_exec (which stays COM-free).
     add_library(nexigen_exec_control STATIC
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/exec/control_host_com.cpp")
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/exec/control_host_com.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/exec/recovery_handler.cpp")
     target_include_directories(nexigen_exec_control PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>

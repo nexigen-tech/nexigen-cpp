@@ -1,6 +1,7 @@
 // nexigen::phm — cold-path health-manifest serialization (change add-phm).
 #include <nexigen/phm/phm_manifest.hpp>
 
+#include <limits>
 #include <utility>
 
 #include <nexigen/core/detail/json_field.hpp>
@@ -8,6 +9,25 @@
 namespace nexigen::phm {
 
 namespace {
+
+// Signed count field: accepts an in-range unsigned or a signed integer so a
+// negative value reaches validation instead of being silently ignored.
+void parse_count(const nlohmann::json& j, const char* key, std::int64_t& out) noexcept {
+    const auto it = j.find(key);
+    if (it == j.end()) {
+        return;
+    }
+    if (it->is_number_unsigned()) {
+        const auto raw = it->get<std::uint64_t>();
+        if (raw <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+            out = static_cast<std::int64_t>(raw);
+        }
+        return;
+    }
+    if (it->is_number_integer()) {
+        out = it->get<std::int64_t>();
+    }
+}
 
 // Identity and supervision parameters of one supervised process. Every field is
 // tolerant: a missing or wrong-typed value keeps the destination's default.
@@ -19,6 +39,9 @@ void parse_supervised_identity(const nlohmann::json& j, SupervisedProcess& proce
     core::detail::read_unsigned(j, "alive_max_margin_ms", process.alive_max_margin_ms);
     core::detail::read_unsigned(j, "failed_supervision_cycles_tolerance",
                                 process.failed_supervision_cycles_tolerance);
+    parse_count(j, "alive_expected_indications", process.alive_expected_indications);
+    parse_count(j, "alive_min_margin_cycles", process.alive_min_margin_cycles);
+    parse_count(j, "alive_max_margin_cycles", process.alive_max_margin_cycles);
     core::detail::read_bool(j, "safety_critical", process.safety_critical);
 }
 
@@ -59,6 +82,24 @@ void parse_recovery_rules(const nlohmann::json& j, std::vector<RecoveryRule>& ou
         }));
 }
 
+void parse_forks(const nlohmann::json& j, std::vector<LogicalFork>& out) noexcept {
+    static_cast<void>(core::detail::collect_array_into<LogicalFork>(
+        j, "logical_forks", out, [](const nlohmann::json& item, LogicalFork& fork) noexcept {
+            from_json(item, fork);
+            return true;
+        }));
+}
+
+[[nodiscard]] bool contains_checkpoint(const std::vector<std::uint32_t>& checkpoints,
+                                       std::uint32_t id) noexcept {
+    for (const std::uint32_t candidate : checkpoints) {
+        if (candidate == id) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 std::string CheckpointTransition::to_string() const {
@@ -77,9 +118,10 @@ std::string RecoveryRule::to_string() const {
 
 std::string SupervisedProcess::to_string() const {
     return std::format("SupervisedProcess(name={}, service={}, checkpoints={}, transitions={}, "
-                       "deadlines={}, rules={}, safety_critical={})",
-                       name, service_name, checkpoints.size(), transitions.size(), deadlines.size(),
-                       recovery_rules.size(), safety_critical);
+                       "forks={}, deadlines={}, rules={}, expected={}, safety_critical={})",
+                       name, service_name, checkpoints.size(), transitions.size(),
+                       logical_forks.size(), deadlines.size(), recovery_rules.size(),
+                       alive_expected_indications, safety_critical);
 }
 
 std::string PhmManifest::to_string() const {
@@ -91,7 +133,8 @@ std::string PhmManifest::to_string() const {
         out += processes[i].name;
     }
     out += "], bg_thread=" + bg_thread.to_string();
-    out += ", fault_storage_thread=" + fault_storage_thread.to_string() + ")";
+    out += ", fault_storage_thread=" + fault_storage_thread.to_string();
+    out += ", watchdog=" + watchdog.to_string() + ")";
     return out;
 }
 
@@ -134,6 +177,12 @@ void to_json(nlohmann::json& j, const SupervisedProcess& process) {
         to_json(r, rule);
         rules.push_back(std::move(r));
     }
+    auto forks = nlohmann::json::array();
+    for (const LogicalFork& fork : process.logical_forks) {
+        nlohmann::json f;
+        to_json(f, fork);
+        forks.push_back(std::move(f));
+    }
     j = nlohmann::json{
         {"name", process.name},
         {"service_name", process.service_name},
@@ -141,9 +190,13 @@ void to_json(nlohmann::json& j, const SupervisedProcess& process) {
         {"alive_min_margin_ms", process.alive_min_margin_ms},
         {"alive_max_margin_ms", process.alive_max_margin_ms},
         {"failed_supervision_cycles_tolerance", process.failed_supervision_cycles_tolerance},
+        {"alive_expected_indications", process.alive_expected_indications},
+        {"alive_min_margin_cycles", process.alive_min_margin_cycles},
+        {"alive_max_margin_cycles", process.alive_max_margin_cycles},
         {"safety_critical", process.safety_critical},
         {"checkpoints", std::move(checkpoints)},
         {"transitions", std::move(transitions)},
+        {"logical_forks", std::move(forks)},
         {"deadlines", std::move(deadlines)},
         {"recovery_rules", std::move(rules)}};
 }
@@ -157,7 +210,8 @@ void to_json(nlohmann::json& j, const PhmManifest& manifest) {
     }
     j = nlohmann::json{{"processes", std::move(processes)},
                        {"bg_thread", manifest.bg_thread},
-                       {"fault_storage_thread", manifest.fault_storage_thread}};
+                       {"fault_storage_thread", manifest.fault_storage_thread},
+                       {"watchdog", manifest.watchdog}};
 }
 
 void from_json(const nlohmann::json& j, CheckpointTransition& transition) noexcept {
@@ -199,6 +253,7 @@ void from_json(const nlohmann::json& j, SupervisedProcess& process) noexcept {
         return;
     }
     parse_transitions(j, process.transitions);
+    parse_forks(j, process.logical_forks);
     parse_deadlines(j, process.deadlines);
     parse_recovery_rules(j, process.recovery_rules);
 }
@@ -222,6 +277,102 @@ void from_json(const nlohmann::json& j, PhmManifest& manifest) noexcept {
                               [&manifest](const nlohmann::json& value) noexcept {
                                   from_json(value, manifest.fault_storage_thread);
                               });
+    core::detail::read_object(j, "watchdog", [&manifest](const nlohmann::json& value) noexcept {
+        from_json(value, manifest.watchdog);
+    });
+}
+
+namespace {
+
+[[nodiscard]] core::Status validate_watchdog_section(const WatchdogConfig& config,
+                                                     std::string& error) noexcept {
+    if (!config.enabled) {
+        return {};
+    }
+    if (config.timeout_ms == 0U) {
+        error = "watchdog: timeout_ms must be positive";
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (config.feed_period_ms == 0U || config.feed_period_ms > config.timeout_ms / 2U) {
+        error = std::format("watchdog: feed_period_ms={} must be positive and at most half of "
+                            "timeout_ms={}",
+                            config.feed_period_ms, config.timeout_ms);
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_counts(const SupervisedProcess& process,
+                                           std::string& error) noexcept {
+    if (process.alive_expected_indications >= 0 && process.alive_min_margin_cycles >= 0 &&
+        process.alive_max_margin_cycles >= 0) {
+        return {};
+    }
+    error = std::format("process '{}': alive counts and count margins must be non-negative",
+                        process.name);
+    return std::unexpected(core::ErrorCode::InvalidArgument);
+}
+
+[[nodiscard]] core::Status validate_forks(const SupervisedProcess& process,
+                                          std::string& error) noexcept {
+    if (process.logical_forks.size() > k_max_logical_forks) {
+        error = std::format("process '{}': {} logical forks exceed the supported {}",
+                            process.name, process.logical_forks.size(), k_max_logical_forks);
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    for (std::size_t f = 0; f < process.logical_forks.size(); ++f) {
+        const LogicalFork& fork = process.logical_forks[f];
+        if (fork.branch_entries.empty()) {
+            error = std::format("process '{}': fork {} declares no branch entries", process.name,
+                                fork.fork_id);
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        if (!contains_checkpoint(process.checkpoints, fork.join_id)) {
+            error = std::format("process '{}': fork {} join {} is not a declared checkpoint",
+                                process.name, fork.fork_id, fork.join_id);
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        for (const std::uint32_t branch : fork.branch_entries) {
+            if (!contains_checkpoint(process.checkpoints, branch)) {
+                error = std::format(
+                    "process '{}': fork {} branch entry {} is not a declared checkpoint",
+                    process.name, fork.fork_id, branch);
+                return std::unexpected(core::ErrorCode::InvalidArgument);
+            }
+        }
+        for (std::size_t other = f + 1; other < process.logical_forks.size(); ++other) {
+            if (process.logical_forks[other].fork_id == fork.fork_id) {
+                error = std::format("process '{}': duplicate fork id {}", process.name,
+                                    fork.fork_id);
+                return std::unexpected(core::ErrorCode::InvalidArgument);
+            }
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_process(const SupervisedProcess& process,
+                                            std::string& error) noexcept {
+    if (const core::Status counts = validate_counts(process, error); !counts) {
+        return counts;
+    }
+    return validate_forks(process, error);
+}
+
+} // namespace
+
+core::Status validate_phm_manifest(const PhmManifest& manifest, std::string& error) noexcept {
+    error.clear();
+    if (const core::Status watchdog = validate_watchdog_section(manifest.watchdog, error);
+        !watchdog) {
+        return watchdog;
+    }
+    for (const SupervisedProcess& process : manifest.processes) {
+        if (const core::Status status = validate_process(process, error); !status) {
+            return status;
+        }
+    }
+    return {};
 }
 
 } // namespace nexigen::phm

@@ -47,6 +47,8 @@ markdown_extensions:
 nav:
   - Главная: index.md
   - Архитектура: architecture.md
+  - Безопасность:
+      - Трассировка требований: safety/traceability.md
   - Спецификации (OpenSpec):
       - Обзор требований: specs/index.md
       # Сюда будут подтягиваться файлы из openspec/specs/

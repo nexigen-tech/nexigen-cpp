@@ -17,7 +17,9 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/thread_management.hpp>
+#include <nexigen/phm/logical_fork.hpp>
 #include <nexigen/phm/recovery_action.hpp>
+#include <nexigen/phm/watchdog_config.hpp>
 
 namespace nexigen::phm {
 
@@ -101,9 +103,16 @@ struct SupervisedProcess {
     std::uint64_t alive_min_margin_ms{0};                 ///< Minimum spacing between checkpoints.
     std::uint64_t alive_max_margin_ms{0};                 ///< Maximum allowed gap in the window.
     std::uint64_t failed_supervision_cycles_tolerance{0}; ///< Consecutive failures allowed.
+    /// Expected checkpoints per alive window; 0 keeps the legacy at-least-one rule.
+    std::int64_t alive_expected_indications{0};
+    /// Allowed shortfall below `alive_expected_indications` (count margin).
+    std::int64_t alive_min_margin_cycles{0};
+    /// Allowed excess above `alive_expected_indications` (count margin).
+    std::int64_t alive_max_margin_cycles{0};
     bool safety_critical{false};                          ///< Escalate directly to SafeState.
     std::vector<std::uint32_t> checkpoints{};             ///< Expected checkpoint ids (alive).
     std::vector<CheckpointTransition> transitions{};      ///< Logical graph edges.
+    std::vector<LogicalFork> logical_forks{};             ///< Declared fork/join regions.
     std::vector<DeadlinePair> deadlines{};                ///< Deadline pairs with limits.
     std::vector<RecoveryRule> recovery_rules{};           ///< Actions on Expired.
 
@@ -130,6 +139,7 @@ struct PhmManifest {
     std::vector<SupervisedProcess> processes{}; ///< Supervised process list.
     core::ThreadSpec bg_thread{};               ///< fallback for infrastructure threads
     core::ThreadSpec fault_storage_thread{};    ///< fault-log writer spec
+    WatchdogConfig watchdog{};                  ///< Hardware watchdog section; disabled by default.
 
     /// @brief Cold-path diagnostic listing the supervised processes.
     ///
@@ -148,6 +158,23 @@ struct PhmManifest {
 [[nodiscard]] inline std::string to_string(const PhmManifest& manifest) {
     return manifest.to_string();
 }
+
+/// @brief Validate the optional safety sections of a parsed manifest.
+///
+/// Cold-path check performed by the daemon before it starts supervision. It
+/// enforces the constraints that the tolerant JSON readers cannot express:
+/// non-negative alive counts, well-formed fork regions (known checkpoints,
+/// non-empty branches, unique fork ids, at most `k_max_logical_forks`), and a
+/// watchdog feed period that is positive and at most half of the timeout.
+///
+/// @param manifest Parsed manifest to check.
+/// @param error Receives a human-readable message naming the offending process
+///        when validation fails; cleared on success.
+/// @return Empty status when the manifest is valid, `InvalidArgument` otherwise.
+/// @note Spec `phm/manifest`, requirements "Alive count configuration",
+///       "Fork/join configuration", and "Watchdog configuration".
+[[nodiscard]] core::Status validate_phm_manifest(const PhmManifest& manifest,
+                                                 std::string& error) noexcept;
 
 /// @brief ADL JSON writer for one `CheckpointTransition`.
 ///

@@ -30,8 +30,8 @@ constexpr int exit_failure = 1;
 
 void print_usage(std::FILE* out) {
     std::fprintf(out, R"(Usage:
-  nexigen-em --config <suite-manifest> [--machine <machine-manifest>]
-              [--run-id <id>] [--run-dir <path>]
+  nexigen-em --config <suite-manifest> [--manifest-sha256 <hex>]
+              [--machine <machine-manifest>] [--run-id <id>] [--run-dir <path>]
   nexigen-em --help
 
 Starts a detached suite supervisor. The supervisor serves SetState commands on
@@ -42,6 +42,7 @@ Nexigen/EM/State/<app>, and runs until the suite is stopped.
 
 struct Options {
     std::string config{};
+    std::string manifest_sha256{};
     std::string machine{};
     std::string run_id{};
     std::string run_dir{};
@@ -49,14 +50,17 @@ struct Options {
 
 /// @brief Options that take one string value.
 [[nodiscard]] bool is_string_option(std::string_view argument) noexcept {
-    return argument == "--config" || argument == "--machine" || argument == "--run-id" ||
-           argument == "--run-dir" || argument == "--service" || argument == "--instance";
+    return argument == "--config" || argument == "--manifest-sha256" ||
+           argument == "--machine" || argument == "--run-id" || argument == "--run-dir" ||
+           argument == "--service" || argument == "--instance";
 }
 
 /// @brief Store a parsed string option.
 void apply_string_option(std::string_view argument, std::string value, Options& options) {
     if (argument == "--config") {
         options.config = std::move(value);
+    } else if (argument == "--manifest-sha256") {
+        options.manifest_sha256 = std::move(value);
     } else if (argument == "--machine") {
         options.machine = std::move(value);
     } else if (argument == "--run-id") {
@@ -113,7 +117,8 @@ int main(int argc, char* argv[]) {
     }
 
     exec::SuiteManifest manifest{};
-    const core::Status loaded = exec::load_suite_manifest_auto(options.config, manifest);
+    const core::Status loaded =
+        exec::load_suite_manifest_auto(options.config, options.manifest_sha256, manifest);
     if (!loaded) {
         std::fprintf(stderr, "nexigen-em: manifest failed: %s\n",
                      std::string(core::to_string(loaded.error())).c_str());

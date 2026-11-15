@@ -752,6 +752,41 @@ void initialize_runtime_apps(RuntimeSuite& suite, const SuiteManifest& manifest)
     return stopped;
 }
 
+/// PHM recovery: force-stop and relaunch one application in a new attempt.
+///
+/// Bypasses the abnormal-termination-only rule and leaves the retry budget
+/// untouched; the suite state must still be operational and the application
+/// may not already be restarting.
+[[nodiscard]] core::Status suite_restart_process(RuntimeSuite& suite, std::string_view app_name) {
+    if (!accepts_recovery_restart(suite.state)) {
+        return std::unexpected(core::ErrorCode::Conflict);
+    }
+    RuntimeApp* app = find_runtime_app(suite, app_name);
+    if (app == nullptr) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (app->state == AppState::Restarting) {
+        return std::unexpected(core::ErrorCode::Conflict);
+    }
+    if (app->child_pid > 0 || app->is_running()) {
+        const core::Status stopped = app->stop(termination_grace_s(active_config(*app)));
+        app->state = AppState::Stopped;
+        app->child_pid = 0;
+        app->supervisor_pid = 0;
+        app->exit_consumed = true;
+        if (!stopped) {
+            return stopped;
+        }
+    }
+    app->launch_failed = false;
+    app->dependencies_pending = false;
+    if (!launch_app(suite, *app)) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    suite.dirty = true;
+    return {};
+}
+
 void init_suite_logging(const SuiteManifest& manifest) {
     logging::Settings log_settings{};
     const core::Status settings_status =
@@ -844,6 +879,9 @@ void install_suite_control(RuntimeSuite& suite, const SuiteManifest& manifest) {
     });
     suite.control->set_stop_handler([&suite](std::string_view app, std::string_view state) {
         return suite_stop_process(suite, app, state);
+    });
+    suite.control->set_restart_handler([&suite](std::string_view app) {
+        return suite_restart_process(suite, app);
     });
 }
 

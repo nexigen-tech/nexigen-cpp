@@ -1,7 +1,11 @@
 // nexigen::phm — fault storage implementation (change add-phm).
 #include <nexigen/phm/fault_storage.hpp>
 
+#include <array>
 #include <chrono>
+#include <cstdint>
+
+#include <nexigen/core/integrity/crc32c.hpp>
 
 namespace nexigen::phm {
 
@@ -35,9 +39,20 @@ void FaultStorage::worker_loop(std::stop_token stop) noexcept {
             drained_any = true;
             if (file_ != nullptr) {
                 const std::string_view kind = nexigen::phm::to_string(record.kind);
-                std::fprintf(file_, "%.*s %u %u %llu\n", static_cast<int>(kind.size()), kind.data(),
-                             record.process_index, record.checkpoint_id,
-                             static_cast<unsigned long long>(record.timestamp_ns));
+                // The checksum covers the exact bytes before the checksum field,
+                // including the separator, so the verifier never re-serializes.
+                std::array<char, 160> prefix{};
+                const int length = std::snprintf(
+                    prefix.data(), prefix.size(), "%.*s %u %u %llu %llu ",
+                    static_cast<int>(kind.size()), kind.data(), record.process_index,
+                    record.checkpoint_id,
+                    static_cast<unsigned long long>(record.timestamp_ns),
+                    static_cast<unsigned long long>(++sequence_));
+                if (length > 0 && static_cast<std::size_t>(length) < prefix.size()) {
+                    const std::string_view view(prefix.data(), static_cast<std::size_t>(length));
+                    const std::uint32_t crc = core::integrity::crc32c(view);
+                    std::fprintf(file_, "%s%08x\n", prefix.data(), crc);
+                }
             }
             recorded_.fetch_add(1, std::memory_order_relaxed);
         }

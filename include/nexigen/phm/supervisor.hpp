@@ -10,6 +10,8 @@
 // daemon thread is the single writer).
 #pragma once
 
+#include <array>
+#include <bitset>
 #include <chrono>
 #include <cstdint>
 #include <format>
@@ -27,9 +29,11 @@ namespace nexigen::phm {
 ///
 /// One headless state machine per supervised process, fed by checkpoint
 /// activations and interval ticks:
-///   * Alive counts checkpoints per window and records a failure when a tick
-///     finds none;
-///   * Logical validates each checkpoint against the allowed-transition graph;
+///   * Alive counts checkpoints per window and compares the count with the
+///     configured expected count and count margins (or the legacy at-least-one
+///     rule when no expected count is declared);
+///   * Logical validates each checkpoint against the allowed-transition graph
+///     and the declared fork/join regions;
 ///   * Deadline times every `source -> target` pair against its min/max
 ///     window.
 ///
@@ -107,9 +111,11 @@ public:
 
     /// @brief Alive interval tick, driven by the daemon's WaitSet interval.
     ///
-    /// A process that produced no checkpoint since the previous tick records an
-    /// aliveness failure; a live process clears its failure streak and returns
-    /// to `Ok`. The window counter is reset either way.
+    /// With a configured expected count, the window fails when its checkpoint
+    /// count leaves the inclusive `[expected - min, expected + max]` range.
+    /// Without one, a process that produced no checkpoint since the previous
+    /// tick records an aliveness failure; a live process clears its failure
+    /// streak and returns to `Ok`. The window counter is reset either way.
     ///
     /// @param index Process index in `[0, process_count())`.
     /// @param now Tick time; the decision uses the window counter, so this
@@ -159,6 +165,12 @@ private:
         std::optional<Clock::time_point> started{}; ///< Source arrival, unset when idle.
     };
 
+    /// @brief One open fork region: its declaration index and entered branches.
+    struct ForkFrame {
+        std::size_t fork_index{0};     ///< Index into `logical_forks`.
+        std::bitset<256> entered{};    ///< Branch entries reached so far.
+    };
+
     /// @brief Mutable supervision state of one process.
     struct ProcessSupervision {
         SupervisionStatus status{SupervisionStatus::Ok}; ///< Aggregated status.
@@ -168,6 +180,8 @@ private:
         std::optional<Clock::time_point> last_checkpoint_time{}; ///< Previous arrival time.
         EmLifecycleState lifecycle{EmLifecycleState::Unknown};   ///< Last EM lifecycle state.
         std::vector<DeadlineClock> deadline_clocks{};            ///< One clock per Deadline pair.
+        std::array<ForkFrame, k_max_logical_forks> fork_stack{};  ///< Open fork regions.
+        std::size_t fork_depth{0};                               ///< Number of open frames.
     };
 
     /// @brief Record one failure and advance the tolerance state machine.
@@ -193,6 +207,21 @@ private:
     /// @note Spec `phm/supervision`, requirement "Logical supervision".
     [[nodiscard]] bool is_allowed_transition(std::size_t index, std::uint32_t from,
                                              std::uint32_t to) const noexcept;
+
+    /// @brief Track one checkpoint against the declared fork/join regions.
+    ///
+    /// A fork pushes a frame, a branch entry marks its bit in the innermost
+    /// frame, and a join pops the matching frame after verifying that every
+    /// branch was entered. An out-of-order join, a join with unentered
+    /// branches, or a fork beyond the fixed stack depth records a logical
+    /// failure. Processes without declared forks are untouched.
+    ///
+    /// @param index Process index in `[0, process_count())`.
+    /// @param checkpoint_id Arriving checkpoint id.
+    /// @note Spec `phm/supervision`, requirement "Logical supervision". The
+    ///       work is bounded by the declared forks and branches, and allocates
+    ///       nothing.
+    void apply_fork_join(std::size_t index, std::uint32_t checkpoint_id) noexcept;
 
     PhmManifest manifest_;                     ///< Immutable configuration snapshot.
     std::vector<ProcessSupervision> states_;   ///< One mutable state per process.

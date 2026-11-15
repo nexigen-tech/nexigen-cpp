@@ -5,13 +5,19 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <format>
+#include <new>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -20,6 +26,17 @@
 #include <nexigen/com/client.hpp>
 #include <nexigen/com/concepts/message_concept.hpp>
 #include <nexigen/com/detail/error_mapping.hpp>
+#include <nexigen/com/e2e/e2e_client.hpp>
+#include <nexigen/com/e2e/e2e_codec.hpp>
+#include <nexigen/com/e2e/e2e_config.hpp>
+#include <nexigen/com/e2e/e2e_message.hpp>
+#include <nexigen/com/e2e/e2e_profile.hpp>
+#include <nexigen/com/e2e/e2e_publisher.hpp>
+#include <nexigen/com/e2e/e2e_receiver.hpp>
+#include <nexigen/com/e2e/e2e_server.hpp>
+#include <nexigen/com/e2e/e2e_state.hpp>
+#include <nexigen/com/e2e/e2e_status.hpp>
+#include <nexigen/com/e2e/e2e_subscriber.hpp>
 #include <nexigen/com/error.hpp>
 #include <nexigen/com/event.hpp>
 #include <nexigen/com/event_id.hpp>
@@ -39,6 +56,40 @@
 #include <nexigen/core/serialization_mandate.hpp>
 
 namespace com = nexigen::com;
+
+namespace {
+std::atomic<bool> g_count_allocations{false};
+std::atomic<std::size_t> g_allocation_count{0};
+} // namespace
+
+void* operator new(std::size_t size) {
+    if (g_count_allocations.load(std::memory_order_relaxed)) {
+        g_allocation_count.fetch_add(1, std::memory_order_relaxed);
+    }
+    void* pointer = std::malloc(size == 0U ? 1U : size);
+    if (pointer == nullptr) {
+        std::abort();
+    }
+    return pointer;
+}
+
+void* operator new[](std::size_t size) {
+    return ::operator new(size);
+}
+
+void operator delete(void* pointer) noexcept {
+    std::free(pointer);
+}
+void operator delete(void* pointer, std::size_t) noexcept {
+    std::free(pointer);
+}
+void operator delete[](void* pointer) noexcept {
+    std::free(pointer);
+}
+void operator delete[](void* pointer, std::size_t) noexcept {
+    std::free(pointer);
+}
+
 
 namespace {
 
@@ -925,6 +976,405 @@ void test_custom_header() {
 
 } // namespace
 
+
+namespace e2e_test {
+
+/// Payload with padding: the custom view exposes only the two words.
+struct PaddedPayload {
+    std::uint32_t first{0};
+    std::uint32_t second{0};
+    std::uint8_t padding[8]{};
+};
+
+[[nodiscard]] inline std::span<const std::uint8_t>
+e2e_bytes(const PaddedPayload& value) noexcept {
+    return {reinterpret_cast<const std::uint8_t*>(&value), 8U};
+}
+
+} // namespace e2e_test
+
+// --- E2E protection --------------------------------------------------------
+
+struct E2ePod {
+    std::uint64_t sequence{0};
+    std::int32_t value{0};
+};
+static_assert(com::concepts::Message<E2ePod>);
+static_assert(std::is_trivially_copyable_v<com::E2eMessage<E2ePod>>);
+static_assert(com::concepts::Message<com::E2eMessage<E2ePod>>);
+
+struct E2eCommand {
+    std::uint32_t id{0};
+};
+struct E2eAck {
+    std::uint32_t value{0};
+};
+static_assert(com::concepts::Message<E2eCommand>);
+static_assert(com::concepts::Message<E2eAck>);
+
+void test_e2e_vocabulary() {
+    const com::E2eProfile profiles[] = {com::E2eProfile::None, com::E2eProfile::P04,
+                                        com::E2eProfile::P05, com::E2eProfile::P06,
+                                        com::E2eProfile::P07};
+    for (const com::E2eProfile profile : profiles) {
+        const std::string_view name = com::to_string(profile);
+        NX_CHECK(!name.empty());
+        com::E2eProfile back{};
+        NX_CHECK(com::from_string(name, back));
+        NX_CHECK(back == profile);
+        nlohmann::json j;
+        com::to_json(j, profile);
+        NX_CHECK(j == std::string(name));
+        com::E2eProfile parsed{};
+        com::from_json(j, parsed);
+        NX_CHECK(parsed == profile);
+        NX_CHECK(std::format("{}", profile) == std::string(name));
+    }
+    const com::E2eStatus statuses[] = {com::E2eStatus::Ok, com::E2eStatus::Repeated,
+                                       com::E2eStatus::WrongSequence, com::E2eStatus::Error};
+    for (const com::E2eStatus status : statuses) {
+        const std::string_view name = com::to_string(status);
+        NX_CHECK(!name.empty());
+        com::E2eStatus back{};
+        NX_CHECK(com::from_string(name, back));
+        NX_CHECK(back == status);
+        nlohmann::json j;
+        com::to_json(j, status);
+        NX_CHECK(j == std::string(name));
+        NX_CHECK(std::format("{}", status) == std::string(name));
+    }
+    NX_CHECK(com::to_string(static_cast<com::E2eProfile>(0x7f)) == "Unknown");
+}
+
+void test_e2e_codec() {
+    namespace e2e = com::e2e;
+    const std::string_view vector = "123456789";
+    const std::span<const std::uint8_t> bytes(
+        reinterpret_cast<const std::uint8_t*>(vector.data()), vector.size());
+    NX_CHECK(e2e::crc32p4(bytes) == 0x1697D06AU);
+    NX_CHECK(e2e::crc16(bytes) == 0x29B1U);
+    NX_CHECK(e2e::crc32p4(std::span<const std::uint8_t>{}) == 0U);
+    NX_CHECK(e2e::crc16(std::span<const std::uint8_t>{}) == 0xFFFFU);
+    NX_CHECK(e2e::counter_mask(com::E2eProfile::P04) == 0xFFFFU);
+    NX_CHECK(e2e::counter_mask(com::E2eProfile::P05) == 0xFFU);
+    NX_CHECK(e2e::counter_mask(com::E2eProfile::P07) == 0xFFFFFFFFU);
+    NX_CHECK(e2e::checksum_bits(com::E2eProfile::P04) == 32U);
+    NX_CHECK(e2e::checksum_bits(com::E2eProfile::P06) == 16U);
+    NX_CHECK(sizeof(com::E2eHeader) == 16U);
+    NX_CHECK(com::E2eHeader{}.to_string().find("E2eHeader") != std::string::npos);
+    NX_CHECK(std::format("{}", com::E2eHeader{}) == com::to_string(com::E2eHeader{}));
+
+    // Seal/check round-trip, data id, flipped bit, and length.
+    com::E2eMessage<E2ePod> message{};
+    message.payload = {1, 7};
+    e2e::seal_message(message, com::E2eProfile::P04, 0x1234, 1);
+    NX_CHECK(e2e::check_message(message, com::E2eProfile::P04, 0x1234));
+    NX_CHECK(!e2e::check_message(message, com::E2eProfile::P04, 0x9999));
+    com::E2eMessage<E2ePod> flipped = message;
+    flipped.payload.value ^= 1;
+    NX_CHECK(!e2e::check_message(flipped, com::E2eProfile::P04, 0x1234));
+    com::E2eMessage<E2ePod> wrong_length = message;
+    wrong_length.header.length += 1U;
+    NX_CHECK(!e2e::check_message(wrong_length, com::E2eProfile::P04, 0x1234));
+
+    // CRC-16 profiles keep the checksum in 16 bits.
+    com::E2eMessage<E2ePod> short_sum{};
+    short_sum.payload = {2, 8};
+    e2e::seal_message(short_sum, com::E2eProfile::P06, 7, 1);
+    NX_CHECK((short_sum.header.crc & 0xFFFF0000U) == 0U);
+    NX_CHECK(e2e::check_message(short_sum, com::E2eProfile::P06, 7));
+
+    // None disables the check.
+    com::E2eMessage<E2ePod> plain{};
+    plain.payload = {3, 9};
+    e2e::seal_message(plain, com::E2eProfile::None, 0, 0);
+    NX_CHECK(e2e::check_message(plain, com::E2eProfile::None, 0));
+
+    // Custom byte view: padding is excluded from the checksum.
+    com::E2eMessage<e2e_test::PaddedPayload> padded{};
+    padded.payload = {1, 2, {}};
+    e2e::seal_message(padded, com::E2eProfile::P04, 5, 1);
+    for (std::uint8_t& byte : padded.payload.padding) {
+        byte = 0xFFU;
+    }
+    NX_CHECK(e2e::check_message(padded, com::E2eProfile::P04, 5));
+
+    // The hashing path allocates nothing.
+    const std::size_t before = g_allocation_count.load(std::memory_order_relaxed);
+    g_count_allocations.store(true, std::memory_order_relaxed);
+    com::E2eMessage<E2ePod> probe{};
+    probe.payload = {4, 10};
+    e2e::seal_message(probe, com::E2eProfile::P04, 11, 1);
+    static_cast<void>(e2e::check_message(probe, com::E2eProfile::P04, 11));
+    g_count_allocations.store(false, std::memory_order_relaxed);
+    NX_CHECK(g_allocation_count.load(std::memory_order_relaxed) == before);
+}
+
+void test_e2e_receiver() {
+    com::E2eReceiver receiver(com::E2eProfile::P04, 7, 3);
+    const auto make = [](std::uint32_t counter) {
+        com::E2eMessage<E2ePod> message{};
+        message.payload = {counter, 1};
+        com::e2e::seal_message(message, com::E2eProfile::P04, 7, counter);
+        return message;
+    };
+    NX_CHECK(receiver.accept(make(1)) == com::E2eStatus::Ok);
+    NX_CHECK(receiver.accept(make(1)) == com::E2eStatus::Repeated);
+    NX_CHECK(receiver.accept(make(2)) == com::E2eStatus::Ok);
+    NX_CHECK(receiver.accept(make(10)) == com::E2eStatus::WrongSequence);
+    NX_CHECK(receiver.accept(make(0)) == com::E2eStatus::WrongSequence);
+    auto broken = make(4);
+    broken.payload.value = 99;
+    NX_CHECK(receiver.accept(broken) == com::E2eStatus::Error);
+    NX_CHECK(receiver.accept(make(4)) == com::E2eStatus::Ok);
+    NX_CHECK(receiver.state().checked == 7U);
+    NX_CHECK(receiver.state().failed == 1U);
+    NX_CHECK(receiver.state().repeated == 1U);
+    NX_CHECK(receiver.state().wrong_sequence == 2U);
+    NX_CHECK(receiver.to_string().find("profile=P04") != std::string::npos);
+}
+
+void test_e2e_ports() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/E2ePort");
+    NX_CHECK(name.has_value());
+    com::E2eConfig config{};
+    config.profile = com::E2eProfile::P04;
+    config.data_id = 0x1234;
+    config.max_delta_counter = 4;
+
+    auto subscriber = com::E2eSubscriber<E2ePod>::create(*node, *name, config);
+    auto publisher = com::E2ePublisher<E2ePod>::create(*node, *name, config);
+    NX_CHECK(subscriber.has_value());
+    NX_CHECK(publisher.has_value());
+
+    // Publish/receive one at a time so the small default buffer never
+    // overflows; the counters still progress 1, 2, 3.
+    for (std::uint32_t i = 1; i <= 3; ++i) {
+        NX_CHECK(publisher->publish(E2ePod{i, static_cast<std::int32_t>(i * 10)}).has_value());
+        bool seen = false;
+        for (int attempt = 0; attempt < 500 && !seen; ++attempt) {
+            const auto got = subscriber->receive();
+            NX_CHECK(got.has_value());
+            if (got->has_value()) {
+                seen = (*got)->status() == com::E2eStatus::Ok &&
+                       (*got)->header().counter == i;
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+        NX_CHECK(seen);
+    }
+    NX_CHECK(subscriber->state().checked == 3U);
+    NX_CHECK(subscriber->state().failed == 0U);
+
+    // Loan / write / send: the payload is written in place before sealing.
+    auto pending = publisher->loan();
+    NX_CHECK(pending.has_value());
+    pending->payload() = E2ePod{4, 40};
+    NX_CHECK(pending->send().has_value());
+    bool loaned_seen = false;
+    for (int i = 0; i < 500 && !loaned_seen; ++i) {
+        const auto got = subscriber->receive();
+        NX_CHECK(got.has_value());
+        if (got->has_value()) {
+            loaned_seen = (*got)->status() == com::E2eStatus::Ok &&
+                          (*got)->payload().sequence == 4U;
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    NX_CHECK(loaned_seen);
+
+    // Publishing stays allocation-free on the E2E path.
+    const std::size_t before = g_allocation_count.load(std::memory_order_relaxed);
+    g_count_allocations.store(true, std::memory_order_relaxed);
+    for (int i = 0; i < 4; ++i) {
+        NX_CHECK(publisher->publish(E2ePod{5, i}).has_value());
+    }
+    g_count_allocations.store(false, std::memory_order_relaxed);
+    NX_CHECK(g_allocation_count.load(std::memory_order_relaxed) == before);
+
+    const std::string text = subscriber->to_string();
+    NX_CHECK(text.find("profile=P04") != std::string::npos);
+    NX_CHECK(text.find("data_id=4660") != std::string::npos);
+    NX_CHECK(text.find("checked=") != std::string::npos);
+    NX_CHECK(std::format("{}", *subscriber) == text);
+    NX_CHECK(com::to_string(*subscriber) == text);
+    NX_CHECK(com::to_string(*publisher).find("P04") != std::string::npos);
+}
+
+void test_e2e_methods() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/E2eMethod");
+    NX_CHECK(name.has_value());
+    com::E2eConfig config{};
+    config.profile = com::E2eProfile::P06;
+    config.data_id = 21;
+    config.max_delta_counter = 5;
+
+    auto client = com::E2eClient<E2eCommand, E2eAck>::create(*node, *name, config);
+    auto server = com::E2eServer<E2eCommand, E2eAck>::create(*node, *name, config);
+    NX_CHECK(client.has_value());
+    NX_CHECK(server.has_value());
+
+    std::atomic<bool> done{false};
+    std::thread server_thread([&] {
+        for (int i = 0; i < 400 && !done.load(std::memory_order_acquire); ++i) {
+            static_cast<void>(server->serve_once(
+                [](const E2eCommand& request, com::E2eStatus status, const com::E2eState&) {
+                    E2eAck ack{};
+                    ack.value = request.id + (status == com::E2eStatus::Ok ? 1U : 100U);
+                    return ack;
+                }));
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    });
+    const auto response = client->call(E2eCommand{41}, std::chrono::milliseconds(2000));
+    done.store(true, std::memory_order_release);
+    server_thread.join();
+    NX_CHECK(response.has_value());
+    NX_CHECK(response.has_value() && response->status == com::E2eStatus::Ok);
+    NX_CHECK(response.has_value() && response->payload.value == 42U);
+
+    // A corrupted request still reaches the handler, marked as a failure, and
+    // the response envelope itself is well formed.
+    com::E2eMessage<E2eCommand> broken{};
+    broken.payload = E2eCommand{7};
+    com::e2e::seal_message(broken, com::E2eProfile::P06, 21, 1);
+    broken.payload.id = 8;
+    bool saw_error = false;
+    const com::E2eMessage<E2eAck> answer = server->handle(
+        broken, [&saw_error](const E2eCommand&, com::E2eStatus status, const com::E2eState&) {
+            saw_error = status == com::E2eStatus::Error;
+            return E2eAck{99};
+        });
+    NX_CHECK(saw_error);
+    NX_CHECK(com::e2e::check_message(answer, com::E2eProfile::P06, 21));
+    NX_CHECK(com::to_string(*client).find("P06") != std::string::npos);
+    NX_CHECK(com::to_string(*server).find("data_id=21") != std::string::npos);
+}
+
+void test_e2e_config() {
+    const nlohmann::json document = nlohmann::json::parse(R"({
+        "provided_services": [
+            { "service_name": "Nexigen/Test/E2eCfg", "max_subscribers": 2,
+              "e2e": { "profile": "P04", "data_id": 42, "max_delta_counter": 8 } }
+        ],
+        "required_services": [
+            { "service_name": "Nexigen/Test/E2eCfg2", "buffer_capacity": 4 }
+        ]
+    })", nullptr, false);
+    NX_CHECK(!document.is_discarded());
+    com::ServiceManifest manifest;
+    com::from_json(document, manifest);
+    NX_CHECK(manifest.provided_services.size() == 1U);
+    NX_CHECK(manifest.provided_services[0].e2e.profile == com::E2eProfile::P04);
+    NX_CHECK(manifest.provided_services[0].e2e.data_id == 42U);
+    NX_CHECK(manifest.provided_services[0].e2e.max_delta_counter == 8U);
+    NX_CHECK(manifest.required_services[0].e2e.profile == com::E2eProfile::None);
+    std::string validation_error;
+    NX_CHECK(com::valid_service_manifest(manifest, validation_error));
+    NX_CHECK(validation_error.empty());
+    NX_CHECK(com::valid_service_manifest(manifest));
+
+    nlohmann::json encoded;
+    com::to_json(encoded, manifest);
+    NX_CHECK(encoded["provided_services"][0].contains("e2e"));
+    NX_CHECK(!encoded["required_services"][0].contains("e2e"));
+
+    // An unknown profile name is rejected by validation.
+    com::ServiceManifest malformed;
+    com::from_json(nlohmann::json::parse(R"({
+        "provided_services": [
+            { "service_name": "x", "e2e": { "profile": "P99", "data_id": 1 } }
+        ]
+    })", nullptr, false), malformed);
+    NX_CHECK(!malformed.diagnostics.empty());
+    NX_CHECK(malformed.diagnostics.front().find("P99") != std::string::npos);
+    NX_CHECK(!com::valid_service_manifest(malformed));
+    std::string malformed_error;
+    NX_CHECK(!com::valid_service_manifest(malformed, malformed_error));
+    NX_CHECK(malformed_error == malformed.diagnostics.front());
+
+    // A protected service without a data id is rejected.
+    com::ServiceManifest zero_id;
+    com::from_json(nlohmann::json::parse(R"({
+        "required_services": [
+            { "service_name": "x", "e2e": { "profile": "P04", "data_id": 0 } }
+        ]
+    })", nullptr, false), zero_id);
+    NX_CHECK(!com::valid_service_manifest(zero_id));
+}
+
+
+struct E2eBlob64 {
+    std::array<std::uint8_t, 64> bytes{};
+};
+struct E2eBlob256 {
+    std::array<std::uint8_t, 256> bytes{};
+};
+static_assert(com::concepts::Message<E2eBlob64>);
+static_assert(com::concepts::Message<E2eBlob256>);
+
+template <class Blob> void measure_e2e_overhead(const char* label, double budget_ns) {
+    com::E2eMessage<Blob> message{};
+    constexpr int k_iterations = 2000;
+    const auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < k_iterations; ++i) {
+        message.payload.bytes[0] = static_cast<std::uint8_t>(i);
+        com::e2e::seal_message(message, com::E2eProfile::P04, 7, static_cast<std::uint32_t>(i));
+        if (!com::e2e::check_message(message, com::E2eProfile::P04, 7)) {
+            NX_CHECK(false);
+        }
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    const double per_operation =
+        static_cast<double>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count()) /
+        static_cast<double>(k_iterations);
+    std::printf("[e2e %s] %.1f ns per seal+check (budget %.0f)\n", label, per_operation,
+                budget_ns);
+    NX_CHECK(per_operation <= budget_ns);
+}
+
+void test_e2e_overhead() {
+#ifdef NDEBUG
+    // Release: the measured numbers are the contract.
+    measure_e2e_overhead<E2eBlob64>("64B", 1000.0);
+    measure_e2e_overhead<E2eBlob256>("256B", 2500.0);
+#else
+    // Debug and sanitizer builds add their own overhead.
+    measure_e2e_overhead<E2eBlob64>("64B", 5000.0);
+    measure_e2e_overhead<E2eBlob256>("256B", 10000.0);
+#endif
+}
+
+
+void test_e2e_none_guard() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/E2eNoneGuard");
+    NX_CHECK(name.has_value());
+    com::E2eConfig config{}; // profile None
+    const auto publisher = com::E2ePublisher<E2ePod>::create(*node, *name, config);
+    NX_CHECK(!publisher.has_value() && publisher.error() == com::Error::InvalidArgument);
+    const auto subscriber = com::E2eSubscriber<E2ePod>::create(*node, *name, config);
+    NX_CHECK(!subscriber.has_value() && subscriber.error() == com::Error::InvalidArgument);
+    const auto client = com::E2eClient<E2eCommand, E2eAck>::create(*node, *name, config);
+    NX_CHECK(!client.has_value() && client.error() == com::Error::InvalidArgument);
+    const auto server = com::E2eServer<E2eCommand, E2eAck>::create(*node, *name, config);
+    NX_CHECK(!server.has_value() && server.error() == com::Error::InvalidArgument);
+
+    // A protected profile is still accepted.
+    config.profile = com::E2eProfile::P04;
+    config.data_id = 1;
+    const auto protected_publisher = com::E2ePublisher<E2ePod>::create(*node, *name, config);
+    NX_CHECK(protected_publisher.has_value());
+}
+
 int main() {
     run_suite("error", test_error);
     run_suite("service_name", test_service_name);
@@ -941,6 +1391,14 @@ int main() {
     run_suite("field", test_field);
     run_suite("method", test_method);
     run_suite("manifest", test_manifest);
+    run_suite("e2e_vocabulary", test_e2e_vocabulary);
+    run_suite("e2e_codec", test_e2e_codec);
+    run_suite("e2e_receiver", test_e2e_receiver);
+    run_suite("e2e_ports", test_e2e_ports);
+    run_suite("e2e_none_guard", test_e2e_none_guard);
+    run_suite("e2e_methods", test_e2e_methods);
+    run_suite("e2e_config", test_e2e_config);
+    run_suite("e2e_overhead", test_e2e_overhead);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

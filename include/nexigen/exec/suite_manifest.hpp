@@ -126,6 +126,24 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept;
 /// @note Spec `exec/app-suite`, scenario "Validation failure starts nothing".
 [[nodiscard]] core::Status load_suite_manifest(std::string_view path, SuiteManifest& out) noexcept;
 
+/// @brief Load a suite manifest after verifying its SHA-256.
+///
+/// The file is read once, the digest of that exact buffer is compared with
+/// `expected_sha256_hex`, and the same buffer is parsed. A mismatch returns
+/// `SecurityError` and starts nothing.
+///
+/// @param path Manifest path supplied on the command line.
+/// @param expected_sha256_hex Expected lowercase or uppercase hex digest; an
+///        empty value disables the check.
+/// @param out Receives the parsed manifest; reset before parsing.
+/// @return Success, or the read/parse/validation error.
+/// @note Spec `core/integrity`, requirement "Verified file load".
+/// @note Spec `exec/app-suite`, requirement "Suite manifest is validated
+///       before launch".
+[[nodiscard]] core::Status load_suite_manifest(std::string_view path,
+                                               std::string_view expected_sha256_hex,
+                                               SuiteManifest& out) noexcept;
+
 /// @brief Pure validation over an already parsed manifest.
 ///
 /// Rejects a wrong version, missing required fields, an empty `apps` array,

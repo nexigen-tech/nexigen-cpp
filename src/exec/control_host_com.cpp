@@ -26,6 +26,7 @@
 #include <nexigen/exec/root_function_group.hpp>
 #include <nexigen/exec/root_state_query.hpp>
 #include <nexigen/exec/process_lifecycle.hpp>
+#include <nexigen/exec/recovery_handler.hpp>
 #include <nexigen/exec/state_client.hpp>
 #include <nexigen/exec/suite_manifest.hpp>
 
@@ -41,6 +42,8 @@ constexpr const char* root_query_service_name = "Nexigen/EM/InitialRootStateTran
 constexpr const char* lifecycle_service_name = "Nexigen/PHM/ExecutionState";
 /// @brief EM→PHM lifecycle wake event.
 constexpr const char* lifecycle_event_name = "Nexigen/PHM/ExecutionStateEvent";
+/// @brief PHM→EM recovery request channel.
+constexpr const char* recovery_service_name = "Nexigen/PHM/Recovery";
 
 using RootQueryServer = com::Server<std::monostate, InitialRootStateTransitionResultResponse>;
 using LifecyclePublisher = com::Publisher<ProcessLifecycleEvent>;
@@ -82,6 +85,13 @@ public:
                 query_server_.emplace(std::move(*server));
             }
         }
+        const auto recovery_name = com::ServiceName::create(recovery_service_name);
+        if (recovery_name) {
+            auto handler = RecoveryHandler::create(*node_, *recovery_name, manifest);
+            if (handler) {
+                recovery_.emplace(std::move(*handler));
+            }
+        }
         const auto name = com::ServiceName::create(control_service_name);
         if (!name) {
             return;
@@ -97,6 +107,9 @@ public:
 
     void poll() noexcept override {
         serve_root_query();
+        if (recovery_) {
+            static_cast<void>(recovery_->serve_once());
+        }
         if (client_) {
             static_cast<void>(client_->serve_once());
         }
@@ -165,6 +178,31 @@ public:
         if (client_) {
             client_->set_process_handlers(start_handler_, stop_handler_);
         }
+    }
+
+    void set_restart_handler(RestartHandler handler) override {
+        restart_handler_ = std::move(handler);
+        if (recovery_) {
+            recovery_->set_restart([this](std::string_view app) {
+                return restart_process(app);
+            });
+        }
+    }
+
+    [[nodiscard]] core::Status restart_process(std::string_view app) noexcept override {
+        if (!restart_handler_) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        const ProcessState tracked = process_state(app);
+        const PublishedLifecycle* entry = published_for(app);
+        const ProcessState published = entry != nullptr ? entry->last : ProcessState::Idle;
+        if (tracked == ProcessState::Starting || published == ProcessState::Terminating) {
+            return std::unexpected(core::ErrorCode::Conflict);
+        }
+        // PHM sees a Terminating/Starting pair for the forced restart, so the
+        // supervision window is suspended instead of looking like a fault.
+        mark_terminating(app);
+        return restart_handler_(app);
     }
 
     [[nodiscard]] bool ready(std::string_view app) const noexcept override {
@@ -280,6 +318,7 @@ private:
     app::RunIdentity identity_;
     std::optional<StateClient> client_;
     std::optional<RootQueryServer> query_server_;
+    std::optional<RecoveryHandler> recovery_;
     std::optional<LifecyclePublisher> lifecycle_publisher_;
     std::optional<com::EventNotifier> lifecycle_event_;
     std::vector<PublishedLifecycle> published_{};
@@ -288,6 +327,7 @@ private:
     StateResult initial_machine_result_{StateResult::InvalidArgument};
     ProcessHandler start_handler_{};
     ProcessHandler stop_handler_{};
+    RestartHandler restart_handler_{};
 };
 
 std::unique_ptr<ControlHost> make_control_host(const SuiteManifest& manifest,

@@ -67,6 +67,24 @@ public:
     /// @brief Install the suite process-stop callback.
     virtual void set_stop_handler(ProcessHandler handler) = 0;
 
+    /// @brief Forced restart of one supervised application (PHM recovery).
+    ///
+    /// The suite supervisor performs the restart: it force-stops the named
+    /// application when running and relaunches it in a new attempt without
+    /// consuming `restart_attempts`.
+    using RestartHandler = std::function<core::Status(std::string_view app)>;
+
+    /// @brief Install the suite recovery-restart callback.
+    virtual void set_restart_handler(RestartHandler handler) = 0;
+
+    /// @brief Restart one application on behalf of PHM.
+    ///
+    /// @param app Application name from the PHM manifest.
+    /// @return Success when the application was relaunched, or the supervisor
+    ///         error (`InvalidArgument` for an unknown name, `Conflict` while
+    ///         the suite is stopping or the application is already restarting).
+    [[nodiscard]] virtual core::Status restart_process(std::string_view app) noexcept = 0;
+
     /// @brief Whether an application has reported readiness.
     [[nodiscard]] virtual bool ready(std::string_view app) const noexcept = 0;
 

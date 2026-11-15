@@ -122,6 +122,8 @@ ccache_report() {
 
 gate_filtered naming "${TESTS_BUILD_DIR}/validate-naming.log" \
     python3 cmake/check_naming.py
+timed safety_traceability "${TESTS_BUILD_DIR}/validate-safety-traceability.log" \
+    python3 cmake/check_safety_traceability.py
 timed complexity "${TESTS_BUILD_DIR}/validate-complexity.log" \
     python3 cmake/check_complexity.py --threshold "${CCN_THRESHOLD}" include src
 gate_filtered result_value "${TESTS_BUILD_DIR}/validate-result-value.log" \

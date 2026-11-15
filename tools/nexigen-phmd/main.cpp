@@ -27,15 +27,20 @@
 #include <nexigen/com/subscriber.hpp>
 #include <nexigen/com/waitset.hpp>
 #include <nexigen/core/affinity.hpp>
+#include <nexigen/core/integrity/verified_file.hpp>
+#include <nexigen/core/settings_io.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/exec/application_state.hpp>
 #include <nexigen/exec/process_lifecycle.hpp>
 #include <nexigen/phm/em_lifecycle.hpp>
 #include <nexigen/phm/fault_kind.hpp>
+#include <nexigen/phm/fault_log_verify.hpp>
 #include <nexigen/phm/fault_storage.hpp>
 #include <nexigen/phm/phm_manifest.hpp>
+#include <nexigen/phm/posix_watchdog_device.hpp>
 #include <nexigen/phm/recovery.hpp>
 #include <nexigen/phm/supervisor.hpp>
+#include <nexigen/phm/watchdog.hpp>
 
 namespace {
 
@@ -47,12 +52,16 @@ void stop_handler(int /*signal*/) {
 
 void print_usage() {
     std::printf("nexigen-phmd - Platform Health Management daemon\n"
-                "Usage: nexigen-phmd --manifest <path> [--core <mask>] [--priority <n>]\n"
-                "                    [--fault-log <path>] [--help]\n");
+                "Usage: nexigen-phmd --manifest <path> [--manifest-sha256 <hex>]\n"
+                "                    [--core <mask>] [--priority <n>] [--fault-log <path>]\n"
+                "       nexigen-phmd --verify-fault-log <path>\n"
+                "                    [--help]\n");
 }
 
 struct Options {
     std::string manifest_path{};
+    std::string manifest_sha256{};
+    std::string verify_fault_log{};
     std::uint64_t core_mask{0};
     std::int32_t priority{80};
     std::string fault_log{"/tmp/nexigen-phmd-faults.log"};
@@ -73,12 +82,46 @@ struct Options {
     std::string* target = nullptr;
     if (argument == "--manifest") {
         target = &options.manifest_path;
+    } else if (argument == "--manifest-sha256") {
+        target = &options.manifest_sha256;
+    } else if (argument == "--verify-fault-log") {
+        target = &options.verify_fault_log;
     } else if (argument == "--fault-log") {
         target = &options.fault_log;
     } else if (argument == "--app-name") {
         target = &options.app_name;
     }
     return target != nullptr && take_value(argc, argv, index, *target);
+}
+
+enum class OptionScan { Handled, MissingValue, Unknown };
+
+/// @brief Consume the numeric options; leaves `index` on the value.
+[[nodiscard]] OptionScan scan_numeric_option(Options& options, std::string_view argument, int argc,
+                                             char* argv[], int& index) {
+    std::string text;
+    if (argument == "--core") {
+        if (!take_value(argc, argv, index, text)) {
+            return OptionScan::MissingValue;
+        }
+        options.core_mask = std::strtoull(text.c_str(), nullptr, 0);
+        return OptionScan::Handled;
+    }
+    if (argument == "--priority") {
+        if (!take_value(argc, argv, index, text)) {
+            return OptionScan::MissingValue;
+        }
+        options.priority = static_cast<std::int32_t>(std::strtol(text.c_str(), nullptr, 10));
+        return OptionScan::Handled;
+    }
+    return OptionScan::Unknown;
+}
+
+/// @brief Whether `argument` is one of the string options.
+[[nodiscard]] bool is_string_option(std::string_view argument) noexcept {
+    return argument == "--manifest" || argument == "--manifest-sha256" ||
+           argument == "--verify-fault-log" || argument == "--fault-log" ||
+           argument == "--app-name";
 }
 
 [[nodiscard]] std::optional<int> parse_args(int argc, char* argv[], Options& options) {
@@ -88,23 +131,14 @@ struct Options {
             print_usage();
             return 0;
         }
-        if (argument == "--core") {
-            std::string text;
-            if (!take_value(argc, argv, index, text)) {
-                return 2;
-            }
-            options.core_mask = std::strtoull(text.c_str(), nullptr, 0);
+        const OptionScan numeric = scan_numeric_option(options, argument, argc, argv, index);
+        if (numeric == OptionScan::Handled) {
             continue;
         }
-        if (argument == "--priority") {
-            std::string text;
-            if (!take_value(argc, argv, index, text)) {
-                return 2;
-            }
-            options.priority = static_cast<std::int32_t>(std::strtol(text.c_str(), nullptr, 10));
-            continue;
+        if (numeric == OptionScan::MissingValue) {
+            return 2;
         }
-        if (argument == "--manifest" || argument == "--fault-log" || argument == "--app-name") {
+        if (is_string_option(argument)) {
             if (!take_string_option(argument, argc, argv, index, options)) {
                 return 2;
             }
@@ -113,8 +147,9 @@ struct Options {
         std::fprintf(stderr, "nexigen-phmd: unknown argument '%s'\n", argument.c_str());
         return 2;
     }
-    if (options.manifest_path.empty()) {
-        std::fprintf(stderr, "nexigen-phmd: --manifest <path> is required\n");
+    if (options.manifest_path.empty() && options.verify_fault_log.empty()) {
+        std::fprintf(stderr, "nexigen-phmd: --manifest <path> or --verify-fault-log <path> is "
+                             "required\n");
         return 2;
     }
     if (options.app_name.empty()) {
@@ -146,17 +181,31 @@ struct Session {
     std::optional<nexigen::com::EventListener> lifecycle_listener{};
     std::optional<nexigen::com::WaitSetGuard> lifecycle_guard{};
     std::optional<nexigen::exec::ApplicationStateReporter> reporter{};
+    /// Declared before the watchdog so the device outlives every feed.
+    nexigen::phm::PosixWatchdogDevice watchdog_device{};
+    std::optional<nexigen::phm::Watchdog> watchdog{};
 };
 
 /// Load the PHM manifest and require at least one supervised process.
 [[nodiscard]] bool load_manifest(const Options& options, nexigen::phm::PhmManifest& manifest) {
-    std::ifstream input(options.manifest_path);
-    if (!input.is_open()) {
-        std::fprintf(stderr, "nexigen-phmd: cannot open manifest '%s'\n",
-                     options.manifest_path.c_str());
-        return false;
+    std::string text;
+    if (options.manifest_sha256.empty()) {
+        const auto read = nexigen::core::settings_io::read_text_file(options.manifest_path, text);
+        if (read != nexigen::core::settings_io::FileRead::Ok) {
+            std::fprintf(stderr, "nexigen-phmd: cannot open manifest '%s'\n",
+                         options.manifest_path.c_str());
+            return false;
+        }
+    } else {
+        auto verified = nexigen::core::integrity::read_verified(options.manifest_path,
+                                                                options.manifest_sha256);
+        if (!verified) {
+            std::fprintf(stderr, "nexigen-phmd: manifest digest verification failed\n");
+            return false;
+        }
+        text = std::move(*verified);
     }
-    const nlohmann::json parsed = nlohmann::json::parse(input, nullptr, false);
+    const nlohmann::json parsed = nlohmann::json::parse(text, nullptr, false);
     if (parsed.is_discarded()) {
         std::fprintf(stderr, "nexigen-phmd: manifest '%s' is not valid JSON\n",
                      options.manifest_path.c_str());
@@ -165,6 +214,12 @@ struct Session {
     from_json(parsed, manifest);
     if (manifest.processes.empty()) {
         std::fprintf(stderr, "nexigen-phmd: manifest declares no processes\n");
+        return false;
+    }
+    std::string validation_error;
+    if (const auto valid = nexigen::phm::validate_phm_manifest(manifest, validation_error);
+        !valid) {
+        std::fprintf(stderr, "nexigen-phmd: invalid manifest: %s\n", validation_error.c_str());
         return false;
     }
     return true;
@@ -375,8 +430,13 @@ void apply_recovery(Session& session, nexigen::phm::Supervisor& supervisor,
             faults.record(nexigen::phm::FaultRecord{nexigen::phm::FaultKind::AliveFailure,
                                                     static_cast<std::uint32_t>(i), 0U, timestamp});
             if (session.recovery) {
+                const auto stop_feeding = [&session] {
+                    if (session.watchdog) {
+                        session.watchdog->stop_feeding();
+                    }
+                };
                 (void)session.recovery->apply_rule(manifest.processes[i],
-                                                   std::chrono::milliseconds(500));
+                                                   std::chrono::milliseconds(500), stop_feeding);
             }
             std::fprintf(stderr, "nexigen-phmd: '%s' expired -> recovery\n",
                          manifest.processes[i].name.c_str());
@@ -405,10 +465,38 @@ void run_loop(Session& session, nexigen::phm::Supervisor& supervisor,
         }
 
         apply_recovery(session, supervisor, faults, manifest, seen);
+
+        // One feed decision per cycle: healthy only when no armed process is
+        // Expired. A suspended (Terminated) process keeps its Ok status.
+        bool any_expired = false;
+        for (std::size_t i = 0; i < manifest.processes.size(); ++i) {
+            if (supervisor.status(i) == nexigen::phm::SupervisionStatus::Expired) {
+                any_expired = true;
+                break;
+            }
+        }
+        if (session.watchdog) {
+            session.watchdog->tick(nexigen::phm::Watchdog::Clock::now(), any_expired);
+        }
     }
 }
 
+/// Scan a fault log and report the counters; non-zero when a record is corrupt.
+[[nodiscard]] int verify_log_mode(const std::string& path) {
+    nexigen::phm::FaultLogReport report{};
+    const auto scanned = nexigen::phm::verify_fault_log(path, report);
+    if (!scanned) {
+        std::fprintf(stderr, "nexigen-phmd: cannot scan '%s'\n", path.c_str());
+        return 1;
+    }
+    std::printf("nexigen-phmd: %s\n", report.to_string().c_str());
+    return report.corrupted == 0U ? 0 : 1;
+}
+
 [[nodiscard]] int run_phmd(const Options& options) {
+    if (!options.verify_fault_log.empty()) {
+        return verify_log_mode(options.verify_fault_log);
+    }
     nexigen::phm::PhmManifest manifest;
     if (!load_manifest(options, manifest)) {
         return 1;
@@ -445,6 +533,21 @@ void run_loop(Session& session, nexigen::phm::Supervisor& supervisor,
 
     open_recovery(session);
     open_lifecycle(session);
+
+    auto watchdog = nexigen::phm::Watchdog::create(session.watchdog_device, manifest.watchdog);
+    if (!watchdog) {
+        std::fprintf(stderr, "nexigen-phmd: cannot open watchdog device '%s'\n",
+                     manifest.watchdog.device.empty() ? "/dev/watchdog"
+                                                      : manifest.watchdog.device.c_str());
+        return 1;
+    }
+    session.watchdog.emplace(std::move(*watchdog));
+    if (session.watchdog->enabled()) {
+        std::printf("nexigen-phmd: watchdog device=%s timeout_ms=%u feed_period_ms=%u\n",
+                    session.watchdog->device_path().c_str(), session.watchdog->timeout_ms(),
+                    manifest.watchdog.feed_period_ms);
+        std::fflush(stdout);
+    }
     if (!options.app_name.empty()) {
         auto reporter =
             nexigen::exec::ApplicationStateReporter::create(*session.node, options.app_name);
@@ -463,6 +566,9 @@ void run_loop(Session& session, nexigen::phm::Supervisor& supervisor,
 
     run_loop(session, supervisor, faults, manifest, seen);
 
+    if (session.watchdog) {
+        session.watchdog->disarm();
+    }
     std::printf("nexigen-phmd: stopping\n");
     return 0;
 }

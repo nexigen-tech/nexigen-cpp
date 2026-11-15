@@ -209,6 +209,7 @@ private:
 
     std::string path_;                              ///< Log path rendered by `to_string()`.
     std::FILE* file_{nullptr};                      ///< Append handle, null when open failed.
+    std::uint64_t sequence_{0};                     ///< Monotonic record sequence (writer only).
     core::SpscRingBuffer<FaultRecord, 1024> queue_; ///< Bounded producer/consumer queue.
     std::atomic<std::uint64_t> recorded_{0};        ///< Records consumed by the writer.
     std::atomic<std::uint64_t> dropped_{0};         ///< Records dropped on a full queue.
