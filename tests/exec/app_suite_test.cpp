@@ -37,6 +37,7 @@
 #include <nexigen/exec/process_lifecycle.hpp>
 #include <nexigen/exec/platform_controls.hpp>
 #include <nexigen/exec/deterministic_client.hpp>
+#include <nexigen/exec/detail/suite_launch_plan.hpp>
 #include <nexigen/exec/manifest_accessor.hpp>
 #include <nexigen/exec/machine_manifest.hpp>
 #include <nexigen/exec/state_result.hpp>
@@ -867,7 +868,6 @@ void test_manifest_validation() {
     remove_tree(artifacts);
 }
 
-
 void test_manifest_digest() {
     const std::string root = unique_dir("manifest_digest");
     const std::string artifacts = unique_dir("manifest_digest_artifacts");
@@ -885,8 +885,7 @@ void test_manifest_digest() {
     NX_CHECK(verified.apps.size() == 2U);
 
     exec::SuiteManifest tampered{};
-    const core::Status mismatch =
-        exec::load_suite_manifest(path, std::string(64, '0'), tampered);
+    const core::Status mismatch = exec::load_suite_manifest(path, std::string(64, '0'), tampered);
     NX_CHECK(!mismatch.has_value() && mismatch.error() == core::ErrorCode::SecurityError);
 
     // An empty digest keeps the unverified path.
@@ -896,7 +895,6 @@ void test_manifest_digest() {
     std::filesystem::remove_all(root, error);
     std::filesystem::remove_all(artifacts, error);
 }
-
 
 void test_settings_digests() {
     const std::string root = unique_dir("settings_digests");
@@ -952,7 +950,6 @@ void test_settings_digests() {
     std::filesystem::remove_all(artifacts, error);
 }
 
-
 void test_app_credentials() {
     const std::string root = unique_dir("credentials");
     const std::string artifacts = unique_dir("credentials_artifacts");
@@ -982,6 +979,26 @@ void test_app_credentials() {
     bad.apps[0].gid = 0U;
     NX_CHECK(!exec::validate_suite_manifest(bad).has_value());
 
+    // RT priority is opt-in and round-trips.
+    manifest.apps[0].uid.reset();
+    manifest.apps[0].gid.reset();
+    NX_CHECK(!manifest.apps[0].allow_rt_priority);
+    manifest.apps[0].allow_rt_priority = true;
+    exec::to_json(document, manifest);
+    exec::from_json(document, parsed);
+    NX_CHECK(parsed.apps[0].allow_rt_priority);
+
+    // The opt-in reaches the child launch options.
+    const exec::detail::SuiteLaunchPlan plan = exec::detail::resolve_suite_launch(
+        manifest, manifest.apps[0], first_config(manifest.apps[0]), 1U, root + "/rt-instance");
+    NX_CHECK(plan.options.allow_rt_priority);
+    NX_CHECK(!plan.options.uid.has_value());
+
+    // A non-root target cannot keep the capability: the combination is invalid.
+    manifest.apps[0].uid = 1000U;
+    NX_CHECK(!exec::validate_suite_manifest(manifest).has_value());
+    manifest.apps[0].uid.reset();
+
     // Non-root policy round-trips.
     manifest.trusted_platform.require_non_root = true;
     exec::to_json(document, manifest);
@@ -991,7 +1008,6 @@ void test_app_credentials() {
     std::filesystem::remove_all(root, error);
     std::filesystem::remove_all(artifacts, error);
 }
-
 
 void test_cgroup_budgets() {
     const std::string root = unique_dir("cgroup");

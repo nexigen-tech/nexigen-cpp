@@ -358,6 +358,17 @@ The PHM daemon closes the detect → actuate loop:
   suite supervisor emits checkpoint `1` on `Nexigen/EM/Health` once per control
   poll; the example manifest supervises both daemons, so an `Expired` SM or EM
   stops the watchdog feed.
+- **Identity claims** — a process whose manifest entry declares `expected_uid`
+  publishes `{name, pid, uid}` on `Nexigen/PHM/Claim` and wakes
+  `Nexigen/PHM/ClaimEvent`; the daemon checks `/proc/<pid>`, gates checkpoints
+  until the claim is verified, and publishes a `SecurityEvent` on
+  `Nexigen/PHM/Security` for a foreign or unknown claim. A supervised entity
+  created with a `ClaimConfig` re-publishes the claim once per second, so a
+  restarted daemon re-learns the identity, and the daemon drops the verified
+  flag when the EM reports the process stopping, so a new incarnation must claim
+  again. `expected_uid` must be nonzero and the process name must fit the
+  32-byte claim buffer. A same-UID impostor can still claim another pid;
+  kernel-attested credentials are a follow-up.
 - **Recovery** — `RestartProcess` is served by the EM on
   `Nexigen/PHM/Recovery` (forced restart in a new attempt, no retry-budget
   consumption); `TriggerWatchdogReset` is local to PHM (stop feeding, no EM
@@ -428,6 +439,15 @@ Debug+ASan). These numbers are the performance contract enforced by
 The table-driven CRC dominates; a slicing-by-8 or hardware path may lower the
 numbers behind the same API without changing the contract.
 
+## Time base supervision
+
+`chrono::TimeSyncMonitor` samples `CLOCK_REALTIME − CLOCK_MONOTONIC_RAW` on the
+caller's schedule and classifies each transition: `Ok`, `Stepped` (forward jump
+above `max_step_ns`), `GoingBackwards`, or `RateExceeded` (slew above
+`max_rate_ppm` over at least `min_window_ns`). Defaults are 1 ms, 500 ppm, and
+100 ms. The monitor is allocation-free, starts no thread, and leaves the
+reaction (log, degrade, reset) to the application or PHM.
+
 ## P2 platform controls
 
 The manifest carries optional platform controls that apply before a child is
@@ -448,7 +468,11 @@ created:
   clears supplementary groups when privileged, calls `setgid`/`setuid`, verifies
   the drop with `getuid`/`geteuid`/`getgid`, and only then `exec`. A `uid` or
   `gid` of `0` is rejected, and `trusted_platform.require_non_root` refuses a
-  root launch without an explicit `uid`.
+  root launch without an explicit `uid`. Unless `allow_rt_priority` is set, the
+  child drops `CAP_SYS_NICE` from its capability bounding set before `exec`, so
+  it cannot raise its own real-time priority. The opt-in cannot be combined with
+  a non-root `uid` (the credential drop would clear the capability anyway) and
+  the manifest is rejected when both are present.
 - **Settings digests** — an optional `settings_digests: [{path, sha256}]` list.
   The detached supervisor verifies every listed settings file once before it
   launches any application; a mismatch reports `SecurityError` and starts

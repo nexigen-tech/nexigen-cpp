@@ -55,6 +55,7 @@ SuiteLaunchPlan resolve_suite_launch(const SuiteManifest& manifest, const AppSpe
     plan.options.uid = spec.uid;
     plan.options.gid = spec.gid;
     plan.options.require_non_root = manifest.trusted_platform.require_non_root;
+    plan.options.allow_rt_priority = spec.allow_rt_priority;
 
     const ResourceGroupConfig* group = nullptr;
     for (const ResourceGroupConfig& candidate : manifest.resource_groups) {

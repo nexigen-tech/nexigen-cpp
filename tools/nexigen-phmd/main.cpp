@@ -23,6 +23,7 @@
 
 #include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
+#include <nexigen/com/publisher.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
 #include <nexigen/com/waitset.hpp>
@@ -32,6 +33,8 @@
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/exec/application_state.hpp>
 #include <nexigen/exec/process_lifecycle.hpp>
+#include <nexigen/phm/checkpoint_claim.hpp>
+#include <nexigen/phm/claim_registry.hpp>
 #include <nexigen/phm/em_lifecycle.hpp>
 #include <nexigen/phm/fault_kind.hpp>
 #include <nexigen/phm/fault_log_verify.hpp>
@@ -39,6 +42,8 @@
 #include <nexigen/phm/phm_manifest.hpp>
 #include <nexigen/phm/posix_watchdog_device.hpp>
 #include <nexigen/phm/recovery.hpp>
+#include <nexigen/phm/security_event.hpp>
+#include <nexigen/phm/security_event_kind.hpp>
 #include <nexigen/phm/supervisor.hpp>
 #include <nexigen/phm/watchdog.hpp>
 
@@ -181,6 +186,11 @@ struct Session {
     std::optional<nexigen::com::EventListener> lifecycle_listener{};
     std::optional<nexigen::com::WaitSetGuard> lifecycle_guard{};
     std::optional<nexigen::exec::ApplicationStateReporter> reporter{};
+    std::optional<nexigen::com::Subscriber<nexigen::phm::CheckpointClaim>> claim_subscriber{};
+    std::optional<nexigen::com::EventListener> claim_listener{};
+    std::optional<nexigen::com::WaitSetGuard> claim_guard{};
+    std::optional<nexigen::com::Publisher<nexigen::phm::SecurityEvent>> security_publisher{};
+    std::optional<nexigen::com::EventNotifier> security_event{};
     /// Declared before the watchdog so the device outlives every feed.
     nexigen::phm::PosixWatchdogDevice watchdog_device{};
     std::optional<nexigen::phm::Watchdog> watchdog{};
@@ -197,8 +207,8 @@ struct Session {
             return false;
         }
     } else {
-        auto verified = nexigen::core::integrity::read_verified(options.manifest_path,
-                                                                options.manifest_sha256);
+        auto verified =
+            nexigen::core::integrity::read_verified(options.manifest_path, options.manifest_sha256);
         if (!verified) {
             std::fprintf(stderr, "nexigen-phmd: manifest digest verification failed\n");
             return false;
@@ -370,7 +380,8 @@ to_phm_lifecycle(nexigen::exec::ProcessLifecycleState state) noexcept {
 
 /// Drain every pending lifecycle sample and apply it by process name.
 void drain_lifecycle(Session& session, nexigen::phm::Supervisor& supervisor,
-                     const nexigen::phm::PhmManifest& manifest) {
+                     const nexigen::phm::PhmManifest& manifest,
+                     nexigen::phm::ClaimRegistry& registry) {
     if (!session.lifecycle_subscriber) {
         return;
     }
@@ -383,11 +394,88 @@ void drain_lifecycle(Session& session, nexigen::phm::Supervisor& supervisor,
             return;
         }
         const nexigen::exec::ProcessLifecycleEvent& event = (*received)->payload();
+        const std::string_view app = nexigen::phm::bounded_name(event.app, sizeof(event.app));
         for (std::size_t i = 0; i < manifest.processes.size(); ++i) {
-            if (manifest.processes[i].name == event.app) {
+            if (manifest.processes[i].name == app) {
                 supervisor.on_execution_state(i, to_phm_lifecycle(event.state));
+                if (event.state != nexigen::exec::ProcessLifecycleState::Running) {
+                    // A stopping process ends its incarnation: the next one must
+                    // present a fresh claim before its checkpoints are trusted.
+                    registry.reset(i);
+                }
                 break;
             }
+        }
+    }
+}
+
+/// Open the identity-claim channel and the security-event channel.
+void open_claims(Session& session) {
+    const auto claim_name = nexigen::com::ServiceName::create("Nexigen/PHM/Claim");
+    const auto claim_event_name = nexigen::com::ServiceName::create("Nexigen/PHM/ClaimEvent");
+    const auto security_name = nexigen::com::ServiceName::create("Nexigen/PHM/Security");
+    const auto security_event_name = nexigen::com::ServiceName::create("Nexigen/PHM/SecurityEvent");
+    if (claim_name && claim_event_name) {
+        auto subscriber = nexigen::com::Subscriber<nexigen::phm::CheckpointClaim>::create(
+            *session.node, *claim_name, 64);
+        auto listener = nexigen::com::EventListener::create(*session.node, *claim_event_name);
+        if (subscriber && listener) {
+            auto guard = session.waitset->attach_notification(*listener);
+            if (guard) {
+                session.claim_subscriber.emplace(std::move(*subscriber));
+                session.claim_listener.emplace(std::move(*listener));
+                session.claim_guard.emplace(std::move(*guard));
+            }
+        }
+    }
+    if (security_name && security_event_name) {
+        auto publisher = nexigen::com::Publisher<nexigen::phm::SecurityEvent>::create(
+            *session.node, *security_name, 64);
+        auto event = nexigen::com::EventNotifier::create(*session.node, *security_event_name);
+        if (publisher && event) {
+            session.security_publisher.emplace(std::move(*publisher));
+            session.security_event.emplace(std::move(*event));
+        }
+    }
+}
+
+/// Publish one security finding and wake its consumers.
+void publish_security_event(Session& session, nexigen::phm::SecurityEventKind kind,
+                            std::string_view name, std::uint32_t pid, std::uint32_t uid) {
+    if (!session.security_publisher) {
+        return;
+    }
+    nexigen::phm::SecurityEvent sample{};
+    sample.kind = kind;
+    std::snprintf(sample.process, sizeof(sample.process), "%.*s", static_cast<int>(name.size()),
+                  name.data());
+    sample.pid = pid;
+    sample.uid = uid;
+    if (session.security_publisher->send_copy(sample)) {
+        if (session.security_event) {
+            static_cast<void>(session.security_event->notify());
+        }
+    }
+}
+
+/// Drain pending claims and verify them against the manifest expectations.
+void drain_claims(Session& session, nexigen::phm::ClaimRegistry& registry) {
+    if (!session.claim_subscriber) {
+        return;
+    }
+    for (;;) {
+        auto received = session.claim_subscriber->receive();
+        if (!received) {
+            return;
+        }
+        if (!received->has_value()) {
+            return;
+        }
+        const nexigen::phm::CheckpointClaim& claim = (*received)->payload();
+        if (const auto rejection = registry.apply(claim); rejection.has_value()) {
+            publish_security_event(session, *rejection,
+                                   nexigen::phm::bounded_name(claim.name, sizeof(claim.name)),
+                                   claim.pid, claim.uid);
         }
     }
 }
@@ -396,10 +484,14 @@ void drain_lifecycle(Session& session, nexigen::phm::Supervisor& supervisor,
 /// checkpoints.
 void handle_attachment(Session& session, nexigen::phm::Supervisor& supervisor,
                        const nexigen::phm::PhmManifest& manifest,
-                       const nexigen::com::WaitSetAttachmentId& attachment) {
+                       const nexigen::com::WaitSetAttachmentId& attachment,
+                       nexigen::phm::ClaimRegistry& registry) {
     const auto now = nexigen::phm::Supervisor::Clock::now();
+    if (session.claim_guard && attachment.has_event_from(*session.claim_guard)) {
+        drain_claims(session, registry);
+    }
     if (session.lifecycle_guard && attachment.has_event_from(*session.lifecycle_guard)) {
-        drain_lifecycle(session, supervisor, manifest);
+        drain_lifecycle(session, supervisor, manifest, registry);
     }
     if (attachment.has_event_from(*session.tick_guard)) {
         for (std::size_t i = 0; i < session.monitored.size(); ++i) {
@@ -407,13 +499,19 @@ void handle_attachment(Session& session, nexigen::phm::Supervisor& supervisor,
         }
     }
     for (MonitoredProcess& process : session.monitored) {
-        if (attachment.has_event_from(process.guard)) {
-            const auto drained = process.listener.try_wait([&](nexigen::com::EventId id) {
-                supervisor.on_checkpoint(process.index, static_cast<std::uint32_t>(id.as_value()),
-                                         now);
-            });
-            (void)drained;
+        if (!attachment.has_event_from(process.guard)) {
+            continue;
         }
+        if (!registry.accepts(process.index)) {
+            // Identity is not proven yet: drain and drop, without feeding the
+            // supervisor (spec phm/identity, "Checkpoint gating").
+            static_cast<void>(process.listener.try_wait([](nexigen::com::EventId) {}));
+            continue;
+        }
+        const auto drained = process.listener.try_wait([&](nexigen::com::EventId id) {
+            supervisor.on_checkpoint(process.index, static_cast<std::uint32_t>(id.as_value()), now);
+        });
+        (void)drained;
     }
 }
 
@@ -449,11 +547,12 @@ void apply_recovery(Session& session, nexigen::phm::Supervisor& supervisor,
 /// on the alive tick.
 void run_loop(Session& session, nexigen::phm::Supervisor& supervisor,
               nexigen::phm::FaultStorage& faults, const nexigen::phm::PhmManifest& manifest,
-              std::vector<nexigen::phm::SupervisionStatus>& seen) {
+              std::vector<nexigen::phm::SupervisionStatus>& seen,
+              nexigen::phm::ClaimRegistry& registry) {
     while (g_stop == 0) {
         const auto waited = session.waitset->wait_and_process_once_with_timeout(
             [&](nexigen::com::WaitSetAttachmentId attachment) -> nexigen::com::CallbackProgression {
-                handle_attachment(session, supervisor, manifest, attachment);
+                handle_attachment(session, supervisor, manifest, attachment, registry);
                 return nexigen::com::CallbackProgression::Continue;
             },
             std::chrono::milliseconds(200));
@@ -530,9 +629,11 @@ void run_loop(Session& session, nexigen::phm::Supervisor& supervisor,
     }
     std::vector<nexigen::phm::SupervisionStatus> seen(manifest.processes.size(),
                                                       nexigen::phm::SupervisionStatus::Ok);
+    nexigen::phm::ClaimRegistry registry(manifest);
 
     open_recovery(session);
     open_lifecycle(session);
+    open_claims(session);
 
     auto watchdog = nexigen::phm::Watchdog::create(session.watchdog_device, manifest.watchdog);
     if (!watchdog) {
@@ -564,7 +665,7 @@ void run_loop(Session& session, nexigen::phm::Supervisor& supervisor,
     std::printf("nexigen-phmd: supervising %zu process(es)\n", manifest.processes.size());
     std::fflush(stdout);
 
-    run_loop(session, supervisor, faults, manifest, seen);
+    run_loop(session, supervisor, faults, manifest, seen, registry);
 
     if (session.watchdog) {
         session.watchdog->disarm();

@@ -42,6 +42,9 @@
 #include <nexigen/chrono/provider.hpp>
 #include <nexigen/chrono/provider_config.hpp>
 #include <nexigen/chrono/provider_kind.hpp>
+#include <nexigen/chrono/time_sync_monitor.hpp>
+#include <nexigen/chrono/time_sync_sample.hpp>
+#include <nexigen/chrono/time_sync_status.hpp>
 #include <nexigen/chrono/worker.hpp>
 #include <nexigen/chrono/settings.hpp>
 #include <nexigen/chrono/snapshot.hpp>
@@ -2006,6 +2009,70 @@ void test_settings_edges() {
 
 } // namespace
 
+void test_time_sync() {
+    using nexigen::chrono::TimeSyncMonitor;
+    using nexigen::chrono::TimeSyncPolicy;
+    using nexigen::chrono::TimeSyncSample;
+    using nexigen::chrono::TimeSyncStatus;
+
+    // Status vocabulary.
+    for (const TimeSyncStatus status :
+         {TimeSyncStatus::Ok, TimeSyncStatus::Stepped, TimeSyncStatus::GoingBackwards,
+          TimeSyncStatus::RateExceeded}) {
+        const std::string_view name = nexigen::chrono::to_string(status);
+        NX_CHECK(!name.empty());
+        TimeSyncStatus back{};
+        NX_CHECK(nexigen::chrono::from_string(name, back));
+        NX_CHECK(back == status);
+        nlohmann::json j;
+        nexigen::chrono::to_json(j, status);
+        NX_CHECK(j == std::string(name));
+        NX_CHECK(std::format("{}", status) == std::string(name));
+    }
+
+    const TimeSyncPolicy policy{};
+    NX_CHECK(TimeSyncMonitor::classify(1000, 1100, 1'000'000, policy) == TimeSyncStatus::Ok);
+    NX_CHECK(TimeSyncMonitor::classify(0, 2'000'000, 1'000'000, policy) == TimeSyncStatus::Stepped);
+    NX_CHECK(TimeSyncMonitor::classify(10'000'000, 0, 1'000'000, policy) ==
+             TimeSyncStatus::GoingBackwards);
+    NX_CHECK(TimeSyncMonitor::classify(0, 500'000, 100'000'000, policy) ==
+             TimeSyncStatus::RateExceeded);
+    // Below the window the rate is not evaluated.
+    NX_CHECK(TimeSyncMonitor::classify(0, 500'000, 10'000'000, policy) == TimeSyncStatus::Ok);
+
+    // A wall-clock jump of days: a step, and the ppm product must not overflow.
+    NX_CHECK(TimeSyncMonitor::classify(0, 10LL * 24 * 3600 * 1'000'000'000, 100'000'000, policy) ==
+             TimeSyncStatus::Stepped);
+    NX_CHECK(TimeSyncMonitor::classify(10LL * 24 * 3600 * 1'000'000'000, 0, 100'000'000, policy) ==
+             TimeSyncStatus::GoingBackwards);
+    // A pathological tolerance takes the scale-down branch instead of
+    // multiplying an enormous step by one million.
+    const TimeSyncPolicy unbounded{std::numeric_limits<std::int64_t>::max(), 500, 1};
+    NX_CHECK(TimeSyncMonitor::classify(0, 3'000'000'000'000, 100'000'000'000, unbounded) ==
+             TimeSyncStatus::RateExceeded);
+    // A negative tolerance clamps to zero instead of negating INT64_MIN.
+    const TimeSyncPolicy negative_step{-5, 500, 1'000'000};
+    NX_CHECK(TimeSyncMonitor::classify(0, 1, 1'000'000, negative_step) == TimeSyncStatus::Stepped);
+
+    const TimeSyncPolicy tight{100'000, 50, 1'000'000};
+    NX_CHECK(TimeSyncMonitor::classify(0, 200'000, 1'000'000, tight) == TimeSyncStatus::Stepped);
+
+    const TimeSyncSample sample{TimeSyncStatus::Stepped, 123, 456, 789};
+    NX_CHECK(sample.to_string().find("Stepped") != std::string::npos);
+    NX_CHECK(std::format("{}", sample) == sample.to_string());
+    NX_CHECK(policy.to_string().find("max_step_ns=1000000") != std::string::npos);
+
+    TimeSyncMonitor monitor{policy};
+    const auto first = monitor.sample();
+    NX_CHECK(first.has_value());
+    NX_CHECK(first.has_value() && first->status == TimeSyncStatus::Ok);
+    const auto second = monitor.sample();
+    NX_CHECK(second.has_value());
+    NX_CHECK(second.has_value() && second->status == TimeSyncStatus::Ok);
+    monitor.reset();
+    NX_CHECK(monitor.sample().has_value());
+}
+
 int main() {
     run_suite("timestamp", test_timestamp);
     run_suite("stamp", test_stamp);
@@ -2026,6 +2093,7 @@ int main() {
     run_suite("chrono_worker_thread_settings", test_chrono_worker_thread_settings);
     run_suite("settings_sink", test_settings_sink);
     run_suite("settings_edges", test_settings_edges);
+    run_suite("time_sync", test_time_sync);
 
     const int failures = g_failures;
     std::printf("total: %d checks, %d failed\n", g_checks, failures);

@@ -15,8 +15,10 @@
 
 #include <fcntl.h>
 #include <grp.h>
+#include <linux/capability.h>
 #include <sched.h>
 #include <signal.h>
+#include <sys/prctl.h>
 #include <strings.h>
 #include <sys/resource.h>
 #include <sys/types.h>
@@ -520,6 +522,7 @@ struct SupervisorContext {
 }
 
 [[nodiscard]] int apply_child_cgroup(const StartOptions& options) noexcept;
+[[nodiscard]] int apply_child_capabilities(const StartOptions& options) noexcept;
 [[nodiscard]] int apply_child_privileged_setup(const StartOptions& options) noexcept;
 [[nodiscard]] int apply_child_credentials(const StartOptions& options) noexcept;
 [[nodiscard]] int apply_child_resources(const StartOptions& options) noexcept;
@@ -607,7 +610,7 @@ struct SupervisorContext {
     // Exec-correct handshake (spec execution_manager/process-supervision): the child
     // writes a nonzero setup status ONLY on failure (1 setsid, 2 affinity,
     // 3 setenv, 4 exec, 7 setgroups, 8 setgid, 9 setuid, 10 verification,
-    // 11 cgroup); a
+    // 11 cgroup, 12 capability); a
     // successful `execvp` closes the child's O_CLOEXEC
     // fd, so EOF is the success signal. A full 4-byte read therefore always
     // means a reported setup/exec failure (the `!= 0` check stays as a
@@ -915,7 +918,25 @@ resolve_stop_state(const std::string& resource_path, const std::string& exit_pat
     if (const int cgroup = apply_child_cgroup(options); cgroup != 0) {
         return cgroup;
     }
+    if (const int capabilities = apply_child_capabilities(options); capabilities != 0) {
+        return capabilities;
+    }
     return apply_child_credentials(options);
+}
+
+/// @brief Drop CAP_SYS_NICE from the bounding set unless RT priority is opted in.
+///
+/// Only a privileged child can (and needs to) drop from the bounding set; a
+/// non-root application cannot use the capability to escalate priority anyway,
+/// so the call is skipped there. A failed drop on a privileged child is fatal.
+[[nodiscard]] int apply_child_capabilities(const StartOptions& options) noexcept {
+    if (options.allow_rt_priority || ::geteuid() != 0) {
+        return 0;
+    }
+    if (::prctl(PR_CAPBSET_DROP, static_cast<unsigned long>(CAP_SYS_NICE), 0UL, 0UL, 0UL) != 0) {
+        return 12;
+    }
+    return 0;
 }
 
 /// @brief Drop to the configured user; returns a setup-failure code.

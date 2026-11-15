@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <format>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -109,12 +110,14 @@ struct SupervisedProcess {
     std::int64_t alive_min_margin_cycles{0};
     /// Allowed excess above `alive_expected_indications` (count margin).
     std::int64_t alive_max_margin_cycles{0};
-    bool safety_critical{false};                          ///< Escalate directly to SafeState.
-    std::vector<std::uint32_t> checkpoints{};             ///< Expected checkpoint ids (alive).
-    std::vector<CheckpointTransition> transitions{};      ///< Logical graph edges.
-    std::vector<LogicalFork> logical_forks{};             ///< Declared fork/join regions.
-    std::vector<DeadlinePair> deadlines{};                ///< Deadline pairs with limits.
-    std::vector<RecoveryRule> recovery_rules{};           ///< Actions on Expired.
+    bool safety_critical{false}; ///< Escalate directly to SafeState.
+    /// Optional expected UID; when set, a verified claim is required first.
+    std::optional<std::uint32_t> expected_uid{};
+    std::vector<std::uint32_t> checkpoints{};        ///< Expected checkpoint ids (alive).
+    std::vector<CheckpointTransition> transitions{}; ///< Logical graph edges.
+    std::vector<LogicalFork> logical_forks{};        ///< Declared fork/join regions.
+    std::vector<DeadlinePair> deadlines{};           ///< Deadline pairs with limits.
+    std::vector<RecoveryRule> recovery_rules{};      ///< Actions on Expired.
 
     /// @brief Cold-path diagnostic naming the process and its parameters.
     ///

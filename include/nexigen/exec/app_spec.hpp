@@ -61,6 +61,8 @@ struct AppSpec {
     std::string executable_digest{};           ///< Optional SHA-256 hex digest.
     std::optional<std::uint32_t> uid{};        ///< Optional target user; 0 is rejected.
     std::optional<std::uint32_t> gid{};        ///< Optional target group; requires `uid`.
+    /// Keep `CAP_SYS_NICE` in the child's bounding set (RT priority opt-in).
+    bool allow_rt_priority{false};
 
     /// @brief Cold-path diagnostic rendering of the manifest entry.
     ///

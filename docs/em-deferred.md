@@ -10,9 +10,11 @@
   `em-least-privilege`: `uid`/`gid` в записи приложения, сброс групп, `setgid`,
   `setuid` и проверка дропа перед `exec`; `uid`/`gid == 0` запрещены;
   `trusted_platform.require_non_root` отказывает запуску под root без явного `uid`.
-- [ ] **REQ_EM_009b — CAP_SYS_NICE.** Точечная выдача capability для
-  RT-приоритетов не реализована: `sched_setscheduler(SCHED_FIFO)` по-прежнему
-  требует внешней настройки прав.
+- [x] **REQ_EM_009b — CAP_SYS_NICE (bounding set).** Реализовано в
+  `cap-sys-nice`: по умолчанию ребёнок удаляет `CAP_SYS_NICE` из capability
+  bounding set перед `exec`; `allow_rt_priority: true` оставляет её. Осталось:
+  полноценная политика permitted/effective/ambient (нужен `libcap` или
+  `capget/capset`) — отдельная задача.
 - [ ] **REQ_EM_010 — Authentic Execution.** Верификация исполняемых файлов и
   манифестов перед запуском (SHA-256 / криптоподпись); блокировка запуска при
   несовпадении + критическое событие в security-лог. Сейчас проверок целостности нет.
@@ -52,6 +54,7 @@
 Полный статус REQ_EM_* — в TODO.md не дублируется; на 2026-11-15: реализованы
 001 (dependencies), 003, 004, 005 (Function Groups config) и 005X-logging/metrics;
 частично — 002, 006, 007, 008, 010 (SHA-256 без подписи/security-лога), 011, 012,
-014; 009 закрыт для setuid/setgid, осталась выдача `CAP_SYS_NICE` (009b).
+014; 009 закрыт для setuid/setgid и bounding-set для `CAP_SYS_NICE`; осталась полная
+capability-политика.
 Ближайшая волна по недостающему — safety-приоритеты (007/014) и оркестрация
 (011/012) — отдельными change'ами.

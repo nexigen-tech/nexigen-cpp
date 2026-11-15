@@ -72,15 +72,15 @@ Declared out of scope for the programme: the Classic Platform BSW cluster
 | RS_SAF_10039 | Detect unintended alteration | supported | `exec/trusted-executable`, `phm/recovery`, `com/publish-subscribe` | `tests/exec/app_suite_test.cpp`, `tests/phm/phm_test.cpp`, `tests/com/com_test.cpp` | - |
 | RS_SAF_10040 | Data recovery | out-of-scope | - | - | boundary: persistency is outside the product boundary. |
 | RS_SAF_10041 | Configurable safety mechanisms | supported | `phm/manifest`, `exec/app-suite`, `com/service-management` | `tests/phm/phm_test.cpp`, `tests/exec/app_suite_test.cpp`, `tests/com/com_test.cpp` | - |
-| RS_SAF_10042 | Detect time-sync violations | partial | `chrono/clock-id` | `tests/chrono/chrono_test.cpp` | Monotonic and realtime clocks with UTC calibration; no sync-quality supervision. |
+| RS_SAF_10042 | Detect time-sync violations | supported | `chrono/time-sync`, `chrono/clock-id` | `tests/chrono/chrono_test.cpp` | - |
 | RS_HM_09125 | Alive supervision | supported | `phm/supervision` | `tests/phm/phm_test.cpp` | - |
 | RS_HM_09222 | Logical supervision | supported | `phm/supervision` | `tests/phm/phm_test.cpp` | - |
 | RS_HM_09235 | Deadline supervision | supported | `phm/supervision` | `tests/phm/phm_test.cpp` | - |
 | RS_PHM_00115 | Watchdog reset when SM supervision fails | supported | `phm/supervision` | `tests/phm/phm_test.cpp`, `examples/phm/safety_manifest.json` | - |
 | RS_PHM_00116 | Watchdog reset when EM supervision fails | supported | `phm/supervision` | `tests/phm/phm_test.cpp`, `examples/phm/safety_manifest.json` | - |
 | RS_PHM_00117 | Notify SM of other failures | supported | `sm/recovery-handler` | `tests/sm/sm_test.cpp` | - |
-| RS_PHM_00118 | Accept checkpoints only from the owning process | partial | `phm/health-channel` | `tests/phm/phm_test.cpp` | Per-process checkpoint services plus UID separation; no peer authentication yet. |
-| RS_PHM_00119 | Security event on a foreign checkpoint | not-implemented | - | - | deviation: no IAM or security-event channel; needs OS privilege separation. |
+| RS_PHM_00118 | Accept checkpoints only from the owning process | partial | `phm/identity`, `phm/health-channel` | `tests/phm/phm_test.cpp` | Per-process services, UID separation, and a /proc-verified claim; a same-UID impostor can still claim another pid. |
+| RS_PHM_00119 | Security event on a foreign checkpoint | supported | `phm/identity`, `phm/health-channel` | `tests/phm/phm_test.cpp` | - |
 | RS_EM_00002 | One process per modelled process | supported | `exec/process-supervision` | `tests/exec/execution_manager_test.cpp` | - |
 | RS_EM_00005 | OS resource budgets for processes and groups | supported | `exec/resource-groups` | `tests/exec/app_suite_test.cpp`, `tests/exec/execution_manager_test.cpp` | - |
 | RS_EM_00008 | Bind all threads to a core set | supported | `exec/resource-groups`, `core/thread-management` | `tests/exec/app_suite_test.cpp`, `tests/core/core_test.cpp` | - |

@@ -70,13 +70,14 @@ std::string AppSpec::to_string() const {
     return std::format(
         "AppSpec(app={}, instance={}, command={}, function_group={}, startup_configs={}, "
         "cpus={}, idle_timeout_s={}, impact={}, type={}, reporting={}, "
-        "global_settings_path={}, local_settings_path={}, log_level={}, uid={}, gid={})",
+        "global_settings_path={}, local_settings_path={}, log_level={}, uid={}, gid={}, "
+        "allow_rt_priority={})",
         app, instance, command, function_group, startup_configs.size(), cpus.count(),
         idle_timeout_s, nexigen::exec::to_string(impact), nexigen::exec::to_string(type), reporting,
         global_settings_path, local_settings_path,
         log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"),
         uid.has_value() ? std::to_string(*uid) : std::string("inherit"),
-        gid.has_value() ? std::to_string(*gid) : std::string("inherit"));
+        gid.has_value() ? std::to_string(*gid) : std::string("inherit"), allow_rt_priority);
 }
 
 std::string FunctionGroupConfig::to_string() const {
@@ -153,6 +154,7 @@ void to_json(nlohmann::json& j, const AppSpec& spec) {
         {"log_level", log_level_json(spec.log_level)},
         {"resource_group", spec.resource_group},
         {"executable_digest", spec.executable_digest},
+        {"allow_rt_priority", spec.allow_rt_priority},
     };
     if (spec.uid.has_value()) {
         j["uid"] = *spec.uid;
@@ -197,6 +199,7 @@ void from_json(const nlohmann::json& j, AppSpec& spec) noexcept {
     if (core::detail::read_unsigned(j, "gid", gid)) {
         spec.gid = gid;
     }
+    static_cast<void>(core::detail::read_bool(j, "allow_rt_priority", spec.allow_rt_priority));
 }
 
 void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
@@ -843,6 +846,24 @@ validate_dependency_entries(const AppSpec& app, const SuiteManifest& manifest,
     return {};
 }
 
+/// @brief Validate the credential and capability options of one application.
+///
+/// Rejects a root target uid, a gid without a uid, and the RT-priority opt-in
+/// combined with a non-root uid: the credential drop clears the permitted set,
+/// so keeping `CAP_SYS_NICE` in the bounding set would be a silent no-op.
+[[nodiscard]] core::Status validate_app_credentials(const AppSpec& app) noexcept {
+    if (app.uid.has_value() && *app.uid == 0U) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (app.gid.has_value() && (!app.uid.has_value() || *app.gid == 0U)) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (app.allow_rt_priority && app.uid.has_value()) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    return {};
+}
+
 [[nodiscard]] core::Status validate_app_spec(const AppSpec& app,
                                              const SuiteManifest& manifest) noexcept {
     if (const core::Status status = validate_app_identity_and_command(app); !status) {
@@ -865,12 +886,8 @@ validate_dependency_entries(const AppSpec& app, const SuiteManifest& manifest,
     if (const core::Status status = validate_app_timeouts(app); !status) {
         return status;
     }
-    if (app.uid.has_value() && *app.uid == 0U) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    if (app.gid.has_value() &&
-        (!app.uid.has_value() || *app.gid == 0U)) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
+    if (const core::Status status = validate_app_credentials(app); !status) {
+        return status;
     }
     if (const core::Status status = validate_app_settings_paths(app); !status) {
         return status;
@@ -1084,8 +1101,7 @@ core::Status load_suite_manifest(std::string_view path, std::string_view expecte
     if (expected_sha256_hex.empty()) {
         return load_suite_manifest(path, out);
     }
-    core::Result<std::string> text =
-        core::integrity::read_verified(path, expected_sha256_hex);
+    core::Result<std::string> text = core::integrity::read_verified(path, expected_sha256_hex);
     if (!text) {
         return std::unexpected(text.error());
     }

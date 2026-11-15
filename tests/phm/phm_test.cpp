@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <unistd.h>
 #include <cstdio>
 #include <format>
@@ -27,6 +28,10 @@
 #include <nexigen/core/serialization_mandate.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/phm/checkpoint.hpp>
+#include <nexigen/phm/checkpoint_claim.hpp>
+#include <nexigen/phm/checkpoint_identity.hpp>
+#include <nexigen/phm/claim_publisher.hpp>
+#include <nexigen/phm/claim_registry.hpp>
 #include <nexigen/phm/em_lifecycle.hpp>
 #include <nexigen/phm/fault_kind.hpp>
 #include <nexigen/phm/fault_log_verify.hpp>
@@ -39,6 +44,8 @@
 #include <nexigen/phm/recovery_action.hpp>
 #include <nexigen/phm/recovery_request.hpp>
 #include <nexigen/phm/recovery_response.hpp>
+#include <nexigen/phm/security_event.hpp>
+#include <nexigen/phm/security_event_kind.hpp>
 #include <nexigen/phm/supervision_status.hpp>
 #include <nexigen/phm/supervised_entity.hpp>
 #include <nexigen/phm/supervisor.hpp>
@@ -140,8 +147,9 @@ void test_vocabulary() {
                            phm::FaultKind::DeadlineFailure});
     check_enum_round_trip({phm::EmLifecycleState::Unknown, phm::EmLifecycleState::Running,
                            phm::EmLifecycleState::Terminating, phm::EmLifecycleState::Terminated});
-    check_enum_round_trip({phm::WatchdogState::Disabled, phm::WatchdogState::Armed,
-                           phm::WatchdogState::Stopped});
+    check_enum_round_trip(
+        {phm::WatchdogState::Disabled, phm::WatchdogState::Armed, phm::WatchdogState::Stopped});
+    check_enum_round_trip({phm::SecurityEventKind::ClaimRejected});
     NX_CHECK(to_string(static_cast<phm::HealthState>(0x7f)) == "Unknown");
 }
 
@@ -556,8 +564,8 @@ void test_recovery_watchdog() {
     process.name = "brake";
     process.recovery_rules.push_back({phm::RecoveryAction::TriggerWatchdogReset, ""});
     bool stopped = false;
-    const auto status = client->apply_rule(process, std::chrono::milliseconds(50),
-                                           [&stopped] { stopped = true; });
+    const auto status =
+        client->apply_rule(process, std::chrono::milliseconds(50), [&stopped] { stopped = true; });
     NX_CHECK(status.has_value());
     NX_CHECK(stopped);
     NX_CHECK(client->last_action() == phm::RecoveryAction::TriggerWatchdogReset);
@@ -725,6 +733,7 @@ void test_manifest() {
         entry.alive_min_margin_cycles = 1;
         entry.alive_max_margin_cycles = 2;
         entry.logical_forks.push_back({7, {8, 9}, 10});
+        entry.expected_uid = 1000U;
         extended.processes.push_back(entry);
         extended.watchdog.enabled = true;
         extended.watchdog.device = "/dev/watchdog";
@@ -743,6 +752,9 @@ void test_manifest() {
         NX_CHECK(restored.processes[0].logical_forks[0].branch_entries.size() == 2U);
         NX_CHECK(restored.processes[0].logical_forks[0].branch_entries[1] == 9U);
         NX_CHECK(restored.processes[0].logical_forks[0].join_id == 10U);
+        NX_CHECK(restored.processes[0].expected_uid.has_value());
+        NX_CHECK(*restored.processes[0].expected_uid == 1000U);
+        NX_CHECK(encoded["processes"][0].contains("expected_uid"));
         NX_CHECK(restored.watchdog.enabled);
         NX_CHECK(restored.watchdog.device == "/dev/watchdog");
         NX_CHECK(restored.watchdog.timeout_ms == 1000U);
@@ -774,10 +786,31 @@ void test_manifest() {
         negative.processes[0].alive_expected_indications = -1;
         NX_CHECK(rejects(negative, "gate"));
 
+        phm::PhmManifest zero_uid = valid;
+        zero_uid.processes[0].expected_uid = 0U;
+        NX_CHECK(rejects(zero_uid, "gate"));
+
+        // A gated entry must have a name that fits the claim buffer; otherwise
+        // its claim would always be truncated and it could never verify.
+        phm::PhmManifest long_name = valid;
+        long_name.processes[0].expected_uid = 7U;
+        long_name.processes[0].name = std::string(phm::k_claim_name_length, 'n');
+        NX_CHECK(rejects(long_name, "expected_uid requires"));
+
+        phm::PhmManifest empty_name = valid;
+        empty_name.processes[0].expected_uid = 7U;
+        empty_name.processes[0].name.clear();
+        NX_CHECK(rejects(empty_name, "expected_uid requires"));
+
+        phm::PhmManifest max_name = valid;
+        max_name.processes[0].expected_uid = 7U;
+        max_name.processes[0].name = std::string(phm::k_claim_name_length - 1U, 'm');
+        NX_CHECK(phm::validate_phm_manifest(max_name, error).has_value());
+
         phm::PhmManifest negative_json;
         from_json(nlohmann::json{{"processes",
-                                  nlohmann::json::array({{{"name", "neg"},
-                                                          {"alive_max_margin_cycles", -3}}})}},
+                                  nlohmann::json::array(
+                                      {{{"name", "neg"}, {"alive_max_margin_cycles", -3}}})}},
                   negative_json);
         NX_CHECK(rejects(negative_json, "neg"));
 
@@ -856,23 +889,23 @@ void test_watchdog() {
         NX_CHECK(device.path() == "/dev/watchdog");
 
         const auto t0 = phm::Watchdog::Clock::now();
-        created->tick(t0, false);                       // first feed
-        created->tick(t0 + milliseconds(100), false);   // period elapsed
-        created->tick(t0 + milliseconds(150), false);   // too soon
+        created->tick(t0, false);                     // first feed
+        created->tick(t0 + milliseconds(100), false); // period elapsed
+        created->tick(t0 + milliseconds(150), false); // too soon
         NX_CHECK(created->feeds() == 2U);
 
-        created->tick(t0 + milliseconds(160), true);    // expired stops the feed
+        created->tick(t0 + milliseconds(160), true); // expired stops the feed
         NX_CHECK(created->state() == phm::WatchdogState::Stopped);
         NX_CHECK(!created->feeding());
         NX_CHECK(created->feeds() == 2U);
 
-        created->tick(t0 + milliseconds(200), false);   // healthy resumes
+        created->tick(t0 + milliseconds(200), false); // healthy resumes
         NX_CHECK(created->state() == phm::WatchdogState::Armed);
         NX_CHECK(created->feeds() == 3U);
 
-        created->tick(t0 + milliseconds(700), false);   // stalled loop: skip
+        created->tick(t0 + milliseconds(700), false); // stalled loop: skip
         NX_CHECK(created->feeds() == 3U);
-        created->tick(t0 + milliseconds(800), false);   // clean cycle feeds
+        created->tick(t0 + milliseconds(800), false); // clean cycle feeds
         NX_CHECK(created->feeds() == 4U);
 
         const std::string text = created->to_string();
@@ -921,7 +954,6 @@ void test_watchdog() {
         }
     }
 }
-
 
 std::string read_text_file(const std::string& path) {
     std::FILE* file = std::fopen(path.c_str(), "rb");
@@ -1028,6 +1060,125 @@ void test_fault_log() {
     static_cast<void>(std::remove(intact_path.c_str()));
 }
 
+void test_identity() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto channel = com::ServiceName::create("Nexigen/Test/Claim");
+    const auto event_name = com::ServiceName::create("Nexigen/Test/ClaimEvent");
+    NX_CHECK(channel.has_value() && event_name.has_value());
+
+    auto subscriber = com::Subscriber<phm::CheckpointClaim>::create(*node, *channel);
+    auto listener = com::EventListener::create(*node, *event_name);
+    auto publisher = phm::ClaimPublisher::create(*node, *channel, *event_name);
+    NX_CHECK(subscriber.has_value() && listener.has_value() && publisher.has_value());
+
+    NX_CHECK(
+        publisher->claim("camera", static_cast<std::uint32_t>(::getpid()), ::getuid()).has_value());
+    bool seen = false;
+    for (int i = 0; i < 200 && !seen; ++i) {
+        auto received = subscriber->receive();
+        NX_CHECK(received.has_value());
+        if (received->has_value()) {
+            const auto& claim = (*received)->payload();
+            NX_CHECK(std::string(claim.name) == "camera");
+            NX_CHECK(claim.pid == static_cast<std::uint32_t>(::getpid()));
+            NX_CHECK(claim.uid == ::getuid());
+            seen = true;
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    NX_CHECK(seen);
+    bool woken = false;
+    const auto collected = listener->try_wait([&](com::EventId) { woken = true; });
+    NX_CHECK(collected.has_value());
+    NX_CHECK(woken);
+
+    // Verification: matching uid passes; everything else is rejected.
+    phm::CheckpointClaim claim{};
+    std::snprintf(claim.name, sizeof(claim.name), "%s", "camera");
+    claim.pid = static_cast<std::uint32_t>(::getpid());
+    claim.uid = ::getuid();
+    NX_CHECK(phm::checkpoint_claim_verdict(claim, ::getuid()).verified);
+    NX_CHECK(!phm::checkpoint_claim_verdict(claim, ::getuid() + 1U).verified);
+    phm::CheckpointClaim missing = claim;
+    missing.pid = 999999U;
+    NX_CHECK(!phm::checkpoint_claim_verdict(missing, ::getuid()).verified);
+    phm::CheckpointClaim unnamed = claim;
+    unnamed.name[0] = '\0';
+    NX_CHECK(!phm::checkpoint_claim_verdict(unnamed, ::getuid()).verified);
+    NX_CHECK(phm::checkpoint_claim_verdict(claim, ::getuid()).to_string().find("verified=true") !=
+             std::string::npos);
+
+    // Samples come from shared memory: a producer that fills the buffer without
+    // a NUL must not make diagnostics read past the sample.
+    phm::CheckpointClaim full{};
+    std::memset(full.name, 'x', sizeof(full.name));
+    full.pid = 1U;
+    full.uid = 2U;
+    NX_CHECK(phm::bounded_name(full.name, sizeof(full.name)).size() == sizeof(full.name));
+    NX_CHECK(full.to_string().find("xxxx") != std::string::npos);
+    NX_CHECK(full.to_string().size() < 200U);
+
+    phm::SecurityEvent event{};
+    std::memset(event.process, 'y', sizeof(event.process));
+    event.pid = 3U;
+    event.uid = 4U;
+    const std::string event_text = event.to_string();
+    NX_CHECK(event_text.find("ClaimRejected") != std::string::npos);
+    NX_CHECK(event_text.find("yyyy") != std::string::npos);
+    NX_CHECK(std::format("{}", event) == event_text);
+
+    // Registry: legacy entries pass, gated entries need a verified claim, and a
+    // stopping incarnation must claim again.
+    phm::PhmManifest manifest;
+    phm::SupervisedProcess gated = make_process("camera");
+    gated.expected_uid = ::getuid();
+    manifest.processes.push_back(gated);
+    manifest.processes.push_back(make_process("legacy"));
+
+    phm::ClaimRegistry registry(manifest);
+    NX_CHECK(registry.requires_claim(0));
+    NX_CHECK(!registry.requires_claim(1));
+    NX_CHECK(!registry.accepts(0));
+    NX_CHECK(registry.accepts(1));
+    NX_CHECK(!registry.accepts(99));
+    NX_CHECK(registry.to_string().find("verified=0") != std::string::npos);
+
+    phm::CheckpointClaim unknown = claim;
+    std::snprintf(unknown.name, sizeof(unknown.name), "%s", "ghost");
+    NX_CHECK(registry.apply(unknown) == phm::SecurityEventKind::ClaimRejected);
+
+    phm::CheckpointClaim foreign = claim;
+    foreign.uid = ::getuid() + 1U;
+    NX_CHECK(registry.apply(foreign) == phm::SecurityEventKind::ClaimRejected);
+    NX_CHECK(!registry.accepts(0));
+
+    phm::CheckpointClaim gone = claim;
+    gone.pid = 999999U;
+    NX_CHECK(registry.apply(gone) == phm::SecurityEventKind::ClaimRejected);
+
+    // A legacy entry ignores claims entirely: no event, no state change.
+    phm::CheckpointClaim legacy_claim = claim;
+    std::snprintf(legacy_claim.name, sizeof(legacy_claim.name), "%s", "legacy");
+    NX_CHECK(!registry.apply(legacy_claim).has_value());
+    NX_CHECK(registry.accepts(1));
+
+    // Verified, then reset by a lifecycle stop: the next incarnation must claim.
+    NX_CHECK(!registry.apply(claim).has_value());
+    NX_CHECK(registry.accepts(0));
+    NX_CHECK(registry.verified_count() == 1U);
+    NX_CHECK(registry.to_string().find("verified=1") != std::string::npos);
+    registry.reset(0);
+    NX_CHECK(!registry.accepts(0));
+    NX_CHECK(registry.verified_count() == 0U);
+
+    NX_CHECK(!registry.apply(claim).has_value());
+    registry.reset_all();
+    NX_CHECK(!registry.accepts(0));
+    NX_CHECK(registry.verified_count() == 0U);
+}
+
 void test_supervised_entity() {
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
@@ -1080,6 +1231,33 @@ void test_supervised_entity() {
     const auto unknown = entity->current_group_state("unpublished_group");
     NX_CHECK(unknown.has_value());
     NX_CHECK(!unknown->has_value());
+
+    // Identity claim: creation publishes the claim, and on-demand claiming
+    // re-publishes it (the daemon uses the same path after a restart).
+    const auto claim_service = com::ServiceName::create("Nexigen/Test/EntityClaim");
+    const auto claim_event = com::ServiceName::create("Nexigen/Test/EntityClaimEvent");
+    NX_CHECK(claim_service.has_value() && claim_event.has_value());
+    auto claim_subscriber = com::Subscriber<phm::CheckpointClaim>::create(*node, *claim_service);
+    NX_CHECK(claim_subscriber.has_value());
+    const phm::ClaimConfig claim_config{*claim_service, *claim_event};
+    auto claiming = phm::SupervisedEntity::create(*node, "camera", *checkpoint_name, *health_name,
+                                                  claim_config);
+    NX_CHECK(claiming.has_value());
+    bool entity_claim_seen = false;
+    for (int i = 0; i < 200 && !entity_claim_seen; ++i) {
+        auto received = claim_subscriber->receive();
+        NX_CHECK(received.has_value());
+        if (received->has_value()) {
+            const auto& sample = (*received)->payload();
+            entity_claim_seen = phm::bounded_name(sample.name, sizeof(sample.name)) == "camera" &&
+                                sample.pid == static_cast<std::uint32_t>(::getpid()) &&
+                                sample.uid == ::getuid();
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    NX_CHECK(entity_claim_seen);
+    NX_CHECK(claiming->claim_identity().has_value());
 
     // Diagnostics.
     const std::string text = entity->to_string();
@@ -1160,6 +1338,7 @@ int main() {
     run_suite("manifest", test_manifest);
     run_suite("watchdog", test_watchdog);
     run_suite("fault_log", test_fault_log);
+    run_suite("identity", test_identity);
     run_suite("thread_spec", test_thread_spec);
     run_suite("supervised_entity", test_supervised_entity);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);

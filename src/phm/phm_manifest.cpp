@@ -5,6 +5,7 @@
 #include <utility>
 
 #include <nexigen/core/detail/json_field.hpp>
+#include <nexigen/phm/checkpoint_claim.hpp>
 
 namespace nexigen::phm {
 
@@ -43,6 +44,10 @@ void parse_supervised_identity(const nlohmann::json& j, SupervisedProcess& proce
     parse_count(j, "alive_min_margin_cycles", process.alive_min_margin_cycles);
     parse_count(j, "alive_max_margin_cycles", process.alive_max_margin_cycles);
     core::detail::read_bool(j, "safety_critical", process.safety_critical);
+    std::uint32_t expected_uid = 0;
+    if (core::detail::read_unsigned(j, "expected_uid", expected_uid)) {
+        process.expected_uid = expected_uid;
+    }
 }
 
 // A present checkpoint array with a non-unsigned (or out-of-range) element
@@ -199,6 +204,9 @@ void to_json(nlohmann::json& j, const SupervisedProcess& process) {
         {"logical_forks", std::move(forks)},
         {"deadlines", std::move(deadlines)},
         {"recovery_rules", std::move(rules)}};
+    if (process.expected_uid.has_value()) {
+        j["expected_uid"] = *process.expected_uid;
+    }
 }
 
 void to_json(nlohmann::json& j, const PhmManifest& manifest) {
@@ -313,11 +321,35 @@ namespace {
     return std::unexpected(core::ErrorCode::InvalidArgument);
 }
 
+/// @brief Validate the optional identity expectation of one process.
+///
+/// A claim carries the name in a fixed-size buffer, so an entry that requires a
+/// claim must have a non-empty name that fits. Otherwise the published claim
+/// would always be truncated and the process could never verify, which turns a
+/// configuration mistake into an Expired process and a watchdog reset.
+[[nodiscard]] core::Status validate_identity(const SupervisedProcess& process,
+                                             std::string& error) noexcept {
+    if (!process.expected_uid.has_value()) {
+        return {};
+    }
+    if (*process.expected_uid == 0U) {
+        error = std::format("process '{}': expected_uid 0 is rejected", process.name);
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (process.name.empty() || process.name.size() >= k_claim_name_length) {
+        error = std::format("process '{}': expected_uid requires a name of 1..{} bytes "
+                            "(claim buffer size minus the terminator)",
+                            process.name, k_claim_name_length - 1U);
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    return {};
+}
+
 [[nodiscard]] core::Status validate_forks(const SupervisedProcess& process,
                                           std::string& error) noexcept {
     if (process.logical_forks.size() > k_max_logical_forks) {
-        error = std::format("process '{}': {} logical forks exceed the supported {}",
-                            process.name, process.logical_forks.size(), k_max_logical_forks);
+        error = std::format("process '{}': {} logical forks exceed the supported {}", process.name,
+                            process.logical_forks.size(), k_max_logical_forks);
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     for (std::size_t f = 0; f < process.logical_forks.size(); ++f) {
@@ -342,8 +374,8 @@ namespace {
         }
         for (std::size_t other = f + 1; other < process.logical_forks.size(); ++other) {
             if (process.logical_forks[other].fork_id == fork.fork_id) {
-                error = std::format("process '{}': duplicate fork id {}", process.name,
-                                    fork.fork_id);
+                error =
+                    std::format("process '{}': duplicate fork id {}", process.name, fork.fork_id);
                 return std::unexpected(core::ErrorCode::InvalidArgument);
             }
         }
@@ -355,6 +387,9 @@ namespace {
                                             std::string& error) noexcept {
     if (const core::Status counts = validate_counts(process, error); !counts) {
         return counts;
+    }
+    if (const core::Status identity = validate_identity(process, error); !identity) {
+        return identity;
     }
     return validate_forks(process, error);
 }

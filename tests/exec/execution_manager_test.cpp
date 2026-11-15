@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <linux/capability.h>
 #include <sched.h>
 #include <signal.h>
 #include <sys/stat.h>
@@ -1310,7 +1311,6 @@ void test_error_paths() {
 
 } // namespace
 
-
 // --- Least privilege: the child drops to the configured user ---
 void test_child_credentials() {
     const std::string root = unique_dir("credentials");
@@ -1331,8 +1331,7 @@ void test_child_credentials() {
         return;
     }
 
-    const core::Status started =
-        execution_manager.start(identity, "cred_app", command, 0, options);
+    const core::Status started = execution_manager.start(identity, "cred_app", command, 0, options);
     NX_CHECK(started.has_value());
     if (started) {
         const std::string instance_dir = root + "/cred_app/1";
@@ -1356,24 +1355,20 @@ void test_child_credentials() {
     remove_tree(root);
 }
 
-
 // --- Resource budgets: the child joins its prepared cgroup ---
 void test_cgroup_join() {
     const std::string root = unique_dir("cgroup_join");
     const std::string cgroup = root + "/cg";
     std::error_code error;
     std::filesystem::create_directories(cgroup, error);
-    {
-        std::ofstream procs(cgroup + "/cgroup.procs", std::ios::binary | std::ios::trunc);
-    }
+    { std::ofstream procs(cgroup + "/cgroup.procs", std::ios::binary | std::ios::trunc); }
 
     const app::RunIdentity identity{"run-cg", root, "1", {}};
     const std::vector<std::string> command{"/bin/true"};
     exec::ExecutionManager execution_manager;
     exec::StartOptions options{};
     options.cgroup_path = cgroup;
-    const core::Status started =
-        execution_manager.start(identity, "cg_app", command, 0, options);
+    const core::Status started = execution_manager.start(identity, "cg_app", command, 0, options);
     NX_CHECK(started.has_value());
     if (started) {
         const std::string instance_dir = root + "/cg_app/1";
@@ -1393,6 +1388,83 @@ void test_cgroup_join() {
     remove_tree(root);
 }
 
+/// @brief Whether a `/proc/<pid>/status` text has a capability bit set.
+[[nodiscard]] bool status_has_capability(const std::string& status_text, std::string_view field,
+                                         unsigned bit) {
+    const auto pos = status_text.find(field);
+    if (pos == std::string::npos) {
+        return false;
+    }
+    const auto start = status_text.find_first_not_of(" \t", pos + field.size());
+    if (start == std::string::npos) {
+        return false;
+    }
+    const auto end = status_text.find('\n', start);
+    const std::string hex = status_text.substr(start, end - start);
+    const unsigned long long value = std::strtoull(hex.c_str(), nullptr, 16);
+    return ((value >> bit) & 1ULL) != 0ULL;
+}
+
+/// @brief Whether a `/proc/<pid>/status` text has CAP_SYS_NICE in CapBnd.
+[[nodiscard]] bool cap_bnd_has_sys_nice(const std::string& status_text) {
+    return status_has_capability(status_text, "CapBnd:", static_cast<unsigned>(CAP_SYS_NICE));
+}
+
+/// @brief RT priority capability is opt-in; requires a privileged supervisor.
+void test_rt_capability() {
+    // Parser contract first: this runs in every environment.
+    NX_CHECK(status_has_capability("CapBnd:\t000001ffffffffff\n",
+                                   "CapBnd:", static_cast<unsigned>(CAP_SYS_NICE)));
+    NX_CHECK(!status_has_capability("CapBnd:\t0000000000000000\n",
+                                    "CapBnd:", static_cast<unsigned>(CAP_SYS_NICE)));
+    NX_CHECK(
+        !status_has_capability("Uid:\t1000\n", "CapBnd:", static_cast<unsigned>(CAP_SYS_NICE)));
+
+    if (::geteuid() != 0) {
+        std::printf("[rt_capability] skipped (requires root)\n");
+        return;
+    }
+    std::ifstream self("/proc/self/status");
+    const std::string text((std::istreambuf_iterator<char>(self)),
+                           std::istreambuf_iterator<char>());
+    if (!cap_bnd_has_sys_nice(text) ||
+        !status_has_capability(text, "CapEff:", static_cast<unsigned>(CAP_SETPCAP))) {
+        // A privileged supervisor still needs CAP_SETPCAP for PR_CAPBSET_DROP;
+        // without it the drop fails by design, so the scenario is not testable.
+        std::printf("[rt_capability] skipped (needs CAP_SYS_NICE in CapBnd and "
+                    "CAP_SETPCAP in CapEff)\n");
+        return;
+    }
+
+    const std::string root = unique_dir("rt_cap");
+    exec::ExecutionManager execution_manager;
+
+    const auto bounding_after = [&](bool allow) {
+        const std::string marker = root + (allow ? "/bnd_allow.txt" : "/bnd_drop.txt");
+        const std::vector<std::string> command{"/bin/sh", "-c",
+                                               "grep CapBnd /proc/self/status > " + marker};
+        const app::RunIdentity identity{"run-rt", root, "1", {}};
+        exec::StartOptions options{};
+        options.allow_rt_priority = allow;
+        NX_CHECK(execution_manager.start(identity, "rt_app", command, 0, options).has_value());
+        const std::string instance_dir = root + "/rt_app/1";
+        NX_CHECK(wait_until(
+            [&] {
+                struct stat status{};
+                return ::stat((instance_dir + "/exit.json").c_str(), &status) == 0;
+            },
+            5000));
+        std::ifstream in(marker);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+
+    NX_CHECK(!cap_bnd_has_sys_nice(bounding_after(false)));
+    NX_CHECK(cap_bnd_has_sys_nice(bounding_after(true)));
+
+    reap_supervisors();
+    remove_tree(root);
+}
+
 int main() {
     run_suite("terminated_by", test_terminated_by);
     run_suite("resource_metadata", test_resource_metadata);
@@ -1407,6 +1479,7 @@ int main() {
     run_suite("env_identity_layout", test_env_identity_layout);
     run_suite("child_credentials", test_child_credentials);
     run_suite("cgroup_join", test_cgroup_join);
+    run_suite("rt_capability", test_rt_capability);
     run_suite("log_truncation", test_log_truncation_on_restart);
     run_suite("graceful_sigterm", test_graceful_sigterm);
     run_suite("session_isolation", test_execution_manager_session_isolation);

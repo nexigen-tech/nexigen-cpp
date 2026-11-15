@@ -11,6 +11,7 @@
 // Infrastructure::run(tick) loop; no Infrastructure policy changes.
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <format>
 #include <optional>
@@ -18,16 +19,34 @@
 #include <string_view>
 #include <utility>
 
+#include <unistd.h>
+
 #include <nexigen/com/error.hpp>
 #include <nexigen/com/field.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/phm/checkpoint.hpp>
+#include <nexigen/phm/claim_publisher.hpp>
 #include <nexigen/phm/health_channel.hpp>
 #include <nexigen/phm/health_state.hpp>
 #include <nexigen/sm/group_state_payload.hpp>
 
 namespace nexigen::phm {
+
+/// @brief Optional identity-claim wiring for a supervised entity.
+///
+/// When present, the entity publishes `{name, pid, uid}` at creation and then
+/// again at most once per `interval`, so a daemon that restarts (or starts
+/// after the application) learns the identity without a handshake. The claim
+/// is also published on demand through `SupervisedEntity::claim_identity`.
+///
+/// @note Spec `phm/identity`, requirement "Checkpoint claim channel".
+struct ClaimConfig {
+    com::ServiceName channel; ///< Claim sample service (for example `Nexigen/PHM/Claim`).
+    com::ServiceName event;   ///< Paired wake event.
+    /// Re-claim period; bounded retry keeps a daemon restart self-healing.
+    std::chrono::milliseconds interval{1000};
+};
 
 /// @brief The application's PHM participation handle.
 ///
@@ -43,9 +62,14 @@ namespace nexigen::phm {
 /// not copyable, and the node must outlive it. All report calls are hot-path
 /// (non-blocking transport writes); `to_string` is a cold-path diagnostic.
 ///
+/// An entity created with a `ClaimConfig` also owns an identity-claim channel:
+/// it publishes the claim during creation and re-publishes it at most once per
+/// configured interval while checkpoints are reported.
+///
 /// @note Spec `phm/supervised-entity`, requirements "Supervised entity
 ///       configuration", "Checkpoint reporting", "Health status reporting",
-///       and "Function Group state read".
+///       and "Function Group state read". Spec `phm/identity`, requirement
+///       "Checkpoint claim channel".
 class SupervisedEntity {
 public:
     /// @brief Open the checkpoint and health channels for the application.
@@ -56,15 +80,20 @@ public:
     /// @param checkpoint_service Service name of this application's checkpoint
     ///        channel, shared with the daemon's listener.
     /// @param health_service Service name of this application's health channel.
-    /// @return The constructed entity only when both channels open, otherwise
-    ///         the first mapped `com::Error` from `CheckpointEmitter::create`
-    ///         or `HealthChannel::create`.
+    /// @param claim_config Optional identity-claim wiring; when present the
+    ///        entity must publish its first claim successfully.
+    /// @return The constructed entity only when every requested channel opens,
+    ///         otherwise the first mapped `com::Error` from
+    ///         `CheckpointEmitter::create`, `HealthChannel::create`, or
+    ///         `ClaimPublisher::create`, or the claim send error.
     /// @note Spec `phm/supervised-entity`, requirement "Supervised entity
     ///       configuration": creation succeeds only when the underlying
-    ///       checkpoint and health channels open.
+    ///       checkpoint and health channels open. Spec `phm/identity`,
+    ///       requirement "Checkpoint claim channel".
     [[nodiscard]] static com::Result<SupervisedEntity>
     create(com::Node& node, std::string_view app_name, const com::ServiceName& checkpoint_service,
-           const com::ServiceName& health_service) noexcept {
+           const com::ServiceName& health_service,
+           const std::optional<ClaimConfig>& claim_config = std::nullopt) noexcept {
         auto checkpoint = CheckpointEmitter::create(node, checkpoint_service);
         if (!checkpoint) {
             return std::unexpected(checkpoint.error());
@@ -73,7 +102,22 @@ public:
         if (!health) {
             return std::unexpected(health.error());
         }
-        return SupervisedEntity{node, app_name, std::move(*checkpoint), std::move(*health)};
+        SupervisedEntity entity{node, app_name, std::move(*checkpoint), std::move(*health)};
+        if (claim_config.has_value()) {
+            auto publisher =
+                ClaimPublisher::create(node, claim_config->channel, claim_config->event);
+            if (!publisher) {
+                return std::unexpected(publisher.error());
+            }
+            entity.claim_.emplace(std::move(*publisher));
+            entity.claim_pid_ = static_cast<std::uint32_t>(::getpid());
+            entity.claim_uid_ = ::getuid();
+            entity.claim_interval_ = claim_config->interval;
+            if (const com::Status claimed = entity.claim_identity(); !claimed) {
+                return std::unexpected(claimed.error());
+            }
+        }
+        return entity;
     }
 
     /// @brief Copy construction is deleted: the entity owns both channels.
@@ -105,11 +149,30 @@ public:
     ///         mapped `com::Error` from the checkpoint channel.
     /// @note Spec `phm/supervised-entity`, requirement "Checkpoint reporting".
     [[nodiscard]] com::Status report_checkpoint(std::uint32_t checkpoint_id) noexcept {
+        maybe_reclaim_identity();
         const com::Status status = checkpoint_.emit(checkpoint_id);
         if (status.has_value()) {
             last_checkpoint_ = checkpoint_id;
         }
         return status;
+    }
+
+    /// @brief Publish the identity claim now, bypassing the retry interval.
+    ///
+    /// A no-op when the entity was created without a `ClaimConfig`. The call is
+    /// rate-limited afterwards: the next automatic re-claim happens one
+    /// interval after this attempt.
+    ///
+    /// @return Empty `com::Status` when the claim and its wake event were
+    ///         delivered (or when no claim channel is configured), otherwise
+    ///         the mapped `com::Error` from the claim channel.
+    /// @note Spec `phm/identity`, requirement "Checkpoint claim channel".
+    [[nodiscard]] com::Status claim_identity() noexcept {
+        if (!claim_.has_value()) {
+            return {};
+        }
+        next_claim_ = std::chrono::steady_clock::now() + claim_interval_;
+        return claim_->claim(app_name_, claim_pid_, claim_uid_);
     }
 
     /// @brief Report a health state; report an unrecoverable fault immediately.
@@ -184,6 +247,23 @@ public:
     }
 
 private:
+    /// @brief Publish the claim when the retry interval elapsed.
+    ///
+    /// Called from the checkpoint hot path: it only reads the steady clock and
+    /// compares a time point, so a legacy entity pays nothing. A failed send
+    /// is retried after the next interval instead of on every checkpoint.
+    void maybe_reclaim_identity() noexcept {
+        if (!claim_.has_value()) {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (now < next_claim_) {
+            return;
+        }
+        next_claim_ = now + claim_interval_;
+        static_cast<void>(claim_->claim(app_name_, claim_pid_, claim_uid_));
+    }
+
     /// @brief Adopt the opened channels and application identity.
     ///
     /// @param node Node used later to open Function Group field listeners.
@@ -201,6 +281,12 @@ private:
     std::string app_name_;         ///< Application identity for diagnostics.
     CheckpointEmitter checkpoint_; ///< Checkpoint event channel.
     HealthChannel health_;         ///< Health event channel.
+    /// Optional identity-claim channel; empty for a legacy entity.
+    std::optional<ClaimPublisher> claim_{};
+    std::uint32_t claim_pid_{0};                         ///< Claimed pid (creation time).
+    std::uint32_t claim_uid_{0};                         ///< Claimed real uid (creation time).
+    std::chrono::milliseconds claim_interval_{1000};     ///< Re-claim period.
+    std::chrono::steady_clock::time_point next_claim_{}; ///< Earliest next automatic claim.
     /// Cached group listener; empty until the first successful read.
     std::optional<com::FieldListener<sm::GroupStatePayload>> group_listener_{};
     std::string group_name_{};                 ///< Group name the cached listener belongs to.
