@@ -762,9 +762,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/exec/function_group_registry.hpp": {
-    "mtime": 1794732848.8430886,
-    "seen": 1794734214.193033,
-    "ast_hash": "e2904e7756e27758f30623127763c2ba",
+    "mtime": 1794737244.2999773,
+    "seen": 1794738971.8820837,
+    "ast_hash": "df741e7f14c990d43ad76c0f248c1f1f",
     "semantic_hash": ""
   },
   "include/nexigen/exec/impact_on_app_suite_operability.hpp": {
@@ -1566,9 +1566,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/sm/transition_result.hpp": {
-    "mtime": 1794516552.7318826,
-    "seen": 1794517299.3893554,
-    "ast_hash": "565694b59a2fb678c8169771093c2e69",
+    "mtime": 1794737231.4410117,
+    "seen": 1794738971.8839061,
+    "ast_hash": "88a96949eda7ae022de0ae82d8a61095",
     "semantic_hash": ""
   },
   "include/nexigen/sm/trigger_request.hpp": {
@@ -2430,9 +2430,9 @@
     "semantic_hash": ""
   },
   "src/exec/function_group_registry.cpp": {
-    "mtime": 1794732848.8430886,
-    "seen": 1794734214.196924,
-    "ast_hash": "3a86b3721a053d2e198b42df516381ac",
+    "mtime": 1794737240.2299883,
+    "seen": 1794738971.8862896,
+    "ast_hash": "564d3fb4e71b818b6c74842958c69dde",
     "semantic_hash": ""
   },
   "src/exec/impact_on_app_suite_operability.cpp": {
@@ -2448,9 +2448,9 @@
     "semantic_hash": ""
   },
   "src/exec/state_client.cpp": {
-    "mtime": 1794734635.7619836,
-    "seen": 1794735524.3584974,
-    "ast_hash": "6c9cc64e0cd60bd4ff31f9605737c763",
+    "mtime": 1794737466.7673833,
+    "seen": 1794738971.8863783,
+    "ast_hash": "dcff20134675c601acf98d46bc1dafc1",
     "semantic_hash": ""
   },
   "src/exec/suite_control.cpp": {
@@ -2754,9 +2754,9 @@
     "semantic_hash": ""
   },
   "tests/exec/em_orchestration_test.cpp": {
-    "mtime": 1794694812.457325,
-    "seen": 1794695189.8623137,
-    "ast_hash": "9839ddaba189a8adb386a2bf809b005f",
+    "mtime": 1794737504.472283,
+    "seen": 1794738971.8870986,
+    "ast_hash": "e98108472b3f42d2d1dc524726ab1b3a",
     "semantic_hash": ""
   },
   "tests/exec/execution_manager_logging_test.cpp": {
@@ -2772,9 +2772,9 @@
     "semantic_hash": ""
   },
   "tests/exec/state_client_test.cpp": {
-    "mtime": 1794734563.620183,
-    "seen": 1794735524.359249,
-    "ast_hash": "ea71c399f43fbc90d12f5021d133fa47",
+    "mtime": 1794737470.0543747,
+    "seen": 1794738971.8871214,
+    "ast_hash": "f22711d89a322bc94d35b32e233db553",
     "semantic_hash": ""
   },
   "tests/fuzz/http_parse_fuzz.cpp": {
@@ -3084,9 +3084,9 @@
     "semantic_hash": ""
   },
   "tests/sm/sm_test.cpp": {
-    "mtime": 1794734571.1111622,
-    "seen": 1794735524.359884,
-    "ast_hash": "dc05d3d70b082dc452679e0f4248babc",
+    "mtime": 1794737871.8213022,
+    "seen": 1794738971.8877664,
+    "ast_hash": "a0a229975b79afb501e71f5bd738c2d7",
     "semantic_hash": ""
   },
   "tests/support/test_temp.hpp": {
@@ -3210,9 +3210,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-sm/main.cpp": {
-    "mtime": 1794734546.6852298,
-    "seen": 1794735524.3602417,
-    "ast_hash": "46fabd63ef50b01a5e90b41552e2141c",
+    "mtime": 1794737549.6367145,
+    "seen": 1794738971.8881266,
+    "ast_hash": "a336b5eecd446056fb2c2eb7e499a4d4",
     "semantic_hash": ""
   },
   ".opencode/commands/opsx-apply.md": {
@@ -3390,9 +3390,9 @@
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1794734673.0288806,
-    "seen": 1794735524.3605986,
-    "ast_hash": "8e62e9b17cfeb0264d50197bca238c38",
+    "mtime": 1794737508.557272,
+    "seen": 1794738971.8884974,
+    "ast_hash": "1ae204ae41d14c0024ade30d295d5c4c",
     "semantic_hash": ""
   },
   "docs/code-analysis-2026-11-03.md": {
@@ -6792,9 +6792,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/exec/state-client/spec.md": {
-    "mtime": 1794734217.828187,
-    "seen": 1794735524.3701866,
-    "ast_hash": "b6ad94215cb00a82f7c4209ccbdd8575",
+    "mtime": 1794735528.4845507,
+    "seen": 1794738971.8987796,
+    "ast_hash": "4f39077ae9908bff47d0052ea4cd0ef8",
     "semantic_hash": ""
   },
   "openspec/specs/hub/discovery/spec.md": {
@@ -7038,9 +7038,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/sm/state-machine/spec.md": {
-    "mtime": 1794700046.792188,
-    "seen": 1794700626.4590306,
-    "ast_hash": "c05ceb5379edd258e9a5b021e4697083",
+    "mtime": 1794735528.4855506,
+    "seen": 1794738971.8993883,
+    "ast_hash": "d8004e7b097aea5116724d448c5ceecc",
     "semantic_hash": ""
   },
   "openspec/specs/sm/telemetry/spec.md": {
@@ -8831,12 +8831,6 @@
     "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
     "semantic_hash": ""
   },
-  "openspec/changes/p3-state-client-request-ids/.openspec.yaml": {
-    "mtime": 1794734462.4414628,
-    "seen": 1794735524.3581076,
-    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
-    "semantic_hash": ""
-  },
   "openspec/changes/archive/2026-11-15-finish-exec-module-extraction/design.md": {
     "mtime": 1794685582.481026,
     "seen": 1794735524.369411,
@@ -8921,42 +8915,6 @@
     "ast_hash": "e30846031b386e00946026c93c26c213",
     "semantic_hash": ""
   },
-  "openspec/changes/p3-state-client-request-ids/design.md": {
-    "mtime": 1794734480.021414,
-    "seen": 1794735524.369652,
-    "ast_hash": "d9b0cefad4777c6152abcd71e972ef78",
-    "semantic_hash": ""
-  },
-  "openspec/changes/p3-state-client-request-ids/proposal.md": {
-    "mtime": 1794734480.021414,
-    "seen": 1794735524.3696527,
-    "ast_hash": "17e451062f4fb18b51eb66d1b2e4c65a",
-    "semantic_hash": ""
-  },
-  "openspec/changes/p3-state-client-request-ids/specs/exec/state-client/spec.md": {
-    "mtime": 1794734489.5227234,
-    "seen": 1794735524.3696537,
-    "ast_hash": "e5e7e8d58fd37304c7b961f7f1a1cc61",
-    "semantic_hash": ""
-  },
-  "openspec/changes/p3-state-client-request-ids/specs/exec/state-request-ids/spec.md": {
-    "mtime": 1794734489.5227234,
-    "seen": 1794735524.3696544,
-    "ast_hash": "7a9f7abd4c8ac4384bfb8fccf8c4b541",
-    "semantic_hash": ""
-  },
-  "openspec/changes/p3-state-client-request-ids/specs/sm/state-machine/spec.md": {
-    "mtime": 1794734489.5227234,
-    "seen": 1794735524.3696554,
-    "ast_hash": "47e9d7591f9f7a56b317226e5902ffe7",
-    "semantic_hash": ""
-  },
-  "openspec/changes/p3-state-client-request-ids/tasks.md": {
-    "mtime": 1794734676.214709,
-    "seen": 1794735524.369656,
-    "ast_hash": "8ec892a8b0bf0d438f3736db54c692a2",
-    "semantic_hash": ""
-  },
   "openspec/specs/exec/deterministic-execution/spec.md": {
     "mtime": 1794734217.826139,
     "seen": 1794735524.3701043,
@@ -8979,6 +8937,126 @@
     "mtime": 1794734217.8291721,
     "seen": 1794735524.3701873,
     "ast_hash": "272efd647175ffbbc8b8347993ce0602",
+    "semantic_hash": ""
+  },
+  "include/nexigen/sm/ucm.hpp": {
+    "mtime": 1794737322.751402,
+    "seen": 1794738971.8839312,
+    "ast_hash": "7854fefbbefaeb159c7b2e3e4bc1bf8d",
+    "semantic_hash": ""
+  },
+  "include/nexigen/sm/update_coordinator.hpp": {
+    "mtime": 1794737525.2942271,
+    "seen": 1794738971.883932,
+    "ast_hash": "3313050754bc531e6e5f2eaecb5b7eac",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-p3-state-client-request-ids/.openspec.yaml": {
+    "mtime": 1794734462.4414628,
+    "seen": 1794738971.885967,
+    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p3-ucm-coordination/.openspec.yaml": {
+    "mtime": 1794737176.3571584,
+    "seen": 1794738971.8859937,
+    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
+    "semantic_hash": ""
+  },
+  "src/sm/ucm.cpp": {
+    "mtime": 1794737352.7406878,
+    "seen": 1794738971.8868127,
+    "ast_hash": "ab7ccf4d6ca3346514a4412b5bd286a7",
+    "semantic_hash": ""
+  },
+  "src/sm/update_coordinator.cpp": {
+    "mtime": 1794737541.2651846,
+    "seen": 1794738971.8868134,
+    "ast_hash": "a1142e8c0bc3b43ec005f6979defbf8c",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-p3-state-client-request-ids/design.md": {
+    "mtime": 1794734480.021414,
+    "seen": 1794738971.897645,
+    "ast_hash": "d9b0cefad4777c6152abcd71e972ef78",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-p3-state-client-request-ids/proposal.md": {
+    "mtime": 1794734480.021414,
+    "seen": 1794738971.8976457,
+    "ast_hash": "17e451062f4fb18b51eb66d1b2e4c65a",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-p3-state-client-request-ids/specs/exec/state-client/spec.md": {
+    "mtime": 1794734489.5227234,
+    "seen": 1794738971.897647,
+    "ast_hash": "e5e7e8d58fd37304c7b961f7f1a1cc61",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-p3-state-client-request-ids/specs/exec/state-request-ids/spec.md": {
+    "mtime": 1794734489.5227234,
+    "seen": 1794738971.8976474,
+    "ast_hash": "7a9f7abd4c8ac4384bfb8fccf8c4b541",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-p3-state-client-request-ids/specs/sm/state-machine/spec.md": {
+    "mtime": 1794734489.5227234,
+    "seen": 1794738971.897648,
+    "ast_hash": "47e9d7591f9f7a56b317226e5902ffe7",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-p3-state-client-request-ids/tasks.md": {
+    "mtime": 1794734676.214709,
+    "seen": 1794738971.8976488,
+    "ast_hash": "8ec892a8b0bf0d438f3736db54c692a2",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p3-ucm-coordination/design.md": {
+    "mtime": 1794737190.044122,
+    "seen": 1794738971.8977752,
+    "ast_hash": "854c9fd2d5f3e75362a6c77b02ab1638",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p3-ucm-coordination/proposal.md": {
+    "mtime": 1794737190.044122,
+    "seen": 1794738971.897776,
+    "ast_hash": "1a0e2ca22946856af53f6804c2c885dd",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p3-ucm-coordination/specs/exec/update-state/spec.md": {
+    "mtime": 1794738951.8364828,
+    "seen": 1794738971.8977766,
+    "ast_hash": "53890f2196d924acce6b0beb1857c57b",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p3-ucm-coordination/specs/sm/ipc/spec.md": {
+    "mtime": 1794737203.3484912,
+    "seen": 1794738971.897777,
+    "ast_hash": "be710824eab9a3c67c0be40fc08d664d",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p3-ucm-coordination/specs/sm/state-machine/spec.md": {
+    "mtime": 1794737203.3484912,
+    "seen": 1794738971.8977776,
+    "ast_hash": "c1868906a86e447644d1cb6569527c1d",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p3-ucm-coordination/specs/sm/ucm-coordination/spec.md": {
+    "mtime": 1794737203.3470867,
+    "seen": 1794738971.8977785,
+    "ast_hash": "22bfd81da99ef0da08f65033bbd93c72",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p3-ucm-coordination/tasks.md": {
+    "mtime": 1794737603.372243,
+    "seen": 1794738971.897779,
+    "ast_hash": "80c393ce954bb71e23cce8d5c045e4e6",
+    "semantic_hash": ""
+  },
+  "openspec/specs/exec/state-request-ids/spec.md": {
+    "mtime": 1794735528.4855506,
+    "seen": 1794738971.898782,
+    "ast_hash": "e699596fe5c922b8573acc67d8f87a94",
     "semantic_hash": ""
   }
 }
