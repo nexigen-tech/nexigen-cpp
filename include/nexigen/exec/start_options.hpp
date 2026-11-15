@@ -36,6 +36,10 @@ struct StartOptions {
     std::uint64_t memory_limit_bytes{0};      ///< RLIMIT_AS budget; 0 = unlimited.
     std::string working_dir{};                ///< Child working folder; empty = inherit.
     std::string expected_executable_digest{}; ///< SHA-256 hex; empty = no trust gate.
+    std::optional<std::uint32_t> uid{};       ///< Target user to drop to; empty = inherit.
+    std::optional<std::uint32_t> gid{};       ///< Target group; defaults to `uid`.
+    /// Refuse to launch as root unless `uid` is configured.
+    bool require_non_root{false};
 
     /// @brief Cold-path diagnostic rendering of the launch options.
     ///

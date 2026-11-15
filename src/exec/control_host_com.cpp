@@ -44,6 +44,8 @@ constexpr const char* lifecycle_service_name = "Nexigen/PHM/ExecutionState";
 constexpr const char* lifecycle_event_name = "Nexigen/PHM/ExecutionStateEvent";
 /// @brief PHM→EM recovery request channel.
 constexpr const char* recovery_service_name = "Nexigen/PHM/Recovery";
+/// @brief EM→PHM health heartbeat (checkpoint id 1), mirroring SM's channel.
+constexpr const char* health_service_name = "Nexigen/EM/Health";
 
 using RootQueryServer = com::Server<std::monostate, InitialRootStateTransitionResultResponse>;
 using LifecyclePublisher = com::Publisher<ProcessLifecycleEvent>;
@@ -92,6 +94,7 @@ public:
                 recovery_.emplace(std::move(*handler));
             }
         }
+        open_health_channel();
         const auto name = com::ServiceName::create(control_service_name);
         if (!name) {
             return;
@@ -106,6 +109,9 @@ public:
     [[nodiscard]] bool valid() const noexcept { return client_.has_value(); }
 
     void poll() noexcept override {
+        if (health_event_) {
+            static_cast<void>(health_event_->notify_with(com::EventId{1}));
+        }
         serve_root_query();
         if (recovery_) {
             static_cast<void>(recovery_->serve_once());
@@ -230,6 +236,18 @@ public:
     }
 
 private:
+    /// @brief Open the EM→PHM heartbeat channel; absence disables the signal.
+    void open_health_channel() noexcept {
+        const auto health_name = com::ServiceName::create(health_service_name);
+        if (!health_name) {
+            return;
+        }
+        auto health = com::EventNotifier::create(*node_, *health_name);
+        if (health) {
+            health_event_.emplace(std::move(*health));
+        }
+    }
+
     /// @brief Find the published-state entry for one application.
     [[nodiscard]] PublishedLifecycle* published_for(std::string_view app) noexcept {
         for (PublishedLifecycle& entry : published_) {
@@ -319,6 +337,7 @@ private:
     std::optional<StateClient> client_;
     std::optional<RootQueryServer> query_server_;
     std::optional<RecoveryHandler> recovery_;
+    std::optional<com::EventNotifier> health_event_;
     std::optional<LifecyclePublisher> lifecycle_publisher_;
     std::optional<com::EventNotifier> lifecycle_event_;
     std::vector<PublishedLifecycle> published_{};

@@ -31,8 +31,8 @@ std::string ResourceGroupConfig::to_string() const {
 }
 
 std::string TrustedPlatformConfig::to_string() const {
-    return std::format("TrustedPlatformConfig(require_executable_digest={})",
-                       require_executable_digest);
+    return std::format("TrustedPlatformConfig(require_executable_digest={}, require_non_root={})",
+                       require_executable_digest, require_non_root);
 }
 
 std::string FunctionGroupPortMapping::to_string() const {
@@ -59,12 +59,14 @@ void from_json(const nlohmann::json& j, ResourceGroupConfig& value) noexcept {
 }
 
 void to_json(nlohmann::json& j, const TrustedPlatformConfig& value) {
-    j = nlohmann::json{{"require_executable_digest", value.require_executable_digest}};
+    j = nlohmann::json{{"require_executable_digest", value.require_executable_digest},
+                       {"require_non_root", value.require_non_root}};
 }
 
 void from_json(const nlohmann::json& j, TrustedPlatformConfig& value) noexcept {
     static_cast<void>(
         core::detail::read_bool(j, "require_executable_digest", value.require_executable_digest));
+    static_cast<void>(core::detail::read_bool(j, "require_non_root", value.require_non_root));
 }
 
 void to_json(nlohmann::json& j, const FunctionGroupPortMapping& value) {

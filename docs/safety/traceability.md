@@ -50,24 +50,24 @@ Declared out of scope for the programme: the Classic Platform BSW cluster
 
 | ID | Summary | Status | Capability | Evidence | Note |
 |---|---|---|---|---|---|
-| RS_SAF_00001 | Safe execution | partial | `phm/supervision`, `sm/lifecycle` | `tests/phm/phm_test.cpp`, `tests/sm/sm_test.cpp` | Abstract; derived rows 10028, 10030, and 10031 remain partial. |
-| RS_SAF_00002 | Safe configuration | partial | `exec/app-suite`, `phm/recovery` | `tests/exec/app_suite_test.cpp`, `tests/phm/phm_test.cpp` | Manifests are validated before launch and can be digest-verified; runtime settings files stay unverified. |
+| RS_SAF_00001 | Safe execution | partial | `phm/supervision`, `sm/lifecycle` | `tests/phm/phm_test.cpp`, `tests/sm/sm_test.cpp` | Abstract; derived rows 10028 and 10031 remain partial. |
+| RS_SAF_00002 | Safe configuration | partial | `exec/app-suite`, `phm/recovery` | `tests/exec/app_suite_test.cpp`, `tests/phm/phm_test.cpp` | Manifests and settings files are digest-verified before launch; no periodic re-verification during operation. |
 | RS_SAF_00003 | Safe update or upgrade | partial | `sm/ucm-coordination` | `tests/sm/sm_test.cpp` | No update manager; SM only locks a Function Group during an update. |
 | RS_SAF_00004 | Safe information exchange | partial | `com/publish-subscribe`, `com/request-response` | `tests/com/com_test.cpp` | E2E-protected wrappers are available per service; the plain ports stay unprotected. |
 | RS_SAF_00005 | Detect data corruption | supported | `exec/trusted-executable`, `phm/recovery`, `com/publish-subscribe` | `tests/exec/app_suite_test.cpp`, `tests/phm/phm_test.cpp`, `tests/com/com_test.cpp` | - |
 | RS_SAF_00006 | Safe storage | not-implemented | - | - | deviation: persistency is outside the programme boundary. |
 | RS_SAF_00007 | Recovery upon failure | partial | `phm/recovery`, `sm/recovery-handler` | `tests/phm/phm_test.cpp`, `tests/sm/sm_test.cpp` | Restart, SafeState, and the PHM watchdog exist; configuration rollback stays out of scope. |
 | RS_SAF_10001 | Safe initialization | partial | `exec/app-suite`, `sm/lifecycle` | `tests/exec/app_suite_test.cpp`, `tests/sm/sm_test.cpp` | Abstract; the Classic Platform half is out of scope. |
-| RS_SAF_10002 | Verify software and configuration | partial | `exec/trusted-executable` | `tests/exec/app_suite_test.cpp`, `tests/core/core_test.cpp` | Executables and manifests are digest-verified; runtime settings files stay unverified. |
+| RS_SAF_10002 | Verify software and configuration | supported | `exec/trusted-executable`, `exec/app-suite` | `tests/exec/app_suite_test.cpp`, `tests/core/core_test.cpp` | - |
 | RS_SAF_10005 | Safe shutdown and termination | partial | `sm/lifecycle`, `exec/process-supervision` | `tests/exec/execution_manager_test.cpp`, `tests/sm/sm_test.cpp` | Abstract; the Classic Platform half is out of scope. |
 | RS_SAF_10006 | Safe state transitions | partial | `sm/state-machine`, `sm/lifecycle` | `tests/sm/sm_test.cpp` | Abstract; the Classic Platform half is out of scope. |
 | RS_SAF_10008 | Safe resource management | partial | `exec/resource-groups`, `core/thread-management` | `tests/exec/app_suite_test.cpp`, `tests/core/core_test.cpp` | Memory via RLIMIT_AS and CPU affinity; no CPU-time budgets or accounting. |
 | RS_SAF_10014 | Safe communication interface | partial | `com/publish-subscribe`, `com/request-response`, `com/service-management` | `tests/com/com_test.cpp` | E2E protection is opt-in per service; the plain ports remain unprotected by design. |
 | RS_SAF_10027 | Prevent loss of valid configuration | not-implemented | - | - | deviation: needs persistency and rollback, outside the programme. |
 | RS_SAF_10028 | Dependable scheduling | partial | `core/thread-management`, `phm/supervision` | `tests/core/core_test.cpp`, `tests/phm/phm_test.cpp` | SCHED_FIFO and affinity for daemons; no admission control for applications. |
-| RS_SAF_10030 | Safe program execution | partial | `phm/supervision` | `tests/phm/phm_test.cpp` | Pairwise edges only; fork and join semantics arrive with close-phm-safety-loop. |
+| RS_SAF_10030 | Safe program execution | supported | `phm/supervision` | `tests/phm/phm_test.cpp` | - |
 | RS_SAF_10031 | Detect execution-time violation | partial | `phm/supervision` | `tests/phm/phm_test.cpp` | Deadline supervision covers checkpoint windows; no execution-time budgets. |
-| RS_SAF_10037 | Prevent unintended alteration | partial | `exec/process-supervision` | `tests/exec/execution_manager_test.cpp` | Process isolation by the OS; payload integrity arrives with add-e2e-protection. |
+| RS_SAF_10037 | Prevent unintended alteration | partial | `exec/process-supervision` | `tests/exec/execution_manager_test.cpp` | Process isolation by the OS; E2E detects alteration but does not prevent it. |
 | RS_SAF_10038 | Update only in a safe state | not-implemented | - | - | deviation: no update manager; UCM is outside the programme boundary. |
 | RS_SAF_10039 | Detect unintended alteration | supported | `exec/trusted-executable`, `phm/recovery`, `com/publish-subscribe` | `tests/exec/app_suite_test.cpp`, `tests/phm/phm_test.cpp`, `tests/com/com_test.cpp` | - |
 | RS_SAF_10040 | Data recovery | out-of-scope | - | - | boundary: persistency is outside the product boundary. |
@@ -76,10 +76,10 @@ Declared out of scope for the programme: the Classic Platform BSW cluster
 | RS_HM_09125 | Alive supervision | supported | `phm/supervision` | `tests/phm/phm_test.cpp` | - |
 | RS_HM_09222 | Logical supervision | supported | `phm/supervision` | `tests/phm/phm_test.cpp` | - |
 | RS_HM_09235 | Deadline supervision | supported | `phm/supervision` | `tests/phm/phm_test.cpp` | - |
-| RS_PHM_00115 | Watchdog reset when SM supervision fails | partial | `phm/supervision` | `tests/phm/phm_test.cpp` | The watchdog feed gate stops feeding when any armed process is Expired; the deployment must declare SM as a supervised process. |
-| RS_PHM_00116 | Watchdog reset when EM supervision fails | partial | `phm/supervision` | `tests/phm/phm_test.cpp` | Same feed gate as SM; the deployment must declare EM as a supervised process. |
+| RS_PHM_00115 | Watchdog reset when SM supervision fails | supported | `phm/supervision` | `tests/phm/phm_test.cpp`, `examples/phm/safety_manifest.json` | - |
+| RS_PHM_00116 | Watchdog reset when EM supervision fails | supported | `phm/supervision` | `tests/phm/phm_test.cpp`, `examples/phm/safety_manifest.json` | - |
 | RS_PHM_00117 | Notify SM of other failures | supported | `sm/recovery-handler` | `tests/sm/sm_test.cpp` | - |
-| RS_PHM_00118 | Accept checkpoints only from the owning process | partial | `phm/health-channel` | `tests/phm/phm_test.cpp` | Per-process checkpoint services; no peer authentication. |
+| RS_PHM_00118 | Accept checkpoints only from the owning process | partial | `phm/health-channel` | `tests/phm/phm_test.cpp` | Per-process checkpoint services plus UID separation; no peer authentication yet. |
 | RS_PHM_00119 | Security event on a foreign checkpoint | not-implemented | - | - | deviation: no IAM or security-event channel; needs OS privilege separation. |
 | RS_EM_00002 | One process per modelled process | supported | `exec/process-supervision` | `tests/exec/execution_manager_test.cpp` | - |
 | RS_EM_00005 | OS resource budgets for processes and groups | partial | `exec/resource-groups` | `tests/exec/app_suite_test.cpp` | Address-space budget per process and group; no CPU-time budget. |
@@ -98,7 +98,7 @@ Declared out of scope for the programme: the Classic Platform BSW cluster
 | RS_CM_00224 | E2E information for events | supported | `com/publish-subscribe` | `tests/com/com_test.cpp` | - |
 | RS_CM_00400 | E2E-protected methods | partial | `com/request-response`, `com/service-management` | `tests/com/com_test.cpp` | Protected client/server wrappers exist; protection is opt-in per service. |
 | RS_CM_00401 | E2E information for requests | supported | `com/request-response` | `tests/com/com_test.cpp` | - |
-| RS_CM_00403 | Response-deadline supervision | partial | `com/request-response` | `tests/com/com_test.cpp` | The synchronous call exposes a timeout; E2E-status deadline reporting arrives with add-e2e-protection. |
+| RS_CM_00403 | Response-deadline supervision | partial | `com/request-response` | `tests/com/com_test.cpp` | The synchronous call exposes a timeout and E2E status; deadline supervision stays application-level. |
 | RS_CM_00404 | E2E information for responses | supported | `com/request-response` | `tests/com/com_test.cpp` | - |
 | RS_UCM_00008 | Recover from failed activation | out-of-scope | - | - | boundary: no update manager; UCM is outside the product boundary. |
 | RS_UCM_00012 | Check software-package consistency | out-of-scope | - | - | boundary: no update manager; UCM is outside the product boundary. |

@@ -887,6 +887,14 @@ void install_suite_control(RuntimeSuite& suite, const SuiteManifest& manifest) {
 
 /// Start the configured initial states, report success, and initialize logs.
 void start_suite_and_report(RuntimeSuite& suite, const SuiteManifest& manifest, int report_fd) {
+    std::string digest_error;
+    if (!verify_settings_digests(manifest, digest_error)) {
+        std::fprintf(stderr, "nexigen-exec: %s\n", digest_error.c_str());
+        StartReport report{0, static_cast<std::int32_t>(core::ErrorCode::SecurityError)};
+        static_cast<void>(write_start_report(report_fd, report));
+        static_cast<void>(::close(report_fd));
+        child_exit(1);
+    }
     start_suite_apps(suite);
     write_suite_status(suite);
 

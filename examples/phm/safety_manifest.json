@@ -11,22 +11,102 @@
       "alive_max_margin_cycles": 1,
       "failed_supervision_cycles_tolerance": 2,
       "safety_critical": true,
-      "checkpoints": [1, 2, 3, 4],
+      "checkpoints": [
+        1,
+        2,
+        3,
+        4
+      ],
       "transitions": [
-        { "from_id": 1, "to_id": 2 },
-        { "from_id": 1, "to_id": 3 },
-        { "from_id": 2, "to_id": 4 },
-        { "from_id": 3, "to_id": 4 }
+        {
+          "from_id": 1,
+          "to_id": 2
+        },
+        {
+          "from_id": 1,
+          "to_id": 3
+        },
+        {
+          "from_id": 2,
+          "to_id": 4
+        },
+        {
+          "from_id": 3,
+          "to_id": 4
+        }
       ],
       "logical_forks": [
-        { "fork_id": 1, "branch_entries": [2, 3], "join_id": 4 }
+        {
+          "fork_id": 1,
+          "branch_entries": [
+            2,
+            3
+          ],
+          "join_id": 4
+        }
       ],
       "deadlines": [
-        { "source_id": 1, "target_id": 4, "min_ms": 5, "max_ms": 1000 }
+        {
+          "source_id": 1,
+          "target_id": 4,
+          "min_ms": 5,
+          "max_ms": 1000
+        }
       ],
       "recovery_rules": [
-        { "action": "RestartProcess", "function_group": "" }
+        {
+          "action": "RestartProcess",
+          "function_group": ""
+        }
       ]
+    },
+    {
+      "name": "sm",
+      "service_name": "Nexigen/SM/Health",
+      "alive_reference_cycle_ms": 1000,
+      "alive_min_margin_ms": 0,
+      "alive_max_margin_ms": 0,
+      "failed_supervision_cycles_tolerance": 2,
+      "checkpoints": [
+        1
+      ],
+      "transitions": [
+        {
+          "from_id": 1,
+          "to_id": 1
+        }
+      ],
+      "recovery_rules": [
+        {
+          "action": "TriggerWatchdogReset",
+          "function_group": ""
+        }
+      ],
+      "safety_critical": true
+    },
+    {
+      "name": "em",
+      "service_name": "Nexigen/EM/Health",
+      "alive_reference_cycle_ms": 1000,
+      "alive_min_margin_ms": 0,
+      "alive_max_margin_ms": 0,
+      "failed_supervision_cycles_tolerance": 2,
+      "checkpoints": [
+        1
+      ],
+      "transitions": [
+        {
+          "from_id": 1,
+          "to_id": 1
+        }
+      ],
+      "recovery_rules": [
+        {
+          "action": "TriggerWatchdogReset",
+          "function_group": ""
+        }
+      ],
+      "safety_critical": true
     }
   ],
   "watchdog": {

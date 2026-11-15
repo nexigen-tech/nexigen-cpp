@@ -15,6 +15,7 @@
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/exec/app_spec.hpp>
 #include <nexigen/exec/platform_controls.hpp>
+#include <nexigen/exec/settings_digest.hpp>
 
 namespace nexigen::exec {
 
@@ -72,6 +73,7 @@ struct SuiteManifest {
     core::ThreadSpec execution_manager_logger_thread{};  ///< Logger-worker placement.
     std::vector<ResourceGroupConfig> resource_groups{};  ///< Named resource limits.
     TrustedPlatformConfig trusted_platform{};            ///< Executable digest policy.
+    std::vector<SettingsDigest> settings_digests{};      ///< Optional settings-file integrity.
     /// Authorized `(requester, Function Group)` pairs; empty = accept all.
     std::vector<FunctionGroupPortMapping> function_group_port_mapping{};
     std::vector<FunctionGroupConfig> function_groups{}; ///< Declared Function Groups.
@@ -143,6 +145,20 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept;
 [[nodiscard]] core::Status load_suite_manifest(std::string_view path,
                                                std::string_view expected_sha256_hex,
                                                SuiteManifest& out) noexcept;
+
+/// @brief Verify every listed settings file against its SHA-256.
+///
+/// Cold path, run once before any application is launched. Each file goes
+/// through `read_verified`, so the digest covers exactly the bytes that were
+/// read.
+///
+/// @param manifest Manifest whose `settings_digests` are checked.
+/// @param error Receives the offending path; cleared on success.
+/// @return `true` when the list is empty or every file matches.
+/// @note Spec `exec/app-suite`, requirement "Settings files are
+///       digest-verified before launch".
+[[nodiscard]] bool verify_settings_digests(const SuiteManifest& manifest,
+                                           std::string& error) noexcept;
 
 /// @brief Pure validation over an already parsed manifest.
 ///

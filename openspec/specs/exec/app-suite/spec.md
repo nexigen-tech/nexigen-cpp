@@ -688,3 +688,54 @@ The suite supervisor SHALL serve `RecoveryRequest`/`RecoveryResponse` on the PHM
 
 - **WHEN** the request carries `TriggerWatchdogReset`
 - **THEN** the supervisor answers rejected because the watchdog is owned by PHM
+
+### Requirement: Execution Manager health heartbeat
+
+The suite control host SHALL emit a heartbeat checkpoint with event id `1` on
+`Nexigen/EM/Health` once per control poll, so a PHM manifest can supervise the
+Execution Manager exactly like any other process.
+
+#### Scenario: The EM heartbeat reaches PHM
+
+- **WHEN** the suite supervisor runs its control poll
+- **THEN** an event with id `1` is published on `Nexigen/EM/Health`
+
+#### Scenario: A missing heartbeat expires the EM
+
+- **WHEN** a PHM manifest supervises `Nexigen/EM/Health` and the suite stops
+  polling
+- **THEN** the EM entry becomes `Expired` after the configured tolerance, and
+  the watchdog feed gate stops feeding
+
+#### Scenario: A deployment without the channel is unaffected
+
+- **WHEN** the PHM manifest does not list `Nexigen/EM/Health`
+- **THEN** the suite supervisor behaves exactly as before
+
+### Requirement: Settings files are digest-verified before launch
+
+The suite manifest SHALL accept an optional `settings_digests` array of
+`{path, sha256}` entries. Every path SHALL be absolute and every digest SHALL be
+64 hexadecimal characters. The suite supervisor SHALL verify each listed file
+with a single-read SHA-256 check before launching any application; a mismatch
+SHALL report `SecurityError` and start no process.
+
+#### Scenario: Matching settings start the suite
+
+- **WHEN** the manifest lists a settings file with its correct digest
+- **THEN** the supervisor verifies it and the applications start as before
+
+#### Scenario: A changed settings file starts nothing
+
+- **WHEN** a listed settings file no longer matches its digest
+- **THEN** the start fails with `SecurityError` and no application is launched
+
+#### Scenario: An absent section keeps plain behavior
+
+- **WHEN** the manifest omits `settings_digests`
+- **THEN** the suite starts without reading any settings file for verification
+
+#### Scenario: Malformed entries are rejected
+
+- **WHEN** an entry has a relative path or a digest that is not 64 hex characters
+- **THEN** manifest validation fails with `InvalidArgument`

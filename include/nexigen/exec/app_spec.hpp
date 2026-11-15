@@ -59,6 +59,8 @@ struct AppSpec {
     std::optional<core::LogLevel> log_level{}; ///< Empty = use the suite level.
     std::string resource_group{};              ///< Optional resource-group name.
     std::string executable_digest{};           ///< Optional SHA-256 hex digest.
+    std::optional<std::uint32_t> uid{};        ///< Optional target user; 0 is rejected.
+    std::optional<std::uint32_t> gid{};        ///< Optional target group; requires `uid`.
 
     /// @brief Cold-path diagnostic rendering of the manifest entry.
     ///

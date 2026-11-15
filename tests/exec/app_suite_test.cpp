@@ -896,6 +896,101 @@ void test_manifest_digest() {
     std::filesystem::remove_all(artifacts, error);
 }
 
+
+void test_settings_digests() {
+    const std::string root = unique_dir("settings_digests");
+    const std::string artifacts = unique_dir("settings_digests_artifacts");
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    const std::string settings_path = root + "/logging.json";
+    const std::string content = "{\"initial_log_level\":\"debug\"}\n";
+    {
+        std::ofstream out(settings_path, std::ios::binary | std::ios::trunc);
+        out << content;
+    }
+    const std::string digest = nexigen::core::integrity::sha256_hex(std::string_view(content));
+
+    exec::SuiteManifest manifest = two_app_manifest(root, artifacts);
+    manifest.settings_digests.push_back(exec::SettingsDigest{settings_path, digest});
+    NX_CHECK(exec::validate_suite_manifest(manifest).has_value());
+
+    // Round-trip preserves the section.
+    nlohmann::json document;
+    exec::to_json(document, manifest);
+    exec::SuiteManifest parsed{};
+    exec::from_json(document, parsed);
+    NX_CHECK(parsed.settings_digests.size() == 1U);
+    NX_CHECK(parsed.settings_digests[0].path == settings_path);
+    NX_CHECK(parsed.settings_digests[0].sha256 == digest);
+
+    // Matching file verifies; a changed file fails and names the path.
+    std::string verify_error;
+    NX_CHECK(exec::verify_settings_digests(manifest, verify_error));
+    NX_CHECK(verify_error.empty());
+    {
+        std::ofstream out(settings_path, std::ios::binary | std::ios::trunc);
+        out << "{\"initial_log_level\":\"trace\"}\n";
+    }
+    NX_CHECK(!exec::verify_settings_digests(manifest, verify_error));
+    NX_CHECK(verify_error.find(settings_path) != std::string::npos);
+
+    // An absent section is the compatible default.
+    exec::SuiteManifest plain = two_app_manifest(root, artifacts);
+    NX_CHECK(exec::verify_settings_digests(plain, verify_error));
+
+    // Relative path and malformed digest are rejected.
+    exec::SuiteManifest relative = two_app_manifest(root, artifacts);
+    relative.settings_digests.push_back(exec::SettingsDigest{"relative.json", digest});
+    NX_CHECK(!exec::validate_suite_manifest(relative).has_value());
+
+    exec::SuiteManifest bad_digest = two_app_manifest(root, artifacts);
+    bad_digest.settings_digests.push_back(exec::SettingsDigest{settings_path, "not-a-digest"});
+    NX_CHECK(!exec::validate_suite_manifest(bad_digest).has_value());
+
+    std::filesystem::remove_all(root, error);
+    std::filesystem::remove_all(artifacts, error);
+}
+
+
+void test_app_credentials() {
+    const std::string root = unique_dir("credentials");
+    const std::string artifacts = unique_dir("credentials_artifacts");
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    exec::SuiteManifest manifest = two_app_manifest(root, artifacts);
+    manifest.apps[0].uid = 1000U;
+    manifest.apps[0].gid = 1000U;
+    NX_CHECK(exec::validate_suite_manifest(manifest).has_value());
+
+    nlohmann::json document;
+    exec::to_json(document, manifest);
+    exec::SuiteManifest parsed{};
+    exec::from_json(document, parsed);
+    NX_CHECK(parsed.apps[0].uid.has_value() && *parsed.apps[0].uid == 1000U);
+    NX_CHECK(parsed.apps[0].gid.has_value() && *parsed.apps[0].gid == 1000U);
+
+    exec::SuiteManifest bad = manifest;
+    bad.apps[0].uid = 0U;
+    NX_CHECK(!exec::validate_suite_manifest(bad).has_value());
+
+    bad = manifest;
+    bad.apps[0].uid.reset();
+    NX_CHECK(!exec::validate_suite_manifest(bad).has_value()); // gid without uid
+
+    bad = manifest;
+    bad.apps[0].gid = 0U;
+    NX_CHECK(!exec::validate_suite_manifest(bad).has_value());
+
+    // Non-root policy round-trips.
+    manifest.trusted_platform.require_non_root = true;
+    exec::to_json(document, manifest);
+    exec::from_json(document, parsed);
+    NX_CHECK(parsed.trusted_platform.require_non_root);
+
+    std::filesystem::remove_all(root, error);
+    std::filesystem::remove_all(artifacts, error);
+}
+
 void test_start_status_stop() {
     const std::string root = unique_dir("lifecycle");
     const std::string artifacts = unique_dir("lifecycle_artifacts");
@@ -2105,6 +2200,8 @@ int main() {
     run_suite("enums_serialization", test_enums_and_serialization);
     run_suite("manifest_validation", test_manifest_validation);
     run_suite("manifest_digest", test_manifest_digest);
+    run_suite("settings_digests", test_settings_digests);
+    run_suite("app_credentials", test_app_credentials);
     run_suite("start_status_stop", test_start_status_stop);
     run_suite("initial_state", test_initial_state_selection);
     run_suite("suite_edge_paths", test_suite_edge_paths);

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <grp.h>
 #include <sched.h>
 #include <signal.h>
 #include <strings.h>
@@ -111,6 +112,15 @@ constexpr std::uint64_t poll_interval_ms = 20;
     }
     if (const core::Status status = validate_env_entries(options.env); !status) {
         return status;
+    }
+    if (options.uid.has_value() && *options.uid == 0U) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (options.gid.has_value() && *options.gid == 0U) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (options.gid.has_value() && !options.uid.has_value()) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     return validate_cpu_set(options.cpus);
 }
@@ -509,6 +519,7 @@ struct SupervisorContext {
     return true;
 }
 
+[[nodiscard]] int apply_child_credentials(const StartOptions& options) noexcept;
 [[nodiscard]] int apply_child_resources(const StartOptions& options) noexcept;
 
 [[noreturn]] void launch_application_child(SupervisorContext& context, int setup_pipe[2]) {
@@ -569,6 +580,10 @@ struct SupervisorContext {
     if (const int resource_status = apply_child_resources(*context.options); resource_status != 0) {
         fail_setup(resource_status);
     }
+    if (const int credential_status = apply_child_credentials(*context.options);
+        credential_status != 0) {
+        fail_setup(credential_status);
+    }
     // POSIX declares execvp's `argv` as `char* const[]`, but it never
     // mutates the argument strings. Cast away the inner const once, here,
     // instead of per-element in the argv construction above.
@@ -589,7 +604,8 @@ struct SupervisorContext {
     std::int32_t setup_status = 0;
     // Exec-correct handshake (spec execution_manager/process-supervision): the child
     // writes a nonzero setup status ONLY on failure (1 setsid, 2 affinity,
-    // 3 setenv, 4 exec); a successful `execvp` closes the child's O_CLOEXEC
+    // 3 setenv, 4 exec, 7 setgroups, 8 setgid, 9 setuid, 10 verification); a
+    // successful `execvp` closes the child's O_CLOEXEC
     // fd, so EOF is the success signal. A full 4-byte read therefore always
     // means a reported setup/exec failure (the `!= 0` check stays as a
     // protocol belt; zero is never written on purpose).
@@ -871,6 +887,32 @@ resolve_stop_state(const std::string& resource_path, const std::string& exit_pat
     return create_artifact_dir(options.working_dir);
 }
 
+/// @brief Drop to the configured user; returns a setup-failure code.
+///
+/// Supplementary groups are cleared only when the child is privileged: a
+/// non-root process may not call `setgroups`, and dropping to its own user is
+/// a supported no-op. The drop is verified before `exec`.
+[[nodiscard]] int apply_child_credentials(const StartOptions& options) noexcept {
+    if (!options.uid.has_value()) {
+        return 0;
+    }
+    const std::uint32_t uid = *options.uid;
+    const std::uint32_t gid = options.gid.value_or(*options.uid);
+    if (::geteuid() == 0 && ::setgroups(0, nullptr) != 0) {
+        return 7;
+    }
+    if (::setgid(gid) != 0) {
+        return 8;
+    }
+    if (::setuid(uid) != 0) {
+        return 9;
+    }
+    if (::getuid() != uid || ::geteuid() != uid || ::getgid() != gid) {
+        return 10;
+    }
+    return 0;
+}
+
 /// @brief Apply the child-only resource limits; returns a setup-failure code.
 [[nodiscard]] int apply_child_resources(const StartOptions& options) noexcept {
     if (!options.working_dir.empty() && ::chdir(options.working_dir.c_str()) != 0) {
@@ -892,11 +934,13 @@ std::string StartOptions::to_string() const {
     return std::format(
         "StartOptions(artifact_dir={}, global_settings_dir={}, "
         "local_settings_dir={}, log_level={}, env={}, cpus={}, memory_limit_bytes={}, "
-        "working_dir={}, digest={})",
+        "working_dir={}, digest={}, uid={}, gid={}, require_non_root={})",
         artifact_dir, global_settings_dir, local_settings_dir,
         log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"),
         env.size(), cpus.count(), memory_limit_bytes, working_dir,
-        expected_executable_digest.empty() ? "none" : "set");
+        expected_executable_digest.empty() ? "none" : "set",
+        uid.has_value() ? std::to_string(*uid) : std::string("inherit"),
+        gid.has_value() ? std::to_string(*gid) : std::string("inherit"), require_non_root);
 }
 
 core::Status ExecutionManager::start(const app::RunIdentity& identity, std::string_view app_name,
@@ -913,6 +957,9 @@ core::Status ExecutionManager::start(const app::RunIdentity& identity, std::stri
     }
     if (const core::Status trust = verify_executable_trust(command, options); !trust) {
         return trust;
+    }
+    if (options.require_non_root && ::geteuid() == 0 && !options.uid.has_value()) {
+        return std::unexpected(core::ErrorCode::SecurityError);
     }
     if (const core::Status working = prepare_working_directory(options); !working) {
         return working;

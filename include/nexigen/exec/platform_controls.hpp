@@ -28,6 +28,7 @@ struct ResourceGroupConfig {
 /// @brief Suite-wide trusted executable policy.
 struct TrustedPlatformConfig {
     bool require_executable_digest{false}; ///< Require a digest for every app.
+    bool require_non_root{false};          ///< Refuse root launches without an explicit uid.
 
     /// @brief Cold-path diagnostic rendering.
     [[nodiscard]] std::string to_string() const;

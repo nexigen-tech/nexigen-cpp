@@ -51,6 +51,9 @@ SuiteLaunchPlan resolve_suite_launch(const SuiteManifest& manifest, const AppSpe
     plan.options.env = config.env;
     plan.options.cpus = spec.cpus;
     plan.options.expected_executable_digest = spec.executable_digest;
+    plan.options.uid = spec.uid;
+    plan.options.gid = spec.gid;
+    plan.options.require_non_root = manifest.trusted_platform.require_non_root;
 
     const ResourceGroupConfig* group = nullptr;
     for (const ResourceGroupConfig& candidate : manifest.resource_groups) {

@@ -22,7 +22,7 @@ set +e
 PID=$!
 STARTED=0
 for _ in $(seq 1 100); do
-    if grep -q "supervising 1 process(es)" "$DIR/out" 2>/dev/null; then
+    if grep -q "supervising 3 process(es)" "$DIR/out" 2>/dev/null; then
         STARTED=1
         break
     fi
@@ -132,7 +132,7 @@ set +e
 "$BIN" --manifest "$FAST" --fault-log "$LOG" >"$DIR/fast_out" 2>&1 &
 PID=$!
 for _ in $(seq 1 100); do
-    if grep -q "supervising 1 process(es)" "$DIR/fast_out" 2>/dev/null; then
+    if grep -q "supervising 3 process(es)" "$DIR/fast_out" 2>/dev/null; then
         break
     fi
     kill -0 "$PID" 2>/dev/null || break

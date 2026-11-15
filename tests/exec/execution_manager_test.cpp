@@ -1310,6 +1310,52 @@ void test_error_paths() {
 
 } // namespace
 
+
+// --- Least privilege: the child drops to the configured user ---
+void test_child_credentials() {
+    const std::string root = unique_dir("credentials");
+    const app::RunIdentity identity{"run-cr", root, "1", {}};
+    const std::string marker = root + "/uid.txt";
+    const std::vector<std::string> command{"/bin/sh", "-c", "id -u > " + marker};
+
+    exec::ExecutionManager execution_manager;
+    exec::StartOptions options{};
+    options.uid = ::getuid();
+    options.gid = ::getgid();
+
+    if (::getuid() == 0) {
+        // UID 0 is rejected by validation; the drop path cannot be exercised.
+        NX_CHECK(!execution_manager.start(identity, "cred_app", command, 0, options).has_value());
+        reap_supervisors();
+        remove_tree(root);
+        return;
+    }
+
+    const core::Status started =
+        execution_manager.start(identity, "cred_app", command, 0, options);
+    NX_CHECK(started.has_value());
+    if (started) {
+        const std::string instance_dir = root + "/cred_app/1";
+        NX_CHECK(wait_until(
+            [&] {
+                struct stat status{};
+                return ::stat((instance_dir + "/exit.json").c_str(), &status) == 0;
+            },
+            5000));
+        std::ifstream marker_in(marker);
+        std::uint32_t observed = 0;
+        marker_in >> observed;
+        NX_CHECK(observed == ::getuid());
+    }
+
+    // Explicit UID 0 is invalid before any process is created.
+    options.uid = 0U;
+    NX_CHECK(!execution_manager.start(identity, "cred_zero", command, 0, options).has_value());
+
+    reap_supervisors();
+    remove_tree(root);
+}
+
 int main() {
     run_suite("terminated_by", test_terminated_by);
     run_suite("resource_metadata", test_resource_metadata);
@@ -1322,6 +1368,7 @@ int main() {
     run_suite("recycled_pid_identity", test_recycled_pid_identity);
     run_suite("self_exit_status", test_self_exit_status);
     run_suite("env_identity_layout", test_env_identity_layout);
+    run_suite("child_credentials", test_child_credentials);
     run_suite("log_truncation", test_log_truncation_on_restart);
     run_suite("graceful_sigterm", test_graceful_sigterm);
     run_suite("session_isolation", test_execution_manager_session_isolation);

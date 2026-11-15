@@ -354,6 +354,10 @@ The PHM daemon closes the detect → actuate loop:
   ```
   To exercise it on a development machine, load `softdog` and point the manifest
   at the resulting device; never enable it on a host you cannot reboot.
+- **Liveness channels** — SM emits checkpoint `1` on `Nexigen/SM/Health` and the
+  suite supervisor emits checkpoint `1` on `Nexigen/EM/Health` once per control
+  poll; the example manifest supervises both daemons, so an `Expired` SM or EM
+  stops the watchdog feed.
 - **Recovery** — `RestartProcess` is served by the EM on
   `Nexigen/PHM/Recovery` (forced restart in a new attempt, no retry-budget
   consumption); `TriggerWatchdogReset` is local to PHM (stop feeding, no EM
@@ -436,6 +440,16 @@ created:
   When enabled, commands must be absolute and the digest is verified in the
   parent before the fork; a mismatch fails with `SecurityError` and creates no
   instance layout.
+- **Least privilege** — an application entry may declare `uid`/`gid`; the child
+  clears supplementary groups when privileged, calls `setgid`/`setuid`, verifies
+  the drop with `getuid`/`geteuid`/`getgid`, and only then `exec`. A `uid` or
+  `gid` of `0` is rejected, and `trusted_platform.require_non_root` refuses a
+  root launch without an explicit `uid`.
+- **Settings digests** — an optional `settings_digests: [{path, sha256}]` list.
+  The detached supervisor verifies every listed settings file once before it
+  launches any application; a mismatch reports `SecurityError` and starts
+  nothing. The section is additive, and a deployment without it keeps the
+  previous behavior.
 - **Access control** — `StateCommand` carries `requester_id`, and a manifest
   `function_group_port_mapping` list authorizes `(requester, Function Group)`
   pairs. An unmapped requester is rejected with `AccessDenied`; an empty list

@@ -124,6 +124,27 @@ void test_control_host() {
         return {};
     });
 
+    // EM health heartbeat: a PHM listener sees checkpoint id 1 after one poll.
+    {
+        auto health_node = com::Node::create();
+        NX_CHECK(health_node.has_value());
+        const auto health_name = com::ServiceName::create("Nexigen/EM/Health");
+        NX_CHECK(health_name.has_value());
+        auto health_listener = com::EventListener::create(*health_node, *health_name);
+        NX_CHECK(health_listener.has_value());
+        bool saw_heartbeat = false;
+        for (int i = 0; i < 100 && !saw_heartbeat; ++i) {
+            host->poll();
+            const auto collected = health_listener->try_wait(
+                [&saw_heartbeat](com::EventId id) { saw_heartbeat = id.as_value() == 1U; });
+            NX_CHECK(collected.has_value());
+            if (!saw_heartbeat) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+        NX_CHECK(saw_heartbeat);
+    }
+
     // Unknown group is rejected.
     NX_CHECK(host->request_state("missing", "Run") == exec::StateResult::InvalidArgument);
 

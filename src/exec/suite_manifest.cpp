@@ -70,11 +70,13 @@ std::string AppSpec::to_string() const {
     return std::format(
         "AppSpec(app={}, instance={}, command={}, function_group={}, startup_configs={}, "
         "cpus={}, idle_timeout_s={}, impact={}, type={}, reporting={}, "
-        "global_settings_path={}, local_settings_path={}, log_level={})",
+        "global_settings_path={}, local_settings_path={}, log_level={}, uid={}, gid={})",
         app, instance, command, function_group, startup_configs.size(), cpus.count(),
         idle_timeout_s, nexigen::exec::to_string(impact), nexigen::exec::to_string(type), reporting,
         global_settings_path, local_settings_path,
-        log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"));
+        log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"),
+        uid.has_value() ? std::to_string(*uid) : std::string("inherit"),
+        gid.has_value() ? std::to_string(*gid) : std::string("inherit"));
 }
 
 std::string FunctionGroupConfig::to_string() const {
@@ -152,6 +154,12 @@ void to_json(nlohmann::json& j, const AppSpec& spec) {
         {"resource_group", spec.resource_group},
         {"executable_digest", spec.executable_digest},
     };
+    if (spec.uid.has_value()) {
+        j["uid"] = *spec.uid;
+    }
+    if (spec.gid.has_value()) {
+        j["gid"] = *spec.gid;
+    }
 }
 
 void from_json(const nlohmann::json& j, AppSpec& spec) noexcept {
@@ -181,6 +189,14 @@ void from_json(const nlohmann::json& j, AppSpec& spec) noexcept {
     static_cast<void>(read_log_level(j, "log_level", spec.log_level));
     static_cast<void>(core::detail::read_string(j, "resource_group", spec.resource_group));
     static_cast<void>(core::detail::read_string(j, "executable_digest", spec.executable_digest));
+    std::uint32_t uid = 0;
+    if (core::detail::read_unsigned(j, "uid", uid)) {
+        spec.uid = uid;
+    }
+    std::uint32_t gid = 0;
+    if (core::detail::read_unsigned(j, "gid", gid)) {
+        spec.gid = gid;
+    }
 }
 
 void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
@@ -210,6 +226,12 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
     }
     nlohmann::json trusted;
     to_json(trusted, manifest.trusted_platform);
+    nlohmann::json settings_digests = nlohmann::json::array();
+    for (const SettingsDigest& digest : manifest.settings_digests) {
+        nlohmann::json entry;
+        to_json(entry, digest);
+        settings_digests.push_back(std::move(entry));
+    }
     j = nlohmann::json{
         {"version", manifest.version},
         {"suite_id", manifest.suite_id},
@@ -226,6 +248,7 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
         {"execution_manager_logger_thread", manifest.execution_manager_logger_thread},
         {"resource_groups", std::move(resource_groups)},
         {"trusted_platform", std::move(trusted)},
+        {"settings_digests", std::move(settings_digests)},
         {"function_group_port_mapping", std::move(port_mappings)},
         {"function_groups", std::move(groups)},
         {"apps", std::move(apps)},
@@ -285,6 +308,12 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
     if (const auto it = j.find("trusted_platform"); it != j.end()) {
         from_json(*it, manifest.trusted_platform);
     }
+    static_cast<void>(core::detail::collect_array_into<SettingsDigest>(
+        j, "settings_digests", manifest.settings_digests,
+        [](const nlohmann::json& item, SettingsDigest& digest) noexcept {
+            from_json(item, digest);
+            return true;
+        }));
     if (const auto it = j.find("function_group_port_mapping"); it != j.end() && it->is_array()) {
         std::vector<FunctionGroupPortMapping> mappings;
         mappings.reserve(it->size());
@@ -827,6 +856,13 @@ validate_dependency_entries(const AppSpec& app, const SuiteManifest& manifest,
     if (const core::Status status = validate_app_timeouts(app); !status) {
         return status;
     }
+    if (app.uid.has_value() && *app.uid == 0U) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (app.gid.has_value() &&
+        (!app.uid.has_value() || *app.gid == 0U)) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
     if (const core::Status status = validate_app_settings_paths(app); !status) {
         return status;
     }
@@ -851,6 +887,22 @@ validate_unique_app_instances(const std::vector<AppSpec>& apps) noexcept {
 
 } // namespace
 
+namespace {
+
+core::Status validate_settings_digests(const SuiteManifest& manifest) noexcept {
+    for (const SettingsDigest& digest : manifest.settings_digests) {
+        if (digest.path.empty() || digest.path.front() != '/') {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        if (!is_sha256_hex(digest.sha256)) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+    }
+    return {};
+}
+
+} // namespace
+
 core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
     if (const core::Status status = validate_suite_header_and_paths(manifest); !status) {
         return status;
@@ -865,6 +917,9 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
         return status;
     }
     if (const core::Status status = validate_trusted_policy(manifest); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_settings_digests(manifest); !status) {
         return status;
     }
     if (const core::Status status = validate_port_mappings(manifest); !status) {
@@ -1030,6 +1085,19 @@ core::Status load_suite_manifest(std::string_view path, std::string_view expecte
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     return install_suite_manifest(path, document, out);
+}
+
+bool verify_settings_digests(const SuiteManifest& manifest, std::string& error) noexcept {
+    error.clear();
+    for (const SettingsDigest& digest : manifest.settings_digests) {
+        core::Result<std::string> content =
+            core::integrity::read_verified(digest.path, digest.sha256);
+        if (!content) {
+            error = "settings digest verification failed for '" + digest.path + "'";
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace nexigen::exec
