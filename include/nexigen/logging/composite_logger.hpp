@@ -49,6 +49,7 @@
 #include <utility>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/sink_pack.hpp>
 #include <nexigen/logging/concepts/logger_concept.hpp>
 #include <nexigen/logging/detail/format_param.hpp>
 #include <nexigen/logging/detail/level_control.hpp>
@@ -82,70 +83,12 @@ namespace nexigen::logging {
 /// @note Spec `logging/composite-logger`, requirement "Level control propagation".
 /// @note Spec `logging/multi-producer`, requirement "Pre-allocated per-thread
 ///       shard array".
-template <concepts::Logger... Loggers> class CompositeLogger final {
+template <concepts::Logger... Loggers>
+class CompositeLogger final : public core::sink_pack::Fanout<Loggers...> {
+    using Base = core::sink_pack::Fanout<Loggers...>;
     static_assert((std::is_default_constructible_v<Loggers> && ...),
                   "composite members must be default-constructible (tuple-built)");
 
-    /// @brief Compile-time index of the first `T` in the member pack.
-    ///
-    /// @tparam T Member type to locate.
-    /// @return Index of the first match, or `sizeof...(Loggers)` as the
-    ///         "not present" sentinel.
-    /// @note The fold expands left to right and keeps the first hit.
-    template <class T> [[nodiscard]] static constexpr std::size_t find_index() noexcept {
-        std::size_t found = sizeof...(Loggers); // sentinel: "not present"
-        std::size_t i = 0;
-        ((std::is_same_v<T, Loggers> && found == sizeof...(Loggers) ? (found = i) : found, ++i),
-         ...);
-        return found;
-    }
-
-    /// @brief Test whether `T` appears exactly once in the member pack.
-    ///
-    /// @tparam T Member type to count.
-    /// @return `true` when exactly one member has type `T`; the type-based
-    ///         `get<T>()` requires it.
-    /// @note Spec `logging/composite-logger`, requirement "Sub-logger access by
-    ///       index and by type".
-    template <class T> [[nodiscard]] static constexpr bool exactly_one() noexcept {
-        std::size_t hits = 0;
-        ((std::is_same_v<T, Loggers> ? ++hits : hits), ...);
-        return hits == 1U;
-    }
-
-    /// @brief Apply `fn` to every stored logger, in pack order.
-    ///
-    /// The comma fold evaluates the members left to right, so a member's side
-    /// effects (level changes, enqueues) are ordered by position in the pack. The
-    /// `static_cast<void>` keeps the capture "used" for the empty pack, where a
-    /// zero-expansion fold never mentions the operand.
-    ///
-    /// @tparam Fn Callable taking `Logger&`; return value discarded.
-    /// @param fn Operation applied to each member once.
-    template <typename Fn> void for_each(Fn&& fn) noexcept {
-        std::apply(
-            [&fn](Loggers&... lg) {
-                static_cast<void>(fn);
-                (fn(lg), ...);
-            },
-            members_);
-    }
-
-    /// @brief Apply `fn` to every stored logger through a const view.
-    ///
-    /// @tparam Fn Callable taking `const Logger&`; return value discarded.
-    /// @param fn Operation applied to each member once, in pack order.
-    template <typename Fn> void for_each(Fn&& fn) const noexcept {
-        std::apply(
-            [&fn](const Loggers&... lg) {
-                static_cast<void>(fn);
-                (fn(lg), ...);
-            },
-            members_);
-    }
-
-    /// @brief Stored members, in declaration order (index == pack position).
-    std::tuple<Loggers...> members_{};
     /// @brief The composite's own relaxed threshold cell.
     detail::LevelControl level_{};
 
@@ -165,45 +108,8 @@ public:
     /// @brief Move assignment is deleted; member rings are address-pinned.
     CompositeLogger& operator=(CompositeLogger&&) = delete;
 
-    /// @brief Access a sub-logger by index; duplicates are allowed.
-    ///
-    /// @tparam Index Position in the member pack; must be `< sizeof...(Loggers)`.
-    /// @return Reference to the stored member, so its configuration can be changed
-    ///         after construction.
-    /// @note Spec `logging/composite-logger`, requirement "Sub-logger access by
-    ///       index and by type": an out-of-range index is a compile-time error.
-    template <std::size_t Index> [[nodiscard]] decltype(auto) get() noexcept {
-        static_assert(Index < sizeof...(Loggers), "index beyond the member pack");
-        return std::get<Index>(members_);
-    }
-    /// @brief Access a sub-logger by index through a const view.
-    ///
-    /// @tparam Index Position in the member pack; must be `< sizeof...(Loggers)`.
-    /// @return Const reference to the stored member.
-    template <std::size_t Index> [[nodiscard]] decltype(auto) get() const noexcept {
-        static_assert(Index < sizeof...(Loggers), "index beyond the member pack");
-        return std::get<Index>(members_);
-    }
-
-    /// @brief Access the unique sub-logger of type `T`.
-    ///
-    /// @tparam T Member type; must appear exactly once in the pack.
-    /// @return Reference to the stored member, usable for per-sink
-    ///         reconfiguration.
-    /// @note A type that is absent or duplicated is a compile-time error — use
-    ///       `get<Index>()` for duplicates.
-    template <class T> [[nodiscard]] T& get() noexcept {
-        static_assert(exactly_one<T>(), "type absent or duplicated — get<Index>() for duplicates");
-        return std::get<find_index<T>()>(members_);
-    }
-    /// @brief Access the unique sub-logger of type `T` through a const view.
-    ///
-    /// @tparam T Member type; must appear exactly once in the pack.
-    /// @return Const reference to the stored member.
-    template <class T> [[nodiscard]] const T& get() const noexcept {
-        static_assert(exactly_one<T>(), "type absent or duplicated — get<Index>() for duplicates");
-        return std::get<find_index<T>()>(members_);
-    }
+    /// @brief Inherit index/type member access and the protected fan-out helper.
+    using Base::get;
 
     /// @brief Store the composite threshold and propagate it to every member.
     ///
@@ -217,7 +123,7 @@ public:
     ///       propagation", scenario "One call moves the whole tree".
     void set_level(core::LogLevel new_level) noexcept {
         level_.set_level(new_level);
-        for_each([new_level](auto& lg) noexcept { lg.set_level(new_level); });
+        this->for_each([new_level](auto& lg) noexcept { lg.set_level(new_level); });
     }
     /// @brief Read the composite's own stored threshold.
     ///
@@ -248,7 +154,7 @@ public:
         if (active == core::LogLevel::Off || record_level < active) {
             return; // bounded short-circuit: folds never run (spec)
         }
-        for_each(
+        this->for_each(
             [&](auto& lg) noexcept { lg.log(record_level, fmt, std::forward<Args>(args)...); });
     }
 
@@ -324,7 +230,7 @@ public:
         // members' errors are skipped in favor of the first one.
         core::Status first{};
         bool have_first = false;
-        for_each([&](auto& lg) noexcept {
+        this->for_each([&](auto& lg) noexcept {
             const core::Status s = lg.flush();
             if (!s && !have_first) {
                 first = s;
@@ -344,15 +250,7 @@ public:
     [[nodiscard]] std::string to_string() const {
         std::string out = "CompositeLogger(level=" + std::string(core::to_string(level_.level())) +
                           ", members=" + std::to_string(sizeof...(Loggers));
-        std::apply(
-            [&](const Loggers&... lg) {
-                static_cast<void>(out);
-                // Member call: public to_string() const is part of the
-                // logger-type contract (namespaces of member types need not
-                // be visible at this header's point of definition).
-                ((out += ", [" + lg.to_string() + "]"), ...);
-            },
-            members_);
+        this->for_each([&out](const auto& lg) { out += ", [" + lg.to_string() + "]"; });
         out += ")";
         return out;
     }

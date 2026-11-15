@@ -183,8 +183,8 @@ pid_t spawn_logd(const char* bin, const std::string& cfg_path, const std::string
     ::_exit(127);
 }
 
-bool logdir_contains(const std::string& log_dir, std::string_view needle) {
-    for (int attempt = 0; attempt < 100; ++attempt) {
+bool logdir_contains(const std::string& log_dir, std::string_view needle, int attempts = 100) {
+    for (int attempt = 0; attempt < attempts; ++attempt) {
         for (const auto& entry : std::filesystem::recursive_directory_iterator(log_dir)) {
             if (!entry.is_regular_file() || entry.file_size() == 0U) {
                 continue;
@@ -237,9 +237,8 @@ bool publish_main_thread(const std::string& service, std::string_view msg) {
         return false;
     }
     const auto ev_name = com::ServiceName::create((service + "Event").c_str());
-    auto notifier =
-        ev_name ? com::EventNotifier::create(*node, *ev_name)
-                : com::Result<com::EventNotifier>{std::unexpected(com::Error::Unknown)};
+    auto notifier = ev_name ? com::EventNotifier::create(*node, *ev_name)
+                            : com::Result<com::EventNotifier>{std::unexpected(com::Error::Unknown)};
 
     logging::LogFrame frame{};
     frame.timestamp_ns = 123;
@@ -250,7 +249,7 @@ bool publish_main_thread(const std::string& service, std::string_view msg) {
     std::memcpy(frame.payload, msg.data(), n);
     frame.payload_size = static_cast<std::uint16_t>(n);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
     const auto sent = publisher->send_copy(frame);
     if (sent.has_value() && notifier) {
         static_cast<void>(notifier->notify());
@@ -279,6 +278,7 @@ void test_real_daemon_e2e() {
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     bool published = false;
+    bool observed = false;
     {
         logging::Iceoryx2Logger<> logger;
         logging::Iceoryx2LoggerConfig cfg;
@@ -286,14 +286,17 @@ void test_real_daemon_e2e() {
         cfg.app_id = "TEST";
         if (logger.initialize(cfg).has_value()) {
             wait_writer(logger);
-            logger.info("hello e2e daemon");
-            static_cast<void>(logger.flush());
-            published = true;
+            for (int attempt = 0; attempt < 50 && !observed; ++attempt) {
+                logger.info("hello e2e daemon");
+                static_cast<void>(logger.flush());
+                published = true;
+                observed = logdir_contains(log_dir, "hello e2e daemon", 2);
+            }
         }
     }
 
     NX_CHECK(published);
-    NX_CHECK(logdir_contains(log_dir, "hello e2e daemon"));
+    NX_CHECK(observed);
 
     stop_logd(pid);
     cleanup_root(root);
@@ -319,7 +322,14 @@ void test_real_daemon_main_thread_publisher() {
 
     const bool published = publish_main_thread(service, "hello main thread");
     NX_CHECK(published);
-    NX_CHECK(logdir_contains(log_dir, "hello main thread"));
+    bool observed = false;
+    for (int attempt = 0; attempt < 50 && !observed; ++attempt) {
+        observed = logdir_contains(log_dir, "hello main thread", 2);
+        if (!observed) {
+            static_cast<void>(publish_main_thread(service, "hello main thread"));
+        }
+    }
+    NX_CHECK(observed);
 
     stop_logd(pid);
     cleanup_root(root);

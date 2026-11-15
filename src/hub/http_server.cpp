@@ -39,6 +39,9 @@
 #include <nexigen/hub/web_assets.hpp>
 #include <nexigen/exec/detail/sys_helpers.hpp>
 
+#include "http_sse.hpp"
+#include "http_transport.hpp"
+
 namespace nexigen::hub {
 
 namespace {
@@ -53,37 +56,12 @@ constexpr std::uint64_t refresh_interval_ns = 1ULL * 1'000'000'000ULL;
 
 using nexigen::exec::detail::monotonic_now_ns;
 
-[[nodiscard]] std::string json_text(const nlohmann::json& document) {
-    return document.dump();
-}
-
-[[nodiscard]] bool starts_with(std::string_view text, std::string_view prefix) noexcept {
-    return text.size() >= prefix.size() && text.compare(0, prefix.size(), prefix) == 0;
-}
-
-[[nodiscard]] std::string sse_record(const StreamRecord& record) {
-    nlohmann::json document;
-    to_json(document, record);
-    return "event: record\nid: " + record.stream_id + ":" + std::to_string(record.sequence) +
-           "\ndata: " + json_text(document) + "\n\n";
-}
-
-[[nodiscard]] std::string sse_gap(const GapMarker& gap) {
-    nlohmann::json document;
-    to_json(document, gap);
-    return "event: gap\ndata: " + json_text(document) + "\n\n";
-}
-
-// SSE helpers
-[[nodiscard]] std::string sse_headers() noexcept {
-    return "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
-           "Cache-Control: no-cache\r\nTransfer-Encoding: chunked\r\n"
-           "X-Accel-Buffering: no\r\n\r\n";
-}
-
-[[nodiscard]] std::string sse_tree_event(const nlohmann::json& document) noexcept {
-    return "event: tree\ndata: " + json_text(document) + "\n\n";
-}
+using detail::json_text;
+using detail::sse_gap;
+using detail::sse_headers;
+using detail::sse_record;
+using detail::sse_tree_event;
+using detail::starts_with;
 
 } // namespace
 
@@ -166,63 +144,6 @@ struct HttpServer::Impl {
         if (epoll_fd >= 0) {
             static_cast<void>(::close(epoll_fd));
         }
-    }
-
-    [[nodiscard]] bool parse_listen(std::string_view listen, std::string& host,
-                                    std::uint16_t& out_port, bool& out_ipv6) const {
-        out_ipv6 = false;
-        if (listen.empty()) {
-            return false;
-        }
-        // RFC 3986 bracket form: `[<addr>]:<port>` (required for full v6
-        // literals with more than one colon; analysis #13).
-        if (listen.front() == '[') {
-            const std::size_t closing = listen.find(']');
-            if (closing == std::string_view::npos || closing + 2 >= listen.size() ||
-                listen[closing + 1] != ':') {
-                return false;
-            }
-            host = std::string(listen.substr(1, closing - 1));
-            out_ipv6 = true;
-            return parse_port(listen, closing + 2, out_port);
-        }
-        // Bare form: a single colon separates host and port for IPv4 names,
-        // and a ≤1-colon IPv6 literal is unambiguous (e.g. `::1:8080` style
-        // `addr:port` with one colon in the address part — multi-colon
-        // literals must use brackets). Keep the port digits-only rule.
-        const std::size_t colon = listen.find(':');
-        if (colon == std::string_view::npos || colon == 0) {
-            return false;
-        }
-        if (listen.find(':', colon + 1) != std::string_view::npos) {
-            return false; // ambiguous multi-colon without brackets
-        }
-        host = std::string(listen.substr(0, colon));
-        if (host == "localhost") {
-            host = "127.0.0.1";
-        }
-        out_ipv6 = host.find(':') != std::string::npos;
-        return parse_port(listen, colon + 1, out_port);
-    }
-
-    [[nodiscard]] bool parse_port(std::string_view listen, std::size_t begin,
-                                  std::uint16_t& out_port) const {
-        if (begin >= listen.size()) {
-            return false;
-        }
-        std::uint64_t port_value = 0;
-        for (std::size_t index = begin; index < listen.size(); ++index) {
-            const char c = listen[index];
-            if (c < '0' || c > '9') {
-                return false;
-            }
-            port_value = port_value * std::uint64_t{10} + static_cast<std::uint64_t>(c - '0');
-            if (port_value > 65535ULL) {
-                return false;
-            }
-        }
-        out_port = static_cast<std::uint16_t>(port_value);
-        return true;
     }
 
     [[nodiscard]] core::Status bind_listen(const std::string& host, std::uint16_t requested_port,
@@ -352,13 +273,11 @@ struct HttpServer::Impl {
     }
 
     [[nodiscard]] core::Status start(std::string_view listen) noexcept {
-        std::string host;
-        std::uint16_t requested_port = 0;
-        bool ipv6 = false;
-        if (!parse_listen(listen, host, requested_port, ipv6)) {
+        detail::ListenAddress address{};
+        if (!detail::parse_listen(listen, address)) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        const core::Status bound = bind_listen(host, requested_port, ipv6);
+        const core::Status bound = bind_listen(address.host, address.port, address.ipv6);
         if (!bound) {
             return bound;
         }

@@ -808,12 +808,9 @@ void supervisor_tick(RuntimeSuite& suite, const SuiteManifest& manifest, std::ui
 
 } // namespace
 
-void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suite_dir,
-                          int report_fd) {
-    static_cast<void>(reset_execution_manager_affinity());
-    apply_suite_control_thread(manifest);
-
-    RuntimeSuite suite{};
+/// Prepare paths, start time, unrecoverable hooks, and suite.json.
+void initialize_suite_runtime(RuntimeSuite& suite, const SuiteManifest& manifest,
+                              const std::string& suite_dir, int report_fd) {
     suite.manifest = &manifest;
     suite.suite_dir = suite_dir;
     suite.state_path = join_path(suite_dir, "suite-state.json");
@@ -834,17 +831,24 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
         static_cast<void>(::close(report_fd));
         child_exit(1);
     }
+}
 
-    initialize_runtime_apps(suite, manifest);
+/// Create the control host and install the suite start/stop handlers.
+void install_suite_control(RuntimeSuite& suite, const SuiteManifest& manifest) {
     suite.control = create_suite_control(manifest);
-    if (suite.control != nullptr) {
-        suite.control->set_start_handler([&suite](std::string_view app, std::string_view state) {
-            return suite_start_process(suite, app, state);
-        });
-        suite.control->set_stop_handler([&suite](std::string_view app, std::string_view state) {
-            return suite_stop_process(suite, app, state);
-        });
+    if (suite.control == nullptr) {
+        return;
     }
+    suite.control->set_start_handler([&suite](std::string_view app, std::string_view state) {
+        return suite_start_process(suite, app, state);
+    });
+    suite.control->set_stop_handler([&suite](std::string_view app, std::string_view state) {
+        return suite_stop_process(suite, app, state);
+    });
+}
+
+/// Start the configured initial states, report success, and initialize logs.
+void start_suite_and_report(RuntimeSuite& suite, const SuiteManifest& manifest, int report_fd) {
     start_suite_apps(suite);
     write_suite_status(suite);
 
@@ -859,12 +863,28 @@ void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suit
         apply_launch_failures(suite);
     }
     write_suite_status(suite);
+}
 
+/// Run the supervisor polling loop until the process exits.
+[[noreturn]] void run_suite_loop(RuntimeSuite& suite, const SuiteManifest& manifest) {
     for (;;) {
         const std::uint64_t now = monotonic_now_ns();
         supervisor_tick(suite, manifest, now);
         sleep_ms(suite_poll_interval_ms);
     }
+}
+
+void run_suite_supervisor(const SuiteManifest& manifest, const std::string& suite_dir,
+                          int report_fd) {
+    static_cast<void>(reset_execution_manager_affinity());
+    apply_suite_control_thread(manifest);
+
+    RuntimeSuite suite{};
+    initialize_suite_runtime(suite, manifest, suite_dir, report_fd);
+    initialize_runtime_apps(suite, manifest);
+    install_suite_control(suite, manifest);
+    start_suite_and_report(suite, manifest, report_fd);
+    run_suite_loop(suite, manifest);
 }
 
 } // namespace nexigen::exec::detail
