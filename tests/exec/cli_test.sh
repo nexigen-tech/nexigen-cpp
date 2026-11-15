@@ -92,4 +92,45 @@ grep -q "start failed" "$ROOT/fail.err"
 [ ! -e "$FAIL_DIR/fail_app/1/resource.json" ]
 [ ! -e "$FAIL_DIR/fail_app/1/exit.json" ]
 
+# ARXML manifest source (change p3-arxml-manifest-accessor): the same CLI
+# accepts the documented execution-manifest profile.
+ARXML_ROOT="$(mktemp -d "$TEST_TMP/nexigen_cli_arxml_XXXXXX")"
+ARXML_ART="$(mktemp -d "$TEST_TMP/nexigen_cli_arxml_art_XXXXXX")"
+ARXML_MANIFEST="$ARXML_ROOT/manifest.arxml"
+cat > "$ARXML_MANIFEST" <<EOF
+<?xml version="1.0"?>
+<SUITE-MANIFEST>
+  <VERSION>1</VERSION>
+  <SUITE-ID>cli-arxml</SUITE-ID>
+  <RUN-ID>run-cli-arxml</RUN-ID>
+  <RUN-DIR>$ARXML_ROOT</RUN-DIR>
+  <ARTIFACTS-PATH>$ARXML_ART</ARTIFACTS-PATH>
+  <FUNCTION-GROUPS>
+    <FUNCTION-GROUP>
+      <NAME>cli</NAME>
+      <STATES><STATE>Off</STATE><STATE>Running</STATE></STATES>
+      <INITIAL-STATE>Running</INITIAL-STATE>
+    </FUNCTION-GROUP>
+  </FUNCTION-GROUPS>
+  <APPLICATIONS>
+    <APPLICATION>
+      <APP>arxml_app</APP>
+      <INSTANCE>1</INSTANCE>
+      <COMMAND>/bin/sh</COMMAND>
+      <FUNCTION-GROUP>cli</FUNCTION-GROUP>
+      <IMPACT-ON-APP-SUITE-OPERABILITY>not_impact</IMPACT-ON-APP-SUITE-OPERABILITY>
+      <STARTUP-CONFIGS>
+        <STARTUP-CONFIG>
+          <STATE>Running</STATE>
+          <ARGS><ARG>-c</ARG><ARG>exec sleep 60</ARG></ARGS>
+        </STARTUP-CONFIG>
+      </STARTUP-CONFIGS>
+    </APPLICATION>
+  </APPLICATIONS>
+</SUITE-MANIFEST>
+EOF
+"$BIN" start --config "$ARXML_MANIFEST" | grep -q "started:"
+"$BIN" stop --config "$ARXML_MANIFEST" --grace 1 | grep -q "stopped:"
+rm -rf "$ARXML_ROOT" "$ARXML_ART"
+
 echo "cli checks passed"

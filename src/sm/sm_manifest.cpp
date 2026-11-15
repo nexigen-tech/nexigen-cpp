@@ -54,6 +54,11 @@ core::Status validate(const SmManifest& manifest) noexcept {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
     }
+    for (const LightweightStateMachineConfig& machine : manifest.state_machines) {
+        if (const core::Status valid = machine.validate(); !valid) {
+            return valid;
+        }
+    }
     return {};
 }
 
@@ -106,8 +111,15 @@ void to_json(nlohmann::json& j, const SmManifest& manifest) {
         to_json(p, priority);
         priorities.push_back(std::move(p));
     }
+    auto machines = nlohmann::json::array();
+    for (const LightweightStateMachineConfig& machine : manifest.state_machines) {
+        nlohmann::json m;
+        to_json(m, machine);
+        machines.push_back(std::move(m));
+    }
     j = nlohmann::json{{"function_groups", std::move(groups)},
                        {"requester_priorities", std::move(priorities)},
+                       {"state_machines", std::move(machines)},
                        {"metrics_flush_interval_ms", manifest.metrics_flush_interval_ms},
                        {"startup_timeout_ms", manifest.startup_timeout_ms},
                        {"bg_thread", manifest.bg_thread},
@@ -193,6 +205,16 @@ void from_json(const nlohmann::json& j, SmManifest& manifest) noexcept {
             parsed_priorities.push_back(std::move(priority));
         }
         parsed.requester_priorities = std::move(parsed_priorities);
+    }
+    const auto machines = j.find("state_machines");
+    if (machines != j.end() && machines->is_array()) {
+        std::vector<LightweightStateMachineConfig> parsed_machines;
+        for (const auto& item : *machines) {
+            LightweightStateMachineConfig machine;
+            from_json(item, machine);
+            parsed_machines.push_back(std::move(machine));
+        }
+        parsed.state_machines = std::move(parsed_machines);
     }
     manifest = std::move(parsed);
 }

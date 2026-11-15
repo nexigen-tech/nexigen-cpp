@@ -15,6 +15,7 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/control_host.hpp>
 #include <nexigen/exec/execution_manager.hpp>
+#include <nexigen/exec/manifest_accessor.hpp>
 #include <nexigen/exec/suite_manifest.hpp>
 
 namespace core = nexigen::core;
@@ -97,7 +98,7 @@ int main(int argc, char* argv[]) {
     }
 
     exec::SuiteManifest manifest{};
-    const core::Status loaded = exec::load_suite_manifest(options.config, manifest);
+    const core::Status loaded = exec::load_suite_manifest_auto(options.config, manifest);
     if (!loaded) {
         std::fprintf(stderr, "nexigen-em: manifest failed: %s\n",
                      std::string(core::to_string(loaded.error())).c_str());

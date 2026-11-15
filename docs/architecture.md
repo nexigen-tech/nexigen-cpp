@@ -376,6 +376,24 @@ previous state), `Cancel` restores the previous state, and both clear the lock.
 Only one update is active at a time (`Busy` otherwise). The coordinator owns
 the UCM/EM handshake; the arbitration thread stays the single writer.
 
+## Lightweight state machines and ARXML manifests
+
+`SmManifest` may also carry declarative `state_machines`. Each
+`LightweightStateMachineConfig` holds a transition table, ordered action lists,
+and an error-recovery table. `sm::LightweightStateMachine` executes actions
+through an `LsmActionSink`, so the same engine can drive the EM, publish state,
+or be unit-tested with a recording sink. The arbitration loop does not consume
+these configurations yet; they are the declarative building block for the next
+SM integration step.
+
+Suite manifests can be loaded from JSON or from the documented ARXML
+execution-manifest profile. `ManifestAccessor` detects the source format,
+converts the ARXML tree into the existing JSON object shape, then runs the same
+`from_json` and `validate_suite_manifest` path. The XML reader is small and
+dependency-free; it covers elements, nesting, text, comments, processing
+instructions, entities, and namespace-prefix stripping. This is a subset
+profile, not a full AUTOSAR XSD implementation or a machine-manifest resolver.
+
 ## CLI tools
 
 | Tool | Purpose | Key options |

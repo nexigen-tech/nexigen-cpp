@@ -32,6 +32,7 @@
 #include <nexigen/exec/machine_state_query.hpp>
 #include <nexigen/exec/state_ack.hpp>
 #include <nexigen/exec/state_command.hpp>
+#include <nexigen/sm/lightweight_state_machine.hpp>
 #include <nexigen/sm/machine_lifecycle.hpp>
 #include <nexigen/sm/machine_state.hpp>
 #include <nexigen/sm/ucm.hpp>
@@ -691,6 +692,104 @@ void test_ucm_coordination() {
     serve.join();
 }
 
+struct RecordingLsmSink final : sm::LsmActionSink {
+    std::vector<std::string> calls{};
+    bool fail_requests{false};
+
+    nexigen::core::Status request_state(std::string_view group, std::string_view state,
+                                        std::string_view) override {
+        calls.push_back("request:" + std::string(group) + ":" + std::string(state));
+        return fail_requests ? std::unexpected(nexigen::core::ErrorCode::SystemError)
+                             : nexigen::core::Status{};
+    }
+
+    nexigen::core::Status publish_state(std::string_view group, std::string_view state) override {
+        calls.push_back("publish:" + std::string(group) + ":" + std::string(state));
+        return {};
+    }
+};
+
+sm::LightweightStateMachineConfig make_lsm_config() {
+    sm::LightweightStateMachineConfig config;
+    config.name = "lsm";
+    config.states = {"Off", "Active", "Fallback"};
+    config.initial_state = "Off";
+    config.actions = {
+        {sm::LsmActionType::PublishState, "adas", "Off"},
+        {sm::LsmActionType::RequestFunctionGroupState, "adas", "Active"},
+        {sm::LsmActionType::PublishState, "adas", "Fallback"},
+    };
+    config.transitions = {
+        {"Off", "Active", {0, 1}},
+    };
+    config.error_recovery = {
+        {"Active", "Fallback", {2}},
+    };
+    return config;
+}
+
+void test_lightweight_state_machine() {
+    RecordingLsmSink sink;
+    auto machine = sm::LightweightStateMachine::create(make_lsm_config(), sink);
+    NX_CHECK(machine.has_value());
+    if (!machine) {
+        return;
+    }
+    NX_CHECK(machine->request("Active", "app").has_value());
+    NX_CHECK(machine->current_state() == "Active");
+    NX_CHECK(sink.calls.size() == 2U);
+    NX_CHECK(sink.calls[0] == "publish:adas:Off");
+    NX_CHECK(sink.calls[1] == "request:adas:Active");
+
+    sink.calls.clear();
+    const auto missing = machine->request("Missing", "app");
+    NX_CHECK(missing.has_value() && *missing == sm::TransitionResult::InvalidGraph);
+    NX_CHECK(machine->current_state() == "Active");
+
+    nlohmann::json json;
+    sm::to_json(json, make_lsm_config());
+    sm::LightweightStateMachineConfig parsed;
+    sm::from_json(json, parsed);
+    NX_CHECK(parsed.name == "lsm" && parsed.transitions.size() == 1U);
+    NX_CHECK(std::format("{}", make_lsm_config()) == make_lsm_config().to_string());
+
+    RecordingLsmSink failing;
+    auto failing_machine = sm::LightweightStateMachine::create(make_lsm_config(), failing);
+    NX_CHECK(failing_machine.has_value());
+    if (failing_machine) {
+        failing.fail_requests = true;
+        const auto result = failing_machine->request("Active", "app");
+        NX_CHECK(!result.has_value());
+        NX_CHECK(failing_machine->current_state() == "Fallback");
+        NX_CHECK(failing.calls.back() == "publish:adas:Fallback");
+    }
+
+    sm::LightweightStateMachineConfig no_recovery = make_lsm_config();
+    no_recovery.error_recovery.clear();
+    RecordingLsmSink no_rule;
+    auto no_rule_machine = sm::LightweightStateMachine::create(no_recovery, no_rule);
+    NX_CHECK(no_rule_machine.has_value());
+    if (no_rule_machine) {
+        no_rule.fail_requests = true;
+        NX_CHECK(!no_rule_machine->request("Active", "app").has_value());
+        NX_CHECK(no_rule_machine->current_state() == "Off");
+    }
+
+    sm::LightweightStateMachineConfig invalid = make_lsm_config();
+    invalid.transitions.front().actions.push_back(99);
+    NX_CHECK(!invalid.validate().has_value());
+
+    sm::SmManifest manifest = make_manifest();
+    manifest.state_machines.push_back(make_lsm_config());
+    NX_CHECK(sm::validate(manifest).has_value());
+    nlohmann::json manifest_json;
+    sm::to_json(manifest_json, manifest);
+    sm::SmManifest manifest_parsed;
+    sm::from_json(manifest_json, manifest_parsed);
+    NX_CHECK(manifest_parsed.state_machines.size() == 1U);
+    NX_CHECK(manifest_parsed.state_machines.front().name == "lsm");
+}
+
 } // namespace
 
 int main() {
@@ -703,6 +802,7 @@ int main() {
     run_suite("thread_spec", test_thread_spec);
     run_suite("machine_lifecycle", test_machine_lifecycle_client);
     run_suite("ucm_coordination", test_ucm_coordination);
+    run_suite("lightweight_state_machine", test_lightweight_state_machine);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

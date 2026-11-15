@@ -35,6 +35,7 @@
 #include <nexigen/exec/process_lifecycle.hpp>
 #include <nexigen/exec/platform_controls.hpp>
 #include <nexigen/exec/deterministic_client.hpp>
+#include <nexigen/exec/manifest_accessor.hpp>
 #include <nexigen/exec/state_result.hpp>
 #include <nexigen/exec/unrecoverable_state.hpp>
 
@@ -1903,6 +1904,84 @@ void test_deterministic_client() {
     NX_CHECK(std::format("{}", first) == first.to_string());
 }
 
+void test_arxml_manifest() {
+    NX_CHECK(exec::ManifestAccessor::detect("manifest.arxml", "") == exec::ManifestFormat::Arxml);
+    NX_CHECK(exec::ManifestAccessor::detect("manifest.json", "{}") == exec::ManifestFormat::Json);
+    NX_CHECK(exec::ManifestAccessor::detect("manifest.txt", "  <SUITE-MANIFEST/>") ==
+             exec::ManifestFormat::Arxml);
+    NX_CHECK(exec::to_string(exec::ManifestFormat::Arxml) == "Arxml");
+    nlohmann::json format_json;
+    exec::to_json(format_json, exec::ManifestFormat::Json);
+    exec::ManifestFormat format_parsed = exec::ManifestFormat::Arxml;
+    exec::from_json(format_json, format_parsed);
+    NX_CHECK(format_parsed == exec::ManifestFormat::Json);
+
+    const std::string root = unique_dir("arxml");
+    const std::string artifacts = unique_dir("arxml_artifacts");
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    std::filesystem::create_directories(artifacts, error);
+    const std::string path = root + "/manifest.arxml";
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output
+        << "<?xml version=\"1.0\"?>\n"
+           "<SUITE-MANIFEST xmlns=\"urn:nexigen:test\">\n"
+           "  <VERSION>1</VERSION>\n"
+           "  <SUITE-ID>arxml_suite</SUITE-ID>\n"
+           "  <RUN-ID>run-arxml</RUN-ID>\n"
+           "  <RUN-DIR>"
+        << root
+        << "</RUN-DIR>\n"
+           "  <ARTIFACTS-PATH>"
+        << artifacts
+        << "</ARTIFACTS-PATH>\n"
+           "  <FUNCTION-GROUPS>\n"
+           "    <FUNCTION-GROUP>\n"
+           "      <NAME>demo</NAME>\n"
+           "      <STATES><STATE>Off</STATE><STATE>Running</STATE></STATES>\n"
+           "      <INITIAL-STATE>Running</INITIAL-STATE>\n"
+           "    </FUNCTION-GROUP>\n"
+           "  </FUNCTION-GROUPS>\n"
+           "  <APPLICATIONS>\n"
+           "    <APPLICATION>\n"
+           "      <APP>arxml_app</APP>\n"
+           "      <INSTANCE>1</INSTANCE>\n"
+           "      <COMMAND>/bin/sh</COMMAND>\n"
+           "      <FUNCTION-GROUP>demo</FUNCTION-GROUP>\n"
+           "      <REPORTING>false</REPORTING>\n"
+           "      <IMPACT-ON-APP-SUITE-OPERABILITY>not_impact</IMPACT-ON-APP-SUITE-OPERABILITY>\n"
+           "      <STARTUP-CONFIGS>\n"
+           "        <STARTUP-CONFIG>\n"
+           "          <STATE>Running</STATE>\n"
+           "          <ARGS><ARG>-c</ARG><ARG>exit 0</ARG></ARGS>\n"
+           "        </STARTUP-CONFIG>\n"
+           "      </STARTUP-CONFIGS>\n"
+           "    </APPLICATION>\n"
+           "  </APPLICATIONS>\n"
+           "</SUITE-MANIFEST>\n";
+    output.close();
+
+    exec::SuiteManifest loaded{};
+    NX_CHECK(exec::load_suite_manifest_auto(path, loaded).has_value());
+    NX_CHECK(loaded.suite_id == "arxml_suite");
+    NX_CHECK(loaded.function_groups.size() == 1U);
+    NX_CHECK(loaded.apps.size() == 1U);
+    NX_CHECK(loaded.apps.front().app == "arxml_app");
+    NX_CHECK(!loaded.apps.front().reporting);
+    NX_CHECK(!loaded.manifest_path.empty());
+
+    const std::string bad_path = root + "/bad.arxml";
+    std::ofstream bad(bad_path, std::ios::binary | std::ios::trunc);
+    bad << "<SUITE-MANIFEST><VERSION>1</VERSION></WRONG>";
+    bad.close();
+    exec::SuiteManifest rejected{};
+    NX_CHECK(failed_with(exec::load_suite_manifest_auto(bad_path, rejected),
+                         core::ErrorCode::InvalidArgument));
+
+    remove_tree(root);
+    remove_tree(artifacts);
+}
+
 /// @brief Stand-in factory proving the COM-free slot round-trips.
 [[nodiscard]] std::unique_ptr<exec::ControlHost> dummy_control_factory(const exec::SuiteManifest&,
                                                                        const app::RunIdentity&) {
@@ -1927,6 +2006,7 @@ int main() {
     run_suite("platform_controls_serialization", test_platform_controls_serialization);
     run_suite("platform_controls_validation", test_platform_controls_validation);
     run_suite("deterministic_client", test_deterministic_client);
+    run_suite("arxml_manifest", test_arxml_manifest);
     run_suite("enums_serialization", test_enums_and_serialization);
     run_suite("manifest_validation", test_manifest_validation);
     run_suite("start_status_stop", test_start_status_stop);

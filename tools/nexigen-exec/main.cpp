@@ -14,6 +14,7 @@
 #include <nexigen/app/telemetry_layout.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/app_suite.hpp>
+#include <nexigen/exec/manifest_accessor.hpp>
 #ifdef NEXIGEN_ENABLE_COM
 #include <nexigen/exec/control_host.hpp>
 #endif
@@ -438,7 +439,7 @@ enum class StartScan { Scanned, Missing_value, Unknown };
 /// Suite-manifest start path.
 [[nodiscard]] int start_suite_process(const std::string& config) {
     exec::SuiteManifest manifest{};
-    const core::Status loaded = exec::load_suite_manifest(config, manifest);
+    const core::Status loaded = exec::load_suite_manifest_auto(config, manifest);
     if (!loaded) {
         const CliLogTarget target = fallback_log_target();
         static_cast<void>(activate_logging(target));
@@ -499,7 +500,7 @@ enum class StartScan { Scanned, Missing_value, Unknown };
     CliLogTarget log_target = fallback_log_target();
     if (!args.config.empty()) {
         exec::SuiteManifest manifest{};
-        const core::Status loaded = exec::load_suite_manifest(args.config, manifest);
+        const core::Status loaded = exec::load_suite_manifest_auto(args.config, manifest);
         if (!loaded) {
             static_cast<void>(activate_logging(log_target));
             return cli_fail("stop", "suite", args.config,
@@ -550,7 +551,7 @@ enum class StartScan { Scanned, Missing_value, Unknown };
     CliLogTarget log_target = fallback_log_target();
     if (!args.config.empty()) {
         exec::SuiteManifest manifest{};
-        const core::Status loaded = exec::load_suite_manifest(args.config, manifest);
+        const core::Status loaded = exec::load_suite_manifest_auto(args.config, manifest);
         if (!loaded) {
             static_cast<void>(activate_logging(log_target));
             return cli_fail("status", "suite", args.config,

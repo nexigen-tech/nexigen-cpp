@@ -17,6 +17,7 @@
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
+#include <nexigen/sm/lightweight_state_machine.hpp>
 
 namespace nexigen::sm {
 
@@ -102,6 +103,8 @@ struct SmManifest {
     std::uint64_t startup_timeout_ms{5000};                ///< Readiness report budget.
     core::ThreadSpec bg_thread{};                          ///< Fallback for infrastructure threads.
     core::ThreadSpec audit_thread{};                       ///< Transition-audit writer spec.
+    /// Optional declarative state machines loaded beside the group graph.
+    std::vector<LightweightStateMachineConfig> state_machines{};
 
     /// @brief Render the manifest as a diagnostic string.
     ///
