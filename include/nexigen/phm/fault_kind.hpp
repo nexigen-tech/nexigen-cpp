@@ -30,6 +30,7 @@ enum class FaultKind : std::uint8_t {
     AliveFailure,    ///< Missed aliveness window (Alive supervision).
     LogicalFailure,  ///< Checkpoint order violated the transition graph (Logical supervision).
     DeadlineFailure, ///< Source->target elapsed outside min/max (Deadline supervision).
+    UnknownGroup,    ///< Escalation target unknown; the watchdog path took over.
 };
 
 /// @brief Canonical name of a fault kind.
@@ -95,10 +96,11 @@ template <> struct EnumTraits<nexigen::phm::FaultKind> {
         std::string_view name;         ///< Canonical enumerator name.
     };
     /// @brief Canonical table; exactly one entry per enumerator.
-    static constexpr std::array<Entry, 3> entries{{
+    static constexpr std::array<Entry, 4> entries{{
         {nexigen::phm::FaultKind::AliveFailure, "AliveFailure"},
         {nexigen::phm::FaultKind::LogicalFailure, "LogicalFailure"},
         {nexigen::phm::FaultKind::DeadlineFailure, "DeadlineFailure"},
+        {nexigen::phm::FaultKind::UnknownGroup, "UnknownGroup"},
     }};
 };
 

@@ -139,7 +139,8 @@ std::string PhmManifest::to_string() const {
     }
     out += "], bg_thread=" + bg_thread.to_string();
     out += ", fault_storage_thread=" + fault_storage_thread.to_string();
-    out += ", watchdog=" + watchdog.to_string() + ")";
+    out += ", watchdog=" + watchdog.to_string();
+    out += std::format(", recovery_timeout_ms={})", recovery_timeout_ms);
     return out;
 }
 
@@ -219,7 +220,8 @@ void to_json(nlohmann::json& j, const PhmManifest& manifest) {
     j = nlohmann::json{{"processes", std::move(processes)},
                        {"bg_thread", manifest.bg_thread},
                        {"fault_storage_thread", manifest.fault_storage_thread},
-                       {"watchdog", manifest.watchdog}};
+                       {"watchdog", manifest.watchdog},
+                       {"recovery_timeout_ms", manifest.recovery_timeout_ms}};
 }
 
 void from_json(const nlohmann::json& j, CheckpointTransition& transition) noexcept {
@@ -288,6 +290,8 @@ void from_json(const nlohmann::json& j, PhmManifest& manifest) noexcept {
     core::detail::read_object(j, "watchdog", [&manifest](const nlohmann::json& value) noexcept {
         from_json(value, manifest.watchdog);
     });
+    static_cast<void>(
+        core::detail::read_unsigned(j, "recovery_timeout_ms", manifest.recovery_timeout_ms));
 }
 
 namespace {
@@ -398,6 +402,10 @@ namespace {
 
 core::Status validate_phm_manifest(const PhmManifest& manifest, std::string& error) noexcept {
     error.clear();
+    if (manifest.recovery_timeout_ms == 0U) {
+        error = "recovery_timeout_ms must be positive";
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
     if (const core::Status watchdog = validate_watchdog_section(manifest.watchdog, error);
         !watchdog) {
         return watchdog;

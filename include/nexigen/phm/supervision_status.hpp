@@ -20,7 +20,8 @@ namespace nexigen::phm {
 /// The state machine derived from Alive, Logical, and Deadline results: a
 /// failure within `failed_supervision_cycles_tolerance` yields `Failed`, a
 /// failure streak beyond it yields `Expired`, and a clean cycle returns to
-/// `Ok`. `Stopped` marks a deliberate shutdown. A plain `std::uint8_t` enum
+/// `Ok`. `Exhausted` means the restart budget is spent, so recovery has run out of
+/// options; it is not a deliberate shutdown. A plain `std::uint8_t` enum
 /// with the project conversion set.
 ///
 /// @note Spec `phm/supervision`, requirement "Status aggregation". Mandates
@@ -29,8 +30,8 @@ namespace nexigen::phm {
 enum class SupervisionStatus : std::uint8_t {
     Ok,      ///< All checks pass.
     Failed,  ///< A single failure within the tolerance.
-    Expired, ///< Failures exceeded the tolerance; recovery is triggered.
-    Stopped, ///< The process stopped deliberately.
+    Expired,   ///< Failures exceeded the tolerance; recovery is triggered.
+    Exhausted, ///< Recovery budget spent; escalate instead of restarting again.
 };
 
 /// @brief Canonical name of a supervision status.
@@ -100,7 +101,7 @@ template <> struct EnumTraits<nexigen::phm::SupervisionStatus> {
         {nexigen::phm::SupervisionStatus::Ok, "Ok"},
         {nexigen::phm::SupervisionStatus::Failed, "Failed"},
         {nexigen::phm::SupervisionStatus::Expired, "Expired"},
-        {nexigen::phm::SupervisionStatus::Stopped, "Stopped"},
+        {nexigen::phm::SupervisionStatus::Exhausted, "Exhausted"},
     }};
 };
 

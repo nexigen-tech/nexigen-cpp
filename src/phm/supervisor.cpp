@@ -1,6 +1,7 @@
 // nexigen::phm — supervision engine implementation (change add-phm).
 #include <nexigen/phm/supervisor.hpp>
 
+#include <cstdio>
 #include <utility>
 
 namespace nexigen::phm {
@@ -36,13 +37,15 @@ bool Supervisor::is_allowed_transition(std::size_t index, std::uint32_t from,
     return false;
 }
 
-void Supervisor::record_failure(std::size_t index) noexcept {
+void Supervisor::record_failure(std::size_t index, FaultKind kind) noexcept {
     ProcessSupervision& state = states_[index];
     if (state.lifecycle == EmLifecycleState::Terminating ||
-        state.lifecycle == EmLifecycleState::Terminated) {
-        return; // Deliberate EM stop: never turn it into a supervision fault.
+        state.lifecycle == EmLifecycleState::Terminated ||
+        state.lifecycle == EmLifecycleState::Failed) {
+        return; // Deliberate EM stop or spent budget: never a supervision fault.
     }
     const std::uint64_t tolerance = manifest_.processes[index].failed_supervision_cycles_tolerance;
+    state.last_fault = kind;
     state.consecutive_failures += 1U;
     if (state.consecutive_failures > tolerance) {
         state.status = SupervisionStatus::Expired;
@@ -61,7 +64,8 @@ void Supervisor::on_checkpoint(std::size_t index, std::uint32_t checkpoint_id,
                                Clock::time_point now) noexcept {
     ProcessSupervision& state = states_[index];
     if (state.lifecycle == EmLifecycleState::Terminating ||
-        state.lifecycle == EmLifecycleState::Terminated) {
+        state.lifecycle == EmLifecycleState::Terminated ||
+        state.lifecycle == EmLifecycleState::Failed) {
         return;
     }
     const SupervisedProcess& process = manifest_.processes[index];
@@ -78,7 +82,7 @@ void Supervisor::on_checkpoint(std::size_t index, std::uint32_t checkpoint_id,
     // and the declared fork/join regions must be respected.
     if (state.last_checkpoint.has_value() &&
         !is_allowed_transition(index, *state.last_checkpoint, checkpoint_id)) {
-        record_failure(index);
+        record_failure(index, FaultKind::LogicalFailure);
     }
     apply_fork_join(index, checkpoint_id);
 
@@ -93,7 +97,7 @@ void Supervisor::on_checkpoint(std::size_t index, std::uint32_t checkpoint_id,
                 std::chrono::duration_cast<std::chrono::milliseconds>(now - *clock.started);
             if (elapsed.count() < 0 || static_cast<std::uint64_t>(elapsed.count()) < pair.min_ms ||
                 static_cast<std::uint64_t>(elapsed.count()) > pair.max_ms) {
-                record_failure(index);
+                record_failure(index, FaultKind::DeadlineFailure);
             }
             clock.started.reset();
         }
@@ -107,7 +111,8 @@ void Supervisor::on_checkpoint(std::size_t index, std::uint32_t checkpoint_id,
 void Supervisor::on_alive_tick(std::size_t index, Clock::time_point /*now*/) noexcept {
     ProcessSupervision& state = states_[index];
     if (state.lifecycle == EmLifecycleState::Terminating ||
-        state.lifecycle == EmLifecycleState::Terminated) {
+        state.lifecycle == EmLifecycleState::Terminated ||
+        state.lifecycle == EmLifecycleState::Failed) {
         state.checkpoints_this_window = 0U;
         return;
     }
@@ -116,7 +121,7 @@ void Supervisor::on_alive_tick(std::size_t index, Clock::time_point /*now*/) noe
     if (expected <= 0) {
         // Legacy rule: at least one checkpoint per window.
         if (state.checkpoints_this_window == 0U) {
-            record_failure(index);
+            record_failure(index, FaultKind::AliveFailure);
         } else {
             reset_failures(index);
         }
@@ -128,7 +133,7 @@ void Supervisor::on_alive_tick(std::size_t index, Clock::time_point /*now*/) noe
         const std::uint64_t upper = wanted + excess;
         const std::uint64_t count = state.checkpoints_this_window;
         if (count < lower || count > upper) {
-            record_failure(index);
+            record_failure(index, FaultKind::AliveFailure);
         } else {
             reset_failures(index);
         }
@@ -136,10 +141,30 @@ void Supervisor::on_alive_tick(std::size_t index, Clock::time_point /*now*/) noe
     state.checkpoints_this_window = 0U;
 }
 
-void Supervisor::on_execution_state(std::size_t index, EmLifecycleState state) noexcept {
+void Supervisor::on_execution_state(std::size_t index, EmLifecycleState state,
+                                    std::string_view function_group) noexcept {
     ProcessSupervision& supervision = states_[index];
     supervision.lifecycle = state;
     ++lifecycle_notifications_;
+    if (!function_group.empty()) {
+        std::snprintf(supervision.function_group, sizeof(supervision.function_group), "%.*s",
+                      static_cast<int>(function_group.size()), function_group.data());
+    }
+    if (state == EmLifecycleState::Failed) {
+        supervision.consecutive_failures = 0U;
+        supervision.status = SupervisionStatus::Exhausted;
+        supervision.checkpoints_this_window = 0U;
+        supervision.last_checkpoint.reset();
+        supervision.last_checkpoint_time.reset();
+        supervision.fork_depth = 0U;
+        for (ForkFrame& frame : supervision.fork_stack) {
+            frame.entered.reset();
+        }
+        for (DeadlineClock& clock : supervision.deadline_clocks) {
+            clock.started.reset();
+        }
+        return;
+    }
     if (state == EmLifecycleState::Running || state == EmLifecycleState::Terminating ||
         state == EmLifecycleState::Terminated) {
         supervision.consecutive_failures = 0U;
@@ -173,10 +198,10 @@ void Supervisor::apply_fork_join(std::size_t index, std::uint32_t checkpoint_id)
             continue;
         }
         if (depth != state.fork_depth) {
-            record_failure(index); // Frames above this one were skipped.
+            record_failure(index, FaultKind::LogicalFailure); // Frames above this one were skipped.
         }
         if (frame.entered.count() != fork.branch_entries.size()) {
-            record_failure(index); // Join reached with unentered branches.
+            record_failure(index, FaultKind::LogicalFailure); // Unentered branches.
         }
         state.fork_depth = depth - 1U;
         return;
@@ -185,7 +210,7 @@ void Supervisor::apply_fork_join(std::size_t index, std::uint32_t checkpoint_id)
     // A declared join with no open frame is out of order.
     for (const LogicalFork& fork : forks) {
         if (fork.join_id == checkpoint_id) {
-            record_failure(index);
+            record_failure(index, FaultKind::LogicalFailure);
             return;
         }
     }
@@ -196,7 +221,7 @@ void Supervisor::apply_fork_join(std::size_t index, std::uint32_t checkpoint_id)
             continue;
         }
         if (state.fork_depth >= state.fork_stack.size()) {
-            record_failure(index);
+            record_failure(index, FaultKind::LogicalFailure);
             return;
         }
         state.fork_stack[state.fork_depth] = ForkFrame{f, {}};
@@ -220,6 +245,18 @@ void Supervisor::apply_fork_join(std::size_t index, std::uint32_t checkpoint_id)
 
 EmLifecycleState Supervisor::em_lifecycle(std::size_t index) const noexcept {
     return states_[index].lifecycle;
+}
+
+std::string_view Supervisor::function_group(std::size_t index) const noexcept {
+    return std::string_view(states_[index].function_group);
+}
+
+FaultKind Supervisor::last_fault(std::size_t index) const noexcept {
+    return states_[index].last_fault;
+}
+
+bool Supervisor::exhausted(std::size_t index) const noexcept {
+    return states_[index].status == SupervisionStatus::Exhausted;
 }
 
 std::string Supervisor::to_string() const {

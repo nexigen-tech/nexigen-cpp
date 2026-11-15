@@ -30,16 +30,18 @@ inline constexpr std::size_t k_recovery_name_length = 32;
 ///
 /// @note Spec `sm/recovery-handler`, requirement "PHM fault-event interface".
 struct RecoveryNotification {
+    std::uint64_t request_id{0};                   ///< PHM correlation id; echoed back.
     char function_group[k_recovery_name_length]{}; ///< NUL-terminated group name.
 
     /// @brief Render the notification as a diagnostic string.
     ///
-    /// @return Text naming the failed group; allocates through `std::string`
-    ///         and `std::format`.
+    /// @return Text naming the failed group and the correlation id; allocates
+    ///         through `std::string` and `std::format`.
     /// @note Spec `sm/recovery-handler`, requirement "Recovery diagnostics".
     /// @note Cold-path diagnostic only (project mandate 9).
     [[nodiscard]] std::string to_string() const {
-        return std::format("RecoveryNotification(function_group={})", std::string(function_group));
+        return std::format("RecoveryNotification(request_id={}, function_group={})", request_id,
+                           std::string(function_group));
     }
 };
 

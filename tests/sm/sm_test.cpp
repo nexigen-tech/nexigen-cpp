@@ -309,27 +309,80 @@ void test_recovery_handler() {
     NX_CHECK(channel.has_value());
     NX_CHECK(event.has_value());
 
+    const auto ack_channel = com::ServiceName::create("Nexigen/Test/SmRecoveryAck");
+    const auto ack_event = com::ServiceName::create("Nexigen/Test/SmRecoveryAckEvent");
+    NX_CHECK(ack_channel.has_value() && ack_event.has_value());
+
     sm::StateManager manager = make_manager();
-    auto handler = sm::RecoveryHandler::create(*node, *channel, *event, manager);
+    auto handler = sm::RecoveryHandler::create(*node, *channel, *event, *ack_channel, *ack_event,
+                                               manager);
     NX_CHECK(handler.has_value());
 
     // Mock PHM: publish a fault notification and raise the wake event.
     auto notifier = com::Publisher<sm::RecoveryNotification>::create(*node, *channel);
     auto event_notifier = com::EventNotifier::create(*node, *event);
+    auto ack_subscriber = com::Subscriber<nexigen::phm::RecoveryAck>::create(*node, *ack_channel);
     NX_CHECK(notifier.has_value());
     NX_CHECK(event_notifier.has_value());
+    NX_CHECK(ack_subscriber.has_value());
 
-    sm::RecoveryNotification fault{};
-    std::snprintf(fault.function_group, sizeof(fault.function_group), "motion_control");
-    auto loaned = notifier->loan_uninit();
-    NX_CHECK(loaned.has_value());
-    auto sample = loaned->write_payload(fault);
-    NX_CHECK(notifier->send(std::move(sample)).has_value());
-    NX_CHECK(event_notifier->notify().has_value());
+    const auto publish_fault = [&](std::uint64_t request_id, std::string_view group) {
+        sm::RecoveryNotification fault{};
+        fault.request_id = request_id;
+        std::snprintf(fault.function_group, sizeof(fault.function_group), "%.*s",
+                      static_cast<int>(group.size()), group.data());
+        auto loaned = notifier->loan_uninit();
+        NX_CHECK(loaned.has_value());
+        auto sample = loaned->write_payload(fault);
+        NX_CHECK(notifier->send(std::move(sample)).has_value());
+        NX_CHECK(event_notifier->notify().has_value());
+    };
+    const auto read_ack = [&]() -> std::optional<nexigen::phm::RecoveryAck> {
+        auto received = ack_subscriber->receive();
+        if (!received || !received->has_value()) {
+            return std::nullopt;
+        }
+        return (*received)->payload();
+    };
 
+    // Without an actuation callback the SM cannot take the group over.
+    publish_fault(41, "motion_control");
     handler->handle_pending();
+    const auto unavailable = read_ack();
+    NX_CHECK(unavailable.has_value());
+    NX_CHECK(unavailable->request_id == 41U);
+    NX_CHECK(unavailable->outcome == nexigen::phm::RecoveryOutcome::Rejected);
+    NX_CHECK(unavailable->reason == nexigen::phm::RecoveryReason::EmUnavailable);
     NX_CHECK(manager.state(0) == "SafeState");
+
+    // An installed actuator receives the committed state and its answer is
+    // forwarded verbatim.
+    std::string acted_target;
+    handler->set_actuation([&acted_target](std::size_t, std::uint64_t request_id,
+                                           std::string_view target) {
+        acted_target.assign(target);
+        return nexigen::phm::RecoveryAck{request_id, nexigen::phm::RecoveryOutcome::Accepted,
+                                         nexigen::phm::RecoveryReason::None};
+    });
+    publish_fault(42, "motion_control");
+    handler->handle_pending();
+    const auto accepted = read_ack();
+    NX_CHECK(accepted.has_value());
+    NX_CHECK(accepted->request_id == 42U);
+    NX_CHECK(accepted->outcome == nexigen::phm::RecoveryOutcome::Accepted);
+    NX_CHECK(acted_target == "SafeState");
+
+    // An unknown group is acknowledged, never dropped.
+    publish_fault(43, "ghost_group");
+    handler->handle_pending();
+    const auto unknown = read_ack();
+    NX_CHECK(unknown.has_value());
+    NX_CHECK(unknown->request_id == 43U);
+    NX_CHECK(unknown->outcome == nexigen::phm::RecoveryOutcome::Rejected);
+    NX_CHECK(unknown->reason == nexigen::phm::RecoveryReason::UnknownGroup);
+
     NX_CHECK(handler->to_string().find("motion_control") != std::string::npos);
+    NX_CHECK(handler->to_string().find("UnknownGroup") != std::string::npos);
     NX_CHECK(std::format("{}", *handler) == handler->to_string());
 }
 

@@ -20,7 +20,8 @@
 
 namespace nexigen::exec {
 
-/// @brief Length of the application-name field in a lifecycle event.
+/// @brief Length of the application-name and Function Group fields in a
+///        lifecycle event.
 inline constexpr std::size_t k_process_lifecycle_name_length = 32;
 
 /// @brief Lifecycle state reported to PHM.
@@ -28,6 +29,7 @@ enum class ProcessLifecycleState : std::uint8_t {
     Running,     ///< The process confirmed readiness (or needs no report).
     Terminating, ///< The EM started a deliberate stop.
     Terminated,  ///< The process was reaped.
+    Failed,      ///< The restart budget is spent; no further launch will happen.
 };
 
 /// @brief Canonical name of a lifecycle state.
@@ -57,6 +59,9 @@ inline void from_json(const nlohmann::json& j, ProcessLifecycleState& out) noexc
 /// without serialization or heap allocation.
 struct ProcessLifecycleEvent {
     char app[k_process_lifecycle_name_length]{}; ///< NUL-terminated application name.
+    /// NUL-terminated Function Group the application belongs to; empty when the
+    /// publisher could not resolve it.
+    char function_group[k_process_lifecycle_name_length]{};
     ProcessLifecycleState state{ProcessLifecycleState::Running}; ///< Reported state.
 
     /// @brief Cold-path diagnostic rendering.
@@ -85,10 +90,11 @@ template <> struct EnumTraits<nexigen::exec::ProcessLifecycleState> {
         nexigen::exec::ProcessLifecycleState value;
         std::string_view name;
     };
-    static constexpr std::array<Entry, 3> entries{{
+    static constexpr std::array<Entry, 4> entries{{
         {nexigen::exec::ProcessLifecycleState::Running, "Running"},
         {nexigen::exec::ProcessLifecycleState::Terminating, "Terminating"},
         {nexigen::exec::ProcessLifecycleState::Terminated, "Terminated"},
+        {nexigen::exec::ProcessLifecycleState::Failed, "Failed"},
     }};
 };
 

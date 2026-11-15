@@ -247,6 +247,9 @@ void schedule_retry_or_fail(RuntimeSuite& suite, RuntimeApp& app) {
                                           config.restart_delay_s));
     } else {
         app.state = AppState::Failed;
+        if (suite.control != nullptr) {
+            suite.control->on_failed(app.spec.app);
+        }
         if (app.spec.impact == ImpactOnAppSuiteOperability::Degrade) {
             suite.state = SuiteState::Degraded;
         }
@@ -754,9 +757,10 @@ void initialize_runtime_apps(RuntimeSuite& suite, const SuiteManifest& manifest)
 
 /// PHM recovery: force-stop and relaunch one application in a new attempt.
 ///
-/// Bypasses the abnormal-termination-only rule and leaves the retry budget
-/// untouched; the suite state must still be operational and the application
-/// may not already be restarting.
+/// Bypasses the abnormal-termination-only rule but spends one attempt of the
+/// process restart budget; the suite state must still be operational and the
+/// application may not already be restarting. A failed relaunch hands the
+/// process to the retry policy so the budget is exhausted visibly.
 [[nodiscard]] core::Status suite_restart_process(RuntimeSuite& suite, std::string_view app_name) {
     if (!accepts_recovery_restart(suite.state)) {
         return std::unexpected(core::ErrorCode::Conflict);
@@ -766,6 +770,10 @@ void initialize_runtime_apps(RuntimeSuite& suite, const SuiteManifest& manifest)
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     if (app->state == AppState::Restarting) {
+        return std::unexpected(core::ErrorCode::Conflict);
+    }
+    const StateDependentStartupConfig& restart_config = active_config(*app);
+    if (app->restarts_used >= restart_config.restart_attempts) {
         return std::unexpected(core::ErrorCode::Conflict);
     }
     if (app->child_pid > 0 || app->is_running()) {
@@ -781,8 +789,10 @@ void initialize_runtime_apps(RuntimeSuite& suite, const SuiteManifest& manifest)
     app->launch_failed = false;
     app->dependencies_pending = false;
     if (!launch_app(suite, *app)) {
+        schedule_retry_or_fail(suite, *app);
         return std::unexpected(core::ErrorCode::SystemError);
     }
+    ++app->restarts_used;
     suite.dirty = true;
     return {};
 }
@@ -882,6 +892,22 @@ void install_suite_control(RuntimeSuite& suite, const SuiteManifest& manifest) {
     });
     suite.control->set_restart_handler(
         [&suite](std::string_view app) { return suite_restart_process(suite, app); });
+    suite.control->set_recovery_admission([&suite](std::string_view app) {
+        if (!accepts_recovery_restart(suite.state)) {
+            return nexigen::phm::RecoveryReason::NotOperational;
+        }
+        RuntimeApp* target = find_runtime_app(suite, app);
+        if (target == nullptr) {
+            return nexigen::phm::RecoveryReason::UnknownProcess;
+        }
+        if (target->state == AppState::Restarting) {
+            return nexigen::phm::RecoveryReason::AlreadyRestarting;
+        }
+        if (target->restarts_used >= active_config(*target).restart_attempts) {
+            return nexigen::phm::RecoveryReason::AlreadyRestarting;
+        }
+        return nexigen::phm::RecoveryReason::None;
+    });
 }
 
 /// Start the configured initial states, report success, and initialize logs.

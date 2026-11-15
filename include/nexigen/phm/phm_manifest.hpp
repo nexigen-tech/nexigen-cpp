@@ -147,6 +147,11 @@ struct PhmManifest {
     core::ThreadSpec bg_thread{};               ///< fallback for infrastructure threads
     core::ThreadSpec fault_storage_thread{};    ///< fault-log writer spec
     WatchdogConfig watchdog{};                  ///< Hardware watchdog section; disabled by default.
+    /// How long the daemon waits for a State Manager acknowledgement after an
+    /// escalation; 0 is rejected because every escalation would fail instantly.
+    /// @note Spec `phm/manifest`, requirement "Recovery acknowledgement timeout
+    ///       configuration".
+    std::uint64_t recovery_timeout_ms{1000};
 
     /// @brief Cold-path diagnostic listing the supervised processes.
     ///

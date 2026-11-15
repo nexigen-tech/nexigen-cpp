@@ -455,12 +455,14 @@ struct Session {
 
     const auto recovery_channel = nexigen::com::ServiceName::create("Nexigen/SM/Recovery");
     const auto recovery_event = nexigen::com::ServiceName::create("Nexigen/SM/RecoveryEvent");
-    if (!recovery_channel || !recovery_event) {
+    const auto ack_channel = nexigen::com::ServiceName::create("Nexigen/SM/RecoveryAck");
+    const auto ack_event = nexigen::com::ServiceName::create("Nexigen/SM/RecoveryAckEvent");
+    if (!recovery_channel || !recovery_event || !ack_channel || !ack_event) {
         std::fprintf(stderr, "nexigen-sm: recovery handler creation failed\n");
         return false;
     }
-    auto recovery = nexigen::sm::RecoveryHandler::create(*session.node, *recovery_channel,
-                                                         *recovery_event, manager);
+    auto recovery = nexigen::sm::RecoveryHandler::create(
+        *session.node, *recovery_channel, *recovery_event, *ack_channel, *ack_event, manager);
     if (!recovery) {
         std::fprintf(stderr, "nexigen-sm: recovery handler creation failed\n");
         return false;
@@ -518,6 +520,53 @@ void open_control_channels(Session& session, const nexigen::sm::SmManifest& mani
         return;
     }
     session.tick_guard.emplace(std::move(*tick_guard));
+}
+
+/// Install the recovery actuation: publish the committed state and command the
+/// Emergency Manager on the same thread, then report what happened.
+///
+/// The acknowledgement is what PHM waits on, so it must reflect an attempted
+/// transition, not just a local state write.
+void install_recovery_actuation(Session& session, nexigen::sm::StateManager& manager) {
+    if (!session.recovery) {
+        return;
+    }
+    session.recovery->set_actuation(
+        [&session, &manager](std::size_t index, std::uint64_t request_id,
+                             std::string_view target_state) -> nexigen::phm::RecoveryAck {
+            using nexigen::phm::RecoveryAck;
+            using nexigen::phm::RecoveryOutcome;
+            using nexigen::phm::RecoveryReason;
+            if (session.publication) {
+                static_cast<void>(session.publication->publish(index, target_state));
+            }
+            if (!session.em_emergency_client) {
+                return RecoveryAck{request_id, RecoveryOutcome::Rejected, RecoveryReason::EmUnavailable};
+            }
+            nexigen::exec::StateCommand command{};
+            std::snprintf(command.function_group, sizeof(command.function_group), "%s",
+                          manager.group_name(index).data());
+            std::snprintf(command.target_state, sizeof(command.target_state), "%s",
+                          std::string(target_state).c_str());
+            std::snprintf(command.requester_id, sizeof(command.requester_id), "%s", "phm-recovery");
+            command.request_id = request_id;
+            const auto answer = session.em_emergency_client->call(
+                command, std::chrono::milliseconds(manager.transition_max_time_ms(index)));
+            if (!answer.has_value()) {
+                return RecoveryAck{request_id, RecoveryOutcome::Rejected, RecoveryReason::EmRejected};
+            }
+            switch (answer->result) {
+                case nexigen::exec::StateResult::Success:
+                    return RecoveryAck{request_id, RecoveryOutcome::Accepted,
+                                       RecoveryReason::None};
+                case nexigen::exec::StateResult::InProgress:
+                    return RecoveryAck{request_id, RecoveryOutcome::InProgress,
+                                       RecoveryReason::None};
+                default:
+                    return RecoveryAck{request_id, RecoveryOutcome::Rejected,
+                                       RecoveryReason::EmRejected};
+            }
+        });
 }
 
 /// Arbitration loop (REQ_SM_013): block in the kernel, wake on the recovery
@@ -699,6 +748,7 @@ open_lsm_runtime(const nexigen::sm::SmManifest& manifest, nexigen::sm::StateMana
         return 1;
     }
     open_control_channels(session, manifest);
+    install_recovery_actuation(session, manager);
     nexigen::sm::SmMetrics metrics;
     std::vector<PendingTransition> pending;
     pending.reserve(manifest.function_groups.size());

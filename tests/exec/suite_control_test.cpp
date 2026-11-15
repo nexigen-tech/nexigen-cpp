@@ -210,7 +210,8 @@ void test_control_host() {
 
 /// Drain every buffered lifecycle sample into a readable list.
 void drain_lifecycle(com::Subscriber<exec::ProcessLifecycleEvent>& subscriber,
-                     std::vector<std::string>& out) {
+                     std::vector<std::string>& out,
+                     std::vector<std::string>* groups = nullptr) {
     for (;;) {
         auto received = subscriber.receive();
         if (!received || !received->has_value()) {
@@ -218,6 +219,9 @@ void drain_lifecycle(com::Subscriber<exec::ProcessLifecycleEvent>& subscriber,
         }
         const exec::ProcessLifecycleEvent& event = (*received)->payload();
         out.push_back(std::string(event.app) + ":" + std::string(exec::to_string(event.state)));
+        if (groups != nullptr) {
+            groups->push_back(std::string(event.function_group));
+        }
     }
 }
 
@@ -274,6 +278,7 @@ void test_lifecycle_publication() {
     auto listener = com::EventListener::create(*observer_node, *lifecycle_event_name);
     NX_CHECK(subscriber.has_value() && listener.has_value());
     std::vector<std::string> lifecycle;
+    std::vector<std::string> lifecycle_groups;
 
     NX_CHECK(host->request_state("ready_group", "Run") == exec::StateResult::InProgress);
     auto reporter_node = com::Node::create();
@@ -288,8 +293,21 @@ void test_lifecycle_publication() {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     host->poll();
-    drain_lifecycle(*subscriber, lifecycle);
+    drain_lifecycle(*subscriber, lifecycle, &lifecycle_groups);
     NX_CHECK(lifecycle_seen(lifecycle, "service", "Running"));
+    // The lifecycle sample names the Function Group PHM must escalate to.
+    bool group_carried = false;
+    for (const std::string& group : lifecycle_groups) {
+        if (group == "ready_group") {
+            group_carried = true;
+        }
+    }
+    NX_CHECK(group_carried);
+
+    // A spent restart budget publishes the terminal lifecycle state.
+    host->on_failed("service");
+    drain_lifecycle(*subscriber, lifecycle);
+    NX_CHECK(lifecycle_seen(lifecycle, "service", "Failed"));
 
     NX_CHECK(host->request_state("ready_group", "Run") == exec::StateResult::Success);
     host->poll();
@@ -585,34 +603,57 @@ void test_recovery_handler() {
     request.action = phm::RecoveryAction::RestartProcess;
     std::snprintf(request.name, sizeof(request.name), "%s", "service");
 
-    // No callback installed: rejected.
+    // No callback installed: rejected with a reason.
     NX_CHECK(handler->to_string().find("restart=unset") != std::string::npos);
-    NX_CHECK(handler->handle(request).accepted == 0U);
+    const auto no_callback = handler->handle(request);
+    NX_CHECK(no_callback.outcome == phm::RecoveryOutcome::Rejected);
+    NX_CHECK(no_callback.reason == phm::RecoveryReason::SystemError);
 
     std::string restarted;
     handler->set_restart([&restarted](std::string_view app) -> core::Status {
         restarted = std::string(app);
         return {};
     });
-    NX_CHECK(handler->handle(request).accepted == 1U);
+    // Admission answers before the restart runs: the callback has not fired yet.
+    const auto admitted = handler->handle(request);
+    NX_CHECK(admitted.outcome == phm::RecoveryOutcome::Accepted);
+    NX_CHECK(admitted.reason == phm::RecoveryReason::None);
+    NX_CHECK(admitted.request_id == request.request_id);
+    NX_CHECK(restarted.empty());
+    NX_CHECK(handler->pending() == 1U);
+    NX_CHECK(handler->run_pending() == 1U);
     NX_CHECK(restarted == "service");
+    NX_CHECK(handler->pending() == 0U);
     NX_CHECK(handler->to_string().find("restart=set") != std::string::npos);
 
     // An application outside the suite is rejected.
     phm::RecoveryRequest unknown = request;
     std::snprintf(unknown.name, sizeof(unknown.name), "%s", "ghost");
-    NX_CHECK(handler->handle(unknown).accepted == 0U);
+    const auto ghost = handler->handle(unknown);
+    NX_CHECK(ghost.outcome == phm::RecoveryOutcome::Rejected);
+    NX_CHECK(ghost.reason == phm::RecoveryReason::UnknownProcess);
 
     // The watchdog belongs to PHM, so the EM rejects the action.
     phm::RecoveryRequest watchdog = request;
     watchdog.action = phm::RecoveryAction::TriggerWatchdogReset;
-    NX_CHECK(handler->handle(watchdog).accepted == 0U);
+    const auto rejected_action = handler->handle(watchdog);
+    NX_CHECK(rejected_action.outcome == phm::RecoveryOutcome::Rejected);
+    NX_CHECK(rejected_action.reason == phm::RecoveryReason::InvalidAction);
 
-    // A failed restart is reported as rejected.
+    // A failed restart no longer surfaces in the answer: admission succeeded,
+    // and the outcome arrives through lifecycle events.
     handler->set_restart([](std::string_view) -> core::Status {
         return std::unexpected(core::ErrorCode::SystemError);
     });
-    NX_CHECK(handler->handle(request).accepted == 0U);
+    NX_CHECK(handler->handle(request).outcome == phm::RecoveryOutcome::Accepted);
+    NX_CHECK(handler->run_pending() == 1U);
+
+    // The installed admission check moves the refusal before the answer.
+    handler->set_validate([](std::string_view) { return phm::RecoveryReason::NotOperational; });
+    const auto blocked = handler->handle(request);
+    NX_CHECK(blocked.outcome == phm::RecoveryOutcome::Rejected);
+    NX_CHECK(blocked.reason == phm::RecoveryReason::NotOperational);
+    handler->set_validate({});
 
     // A suite that is not operational rejects recovery (teardown race).
     NX_CHECK(exec::accepts_recovery_restart(exec::SuiteState::Running));
@@ -646,7 +687,7 @@ void test_recovery_handler() {
     }
     caller.join();
     NX_CHECK(done.load(std::memory_order_acquire));
-    NX_CHECK(answer.accepted == 1U);
+    NX_CHECK(answer.outcome == phm::RecoveryOutcome::Accepted);
 }
 
 } // namespace

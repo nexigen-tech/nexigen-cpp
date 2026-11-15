@@ -53,6 +53,7 @@ using LifecyclePublisher = com::Publisher<ProcessLifecycleEvent>;
 /// @brief Last lifecycle state published for one application.
 struct PublishedLifecycle {
     std::string app{};
+    std::string function_group{};
     ProcessState last{ProcessState::Idle};
 };
 
@@ -68,7 +69,8 @@ public:
         }
         published_.reserve(manifest.apps.size());
         for (const AppSpec& app : manifest.apps) {
-            published_.push_back(PublishedLifecycle{app.app, ProcessState::Idle});
+            published_.push_back(PublishedLifecycle{app.app, app.function_group,
+                                                    ProcessState::Idle});
         }
         const auto lifecycle_name = com::ServiceName::create(lifecycle_service_name);
         const auto lifecycle_event = com::ServiceName::create(lifecycle_event_name);
@@ -115,6 +117,7 @@ public:
         serve_root_query();
         if (recovery_) {
             static_cast<void>(recovery_->serve_once());
+            static_cast<void>(recovery_->run_pending());
         }
         if (client_) {
             static_cast<void>(client_->serve_once());
@@ -190,7 +193,37 @@ public:
         restart_handler_ = std::move(handler);
         if (recovery_) {
             recovery_->set_restart([this](std::string_view app) { return restart_process(app); });
+            recovery_->set_validate(
+                [this](std::string_view app) { return admit_recovery(app); });
         }
+    }
+
+    void set_recovery_admission(RecoveryAdmissionFn fn) noexcept override {
+        recovery_admission_ = std::move(fn);
+        if (recovery_ && restart_handler_) {
+            recovery_->set_validate(
+                [this](std::string_view app) { return admit_recovery(app); });
+        }
+    }
+
+    /// @brief Side-effect-free admission check for one recovery restart.
+    [[nodiscard]] nexigen::phm::RecoveryReason admit_recovery(std::string_view app) noexcept {
+        if (!restart_handler_) {
+            return nexigen::phm::RecoveryReason::SystemError;
+        }
+        if (recovery_admission_) {
+            const nexigen::phm::RecoveryReason verdict = recovery_admission_(app);
+            if (verdict != nexigen::phm::RecoveryReason::None) {
+                return verdict;
+            }
+        }
+        const ProcessState tracked = process_state(app);
+        const PublishedLifecycle* entry = published_for(app);
+        const ProcessState published = entry != nullptr ? entry->last : ProcessState::Idle;
+        if (tracked == ProcessState::Starting || published == ProcessState::Terminating) {
+            return nexigen::phm::RecoveryReason::AlreadyRestarting;
+        }
+        return nexigen::phm::RecoveryReason::None;
     }
 
     [[nodiscard]] core::Status restart_process(std::string_view app) noexcept override {
@@ -233,6 +266,10 @@ public:
         publish_lifecycle_changes();
     }
 
+    void on_failed(std::string_view app) noexcept override {
+        publish_lifecycle(ProcessLifecycleState::Failed, app);
+    }
+
 private:
     /// @brief Open the EM→PHM heartbeat channel; absence disables the signal.
     void open_health_channel() noexcept {
@@ -264,6 +301,10 @@ private:
         ProcessLifecycleEvent event{};
         std::snprintf(event.app, sizeof(event.app), "%.*s", static_cast<int>(app.size()),
                       app.data());
+        if (const PublishedLifecycle* entry = published_for(app); entry != nullptr) {
+            std::snprintf(event.function_group, sizeof(event.function_group), "%s",
+                          entry->function_group.c_str());
+        }
         event.state = state;
         auto loaned = lifecycle_publisher_->loan_uninit();
         if (!loaned) {
@@ -342,6 +383,7 @@ private:
     bool has_machine_group_{false};
     bool initial_machine_settled_{false};
     StateResult initial_machine_result_{StateResult::InvalidArgument};
+    RecoveryAdmissionFn recovery_admission_{};
     ProcessHandler start_handler_{};
     ProcessHandler stop_handler_{};
     RestartHandler restart_handler_{};

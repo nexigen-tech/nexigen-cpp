@@ -14,12 +14,15 @@
 #include <bitset>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <format>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <nexigen/phm/em_lifecycle.hpp>
+#include <nexigen/phm/fault_kind.hpp>
 #include <nexigen/phm/phm_manifest.hpp>
 #include <nexigen/phm/supervision_status.hpp>
 
@@ -80,9 +83,8 @@ public:
     /// @brief Current aggregated supervision status of one process.
     ///
     /// @param index Process index in `[0, process_count())`.
-    /// @return `Ok`, `Failed`, or `Expired`; `Stopped` belongs to the
-    ///         vocabulary but is not produced by the checkpoint/tick paths of
-    ///         this engine.
+    /// @return `Ok`, `Failed`, or `Expired`; `Exhausted` is only produced by
+    ///         the lifecycle path when the restart budget is spent.
     /// @note Spec `phm/supervision`, requirement "Status aggregation".
     /// @warning The index is not bounds-checked.
     [[nodiscard]] SupervisionStatus status(std::size_t index) const noexcept;
@@ -132,20 +134,48 @@ public:
     /// `Running` arms supervision and clears the failure streak and every
     /// pending deadline clock. `Terminating` and `Terminated` suspend the
     /// process: later ticks and checkpoints are ignored and the status stays
-    /// `Ok`, so a deliberate stop cannot trigger recovery. `Unknown` preserves
-    /// the legacy behavior.
+    /// `Ok`, so a deliberate stop cannot trigger recovery. `Failed` marks the
+    /// process `Exhausted` and leaves it there. `Unknown` preserves the legacy
+    /// behavior.
     ///
     /// @param index Process index in `[0, process_count())`.
     /// @param state Reported EM lifecycle state.
-    /// @note Spec `phm/supervision`, requirement "Lifecycle-armed supervision".
+    /// @param function_group Function Group the process belongs to; empty when
+    ///        the publisher could not resolve it.
+    /// @note Spec `phm/supervision`, requirements "Lifecycle-armed supervision"
+    ///       and "Exhaustion escalates instead of restarting".
     /// @warning The index is not bounds-checked.
-    void on_execution_state(std::size_t index, EmLifecycleState state) noexcept;
+    void on_execution_state(std::size_t index, EmLifecycleState state,
+                            std::string_view function_group = {}) noexcept;
 
     /// @brief Current EM lifecycle state of one process.
     ///
     /// @param index Process index in `[0, process_count())`.
     /// @return The last applied state; `Unknown` when no notification arrived.
     [[nodiscard]] EmLifecycleState em_lifecycle(std::size_t index) const noexcept;
+
+    /// @brief Function Group the process reported with its lifecycle events.
+    ///
+    /// @param index Process index in `[0, process_count())`.
+    /// @return The group name, or an empty view when none was reported yet.
+    /// @note Spec `phm/recovery`, requirement "SafeState escalation".
+    [[nodiscard]] std::string_view function_group(std::size_t index) const noexcept;
+
+    /// @brief Violation that last moved the process off `Ok`.
+    ///
+    /// @param index Process index in `[0, process_count())`.
+    /// @return The recorded violation kind; `AliveFailure` before the first
+    ///         failure.
+    /// @note Spec `phm/recovery`, requirement "Fault storage".
+    [[nodiscard]] FaultKind last_fault(std::size_t index) const noexcept;
+
+    /// @brief Whether the process spent its restart budget.
+    ///
+    /// @param index Process index in `[0, process_count())`.
+    /// @return `true` when the status is `Exhausted`.
+    /// @note Spec `phm/supervision`, requirement "Exhaustion escalates instead
+    ///       of restarting".
+    [[nodiscard]] bool exhausted(std::size_t index) const noexcept;
 
     /// @brief Number of lifecycle notifications applied so far.
     [[nodiscard]] std::uint64_t lifecycle_notifications() const noexcept {
@@ -171,6 +201,9 @@ private:
         std::bitset<256> entered{}; ///< Branch entries reached so far.
     };
 
+    /// @brief Length of the Function Group buffer carried by lifecycle events.
+    static constexpr std::size_t k_function_group_length = 32;
+
     /// @brief Mutable supervision state of one process.
     struct ProcessSupervision {
         SupervisionStatus status{SupervisionStatus::Ok}; ///< Aggregated status.
@@ -179,6 +212,8 @@ private:
         std::optional<std::uint32_t> last_checkpoint{};  ///< Previous checkpoint id.
         std::optional<Clock::time_point> last_checkpoint_time{}; ///< Previous arrival time.
         EmLifecycleState lifecycle{EmLifecycleState::Unknown};   ///< Last EM lifecycle state.
+        char function_group[k_function_group_length]{};          ///< Reported Function Group.
+        FaultKind last_fault{FaultKind::AliveFailure};           ///< Last recorded violation.
         std::vector<DeadlineClock> deadline_clocks{};            ///< One clock per Deadline pair.
         std::array<ForkFrame, k_max_logical_forks> fork_stack{}; ///< Open fork regions.
         std::size_t fork_depth{0};                               ///< Number of open frames.
@@ -187,10 +222,12 @@ private:
     /// @brief Record one failure and advance the tolerance state machine.
     ///
     /// @param index Process index in `[0, process_count())`.
+    /// @param kind Violation that produced the failure; recorded so the fault
+    ///        journal names the real cause.
     /// @note Spec `phm/supervision`, requirement "Status aggregation": a
     ///       failure within the tolerance yields `Failed`, a streak beyond it
     ///       yields `Expired`.
-    void record_failure(std::size_t index) noexcept;
+    void record_failure(std::size_t index, FaultKind kind) noexcept;
 
     /// @brief Clear the failure streak and return the process to `Ok`.
     ///

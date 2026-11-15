@@ -42,6 +42,8 @@
 #include <nexigen/phm/phm_manifest.hpp>
 #include <nexigen/phm/posix_watchdog_device.hpp>
 #include <nexigen/phm/recovery.hpp>
+#include <nexigen/phm/recovery_ack.hpp>
+#include <nexigen/phm/recovery_ack_tracker.hpp>
 #include <nexigen/phm/recovery_action.hpp>
 #include <nexigen/phm/recovery_request.hpp>
 #include <nexigen/phm/recovery_response.hpp>
@@ -150,12 +152,20 @@ void test_vocabulary() {
     check_enum_round_trip({phm::HealthState::Ok, phm::HealthState::Warning, phm::HealthState::Error,
                            phm::HealthState::Critical});
     check_enum_round_trip({phm::SupervisionStatus::Ok, phm::SupervisionStatus::Failed,
-                           phm::SupervisionStatus::Expired, phm::SupervisionStatus::Stopped});
+                           phm::SupervisionStatus::Expired, phm::SupervisionStatus::Exhausted});
     check_enum_round_trip({phm::RecoveryAction::RestartProcess,
                            phm::RecoveryAction::SwitchFunctionGroupState,
                            phm::RecoveryAction::TriggerWatchdogReset});
     check_enum_round_trip({phm::FaultKind::AliveFailure, phm::FaultKind::LogicalFailure,
-                           phm::FaultKind::DeadlineFailure});
+                           phm::FaultKind::DeadlineFailure, phm::FaultKind::UnknownGroup});
+    check_enum_round_trip({phm::RecoveryOutcome::Accepted, phm::RecoveryOutcome::InProgress,
+                           phm::RecoveryOutcome::Rejected});
+    check_enum_round_trip(
+        {phm::RecoveryReason::None, phm::RecoveryReason::UnknownProcess,
+         phm::RecoveryReason::UnknownGroup, phm::RecoveryReason::NotOperational,
+         phm::RecoveryReason::AlreadyRestarting, phm::RecoveryReason::InvalidAction,
+         phm::RecoveryReason::NoSafeState, phm::RecoveryReason::EmUnavailable,
+         phm::RecoveryReason::EmRejected, phm::RecoveryReason::SystemError});
     check_enum_round_trip({phm::EmLifecycleState::Unknown, phm::EmLifecycleState::Running,
                            phm::EmLifecycleState::Terminating, phm::EmLifecycleState::Terminated});
     check_enum_round_trip(
@@ -512,7 +522,11 @@ void test_recovery_restart() {
         for (int i = 0; i < 200; ++i) {
             auto request = server->receive();
             if (request.has_value() && request->has_value()) {
-                NX_CHECK((*request)->send_copy(phm::RecoveryResponse{1}).has_value());
+                NX_CHECK((*request)
+                             ->send_copy(phm::RecoveryResponse{
+                                 (*request)->payload().request_id,
+                                 phm::RecoveryOutcome::Accepted, phm::RecoveryReason::None})
+                             .has_value());
                 return;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -522,7 +536,8 @@ void test_recovery_restart() {
     const auto restart = client->restart_process(42, "camera", std::chrono::milliseconds(2000));
     mock_em.join();
     NX_CHECK(restart.has_value());
-    NX_CHECK(restart->accepted == 1U);
+    NX_CHECK(restart->outcome == phm::RecoveryOutcome::Accepted);
+    NX_CHECK(restart->request_id != 0U);
     NX_CHECK(client->last_action() == phm::RecoveryAction::RestartProcess);
     const std::string text = client->to_string();
     NX_CHECK(text.find("RestartProcess") != std::string::npos);
@@ -539,7 +554,7 @@ void test_recovery_restart() {
     auto sm_listener = com::EventListener::create(*node, *sm_event_name);
     NX_CHECK(sm_subscriber.has_value() && sm_listener.has_value());
 
-    NX_CHECK(client->apply_rule(process, std::chrono::milliseconds(2000)).has_value());
+    NX_CHECK(client->apply_rule(process, "motion_control", std::chrono::milliseconds(2000)).has_value());
     NX_CHECK(client->last_action() == phm::RecoveryAction::SwitchFunctionGroupState);
 
     bool observed = false;
@@ -576,7 +591,8 @@ void test_recovery_watchdog() {
     process.recovery_rules.push_back({phm::RecoveryAction::TriggerWatchdogReset, ""});
     bool stopped = false;
     const auto status =
-        client->apply_rule(process, std::chrono::milliseconds(50), [&stopped] { stopped = true; });
+        client->apply_rule(process, "motion_control", std::chrono::milliseconds(50),
+                          [&stopped] { stopped = true; });
     NX_CHECK(status.has_value());
     NX_CHECK(stopped);
     NX_CHECK(client->last_action() == phm::RecoveryAction::TriggerWatchdogReset);
@@ -601,7 +617,11 @@ void test_recovery_rejected() {
         for (int i = 0; i < 200; ++i) {
             auto request = server->receive();
             if (request.has_value() && request->has_value()) {
-                NX_CHECK((*request)->send_copy(phm::RecoveryResponse{0}).has_value());
+                NX_CHECK((*request)
+                             ->send_copy(phm::RecoveryResponse{
+                                 (*request)->payload().request_id, phm::RecoveryOutcome::Rejected,
+                                 phm::RecoveryReason::AlreadyRestarting})
+                             .has_value());
                 return;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -612,7 +632,7 @@ void test_recovery_rejected() {
     process.name = "steering";
     process.recovery_rules = {{phm::RecoveryAction::RestartProcess, ""},
                               {phm::RecoveryAction::SwitchFunctionGroupState, "motion_control"}};
-    NX_CHECK(client->apply_rule(process, std::chrono::milliseconds(2000)).has_value());
+    NX_CHECK(client->apply_rule(process, "motion_control", std::chrono::milliseconds(2000)).has_value());
     reject_em.join();
     NX_CHECK(client->last_action() == phm::RecoveryAction::SwitchFunctionGroupState);
 
@@ -649,7 +669,7 @@ void test_recovery_timeout() {
     process.name = "throttle";
     process.recovery_rules = {{phm::RecoveryAction::RestartProcess, ""},
                               {phm::RecoveryAction::SwitchFunctionGroupState, "powertrain"}};
-    NX_CHECK(client->apply_rule(process, std::chrono::milliseconds(50)).has_value());
+    NX_CHECK(client->apply_rule(process, "powertrain", std::chrono::milliseconds(50)).has_value());
     NX_CHECK(client->last_action() == phm::RecoveryAction::SwitchFunctionGroupState);
 
     bool observed = false;
@@ -663,6 +683,85 @@ void test_recovery_timeout() {
         }
     }
     NX_CHECK(observed);
+}
+
+
+void test_recovery_ack_budget() {
+    using Clock = phm::RecoveryAckTracker::Clock;
+    const auto start = Clock::now();
+    const auto budget = std::chrono::milliseconds(100);
+
+    // Accepted clears the entry and demands nothing.
+    {
+        phm::RecoveryAckTracker tracker;
+        NX_CHECK(tracker.expect(7, "motion", start + budget));
+        NX_CHECK(tracker.pending() == 1U);
+        const auto decision = tracker.on_ack(
+            phm::RecoveryAck{7, phm::RecoveryOutcome::Accepted, phm::RecoveryReason::None});
+        NX_CHECK(decision.matched);
+        NX_CHECK(!decision.watchdog_reaction);
+        NX_CHECK(tracker.pending() == 0U);
+        NX_CHECK(!tracker.expire(start + budget * 2));
+    }
+
+    // Rejected demands the watchdog immediately.
+    {
+        phm::RecoveryAckTracker tracker;
+        NX_CHECK(tracker.expect(8, "motion", start + budget));
+        const auto decision = tracker.on_ack(
+            phm::RecoveryAck{8, phm::RecoveryOutcome::Rejected, phm::RecoveryReason::NoSafeState});
+        NX_CHECK(decision.matched);
+        NX_CHECK(decision.watchdog_reaction);
+        NX_CHECK(tracker.pending() == 0U);
+    }
+
+    // InProgress buys no extra time: the deadline still fires.
+    {
+        phm::RecoveryAckTracker tracker;
+        NX_CHECK(tracker.expect(9, "motion", start + budget));
+        const auto decision = tracker.on_ack(
+            phm::RecoveryAck{9, phm::RecoveryOutcome::InProgress, phm::RecoveryReason::None});
+        NX_CHECK(decision.matched);
+        NX_CHECK(!decision.watchdog_reaction);
+        NX_CHECK(tracker.pending() == 1U);
+        NX_CHECK(!tracker.expire(start + budget / 2));
+        NX_CHECK(tracker.expire(start + budget));
+        NX_CHECK(tracker.pending() == 0U);
+    }
+
+    // An absent acknowledgement expires into the watchdog.
+    {
+        phm::RecoveryAckTracker tracker;
+        NX_CHECK(tracker.expect(10, "motion", start + budget));
+        NX_CHECK(!tracker.expire(start));
+        NX_CHECK(tracker.expire(start + budget + std::chrono::milliseconds(1)));
+        NX_CHECK(tracker.pending() == 0U);
+    }
+
+    // Stale ids do not match and do not clear a live entry.
+    {
+        phm::RecoveryAckTracker tracker;
+        NX_CHECK(tracker.expect(11, "motion", start + budget));
+        const auto stale = tracker.on_ack(
+            phm::RecoveryAck{12, phm::RecoveryOutcome::Accepted, phm::RecoveryReason::None});
+        NX_CHECK(!stale.matched);
+        NX_CHECK(tracker.pending() == 1U);
+    }
+
+    // Concurrent escalations are distinguished by id.
+    {
+        phm::RecoveryAckTracker tracker;
+        NX_CHECK(tracker.expect(13, "motion", start + budget));
+        NX_CHECK(tracker.expect(14, "powertrain", start + budget));
+        NX_CHECK(tracker.pending() == 2U);
+        const auto first = tracker.on_ack(
+            phm::RecoveryAck{13, phm::RecoveryOutcome::Accepted, phm::RecoveryReason::None});
+        NX_CHECK(first.matched);
+        NX_CHECK(tracker.pending() == 1U);
+        NX_CHECK(tracker.on_ack(phm::RecoveryAck{14, phm::RecoveryOutcome::Accepted,
+                                                 phm::RecoveryReason::None})
+                      .matched);
+    }
 }
 
 void test_recovery_storage() {
@@ -684,6 +783,42 @@ void test_recovery() {
     test_recovery_rejected();
     test_recovery_timeout();
     test_recovery_storage();
+}
+
+void test_supervision_exhaustion() {
+    phm::PhmManifest manifest;
+    phm::SupervisedProcess process = make_process("brake");
+    manifest.processes.push_back(process);
+    phm::Supervisor supervisor(std::move(manifest));
+    const auto now = phm::Supervisor::Clock::now();
+
+    // No lifecycle event yet: the group is unknown.
+    NX_CHECK(supervisor.function_group(0).empty());
+
+    supervisor.on_execution_state(0, phm::EmLifecycleState::Running, "motion_control");
+    NX_CHECK(supervisor.function_group(0) == "motion_control");
+    NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Ok);
+
+    // A logical violation is journaled as a logical fault, not as aliveness.
+    NX_CHECK(process.transitions.size() == 1U);
+    supervisor.on_checkpoint(0, 2U, now);
+    NX_CHECK(supervisor.last_fault(0) == phm::FaultKind::AliveFailure);
+    supervisor.on_checkpoint(0, 1U, now + std::chrono::milliseconds(200));
+    NX_CHECK(supervisor.last_fault(0) == phm::FaultKind::LogicalFailure);
+
+    // A spent budget is terminal: the process is Exhausted and ignores
+    // further checkpoints and ticks.
+    supervisor.on_execution_state(0, phm::EmLifecycleState::Failed, "motion_control");
+    NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Exhausted);
+    NX_CHECK(supervisor.exhausted(0));
+    supervisor.on_checkpoint(0, 1U, now + std::chrono::milliseconds(400));
+    supervisor.on_alive_tick(0, now + std::chrono::milliseconds(500));
+    NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Exhausted);
+
+    // A later Running re-arms supervision.
+    supervisor.on_execution_state(0, phm::EmLifecycleState::Running, "motion_control");
+    NX_CHECK(supervisor.status(0) == phm::SupervisionStatus::Ok);
+    NX_CHECK(!supervisor.exhausted(0));
 }
 
 void test_manifest() {
@@ -807,6 +942,30 @@ void test_manifest() {
         NX_CHECK(phm::validate_phm_manifest(watchdog_only, watchdog_error).has_value());
         NX_CHECK(back.to_string().find("watchdog=") != std::string::npos);
         NX_CHECK(std::format("{}", restored.watchdog).find("timeout_ms=1000") != std::string::npos);
+    }
+
+    // Recovery acknowledgement budget: default, explicit value, rejection.
+    {
+        phm::PhmManifest defaulted;
+        NX_CHECK(defaulted.recovery_timeout_ms == 1000U);
+        defaulted.processes.push_back(make_process("budget"));
+        std::string budget_error;
+        NX_CHECK(phm::validate_phm_manifest(defaulted, budget_error).has_value());
+
+        defaulted.recovery_timeout_ms = 2500;
+        nlohmann::json encoded;
+        to_json(encoded, defaulted);
+        phm::PhmManifest restored;
+        from_json(encoded, restored);
+        NX_CHECK(restored.recovery_timeout_ms == 2500U);
+        NX_CHECK(defaulted.to_string().find("recovery_timeout_ms=2500") != std::string::npos);
+
+        phm::PhmManifest zero;
+        zero.processes.push_back(make_process("budget"));
+        zero.recovery_timeout_ms = 0;
+        std::string zero_error;
+        NX_CHECK(!phm::validate_phm_manifest(zero, zero_error).has_value());
+        NX_CHECK(zero_error.find("recovery_timeout_ms") != std::string::npos);
     }
 
     // Validation rejects each unsafe section and names the process.
@@ -1506,12 +1665,66 @@ void test_thread_spec() {
 
 } // namespace
 
+
+void test_recovery_payloads() {
+    phm::RecoveryRequest request{};
+    request.action = phm::RecoveryAction::RestartProcess;
+    request.request_id = 7;
+    request.pid = 42;
+    std::snprintf(request.name, sizeof(request.name), "%s", "camera");
+    std::snprintf(request.function_group, sizeof(request.function_group), "%s", "adas");
+    nlohmann::json request_json;
+    to_json(request_json, request);
+    phm::RecoveryRequest request_back{};
+    from_json(request_json, request_back);
+    NX_CHECK(request_back.request_id == 7U);
+    NX_CHECK(request_back.pid == 42U);
+    NX_CHECK(std::string_view(request_back.name) == "camera");
+    NX_CHECK(std::string_view(request_back.function_group) == "adas");
+    NX_CHECK(request_back.action == phm::RecoveryAction::RestartProcess);
+    phm::RecoveryRequest untouched{};
+    untouched.request_id = 99;
+    from_json(nlohmann::json::array(), untouched);
+    NX_CHECK(untouched.request_id == 99U);
+
+    phm::RecoveryResponse response{7, phm::RecoveryOutcome::Rejected,
+                                   phm::RecoveryReason::NotOperational};
+    nlohmann::json response_json;
+    to_json(response_json, response);
+    phm::RecoveryResponse response_back{};
+    from_json(response_json, response_back);
+    NX_CHECK(response_back.request_id == 7U);
+    NX_CHECK(response_back.outcome == phm::RecoveryOutcome::Rejected);
+    NX_CHECK(response_back.reason == phm::RecoveryReason::NotOperational);
+    NX_CHECK(response.to_string().find("NotOperational") != std::string::npos);
+    NX_CHECK(std::format("{}", response) == response.to_string());
+
+    phm::RecoveryAck ack{9, phm::RecoveryOutcome::Accepted, phm::RecoveryReason::None};
+    nlohmann::json ack_json;
+    to_json(ack_json, ack);
+    phm::RecoveryAck ack_back{};
+    from_json(ack_json, ack_back);
+    NX_CHECK(ack_back.request_id == 9U);
+    NX_CHECK(ack_back.outcome == phm::RecoveryOutcome::Accepted);
+    NX_CHECK(std::format("{}", ack) == ack.to_string());
+
+    nexigen::sm::RecoveryNotification notification{};
+    notification.request_id = 11;
+    std::snprintf(notification.function_group, sizeof(notification.function_group), "%s",
+                  "motion");
+    NX_CHECK(notification.to_string().find("motion") != std::string::npos);
+    NX_CHECK(std::format("{}", notification) == notification.to_string());
+}
+
 int main() {
     run_suite("vocabulary", test_vocabulary);
     run_suite("health_channel", test_health_channel);
     run_suite("supervision", test_supervision);
     run_suite("recovery", test_recovery);
+    run_suite("recovery_payloads", test_recovery_payloads);
+    run_suite("recovery_ack_budget", test_recovery_ack_budget);
     run_suite("manifest", test_manifest);
+    run_suite("supervision_exhaustion", test_supervision_exhaustion);
     run_suite("watchdog", test_watchdog);
     run_suite("fault_log", test_fault_log);
     run_suite("identity", test_identity);

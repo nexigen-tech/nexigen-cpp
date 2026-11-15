@@ -16,6 +16,7 @@
 #include <nexigen/exec/process_state.hpp>
 #include <nexigen/exec/state_result.hpp>
 #include <nexigen/exec/suite_manifest.hpp>
+#include <nexigen/phm/recovery_reason.hpp>
 
 namespace nexigen::exec {
 
@@ -25,6 +26,13 @@ namespace nexigen::exec {
 /// State that selects the startup configuration. It returns success when the
 /// supervised process was launched or stopped.
 using ProcessHandler = std::function<core::Status(std::string_view app, std::string_view state)>;
+
+/// @brief Side-effect-free admission check for a PHM recovery restart.
+///
+/// Returns `RecoveryReason::None` when the suite can take the restart, or the
+/// reason it cannot. The suite supervisor installs it because only it knows the
+/// suite state.
+using RecoveryAdmissionFn = std::function<nexigen::phm::RecoveryReason(std::string_view app)>;
 
 /// @brief Readiness/transition surface shared by the suite supervisor and the
 ///        COM host.
@@ -99,6 +107,19 @@ public:
 
     /// @brief Notify the host that the supervisor observed an exit.
     virtual void on_exited(std::string_view app, int exit_code) noexcept = 0;
+
+    /// @brief Install the admission check consulted before a PHM restart is queued.
+    ///
+    /// @param fn Check returning `RecoveryReason::None` when the restart may be
+    ///           admitted.
+    virtual void set_recovery_admission(RecoveryAdmissionFn fn) noexcept = 0;
+
+    /// @brief Notify the host that a process spent its restart budget.
+    ///
+    /// @param app Application name that will not be launched again.
+    /// @note Spec `exec/process-lifecycle-events`, requirement "EM publishes
+    ///       process lifecycle".
+    virtual void on_failed(std::string_view app) noexcept = 0;
 };
 
 /// @brief Factory installed by the COM-enabled executable.

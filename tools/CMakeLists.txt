@@ -100,6 +100,22 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_phmd_identity PROPERTIES
         TIMEOUT 120 LABELS "tools")
 
+    # Safety-loop e2e (change complete-phm-safety-loop): the helper plays the
+    # application, the Execution Manager, and the State Manager so the full
+    # Expired -> restart -> Failed -> escalate -> ack ladder runs against the
+    # real daemon.
+    add_executable(nexigen-phmd-safety-loop-helper
+        ${CMAKE_SOURCE_DIR}/tests/tools/phmd_safety_loop_helper.cpp)
+    target_link_libraries(nexigen-phmd-safety-loop-helper PRIVATE nexigen_phm Threads::Threads)
+    target_include_directories(nexigen-phmd-safety-loop-helper
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+    add_test(NAME nexigen_phmd_safety_loop
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-phmd/safety_loop_test.sh
+                $<TARGET_FILE:nexigen-phmd> $<TARGET_FILE:nexigen-phmd-safety-loop-helper>)
+    set_tests_properties(nexigen_phmd_safety_loop PROPERTIES
+        TIMEOUT 180 LABELS "tools")
+
     add_test(NAME nexigen_sm_required_spec
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-sm/required_spec_test.sh
                 $<TARGET_FILE:nexigen-sm>)

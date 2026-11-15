@@ -126,6 +126,8 @@ public:
                     std::chrono::milliseconds timeout) noexcept {
         RecoveryRequest request;
         request.action = RecoveryAction::RestartProcess;
+        request.request_id = next_request_id();
+        last_request_id_ = request.request_id;
         request.pid = pid;
         std::snprintf(request.name, sizeof(request.name), "%s", name.data());
         return send(request, timeout);
@@ -152,6 +154,8 @@ public:
     ///          range, because the field is filled with `%s`.
     [[nodiscard]] com::Status notify_sm_recovery(std::string_view function_group) noexcept {
         nexigen::sm::RecoveryNotification notification{};
+        notification.request_id = next_request_id();
+        last_request_id_ = notification.request_id;
         std::snprintf(notification.function_group, sizeof(notification.function_group), "%s",
                       function_group.data());
         auto loaned = sm_notifier_.loan_uninit();
@@ -189,6 +193,8 @@ public:
     /// State Manager as the safety-critical default.
     ///
     /// @param process Expired process whose rules select the actions.
+    /// @param function_group Function Group the process belongs to; the
+    ///        escalation target when a rule names none.
     /// @param timeout Upper bound on a direct EM request-response call;
     ///        ignored by the SM escalation path.
     /// @param stop_feeding Local watchdog actuation for `TriggerWatchdogReset`;
@@ -198,17 +204,19 @@ public:
     /// @note Spec `phm/recovery`, requirements "Local process recovery" and
     ///       "SafeState escalation".
     [[nodiscard]] com::Status apply_rule(const SupervisedProcess& process,
+                                         std::string_view function_group,
                                          std::chrono::milliseconds timeout,
                                          const StopFeedingHook& stop_feeding = {}) noexcept {
         if (process.recovery_rules.empty()) {
-            return notify_sm_recovery(process.name);
+            return notify_sm_recovery(function_group);
         }
         com::Status last = std::unexpected(com::Error::InvalidArgument);
         for (const RecoveryRule& rule : process.recovery_rules) {
             switch (rule.action) {
                 case RecoveryAction::RestartProcess: {
                     const auto response = restart_process(0, process.name, timeout);
-                    if (response.has_value() && response->accepted != 0U) {
+                    if (response.has_value() &&
+                        response->outcome != RecoveryOutcome::Rejected) {
                         return {};
                     }
                     last = response.has_value() ? std::unexpected(com::Error::ConnectionFailure)
@@ -217,7 +225,7 @@ public:
                 }
                 case RecoveryAction::SwitchFunctionGroupState: {
                     const com::Status escalated = notify_sm_recovery(
-                        rule.function_group.empty() ? process.name : rule.function_group);
+                        rule.function_group.empty() ? function_group : rule.function_group);
                     if (escalated) {
                         return escalated;
                     }
@@ -236,8 +244,14 @@ public:
             }
         }
         // Every configured rule failed: escalate the process once to SM.
-        return notify_sm_recovery(process.name);
+        return notify_sm_recovery(function_group);
     }
+
+    /// @brief Correlation id of the last dispatched recovery.
+    ///
+    /// @return The id carried by the last EM request or SM notification.
+    /// @note Spec `phm/recovery`, requirement "Recovery request correlation".
+    [[nodiscard]] std::uint64_t last_request_id() const noexcept { return last_request_id_; }
 
     /// @brief The last action this client sent.
     ///
@@ -279,6 +293,12 @@ private:
     /// @param timeout Upper bound on the round trip.
     /// @return The EM's response, or the mapped `com::Error`.
     /// @note Spec `phm/recovery`, requirement "Local process recovery".
+    /// @brief Next recovery correlation id.
+    ///
+    /// @return A strictly increasing id, one per dispatched recovery.
+    /// @note Spec `phm/recovery`, requirement "Recovery request correlation".
+    [[nodiscard]] std::uint64_t next_request_id() noexcept { return ++next_request_id_; }
+
     com::Result<RecoveryResponse> send(const RecoveryRequest& request,
                                        std::chrono::milliseconds timeout) noexcept {
         auto response = client_.call(request, timeout);
@@ -292,7 +312,9 @@ private:
     com::Client<RecoveryRequest, RecoveryResponse> client_;         ///< Direct PHM->EM client.
     com::Publisher<nexigen::sm::RecoveryNotification> sm_notifier_; ///< SM notification publisher.
     com::EventNotifier sm_event_;                                   ///< SM WaitSet wake event.
-    RecoveryAction last_action_{RecoveryAction::RestartProcess};    ///< Last accepted action.
+    RecoveryAction last_action_{RecoveryAction::RestartProcess};    ///< Last dispatched action.
+    std::uint64_t next_request_id_{0};                              ///< Correlation-id source.
+    std::uint64_t last_request_id_{0};                              ///< Last dispatched id.
 };
 
 /// @brief Free helper mirroring `RecoveryClient::to_string()` (mandate 9).

@@ -19,12 +19,14 @@ namespace nexigen::phm {
 /// `Unknown` is the pre-change state: supervision follows checkpoints and the
 /// alive tick as before. `Running` arms supervision, while `Terminating` and
 /// `Terminated` suspend it so a deliberate EM stop cannot become an `Expired`
-/// fault.
+/// fault. `Failed` means the restart budget is spent: the process is
+/// `Exhausted` and only an operator restart can revive it.
 enum class EmLifecycleState : std::uint8_t {
     Unknown,
     Running,
     Terminating,
     Terminated,
+    Failed,
 };
 
 /// @brief Canonical name of an EM lifecycle state.
@@ -58,11 +60,12 @@ template <> struct EnumTraits<nexigen::phm::EmLifecycleState> {
         nexigen::phm::EmLifecycleState value;
         std::string_view name;
     };
-    static constexpr std::array<Entry, 4> entries{{
+    static constexpr std::array<Entry, 5> entries{{
         {nexigen::phm::EmLifecycleState::Unknown, "Unknown"},
         {nexigen::phm::EmLifecycleState::Running, "Running"},
         {nexigen::phm::EmLifecycleState::Terminating, "Terminating"},
         {nexigen::phm::EmLifecycleState::Terminated, "Terminated"},
+        {nexigen::phm::EmLifecycleState::Failed, "Failed"},
     }};
 };
 

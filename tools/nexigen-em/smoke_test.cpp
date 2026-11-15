@@ -134,7 +134,8 @@ void verify_phm_restart(com::Node& node, const std::string& marker, const std::s
     std::snprintf(request.name, sizeof(request.name), "%s", "oneshot_app");
     const auto response = recovery->call(request, std::chrono::milliseconds(2000));
     NX_CHECK(response.has_value());
-    NX_CHECK(response.has_value() && response->accepted == 1U);
+    NX_CHECK(response.has_value() &&
+             response->outcome == nexigen::phm::RecoveryOutcome::Accepted);
     for (int i = 0; i < 200 && count_lines(marker) < 2; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
@@ -159,7 +160,9 @@ void verify_phm_restart(com::Node& node, const std::string& marker, const std::s
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     NX_CHECK(attempt >= 2U);
-    NX_CHECK(restarts_used == 0U);
+    // A recovery restart now spends one attempt of the configured budget
+    // instead of leaving it untouched.
+    NX_CHECK(restarts_used == 1U);
 }
 
 /// A wrong manifest digest starts nothing: the loader runs before any fork.
@@ -223,6 +226,9 @@ int main(int argc, char* argv[]) {
     app.impact = exec::ImpactOnAppSuiteOperability::Not_impact;
     exec::StateDependentStartupConfig config;
     config.state = "Run";
+    // A PHM recovery restart spends one attempt of this budget, so the suite
+    // must grant one for the recovery path to be admitted at all.
+    config.restart_attempts = 3;
     app.startup_configs.push_back(config);
     manifest.apps.push_back(app);
 
