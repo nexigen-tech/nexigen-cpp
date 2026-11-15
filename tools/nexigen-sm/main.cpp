@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -39,6 +40,7 @@
 #include <nexigen/sm/sm_manifest.hpp>
 #include <nexigen/sm/sm_metrics.hpp>
 #include <nexigen/sm/root_lifecycle.hpp>
+#include <nexigen/sm/lsm_runtime.hpp>
 #include <nexigen/sm/state_manager.hpp>
 #include <nexigen/sm/state_publication.hpp>
 #include <nexigen/sm/transition_audit.hpp>
@@ -159,9 +161,10 @@ using UpdateServer = nexigen::com::Server<nexigen::sm::UpdateRequest, nexigen::s
 void serve_one_request(TriggerServer& server, nexigen::sm::StateManager& manager,
                        nexigen::sm::StatePublication& publication,
                        nexigen::sm::TransitionPreparation* preparation,
-                       nexigen::sm::UpdateCoordinator* update, nexigen::sm::TransitionAudit& audit,
-                       nexigen::sm::SmMetrics& metrics, std::vector<PendingTransition>& pending,
-                       std::uint64_t request_id, Clock::time_point now) {
+                       nexigen::sm::UpdateCoordinator* update, nexigen::sm::LsmRuntime* lsm,
+                       nexigen::sm::TransitionAudit& audit, nexigen::sm::SmMetrics& metrics,
+                       std::vector<PendingTransition>& pending, std::uint64_t request_id,
+                       Clock::time_point now) {
     auto received = server.receive();
     if (!received || !received->has_value()) {
         return;
@@ -171,10 +174,16 @@ void serve_one_request(TriggerServer& server, nexigen::sm::StateManager& manager
     const std::size_t index = manager.find_group_index(request.function_group);
     const bool known = index != static_cast<std::size_t>(-1);
     const std::string_view old_state = known ? manager.state(index) : std::string_view{};
-    const nexigen::sm::TransitionResult result =
-        known ? nexigen::sm::request_with_update_lock(manager, update, index, request.target_state,
-                                                      request.requester_id)
-              : nexigen::sm::TransitionResult::InvalidGraph;
+    nexigen::sm::TransitionResult result = nexigen::sm::TransitionResult::InvalidGraph;
+    if (known) {
+        if (update != nullptr && update->locked(index)) {
+            result = nexigen::sm::TransitionResult::RejectedByUpdate;
+        } else if (lsm != nullptr && lsm->handles(index)) {
+            result = lsm->request(index, request.target_state, request.requester_id);
+        } else {
+            result = manager.request_transition(index, request.target_state, request.requester_id);
+        }
+    }
     metrics.arbitration_latency_us.store(
         static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started).count()),
@@ -477,7 +486,8 @@ void open_control_channels(Session& session, const nexigen::sm::SmManifest& mani
 /// event or the flush tick, and exit when the stop handler fires.
 void run_loop(Session& session, nexigen::sm::StateManager& manager,
               nexigen::sm::TransitionAudit& audit, nexigen::sm::SmMetrics& metrics,
-              std::vector<PendingTransition>& pending, nexigen::sm::UpdateCoordinator* update) {
+              std::vector<PendingTransition>& pending, nexigen::sm::UpdateCoordinator* update,
+              nexigen::sm::LsmRuntime* lsm) {
     while (g_stop == 0) {
         const auto waited = session.waitset->wait_and_process_once_with_timeout(
             [&](nexigen::com::WaitSetAttachmentId attachment) -> nexigen::com::CallbackProgression {
@@ -494,7 +504,7 @@ void run_loop(Session& session, nexigen::sm::StateManager& manager,
                     for (std::size_t i = 0; i < manager.group_count() * 2U; ++i) {
                         serve_one_request(*session.trigger_server, manager, *session.publication,
                                           session.preparation ? &*session.preparation : nullptr,
-                                          update, audit, metrics, pending,
+                                          update, lsm, audit, metrics, pending,
                                           session.next_request_id++, now);
                     }
                     if (session.em_client && session.em_emergency_client) {
@@ -576,6 +586,44 @@ open_update_coordinator(Session& session, nexigen::sm::StateManager& manager,
                                           options.app_name.empty() ? "sm" : options.app_name);
 }
 
+/// Open the LSM runtime when the manifest declares state machines.
+[[nodiscard]] nexigen::core::Result<std::unique_ptr<nexigen::sm::LsmRuntime>>
+open_lsm_runtime(const nexigen::sm::SmManifest& manifest, nexigen::sm::StateManager& manager,
+                 Session& session) {
+    if (manifest.state_machines.empty()) {
+        return std::unique_ptr<nexigen::sm::LsmRuntime>{};
+    }
+    if (!session.em_client || !session.publication) {
+        return std::unexpected(nexigen::core::ErrorCode::InvalidArgument);
+    }
+    auto created = nexigen::sm::LsmRuntime::create(manifest, manager, *session.em_client,
+                                                   *session.publication);
+    if (!created) {
+        return std::unexpected(nexigen::core::ErrorCode::InvalidArgument);
+    }
+    return std::make_unique<nexigen::sm::LsmRuntime>(std::move(*created));
+}
+
+/// Run the EM-gated or synchronous startup sequence; returns 1 on failure.
+[[nodiscard]] int advance_platform_startup(nexigen::sm::StateManager& manager,
+                                           const nexigen::sm::SmManifest& manifest,
+                                           nexigen::sm::RootLifecycleClient* lifecycle) {
+    if (lifecycle == nullptr) {
+        (void)manager.advance_startup();
+        (void)manager.confirm_startup_step();
+        return 0;
+    }
+    const StartupGate gate = gate_machine_startup(manager, *lifecycle, manifest);
+    if (gate == StartupGate::Failed) {
+        return 1;
+    }
+    if (gate == StartupGate::Unavailable) {
+        (void)manager.advance_startup();
+        (void)manager.confirm_startup_step();
+    }
+    return 0;
+}
+
 [[nodiscard]] int run_sm(const Options& options) {
     nexigen::sm::SmManifest manifest;
     if (!load_manifest(options, manifest)) {
@@ -619,6 +667,13 @@ open_update_coordinator(Session& session, nexigen::sm::StateManager& manager,
 
     auto update = open_update_coordinator(session, manager, options);
 
+    auto lsm_result = open_lsm_runtime(manifest, manager, session);
+    if (!lsm_result) {
+        std::fprintf(stderr, "nexigen-sm: LSM runtime creation failed\n");
+        return 1;
+    }
+    std::unique_ptr<nexigen::sm::LsmRuntime> lsm = std::move(*lsm_result);
+
     std::optional<nexigen::sm::RootLifecycleClient> lifecycle;
     if (!options.app_name.empty()) {
         auto created = nexigen::sm::RootLifecycleClient::create(*session.node, options.app_name);
@@ -635,24 +690,15 @@ open_update_coordinator(Session& session, nexigen::sm::StateManager& manager,
     // on the EM's RootFG result. Without an EM the synchronous fallback
     // remains.
     (void)manager.begin_startup();
-    if (lifecycle) {
-        const StartupGate gate = gate_machine_startup(manager, *lifecycle, manifest);
-        if (gate == StartupGate::Failed) {
-            return 1;
-        }
-        if (gate == StartupGate::Unavailable) {
-            (void)manager.advance_startup();
-            (void)manager.confirm_startup_step();
-        }
-    } else {
-        (void)manager.advance_startup();
-        (void)manager.confirm_startup_step();
+    if (advance_platform_startup(manager, manifest, lifecycle ? &*lifecycle : nullptr) != 0) {
+        return 1;
     }
     std::printf("nexigen-sm: ready (kRunning), supervising %zu function group(s)\n",
                 manager.group_count());
     std::fflush(stdout);
 
-    run_loop(session, manager, audit, metrics, pending, update ? &*update : nullptr);
+    run_loop(session, manager, audit, metrics, pending, update ? &*update : nullptr,
+             lsm ? lsm.get() : nullptr);
 
     // Shutdown sequencing (REQ_SM_005): application groups to Off, request
     // RootFG Shutdown (never Off), then EM owns the final Off. The host

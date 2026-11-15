@@ -60,6 +60,7 @@ struct LsmErrorRecovery {
 /// @brief Configuration of one lightweight state machine.
 struct LightweightStateMachineConfig {
     std::string name{};
+    std::string function_group{};
     std::vector<std::string> states{};
     std::string initial_state{};
     std::vector<LsmAction> actions{};
@@ -102,6 +103,12 @@ public:
 
     /// @brief Current state.
     [[nodiscard]] std::string_view current_state() const noexcept { return current_; }
+
+    /// @brief Align the machine with an existing group state.
+    ///
+    /// @param state State to adopt; must be declared by the configuration.
+    /// @return `true` when the state is declared and adopted.
+    [[nodiscard]] bool reset_to(std::string_view state) noexcept;
 
     /// @brief Cold-path diagnostic rendering.
     [[nodiscard]] std::string to_string() const;

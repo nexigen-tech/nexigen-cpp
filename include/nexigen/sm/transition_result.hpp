@@ -29,6 +29,7 @@ enum class TransitionResult : std::uint8_t {
     RejectedByUpdate,   ///< The group is locked by an active UCM update.
     InvalidGraph,       ///< The graph forbids the requested transition.
     Timeout,            ///< The EM did not confirm the switch in time.
+    ActionFailed,       ///< An LSM action failed after error recovery.
 };
 
 /// @brief Canonical name of a transition result.
@@ -95,12 +96,13 @@ template <> struct EnumTraits<nexigen::sm::TransitionResult> {
         std::string_view name;               ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical enumerator table, in declaration order.
-    static constexpr std::array<Entry, 5> entries{{
+    static constexpr std::array<Entry, 6> entries{{
         {nexigen::sm::TransitionResult::Success, "Success"},
         {nexigen::sm::TransitionResult::RejectedByPriority, "RejectedByPriority"},
         {nexigen::sm::TransitionResult::RejectedByUpdate, "RejectedByUpdate"},
         {nexigen::sm::TransitionResult::InvalidGraph, "InvalidGraph"},
         {nexigen::sm::TransitionResult::Timeout, "Timeout"},
+        {nexigen::sm::TransitionResult::ActionFailed, "ActionFailed"},
     }};
 };
 

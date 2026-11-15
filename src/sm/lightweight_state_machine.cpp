@@ -64,9 +64,9 @@ std::string LsmErrorRecovery::to_string() const {
 }
 
 std::string LightweightStateMachineConfig::to_string() const {
-    return std::format("LightweightStateMachineConfig(name={}, states={}, transitions={}, "
-                       "actions={}, recovery={})",
-                       name, states.size(), transitions.size(), actions.size(),
+    return std::format("LightweightStateMachineConfig(name={}, function_group={}, states={}, "
+                       "transitions={}, actions={}, recovery={})",
+                       name, function_group, states.size(), transitions.size(), actions.size(),
                        error_recovery.size());
 }
 
@@ -88,8 +88,8 @@ std::string LightweightStateMachineConfig::to_string() const {
 }
 
 core::Status LightweightStateMachineConfig::validate() const noexcept {
-    if (name.empty() || states.empty() || !states_contain(states, initial_state) ||
-        has_duplicate_states(states)) {
+    if (name.empty() || function_group.empty() || states.empty() ||
+        !states_contain(states, initial_state) || has_duplicate_states(states)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     for (const LsmTransition& transition : transitions) {
@@ -161,6 +161,14 @@ void LightweightStateMachine::recover(std::string_view failed_target,
             return;
         }
     }
+}
+
+bool LightweightStateMachine::reset_to(std::string_view state) noexcept {
+    if (!states_contain(config_.states, state)) {
+        return false;
+    }
+    current_ = std::string(state);
+    return true;
 }
 
 core::Result<TransitionResult> LightweightStateMachine::request(std::string_view target,
@@ -245,6 +253,7 @@ void to_json(nlohmann::json& j, const LightweightStateMachineConfig& value) {
         recovery.push_back(std::move(entry));
     }
     j = nlohmann::json{{"name", value.name},
+                       {"function_group", value.function_group},
                        {"states", value.states},
                        {"initial_state", value.initial_state},
                        {"actions", std::move(actions)},
@@ -254,6 +263,7 @@ void to_json(nlohmann::json& j, const LightweightStateMachineConfig& value) {
 
 void from_json(const nlohmann::json& j, LightweightStateMachineConfig& value) noexcept {
     static_cast<void>(core::detail::read_string(j, "name", value.name));
+    static_cast<void>(core::detail::read_string(j, "function_group", value.function_group));
     read_string_array(j, "states", value.states);
     static_cast<void>(core::detail::read_string(j, "initial_state", value.initial_state));
     if (const auto it = j.find("actions"); it != j.end() && it->is_array()) {

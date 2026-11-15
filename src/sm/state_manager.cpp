@@ -89,6 +89,10 @@ std::uint64_t StateManager::transition_max_time_ms(std::size_t index) const noex
     return manifest_.function_groups[index].transition_max_time_ms;
 }
 
+bool StateManager::is_application_group(std::size_t index) const noexcept {
+    return manifest_.function_groups[index].application_group;
+}
+
 TransitionResult StateManager::request_transition(std::size_t index, std::string_view target,
                                                   std::string_view requester_id) noexcept {
     GroupRuntime& group = groups_[index];

@@ -222,6 +222,13 @@ public:
         return root_fg_ == RootFG::Run;
     }
 
+    /// @brief Whether one group is an application group.
+    ///
+    /// @param index Group index.
+    /// @return The manifest `application_group` flag.
+    /// @warning Passing an out-of-range index is undefined behavior.
+    [[nodiscard]] bool is_application_group(std::size_t index) const noexcept;
+
     /// @brief Force one group into a state, bypassing arbitration.
     ///
     /// Used by the shutdown sequence and the recovery handler: the graph and
@@ -279,9 +286,9 @@ private:
     [[nodiscard]] bool is_allowed(std::size_t index, std::string_view from,
                                   std::string_view to) const noexcept;
 
-    SmManifest manifest_;                     ///< Immutable configuration snapshot.
-    std::vector<GroupRuntime> groups_;        ///< Mutable runtime, one per group.
-    RootFG root_fg_{RootFG::Off}; ///< RootFG Function Group state.
+    SmManifest manifest_;              ///< Immutable configuration snapshot.
+    std::vector<GroupRuntime> groups_; ///< Mutable runtime, one per group.
+    RootFG root_fg_{RootFG::Off};      ///< RootFG Function Group state.
 };
 
 /// @brief Free diagnostic helper mirroring `StateManager::to_string`.

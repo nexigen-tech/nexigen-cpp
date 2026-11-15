@@ -2,6 +2,7 @@
 #include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/sm/sm_manifest.hpp>
 
+#include <algorithm>
 #include <utility>
 
 namespace nexigen::sm {
@@ -36,6 +37,45 @@ std::string SmManifest::to_string() const {
     return out;
 }
 
+namespace {
+
+[[nodiscard]] const FunctionGroup* find_group(const SmManifest& manifest,
+                                              std::string_view name) noexcept {
+    for (const FunctionGroup& group : manifest.function_groups) {
+        if (group.name == name) {
+            return &group;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] core::Status validate_state_machines(const SmManifest& manifest) noexcept {
+    for (std::size_t m = 0; m < manifest.state_machines.size(); ++m) {
+        const LightweightStateMachineConfig& machine = manifest.state_machines[m];
+        if (const core::Status valid = machine.validate(); !valid) {
+            return valid;
+        }
+        const FunctionGroup* group = find_group(manifest, machine.function_group);
+        if (group == nullptr) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        for (const std::string& state : machine.states) {
+            if (std::find(group->states.begin(), group->states.end(), state) ==
+                group->states.end()) {
+                return std::unexpected(core::ErrorCode::InvalidArgument);
+            }
+        }
+        for (std::size_t earlier = 0; earlier < m; ++earlier) {
+            if (manifest.state_machines[earlier].function_group == machine.function_group) {
+                return std::unexpected(core::ErrorCode::InvalidArgument);
+            }
+        }
+    }
+    return {};
+}
+
+} // namespace
+
 core::Status validate(const SmManifest& manifest) noexcept {
     for (const FunctionGroup& group : manifest.function_groups) {
         if (!group.application_group) {
@@ -54,12 +94,7 @@ core::Status validate(const SmManifest& manifest) noexcept {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
     }
-    for (const LightweightStateMachineConfig& machine : manifest.state_machines) {
-        if (const core::Status valid = machine.validate(); !valid) {
-            return valid;
-        }
-    }
-    return {};
+    return validate_state_machines(manifest);
 }
 
 std::int32_t SmManifest::priority_of(std::string_view requester_id) const noexcept {

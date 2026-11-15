@@ -32,7 +32,9 @@
 #include <nexigen/exec/root_state_query.hpp>
 #include <nexigen/exec/state_ack.hpp>
 #include <nexigen/exec/state_command.hpp>
+#include <nexigen/sm/group_state_payload.hpp>
 #include <nexigen/sm/lightweight_state_machine.hpp>
+#include <nexigen/sm/lsm_runtime.hpp>
 #include <nexigen/sm/root_lifecycle.hpp>
 #include <nexigen/sm/root_state.hpp>
 #include <nexigen/sm/ucm.hpp>
@@ -121,7 +123,7 @@ void test_vocabulary() {
     for (const sm::TransitionResult value :
          {sm::TransitionResult::Success, sm::TransitionResult::RejectedByPriority,
           sm::TransitionResult::RejectedByUpdate, sm::TransitionResult::InvalidGraph,
-          sm::TransitionResult::Timeout}) {
+          sm::TransitionResult::Timeout, sm::TransitionResult::ActionFailed}) {
         const std::string_view name = to_string(value);
         NX_CHECK(!name.empty());
         sm::TransitionResult back{};
@@ -135,9 +137,8 @@ void test_vocabulary() {
         NX_CHECK(parsed == value);
         NX_CHECK(std::format("{}", value) == std::string(name));
     }
-    for (const sm::RootFG value :
-         {sm::RootFG::Off, sm::RootFG::Startup, sm::RootFG::Verify, sm::RootFG::Run,
-          sm::RootFG::Shutdown, sm::RootFG::Restart}) {
+    for (const sm::RootFG value : {sm::RootFG::Off, sm::RootFG::Startup, sm::RootFG::Verify,
+                                   sm::RootFG::Run, sm::RootFG::Shutdown, sm::RootFG::Restart}) {
         const std::string_view name = to_string(value);
         NX_CHECK(!name.empty());
         sm::RootFG back{};
@@ -512,13 +513,13 @@ void test_root_lifecycle_client() {
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
 
-    const auto query_name =
-        com::ServiceName::create("Nexigen/EM/InitialRootStateTransitionResult");
+    const auto query_name = com::ServiceName::create("Nexigen/EM/InitialRootStateTransitionResult");
     const auto command_name = com::ServiceName::create("Nexigen/EM/StateCommand");
     NX_CHECK(query_name.has_value() && command_name.has_value());
     auto query_server =
-        com::Server<std::monostate, nexigen::exec::InitialRootStateTransitionResultResponse>::
-            create(*node, *query_name);
+        com::Server<std::monostate,
+                    nexigen::exec::InitialRootStateTransitionResultResponse>::create(*node,
+                                                                                     *query_name);
     auto command_server = com::Server<nexigen::exec::StateCommand, nexigen::exec::StateAck>::create(
         *node, *command_name);
     NX_CHECK(query_server.has_value() && command_server.has_value());
@@ -712,20 +713,35 @@ struct RecordingLsmSink final : sm::LsmActionSink {
 sm::LightweightStateMachineConfig make_lsm_config() {
     sm::LightweightStateMachineConfig config;
     config.name = "lsm";
+    config.function_group = "lsm_group";
     config.states = {"Off", "Active", "Fallback"};
     config.initial_state = "Off";
     config.actions = {
-        {sm::LsmActionType::PublishState, "adas", "Off"},
-        {sm::LsmActionType::RequestFunctionGroupState, "adas", "Active"},
-        {sm::LsmActionType::PublishState, "adas", "Fallback"},
+        {sm::LsmActionType::PublishState, "lsm_group", "Off"},
+        {sm::LsmActionType::PublishState, "lsm_group", "Fallback"},
+        {sm::LsmActionType::RequestFunctionGroupState, "lsm_group", "Active"},
+        {sm::LsmActionType::RequestFunctionGroupState, "lsm_group", "Fallback"},
     };
     config.transitions = {
-        {"Off", "Active", {0, 1}},
+        {"Off", "Active", {0, 2}},
+        {"Active", "Fallback", {3}},
     };
     config.error_recovery = {
-        {"Active", "Fallback", {2}},
+        {"Active", "Fallback", {1}},
     };
     return config;
+}
+
+sm::SmManifest make_lsm_manifest() {
+    sm::SmManifest manifest = make_manifest();
+    sm::FunctionGroup group;
+    group.name = "lsm_group";
+    group.states = {"Off", "Active", "Fallback"};
+    group.allowed_transitions = {{"Off", "Active"}, {"Active", "Fallback"}};
+    group.application_group = false;
+    manifest.function_groups.push_back(std::move(group));
+    manifest.state_machines.push_back(make_lsm_config());
+    return manifest;
 }
 
 void test_lightweight_state_machine() {
@@ -738,8 +754,8 @@ void test_lightweight_state_machine() {
     NX_CHECK(machine->request("Active", "app").has_value());
     NX_CHECK(machine->current_state() == "Active");
     NX_CHECK(sink.calls.size() == 2U);
-    NX_CHECK(sink.calls[0] == "publish:adas:Off");
-    NX_CHECK(sink.calls[1] == "request:adas:Active");
+    NX_CHECK(sink.calls[0] == "publish:lsm_group:Off");
+    NX_CHECK(sink.calls[1] == "request:lsm_group:Active");
 
     sink.calls.clear();
     const auto missing = machine->request("Missing", "app");
@@ -750,7 +766,7 @@ void test_lightweight_state_machine() {
     sm::to_json(json, make_lsm_config());
     sm::LightweightStateMachineConfig parsed;
     sm::from_json(json, parsed);
-    NX_CHECK(parsed.name == "lsm" && parsed.transitions.size() == 1U);
+    NX_CHECK(parsed.name == "lsm" && parsed.transitions.size() == 2U);
     NX_CHECK(std::format("{}", make_lsm_config()) == make_lsm_config().to_string());
 
     RecordingLsmSink failing;
@@ -761,7 +777,7 @@ void test_lightweight_state_machine() {
         const auto result = failing_machine->request("Active", "app");
         NX_CHECK(!result.has_value());
         NX_CHECK(failing_machine->current_state() == "Fallback");
-        NX_CHECK(failing.calls.back() == "publish:adas:Fallback");
+        NX_CHECK(failing.calls.back() == "publish:lsm_group:Fallback");
     }
 
     sm::LightweightStateMachineConfig no_recovery = make_lsm_config();
@@ -779,8 +795,7 @@ void test_lightweight_state_machine() {
     invalid.transitions.front().actions.push_back(99);
     NX_CHECK(!invalid.validate().has_value());
 
-    sm::SmManifest manifest = make_manifest();
-    manifest.state_machines.push_back(make_lsm_config());
+    sm::SmManifest manifest = make_lsm_manifest();
     NX_CHECK(sm::validate(manifest).has_value());
     nlohmann::json manifest_json;
     sm::to_json(manifest_json, manifest);
@@ -788,6 +803,78 @@ void test_lightweight_state_machine() {
     sm::from_json(manifest_json, manifest_parsed);
     NX_CHECK(manifest_parsed.state_machines.size() == 1U);
     NX_CHECK(manifest_parsed.state_machines.front().name == "lsm");
+}
+
+void test_lsm_runtime() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    sm::SmManifest manifest = make_lsm_manifest();
+    auto manager_result = sm::StateManager::create(manifest);
+    NX_CHECK(manager_result.has_value());
+    if (!manager_result) {
+        return;
+    }
+    sm::StateManager& manager = *manager_result;
+    const std::size_t index = manager.find_group_index("lsm_group");
+    auto publication = sm::StatePublication::create(*node, manifest);
+    NX_CHECK(publication.has_value());
+    const auto field_name = com::ServiceName::create("Nexigen/SM/State/lsm_group");
+    NX_CHECK(field_name.has_value());
+    auto field_listener = com::FieldListener<sm::GroupStatePayload>::open(*node, *field_name);
+    NX_CHECK(field_listener.has_value());
+
+    const auto em_name = com::ServiceName::create("Nexigen/Test/LsmEm");
+    NX_CHECK(em_name.has_value());
+    auto em_server =
+        com::Server<nexigen::exec::StateCommand, nexigen::exec::StateAck>::create(*node, *em_name);
+    auto em_client =
+        com::Client<nexigen::exec::StateCommand, nexigen::exec::StateAck>::create(*node, *em_name);
+    NX_CHECK(em_server.has_value() && em_client.has_value());
+    std::atomic<bool> stop{false};
+    std::atomic<int> mode{0};
+    std::vector<std::string> commands;
+    std::thread serve([&] {
+        while (!stop.load(std::memory_order_acquire)) {
+            auto request = em_server->receive();
+            if (request && request->has_value()) {
+                const auto& payload = (*request)->payload();
+                commands.push_back(std::string(payload.function_group) + ":" +
+                                   std::string(payload.target_state) + ":" +
+                                   std::string(payload.requester_id));
+                const auto result = mode.load(std::memory_order_relaxed) == 0
+                                        ? nexigen::exec::StateResult::Success
+                                        : nexigen::exec::StateResult::OperationFailed;
+                static_cast<void>((*request)->send_copy(nexigen::exec::StateAck{1U, result}));
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    auto runtime = sm::LsmRuntime::create(manifest, manager, *em_client, *publication);
+    NX_CHECK(runtime.has_value());
+    if (!runtime) {
+        stop.store(true, std::memory_order_release);
+        serve.join();
+        return;
+    }
+    NX_CHECK(runtime->handles(index));
+    NX_CHECK(!runtime->handles(manager.find_group_index("adas")));
+    NX_CHECK(runtime->request(index, "Active", "app") == sm::TransitionResult::Success);
+    NX_CHECK(manager.state(index) == "Active");
+
+    mode.store(1, std::memory_order_relaxed);
+    NX_CHECK(runtime->request(index, "Fallback", "app") == sm::TransitionResult::ActionFailed);
+    NX_CHECK(manager.state(index) == "Fallback");
+    if (field_listener) {
+        NX_CHECK(std::string(field_listener->get().state) == "Fallback");
+    }
+
+    stop.store(true, std::memory_order_release);
+    serve.join();
+    NX_CHECK(commands.size() >= 2U);
+    NX_CHECK(commands[0] == "lsm_group:Active:app");
+    NX_CHECK(commands[1] == "lsm_group:Fallback:app");
+    NX_CHECK(runtime->to_string().find("lsm_group") != std::string::npos);
 }
 
 } // namespace
@@ -803,6 +890,7 @@ int main() {
     run_suite("root_lifecycle", test_root_lifecycle_client);
     run_suite("ucm_coordination", test_ucm_coordination);
     run_suite("lightweight_state_machine", test_lightweight_state_machine);
+    run_suite("lsm_runtime", test_lsm_runtime);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

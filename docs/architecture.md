@@ -379,12 +379,15 @@ the UCM/EM handshake; the arbitration thread stays the single writer.
 ## Lightweight state machines and ARXML manifests
 
 `SmManifest` may also carry declarative `state_machines`. Each
-`LightweightStateMachineConfig` holds a transition table, ordered action lists,
-and an error-recovery table. `sm::LightweightStateMachine` executes actions
-through an `LsmActionSink`, so the same engine can drive the EM, publish state,
-or be unit-tested with a recording sink. The arbitration loop does not consume
-these configurations yet; they are the declarative building block for the next
-SM integration step.
+`LightweightStateMachineConfig` names one Function Group and holds a transition
+table, ordered action lists, and an error-recovery table. `sm::LsmRuntime`
+binds the machine to the group and supplies an `EmActionSink`:
+`RequestFunctionGroupState` sends a `StateCommand` to the EM, `PublishState`
+writes the group's State field, and the `StateManager` is kept in sync with the
+machine after every attempt. TriggerIn for a bound group runs the declarative
+table; unbound groups keep the generic graph and priority arbitration. Recovery
+fallbacks are visible through `TransitionResult::ActionFailed` and the synced
+group state.
 
 Suite manifests can be loaded from JSON or from the documented ARXML
 execution-manifest profile. `ManifestAccessor` detects the source format,
