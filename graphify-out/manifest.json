@@ -570,9 +570,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/core/result.hpp": {
-    "mtime": 1794516221.3067033,
-    "seen": 1794516334.6648004,
-    "ast_hash": "76629f76624e158d719d5698e3467f1d",
+    "mtime": 1794732835.0381248,
+    "seen": 1794734214.1926367,
+    "ast_hash": "c138dc544e965cfd7c62ddc7d79457c3",
     "semantic_hash": ""
   },
   "include/nexigen/core/serialization_mandate.hpp": {
@@ -672,9 +672,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/exec/app_spec.hpp": {
-    "mtime": 1794691083.032025,
-    "seen": 1794692851.3431153,
-    "ast_hash": "07051f2a61d476ee42771daa6d73bac7",
+    "mtime": 1794732794.4922314,
+    "seen": 1794734214.192825,
+    "ast_hash": "f0134832606d62cb0ca3a0d81f3c8a1d",
     "semantic_hash": ""
   },
   "include/nexigen/exec/app_state.hpp": {
@@ -762,9 +762,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/exec/function_group_registry.hpp": {
-    "mtime": 1794698293.18743,
-    "seen": 1794700043.5018837,
-    "ast_hash": "10bae3b5d3fbb2bafe6fce71649c8fa0",
+    "mtime": 1794732848.8430886,
+    "seen": 1794734214.193033,
+    "ast_hash": "e2904e7756e27758f30623127763c2ba",
     "semantic_hash": ""
   },
   "include/nexigen/exec/impact_on_app_suite_operability.hpp": {
@@ -804,9 +804,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/exec/start_options.hpp": {
-    "mtime": 1794516605.8435059,
-    "seen": 1794517299.3883069,
-    "ast_hash": "ce6c7d70f815000b25a61c42f3c28438",
+    "mtime": 1794733003.2453103,
+    "seen": 1794734214.1931534,
+    "ast_hash": "6be41caaa6c4dccfb2a5c124af97f76a",
     "semantic_hash": ""
   },
   "include/nexigen/exec/state_ack.hpp": {
@@ -816,15 +816,15 @@
     "semantic_hash": ""
   },
   "include/nexigen/exec/state_client.hpp": {
-    "mtime": 1794698306.6893988,
-    "seen": 1794700043.5019984,
-    "ast_hash": "09bc188e56091d98ae8cfcc80377fdac",
+    "mtime": 1794733017.1286464,
+    "seen": 1794734214.193165,
+    "ast_hash": "e21ae4bc7f859a7f478addd201031647",
     "semantic_hash": ""
   },
   "include/nexigen/exec/state_command.hpp": {
-    "mtime": 1794516492.8610306,
-    "seen": 1794517299.388309,
-    "ast_hash": "3aba10774f4637c086e2295523f016ce",
+    "mtime": 1794732843.707102,
+    "seen": 1794734214.1931655,
+    "ast_hash": "a199fad7d58196fe0ed4eef1f0193632",
     "semantic_hash": ""
   },
   "include/nexigen/exec/suite_app_metadata.hpp": {
@@ -852,9 +852,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/exec/suite_manifest.hpp": {
-    "mtime": 1794691015.2251875,
-    "seen": 1794692851.3436072,
-    "ast_hash": "23ce8ac56cb592de45ffc3aabbb1318a",
+    "mtime": 1794733003.2460265,
+    "seen": 1794734214.193223,
+    "ast_hash": "adfeffb4052c209a2830f05578640325",
     "semantic_hash": ""
   },
   "include/nexigen/exec/suite_metadata.hpp": {
@@ -2418,9 +2418,9 @@
     "semantic_hash": ""
   },
   "src/exec/execution_manager.cpp": {
-    "mtime": 1794698358.5932794,
-    "seen": 1794700043.5056837,
-    "ast_hash": "a4fc654aec7e75d1b73168a005898ba0",
+    "mtime": 1794733147.6872814,
+    "seen": 1794734214.196913,
+    "ast_hash": "ff0bf3b0ea21fe1a69ea103d6c55623e",
     "semantic_hash": ""
   },
   "src/exec/execution_manager_logging.cpp": {
@@ -2430,9 +2430,9 @@
     "semantic_hash": ""
   },
   "src/exec/function_group_registry.cpp": {
-    "mtime": 1794698299.3844156,
-    "seen": 1794700043.5056946,
-    "ast_hash": "687a99f64fd685d8ea0263a5bddfcac2",
+    "mtime": 1794732848.8430886,
+    "seen": 1794734214.196924,
+    "ast_hash": "3a86b3721a053d2e198b42df516381ac",
     "semantic_hash": ""
   },
   "src/exec/impact_on_app_suite_operability.cpp": {
@@ -2448,9 +2448,9 @@
     "semantic_hash": ""
   },
   "src/exec/state_client.cpp": {
-    "mtime": 1794698312.6003852,
-    "seen": 1794700043.5057397,
-    "ast_hash": "4c5ff6cc50a29fae965b4dc6cbf842e9",
+    "mtime": 1794733003.2745523,
+    "seen": 1794734214.1969998,
+    "ast_hash": "1bad8d88d34fee8ed7b9598efa78ea56",
     "semantic_hash": ""
   },
   "src/exec/suite_control.cpp": {
@@ -2460,15 +2460,15 @@
     "semantic_hash": ""
   },
   "src/exec/suite_launch_plan.cpp": {
-    "mtime": 1794692532.7071152,
-    "seen": 1794692851.3475354,
-    "ast_hash": "3d01e5e9bd6ee1acb1b4b81eb53d3247",
+    "mtime": 1794733003.2689376,
+    "seen": 1794734214.1970315,
+    "ast_hash": "881e2ba5901a830585d8410b8781b053",
     "semantic_hash": ""
   },
   "src/exec/suite_manifest.cpp": {
-    "mtime": 1794698293.18743,
-    "seen": 1794700043.5057814,
-    "ast_hash": "5b7de9dd5eb5cb25862829b85156f8fa",
+    "mtime": 1794733003.2611282,
+    "seen": 1794734214.1970327,
+    "ast_hash": "fe679e2cc012eba61397af3de3ab5121",
     "semantic_hash": ""
   },
   "src/exec/suite_reporting.cpp": {
@@ -2712,9 +2712,9 @@
     "semantic_hash": ""
   },
   "tests/core/core_test.cpp": {
-    "mtime": 1794426383.8454118,
-    "seen": 1794441260.9741027,
-    "ast_hash": "86c526a0b0828cd7107f91cb9aa1bd95",
+    "mtime": 1794733003.3453526,
+    "seen": 1794734214.197573,
+    "ast_hash": "d33cd65ffc3fce4521c9f3d9968b14f0",
     "semantic_hash": ""
   },
   "tests/core/neg/sink_pack_negative.cpp": {
@@ -2736,9 +2736,9 @@
     "semantic_hash": ""
   },
   "tests/exec/app_suite_test.cpp": {
-    "mtime": 1794698781.5563054,
-    "seen": 1794700043.506344,
-    "ast_hash": "4ac1786df0539b3a2f52466a72fea7ce",
+    "mtime": 1794733003.3096826,
+    "seen": 1794734214.1976197,
+    "ast_hash": "548e8951218d7ecfb81caa54611bf6bb",
     "semantic_hash": ""
   },
   "tests/exec/child_process_test.cpp": {
@@ -2766,15 +2766,15 @@
     "semantic_hash": ""
   },
   "tests/exec/execution_manager_test.cpp": {
-    "mtime": 1794426383.964152,
-    "seen": 1794441260.9741135,
-    "ast_hash": "51664e3f8c0b99133a86600dd53b6ccc",
+    "mtime": 1794734181.7312388,
+    "seen": 1794734214.1976655,
+    "ast_hash": "57f668a7d0e61ffe0ae336b9674cbb20",
     "semantic_hash": ""
   },
   "tests/exec/state_client_test.cpp": {
-    "mtime": 1794698424.8871267,
-    "seen": 1794700043.5063958,
-    "ast_hash": "0515870274ba89033fe214dfe6623dd4",
+    "mtime": 1794732988.1347225,
+    "seen": 1794734214.1976666,
+    "ast_hash": "1494923c9c5fde29fb65f94d1dab6027",
     "semantic_hash": ""
   },
   "tests/fuzz/http_parse_fuzz.cpp": {
@@ -3084,9 +3084,9 @@
     "semantic_hash": ""
   },
   "tests/sm/sm_test.cpp": {
-    "mtime": 1794698522.7531142,
-    "seen": 1794700043.5069892,
-    "ast_hash": "5797b2d47b2c1cbe8f87b281a9c61210",
+    "mtime": 1794732999.767692,
+    "seen": 1794734214.1982768,
+    "ast_hash": "09be564d53feaeb084583d66667948e2",
     "semantic_hash": ""
   },
   "tests/support/test_temp.hpp": {
@@ -3210,9 +3210,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-sm/main.cpp": {
-    "mtime": 1794698974.0838656,
-    "seen": 1794700043.5073144,
-    "ast_hash": "bd86826a2a5586543872fb63c2150340",
+    "mtime": 1794732862.7380521,
+    "seen": 1794734214.1986203,
+    "ast_hash": "8fec671e748cdd3061d5eb7e695c07be",
     "semantic_hash": ""
   },
   ".opencode/commands/opsx-apply.md": {
@@ -3390,9 +3390,9 @@
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1794698848.3791513,
-    "seen": 1794700043.507664,
-    "ast_hash": "ea66433f293d2ab88c15f3a4bad4063a",
+    "mtime": 1794733215.1530821,
+    "seen": 1794734214.1989875,
+    "ast_hash": "2cb14e66830e9aed11c2b91a3b494217",
     "semantic_hash": ""
   },
   "docs/code-analysis-2026-11-03.md": {
@@ -8454,9 +8454,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/exec/state_result.hpp": {
-    "mtime": 1794690428.2206268,
-    "seen": 1794692851.343535,
-    "ast_hash": "8daa145bf7ac43233ce592eba39e722a",
+    "mtime": 1794732840.009112,
+    "seen": 1794734214.193179,
+    "ast_hash": "41aadb32553c8bd537351ba0e55f4568",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-14-introduce-platformfg-process-model/.openspec.yaml": {
@@ -8700,9 +8700,9 @@
     "semantic_hash": ""
   },
   "src/sm/machine_lifecycle.cpp": {
-    "mtime": 1794698441.0927732,
-    "seen": 1794700043.5060754,
-    "ast_hash": "c588b5833fa86181345e51fdfed2fcfd",
+    "mtime": 1794732862.733052,
+    "seen": 1794734214.1973507,
+    "ast_hash": "f24862f3c99d0c040be6812d49d1196e",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-15-em-phm-lifecycle-events/.openspec.yaml": {
@@ -8805,6 +8805,114 @@
     "mtime": 1794700047.5274944,
     "seen": 1794700626.4584563,
     "ast_hash": "ff0d12357d6b0aef1bae96a5f9f9648f",
+    "semantic_hash": ""
+  },
+  "include/nexigen/exec/deterministic_client.hpp": {
+    "mtime": 1794732926.4178848,
+    "seen": 1794734214.1929746,
+    "ast_hash": "310d0081b5aeb45b158b01cb218083d1",
+    "semantic_hash": ""
+  },
+  "include/nexigen/exec/executable_digest.hpp": {
+    "mtime": 1794732889.052983,
+    "seen": 1794734214.1929758,
+    "ast_hash": "2380fbba5e9decc9e70603b100ae53b1",
+    "semantic_hash": ""
+  },
+  "include/nexigen/exec/platform_controls.hpp": {
+    "mtime": 1794733003.2436948,
+    "seen": 1794734214.1931095,
+    "ast_hash": "68473ff2209c37389d01bf1757ffe4a3",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p2-exec-platform-controls/.openspec.yaml": {
+    "mtime": 1794732715.0214403,
+    "seen": 1794734214.196674,
+    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
+    "semantic_hash": ""
+  },
+  "src/exec/deterministic_client.cpp": {
+    "mtime": 1794733003.252358,
+    "seen": 1794734214.1969004,
+    "ast_hash": "439f1fe0f7cb0e818878279cc4af866c",
+    "semantic_hash": ""
+  },
+  "src/exec/executable_digest.cpp": {
+    "mtime": 1794733003.2516155,
+    "seen": 1794734214.196901,
+    "ast_hash": "59f0c1c0e87a4d0c66daa9467eddac67",
+    "semantic_hash": ""
+  },
+  "src/exec/platform_controls.cpp": {
+    "mtime": 1794733003.2497396,
+    "seen": 1794734214.1969664,
+    "ast_hash": "a436694bd3ea8ed5078acbde61a12e06",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p2-exec-platform-controls/design.md": {
+    "mtime": 1794732734.7623885,
+    "seen": 1794734214.2077038,
+    "ast_hash": "e2f42bdc6a55722e6890fb3233336c7b",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p2-exec-platform-controls/proposal.md": {
+    "mtime": 1794732723.4094183,
+    "seen": 1794734214.2077045,
+    "ast_hash": "bcdeb0435827d67ef242da10aecc8c67",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p2-exec-platform-controls/specs/core/result/spec.md": {
+    "mtime": 1794732763.5853126,
+    "seen": 1794734214.2077053,
+    "ast_hash": "52060f70c9a048377a30dfaba64d6894",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p2-exec-platform-controls/specs/exec/app-suite/spec.md": {
+    "mtime": 1794732763.5833127,
+    "seen": 1794734214.207706,
+    "ast_hash": "63793d317bab6dcc96017de859fa6b51",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p2-exec-platform-controls/specs/exec/deterministic-execution/spec.md": {
+    "mtime": 1794732750.099348,
+    "seen": 1794734214.2077067,
+    "ast_hash": "402f63826797ad2e0077cf408f528d60",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p2-exec-platform-controls/specs/exec/process-supervision/spec.md": {
+    "mtime": 1794732763.5853126,
+    "seen": 1794734214.2077072,
+    "ast_hash": "635e47f37094c53fd9b15925be85194d",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p2-exec-platform-controls/specs/exec/resource-groups/spec.md": {
+    "mtime": 1794732750.0973482,
+    "seen": 1794734214.207708,
+    "ast_hash": "253a285460f5065cab9fb157247aa4bc",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p2-exec-platform-controls/specs/exec/state-client-access-control/spec.md": {
+    "mtime": 1794732763.5833127,
+    "seen": 1794734214.2077084,
+    "ast_hash": "5c96ee93a5b4c0f689f88b575b10dbe8",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p2-exec-platform-controls/specs/exec/state-client/spec.md": {
+    "mtime": 1794732763.5853126,
+    "seen": 1794734214.2077088,
+    "ast_hash": "03443d5106f62306e0f3c2504f7b9010",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p2-exec-platform-controls/specs/exec/trusted-executable/spec.md": {
+    "mtime": 1794732750.0973482,
+    "seen": 1794734214.2077098,
+    "ast_hash": "fec6e2413c6184fa9076fc8646b4d39d",
+    "semantic_hash": ""
+  },
+  "openspec/changes/p2-exec-platform-controls/tasks.md": {
+    "mtime": 1794733218.6029797,
+    "seen": 1794734214.20771,
+    "ast_hash": "e30846031b386e00946026c93c26c213",
     "semantic_hash": ""
   }
 }
