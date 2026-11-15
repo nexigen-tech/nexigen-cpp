@@ -50,6 +50,25 @@ SuiteLaunchPlan resolve_suite_launch(const SuiteManifest& manifest, const AppSpe
     plan.options.log_level = spec.log_level.has_value() ? spec.log_level : manifest.log_level;
     plan.options.env = config.env;
     plan.options.cpus = spec.cpus;
+    plan.options.expected_executable_digest = spec.executable_digest;
+
+    const ResourceGroupConfig* group = nullptr;
+    for (const ResourceGroupConfig& candidate : manifest.resource_groups) {
+        if (candidate.name == spec.resource_group) {
+            group = &candidate;
+            break;
+        }
+    }
+    if (group != nullptr) {
+        constexpr std::uint64_t bytes_per_mib = 1024ULL * 1024ULL;
+        plan.options.memory_limit_bytes = group->memory_limit_mb > (UINT64_MAX / bytes_per_mib)
+                                              ? UINT64_MAX
+                                              : group->memory_limit_mb * bytes_per_mib;
+        if (plan.options.cpus.empty()) {
+            plan.options.cpus = group->cpus;
+        }
+        plan.options.working_dir = group->working_dir;
+    }
 
     plan.identity = app::RunIdentity{manifest.run_id, manifest.run_dir, spec.instance,
                                      std::string(instance_dir)};

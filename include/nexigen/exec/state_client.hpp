@@ -113,6 +113,16 @@ public:
     [[nodiscard]] StateResult request_state(std::string_view group,
                                             std::string_view target) noexcept;
 
+    /// @brief Execute one received `SetState` command.
+    ///
+    /// Applies requester authorization, MachineFG `Off` ownership, and the
+    /// shared transition engine. Used by `serve_from` and by tests that need to
+    /// exercise the exact command path.
+    ///
+    /// @param command Command to execute.
+    /// @return Transition result.
+    [[nodiscard]] StateResult execute(const StateCommand& command) noexcept;
+
     /// @brief Current state of one Function Group.
     ///
     /// @param group Function Group name.
@@ -210,7 +220,7 @@ private:
     [[nodiscard]] com::Result<bool>
     serve_from(com::Server<StateCommand, StateAck>& server) noexcept;
 
-    /// @brief Execute one `SetState` command through the `ExecutionManager`.
+    /// @brief Execute one `SetState` command through the transition engine.
     ///
     /// Stops the group's bound processes for Off-like targets and starts them
     /// otherwise. An unmapped group is rejected; a failing start/stop
@@ -221,7 +231,10 @@ private:
     /// @return `true` when the whole group switched, `false` on an unknown
     ///         group or a failed process step.
     /// @note Spec `exec/state-client`, requirement "Function Group execution".
-    [[nodiscard]] StateResult execute(const StateCommand& command) noexcept;
+    /// @note Spec `exec/state-client-access-control`, requirement
+    ///       "Function-Group-port authorization".
+    [[nodiscard]] StateResult execute_impl(const StateCommand& command,
+                                           bool enforce_access) noexcept;
 
     /// @brief Start or replace one group transition.
     ///

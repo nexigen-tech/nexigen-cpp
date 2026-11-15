@@ -330,6 +330,36 @@ table also publishes `Running`/`Terminating`/`Terminated` lifecycle samples on
 `Nexigen/PHM/ExecutionState`; PHM arms supervision on `Running` and suspends it
 during a deliberate stop, so shutdown cannot be misread as an Alive fault.
 
+## P2 platform controls
+
+The manifest carries optional platform controls that apply before a child is
+created:
+
+- **Resource groups** — a named memory budget (`RLIMIT_AS`), CPU set, and
+  working folder. An application references one group; its own CPU set wins
+  over the group default. The child applies the folder and limit before `exec`.
+- **Trusted executables** — a suite-wide policy plus a per-app SHA-256 digest.
+  When enabled, commands must be absolute and the digest is verified in the
+  parent before the fork; a mismatch fails with `SecurityError` and creates no
+  instance layout.
+- **Access control** — `StateCommand` carries `requester_id`, and a manifest
+  `function_group_port_mapping` list authorizes `(requester, Function Group)`
+  pairs. An unmapped requester is rejected with `AccessDenied`; an empty list
+  preserves the legacy accept-all behavior.
+- **Deterministic execution** — `exec::DeterministicClient` provides a fixed
+  cycle clock (`wait_for_next_cycle`, `cycle_time_ns`), a seeded splitmix64
+  PRNG, and allocation-free operation for one execution thread.
+
+```mermaid
+flowchart LR
+    MAN2["Suite manifest<br/>resource groups, trusted policy,<br/>port mapping"] --> VAL2["validation"]
+    VAL2 --> TRUST["SHA-256 trust gate<br/>before fork"]
+    TRUST --> RES["child resources<br/>chdir + RLIMIT_AS"]
+    RES --> APP4["application"]
+    SM4["SM SetState<br/>requester_id"] --> AUTH["port mapping<br/>AccessDenied / accept"]
+    AUTH --> EM4["EM transition engine"]
+```
+
 ## CLI tools
 
 | Tool | Purpose | Key options |

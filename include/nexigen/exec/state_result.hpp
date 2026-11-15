@@ -29,6 +29,7 @@ enum class StateResult : std::uint8_t {
     UnexpectedTermination, ///< A requested-state process died unexpectedly.
     InvalidTransition,     ///< The graph or current state forbids the request.
     InvalidArgument,       ///< Unknown group, unknown state, or bad payload.
+    AccessDenied,          ///< The requester is not authorized for the group.
 };
 
 } // namespace nexigen::exec
@@ -46,7 +47,7 @@ template <> struct EnumTraits<nexigen::exec::StateResult> {
         std::string_view name;            ///< Canonical lower-case spelling.
     };
     /// @brief Value/name rows in declaration order.
-    static constexpr std::array<Entry, 7> entries{{
+    static constexpr std::array<Entry, 8> entries{{
         {nexigen::exec::StateResult::Success, "success"},
         {nexigen::exec::StateResult::InProgress, "in_progress"},
         {nexigen::exec::StateResult::OperationFailed, "operation_failed"},
@@ -54,6 +55,7 @@ template <> struct EnumTraits<nexigen::exec::StateResult> {
         {nexigen::exec::StateResult::UnexpectedTermination, "unexpected_termination"},
         {nexigen::exec::StateResult::InvalidTransition, "invalid_transition"},
         {nexigen::exec::StateResult::InvalidArgument, "invalid_argument"},
+        {nexigen::exec::StateResult::AccessDenied, "access_denied"},
     }};
     /// @brief Name returned when no entry matches.
     static constexpr std::string_view fallback = "unknown";

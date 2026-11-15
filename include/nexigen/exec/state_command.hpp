@@ -35,13 +35,15 @@ inline constexpr std::size_t k_state_command_name_length = 32;
 struct StateCommand {
     char function_group[k_state_command_name_length]{}; ///< Target Function Group name.
     char target_state[k_state_command_name_length]{};   ///< Requested state name.
+    char requester_id[k_state_command_name_length]{};   ///< Requester identity for access control.
 
     /// @brief Cold-path diagnostic (mandate 9).
     ///
-    /// @return `StateCommand(function_group=..., target_state=...)`.
+    /// @return `StateCommand(function_group=..., target_state=..., requester_id=...)`.
     [[nodiscard]] std::string to_string() const {
-        return std::format("StateCommand(function_group={}, target_state={})",
-                           std::string(function_group), std::string(target_state));
+        return std::format("StateCommand(function_group={}, target_state={}, requester_id={})",
+                           std::string(function_group), std::string(target_state),
+                           std::string(requester_id));
     }
 };
 

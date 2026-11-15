@@ -16,6 +16,8 @@
 #include <fcntl.h>
 #include <sched.h>
 #include <signal.h>
+#include <strings.h>
+#include <sys/resource.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -28,6 +30,7 @@
 #include <nexigen/exec/detail/cpu_validation.hpp>
 #include <nexigen/exec/detail/path_utils.hpp>
 #include <nexigen/exec/detail/sys_helpers.hpp>
+#include <nexigen/exec/executable_digest.hpp>
 #include <nexigen/exec/instance_lifecycle.hpp>
 #include <nexigen/exec/execution_manager.hpp>
 #include <nexigen/exec/execution_manager_logging.hpp>
@@ -506,6 +509,8 @@ struct SupervisorContext {
     return true;
 }
 
+[[nodiscard]] int apply_child_resources(const StartOptions& options) noexcept;
+
 [[noreturn]] void launch_application_child(SupervisorContext& context, int setup_pipe[2]) {
     // --- Application child ---
     static_cast<void>(::close(context.report_fd));
@@ -561,6 +566,9 @@ struct SupervisorContext {
     }
 
     detail::coverage_flush();
+    if (const int resource_status = apply_child_resources(*context.options); resource_status != 0) {
+        fail_setup(resource_status);
+    }
     // POSIX declares execvp's `argv` as `char* const[]`, but it never
     // mutates the argument strings. Cast away the inner const once, here,
     // instead of per-element in the argv construction above.
@@ -841,15 +849,54 @@ resolve_stop_state(const std::string& resource_path, const std::string& exit_pat
     return argv;
 }
 
+[[nodiscard]] core::Status verify_executable_trust(const std::vector<std::string>& command,
+                                                   const StartOptions& options) noexcept {
+    if (options.expected_executable_digest.empty()) {
+        return {};
+    }
+    if (command.front().empty() || command.front().front() != '/') {
+        return std::unexpected(core::ErrorCode::SecurityError);
+    }
+    const auto digest = sha256_file(command.front());
+    if (!digest || ::strcasecmp(digest->c_str(), options.expected_executable_digest.c_str()) != 0) {
+        return std::unexpected(core::ErrorCode::SecurityError);
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status prepare_working_directory(const StartOptions& options) noexcept {
+    if (options.working_dir.empty()) {
+        return {};
+    }
+    return create_artifact_dir(options.working_dir);
+}
+
+/// @brief Apply the child-only resource limits; returns a setup-failure code.
+[[nodiscard]] int apply_child_resources(const StartOptions& options) noexcept {
+    if (!options.working_dir.empty() && ::chdir(options.working_dir.c_str()) != 0) {
+        return 5;
+    }
+    if (options.memory_limit_bytes != 0U) {
+        const rlimit limit{static_cast<rlim_t>(options.memory_limit_bytes),
+                           static_cast<rlim_t>(options.memory_limit_bytes)};
+        if (::setrlimit(RLIMIT_AS, &limit) != 0) {
+            return 6;
+        }
+    }
+    return 0;
+}
+
 } // namespace
 
 std::string StartOptions::to_string() const {
-    return std::format("StartOptions(artifact_dir={}, global_settings_dir={}, "
-                       "local_settings_dir={}, log_level={}, env={}, cpus={})",
-                       artifact_dir, global_settings_dir, local_settings_dir,
-                       log_level.has_value() ? std::string(core::to_string(*log_level))
-                                             : std::string("inherit"),
-                       env.size(), cpus.count());
+    return std::format(
+        "StartOptions(artifact_dir={}, global_settings_dir={}, "
+        "local_settings_dir={}, log_level={}, env={}, cpus={}, memory_limit_bytes={}, "
+        "working_dir={}, digest={})",
+        artifact_dir, global_settings_dir, local_settings_dir,
+        log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"),
+        env.size(), cpus.count(), memory_limit_bytes, working_dir,
+        expected_executable_digest.empty() ? "none" : "set");
 }
 
 core::Status ExecutionManager::start(const app::RunIdentity& identity, std::string_view app_name,
@@ -863,6 +910,12 @@ core::Status ExecutionManager::start(const app::RunIdentity& identity, std::stri
                                      std::uint64_t timeout_s, const StartOptions& options) {
     if (const core::Status valid = validate_start_inputs(command, options); !valid) {
         return valid;
+    }
+    if (const core::Status trust = verify_executable_trust(command, options); !trust) {
+        return trust;
+    }
+    if (const core::Status working = prepare_working_directory(options); !working) {
+        return working;
     }
 
     StartLayout layout;

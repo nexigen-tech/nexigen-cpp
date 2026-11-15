@@ -149,6 +149,17 @@ public:
     /// @return The instance id, or an empty view for an unknown name.
     [[nodiscard]] std::string_view instance_of(std::string_view app_name) const noexcept;
 
+    /// @brief Whether a requester may switch one Function Group.
+    ///
+    /// An empty manifest port-mapping list accepts every requester (legacy
+    /// behavior); otherwise the exact `(requester, group)` pair must be listed.
+    ///
+    /// @param requester_id Requester identity from the command.
+    /// @param group_name Target Function Group name.
+    /// @return `true` when authorized.
+    [[nodiscard]] bool is_authorized(std::string_view requester_id,
+                                     std::string_view group_name) const noexcept;
+
     /// @brief The declared termination behavior of one application.
     ///
     /// @param app_name Application name to look up.

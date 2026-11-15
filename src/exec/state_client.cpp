@@ -432,9 +432,16 @@ StateResult StateClient::advance_transition(std::size_t index) noexcept {
 }
 
 StateResult StateClient::execute(const StateCommand& command) noexcept {
+    return execute_impl(command, true);
+}
+
+StateResult StateClient::execute_impl(const StateCommand& command, bool enforce_access) noexcept {
     const std::size_t index = registry_->find_group(command.function_group);
     if (index == static_cast<std::size_t>(-1)) {
         return StateResult::InvalidArgument;
+    }
+    if (enforce_access && !registry_->is_authorized(command.requester_id, command.function_group)) {
+        return StateResult::AccessDenied;
     }
     // `MachineFG:Off` is EM-owned (spec exec/machine-function-group): an
     // external SetState never reaches the internal shutdown path.
@@ -512,7 +519,7 @@ StateResult StateClient::request_state(std::string_view group, std::string_view 
                   static_cast<int>(group.size()), group.data());
     std::snprintf(command.target_state, sizeof(command.target_state), "%.*s",
                   static_cast<int>(target.size()), target.data());
-    return execute(command);
+    return execute_impl(command, false);
 }
 
 std::string_view StateClient::group_state(std::string_view group) const noexcept {

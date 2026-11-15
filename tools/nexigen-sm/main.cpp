@@ -143,6 +143,7 @@ struct Options {
 struct PendingTransition {
     std::size_t group_index{0};
     char target_state[nexigen::sm::k_holder_requester_length]{};
+    char requester_id[nexigen::sm::k_holder_requester_length]{};
     Clock::time_point deadline{};
 };
 
@@ -197,6 +198,8 @@ void serve_one_request(TriggerServer& server, nexigen::sm::StateManager& manager
         pending_transition.group_index = index;
         std::snprintf(pending_transition.target_state, sizeof(pending_transition.target_state),
                       "%s", manager.state(index).data());
+        std::snprintf(pending_transition.requester_id, sizeof(pending_transition.requester_id),
+                      "%s", request.requester_id);
         pending_transition.deadline = now + timeout;
         pending.push_back(pending_transition);
     }
@@ -218,6 +221,8 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
                       manager.group_name(index).data());
         std::snprintf(command.target_state, sizeof(command.target_state), "%s",
                       pending[i].target_state);
+        std::snprintf(command.requester_id, sizeof(command.requester_id), "%s",
+                      pending[i].requester_id);
         const bool safe_state = std::string_view(pending[i].target_state) == "SafeState";
         const auto started = Clock::now();
         const auto ack =

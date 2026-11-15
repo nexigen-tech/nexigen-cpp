@@ -1070,6 +1070,58 @@ void test_machine_function_group() {
     std::filesystem::remove_all(run_dir);
 }
 
+void test_access_control() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/StateAccess");
+    NX_CHECK(name.has_value());
+    const std::string run_dir = "/tmp/opencode/state_client_access";
+    std::filesystem::remove_all(run_dir);
+    std::filesystem::create_directories(run_dir);
+
+    exec::SuiteManifest manifest;
+    exec::FunctionGroupConfig group;
+    group.name = "auth_group";
+    group.states = {"Off", "Run"};
+    manifest.function_groups.push_back(group);
+    manifest.function_group_port_mapping.push_back({"sm", "auth_group"});
+    exec::AppSpec app;
+    app.app = "auth_app";
+    app.instance = "1";
+    app.command = "/bin/true";
+    app.function_group = "auth_group";
+    app.reporting = false;
+    exec::StateDependentStartupConfig config;
+    config.state = "Run";
+    app.startup_configs.push_back(config);
+    manifest.apps.push_back(app);
+
+    exec::FunctionGroupRegistry registry(manifest);
+    NX_CHECK(registry.is_authorized("sm", "auth_group"));
+    NX_CHECK(!registry.is_authorized("other", "auth_group"));
+    exec::ExecutionStateTracker tracker;
+    exec::ExecutionManager manager;
+    app::RunIdentity identity{"test", run_dir, "1", {}};
+    auto state_client =
+        exec::StateClient::create(*node, *name, registry, manager, identity, &tracker);
+    NX_CHECK(state_client.has_value());
+
+    exec::StateCommand command{};
+    std::snprintf(command.function_group, sizeof(command.function_group), "%s", "auth_group");
+    std::snprintf(command.target_state, sizeof(command.target_state), "%s", "Run");
+    NX_CHECK(state_client->execute(command) == exec::StateResult::AccessDenied);
+    NX_CHECK(registry.group_state(0) == "Off");
+
+    std::snprintf(command.requester_id, sizeof(command.requester_id), "%s", "other");
+    NX_CHECK(state_client->execute(command) == exec::StateResult::AccessDenied);
+
+    std::snprintf(command.requester_id, sizeof(command.requester_id), "%s", "sm");
+    NX_CHECK(state_client->execute(command) == exec::StateResult::Success);
+    NX_CHECK(registry.group_state(0) == "Run");
+
+    std::filesystem::remove_all(run_dir);
+}
+
 } // namespace
 
 int main() {
@@ -1087,6 +1139,7 @@ int main() {
     test_process_handlers();
     test_instance_directory_uses_manifest_instance();
     test_machine_function_group();
+    test_access_control();
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

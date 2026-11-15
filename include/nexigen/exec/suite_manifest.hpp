@@ -14,6 +14,7 @@
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/exec/app_spec.hpp>
+#include <nexigen/exec/platform_controls.hpp>
 
 namespace nexigen::exec {
 
@@ -69,8 +70,12 @@ struct SuiteManifest {
     std::string manifest_path{};                         ///< Absolute manifest path.
     core::ThreadSpec execution_manager_control_thread{}; ///< Control-thread placement.
     core::ThreadSpec execution_manager_logger_thread{};  ///< Logger-worker placement.
-    std::vector<FunctionGroupConfig> function_groups{};  ///< Declared Function Groups.
-    std::vector<AppSpec> apps{};                         ///< Applications; must be non-empty.
+    std::vector<ResourceGroupConfig> resource_groups{};  ///< Named resource limits.
+    TrustedPlatformConfig trusted_platform{};            ///< Executable digest policy.
+    /// Authorized `(requester, Function Group)` pairs; empty = accept all.
+    std::vector<FunctionGroupPortMapping> function_group_port_mapping{};
+    std::vector<FunctionGroupConfig> function_groups{}; ///< Declared Function Groups.
+    std::vector<AppSpec> apps{};                        ///< Applications; must be non-empty.
 
     /// @brief Cold-path diagnostic rendering of the manifest.
     ///

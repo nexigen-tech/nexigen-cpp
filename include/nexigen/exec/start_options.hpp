@@ -32,7 +32,10 @@ struct StartOptions {
     std::string local_settings_dir{};          ///< Absolute directory or empty.
     std::optional<core::LogLevel> log_level{}; ///< Empty = keep settings value.
     std::vector<std::pair<std::string, std::string>> env{}; ///< Child-only env.
-    core::CpuSet cpus{}; ///< Affinity request; empty = unrestricted.
+    core::CpuSet cpus{};                      ///< Affinity request; empty = unrestricted.
+    std::uint64_t memory_limit_bytes{0};      ///< RLIMIT_AS budget; 0 = unlimited.
+    std::string working_dir{};                ///< Child working folder; empty = inherit.
+    std::string expected_executable_digest{}; ///< SHA-256 hex; empty = no trust gate.
 
     /// @brief Cold-path diagnostic rendering of the launch options.
     ///

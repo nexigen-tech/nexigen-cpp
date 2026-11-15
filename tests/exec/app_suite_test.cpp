@@ -33,6 +33,8 @@
 #include <nexigen/exec/execution_manager.hpp>
 #include <nexigen/exec/process_state.hpp>
 #include <nexigen/exec/process_lifecycle.hpp>
+#include <nexigen/exec/platform_controls.hpp>
+#include <nexigen/exec/deterministic_client.hpp>
 #include <nexigen/exec/state_result.hpp>
 #include <nexigen/exec/unrecoverable_state.hpp>
 
@@ -266,7 +268,7 @@ void test_enums_and_serialization() {
          {exec::StateResult::Success, exec::StateResult::InProgress,
           exec::StateResult::OperationFailed, exec::StateResult::OperationCanceled,
           exec::StateResult::UnexpectedTermination, exec::StateResult::InvalidTransition,
-          exec::StateResult::InvalidArgument}) {
+          exec::StateResult::InvalidArgument, exec::StateResult::AccessDenied}) {
         const std::string_view text = exec::to_string(value);
         exec::StateResult parsed = static_cast<exec::StateResult>(0xff);
         NX_CHECK(exec::from_string(text, parsed));
@@ -1796,6 +1798,111 @@ void test_process_lifecycle_serialization() {
     NX_CHECK(parsed.state == exec::ProcessLifecycleState::Terminating);
 }
 
+void test_platform_controls_serialization() {
+    exec::ResourceGroupConfig group;
+    group.name = "rt";
+    group.memory_limit_mb = 64;
+    group.working_dir = "/tmp/opencode/rt";
+    static_cast<void>(group.cpus.add(0));
+    NX_CHECK(group.to_string().find("rt") != std::string::npos);
+    nlohmann::json json;
+    exec::to_json(json, group);
+    exec::ResourceGroupConfig parsed;
+    exec::from_json(json, parsed);
+    NX_CHECK(parsed.name == "rt" && parsed.memory_limit_mb == 64);
+    NX_CHECK(std::format("{}", group) == group.to_string());
+
+    exec::TrustedPlatformConfig trusted;
+    trusted.require_executable_digest = true;
+    exec::to_json(json, trusted);
+    exec::TrustedPlatformConfig trusted_parsed;
+    exec::from_json(json, trusted_parsed);
+    NX_CHECK(trusted_parsed.require_executable_digest);
+    NX_CHECK(std::format("{}", trusted) == trusted.to_string());
+
+    exec::FunctionGroupPortMapping mapping;
+    mapping.requester_id = "sm";
+    mapping.function_group = "default";
+    exec::to_json(json, mapping);
+    exec::FunctionGroupPortMapping mapping_parsed;
+    exec::from_json(json, mapping_parsed);
+    NX_CHECK(mapping_parsed.requester_id == "sm");
+    NX_CHECK(mapping_parsed.function_group == "default");
+    NX_CHECK(std::format("{}", mapping) == mapping.to_string());
+
+    NX_CHECK(exec::is_sha256_hex(std::string(64, 'a')));
+    NX_CHECK(!exec::is_sha256_hex("short"));
+    NX_CHECK(!exec::is_sha256_hex(std::string(64, 'z')));
+}
+
+void test_platform_controls_validation() {
+    const std::string root = unique_dir("p2_validation");
+    const std::string artifacts = unique_dir("p2_validation_artifacts");
+    exec::SuiteManifest manifest = base_manifest(root, artifacts);
+    exec::ResourceGroupConfig group;
+    group.name = "rt";
+    group.memory_limit_mb = 64;
+    group.working_dir = root + "/rt";
+    manifest.resource_groups.push_back(group);
+    exec::AppSpec app =
+        app_spec("p2_app", "1", "/bin/true", exec::ImpactOnAppSuiteOperability::Not_impact);
+    app.resource_group = "rt";
+    first_config(app).args = {};
+    manifest.apps.push_back(app);
+    manifest.function_group_port_mapping.push_back({"sm", "default"});
+    NX_CHECK(exec::validate_suite_manifest(manifest).has_value());
+
+    exec::SuiteManifest duplicate = manifest;
+    duplicate.resource_groups.push_back(group);
+    NX_CHECK(
+        failed_with(exec::validate_suite_manifest(duplicate), core::ErrorCode::InvalidArgument));
+
+    exec::SuiteManifest missing = manifest;
+    missing.apps.front().resource_group = "missing";
+    NX_CHECK(failed_with(exec::validate_suite_manifest(missing), core::ErrorCode::InvalidArgument));
+
+    exec::SuiteManifest bad_mapping = manifest;
+    bad_mapping.function_group_port_mapping.front().function_group = "missing";
+    NX_CHECK(
+        failed_with(exec::validate_suite_manifest(bad_mapping), core::ErrorCode::InvalidArgument));
+
+    exec::SuiteManifest trusted = manifest;
+    trusted.trusted_platform.require_executable_digest = true;
+    trusted.apps.front().executable_digest = std::string(64, 'a');
+    NX_CHECK(exec::validate_suite_manifest(trusted).has_value());
+    trusted.apps.front().command = "relative";
+    NX_CHECK(failed_with(exec::validate_suite_manifest(trusted), core::ErrorCode::InvalidArgument));
+}
+
+void test_deterministic_client() {
+    exec::DeterministicConfig config;
+    config.cycle_period_ns = 1'000'000;
+    config.seed = 42;
+    NX_CHECK(config.to_string().find("42") != std::string::npos);
+    nlohmann::json json;
+    exec::to_json(json, config);
+    exec::DeterministicConfig parsed;
+    exec::from_json(json, parsed);
+    NX_CHECK(parsed.cycle_period_ns == config.cycle_period_ns && parsed.seed == 42);
+
+    exec::DeterministicClient first(config);
+    exec::DeterministicClient second(config);
+    for (int i = 0; i < 5; ++i) {
+        NX_CHECK(first.random_u64() == second.random_u64());
+    }
+    exec::DeterministicConfig other = config;
+    other.seed = 43;
+    exec::DeterministicClient divergent(other);
+    NX_CHECK(divergent.random_u64() != first.random_u64());
+
+    NX_CHECK(first.cycle_index() == 0U);
+    NX_CHECK(first.wait_for_next_cycle() == 1U);
+    NX_CHECK(first.wait_for_next_cycle() == 2U);
+    NX_CHECK(first.cycle_time_ns() > 0U);
+    NX_CHECK(first.to_string().find("cycle=2") != std::string::npos);
+    NX_CHECK(std::format("{}", first) == first.to_string());
+}
+
 /// @brief Stand-in factory proving the COM-free slot round-trips.
 [[nodiscard]] std::unique_ptr<exec::ControlHost> dummy_control_factory(const exec::SuiteManifest&,
                                                                        const app::RunIdentity&) {
@@ -1817,6 +1924,9 @@ int main() {
     run_suite("control_host_factory", test_control_host_factory_slot);
     run_suite("machinefg_validation", test_machine_function_group_validation);
     run_suite("process_lifecycle", test_process_lifecycle_serialization);
+    run_suite("platform_controls_serialization", test_platform_controls_serialization);
+    run_suite("platform_controls_validation", test_platform_controls_validation);
+    run_suite("deterministic_client", test_deterministic_client);
     run_suite("enums_serialization", test_enums_and_serialization);
     run_suite("manifest_validation", test_manifest_validation);
     run_suite("start_status_stop", test_start_status_stop);

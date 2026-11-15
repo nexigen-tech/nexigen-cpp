@@ -57,6 +57,8 @@ struct AppSpec {
     /// Per-application local settings path; resolved relative to the manifest.
     std::string local_settings_path{};
     std::optional<core::LogLevel> log_level{}; ///< Empty = use the suite level.
+    std::string resource_group{};              ///< Optional resource-group name.
+    std::string executable_digest{};           ///< Optional SHA-256 hex digest.
 
     /// @brief Cold-path diagnostic rendering of the manifest entry.
     ///

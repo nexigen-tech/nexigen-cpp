@@ -521,6 +521,7 @@ void test_machine_lifecycle_client() {
 
     std::atomic<bool> stop{false};
     std::atomic<int> command_calls{0};
+    std::string last_requester;
     std::thread serve([&] {
         while (!stop.load(std::memory_order_acquire)) {
             auto query = query_server->receive();
@@ -531,6 +532,7 @@ void test_machine_lifecycle_client() {
             }
             auto command = command_server->receive();
             if (command && command->has_value()) {
+                last_requester = (*command)->payload().requester_id;
                 const int call = command_calls.fetch_add(1, std::memory_order_relaxed);
                 const nexigen::exec::StateResult result =
                     call == 0 ? nexigen::exec::StateResult::InProgress
@@ -555,6 +557,7 @@ void test_machine_lifecycle_client() {
 
     stop.store(true, std::memory_order_release);
     serve.join();
+    NX_CHECK(last_requester == "sm_app");
 }
 
 } // namespace

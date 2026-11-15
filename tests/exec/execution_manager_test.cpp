@@ -34,6 +34,8 @@
 #include <nexigen/core/detail/fault_injection.hpp>
 #include <nexigen/exec/instance_lifecycle.hpp>
 #include <nexigen/exec/execution_manager.hpp>
+#include <nexigen/exec/executable_digest.hpp>
+#include <nexigen/exec/platform_controls.hpp>
 
 namespace core = nexigen::core;
 namespace exec = nexigen::exec;
@@ -1057,6 +1059,62 @@ void test_start_options() {
     remove_tree(settings);
 }
 
+// --- P2 platform controls: digest, working folder, memory limit ---
+void test_platform_controls_start() {
+    NX_CHECK(exec::sha256_hex("") ==
+             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    NX_CHECK(exec::sha256_hex("abc") ==
+             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    NX_CHECK(exec::sha256_hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") ==
+             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+
+    const std::string root = unique_dir("p2_controls");
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    const app::RunIdentity identity = identity_for(root);
+    const std::string working = root + "/work";
+    exec::ExecutionManager execution_manager;
+
+    exec::StartOptions options;
+    options.working_dir = working;
+    options.memory_limit_bytes = 128ULL * 1024ULL * 1024ULL;
+    const std::vector<std::string> command{"/bin/sh", "-c",
+                                           "pwd > cwd.txt; ulimit -v > limit.txt; exec sleep 60"};
+    NX_CHECK(execution_manager.start(identity, k_test_app, command, 0, options).has_value());
+    NX_CHECK(wait_until([&] { return std::filesystem::exists(working + "/cwd.txt"); }, 3000));
+    NX_CHECK(read_text(working + "/cwd.txt") == working + "\n");
+    NX_CHECK(!read_text(working + "/limit.txt").empty());
+    NX_CHECK(execution_manager.stop(identity.instance_dir, 2).has_value());
+
+    const auto digest = exec::sha256_file("/bin/true");
+    NX_CHECK(digest.has_value());
+    const std::string trusted_root = unique_dir("p2_trusted_ok");
+    std::filesystem::create_directories(trusted_root, error);
+    const app::RunIdentity trusted_identity = identity_for(trusted_root);
+    exec::StartOptions trusted;
+    if (digest) {
+        trusted.expected_executable_digest = *digest;
+    }
+    NX_CHECK(execution_manager.start(trusted_identity, k_test_app, {"/bin/true"}, 0, trusted)
+                 .has_value());
+    static_cast<void>(execution_manager.stop(trusted_identity.instance_dir, 2));
+
+    const std::string refused_root = unique_dir("p2_trusted_refused");
+    std::filesystem::create_directories(refused_root, error);
+    const app::RunIdentity refused_identity = identity_for(refused_root);
+    exec::StartOptions refused;
+    refused.expected_executable_digest = std::string(64, '0');
+    NX_CHECK(failed_with(
+        execution_manager.start(refused_identity, k_test_app, {"/bin/true"}, 0, refused),
+        core::ErrorCode::SecurityError));
+    NX_CHECK(!std::filesystem::exists(refused_identity.instance_dir + "/resource.json"));
+
+    reap_supervisors();
+    remove_tree(root);
+    remove_tree(trusted_root);
+    remove_tree(refused_root);
+}
+
 // --- Stop and status edge conditions ---
 void test_lifecycle_edges() {
     exec::ExecutionManager execution_manager;
@@ -1270,6 +1328,7 @@ int main() {
     run_suite("idle_timeout", test_idle_timeout);
     run_suite("sigkill_after_grace", test_sigkill_after_grace);
     run_suite("start_options", test_start_options);
+    run_suite("platform_controls_start", test_platform_controls_start);
     run_suite("lifecycle_edges", test_lifecycle_edges);
     run_suite("error_paths", test_error_paths);
 #if defined(NEXIGEN_ENABLE_FAULT_INJECTION)

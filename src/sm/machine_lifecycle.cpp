@@ -99,6 +99,8 @@ MachineLifecycleClient::request_state(std::string_view target,
                   std::string(exec::k_machine_function_group_name).c_str());
     std::snprintf(command.target_state, sizeof(command.target_state), "%.*s",
                   static_cast<int>(target.size()), target.data());
+    std::snprintf(command.requester_id, sizeof(command.requester_id), "%s",
+                  app_name_.empty() ? "sm" : app_name_.c_str());
     for (;;) {
         const auto ack = command_.call(command, remaining_budget(deadline));
         if (!ack) {

@@ -153,6 +153,19 @@ std::string_view FunctionGroupRegistry::instance_of(std::string_view app_name) c
     return {};
 }
 
+bool FunctionGroupRegistry::is_authorized(std::string_view requester_id,
+                                          std::string_view group_name) const noexcept {
+    if (manifest_->function_group_port_mapping.empty()) {
+        return true;
+    }
+    for (const FunctionGroupPortMapping& mapping : manifest_->function_group_port_mapping) {
+        if (mapping.requester_id == requester_id && mapping.function_group == group_name) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::size_t FunctionGroupRegistry::find_group(std::string_view name) const noexcept {
     for (std::size_t i = 0; i < manifest_->function_groups.size(); ++i) {
         if (manifest_->function_groups[i].name == name) {

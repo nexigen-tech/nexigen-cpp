@@ -148,6 +148,8 @@ void to_json(nlohmann::json& j, const AppSpec& spec) {
         {"global_settings_path", spec.global_settings_path},
         {"local_settings_path", spec.local_settings_path},
         {"log_level", log_level_json(spec.log_level)},
+        {"resource_group", spec.resource_group},
+        {"executable_digest", spec.executable_digest},
     };
 }
 
@@ -176,6 +178,8 @@ void from_json(const nlohmann::json& j, AppSpec& spec) noexcept {
     static_cast<void>(
         core::detail::read_string(j, "local_settings_path", spec.local_settings_path));
     static_cast<void>(read_log_level(j, "log_level", spec.log_level));
+    static_cast<void>(core::detail::read_string(j, "resource_group", spec.resource_group));
+    static_cast<void>(core::detail::read_string(j, "executable_digest", spec.executable_digest));
 }
 
 void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
@@ -191,6 +195,20 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
                                         {"states", group.states},
                                         {"initial_state", group.initial_state}});
     }
+    nlohmann::json resource_groups = nlohmann::json::array();
+    for (const ResourceGroupConfig& group : manifest.resource_groups) {
+        nlohmann::json entry;
+        to_json(entry, group);
+        resource_groups.push_back(std::move(entry));
+    }
+    nlohmann::json port_mappings = nlohmann::json::array();
+    for (const FunctionGroupPortMapping& mapping : manifest.function_group_port_mapping) {
+        nlohmann::json entry;
+        to_json(entry, mapping);
+        port_mappings.push_back(std::move(entry));
+    }
+    nlohmann::json trusted;
+    to_json(trusted, manifest.trusted_platform);
     j = nlohmann::json{
         {"version", manifest.version},
         {"suite_id", manifest.suite_id},
@@ -205,6 +223,9 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
         {"manifest_path", manifest.manifest_path},
         {"execution_manager_control_thread", manifest.execution_manager_control_thread},
         {"execution_manager_logger_thread", manifest.execution_manager_logger_thread},
+        {"resource_groups", std::move(resource_groups)},
+        {"trusted_platform", std::move(trusted)},
+        {"function_group_port_mapping", std::move(port_mappings)},
         {"function_groups", std::move(groups)},
         {"apps", std::move(apps)},
     };
@@ -249,6 +270,29 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
             groups.push_back(std::move(group));
         }
         manifest.function_groups = std::move(groups);
+    }
+    if (const auto it = j.find("resource_groups"); it != j.end() && it->is_array()) {
+        std::vector<ResourceGroupConfig> groups;
+        groups.reserve(it->size());
+        for (const auto& entry : *it) {
+            ResourceGroupConfig group;
+            from_json(entry, group);
+            groups.push_back(std::move(group));
+        }
+        manifest.resource_groups = std::move(groups);
+    }
+    if (const auto it = j.find("trusted_platform"); it != j.end()) {
+        from_json(*it, manifest.trusted_platform);
+    }
+    if (const auto it = j.find("function_group_port_mapping"); it != j.end() && it->is_array()) {
+        std::vector<FunctionGroupPortMapping> mappings;
+        mappings.reserve(it->size());
+        for (const auto& entry : *it) {
+            FunctionGroupPortMapping mapping;
+            from_json(entry, mapping);
+            mappings.push_back(std::move(mapping));
+        }
+        manifest.function_group_port_mapping = std::move(mappings);
     }
     if (const auto it = j.find("apps"); it != j.end() && it->is_array()) {
         std::vector<AppSpec> apps;
@@ -649,6 +693,72 @@ validate_dependency_entries(const AppSpec& app, const SuiteManifest& manifest,
     return {};
 }
 
+[[nodiscard]] core::Status validate_resource_groups(const SuiteManifest& manifest) noexcept {
+    for (std::size_t i = 0; i < manifest.resource_groups.size(); ++i) {
+        const ResourceGroupConfig& group = manifest.resource_groups[i];
+        if (!valid_control_id(group.name)) {
+            return invalid_argument();
+        }
+        if (!group.working_dir.empty() && !absolute_path(group.working_dir)) {
+            return invalid_argument();
+        }
+        for (std::size_t j = i + 1; j < manifest.resource_groups.size(); ++j) {
+            if (manifest.resource_groups[j].name == group.name) {
+                return invalid_argument();
+            }
+        }
+    }
+    for (const AppSpec& app : manifest.apps) {
+        if (app.resource_group.empty()) {
+            continue;
+        }
+        const bool found = std::any_of(
+            manifest.resource_groups.begin(), manifest.resource_groups.end(),
+            [&app](const ResourceGroupConfig& group) { return group.name == app.resource_group; });
+        if (!found) {
+            return invalid_argument();
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_trusted_policy(const SuiteManifest& manifest) noexcept {
+    for (const AppSpec& app : manifest.apps) {
+        if (!app.executable_digest.empty() && !is_sha256_hex(app.executable_digest)) {
+            return invalid_argument();
+        }
+        if (manifest.trusted_platform.require_executable_digest) {
+            if (app.executable_digest.empty() || !absolute_path(app.command)) {
+                return invalid_argument();
+            }
+        } else if (!app.executable_digest.empty() && !absolute_path(app.command)) {
+            return invalid_argument();
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] core::Status validate_port_mappings(const SuiteManifest& manifest) noexcept {
+    for (std::size_t i = 0; i < manifest.function_group_port_mapping.size(); ++i) {
+        const FunctionGroupPortMapping& mapping = manifest.function_group_port_mapping[i];
+        if (!valid_control_id(mapping.requester_id) ||
+            std::none_of(manifest.function_groups.begin(), manifest.function_groups.end(),
+                         [&mapping](const FunctionGroupConfig& group) {
+                             return group.name == mapping.function_group;
+                         })) {
+            return invalid_argument();
+        }
+        for (std::size_t j = i + 1; j < manifest.function_group_port_mapping.size(); ++j) {
+            const FunctionGroupPortMapping& other = manifest.function_group_port_mapping[j];
+            if (other.requester_id == mapping.requester_id &&
+                other.function_group == mapping.function_group) {
+                return invalid_argument();
+            }
+        }
+    }
+    return {};
+}
+
 [[nodiscard]] core::Status validate_function_groups(const SuiteManifest& manifest) noexcept {
     for (const FunctionGroupConfig& group : manifest.function_groups) {
         if (!safe_id(group.name) || group.states.empty()) {
@@ -748,6 +858,15 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
         return status;
     }
     if (const core::Status status = validate_function_groups(manifest); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_resource_groups(manifest); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_trusted_policy(manifest); !status) {
+        return status;
+    }
+    if (const core::Status status = validate_port_mappings(manifest); !status) {
         return status;
     }
     for (const AppSpec& app : manifest.apps) {

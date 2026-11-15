@@ -67,6 +67,7 @@ static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::RateLimited) ==
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::Conflict) == "Conflict");
 static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::ResourceExhausted) ==
               "ResourceExhausted");
+static_assert(nexigen::core::to_string(nexigen::core::ErrorCode::SecurityError) == "SecurityError");
 
 // Append-only contract (logging change): existing enumerator values are pinned,
 // so RateLimited joins the catalogue as enumerator 6 without renumbering.
@@ -75,6 +76,7 @@ static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::NotInitialized
 static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::RateLimited) == 6);
 static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::Conflict) == 7);
 static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::ResourceExhausted) == 8);
+static_assert(static_cast<std::uint8_t>(nexigen::core::ErrorCode::SecurityError) == 9);
 
 // Alias identity: Result's default error type IS ErrorCode; Status is the void form.
 static_assert(
@@ -237,9 +239,10 @@ void test_result() {
         ErrorCode::RateLimited,
         ErrorCode::Conflict,
         ErrorCode::ResourceExhausted,
+        ErrorCode::SecurityError,
     };
-    for (int i = 0; i < 9; ++i) {
-        for (int j = i + 1; j < 9; ++j) {
+    for (int i = 0; i < 10; ++i) {
+        for (int j = i + 1; j < 10; ++j) {
             NX_CHECK(all_codes[i] != all_codes[j]);
         }
     }
@@ -256,6 +259,7 @@ void test_result() {
     NX_CHECK(to_string(ErrorCode::RateLimited) == "RateLimited");
     NX_CHECK(to_string(ErrorCode::Conflict) == "Conflict");
     NX_CHECK(to_string(ErrorCode::ResourceExhausted) == "ResourceExhausted");
+    NX_CHECK(to_string(ErrorCode::SecurityError) == "SecurityError");
     // Garbage-cast value is well-defined via the default arm.
     NX_CHECK(to_string(static_cast<ErrorCode>(200)) == "Unknown");
 
