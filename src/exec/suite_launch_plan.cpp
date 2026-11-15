@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <nexigen/exec/app_spec.hpp>
+#include <nexigen/exec/cgroup_budget.hpp>
 #include <nexigen/exec/detail/path_utils.hpp>
 #include <nexigen/exec/detail/suite_launch_plan.hpp>
 #include <nexigen/exec/suite_manifest.hpp>
@@ -71,6 +72,9 @@ SuiteLaunchPlan resolve_suite_launch(const SuiteManifest& manifest, const AppSpe
             plan.options.cpus = group->cpus;
         }
         plan.options.working_dir = group->working_dir;
+        if (group_has_cgroup_budget(*group)) {
+            plan.options.cgroup_path = resource_group_cgroup_path(manifest, *group);
+        }
     }
 
     plan.identity = app::RunIdentity{manifest.run_id, manifest.run_dir, spec.instance,

@@ -1356,6 +1356,43 @@ void test_child_credentials() {
     remove_tree(root);
 }
 
+
+// --- Resource budgets: the child joins its prepared cgroup ---
+void test_cgroup_join() {
+    const std::string root = unique_dir("cgroup_join");
+    const std::string cgroup = root + "/cg";
+    std::error_code error;
+    std::filesystem::create_directories(cgroup, error);
+    {
+        std::ofstream procs(cgroup + "/cgroup.procs", std::ios::binary | std::ios::trunc);
+    }
+
+    const app::RunIdentity identity{"run-cg", root, "1", {}};
+    const std::vector<std::string> command{"/bin/true"};
+    exec::ExecutionManager execution_manager;
+    exec::StartOptions options{};
+    options.cgroup_path = cgroup;
+    const core::Status started =
+        execution_manager.start(identity, "cg_app", command, 0, options);
+    NX_CHECK(started.has_value());
+    if (started) {
+        const std::string instance_dir = root + "/cg_app/1";
+        NX_CHECK(wait_until(
+            [&] {
+                struct stat status{};
+                return ::stat((instance_dir + "/exit.json").c_str(), &status) == 0;
+            },
+            5000));
+        std::ifstream procs(cgroup + "/cgroup.procs");
+        std::string value;
+        std::getline(procs, value);
+        NX_CHECK(value == "0");
+    }
+
+    reap_supervisors();
+    remove_tree(root);
+}
+
 int main() {
     run_suite("terminated_by", test_terminated_by);
     run_suite("resource_metadata", test_resource_metadata);
@@ -1369,6 +1406,7 @@ int main() {
     run_suite("self_exit_status", test_self_exit_status);
     run_suite("env_identity_layout", test_env_identity_layout);
     run_suite("child_credentials", test_child_credentials);
+    run_suite("cgroup_join", test_cgroup_join);
     run_suite("log_truncation", test_log_truncation_on_restart);
     run_suite("graceful_sigterm", test_graceful_sigterm);
     run_suite("session_isolation", test_execution_manager_session_isolation);

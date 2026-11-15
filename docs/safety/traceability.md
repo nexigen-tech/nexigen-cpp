@@ -61,7 +61,7 @@ Declared out of scope for the programme: the Classic Platform BSW cluster
 | RS_SAF_10002 | Verify software and configuration | supported | `exec/trusted-executable`, `exec/app-suite` | `tests/exec/app_suite_test.cpp`, `tests/core/core_test.cpp` | - |
 | RS_SAF_10005 | Safe shutdown and termination | partial | `sm/lifecycle`, `exec/process-supervision` | `tests/exec/execution_manager_test.cpp`, `tests/sm/sm_test.cpp` | Abstract; the Classic Platform half is out of scope. |
 | RS_SAF_10006 | Safe state transitions | partial | `sm/state-machine`, `sm/lifecycle` | `tests/sm/sm_test.cpp` | Abstract; the Classic Platform half is out of scope. |
-| RS_SAF_10008 | Safe resource management | partial | `exec/resource-groups`, `core/thread-management` | `tests/exec/app_suite_test.cpp`, `tests/core/core_test.cpp` | Memory via RLIMIT_AS and CPU affinity; no CPU-time budgets or accounting. |
+| RS_SAF_10008 | Safe resource management | partial | `exec/resource-groups`, `core/thread-management` | `tests/exec/app_suite_test.cpp`, `tests/core/core_test.cpp` | CPU and memory budgets via cgroup v2 plus affinity; no accounting or admission control. |
 | RS_SAF_10014 | Safe communication interface | partial | `com/publish-subscribe`, `com/request-response`, `com/service-management` | `tests/com/com_test.cpp` | E2E protection is opt-in per service; the plain ports remain unprotected by design. |
 | RS_SAF_10027 | Prevent loss of valid configuration | not-implemented | - | - | deviation: needs persistency and rollback, outside the programme. |
 | RS_SAF_10028 | Dependable scheduling | partial | `core/thread-management`, `phm/supervision` | `tests/core/core_test.cpp`, `tests/phm/phm_test.cpp` | SCHED_FIFO and affinity for daemons; no admission control for applications. |
@@ -82,14 +82,14 @@ Declared out of scope for the programme: the Classic Platform BSW cluster
 | RS_PHM_00118 | Accept checkpoints only from the owning process | partial | `phm/health-channel` | `tests/phm/phm_test.cpp` | Per-process checkpoint services plus UID separation; no peer authentication yet. |
 | RS_PHM_00119 | Security event on a foreign checkpoint | not-implemented | - | - | deviation: no IAM or security-event channel; needs OS privilege separation. |
 | RS_EM_00002 | One process per modelled process | supported | `exec/process-supervision` | `tests/exec/execution_manager_test.cpp` | - |
-| RS_EM_00005 | OS resource budgets for processes and groups | partial | `exec/resource-groups` | `tests/exec/app_suite_test.cpp` | Address-space budget per process and group; no CPU-time budget. |
+| RS_EM_00005 | OS resource budgets for processes and groups | supported | `exec/resource-groups` | `tests/exec/app_suite_test.cpp`, `tests/exec/execution_manager_test.cpp` | - |
 | RS_EM_00008 | Bind all threads to a core set | supported | `exec/resource-groups`, `core/thread-management` | `tests/exec/app_suite_test.cpp`, `tests/core/core_test.cpp` | - |
 | RS_EM_00009 | Control child-process creation | not-implemented | - | - | deviation: no seccomp or privilege separation; child creation is unrestricted. |
 | RS_EM_00151 | EM at the highest ASIL it supervises | not-implemented | - | - | deviation: ASIL is a process attribute; no certification programme asserts it. |
 | RS_SM_00600 | SM at the highest ASIL it manages | not-implemented | - | - | deviation: ASIL is a process attribute; no certification programme asserts it. |
 | RS_SM_00601 | Coordinate recovery actions | supported | `sm/recovery-handler`, `sm/lifecycle` | `tests/sm/sm_test.cpp` | - |
-| RS_OSI_00201 | Memory budgeting | partial | `exec/resource-groups` | `tests/exec/app_suite_test.cpp` | RLIMIT_AS address-space budget; no RSS or swap control. |
-| RS_OSI_00202 | CPU-time budgeting | not-implemented | - | - | deviation: no CPU-time budgets; deployments rely on SCHED_FIFO and affinity. |
+| RS_OSI_00201 | Memory budgeting | supported | `exec/resource-groups` | `tests/exec/app_suite_test.cpp`, `tests/exec/execution_manager_test.cpp` | - |
+| RS_OSI_00202 | CPU-time budgeting | supported | `exec/resource-groups` | `tests/exec/app_suite_test.cpp`, `tests/exec/execution_manager_test.cpp` | - |
 | RS_OSI_00203 | Bind processes to cores | supported | `core/thread-management`, `exec/resource-groups` | `tests/core/core_test.cpp` | - |
 | RS_OSI_00206 | Multi-process isolation | supported | `exec/process-supervision` | `tests/exec/child_process_test.cpp` | - |
 | RS_PER_00008 | Detect persistency corruption | out-of-scope | - | - | boundary: persistency is outside the product boundary. |

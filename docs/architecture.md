@@ -433,9 +433,13 @@ numbers behind the same API without changing the contract.
 The manifest carries optional platform controls that apply before a child is
 created:
 
-- **Resource groups** — a named memory budget (`RLIMIT_AS`), CPU set, and
-  working folder. An application references one group; its own CPU set wins
-  over the group default. The child applies the folder and limit before `exec`.
+- **Resource groups** — a named memory budget (`RLIMIT_AS`), cgroup v2 CPU and
+  memory budgets (`cpu_quota_us`/`cpu_period_us` → `cpu.max`, `memory_max_mb` →
+  `memory.max`), a CPU set, and a working folder. An application references one
+  group; its own CPU set wins over the group default. Budgeted groups are
+  prepared under `<cgroup_root>/nexigen/<suite>/<group>` before the supervisor
+  fork, the child joins its cgroup before `exec`, and an unavailable hierarchy
+  fails the start. The child applies the folder and `RLIMIT_AS` before `exec`.
 - **Trusted executables** — a suite-wide policy plus a per-app SHA-256 digest.
   When enabled, commands must be absolute and the digest is verified in the
   parent before the fork; a mismatch fails with `SecurityError` and creates no

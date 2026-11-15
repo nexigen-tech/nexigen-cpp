@@ -26,6 +26,7 @@
 #include "../support/test_temp.hpp"
 
 #include <nexigen/core/integrity/sha256.hpp>
+#include <nexigen/exec/cgroup_budget.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/app_suite.hpp>
 #include <nexigen/exec/control_host.hpp>
@@ -986,6 +987,70 @@ void test_app_credentials() {
     exec::to_json(document, manifest);
     exec::from_json(document, parsed);
     NX_CHECK(parsed.trusted_platform.require_non_root);
+
+    std::filesystem::remove_all(root, error);
+    std::filesystem::remove_all(artifacts, error);
+}
+
+
+void test_cgroup_budgets() {
+    const std::string root = unique_dir("cgroup");
+    const std::string artifacts = unique_dir("cgroup_artifacts");
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+
+    exec::SuiteManifest manifest = two_app_manifest(root, artifacts);
+    manifest.cgroup_root = root + "/cg";
+    exec::ResourceGroupConfig group{};
+    group.name = "budgeted";
+    group.cpu_quota_us = 50000U;
+    group.cpu_period_us = 100000U;
+    group.memory_max_mb = 16U;
+    manifest.resource_groups.push_back(group);
+    NX_CHECK(exec::validate_suite_manifest(manifest).has_value());
+
+    // JSON round-trip preserves the budgets.
+    nlohmann::json document;
+    exec::to_json(document, manifest);
+    exec::SuiteManifest parsed{};
+    exec::from_json(document, parsed);
+    NX_CHECK(parsed.resource_groups.size() == 1U);
+    NX_CHECK(parsed.resource_groups[0].cpu_quota_us == 50000U);
+    NX_CHECK(parsed.resource_groups[0].cpu_period_us == 100000U);
+    NX_CHECK(parsed.resource_groups[0].memory_max_mb == 16U);
+    NX_CHECK(parsed.cgroup_root == manifest.cgroup_root);
+
+    // Preparation writes the kernel limits.
+    NX_CHECK(exec::prepare_resource_groups(manifest).has_value());
+    const std::string dir = exec::resource_group_cgroup_path(manifest, group);
+    NX_CHECK(std::filesystem::exists(dir + "/cpu.max"));
+    NX_CHECK(std::filesystem::exists(dir + "/memory.max"));
+    {
+        std::ifstream cpu(dir + "/cpu.max");
+        std::string line;
+        std::getline(cpu, line);
+        NX_CHECK(line == "50000 100000");
+    }
+    {
+        std::ifstream memory(dir + "/memory.max");
+        std::string line;
+        std::getline(memory, line);
+        NX_CHECK(line == std::to_string(16ULL * 1024ULL * 1024ULL));
+    }
+
+    // Groups without budgets touch nothing.
+    exec::SuiteManifest plain = two_app_manifest(root, artifacts);
+    plain.cgroup_root = root + "/cg-plain";
+    NX_CHECK(exec::prepare_resource_groups(plain).has_value());
+    NX_CHECK(!std::filesystem::exists(root + "/cg-plain/nexigen"));
+
+    // Validation: relative root and an out-of-range period.
+    exec::SuiteManifest relative = manifest;
+    relative.cgroup_root = "relative";
+    NX_CHECK(!exec::validate_suite_manifest(relative).has_value());
+    exec::SuiteManifest short_period = manifest;
+    short_period.resource_groups[0].cpu_period_us = 500U;
+    NX_CHECK(!exec::validate_suite_manifest(short_period).has_value());
 
     std::filesystem::remove_all(root, error);
     std::filesystem::remove_all(artifacts, error);
@@ -2202,6 +2267,7 @@ int main() {
     run_suite("manifest_digest", test_manifest_digest);
     run_suite("settings_digests", test_settings_digests);
     run_suite("app_credentials", test_app_credentials);
+    run_suite("cgroup_budgets", test_cgroup_budgets);
     run_suite("start_status_stop", test_start_status_stop);
     run_suite("initial_state", test_initial_state_selection);
     run_suite("suite_edge_paths", test_suite_edge_paths);

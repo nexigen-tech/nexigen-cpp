@@ -40,6 +40,7 @@ struct StartOptions {
     std::optional<std::uint32_t> gid{};       ///< Target group; defaults to `uid`.
     /// Refuse to launch as root unless `uid` is configured.
     bool require_non_root{false};
+    std::string cgroup_path{}; ///< Prepared group cgroup; empty = do not join.
 
     /// @brief Cold-path diagnostic rendering of the launch options.
     ///

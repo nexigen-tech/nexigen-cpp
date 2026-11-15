@@ -249,6 +249,7 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
         {"resource_groups", std::move(resource_groups)},
         {"trusted_platform", std::move(trusted)},
         {"settings_digests", std::move(settings_digests)},
+        {"cgroup_root", manifest.cgroup_root},
         {"function_group_port_mapping", std::move(port_mappings)},
         {"function_groups", std::move(groups)},
         {"apps", std::move(apps)},
@@ -271,6 +272,7 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
     static_cast<void>(
         core::detail::read_unsigned(j, "suite_restart_delay_s", manifest.suite_restart_delay_s));
     static_cast<void>(core::detail::read_string(j, "manifest_path", manifest.manifest_path));
+    static_cast<void>(core::detail::read_string(j, "cgroup_root", manifest.cgroup_root));
     read_legacy_execution_manager_cpus(j, "execution_manager_control_cpus",
                                        manifest.execution_manager_control_thread);
     read_legacy_execution_manager_cpus(j, "execution_manager_logger_cpus",
@@ -724,12 +726,19 @@ validate_dependency_entries(const AppSpec& app, const SuiteManifest& manifest,
 }
 
 [[nodiscard]] core::Status validate_resource_groups(const SuiteManifest& manifest) noexcept {
+    if (!manifest.cgroup_root.empty() && !absolute_path(manifest.cgroup_root)) {
+        return invalid_argument();
+    }
     for (std::size_t i = 0; i < manifest.resource_groups.size(); ++i) {
         const ResourceGroupConfig& group = manifest.resource_groups[i];
         if (!valid_control_id(group.name)) {
             return invalid_argument();
         }
         if (!group.working_dir.empty() && !absolute_path(group.working_dir)) {
+            return invalid_argument();
+        }
+        if (group.cpu_quota_us > 0U &&
+            (group.cpu_period_us < 1000U || group.cpu_period_us > 1000000U)) {
             return invalid_argument();
         }
         for (std::size_t j = i + 1; j < manifest.resource_groups.size(); ++j) {

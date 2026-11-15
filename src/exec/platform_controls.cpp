@@ -44,7 +44,10 @@ void to_json(nlohmann::json& j, const ResourceGroupConfig& value) {
     j = nlohmann::json{{"name", value.name},
                        {"memory_limit_mb", value.memory_limit_mb},
                        {"cpus", value.cpus},
-                       {"working_dir", value.working_dir}};
+                       {"working_dir", value.working_dir},
+                       {"cpu_quota_us", value.cpu_quota_us},
+                       {"cpu_period_us", value.cpu_period_us},
+                       {"memory_max_mb", value.memory_max_mb}};
 }
 
 void from_json(const nlohmann::json& j, ResourceGroupConfig& value) noexcept {
@@ -56,6 +59,9 @@ void from_json(const nlohmann::json& j, ResourceGroupConfig& value) noexcept {
         value.cpus = parsed;
     }
     static_cast<void>(core::detail::read_string(j, "working_dir", value.working_dir));
+    static_cast<void>(core::detail::read_unsigned(j, "cpu_quota_us", value.cpu_quota_us));
+    static_cast<void>(core::detail::read_unsigned(j, "cpu_period_us", value.cpu_period_us));
+    static_cast<void>(core::detail::read_unsigned(j, "memory_max_mb", value.memory_max_mb));
 }
 
 void to_json(nlohmann::json& j, const TrustedPlatformConfig& value) {

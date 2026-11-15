@@ -26,6 +26,7 @@
 #include <nexigen/exec/detail/sys_helpers.hpp>
 #include <nexigen/exec/instance_file_io.hpp>
 #include <nexigen/exec/instance_layout.hpp>
+#include <nexigen/exec/cgroup_budget.hpp>
 #include <nexigen/exec/execution_manager.hpp>
 #include <nexigen/exec/execution_manager_logging.hpp>
 #include <nexigen/exec/suite_control.hpp>
@@ -112,6 +113,9 @@ core::Status start_suite(const SuiteManifest& manifest, std::string& suite_dir_o
     }
     if (const core::Status threads = preflight_suite_threads(manifest); !threads) {
         return threads;
+    }
+    if (const core::Status budgets = prepare_resource_groups(manifest); !budgets) {
+        return budgets;
     }
 
     std::string suite_dir;

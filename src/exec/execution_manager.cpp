@@ -519,6 +519,8 @@ struct SupervisorContext {
     return true;
 }
 
+[[nodiscard]] int apply_child_cgroup(const StartOptions& options) noexcept;
+[[nodiscard]] int apply_child_privileged_setup(const StartOptions& options) noexcept;
 [[nodiscard]] int apply_child_credentials(const StartOptions& options) noexcept;
 [[nodiscard]] int apply_child_resources(const StartOptions& options) noexcept;
 
@@ -580,9 +582,9 @@ struct SupervisorContext {
     if (const int resource_status = apply_child_resources(*context.options); resource_status != 0) {
         fail_setup(resource_status);
     }
-    if (const int credential_status = apply_child_credentials(*context.options);
-        credential_status != 0) {
-        fail_setup(credential_status);
+    if (const int privileged_status = apply_child_privileged_setup(*context.options);
+        privileged_status != 0) {
+        fail_setup(privileged_status);
     }
     // POSIX declares execvp's `argv` as `char* const[]`, but it never
     // mutates the argument strings. Cast away the inner const once, here,
@@ -604,7 +606,8 @@ struct SupervisorContext {
     std::int32_t setup_status = 0;
     // Exec-correct handshake (spec execution_manager/process-supervision): the child
     // writes a nonzero setup status ONLY on failure (1 setsid, 2 affinity,
-    // 3 setenv, 4 exec, 7 setgroups, 8 setgid, 9 setuid, 10 verification); a
+    // 3 setenv, 4 exec, 7 setgroups, 8 setgid, 9 setuid, 10 verification,
+    // 11 cgroup); a
     // successful `execvp` closes the child's O_CLOEXEC
     // fd, so EOF is the success signal. A full 4-byte read therefore always
     // means a reported setup/exec failure (the `!= 0` check stays as a
@@ -887,6 +890,34 @@ resolve_stop_state(const std::string& resource_path, const std::string& exit_pat
     return create_artifact_dir(options.working_dir);
 }
 
+/// @brief Move the child into its prepared cgroup; returns a setup-failure code.
+///
+/// cgroup v2 moves the calling process when `0` is written to `cgroup.procs`.
+/// The join happens before the credential drop, while the child still has the
+/// supervisor's permissions, which is what a delegated hierarchy expects.
+[[nodiscard]] int apply_child_cgroup(const StartOptions& options) noexcept {
+    if (options.cgroup_path.empty()) {
+        return 0;
+    }
+    const std::string path = options.cgroup_path + "/cgroup.procs";
+    const int fd = ::open(path.c_str(), O_WRONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return 11;
+    }
+    constexpr char zero = '0';
+    const ssize_t written = ::write(fd, &zero, 1);
+    static_cast<void>(::close(fd));
+    return written == 1 ? 0 : 11;
+}
+
+/// @brief Join the prepared cgroup and drop credentials; setup-failure code.
+[[nodiscard]] int apply_child_privileged_setup(const StartOptions& options) noexcept {
+    if (const int cgroup = apply_child_cgroup(options); cgroup != 0) {
+        return cgroup;
+    }
+    return apply_child_credentials(options);
+}
+
 /// @brief Drop to the configured user; returns a setup-failure code.
 ///
 /// Supplementary groups are cleared only when the child is privileged: a
@@ -934,13 +965,14 @@ std::string StartOptions::to_string() const {
     return std::format(
         "StartOptions(artifact_dir={}, global_settings_dir={}, "
         "local_settings_dir={}, log_level={}, env={}, cpus={}, memory_limit_bytes={}, "
-        "working_dir={}, digest={}, uid={}, gid={}, require_non_root={})",
+        "working_dir={}, digest={}, uid={}, gid={}, require_non_root={}, cgroup={})",
         artifact_dir, global_settings_dir, local_settings_dir,
         log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"),
         env.size(), cpus.count(), memory_limit_bytes, working_dir,
         expected_executable_digest.empty() ? "none" : "set",
         uid.has_value() ? std::to_string(*uid) : std::string("inherit"),
-        gid.has_value() ? std::to_string(*gid) : std::string("inherit"), require_non_root);
+        gid.has_value() ? std::to_string(*gid) : std::string("inherit"), require_non_root,
+        cgroup_path.empty() ? std::string("none") : cgroup_path);
 }
 
 core::Status ExecutionManager::start(const app::RunIdentity& identity, std::string_view app_name,
