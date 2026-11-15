@@ -24,14 +24,13 @@ namespace nexigen::core::integrity {
 ///         `SystemError` when it cannot be read.
 /// @note Spec `core/integrity`, requirement "Verified file load": the returned
 ///       buffer is the one that was hashed, so there is no second read.
-[[nodiscard]] inline Result<std::string> read_verified(std::string_view path,
-                                                       std::string_view expected_sha256_hex) noexcept {
+[[nodiscard]] inline Result<std::string>
+read_verified(std::string_view path, std::string_view expected_sha256_hex) noexcept {
     std::string text;
     const settings_io::FileRead read = settings_io::read_text_file(path, text);
     if (read != settings_io::FileRead::Ok) {
-        return std::unexpected(read == settings_io::FileRead::Absent
-                                   ? ErrorCode::InvalidArgument
-                                   : ErrorCode::SystemError);
+        return std::unexpected(read == settings_io::FileRead::Absent ? ErrorCode::InvalidArgument
+                                                                     : ErrorCode::SystemError);
     }
     if (!digests_equal(sha256_hex(text), expected_sha256_hex)) {
         return std::unexpected(ErrorCode::SecurityError);

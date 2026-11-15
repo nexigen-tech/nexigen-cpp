@@ -51,9 +51,9 @@ inline void from_json(const nlohmann::json& j, SettingsDigest& digest) noexcept 
 } // namespace nexigen::exec
 
 /// @brief `std::formatter` for a settings digest (project mandate 11).
-template <> struct std::formatter<nexigen::exec::SettingsDigest> : std::formatter<std::string_view> {
-    template <class Ctx> auto format(const nexigen::exec::SettingsDigest& digest,
-                                     Ctx& ctx) const {
+template <>
+struct std::formatter<nexigen::exec::SettingsDigest> : std::formatter<std::string_view> {
+    template <class Ctx> auto format(const nexigen::exec::SettingsDigest& digest, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(digest.to_string(), ctx);
     }
 };

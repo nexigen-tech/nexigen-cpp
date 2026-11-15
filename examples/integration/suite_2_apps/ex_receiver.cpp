@@ -98,8 +98,7 @@ struct SuitePolicy {
     }
 
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&,
-                                             std::string_view) noexcept {
+                                             const metrics::Settings&, std::string_view) noexcept {
         com::Node* node = telemetry_node();
         if (node == nullptr) {
             return std::unexpected(core::ErrorCode::SystemError);
@@ -111,8 +110,7 @@ struct SuitePolicy {
         return out->start();
     }
 
-    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
-                                           const tracing::Settings&,
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
                                            std::string_view) noexcept {
         com::Node* node = telemetry_node();
         if (node == nullptr) {
@@ -189,8 +187,12 @@ int fail(std::string_view message) {
     return 1;
 }
 
-std::string_view render_error(core::ErrorCode error) noexcept { return core::to_string(error); }
-std::string_view render_error(com::Error error) noexcept { return com::to_string(error); }
+std::string_view render_error(core::ErrorCode error) noexcept {
+    return core::to_string(error);
+}
+std::string_view render_error(com::Error error) noexcept {
+    return com::to_string(error);
+}
 
 template <class Result> int fail_status(std::string_view action, const Result& status) {
     print_error(std::string(action) + " failed: " + std::string(render_error(status.error())));
@@ -283,7 +285,8 @@ std::optional<int> prepare_command_line(int argc, char* argv[], std::vector<std:
 
 using Infrastructure = app::Infrastructure<SuitePolicy, 256, 8>;
 
-core::Status initialize_infrastructure(Infrastructure& infra, const app::CommandLineOptions& options,
+core::Status initialize_infrastructure(Infrastructure& infra,
+                                       const app::CommandLineOptions& options,
                                        app::Settings& loaded) {
     const core::Status initialized = infra.initialize(options, loaded);
     if (initialized) {
@@ -359,8 +362,8 @@ int main(int argc, char* argv[]) {
         static_cast<void>(infra->shutdown());
         return fail_status("com::ServiceName::create", service);
     }
-    auto subscriber = com::Subscriber<suite2_apps::DataSample, tracing::TraceHeader>::create(
-        *node, *service);
+    auto subscriber =
+        com::Subscriber<suite2_apps::DataSample, tracing::TraceHeader>::create(*node, *service);
     if (!subscriber.has_value()) {
         static_cast<void>(infra->shutdown());
         return fail_status("com::Subscriber::create", subscriber);
@@ -399,8 +402,8 @@ int main(int argc, char* argv[]) {
             context.source_span_id = header.source_span_id;
 
             auto span = (*tracer)->start_span("process-sample", tracing::SpanKind::Consumer);
-            static_cast<void>(span.set_attribute("sequence",
-                                                 static_cast<std::int64_t>(payload.sequence)));
+            static_cast<void>(
+                span.set_attribute("sequence", static_cast<std::int64_t>(payload.sequence)));
             (*counter)->inc();
             infra->logger().debug("received sample seq={} message={} trace_id={:016x}",
                                   payload.sequence, static_cast<const char*>(payload.message),

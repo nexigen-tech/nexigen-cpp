@@ -74,7 +74,7 @@ struct SuiteManifest {
     std::vector<ResourceGroupConfig> resource_groups{};  ///< Named resource limits.
     TrustedPlatformConfig trusted_platform{};            ///< Executable digest policy.
     std::vector<SettingsDigest> settings_digests{};      ///< Optional settings-file integrity.
-    std::string cgroup_root{};                           ///< cgroup v2 mount; empty = /sys/fs/cgroup.
+    std::string cgroup_root{}; ///< cgroup v2 mount; empty = /sys/fs/cgroup.
     /// Authorized `(requester, Function Group)` pairs; empty = accept all.
     std::vector<FunctionGroupPortMapping> function_group_port_mapping{};
     std::vector<FunctionGroupConfig> function_groups{}; ///< Declared Function Groups.

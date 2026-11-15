@@ -78,8 +78,7 @@ public:
     void update(std::span<const std::uint8_t> bytes) noexcept {
         std::uint16_t crc = state_;
         for (const std::uint8_t byte : bytes) {
-            const std::uint8_t index =
-                static_cast<std::uint8_t>(((crc >> 8U) ^ byte) & 0xffU);
+            const std::uint8_t index = static_cast<std::uint8_t>(((crc >> 8U) ^ byte) & 0xffU);
             crc = static_cast<std::uint16_t>((static_cast<std::uint32_t>(crc) << 8U) ^
                                              detail::k_crc16_table[index]);
         }
@@ -139,8 +138,7 @@ private:
 ///
 /// @param value Payload value.
 /// @return Read-only bytes used by the checksum.
-template <class T>
-[[nodiscard]] std::span<const std::uint8_t> e2e_bytes(const T& value) noexcept {
+template <class T> [[nodiscard]] std::span<const std::uint8_t> e2e_bytes(const T& value) noexcept {
     return {reinterpret_cast<const std::uint8_t*>(&value), sizeof(T)};
 }
 

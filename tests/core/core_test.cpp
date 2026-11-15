@@ -2137,7 +2137,6 @@ void test_settings_fields() {
     NX_CHECK(out_json["diagnostics"][0]["field"] == "counter");
 }
 
-
 void test_integrity() {
     namespace integrity = nexigen::core::integrity;
 
@@ -2185,8 +2184,7 @@ void test_integrity() {
     {
         const int fd = ::open(path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0600);
         NX_CHECK(fd >= 0);
-        NX_CHECK(::write(fd, first.data(), first.size()) ==
-                 static_cast<ssize_t>(first.size()));
+        NX_CHECK(::write(fd, first.data(), first.size()) == static_cast<ssize_t>(first.size()));
         static_cast<void>(::close(fd));
     }
     const std::string first_digest = integrity::sha256_hex(std::string_view(first));
@@ -2195,22 +2193,20 @@ void test_integrity() {
     const auto refused = integrity::read_verified(path, std::string(64, '0'));
     NX_CHECK(!refused.has_value() && refused.error() == nexigen::core::ErrorCode::SecurityError);
     const auto absent = integrity::read_verified(path + ".missing", first_digest);
-    NX_CHECK(!absent.has_value() &&
-             absent.error() == nexigen::core::ErrorCode::InvalidArgument);
+    NX_CHECK(!absent.has_value() && absent.error() == nexigen::core::ErrorCode::InvalidArgument);
 
     // A file replaced between two loads cannot pass with the old digest.
     const std::string second = "{\"value\":43}\n";
     {
         const int fd = ::open(path.c_str(), O_TRUNC | O_WRONLY);
         NX_CHECK(fd >= 0);
-        NX_CHECK(::write(fd, second.data(), second.size()) ==
-                 static_cast<ssize_t>(second.size()));
+        NX_CHECK(::write(fd, second.data(), second.size()) == static_cast<ssize_t>(second.size()));
         static_cast<void>(::close(fd));
     }
     const auto stale = integrity::read_verified(path, first_digest);
     NX_CHECK(!stale.has_value() && stale.error() == nexigen::core::ErrorCode::SecurityError);
-    const auto fresh = integrity::read_verified(
-        path, integrity::sha256_hex(std::string_view(second)));
+    const auto fresh =
+        integrity::read_verified(path, integrity::sha256_hex(std::string_view(second)));
     NX_CHECK(fresh.has_value() && *fresh == second);
     static_cast<void>(std::remove(path.c_str()));
 

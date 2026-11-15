@@ -98,7 +98,7 @@ template <> struct EnumTraits<nexigen::sm::RootFG> {
     /// @brief One enumerator/name pair of the vocabulary table.
     struct Entry {
         nexigen::sm::RootFG value; ///< Enumerator being named.
-        std::string_view name;         ///< Canonical PascalCase spelling.
+        std::string_view name;     ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical enumerator table, in declaration order.
     static constexpr std::array<Entry, 6> entries{{

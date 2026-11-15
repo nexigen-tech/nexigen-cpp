@@ -122,8 +122,7 @@ using StateClient = com::Client<exec::StateCommand, exec::StateAck>;
 
 /// PHM recovery: the EM force-restarts the named application in a new attempt
 /// and does not consume the abnormal-termination retry budget.
-void verify_phm_restart(com::Node& node, const std::string& marker,
-                        const std::string& suite_dir) {
+void verify_phm_restart(com::Node& node, const std::string& marker, const std::string& suite_dir) {
     const auto recovery_name = com::ServiceName::create("Nexigen/PHM/Recovery");
     NX_CHECK(recovery_name.has_value());
     auto recovery =
@@ -175,9 +174,8 @@ void verify_digest_gate(const std::string& host, const std::string& manifest_pat
     const pid_t bad_child = ::fork();
     NX_CHECK(bad_child >= 0);
     if (bad_child == 0) {
-        ::execl(host.c_str(), "nexigen-em", "--config", manifest_path.c_str(),
-                "--manifest-sha256", wrong.c_str(), "--run-dir", bad_dir.c_str(),
-                static_cast<char*>(nullptr));
+        ::execl(host.c_str(), "nexigen-em", "--config", manifest_path.c_str(), "--manifest-sha256",
+                wrong.c_str(), "--run-dir", bad_dir.c_str(), static_cast<char*>(nullptr));
         ::_exit(127);
     }
     int status = 0;
@@ -244,8 +242,8 @@ int main(int argc, char* argv[]) {
     const pid_t child = ::fork();
     NX_CHECK(child >= 0);
     if (child == 0) {
-        ::execl(host.c_str(), "nexigen-em", "--config", manifest_path.c_str(),
-                "--manifest-sha256", manifest_digest->c_str(), "--run-dir", run_dir.c_str(),
+        ::execl(host.c_str(), "nexigen-em", "--config", manifest_path.c_str(), "--manifest-sha256",
+                manifest_digest->c_str(), "--run-dir", run_dir.c_str(),
                 static_cast<char*>(nullptr));
         ::_exit(127);
     }

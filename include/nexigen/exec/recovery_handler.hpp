@@ -72,8 +72,9 @@ public:
     [[nodiscard]] std::string to_string() const;
 
 private:
-    RecoveryHandler(com::Server<nexigen::phm::RecoveryRequest, nexigen::phm::RecoveryResponse> server,
-                    const SuiteManifest& manifest) noexcept;
+    RecoveryHandler(
+        com::Server<nexigen::phm::RecoveryRequest, nexigen::phm::RecoveryResponse> server,
+        const SuiteManifest& manifest) noexcept;
 
     com::Server<nexigen::phm::RecoveryRequest, nexigen::phm::RecoveryResponse> server_;
     const SuiteManifest* manifest_; ///< Suite manifest; must outlive the handler.
@@ -90,7 +91,8 @@ private:
 /// @brief `std::formatter` for the recovery handler (project mandate 11).
 template <>
 struct std::formatter<nexigen::exec::RecoveryHandler> : std::formatter<std::string_view> {
-    template <class Ctx> auto format(const nexigen::exec::RecoveryHandler& handler, Ctx& ctx) const {
+    template <class Ctx>
+    auto format(const nexigen::exec::RecoveryHandler& handler, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(handler.to_string(), ctx);
     }
 };

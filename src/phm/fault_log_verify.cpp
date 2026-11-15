@@ -14,7 +14,7 @@ namespace {
 /// @brief One parsed line: field views plus the checksum position.
 struct LineView {
     std::array<std::string_view, 6> fields{};
-    std::size_t count{0};     ///< Total space-separated fields (may exceed 6).
+    std::size_t count{0}; ///< Total space-separated fields (may exceed 6).
     std::size_t crc_offset{0};
 };
 
@@ -117,13 +117,11 @@ core::Status verify_fault_log(std::string_view path, FaultLogReport& out) noexce
         }
         std::uint32_t expected_crc = 0;
         std::uint64_t sequence = 0;
-        if (!parse_crc(view.fields[5], expected_crc) ||
-            !parse_sequence(view.fields[4], sequence)) {
+        if (!parse_crc(view.fields[5], expected_crc) || !parse_sequence(view.fields[4], sequence)) {
             ++out.corrupted;
             continue;
         }
-        const std::uint32_t actual_crc =
-            core::integrity::crc32c(line.substr(0, view.crc_offset));
+        const std::uint32_t actual_crc = core::integrity::crc32c(line.substr(0, view.crc_offset));
         if (actual_crc != expected_crc) {
             ++out.corrupted;
             continue;

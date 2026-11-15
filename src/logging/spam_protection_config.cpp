@@ -21,12 +21,7 @@
 
 namespace nexigen::logging {
 
-namespace {
-
-
-
-
-} // namespace
+namespace {} // namespace
 
 void to_json(nlohmann::json& j, const SpamProtectionConfig& cfg) {
     j = nlohmann::json{
@@ -42,8 +37,10 @@ void from_json(const nlohmann::json& j, SpamProtectionConfig& out) noexcept {
         return;
     }
     core::detail::read_bool(j, "enable_repeat_suppression", out.enable_repeat_suppression);
-    core::detail::read_unsigned(j, "repeat_suppression_window_ms", out.repeat_suppression_window_ms);
-    core::detail::read_unsigned(j, "max_messages_per_sec_per_shard", out.max_messages_per_sec_per_shard);
+    core::detail::read_unsigned(j, "repeat_suppression_window_ms",
+                                out.repeat_suppression_window_ms);
+    core::detail::read_unsigned(j, "max_messages_per_sec_per_shard",
+                                out.max_messages_per_sec_per_shard);
     core::mandate::read_enum(j, "bypass_min_level", out.bypass_min_level);
 }
 

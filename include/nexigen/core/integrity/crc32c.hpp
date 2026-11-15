@@ -50,8 +50,8 @@ public:
 
     /// @brief Feed a text view.
     void update(std::string_view text) noexcept {
-        update(std::span<const std::uint8_t>(
-            reinterpret_cast<const std::uint8_t*>(text.data()), text.size()));
+        update(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(text.data()),
+                                             text.size()));
     }
 
     /// @brief Final checksum with the output XOR applied.

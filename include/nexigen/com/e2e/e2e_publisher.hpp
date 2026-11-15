@@ -45,10 +45,10 @@ public:
     }
 
 private:
-    SampleMut<E2eMessage<T>> sample_;      ///< Owned loan.
-    Publisher<E2eMessage<T>>& publisher_;  ///< Borrowed publisher.
-    const E2eConfig& config_;              ///< Borrowed configuration.
-    std::uint32_t& next_counter_;          ///< Borrowed sender counter.
+    SampleMut<E2eMessage<T>> sample_;     ///< Owned loan.
+    Publisher<E2eMessage<T>>& publisher_; ///< Borrowed publisher.
+    const E2eConfig& config_;             ///< Borrowed configuration.
+    std::uint32_t& next_counter_;         ///< Borrowed sender counter.
 };
 
 /// @brief Publisher of E2E envelopes.
@@ -133,8 +133,8 @@ template <concepts::Message T>
 /// @brief `std::formatter` for the E2E publisher (project mandate 11).
 template <nexigen::com::concepts::Message T>
 struct std::formatter<nexigen::com::E2ePublisher<T>> : std::formatter<std::string_view> {
-    template <class Ctx> auto format(const nexigen::com::E2ePublisher<T>& publisher,
-                                     Ctx& ctx) const {
+    template <class Ctx>
+    auto format(const nexigen::com::E2ePublisher<T>& publisher, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(publisher.to_string(), ctx);
     }
 };

@@ -52,8 +52,7 @@ inline constexpr std::string_view k_root_state_restart = "Restart";
 /// @return `Off` or `Startup`.
 [[nodiscard]] constexpr std::string_view
 root_function_group_initial_state(std::string_view declared_initial_state) noexcept {
-    return declared_initial_state == k_root_state_off ? k_root_state_off
-                                                         : k_root_state_startup;
+    return declared_initial_state == k_root_state_off ? k_root_state_off : k_root_state_startup;
 }
 
 /// @brief Validate a declared `RootFG` group.
@@ -64,7 +63,6 @@ root_function_group_initial_state(std::string_view declared_initial_state) noexc
 /// @param group Parsed Function Group configuration named `RootFG`.
 /// @return Success, or `InvalidArgument` when the vocabulary or initial state
 ///         violates the reserved contract.
-[[nodiscard]] core::Status
-validate_root_function_group(const FunctionGroupConfig& group) noexcept;
+[[nodiscard]] core::Status validate_root_function_group(const FunctionGroupConfig& group) noexcept;
 
 } // namespace nexigen::exec

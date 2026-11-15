@@ -16,13 +16,13 @@ namespace nexigen::exec {
 
 /// @brief One named resource group.
 struct ResourceGroupConfig {
-    std::string name{};               ///< Unique group name.
-    std::uint64_t memory_limit_mb{0}; ///< RLIMIT_AS budget; 0 = unlimited.
-    core::CpuSet cpus{};              ///< Default CPU set; empty = unrestricted.
-    std::string working_dir{};        ///< Child working folder; empty = inherit.
-    std::uint64_t cpu_quota_us{0};    ///< cgroup cpu.max quota; 0 = unlimited.
+    std::string name{};                  ///< Unique group name.
+    std::uint64_t memory_limit_mb{0};    ///< RLIMIT_AS budget; 0 = unlimited.
+    core::CpuSet cpus{};                 ///< Default CPU set; empty = unrestricted.
+    std::string working_dir{};           ///< Child working folder; empty = inherit.
+    std::uint64_t cpu_quota_us{0};       ///< cgroup cpu.max quota; 0 = unlimited.
     std::uint64_t cpu_period_us{100000}; ///< cgroup cpu.max period (1000..1000000).
-    std::uint64_t memory_max_mb{0};   ///< cgroup memory.max budget; 0 = unlimited.
+    std::uint64_t memory_max_mb{0};      ///< cgroup memory.max budget; 0 = unlimited.
 
     /// @brief Cold-path diagnostic rendering.
     [[nodiscard]] std::string to_string() const;

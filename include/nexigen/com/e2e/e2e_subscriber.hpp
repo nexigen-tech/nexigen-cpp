@@ -116,8 +116,8 @@ template <concepts::Message T>
 /// @brief `std::formatter` for the E2E subscriber (project mandate 11).
 template <nexigen::com::concepts::Message T>
 struct std::formatter<nexigen::com::E2eSubscriber<T>> : std::formatter<std::string_view> {
-    template <class Ctx> auto format(const nexigen::com::E2eSubscriber<T>& subscriber,
-                                     Ctx& ctx) const {
+    template <class Ctx>
+    auto format(const nexigen::com::E2eSubscriber<T>& subscriber, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(subscriber.to_string(), ctx);
     }
 };

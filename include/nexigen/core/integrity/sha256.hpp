@@ -37,8 +37,7 @@ inline constexpr std::array<std::uint32_t, 64> k_sha256_round_constants{
     0xc67178f2U};
 
 /// @brief Rotate a 32-bit word right.
-[[nodiscard]] constexpr std::uint32_t rotr(std::uint32_t value,
-                                           std::uint32_t count) noexcept {
+[[nodiscard]] constexpr std::uint32_t rotr(std::uint32_t value, std::uint32_t count) noexcept {
     return (value >> count) | (value << (32U - count));
 }
 
@@ -83,8 +82,7 @@ public:
         total_len_ += bytes.size();
         std::size_t offset = 0;
         while (offset < bytes.size()) {
-            const std::size_t chunk =
-                std::min(buffer_.size() - buffer_len_, bytes.size() - offset);
+            const std::size_t chunk = std::min(buffer_.size() - buffer_len_, bytes.size() - offset);
             for (std::size_t i = 0; i < chunk; ++i) {
                 buffer_[buffer_len_ + i] = bytes[offset + i];
             }
@@ -99,8 +97,8 @@ public:
 
     /// @brief Feed a text view.
     void update(std::string_view text) noexcept {
-        update(std::span<const std::uint8_t>(
-            reinterpret_cast<const std::uint8_t*>(text.data()), text.size()));
+        update(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(text.data()),
+                                             text.size()));
     }
 
     /// @brief Finalize and return the 32-byte digest.
@@ -145,13 +143,13 @@ private:
         std::uint32_t g = state_[6];
         std::uint32_t h = state_[7];
         for (std::size_t i = 0; i < 64U; ++i) {
-            const std::uint32_t s1 = detail::rotr(e, 6U) ^ detail::rotr(e, 11U) ^
-                                     detail::rotr(e, 25U);
+            const std::uint32_t s1 =
+                detail::rotr(e, 6U) ^ detail::rotr(e, 11U) ^ detail::rotr(e, 25U);
             const std::uint32_t choose = (e & f) ^ (~e & g);
-            const std::uint32_t temp1 = h + s1 + choose + detail::k_sha256_round_constants[i] +
-                                        words[i];
-            const std::uint32_t s0 = detail::rotr(a, 2U) ^ detail::rotr(a, 13U) ^
-                                     detail::rotr(a, 22U);
+            const std::uint32_t temp1 =
+                h + s1 + choose + detail::k_sha256_round_constants[i] + words[i];
+            const std::uint32_t s0 =
+                detail::rotr(a, 2U) ^ detail::rotr(a, 13U) ^ detail::rotr(a, 22U);
             const std::uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
             const std::uint32_t temp2 = s0 + majority;
             h = g;

@@ -30,12 +30,6 @@ namespace {
 
 constexpr std::uint64_t kNanoseconds_per_second = 1'000'000'000ULL;
 
-
-
-
-
-
-
 [[nodiscard]] bool try_read_throttle_field(const nlohmann::json& j,
                                            FileLoggerConfig& out) noexcept {
     const auto it = j.find("throttle");
@@ -46,7 +40,8 @@ constexpr std::uint64_t kNanoseconds_per_second = 1'000'000'000ULL;
         return false;
     }
     return core::detail::read_optional_bool(*it, "enabled", out.throttle.enabled) &&
-           core::detail::read_optional_unsigned(*it, "max_records_per_window", out.throttle.max_records_per_window) &&
+           core::detail::read_optional_unsigned(*it, "max_records_per_window",
+                                                out.throttle.max_records_per_window) &&
            core::detail::read_optional_unsigned(*it, "window_ns", out.throttle.window_ns);
 }
 
@@ -107,18 +102,18 @@ void from_json(const nlohmann::json& j, FileLoggerConfig& out) noexcept {
     if (!try_read_rotation_field(j, parsed)) {
         return;
     }
-    if (!core::detail::read_optional_object(
-            j, "worker_thread",
-            [&](const nlohmann::json& obj) {
-                return core::parse_thread_spec_json(obj, parsed.worker_thread);
-            })) {
+    if (!core::detail::read_optional_object(j, "worker_thread", [&](const nlohmann::json& obj) {
+            return core::parse_thread_spec_json(obj, parsed.worker_thread);
+        })) {
         return;
     }
-    if (!core::detail::read_optional_unsigned(j, "max_file_size_bytes", parsed.max_file_size_bytes)) {
+    if (!core::detail::read_optional_unsigned(j, "max_file_size_bytes",
+                                              parsed.max_file_size_bytes)) {
         return;
     }
     std::uint64_t poll = parsed.worker_poll_interval_us;
-    if (!core::detail::read_optional_unsigned(j, "worker_poll_interval_us", poll) || poll > 0xffffffffULL) {
+    if (!core::detail::read_optional_unsigned(j, "worker_poll_interval_us", poll) ||
+        poll > 0xffffffffULL) {
         return;
     }
     parsed.worker_poll_interval_us = static_cast<std::uint32_t>(poll);

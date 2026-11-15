@@ -11,8 +11,7 @@ namespace nexigen::exec {
 namespace {
 
 /// @brief View a fixed NUL-terminated request buffer.
-template <std::size_t N>
-[[nodiscard]] std::string_view view(const char (&buffer)[N]) noexcept {
+template <std::size_t N> [[nodiscard]] std::string_view view(const char (&buffer)[N]) noexcept {
     std::size_t length = 0;
     while (length < N && buffer[length] != '\0') {
         ++length;

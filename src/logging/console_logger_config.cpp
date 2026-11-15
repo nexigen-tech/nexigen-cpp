@@ -22,12 +22,7 @@
 
 namespace nexigen::logging {
 
-namespace {
-
-
-
-
-} // namespace
+namespace {} // namespace
 
 void to_json(nlohmann::json& j, const ConsoleLoggerConfig& cfg) {
     j = nlohmann::json{
@@ -45,15 +40,14 @@ void from_json(const nlohmann::json& j, ConsoleLoggerConfig& out) noexcept {
     if (!core::mandate::read_optional_enum(j, "initial_level", parsed.initial_level)) {
         return;
     }
-    if (!core::detail::read_optional_object(
-            j, "worker_thread",
-            [&](const nlohmann::json& obj) {
-                return core::parse_thread_spec_json(obj, parsed.worker_thread);
-            })) {
+    if (!core::detail::read_optional_object(j, "worker_thread", [&](const nlohmann::json& obj) {
+            return core::parse_thread_spec_json(obj, parsed.worker_thread);
+        })) {
         return;
     }
     std::uint64_t poll = parsed.worker_poll_interval_us;
-    if (!core::detail::read_optional_unsigned(j, "worker_poll_interval_us", poll) || poll > 0xffffffffULL) {
+    if (!core::detail::read_optional_unsigned(j, "worker_poll_interval_us", poll) ||
+        poll > 0xffffffffULL) {
         return;
     }
     parsed.worker_poll_interval_us = static_cast<std::uint32_t>(poll);

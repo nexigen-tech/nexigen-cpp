@@ -50,9 +50,9 @@ struct Options {
 
 /// @brief Options that take one string value.
 [[nodiscard]] bool is_string_option(std::string_view argument) noexcept {
-    return argument == "--config" || argument == "--manifest-sha256" ||
-           argument == "--machine" || argument == "--run-id" || argument == "--run-dir" ||
-           argument == "--service" || argument == "--instance";
+    return argument == "--config" || argument == "--manifest-sha256" || argument == "--machine" ||
+           argument == "--run-id" || argument == "--run-dir" || argument == "--service" ||
+           argument == "--instance";
 }
 
 /// @brief Store a parsed string option.

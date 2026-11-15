@@ -167,8 +167,8 @@ private:
 
     /// @brief One open fork region: its declaration index and entered branches.
     struct ForkFrame {
-        std::size_t fork_index{0};     ///< Index into `logical_forks`.
-        std::bitset<256> entered{};    ///< Branch entries reached so far.
+        std::size_t fork_index{0};  ///< Index into `logical_forks`.
+        std::bitset<256> entered{}; ///< Branch entries reached so far.
     };
 
     /// @brief Mutable supervision state of one process.
@@ -180,7 +180,7 @@ private:
         std::optional<Clock::time_point> last_checkpoint_time{}; ///< Previous arrival time.
         EmLifecycleState lifecycle{EmLifecycleState::Unknown};   ///< Last EM lifecycle state.
         std::vector<DeadlineClock> deadline_clocks{};            ///< One clock per Deadline pair.
-        std::array<ForkFrame, k_max_logical_forks> fork_stack{};  ///< Open fork regions.
+        std::array<ForkFrame, k_max_logical_forks> fork_stack{}; ///< Open fork regions.
         std::size_t fork_depth{0};                               ///< Number of open frames.
     };
 

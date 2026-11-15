@@ -50,8 +50,7 @@ core::Status PosixWatchdogDevice::open(std::string_view path) noexcept {
     return {};
 }
 
-core::Result<std::uint32_t>
-PosixWatchdogDevice::set_timeout(std::uint32_t requested_ms) noexcept {
+core::Result<std::uint32_t> PosixWatchdogDevice::set_timeout(std::uint32_t requested_ms) noexcept {
     if (fd_ < 0) {
         return std::unexpected(core::ErrorCode::NotInitialized);
     }

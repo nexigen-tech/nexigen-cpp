@@ -56,12 +56,12 @@ public:
     [[nodiscard]] bool is_open() const noexcept { return opened_; }
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
 
-    int opens{0};           ///< Successful open calls.
-    int timeouts{0};        ///< set_timeout calls.
-    int feeds{0};           ///< Feed writes.
-    int disarms{0};         ///< Disarm calls.
-    std::uint32_t requested{0}; ///< Last requested timeout.
-    std::uint32_t granted{0};   ///< Last granted timeout.
+    int opens{0};                 ///< Successful open calls.
+    int timeouts{0};              ///< set_timeout calls.
+    int feeds{0};                 ///< Feed writes.
+    int disarms{0};               ///< Disarm calls.
+    std::uint32_t requested{0};   ///< Last requested timeout.
+    std::uint32_t granted{0};     ///< Last granted timeout.
     std::uint32_t max_granted{0}; ///< Simulated driver cap; 0 = grant the request.
     bool fail_open{false};        ///< Make `open` fail with a system error.
 

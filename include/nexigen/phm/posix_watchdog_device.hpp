@@ -45,8 +45,8 @@ public:
     [[nodiscard]] bool is_open() const noexcept { return fd_ >= 0; }
 
 private:
-    int fd_{-1};              ///< Open descriptor, or -1.
-    bool disarmed_{false};    ///< Magic close already written.
+    int fd_{-1};           ///< Open descriptor, or -1.
+    bool disarmed_{false}; ///< Magic close already written.
 };
 
 } // namespace nexigen::phm

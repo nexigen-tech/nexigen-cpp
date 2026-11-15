@@ -38,7 +38,7 @@ RootLifecycleClient::RootLifecycleClient(
       command_(std::move(command)) {}
 
 com::Result<RootLifecycleClient> RootLifecycleClient::create(com::Node& node,
-                                                                   std::string app_name) noexcept {
+                                                             std::string app_name) noexcept {
     auto reporter = exec::ApplicationStateReporter::create(node, app_name);
     if (!reporter) {
         return std::unexpected(reporter.error());
@@ -62,7 +62,7 @@ com::Result<RootLifecycleClient> RootLifecycleClient::create(com::Node& node,
         return std::unexpected(command.error());
     }
     return RootLifecycleClient{std::move(app_name), std::move(*reporter), std::move(*query),
-                                  std::move(*command)};
+                               std::move(*command)};
 }
 
 com::Status RootLifecycleClient::report_ready() noexcept {
@@ -92,7 +92,7 @@ RootLifecycleClient::initial_transition_result(std::chrono::milliseconds timeout
 
 com::Result<exec::StateResult>
 RootLifecycleClient::request_state(std::string_view target,
-                                      std::chrono::milliseconds timeout) noexcept {
+                                   std::chrono::milliseconds timeout) noexcept {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     exec::StateCommand command{};
     std::snprintf(command.function_group, sizeof(command.function_group), "%s",

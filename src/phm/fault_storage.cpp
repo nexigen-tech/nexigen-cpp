@@ -45,8 +45,7 @@ void FaultStorage::worker_loop(std::stop_token stop) noexcept {
                 const int length = std::snprintf(
                     prefix.data(), prefix.size(), "%.*s %u %u %llu %llu ",
                     static_cast<int>(kind.size()), kind.data(), record.process_index,
-                    record.checkpoint_id,
-                    static_cast<unsigned long long>(record.timestamp_ns),
+                    record.checkpoint_id, static_cast<unsigned long long>(record.timestamp_ns),
                     static_cast<unsigned long long>(++sequence_));
                 if (length > 0 && static_cast<std::size_t>(length) < prefix.size()) {
                     const std::string_view view(prefix.data(), static_cast<std::size_t>(length));

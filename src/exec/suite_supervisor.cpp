@@ -880,9 +880,8 @@ void install_suite_control(RuntimeSuite& suite, const SuiteManifest& manifest) {
     suite.control->set_stop_handler([&suite](std::string_view app, std::string_view state) {
         return suite_stop_process(suite, app, state);
     });
-    suite.control->set_restart_handler([&suite](std::string_view app) {
-        return suite_restart_process(suite, app);
-    });
+    suite.control->set_restart_handler(
+        [&suite](std::string_view app) { return suite_restart_process(suite, app); });
 }
 
 /// Start the configured initial states, report success, and initialize logs.

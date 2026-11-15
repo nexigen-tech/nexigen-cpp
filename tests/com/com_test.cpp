@@ -90,7 +90,6 @@ void operator delete[](void* pointer, std::size_t) noexcept {
     std::free(pointer);
 }
 
-
 namespace {
 
 int g_checks = 0;
@@ -976,7 +975,6 @@ void test_custom_header() {
 
 } // namespace
 
-
 namespace e2e_test {
 
 /// Payload with padding: the custom view exposes only the two words.
@@ -986,8 +984,7 @@ struct PaddedPayload {
     std::uint8_t padding[8]{};
 };
 
-[[nodiscard]] inline std::span<const std::uint8_t>
-e2e_bytes(const PaddedPayload& value) noexcept {
+[[nodiscard]] inline std::span<const std::uint8_t> e2e_bytes(const PaddedPayload& value) noexcept {
     return {reinterpret_cast<const std::uint8_t*>(&value), 8U};
 }
 
@@ -1049,8 +1046,8 @@ void test_e2e_vocabulary() {
 void test_e2e_codec() {
     namespace e2e = com::e2e;
     const std::string_view vector = "123456789";
-    const std::span<const std::uint8_t> bytes(
-        reinterpret_cast<const std::uint8_t*>(vector.data()), vector.size());
+    const std::span<const std::uint8_t> bytes(reinterpret_cast<const std::uint8_t*>(vector.data()),
+                                              vector.size());
     NX_CHECK(e2e::crc32p4(bytes) == 0x1697D06AU);
     NX_CHECK(e2e::crc16(bytes) == 0x29B1U);
     NX_CHECK(e2e::crc32p4(std::span<const std::uint8_t>{}) == 0U);
@@ -1158,8 +1155,7 @@ void test_e2e_ports() {
             const auto got = subscriber->receive();
             NX_CHECK(got.has_value());
             if (got->has_value()) {
-                seen = (*got)->status() == com::E2eStatus::Ok &&
-                       (*got)->header().counter == i;
+                seen = (*got)->status() == com::E2eStatus::Ok && (*got)->header().counter == i;
             } else {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
@@ -1179,8 +1175,8 @@ void test_e2e_ports() {
         const auto got = subscriber->receive();
         NX_CHECK(got.has_value());
         if (got->has_value()) {
-            loaned_seen = (*got)->status() == com::E2eStatus::Ok &&
-                          (*got)->payload().sequence == 4U;
+            loaned_seen =
+                (*got)->status() == com::E2eStatus::Ok && (*got)->payload().sequence == 4U;
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
@@ -1266,7 +1262,8 @@ void test_e2e_config() {
         "required_services": [
             { "service_name": "Nexigen/Test/E2eCfg2", "buffer_capacity": 4 }
         ]
-    })", nullptr, false);
+    })",
+                                                          nullptr, false);
     NX_CHECK(!document.is_discarded());
     com::ServiceManifest manifest;
     com::from_json(document, manifest);
@@ -1291,7 +1288,9 @@ void test_e2e_config() {
         "provided_services": [
             { "service_name": "x", "e2e": { "profile": "P99", "data_id": 1 } }
         ]
-    })", nullptr, false), malformed);
+    })",
+                                         nullptr, false),
+                   malformed);
     NX_CHECK(!malformed.diagnostics.empty());
     NX_CHECK(malformed.diagnostics.front().find("P99") != std::string::npos);
     NX_CHECK(!com::valid_service_manifest(malformed));
@@ -1305,10 +1304,11 @@ void test_e2e_config() {
         "required_services": [
             { "service_name": "x", "e2e": { "profile": "P04", "data_id": 0 } }
         ]
-    })", nullptr, false), zero_id);
+    })",
+                                         nullptr, false),
+                   zero_id);
     NX_CHECK(!com::valid_service_manifest(zero_id));
 }
-
 
 struct E2eBlob64 {
     std::array<std::uint8_t, 64> bytes{};
@@ -1332,11 +1332,9 @@ template <class Blob> void measure_e2e_overhead(const char* label, double budget
     }
     const auto elapsed = std::chrono::steady_clock::now() - start;
     const double per_operation =
-        static_cast<double>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count()) /
+        static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count()) /
         static_cast<double>(k_iterations);
-    std::printf("[e2e %s] %.1f ns per seal+check (budget %.0f)\n", label, per_operation,
-                budget_ns);
+    std::printf("[e2e %s] %.1f ns per seal+check (budget %.0f)\n", label, per_operation, budget_ns);
     NX_CHECK(per_operation <= budget_ns);
 }
 
@@ -1351,7 +1349,6 @@ void test_e2e_overhead() {
     measure_e2e_overhead<E2eBlob256>("256B", 10000.0);
 #endif
 }
-
 
 void test_e2e_none_guard() {
     auto node = com::Node::create();

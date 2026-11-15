@@ -555,7 +555,8 @@ void from_json(const nlohmann::json& j, TracerProviderConfig& out) noexcept {
         static_cast<void>(core::parse_thread_spec_json(*worker, out.worker_thread));
     }
     static_cast<void>(core::detail::read_unsigned(j, "max_tracers", out.max_tracers));
-    static_cast<void>(core::detail::read_unsigned(j, "max_spans_per_window", out.max_spans_per_window));
+    static_cast<void>(
+        core::detail::read_unsigned(j, "max_spans_per_window", out.max_spans_per_window));
     static_cast<void>(core::detail::read_unsigned(j, "window_ns", out.window_ns));
     const auto poll = j.find("worker_poll_interval_us");
     if (poll != j.end() && poll->is_number_unsigned()) {

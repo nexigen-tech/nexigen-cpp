@@ -57,8 +57,7 @@ core::Status prepare_resource_groups(const SuiteManifest& manifest) noexcept {
             }
         }
         if (group.memory_max_mb > 0U) {
-            const std::string memory_max =
-                std::to_string(group.memory_max_mb * k_bytes_per_mib);
+            const std::string memory_max = std::to_string(group.memory_max_mb * k_bytes_per_mib);
             if (const core::Status written = write_control(directory / "memory.max", memory_max);
                 !written) {
                 return written;

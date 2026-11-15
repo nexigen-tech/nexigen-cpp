@@ -128,8 +128,8 @@ enum class OptionScan { Handled, MissingValue, Unknown };
 
 /// @brief Whether `argument` is one of the string options.
 [[nodiscard]] bool is_string_option(std::string_view argument) noexcept {
-    return argument == "--config" || argument == "--config-sha256" ||
-           argument == "--audit-log" || argument == "--app-name";
+    return argument == "--config" || argument == "--config-sha256" || argument == "--audit-log" ||
+           argument == "--app-name";
 }
 
 [[nodiscard]] std::optional<int> parse_args(int argc, char* argv[], Options& options) {

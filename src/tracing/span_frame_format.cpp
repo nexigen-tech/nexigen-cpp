@@ -31,7 +31,6 @@ void force_inline_string(SpanAttribute& attribute) noexcept {
     attribute.text_inline = true;
 }
 
-
 void read_name(const nlohmann::json& j, char (&out)[SpanFrame::name_capacity + 1]) noexcept {
     const auto it = j.find("name");
     if (it == j.end() || !it->is_string()) {

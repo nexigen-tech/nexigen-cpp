@@ -65,7 +65,6 @@ namespace {
     return {};
 }
 
-
 } // namespace
 
 [[nodiscard]] std::string derive_instance_dir(std::string_view run_dir, std::string_view app_name,

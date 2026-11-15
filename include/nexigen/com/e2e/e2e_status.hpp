@@ -17,10 +17,10 @@ namespace nexigen::com {
 ///
 /// @note Spec `com/e2e`, requirement "Receiver supervision".
 enum class E2eStatus : std::uint8_t {
-    Ok,           ///< Checksum, data id, length, and sequence are valid.
-    Repeated,     ///< Same counter as the last accepted message.
-    WrongSequence,///< Gap above the configured maximum, or a counter going backwards.
-    Error,        ///< Length, data id, or checksum failure; sequence state untouched.
+    Ok,            ///< Checksum, data id, length, and sequence are valid.
+    Repeated,      ///< Same counter as the last accepted message.
+    WrongSequence, ///< Gap above the configured maximum, or a counter going backwards.
+    Error,         ///< Length, data id, or checksum failure; sequence state untouched.
 };
 
 /// @brief Canonical name of an E2E status.

@@ -40,8 +40,8 @@ public:
     /// @return The watchdog, or the device error when it cannot be opened or
     ///         armed while enabled. A disabled config never touches the device.
     /// @note Spec `phm/watchdog`, requirement "Watchdog ownership and lifecycle".
-    [[nodiscard]] static core::Result<Watchdog>
-    create(WatchdogDevice& device, const WatchdogConfig& config) noexcept;
+    [[nodiscard]] static core::Result<Watchdog> create(WatchdogDevice& device,
+                                                       const WatchdogConfig& config) noexcept;
 
     Watchdog(const Watchdog&) = delete;
     Watchdog& operator=(const Watchdog&) = delete;
@@ -93,16 +93,16 @@ public:
 private:
     Watchdog(WatchdogDevice& device, WatchdogConfig config, std::uint32_t granted_ms) noexcept;
 
-    WatchdogDevice* device_;          ///< Borrowed device boundary.
-    WatchdogConfig config_;           ///< Manifest section.
-    WatchdogState state_;             ///< Observable state.
-    std::uint32_t granted_ms_;        ///< Timeout granted by the driver.
-    std::uint64_t feeds_{0};          ///< Successful feed writes.
-    Clock::time_point last_tick_{};   ///< Previous cycle time.
-    Clock::time_point last_feed_{};   ///< Previous feed time.
-    bool have_tick_{false};           ///< `last_tick_` is valid.
-    bool have_feed_{false};           ///< `last_feed_` is valid.
-    bool feeding_{false};             ///< Feed policy is active.
+    WatchdogDevice* device_;        ///< Borrowed device boundary.
+    WatchdogConfig config_;         ///< Manifest section.
+    WatchdogState state_;           ///< Observable state.
+    std::uint32_t granted_ms_;      ///< Timeout granted by the driver.
+    std::uint64_t feeds_{0};        ///< Successful feed writes.
+    Clock::time_point last_tick_{}; ///< Previous cycle time.
+    Clock::time_point last_feed_{}; ///< Previous feed time.
+    bool have_tick_{false};         ///< `last_tick_` is valid.
+    bool have_feed_{false};         ///< `last_feed_` is valid.
+    bool feeding_{false};           ///< Feed policy is active.
 };
 
 /// @brief Free helper mirroring `Watchdog::to_string()` (mandate 9).

@@ -20,10 +20,10 @@ namespace nexigen::phm {
 ///
 /// @note Spec `phm/manifest`, requirement "Watchdog configuration".
 struct WatchdogConfig {
-    bool enabled{false};                  ///< Open and feed a device.
-    std::string device{};                 ///< Device path; empty = `/dev/watchdog`.
-    std::uint32_t timeout_ms{1000};       ///< Requested hardware timeout.
-    std::uint32_t feed_period_ms{200};    ///< Feed at most once per period.
+    bool enabled{false};               ///< Open and feed a device.
+    std::string device{};              ///< Device path; empty = `/dev/watchdog`.
+    std::uint32_t timeout_ms{1000};    ///< Requested hardware timeout.
+    std::uint32_t feed_period_ms{200}; ///< Feed at most once per period.
 
     /// @brief Cold-path diagnostic rendering.
     ///

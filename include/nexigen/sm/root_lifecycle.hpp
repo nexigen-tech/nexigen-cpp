@@ -42,7 +42,7 @@ public:
     /// @param app_name SM application name reported to the EM.
     /// @return A ready client, or the first mapped com error.
     [[nodiscard]] static com::Result<RootLifecycleClient> create(com::Node& node,
-                                                                    std::string app_name) noexcept;
+                                                                 std::string app_name) noexcept;
 
     /// @brief Copying is disabled: the client owns transport handles.
     RootLifecycleClient(const RootLifecycleClient&) = delete;

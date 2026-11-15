@@ -189,9 +189,7 @@ public:
     void set_restart_handler(RestartHandler handler) override {
         restart_handler_ = std::move(handler);
         if (recovery_) {
-            recovery_->set_restart([this](std::string_view app) {
-                return restart_process(app);
-            });
+            recovery_->set_restart([this](std::string_view app) { return restart_process(app); });
         }
     }
 

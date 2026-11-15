@@ -129,9 +129,12 @@ void from_json(const nlohmann::json& j, ResourceMetadata& metadata) noexcept {
     static_cast<void>(core::detail::read_string(j, "instance_dir", metadata.instance_dir));
     static_cast<void>(core::detail::read_signed(j, "pid", metadata.pid));
     static_cast<void>(core::detail::read_signed(j, "ppid", metadata.ppid));
-    static_cast<void>(core::detail::read_string(j, "start_time_rfc3339", metadata.start_time_rfc3339));
-    static_cast<void>(core::detail::read_unsigned(j, "start_time_mono_ns", metadata.start_time_mono_ns));
-    static_cast<void>(core::detail::read_unsigned(j, "proc_start_ticks", metadata.proc_start_ticks));
+    static_cast<void>(
+        core::detail::read_string(j, "start_time_rfc3339", metadata.start_time_rfc3339));
+    static_cast<void>(
+        core::detail::read_unsigned(j, "start_time_mono_ns", metadata.start_time_mono_ns));
+    static_cast<void>(
+        core::detail::read_unsigned(j, "proc_start_ticks", metadata.proc_start_ticks));
     static_cast<void>(core::detail::read_string(j, "version", metadata.version));
 }
 

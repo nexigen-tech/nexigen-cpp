@@ -23,12 +23,6 @@ namespace nexigen::logging {
 
 namespace {
 
-
-
-
-
-
-
 void read_core_mask_field(const nlohmann::json& j, const char* key,
                           core::ThreadSpec& worker_thread) noexcept {
     const auto it = j.find(key);

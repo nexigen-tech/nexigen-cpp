@@ -22,8 +22,7 @@ namespace nexigen::com {
 class E2eReceiver {
 public:
     /// @brief Bind the receiver to one service configuration.
-    E2eReceiver(E2eProfile profile, std::uint32_t data_id,
-                std::uint32_t max_delta_counter) noexcept
+    E2eReceiver(E2eProfile profile, std::uint32_t data_id, std::uint32_t max_delta_counter) noexcept
         : profile_(profile), data_id_(data_id),
           max_delta_(max_delta_counter == 0U ? 1U : max_delta_counter) {}
 

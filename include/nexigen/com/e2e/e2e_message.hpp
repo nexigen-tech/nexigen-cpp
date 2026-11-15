@@ -46,8 +46,8 @@ template <concepts::Message T> struct E2eMessage {
     T payload{};        ///< Application payload.
 };
 
-template <concepts::Message T> constexpr bool k_e2e_message_is_trivially_copyable =
-    std::is_trivially_copyable_v<E2eMessage<T>>;
+template <concepts::Message T>
+constexpr bool k_e2e_message_is_trivially_copyable = std::is_trivially_copyable_v<E2eMessage<T>>;
 
 /// @brief Free helper mirroring `E2eHeader::to_string()` (mandate 9).
 [[nodiscard]] inline std::string to_string(const E2eHeader& header) {

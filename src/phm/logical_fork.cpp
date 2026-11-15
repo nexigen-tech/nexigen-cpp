@@ -22,8 +22,9 @@ void to_json(nlohmann::json& j, const LogicalFork& fork) {
     for (const std::uint32_t id : fork.branch_entries) {
         branches.push_back(id);
     }
-    j = nlohmann::json{
-        {"fork_id", fork.fork_id}, {"branch_entries", std::move(branches)}, {"join_id", fork.join_id}};
+    j = nlohmann::json{{"fork_id", fork.fork_id},
+                       {"branch_entries", std::move(branches)},
+                       {"join_id", fork.join_id}};
 }
 
 void from_json(const nlohmann::json& j, LogicalFork& fork) noexcept {

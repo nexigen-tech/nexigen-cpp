@@ -17,9 +17,8 @@ core::Result<Watchdog> Watchdog::create(WatchdogDevice& device,
     if (!config.enabled) {
         return Watchdog(device, config, 0);
     }
-    const std::string_view path = config.device.empty()
-                                      ? std::string_view(k_default_device)
-                                      : std::string_view(config.device);
+    const std::string_view path = config.device.empty() ? std::string_view(k_default_device)
+                                                        : std::string_view(config.device);
     if (const core::Status opened = device.open(path); !opened) {
         return std::unexpected(opened.error());
     }
@@ -31,8 +30,7 @@ core::Result<Watchdog> Watchdog::create(WatchdogDevice& device,
     return Watchdog(device, config, *granted);
 }
 
-Watchdog::Watchdog(WatchdogDevice& device, WatchdogConfig config,
-                   std::uint32_t granted_ms) noexcept
+Watchdog::Watchdog(WatchdogDevice& device, WatchdogConfig config, std::uint32_t granted_ms) noexcept
     : device_(&device), config_(std::move(config)),
       state_(config_.enabled ? WatchdogState::Armed : WatchdogState::Disabled),
       granted_ms_(granted_ms), feeding_(config_.enabled) {}

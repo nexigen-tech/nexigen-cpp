@@ -97,9 +97,9 @@ private:
           receiver_(config.profile, config.data_id, config.max_delta_counter) {}
 
     Server<E2eMessage<Req>, E2eMessage<Resp>> inner_; ///< Enveloped server.
-    E2eConfig config_;                               ///< Service configuration.
-    E2eReceiver receiver_;                           ///< Request check state.
-    std::uint32_t next_counter_{1};                  ///< Response counter.
+    E2eConfig config_;                                ///< Service configuration.
+    E2eReceiver receiver_;                            ///< Request check state.
+    std::uint32_t next_counter_{1};                   ///< Response counter.
 };
 
 /// @brief Free helper mirroring `E2eServer::to_string()` (mandate 9).
@@ -113,8 +113,8 @@ template <concepts::Message Req, concepts::Message Resp>
 /// @brief `std::formatter` for the E2E server (project mandate 11).
 template <nexigen::com::concepts::Message Req, nexigen::com::concepts::Message Resp>
 struct std::formatter<nexigen::com::E2eServer<Req, Resp>> : std::formatter<std::string_view> {
-    template <class Ctx> auto format(const nexigen::com::E2eServer<Req, Resp>& server,
-                                     Ctx& ctx) const {
+    template <class Ctx>
+    auto format(const nexigen::com::E2eServer<Req, Resp>& server, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(server.to_string(), ctx);
     }
 };

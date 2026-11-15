@@ -20,9 +20,9 @@ namespace nexigen::com {
 
 /// @brief One protected response: payload plus the E2E verdict.
 template <concepts::Message Resp> struct E2eResponse {
-    Resp payload{};                       ///< Response payload.
-    E2eStatus status{E2eStatus::Ok};      ///< Check result.
-    E2eState state{};                     ///< Counter snapshot.
+    Resp payload{};                  ///< Response payload.
+    E2eStatus status{E2eStatus::Ok}; ///< Check result.
+    E2eState state{};                ///< Counter snapshot.
 };
 
 /// @brief Client that seals requests and checks responses.
@@ -79,9 +79,9 @@ private:
           receiver_(config.profile, config.data_id, config.max_delta_counter) {}
 
     Client<E2eMessage<Req>, E2eMessage<Resp>> inner_; ///< Enveloped client.
-    E2eConfig config_;                               ///< Service configuration.
-    E2eReceiver receiver_;                           ///< Response check state.
-    std::uint32_t next_counter_{1};                  ///< Request counter.
+    E2eConfig config_;                                ///< Service configuration.
+    E2eReceiver receiver_;                            ///< Response check state.
+    std::uint32_t next_counter_{1};                   ///< Request counter.
 };
 
 /// @brief Free helper mirroring `E2eClient::to_string()` (mandate 9).
@@ -95,8 +95,8 @@ template <concepts::Message Req, concepts::Message Resp>
 /// @brief `std::formatter` for the E2E client (project mandate 11).
 template <nexigen::com::concepts::Message Req, nexigen::com::concepts::Message Resp>
 struct std::formatter<nexigen::com::E2eClient<Req, Resp>> : std::formatter<std::string_view> {
-    template <class Ctx> auto format(const nexigen::com::E2eClient<Req, Resp>& client,
-                                     Ctx& ctx) const {
+    template <class Ctx>
+    auto format(const nexigen::com::E2eClient<Req, Resp>& client, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(client.to_string(), ctx);
     }
 };

@@ -424,8 +424,7 @@ void test_machinefg_off_initial() {
 
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
-    const auto query_name =
-        com::ServiceName::create("Nexigen/EM/InitialRootStateTransitionResult");
+    const auto query_name = com::ServiceName::create("Nexigen/EM/InitialRootStateTransitionResult");
     NX_CHECK(query_name.has_value());
     auto query =
         com::Client<std::monostate, exec::InitialRootStateTransitionResultResponse>::create(
@@ -525,8 +524,7 @@ void test_suite_control_path() {
     NX_CHECK(node.has_value());
 
     // The EM owns the initial RootFG transition and exposes its result.
-    const auto query_name =
-        com::ServiceName::create("Nexigen/EM/InitialRootStateTransitionResult");
+    const auto query_name = com::ServiceName::create("Nexigen/EM/InitialRootStateTransitionResult");
     NX_CHECK(query_name.has_value());
     auto query =
         com::Client<std::monostate, exec::InitialRootStateTransitionResultResponse>::create(

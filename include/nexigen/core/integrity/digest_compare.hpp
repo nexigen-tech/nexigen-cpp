@@ -34,9 +34,9 @@ namespace detail {
     }
     unsigned char difference = 0;
     for (std::size_t i = 0; i < left.size(); ++i) {
-        difference |= static_cast<unsigned char>(
-            detail::fold_hex(static_cast<unsigned char>(left[i])) ^
-            detail::fold_hex(static_cast<unsigned char>(right[i])));
+        difference |=
+            static_cast<unsigned char>(detail::fold_hex(static_cast<unsigned char>(left[i])) ^
+                                       detail::fold_hex(static_cast<unsigned char>(right[i])));
     }
     return difference == 0;
 }

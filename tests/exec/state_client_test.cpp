@@ -1058,8 +1058,7 @@ void test_root_function_group() {
         exec::StateClient::create(*node, *name, registry, manager, identity, &tracker);
     NX_CHECK(state_client.has_value());
 
-    NX_CHECK(state_client->request_state("RootFG", "Off") ==
-             exec::StateResult::InvalidTransition);
+    NX_CHECK(state_client->request_state("RootFG", "Off") == exec::StateResult::InvalidTransition);
     NX_CHECK(registry.group_state(0) == "Off");
     NX_CHECK(state_client->request_state("RootFG", "Startup") == exec::StateResult::Success);
     NX_CHECK(registry.group_state(0) == "Startup");

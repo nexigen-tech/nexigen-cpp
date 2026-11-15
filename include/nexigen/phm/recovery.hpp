@@ -211,15 +211,13 @@ public:
                     if (response.has_value() && response->accepted != 0U) {
                         return {};
                     }
-                    last = response.has_value()
-                               ? std::unexpected(com::Error::ConnectionFailure)
-                               : std::unexpected(response.error());
+                    last = response.has_value() ? std::unexpected(com::Error::ConnectionFailure)
+                                                : std::unexpected(response.error());
                     break;
                 }
                 case RecoveryAction::SwitchFunctionGroupState: {
-                    const com::Status escalated =
-                        notify_sm_recovery(rule.function_group.empty() ? process.name
-                                                                       : rule.function_group);
+                    const com::Status escalated = notify_sm_recovery(
+                        rule.function_group.empty() ? process.name : rule.function_group);
                     if (escalated) {
                         return escalated;
                     }

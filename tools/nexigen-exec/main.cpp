@@ -444,10 +444,9 @@ enum class StartScan { Scanned, Missing_value, Unknown };
 
 /// Suite-manifest start path.
 [[nodiscard]] int start_suite_process(const std::string& config, const std::string& manifest_sha256,
-                                     const std::string& machine) {
+                                      const std::string& machine) {
     exec::SuiteManifest manifest{};
-    const core::Status loaded =
-        exec::load_suite_manifest_auto(config, manifest_sha256, manifest);
+    const core::Status loaded = exec::load_suite_manifest_auto(config, manifest_sha256, manifest);
     if (!loaded) {
         const CliLogTarget target = fallback_log_target();
         static_cast<void>(activate_logging(target));

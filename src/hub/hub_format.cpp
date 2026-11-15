@@ -192,10 +192,9 @@ void from_json(const nlohmann::json& j, HubSuite& value) noexcept {
     read_enum(j, "state", value.state);
     static_cast<void>(read_unsigned(j, "suite_restarts_used", value.suite_restarts_used));
     static_cast<void>(read_string(j, "reason", value.reason));
-    nexigen::core::detail::read_object(j, "execution_manager_log",
-                                     [&](const nlohmann::json& obj) {
-                                         from_json(obj, value.execution_manager_log);
-                                     });
+    nexigen::core::detail::read_object(j, "execution_manager_log", [&](const nlohmann::json& obj) {
+        from_json(obj, value.execution_manager_log);
+    });
     static_cast<void>(nexigen::core::detail::collect_object_array(
         j, "apps", value.apps,
         [](const nlohmann::json& entry, HubApp& app) { from_json(entry, app); }));
