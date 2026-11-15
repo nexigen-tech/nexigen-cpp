@@ -978,9 +978,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/logging/composite_logger.hpp": {
-    "mtime": 1794515597.017264,
-    "seen": 1794516334.665474,
-    "ast_hash": "d76138997c7957d6a7595f5fa5263082",
+    "mtime": 1794745129.158599,
+    "seen": 1794745731.9942687,
+    "ast_hash": "9541beca721eba585e2e67432b66d641",
     "semantic_hash": ""
   },
   "include/nexigen/logging/concepts/logger_concept.hpp": {
@@ -2478,9 +2478,9 @@
     "semantic_hash": ""
   },
   "src/exec/suite_supervisor.cpp": {
-    "mtime": 1794742627.0693605,
-    "seen": 1794743200.3354197,
-    "ast_hash": "fc8e39c991e5569d22fa4221ab8b42a0",
+    "mtime": 1794745197.1551476,
+    "seen": 1794745731.9980836,
+    "ast_hash": "687eb3a436ec1896e91b9711e89d9d15",
     "semantic_hash": ""
   },
   "src/exec/terminated_by.cpp": {
@@ -2496,9 +2496,9 @@
     "semantic_hash": ""
   },
   "src/hub/http_server.cpp": {
-    "mtime": 1794249156.9469974,
-    "seen": 1794351957.9655137,
-    "ast_hash": "517d04b5da61022305942dd362d55716",
+    "mtime": 1794745230.536873,
+    "seen": 1794745731.998108,
+    "ast_hash": "875383c88876fae722abb82e2c9d2aaa",
     "semantic_hash": ""
   },
   "src/hub/hub_format.cpp": {
@@ -7008,9 +7008,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/sm/ipc/spec.md": {
-    "mtime": 1794738972.5825036,
-    "seen": 1794740962.3960426,
-    "ast_hash": "ca394e21e052920bf6b21f13b68658b8",
+    "mtime": 1794744929.9198408,
+    "seen": 1794745732.010898,
+    "ast_hash": "c3465f0246ccae74a8cd955eb8bfceec",
     "semantic_hash": ""
   },
   "openspec/specs/sm/lifecycle/spec.md": {
@@ -7020,9 +7020,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/sm/manifest/spec.md": {
-    "mtime": 1794740963.0750463,
-    "seen": 1794742118.7563639,
-    "ast_hash": "6154221de715c75c426aecbe2d0de68e",
+    "mtime": 1794744929.9216082,
+    "seen": 1794745732.010914,
+    "ast_hash": "ef7a454f61ca5234ba28d3e1a3d6d8b6",
     "semantic_hash": ""
   },
   "openspec/specs/sm/recovery-handler/spec.md": {
@@ -7032,9 +7032,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/sm/state-machine/spec.md": {
-    "mtime": 1794743664.7891645,
-    "seen": 1794743746.1699798,
-    "ast_hash": "0b5378c207afae2edfb10c90c9ef5c1a",
+    "mtime": 1794744929.9216082,
+    "seen": 1794745732.0109286,
+    "ast_hash": "fa5def60ccdf8bd50db2aa1801512de3",
     "semantic_hash": ""
   },
   "openspec/specs/sm/telemetry/spec.md": {
@@ -7116,9 +7116,9 @@
     "semantic_hash": ""
   },
   "tests/logging/log_daemon_test.cpp": {
-    "mtime": 1794547839.754789,
-    "seen": 1794548410.4842901,
-    "ast_hash": "41732f73d1c22dda9dce3dd8531f7b87",
+    "mtime": 1794745129.1615791,
+    "seen": 1794745731.9989676,
+    "ast_hash": "f3b958ee8783ebf4f98c2af3bc6b300c",
     "semantic_hash": ""
   },
   "include/nexigen/tracing/detail/trace_context.hpp": {
@@ -9138,9 +9138,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/sm/lightweight-state-machine/spec.md": {
-    "mtime": 1794740963.0750463,
-    "seen": 1794742118.7563627,
-    "ast_hash": "de1ba4f6adc18590c48b38a7db7b160a",
+    "mtime": 1794744929.9198408,
+    "seen": 1794745732.0109122,
+    "ast_hash": "0cc6cb8ccbeca03a06c1ae614f9ae058",
     "semantic_hash": ""
   },
   "include/nexigen/exec/root_function_group.hpp": {
@@ -9269,64 +9269,118 @@
     "ast_hash": "fb021f8cc650765380a59cd289ccf20f",
     "semantic_hash": ""
   },
-  "openspec/changes/p3-lsm-runtime-integration/.openspec.yaml": {
-    "mtime": 1794744332.7683969,
-    "seen": 1794744929.2105086,
-    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
-    "semantic_hash": ""
-  },
   "src/sm/lsm_runtime.cpp": {
     "mtime": 1794744562.373511,
     "seen": 1794744929.2113159,
     "ast_hash": "fc54ac946f916eb63c23811a4a766598",
     "semantic_hash": ""
   },
-  "openspec/changes/p3-lsm-runtime-integration/design.md": {
+  "openspec/changes/archive/2026-11-15-p3-lsm-runtime-integration/.openspec.yaml": {
+    "mtime": 1794744332.7683969,
+    "seen": 1794745731.997539,
+    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
+    "semantic_hash": ""
+  },
+  "openspec/changes/quality-tail-cleanup/.openspec.yaml": {
+    "mtime": 1794745073.407064,
+    "seen": 1794745731.9976027,
+    "ast_hash": "a9414df487e1eb4a2bb1d5daea9aaf03",
+    "semantic_hash": ""
+  },
+  "src/hub/http_sse.cpp": {
+    "mtime": 1794745225.3680458,
+    "seen": 1794745731.9981086,
+    "ast_hash": "7d55d5371797efc30695dbe4c43425ce",
+    "semantic_hash": ""
+  },
+  "src/hub/http_sse.hpp": {
+    "mtime": 1794745225.3680065,
+    "seen": 1794745731.9981096,
+    "ast_hash": "c7c107f055d26ffd9512822e0f192a97",
+    "semantic_hash": ""
+  },
+  "src/hub/http_transport.cpp": {
+    "mtime": 1794745225.3650742,
+    "seen": 1794745731.9981103,
+    "ast_hash": "c099fb86391ae15929dbfc5635813b83",
+    "semantic_hash": ""
+  },
+  "src/hub/http_transport.hpp": {
+    "mtime": 1794745225.3650742,
+    "seen": 1794745731.998111,
+    "ast_hash": "df3d54fd0b3f16ba4be82533b7091abd",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-p3-lsm-runtime-integration/design.md": {
     "mtime": 1794744344.797365,
-    "seen": 1794744929.2228312,
+    "seen": 1794745732.0093567,
     "ast_hash": "9540ba832ec051f1fcc455b2d8df2cc8",
     "semantic_hash": ""
   },
-  "openspec/changes/p3-lsm-runtime-integration/proposal.md": {
+  "openspec/changes/archive/2026-11-15-p3-lsm-runtime-integration/proposal.md": {
     "mtime": 1794744344.797365,
-    "seen": 1794744929.2228322,
+    "seen": 1794745732.0093582,
     "ast_hash": "6507830c1bc8425518fdd8b88f77acdc",
     "semantic_hash": ""
   },
-  "openspec/changes/p3-lsm-runtime-integration/specs/sm/ipc/spec.md": {
+  "openspec/changes/archive/2026-11-15-p3-lsm-runtime-integration/specs/sm/ipc/spec.md": {
     "mtime": 1794744357.0033329,
-    "seen": 1794744929.2228334,
+    "seen": 1794745732.0093591,
     "ast_hash": "37ef5b1097b642328f387b62ae552170",
     "semantic_hash": ""
   },
-  "openspec/changes/p3-lsm-runtime-integration/specs/sm/lightweight-state-machine/spec.md": {
+  "openspec/changes/archive/2026-11-15-p3-lsm-runtime-integration/specs/sm/lightweight-state-machine/spec.md": {
     "mtime": 1794744356.9933329,
-    "seen": 1794744929.222834,
+    "seen": 1794745732.0093596,
     "ast_hash": "ea9e0238418418c92d4ea547204e35c0",
     "semantic_hash": ""
   },
-  "openspec/changes/p3-lsm-runtime-integration/specs/sm/lsm-runtime/spec.md": {
+  "openspec/changes/archive/2026-11-15-p3-lsm-runtime-integration/specs/sm/lsm-runtime/spec.md": {
     "mtime": 1794744356.9933329,
-    "seen": 1794744929.2228353,
+    "seen": 1794745732.0093603,
     "ast_hash": "326cd97bcc84651b8cc86b658a98d5dc",
     "semantic_hash": ""
   },
-  "openspec/changes/p3-lsm-runtime-integration/specs/sm/manifest/spec.md": {
+  "openspec/changes/archive/2026-11-15-p3-lsm-runtime-integration/specs/sm/manifest/spec.md": {
     "mtime": 1794744357.0003328,
-    "seen": 1794744929.2228358,
+    "seen": 1794745732.0093608,
     "ast_hash": "f441a5b46a95d8d74fc8de8148643f76",
     "semantic_hash": ""
   },
-  "openspec/changes/p3-lsm-runtime-integration/specs/sm/state-machine/spec.md": {
+  "openspec/changes/archive/2026-11-15-p3-lsm-runtime-integration/specs/sm/state-machine/spec.md": {
     "mtime": 1794744357.0013328,
-    "seen": 1794744929.222837,
+    "seen": 1794745732.0093617,
     "ast_hash": "dbbdbbb9b7f12053b565eee1a054e186",
     "semantic_hash": ""
   },
-  "openspec/changes/p3-lsm-runtime-integration/tasks.md": {
+  "openspec/changes/archive/2026-11-15-p3-lsm-runtime-integration/tasks.md": {
     "mtime": 1794744912.947228,
-    "seen": 1794744929.2228377,
+    "seen": 1794745732.0093625,
     "ast_hash": "8ac223f646755601547fe7b6061f6635",
+    "semantic_hash": ""
+  },
+  "openspec/changes/quality-tail-cleanup/design.md": {
+    "mtime": 1794745073.4094684,
+    "seen": 1794745732.0097053,
+    "ast_hash": "4fa09f109b52f6d11aa22bcca61e7d6e",
+    "semantic_hash": ""
+  },
+  "openspec/changes/quality-tail-cleanup/proposal.md": {
+    "mtime": 1794745073.4074686,
+    "seen": 1794745732.009706,
+    "ast_hash": "0c91f974ea45604d628fa4dd1eb941d7",
+    "semantic_hash": ""
+  },
+  "openspec/changes/quality-tail-cleanup/tasks.md": {
+    "mtime": 1794745277.7329383,
+    "seen": 1794745732.0097067,
+    "ast_hash": "b5a8d39123de8764d8dbb74e4f50a76d",
+    "semantic_hash": ""
+  },
+  "openspec/specs/sm/lsm-runtime/spec.md": {
+    "mtime": 1794744929.9216082,
+    "seen": 1794745732.0109127,
+    "ast_hash": "4c6a431f1f61886061c0aed5ff642e26",
     "semantic_hash": ""
   }
 }
