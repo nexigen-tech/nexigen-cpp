@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the SM's central arbitration engine: one MachineState machine plus independent FunctionGroup machines with strict transition graphs, requester-priority arbitration of conflicting requests, and multi-step startup/shutdown sequencing.
+Defines the SM's central arbitration engine: one RootFG machine plus independent FunctionGroup machines with strict transition graphs, requester-priority arbitration of conflicting requests, and multi-step startup/shutdown sequencing.
 
 ## Requirements
 

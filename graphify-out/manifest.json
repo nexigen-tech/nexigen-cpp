@@ -7032,9 +7032,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/sm/state-machine/spec.md": {
-    "mtime": 1794742704.1016004,
-    "seen": 1794743200.3510864,
-    "ast_hash": "d3f1843721e59114edb9bbe9f0d3be49",
+    "mtime": 1794743664.7891645,
+    "seen": 1794743746.1699798,
+    "ast_hash": "0b5378c207afae2edfb10c90c9ef5c1a",
     "semantic_hash": ""
   },
   "openspec/specs/sm/telemetry/spec.md": {
@@ -8514,9 +8514,9 @@
     "semantic_hash": ""
   },
   "src/exec/control_host_com.cpp": {
-    "mtime": 1794742627.0705197,
-    "seen": 1794743200.3351963,
-    "ast_hash": "03d3c04dae292d7e480e4c26cd5d9acb",
+    "mtime": 1794743668.8748987,
+    "seen": 1794743746.1568987,
+    "ast_hash": "b5680d8875fc35c58d297f39fb1266cb",
     "semantic_hash": ""
   },
   "tests/exec/suite_control_test.cpp": {
@@ -9173,12 +9173,6 @@
     "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
     "semantic_hash": ""
   },
-  "openspec/changes/rename-fg-vocabulary-to-rootfg/.openspec.yaml": {
-    "mtime": 1794742718.048836,
-    "seen": 1794743200.334934,
-    "ast_hash": "a9414df487e1eb4a2bb1d5daea9aaf03",
-    "semantic_hash": ""
-  },
   "src/exec/root_function_group.cpp": {
     "mtime": 1794742627.069626,
     "seen": 1794743200.3353536,
@@ -9233,24 +9227,6 @@
     "ast_hash": "c21e49f82018ee92fba7b837e719cf3c",
     "semantic_hash": ""
   },
-  "openspec/changes/rename-fg-vocabulary-to-rootfg/design.md": {
-    "mtime": 1794742718.0513434,
-    "seen": 1794743200.3496153,
-    "ast_hash": "7858ac68882907b86cf56bd19ec6948a",
-    "semantic_hash": ""
-  },
-  "openspec/changes/rename-fg-vocabulary-to-rootfg/proposal.md": {
-    "mtime": 1794742718.05,
-    "seen": 1794743200.3496165,
-    "ast_hash": "297313d8ad1ac5f9d2d70dc2f14ccda6",
-    "semantic_hash": ""
-  },
-  "openspec/changes/rename-fg-vocabulary-to-rootfg/tasks.md": {
-    "mtime": 1794742718.0524986,
-    "seen": 1794743200.3496208,
-    "ast_hash": "f36329ca001561bb8082e22d1f86d2e5",
-    "semantic_hash": ""
-  },
   "openspec/specs/exec/machine-manifest/spec.md": {
     "mtime": 1794742119.4400382,
     "seen": 1794743200.3502495,
@@ -9261,6 +9237,30 @@
     "mtime": 1794742634.8398104,
     "seen": 1794743200.3503108,
     "ast_hash": "2190bb089e90f5fc93487a6e55fc2e3e",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-rename-fg-vocabulary-to-rootfg/.openspec.yaml": {
+    "mtime": 1794742718.048836,
+    "seen": 1794743746.1566515,
+    "ast_hash": "a9414df487e1eb4a2bb1d5daea9aaf03",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-rename-fg-vocabulary-to-rootfg/design.md": {
+    "mtime": 1794742718.0513434,
+    "seen": 1794743746.1685956,
+    "ast_hash": "7858ac68882907b86cf56bd19ec6948a",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-rename-fg-vocabulary-to-rootfg/proposal.md": {
+    "mtime": 1794742718.05,
+    "seen": 1794743746.1685965,
+    "ast_hash": "297313d8ad1ac5f9d2d70dc2f14ccda6",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-15-rename-fg-vocabulary-to-rootfg/tasks.md": {
+    "mtime": 1794742718.0524986,
+    "seen": 1794743746.1685975,
+    "ast_hash": "f36329ca001561bb8082e22d1f86d2e5",
     "semantic_hash": ""
   }
 }

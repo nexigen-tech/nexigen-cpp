@@ -36,13 +36,13 @@ namespace {
 /// @brief Standard EM command channel hosted by the suite supervisor.
 constexpr const char* control_service_name = "Nexigen/EM/StateCommand";
 /// @brief Initial RootFG transition result query channel.
-constexpr const char* machine_query_service_name = "Nexigen/EM/InitialRootStateTransitionResult";
+constexpr const char* root_query_service_name = "Nexigen/EM/InitialRootStateTransitionResult";
 /// @brief EM→PHM process lifecycle sample channel.
 constexpr const char* lifecycle_service_name = "Nexigen/PHM/ExecutionState";
 /// @brief EM→PHM lifecycle wake event.
 constexpr const char* lifecycle_event_name = "Nexigen/PHM/ExecutionStateEvent";
 
-using MachineQueryServer = com::Server<std::monostate, InitialRootStateTransitionResultResponse>;
+using RootQueryServer = com::Server<std::monostate, InitialRootStateTransitionResultResponse>;
 using LifecyclePublisher = com::Publisher<ProcessLifecycleEvent>;
 
 /// @brief Last lifecycle state published for one application.
@@ -75,9 +75,9 @@ public:
                 lifecycle_event_.emplace(std::move(*event));
             }
         }
-        const auto query_name = com::ServiceName::create(machine_query_service_name);
+        const auto query_name = com::ServiceName::create(root_query_service_name);
         if (query_name) {
-            auto server = MachineQueryServer::create(*node_, *query_name);
+            auto server = RootQueryServer::create(*node_, *query_name);
             if (server) {
                 query_server_.emplace(std::move(*server));
             }
@@ -96,7 +96,7 @@ public:
     [[nodiscard]] bool valid() const noexcept { return client_.has_value(); }
 
     void poll() noexcept override {
-        serve_machine_query();
+        serve_root_query();
         if (client_) {
             static_cast<void>(client_->serve_once());
         }
@@ -110,8 +110,7 @@ public:
         }
         // The suite supervisor is the EM-internal caller: it may request the
         // EM-owned RootFG Off state. External SetState still rejects it.
-        if (has_machine_group_ && is_root_function_group(group) &&
-            state == k_root_state_off) {
+        if (has_machine_group_ && is_root_function_group(group) && state == k_root_state_off) {
             client_->shutdown_machine();
             if (!initial_machine_settled_) {
                 initial_machine_result_ = StateResult::Success;
@@ -256,7 +255,7 @@ private:
     }
 
     /// @brief Serve one `GetInitialRootStateTransitionResult` request.
-    void serve_machine_query() noexcept {
+    void serve_root_query() noexcept {
         if (!query_server_) {
             return;
         }
@@ -280,7 +279,7 @@ private:
     ExecutionManager manager_;
     app::RunIdentity identity_;
     std::optional<StateClient> client_;
-    std::optional<MachineQueryServer> query_server_;
+    std::optional<RootQueryServer> query_server_;
     std::optional<LifecyclePublisher> lifecycle_publisher_;
     std::optional<com::EventNotifier> lifecycle_event_;
     std::vector<PublishedLifecycle> published_{};
