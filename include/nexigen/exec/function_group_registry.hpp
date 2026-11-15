@@ -42,10 +42,10 @@ public:
     /// @note Spec `exec/app-suite`, requirement "Function Group configuration".
     explicit FunctionGroupRegistry(const SuiteManifest& manifest);
 
-    /// @brief Whether one group is the reserved `MachineFG`.
+    /// @brief Whether one group is the reserved `RootFG`.
     ///
     /// @param index Group index; must be below `group_count()`.
-    /// @return `true` when the group name is `MachineFG`.
+    /// @return `true` when the group name is `RootFG`.
     /// @warning Passing an out-of-range index is undefined behavior.
     [[nodiscard]] bool is_machine_group(std::size_t index) const noexcept;
 

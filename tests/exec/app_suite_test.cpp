@@ -1728,7 +1728,7 @@ void test_forced_stop() {
     remove_tree(artifacts);
 }
 
-void test_machine_function_group_validation() {
+void test_root_function_group_validation() {
     const std::string root = unique_dir("machinefg");
     const std::string artifacts = unique_dir("machinefg_artifacts");
     const std::string root2 = unique_dir("machinefg_root2");
@@ -1736,13 +1736,13 @@ void test_machine_function_group_validation() {
 
     exec::SuiteManifest good = base_manifest(root, artifacts);
     exec::FunctionGroupConfig machine{};
-    machine.name = "MachineFG";
+    machine.name = "RootFG";
     machine.states = {"Off", "Startup", "Verify", "Run", "Shutdown", "Restart"};
     machine.initial_state = "Startup";
     good.function_groups.push_back(machine);
     exec::AppSpec platform =
         app_spec("platform_init", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
-    platform.function_group = "MachineFG";
+    platform.function_group = "RootFG";
     platform.reporting = false;
     platform.type = exec::ProcessType::Oneshot;
     first_config(platform).state = "Startup";
@@ -2064,7 +2064,7 @@ void test_control_host_factory_slot() {
 
 int main() {
     run_suite("control_host_factory", test_control_host_factory_slot);
-    run_suite("machinefg_validation", test_machine_function_group_validation);
+    run_suite("machinefg_validation", test_root_function_group_validation);
     run_suite("process_lifecycle", test_process_lifecycle_serialization);
     run_suite("platform_controls_serialization", test_platform_controls_serialization);
     run_suite("platform_controls_validation", test_platform_controls_validation);

@@ -60,9 +60,9 @@ SHALL be rejected as stale.
 
 Request ids SHALL be monotonically increasing per requester. The EM SHALL NOT
 require global uniqueness; ordering is compared only within one Function Group.
-The internal MachineFG lifecycle client SHALL keep its own sequence.
+The internal RootFG lifecycle client SHALL keep its own sequence.
 
-#### Scenario: SM and MachineFG ids are independent
+#### Scenario: SM and RootFG ids are independent
 
-- **WHEN** the SM uses id 3 for an application group and the lifecycle client uses id 3 for MachineFG
+- **WHEN** the SM uses id 3 for an application group and the lifecycle client uses id 3 for RootFG
 - **THEN** both are accepted because the groups are independent

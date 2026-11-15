@@ -23,8 +23,8 @@
 #include <nexigen/exec/execution_manager.hpp>
 #include <nexigen/exec/execution_state_tracker.hpp>
 #include <nexigen/exec/function_group_registry.hpp>
-#include <nexigen/exec/machine_function_group.hpp>
-#include <nexigen/exec/machine_state_query.hpp>
+#include <nexigen/exec/root_function_group.hpp>
+#include <nexigen/exec/root_state_query.hpp>
 #include <nexigen/exec/process_lifecycle.hpp>
 #include <nexigen/exec/state_client.hpp>
 #include <nexigen/exec/suite_manifest.hpp>
@@ -35,14 +35,14 @@ namespace {
 
 /// @brief Standard EM command channel hosted by the suite supervisor.
 constexpr const char* control_service_name = "Nexigen/EM/StateCommand";
-/// @brief Initial MachineFG transition result query channel.
-constexpr const char* machine_query_service_name = "Nexigen/EM/InitialMachineStateTransitionResult";
+/// @brief Initial RootFG transition result query channel.
+constexpr const char* machine_query_service_name = "Nexigen/EM/InitialRootStateTransitionResult";
 /// @brief EM→PHM process lifecycle sample channel.
 constexpr const char* lifecycle_service_name = "Nexigen/PHM/ExecutionState";
 /// @brief EM→PHM lifecycle wake event.
 constexpr const char* lifecycle_event_name = "Nexigen/PHM/ExecutionStateEvent";
 
-using MachineQueryServer = com::Server<std::monostate, InitialMachineStateTransitionResultResponse>;
+using MachineQueryServer = com::Server<std::monostate, InitialRootStateTransitionResultResponse>;
 using LifecyclePublisher = com::Publisher<ProcessLifecycleEvent>;
 
 /// @brief Last lifecycle state published for one application.
@@ -56,7 +56,7 @@ public:
     ComControlHost(com::Node node, const SuiteManifest& manifest, const app::RunIdentity& identity)
         : node_(std::move(node)), registry_(manifest), identity_(identity) {
         for (const FunctionGroupConfig& group : manifest.function_groups) {
-            if (is_machine_function_group(group.name)) {
+            if (is_root_function_group(group.name)) {
                 has_machine_group_ = true;
                 break;
             }
@@ -109,9 +109,9 @@ public:
             return StateResult::InvalidArgument;
         }
         // The suite supervisor is the EM-internal caller: it may request the
-        // EM-owned MachineFG Off state. External SetState still rejects it.
-        if (has_machine_group_ && is_machine_function_group(group) &&
-            state == k_machine_state_off) {
+        // EM-owned RootFG Off state. External SetState still rejects it.
+        if (has_machine_group_ && is_root_function_group(group) &&
+            state == k_root_state_off) {
             client_->shutdown_machine();
             if (!initial_machine_settled_) {
                 initial_machine_result_ = StateResult::Success;
@@ -120,7 +120,7 @@ public:
             return StateResult::Success;
         }
         const StateResult result = client_->request_state(group, state);
-        if (has_machine_group_ && !initial_machine_settled_ && is_machine_function_group(group) &&
+        if (has_machine_group_ && !initial_machine_settled_ && is_root_function_group(group) &&
             result != StateResult::InProgress) {
             initial_machine_result_ = result;
             initial_machine_settled_ = true;
@@ -255,7 +255,7 @@ private:
         }
     }
 
-    /// @brief Serve one `GetInitialMachineStateTransitionResult` request.
+    /// @brief Serve one `GetInitialRootStateTransitionResult` request.
     void serve_machine_query() noexcept {
         if (!query_server_) {
             return;
@@ -264,7 +264,7 @@ private:
         if (!received || !received->has_value()) {
             return;
         }
-        InitialMachineStateTransitionResultResponse response{};
+        InitialRootStateTransitionResultResponse response{};
         if (!has_machine_group_) {
             response.result = StateResult::InvalidArgument;
         } else if (!initial_machine_settled_) {

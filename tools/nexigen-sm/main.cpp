@@ -38,7 +38,7 @@
 #include <nexigen/sm/recovery_handler.hpp>
 #include <nexigen/sm/sm_manifest.hpp>
 #include <nexigen/sm/sm_metrics.hpp>
-#include <nexigen/sm/machine_lifecycle.hpp>
+#include <nexigen/sm/root_lifecycle.hpp>
 #include <nexigen/sm/state_manager.hpp>
 #include <nexigen/sm/state_publication.hpp>
 #include <nexigen/sm/transition_audit.hpp>
@@ -515,10 +515,10 @@ void run_loop(Session& session, nexigen::sm::StateManager& manager,
 /// Result of the EM-gated startup attempt.
 enum class StartupGate { Success, Failed, Unavailable };
 
-/// Report SM readiness, read the EM's initial MachineFG result, and command
+/// Report SM readiness, read the EM's initial RootFG result, and command
 /// `Verify` and `Run` before the SM advances its own platform state.
 [[nodiscard]] StartupGate gate_machine_startup(nexigen::sm::StateManager& manager,
-                                               nexigen::sm::MachineLifecycleClient& lifecycle,
+                                               nexigen::sm::RootLifecycleClient& lifecycle,
                                                const nexigen::sm::SmManifest& manifest) {
     const std::uint64_t budget_ms =
         manifest.startup_timeout_ms == 0U ? 5000U : manifest.startup_timeout_ms;
@@ -532,18 +532,18 @@ enum class StartupGate { Success, Failed, Unavailable };
     }
     if (*initial == nexigen::exec::StateResult::InvalidArgument ||
         *initial == nexigen::exec::StateResult::InvalidTransition) {
-        std::fprintf(stderr, "nexigen-sm: no MachineFG integration; synchronous fallback\n");
+        std::fprintf(stderr, "nexigen-sm: no RootFG integration; synchronous fallback\n");
         return StartupGate::Unavailable;
     }
     if (*initial != nexigen::exec::StateResult::Success) {
-        std::fprintf(stderr, "nexigen-sm: initial MachineFG transition failed: %s\n",
+        std::fprintf(stderr, "nexigen-sm: initial RootFG transition failed: %s\n",
                      std::string(nexigen::exec::to_string(*initial)).c_str());
         return StartupGate::Failed;
     }
     (void)manager.advance_startup();
     const auto verify = lifecycle.request_state("Verify", timeout);
     if (!verify || *verify != nexigen::exec::StateResult::Success) {
-        std::fprintf(stderr, "nexigen-sm: MachineFG Verify failed: %s\n",
+        std::fprintf(stderr, "nexigen-sm: RootFG Verify failed: %s\n",
                      verify ? std::string(nexigen::exec::to_string(*verify)).c_str()
                             : std::string(nexigen::com::to_string(verify.error())).c_str());
         return StartupGate::Failed;
@@ -551,7 +551,7 @@ enum class StartupGate { Success, Failed, Unavailable };
     (void)manager.confirm_startup_step();
     const auto run = lifecycle.request_state("Run", timeout);
     if (!run || *run != nexigen::exec::StateResult::Success) {
-        std::fprintf(stderr, "nexigen-sm: MachineFG Run failed: %s\n",
+        std::fprintf(stderr, "nexigen-sm: RootFG Run failed: %s\n",
                      run ? std::string(nexigen::exec::to_string(*run)).c_str()
                          : std::string(nexigen::com::to_string(run.error())).c_str());
         return StartupGate::Failed;
@@ -619,9 +619,9 @@ open_update_coordinator(Session& session, nexigen::sm::StateManager& manager,
 
     auto update = open_update_coordinator(session, manager, options);
 
-    std::optional<nexigen::sm::MachineLifecycleClient> lifecycle;
+    std::optional<nexigen::sm::RootLifecycleClient> lifecycle;
     if (!options.app_name.empty()) {
-        auto created = nexigen::sm::MachineLifecycleClient::create(*session.node, options.app_name);
+        auto created = nexigen::sm::RootLifecycleClient::create(*session.node, options.app_name);
         if (created) {
             lifecycle.emplace(std::move(*created));
         }
@@ -632,7 +632,7 @@ open_update_coordinator(Session& session, nexigen::sm::StateManager& manager,
 
     // Startup sequencing (REQ_SM_001/005): Off -> Startup -> Verify -> Run.
     // The SM enters its own Startup, reports readiness, then gates Verify/Run
-    // on the EM's MachineFG result. Without an EM the synchronous fallback
+    // on the EM's RootFG result. Without an EM the synchronous fallback
     // remains.
     (void)manager.begin_startup();
     if (lifecycle) {
@@ -655,7 +655,7 @@ open_update_coordinator(Session& session, nexigen::sm::StateManager& manager,
     run_loop(session, manager, audit, metrics, pending, update ? &*update : nullptr);
 
     // Shutdown sequencing (REQ_SM_005): application groups to Off, request
-    // MachineFG Shutdown (never Off), then EM owns the final Off. The host
+    // RootFG Shutdown (never Off), then EM owns the final Off. The host
     // advances synchronously when no EM lifecycle client is available.
     manager.begin_shutdown();
     if (lifecycle) {

@@ -1,5 +1,5 @@
-// nexigen::exec — initial MachineFG transition result query payloads
-// (change machinefg-as-em-function-group; spec exec/machine-function-group).
+// nexigen::exec — initial RootFG transition result query payloads
+// (change machinefg-as-em-function-group; spec exec/root-function-group).
 //
 // The request is `std::monostate` (an empty POD). The response is a
 // fixed-size trivially copyable POD so the com transport needs no serialization
@@ -16,19 +16,19 @@
 
 namespace nexigen::exec {
 
-/// @brief Response of `GetInitialMachineStateTransitionResult`.
-struct InitialMachineStateTransitionResultResponse {
+/// @brief Response of `GetInitialRootStateTransitionResult`.
+struct InitialRootStateTransitionResultResponse {
     StateResult result{StateResult::InvalidArgument}; ///< Recorded terminal result.
 
     /// @brief Cold-path diagnostic rendering.
     ///
-    /// @return `InitialMachineStateTransitionResultResponse(result=<name>)`.
+    /// @return `InitialRootStateTransitionResultResponse(result=<name>)`.
     [[nodiscard]] std::string to_string() const;
 };
 
 /// @brief Free diagnostic helper (project mandate 9).
 [[nodiscard]] inline std::string
-to_string(const InitialMachineStateTransitionResultResponse& response) {
+to_string(const InitialRootStateTransitionResultResponse& response) {
     return response.to_string();
 }
 
@@ -37,7 +37,7 @@ to_string(const InitialMachineStateTransitionResultResponse& response) {
 /// @param j Destination JSON value.
 /// @param response Response to serialize.
 /// @note Cold-path JSON only (project mandate 10).
-void to_json(nlohmann::json& j, const InitialMachineStateTransitionResultResponse& response);
+void to_json(nlohmann::json& j, const InitialRootStateTransitionResultResponse& response);
 
 /// @brief Parse the response without throwing under `JSON_NOEXCEPTION=1`.
 ///
@@ -47,16 +47,16 @@ void to_json(nlohmann::json& j, const InitialMachineStateTransitionResultRespons
 /// @param response Target response.
 /// @note Cold-path JSON only (project mandate 10).
 void from_json(const nlohmann::json& j,
-               InitialMachineStateTransitionResultResponse& response) noexcept;
+               InitialRootStateTransitionResultResponse& response) noexcept;
 
 } // namespace nexigen::exec
 
 /// @brief `std::formatter` for the query response (project mandate 11).
 template <>
-struct std::formatter<nexigen::exec::InitialMachineStateTransitionResultResponse>
+struct std::formatter<nexigen::exec::InitialRootStateTransitionResultResponse>
     : std::formatter<std::string_view> {
     template <class Ctx>
-    auto format(const nexigen::exec::InitialMachineStateTransitionResultResponse& response,
+    auto format(const nexigen::exec::InitialRootStateTransitionResultResponse& response,
                 Ctx& ctx) const {
         return std::formatter<std::string_view>::format(response.to_string(), ctx);
     }

@@ -49,7 +49,7 @@ SHALL preserve the previous accept-all behavior.
 
 The SM SHALL copy the `TriggerRequest::requester_id` into the pending
 transition and then into the `StateCommand` sent to the EM. The SM's internal
-MachineFG lifecycle client SHALL use its configured application name, or `sm`
+RootFG lifecycle client SHALL use its configured application name, or `sm`
 when no name is configured, as the requester.
 
 #### Scenario: Trigger requester reaches the EM
@@ -57,7 +57,7 @@ when no name is configured, as the requester.
 - **WHEN** a TriggerIn request with `requester_id=phm` is accepted
 - **THEN** the eventual `StateCommand` carries `phm`
 
-#### Scenario: Internal MachineFG request names the SM
+#### Scenario: Internal RootFG request names the SM
 
-- **WHEN** the SM commands `MachineFG:Verify` during startup
+- **WHEN** the SM commands `RootFG:Verify` during startup
 - **THEN** the command carries the SM application name or `sm`

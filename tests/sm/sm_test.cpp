@@ -29,12 +29,12 @@
 #include <nexigen/core/affinity.hpp>
 #include <nexigen/core/serialization_mandate.hpp>
 #include <nexigen/core/thread_management.hpp>
-#include <nexigen/exec/machine_state_query.hpp>
+#include <nexigen/exec/root_state_query.hpp>
 #include <nexigen/exec/state_ack.hpp>
 #include <nexigen/exec/state_command.hpp>
 #include <nexigen/sm/lightweight_state_machine.hpp>
-#include <nexigen/sm/machine_lifecycle.hpp>
-#include <nexigen/sm/machine_state.hpp>
+#include <nexigen/sm/root_lifecycle.hpp>
+#include <nexigen/sm/root_state.hpp>
 #include <nexigen/sm/ucm.hpp>
 #include <nexigen/sm/update_coordinator.hpp>
 #include <nexigen/sm/recovery_handler.hpp>
@@ -88,8 +88,8 @@ sm::SmManifest make_manifest() {
     motion.application_group = false;
     manifest.function_groups.push_back(motion);
 
-    // An application group gated on PlatformFG::Run (spec scenario
-    // "Application groups wait for PlatformFG Run").
+    // An application group gated on RootFG::Run (spec scenario
+    // "Application groups wait for RootFG Run").
     sm::FunctionGroup adas;
     adas.name = "adas";
     adas.states = {"Off", "Active", "SafeState"};
@@ -135,26 +135,26 @@ void test_vocabulary() {
         NX_CHECK(parsed == value);
         NX_CHECK(std::format("{}", value) == std::string(name));
     }
-    for (const sm::PlatformFG value :
-         {sm::PlatformFG::Off, sm::PlatformFG::Startup, sm::PlatformFG::Verify, sm::PlatformFG::Run,
-          sm::PlatformFG::Shutdown, sm::PlatformFG::Restart}) {
+    for (const sm::RootFG value :
+         {sm::RootFG::Off, sm::RootFG::Startup, sm::RootFG::Verify, sm::RootFG::Run,
+          sm::RootFG::Shutdown, sm::RootFG::Restart}) {
         const std::string_view name = to_string(value);
         NX_CHECK(!name.empty());
-        sm::PlatformFG back{};
+        sm::RootFG back{};
         NX_CHECK(from_string(name, back));
         NX_CHECK(back == value);
         nlohmann::json j;
         to_json(j, value);
         NX_CHECK(j == std::string(name));
-        sm::PlatformFG parsed{};
+        sm::RootFG parsed{};
         from_json(j, parsed);
         NX_CHECK(parsed == value);
         NX_CHECK(std::format("{}", value) == std::string(name));
     }
-    sm::PlatformFG legacy_state = sm::PlatformFG::Off;
+    sm::RootFG legacy_state = sm::RootFG::Off;
     NX_CHECK(!sm::from_string("NormalRunning", legacy_state));
-    NX_CHECK(legacy_state == sm::PlatformFG::Off);
-    NX_CHECK(to_string(static_cast<sm::PlatformFG>(0x7f)) == "Unknown");
+    NX_CHECK(legacy_state == sm::RootFG::Off);
+    NX_CHECK(to_string(static_cast<sm::RootFG>(0x7f)) == "Unknown");
     static_assert(com::concepts::Message<sm::TriggerRequest>);
     static_assert(com::concepts::Message<sm::TriggerResponse>);
     static_assert(com::concepts::Message<sm::RecoveryNotification>);
@@ -199,33 +199,33 @@ void test_state_machine() {
     // fast reboot that does not pass through Off.
     {
         sm::StateManager manager = make_manager();
-        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Off);
+        NX_CHECK(manager.root_fg() == sm::RootFG::Off);
         NX_CHECK(!manager.advance_startup()); // out of order from Off
         NX_CHECK(manager.begin_startup());
-        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Startup);
+        NX_CHECK(manager.root_fg() == sm::RootFG::Startup);
         NX_CHECK(manager.advance_startup());
-        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Verify);
+        NX_CHECK(manager.root_fg() == sm::RootFG::Verify);
         NX_CHECK(manager.confirm_startup_step());
-        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Run);
+        NX_CHECK(manager.root_fg() == sm::RootFG::Run);
 
         NX_CHECK(manager.begin_restart());
-        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Restart);
+        NX_CHECK(manager.root_fg() == sm::RootFG::Restart);
         NX_CHECK(manager.advance_restart());
-        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Startup);
+        NX_CHECK(manager.root_fg() == sm::RootFG::Startup);
         NX_CHECK(manager.advance_startup());
         NX_CHECK(manager.confirm_startup_step());
 
         NX_CHECK(manager.request_transition(1, "Active", "app") == sm::TransitionResult::Success);
         manager.begin_shutdown();
-        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Shutdown);
+        NX_CHECK(manager.root_fg() == sm::RootFG::Shutdown);
         NX_CHECK(manager.state(1) == "Off");
         NX_CHECK(manager.complete_shutdown());
-        NX_CHECK(manager.platform_fg() == sm::PlatformFG::Off);
+        NX_CHECK(manager.root_fg() == sm::RootFG::Off);
         NX_CHECK(!manager.complete_shutdown());
     }
 
-    // Application groups wait for PlatformFG::Run: no application group
-    // starts while the platform foundation is in Startup/Verify.
+    // Application groups wait for RootFG::Run: no application group
+    // starts while the root foundation is in Startup/Verify.
     {
         sm::StateManager manager = make_manager();
         NX_CHECK(manager.request_transition(1, "Active", "app") ==
@@ -245,11 +245,11 @@ void test_state_machine() {
         NX_CHECK(manager.state(1) == "Active");
     }
 
-    // Diagnostics render PlatformFG + group states.
+    // Diagnostics render RootFG + group states.
     {
         sm::StateManager manager = make_manager();
         const std::string text = manager.to_string();
-        NX_CHECK(text.find("platform_fg=Off") != std::string::npos);
+        NX_CHECK(text.find("root_fg=Off") != std::string::npos);
         NX_CHECK(text.find("motion_control=Active") != std::string::npos);
         NX_CHECK(to_string(manager) == text);
         NX_CHECK(std::format("{}", manager) == text);
@@ -508,16 +508,16 @@ void test_thread_spec() {
     static_cast<void>(std::remove(path_c.c_str()));
 }
 
-void test_machine_lifecycle_client() {
+void test_root_lifecycle_client() {
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
 
     const auto query_name =
-        com::ServiceName::create("Nexigen/EM/InitialMachineStateTransitionResult");
+        com::ServiceName::create("Nexigen/EM/InitialRootStateTransitionResult");
     const auto command_name = com::ServiceName::create("Nexigen/EM/StateCommand");
     NX_CHECK(query_name.has_value() && command_name.has_value());
     auto query_server =
-        com::Server<std::monostate, nexigen::exec::InitialMachineStateTransitionResultResponse>::
+        com::Server<std::monostate, nexigen::exec::InitialRootStateTransitionResultResponse>::
             create(*node, *query_name);
     auto command_server = com::Server<nexigen::exec::StateCommand, nexigen::exec::StateAck>::create(
         *node, *command_name);
@@ -532,7 +532,7 @@ void test_machine_lifecycle_client() {
             auto query = query_server->receive();
             if (query && query->has_value()) {
                 static_cast<void>(
-                    (*query)->send_copy(nexigen::exec::InitialMachineStateTransitionResultResponse{
+                    (*query)->send_copy(nexigen::exec::InitialRootStateTransitionResultResponse{
                         nexigen::exec::StateResult::Success}));
             }
             auto command = command_server->receive();
@@ -549,7 +549,7 @@ void test_machine_lifecycle_client() {
         }
     });
 
-    auto client = sm::MachineLifecycleClient::create(*node, "sm_app");
+    auto client = sm::RootLifecycleClient::create(*node, "sm_app");
     NX_CHECK(client.has_value());
     if (client) {
         NX_CHECK(client->available());
@@ -583,7 +583,7 @@ void test_ucm_coordination() {
     ucm.transition_max_time_ms = 500;
     manifest.function_groups.push_back(ucm);
     sm::FunctionGroup machine;
-    machine.name = "MachineFG";
+    machine.name = "RootFG";
     machine.states = {"Off", "Update"};
     machine.application_group = false;
     manifest.function_groups.push_back(machine);
@@ -658,7 +658,7 @@ void test_ucm_coordination() {
 
     sm::UpdateRequest machine_request{};
     std::snprintf(machine_request.function_group, sizeof(machine_request.function_group), "%s",
-                  "MachineFG");
+                  "RootFG");
     std::snprintf(machine_request.update_id, sizeof(machine_request.update_id), "%s", "u4");
     machine_request.action = sm::UpdateAction::Start;
     NX_CHECK(coordinator.handle(machine_request).result == sm::UpdateResult::Rejected);
@@ -800,7 +800,7 @@ int main() {
     run_suite("telemetry", test_telemetry);
     run_suite("manifest", test_manifest);
     run_suite("thread_spec", test_thread_spec);
-    run_suite("machine_lifecycle", test_machine_lifecycle_client);
+    run_suite("root_lifecycle", test_root_lifecycle_client);
     run_suite("ucm_coordination", test_ucm_coordination);
     run_suite("lightweight_state_machine", test_lightweight_state_machine);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);

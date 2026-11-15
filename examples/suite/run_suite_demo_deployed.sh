@@ -73,7 +73,7 @@ cat > "${manifest}" <<EOF
   "suite_restart_attempts": ${suite_restart_attempts},
   "suite_restart_delay_s": ${suite_restart_delay_s},
   "function_groups": [
-    { "name": "MachineFG", "states": ["Off", "Startup", "Verify", "Run", "Shutdown", "Restart"], "initial_state": "Startup" },
+    { "name": "RootFG", "states": ["Off", "Startup", "Verify", "Run", "Shutdown", "Restart"], "initial_state": "Startup" },
     { "name": "demo", "states": ["Off", "Running"], "initial_state": "Running" }
   ],
   "apps": [

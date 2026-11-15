@@ -1,7 +1,7 @@
 // nexigen::sm — central arbitration engine (change add-sm; spec
 // sm/state-machine; design D3; change introduce-platformfg-process-model).
 //
-// Headless per-group state machines plus the one PlatformFG Function Group. A
+// Headless per-group state machines plus the one RootFG Function Group. A
 // request is checked against the group's transition graph, then arbitrated
 // against the current holder's priority; the highest requester wins. Startup
 // and shutdown are explicit sequencing steps. All hot paths are O(1) in the
@@ -15,7 +15,7 @@
 #include <string_view>
 #include <vector>
 
-#include <nexigen/sm/machine_state.hpp>
+#include <nexigen/sm/root_state.hpp>
 #include <nexigen/sm/sm_manifest.hpp>
 #include <nexigen/sm/transition_result.hpp>
 
@@ -31,12 +31,12 @@ inline constexpr std::size_t k_holder_requester_length = 32;
 ///
 /// Builds one headless machine per group from an immutable manifest snapshot,
 /// starting each group in its first declared state, plus the single
-/// `PlatformFG` Function Group in `Off`. A request is validated against the
+/// `RootFG` Function Group in `Off`. A request is validated against the
 /// group's allowed-transition graph, then arbitrated against the current
 /// holder's configured priority; the accepted request becomes the new holder.
 /// Startup and shutdown are explicit steps instead of graph edges. An
-/// application group cannot leave an off-like state until `PlatformFG` reaches
-/// `Run`, so no application group starts before the platform foundation is
+/// application group cannot leave an off-like state until `RootFG` reaches
+/// `Run`, so no application group starts before the root foundation is
 /// ready.
 ///
 /// The arbiter is confined to the SM's arbitration thread: every mutation is a
@@ -81,10 +81,10 @@ public:
     /// @warning `index` must be below `group_count()`; no bounds check occurs.
     [[nodiscard]] std::string_view state(std::size_t index) const noexcept;
 
-    /// @brief The PlatformFG Function Group's current state.
+    /// @brief The RootFG Function Group's current state.
     ///
-    /// @return Current `PlatformFG` state, `Off` until sequencing advances it.
-    [[nodiscard]] PlatformFG platform_fg() const noexcept { return platform_fg_; }
+    /// @return Current `RootFG` state, `Off` until sequencing advances it.
+    [[nodiscard]] RootFG root_fg() const noexcept { return root_fg_; }
 
     /// @brief Index of the Function Group with the given name.
     ///
@@ -124,7 +124,7 @@ public:
     /// target or a `from -> to` pair absent from the graph (including a
     /// no-op request whose target is the current state) yields `InvalidGraph`
     /// and leaves the group untouched. An application group that is not yet
-    /// off-like cannot leave its off-like state until `PlatformFG` reaches
+    /// off-like cannot leave its off-like state until `RootFG` reaches
     /// `Run`; that start attempt is also rejected with `InvalidGraph`.
     /// Otherwise the requester priority is
     /// compared with the current holder: below it yields `RejectedByPriority`;
@@ -177,7 +177,7 @@ public:
     ///
     /// Every group marked `application_group` is forced to `Off` (only when it
     /// declares that state), and the machine then enters
-    /// `PlatformFG::Shutdown`. The final `Off` transition is
+    /// `RootFG::Shutdown`. The final `Off` transition is
     /// `complete_shutdown()` after the EM reports the stop.
     ///
     /// @note Spec `sm/state-machine`, requirement "Startup and shutdown
@@ -212,14 +212,14 @@ public:
 
     /// @brief Whether application groups may start.
     ///
-    /// Application groups are gated on the platform foundation: no application
-    /// Function Group may leave an off-like state before `PlatformFG::Run`.
+    /// Application groups are gated on the root foundation: no application
+    /// Function Group may leave an off-like state before `RootFG::Run`.
     ///
-    /// @return `true` when `PlatformFG` is in `Run`.
+    /// @return `true` when `RootFG` is in `Run`.
     /// @note Spec `sm/state-machine`, requirement "Startup and shutdown
     ///       sequencing".
     [[nodiscard]] bool application_groups_may_start() const noexcept {
-        return platform_fg_ == PlatformFG::Run;
+        return root_fg_ == RootFG::Run;
     }
 
     /// @brief Force one group into a state, bypassing arbitration.
@@ -239,7 +239,7 @@ public:
 
     /// @brief Render the manager state as a diagnostic string.
     ///
-    /// @return Text naming the PlatformFG state and every group's current
+    /// @return Text naming the RootFG state and every group's current
     ///         state; allocates.
     /// @note Spec `sm/state-machine`, requirement "State machines execution".
     /// @note Cold-path diagnostic only (project mandate 9).
@@ -281,7 +281,7 @@ private:
 
     SmManifest manifest_;                     ///< Immutable configuration snapshot.
     std::vector<GroupRuntime> groups_;        ///< Mutable runtime, one per group.
-    PlatformFG platform_fg_{PlatformFG::Off}; ///< PlatformFG Function Group state.
+    RootFG root_fg_{RootFG::Off}; ///< RootFG Function Group state.
 };
 
 /// @brief Free diagnostic helper mirroring `StateManager::to_string`.

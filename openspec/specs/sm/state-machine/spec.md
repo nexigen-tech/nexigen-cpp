@@ -8,7 +8,7 @@ Defines the SM's central arbitration engine: one MachineState machine plus indep
 
 ### Requirement: State machines execution
 
-`nexigen::sm` SHALL run one main `PlatformFG` machine — the platform-foundation Function Group — plus an arbitrary number of independent application Function Group machines. The `PlatformFG` machine SHALL use the state vocabulary `Off`, `Startup`, `Verify`, `Run`, `Shutdown`, and `Restart`, where `Off` is the initial state and `Run` is the target working state. Every group SHALL have a strict graph of allowed transitions, and a request for an invalid transition SHALL be rejected with `InvalidGraph`.
+`nexigen::sm` SHALL run one main `RootFG` machine — the root-foundation Function Group — plus an arbitrary number of independent application Function Group machines. The `RootFG` machine SHALL use the state vocabulary `Off`, `Startup`, `Verify`, `Run`, `Shutdown`, and `Restart`, where `Off` is the initial state and `Run` is the target working state. Every group SHALL have a strict graph of allowed transitions, and a request for an invalid transition SHALL be rejected with `InvalidGraph`.
 
 #### Scenario: Invalid transition is rejected
 
@@ -20,9 +20,9 @@ Defines the SM's central arbitration engine: one MachineState machine plus indep
 - **WHEN** a requester asks for a transition the graph allows
 - **THEN** the SM computes the target state and drives the group there
 
-#### Scenario: PlatformFG has the mandatory state vocabulary
+#### Scenario: RootFG has the mandatory state vocabulary
 
-- **WHEN** the `PlatformFG` machine is configured
+- **WHEN** the `RootFG` machine is configured
 - **THEN** its states are exactly `Off`, `Startup`, `Verify`, `Run`, `Shutdown`, and `Restart`, with `Off` as the initial state
 
 ### Requirement: Request arbitration
@@ -36,7 +36,7 @@ When several requesters ask for conflicting states, the SM SHALL resolve the con
 
 ### Requirement: Startup and shutdown sequencing
 
-The SM SHALL sequence the platform wake-up (`Off -> Startup -> Verify -> Run`) and the shutdown (`Run -> Shutdown -> Off`, moving every application group to `Off` first, then `PlatformFG` to `Shutdown` and finally `Off`) step by step. When an EM control path is available, the SM SHALL report its own readiness, query `GetInitialMachineStateTransitionResult`, and request `MachineFG:Verify` and `MachineFG:Run` through `StateClient`, advancing only after the EM acknowledges `Success`; a terminal initial-transition failure SHALL abort startup visibly. When no EM control path is reachable, the SM SHALL keep the documented synchronous fallback. Shutdown SHALL request `MachineFG:Shutdown` (never `Off`); the EM owns the final `Off`. `Restart` SHALL take the platform back to `Startup` without passing through `Off`. Application groups SHALL NOT be started until `PlatformFG` reaches `Run`.
+The SM SHALL sequence the platform wake-up (`Off -> Startup -> Verify -> Run`) and the shutdown (`Run -> Shutdown -> Off`, moving every application group to `Off` first, then `RootFG` to `Shutdown` and finally `Off`) step by step. When an EM control path is available, the SM SHALL report its own readiness, query `GetInitialRootStateTransitionResult`, and request `RootFG:Verify` and `RootFG:Run` through `StateClient`, advancing only after the EM acknowledges `Success`; a terminal initial-transition failure SHALL abort startup visibly. When no EM control path is reachable, the SM SHALL keep the documented synchronous fallback. Shutdown SHALL request `RootFG:Shutdown` (never `Off`); the EM owns the final `Off`. `Restart` SHALL take the platform back to `Startup` without passing through `Off`. Application groups SHALL NOT be started until `RootFG` reaches `Run`.
 
 #### Scenario: Startup advances through the states
 
@@ -45,7 +45,7 @@ The SM SHALL sequence the platform wake-up (`Off -> Startup -> Verify -> Run`) a
 
 #### Scenario: Startup failure aborts visibly
 
-- **WHEN** the initial `MachineFG:Startup` transition fails or `Verify`/`Run` exhausts its budget
+- **WHEN** the initial `RootFG:Startup` transition fails or `Verify`/`Run` exhausts its budget
 - **THEN** the SM exits nonzero instead of advancing the platform state
 
 #### Scenario: Standalone SM keeps the synchronous fallback
@@ -56,16 +56,16 @@ The SM SHALL sequence the platform wake-up (`Off -> Startup -> Verify -> Run`) a
 #### Scenario: Shutdown sequences the groups
 
 - **WHEN** the shutdown signal arrives
-- **THEN** the SM moves every application group to `Off`, requests `MachineFG:Shutdown`, and exits while the EM performs the final `Off`
+- **THEN** the SM moves every application group to `Off`, requests `RootFG:Shutdown`, and exits while the EM performs the final `Off`
 
 #### Scenario: Restart re-enters startup without power-off
 
 - **WHEN** a restart is requested while in `Run`
-- **THEN** the SM transitions `PlatformFG` to `Restart` and then back to `Startup`, without entering `Off`
+- **THEN** the SM transitions `RootFG` to `Restart` and then back to `Startup`, without entering `Off`
 
-#### Scenario: Application groups wait for PlatformFG Run
+#### Scenario: Application groups wait for RootFG Run
 
-- **WHEN** `PlatformFG` has not yet reached `Run`
+- **WHEN** `RootFG` has not yet reached `Run`
 - **THEN** no application Function Group is started
 
 ### Requirement: Transition result vocabulary
@@ -83,7 +83,7 @@ The SM SHALL allocate a monotonically increasing request id for each accepted
 TriggerIn transition, store it in the pending transition, and reuse it for every
 `InProgress` retry. On `OperationCanceled`, the SM SHALL drop the pending entry
 without forcing a `SafeState` fallback, because the request was superseded
-rather than failed. The SM MachineFG lifecycle client SHALL maintain its own
+rather than failed. The SM RootFG lifecycle client SHALL maintain its own
 request-id sequence.
 
 #### Scenario: InProgress retries reuse the id
@@ -96,7 +96,7 @@ request-id sequence.
 - **WHEN** the EM acknowledges `OperationCanceled` for a pending transition
 - **THEN** the SM removes it and does not force `SafeState`
 
-#### Scenario: MachineFG requests use their own ids
+#### Scenario: RootFG requests use their own ids
 
-- **WHEN** the SM commands MachineFG during startup
+- **WHEN** the SM commands RootFG during startup
 - **THEN** those commands carry ids from the lifecycle client's sequence

@@ -27,20 +27,20 @@ payloads SHALL remain trivially copyable `com::concepts::Message` types.
 ### Requirement: Update start
 
 `UpdateCoordinator` SHALL accept `Start` only when no update is active, the
-Function Group exists, it is not `MachineFG`, it declares `Update`, and
-`PlatformFG` is `Run`. It SHALL command the EM into `Update`, wait for
+Function Group exists, it is not `RootFG`, it declares `Update`, and
+`RootFG` is `Run`. It SHALL command the EM into `Update`, wait for
 `Success`, record the previous state, and lock the group. A second `Start`
 SHALL return `Busy`; an unsafe request SHALL return the matching rejection and
 leave the group unchanged.
 
 #### Scenario: Safe group enters Update
 
-- **WHEN** UCM starts an update for a declared application group while PlatformFG is Run
+- **WHEN** UCM starts an update for a declared application group while RootFG is Run
 - **THEN** the EM enters `Update`, the previous state is recorded, and the group is locked
 
-#### Scenario: MachineFG cannot be updated
+#### Scenario: RootFG cannot be updated
 
-- **WHEN** UCM starts an update for `MachineFG`
+- **WHEN** UCM starts an update for `RootFG`
 - **THEN** the response is `Rejected` and the platform state is unchanged
 
 #### Scenario: Concurrent update is busy

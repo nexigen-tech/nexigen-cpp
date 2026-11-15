@@ -135,7 +135,7 @@ struct SmManifest {
 ///
 /// Every group marked `application_group` must declare `Off` (shutdown
 /// sequencing moves it there) and must start in an off-like state (`Off` or
-/// `SafeState`), so no application group is active before `PlatformFG` reaches
+/// `SafeState`), so no application group is active before `RootFG` reaches
 /// `Run`.
 ///
 /// @param manifest Manifest to validate.

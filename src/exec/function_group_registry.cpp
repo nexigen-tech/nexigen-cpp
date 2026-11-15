@@ -4,7 +4,7 @@
 
 #include <utility>
 
-#include <nexigen/exec/machine_function_group.hpp>
+#include <nexigen/exec/root_function_group.hpp>
 
 namespace nexigen::exec {
 
@@ -39,7 +39,7 @@ std::size_t FunctionGroupRegistry::group_count() const noexcept {
 }
 
 bool FunctionGroupRegistry::is_machine_group(std::size_t index) const noexcept {
-    return is_machine_function_group(manifest_->function_groups[index].name);
+    return is_root_function_group(manifest_->function_groups[index].name);
 }
 
 std::string_view FunctionGroupRegistry::group_name(std::size_t index) const noexcept {

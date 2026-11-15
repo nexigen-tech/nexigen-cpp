@@ -82,7 +82,7 @@ flowchart TD
         EXEC["exec<br/>suite/instance lifecycle,<br/>process supervision, state-client"]
         HUB["hub<br/>discovery, streaming with gap markers,<br/>HTTP/SSE server, web-assets"]
         PHM["phm<br/>health-channel, manifest,<br/>recovery, supervised-entity"]
-        SM["sm<br/>manifest, PlatformFG state machine,<br/>transitions, audit, recovery-handler"]
+        SM["sm<br/>manifest, RootFG state machine,<br/>transitions, audit, recovery-handler"]
     end
 
     subgraph L2["L2 · telemetry"]
@@ -158,7 +158,7 @@ mirrors the module directory (`logging/log-level` → `include/nexigen/logging/`
 | `exec` | 37 | Execution: suite and application-instance lifecycle, process supervision, child processes, state client, run logging | `exec/app-suite`, `exec/instance-lifecycle`, `exec/process-supervision`, `exec/application-state`, `exec/state-client`, `exec/logging` |
 | `hub` | 15 | Observatory: run-tree discovery, streaming delivery with gap markers, HTTP/SSE server, web assets | `hub/discovery`, `hub/streaming`, `hub/http-api`, `hub/web-ui` |
 | `phm` | 13 | Health and reliability: manifest, supervisor, health channel, checkpoints, recovery | `phm/manifest`, `phm/supervision`, `phm/health-channel`, `phm/supervised-entity`, `phm/recovery` |
-| `sm` | 14 | State machine: manifest, `PlatformFG` (`Off`/`Startup`/`Verify`/`Run`/`Shutdown`/`Restart`) state manager, transitions and their preparation, audit, recovery, IPC | `sm/manifest`, `sm/state-machine`, `sm/lifecycle`, `sm/telemetry`, `sm/ipc`, `sm/recovery-handler` |
+| `sm` | 14 | State machine: manifest, `RootFG` (`Off`/`Startup`/`Verify`/`Run`/`Shutdown`/`Restart`) state manager, transitions and their preparation, audit, recovery, IPC | `sm/manifest`, `sm/state-machine`, `sm/lifecycle`, `sm/telemetry`, `sm/ipc`, `sm/recovery-handler` |
 
 Cross-cutting capabilities that are not tied to a single module:
 `quality/code-structure`, `quality/coverage`, `quality/reproducible-builds`,
@@ -236,7 +236,7 @@ flowchart TD
     STATE --> STOP["stop_suite / stop_suite_apps<br/>grace period, SIGTERM → SIGKILL"]
     STOP --> SUP
     STATE --> PHM2["phm::Supervisor<br/>health-channel, recovery"]
-    STATE --> SM2["sm::StateManager<br/>PlatformFG transitions and audit"]
+    STATE --> SM2["sm::StateManager<br/>RootFG transitions and audit"]
 ```
 
 ### State-driven EM control (suite supervisor)
@@ -282,9 +282,9 @@ documented file-based/non-reporting fallback: it selects the processes configure
 for `initial_state` directly and exposes no `StateClient`. No COM symbol enters
 `nexigen_exec`.
 
-## MachineFG state management
+## RootFG state management
 
-`MachineFG` is the reserved platform-foundation Function Group: it owns the
+`RootFG` is the reserved root-foundation Function Group: it owns the
 message broker, SM, PHM, EM and the future DataRecorder. A suite manifest may
 declare it with the fixed states `Off`, `Startup`, `Verify`, `Run`, `Shutdown`,
 and `Restart`. `Off` has no bound processes, `Startup` brings the foundation up,
@@ -295,11 +295,11 @@ passing through `Off`.
 The EM owns the initial `Off -> Startup` transition: the suite supervisor
 requests it through the same transition engine as any other group and records
 the first terminal result. A State Manager reads that result from
-`Nexigen/EM/InitialMachineStateTransitionResult`, then commands `Verify` and
-`Run` through `StateClient`. An external `SetState(MachineFG, Off)` is rejected
+`Nexigen/EM/InitialRootStateTransitionResult`, then commands `Verify` and
+`Run` through `StateClient`. An external `SetState(RootFG, Off)` is rejected
 with `InvalidTransition`; only the EM's own shutdown path records `Off`.
 Application Function Groups are gated on `Run`: no application group leaves an
-off-like state before the platform foundation is ready.
+off-like state before the root foundation is ready.
 
 ```mermaid
 stateDiagram-v2
@@ -366,8 +366,8 @@ flowchart LR
 
 ## UCM update coordination
 
-The SM serves `Nexigen/UCM/UpdateRequest`. `Start` checks that `PlatformFG` is
-`Run`, the target group is not `MachineFG`, and the group declares `Update`;
+The SM serves `Nexigen/UCM/UpdateRequest`. `Start` checks that `RootFG` is
+`Run`, the target group is not `RootFG`, and the group declares `Update`;
 the EM then enters `Update` (an off-like state that stops the group's
 processes), and the SM records the previous state and locks the group. A
 TriggerIn for a locked group is rejected with `RejectedByUpdate` while other

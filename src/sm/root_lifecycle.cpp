@@ -1,6 +1,6 @@
-// nexigen::sm — EM MachineFG lifecycle client
+// nexigen::sm — EM RootFG lifecycle client
 // (change machinefg-as-em-function-group).
-#include <nexigen/sm/machine_lifecycle.hpp>
+#include <nexigen/sm/root_lifecycle.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -8,14 +8,14 @@
 #include <thread>
 
 #include <nexigen/com/service_name.hpp>
-#include <nexigen/exec/machine_function_group.hpp>
+#include <nexigen/exec/root_function_group.hpp>
 
 namespace nexigen::sm {
 
 namespace {
 
 constexpr std::string_view command_service_name = "Nexigen/EM/StateCommand";
-constexpr std::string_view query_service_name = "Nexigen/EM/InitialMachineStateTransitionResult";
+constexpr std::string_view query_service_name = "Nexigen/EM/InitialRootStateTransitionResult";
 constexpr auto retry_interval = std::chrono::milliseconds(10);
 
 [[nodiscard]] std::chrono::milliseconds
@@ -30,14 +30,14 @@ remaining_budget(std::chrono::steady_clock::time_point deadline) noexcept {
 
 } // namespace
 
-MachineLifecycleClient::MachineLifecycleClient(
+RootLifecycleClient::RootLifecycleClient(
     std::string app_name, std::optional<exec::ApplicationStateReporter> reporter,
-    com::Client<std::monostate, exec::InitialMachineStateTransitionResultResponse> query,
+    com::Client<std::monostate, exec::InitialRootStateTransitionResultResponse> query,
     com::Client<exec::StateCommand, exec::StateAck> command) noexcept
     : app_name_(std::move(app_name)), reporter_(std::move(reporter)), query_(std::move(query)),
       command_(std::move(command)) {}
 
-com::Result<MachineLifecycleClient> MachineLifecycleClient::create(com::Node& node,
+com::Result<RootLifecycleClient> RootLifecycleClient::create(com::Node& node,
                                                                    std::string app_name) noexcept {
     auto reporter = exec::ApplicationStateReporter::create(node, app_name);
     if (!reporter) {
@@ -48,7 +48,7 @@ com::Result<MachineLifecycleClient> MachineLifecycleClient::create(com::Node& no
         return std::unexpected(query_name.error());
     }
     auto query =
-        com::Client<std::monostate, exec::InitialMachineStateTransitionResultResponse>::create(
+        com::Client<std::monostate, exec::InitialRootStateTransitionResultResponse>::create(
             node, *query_name);
     if (!query) {
         return std::unexpected(query.error());
@@ -61,11 +61,11 @@ com::Result<MachineLifecycleClient> MachineLifecycleClient::create(com::Node& no
     if (!command) {
         return std::unexpected(command.error());
     }
-    return MachineLifecycleClient{std::move(app_name), std::move(*reporter), std::move(*query),
+    return RootLifecycleClient{std::move(app_name), std::move(*reporter), std::move(*query),
                                   std::move(*command)};
 }
 
-com::Status MachineLifecycleClient::report_ready() noexcept {
+com::Status RootLifecycleClient::report_ready() noexcept {
     if (!reporter_) {
         return std::unexpected(com::Error::ServiceNotFound);
     }
@@ -73,7 +73,7 @@ com::Status MachineLifecycleClient::report_ready() noexcept {
 }
 
 com::Result<exec::StateResult>
-MachineLifecycleClient::initial_transition_result(std::chrono::milliseconds timeout) noexcept {
+RootLifecycleClient::initial_transition_result(std::chrono::milliseconds timeout) noexcept {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     for (;;) {
         const auto response = query_.call(std::monostate{}, remaining_budget(deadline));
@@ -91,12 +91,12 @@ MachineLifecycleClient::initial_transition_result(std::chrono::milliseconds time
 }
 
 com::Result<exec::StateResult>
-MachineLifecycleClient::request_state(std::string_view target,
+RootLifecycleClient::request_state(std::string_view target,
                                       std::chrono::milliseconds timeout) noexcept {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     exec::StateCommand command{};
     std::snprintf(command.function_group, sizeof(command.function_group), "%s",
-                  std::string(exec::k_machine_function_group_name).c_str());
+                  std::string(exec::k_root_function_group_name).c_str());
     std::snprintf(command.target_state, sizeof(command.target_state), "%.*s",
                   static_cast<int>(target.size()), target.data());
     std::snprintf(command.requester_id, sizeof(command.requester_id), "%s",

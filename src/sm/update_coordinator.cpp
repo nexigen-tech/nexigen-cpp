@@ -8,7 +8,7 @@
 #include <thread>
 #include <utility>
 
-#include <nexigen/exec/machine_function_group.hpp>
+#include <nexigen/exec/root_function_group.hpp>
 
 namespace nexigen::sm {
 
@@ -87,7 +87,7 @@ void UpdateCoordinator::handle_start(const UpdateRequest& request,
         response.result = UpdateResult::InvalidGroup;
         return;
     }
-    if (exec::is_machine_function_group(request.function_group)) {
+    if (exec::is_root_function_group(request.function_group)) {
         response.result = UpdateResult::Rejected;
         return;
     }

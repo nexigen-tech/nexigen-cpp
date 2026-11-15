@@ -8,7 +8,7 @@ namespace nexigen::sm {
 
 namespace {
 
-/// States an application group may enter before the platform foundation
+/// States an application group may enter before the root foundation
 /// reaches `Run`: `Off` and `SafeState` never start an application.
 [[nodiscard]] constexpr bool is_off_like(std::string_view state) noexcept {
     return state == "Off" || state == "SafeState";
@@ -104,7 +104,7 @@ TransitionResult StateManager::request_transition(std::size_t index, std::string
     }
 
     // 1b. Application-group start gate (spec sm/state-machine "Startup and
-    // shutdown sequencing"): no application group starts before PlatformFG::Run.
+    // shutdown sequencing"): no application group starts before RootFG::Run.
     if (manifest_.function_groups[index].application_group && !application_groups_may_start() &&
         !is_off_like(target)) {
         return TransitionResult::InvalidGraph;
@@ -124,26 +124,26 @@ TransitionResult StateManager::request_transition(std::size_t index, std::string
 }
 
 bool StateManager::begin_startup() noexcept {
-    if (platform_fg_ != PlatformFG::Off) {
+    if (root_fg_ != RootFG::Off) {
         return false;
     }
-    platform_fg_ = PlatformFG::Startup;
+    root_fg_ = RootFG::Startup;
     return true;
 }
 
 bool StateManager::advance_startup() noexcept {
-    if (platform_fg_ != PlatformFG::Startup) {
+    if (root_fg_ != RootFG::Startup) {
         return false;
     }
-    platform_fg_ = PlatformFG::Verify;
+    root_fg_ = RootFG::Verify;
     return true;
 }
 
 bool StateManager::confirm_startup_step() noexcept {
-    if (platform_fg_ != PlatformFG::Verify) {
+    if (root_fg_ != RootFG::Verify) {
         return false;
     }
-    platform_fg_ = PlatformFG::Run;
+    root_fg_ = RootFG::Run;
     return true;
 }
 
@@ -153,30 +153,30 @@ void StateManager::begin_shutdown() noexcept {
             force_state(i, "Off");
         }
     }
-    platform_fg_ = PlatformFG::Shutdown;
+    root_fg_ = RootFG::Shutdown;
 }
 
 bool StateManager::complete_shutdown() noexcept {
-    if (platform_fg_ != PlatformFG::Shutdown) {
+    if (root_fg_ != RootFG::Shutdown) {
         return false;
     }
-    platform_fg_ = PlatformFG::Off;
+    root_fg_ = RootFG::Off;
     return true;
 }
 
 bool StateManager::begin_restart() noexcept {
-    if (platform_fg_ != PlatformFG::Run) {
+    if (root_fg_ != RootFG::Run) {
         return false;
     }
-    platform_fg_ = PlatformFG::Restart;
+    root_fg_ = RootFG::Restart;
     return true;
 }
 
 bool StateManager::advance_restart() noexcept {
-    if (platform_fg_ != PlatformFG::Restart) {
+    if (root_fg_ != RootFG::Restart) {
         return false;
     }
-    platform_fg_ = PlatformFG::Startup;
+    root_fg_ = RootFG::Startup;
     return true;
 }
 
@@ -189,7 +189,7 @@ void StateManager::force_state(std::size_t index, std::string_view target) noexc
 
 std::string StateManager::to_string() const {
     std::string out =
-        std::format("StateManager(platform_fg={}, groups=[", nexigen::sm::to_string(platform_fg_));
+        std::format("StateManager(root_fg={}, groups=[", nexigen::sm::to_string(root_fg_));
     for (std::size_t i = 0; i < groups_.size(); ++i) {
         if (i != 0U) {
             out += ", ";

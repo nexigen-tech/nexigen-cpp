@@ -58,7 +58,7 @@ public:
     ///        transitions (used before a whole-suite restart).
     virtual void reset_groups() noexcept = 0;
 
-    /// @brief Record the EM-owned `MachineFG` `Off` state at suite shutdown.
+    /// @brief Record the EM-owned `RootFG` `Off` state at suite shutdown.
     virtual void shutdown_machine() noexcept = 0;
 
     /// @brief Install the suite process-start callback.

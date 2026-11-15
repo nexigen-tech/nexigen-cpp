@@ -27,7 +27,7 @@
 #include <nexigen/exec/execution_dependency.hpp>
 #include <nexigen/exec/execution_manager.hpp>
 #include <nexigen/exec/instance_file_io.hpp>
-#include <nexigen/exec/machine_state_query.hpp>
+#include <nexigen/exec/root_state_query.hpp>
 #include <nexigen/exec/process_lifecycle.hpp>
 #include <nexigen/exec/process_state.hpp>
 #include <nexigen/exec/process_type.hpp>
@@ -293,7 +293,7 @@ void test_lifecycle_publication() {
     manifest.function_groups.push_back(group);
 
     exec::FunctionGroupConfig machine;
-    machine.name = "MachineFG";
+    machine.name = "RootFG";
     machine.states = {"Off", "Startup", "Verify", "Run", "Shutdown", "Restart"};
     machine.initial_state = "Startup";
     manifest.function_groups.push_back(machine);
@@ -302,7 +302,7 @@ void test_lifecycle_publication() {
     platform_init.app = "platform_init";
     platform_init.instance = "1";
     platform_init.command = "/bin/sh";
-    platform_init.function_group = "MachineFG";
+    platform_init.function_group = "RootFG";
     platform_init.reporting = false;
     platform_init.type = exec::ProcessType::Oneshot;
     platform_init.impact = exec::ImpactOnAppSuiteOperability::Not_impact;
@@ -363,12 +363,12 @@ request_state(com::Client<exec::StateCommand, exec::StateAck>& client, const cha
     return ack;
 }
 
-/// A MachineFG that starts Off is recorded as a successful EM-owned result.
+/// A RootFG that starts Off is recorded as a successful EM-owned result.
 void test_machinefg_off_initial() {
     exec::install_control_host_factory();
     exec::SuiteManifest manifest = make_manifest("/tmp/opencode/suite_control_machine_off");
     exec::FunctionGroupConfig machine;
-    machine.name = "MachineFG";
+    machine.name = "RootFG";
     machine.states = {"Off", "Startup", "Verify", "Run", "Shutdown", "Restart"};
     machine.initial_state = "Off";
     manifest.function_groups.push_back(machine);
@@ -378,16 +378,16 @@ void test_machinefg_off_initial() {
     if (host == nullptr) {
         return;
     }
-    NX_CHECK(host->request_state("MachineFG", "Off") == exec::StateResult::Success);
-    NX_CHECK(host->group_state("MachineFG") == "Off");
+    NX_CHECK(host->request_state("RootFG", "Off") == exec::StateResult::Success);
+    NX_CHECK(host->group_state("RootFG") == "Off");
 
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
     const auto query_name =
-        com::ServiceName::create("Nexigen/EM/InitialMachineStateTransitionResult");
+        com::ServiceName::create("Nexigen/EM/InitialRootStateTransitionResult");
     NX_CHECK(query_name.has_value());
     auto query =
-        com::Client<std::monostate, exec::InitialMachineStateTransitionResultResponse>::create(
+        com::Client<std::monostate, exec::InitialRootStateTransitionResultResponse>::create(
             *node, *query_name);
     NX_CHECK(query.has_value());
     exec::StateResult result = exec::StateResult::InProgress;
@@ -406,9 +406,9 @@ void test_machinefg_off_initial() {
     exec::set_control_host_factory(nullptr);
 }
 
-/// Wait until the EM reports a terminal initial MachineFG result.
+/// Wait until the EM reports a terminal initial RootFG result.
 [[nodiscard]] exec::StateResult wait_for_initial_machine_result(
-    com::Client<std::monostate, exec::InitialMachineStateTransitionResultResponse>& query) {
+    com::Client<std::monostate, exec::InitialRootStateTransitionResultResponse>& query) {
     exec::StateResult result = exec::StateResult::InProgress;
     for (int i = 0; i < 100 && result == exec::StateResult::InProgress; ++i) {
         const auto response = query.call(std::monostate{}, std::chrono::milliseconds(200));
@@ -483,12 +483,12 @@ void test_suite_control_path() {
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
 
-    // The EM owns the initial MachineFG transition and exposes its result.
+    // The EM owns the initial RootFG transition and exposes its result.
     const auto query_name =
-        com::ServiceName::create("Nexigen/EM/InitialMachineStateTransitionResult");
+        com::ServiceName::create("Nexigen/EM/InitialRootStateTransitionResult");
     NX_CHECK(query_name.has_value());
     auto query =
-        com::Client<std::monostate, exec::InitialMachineStateTransitionResultResponse>::create(
+        com::Client<std::monostate, exec::InitialRootStateTransitionResultResponse>::create(
             *node, *query_name);
     NX_CHECK(query.has_value());
     NX_CHECK(wait_for_initial_machine_result(*query) == exec::StateResult::Success);
@@ -508,10 +508,10 @@ void test_suite_control_path() {
     auto client = com::Client<exec::StateCommand, exec::StateAck>::create(*node, *service);
     NX_CHECK(client.has_value());
 
-    // MachineFG Off is EM-owned and rejected over the public channel.
+    // RootFG Off is EM-owned and rejected over the public channel.
     {
         exec::StateCommand off{};
-        std::snprintf(off.function_group, sizeof(off.function_group), "%s", "MachineFG");
+        std::snprintf(off.function_group, sizeof(off.function_group), "%s", "RootFG");
         std::snprintf(off.target_state, sizeof(off.target_state), "%s", "Off");
         const auto ack = client->call(off, std::chrono::milliseconds(500));
         NX_CHECK(ack.has_value() && ack->result == exec::StateResult::InvalidTransition);

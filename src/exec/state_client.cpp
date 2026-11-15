@@ -11,7 +11,7 @@
 #include <nexigen/exec/execution_manager_logging.hpp>
 #include <nexigen/exec/exit_metadata.hpp>
 #include <nexigen/exec/instance_file_io.hpp>
-#include <nexigen/exec/machine_function_group.hpp>
+#include <nexigen/exec/root_function_group.hpp>
 
 namespace nexigen::exec {
 
@@ -477,10 +477,10 @@ StateResult StateClient::execute_impl(const StateCommand& command, bool enforce_
     if (enforce_access && !registry_->is_authorized(command.requester_id, command.function_group)) {
         return StateResult::AccessDenied;
     }
-    // `MachineFG:Off` is EM-owned (spec exec/machine-function-group): an
+    // `RootFG:Off` is EM-owned (spec exec/root-function-group): an
     // external SetState never reaches the internal shutdown path.
     if (registry_->is_machine_group(index) &&
-        std::string_view(command.target_state) == k_machine_state_off) {
+        std::string_view(command.target_state) == k_root_state_off) {
         return StateResult::InvalidTransition;
     }
     if (!registry_->has_state(index, command.target_state)) {
@@ -596,14 +596,14 @@ void StateClient::shutdown_machine() noexcept {
     if (registry_ == nullptr) {
         return;
     }
-    const std::size_t index = registry_->find_group(k_machine_function_group_name);
+    const std::size_t index = registry_->find_group(k_root_function_group_name);
     if (index == static_cast<std::size_t>(-1)) {
         return;
     }
     if (index < transitions_.size()) {
         transitions_[index] = GroupTransition{};
     }
-    registry_->set_state(index, k_machine_state_off);
+    registry_->set_state(index, k_root_state_off);
 }
 
 std::string StateClient::to_string() const {

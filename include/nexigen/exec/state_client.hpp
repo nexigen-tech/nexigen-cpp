@@ -115,7 +115,7 @@ public:
 
     /// @brief Execute one received `SetState` command.
     ///
-    /// Applies requester authorization, MachineFG `Off` ownership, and the
+    /// Applies requester authorization, RootFG `Off` ownership, and the
     /// shared transition engine. Used by `serve_from` and by tests that need to
     /// exercise the exact command path.
     ///
@@ -143,7 +143,7 @@ public:
     /// whole-suite restart.
     void reset_groups() noexcept;
 
-    /// @brief Record the EM-owned `MachineFG` `Off` state.
+    /// @brief Record the EM-owned `RootFG` `Off` state.
     ///
     /// `Off` cannot be requested through `execute`; the suite supervisor calls
     /// this on operator stop or terminal failure.

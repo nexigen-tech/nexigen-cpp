@@ -1023,7 +1023,7 @@ void test_instance_directory_uses_manifest_instance() {
     std::filesystem::remove_all(run_dir);
 }
 
-void test_machine_function_group() {
+void test_root_function_group() {
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
     const auto name = com::ServiceName::create("Nexigen/Test/StateMachineFg");
@@ -1034,7 +1034,7 @@ void test_machine_function_group() {
 
     exec::SuiteManifest manifest;
     exec::FunctionGroupConfig machine;
-    machine.name = "MachineFG";
+    machine.name = "RootFG";
     machine.states = {"Off", "Startup", "Verify", "Run", "Shutdown", "Restart"};
     machine.initial_state = "Startup";
     manifest.function_groups.push_back(machine);
@@ -1042,7 +1042,7 @@ void test_machine_function_group() {
     app.app = "platform_app";
     app.instance = "1";
     app.command = "/bin/true";
-    app.function_group = "MachineFG";
+    app.function_group = "RootFG";
     app.reporting = false;
     exec::StateDependentStartupConfig config;
     config.state = "Startup";
@@ -1058,10 +1058,10 @@ void test_machine_function_group() {
         exec::StateClient::create(*node, *name, registry, manager, identity, &tracker);
     NX_CHECK(state_client.has_value());
 
-    NX_CHECK(state_client->request_state("MachineFG", "Off") ==
+    NX_CHECK(state_client->request_state("RootFG", "Off") ==
              exec::StateResult::InvalidTransition);
     NX_CHECK(registry.group_state(0) == "Off");
-    NX_CHECK(state_client->request_state("MachineFG", "Startup") == exec::StateResult::Success);
+    NX_CHECK(state_client->request_state("RootFG", "Startup") == exec::StateResult::Success);
     NX_CHECK(registry.group_state(0) == "Startup");
 
     state_client->shutdown_machine();
@@ -1251,7 +1251,7 @@ int main() {
     test_termination_timeout();
     test_process_handlers();
     test_instance_directory_uses_manifest_instance();
-    test_machine_function_group();
+    test_root_function_group();
     test_access_control();
     test_request_ids();
     test_update_state();

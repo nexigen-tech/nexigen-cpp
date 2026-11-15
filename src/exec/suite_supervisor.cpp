@@ -34,7 +34,7 @@
 #include <nexigen/exec/instance_file_io.hpp>
 #include <nexigen/exec/instance_layout.hpp>
 #include <nexigen/exec/execution_manager_logging.hpp>
-#include <nexigen/exec/machine_function_group.hpp>
+#include <nexigen/exec/root_function_group.hpp>
 #include <nexigen/exec/suite_app_status.hpp>
 #include <nexigen/exec/suite_exit.hpp>
 #include <nexigen/exec/suite_manifest.hpp>
@@ -83,8 +83,8 @@ struct RuntimeSuite {
         if (group.name != group_name) {
             continue;
         }
-        if (is_machine_function_group(group.name)) {
-            return std::string(machine_function_group_initial_state(group.initial_state));
+        if (is_root_function_group(group.name)) {
+            return std::string(root_function_group_initial_state(group.initial_state));
         }
         if (!group.initial_state.empty()) {
             return group.initial_state;
