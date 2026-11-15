@@ -5,6 +5,8 @@
 #include <ctime>
 #include <limits>
 
+#include <nexigen/core/detail/fault_injection.hpp>
+
 namespace nexigen::chrono {
 
 namespace {
@@ -22,10 +24,10 @@ constexpr std::int64_t kPpmScale = 1'000'000LL;
 
 /// @brief Step rate in ppm, evaluated only when the quotient is meaningful.
 ///
-/// The rate is reported only while the step stays inside the policy tolerance
-/// and the window is long enough; outside it the value is 0. Guarding here (and
-/// not only in `classify`) keeps the diagnostic `rate_ppm` free of signed
-/// overflow when the wall clock jumps by hours.
+/// The rate is reported only while the window is long enough; outside it the
+/// value is 0. Callers also guarantee that the step stays inside the policy
+/// tolerance, so the ppm product cannot overflow; the result feeds both the
+/// classification and the diagnostic sample.
 ///
 /// @param step_ns Offset change since the previous sample.
 /// @param elapsed_ns Monotonic time between the samples.
@@ -38,9 +40,6 @@ constexpr std::int64_t kPpmScale = 1'000'000LL;
         return 0;
     }
     const std::int64_t max_step_ns = policy.max_step_ns < 0 ? 0 : policy.max_step_ns;
-    if (step_ns > max_step_ns || step_ns < -max_step_ns) {
-        return 0;
-    }
     if (max_step_ns > std::numeric_limits<std::int64_t>::max() / kPpmScale) {
         // A pathological tolerance: scale down before multiplying so the
         // product cannot overflow. Precision below one ppm is irrelevant here.
@@ -72,7 +71,8 @@ TimeSyncStatus TimeSyncMonitor::classify(std::int64_t previous_offset_ns,
 std::optional<TimeSyncSample> TimeSyncMonitor::sample() noexcept {
     timespec realtime{};
     timespec monotonic{};
-    if (::clock_gettime(CLOCK_REALTIME, &realtime) != 0 ||
+    if (core::fault_injection::fault(core::fault_injection::FaultPoint::Chrono_clock_gettime) ||
+        ::clock_gettime(CLOCK_REALTIME, &realtime) != 0 ||
         ::clock_gettime(CLOCK_MONOTONIC_RAW, &monotonic) != 0) {
         return std::nullopt;
     }
@@ -86,9 +86,12 @@ std::optional<TimeSyncSample> TimeSyncMonitor::sample() noexcept {
         result.status = TimeSyncStatus::Ok;
     } else {
         const std::int64_t elapsed_ns = monotonic_ns - *previous_mono_ns_;
+        const std::int64_t max_step_ns = policy_.max_step_ns < 0 ? 0 : policy_.max_step_ns;
         result.step_ns = offset_ns - *previous_offset_ns_;
         result.status = classify(*previous_offset_ns_, offset_ns, elapsed_ns, policy_);
-        result.rate_ppm = evaluate_rate_ppm(result.step_ns, elapsed_ns, policy_);
+        if (result.step_ns <= max_step_ns && result.step_ns >= -max_step_ns) {
+            result.rate_ppm = evaluate_rate_ppm(result.step_ns, elapsed_ns, policy_);
+        }
     }
     previous_offset_ns_ = offset_ns;
     previous_mono_ns_ = monotonic_ns;

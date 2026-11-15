@@ -16,9 +16,25 @@ PHMD="${1:?usage: identity_test.sh <nexigen-phmd> <identity-helper>}"
 HELPER="${2:?usage: identity_test.sh <nexigen-phmd> <identity-helper>}"
 
 if [ "$(id -u)" -eq 0 ]; then
-    echo "[phmd_identity] skipped: expected_uid rejects 0; rerun as a non-root user"
-    exit 0
+    # The manifest rejects expected_uid 0, so run the daemon and helper as an
+    # unprivileged user. `nobody` exists in every supported image; `su` keeps
+    # the test runnable from a root CI container as well.
+    if [ "${NEXIGEN_IDENTITY_INSIDE:-0}" = "1" ]; then
+        echo "[phmd_identity] failed to drop privileges" >&2
+        exit 1
+    fi
+    if ! id -u nobody >/dev/null 2>&1; then
+        echo "[phmd_identity] skipped: no unprivileged 'nobody' user"
+        exit 0
+    fi
+    chmod -R a+rX "$(dirname "$PHMD")" "$(dirname "$HELPER")" "$0" 2>/dev/null || true
+    exec su -s /bin/bash nobody -c \
+        "NEXIGEN_IDENTITY_INSIDE=1 HOME=/tmp bash '$0' '$PHMD' '$HELPER'"
 fi
+
+# Keep .gcda writes possible when a root coverage job runs this test as nobody
+# in a shared build tree.
+umask 000
 
 DIR="$(mktemp -d)"
 PHMD_PID=""
@@ -56,6 +72,7 @@ write_manifest() { # service-name
       "failed_supervision_cycles_tolerance": 2,
       "checkpoints": [1],
       "transitions": [{"from_id": 1, "to_id": 1}],
+      "recovery_rules": [{"action": "TriggerWatchdogReset", "function_group": ""}],
       "expected_uid": $UID_NOW
     }
   ]
@@ -65,8 +82,8 @@ JSON
 
 start_phmd() { # tag service-name fault-log
     write_manifest "$2"
-    "$PHMD" --manifest "$DIR/manifest.json" --fault-log "$3" \
-        >"$DIR/phmd-$1.out" 2>&1 &
+    "$PHMD" --manifest "$DIR/manifest.json" --app-name phmd_identity \
+        --fault-log "$3" >"$DIR/phmd-$1.out" 2>&1 &
     PHMD_PID=$!
     for _ in $(seq 1 200); do
         if grep -q "supervising 1 process" "$DIR/phmd-$1.out" 2>/dev/null; then
@@ -122,6 +139,50 @@ sleep 1.0
 stop_phmd
 stop_helper
 expect_fault "$DIR/faults-gating.log" "unverified checkpoints are dropped"
+
+# The daemon's own fault log must verify; a corrupted checksum must not.
+if ! "$PHMD" --verify-fault-log "$DIR/faults-gating.log" >/dev/null 2>&1; then
+    echo "the fault log written by the daemon did not verify" >&2
+    exit 1
+fi
+cp "$DIR/faults-gating.log" "$DIR/corrupt.log"
+printf 'AliveFailure 0 0 1 1 deadbeef\n' >>"$DIR/corrupt.log"
+if "$PHMD" --verify-fault-log "$DIR/corrupt.log" >/dev/null 2>&1; then
+    echo "a corrupted fault log was accepted" >&2
+    exit 1
+fi
+
+# CLI and manifest rejection paths are part of the daemon contract too.
+if "$PHMD" >/dev/null 2>&1; then
+    echo "missing --manifest was accepted" >&2
+    exit 1
+fi
+if "$PHMD" --bogus >/dev/null 2>&1; then
+    echo "an unknown option was accepted" >&2
+    exit 1
+fi
+if "$PHMD" --manifest "$DIR/missing.json" >/dev/null 2>&1; then
+    echo "a missing manifest was accepted" >&2
+    exit 1
+fi
+printf '{' >"$DIR/bad.json"
+if "$PHMD" --manifest "$DIR/bad.json" >/dev/null 2>&1; then
+    echo "invalid JSON was accepted" >&2
+    exit 1
+fi
+printf '{"processes":[]}' >"$DIR/empty.json"
+if "$PHMD" --manifest "$DIR/empty.json" >/dev/null 2>&1; then
+    echo "an empty process list was accepted" >&2
+    exit 1
+fi
+if "$PHMD" --verify-fault-log "$DIR/missing.log" >/dev/null 2>&1; then
+    echo "a missing fault log was accepted" >&2
+    exit 1
+fi
+if "$PHMD" --manifest "$DIR/missing.json" --core 1 --priority 1 >/dev/null 2>&1; then
+    echo "core/priority parsing with a missing manifest was accepted" >&2
+    exit 1
+fi
 
 # 2. A matching claim: checkpoints reach the supervisor and no fault appears.
 start_phmd verified "Nexigen/Test/PhmdIdentity/Verified" "$DIR/faults-verified.log"

@@ -37,6 +37,7 @@
 
 #include "../support/test_temp.hpp"
 
+#include <nexigen/core/detail/fault_injection.hpp>
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/chrono/provider.hpp>
@@ -70,6 +71,13 @@ static_assert(std::is_trivially_copyable_v<nexigen::chrono::Timestamp>);
 using namespace nexigen::core;   // test TU: exercise the error model unqualified
 using namespace nexigen::chrono; // test TU: exercise the API unqualified
 namespace core = nexigen::core;  // also allow explicit core:: qualification in fixtures
+
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+bool g_clock_fault = false;
+bool chrono_fault_hook(core::fault_injection::FaultPoint point) noexcept {
+    return g_clock_fault && point == core::fault_injection::FaultPoint::Chrono_clock_gettime;
+}
+#endif
 
 // Loader-produced Settings have no from_json; pin that contract.
 template <class T, class = void> struct has_from_json : std::false_type {};
@@ -2071,6 +2079,15 @@ void test_time_sync() {
     NX_CHECK(second.has_value() && second->status == TimeSyncStatus::Ok);
     monitor.reset();
     NX_CHECK(monitor.sample().has_value());
+
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    // A failed clock read is part of the contract: no sample, no baseline move.
+    core::fault_injection::set_fault_hook(chrono_fault_hook);
+    g_clock_fault = true;
+    NX_CHECK(!TimeSyncMonitor{}.sample().has_value());
+    g_clock_fault = false;
+    core::fault_injection::set_fault_hook(nullptr);
+#endif
 }
 
 int main() {

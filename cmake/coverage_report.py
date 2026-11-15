@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Aggregate GCC gcov JSON output for the nexigen coverage target.
 
-Only the library sources (include/ and src/) are scored; tests, examples and
-system headers are ignored. Coverage is line coverage: a source line counts as
-covered when it was executed by at least one object file.
+Only the library and tool sources (include/, src/, tools/) are scored; tests,
+examples and system headers are ignored. Coverage is line coverage: a source
+line counts as covered when it was executed by at least one object file.
 
 Usage:
   coverage_report.py --clean-only --build-dir <dir>
@@ -65,7 +65,11 @@ def collect_line_counts(build_dir: str, source_dir: str, gcov: str) -> dict:
                     if not name.startswith(source_dir):
                         continue
                     rel = name[len(source_dir):]
-                    if not (rel.startswith("include/") or rel.startswith("src/")):
+                    if not (
+                        rel.startswith("include/")
+                        or rel.startswith("src/")
+                        or rel.startswith("tools/")
+                    ):
                         continue
                     for entry in source.get("lines", []):
                         key = (name, int(entry.get("line_number", 0)))
@@ -84,6 +88,8 @@ def summarize(counts: dict, source_dir: str) -> tuple[int, int, dict[str, list[i
             return parts[2]
         if len(parts) >= 2 and parts[0] == "src":
             return parts[1]
+        if len(parts) >= 2 and parts[0] == "tools":
+            return "tools"
         return "other"
 
     totals: dict[str, list[int]] = defaultdict(lambda: [0, 0])
@@ -103,6 +109,7 @@ def summarize(counts: dict, source_dir: str) -> tuple[int, int, dict[str, list[i
         "app",
         "exec",
         "hub",
+        "tools",
     ]
     modules = [module for module in preferred if module in totals]
     modules += sorted(
@@ -148,6 +155,14 @@ def main() -> int:
         help="fail when one module's line coverage is below PERCENT "
              "(repeatable, for example exec=90)",
     )
+    parser.add_argument(
+        "--file-fail-under",
+        action="append",
+        default=[],
+        metavar="PATH=PERCENT",
+        help="fail when one source file's line coverage is below PERCENT "
+             "(repeatable, path relative to --source-dir)",
+    )
     args = parser.parse_args()
     build_dir = os.path.realpath(args.build_dir)
 
@@ -170,6 +185,20 @@ def main() -> int:
                 f"coverage: invalid percentage in --module-fail-under '{entry}'"
             ) from error
 
+    file_gates: list[tuple[str, float]] = []
+    for entry in args.file_fail_under:
+        name, separator, value = entry.rpartition("=")
+        if not separator or not name or not value:
+            raise SystemExit(
+                f"coverage: invalid --file-fail-under '{entry}' "
+                "(expected PATH=PERCENT)")
+        try:
+            file_gates.append((name, float(value)))
+        except ValueError as error:
+            raise SystemExit(
+                f"coverage: invalid percentage in --file-fail-under '{entry}'"
+            ) from error
+
     counts = collect_line_counts(build_dir, args.source_dir, args.gcov)
     hit, total, modules = summarize(counts, args.source_dir)
     failed = False
@@ -188,6 +217,20 @@ def main() -> int:
         coverage = 100.0 * module_hit / module_total
         if coverage < threshold:
             print(f"coverage: module '{name}' is {coverage:.1f}%, "
+                  f"below the required {threshold:.1f}%")
+            failed = True
+    for path, threshold in file_gates:
+        absolute = os.path.realpath(os.path.join(args.source_dir, path))
+        lines = [(key, count) for key, count in counts.items() if key[0] == absolute]
+        if not lines:
+            print(f"coverage: file '{path}' is missing from the report")
+            failed = True
+            continue
+        file_hit = sum(1 for _, count in lines if count > 0)
+        file_total = len(lines)
+        coverage = 100.0 * file_hit / file_total
+        if coverage < threshold:
+            print(f"coverage: file '{path}' is {coverage:.1f}%, "
                   f"below the required {threshold:.1f}%")
             failed = True
     return 1 if failed else 0

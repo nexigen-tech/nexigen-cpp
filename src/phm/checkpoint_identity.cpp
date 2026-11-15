@@ -10,20 +10,13 @@ namespace {
 
 constexpr std::size_t k_name_length = sizeof(CheckpointClaim::name);
 
-/// @brief Read the real uid from `/proc/<pid>/status`.
-[[nodiscard]] bool read_real_uid(std::uint32_t pid, std::uint32_t& uid) noexcept {
+/// @brief Read `/proc/<pid>/status` text.
+[[nodiscard]] std::optional<std::string> read_status_text(std::uint32_t pid) noexcept {
     std::ifstream input("/proc/" + std::to_string(pid) + "/status");
     if (!input.is_open()) {
-        return false;
+        return std::nullopt;
     }
-    const std::string text((std::istreambuf_iterator<char>(input)),
-                           std::istreambuf_iterator<char>());
-    const std::optional<std::uint32_t> parsed = parse_status_real_uid(text);
-    if (!parsed.has_value()) {
-        return false;
-    }
-    uid = *parsed;
-    return true;
+    return std::string((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
 }
 
 } // namespace
@@ -60,6 +53,22 @@ std::optional<std::uint32_t> parse_status_real_uid(std::string_view status_text)
     return std::nullopt;
 }
 
+ClaimVerdict checkpoint_claim_status_verdict(std::uint32_t expected_uid,
+                                             std::string_view status_text) noexcept {
+    ClaimVerdict verdict{};
+    const std::optional<std::uint32_t> real_uid = parse_status_real_uid(status_text);
+    if (!real_uid.has_value()) {
+        verdict.reason = "process status is unreadable";
+        return verdict;
+    }
+    if (*real_uid != expected_uid) {
+        verdict.reason = "process uid does not match expected_uid";
+        return verdict;
+    }
+    verdict.verified = true;
+    return verdict;
+}
+
 ClaimVerdict checkpoint_claim_verdict(const CheckpointClaim& claim,
                                       std::uint32_t expected_uid) noexcept {
     ClaimVerdict verdict{};
@@ -79,17 +88,12 @@ ClaimVerdict checkpoint_claim_verdict(const CheckpointClaim& claim,
         verdict.reason = "claimed uid does not match expected_uid";
         return verdict;
     }
-    std::uint32_t real_uid = 0;
-    if (!read_real_uid(claim.pid, real_uid)) {
+    const std::optional<std::string> status_text = read_status_text(claim.pid);
+    if (!status_text.has_value()) {
         verdict.reason = "process status is unreadable";
         return verdict;
     }
-    if (real_uid != expected_uid) {
-        verdict.reason = "process uid does not match expected_uid";
-        return verdict;
-    }
-    verdict.verified = true;
-    return verdict;
+    return checkpoint_claim_status_verdict(expected_uid, *status_text);
 }
 
 } // namespace nexigen::phm

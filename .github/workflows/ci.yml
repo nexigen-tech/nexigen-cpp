@@ -197,7 +197,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates cmake curl git ninja-build passwd python3
+            ca-certificates cmake curl git ninja-build python3
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -211,26 +211,18 @@ jobs:
       - name: Build
         run: cmake --build build/com --parallel 2
 
-      # Run before the root test pass: no stale root-owned iceoryx2 services
-      # exist yet, and both daemon and helper run as the same unprivileged user.
-      - name: Identity e2e as a non-root user
-        run: |
-          useradd -m -s /bin/bash nexigen
-          chmod -R a+rX build/com
-          su -s /bin/bash nexigen -c "HOME=/tmp \
-            bash '$PWD/tools/nexigen-phmd/identity_test.sh' \
-            '$PWD/build/com/tools/nexigen-phmd' \
-            '$PWD/build/com/tools/nexigen-phmd-identity-helper'"
-
+      # The identity test self-demotes to `nobody` when the job runs as root,
+      # so the daemon-side claim path is exercised in this container too.
       - name: Test
         run: |
-          ctest --test-dir build/com --output-on-failure --repeat until-pass:2 \
-            -E "nexigen_phmd_identity"
+          ctest --test-dir build/com --output-on-failure --repeat until-pass:2
 
   coverage-com:
     name: Coverage (COM)
     runs-on: ubuntu-24.04
-    container: gcc:15
+    container:
+      image: gcc:15
+      options: --cap-add=SYS_NICE
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -253,7 +245,12 @@ jobs:
             -DNEXIGEN_COVERAGE_FAIL_UNDER=91
 
       - name: Run coverage gate
-        run: cmake --build build/coverage-com --target coverage --parallel 2
+        run: |
+          # The identity e2e runs as `nobody` under this root job; make the
+          # instrumented tree writable so it can merge its .gcda counters.
+          chmod -R a+rwX build/coverage-com
+          umask 000
+          cmake --build build/coverage-com --target coverage --parallel 2
 
   openspec:
     name: OpenSpec

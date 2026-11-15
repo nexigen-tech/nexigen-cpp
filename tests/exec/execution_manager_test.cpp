@@ -1461,6 +1461,26 @@ void test_rt_capability() {
     NX_CHECK(!cap_bnd_has_sys_nice(bounding_after(false)));
     NX_CHECK(cap_bnd_has_sys_nice(bounding_after(true)));
 
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    {
+        // Force PR_CAPBSET_DROP to fail and prove the setup handshake reports a
+        // failed start instead of launching the application unconfined.
+        core::fault_injection::set_fault_hook(test_fault_hook);
+        g_fault_point = core::fault_injection::FaultPoint::ExecutionManager_capability;
+        g_fault_enabled = true;
+        const std::string fail_root = unique_dir("rt_cap_fail");
+        const app::RunIdentity fail_identity{"run-rt-fail", fail_root, "1", {}};
+        exec::StartOptions fail_options{};
+        const std::vector<std::string> fail_command{"/bin/true"};
+        const core::Status failed =
+            execution_manager.start(fail_identity, "rt_fail", fail_command, 0, fail_options);
+        g_fault_enabled = false;
+        core::fault_injection::set_fault_hook(nullptr);
+        NX_CHECK(failed_with(failed, core::ErrorCode::SystemError));
+        remove_tree(fail_root);
+    }
+#endif
+
     reap_supervisors();
     remove_tree(root);
 }

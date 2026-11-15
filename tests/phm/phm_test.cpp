@@ -25,6 +25,7 @@
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
 #include <nexigen/core/affinity.hpp>
+#include <nexigen/core/detail/fault_injection.hpp>
 #include <nexigen/core/serialization_mandate.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/phm/checkpoint.hpp>
@@ -100,6 +101,16 @@ namespace {
 
 int g_checks = 0;
 int g_failures = 0;
+
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+nexigen::core::fault_injection::FaultPoint g_phm_fault_point =
+    nexigen::core::fault_injection::FaultPoint::Phm_claim_send;
+bool g_phm_fault_enabled = false;
+
+bool phm_fault_hook(nexigen::core::fault_injection::FaultPoint point) noexcept {
+    return g_phm_fault_enabled && point == g_phm_fault_point;
+}
+#endif
 
 #define NX_CHECK(...)                                                                              \
     do {                                                                                           \
@@ -713,6 +724,37 @@ void test_manifest() {
     NX_CHECK(!legacy.bg_thread.has_requests());
     NX_CHECK(!legacy.fault_storage_thread.has_requests());
 
+    // Every manifest diagnostic is part of the public contract.
+    NX_CHECK(manifest.processes[0].to_string().find("camera") != std::string::npos);
+    NX_CHECK(phm::CheckpointTransition{1, 2}.to_string().find("from=1") != std::string::npos);
+    NX_CHECK(phm::DeadlinePair{1, 2, 10, 100}.to_string().find("min_ms=10") != std::string::npos);
+    NX_CHECK(phm::RecoveryRule{phm::RecoveryAction::RestartProcess, "group"}.to_string().find(
+                 "RestartProcess") != std::string::npos);
+
+    // A second process exercises the separator in the manifest diagnostic.
+    phm::PhmManifest two;
+    two.processes.push_back(make_process("alpha"));
+    two.processes.push_back(make_process("beta"));
+    NX_CHECK(two.to_string().find("alpha, beta") != std::string::npos);
+
+    // Non-object JSON leaves each element at its defaults.
+    phm::CheckpointTransition transition{};
+    phm::from_json(nlohmann::json(7), transition);
+    NX_CHECK(transition.from_id == 0U && transition.to_id == 0U);
+    phm::DeadlinePair pair{};
+    phm::from_json(nlohmann::json(7), pair);
+    NX_CHECK(pair.source_id == 0U && pair.max_ms == 0U);
+    phm::RecoveryRule rule{};
+    phm::from_json(nlohmann::json(7), rule);
+    NX_CHECK(rule.function_group.empty());
+
+    // A malformed checkpoints array rejects the process parse.
+    phm::SupervisedProcess malformed;
+    phm::from_json(
+        nlohmann::json{{"name", "bad"}, {"checkpoints", nlohmann::json::array({1, "nope"})}},
+        malformed);
+    NX_CHECK(malformed.checkpoints.empty());
+
     const std::string text = manifest.to_string();
     NX_CHECK(text.find("camera") != std::string::npos);
     NX_CHECK(text.find("fault_storage_thread") != std::string::npos);
@@ -759,6 +801,10 @@ void test_manifest() {
         NX_CHECK(restored.watchdog.device == "/dev/watchdog");
         NX_CHECK(restored.watchdog.timeout_ms == 1000U);
         NX_CHECK(restored.watchdog.feed_period_ms == 200U);
+        std::string watchdog_error;
+        phm::PhmManifest watchdog_only;
+        watchdog_only.watchdog = extended.watchdog;
+        NX_CHECK(phm::validate_phm_manifest(watchdog_only, watchdog_error).has_value());
         NX_CHECK(back.to_string().find("watchdog=") != std::string::npos);
         NX_CHECK(std::format("{}", restored.watchdog).find("timeout_ms=1000") != std::string::npos);
     }
@@ -1089,6 +1135,17 @@ void test_identity() {
         }
     }
     NX_CHECK(seen);
+
+    // A sample service already on the claim name makes the claim publisher fail.
+    {
+        const auto conflict = com::ServiceName::create("Nexigen/Test/ClaimConflict");
+        const auto conflict_event = com::ServiceName::create("Nexigen/Test/ClaimConflictEvent");
+        NX_CHECK(conflict.has_value() && conflict_event.has_value());
+        auto sample_publisher = com::Publisher<std::uint64_t>::create(*node, *conflict, 64);
+        NX_CHECK(sample_publisher.has_value());
+        NX_CHECK(!phm::ClaimPublisher::create(*node, *conflict, *conflict_event).has_value());
+    }
+
     bool woken = false;
     const auto collected = listener->try_wait([&](com::EventId) { woken = true; });
     NX_CHECK(collected.has_value());
@@ -1124,8 +1181,39 @@ void test_identity() {
     NX_CHECK(!phm::parse_status_real_uid("Uid:\t99999999999\n").has_value());
     NX_CHECK(!phm::parse_status_real_uid("").has_value());
 
+    // The /proc half is testable without a process under a second uid.
+    const std::string own_status = "Uid:\t" + std::to_string(::getuid()) + "\n";
+    NX_CHECK(phm::checkpoint_claim_status_verdict(::getuid(), own_status).verified);
+    const phm::ClaimVerdict mismatch =
+        phm::checkpoint_claim_status_verdict(::getuid() + 1U, own_status);
+    NX_CHECK(!mismatch.verified);
+    NX_CHECK(mismatch.reason.find("process uid") != std::string::npos);
+    const phm::ClaimVerdict unreadable =
+        phm::checkpoint_claim_status_verdict(::getuid(), "Name:\tcamera\n");
+    NX_CHECK(!unreadable.verified);
+    NX_CHECK(unreadable.reason.find("unreadable") != std::string::npos);
+
     NX_CHECK(phm::checkpoint_claim_verdict(claim, ::getuid()).to_string().find("verified=true") !=
              std::string::npos);
+
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    // Transport failures on the claim path: the sample send and the wake event.
+    nexigen::core::fault_injection::set_fault_hook(phm_fault_hook);
+    g_phm_fault_enabled = true;
+    // Both channel factories fail before touching the transport.
+    g_phm_fault_point = nexigen::core::fault_injection::FaultPoint::Phm_claim_channel;
+    NX_CHECK(!phm::ClaimPublisher::create(*node, *channel, *event_name).has_value());
+    g_phm_fault_point = nexigen::core::fault_injection::FaultPoint::Phm_claim_event_channel;
+    NX_CHECK(!phm::ClaimPublisher::create(*node, *channel, *event_name).has_value());
+    g_phm_fault_point = nexigen::core::fault_injection::FaultPoint::Phm_claim_send;
+    NX_CHECK(!publisher->claim("camera", static_cast<std::uint32_t>(::getpid()), ::getuid())
+                  .has_value());
+    g_phm_fault_point = nexigen::core::fault_injection::FaultPoint::Phm_claim_event;
+    NX_CHECK(!publisher->claim("camera", static_cast<std::uint32_t>(::getpid()), ::getuid())
+                  .has_value());
+    g_phm_fault_enabled = false;
+    nexigen::core::fault_injection::set_fault_hook(nullptr);
+#endif
 
     // Samples come from shared memory: a producer that fills the buffer without
     // a NUL must not make diagnostics read past the sample.
@@ -1311,6 +1399,41 @@ void test_supervised_entity() {
     NX_CHECK(receive_claim()); // claim published during creation
     NX_CHECK(periodic->report_checkpoint(1).has_value());
     NX_CHECK(receive_claim()); // re-claim published by the zero interval
+
+    // A 1 s interval suppresses an immediate re-claim (the early-return branch).
+    NX_CHECK(claiming->report_checkpoint(2).has_value());
+
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    // Each channel open is faultable, so every creation failure branch is
+    // reachable without an incompatible live service.
+    {
+        const auto fault_claim = com::ServiceName::create("Nexigen/Test/EntityClaimFault");
+        const auto fault_event = com::ServiceName::create("Nexigen/Test/EntityClaimFaultEvent");
+        NX_CHECK(fault_claim.has_value() && fault_event.has_value());
+        const phm::ClaimConfig claim_config_fault{*fault_claim, *fault_event};
+        nexigen::core::fault_injection::set_fault_hook(phm_fault_hook);
+        g_phm_fault_enabled = true;
+        g_phm_fault_point = nexigen::core::fault_injection::FaultPoint::Phm_checkpoint_channel;
+        NX_CHECK(!phm::SupervisedEntity::create(*node, "conflict", *checkpoint_name, *health_name)
+                      .has_value());
+        g_phm_fault_point = nexigen::core::fault_injection::FaultPoint::Phm_health_channel;
+        NX_CHECK(!phm::SupervisedEntity::create(*node, "conflict", *checkpoint_name, *health_name)
+                      .has_value());
+        g_phm_fault_point = nexigen::core::fault_injection::FaultPoint::Phm_claim_channel;
+        NX_CHECK(!phm::SupervisedEntity::create(*node, "conflict", *checkpoint_name, *health_name,
+                                                claim_config_fault)
+                      .has_value());
+        g_phm_fault_point = nexigen::core::fault_injection::FaultPoint::Phm_claim_send;
+        NX_CHECK(!phm::SupervisedEntity::create(*node, "conflict", *checkpoint_name, *health_name,
+                                                claim_config_fault)
+                      .has_value());
+        g_phm_fault_enabled = false;
+        nexigen::core::fault_injection::set_fault_hook(nullptr);
+    }
+#endif
+
+    // An invalid group name is a caller error, not an absent state.
+    NX_CHECK(!entity->current_group_state(std::string(300, 'x')).has_value());
 
     // Diagnostics.
     const std::string text = entity->to_string();

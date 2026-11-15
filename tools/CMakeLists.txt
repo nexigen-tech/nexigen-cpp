@@ -90,7 +90,7 @@ if(NEXIGEN_ENABLE_COM)
     # Identity e2e (change checkpoint-identity): gating, security events, and
     # the per-incarnation reset. The helper claims its own pid/uid; the script
     # skips as root because expected_uid rejects 0.
-    add_executable(nexigen-phmd-identity-helper nexigen-phmd/identity_helper.cpp)
+    add_executable(nexigen-phmd-identity-helper ${CMAKE_SOURCE_DIR}/tests/tools/phmd_identity_helper.cpp)
     target_link_libraries(nexigen-phmd-identity-helper PRIVATE nexigen_phm Threads::Threads)
     target_include_directories(nexigen-phmd-identity-helper PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 

@@ -936,7 +936,9 @@ resolve_stop_state(const std::string& resource_path, const std::string& exit_pat
     if (options.allow_rt_priority || ::geteuid() != 0) {
         return 0;
     }
-    if (::prctl(PR_CAPBSET_DROP, static_cast<unsigned long>(CAP_SYS_NICE), 0UL, 0UL, 0UL) != 0) {
+    if (core::fault_injection::fault(
+            core::fault_injection::FaultPoint::ExecutionManager_capability) ||
+        ::prctl(PR_CAPBSET_DROP, static_cast<unsigned long>(CAP_SYS_NICE), 0UL, 0UL, 0UL) != 0) {
         return 12;
     }
     return 0;

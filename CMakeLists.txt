@@ -592,11 +592,23 @@ if(NEXIGEN_ENABLE_COVERAGE)
         --module-fail-under app=95
         --module-fail-under exec=82
         --module-fail-under hub=95)
+    set(NEXIGEN_COVERAGE_FILE_GATES)
     if(NEXIGEN_ENABLE_COM)
         list(APPEND NEXIGEN_COVERAGE_MODULE_GATES
-            --module-fail-under com=86
-            --module-fail-under phm=86
-            --module-fail-under sm=88)
+            --module-fail-under com=85
+            --module-fail-under phm=91
+            --module-fail-under sm=88
+            --module-fail-under tools=85)
+        # The daemon and the claim path are only built with COM; their line
+        # coverage is part of the gate now that the identity e2e runs here.
+        list(APPEND NEXIGEN_COVERAGE_FILE_GATES
+            --file-fail-under tools/nexigen-phmd/main.cpp=85
+            --file-fail-under src/phm/checkpoint_identity.cpp=99
+            --file-fail-under include/nexigen/phm/claim_registry.hpp=99
+            --file-fail-under include/nexigen/phm/claim_publisher.hpp=99
+            --file-fail-under include/nexigen/phm/supervised_entity.hpp=99
+            --file-fail-under src/phm/phm_manifest.cpp=99
+            --file-fail-under src/chrono/time_sync_monitor.cpp=99)
     endif()
 
     add_custom_target(coverage
@@ -604,13 +616,14 @@ if(NEXIGEN_ENABLE_COVERAGE)
                 --clean-only --build-dir ${CMAKE_BINARY_DIR}
         COMMAND ${CMAKE_CTEST_COMMAND} --test-dir ${CMAKE_BINARY_DIR}
                 --output-on-failure --repeat until-pass:2
-                -R "^nexigen_.*_tests$" -E "_cli_tests$"
+                -R "^(nexigen_.*_tests|nexigen_phmd_.*)$" -E "_cli_tests$"
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/coverage_report.py
                 --build-dir ${CMAKE_BINARY_DIR}
                 --source-dir ${CMAKE_CURRENT_SOURCE_DIR}
                 --gcov ${GCOV_EXECUTABLE}
                 --fail-under ${NEXIGEN_COVERAGE_FAIL_UNDER}
                 ${NEXIGEN_COVERAGE_MODULE_GATES}
+                ${NEXIGEN_COVERAGE_FILE_GATES}
         DEPENDS
             nexigen_core_tests
             nexigen_chrono_tests

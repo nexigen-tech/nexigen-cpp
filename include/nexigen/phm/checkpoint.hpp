@@ -16,6 +16,7 @@
 #include <nexigen/com/event_id.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
+#include <nexigen/core/detail/fault_injection.hpp>
 
 namespace nexigen::phm {
 
@@ -44,6 +45,10 @@ public:
     /// @note Spec `phm/health-channel`, requirement "Checkpoint emission".
     [[nodiscard]] static com::Result<CheckpointEmitter>
     create(com::Node& node, const com::ServiceName& name) noexcept {
+        if (core::fault_injection::fault(
+                core::fault_injection::FaultPoint::Phm_checkpoint_channel)) {
+            return std::unexpected(com::Error::CreationFailed);
+        }
         auto notifier = com::EventNotifier::create(node, name);
         if (!notifier) {
             return std::unexpected(notifier.error());

@@ -14,6 +14,7 @@
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/publisher.hpp>
 #include <nexigen/com/service_name.hpp>
+#include <nexigen/core/detail/fault_injection.hpp>
 #include <nexigen/phm/checkpoint_claim.hpp>
 
 namespace nexigen::phm {
@@ -45,11 +46,19 @@ public:
     [[nodiscard]] static com::Result<ClaimPublisher>
     create(com::Node& node, const com::ServiceName& channel_name,
            const com::ServiceName& event_name) noexcept {
+        using Point = core::fault_injection::FaultPoint;
+        if (core::fault_injection::fault(Point::Phm_claim_channel)) {
+            return std::unexpected(com::Error::CreationFailed);
+        }
         auto publisher = com::Publisher<CheckpointClaim>::create(node, channel_name);
         if (!publisher) {
             return std::unexpected(publisher.error());
         }
-        auto event = com::EventNotifier::create(node, event_name);
+        com::Result<com::EventNotifier> event = com::EventNotifier::create(node, event_name);
+        const bool event_fault = core::fault_injection::fault(Point::Phm_claim_event_channel);
+        if (event_fault) {
+            event = std::unexpected(com::Error::CreationFailed);
+        }
         if (!event) {
             return std::unexpected(event.error());
         }
@@ -92,9 +101,15 @@ public:
                       name.data());
         payload.pid = pid;
         payload.uid = uid;
-        const com::Status sent = publisher_.send_copy(payload);
+        com::Status sent = publisher_.send_copy(payload);
+        if (core::fault_injection::fault(core::fault_injection::FaultPoint::Phm_claim_send)) {
+            sent = std::unexpected(com::Error::UnableToDeliver);
+        }
         if (!sent) {
             return sent;
+        }
+        if (core::fault_injection::fault(core::fault_injection::FaultPoint::Phm_claim_event)) {
+            return std::unexpected(com::Error::ConnectionFailure);
         }
         return event_.notify();
     }

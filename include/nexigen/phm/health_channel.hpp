@@ -16,6 +16,7 @@
 #include <nexigen/com/event_id.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
+#include <nexigen/core/detail/fault_injection.hpp>
 #include <nexigen/phm/health_state.hpp>
 
 namespace nexigen::phm {
@@ -44,6 +45,9 @@ public:
     ///       notification".
     [[nodiscard]] static com::Result<HealthChannel> create(com::Node& node,
                                                            const com::ServiceName& name) noexcept {
+        if (core::fault_injection::fault(core::fault_injection::FaultPoint::Phm_health_channel)) {
+            return std::unexpected(com::Error::CreationFailed);
+        }
         auto notifier = com::EventNotifier::create(node, name);
         if (!notifier) {
             return std::unexpected(notifier.error());

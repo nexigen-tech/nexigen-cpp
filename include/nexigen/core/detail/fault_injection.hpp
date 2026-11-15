@@ -10,27 +10,43 @@
 
 namespace nexigen::core::fault_injection {
 
-/// @brief Control-plane syscall sites that the test-only hook may fail.
+/// @brief Cold-path operations that the test-only hook may fail.
 ///
-/// Each enumerator names one cold-path operation in the execution-manager or
-/// thread-management control plane; no producer, tick, snapshot, or sink hot
-/// path is instrumented. Only meaningful while
+/// Each enumerator names one cold-path operation in the execution-manager,
+/// chrono, PHM, or thread-management control plane; no producer, tick,
+/// snapshot, or sink hot path is instrumented. Only meaningful while
 /// `NEXIGEN_ENABLE_FAULT_INJECTION` is defined.
 enum class FaultPoint : std::uint8_t {
     ExecutionManager_pipe2,     ///< `pipe2` during execution-manager setup.
     ExecutionManager_fork,      ///< `fork` of a managed child process.
     ExecutionManager_open_null, ///< Opening the null device.
-    Hub_socket,                 ///< Hub socket creation.
-    Hub_bind,                   ///< Hub address binding.
-    Hub_epoll,                  ///< Hub epoll instance creation.
-    Hub_eventfd,                ///< Hub eventfd creation.
-    Thread_set_name,            ///< Applying a thread name.
-    Thread_set_affinity,        ///< Applying a CPU affinity.
-    Thread_set_scheduler,       ///< Applying a scheduling policy/priority.
-    Thread_snapshot,            ///< Snapshotting inherited thread attributes.
-    Thread_restore_name,        ///< Rolling back a thread name.
-    Thread_restore_affinity,    ///< Rolling back a CPU affinity.
-    Thread_restore_scheduler,   ///< Rolling back a scheduling policy/priority.
+    /// `prctl(PR_CAPBSET_DROP)` for the RT-priority capability.
+    ExecutionManager_capability,
+    /// `clock_gettime` in the time-sync monitor's sampling path.
+    Chrono_clock_gettime,
+    /// Opening the supervised entity's checkpoint channel.
+    Phm_checkpoint_channel,
+    /// Opening the supervised entity's health channel.
+    Phm_health_channel,
+    /// Opening the supervised entity's identity-claim channel.
+    Phm_claim_channel,
+    /// Opening the claim publisher's wake event.
+    Phm_claim_event_channel,
+    /// Sending an identity claim sample.
+    Phm_claim_send,
+    /// Waking the daemon after an identity claim.
+    Phm_claim_event,
+    Hub_socket,               ///< Hub socket creation.
+    Hub_bind,                 ///< Hub address binding.
+    Hub_epoll,                ///< Hub epoll instance creation.
+    Hub_eventfd,              ///< Hub eventfd creation.
+    Thread_set_name,          ///< Applying a thread name.
+    Thread_set_affinity,      ///< Applying a CPU affinity.
+    Thread_set_scheduler,     ///< Applying a scheduling policy/priority.
+    Thread_snapshot,          ///< Snapshotting inherited thread attributes.
+    Thread_restore_name,      ///< Rolling back a thread name.
+    Thread_restore_affinity,  ///< Rolling back a CPU affinity.
+    Thread_restore_scheduler, ///< Rolling back a scheduling policy/priority.
 };
 
 #if defined(NEXIGEN_ENABLE_FAULT_INJECTION)

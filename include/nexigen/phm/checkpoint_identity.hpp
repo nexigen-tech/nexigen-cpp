@@ -45,6 +45,18 @@ struct ClaimVerdict {
 [[nodiscard]] std::optional<std::uint32_t>
 parse_status_real_uid(std::string_view status_text) noexcept;
 
+/// @brief Verify the `/proc` half of a claim against a status text.
+///
+/// Separated from `checkpoint_claim_verdict` so the mismatch and malformed-text
+/// rejection paths are testable without a process running under a second uid.
+///
+/// @param expected_uid Manifest expectation.
+/// @param status_text Contents of `/proc/<pid>/status`.
+/// @return A verified verdict, or a rejection naming the failed check.
+/// @note Spec `phm/identity`, requirement "Claim verification through /proc".
+[[nodiscard]] ClaimVerdict checkpoint_claim_status_verdict(std::uint32_t expected_uid,
+                                                           std::string_view status_text) noexcept;
+
 /// @brief Verify a claim against an expected UID and the process owner.
 ///
 /// Reads `/proc/<pid>/status` and requires the claimed uid and the process's
