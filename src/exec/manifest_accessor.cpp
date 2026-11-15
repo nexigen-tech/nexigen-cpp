@@ -13,6 +13,7 @@
 
 #include <nexigen/core/settings_io.hpp>
 #include <nexigen/exec/detail/path_utils.hpp>
+#include <nexigen/exec/machine_manifest.hpp>
 
 namespace nexigen::exec {
 
@@ -289,7 +290,8 @@ private:
 [[nodiscard]] bool is_array_key(std::string_view key) noexcept {
     return key == "function_groups" || key == "apps" || key == "startup_configs" || key == "args" ||
            key == "states" || key == "dependencies" || key == "resource_groups" ||
-           key == "function_group_port_mapping" || key == "env" || key == "cpus";
+           key == "function_group_port_mapping" || key == "env" || key == "cpus" ||
+           key == "machines" || key == "processes";
 }
 
 /// @brief Map XML container tag keys whose JSON spelling differs.
@@ -446,6 +448,47 @@ core::Status ManifestAccessor::load(std::string_view path, SuiteManifest& out) n
 
 core::Status load_suite_manifest_auto(std::string_view path, SuiteManifest& out) noexcept {
     return ManifestAccessor::load(path, out);
+}
+
+core::Status ManifestAccessor::load_machine(std::string_view path, MachineManifest& out) noexcept {
+    std::string text;
+    const core::settings_io::FileRead read = core::settings_io::read_text_file(path, text);
+    if (read != core::settings_io::FileRead::Ok) {
+        return std::unexpected(read == core::settings_io::FileRead::Absent
+                                   ? core::ErrorCode::InvalidArgument
+                                   : core::ErrorCode::SystemError);
+    }
+    MachineManifest parsed{};
+    if (detect(path, text) == ManifestFormat::Json) {
+        const nlohmann::json document = nlohmann::json::parse(text, nullptr, false);
+        if (document.is_discarded()) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        from_json(document, parsed);
+    } else {
+        XmlParser parser(text);
+        auto root = parser.parse();
+        if (!root || root->name != "MACHINE-MANIFEST") {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        const auto document = node_json(*root, "machine_manifest");
+        if (!document) {
+            return std::unexpected(document.error());
+        }
+        from_json(*document, parsed);
+    }
+    if (const core::Status resolved = parsed.resolve_references(); !resolved) {
+        return resolved;
+    }
+    if (const core::Status valid = parsed.validate(); !valid) {
+        return valid;
+    }
+    out = std::move(parsed);
+    return {};
+}
+
+core::Status load_machine_manifest_auto(std::string_view path, MachineManifest& out) noexcept {
+    return ManifestAccessor::load_machine(path, out);
 }
 
 } // namespace nexigen::exec

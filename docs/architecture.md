@@ -394,6 +394,18 @@ dependency-free; it covers elements, nesting, text, comments, processing
 instructions, entities, and namespace-prefix stripping. This is a subset
 profile, not a full AUTOSAR XSD implementation or a machine-manifest resolver.
 
+## Machine Manifest and references
+
+A Machine Manifest (`<MACHINE-MANIFEST>`) defines machines, their Function
+Groups, and their processes. `ManifestAccessor::load_machine` accepts JSON or
+the ARXML profile, resolves every
+`/Machine/FunctionGroups/<id-or-name>` process reference, and validates names,
+ids, executables, and resolved groups. `validate_execution_against_machine`
+then requires every execution application to map to a machine process with the
+same name, executable, and Function Group. `nexigen-exec start --machine` and
+`nexigen-em --machine` perform this cross-check before the suite supervisor is
+created, so a reference mismatch forks no process.
+
 ## CLI tools
 
 | Tool | Purpose | Key options |

@@ -21,6 +21,8 @@
 
 namespace nexigen::exec {
 
+struct MachineManifest;
+
 /// @brief Source format of a suite manifest.
 enum class ManifestFormat : std::uint8_t {
     Json,
@@ -54,11 +56,19 @@ public:
     /// @return Success, `InvalidArgument` for malformed content, or
     ///         `SystemError` when the file cannot be read.
     [[nodiscard]] static core::Status load(std::string_view path, SuiteManifest& out) noexcept;
+
+    /// @brief Load a JSON or ARXML Machine Manifest and resolve its references.
+    [[nodiscard]] static core::Status load_machine(std::string_view path,
+                                                   MachineManifest& out) noexcept;
 };
 
 /// @brief Load a suite manifest with automatic JSON/ARXML detection.
 [[nodiscard]] core::Status load_suite_manifest_auto(std::string_view path,
                                                     SuiteManifest& out) noexcept;
+
+/// @brief Load a Machine Manifest with automatic JSON/ARXML detection.
+[[nodiscard]] core::Status load_machine_manifest_auto(std::string_view path,
+                                                      MachineManifest& out) noexcept;
 
 } // namespace nexigen::exec
 

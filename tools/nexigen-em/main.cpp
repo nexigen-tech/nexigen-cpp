@@ -11,10 +11,12 @@
 #include <cstdio>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/control_host.hpp>
 #include <nexigen/exec/execution_manager.hpp>
+#include <nexigen/exec/machine_manifest.hpp>
 #include <nexigen/exec/manifest_accessor.hpp>
 #include <nexigen/exec/suite_manifest.hpp>
 
@@ -28,7 +30,8 @@ constexpr int exit_failure = 1;
 
 void print_usage(std::FILE* out) {
     std::fprintf(out, R"(Usage:
-  nexigen-em --config <suite-manifest> [--run-id <id>] [--run-dir <path>]
+  nexigen-em --config <suite-manifest> [--machine <machine-manifest>]
+              [--run-id <id>] [--run-dir <path>]
   nexigen-em --help
 
 Starts a detached suite supervisor. The supervisor serves SetState commands on
@@ -39,9 +42,29 @@ Nexigen/EM/State/<app>, and runs until the suite is stopped.
 
 struct Options {
     std::string config{};
+    std::string machine{};
     std::string run_id{};
     std::string run_dir{};
 };
+
+/// @brief Options that take one string value.
+[[nodiscard]] bool is_string_option(std::string_view argument) noexcept {
+    return argument == "--config" || argument == "--machine" || argument == "--run-id" ||
+           argument == "--run-dir" || argument == "--service" || argument == "--instance";
+}
+
+/// @brief Store a parsed string option.
+void apply_string_option(std::string_view argument, std::string value, Options& options) {
+    if (argument == "--config") {
+        options.config = std::move(value);
+    } else if (argument == "--machine") {
+        options.machine = std::move(value);
+    } else if (argument == "--run-id") {
+        options.run_id = std::move(value);
+    } else if (argument == "--run-dir") {
+        options.run_dir = std::move(value);
+    }
+}
 
 [[nodiscard]] bool parse_args(int argc, char* argv[], Options& options, int& exit_code) {
     exit_code = 0;
@@ -54,21 +77,13 @@ struct Options {
         // `--service` and `--instance` were accepted by the former direct host.
         // They are parsed for CLI compatibility; the suite path uses the
         // standard `Nexigen/EM/StateCommand` channel and per-app instances.
-        if (argument == "--config" || argument == "--run-id" || argument == "--run-dir" ||
-            argument == "--service" || argument == "--instance") {
+        if (is_string_option(argument)) {
             if (index + 1 >= argc) {
                 print_usage(stderr);
                 exit_code = exit_usage;
                 return false;
             }
-            const std::string value{argv[++index]};
-            if (argument == "--config") {
-                options.config = value;
-            } else if (argument == "--run-id") {
-                options.run_id = value;
-            } else if (argument == "--run-dir") {
-                options.run_dir = value;
-            }
+            apply_string_option(argument, argv[++index], options);
             continue;
         }
         std::fprintf(stderr, "nexigen-em: unknown option '%.*s'\n",
@@ -103,6 +118,20 @@ int main(int argc, char* argv[]) {
         std::fprintf(stderr, "nexigen-em: manifest failed: %s\n",
                      std::string(core::to_string(loaded.error())).c_str());
         return exit_failure;
+    }
+    if (!options.machine.empty()) {
+        exec::MachineManifest machine{};
+        const core::Status machine_loaded =
+            exec::load_machine_manifest_auto(options.machine, machine);
+        if (!machine_loaded) {
+            std::fprintf(stderr, "nexigen-em: machine manifest failed: %s\n",
+                         std::string(core::to_string(machine_loaded.error())).c_str());
+            return exit_failure;
+        }
+        if (!exec::validate_execution_against_machine(manifest, machine).has_value()) {
+            std::fprintf(stderr, "nexigen-em: machine reference mismatch\n");
+            return exit_failure;
+        }
     }
     if (manifest.function_groups.empty()) {
         std::fprintf(stderr, "nexigen-em: manifest declares no function groups\n");

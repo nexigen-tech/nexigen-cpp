@@ -36,6 +36,7 @@
 #include <nexigen/exec/platform_controls.hpp>
 #include <nexigen/exec/deterministic_client.hpp>
 #include <nexigen/exec/manifest_accessor.hpp>
+#include <nexigen/exec/machine_manifest.hpp>
 #include <nexigen/exec/state_result.hpp>
 #include <nexigen/exec/unrecoverable_state.hpp>
 
@@ -1982,6 +1983,68 @@ void test_arxml_manifest() {
     remove_tree(artifacts);
 }
 
+void test_machine_manifest() {
+    const std::string root = unique_dir("machine");
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    const std::string path = root + "/machine.arxml";
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output << "<?xml version=\"1.0\"?>\n"
+              "<MACHINE-MANIFEST>\n"
+              "  <MACHINES>\n"
+              "    <MACHINE>\n"
+              "      <NAME>Host</NAME>\n"
+              "      <FUNCTION-GROUPS>\n"
+              "        <FUNCTION-GROUP>\n"
+              "          <NAME>demo</NAME>\n"
+              "          <ID>FG_Demo</ID>\n"
+              "          <STATES><STATE>Off</STATE><STATE>Running</STATE></STATES>\n"
+              "        </FUNCTION-GROUP>\n"
+              "      </FUNCTION-GROUPS>\n"
+              "      <PROCESSES>\n"
+              "        <PROCESS>\n"
+              "          <NAME>arxml_app</NAME>\n"
+              "          <EXECUTABLE>/bin/sh</EXECUTABLE>\n"
+              "          <FUNCTION-GROUP-REF>/Host/FunctionGroups/FG_Demo</FUNCTION-GROUP-REF>\n"
+              "          <ARGS><ARG>-c</ARG><ARG>exit 0</ARG></ARGS>\n"
+              "        </PROCESS>\n"
+              "      </PROCESSES>\n"
+              "    </MACHINE>\n"
+              "  </MACHINES>\n"
+              "</MACHINE-MANIFEST>\n";
+    output.close();
+
+    exec::MachineManifest machine{};
+    NX_CHECK(exec::load_machine_manifest_auto(path, machine).has_value());
+    NX_CHECK(machine.machines.size() == 1U);
+    NX_CHECK(machine.machines.front().processes.front().function_group == "demo");
+    NX_CHECK(machine.find_machine("Host") != nullptr);
+    NX_CHECK(machine.machines.front().find_function_group("FG_Demo") != nullptr);
+
+    exec::SuiteManifest execution = base_manifest(root + "/run", root + "/artifacts");
+    execution.function_groups.front().name = "demo";
+    exec::AppSpec app =
+        app_spec("arxml_app", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
+    app.function_group = "demo";
+    execution.apps.push_back(std::move(app));
+    NX_CHECK(exec::validate_execution_against_machine(execution, machine).has_value());
+
+    exec::SuiteManifest mismatch = execution;
+    mismatch.apps.front().command = "/bin/true";
+    NX_CHECK(failed_with(exec::validate_execution_against_machine(mismatch, machine),
+                         core::ErrorCode::InvalidArgument));
+
+    machine.machines.front().processes.front().function_group_ref = "/Host/FunctionGroups/Missing";
+    NX_CHECK(failed_with(machine.resolve_references(), core::ErrorCode::InvalidArgument));
+
+    exec::MachineManifest duplicate;
+    duplicate.machines.push_back(machine.machines.front());
+    duplicate.machines.push_back(machine.machines.front());
+    NX_CHECK(failed_with(duplicate.validate(), core::ErrorCode::InvalidArgument));
+
+    remove_tree(root);
+}
+
 /// @brief Stand-in factory proving the COM-free slot round-trips.
 [[nodiscard]] std::unique_ptr<exec::ControlHost> dummy_control_factory(const exec::SuiteManifest&,
                                                                        const app::RunIdentity&) {
@@ -2007,6 +2070,7 @@ int main() {
     run_suite("platform_controls_validation", test_platform_controls_validation);
     run_suite("deterministic_client", test_deterministic_client);
     run_suite("arxml_manifest", test_arxml_manifest);
+    run_suite("machine_manifest", test_machine_manifest);
     run_suite("enums_serialization", test_enums_and_serialization);
     run_suite("manifest_validation", test_manifest_validation);
     run_suite("start_status_stop", test_start_status_stop);

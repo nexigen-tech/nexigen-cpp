@@ -15,6 +15,7 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/app_suite.hpp>
 #include <nexigen/exec/manifest_accessor.hpp>
+#include <nexigen/exec/machine_manifest.hpp>
 #ifdef NEXIGEN_ENABLE_COM
 #include <nexigen/exec/control_host.hpp>
 #endif
@@ -40,7 +41,7 @@ void print_usage(std::FILE* out) {
   nexigen-exec start [--run-id <id>] [--app <name>] [--instance <id>]
                     [--run-dir <path>] [--instance-dir <path>]
                     [--timeout <secs>] -- <command> [args...]
-  nexigen-exec start  --config <suite-manifest>
+  nexigen-exec start  --config <suite-manifest> [--machine <machine-manifest>]
   nexigen-exec stop   <instance-dir> [--grace <secs>]
   nexigen-exec stop   --config <suite-manifest>|--suite-dir <dir> [--grace <secs>]
   nexigen-exec status <instance-dir>
@@ -227,6 +228,7 @@ struct StartArgs {
     std::string run_dir{};
     std::string instance_dir{};
     std::string config{};
+    std::string machine{};
     std::uint64_t timeout_s = 0;
     std::vector<std::string> command{};
 };
@@ -262,6 +264,7 @@ enum class StartScan { Scanned, Missing_value, Unknown };
         {"--run-dir", &StartArgs::run_dir},
         {"--instance-dir", &StartArgs::instance_dir},
         {"--config", &StartArgs::config},
+        {"--machine", &StartArgs::machine},
     };
     for (const auto& [name, field] : string_options) {
         if (argument == name) {
@@ -437,7 +440,7 @@ enum class StartScan { Scanned, Missing_value, Unknown };
 }
 
 /// Suite-manifest start path.
-[[nodiscard]] int start_suite_process(const std::string& config) {
+[[nodiscard]] int start_suite_process(const std::string& config, const std::string& machine) {
     exec::SuiteManifest manifest{};
     const core::Status loaded = exec::load_suite_manifest_auto(config, manifest);
     if (!loaded) {
@@ -445,6 +448,26 @@ enum class StartScan { Scanned, Missing_value, Unknown };
         static_cast<void>(activate_logging(target));
         return cli_fail("start", "suite", config, std::string(core::to_string(loaded.error())),
                         "manifest failed");
+    }
+    if (!machine.empty()) {
+        exec::MachineManifest machine_manifest{};
+        const core::Status loaded_machine =
+            exec::load_machine_manifest_auto(machine, machine_manifest);
+        if (!loaded_machine) {
+            const CliLogTarget target = fallback_log_target();
+            static_cast<void>(activate_logging(target));
+            return cli_fail("start", "suite", machine,
+                            std::string(core::to_string(loaded_machine.error())),
+                            "machine manifest failed");
+        }
+        if (const core::Status linked =
+                exec::validate_execution_against_machine(manifest, machine_manifest);
+            !linked) {
+            const CliLogTarget target = fallback_log_target();
+            static_cast<void>(activate_logging(target));
+            return cli_fail("start", "suite", config, "machine reference mismatch",
+                            "machine validation failed");
+        }
     }
     const CliLogTarget log_target = manifest_log_target(manifest);
     if (!apply_control_affinity(log_target)) {
@@ -613,7 +636,7 @@ int cmd_start(int argc, char* argv[]) {
         return *code;
     }
     if (!args.config.empty()) {
-        return start_suite_process(args.config);
+        return start_suite_process(args.config, args.machine);
     }
     return start_instance(args);
 }

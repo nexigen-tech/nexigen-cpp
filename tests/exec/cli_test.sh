@@ -97,6 +97,7 @@ grep -q "start failed" "$ROOT/fail.err"
 ARXML_ROOT="$(mktemp -d "$TEST_TMP/nexigen_cli_arxml_XXXXXX")"
 ARXML_ART="$(mktemp -d "$TEST_TMP/nexigen_cli_arxml_art_XXXXXX")"
 ARXML_MANIFEST="$ARXML_ROOT/manifest.arxml"
+ARXML_MACHINE="$ARXML_ROOT/machine.arxml"
 cat > "$ARXML_MANIFEST" <<EOF
 <?xml version="1.0"?>
 <SUITE-MANIFEST>
@@ -129,7 +130,31 @@ cat > "$ARXML_MANIFEST" <<EOF
   </APPLICATIONS>
 </SUITE-MANIFEST>
 EOF
-"$BIN" start --config "$ARXML_MANIFEST" | grep -q "started:"
+cat > "$ARXML_MACHINE" <<EOF
+<?xml version="1.0"?>
+<MACHINE-MANIFEST>
+  <MACHINES>
+    <MACHINE>
+      <NAME>Host</NAME>
+      <FUNCTION-GROUPS>
+        <FUNCTION-GROUP>
+          <NAME>cli</NAME>
+          <ID>FG_Cli</ID>
+          <STATES><STATE>Off</STATE><STATE>Running</STATE></STATES>
+        </FUNCTION-GROUP>
+      </FUNCTION-GROUPS>
+      <PROCESSES>
+        <PROCESS>
+          <NAME>arxml_app</NAME>
+          <EXECUTABLE>/bin/sh</EXECUTABLE>
+          <FUNCTION-GROUP-REF>/Host/FunctionGroups/FG_Cli</FUNCTION-GROUP-REF>
+        </PROCESS>
+      </PROCESSES>
+    </MACHINE>
+  </MACHINES>
+</MACHINE-MANIFEST>
+EOF
+"$BIN" start --config "$ARXML_MANIFEST" --machine "$ARXML_MACHINE" | grep -q "started:"
 "$BIN" stop --config "$ARXML_MANIFEST" --grace 1 | grep -q "stopped:"
 rm -rf "$ARXML_ROOT" "$ARXML_ART"
 
