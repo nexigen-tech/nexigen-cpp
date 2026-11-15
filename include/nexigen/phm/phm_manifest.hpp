@@ -94,9 +94,10 @@ struct RecoveryRule {
 /// Logical transition graph, Deadline pairs) plus the tolerance counter and the
 /// recovery rules.
 ///
-/// @note Spec `phm/manifest`, requirement "Declarative health manifest". Spec
-///       `phm/supervision`, requirements "Alive supervision", "Logical
-///       supervision", "Deadline supervision", and "Status aggregation".
+/// @note Spec `phm/manifest`, requirements "Declarative health manifest" and
+///       "Expected process identity". Spec `phm/supervision`, requirements
+///       "Alive supervision", "Logical supervision", "Deadline supervision",
+///       and "Status aggregation".
 struct SupervisedProcess {
     std::string name{};         ///< Application name used in diagnostics.
     std::string service_name{}; ///< iceoryx2 service identifier (checkpoints channel).
@@ -111,7 +112,10 @@ struct SupervisedProcess {
     /// Allowed excess above `alive_expected_indications` (count margin).
     std::int64_t alive_max_margin_cycles{0};
     bool safety_critical{false}; ///< Escalate directly to SafeState.
-    /// Optional expected UID; when set, a verified claim is required first.
+    /// Optional expected UID from the PHM manifest; when set, the daemon
+    /// accepts checkpoints only after a verified identity claim.
+    /// @note Spec `phm/manifest`, requirement "Expected process identity".
+    ///       Must be nonzero, and the name must fit the claim buffer.
     std::optional<std::uint32_t> expected_uid{};
     std::vector<std::uint32_t> checkpoints{};        ///< Expected checkpoint ids (alive).
     std::vector<CheckpointTransition> transitions{}; ///< Logical graph edges.

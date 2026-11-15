@@ -40,8 +40,12 @@ struct StartOptions {
     std::optional<std::uint32_t> gid{};       ///< Target group; defaults to `uid`.
     /// Refuse to launch as root unless `uid` is configured.
     bool require_non_root{false};
-    std::string cgroup_path{};     ///< Prepared group cgroup; empty = do not join.
-    bool allow_rt_priority{false}; ///< Keep CAP_SYS_NICE in the bounding set.
+    std::string cgroup_path{}; ///< Prepared group cgroup; empty = do not join.
+    /// Keep `CAP_SYS_NICE` in the child's bounding set (RT priority opt-in).
+    /// @note Spec `exec/process-supervision`, requirement "RT priority
+    ///       capability is opt-in". The child drops the capability unless this
+    ///       is set; a non-root target uid is rejected by manifest validation.
+    bool allow_rt_priority{false};
 
     /// @brief Cold-path diagnostic rendering of the launch options.
     ///

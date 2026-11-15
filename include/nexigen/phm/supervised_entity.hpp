@@ -5,7 +5,9 @@
 //   * report_checkpoint(id)  -> alive / logical / deadline progress (event);
 //   * report_health(state)   -> unrecoverable fault reporting (event);
 //   * current_group_state(g) -> non-blocking read of the SM-published Function
-//     Group state (Field), so the application reacts to SafeState in its tick.
+//     Group state (Field), so the application reacts to SafeState in its tick;
+//   * claim_identity()       -> optional identity claim for a gated manifest
+//     entry, also re-published on an interval from report_checkpoint.
 //
 // Created on the application's com::Node and called from the
 // Infrastructure::run(tick) loop; no Infrastructure policy changes.
@@ -40,11 +42,16 @@ namespace nexigen::phm {
 /// after the application) learns the identity without a handshake. The claim
 /// is also published on demand through `SupervisedEntity::claim_identity`.
 ///
-/// @note Spec `phm/identity`, requirement "Checkpoint claim channel".
+/// @note Spec `phm/identity`, requirement "Checkpoint claim channel". Spec
+///       `phm/supervised-entity`, requirement "Optional identity claim from the
+///       supervised entity", scenarios "Creation claims the identity" and "A
+///       periodic claim repairs a lost one".
 struct ClaimConfig {
     com::ServiceName channel; ///< Claim sample service (for example `Nexigen/PHM/Claim`).
-    com::ServiceName event;   ///< Paired wake event.
-    /// Re-claim period; bounded retry keeps a daemon restart self-healing.
+    com::ServiceName event;   ///< Paired wake event (for example `Nexigen/PHM/ClaimEvent`).
+    /// Re-claim period; the bounded retry keeps a daemon restart self-healing.
+    /// One second is the default: frequent enough to recover before a typical
+    /// Alive window expires, cheap enough to stay off the hot path in practice.
     std::chrono::milliseconds interval{1000};
 };
 
@@ -89,7 +96,10 @@ public:
     /// @note Spec `phm/supervised-entity`, requirement "Supervised entity
     ///       configuration": creation succeeds only when the underlying
     ///       checkpoint and health channels open. Spec `phm/identity`,
-    ///       requirement "Checkpoint claim channel".
+    ///       requirement "Checkpoint claim channel". Spec
+    ///       `phm/supervised-entity`, requirement "Optional identity claim from
+    ///       the supervised entity", scenario "Creation claims the identity":
+    ///       with a `ClaimConfig`, a failed first claim also fails creation.
     [[nodiscard]] static com::Result<SupervisedEntity>
     create(com::Node& node, std::string_view app_name, const com::ServiceName& checkpoint_service,
            const com::ServiceName& health_service,
@@ -148,6 +158,10 @@ public:
     /// @return Empty `com::Status` when the activation was delivered, or the
     ///         mapped `com::Error` from the checkpoint channel.
     /// @note Spec `phm/supervised-entity`, requirement "Checkpoint reporting".
+    ///       For an entity with a `ClaimConfig`, the call also refreshes the
+    ///       identity claim when the retry interval elapsed (spec
+    ///       `phm/identity`, scenario "A lost claim is retried"); the refresh
+    ///       never fails the checkpoint report.
     [[nodiscard]] com::Status report_checkpoint(std::uint32_t checkpoint_id) noexcept {
         maybe_reclaim_identity();
         const com::Status status = checkpoint_.emit(checkpoint_id);
@@ -166,7 +180,9 @@ public:
     /// @return Empty `com::Status` when the claim and its wake event were
     ///         delivered (or when no claim channel is configured), otherwise
     ///         the mapped `com::Error` from the claim channel.
-    /// @note Spec `phm/identity`, requirement "Checkpoint claim channel".
+    /// @note Spec `phm/identity`, requirement "Checkpoint claim channel". Spec
+    ///       `phm/supervised-entity`, requirement "Optional identity claim from
+    ///       the supervised entity", scenario "On-demand claim is available".
     [[nodiscard]] com::Status claim_identity() noexcept {
         if (!claim_.has_value()) {
             return {};
@@ -252,6 +268,9 @@ private:
     /// Called from the checkpoint hot path: it only reads the steady clock and
     /// compares a time point, so a legacy entity pays nothing. A failed send
     /// is retried after the next interval instead of on every checkpoint.
+    ///
+    /// @note Spec `phm/identity`, requirement "Checkpoint claim channel",
+    ///       scenario "A lost claim is retried".
     void maybe_reclaim_identity() noexcept {
         if (!claim_.has_value()) {
             return;
