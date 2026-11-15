@@ -70,7 +70,7 @@ The SM SHALL sequence the platform wake-up (`Off -> Startup -> Verify -> Run`) a
 
 ### Requirement: Transition result vocabulary
 
-`nexigen::sm` SHALL expose a `TransitionResult` scoped enum with the values `Success`, `RejectedByPriority`, `InvalidGraph`, and `Timeout`, with the full project conversion set (`to_string`/`from_string`, ADL `to_json`/`from_json`, and `std::formatter`).
+`nexigen::sm` SHALL expose a `TransitionResult` scoped enum with the values `Success`, `RejectedByPriority`, `RejectedByUpdate`, `InvalidGraph`, and `Timeout`, with the full project conversion set (`to_string`/`from_string`, ADL `to_json`/`from_json`, and `std::formatter`).
 
 #### Scenario: TransitionResult round-trips
 
