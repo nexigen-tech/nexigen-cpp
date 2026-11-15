@@ -416,12 +416,20 @@ void open_claims(Session& session) {
     const auto security_name = nexigen::com::ServiceName::create("Nexigen/PHM/Security");
     const auto security_event_name = nexigen::com::ServiceName::create("Nexigen/PHM/SecurityEvent");
     if (claim_name && claim_event_name) {
+        // The publisher keeps the transport default service maximum (2), so the
+        // subscriber must not request a larger buffer: the transport rejects a
+        // service whose settings disagree. Claims are rare, so the default
+        // depth is enough.
         auto subscriber = nexigen::com::Subscriber<nexigen::phm::CheckpointClaim>::create(
-            *session.node, *claim_name, 64);
+            *session.node, *claim_name);
         auto listener = nexigen::com::EventListener::create(*session.node, *claim_event_name);
-        if (subscriber && listener) {
+        if (!subscriber || !listener) {
+            std::fprintf(stderr, "nexigen-phmd: identity claim channel unavailable\n");
+        } else {
             auto guard = session.waitset->attach_notification(*listener);
-            if (guard) {
+            if (!guard) {
+                std::fprintf(stderr, "nexigen-phmd: cannot attach the identity claim event\n");
+            } else {
                 session.claim_subscriber.emplace(std::move(*subscriber));
                 session.claim_listener.emplace(std::move(*listener));
                 session.claim_guard.emplace(std::move(*guard));
@@ -432,7 +440,9 @@ void open_claims(Session& session) {
         auto publisher = nexigen::com::Publisher<nexigen::phm::SecurityEvent>::create(
             *session.node, *security_name, 64);
         auto event = nexigen::com::EventNotifier::create(*session.node, *security_event_name);
-        if (publisher && event) {
+        if (!publisher || !event) {
+            std::fprintf(stderr, "nexigen-phmd: security event channel unavailable\n");
+        } else {
             session.security_publisher.emplace(std::move(*publisher));
             session.security_event.emplace(std::move(*event));
         }

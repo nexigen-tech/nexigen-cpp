@@ -589,6 +589,9 @@ struct SupervisorContext {
         privileged_status != 0) {
         fail_setup(privileged_status);
     }
+    // Capture the child-setup counters (credentials and capability drop) before
+    // exec replaces the image, so the coverage gate can see these branches.
+    detail::coverage_flush();
     // POSIX declares execvp's `argv` as `char* const[]`, but it never
     // mutates the argument strings. Cast away the inner const once, here,
     // instead of per-element in the argv construction above.

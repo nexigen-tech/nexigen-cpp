@@ -87,6 +87,19 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_phmd_safety_sections PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
+    # Identity e2e (change checkpoint-identity): gating, security events, and
+    # the per-incarnation reset. The helper claims its own pid/uid; the script
+    # skips as root because expected_uid rejects 0.
+    add_executable(nexigen-phmd-identity-helper nexigen-phmd/identity_helper.cpp)
+    target_link_libraries(nexigen-phmd-identity-helper PRIVATE nexigen_phm Threads::Threads)
+    target_include_directories(nexigen-phmd-identity-helper PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+    add_test(NAME nexigen_phmd_identity
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-phmd/identity_test.sh
+                $<TARGET_FILE:nexigen-phmd> $<TARGET_FILE:nexigen-phmd-identity-helper>)
+    set_tests_properties(nexigen_phmd_identity PROPERTIES
+        TIMEOUT 120 LABELS "tools")
+
     add_test(NAME nexigen_sm_required_spec
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-sm/required_spec_test.sh
                 $<TARGET_FILE:nexigen-sm>)

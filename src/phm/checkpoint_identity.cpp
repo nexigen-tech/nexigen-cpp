@@ -1,7 +1,6 @@
 // nexigen::phm — claim verification through /proc (change checkpoint-identity).
 #include <nexigen/phm/checkpoint_identity.hpp>
 
-#include <cstdlib>
 #include <fstream>
 #include <iterator>
 
@@ -13,33 +12,53 @@ constexpr std::size_t k_name_length = sizeof(CheckpointClaim::name);
 
 /// @brief Read the real uid from `/proc/<pid>/status`.
 [[nodiscard]] bool read_real_uid(std::uint32_t pid, std::uint32_t& uid) noexcept {
-    const std::string path = "/proc/" + std::to_string(pid) + "/status";
-    std::ifstream input(path);
+    std::ifstream input("/proc/" + std::to_string(pid) + "/status");
     if (!input.is_open()) {
         return false;
     }
-    std::string line;
-    while (std::getline(input, line)) {
-        if (!line.starts_with("Uid:")) {
-            continue;
-        }
-        const auto start = line.find_first_of("0123456789");
-        if (start == std::string::npos) {
-            return false;
-        }
-        const auto end = line.find_first_not_of("0123456789", start);
-        const std::string digits = line.substr(start, end - start);
-        const unsigned long long value = std::strtoull(digits.c_str(), nullptr, 10);
-        if (value > 0xFFFFFFFFULL) {
-            return false;
-        }
-        uid = static_cast<std::uint32_t>(value);
-        return true;
+    const std::string text((std::istreambuf_iterator<char>(input)),
+                           std::istreambuf_iterator<char>());
+    const std::optional<std::uint32_t> parsed = parse_status_real_uid(text);
+    if (!parsed.has_value()) {
+        return false;
     }
-    return false;
+    uid = *parsed;
+    return true;
 }
 
 } // namespace
+
+std::optional<std::uint32_t> parse_status_real_uid(std::string_view status_text) noexcept {
+    std::size_t position = 0;
+    while (position < status_text.size()) {
+        const std::size_t line_end = status_text.find('\n', position);
+        const std::size_t length = line_end == std::string_view::npos
+                                       ? status_text.size() - position
+                                       : line_end - position;
+        const std::string_view line = status_text.substr(position, length);
+        position = line_end == std::string_view::npos ? status_text.size() : line_end + 1U;
+        if (!line.starts_with("Uid:")) {
+            continue;
+        }
+        const std::size_t start = line.find_first_of("0123456789");
+        if (start == std::string_view::npos) {
+            return std::nullopt;
+        }
+        const std::size_t end = line.find_first_not_of("0123456789", start);
+        const std::string_view digits = line.substr(start, end - start);
+        // Parse by hand: the field is small, and this keeps the function free
+        // of errno, locale, and allocation.
+        std::uint64_t value = 0;
+        for (const char digit : digits) {
+            value = value * 10U + static_cast<std::uint64_t>(digit - '0');
+            if (value > 0xFFFFFFFFULL) {
+                return std::nullopt;
+            }
+        }
+        return static_cast<std::uint32_t>(value);
+    }
+    return std::nullopt;
+}
 
 ClaimVerdict checkpoint_claim_verdict(const CheckpointClaim& claim,
                                       std::uint32_t expected_uid) noexcept {

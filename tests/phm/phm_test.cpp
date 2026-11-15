@@ -1107,6 +1107,23 @@ void test_identity() {
     phm::CheckpointClaim unnamed = claim;
     unnamed.name[0] = '\0';
     NX_CHECK(!phm::checkpoint_claim_verdict(unnamed, ::getuid()).verified);
+    phm::CheckpointClaim zero_pid = claim;
+    zero_pid.pid = 0U;
+    const phm::ClaimVerdict zero_pid_verdict = phm::checkpoint_claim_verdict(zero_pid, ::getuid());
+    NX_CHECK(!zero_pid_verdict.verified);
+    NX_CHECK(zero_pid_verdict.reason.find("missing pid") != std::string::npos);
+
+    // /proc status parsing is separated from the file read so malformed and
+    // hostile text is testable without a live process.
+    const auto real_uid = phm::parse_status_real_uid(
+        "Name:\tcamera\nUid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\n");
+    NX_CHECK(real_uid.has_value() && *real_uid == 1000U);
+    NX_CHECK(phm::parse_status_real_uid("Uid:\t42\nUid:\t43\n").value() == 42U);
+    NX_CHECK(!phm::parse_status_real_uid("Name:\tcamera\n").has_value());
+    NX_CHECK(!phm::parse_status_real_uid("Uid:\tabc\n").has_value());
+    NX_CHECK(!phm::parse_status_real_uid("Uid:\t99999999999\n").has_value());
+    NX_CHECK(!phm::parse_status_real_uid("").has_value());
+
     NX_CHECK(phm::checkpoint_claim_verdict(claim, ::getuid()).to_string().find("verified=true") !=
              std::string::npos);
 
@@ -1169,6 +1186,11 @@ void test_identity() {
     NX_CHECK(registry.accepts(0));
     NX_CHECK(registry.verified_count() == 1U);
     NX_CHECK(registry.to_string().find("verified=1") != std::string::npos);
+    // A re-claim for the verified incarnation is idempotent (no /proc read).
+    NX_CHECK(!registry.apply(claim).has_value());
+    NX_CHECK(!registry.apply(claim).has_value());
+    NX_CHECK(registry.accepts(0));
+    NX_CHECK(registry.verified_count() == 1U);
     registry.reset(0);
     NX_CHECK(!registry.accepts(0));
     NX_CHECK(registry.verified_count() == 0U);
@@ -1258,6 +1280,37 @@ void test_supervised_entity() {
     }
     NX_CHECK(entity_claim_seen);
     NX_CHECK(claiming->claim_identity().has_value());
+
+    // A legacy entity has no claim channel: an explicit claim is a no-op that
+    // still reports success.
+    NX_CHECK(entity->claim_identity().has_value());
+
+    // A zero interval re-publishes the claim on every checkpoint report.
+    const auto periodic_service = com::ServiceName::create("Nexigen/Test/PeriodicClaim");
+    const auto periodic_event = com::ServiceName::create("Nexigen/Test/PeriodicClaimEvent");
+    NX_CHECK(periodic_service.has_value() && periodic_event.has_value());
+    auto periodic_subscriber =
+        com::Subscriber<phm::CheckpointClaim>::create(*node, *periodic_service);
+    NX_CHECK(periodic_subscriber.has_value());
+    const phm::ClaimConfig periodic_config{*periodic_service, *periodic_event,
+                                           std::chrono::milliseconds{0}};
+    auto periodic = phm::SupervisedEntity::create(*node, "periodic", *checkpoint_name, *health_name,
+                                                  periodic_config);
+    NX_CHECK(periodic.has_value());
+    const auto receive_claim = [&]() {
+        for (int i = 0; i < 200; ++i) {
+            auto received = periodic_subscriber->receive();
+            NX_CHECK(received.has_value());
+            if (received->has_value()) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        return false;
+    };
+    NX_CHECK(receive_claim()); // claim published during creation
+    NX_CHECK(periodic->report_checkpoint(1).has_value());
+    NX_CHECK(receive_claim()); // re-claim published by the zero interval
 
     // Diagnostics.
     const std::string text = entity->to_string();

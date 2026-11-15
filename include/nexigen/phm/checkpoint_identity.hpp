@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <format>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -30,6 +31,19 @@ struct ClaimVerdict {
         return std::format("ClaimVerdict(verified={}, reason={})", verified, reason);
     }
 };
+
+/// @brief Parse the real uid from `/proc/<pid>/status` text.
+///
+/// Extracts the first field of the first `Uid:` line (the real uid). The parser
+/// is separated from the file read so malformed and hostile status text can be
+/// tested without a live process.
+///
+/// @param status_text Contents of a `/proc/<pid>/status` file.
+/// @return The real uid, or `std::nullopt` when the line is missing, has no
+///         digits, or does not fit `std::uint32_t`.
+/// @note Spec `phm/identity`, requirement "Claim verification through /proc".
+[[nodiscard]] std::optional<std::uint32_t>
+parse_status_real_uid(std::string_view status_text) noexcept;
 
 /// @brief Verify a claim against an expected UID and the process owner.
 ///
