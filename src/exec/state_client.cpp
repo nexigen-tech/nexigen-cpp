@@ -135,6 +135,7 @@ StateClient::StateClient(com::ServiceName name, com::Server<StateCommand, StateA
       state_channels_(std::move(state_channels)) {
     if (registry_ != nullptr) {
         transitions_.resize(registry_->group_count());
+        last_request_ids_.assign(registry_->group_count(), 0U);
     }
 }
 
@@ -320,27 +321,53 @@ StateResult StateClient::stop_unneeded(std::size_t index, std::string_view curre
     return StateResult::Success;
 }
 
-StateResult StateClient::begin_transition(std::size_t index, std::string_view target) noexcept {
+StateResult StateClient::begin_transition(std::size_t index, std::string_view target,
+                                          std::uint64_t request_id) noexcept {
     GroupTransition& transition = transitions_[index];
-    std::string current;
     if (transition.active) {
+        // A newer request supersedes the in-flight one; an older retry is stale.
+        if (request_id != 0U && transition.request_id != 0U && request_id < transition.request_id) {
+            return StateResult::OperationCanceled;
+        }
         if (transition.requested == target) {
+            if (request_id != 0U) {
+                transition.request_id = request_id;
+            }
             return advance_transition(index);
+        }
+        if (request_id != 0U && transition.request_id != 0U &&
+            request_id == transition.request_id) {
+            return StateResult::OperationCanceled;
         }
         log_execution_manager(core::LogLevel::Info,
                               std::format("event=transition_canceled group={} from={} to={}",
                                           registry_->group_name(index), transition.requested,
                                           target));
-        current = transition.requested;
+        const std::string current = transition.requested;
         transition = GroupTransition{}; // A newer request replaces the old one.
-    } else {
-        current = std::string(registry_->group_state(index));
+        return start_transition(index, target, request_id, current);
     }
+    if (request_id != 0U && request_id < last_request_ids_[index]) {
+        return StateResult::OperationCanceled;
+    }
+    return start_transition(index, target, request_id, registry_->group_state(index));
+}
+
+StateResult StateClient::start_transition(std::size_t index, std::string_view target,
+                                          std::uint64_t request_id,
+                                          std::string_view current) noexcept {
+    GroupTransition& transition = transitions_[index];
     if (current == target) {
+        if (request_id != 0U) {
+            last_request_ids_[index] = request_id;
+        }
         return StateResult::Success;
     }
     if (!registry_->has_state(index, target)) {
         return StateResult::InvalidTransition;
+    }
+    if (request_id != 0U) {
+        last_request_ids_[index] = request_id;
     }
     if (FunctionGroupRegistry::is_off_target(target)) {
         if (const StateResult stopped = stop_group(index); stopped != StateResult::Success) {
@@ -359,6 +386,7 @@ StateResult StateClient::begin_transition(std::size_t index, std::string_view ta
     transition.target_apps = target_apps;
     transition.pending_start = target_apps;
     transition.attempts = 1;
+    transition.request_id = request_id;
     transition.deadline_ns = detail::monotonic_now_ns() +
                              max_startup_timeout_ms(*registry_, target_apps, target) * 1'000'000ULL;
     launch_ready_apps(index);
@@ -452,7 +480,7 @@ StateResult StateClient::execute_impl(const StateCommand& command, bool enforce_
     if (!registry_->has_state(index, command.target_state)) {
         return StateResult::InvalidTransition;
     }
-    return begin_transition(index, command.target_state);
+    return begin_transition(index, command.target_state, command.request_id);
 }
 
 com::Status StateClient::poll_state_channels() noexcept {
@@ -553,6 +581,7 @@ void StateClient::reset_groups() noexcept {
             transitions_[index] = GroupTransition{};
             registry_->reset_state(index);
         }
+        std::fill(last_request_ids_.begin(), last_request_ids_.end(), 0U);
     }
     pending_exits_.clear();
 }

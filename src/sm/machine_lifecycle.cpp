@@ -101,6 +101,7 @@ MachineLifecycleClient::request_state(std::string_view target,
                   static_cast<int>(target.size()), target.data());
     std::snprintf(command.requester_id, sizeof(command.requester_id), "%s",
                   app_name_.empty() ? "sm" : app_name_.c_str());
+    command.request_id = next_request_id_++;
     for (;;) {
         const auto ack = command_.call(command, remaining_budget(deadline));
         if (!ack) {

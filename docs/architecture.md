@@ -349,6 +349,10 @@ created:
 - **Deterministic execution** — `exec::DeterministicClient` provides a fixed
   cycle clock (`wait_for_next_cycle`, `cycle_time_ns`), a seeded splitmix64
   PRNG, and allocation-free operation for one execution thread.
+- **Request identity** — `StateCommand` also carries a 64-bit `request_id`.
+  A newer id supersedes an in-flight transition; retries of the older id get
+  `OperationCanceled`, and the SM drops a canceled pending transition without a
+  SafeState fallback. `request_id == 0` keeps the legacy behavior.
 
 ```mermaid
 flowchart LR

@@ -144,6 +144,7 @@ struct PendingTransition {
     std::size_t group_index{0};
     char target_state[nexigen::sm::k_holder_requester_length]{};
     char requester_id[nexigen::sm::k_holder_requester_length]{};
+    std::uint64_t request_id{0};
     Clock::time_point deadline{};
 };
 
@@ -156,7 +157,8 @@ void serve_one_request(TriggerServer& server, nexigen::sm::StateManager& manager
                        nexigen::sm::StatePublication& publication,
                        nexigen::sm::TransitionPreparation* preparation,
                        nexigen::sm::TransitionAudit& audit, nexigen::sm::SmMetrics& metrics,
-                       std::vector<PendingTransition>& pending, Clock::time_point now) {
+                       std::vector<PendingTransition>& pending, std::uint64_t request_id,
+                       Clock::time_point now) {
     auto received = server.receive();
     if (!received || !received->has_value()) {
         return;
@@ -200,6 +202,7 @@ void serve_one_request(TriggerServer& server, nexigen::sm::StateManager& manager
                       "%s", manager.state(index).data());
         std::snprintf(pending_transition.requester_id, sizeof(pending_transition.requester_id),
                       "%s", request.requester_id);
+        pending_transition.request_id = request_id;
         pending_transition.deadline = now + timeout;
         pending.push_back(pending_transition);
     }
@@ -223,6 +226,7 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
                       pending[i].target_state);
         std::snprintf(command.requester_id, sizeof(command.requester_id), "%s",
                       pending[i].requester_id);
+        command.request_id = pending[i].request_id;
         const bool safe_state = std::string_view(pending[i].target_state) == "SafeState";
         const auto started = Clock::now();
         const auto ack =
@@ -240,6 +244,12 @@ void drive_pending(nexigen::sm::StateManager& manager, EmClient& em_client,
                 // readiness/completion; retry while the transition is alive.
                 pending[i].deadline = Clock::now() + std::chrono::milliseconds(50);
                 ++i;
+                continue;
+            }
+            if (ack->result == nexigen::exec::StateResult::OperationCanceled) {
+                // A newer request superseded this one: drop it without a
+                // SafeState fallback.
+                pending.erase(pending.begin() + static_cast<std::ptrdiff_t>(i));
                 continue;
             }
             if (ack->result != nexigen::exec::StateResult::Success) {
@@ -278,6 +288,7 @@ struct Session {
     std::optional<nexigen::phm::CheckpointEmitter> health{};
     std::optional<nexigen::sm::TransitionPreparation> preparation{};
     std::optional<nexigen::com::WaitSetGuard> tick_guard{};
+    std::uint64_t next_request_id{1};
 };
 
 /// Load the manifest (REQ_SM_019) and require at least one function group.
@@ -474,7 +485,7 @@ void run_loop(Session& session, nexigen::sm::StateManager& manager,
                     for (std::size_t i = 0; i < manager.group_count() * 2U; ++i) {
                         serve_one_request(*session.trigger_server, manager, *session.publication,
                                           session.preparation ? &*session.preparation : nullptr,
-                                          audit, metrics, pending, now);
+                                          audit, metrics, pending, session.next_request_id++, now);
                     }
                     if (session.em_client && session.em_emergency_client) {
                         drive_pending(manager, *session.em_client, *session.em_emergency_client,

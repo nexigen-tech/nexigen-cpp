@@ -1122,6 +1122,68 @@ void test_access_control() {
     std::filesystem::remove_all(run_dir);
 }
 
+void test_request_ids() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/StateRequestIds");
+    NX_CHECK(name.has_value());
+    const std::string run_dir = "/tmp/opencode/state_client_request_ids";
+    std::filesystem::remove_all(run_dir);
+    std::filesystem::create_directories(run_dir);
+
+    exec::SuiteManifest manifest;
+    exec::FunctionGroupConfig group;
+    group.name = "req_group";
+    group.states = {"Off", "Run", "Parking"};
+    manifest.function_groups.push_back(group);
+
+    auto add_app = [&](const char* app_name, const char* state, bool reporting) {
+        exec::AppSpec app;
+        app.app = app_name;
+        app.instance = "1";
+        app.command = "/bin/sh";
+        app.function_group = "req_group";
+        app.reporting = reporting;
+        exec::StateDependentStartupConfig config;
+        config.state = state;
+        config.args = {"-c", "exec sleep 60"};
+        app.startup_configs.push_back(config);
+        manifest.apps.push_back(std::move(app));
+    };
+    add_app("run_app", "Run", true);
+    add_app("park_app", "Parking", false);
+
+    exec::FunctionGroupRegistry registry(manifest);
+    exec::ExecutionStateTracker tracker;
+    exec::ExecutionManager manager;
+    app::RunIdentity identity{"test", run_dir, "1", {}};
+    auto state_client =
+        exec::StateClient::create(*node, *name, registry, manager, identity, &tracker);
+    NX_CHECK(state_client.has_value());
+
+    auto command = [](const char* target, std::uint64_t request_id) {
+        exec::StateCommand cmd{};
+        std::snprintf(cmd.function_group, sizeof(cmd.function_group), "%s", "req_group");
+        std::snprintf(cmd.target_state, sizeof(cmd.target_state), "%s", target);
+        std::snprintf(cmd.requester_id, sizeof(cmd.requester_id), "%s", "sm");
+        cmd.request_id = request_id;
+        return cmd;
+    };
+
+    NX_CHECK(state_client->execute(command("Run", 1)) == exec::StateResult::InProgress);
+    NX_CHECK(state_client->execute(command("Run", 1)) == exec::StateResult::InProgress);
+    NX_CHECK(state_client->execute(command("Run", 2)) == exec::StateResult::InProgress);
+    NX_CHECK(state_client->execute(command("Run", 1)) == exec::StateResult::OperationCanceled);
+    NX_CHECK(state_client->execute(command("Parking", 3)) == exec::StateResult::Success);
+    NX_CHECK(registry.group_state(0) == "Parking");
+    NX_CHECK(state_client->execute(command("Parking", 2)) == exec::StateResult::OperationCanceled);
+    NX_CHECK(state_client->execute(command("Parking", 4)) == exec::StateResult::Success);
+    NX_CHECK(state_client->execute(command("Parking", 0)) == exec::StateResult::Success);
+    NX_CHECK(state_client->execute(command("Run", 5)) == exec::StateResult::InProgress);
+
+    std::filesystem::remove_all(run_dir);
+}
+
 } // namespace
 
 int main() {
@@ -1140,6 +1202,7 @@ int main() {
     test_instance_directory_uses_manifest_instance();
     test_machine_function_group();
     test_access_control();
+    test_request_ids();
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

@@ -194,6 +194,7 @@ private:
         std::vector<std::string> pending_start{}; ///< Applications waiting for dependencies.
         std::uint64_t deadline_ns{0};             ///< Startup deadline for the current attempt.
         std::uint32_t attempts{0};                ///< Startup attempts used.
+        std::uint64_t request_id{0};              ///< Requester id owning the transition.
     };
 
     /// @brief Construct a client from prepared servers and borrowed services.
@@ -240,8 +241,21 @@ private:
     ///
     /// @param index Group index.
     /// @param target Requested state.
+    /// @param request_id Requester id; 0 = no cancellation semantics.
     /// @return Transition result for the new request.
-    [[nodiscard]] StateResult begin_transition(std::size_t index, std::string_view target) noexcept;
+    [[nodiscard]] StateResult begin_transition(std::size_t index, std::string_view target,
+                                               std::uint64_t request_id) noexcept;
+
+    /// @brief Execute a transition once the request-id checks passed.
+    ///
+    /// @param index Group index.
+    /// @param target Requested state.
+    /// @param request_id Requester id.
+    /// @param current Effective source state.
+    /// @return Transition result.
+    [[nodiscard]] StateResult start_transition(std::size_t index, std::string_view target,
+                                               std::uint64_t request_id,
+                                               std::string_view current) noexcept;
 
     /// @brief Advance an in-flight transition.
     ///
@@ -324,11 +338,12 @@ private:
     app::RunIdentity identity_;                            ///< Run identity for instance paths.
     ExecutionStateTracker* tracker_{nullptr};              ///< Optional readiness tracker.
     std::vector<StateChannel> state_channels_{};           ///< Per-application readiness channels.
-    std::vector<std::string> pending_exits_{};   ///< Started processes awaiting `exit.json`.
-    std::vector<GroupTransition> transitions_{}; ///< One transition state per group.
-    ProcessHandler start_handler_{};             ///< Suite-owned start callback.
-    ProcessHandler stop_handler_{};              ///< Suite-owned stop callback.
-    std::string last_command_{};                 ///< Last handled command diagnostic.
+    std::vector<std::string> pending_exits_{};      ///< Started processes awaiting `exit.json`.
+    std::vector<GroupTransition> transitions_{};    ///< One transition state per group.
+    std::vector<std::uint64_t> last_request_ids_{}; ///< Last accepted id per group.
+    ProcessHandler start_handler_{};                ///< Suite-owned start callback.
+    ProcessHandler stop_handler_{};                 ///< Suite-owned stop callback.
+    std::string last_command_{};                    ///< Last handled command diagnostic.
 };
 
 /// @brief Free helper (mandate 9): mirrors the member.

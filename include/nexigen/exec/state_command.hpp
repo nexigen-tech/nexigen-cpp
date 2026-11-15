@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <string>
 
@@ -36,14 +37,17 @@ struct StateCommand {
     char function_group[k_state_command_name_length]{}; ///< Target Function Group name.
     char target_state[k_state_command_name_length]{};   ///< Requested state name.
     char requester_id[k_state_command_name_length]{};   ///< Requester identity for access control.
+    std::uint64_t request_id{0}; ///< Requester id; 0 = no cancellation semantics.
 
     /// @brief Cold-path diagnostic (mandate 9).
     ///
-    /// @return `StateCommand(function_group=..., target_state=..., requester_id=...)`.
+    /// @return `StateCommand(function_group=..., target_state=..., requester_id=...,
+    /// request_id=...)`.
     [[nodiscard]] std::string to_string() const {
-        return std::format("StateCommand(function_group={}, target_state={}, requester_id={})",
+        return std::format("StateCommand(function_group={}, target_state={}, requester_id={}, "
+                           "request_id={})",
                            std::string(function_group), std::string(target_state),
-                           std::string(requester_id));
+                           std::string(requester_id), request_id);
     }
 };
 

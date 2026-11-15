@@ -8,6 +8,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -90,6 +91,7 @@ private:
     std::optional<exec::ApplicationStateReporter> reporter_{};
     com::Client<std::monostate, exec::InitialMachineStateTransitionResultResponse> query_;
     com::Client<exec::StateCommand, exec::StateAck> command_;
+    std::uint64_t next_request_id_{1};
 };
 
 } // namespace nexigen::sm
