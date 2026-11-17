@@ -22,11 +22,26 @@ namespace nexigen::com {
 class E2eReceiver {
 public:
     /// @brief Bind the receiver to one service configuration.
+    ///
+    /// @param profile Selected protection profile.
+    /// @param data_id Expected service identity.
+    /// @param max_delta_counter Largest accepted forward counter gap; `0` is
+    ///        clamped to `1`.
+    /// @note Spec `com/e2e`, requirement "Receiver supervision".
     E2eReceiver(E2eProfile profile, std::uint32_t data_id, std::uint32_t max_delta_counter) noexcept
         : profile_(profile), data_id_(data_id),
           max_delta_(max_delta_counter == 0U ? 1U : max_delta_counter) {}
 
     /// @brief Classify one received envelope.
+    ///
+    /// Integrity is checked before the counter, so a corrupt or foreign message
+    /// never advances the accepted sequence.
+    ///
+    /// @tparam T Payload type satisfying `com::concepts::Message`.
+    /// @param message Envelope to check.
+    /// @return `Ok`, `Repeated`, `WrongSequence`, or `Error` for this message.
+    /// @note Spec `com/e2e`, requirement "Receiver supervision"; updates
+    ///       `state()` and the accepted counter on success.
     template <concepts::Message T>
     [[nodiscard]] E2eStatus accept(const E2eMessage<T>& message) noexcept {
         ++state_.checked;
@@ -57,9 +72,13 @@ public:
     }
 
     /// @brief Counters accumulated by this receiver.
+    /// @return Borrowed per-endpoint counters.
+    /// @note Spec `com/e2e`, requirement "Receiver supervision".
     [[nodiscard]] const E2eState& state() const noexcept { return state_; }
 
     /// @brief Cold-path diagnostic rendering.
+    /// @return `E2eReceiver(profile=..., data_id=..., E2eState(...))`.
+    /// @note Spec `com/e2e`, requirement "Receiver supervision".
     [[nodiscard]] std::string to_string() const {
         return std::format("E2eReceiver(profile={}, data_id={}, {})",
                            nexigen::com::to_string(profile_), data_id_, state_.to_string());
@@ -75,6 +94,10 @@ private:
 };
 
 /// @brief Free helper mirroring `E2eReceiver::to_string()` (mandate 9).
+///
+/// @param receiver Receiver to render.
+/// @return The diagnostic string.
+/// @note Spec `com/e2e`, requirement "Receiver supervision".
 [[nodiscard]] inline std::string to_string(const E2eReceiver& receiver) {
     return receiver.to_string();
 }

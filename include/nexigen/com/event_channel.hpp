@@ -30,6 +30,8 @@ public:
     /// @brief Create a channel with the default 16/512/16 settings.
     /// @param node Node that must outlive the channel and its endpoints.
     /// @param name Service name shared by producer and consumer.
+    /// @return Channel with the default configuration, or a mapped
+    ///         `InvalidArgument` if the defaults ever become invalid.
     [[nodiscard]] static Result<EventChannel> create(Node& node, ServiceName name) noexcept {
         return create(node, std::move(name), ChannelConfig{});
     }

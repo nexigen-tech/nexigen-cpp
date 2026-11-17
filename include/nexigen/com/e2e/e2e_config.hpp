@@ -26,6 +26,8 @@ struct E2eConfig {
     std::uint32_t max_delta_counter{10};  ///< Largest accepted counter gap.
 
     /// @brief Cold-path diagnostic rendering.
+    /// @return `E2eConfig(profile=..., data_id=..., max_delta_counter=...)`.
+    /// @note Spec `com/e2e`, requirement "E2E service configuration".
     [[nodiscard]] std::string to_string() const {
         return std::format("E2eConfig(profile={}, data_id={}, max_delta_counter={})",
                            nexigen::com::to_string(profile), data_id, max_delta_counter);
@@ -33,11 +35,19 @@ struct E2eConfig {
 };
 
 /// @brief Free helper mirroring `E2eConfig::to_string()` (mandate 9).
+///
+/// @param config Configuration to render.
+/// @return The diagnostic string.
+/// @note Spec `com/e2e`, requirement "E2E service configuration".
 [[nodiscard]] inline std::string to_string(const E2eConfig& config) {
     return config.to_string();
 }
 
 /// @brief ADL JSON writer for the E2E section.
+///
+/// @param j Output JSON object, replaced by the canonical section fields.
+/// @param config Section to serialize.
+/// @note Spec `com/e2e`, requirement "E2E service configuration"; mandate 10.
 inline void to_json(nlohmann::json& j, const E2eConfig& config) {
     j = nlohmann::json{{"profile", nexigen::com::to_string(config.profile)},
                        {"data_id", config.data_id},
@@ -49,6 +59,10 @@ inline void to_json(nlohmann::json& j, const E2eConfig& config) {
 /// An absent section keeps the destination unchanged. An unknown profile name
 /// leaves `profile` at `None`; `ServiceManifest::from_json` records the finding
 /// in `ServiceManifest::diagnostics` so validation can reject it.
+///
+/// @param j Input JSON value; non-object values leave `config` unchanged.
+/// @param config Destination section.
+/// @note Spec `com/e2e`, requirement "E2E service configuration"; mandate 10.
 inline void from_json(const nlohmann::json& j, E2eConfig& config) noexcept {
     if (!j.is_object()) {
         return;
@@ -78,6 +92,12 @@ inline void from_json(const nlohmann::json& j, E2eConfig& config) noexcept {
 
 /// @brief `std::formatter` for the E2E section (project mandate 11).
 template <> struct std::formatter<nexigen::com::E2eConfig> : std::formatter<std::string_view> {
+    /// @brief Write the section diagnostic into the format context.
+    /// @tparam Ctx `std::format` context type.
+    /// @param config Section to format.
+    /// @param ctx Output context supplied by `std::format`.
+    /// @return Iterator one past the last written character.
+    /// @note Spec `com/e2e`, requirement "E2E service configuration".
     template <class Ctx> auto format(const nexigen::com::E2eConfig& config, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(config.to_string(), ctx);
     }

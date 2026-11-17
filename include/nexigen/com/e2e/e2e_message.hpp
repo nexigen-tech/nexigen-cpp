@@ -26,6 +26,8 @@ struct E2eHeader {
     std::uint32_t crc{0};     ///< Checksum; low 16 bits for CRC-16 profiles.
 
     /// @brief Cold-path diagnostic rendering.
+    /// @return `E2eHeader(data_id=..., counter=..., length=..., crc=0x...)`.
+    /// @note Spec `com/e2e`, requirement "E2E envelope and checksum".
     [[nodiscard]] std::string to_string() const {
         return std::format("E2eHeader(data_id={}, counter={}, length={}, crc={:#x})", data_id,
                            counter, length, crc);
@@ -46,10 +48,19 @@ template <concepts::Message T> struct E2eMessage {
     T payload{};        ///< Application payload.
 };
 
+/// @brief Whether `E2eMessage<T>` remains trivially copyable.
+///
+/// @tparam T Payload type satisfying `com::concepts::Message`.
+/// @note Spec `com/e2e`, requirement "E2E envelope and checksum"; the
+///       zero-copy ports require this property for every wrapped payload.
 template <concepts::Message T>
 constexpr bool k_e2e_message_is_trivially_copyable = std::is_trivially_copyable_v<E2eMessage<T>>;
 
 /// @brief Free helper mirroring `E2eHeader::to_string()` (mandate 9).
+///
+/// @param header Header to render.
+/// @return The diagnostic string.
+/// @note Spec `com/e2e`, requirement "E2E envelope and checksum".
 [[nodiscard]] inline std::string to_string(const E2eHeader& header) {
     return header.to_string();
 }
@@ -58,6 +69,12 @@ constexpr bool k_e2e_message_is_trivially_copyable = std::is_trivially_copyable_
 
 /// @brief `std::formatter` for the E2E header (project mandate 11).
 template <> struct std::formatter<nexigen::com::E2eHeader> : std::formatter<std::string_view> {
+    /// @brief Write the header diagnostic into the format context.
+    /// @tparam Ctx `std::format` context type.
+    /// @param header Header to format.
+    /// @param ctx Output context supplied by `std::format`.
+    /// @return Iterator one past the last written character.
+    /// @note Spec `com/e2e`, requirement "E2E envelope and checksum".
     template <class Ctx> auto format(const nexigen::com::E2eHeader& header, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(header.to_string(), ctx);
     }

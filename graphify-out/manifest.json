@@ -6642,9 +6642,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/com/publish-subscribe/spec.md": {
-    "mtime": 1794518507.057482,
-    "seen": 1794518629.2528186,
-    "ast_hash": "e8b3eed044698a02ed3749c8cb01f474",
+    "mtime": 1794953301.7198963,
+    "seen": 1794954109.4437196,
+    "ast_hash": "b8dc7b5a4257669e8ae9bd12dd06f279",
     "semantic_hash": ""
   },
   "openspec/specs/com/request-response/spec.md": {
@@ -9366,69 +9366,69 @@
     "semantic_hash": ""
   },
   "include/nexigen/com/e2e/e2e_client.hpp": {
-    "mtime": 1794762960.8278253,
-    "seen": 1794765611.0301218,
-    "ast_hash": "b1ad393e416d59a754681fb9d3120fc1",
+    "mtime": 1794953941.4905756,
+    "seen": 1794954109.418384,
+    "ast_hash": "0829f03511f049d75a05f7f7ffbb4d1c",
     "semantic_hash": ""
   },
   "include/nexigen/com/e2e/e2e_codec.hpp": {
-    "mtime": 1794762960.8485146,
-    "seen": 1794765611.030123,
-    "ast_hash": "93308d364d1646abbb55929bc6c16b4d",
+    "mtime": 1794953905.7156494,
+    "seen": 1794954109.4183855,
+    "ast_hash": "9afbae14fb3061ef2dc35ffe493474af",
     "semantic_hash": ""
   },
   "include/nexigen/com/e2e/e2e_config.hpp": {
-    "mtime": 1794756179.3963706,
-    "seen": 1794756430.7457814,
-    "ast_hash": "97b90bbaaa403161f881c1f09fcdd80c",
+    "mtime": 1794953870.7617216,
+    "seen": 1794954109.4183867,
+    "ast_hash": "ec2ef6eca5b40db4540795b0adceea4b",
     "semantic_hash": ""
   },
   "include/nexigen/com/e2e/e2e_message.hpp": {
-    "mtime": 1794762960.8793771,
-    "seen": 1794765611.0301378,
-    "ast_hash": "3d9c21d729549c5cc378fa5c52b4798f",
+    "mtime": 1794953859.9687438,
+    "seen": 1794954109.418389,
+    "ast_hash": "247da7a7e6f55279466760dcd06645c1",
     "semantic_hash": ""
   },
   "include/nexigen/com/e2e/e2e_profile.hpp": {
-    "mtime": 1794754144.3697753,
-    "seen": 1794756430.7457838,
-    "ast_hash": "658d60b68acb20878cfd9f6d17b9ac3a",
+    "mtime": 1794953838.513788,
+    "seen": 1794954109.418391,
+    "ast_hash": "399efb7b0a6c2fa24741ea9d6fba2447",
     "semantic_hash": ""
   },
   "include/nexigen/com/e2e/e2e_publisher.hpp": {
-    "mtime": 1794762960.911938,
-    "seen": 1794765611.0301518,
-    "ast_hash": "b5adee6565d81c8bf24372514e9aec8e",
+    "mtime": 1794953968.9785187,
+    "seen": 1794954109.4183922,
+    "ast_hash": "0dbd1a6b07d6a03f713e15192215fc0c",
     "semantic_hash": ""
   },
   "include/nexigen/com/e2e/e2e_receiver.hpp": {
-    "mtime": 1794762960.9275548,
-    "seen": 1794765611.030153,
-    "ast_hash": "7812a20e92067f04aff4ec4426a5e152",
+    "mtime": 1794953914.9366302,
+    "seen": 1794954109.418393,
+    "ast_hash": "73bbc735eb83195ea2a6fa1264034e57",
     "semantic_hash": ""
   },
   "include/nexigen/com/e2e/e2e_server.hpp": {
-    "mtime": 1794762960.943647,
-    "seen": 1794765611.030154,
-    "ast_hash": "47ce5dfb33772079be3d42503df37ac9",
+    "mtime": 1794954009.1454358,
+    "seen": 1794954109.4183946,
+    "ast_hash": "d7ebc7e0ea64508d8d5fe0b4d45b034e",
     "semantic_hash": ""
   },
   "include/nexigen/com/e2e/e2e_state.hpp": {
-    "mtime": 1794754151.3535135,
-    "seen": 1794756430.7457871,
-    "ast_hash": "3b7884a965606cd312c874ab4786f446",
+    "mtime": 1794953921.1976173,
+    "seen": 1794954109.418396,
+    "ast_hash": "97ef1847e1f56ad5bebf6003283fc346",
     "semantic_hash": ""
   },
   "include/nexigen/com/e2e/e2e_status.hpp": {
-    "mtime": 1794762960.9737823,
-    "seen": 1794765611.030168,
-    "ast_hash": "07ecc06f5320ff9efa20c7783a3728f9",
+    "mtime": 1794953850.641763,
+    "seen": 1794954109.4183965,
+    "ast_hash": "ea9348fb68f568de9b45ee6805df6a0e",
     "semantic_hash": ""
   },
   "include/nexigen/com/e2e/e2e_subscriber.hpp": {
-    "mtime": 1794762960.991861,
-    "seen": 1794765611.0301688,
-    "ast_hash": "f4444d2a0073b958b133d570573b3216",
+    "mtime": 1794953990.8034737,
+    "seen": 1794954109.4183974,
+    "ast_hash": "d39101a71dc5f33afb273d5f58dd109b",
     "semantic_hash": ""
   },
   "include/nexigen/core/integrity/crc32c.hpp": {
@@ -10920,9 +10920,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/com/event_channel.hpp": {
-    "mtime": 1794952078.592806,
-    "seen": 1794952282.8249776,
-    "ast_hash": "afe54c0d007de0567aa08e24b4a26e4e",
+    "mtime": 1794954012.2964294,
+    "seen": 1794954109.418443,
+    "ast_hash": "314822df4e507567e7d2e0224007731c",
     "semantic_hash": ""
   },
   "include/nexigen/com/event_consumer.hpp": {
@@ -11027,12 +11027,6 @@
     "ast_hash": "e7d555e1255be46a2bffdeb42d595109",
     "semantic_hash": ""
   },
-  "openspec/changes/add-com-event-system/.openspec.yaml": {
-    "mtime": 1794948390.723416,
-    "seen": 1794950083.7640617,
-    "ast_hash": "46692162161aea945e424ee8b44c7c3a",
-    "semantic_hash": ""
-  },
   "src/com/event_system.cpp": {
     "mtime": 1794949793.625494,
     "seen": 1794950083.7667482,
@@ -11057,34 +11051,46 @@
     "ast_hash": "ff1522f88cb515edffc4d34c7ce03b05",
     "semantic_hash": ""
   },
-  "openspec/changes/add-com-event-system/design.md": {
+  "openspec/changes/archive/2026-11-18-add-com-event-system/.openspec.yaml": {
+    "mtime": 1794948390.723416,
+    "seen": 1794954109.4254878,
+    "ast_hash": "46692162161aea945e424ee8b44c7c3a",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-18-add-com-event-system/design.md": {
     "mtime": 1794952296.971278,
-    "seen": 1794952828.2681584,
+    "seen": 1794954109.4434001,
     "ast_hash": "9fb8a1d600418b2ff0a395230542de68",
     "semantic_hash": ""
   },
-  "openspec/changes/add-com-event-system/proposal.md": {
+  "openspec/changes/archive/2026-11-18-add-com-event-system/proposal.md": {
     "mtime": 1794948410.275386,
-    "seen": 1794950083.7708282,
+    "seen": 1794954109.4434023,
     "ast_hash": "31783057a1535545718298863b7cfb73",
     "semantic_hash": ""
   },
-  "openspec/changes/add-com-event-system/specs/com/event-system/spec.md": {
+  "openspec/changes/archive/2026-11-18-add-com-event-system/specs/com/event-system/spec.md": {
     "mtime": 1794952169.8947437,
-    "seen": 1794952282.8358476,
+    "seen": 1794954109.4434032,
     "ast_hash": "aa1e3561c035dbdf2028143fa5c67848",
     "semantic_hash": ""
   },
-  "openspec/changes/add-com-event-system/specs/com/publish-subscribe/spec.md": {
+  "openspec/changes/archive/2026-11-18-add-com-event-system/specs/com/publish-subscribe/spec.md": {
     "mtime": 1794950405.7880707,
-    "seen": 1794950704.5945776,
+    "seen": 1794954109.443404,
     "ast_hash": "8deb0229e5ff36a0f5ca423368a9bf42",
     "semantic_hash": ""
   },
-  "openspec/changes/add-com-event-system/tasks.md": {
+  "openspec/changes/archive/2026-11-18-add-com-event-system/tasks.md": {
     "mtime": 1794950453.8616536,
-    "seen": 1794950704.5945792,
+    "seen": 1794954109.4434054,
     "ast_hash": "fd12cbd82e5188c0c050dd4bf9cd5b27",
+    "semantic_hash": ""
+  },
+  "openspec/specs/com/event-system/spec.md": {
+    "mtime": 1794953301.7197483,
+    "seen": 1794954109.443702,
+    "ast_hash": "5e8a73fbc6a7745ab696bca930afb59b",
     "semantic_hash": ""
   }
 }
