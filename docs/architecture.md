@@ -5,8 +5,8 @@
 публичным заголовкам `include/nexigen/`, спецификациям `openspec/specs/` и
 целям сборки `CMakeLists.txt`.
 
-Актуально на 17.11.2026: 13 модулей, 356 публичных заголовков, 125
-capability, 893 требования и 2262 сценария в OpenSpec.
+Актуально на 18.11.2026: 13 модулей, 379 публичных заголовков, 126
+capability, 906 требований и 2317 сценариев в OpenSpec.
 
 ## 1. Назначение и принципы
 
@@ -40,7 +40,7 @@ capability, 893 требования и 2262 сценария в OpenSpec.
 |---|---|---|---:|---:|---|
 | L0 | `nexigen::core` | `nexigen_core` | INTERFACE | 25 | `Result`/`ErrorCode`, сериализация, `LogLevel`, enum-словари, SPSC-очереди, потоки и affinity, sink/settings-инфраструктура, integrity-примитивы |
 | L1 | `nexigen::chrono` | `nexigen_chrono` | STATIC | 27 | `Timestamp`, `CivilTime`, калиброванный TSC, `Provider`/`Worker`, UTC-смещение, time-sync монитор, sinks и настройки |
-| L1 | `nexigen::com` | `nexigen_com` | STATIC, gate | 31 | SOA поверх iceoryx2: `Node`, pub/sub, request/response, `Event`, `Field`, `WaitSet`, `ServiceManifest`, E2E |
+| L1 | `nexigen::com` | `nexigen_com` | STATIC, gate | 54 | SOA поверх iceoryx2: `Node`, pub/sub, request/response, `Event`, event channels, `Field`, `WaitSet`, `ServiceManifest`, E2E |
 | L2 | `nexigen::logging` | `nexigen_logging` | STATIC | 37 | Асинхронные логгеры, `LogRecord`, уровни, anti-spam, ротация, кадры и настройки |
 | L2 | `nexigen::metrics` | `nexigen_metrics` | STATIC | 49 | Счётчики, gauge, гистограммы, статистика, `MetricProvider`, sinks, Prometheus, кадры |
 | L2 | `nexigen::tracing` | `nexigen_tracing` | STATIC | 35 | `TracerProvider`, `ScopedSpan`, контекст трассировки, sinks, кадры и daemon-сессия |
@@ -49,7 +49,7 @@ capability, 893 требования и 2262 сценария в OpenSpec.
 | L3 | `nexigen::app` | `nexigen_app` | STATIC | 11 | Командная строка, настройки, `Infrastructure`, телеметрическая раскладка, `signalfd` |
 | L3 | `nexigen::exec` | `nexigen_exec` | STATIC | 56 | Suite/instance lifecycle, супервизия процессов, Function Groups, манифесты, platform controls |
 | L3 | `nexigen::hub` | `nexigen_hub` | STATIC | 15 | Discovery, ограниченные потоки с gap-маркерами, HTTP/SSE-сервер, web UI |
-| L3 | `nexigen::phm` | `nexigen_phm` | STATIC, gate | 27 | Platform Health Management: супервизия, checkpoints, claims, recovery, watchdog |
+| L3 | `nexigen::phm` | `nexigen_phm` | STATIC, gate | 31 | Platform Health Management: супервизия, checkpoints, claims, recovery, watchdog |
 | L3 | `nexigen::sm` | `nexigen_sm` | STATIC, gate | 19 | State Management: арбитраж Function Groups, RootFG, LSM, UCM |
 
 Дополнительные цели, появляющиеся только при `NEXIGEN_ENABLE_COM=ON`:
@@ -278,8 +278,17 @@ TSC, эталонные часы процесса, периодические с
 
 `EventChannel<T>` — прикладная фабрика `producer()`/`consumer()` поверх
 `com::Publisher`/`Subscriber`, `EventNotifier`/`EventListener` и `WaitSet`.
+Создание идёт только через `EventChannel<T>::create(node, name, config)`,
+который валидирует `ChannelConfig` до открытия сервисов.
+
 `EventHeader` (64 B) несёт transport sequence, каноническое время события и
-его домен, producer epoch, host ingest time и опциональные FPGA-поля.
+его домен, producer epoch, host ingest time и опциональные FPGA-поля
+(`hardware_sequence`, `hardware_timestamp_ns`, `hardware_event_code`).
+`EventProducer<T>` назначает sequence только после успешной отправки,
+возвращает `Notified`/`NotifyFailed` и умеет повторить wake без повторной
+публикации. `EventConsumer<T>` отслеживает потери по transport sequence:
+первый sample задаёт baseline, gap даёт точный `lost_count`, duplicate
+отбрасывается, sequence reset и смена epoch классифицируются отдельно.
 `EventConsumerSet<MaxConsumers>` мультиплексирует до 16 consumer'ов в одном
 потоке, поддерживает timeout и `wake_up()` для штатной остановки.
 
@@ -946,7 +955,7 @@ COM-зависимые инструменты появляются только 
 повторяет структуру `include/nexigen/`. Каждая capability содержит
 требования (`Requirement`) и проверяемые сценарии (`Scenario`).
 
-- Всего: 125 capability, 893 требования, 2262 сценария.
+- Всего: 126 capability, 906 требований, 2317 сценариев.
 - Межмодульные возможности: `packaging`, `examples`, `quality/*`.
 - Проверка корпуса: `openspec validate --specs`.
 - Покрытие требований AUTOSAR `RS_Safety` отслеживается в
