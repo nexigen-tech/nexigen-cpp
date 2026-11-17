@@ -10530,87 +10530,87 @@
     "semantic_hash": ""
   },
   "include/nexigen/recorder/builtin_schemas.hpp": {
-    "mtime": 1794870129.9172187,
-    "seen": 1794870624.6676705,
-    "ast_hash": "d4bca8e23ab6b9ad77f0cf079a54ff27",
+    "mtime": 1794937507.253436,
+    "seen": 1794937732.0937488,
+    "ast_hash": "2b5562bf813c56b0a534c248ab7cc0cc",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/channel_declare.hpp": {
-    "mtime": 1794870321.1465116,
-    "seen": 1794870624.667673,
-    "ast_hash": "5116f847dcce7bbbc225a249864ab54d",
+    "mtime": 1794937673.4527967,
+    "seen": 1794937732.0937507,
+    "ast_hash": "b0a2df368df79daf679880f2418d6259",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/config_loader.hpp": {
-    "mtime": 1794870125.7181547,
-    "seen": 1794870624.667675,
-    "ast_hash": "9bde44ccc5006b723d6d0daf1afd17b8",
+    "mtime": 1794937503.101452,
+    "seen": 1794937732.0937521,
+    "ast_hash": "333c4562f6476c2f82c87662be9c8d35",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/dataset_info.hpp": {
-    "mtime": 1794870141.32676,
-    "seen": 1794870624.6676767,
-    "ast_hash": "a067cd22cc96128d3bfe2fc4220c9b7d",
+    "mtime": 1794937440.7006922,
+    "seen": 1794937732.093753,
+    "ast_hash": "5bab1e13e7f5a17917379b9eddbe69e6",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/payload_decoder.hpp": {
-    "mtime": 1794870125.7231548,
-    "seen": 1794870624.6676803,
-    "ast_hash": "d4e3e5a451eeee4897e79b4d796c01fb",
+    "mtime": 1794937527.9393566,
+    "seen": 1794937732.093756,
+    "ast_hash": "09e52019bff83e2646ee3341e0a668c9",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/record_shard.hpp": {
-    "mtime": 1794869789.419914,
-    "seen": 1794870624.667682,
-    "ast_hash": "1073dc817fe863beccf86afcbf758479",
+    "mtime": 1794937451.7906494,
+    "seen": 1794937732.0937567,
+    "ast_hash": "c4cb88209f403cf6fd2bb8b1721394ff",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/recorder_types.hpp": {
-    "mtime": 1794870321.1463218,
-    "seen": 1794870624.6676834,
-    "ast_hash": "9e4f676ac8b487a40969934dd5088a6a",
+    "mtime": 1794937669.43552,
+    "seen": 1794937732.0937579,
+    "ast_hash": "28a21ca51a151ae27dff624d27868d74",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/schema_declare.hpp": {
-    "mtime": 1794870321.1464798,
-    "seen": 1794870624.6676846,
-    "ast_hash": "c3f4339be496bd602933657fca1ea0fe",
+    "mtime": 1794937673.4527967,
+    "seen": 1794937732.0937588,
+    "ast_hash": "67793c866b17ca3176b233e790d6ddfe",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/segment_info.hpp": {
-    "mtime": 1794870321.1464326,
-    "seen": 1794870624.667686,
-    "ast_hash": "a8b2a0649dea030b8a1e03fb519295c4",
+    "mtime": 1794937673.4527967,
+    "seen": 1794937732.0937595,
+    "ast_hash": "94696e557202df6678c6119cc392db54",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/session_manifest.hpp": {
-    "mtime": 1794870321.1465733,
-    "seen": 1794870624.6676872,
-    "ast_hash": "4c74a282c16e0f444f51f79122db444c",
+    "mtime": 1794937673.4527967,
+    "seen": 1794937732.0937612,
+    "ast_hash": "73731ca1fa782cce8f33fcfe092b26b0",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/session_reader.hpp": {
-    "mtime": 1794869723.9090617,
-    "seen": 1794870624.6676884,
-    "ast_hash": "72b5eb6de9298d80d7d4d69b6d0d8bad",
+    "mtime": 1794937560.8532298,
+    "seen": 1794937732.0937624,
+    "ast_hash": "b8fcf4a342bd7cf470bfe795addc23a7",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/session_writer.hpp": {
-    "mtime": 1794870136.8928893,
-    "seen": 1794870624.6676896,
-    "ast_hash": "0c81670d2f687846089078b4027e9d6b",
+    "mtime": 1794937545.5882885,
+    "seen": 1794937732.0937636,
+    "ast_hash": "8c3812d60cf90b4ae196ce3b299e91ec",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/storage_settings.hpp": {
-    "mtime": 1794935128.767951,
-    "seen": 1794935318.0692286,
-    "ast_hash": "a905175cf14d043674ca73867223a3e2",
+    "mtime": 1794937673.4527967,
+    "seen": 1794937732.0937645,
+    "ast_hash": "8df5a1ecbd193b9df5247fa66ff414a9",
     "semantic_hash": ""
   },
   "include/nexigen/recorder/wire_types.hpp": {
-    "mtime": 1794866527.976192,
-    "seen": 1794869257.9209728,
-    "ast_hash": "1730f6b5b93155d8b159ace61327da77",
+    "mtime": 1794937417.3137822,
+    "seen": 1794937732.093766,
+    "ast_hash": "6d8837603d6a30bfcb846537ce2ab860",
     "semantic_hash": ""
   },
   "initial_spec/recorder/example_format.hpp": {
@@ -10818,9 +10818,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/recorder/export_selection.hpp": {
-    "mtime": 1794869804.5368798,
-    "seen": 1794870624.6676784,
-    "ast_hash": "8a7cd29c0ec40207faee7a5422ee984c",
+    "mtime": 1794937514.274409,
+    "seen": 1794937732.0937548,
+    "ast_hash": "80743b08628a49962e720d9bf0868d79",
     "semantic_hash": ""
   },
   "tools/nexigen-export/export_cli_test.cpp": {

@@ -1,4 +1,14 @@
-// nexigen::recorder — fixed-size SPSC shard for producer-to-writer handoff.
+/// @file record_shard.hpp
+/// @brief Fixed-size SPSC shard for producer-to-writer handoff.
+///
+/// Producers push fixed envelopes into their own wait-free ring; one writer
+/// drains every shard and owns append order and the sparse index. A full shard
+/// never blocks a producer: the drop is accounted and later represented by a
+/// `GapMarker`.
+///
+/// @note Spec `recorder/raw-storage`, requirement "Preallocated allocation-free
+///       write path" (single writer, no heap growth in the loop) and
+///       requirement "Time and sequence mapping" (backpressure gap).
 #pragma once
 
 #include <array>
@@ -14,15 +24,19 @@ namespace nexigen::recorder {
 /// @brief One fixed-size record handed from a producer thread to the writer.
 ///
 /// The shard path carries records up to `payload.size()` bytes; larger records
-/// are appended directly through `SessionWriter::append()`.
+/// are appended directly through `SessionWriter::append()`. The envelope is
+/// aligned to a cache line and never allocates.
+///
+/// @note Spec `recorder/raw-storage`, requirement "Preallocated allocation-free
+///       write path".
 struct alignas(64) RecordEnvelope {
-    RecordType type{RecordType::ComPayload};
-    std::uint32_t channel_id{0};
-    std::uint32_t payload_size{0};
-    std::uint64_t event_ns{0};
-    std::uint64_t sequence{0};
-    std::uint64_t publisher_id{0};
-    std::array<std::byte, 4096> payload{};
+    RecordType type{RecordType::ComPayload}; ///< Record kind.
+    std::uint32_t channel_id{0};             ///< Declared channel id.
+    std::uint32_t payload_size{0};           ///< Valid bytes in `payload`.
+    std::uint64_t event_ns{0};               ///< Event time for the index.
+    std::uint64_t sequence{0};               ///< Publisher sequence.
+    std::uint64_t publisher_id{0};           ///< Publisher identity.
+    std::array<std::byte, 4096> payload{};   ///< Inline payload storage.
 };
 
 /// @brief Capacity of one producer shard.
@@ -33,6 +47,9 @@ inline constexpr std::size_t kRecordShardSlots = 1024U;
 /// A full shard never blocks the producer: `try_push` reports `BufferFull` and
 /// records the dropped sequence. The writer drains the shard and emits one
 /// `GapMarker` (`IoBackpressure`) for the dropped range.
+///
+/// @note Spec `recorder/raw-storage`, requirement "Preallocated allocation-free
+///       write path"; one writer owns the append order and the index.
 class RecordShard {
 public:
     /// @brief Push one envelope; a full shard records a backpressure drop.
@@ -59,10 +76,13 @@ public:
     }
 
     /// @brief Dropped-range record consumed by the writer.
+    ///
+    /// @note The writer converts this into one `GapMarker` with reason
+    ///       `IoBackpressure`.
     struct Dropped {
-        std::uint32_t channel_id{0};
-        std::uint64_t first_sequence{0};
-        std::uint64_t count{0};
+        std::uint32_t channel_id{0};    ///< Channel that lost records.
+        std::uint64_t first_sequence{0};///< First sequence not accepted.
+        std::uint64_t count{0};         ///< Number of dropped envelopes.
     };
 
     /// @brief Take the accumulated backpressure drop, resetting the counter.
@@ -77,15 +97,16 @@ public:
     }
 
     /// @brief Capacity in envelopes.
+    /// @return Maximum number of buffered `RecordEnvelope` values.
     [[nodiscard]] static constexpr std::size_t capacity() noexcept {
         return kRecordShardSlots;
     }
 
 private:
-    core::SpscRingBuffer<RecordEnvelope, kRecordShardSlots> ring_{};
-    std::uint32_t dropped_channel_{0};
-    std::uint64_t dropped_first_{0};
-    std::uint64_t dropped_count_{0};
+    core::SpscRingBuffer<RecordEnvelope, kRecordShardSlots> ring_{}; ///< Wait-free ring.
+    std::uint32_t dropped_channel_{0}; ///< Channel of the first dropped envelope.
+    std::uint64_t dropped_first_{0};   ///< First dropped sequence.
+    std::uint64_t dropped_count_{0};   ///< Number of dropped envelopes.
 };
 
 } // namespace nexigen::recorder
