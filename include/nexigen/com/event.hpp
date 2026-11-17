@@ -15,6 +15,7 @@
 #include <nexigen/com/detail/error_mapping.hpp>
 #include <nexigen/com/error.hpp>
 #include <nexigen/com/event_id.hpp>
+#include <nexigen/com/event_options.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
 
@@ -49,7 +50,32 @@ public:
     ///       publish".
     [[nodiscard]] static Result<EventNotifier> create(Node& node,
                                                       const ServiceName& name) noexcept {
-        auto service = node.handle().service_builder(name.handle()).event().open_or_create();
+        return create(node, name, EventOptions{});
+    }
+
+    /// @brief Open or create the event service with optional limits.
+    ///
+    /// Applies `max_listeners`, `max_notifiers`, and `max_nodes`; zero values
+    /// keep the transport default.
+    ///
+    /// @param node Node that owns this process's transport membership.
+    /// @param name Valid service name shared with the listener.
+    /// @param options Optional event-service limits.
+    /// @return The constructed notifier, or a mapped `com::Error` on failure.
+    /// @note Spec `com/publish-subscribe`, requirement "Event service options".
+    [[nodiscard]] static Result<EventNotifier> create(Node& node, const ServiceName& name,
+                                                      const EventOptions& options) noexcept {
+        auto builder = node.handle().service_builder(name.handle()).event();
+        if (options.max_listeners > 0U) {
+            static_cast<void>(std::move(builder).max_listeners(options.max_listeners));
+        }
+        if (options.max_notifiers > 0U) {
+            static_cast<void>(std::move(builder).max_notifiers(options.max_notifiers));
+        }
+        if (options.max_nodes > 0U) {
+            static_cast<void>(std::move(builder).max_nodes(options.max_nodes));
+        }
+        auto service = std::move(builder).open_or_create();
         if (!service) {
             return std::unexpected(detail::map_error(service.error()));
         }
@@ -172,7 +198,32 @@ public:
     ///       publish".
     [[nodiscard]] static Result<EventListener> create(Node& node,
                                                       const ServiceName& name) noexcept {
-        auto service = node.handle().service_builder(name.handle()).event().open_or_create();
+        return create(node, name, EventOptions{});
+    }
+
+    /// @brief Open or create the event service with optional limits.
+    ///
+    /// Applies `max_listeners`, `max_notifiers`, and `max_nodes`; zero values
+    /// keep the transport default.
+    ///
+    /// @param node Node that owns this process's transport membership.
+    /// @param name Valid service name shared with the notifier.
+    /// @param options Optional event-service limits.
+    /// @return The constructed listener, or a mapped `com::Error` on failure.
+    /// @note Spec `com/publish-subscribe`, requirement "Event service options".
+    [[nodiscard]] static Result<EventListener> create(Node& node, const ServiceName& name,
+                                                      const EventOptions& options) noexcept {
+        auto builder = node.handle().service_builder(name.handle()).event();
+        if (options.max_listeners > 0U) {
+            static_cast<void>(std::move(builder).max_listeners(options.max_listeners));
+        }
+        if (options.max_notifiers > 0U) {
+            static_cast<void>(std::move(builder).max_notifiers(options.max_notifiers));
+        }
+        if (options.max_nodes > 0U) {
+            static_cast<void>(std::move(builder).max_nodes(options.max_nodes));
+        }
+        auto service = std::move(builder).open_or_create();
         if (!service) {
             return std::unexpected(detail::map_error(service.error()));
         }

@@ -199,6 +199,13 @@ if(NEXIGEN_ENABLE_COM)
     add_test(NAME nexigen_com_tests COMMAND nexigen_com_tests)
     set_tests_properties(nexigen_com_tests PROPERTIES TIMEOUT 600)
 
+    add_executable(nexigen_event_system_tests com/event_system_test.cpp)
+    target_link_libraries(nexigen_event_system_tests PRIVATE nexigen_com Threads::Threads)
+    target_compile_definitions(nexigen_event_system_tests PRIVATE NEXIGEN_EVENT_SYSTEM_TESTING)
+
+    add_test(NAME nexigen_event_system_tests COMMAND nexigen_event_system_tests)
+    set_tests_properties(nexigen_event_system_tests PROPERTIES TIMEOUT 600)
+
     # Микробенч латентности горячего пути логгера поверх iceoryx2
     # (change bench-log-iceoryx2-latency): печатает медиану/p99/p99.9/max,
     # строгий sanity-гейт (a+event <= 2 мкс) только в Release x86-64.

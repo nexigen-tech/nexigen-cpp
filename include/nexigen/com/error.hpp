@@ -44,6 +44,7 @@ enum class Error : std::uint8_t {
     Timeout,                ///< A synchronous operation exceeded its deadline.
     InvalidArgument,        ///< Caller-supplied value violated a precondition.
     Unknown,                ///< Unmapped underlying transport error.
+    InvalidState,           ///< The requested operation is not valid in the current state.
 };
 
 /// @brief `std::expected` result over the `com` error vocabulary.
@@ -80,7 +81,7 @@ template <> struct EnumTraits<nexigen::com::Error> {
         std::string_view name;     ///< Canonical enumerator name.
     };
     /// @brief Canonical table; exactly one entry per enumerator.
-    static constexpr std::array<Entry, 11> entries{{
+    static constexpr std::array<Entry, 12> entries{{
         {nexigen::com::Error::Ok, "Ok"},
         {nexigen::com::Error::ServiceAlreadyExists, "ServiceAlreadyExists"},
         {nexigen::com::Error::ServiceNotFound, "ServiceNotFound"},
@@ -92,6 +93,7 @@ template <> struct EnumTraits<nexigen::com::Error> {
         {nexigen::com::Error::Timeout, "Timeout"},
         {nexigen::com::Error::InvalidArgument, "InvalidArgument"},
         {nexigen::com::Error::Unknown, "Unknown"},
+        {nexigen::com::Error::InvalidState, "InvalidState"},
     }};
 };
 

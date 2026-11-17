@@ -17,6 +17,7 @@
 #include <nexigen/com/detail/error_mapping.hpp>
 #include <nexigen/com/error.hpp>
 #include <nexigen/com/node.hpp>
+#include <nexigen/com/publish_subscribe_options.hpp>
 #include <nexigen/com/sample.hpp>
 #include <nexigen/com/service_name.hpp>
 
@@ -65,51 +66,108 @@ public:
     ///       discovery". `IncompatibleTypeLayout` rejects a payload whose type
     ///       name, size, or alignment differs from the publisher's.
     [[nodiscard]] static Result<Subscriber> create(Node& node, const ServiceName& name) noexcept {
-        return create_impl(node, name, std::nullopt, 0U);
+        return create(node, name, PublishSubscribeOptions{});
+    }
+
+    /// @brief Open or create the service with optional service settings.
+    ///
+    /// Applies the supplied service-level limits, history, safe-overflow policy,
+    /// and optional per-subscriber buffer size. Zero numeric values keep the
+    /// transport default.
+    ///
+    /// @param node Node that owns this process's transport membership.
+    /// @param name Valid service name shared with the publisher.
+    /// @param options Optional service-level and subscriber settings.
+    /// @return The constructed subscriber, or a mapped `com::Error` on failure.
+    /// @note Spec `com/publish-subscribe`, requirement "Publish-subscribe
+    ///       service options".
+    [[nodiscard]] static Result<Subscriber> create(Node& node, const ServiceName& name,
+                                                   const PublishSubscribeOptions& options) noexcept {
+        auto builder = node.handle().service_builder(name.handle()).publish_subscribe<T>();
+        if (options.max_subscribers > 0U) {
+            static_cast<void>(std::move(builder).max_subscribers(options.max_subscribers));
+        }
+        if (options.max_publishers > 0U) {
+            static_cast<void>(std::move(builder).max_publishers(options.max_publishers));
+        }
+        if (options.max_nodes > 0U) {
+            static_cast<void>(std::move(builder).max_nodes(options.max_nodes));
+        }
+        if (options.subscriber_max_buffer_size > 0U) {
+            static_cast<void>(std::move(builder).subscriber_max_buffer_size(
+                options.subscriber_max_buffer_size));
+        }
+        if (options.history_size > 0U) {
+            static_cast<void>(std::move(builder).history_size(options.history_size));
+        }
+        auto service = [&]() {
+            if constexpr (std::is_void_v<H>) {
+                return std::move(builder).enable_safe_overflow(options.enable_safe_overflow)
+                    .open_or_create();
+            } else {
+                return std::move(builder)
+                    .template user_header<H>()
+                    .enable_safe_overflow(options.enable_safe_overflow)
+                    .open_or_create();
+            }
+        }();
+        if (!service) {
+            return std::unexpected(detail::map_error(service.error()));
+        }
+        auto subscriber_builder = service->subscriber_builder();
+        if (options.subscriber_buffer_size > 0U) {
+            static_cast<void>(
+                std::move(subscriber_builder).buffer_size(options.subscriber_buffer_size));
+        }
+        if (options.subscriber_history_request > 0U) {
+            static_cast<void>(std::move(subscriber_builder).history_request(
+                options.subscriber_history_request));
+        }
+        auto subscriber = std::move(subscriber_builder).create();
+        if (!subscriber) {
+            return std::unexpected(detail::map_error(subscriber.error()));
+        }
+        return Subscriber{name, std::move(*subscriber)};
     }
 
     /// @brief Open or create the service with an explicit receiver buffer size.
     ///
-    /// A small buffer lets tests and diagnostics exercise the overflow path
-    /// deterministically; the service maximum keeps its default.
+    /// Compatibility overload: sets the per-subscriber buffer and leaves the
+    /// service-level settings at their transport defaults.
     ///
-    /// @param node Node that owns this process's transport membership; must
-    ///        outlive the subscriber.
+    /// @param node Node that owns this process's transport membership.
     /// @param name Valid service name shared with the publisher.
-    /// @param buffer_size Number of samples this subscriber may hold; the
-    ///        transport requires at least 1.
-    /// @return The constructed subscriber, or a mapped `com::Error` on
-    ///         failure.
-    /// @note Spec `com/publish-subscribe`, requirement "Configurable
-    ///       subscriber buffer depth".
+    /// @param buffer_size Number of samples this subscriber may hold.
+    /// @return The constructed subscriber, or a mapped `com::Error` on failure.
+    /// @note Spec `com/publish-subscribe`, requirement "Configurable subscriber
+    ///       buffer depth".
     [[nodiscard]] static Result<Subscriber> create(Node& node, const ServiceName& name,
                                                    std::uint64_t buffer_size) noexcept {
-        return create_impl(node, name, buffer_size, 0U);
+        PublishSubscribeOptions options{};
+        options.subscriber_buffer_size = buffer_size;
+        return create(node, name, options);
     }
 
     /// @brief Open or create the service with explicit service maximum and buffer.
     ///
-    /// Raising the service maximum lets the subscriber hold a full publish
-    /// burst without deterministic discards. The value must match the one the
-    /// publisher used, because the transport verifies the service settings on
-    /// connect.
+    /// Compatibility overload: sets the service maximum and the per-subscriber
+    /// buffer; other service settings stay at their transport defaults.
     ///
-    /// @param node Node that owns this process's transport membership; must
-    ///        outlive the subscriber.
+    /// @param node Node that owns this process's transport membership.
     /// @param name Valid service name shared with the publisher.
     /// @param subscriber_max_buffer_size Maximum number of samples one
-    ///        subscriber may hold for this service; `0` leaves the transport
-    ///        default (2).
-    /// @param buffer_size Number of samples this subscriber requests to hold;
-    ///        the transport requires at least 1.
-    /// @return The constructed subscriber, or a mapped `com::Error` on
-    ///         failure.
-    /// @note Spec `com/publish-subscribe`, requirement "Configurable
-    ///       subscriber buffer depth".
+    ///        subscriber may hold for this service.
+    /// @param buffer_size Number of samples this subscriber requests to hold.
+    /// @return The constructed subscriber, or a mapped `com::Error` on failure.
+    /// @note Spec `com/publish-subscribe`, requirement "Configurable subscriber
+    ///       buffer depth".
     [[nodiscard]] static Result<Subscriber> create(Node& node, const ServiceName& name,
                                                    std::uint64_t subscriber_max_buffer_size,
                                                    std::uint64_t buffer_size) noexcept {
-        return create_impl(node, name, buffer_size, subscriber_max_buffer_size);
+        PublishSubscribeOptions options{};
+        options.subscriber_max_buffer_size = subscriber_max_buffer_size;
+        options.subscriber_buffer_size = buffer_size;
+        return create(node, name, options);
     }
 
     /// @brief Copying is disabled: the subscriber owns the transport handle.
@@ -165,57 +223,6 @@ public:
     }
 
 private:
-    /// @brief Shared implementation of the three `create()` overloads.
-    ///
-    /// Opens the service when present and creates it otherwise, applies the
-    /// optional service maximum and the optional subscriber buffer size, and
-    /// selects the custom-header variant when `H` is not `void`.
-    ///
-    /// @param node Node that owns this process's transport membership.
-    /// @param name Valid service name shared with the publisher.
-    /// @param buffer_size Optional subscriber buffer depth; `std::nullopt`
-    ///        keeps the transport default.
-    /// @param subscriber_max_buffer_size Service maximum; `0` keeps the
-    ///        transport default.
-    /// @return The constructed subscriber, or a mapped `com::Error` on
-    ///         failure.
-    /// @note Spec `com/publish-subscribe`, requirements "Subscriber receive"
-    ///       and "Configurable subscriber buffer depth".
-    static Result<Subscriber> create_impl(Node& node, const ServiceName& name,
-                                          std::optional<std::uint64_t> buffer_size,
-                                          std::uint64_t subscriber_max_buffer_size) noexcept {
-        auto builder = node.handle().service_builder(name.handle()).publish_subscribe<T>();
-        if (subscriber_max_buffer_size > 0U) {
-            static_cast<void>(
-                std::move(builder).subscriber_max_buffer_size(subscriber_max_buffer_size));
-        }
-        auto service = [&]() {
-            if constexpr (std::is_void_v<H>) {
-                return std::move(builder).enable_safe_overflow(false).open_or_create();
-            } else {
-                return std::move(builder)
-                    .template user_header<H>()
-                    .enable_safe_overflow(false)
-                    .open_or_create();
-            }
-        }();
-        if (!service) {
-            return std::unexpected(detail::map_error(service.error()));
-        }
-        if (buffer_size.has_value()) {
-            auto subscriber = service->subscriber_builder().buffer_size(*buffer_size).create();
-            if (!subscriber) {
-                return std::unexpected(detail::map_error(subscriber.error()));
-            }
-            return Subscriber{name, std::move(*subscriber)};
-        }
-        auto subscriber = service->subscriber_builder().create();
-        if (!subscriber) {
-            return std::unexpected(detail::map_error(subscriber.error()));
-        }
-        return Subscriber{name, std::move(*subscriber)};
-    }
-
     /// @brief Adopt an already-created transport subscriber.
     ///
     /// @param name Service name retained for `to_string()`.

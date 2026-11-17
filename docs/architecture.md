@@ -271,8 +271,34 @@ TSC, эталонные часы процесса, периодические с
 
 **Зависимости.** `core`, `iceoryx2-cxx`.
 
-**Capabilities (6):** `e2e`, `field`, `publish-subscribe`,
+**Capabilities (7):** `e2e`, `event-system`, `field`, `publish-subscribe`,
 `request-response`, `service-management`, `waitset`.
+
+### 4.3a `com/event-system` — событийные каналы
+
+`EventChannel<T>` — прикладная фабрика `producer()`/`consumer()` поверх
+`com::Publisher`/`Subscriber`, `EventNotifier`/`EventListener` и `WaitSet`.
+`EventHeader` (64 B) несёт transport sequence, каноническое время события и
+его домен, producer epoch, host ingest time и опциональные FPGA-поля.
+`EventConsumerSet<MaxConsumers>` мультиплексирует до 16 consumer'ов в одном
+потоке, поддерживает timeout и `wake_up()` для штатной остановки.
+
+```mermaid
+flowchart LR
+    P[producer / gateway] --> EP[EventProducer]
+    EP --> PUB[Publisher + EventHeader]
+    EP --> N[EventNotifier]
+    PUB --> SM[(iceoryx2 shared memory)]
+    N --> K[event wake-up]
+    SM --> SUB[Subscriber + EventHeader]
+    K --> L[EventListener]
+    SUB --> EC[EventConsumer]
+    L --> CS[EventConsumerSet / WaitSet]
+    EC --> CB[event callback]
+    EC --> LC[loss callback]
+```
+
+Подробности: [com-event-system.md](com-event-system.md).
 
 ### 4.4 `logging` — асинхронные логи
 

@@ -23,6 +23,7 @@
 #include <nexigen/com/detail/error_mapping.hpp>
 #include <nexigen/com/error.hpp>
 #include <nexigen/com/node.hpp>
+#include <nexigen/com/publish_subscribe_options.hpp>
 #include <nexigen/com/sample_mut.hpp>
 #include <nexigen/com/service_name.hpp>
 
@@ -81,40 +82,49 @@ public:
     ///       "Configurable subscriber buffer depth". Both endpoints must
     ///       agree on the overflow contract; iceoryx2 verifies it on connect.
     [[nodiscard]] static Result<Publisher> create(Node& node, const ServiceName& name) noexcept {
-        return create(node, name, 0U);
+        return create(node, name, PublishSubscribeOptions{});
     }
 
-    /// @brief Open or create the service with an explicit subscriber buffer depth.
+    /// @brief Open or create the service with optional service settings.
     ///
-    /// A service may already exist (daemon-less discovery): the builder opens
-    /// it when present and creates it otherwise. The publisher always selects
-    /// `DiscardData`, independently of the buffer depth.
+    /// Applies the supplied `max_subscribers`, `max_publishers`, `max_nodes`,
+    /// `subscriber_max_buffer_size`, `history_size`, and `enable_safe_overflow`
+    /// values. Zero numeric values keep the transport default; the publisher
+    /// always selects `DiscardData` backpressure.
     ///
-    /// @param node Node that owns this process's transport membership; must
-    ///        outlive the publisher.
+    /// @param node Node that owns this process's transport membership.
     /// @param name Valid service name shared with the subscriber.
-    /// @param subscriber_max_buffer_size Maximum number of samples one
-    ///        subscriber may hold; `0` keeps the transport default (2). A
-    ///        larger value lets a burst of N frames reach a subscriber
-    ///        without deterministic discards.
-    /// @return The constructed publisher, or a mapped `com::Error` on
-    ///         failure.
-    /// @note `com/publish-subscribe`, "Configurable subscriber buffer depth"
-    ///       and "Compile-time sizing and pool allocation".
-    [[nodiscard]] static Result<Publisher>
-    create(Node& node, const ServiceName& name, std::uint64_t subscriber_max_buffer_size) noexcept {
+    /// @param options Optional service-level settings.
+    /// @return The constructed publisher, or a mapped `com::Error` on failure.
+    /// @note Spec `com/publish-subscribe`, requirement "Publish-subscribe
+    ///       service options".
+    [[nodiscard]] static Result<Publisher> create(Node& node, const ServiceName& name,
+                                                  const PublishSubscribeOptions& options) noexcept {
         auto builder = node.handle().service_builder(name.handle()).publish_subscribe<T>();
-        if (subscriber_max_buffer_size > 0U) {
-            static_cast<void>(
-                std::move(builder).subscriber_max_buffer_size(subscriber_max_buffer_size));
+        if (options.max_subscribers > 0U) {
+            static_cast<void>(std::move(builder).max_subscribers(options.max_subscribers));
+        }
+        if (options.max_publishers > 0U) {
+            static_cast<void>(std::move(builder).max_publishers(options.max_publishers));
+        }
+        if (options.max_nodes > 0U) {
+            static_cast<void>(std::move(builder).max_nodes(options.max_nodes));
+        }
+        if (options.subscriber_max_buffer_size > 0U) {
+            static_cast<void>(std::move(builder).subscriber_max_buffer_size(
+                options.subscriber_max_buffer_size));
+        }
+        if (options.history_size > 0U) {
+            static_cast<void>(std::move(builder).history_size(options.history_size));
         }
         auto service = [&]() {
             if constexpr (std::is_void_v<H>) {
-                return std::move(builder).enable_safe_overflow(false).open_or_create();
+                return std::move(builder).enable_safe_overflow(options.enable_safe_overflow)
+                    .open_or_create();
             } else {
                 return std::move(builder)
                     .template user_header<H>()
-                    .enable_safe_overflow(false)
+                    .enable_safe_overflow(options.enable_safe_overflow)
                     .open_or_create();
             }
         }();
@@ -128,6 +138,25 @@ public:
             return std::unexpected(detail::map_error(publisher.error()));
         }
         return Publisher{name, std::move(*publisher)};
+    }
+
+    /// @brief Open or create the service with an explicit subscriber buffer depth.
+    ///
+    /// Compatibility overload: applies `subscriber_max_buffer_size` and leaves
+    /// every other service setting at its transport default.
+    ///
+    /// @param node Node that owns this process's transport membership.
+    /// @param name Valid service name shared with the subscriber.
+    /// @param subscriber_max_buffer_size Maximum number of samples one
+    ///        subscriber may hold; `0` keeps the transport default.
+    /// @return The constructed publisher, or a mapped `com::Error` on failure.
+    /// @note Spec `com/publish-subscribe`, requirement "Configurable subscriber
+    ///       buffer depth".
+    [[nodiscard]] static Result<Publisher>
+    create(Node& node, const ServiceName& name, std::uint64_t subscriber_max_buffer_size) noexcept {
+        PublishSubscribeOptions options{};
+        options.subscriber_max_buffer_size = subscriber_max_buffer_size;
+        return create(node, name, options);
     }
 
     /// @brief Copying is disabled: the publisher owns the transport handle.

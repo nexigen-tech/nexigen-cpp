@@ -126,6 +126,7 @@ void test_error() {
         com::Error::Timeout,
         com::Error::InvalidArgument,
         com::Error::Unknown,
+        com::Error::InvalidState,
     };
     for (const com::Error error : all) {
         const std::string_view name = com::to_string(error);
@@ -1339,7 +1340,12 @@ template <class Blob> void measure_e2e_overhead(const char* label, double budget
 }
 
 void test_e2e_overhead() {
-#ifdef NDEBUG
+#if defined(__SANITIZE_THREAD__)
+    // ThreadSanitizer adds instrumentation to every seal/check operation; keep
+    // a separate budget so the sanitizer suite still verifies completion.
+    measure_e2e_overhead<E2eBlob64>("64B", 20000.0);
+    measure_e2e_overhead<E2eBlob256>("256B", 40000.0);
+#elif defined(NDEBUG)
     // Release: the measured numbers are the contract.
     measure_e2e_overhead<E2eBlob64>("64B", 1000.0);
     measure_e2e_overhead<E2eBlob256>("256B", 2500.0);

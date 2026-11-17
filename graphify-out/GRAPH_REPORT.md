@@ -1,17 +1,17 @@
-# Graph Report - nexigen-cpp  (2026-11-17)
+# Graph Report - nexigen-cpp  (2026-11-18)
 
 ## Corpus Check
-- 1794 files · ~1,232,499 words
+- 1827 files · ~1,254,061 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 36 file(s) not represented in the graph (top: (none) 26, .cmake 8, .in 1)
 
 ## Summary
-- 26196 nodes · 45582 edges · 1427 communities (1155 shown, 272 thin omitted)
-- Extraction: 88% EXTRACTED · 12% INFERRED · 0% AMBIGUOUS · INFERRED: 5637 edges (avg confidence: 0.93)
+- 26815 nodes · 46850 edges · 1442 communities (1165 shown, 277 thin omitted)
+- Extraction: 88% EXTRACTED · 12% INFERRED · 0% AMBIGUOUS · INFERRED: 5771 edges (avg confidence: 0.93)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `8e4e393c`
+- Built from commit: `92903edc`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -25,28 +25,28 @@
 - Provider
 - ResetPolicy
 - Requirement: Startup and shutdown sequencing
-- Design
-- Requirements
+- ex_metric_provider_and_sinks.cpp
+- ADDED Requirements
 - UpdateRequest
 - HttpServer::Impl
-- StatisticsSnapshot
+- MetricIdentity
 - Watchdog
 - MetricRecord
 - NullTraceSink
 - LoggerOptions
 - LsmRuntime
 - metrics_test_support.hpp
-- Proposal
+- PublishSubscribeOptions
 - execution_manager.cpp
 - lens.py
 - LogRecord
 - ExplicitBucketHistogram
-- E2eReceiver
-- StreamManager
+- E2eState
+- streaming.cpp
 - .on_span
 - SettingsDiagnostic
 - ErrorCode
-- cstddef
+- HistogramSnapshot
 - .metrics
 - ADDED Requirements
 - settings_io.hpp
@@ -57,7 +57,7 @@
 - suite_supervisor.cpp
 - SpanFrame
 - Machine
-- ProcessLifecycleState
+- ProcessLifecycleEvent
 - app_suite_test.cpp
 - MetricProvider
 - LightweightStateMachineConfig
@@ -66,7 +66,7 @@
 - ProviderConfig
 - Infrastructure
 - ProviderKind
-- run_instance_supervisor
+- ChannelConfig
 - LinesSink
 - TracerProvider
 - string_view
@@ -76,18 +76,18 @@
 - ADDED Requirements
 - SmMetrics
 - RecordingLsmSink
-- id_generator.hpp
+- NullMetricSink
 - FaultStorage
 - Requirements
-- sim_common.hpp
+- chrono
 - Requirements
 - HubSuite
 - StateStorage<ConcurrencyPolicy::MultiThreaded, Reset>
-- record_format.cpp
+- SpanRecord
 - SettingsPaths
 - .has_requests
 - recorder_types.hpp
-- ex_app_cli_settings.cpp
+- EventProducer
 - Requirements
 - Iceoryx2MetricSink
 - execution_manager_test.cpp
@@ -102,7 +102,7 @@
 - Requirements
 - FileLoggerConfig
 - format_param_t
-- Discovery
+- .sync
 - StorageSettings
 - main
 - export_cli_test.cpp
@@ -136,11 +136,11 @@
 - ADDED Requirements
 - ADDED Requirements
 - HistoryWriter
-- .restart
+- MetricFrame
 - Producer
 - ComControlHost
 - StateManager
-- Requirement: Infrastructure exposes logger, metric and tracer factories
+- MODIFIED Requirements
 - ADDED Requirements
 - ADDED Requirements
 - tracing/sinks_test.cpp
@@ -171,7 +171,7 @@
 - tracing_settings.cpp
 - RecoveryReason
 - ChronoWorker
-- LapSnapshot
+- Requirements
 - proc_start_ticks
 - ADDED Requirements
 - json_field.hpp
@@ -189,7 +189,7 @@
 - ADDED Requirements
 - ADDED Requirements
 - Requirements
-- streaming.cpp
+- suite_control.cpp
 - Requirements
 - diagnostics_test.cpp
 - main
@@ -202,10 +202,10 @@
 - Спецификация требований к модулю State Management (SM) — Часть 1
 - ADDED Requirements
 - Requirements
-- E2eStatus
+- Proposal
 - format
-- .start
-- TracerProviderConfig
+- cstdio
+- Settings
 - rotation.cpp
 - Requirements
 - Decisions
@@ -227,7 +227,7 @@
 - RecordingSink
 - Requirements
 - E2eHeader
-- PendingResponse
+- Client
 - Requirements
 - CpuSet
 - .create_without_signal_handling
@@ -248,12 +248,12 @@
 - ADDED Requirements
 - ADDED Requirements
 - LogLevel
-- StartArgs
+- nexigen-exec/main.cpp
 - RecoveryHandler
 - ServiceManifest
-- StateGauge
-- main
-- production_main.cpp
+- EventConsumerSet
+- MetricProviderConfig
+- recorder_test.cpp
 - StateClient
 - Requirement: Background snapshot delivery and collection period
 - SessionReader
@@ -277,39 +277,39 @@
 - Requirements
 - Requirements
 - nexigen-cpp — project analysis
-- ADDED Requirements
+- SpanStatus
 - ex_app_cli_settings.cpp
 - CallbackProgression
 - Error
 - FaultPoint
 - FixedWriter
 - Requirements
-- Settings
+- EventHeader
 - ChildProcess
 - RecoveryAction
 - Requirements
 - ADDED Requirements
 - ADDED Requirements
-- Requirements
+- snapshot_format.cpp
 - Requirement: Malformed requests are rejected consistently
 - Requirements
 - Requirements
-- ADDED Requirements
+- RecoveryResponse
 - Requirements
 - Requirement: Policy enum catalogue
-- StatisticsSnapshot
+- ADDED Requirements
 - Requirements
 - worker_thread_test.cpp
 - ADDED Requirements
 - TraceDumpHeader
-- .is_full
+- StateGauge
 - FunctionGroupRegistry
 - .get_meter
-- RecoveryAckTracker
+- ADDED Requirements
 - ADDED Requirements
 - state_manager.cpp
-- StateAck
-- ADDED Requirements
+- LapSnapshot
+- .on_source_reset
 - RotationPolicy
 - opsx-onboard.md
 - openspec-onboard/SKILL.md
@@ -317,15 +317,15 @@
 - Requirements
 - Requirements
 - VideoStreamConfig
-- Settings
-- core_test.cpp
+- probe_thread_spec
+- algorithm
 - Decisions
-- ex_spsc_ring_buffer.cpp
+- TelemetryPacket
 - manifest_accessor.cpp
 - EmLifecycleState
-- unique_path
+- make_test_infra
 - ConsoleSink
-- execution_manager_test.cpp
+- EventConsumerStats
 - DescriptiveStatistics
 - log_daemon_test.cpp
 - AppState
@@ -335,17 +335,17 @@
 - ADDED Requirements
 - Design
 - Requirement: Suite manifest is validated before launch
-- nexigen-exec/main.cpp
+- ProcessLifecycleState
 - Requirement: Readable metric concept
 - Requirements
-- .lost_samples
+- Settings
 - Requirements
 - JsonFileMetricSinkConfig
-- RecoveryRequest
+- RecoveryClient
 - TraceContext
 - sm_manifest.cpp
 - ADDED Requirements
-- Client
+- Requirements
 - Requirement: Logger concept core surface
 - ADDED Requirements
 - PrototypeRecordHeader
@@ -354,10 +354,10 @@
 - ADDED Requirements
 - ADDED Requirements
 - Requirements
-- RecoveryNotification
+- CommandLineOptions
 - Requirements
 - function_group_registry.cpp
-- Supervisor
+- RecoveryAck
 - supervisor.cpp
 - ADDED Requirements
 - MODIFIED Requirements
@@ -369,23 +369,23 @@
 - Decisions
 - Decisions
 - Requirements
-- BasicBody
+- RecoveryOutcome
 - ADDED Requirements
 - ADDED Requirements
 - 4.9 `exec` — исполнение и супервизия
-- Requirements
+- RecoveryNotification
 - session_reader.cpp
 - SpacingSink
 - .emit
 - ADDED Requirements
 - ADDED Requirements
-- ProcessSupervision
+- ADDED Requirements
 - Requirement: Example runner and cleanup scripts
 - ADDED Requirements
 - Requirement: Environment overrides are documented and typed
 - Requirement: Long and short option forms are supported
 - Requirement: Identity validation rejects unsafe values
-- ADDED Requirements
+- Requirements
 - E2eSubscriber
 - Requirements
 - Decisions
@@ -394,20 +394,20 @@
 - ADDED Requirements
 - .emplace_logger
 - PayloadBlob
-- Decisions
+- SuiteMetadata
 - ChromeTraceSink
-- cmd_status
+- StateAck
 - Requirement: Traceability matrix
 - SupervisionStatus
 - CompositeMetricSink
-- NullMetricSink
+- HardwareMetadata
 - ADDED Requirements
 - ADDED Requirements
 - Requirement: Runnable command-line settings example
 - Requirements
-- Requirements
+- RecoveryRequest
 - Requirement: Metrics render structured by kind
-- SuiteMetadata
+- SuiteStatus
 - Requirement: Drop summaries are synthesized by the worker
 - nexigen-phmd/main.cpp
 - Design
@@ -429,10 +429,10 @@
 - Requirement: Base clock-domain identifiers
 - Requirement: Size-based file rotation
 - Requirement: App settings are serializable
-- lightweight_state_machine.cpp
+- mcap_adapter.cpp
 - ADDED Requirements
 - Requirement: Child environment and CPU affinity are configurable
-- .user_header
+- Iceoryx2MetricSinkConfig
 - Requirement: CPU-pinned background consumer
 - Requirement: Base clock-domain identifiers
 - Requirements
@@ -443,8 +443,8 @@
 - run_suite
 - request_state
 - TraceDaemonConfig
-- OverflowPolicy
-- read_verified
+- TerminatedBy
+- SettingsDigest
 - ADDED Requirements
 - ADDED Requirements
 - Iceoryx2TraceSinkConfig
@@ -458,14 +458,14 @@
 - ADDED Requirements
 - self_affinity
 - Requirements
-- trace_daemon_test.cpp
+- BestMedians
 - Requirement: Function Group configuration
 - AppState
 - Requirements
-- E2eConfig
-- CompositeSink
+- .create
+- trace_daemon_test.cpp
 - HttpServer
-- SecurityEventKind
+- SecurityEvent
 - http_parse.hpp
 - Tasks
 - StateCommand
@@ -477,11 +477,11 @@
 - ADDED Requirements
 - Requirement: Coverage includes forked supervisors
 - Requirement: Generated settings contain absolute sink paths
-- CivilTime
+- NullSink
 - Requirement: Suite-metadata read targets are run-root contained
 - Requirement: Global logging settings supply operational fields
 - DatasetInfo
-- Publisher
+- lightweight_state_machine.cpp
 - WatchdogConfig
 - ADDED Requirements
 - Requirement: Function Group execution
@@ -491,22 +491,22 @@
 - RootFG
 - Requirement: Coverage includes forked supervisors
 - Decisions
-- arena_used
-- Decisions
+- Requirements
+- logging_test_support.hpp
 - Sample
 - iceoryx2_trace_sink_test.cpp
-- Sink
+- nexigen-logd/main.cpp
 - Decisions
 - example_of_system_manifest.yaml
 - prometheus_http
 - phm_health_alerts
 - scraping
 - opsx-explore.md
-- nexigen-em/main.cpp
+- ThrottleConfig
 - ADDED Requirements
 - Requirement: Runnable command-line settings example
 - make_infrastructure
-- Requirements
+- CustomRecWriter
 - Requirement: Portable Release mode
 - ADDED Requirements
 - Requirement: Documented example invocation
@@ -522,7 +522,7 @@
 - Requirement: Portable Release mode
 - Requirements
 - sink_pack_negative.cpp
-- Requirements
+- Meter::create_explicit_histogram
 - 4.9 `exec` — исполнение и супервизия
 - E2eClient
 - ci.yml
@@ -564,13 +564,13 @@
 - ProbeSink
 - SpanRing
 - seal_message
-- ADDED Requirements
+- Tasks
 - payload_decoder.cpp
-- Iceoryx2MetricSinkConfig
+- InitialRootStateTransitionResultResponse
 - RootLifecycleClient
-- 2. ARXML and cross-check
+- IEventConsumer
 - prometheus_render_test.cpp
-- Decisions
+- JsonFileTraceSinkConfig
 - chrono/settings.cpp
 - Requirement: Dependency-ordered startup
 - ADDED Requirements
@@ -608,7 +608,7 @@
 - ADDED Requirements
 - Tasks
 - exec/application-state Specification
-- E2eState
+- run_telemetry
 - phmd_identity_helper.cpp
 - Requirement: Dependency-ordered startup
 - DroppedStats
@@ -625,16 +625,16 @@
 - Спецификация требований к демону трассировки (TraceDaemon)
 - ADDED Requirements
 - Requirement: Runnable console logger example
-- Requirements
-- Proposal
 - Requirement: Restarts follow abnormal termination only
+- Proposal
+- Meter
 - Requirement: SpscShardRing overflow policies
 - Proposal
 - Proposal
 - Requirement: Machine Manifest vocabulary
 - Requirement: Checkpoint claim channel
 - MetricAggregator
-- TransitionPreparation
+- RecoveryAckTracker
 - Proposal
 - Proposal
 - Requirements
@@ -643,12 +643,12 @@
 - Tasks
 - Proposal
 - Proposal
-- format_json_line
+- EventConsumer
 - Requirement: State write failures are reported
 - Requirement: Documented example invocation
-- load_suite_manifest_auto
+- Decisions
 - Proposal
-- PublishResult
+- metrics.cpp
 - Requirement: Settings sources merge per application
 - Requirement: Suite manifest is validated before launch
 - Proposal
@@ -668,38 +668,38 @@
 - Proposal
 - ADDED Requirements
 - .collect_now
-- Requirements
+- .restart
 - RunIdentity
 - Requirements
 - Proposal
 - ADDED Requirements
 - Proposal
-- make_schema
+- Requirement: Lifecycle-armed supervision
 - ADDED Requirements
-- execution_manager_logging_test.cpp
+- CivilTime
 - Tasks
 - Proposal
 - Proposal
 - rules
-- Requirements
+- config_loader.cpp
 - Requirement: Affinity failures are non-fatal warnings
 - check_naming.py
 - Requirement: HTTP listener is loopback by default
 - Requirement: Malformed requests are rejected consistently
 - 5. Oversized tests — split into focused sub-functions
-- ApplicationStateReporter
+- EmptyPayload
 - coverage_report.py
 - ExecutionManager
-- CustomRecWriter
-- SettingsDigest
-- mcap_adapter.cpp
-- .bump
+- Header compilation audit — compiled-module JSON pairs
+- DeterministicConfig
+- EventProducerStats
+- Design
 - custom_metric_rules
 - disk_flight_recorder
 - RunResult
-- impl_
+- PendingResponse
 - Requirement: Suite manifest is validated before launch
-- RecoveryClient
+- Design
 - Requirement: Runnable simple settings example
 - Tasks
 - Requirement: CTest smoke coverage for every example
@@ -711,34 +711,34 @@
 - Proposal
 - Proposal
 - Requirement: Embedded script parses and bootstraps
-- metric_provider_test.cpp
+- load_suite_manifest_auto
 - metric_frame_test.cpp
 - Requirement: Stateless infrastructure policy
 - Requirement: Application name is app-level
-- RecoveryResponse
+- .now
 - .initialize
-- Requirement: Executable digest verification
+- clock_id.hpp
 - Requirements
-- WaitSetAttachmentId
+- WaitSetGuard
 - cpp-project-analizer/analyzer.py
 - Requirement: Runtime level control
 - ADDED Requirements
 - Design
-- Tasks
-- Meter
-- Settings
+- suite_json.hpp
+- explicit_histogram_test.cpp
+- check_capacity
 - Requirements
 - Requirement: Feed policy
 - Requirements
 - Requirement: Live updates use Server-Sent Events
-- ChromeTraceSinkConfig
+- sink_format.cpp
 - posix_watchdog_device.cpp
 - validate.sh
 - producer_test.cpp
 - Requirement: Lifecycle-armed supervision
 - Requirement: Infrastructure exposes logger, metric and tracer factories
 - ControlHost
-- ClaimPublisher
+- Settings
 - Requirement: Machine Manifest vocabulary
 - resources
 - resources
@@ -749,17 +749,17 @@
 - Requirement: Timestamp diagnostic string
 - InitialMachineStateTransitionResultResponse
 - Requirement: Update start
-- span_frame_format.cpp
-- .append_raw
+- HardwareEvent
+- Requirement: EM publishes process lifecycle
 - ADDED Requirements
 - Decisions
-- CountingSink
+- manifest_accessor.cpp
 - Tasks
 - Tasks
 - Decisions
 - SuiteState
-- McapBenchWriter
-- clock_id.hpp
+- TransitionRecord
+- crc32c_fast
 - Tasks
 - Requirement: Effective log level applies to each application
 - Requirement: Failure impact restarts the whole suite
@@ -768,15 +768,15 @@
 - Requirement: Runner level follows manifest, then global settings
 - Proposal
 - Requirement: Meter publication is serialized with harvesting
-- make_test_infra
+- TransitionPreparation
 - Proposal
 - Proposal
 - Proposal
 - Proposal
 - StatePublication
 - Requirement: SafeState priority
-- Design
-- bounded_name
+- Requirement: Executable digest verification
+- Settings
 - SampleMut
 - Requirement: ExecutionManager level follows manifest, then global settings
 - Requirement: Global logging settings supply operational fields
@@ -786,20 +786,20 @@
 - McapOutput
 - Requirement: Factory hierarchy and passkey construction
 - Requirement: Manifest and config deserialization uses a shared field vocabulary
-- Decisions
-- What Changes
+- thread_slot
+- TimestampDomain
 - OutRefSink
 - Requirement: Function Group initial state
 - Requirements
-- ADDED Requirements
+- ShardState
 - security
 - context_overrides
 - Decisions
 - Design
 - RecoveryHandler
-- MODIFIED Requirements
+- SegmentFileHeader
 - SessionWriter
-- deterministic_client.cpp
+- read_verified
 - Requirement: Degrade and not-impact levels bound the damage
 - Requirement: Affinity failures are non-fatal warnings
 - Requirement: CLI commands record their outcome
@@ -823,22 +823,22 @@
 - Requirement: Suite supervisor records lifecycle and policy events
 - Decisions
 - Requirement: HTTP parsing and errors are bounded
-- ADDED Requirements
-- arena_used
+- Decisions
+- .pop
 - ListenAddress
 - operator new
 - operator new
 - operator new
 - run_suite_demo.sh
 - Design
+- ADDED Requirements
 - Decisions
-- Tasks
-- DataSample
-- .prepare
+- UnrecoverableState
+- Requirements
 - lifecycle
 - ipc_iceoryx2
 - rotation
-- Requirement: Settings diagnostics are serializable
+- example_format.hpp
 - Design
 - Design
 - Design
@@ -852,13 +852,13 @@
 - Requirement: Logging is best-effort
 - Requirement: Runner diagnostics use the project file logger
 - logging/spsc-shard-ring delta spec
-- TransitionRecord
+- Requirement: Settings diagnostic records a finding
 - Requirement: Function Group initial state
-- .shutdown
+- REMOVED Requirements
 - Requirement: MetricsDaemon HTTP thread is configurable
 - ADDED Requirements
 - ADDED Requirements
-- ExecutionDependency
+- nexigen-em/main.cpp
 - Requirements
 - check_safety_traceability.py
 - Requirement: ExecutionManager diagnostics use the project file logger
@@ -867,17 +867,17 @@
 - Requirement: Suite metadata preserves execution_manager affinity
 - Requirement: Control-plane refresh failures are reported
 - Requirement: Web assets are served by the binary
-- UnrecoverableState
+- Requirements
 - Sha256
 - Минимальные задержки: пошаговое руководство
 - Proposal
 - run_ex_app_cli_settings.sh
-- ADDED Requirements
+- Requirements
 - Storage-format benchmark results
 - Навык анализа C++ проектов
 - Requirement: Time synchronization classification
-- Requirement: EM action sink
-- SpanId
+- smoke_test.cpp
+- ActiveSpanStack
 - Requirement: Client read logic is layered
 - Requirement: `HttpServer::Impl::start` is split into setup phases
 - Requirement: The API is observation-only
@@ -898,34 +898,34 @@
 - negative_compile.sh
 - Requirements
 - exec/update-state Specification
-- CheckpointClaim
+- Options
+- ADDED Requirements
+- ADDED Requirements
+- LossInfo
+- ADDED Requirements
+- Design
 - Decisions
-- SecurityEvent
-- Proposal
-- ADDED Requirements
-- Requirement: CPU core affinity
-- instance_dir_path
-- ADDED Requirements
-- DeterministicClient
-- .now
+- .cycle_index
+- NullLogger
+- Requirement: Settings diagnostics are serializable
 - build.sh
-- REMOVED Requirements
+- JsonFileMetricSink
 - VideoWriter
 - Proposal
 - ADDED Requirements
-- Color
+- Decisions
 - hostile_config_test.sh
-- Design
+- Converter
 - Requirement: Time synchronization classification
 - Tasks
-- Requirement: Settings diagnostic records a finding
+- VideoFrameRef
+- PaddedPayload
 - Design
-- Requirement: Settings diagnostic records a finding
-- from_json
+- nexigen-run application suites
 - Requirements
-- ADDED Requirements
+- Tasks
 - Design
-- Requirement: Pinning the calling thread by core mask
+- Requirement: Consumer waiting and multiplexing
 - ADDED Requirements
 - wire_types.hpp
 - Tasks
@@ -948,116 +948,113 @@
 - Proposal
 - Tasks
 - ADDED Requirements
-- Proposal: Strengthen the JSON Field-Extraction Vocabulary Rule
-- Deferred: отложенные работы платформы (не забыть доделать)
+- Requirement: Meter instrument creation
+- Subscriber
 - nexigen-traced/smoke_test.sh
 - sha256_hex
-- Meter::create_explicit_histogram
+- Tasks
 - Decisions
-- Requirement: Suite status reports aggregate and application state
-- JsonFileTraceSinkConfig
-- Design
+- Requirement: JSON-lines file sink
+- ADDED Requirements
+- example_format.hpp
 - Requirement: Startup and shutdown sequencing
-- InitialRootStateTransitionResultResponse
+- Requirement: Tracing settings map every provider field
 - nexigen-logd/smoke_test.sh
-- McapConfig
+- Requirements
 - Requirement: Alive supervision
 - Requirement: Single-call publication of a caller-owned payload
-- ADDED Requirements
+- Boxed
 - ADDED Requirements
 - TimeSyncSample
 - time_sync_monitor.cpp
-- Decisions
-- REMOVED Requirements
+- Tasks
+- Tasks
 - .on_batch
 - MeterPasskey
-- CvState
-- E2ePod
-- ADDED Requirements
-- OtherPayload
+- Design
+- tracing/latency_test.cpp
 - Requirement: Declarative health manifest
 - StartOptions
-- Proposal
+- Requirement: JsonFileTraceSink JSONL output
 - .chrono
 - nexigen-phmd/required_spec_test.sh
 - nexigen-sm/required_spec_test.sh
-- WaitSetGuard
+- Requirement: LoggerOptions defines the engine configuration
 - identity_test.sh
 - required_spec_test.sh
-- Decisions
+- E2eReceiver
 - Requirement: Daemon subscribes and drains log frames
-- Requirement: Runnable command-line settings example
+- Spec Delta
 - crc32c
-- span_frame_test.cpp
+- Requirement: Console writer accepts a thread specification
 - crc64
-- bench_tests.cpp
-- JsonFileMetricSink
+- HttpFront
 - Proposal
-- Requirement: Provider kind setting
-- Requirement: Runnable minimal infrastructure example
-- Design
+- make_test_infra
+- ADDED Requirements
+- Proposal
 - Requirement: Environment overrides are documented and typed
 - Tasks
-- PaddedPayload
+- Requirement: LoggerOptions defines the engine configuration
 - Proposal
 - Requirement: Fixed file names produce the four settings pairs
-- enum_name
-- Requirement: Meter instrument creation
+- Entry
+- Tasks
 - Requirement: Child credentials are dropped before exec
 - GaugeStorage<ValueType, ConcurrencyPolicy::SingleThreaded, Reset>
-- Requirement: App settings aggregate every subsystem
-- Design
-- Requirement: JSON-lines file sink
 - Proposal
-- Tasks
+- Design
+- Modified Capabilities
+- Decisions
+- FileRead
 - checkpoint_claim_verdict
-- Tasks
-- .write_manifest
+- format_context
+- GapMarkerPayload
 - com
 - run_suite_2_apps.sh
-- Proposal
+- Requirement: EM action sink
 - Requirements
 - Requirement: StateClient command reception
-- Boxed
-- SpanRecord
+- com_test.cpp
+- Proposal
 - ex_counters_and_gauges.cpp
-- Header compilation audit — compiled-module JSON pairs
-- Tasks
+- service_manifest.cpp
+- RecordHeader
 - .shutdown
 - Requirement: Pending transitions carry a request id
-- Requirement: Function-Group-port authorization
+- Proposal
 - TimeSyncMonitor
 - Requirement: Optional machine cross-check before launch
 - 1. Monitor
 - Requirement: Local process recovery
-- uint32_t
-- Requirement: LoggerOptions defines the engine configuration
+- Proposal
+- .shutdown
 - Requirement: LSM-bound TriggerIn execution
 - clean_suite_2_apps.sh
 - state_client_test.cpp
-- ClaimVerdict
-- Tasks
-- example_format.hpp
+- What Changes
+- Proposal
+- SegmentFooter
 - Requirement: LSM manifest validation
 - RecordEnvelope
-- Decisions
-- Requirement: JsonFileTraceSink JSONL output
-- Proposal
-- Tasks
+- Requirement: CPU-pinned background consumer
+- ADDED Requirements
+- run_daemon
+- execution_manager_logging.cpp
 - Спецификация требований к демону Platform Health Management (PHM)
-- Tasks
+- event_time_source.hpp
 - Decisions
 - Design
 - Requirements
-- .log
-- Proposal: Extract ChildProcess Class for Child Application Supervision
-- coverage-com
-- Proposal
 - Tasks
-- Proposal
-- Decisions
+- Design
+- coverage-com
+- 3. Per-file plan
+- SpanRecord
+- Requirement: Suite status reports aggregate and application state
+- Spec Delta
 - MODIFIED Requirements
-- BestMedians
+- Proposal
 - Requirement: Recovery acknowledgement timeout configuration
 - EventId
 - clang
@@ -1065,162 +1062,170 @@
 - ConsoleLogger
 - StressResult
 - Entry
-- app_settings.cpp
+- Requirement: LoggerOptions defines the engine configuration
 - test_http_server_failure_report
 - openspec
-- chrono_test.cpp
+- cstddef
 - Design
 - Proposal
 - Requirement: Fault log record integrity
-- impl_
+- RecordType
 - Design
 - Proposal
 - Requirement: RT priority capability is opt-in
 - Tasks
 - Iceoryx2Logger
 - Design
-- Спецификация требований к демону логирования (LogDaemon)
+- Tasks
 - Proposal
 - Requirement: Expected process identity
 - OverflowPolicy
-- FanoutConfiguredSink
-- Proposal
 - Tasks
+- uint64_t
+- Proposal
 - Requirement: PHM fault-event interface
 - Design
-- Proposal
+- Tasks
 - Proposal
 - Requirements
-- RecoveryAck
-- Proposal
+- Requirement: PHM fault-event interface
+- Design
 - ADDED Requirements
-- StateResult
-- Proposal
-- Proposal
-- Modified Capabilities
+- Requirement: AccessDenied transition result
+- TracerProviderConfig
+- PublishResult
+- Requirement: Optional identity claim from the supervised entity
 - Approach
 - Proposal
 - Proposal
 - Requirement: Settings files are digest-verified before launch
-- load_logging_settings
+- Proposal
 - Design
 - Requirement: Long and short option forms are supported
 - Design
-- hub_test_support.hpp
-- Tasks
-- Tasks
+- Design
+- Proposal: Extract ChildProcess Class for Child Application Supervision
+- Спецификация требований к демону логирования (LogDaemon)
 - safety_loop_test.sh
+- Requirement: Event-driven receive
+- Tasks
 - Proposal
-- Proposal
-- Requirement: LogDaemon main thread applies a configurable spec
 - Design
 - Design
 - complexity
-- Proposal
+- FanoutConfiguredSink
 - Design
 - Requirement: Failure impact restarts the whole suite
-- Requirement: LoggerOptions defines the engine configuration
+- Requirement: Event-driven receive
+- Requirement: Manifest launch settings reach each child
 - Requirement: Execution Manager health heartbeat
-- Requirement: Child environment and CPU affinity are configurable
-- first_core_of
+- Requirement: Size-based file rotation
+- Requirement: State-dependent startup configuration
 - Requirement: At least one settings directory is required
-- Design
+- Requirement: JSON-lines file sink
 - Stopwatch
 - coverage
-- ADDED Requirements
-- Tasks
-- Requirement: Command-line types are serializable
+- Design
 - Decisions
+- Requirement: Command-line types are serializable
+- Tasks
+- Tasks
 - Proposal
-- Requirement: Manifest launch settings reach each child
 - from_json
 - Requirement: Global and local directory shapes are validated
-- Requirement: Optional identity claim from the supervised entity
+- Requirement: CLI contract
 - safety_sections_test.sh
 - Requirement: Restarts follow abnormal termination only
-- recorder_test.cpp
+- Entry
 - Requirement: Unknown, missing, repeated, and positional arguments are handled
-- Requirement: Stdout and stderr are captured to files
-- Requirement: Dependency-ordered startup
-- Requirement: Log level accepts canonical enumerator names
-- Requirement: Suite supervisor hosts the StateClient control path
-- Tasks
+- Requirement: Merged settings apply to logger configuration
+- format_json_line
 - Proposal
-- Requirement: JSON-lines file sink
-- Tasks
-- Why
-- Proposal
-- Proposal
+- Requirement: Recovery acknowledgement channel
+- core_test.cpp
+- Requirement: Suite manifest source format
 - Proposal
 - Tasks
-- recovery_handler.cpp
-- Proposal
-- test_result
 - PhmManifest
+- Proposal
+- Requirement: SM manifest carries lightweight state machines
+- Proposal
+- Tasks
+- Requirement: Function Group initial state
+- Proposal
+- Supervisor
 - run_simulation_suite.sh
 - Requirement: SM manifest carries background thread specs
-- Placement
+- logging/latency_test.cpp
 - VectorSample
-- .format
-- Requirement: Suite types follow the serialization contract
+- iceoryx2_metric_sink_test.cpp
+- .user_header
 - Design
 - Requirements
-- CaptureSink
 - Requirement: Settings sources merge per application
-- Proposal
-- LogFrame256
-- Proposal
-- 7. Сквозные контракты
-- Requirement: Effective log level applies to each application
+- Requirement: Suite supervisor hosts the StateClient control path
+- ADDED Requirements
+- Requirement: Runnable file logger example
 - Requirement: Composite metric sink fan-out
-- RecordingClockLogger
+- Requirement: Effective log level applies to each application
+- Requirement: Lifecycle-armed supervision
 - Fixture
 - Requirement: Fixed file names produce the four settings pairs
 - Requirement: Help short-circuits with success
 - Requirement: Log level accepts canonical enumerator names
-- Tasks
+- Run
 - Tasks
 - SignalWatcher
 - proposal: refactor-high-complexity-functions
 - Requirement: LSM configuration names its Function Group
-- Tasks
-- iceoryx2_logger_config.cpp
-- StatusArgs
-- Requirement: Degrade and not-impact levels bound the damage
+- Spec Delta
+- BoundedSink
+- Why
+- Design
 - Spec Delta
 - Requirement: Option parsing honors the terminator
-- src/recorder/crc32c_fast.hpp
+- crc32c
 - Requirement: Function Group configuration
-- Requirement: RT priority capability is opt-in
-- log_record_test.cpp
-- clean_simulation_suite.sh
+- Proposal
 - Requirement: Settings files are digest-verified before launch
-- null_logger_test.cpp
-- Design
-- run_matrix.sh
-- Requirement: Recovery restart consumes the restart budget
-- Requirement: Suite manifest has a fixed schema
-- Requirement: Logical supervision
+- clean_simulation_suite.sh
+- Requirement: Log level accepts canonical enumerator names
+- Requirement: Alive supervision
 - BindAddress
-- write_all
-- com_test.cpp
-- Requirement: Suite manifest source format
+- run_matrix.sh
+- Requirement: Application settings carry the signal-watcher thread spec
+- Requirement: Wrappers require a protection profile
+- log_record_test.cpp
+- Requirement: Dependency-ordered startup
+- to_string
+- ControlHostFactory
 - Tasks
+- Requirement: Driver and cleanup scripts
 - Requirement: Execution Manager health heartbeat
 - Requirement: Suite launch is detached
-- Requirement: Suite metadata lives in a deterministic suite directory
+- Requirement: Flaky receiver terminates and the platform raises it
+- Requirement: Flaky receiver terminates and the platform raises it
 - Requirement: CompositeTraceSink fan-out
 - Requirement: ConsoleTraceSink
-- ADDED Requirements
-- Capabilities
-- Stopwatch::to_string
+- make_schema
+- Entry
+- EventProducerFaults
+- RequestLineError
+- ManifestAccessor
+- .format
+- null_logger_test.cpp
+- Requirement: Telemetry reaches the three daemons
+- Requirement: Suite manifest has a fixed schema
+- Requirement: RT priority capability is opt-in
+- Requirement: Each attempt writes to a new artifact directory
+- Requirement: Suite types follow the serialization contract
 
 ## God Nodes (most connected - your core abstractions)
 1. `LogLevel` - 170 edges
 2. `SuiteManifest` - 129 edges
-3. `LoggerOptions` - 118 edges
-4. `MetricRecord` - 112 edges
-5. `Node` - 112 edges
+3. `Node` - 123 edges
+4. `LoggerOptions` - 118 edges
+5. `MetricRecord` - 112 edges
 6. `ErrorCode` - 99 edges
 7. `SettingsDiagnostic` - 97 edges
 8. `SettingsSource` - 96 edges
@@ -1228,133 +1233,133 @@
 10. `SpanRecord` - 90 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `Потоки и affinity` --references--> `ThreadApplyReport`  [INFERRED]
-  docs/architecture.md → include/nexigen/core/thread_management.hpp
-- `Идентичность запуска и телеметрия` --references--> `load_run_identity()`  [INFERRED]
-  docs/architecture.md → src/app/telemetry_layout.cpp
-- `Безопасность и целостность` --references--> `SecurityEvent`  [INFERRED]
-  docs/architecture.md → include/nexigen/phm/security_event.hpp
-- `D5 — StateClient protocol and transition results` --references--> `StateAck`  [INFERRED]
-  openspec/changes/archive/2026-11-15-align-exec-process-model-with-autosar/design.md → include/nexigen/exec/state_ack.hpp
+- `D1 — Capability lives in `nexigen::com`` --references--> `Error`  [INFERRED]
+  openspec/changes/add-com-event-system/design.md → include/nexigen/com/error.hpp
 - `Scenario: Readable counter read and snapshot` --references--> `MetricRecord`  [INFERRED]
   openspec/changes/archive/2026-10-28-add-metrics-subsystem/specs/metrics/counter-gauge/spec.md → include/nexigen/metrics/metric_record.hpp
+- `Scenario: Snapshot returns the full record` --references--> `MetricRecord`  [INFERRED]
+  openspec/changes/archive/2026-10-28-add-metrics-subsystem/specs/metrics/explicit-histogram/spec.md → include/nexigen/metrics/metric_record.hpp
+- `Scenario: Snapshot returns the full record` --references--> `MetricRecord`  [INFERRED]
+  openspec/changes/archive/2026-10-28-add-metrics-subsystem/specs/metrics/exponential-histogram/spec.md → include/nexigen/metrics/metric_record.hpp
+- `Workflow follow-up` --references--> `MetricRecord`  [INFERRED]
+  openspec/changes/archive/2026-11-02-improve-hub-metric-display/tasks.md → include/nexigen/metrics/metric_record.hpp
 
 ## Import Cycles
 - None detected.
 
-## Communities (1427 total, 272 thin omitted)
+## Communities (1442 total, 277 thin omitted)
 
 ### Community 0 - "string"
-Cohesion: 0.03
-Nodes (46): Entry, name, value, EnumTraits<nexigen::app::InfrastructureStopReason>, entries, from_json(), from_string(), InfrastructureStopReason (+38 more)
+Cohesion: 0.04
+Nodes (26): fail(), main(), EnumTraits<nexigen::app::InfrastructureStopReason>, entries, from_json(), to_json(), to_json(), GapMarker::to_string() (+18 more)
 
 ### Community 1 - "E2eProfile"
-Cohesion: 0.06
-Nodes (32): E2eProfile, None, P04, P05, P06, P07, Entry, name (+24 more)
+Cohesion: 0.08
+Nodes (26): E2eProfile, None, P04, P05, P06, P07, Entry, name (+18 more)
 
 ### Community 2 - "optional"
-Cohesion: 0.18
-Nodes (8): FailChronoPolicy, FailLoggerPolicy, FailMetricsPolicy, FailTracePolicy, FlushFailPolicy, ResolvedPathPolicy, RtPolicy, TestPolicy
+Cohesion: 0.15
+Nodes (10): SimTelemetryPolicy, k_tag, FailChronoPolicy, FailLoggerPolicy, FailMetricsPolicy, FailTracePolicy, FlushFailPolicy, ResolvedPathPolicy (+2 more)
 
 ### Community 3 - "WorkerThread"
-Cohesion: 0.07
-Nodes (18): StartCell, code, mask, ready, report, std::formatter<nexigen::core::WorkerThread<Body>>, to_json(), to_string() (+10 more)
+Cohesion: 0.06
+Nodes (26): StartCell, code, mask, ready, report, std::formatter<nexigen::core::WorkerThread<Body>>, to_string(), WorkerThread (+18 more)
 
 ### Community 4 - "StateDependentStartupConfig"
-Cohesion: 0.10
-Nodes (16): StateDependentStartupConfig, args, dependencies, env, restart_attempts, restart_delay_s, startup_timeout_ms, state (+8 more)
+Cohesion: 0.09
+Nodes (17): StateDependentStartupConfig, args, dependencies, env, restart_attempts, restart_delay_s, startup_timeout_ms, state (+9 more)
 
 ### Community 5 - "ADDED Requirements"
 Cohesion: 0.07
 Nodes (29): ADDED Requirements, Purpose, Requirement: Context extraction, Requirement: Cross-thread context linking, Requirement: Disabled and dropped short-circuit, Requirement: RAII span lifecycle, Requirement: ScopedSpan serialization surface, Requirement: Sub-20-nanosecond enqueue (+21 more)
 
 ### Community 6 - "Provider"
-Cohesion: 0.07
-Nodes (19): 1. Quick start, 2. Choosing the policies, 3. Thread capacity and windows, 4. Harvesting, 5. Sinks, 6. Sizing the registry, 7. Real-time checklist, 8. Troubleshooting (+11 more)
+Cohesion: 0.06
+Nodes (27): 1. Quick start, 2. Choosing the policies, 3. Thread capacity and windows, 4. Harvesting, 5. Sinks, 6. Sizing the registry, 7. Real-time checklist, 8. Troubleshooting (+19 more)
 
 ### Community 7 - "ResetPolicy"
 Cohesion: 0.02
-Nodes (112): AccessPolicy, WriteOnly, Entry, name, value, EnumTraits<nexigen::metrics::AccessPolicy>, entries, from_json() (+104 more)
+Nodes (127): AccessPolicy, WriteOnly, Entry, name, value, EnumTraits<nexigen::metrics::AccessPolicy>, entries, from_json() (+119 more)
 
 ### Community 8 - "Requirement: Startup and shutdown sequencing"
 Cohesion: 0.17
 Nodes (11): MODIFIED Requirements, Requirement: Startup and shutdown sequencing, Requirement: State machines execution, Scenario: Application groups wait for PlatformFG Run, Scenario: Invalid transition is rejected, Scenario: PlatformFG has the mandatory state vocabulary, Scenario: Restart re-enters startup without power-off, Scenario: Shutdown sequences the groups (+3 more)
 
-### Community 9 - "Design"
-Cohesion: 0.20
-Nodes (9): Context, D3: Receiver-allowlisted `.value()` guard, D4: Static-analysis nits, Decisions, Design, Goals / Non-Goals, Migration Plan, Open Questions (+1 more)
-
-### Community 10 - "Requirements"
+### Community 9 - "ex_metric_provider_and_sinks.cpp"
 Cohesion: 0.07
-Nodes (28): Purpose, Requirement: Environment overrides are documented and typed, Requirement: Invalid input degrades to best effort, Requirement: Invalid sink configuration degrades to best effort, Requirement: Merge precedence matches the other subsystems, Requirement: Settings loading is cold path only, Requirement: Settings sources are explicit, Requirement: Sink fields merge with documented precedence (+20 more)
+Nodes (20): all_created(), check_line(), check_timestamp(), Composite, derive_core_mask(), emit_pipeline(), expect(), iso8601_shape() (+12 more)
+
+### Community 10 - "ADDED Requirements"
+Cohesion: 0.07
+Nodes (28): ADDED Requirements, Purpose, Requirement: Environment overrides are documented and typed, Requirement: Invalid input degrades to best effort, Requirement: Invalid sink configuration degrades to best effort, Requirement: Merge precedence matches the other subsystems, Requirement: Settings loading is cold path only, Requirement: Settings sources are explicit (+20 more)
 
 ### Community 11 - "UpdateRequest"
 Cohesion: 0.03
-Nodes (69): Entry, name, value, EnumTraits<nexigen::sm::UpdateAction>, entries, EnumTraits<nexigen::sm::UpdateResult>, entries, from_json() (+61 more)
+Nodes (72): Entry, name, value, EnumTraits<nexigen::sm::UpdateAction>, entries, EnumTraits<nexigen::sm::UpdateResult>, entries, from_json() (+64 more)
 
 ### Community 12 - "HttpServer::Impl"
 Cohesion: 0.06
-Nodes (33): Context, Goals / Non-Goals, Client, chunked, close_after_write, fd, input, last_heartbeat_ns (+25 more)
+Nodes (31): Client, chunked, close_after_write, fd, input, last_heartbeat_ns, last_tree_revision, output (+23 more)
 
-### Community 13 - "StatisticsSnapshot"
-Cohesion: 0.04
-Nodes (57): copy_field(), copy_meter_identity(), MetricIdentity, meter_name, meter_version, metric_name, unit, std::formatter<nexigen::metrics::MetricIdentity> (+49 more)
+### Community 13 - "MetricIdentity"
+Cohesion: 0.05
+Nodes (45): make_record(), copy_field(), copy_meter_identity(), MetricIdentity, meter_name, meter_version, metric_name, unit (+37 more)
 
 ### Community 14 - "Watchdog"
-Cohesion: 0.07
-Nodes (9): PosixWatchdogDevice, disarmed_, fd_, WatchdogDevice, Watchdog::create(), Watchdog::device_path(), Watchdog::tick(), Watchdog::to_string() (+1 more)
+Cohesion: 0.04
+Nodes (19): PosixWatchdogDevice, disarmed_, fd_, WatchdogDevice, std::formatter<nexigen::phm::Watchdog>, to_string(), Watchdog, config_ (+11 more)
 
 ### Community 15 - "MetricRecord"
 Cohesion: 0.02
-Nodes (138): HistogramSnapshot, bucket_count, buckets_count, buckets_lower, count, effective_scale, ignored_samples, max (+130 more)
+Nodes (118): CaptureSink, seen_, MetricBatchSnapshot, record_capacity, record_count, records, stamp, utc_ns (+110 more)
 
 ### Community 16 - "NullTraceSink"
 Cohesion: 0.04
-Nodes (54): NullSpan, NullTracer, std::formatter<nexigen::tracing::NullTracer>, to_json(), to_string(), NullTraceSink, to_json(), to_string() (+46 more)
+Nodes (52): NullSpan, NullTracer, std::formatter<nexigen::tracing::NullTracer>, to_json(), to_string(), NullTraceSink, to_json(), to_string() (+44 more)
 
 ### Community 17 - "LoggerOptions"
 Cohesion: 0.06
-Nodes (38): LoggerOptions, initial_log_level, log_root_directory, max_file_size_bytes, max_producer_threads, message_capacity, overflow_policy, spam_protection (+30 more)
+Nodes (42): LoggerOptions, initial_log_level, log_root_directory, max_file_size_bytes, max_producer_threads, message_capacity, overflow_policy, spam_protection (+34 more)
 
 ### Community 18 - "LsmRuntime"
 Cohesion: 0.05
 Nodes (29): Binding, group_index, machine, LsmRuntime, bindings_, manager_, sink_, std::formatter<nexigen::sm::LsmRuntime> (+21 more)
 
 ### Community 19 - "metrics_test_support.hpp"
-Cohesion: 0.08
+Cohesion: 0.07
 Nodes (34): build_bounds(), expect(), main(), print_histogram(), work_units(), AllTimeStats, expect(), FixtureStats (+26 more)
 
-### Community 20 - "Proposal"
-Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+### Community 20 - "PublishSubscribeOptions"
+Cohesion: 0.06
+Nodes (28): PublishSubscribeOptions, enable_safe_overflow, history_size, max_nodes, max_publishers, max_subscribers, subscriber_buffer_size, subscriber_history_request (+20 more)
 
 ### Community 21 - "execution_manager.cpp"
-Cohesion: 0.07
-Nodes (54): 11. P3 completion notes (2026-11-01), file_exists(), group_alive(), identity_matches(), monotonic_now_ns(), process_alive(), sleep_ms(), 1. Runner: identity gate before kill (P1-5) (+46 more)
+Cohesion: 0.04
+Nodes (110): 11. P3 completion notes (2026-11-01), file_exists(), group_alive(), monotonic_now_ns(), reap_failed_supervisor(), sleep_ms(), D2 — `waitpid` outcome model: `status_valid`, runner/process-supervision (+102 more)
 
 ### Community 22 - "lens.py"
 Cohesion: 0.18
 Nodes (3): generate_svg_line_chart(), main(), ProjectAnalyzer
 
 ### Community 23 - "LogRecord"
-Cohesion: 0.03
-Nodes (63): LogRecord, arg_length, arg_payload_, file_name, flags, fmt, function_name, level (+55 more)
+Cohesion: 0.04
+Nodes (52): LogRecord, arg_length, arg_payload_, file_name, flags, fmt, function_name, level (+44 more)
 
 ### Community 24 - "ExplicitBucketHistogram"
 Cohesion: 0.04
 Nodes (39): ExplicitBucketHistogram, access, bound_count_, bounds_, cell_, concurrency, fallback_, identity_ (+31 more)
 
-### Community 25 - "E2eReceiver"
-Cohesion: 0.18
-Nodes (7): E2eReceiver, data_id_, have_last_, last_, max_delta_, profile_, to_string()
+### Community 25 - "E2eState"
+Cohesion: 0.11
+Nodes (13): E2eState, checked, failed, repeated, wrong_sequence, std::formatter<nexigen::com::E2eState>, to_string(), Decisions (+5 more)
 
-### Community 26 - "StreamManager"
+### Community 26 - "streaming.cpp"
 Cohesion: 0.03
-Nodes (48): StreamRecord, kind, line, received_at_rfc3339, sequence, stream_id, truncated, to_string() (+40 more)
+Nodes (73): StreamRecord, kind, line, received_at_rfc3339, sequence, stream_id, truncated, to_string() (+65 more)
 
 ### Community 27 - ".on_span"
-Cohesion: 0.10
-Nodes (21): D1 — `Publisher::send_copy(const T&)` как тонкий проброс, а не новая абстракция, D2 — Телеметрия: один общий хелпер, тот же layout и порядок памяти, D3 — Слияние ошибок loan/send допустимо, потому что синки их уже не различают, D4 — Переводим только три hot-path синка, D5 — Требование `tracing/iceoryx2-trace-sink` не переписываем, D6 — Бенчмарк: отдельная ветка `(a2)`, а не замена `(a)`, D7 — Память и конкурентность, Decisions (+13 more)
+Cohesion: 0.05
+Nodes (39): D5 — Переполнение: DiscardData + счётчик, on_span всегда успешен, Context, D1 — `Publisher::send_copy(const T&)` как тонкий проброс, а не новая абстракция, D2 — Телеметрия: один общий хелпер, тот же layout и порядок памяти, D3 — Слияние ошибок loan/send допустимо, потому что синки их уже не различают, D4 — Переводим только три hot-path синка, D5 — Требование `tracing/iceoryx2-trace-sink` не переписываем, D6 — Бенчмарк: отдельная ветка `(a2)`, а не замена `(a)` (+31 more)
 
 ### Community 28 - "SettingsDiagnostic"
 Cohesion: 0.15
@@ -1362,75 +1367,75 @@ Nodes (30): apply_env_interval(), apply_env_mask(), apply_metrics_environment(),
 
 ### Community 29 - "ErrorCode"
 Cohesion: 0.03
-Nodes (61): Entry, name, value, ErrorCode, BufferEmpty, BufferFull, Conflict, CorruptData (+53 more)
+Nodes (72): Entry, name, value, ErrorCode, BufferEmpty, BufferFull, Conflict, CorruptData (+64 more)
 
-### Community 30 - "cstddef"
+### Community 30 - "HistogramSnapshot"
 Cohesion: 0.03
-Nodes (43): find_log_file(), main(), print_line(), verify_log_file(), main(), print_line(), find_log_file(), main() (+35 more)
+Nodes (65): HistogramSnapshot, bucket_count, buckets_count, buckets_lower, count, effective_scale, ignored_samples, max (+57 more)
 
 ### Community 31 - ".metrics"
 Cohesion: 0.03
-Nodes (62): std::formatter<nexigen::metrics::HistogramSnapshot>, 1. Введение и область применения, 2. Жизненный цикл и запуск (Lifecycle & Initialization), 3. Взаимодействие со средой выполнения и ОС (Runtime Environment), 4. Управление потоками и оркестрация ядер (Threading & CPU Affinity), 5. Корректное завершение работы (Termination & Signals), 6. Интеграция с Platform Health Management (PHM), 7. Требования к структурам данных связи (IPC Data Constraints) (+54 more)
+Nodes (61): std::formatter<nexigen::metrics::HistogramSnapshot>, 1. Введение и область применения, 2. Жизненный цикл и запуск (Lifecycle & Initialization), 3. Взаимодействие со средой выполнения и ОС (Runtime Environment), 4. Управление потоками и оркестрация ядер (Threading & CPU Affinity), 5. Корректное завершение работы (Termination & Signals), 6. Интеграция с Platform Health Management (PHM), 7. Требования к структурам данных связи (IPC Data Constraints) (+53 more)
 
 ### Community 32 - "ADDED Requirements"
 Cohesion: 0.06
 Nodes (31): ADDED Requirements, Purpose, Requirement: CPU affinity and thread placement, Requirement: Cross-process trace propagation, Requirement: Daemon configuration and debug level, Requirement: Data exchange over the com transport, Requirement: Driver and cleanup scripts, Requirement: Manifest drives launch order and configuration (+23 more)
 
 ### Community 33 - "settings_io.hpp"
-Cohesion: 0.09
-Nodes (56): from_json(), SettingsDiagnostic, field, message, source, to_json(), to_string(), add_diagnostic() (+48 more)
+Cohesion: 0.08
+Nodes (58): add_diagnostic(), apply_env_fields(), env_value(), EnvField, env_name, field, find_sink(), format_settings_summary() (+50 more)
 
 ### Community 34 - "SettingsSource"
-Cohesion: 0.14
-Nodes (41): from_json(), SettingsSource, Computed, Environment, Global, Local, to_json(), Context (+33 more)
+Cohesion: 0.09
+Nodes (52): Context, 1. Logging settings loader — +110 lines, 1. One helper per field in `sanitize_document`, 2. Templated/parameterized field readers for `from_json`, 3. Environment helpers mirror sanitized-field helpers, 4. Internal, TU-local helpers, Context, Decisions (+44 more)
 
 ### Community 35 - "HubSuite"
-Cohesion: 0.09
-Nodes (37): RunRoot, key, path, to_string(), D3 — Hub containment enforced inside Discovery at tree-build time, 3. Hub: path containment in discovery (P0-3), 1. `Discovery::scan_suite` — file-local helpers, 2. hub/discovery `scan_suite` (+29 more)
+Cohesion: 0.07
+Nodes (39): Discovery, tree_signature_, RunRoot, key, path, to_string(), D3 — Hub containment enforced inside Discovery at tree-build time, 3. Hub: path containment in discovery (P0-3) (+31 more)
 
 ### Community 36 - "main"
-Cohesion: 0.07
-Nodes (35): suite_composite_injection(), suite_counter(), suite_daemon_components(), suite_statistics(), suite_explicit_histogram(), suite_explicit_histogram_mt(), suite_exponential_histogram(), suite_exponential_histogram_mt() (+27 more)
+Cohesion: 0.06
+Nodes (42): suite_composite_injection(), suite_counter(), suite_daemon_components(), suite_statistics(), suite_explicit_histogram(), suite_explicit_histogram_mt(), suite_exponential_histogram(), suite_exponential_histogram_mt() (+34 more)
 
 ### Community 37 - "SpanAttribute"
-Cohesion: 0.04
-Nodes (46): Entry, name, value, EnumTraits<nexigen::tracing::SpanAttributeType>, entries, from_json(), from_string(), SpanAttribute (+38 more)
+Cohesion: 0.05
+Nodes (37): Entry, name, value, EnumTraits<nexigen::tracing::SpanAttributeType>, entries, from_json(), from_string(), SpanAttribute (+29 more)
 
 ### Community 38 - "suite_supervisor.cpp"
-Cohesion: 0.04
-Nodes (102): find_startup_config(), accepts_recovery_restart(), Decisions, What Changes, Tasks, D3 — Suite supervisor integration, 3. Suite supervisor integration, Decisions (+94 more)
+Cohesion: 0.06
+Nodes (79): find_startup_config(), ExitMetadata, exit_code, signal, terminated_by, uptime_s, to_string(), accepts_recovery_restart() (+71 more)
 
 ### Community 39 - "SpanFrame"
-Cohesion: 0.04
-Nodes (42): SpanFrame, app_id, attribute_count, attributes, column, end_ns, file_hash, flags (+34 more)
+Cohesion: 0.05
+Nodes (47): SpanFrame, app_id, attribute_count, attributes, column, end_ns, file_hash, flags (+39 more)
 
 ### Community 40 - "Machine"
-Cohesion: 0.07
+Cohesion: 0.06
 Nodes (32): Machine, function_groups, name, processes, MachineFunctionGroup, id, name, states (+24 more)
 
-### Community 41 - "ProcessLifecycleState"
-Cohesion: 0.03
-Nodes (79): Entry, name, value, ProcessLifecycleEvent, app, function_group, state, ProcessLifecycleState (+71 more)
+### Community 41 - "ProcessLifecycleEvent"
+Cohesion: 0.08
+Nodes (20): ProcessLifecycleEvent, app, function_group, state, std::formatter<nexigen::exec::ProcessLifecycleEvent>, std::formatter<nexigen::exec::ProcessLifecycleState>, 2. Execution Manager: asynchronous restart, 3. Execution Manager: lifecycle event content (+12 more)
 
 ### Community 42 - "app_suite_test.cpp"
 Cohesion: 0.12
 Nodes (52): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why, app_spec() (+44 more)
 
 ### Community 43 - "MetricProvider"
-Cohesion: 0.03
-Nodes (63): Body, self, MetricProviderConfig, collect_interval, max_counters, max_explicit_histograms, max_exponential_histograms, max_gauges (+55 more)
+Cohesion: 0.05
+Nodes (29): Body, self, KindPool, arena, arena_size, meta, slot_max, used (+21 more)
 
 ### Community 44 - "LightweightStateMachineConfig"
 Cohesion: 0.05
-Nodes (56): Entry, name, value, EnumTraits<nexigen::sm::LsmActionType>, entries, from_json(), from_string(), LightweightStateMachine (+48 more)
+Nodes (55): Entry, name, value, EnumTraits<nexigen::sm::LsmActionType>, entries, from_json(), from_string(), LightweightStateMachine (+47 more)
 
 ### Community 45 - "FileLogger"
-Cohesion: 0.07
-Nodes (4): FileLogger, producer_, worker_, to_string()
+Cohesion: 0.05
+Nodes (11): FileLogger, producer_, worker_, to_string(), Requirement: Flush synchronizes the file, Scenario: Flush surfaces write failure, Scenario: Flushed data is durable, Context (+3 more)
 
 ### Community 46 - "instance_lifecycle.cpp"
-Cohesion: 0.05
-Nodes (53): ExitMetadata, exit_code, signal, terminated_by, uptime_s, to_string(), ResourceMetadata, app_name (+45 more)
+Cohesion: 0.06
+Nodes (50): ResourceMetadata, app_name, instance_dir, instance_id, pid, ppid, proc_start_ticks, run_id (+42 more)
 
 ### Community 47 - "ProviderConfig"
 Cohesion: 0.06
@@ -1438,43 +1443,43 @@ Nodes (36): ProviderConfig, collect_interval, kind, worker_thread, std::formatte
 
 ### Community 48 - "Infrastructure"
 Cohesion: 0.06
-Nodes (28): 4. Спин вместо блокировки — если нужен последний рычаг, Infrastructure, chrono_logger_bridge_, chrono_sink_, initialized_, metrics_sink_, previous_mask_, provider_ (+20 more)
+Nodes (30): 4. Спин вместо блокировки — если нужен последний рычаг, Infrastructure, chrono_logger_bridge_, chrono_sink_, initialized_, metrics_sink_, previous_mask_, provider_ (+22 more)
 
 ### Community 49 - "ProviderKind"
-Cohesion: 0.10
-Nodes (23): Entry, name, value, EnumTraits<nexigen::chrono::ProviderKind>, entries, from_json(), from_string(), ProviderKind (+15 more)
+Cohesion: 0.06
+Nodes (33): Entry, name, value, EnumTraits<nexigen::chrono::ProviderKind>, entries, from_json(), from_string(), ProviderKind (+25 more)
 
-### Community 50 - "run_instance_supervisor"
-Cohesion: 0.04
-Nodes (86): cpus_within_online(), online_cpu_count(), StartReport, error, pid, read_all(), read_start_report(), reap_failed_supervisor() (+78 more)
+### Community 50 - "ChannelConfig"
+Cohesion: 0.08
+Nodes (18): ChannelConfig, default_timestamp_domain, history_size, max_consumers, max_supported_consumers, queue_size, std::formatter<nexigen::com::ChannelConfig>, EventChannel (+10 more)
 
 ### Community 51 - "LinesSink"
-Cohesion: 0.08
-Nodes (26): 5. Extend unit tests, basename_of(), EnvGuard, had, name, saved, has_basename(), line_count() (+18 more)
+Cohesion: 0.10
+Nodes (20): 5. Extend unit tests, basename_of(), EnvGuard, had, name, saved, has_basename(), line_count() (+12 more)
 
 ### Community 52 - "TracerProvider"
-Cohesion: 0.03
-Nodes (33): Body, self, ControlCell, pad_, state, FlushCell, drained, pad_ (+25 more)
+Cohesion: 0.04
+Nodes (31): ControlCell, pad_, state, FlushCell, drained, pad_, requested, sync_error (+23 more)
 
 ### Community 53 - "string_view"
-Cohesion: 0.08
-Nodes (28): compute_deadline(), DemoConfig, abort_after_s, exit_after_s, role, run_forever, worker_seconds, DemoRole (+20 more)
+Cohesion: 0.10
+Nodes (27): compute_deadline(), DemoConfig, abort_after_s, exit_after_s, role, run_forever, worker_seconds, DemoRole (+19 more)
 
 ### Community 54 - "recorder/main.cpp"
-Cohesion: 0.14
-Nodes (27): mode_spec(), WorkloadSpec, id, name, payload_bytes, rate_hz, video, heap_in_use() (+19 more)
+Cohesion: 0.20
+Nodes (20): mode_spec(), heap_in_use(), low32(), message_count(), path_join(), run_custom(), run_mcap(), run_nxvid() (+12 more)
 
 ### Community 55 - "StopwatchState"
-Cohesion: 0.04
-Nodes (48): Entry, name, value, EnumTraits<nexigen::diagnostics::StopwatchState>, entries, from_json(), from_string(), StopwatchState (+40 more)
+Cohesion: 0.05
+Nodes (42): Entry, name, value, EnumTraits<nexigen::diagnostics::StopwatchState>, entries, from_json(), from_string(), StopwatchState (+34 more)
 
 ### Community 56 - "phmd_safety_loop_helper.cpp"
-Cohesion: 0.12
+Cohesion: 0.13
 Nodes (36): answer(), Counters, ack_sent, em_requests, sm_notifications, drain(), drain_sm(), emit_then_stop() (+28 more)
 
 ### Community 57 - "ADDED Requirements"
 Cohesion: 0.04
-Nodes (56): ADDED Requirements, Purpose, Requirement: CLI contract, Requirement: Dataset inventory, Requirement: Dataset selection and extraction, Requirement: Integrity verification, Requirement: JSONL and Perfetto output, Requirement: MCAP output (+48 more)
+Nodes (52): ADDED Requirements, Purpose, Requirement: CLI contract, Requirement: Dataset inventory, Requirement: Dataset selection and extraction, Requirement: Integrity verification, Requirement: JSONL and Perfetto output, Requirement: MCAP output (+44 more)
 
 ### Community 58 - "SmMetrics"
 Cohesion: 0.05
@@ -1484,81 +1489,81 @@ Nodes (48): 1. Baseline and shared JSON vocabulary, 3. Daemon entry points (P3),
 Cohesion: 0.24
 Nodes (4): RecordingLsmSink, calls, fail_requests, test_root_lifecycle_client()
 
-### Community 60 - "id_generator.hpp"
-Cohesion: 0.29
-Nodes (6): cached_thread_id(), IdGenerator, state_, next_id(), seed_input(), splitmix64()
+### Community 60 - "NullMetricSink"
+Cohesion: 0.10
+Nodes (19): 4.5 `metrics` — метрики, 4.6 `tracing` — трассировка, 4.7 `diagnostics` — измерения интервалов, 4. Модули, from_json(), NullMetricSink, std::formatter<nexigen::metrics::NullMetricSink>, to_json() (+11 more)
 
 ### Community 61 - "FaultStorage"
 Cohesion: 0.08
 Nodes (16): Body, self, FaultRecord, checkpoint_id, kind, process_index, timestamp_ns, FaultStorage (+8 more)
 
 ### Community 62 - "Requirements"
-Cohesion: 0.04
-Nodes (54): logging/file-logger Specification, Purpose, Requirement: Asynchronous wait-free JSON-lines file output, Requirement: Automatic dropped-record summary, Requirement: Background writer CPU core affinity, Requirement: Background writer uses the shared idle-backoff policy, Requirement: File logger vocabulary diagnostic strings, Requirement: Hitch-free scheduled directory rotation (+46 more)
+Cohesion: 0.05
+Nodes (41): logging/file-logger Specification, Purpose, Requirement: Asynchronous wait-free JSON-lines file output, Requirement: Automatic dropped-record summary, Requirement: Background writer CPU core affinity, Requirement: Background writer uses the shared idle-backoff policy, Requirement: File logger vocabulary diagnostic strings, Requirement: Hitch-free scheduled directory rotation (+33 more)
 
-### Community 63 - "sim_common.hpp"
-Cohesion: 0.06
-Nodes (45): expect(), main(), work_units(), main(), Policy, main(), Policy, main() (+37 more)
+### Community 63 - "chrono"
+Cohesion: 0.04
+Nodes (83): main(), Policy, main(), Policy, main(), Policy, drain_once(), render_received() (+75 more)
 
 ### Community 64 - "Requirements"
 Cohesion: 0.06
 Nodes (31): examples/suite-2-apps Specification, Purpose, Requirement: CPU affinity and thread placement, Requirement: Cross-process trace propagation, Requirement: Daemon configuration and debug level, Requirement: Data exchange over the com transport, Requirement: Driver and cleanup scripts, Requirement: Manifest drives launch order and configuration (+23 more)
 
 ### Community 65 - "HubSuite"
-Cohesion: 0.04
-Nodes (57): 4.10 `hub` — наблюдаемость, HubApp, app, instances, state, to_string(), HubAttempt, artifact_dir (+49 more)
+Cohesion: 0.03
+Nodes (67): 4.10 `hub` — наблюдаемость, enum_from_json(), enum_to_json(), read_enum(), read_optional_enum(), HubApp, app, instances (+59 more)
 
 ### Community 66 - "StateStorage<ConcurrencyPolicy::MultiThreaded, Reset>"
 Cohesion: 0.05
 Nodes (28): StateCell, value, StateShard, seq, value, StateStorage, StateStorage<ConcurrencyPolicy::MultiThreaded, Reset>, shard_ (+20 more)
 
-### Community 67 - "record_format.cpp"
-Cohesion: 0.08
-Nodes (36): Analysis / preparation, hub/http-api, runner/app-suite, tasks: refactor-high-complexity-functions, tracing/record-format, Verification and gating, Context, Design (+28 more)
+### Community 67 - "SpanRecord"
+Cohesion: 0.07
+Nodes (33): SpanId, TraceId, Analysis / preparation, hub/http-api, runner/app-suite, tasks: refactor-high-complexity-functions, tracing/record-format, Verification and gating (+25 more)
 
 ### Community 68 - "SettingsPaths"
-Cohesion: 0.05
-Nodes (49): AppSettingsPaths, chrono, logging, metrics, tracing, to_string(), from_json(), SettingsPaths (+41 more)
+Cohesion: 0.04
+Nodes (61): AppSettingsPaths, chrono, logging, metrics, tracing, to_string(), from_json(), SettingsPaths (+53 more)
 
 ### Community 69 - ".has_requests"
 Cohesion: 0.06
-Nodes (41): Fallback selection (variant A), Platform thread fields, WorkerThread, effective_thread_spec(), Context, D1 — `WorkerThread<Body>`: шаблон, тело inline, без type erasure, D2 — Двухфазный контракт тела, D5 — Lifecycle (+33 more)
+Nodes (38): Fallback selection (variant A), Platform thread fields, WorkerThread, effective_thread_spec(), Context, D1 — `WorkerThread<Body>`: шаблон, тело inline, без type erasure, D2 — Двухфазный контракт тела, D5 — Lifecycle (+30 more)
 
 ### Community 70 - "recorder_types.hpp"
-Cohesion: 0.03
-Nodes (113): BitstreamFormat, AnnexB, Avcc, Obu, Raw, Unknown, DatasetKind, Opaque (+105 more)
+Cohesion: 0.04
+Nodes (65): Entry, name, value, EnumTraits<nexigen::recorder::BitstreamFormat>, entries, EnumTraits<nexigen::recorder::DatasetKind>, entries, EnumTraits<nexigen::recorder::ExportFormat> (+57 more)
 
-### Community 71 - "ex_app_cli_settings.cpp"
-Cohesion: 0.06
-Nodes (32): find_log_file(), main(), print_line(), fail(), main(), write_file(), verify_log_file(), write_file() (+24 more)
+### Community 71 - "EventProducer"
+Cohesion: 0.07
+Nodes (21): EventProducer, config_, epoch_, notifier_, publisher_, sequence_, service_name_, publish_outcome_from_notify() (+13 more)
 
 ### Community 72 - "Requirements"
 Cohesion: 0.04
-Nodes (56): Purpose, recorder/export Specification, Requirement: CLI contract, Requirement: Dataset inventory, Requirement: Dataset selection and extraction, Requirement: Integrity verification, Requirement: JSONL and Perfetto output, Requirement: MCAP output (+48 more)
+Nodes (49): Purpose, recorder/export Specification, Requirement: Dataset inventory, Requirement: Dataset selection and extraction, Requirement: Integrity verification, Requirement: JSONL and Perfetto output, Requirement: MCAP output, Requirement: On-demand conversion only (+41 more)
 
 ### Community 73 - "Iceoryx2MetricSink"
-Cohesion: 0.10
-Nodes (10): Iceoryx2MetricSink, config_, frame_, node_, notifier_, pid_, publisher_, std::formatter<nexigen::metrics::Iceoryx2MetricSink> (+2 more)
+Cohesion: 0.09
+Nodes (12): Iceoryx2MetricSink, config_, frame_, node_, notifier_, pid_, publisher_, std::formatter<nexigen::metrics::Iceoryx2MetricSink> (+4 more)
 
 ### Community 74 - "execution_manager_test.cpp"
-Cohesion: 0.22
-Nodes (31): 2. Runner: waitpid outcome honesty + failed-start reaping (P1-6, P1-14), contains(), failed_with(), identity_for(), read_exit(), read_resource(), read_text(), reap_supervisors() (+23 more)
+Cohesion: 0.09
+Nodes (56): 2. Runner: waitpid outcome honesty + failed-start reaping (P1-6, P1-14), contains(), cpu_is_set(), first_allowed_cpu(), main(), read_text(), remove_tree(), run_suite() (+48 more)
 
 ### Community 75 - "E2ePublisher"
-Cohesion: 0.10
-Nodes (15): E2ePending, sample_, E2ePublisher, config_, inner_, next_counter_, std::formatter<nexigen::com::E2ePublisher<T>>, to_string() (+7 more)
+Cohesion: 0.06
+Nodes (26): E2eConfig, data_id, max_delta_counter, profile, std::formatter<nexigen::com::E2eConfig>, to_string(), E2ePending, sample_ (+18 more)
 
 ### Community 76 - "Requirements"
-Cohesion: 0.03
-Nodes (66): execution_manager/process-supervision Specification, Purpose, Requirement: A failed exec fails the start visibly, Requirement: A failed start reaps the supervisor child, Requirement: Child credentials are dropped before exec, Requirement: Child is launched under a new process group, Requirement: Complexity of decomposed functions stays within the project target, Requirement: Crash cleanup before restart (+58 more)
+Cohesion: 0.02
+Nodes (83): execution_manager/process-supervision Specification, Purpose, Requirement: A failed exec fails the start visibly, Requirement: A failed start reaps the supervisor child, Requirement: Child credentials are dropped before exec, Requirement: Child environment and CPU affinity are configurable, Requirement: Child is launched under a new process group, Requirement: Complexity of decomposed functions stays within the project target (+75 more)
 
 ### Community 77 - "tracer_concept_test.cpp"
 Cohesion: 0.07
 Nodes (11): FullSinkModel, FullTracerModel, Guard, GuardWithoutEndModel, NoStartSpanModel, SinkWithoutFlushModel, SinkWithoutStopModel, suite_concepts() (+3 more)
 
 ### Community 78 - "WatchdogState"
-Cohesion: 0.04
-Nodes (32): Entry, name, value, EnumTraits<nexigen::phm::WatchdogState>, entries, from_json(), from_string(), std::formatter<nexigen::phm::WatchdogState> (+24 more)
+Cohesion: 0.12
+Nodes (14): Entry, name, value, EnumTraits<nexigen::phm::WatchdogState>, entries, from_json(), from_string(), std::formatter<nexigen::phm::WatchdogState> (+6 more)
 
 ### Community 79 - "SupervisedProcess"
 Cohesion: 0.05
@@ -1569,8 +1574,8 @@ Cohesion: 0.05
 Nodes (43): hub/discovery Specification, Purpose, Requirement: Discovery is cold path only, Requirement: Discovery is read-only, Requirement: Discovery types follow the serialization contract, Requirement: Initial scan builds the run tree, Requirement: Inotify keeps the tree live, Requirement: Non-contained suite metadata degrades gracefully (+35 more)
 
 ### Community 81 - "ThreadApplyReport"
-Cohesion: 0.07
-Nodes (33): 4.1 `core` — базовые примитивы, Application semantics, `CpuSet`, Diagnostics, JSON manifest form, Module integration, Quick start, See also (+25 more)
+Cohesion: 0.08
+Nodes (31): Application semantics, `CpuSet`, Diagnostics, JSON manifest form, Module integration, Quick start, See also, Thread management and CPU placement (+23 more)
 
 ### Community 82 - "Field"
 Cohesion: 0.08
@@ -1581,28 +1586,28 @@ Cohesion: 0.04
 Nodes (53): app/command-line Specification, Purpose, Requirement: App name option, Requirement: At least one settings directory is required, Requirement: CLI log level overrides loaded settings, Requirement: Command-line contract is documented, Requirement: Command-line types are serializable, Requirement: Fixed file names produce the four settings pairs (+45 more)
 
 ### Community 84 - "FileLoggerConfig"
-Cohesion: 0.05
-Nodes (48): FileLoggerConfig, app_name, base_dir, file_name, initial_level, max_file_size_bytes, rotation, throttle (+40 more)
+Cohesion: 0.06
+Nodes (37): FileLoggerConfig, app_name, base_dir, file_name, initial_level, max_file_size_bytes, rotation, throttle (+29 more)
 
 ### Community 85 - "format_param_t"
-Cohesion: 0.05
-Nodes (12): CompositeLogger, level_, size, to_string(), format_param_t, NullLogger, levels_, to_string() (+4 more)
+Cohesion: 0.03
+Nodes (22): CompositeLogger, level_, size, format_param_t, FormatWithLocation, fmt, loc, CaptureLogger (+14 more)
 
-### Community 86 - "Discovery"
+### Community 86 - ".sync"
 Cohesion: 0.06
-Nodes (25): 10. P2 completion notes (2026-11-01), Discovery, tree_signature_, DiagnosticSink, Context, D2: Per-module coverage gates in the report tool, D3: Function-pointer diagnostic sink, D4: Status-returning stream reconciliation (+17 more)
+Nodes (34): 3. Сильные стороны, 10. P2 completion notes (2026-11-01), Context, D1: Flush gcov counters explicitly in forked children, D2: Per-module coverage gates in the report tool, D3: Function-pointer diagnostic sink, D4: Status-returning stream reconciliation, D5: Header parsing helper (+26 more)
 
 ### Community 87 - "StorageSettings"
-Cohesion: 0.04
-Nodes (45): ChannelDeclare, id, kind, message_encoding, metadata, schema_id, topic, to_string() (+37 more)
+Cohesion: 0.03
+Nodes (79): ChannelDeclare, id, kind, message_encoding, metadata, schema_id, topic, to_string() (+71 more)
 
 ### Community 88 - "main"
-Cohesion: 0.07
-Nodes (25): suite_affinity(), suite_drop_visibility(), suite_flush_summary_race(), suite_shutdown_drain_race(), suite_composite(), suite_file_logger(), suite_json(), suite_logging_json_rejections() (+17 more)
+Cohesion: 0.05
+Nodes (33): suite_affinity(), suite_drop_visibility(), suite_flush_summary_race(), suite_shutdown_drain_race(), suite_composite(), suite_config_strings(), suite_enum_vocab(), test_config_strings() (+25 more)
 
 ### Community 89 - "export_cli_test.cpp"
-Cohesion: 0.11
-Nodes (45): 5.3 Жизненный цикл suite и Function Groups, 5.5 RootFG, append_records(), append_video_frames(), copy_tree(), declare_channels(), declare_schemas(), file_size() (+37 more)
+Cohesion: 0.13
+Nodes (39): append_records(), append_video_frames(), copy_tree(), declare_channels(), declare_schemas(), file_size(), find_entry(), FixtureChannels (+31 more)
 
 ### Community 90 - "Requirements"
 Cohesion: 0.07
@@ -1629,20 +1634,20 @@ Cohesion: 0.06
 Nodes (24): Counter, access, concurrency, identity_, kind, reset, storage_, CounterCell (+16 more)
 
 ### Community 96 - "Settings"
-Cohesion: 0.13
-Nodes (16): Settings, diagnostics, global_loaded, local_loaded, options, sink, to_string(), Requirement: Metrics settings are serializable (+8 more)
+Cohesion: 0.06
+Nodes (35): Settings, diagnostics, global_loaded, local_loaded, options, sink, to_string(), MODIFIED Requirements (+27 more)
 
 ### Community 97 - "Requirement: The worker applies its own ThreadSpec before the body"
-Cohesion: 0.07
-Nodes (26): core/worker-thread Specification, Purpose, Requirement: Body contract is two-phase and stop-aware, Requirement: Start publishes a readable readiness snapshot, Requirement: The worker applies its own ThreadSpec before the body, Requirement: WorkerThread diagnostics follow the serialization contract, Requirement: WorkerThread keeps its lifetime contract observable, Requirement: WorkerThread owns the thread and body without type erasure (+18 more)
+Cohesion: 0.08
+Nodes (23): core/worker-thread Specification, Purpose, Requirement: Body contract is two-phase and stop-aware, Requirement: Start publishes a readable readiness snapshot, Requirement: The worker applies its own ThreadSpec before the body, Requirement: WorkerThread diagnostics follow the serialization contract, Requirement: WorkerThread owns the thread and body without type erasure, Requirements (+15 more)
 
 ### Community 98 - "JsonFileTraceSink"
 Cohesion: 0.08
 Nodes (18): JsonFileTraceSink, app_, app_len_, discarded_lines_, dropped_in_window_, fd_, file_, max_per_window_ (+10 more)
 
 ### Community 99 - "from_json"
-Cohesion: 0.07
-Nodes (43): load_chrono_settings(), read_all(), test_chrono_worker_thread_settings(), test_clock_id(), test_enum_contracts(), test_settings(), test_settings_edges(), test_settings_sink() (+35 more)
+Cohesion: 0.08
+Nodes (47): load_chrono_settings(), read_all(), test_chrono_worker_thread_settings(), test_clock_id(), test_enum_contracts(), test_provider_config_edges(), test_provider_config_roundtrip(), test_settings() (+39 more)
 
 ### Community 100 - "Requirements"
 Cohesion: 0.05
@@ -1653,8 +1658,8 @@ Cohesion: 0.09
 Nodes (14): reanchor(), StampSource, calibrated_, last_ns_, mono_anchor_ns_, scale_, tsc_anchor_, to_string() (+6 more)
 
 ### Community 102 - "Appender"
-Cohesion: 0.08
-Nodes (34): MetricFrame, app_id, pid, record, timestamp_ns, std::formatter<nexigen::metrics::MetricFrame>, to_string(), copy_name() (+26 more)
+Cohesion: 0.19
+Nodes (17): copy_name(), view_name(), Appender, cap, ok, out, used, emit_bucket() (+9 more)
 
 ### Community 103 - "ADDED Requirements"
 Cohesion: 0.05
@@ -1665,36 +1670,36 @@ Cohesion: 0.05
 Nodes (37): ADDED Requirements, Purpose, Requirement: Best-effort application exposes partial success, Requirement: CpuSet has canonical diagnostics and JSON, Requirement: CpuSet represents CPUs without the 64-bit mask limit, Requirement: Required application reports failure and rolls back, Requirement: Thread enums and specs follow the serialization mandates, Requirement: ThreadApplyReport is a serializable startup snapshot (+29 more)
 
 ### Community 105 - "Requirements"
-Cohesion: 0.05
-Nodes (37): app/application Specification, Purpose, Requirement: Command-line options initialize the infrastructure, Requirement: Help is rejected as an initialization input, Requirement: Infrastructure stop reason is serializable, Requirement: Initialization follows a fixed order, Requirement: Process-global signal ownership guard, Requirement: Run loop observes the stop request (+29 more)
+Cohesion: 0.04
+Nodes (49): app/application Specification, Purpose, Requirement: Command-line options initialize the infrastructure, Requirement: Help is rejected as an initialization input, Requirement: Infrastructure stop reason is serializable, Requirement: Initialization follows a fixed order, Requirement: Process-global signal ownership guard, Requirement: Run loop observes the stop request (+41 more)
 
 ### Community 106 - "Requirements"
 Cohesion: 0.04
-Nodes (46): execution_manager/app-suite Specification, Purpose, Requirement: Complexity of decomposed functions stays within the project target, Requirement: Each attempt writes to a new artifact directory, Requirement: Function Group diagnostics, Requirement: Generated settings point at the attempt artifacts, Requirement: Optional machine cross-check before launch, Requirement: Platform-control manifest fields (+38 more)
+Nodes (47): execution_manager/app-suite Specification, Purpose, Requirement: Complexity of decomposed functions stays within the project target, Requirement: Degrade and not-impact levels bound the damage, Requirement: Function Group diagnostics, Requirement: Generated settings point at the attempt artifacts, Requirement: Optional machine cross-check before launch, Requirement: Platform-control manifest fields (+39 more)
 
 ### Community 107 - "Requirements"
 Cohesion: 0.05
 Nodes (37): hub/streaming Specification, Purpose, Requirement: File replacement and new attempts are followed, Requirement: Lines are framed safely, Requirement: Rings are bounded per stream, Requirement: Slow subscribers are disconnected, Requirement: Streaming is cold path only, Requirement: Streaming types follow the serialization contract (+29 more)
 
 ### Community 108 - "Requirement: CPU-pinned background consumer"
-Cohesion: 0.05
-Nodes (37): Purpose, Requirement: CPU-pinned background consumer, Requirement: Drop visibility, Requirement: Dynamic runtime control, Requirement: Per-thread shard ownership, Requirement: Pre-allocated provider memory, Requirement: Provider and tracer factory hierarchy, Requirement: Provider serialization surfaces (+29 more)
+Cohesion: 0.07
+Nodes (29): Purpose, Requirement: Drop visibility, Requirement: Dynamic runtime control, Requirement: Per-thread shard ownership, Requirement: Pre-allocated provider memory, Requirement: Provider and tracer factory hierarchy, Requirement: Provider serialization surfaces, Requirement: Shutdown drain and flush barrier (+21 more)
 
 ### Community 109 - "Requirements"
-Cohesion: 0.08
-Nodes (25): Purpose, Requirement: All deserialization is exception-free under `JSON_NOEXCEPTION=1`, Requirement: Complexity of decomposed functions stays within the project target, Requirement: DroppedStats deserialization is non-throwing and partial-field safe, Requirement: Identifier hex format is fixed and round-trips, Requirement: Serialization helpers do not change hot-path contracts, Requirement: SpanAttribute deserialization is all-or-nothing, Requirement: SpanRecord deserialization delegates to substructure helpers (+17 more)
+Cohesion: 0.09
+Nodes (23): Requirement: All deserialization is exception-free under `JSON_NOEXCEPTION=1`, Requirement: Complexity of decomposed functions stays within the project target, Requirement: DroppedStats deserialization is non-throwing and partial-field safe, Requirement: Identifier hex format is fixed and round-trips, Requirement: Serialization helpers do not change hot-path contracts, Requirement: SpanAttribute deserialization is all-or-nothing, Requirement: SpanRecord deserialization delegates to substructure helpers, Requirement: TracerProviderConfig deserialization uses safe nlohmann accessors (+15 more)
 
 ### Community 110 - "ADDED Requirements"
 Cohesion: 0.05
 Nodes (36): ADDED Requirements, Purpose, Requirement: Artifact roots come from suite metadata, Requirement: Discovery is cold path only, Requirement: Discovery is read-only, Requirement: Discovery types follow the serialization contract, Requirement: Initial scan builds the run tree, Requirement: Inotify keeps the tree live (+28 more)
 
 ### Community 111 - "Server"
-Cohesion: 0.11
+Cohesion: 0.10
 Nodes (13): Server, inner_, service_name_, telemetry_, ServerRequest, answered_, inner_, std::formatter<nexigen::com::Server<Req, Resp>> (+5 more)
 
 ### Community 112 - "UpdateCoordinator"
-Cohesion: 0.05
-Nodes (24): std::formatter<nexigen::sm::UpdateCoordinator>, UpdateCoordinator, em_client_, group_index_, manager_, next_request_id_, previous_state_, requester_id_ (+16 more)
+Cohesion: 0.06
+Nodes (21): std::formatter<nexigen::sm::UpdateCoordinator>, UpdateCoordinator, em_client_, group_index_, manager_, next_request_id_, previous_state_, requester_id_ (+13 more)
 
 ### Community 113 - "AsyncWorker"
 Cohesion: 0.08
@@ -1724,23 +1729,23 @@ Nodes (34): ADDED Requirements, Purpose, Requirement: CPU-pinned background cons
 Cohesion: 0.09
 Nodes (10): build_history_line(), HistoryWriter, bytes_, fd_, max_bytes_, path_, drain_frames(), Window (+2 more)
 
-### Community 120 - ".restart"
-Cohesion: 0.11
-Nodes (25): D10 — Test TU, latency harness, and the Release overhead benchmark, D11 — Example and documentation, D2 — `Stopwatch` layout: 64-byte, single cache line, zero atomics, D3 — Sampling and the clock-failure policy, D4 — Control-path arithmetic (the exact operations), D5 — Enum contract: `stopwatch_state.hpp`, PascalCase spellings, exact pattern copy, D6 — `LapSnapshot`: value struct, state-first layout, 24 bytes, D7 — `ScopedStopwatch`: single class template + CTAD, sink stored inline (+17 more)
+### Community 120 - "MetricFrame"
+Cohesion: 0.09
+Nodes (21): MetricFrame, app_id, pid, record, timestamp_ns, std::formatter<nexigen::metrics::MetricFrame>, to_string(), Requirement: MetricFrame wire type (+13 more)
 
 ### Community 121 - "Producer"
-Cohesion: 0.07
-Nodes (16): cached_thread_id(), Producer, level_, policy_, pool_, spam_, spam_state_, stamps_ (+8 more)
+Cohesion: 0.05
+Nodes (24): 8. Общая оценка и приоритетные рекомендации, cached_thread_id(), Producer, level_, policy_, pool_, spam_, spam_state_ (+16 more)
 
 ### Community 122 - "ComControlHost"
-Cohesion: 0.06
-Nodes (22): ProcessHandler, RecoveryAdmissionFn, ComControlHost, client_, has_machine_group_, health_event_, identity_, initial_machine_result_ (+14 more)
+Cohesion: 0.05
+Nodes (28): ProcessHandler, RecoveryAdmissionFn, ComControlHost, client_, has_machine_group_, health_event_, identity_, initial_machine_result_ (+20 more)
 
 ### Community 123 - "StateManager"
 Cohesion: 0.04
-Nodes (42): GroupRuntime, holder_priority, holder_requester, state_index, StateManager, groups_, manifest_, std::formatter<nexigen::sm::StateManager> (+34 more)
+Nodes (36): GroupRuntime, holder_priority, holder_requester, state_index, StateManager, groups_, manifest_, std::formatter<nexigen::sm::StateManager> (+28 more)
 
-### Community 124 - "Requirement: Infrastructure exposes logger, metric and tracer factories"
+### Community 124 - "MODIFIED Requirements"
 Cohesion: 0.06
 Nodes (33): ADDED Requirements, MODIFIED Requirements, REMOVED Requirements, Requirement: App exposes logger, metric and tracer factories, Requirement: App owns infrastructure through a CRTP contract, Requirement: App stop reason is serializable, Requirement: Current accessor is non-owning, Requirement: Heap-only infrastructure factory (+25 more)
 
@@ -1753,8 +1758,8 @@ Cohesion: 0.04
 Nodes (46): ADDED Requirements, Purpose, Requirement: COM-free storage boundary, Requirement: Crash recovery, Requirement: Embedded schema and channel registry, Requirement: Preallocated allocation-free write path, Requirement: Record framing and CRC-32C, Requirement: Rotation and retention (+38 more)
 
 ### Community 127 - "tracing/sinks_test.cpp"
-Cohesion: 0.27
-Nodes (16): 1. Decomposition pattern (all files), test_trace_writer_escape_matrix(), iso_shape(), test_sinks(), test_sinks_chrome(), test_sinks_composite(), test_sinks_config_diagnostics(), test_sinks_console() (+8 more)
+Cohesion: 0.13
+Nodes (19): 1. Decomposition pattern (all files), test_trace_writer_escape_matrix(), CountingSink, deliveries, FailingOnSpanSink, iso_shape(), test_sinks(), test_sinks_chrome() (+11 more)
 
 ### Community 128 - "Requirements"
 Cohesion: 0.06
@@ -1769,28 +1774,28 @@ Cohesion: 0.07
 Nodes (28): 5.1 Карта процессов и каналов, 5.2 Телеметрический конвейер, 5.4 Последовательность `SetState`, 5.6 Запись и конвертация raw-сессии, 5. Взаимодействие компонентов, GapMarker, dropped, first_missing_sequence (+20 more)
 
 ### Community 131 - "SessionWriter::Impl"
-Cohesion: 0.06
-Nodes (30): SessionWriter::Impl, buffer, channel_config_epoch, channel_declared, channel_kind, channel_last_sequence, channel_schema, channel_sequence_valid (+22 more)
+Cohesion: 0.05
+Nodes (44): channel_bit(), mono_now(), segment_base(), SessionWriter::append(), SessionWriter::append_from_shard(), SessionWriter::append_time_sync(), SessionWriter::append_video(), SessionWriter::close() (+36 more)
 
 ### Community 132 - "ExponentialHistogram"
-Cohesion: 0.04
-Nodes (53): boundary_master(), bucket_lower_edge(), exponential_index(), ExponentialBank, base_index, buckets, count, effective_scale (+45 more)
+Cohesion: 0.03
+Nodes (61): boundary_master(), bucket_lower_edge(), exponential_index(), ExponentialBank, base_index, buckets, count, effective_scale (+53 more)
 
 ### Community 133 - "WorkerTuning"
-Cohesion: 0.07
-Nodes (31): WorkerTuning, backoff_floor_us, default_poll_interval_us, default_spin_budget, max_poll_interval_us, min_poll_interval_us, poll_interval_us, spin_budget (+23 more)
+Cohesion: 0.10
+Nodes (21): WorkerTuning, backoff_floor_us, default_poll_interval_us, default_spin_budget, max_poll_interval_us, min_poll_interval_us, poll_interval_us, spin_budget (+13 more)
 
 ### Community 134 - "ConsoleLoggerConfig"
-Cohesion: 0.05
-Nodes (33): apply_to(), ConsoleLoggerConfig, initial_level, worker_poll_interval_us, worker_thread, ADDED Requirements, MODIFIED Requirements, Requirement: Console logger diagnostic strings (+25 more)
+Cohesion: 0.09
+Nodes (15): apply_to(), ConsoleLoggerConfig, initial_level, worker_poll_interval_us, worker_thread, Requirement: Console logger config exposes the poll ceiling, Scenario: Config dump renders the ceiling, Requirement: Console logger config exposes the poll ceiling (+7 more)
 
 ### Community 135 - "HealthState"
 Cohesion: 0.04
 Nodes (48): Entry, name, value, EnumTraits<nexigen::phm::HealthState>, entries, from_json(), from_string(), HealthState (+40 more)
 
 ### Community 136 - "SamplingDecision"
-Cohesion: 0.08
-Nodes (28): Entry, name, value, EnumTraits<nexigen::tracing::SamplingDecision>, entries, from_json(), from_string(), SamplingDecision (+20 more)
+Cohesion: 0.07
+Nodes (29): Entry, name, value, EnumTraits<nexigen::tracing::SamplingDecision>, entries, from_json(), from_string(), SamplingDecision (+21 more)
 
 ### Community 137 - "ADDED Requirements"
 Cohesion: 0.06
@@ -1809,12 +1814,12 @@ Cohesion: 0.08
 Nodes (16): message_hash(), SpamProtection, bypass_min_level_, enable_repeat_suppression_, max_messages_per_sec_per_shard_, repeat_suppression_window_ms_, to_string(), SpamShardState (+8 more)
 
 ### Community 141 - "Iceoryx2LoggerConfig"
-Cohesion: 0.08
-Nodes (23): Iceoryx2LoggerConfig, app_id, history_size, initial_level, max_subscribers, service_name, throttle, worker_poll_interval_us (+15 more)
+Cohesion: 0.09
+Nodes (22): Iceoryx2LoggerConfig, app_id, history_size, initial_level, max_subscribers, service_name, throttle, worker_poll_interval_us (+14 more)
 
 ### Community 142 - "LogFrame"
 Cohesion: 0.04
-Nodes (49): LogFrame, app_id, context_id, dropped_counter, log_level, payload, payload_size, pid (+41 more)
+Nodes (54): LogFrame, app_id, context_id, dropped_counter, log_level, payload, payload_size, pid (+46 more)
 
 ### Community 143 - "Requirements"
 Cohesion: 0.04
@@ -1841,8 +1846,8 @@ Cohesion: 0.10
 Nodes (20): diagnostics/scoped-stopwatch Specification, Purpose, Requirement: Budget-overrun check, Requirement: Construction overloads and default-clock fallback, Requirement: Hot-path and layout guarantees, Requirement: RAII scope measurement, Requirement: ScopedStopwatch diagnostic rendering, Requirements (+12 more)
 
 ### Community 149 - "TransitionResult"
-Cohesion: 0.06
-Nodes (36): Entry, name, value, EnumTraits<nexigen::sm::TransitionResult>, entries, from_string(), to_string(), TransitionResult (+28 more)
+Cohesion: 0.05
+Nodes (39): Entry, name, value, EnumTraits<nexigen::sm::TransitionResult>, entries, from_json(), from_string(), to_json() (+31 more)
 
 ### Community 150 - "ADDED Requirements"
 Cohesion: 0.06
@@ -1853,39 +1858,39 @@ Cohesion: 0.10
 Nodes (20): Purpose, Requirement: Complexity of decomposed functions stays within the project target, Requirement: Refactored internals preserve all observable behavior, Requirement: `start_suite` is split into validation, conflict check, and supervisor launch, Requirement: `stop_suite` is split into request, wait, and finalize phases, Requirement: `suite_status` is split into metadata/state loading and per-app merging, Requirement: Suite supervisor loop uses an explicit application state machine, Requirements (+12 more)
 
 ### Community 152 - "tracing_settings.cpp"
-Cohesion: 0.18
-Nodes (26): apply_env_mask(), apply_env_max_spans(), apply_env_max_tracers(), apply_env_window_ns(), apply_tracing_environment(), merge_tracing_document(), read_core_mask(), read_max_spans_per_window() (+18 more)
+Cohesion: 0.12
+Nodes (37): from_json(), SettingsDiagnostic, field, message, source, to_json(), to_string(), Requirement: Settings diagnostics are serializable (+29 more)
 
 ### Community 153 - "RecoveryReason"
-Cohesion: 0.06
-Nodes (40): Entry, name, value, EnumTraits<nexigen::phm::RecoveryOutcome>, entries, from_json(), from_string(), RecoveryOutcome (+32 more)
+Cohesion: 0.10
+Nodes (20): Entry, name, value, EnumTraits<nexigen::phm::RecoveryReason>, entries, from_json(), from_string(), RecoveryReason (+12 more)
 
 ### Community 154 - "ChronoWorker"
-Cohesion: 0.15
-Nodes (7): ChronoWorker, config_, log_binding_, wake_cv_, wake_mutex_, worker_, std::formatter<nexigen::chrono::ChronoWorker<P>>
+Cohesion: 0.09
+Nodes (9): Body, self, ChronoWorker, config_, log_binding_, wake_cv_, wake_mutex_, worker_ (+1 more)
 
-### Community 155 - "LapSnapshot"
+### Community 155 - "Requirements"
 Cohesion: 0.08
-Nodes (23): LapSnapshot, lap_ns, lap_number, state, total_ns, to_string(), D1 — Build shape: compiled STATIC target with a single cold-path unit, Design (+15 more)
+Nodes (25): Purpose, recorder/video-storage Specification, Requirement: Capture time and source sequence preservation, Requirement: `.nxvid` blob layout, Requirement: Optional per-frame CRC, Requirement: Storage-only video responsibility, Requirement: Video frame references, Requirement: Video gap reporting (+17 more)
 
 ### Community 156 - "proc_start_ticks"
-Cohesion: 0.11
-Nodes (25): proc_start_ticks(), Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, Why, MODIFIED Requirements (+17 more)
+Cohesion: 0.13
+Nodes (21): identity_matches(), proc_start_ticks(), MODIFIED Requirements, Requirement: resource.json captures start-time metadata, runner/instance-lifecycle delta spec, Scenario: proc_start_ticks is serializable round-trip, Scenario: resource.json is present after start, Scenario: resource.json uses the same names as the telemetry-layout contract (+13 more)
 
 ### Community 157 - "ADDED Requirements"
 Cohesion: 0.07
 Nodes (28): ADDED Requirements, Purpose, Requirement: A snapshot is a versioned binary record, Requirement: Daemon drains spans through a blocking wait set, Requirement: Lifecycle and steady-state I/O, Requirement: Snapshot retention is bounded, Requirement: The ring overwrites the oldest frames, Requirement: Trace daemon configuration (+20 more)
 
 ### Community 158 - "json_field.hpp"
-Cohesion: 0.08
-Nodes (52): collect_array(), collect_array_into(), collect_object_array(), read_bool(), read_counter(), read_fixed_bytes(), read_fixed_string(), read_nullable_signed() (+44 more)
+Cohesion: 0.06
+Nodes (57): collect_array(), collect_object_array(), read_bool(), read_counter(), read_fixed_bytes(), read_fixed_string(), read_nullable_signed(), read_number() (+49 more)
 
 ### Community 159 - "ConsoleTraceSink"
 Cohesion: 0.11
 Nodes (7): ConsoleTraceSink, fd_, len_, line_, line_capacity, std::formatter<nexigen::tracing::ConsoleTraceSink>, to_string()
 
 ### Community 160 - "string_view"
-Cohesion: 0.15
+Cohesion: 0.14
 Nodes (14): env(), env_u64(), fail(), fail_status(), has_directory_option(), initialize_infrastructure(), main(), prepare_command_line() (+6 more)
 
 ### Community 161 - "ADDED Requirements"
@@ -1913,7 +1918,7 @@ Cohesion: 0.07
 Nodes (29): Purpose, Requirement: Context extraction, Requirement: Cross-thread context linking, Requirement: Disabled and dropped short-circuit, Requirement: RAII span lifecycle, Requirement: ScopedSpan serialization surface, Requirement: Sub-20-nanosecond enqueue, Requirement: Wait-free span updates (+21 more)
 
 ### Community 168 - "ConsoleMetricSink"
-Cohesion: 0.10
+Cohesion: 0.11
 Nodes (9): ConsoleMetricSink, fd_, len_, line_, line_capacity, std::formatter<nexigen::metrics::ConsoleMetricSink>, to_string(), from_json() (+1 more)
 
 ### Community 169 - "ADDED Requirements"
@@ -1932,21 +1937,21 @@ Nodes (28): ADDED Requirements, Purpose, Requirement: Connection and error state
 Cohesion: 0.07
 Nodes (29): examples Specification, Purpose, Requirement: CTest smoke coverage for every example, Requirement: Documented example invocation, Requirement: Example execution_manager and cleanup scripts, Requirement: Example exit status reports success, Requirement: Examples pass in every supported build mode, Requirement: Optional example build (+21 more)
 
-### Community 173 - "streaming.cpp"
-Cohesion: 0.13
-Nodes (16): diagnostic_sink_, StreamLimits::to_string(), StreamManager::consume_chunk(), StreamManager::emit(), StreamManager::matches(), StreamManager::overflowed(), StreamManager::push_gap(), StreamManager::push_record() (+8 more)
+### Community 173 - "suite_control.cpp"
+Cohesion: 0.04
+Nodes (69): process_alive(), read_json_into(), SuiteAppMetadata, app, instance, instance_dir, stop_grace_s, to_string() (+61 more)
 
 ### Community 174 - "Requirements"
 Cohesion: 0.10
 Nodes (20): Purpose, Requirement: ChromeTraceSink Perfetto-compatible output, Requirement: JsonFileTraceSink rotation and rate limiting, Requirement: Live sink serialization surfaces, Requirement: Sink configuration serialization, Requirement: Trace spans carry the application name, Requirements, Scenario: Empty app name is omitted or empty (+12 more)
 
 ### Community 175 - "diagnostics_test.cpp"
-Cohesion: 0.08
-Nodes (29): 1. Build-system accelerators, 2. Test-cycle unlock, 3. Validation entrypoint, 4. Measurement and acceptance, 5. Wrap-up, Tasks, arena_exhausted(), main() (+21 more)
+Cohesion: 0.11
+Nodes (23): arena_exhausted(), main(), median_ns_per_op(), now_ns_f(), operator delete(), operator new(), OutRefGuard, ProbeSink (+15 more)
 
 ### Community 176 - "main"
-Cohesion: 0.08
-Nodes (19): suite_attributes(), main(), suite_serialization_full(), suite_writer_bounds_full(), suite_writer_escape_matrix(), test_record_serialization_full(), suite_scoped_span(), suite_sinks() (+11 more)
+Cohesion: 0.07
+Nodes (21): suite_attributes(), test_attributes(), main(), suite_serialization_full(), suite_writer_bounds_full(), suite_writer_escape_matrix(), test_record_serialization_full(), suite_scoped_span() (+13 more)
 
 ### Community 177 - "SpscRingBuffer"
 Cohesion: 0.08
@@ -1962,7 +1967,7 @@ Nodes (7): ConsoleSink, fd_, len_, line_, line_capacity, std::formatter<nexigen:
 
 ### Community 180 - "SmMetrics"
 Cohesion: 0.08
-Nodes (24): SmMetrics, arbitration_latency_us, emergency_transitions_total, last_transition_duration_us, rejected_requests_total, transition_timeouts_total, std::formatter<nexigen::sm::SmMetrics>, to_string() (+16 more)
+Nodes (23): SmMetrics, arbitration_latency_us, emergency_transitions_total, last_transition_duration_us, rejected_requests_total, transition_timeouts_total, std::formatter<nexigen::sm::SmMetrics>, to_string() (+15 more)
 
 ### Community 181 - "WaitSet"
 Cohesion: 0.13
@@ -1977,28 +1982,28 @@ Cohesion: 0.18
 Nodes (10): 1. Введение и область применения, 2. Инициализация, запуск и жизненный цикл (Startup & Lifecycle), 3. Логика управления состояниями и арбитраж (State Machine & Arbitration), 4. Взаимодействие с подсистемами платформы (Platform Integration), 5. Внешние интерфейсы и публикация статусов (IPC via iceoryx2), 6. Ограничение ресурсов, привязка потоков и приоритеты (Resources, Thread Affinity & Priorities), 7. Логирование, аудит и сбор метрик (Logging, Auditing & Telemetry), 8. Конфигурация (State Management Manifest) (+2 more)
 
 ### Community 184 - "ADDED Requirements"
-Cohesion: 0.06
-Nodes (33): ADDED Requirements, Purpose, Requirement: Asynchronous wait-free JSON-lines file output, Requirement: Automatic dropped-record summary, Requirement: Background writer CPU core affinity, Requirement: Flush synchronizes the file, Requirement: Hitch-free scheduled directory rotation, Requirement: Hot-path rate limiting (+25 more)
+Cohesion: 0.07
+Nodes (27): ADDED Requirements, Purpose, Requirement: Asynchronous wait-free JSON-lines file output, Requirement: Automatic dropped-record summary, Requirement: Background writer CPU core affinity, Requirement: Hitch-free scheduled directory rotation, Requirement: Hot-path rate limiting, Requirement: Nanosecond UTC timestamps via calibrated clocks (+19 more)
 
 ### Community 185 - "Requirements"
 Cohesion: 0.07
 Nodes (28): Purpose, Requirement: A snapshot is a versioned binary record, Requirement: Daemon drains spans through a blocking wait set, Requirement: Lifecycle and steady-state I/O, Requirement: Snapshot retention is bounded, Requirement: The ring overwrites the oldest frames, Requirement: Trace daemon configuration, Requirement: Trace daemon configuration diagnostics (+20 more)
 
-### Community 186 - "E2eStatus"
-Cohesion: 0.08
-Nodes (22): E2eStatus, Error, Ok, Repeated, WrongSequence, Entry, name, value (+14 more)
+### Community 186 - "Proposal"
+Cohesion: 0.25
+Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
 ### Community 187 - "format"
 Cohesion: 0.03
-Nodes (53): is_allowed_id_char(), safe_id(), to_string(), EnumTraits<nexigen::exec::ProcessLifecycleState>, entries, from_json(), from_string(), to_json() (+45 more)
+Nodes (69): to_string(), from_json(), from_string(), to_json(), to_string(), Node, inner_, std::formatter<nexigen::com::Node> (+61 more)
 
-### Community 188 - ".start"
-Cohesion: 0.10
-Nodes (16): Context, 1. Manifest and launch options, 2. Child credential drop, 3. Documentation and verification, Tasks, Workflow follow-up, D3 — Trusted executables use a pre-exec digest gate, 2. Resource groups and trusted startup (+8 more)
+### Community 188 - "cstdio"
+Cohesion: 0.05
+Nodes (23): expect(), main(), work_units(), find_log_file(), main(), print_line(), fail(), main() (+15 more)
 
-### Community 189 - "TracerProviderConfig"
-Cohesion: 0.02
-Nodes (81): std::formatter<nexigen::metrics::MetricProviderConfig>, std::formatter<nexigen::tracing::TracerProviderConfig>, TracerProviderConfig, max_spans_per_window, max_tracers, window_ns, worker_poll_interval_us, worker_thread (+73 more)
+### Community 189 - "Settings"
+Cohesion: 0.07
+Nodes (36): Settings, diagnostics, global_loaded, local_loaded, options, sink, to_string(), MODIFIED Requirements (+28 more)
 
 ### Community 190 - "rotation.cpp"
 Cohesion: 0.15
@@ -2010,27 +2015,27 @@ Nodes (31): metrics/metrics-daemon Specification, Purpose, Requirement: Daemon a
 
 ### Community 192 - "Decisions"
 Cohesion: 0.08
-Nodes (24): Context, D1. Public surface and file layout, D2. Grammar and parser algorithm, D4. Log-level precedence, D5. Missing-directory behavior, D6. Infrastructure integration, D7. Serialization and diagnostics, D8. Memory and concurrency (+16 more)
+Nodes (25): Context, D1. Public surface and file layout, D2. Grammar and parser algorithm, D3. Directory-to-path mapping, D4. Log-level precedence, D5. Missing-directory behavior, D6. Infrastructure integration, D7. Serialization and diagnostics (+17 more)
 
 ### Community 193 - "Hub_options"
-Cohesion: 0.10
-Nodes (20): 5. nexigen-hub CLI, Decisions, Design, Risks, parse_u64(), classify_listen_host(), hub_diagnostic(), HubOptions (+12 more)
+Cohesion: 0.07
+Nodes (28): 5. nexigen-hub CLI, 6. Test decomposition, 7. Verification, Tasks, Workflow follow-up, 2. Hub CLI rename, 3. Tracing test renames and result-value finding, 4. Verification (+20 more)
 
 ### Community 194 - "Requirements"
 Cohesion: 0.07
 Nodes (26): logging/console-logger Specification, Purpose, Requirement: Asynchronous wait-free console output, Requirement: Background writer uses the shared idle-backoff policy, Requirement: Console line content, Requirement: Console logger diagnostic strings, Requirement: Flush drains asynchronously-accepted records, Requirement: Runnable console logger example (+18 more)
 
 ### Community 195 - "command_line.cpp"
-Cohesion: 0.08
-Nodes (41): 4.8 `app` — прикладной слой, CommandLineResult, CommandLineDiagnostic, message, option, to_string(), CommandLineError, code (+33 more)
+Cohesion: 0.12
+Nodes (30): CommandLineResult, add_diagnostic(), Collected, app_name, global_settings_dir, global_supplied, local_settings_dir, local_supplied (+22 more)
 
 ### Community 196 - "ShardPool"
 Cohesion: 0.05
 Nodes (23): ExhaustedCell, pad_, slot_exhausted, RegistrationCell, active, next_slot, pad_, ShardPool (+15 more)
 
 ### Community 197 - "TraceDaemonSession"
-Cohesion: 0.08
-Nodes (11): TraceDaemonSession, config_, interval_guard_, node_, recovery_guard_, recovery_listener_, recovery_subscriber_, reporter_ (+3 more)
+Cohesion: 0.07
+Nodes (12): TraceDaemonSession, config_, interval_guard_, node_, recovery_guard_, recovery_listener_, recovery_subscriber_, reporter_ (+4 more)
 
 ### Community 198 - "Iceoryx2Sink"
 Cohesion: 0.09
@@ -2061,48 +2066,48 @@ Cohesion: 0.08
 Nodes (25): Purpose, Requirement: Constexpr span enum names, Requirement: Non-throwing span enum JSON serialization, Requirement: Span enum catalogue, Requirement: Span enum formatting, Requirement: Tracing-wide type diagnostic strings, Requirement: Tracing-wide type JSON and format surfaces, Requirements (+17 more)
 
 ### Community 205 - "Publisher"
-Cohesion: 0.07
-Nodes (23): Publisher, inner_, service_name_, telemetry_, std::formatter<nexigen::com::Publisher<T, H>>, Telemetry, lost_samples_, peak_recipients_ (+15 more)
+Cohesion: 0.09
+Nodes (17): Publisher, inner_, service_name_, telemetry_, std::formatter<nexigen::com::Publisher<T, H>>, Telemetry, lost_samples_, peak_recipients_ (+9 more)
 
 ### Community 206 - ".chrono"
-Cohesion: 0.05
-Nodes (63): ChronoLoggerBridge, logger, LogBinding, self, SinkBinding, self, utc_from_mono_ns(), Context (+55 more)
+Cohesion: 0.04
+Nodes (64): ChronoLoggerBridge, logger, LogBinding, self, SinkBinding, self, utc_from_mono_ns(), D2 — Header/namespace layout: three public headers, `detail` level dropped (+56 more)
 
 ### Community 207 - "ADDED Requirements"
-Cohesion: 0.09
-Nodes (22): ADDED Requirements, Purpose, Requirement: Multi-threaded last-writer-wins, Requirement: Single-threaded state storage, Requirement: State read surface, Requirement: State recording surface, Requirement: State reset windows, Requirement: State serialization contract (+14 more)
+Cohesion: 0.04
+Nodes (44): ADDED Requirements, Purpose, Requirement: Multi-threaded last-writer-wins, Requirement: Single-threaded state storage, Requirement: State read surface, Requirement: State recording surface, Requirement: State reset windows, Requirement: State serialization contract (+36 more)
 
 ### Community 208 - "RecordingSink"
 Cohesion: 0.09
 Nodes (10): FailingFlushSink, RecordingSink, base, count, deliverer_mask, deliverer_tid, flush_calls, over_capacity (+2 more)
 
 ### Community 209 - "Requirements"
-Cohesion: 0.08
-Nodes (25): Purpose, Requirement: All deserialization is exception-free under `JSON_NOEXCEPTION=1`, Requirement: Complexity of decomposed functions stays within the project target, Requirement: DroppedStats deserialization is non-throwing and partial-field safe, Requirement: Identifier hex format is fixed and round-trips, Requirement: Serialization helpers do not change hot-path contracts, Requirement: SpanAttribute deserialization is all-or-nothing, Requirement: SpanRecord deserialization delegates to substructure helpers (+17 more)
+Cohesion: 0.09
+Nodes (23): Requirement: All deserialization is exception-free under `JSON_NOEXCEPTION=1`, Requirement: Complexity of decomposed functions stays within the project target, Requirement: DroppedStats deserialization is non-throwing and partial-field safe, Requirement: Identifier hex format is fixed and round-trips, Requirement: Serialization helpers do not change hot-path contracts, Requirement: SpanAttribute deserialization is all-or-nothing, Requirement: SpanRecord deserialization delegates to substructure helpers, Requirement: TracerProviderConfig deserialization uses safe nlohmann accessors (+15 more)
 
 ### Community 210 - "E2eHeader"
 Cohesion: 0.08
 Nodes (20): 4.3 `com` — межпроцессный обмен (gate), E2eHeader, counter, crc, data_id, length, std::formatter<nexigen::com::E2eHeader>, to_string() (+12 more)
 
-### Community 211 - "PendingResponse"
-Cohesion: 0.14
-Nodes (9): ClientTelemetry, correlation_, outstanding_, PendingResponse, inner_, telemetry_, std::formatter<nexigen::com::PendingResponse<Req, Resp>>, to_string() (+1 more)
+### Community 211 - "Client"
+Cohesion: 0.15
+Nodes (6): Client, inner_, service_name_, telemetry_, std::formatter<nexigen::com::Client<Req, Resp>>, to_string()
 
 ### Community 212 - "Requirements"
 Cohesion: 0.10
 Nodes (20): exec/function-group-state Specification, Purpose, Requirement: Failed transition leaves the group Undefined, Requirement: Function Group state selects its process set, Requirement: State transition terminates, restarts, and starts processes, Requirement: Transition is single-flight and cancellable, Requirement: Transition waits are bounded per startup configuration, Requirements (+12 more)
 
 ### Community 213 - "CpuSet"
-Cohesion: 0.09
-Nodes (14): CpuSet, max_cpu_id, word_count, words_, fill_native_cpu_set(), restore_affinity(), restore_name(), restore_scheduler() (+6 more)
+Cohesion: 0.11
+Nodes (12): CpuSet, max_cpu_id, word_count, words_, Entry, name, value, EnumTraits<SchedulingPolicy> (+4 more)
 
 ### Community 214 - ".create_without_signal_handling"
 Cohesion: 0.11
 Nodes (18): Context, D1 — `create_without_signal_handling()` plus the daemon's own handlers, D2 — Keep the interval attachment as the exit-latency bound, D3 — Regression test as a shell lifecycle test, matching metricsd's smoke test, Decisions, Design, Goals / Non-Goals, Risks / Trade-offs (+10 more)
 
 ### Community 215 - "SpanKind"
-Cohesion: 0.09
-Nodes (22): Entry, name, value, EnumTraits<nexigen::tracing::SpanKind>, entries, from_json(), from_string(), SpanKind (+14 more)
+Cohesion: 0.04
+Nodes (47): Entry, name, value, EnumTraits<nexigen::tracing::SpanKind>, entries, from_json(), from_string(), SpanKind (+39 more)
 
 ### Community 216 - "ADDED Requirements"
 Cohesion: 0.08
@@ -2145,8 +2150,8 @@ Cohesion: 0.34
 Nodes (18): test_scoped_span(), test_scoped_span_alloc_free(), test_scoped_span_attribute_bounds(), test_scoped_span_context(), test_scoped_span_control_flips(), test_scoped_span_cross_thread(), test_scoped_span_depth_overflow(), test_scoped_span_disabled_short_circuit() (+10 more)
 
 ### Community 226 - "Snapshot"
-Cohesion: 0.05
-Nodes (25): Snapshot, realtime_offset_ns, stamp, std::formatter<nexigen::chrono::Snapshot>, from_json(), Snapshot::to_string(), to_json(), to_string() (+17 more)
+Cohesion: 0.06
+Nodes (17): CountSink, count, FailSink, FakeProvider, stamper_, FakeStamper, counter, RecordingClockLogger (+9 more)
 
 ### Community 227 - "JsonFileSinkConfig"
 Cohesion: 0.10
@@ -2166,35 +2171,35 @@ Nodes (17): ADDED Requirements, Purpose, Requirement: Asynchronous wait-free con
 
 ### Community 231 - "LogLevel"
 Cohesion: 0.03
-Nodes (63): Entry, name, value, EnumTraits<nexigen::core::LogLevel>, entries, from_json(), from_string(), LogLevel (+55 more)
+Nodes (78): 4.1 `core` — базовые примитивы, enum_name(), enum_value(), EnumTraits, Entry, name, value, EnumTraits<nexigen::core::LogLevel> (+70 more)
 
-### Community 232 - "StartArgs"
-Cohesion: 0.07
-Nodes (29): Capabilities, Impact, Proposal, What Changes, Why, 1. Execution-manager CLI renames, scan_start_value(), StartArgs (+21 more)
+### Community 232 - "nexigen-exec/main.cpp"
+Cohesion: 0.05
+Nodes (81): D5 — CLI: file-local helpers in one TU, byte-identical output, 6. `nexigen-run` CLI report helpers, 3. `nexigen-run` CLI — per-verb option structs and shared target resolution, Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal (+73 more)
 
 ### Community 233 - "RecoveryHandler"
-Cohesion: 0.06
-Nodes (17): EventListener, inner_, service_name_, std::formatter<nexigen::com::EventListener>, std::formatter<nexigen::com::EventNotifier>, to_string(), RecoveryHandler, ack_event_ (+9 more)
+Cohesion: 0.10
+Nodes (11): RecoveryHandler, ack_event_, ack_publisher_, actuation_, channel_name_, last_group_, manager_, npos (+3 more)
 
 ### Community 234 - "ServiceManifest"
-Cohesion: 0.08
-Nodes (31): ProvidedService, e2e, history_size, max_subscribers, service_name, RequiredService, buffer_capacity, e2e (+23 more)
+Cohesion: 0.07
+Nodes (27): ProvidedService, e2e, history_size, max_subscribers, service_name, RequiredService, buffer_capacity, e2e (+19 more)
 
-### Community 235 - "StateGauge"
-Cohesion: 0.11
-Nodes (11): MeterPasskey, StateGauge, access, concurrency, identity_, kind, reset, storage_ (+3 more)
+### Community 235 - "EventConsumerSet"
+Cohesion: 0.06
+Nodes (25): EventConsumerSet, count_, slots_, waitset_, wake_guard_, wake_listener_, wake_notifier_, wake_requested_ (+17 more)
 
-### Community 236 - "main"
-Cohesion: 0.11
-Nodes (22): usage_text(), workload_spec(), main(), build_type(), collect_metadata(), filesystem_name(), kernel_name(), metadata_block() (+14 more)
+### Community 236 - "MetricProviderConfig"
+Cohesion: 0.03
+Nodes (50): MetricProviderConfig, collect_interval, max_counters, max_explicit_histograms, max_exponential_histograms, max_gauges, max_meters, max_states (+42 more)
 
-### Community 237 - "production_main.cpp"
-Cohesion: 0.16
-Nodes (24): base_settings(), compute_stats(), directory_bytes(), heap_in_use(), main(), Options, keep, out_directory (+16 more)
+### Community 237 - "recorder_test.cpp"
+Cohesion: 0.20
+Nodes (27): json_bytes(), main(), temp_root(), test_builtins_and_config(), test_crc32c_hardware_matches_table(), test_encoder_restart_not_gap(), test_export_selection_roundtrip(), test_index_channel_mask() (+19 more)
 
 ### Community 238 - "StateClient"
-Cohesion: 0.09
-Nodes (27): 2. StateClient handler path, start_handler_, stop_handler_, bound_app_names(), collect_termination_order(), configs_equal(), max_startup_timeout_ms(), StateClient::advance_transition() (+19 more)
+Cohesion: 0.05
+Nodes (50): Entry, name, value, EnumTraits<nexigen::exec::StateResult>, entries, fallback, from_string(), StateResult (+42 more)
 
 ### Community 239 - "Requirement: Background snapshot delivery and collection period"
 Cohesion: 0.09
@@ -2205,20 +2210,20 @@ Cohesion: 0.04
 Nodes (69): SessionReader, VideoCheck, ok, reader, apply_value_option(), export_elementary(), export_jsonl(), export_mcap() (+61 more)
 
 ### Community 241 - "ADDED Requirements"
-Cohesion: 0.06
-Nodes (32): FileRead, Absent, Failed, Ok, ADDED Requirements, Purpose, Requirement: Fan-out construction constraints, Requirement: Plumbing serialization scope (+24 more)
+Cohesion: 0.09
+Nodes (22): ADDED Requirements, Purpose, Requirement: Fan-out construction constraints, Requirement: Plumbing serialization scope, Requirement: Shared file-open policy, Requirement: Shared full-write loop, Requirement: Shared settings loader vocabulary, Requirement: Variadic fan-out member pack (+14 more)
 
 ### Community 242 - "RotationSchedule"
-Cohesion: 0.05
-Nodes (42): 4.4 `logging` — асинхронные логи, RotationConfig, custom_ns, kind, to_string(), Entry, name, value (+34 more)
+Cohesion: 0.10
+Nodes (19): 4.4 `logging` — асинхронные логи, RotationConfig, custom_ns, kind, to_string(), Entry, name, value (+11 more)
 
 ### Community 243 - "Requirement: Runnable composite logger example"
 Cohesion: 0.09
 Nodes (22): logging/composite-logger Specification, Purpose, Requirement: Composite logger diagnostic string, Requirement: Level control propagation, Requirement: Runnable composite logger example, Requirement: Sub-logger access by index and by type, Requirement: Virtual-free fan-out composition, Requirements (+14 more)
 
 ### Community 244 - "LogDaemonConfig"
-Cohesion: 0.06
-Nodes (28): effective_main_thread_spec(), LogDaemonConfig, batch_flush_interval_ms, bg_cpu_affinity, log_directory, main_thread, max_archive_files, max_file_size_mb (+20 more)
+Cohesion: 0.05
+Nodes (35): effective_main_thread_spec(), LogDaemonConfig, batch_flush_interval_ms, bg_cpu_affinity, log_directory, main_thread, max_archive_files, max_file_size_mb (+27 more)
 
 ### Community 245 - "ADDED Requirements"
 Cohesion: 0.05
@@ -2229,8 +2234,8 @@ Cohesion: 0.23
 Nodes (15): has_diagnostic(), message_contains(), parse_args(), test_command_line_parser(), test_command_line_parser_aliases(), test_command_line_parser_argv0(), test_command_line_parser_directory_validation(), test_command_line_parser_errors() (+7 more)
 
 ### Community 247 - ".loan_uninit"
-Cohesion: 0.09
-Nodes (21): 1. Введение и область применения, 2. Модель взаимодействия (Communication Patterns), 3. Динамический поиск сервисов (Service Discovery & Namespace), 4. Архитектурная абстракция и управление памятью (Zero-Copy & Memory Management), 5. Качество обслуживания и диагностика очередей (QoS & Diagnostics), 6. Конфигурация (Service Manifest), Спецификация требований к модулю Communication Management (nexigen::com) на базе iceoryx2, Requirement: Zero-copy publication (+13 more)
+Cohesion: 0.14
+Nodes (14): 1. Введение и область применения, 2. Модель взаимодействия (Communication Patterns), 3. Динамический поиск сервисов (Service Discovery & Namespace), 4. Архитектурная абстракция и управление памятью (Zero-Copy & Memory Management), 5. Качество обслуживания и диагностика очередей (QoS & Diagnostics), 6. Конфигурация (Service Manifest), Спецификация требований к модулю Communication Management (nexigen::com) на базе iceoryx2, Requirement: Zero-copy publication (+6 more)
 
 ### Community 248 - "RecordingSink"
 Cohesion: 0.13
@@ -2241,8 +2246,8 @@ Cohesion: 0.09
 Nodes (9): Body, self, std::formatter<nexigen::sm::TransitionAudit>, to_string(), TransitionAudit, file_, path_, queue_ (+1 more)
 
 ### Community 250 - "ADDED Requirements"
-Cohesion: 0.07
-Nodes (26): ADDED Requirements, Purpose, Requirement: Body contract is two-phase and stop-aware, Requirement: Start publishes a readable readiness snapshot, Requirement: The worker applies its own ThreadSpec before the body, Requirement: WorkerThread diagnostics follow the serialization contract, Requirement: WorkerThread keeps its lifetime contract observable, Requirement: WorkerThread owns the thread and body without type erasure (+18 more)
+Cohesion: 0.08
+Nodes (23): ADDED Requirements, Purpose, Requirement: Body contract is two-phase and stop-aware, Requirement: Start publishes a readable readiness snapshot, Requirement: The worker applies its own ThreadSpec before the body, Requirement: WorkerThread diagnostics follow the serialization contract, Requirement: WorkerThread owns the thread and body without type erasure, Scenario: A second start is rejected (+15 more)
 
 ### Community 251 - "ADDED Requirements"
 Cohesion: 0.09
@@ -2269,52 +2274,52 @@ Cohesion: 0.09
 Nodes (21): ADDED Requirements, Purpose, Requirement: Alive supervision, Requirement: Babbling idiot protection, Requirement: Core isolation, Requirement: Deadline supervision, Requirement: Logical supervision, Requirement: Status aggregation (+13 more)
 
 ### Community 257 - "Requirements"
-Cohesion: 0.07
-Nodes (26): com/publish-subscribe Specification, Purpose, Requirement: Compile-time sizing and pool allocation, Requirement: Configurable subscriber buffer depth, Requirement: Event notification on publish, Requirement: Non-blocking overflow, Requirement: Port diagnostics, Requirement: Subscriber lag telemetry (+18 more)
+Cohesion: 0.09
+Nodes (22): com/publish-subscribe Specification, Purpose, Requirement: Compile-time sizing and pool allocation, Requirement: Event notification on publish, Requirement: Non-blocking overflow, Requirement: Port diagnostics, Requirement: Subscriber lag telemetry, Requirement: Subscriber receive (+14 more)
 
 ### Community 258 - "Requirements"
 Cohesion: 0.06
 Nodes (33): core/result Specification, Purpose, Requirement: Compile-time error code naming, Requirement: Error code catalogue, Requirement: ErrorCode name parsing, Requirement: Hot-path safety of the error model, Requirement: Result value-or-error type, Requirement: Security error code (+25 more)
 
 ### Community 259 - "Requirements"
-Cohesion: 0.06
-Nodes (30): phm/supervision Specification, Purpose, Requirement: Alive supervision, Requirement: Babbling idiot protection, Requirement: Core isolation, Requirement: Deadline supervision, Requirement: Exhaustion escalates instead of restarting, Requirement: Lifecycle-armed supervision (+22 more)
+Cohesion: 0.07
+Nodes (28): phm/supervision Specification, Purpose, Requirement: Babbling idiot protection, Requirement: Core isolation, Requirement: Deadline supervision, Requirement: Exhaustion escalates instead of restarting, Requirement: Lifecycle channel diagnostics, Requirement: Logical supervision (+20 more)
 
 ### Community 260 - "nexigen-cpp — project analysis"
 Cohesion: 0.06
-Nodes (31): 1. Общие сведения, 2. Архитектура, 5. Код-смеллы, 6. Тесты: пробелы, коррелирующие с багами, 7. Гигиена репозитория, 8. Общая оценка и приоритетные рекомендации, nexigen-cpp — анализ кода, Приложение A. Оценка по модулям (+23 more)
+Nodes (32): 1. Общие сведения, 2. Архитектура, 4.1. Критические, 4. Проблемы (по убыванию тяжести), 5. Код-смеллы, 6. Тесты: пробелы, коррелирующие с багами, 7. Гигиена репозитория, nexigen-cpp — анализ кода (+24 more)
 
-### Community 261 - "ADDED Requirements"
-Cohesion: 0.05
-Nodes (38): Entry, name, value, EnumTraits<nexigen::tracing::SpanStatus>, entries, from_json(), from_string(), SpanStatus (+30 more)
+### Community 261 - "SpanStatus"
+Cohesion: 0.08
+Nodes (23): Entry, name, value, EnumTraits<nexigen::tracing::SpanStatus>, entries, from_json(), from_string(), SpanStatus (+15 more)
 
 ### Community 262 - "ex_app_cli_settings.cpp"
-Cohesion: 0.09
-Nodes (31): artifact_present(), ArtifactCounts, chrono_snapshots, metric_batches, parent_edges, span_kinds, trace_ids, CliCounter (+23 more)
+Cohesion: 0.11
+Nodes (30): artifact_present(), ArtifactCounts, chrono_snapshots, metric_batches, parent_edges, span_kinds, trace_ids, CliCounter (+22 more)
 
 ### Community 263 - "CallbackProgression"
-Cohesion: 0.08
-Nodes (25): CallbackProgression, Continue, Stop, Entry, name, value, EnumTraits<nexigen::com::CallbackProgression>, entries (+17 more)
+Cohesion: 0.17
+Nodes (13): CallbackProgression, Continue, Stop, from_json(), from_string(), to_json(), to_string(), Requirement: WaitSet diagnostics (+5 more)
 
 ### Community 264 - "Error"
-Cohesion: 0.03
-Nodes (67): 1. Что это, 2. Модули (12) и CMake-цели, 3. iceoryx2 (обязательно к учёту), 4. Сборка и проверки, 5. Где смотреть при проработке новой функции, 6. Практические правила для новой функциональности, nexigen-cpp — контекст проекта, Entry (+59 more)
+Cohesion: 0.04
+Nodes (63): 1. Что это, 2. Модули (12) и CMake-цели, 3. iceoryx2 (обязательно к учёту), 4. Сборка и проверки, 5. Где смотреть при проработке новой функции, 6. Практические правила для новой функциональности, nexigen-cpp — контекст проекта, Entry (+55 more)
 
 ### Community 265 - "FaultPoint"
 Cohesion: 0.07
-Nodes (30): fault(), FaultPoint, Chrono_clock_gettime, ExecutionManager_capability, ExecutionManager_fork, ExecutionManager_open_null, ExecutionManager_pipe2, Hub_bind (+22 more)
+Nodes (30): FaultPoint, Chrono_clock_gettime, ExecutionManager_capability, ExecutionManager_fork, ExecutionManager_open_null, ExecutionManager_pipe2, Hub_bind, Hub_epoll (+22 more)
 
 ### Community 266 - "FixedWriter"
 Cohesion: 0.15
 Nodes (5): FixedWriter, buf_, cap_, hex_digits, len_
 
 ### Community 267 - "Requirements"
-Cohesion: 0.06
-Nodes (31): Purpose, Requirement: Per-span formation stays within its budget, Requirement: Publication never blocks and drops are counted, Requirement: Sequence numbers make gaps observable, Requirement: Sink configuration and diagnostics, Requirement: Sink publishes each span zero-copy from the worker, Requirement: Source hashes are memoized on the worker, Requirement: Source locations cross processes as hashes (+23 more)
+Cohesion: 0.05
+Nodes (38): Purpose, Requirement: Per-span formation stays within its budget, Requirement: Publication never blocks and drops are counted, Requirement: Sequence numbers make gaps observable, Requirement: Sink configuration and diagnostics, Requirement: Sink publishes each span zero-copy from the worker, Requirement: Source hashes are memoized on the worker, Requirement: Source locations cross processes as hashes (+30 more)
 
-### Community 268 - "Settings"
-Cohesion: 0.11
-Nodes (23): Settings, diagnostics, global_loaded, local_loaded, options, sink, to_string(), Requirement: Settings diagnostics are serializable (+15 more)
+### Community 268 - "EventHeader"
+Cohesion: 0.06
+Nodes (30): EventHeader, event_code, flags, hardware_event_code, hardware_sequence, hardware_timestamp_ns, has_hardware_event_code_bit, has_hardware_sequence_bit (+22 more)
 
 ### Community 269 - "ChildProcess"
 Cohesion: 0.05
@@ -2336,9 +2341,9 @@ Nodes (20): ADDED Requirements, Purpose, Requirement: CTest smoke coverage for e
 Cohesion: 0.10
 Nodes (20): ADDED Requirements, Purpose, Requirement: Chrono settings carry a sink configuration, Requirement: Invalid sink configuration degrades to best effort, Requirement: Sink configuration is part of chrono settings serialization, Requirement: Sink fields merge with documented precedence, Scenario: Absent local sink field inherits global, Scenario: Absent sink block leaves an unconfigured sink (+12 more)
 
-### Community 274 - "Requirements"
-Cohesion: 0.09
-Nodes (22): metrics/explicit-histogram Specification, Purpose, Requirement: Explicit bucket configuration, Requirement: Explicit histogram percentile snapshots, Requirement: Explicit histogram recording and aggregation, Requirement: Explicit histogram reset windows, Requirement: Multi-threaded explicit histogram recording, Requirements (+14 more)
+### Community 274 - "snapshot_format.cpp"
+Cohesion: 0.15
+Nodes (27): StateValue, value, std::formatter<nexigen::metrics::StateValue>, metrics/snapshot-format, metrics/snapshot-format, from_json(), from_json_payload(), from_json_payload_histogram() (+19 more)
 
 ### Community 275 - "Requirement: Malformed requests are rejected consistently"
 Cohesion: 0.10
@@ -2352,69 +2357,69 @@ Nodes (20): chrono/stamp-source Specification, Purpose, Requirement: Calibrated 
 Cohesion: 0.10
 Nodes (20): chrono/timestamp Specification, Purpose, Requirement: Hot-path safety of timestamps, Requirement: Monotonic clock sourcing, Requirement: Nanosecond timestamp value type, Requirement: Timestamp arithmetic, Requirement: Timestamp diagnostic string, Requirements (+12 more)
 
-### Community 278 - "ADDED Requirements"
-Cohesion: 0.10
-Nodes (20): ADDED Requirements, Purpose, Requirement: Budget-overrun check, Requirement: Construction overloads and default-clock fallback, Requirement: Hot-path and layout guarantees, Requirement: RAII scope measurement, Requirement: ScopedStopwatch diagnostic rendering, Scenario: Default budget participates when configured (+12 more)
+### Community 278 - "RecoveryResponse"
+Cohesion: 0.08
+Nodes (21): from_json(), RecoveryResponse, outcome, reason, request_id, std::formatter<nexigen::phm::RecoveryResponse>, to_json(), to_string() (+13 more)
 
 ### Community 279 - "Requirements"
 Cohesion: 0.10
 Nodes (20): execution_manager/instance-lifecycle Specification, Purpose, Requirement: exit.json captures exit metadata, Requirement: Generated settings contain absolute sink paths, Requirement: Instance directory layout is deterministic, Requirement: Lifecycle is cold path only, Requirement: resource.json and exit.json are serializable, Requirements (+12 more)
 
 ### Community 280 - "Requirement: Policy enum catalogue"
-Cohesion: 0.07
-Nodes (28): metrics/policy-enums Specification, Purpose, Requirement: Constexpr policy names, Requirement: Non-throwing policy JSON serialization, Requirement: Policy enum catalogue, Requirement: Policy enum formatting, Requirement: Public type diagnostic strings, Requirement: Public type formatting (+20 more)
+Cohesion: 0.08
+Nodes (25): metrics/policy-enums Specification, Purpose, Requirement: Constexpr policy names, Requirement: Non-throwing policy JSON serialization, Requirement: Policy enum formatting, Requirement: Public type diagnostic strings, Requirement: Public type formatting, Requirement: Public type JSON serialization (+17 more)
 
-### Community 281 - "StatisticsSnapshot"
-Cohesion: 0.03
-Nodes (67): StatisticsSnapshot, count, dropped_samples, ignored_samples, max, mean, min, stddev (+59 more)
+### Community 281 - "ADDED Requirements"
+Cohesion: 0.10
+Nodes (19): ADDED Requirements, Purpose, Requirement: Cumulative statistics window, Requirement: Multi-threaded statistics merging, Requirement: Online moment statistics, Requirement: Reset-on-read statistics windows, Scenario: Empty statistics are well defined, Scenario: Harvest does not reset cumulative moments (+11 more)
 
 ### Community 282 - "Requirements"
 Cohesion: 0.06
 Nodes (34): chrono/chrono-settings Specification, Purpose, Requirement: Environment overrides are documented and typed, Requirement: Invalid input degrades to best effort, Requirement: Invalid sink configuration degrades to best effort, Requirement: Manual kind records ignored worker fields, Requirement: Merge precedence is deterministic, Requirement: Settings loading is cold path only (+26 more)
 
 ### Community 283 - "worker_thread_test.cpp"
-Cohesion: 0.22
-Nodes (17): fifo_is_denied(), first_core_mask(), main(), run_suite(), test_basic_lifecycle(), test_best_effort_partial(), test_cpu_mask(), test_diagnostics() (+9 more)
+Cohesion: 0.08
+Nodes (33): BasicBody, count, ran, seen, seen_out, BlockingBody, ran, CvBody (+25 more)
 
 ### Community 284 - "ADDED Requirements"
 Cohesion: 0.07
 Nodes (29): ADDED Requirements, Purpose, Requirement: Environment overrides are documented and typed, Requirement: Invalid input degrades to best effort, Requirement: Invalid sink configuration degrades to best effort, Requirement: Merge precedence matches the other subsystems, Requirement: Metrics settings carry a sink member, Requirement: Settings loading is cold path only (+21 more)
 
 ### Community 285 - "TraceDumpHeader"
-Cohesion: 0.09
-Nodes (16): create_directories(), prune_dumps(), snapshot_file_name(), TraceDumpHeader, first_start_ns, flags, frame_count, header_size (+8 more)
+Cohesion: 0.07
+Nodes (23): create_directories(), prune_dumps(), TraceDumpHeader, first_start_ns, flags, frame_count, header_size, last_end_ns (+15 more)
 
-### Community 286 - ".is_full"
+### Community 286 - "StateGauge"
 Cohesion: 0.11
-Nodes (17): D3. SPSC ring buffer: monotonically increasing indices, power-of-two mask, one cache line per direction, 1. Build scaffolding, 2. `result.hpp` — error model, 3. `timestamp.hpp` — monotonic nanoseconds, 4. `spsc_ring_buffer.hpp` — layout and single-thread semantics, 5. `spsc_ring_buffer.hpp` — multithreaded contract, 6. Integration verification across build modes, Tasks (+9 more)
+Nodes (11): MeterPasskey, StateGauge, access, concurrency, identity_, kind, reset, storage_ (+3 more)
 
 ### Community 287 - "FunctionGroupRegistry"
 Cohesion: 0.05
 Nodes (17): FunctionGroupRegistry, groups_, manifest_, GroupRuntime, app_names, apps_by_state, state_index, undefined (+9 more)
 
 ### Community 288 - ".get_meter"
-Cohesion: 0.10
-Nodes (19): 4.1. Критические, 4.2. Высокие / средние, 4. Проблемы (по убыванию тяжести), D5 — Concepts, passkey construction, and handle types, Requirement: Factory hierarchy and passkey construction, Scenario: Direct construction is rejected, Scenario: Meter creation goes through the provider, Scenario: Meter identity is retained (+11 more)
+Cohesion: 0.09
+Nodes (22): 4.2. Высокие / средние, D5 — Concepts, passkey construction, and handle types, Requirement: Factory hierarchy and passkey construction, Scenario: Direct construction is rejected, Scenario: Meter creation goes through the provider, Scenario: Meter identity is retained, Scenario: Meter is the only instrument factory, Scenario: Passkey tag carries the diagnostic contract (+14 more)
 
-### Community 289 - "RecoveryAckTracker"
-Cohesion: 0.10
-Nodes (14): Decision, matched, watchdog_reaction, Entry, active, deadline, group, request_id (+6 more)
+### Community 289 - "ADDED Requirements"
+Cohesion: 0.09
+Nodes (22): ADDED Requirements, Purpose, Requirement: Explicit bucket configuration, Requirement: Explicit histogram percentile snapshots, Requirement: Explicit histogram recording and aggregation, Requirement: Explicit histogram reset windows, Requirement: Multi-threaded explicit histogram recording, Scenario: Bounds are immutable after creation (+14 more)
 
 ### Community 290 - "ADDED Requirements"
-Cohesion: 0.07
-Nodes (28): ADDED Requirements, Purpose, Requirement: Constexpr policy names, Requirement: Non-throwing policy JSON serialization, Requirement: Policy enum catalogue, Requirement: Policy enum formatting, Requirement: Public type diagnostic strings, Requirement: Public type formatting (+20 more)
+Cohesion: 0.08
+Nodes (25): ADDED Requirements, Purpose, Requirement: Constexpr policy names, Requirement: Non-throwing policy JSON serialization, Requirement: Policy enum formatting, Requirement: Public type diagnostic strings, Requirement: Public type formatting, Requirement: Public type JSON serialization (+17 more)
 
 ### Community 291 - "state_manager.cpp"
 Cohesion: 0.12
 Nodes (15): is_off_like(), StateManager::find_group_index(), StateManager::find_state(), StateManager::force_state(), StateManager::group_count(), StateManager::group_name(), StateManager::has_state(), StateManager::is_allowed() (+7 more)
 
-### Community 292 - "StateAck"
-Cohesion: 0.09
-Nodes (18): StateAck, accepted, result, std::formatter<nexigen::exec::StateAck>, to_string(), Context, D1 — `request_id` is a 64-bit field on `StateCommand`, D2 — Per-group ordering and cancellation (+10 more)
+### Community 292 - "LapSnapshot"
+Cohesion: 0.06
+Nodes (32): LapSnapshot, lap_ns, lap_number, state, total_ns, to_string(), D1 — Build shape: compiled STATIC target with a single cold-path unit, Design (+24 more)
 
-### Community 293 - "ADDED Requirements"
-Cohesion: 0.09
-Nodes (22): ADDED Requirements, Purpose, Requirement: Counter reset windows, Requirement: Counter serialization contract, Requirement: Gauge recording surface, Requirement: Gauge reset windows, Requirement: Gauge serialization contract, Scenario: Concurrent window records land once (+14 more)
+### Community 293 - ".on_source_reset"
+Cohesion: 0.12
+Nodes (18): Publishing, Requirement: Hardware gateway ingress, Requirement: Producer epoch and source restart, Scenario: Consumer reports producer restart, Scenario: FPGA metadata crosses the gateway, Scenario: ISR path is allocation-free, Scenario: Non-monotonic hardware sequence is trace-only, Scenario: Normal publication keeps the epoch (+10 more)
 
 ### Community 294 - "RotationPolicy"
 Cohesion: 0.13
@@ -2442,56 +2447,55 @@ Nodes (19): logging/logger-concept Specification, Purpose, Requirement: Convenie
 
 ### Community 300 - "VideoStreamConfig"
 Cohesion: 0.03
-Nodes (65): VideoStreamConfig, bitstream, codec, config_epoch, extradata, extradata_size, height, reserved0 (+57 more)
+Nodes (65): BitstreamFormat, AnnexB, Avcc, Obu, Raw, Unknown, VideoStreamConfig, bitstream (+57 more)
 
-### Community 301 - "Settings"
-Cohesion: 0.04
-Nodes (56): Settings, app_name, chrono, logging, metrics, signal_thread, tracing, to_string() (+48 more)
+### Community 301 - "probe_thread_spec"
+Cohesion: 0.09
+Nodes (25): probe_thread_spec(), Context, D1 — PHM/SM: `WorkerThread` + stop_token + два поля манифеста, D2 — `app::SignalWatcher`: `WorkerThread` + `Settings::signal_thread`, D4 — logd main: `main_thread` с fallback на legacy CpuSet, D5 — `probe_thread_spec`: один helper вместо двух копий, D6 — Политика fallback (вариант A), D7 — Совместимость (+17 more)
 
-### Community 302 - "core_test.cpp"
-Cohesion: 0.03
-Nodes (58): Entry, name, value, EnumTraits<nexigen::chrono::TimeSyncStatus>, entries, from_json(), from_string(), std::formatter<nexigen::chrono::TimeSyncStatus> (+50 more)
+### Community 302 - "algorithm"
+Cohesion: 0.07
+Nodes (17): to_string(), FunctionGroupConfig, is_root_function_group(), root_function_group_initial_state(), root_function_group_states(), validate_root_function_group(), LsmRuntime::create(), LsmRuntime::to_string() (+9 more)
 
 ### Community 303 - "Decisions"
 Cohesion: 0.09
 Nodes (20): Context, D1 — PlatformFG is a Function Group, not a separate enum, D2 — State vocabulary, D3 — Startup vs Verify, D4 — Process termination behavior, D5 — Readiness reporting, D6 — Unexpected self-termination and Unrecoverable State, D7 — State-transition confirmation (+12 more)
 
-### Community 304 - "ex_spsc_ring_buffer.cpp"
-Cohesion: 0.08
-Nodes (28): await_first_full(), EndpointStats, last_error, retries, main(), print_line(), report(), run_consumer() (+20 more)
+### Community 304 - "TelemetryPacket"
+Cohesion: 0.17
+Nodes (14): await_first_full(), EndpointStats, last_error, retries, main(), print_line(), report(), run_consumer() (+6 more)
 
 ### Community 305 - "manifest_accessor.cpp"
-Cohesion: 0.13
-Nodes (23): array_json(), decode_entities(), is_array_key(), is_bool_key(), is_numeric_key(), is_space(), json_key(), load_machine_manifest_auto() (+15 more)
+Cohesion: 0.18
+Nodes (9): is_space(), starts_with(), XmlNode, children, name, text, XmlParser, input_ (+1 more)
 
 ### Community 306 - "EmLifecycleState"
-Cohesion: 0.08
-Nodes (21): EmLifecycleState, Failed, Running, Terminated, Terminating, Unknown, Entry, name (+13 more)
-
-### Community 307 - "unique_path"
 Cohesion: 0.11
-Nodes (21): run_app_settings_suites(), test_app_settings_full_coverage(), test_settings_loaders(), test_settings_sink(), EnvGuard, had, name, saved (+13 more)
+Nodes (16): EmLifecycleState, Failed, Running, Terminated, Terminating, Unknown, Entry, name (+8 more)
+
+### Community 307 - "make_test_infra"
+Cohesion: 0.16
+Nodes (15): run_app_settings_suites(), test_app_settings_full_coverage(), test_settings_loaders(), test_settings_sink(), EnvGuard, had, name, saved (+7 more)
 
 ### Community 308 - "ConsoleSink"
 Cohesion: 0.16
 Nodes (6): ConsoleSink, len_, line_, line_capacity, msg_, msg_capacity
 
-### Community 309 - "execution_manager_test.cpp"
-Cohesion: 0.12
-Nodes (10): cap_bnd_has_sys_nice(), first_allowed_cpu(), has_from_json, has_from_json<
-    T, std::void_t<decltype(from_json(std::declval<const nlohmann::json&>(), std::declval<T&>()))>>, has_temporary_files(), main(), run_suite(), status_has_capability() (+2 more)
+### Community 309 - "EventConsumerStats"
+Cohesion: 0.07
+Nodes (23): EventSequenceTracker, expected_, SequenceObservation, deliver, expected_sequence, has_loss, lost_count, new_epoch (+15 more)
 
 ### Community 310 - "DescriptiveStatistics"
 Cohesion: 0.05
 Nodes (34): DescriptiveStatistics, access, cell_, concurrency, dropped_, identity_, ignored_, kind (+26 more)
 
 ### Community 311 - "log_daemon_test.cpp"
-Cohesion: 0.23
-Nodes (14): cleanup_root(), logdir_contains(), main(), make_unique_service(), prepare_root(), publish_main_thread(), run_suite(), spawn_logd() (+6 more)
+Cohesion: 0.10
+Nodes (22): D1 — Add a real-daemon e2e test before fixing, fill_service_name(), main(), run_suite(), test_drop_semantics(), test_roundtrip(), test_zero_subscriber(), wait_writer_started() (+14 more)
 
 ### Community 312 - "AppState"
-Cohesion: 0.07
-Nodes (31): AppState, Exited, Failed, Restarting, Running, Stopped, Unknown, Entry (+23 more)
+Cohesion: 0.05
+Nodes (36): AppState, Exited, Failed, Restarting, Running, Stopped, Unknown, Entry (+28 more)
 
 ### Community 314 - "ADDED Requirements"
 Cohesion: 0.11
@@ -2510,16 +2514,16 @@ Cohesion: 0.11
 Nodes (18): ADDED Requirements, Purpose, Requirement: Compile-time access gating, Requirement: Instrument conformance is pinned, Requirement: Metric concept core surface, Requirement: Readable metric concept, Scenario: Conformance assertions compile, Scenario: Conforming instrument satisfies the concept (+10 more)
 
 ### Community 318 - "Design"
-Cohesion: 0.13
+Cohesion: 0.12
 Nodes (15): Context, D1 — Add the missing IIFE wrapper parenthesis, Decisions, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs (+7 more)
 
 ### Community 319 - "Requirement: Suite manifest is validated before launch"
 Cohesion: 0.11
 Nodes (18): MODIFIED Requirements, Requirement: Manifest launch settings reach each child, Requirement: Suite manifest is validated before launch, Scenario: Arguments are passed exactly, Scenario: CPU above 63 is not rejected merely for its width, Scenario: CPU affinity is restricted, Scenario: CPU index outside the online set is rejected, Scenario: Duplicate application identity is rejected (+10 more)
 
-### Community 320 - "nexigen-exec/main.cpp"
-Cohesion: 0.20
-Nodes (24): P3 — рефакторинг и гигиена, activate_logging(), apply_control_affinity(), cli_fail(), cli_ok(), CliLogTarget, control_thread, level (+16 more)
+### Community 320 - "ProcessLifecycleState"
+Cohesion: 0.09
+Nodes (26): Entry, name, value, ProcessLifecycleState, Failed, Running, Terminated, Terminating (+18 more)
 
 ### Community 321 - "Requirement: Readable metric concept"
 Cohesion: 0.11
@@ -2529,37 +2533,37 @@ Nodes (18): metrics/metric-concepts Specification, Purpose, Requirement: Compile
 Cohesion: 0.06
 Nodes (30): metrics/metrics-settings Specification, Purpose, Requirement: Environment overrides are documented and typed, Requirement: Invalid input degrades to best effort, Requirement: Invalid sink configuration degrades to best effort, Requirement: Merge precedence matches the other subsystems, Requirement: Settings loading is cold path only, Requirement: Settings sources are explicit (+22 more)
 
-### Community 323 - ".lost_samples"
-Cohesion: 0.10
-Nodes (18): D5 — Переполнение: DiscardData + счётчик, on_span всегда успешен, Context, Design, Goals / Non-Goals, Migration Plan, Risks / Trade-offs, 1. Publisher fast path, 2. Trace sink (+10 more)
+### Community 323 - "Settings"
+Cohesion: 0.09
+Nodes (22): Settings, diagnostics, global_loaded, local_loaded, options, sink, to_string(), Requirement: Tracing settings are serializable (+14 more)
 
 ### Community 324 - "Requirements"
-Cohesion: 0.06
-Nodes (32): std::formatter<nexigen::chrono::Timestamp>, D6 — Registry layout and memory budget, Requirement: Background snapshot delivery and collection period, Scenario: Configured period is honored, Scenario: Manual snapshot is deterministic, Scenario: Zero interval disables background delivery, Requirement: All deserialization is exception-free under `JSON_NOEXCEPTION=1`, Requirement: Complexity of decomposed functions stays within the project target (+24 more)
+Cohesion: 0.10
+Nodes (21): Requirement: All deserialization is exception-free under `JSON_NOEXCEPTION=1`, Requirement: Complexity of decomposed functions stays within the project target, Requirement: Identity and scalar snapshots round-trip safely, Requirement: MetricBatchSnapshot deserialization is array-length safe, Requirement: MetricProviderConfig deserialization uses safe nlohmann accessors, Requirement: MetricRecord deserialization selects the union member by kind, Requirement: Serialization helpers do not change hot-path contracts, Requirement: Statistics and histogram snapshots use typed numeric readers (+13 more)
 
 ### Community 325 - "JsonFileMetricSinkConfig"
-Cohesion: 0.11
-Nodes (18): JsonFileMetricSinkConfig, app_name, append, path, std::formatter<nexigen::metrics::JsonFileMetricSinkConfig>, to_string(), ADDED Requirements, MODIFIED Requirements (+10 more)
+Cohesion: 0.09
+Nodes (21): JsonFileMetricSinkConfig, app_name, append, path, std::formatter<nexigen::metrics::JsonFileMetricSinkConfig>, to_string(), ADDED Requirements, MODIFIED Requirements (+13 more)
 
-### Community 326 - "RecoveryRequest"
+### Community 326 - "RecoveryClient"
 Cohesion: 0.10
-Nodes (15): from_json(), RecoveryRequest, action, function_group, name, pid, request_id, std::formatter<nexigen::phm::RecoveryRequest> (+7 more)
+Nodes (14): RecoveryClient, client_, em_channel_, sm_event_, sm_notifier_, std::formatter<nexigen::phm::RecoveryClient>, to_string(), Context (+6 more)
 
 ### Community 327 - "TraceContext"
 Cohesion: 0.08
 Nodes (31): std::formatter<nexigen::tracing::TraceContext>, to_string(), TraceContext, source_span_id, trace_id, ADDED Requirements, Purpose, Requirement: NEW_ROOT starts a fresh trace (+23 more)
 
 ### Community 328 - "sm_manifest.cpp"
-Cohesion: 0.04
-Nodes (49): AllowedTransition, from, to, FunctionGroup, allowed_transitions, application_group, name, preparation_timeout_ms (+41 more)
+Cohesion: 0.05
+Nodes (43): AllowedTransition, from, to, FunctionGroup, allowed_transitions, application_group, name, preparation_timeout_ms (+35 more)
 
 ### Community 329 - "ADDED Requirements"
 Cohesion: 0.11
 Nodes (17): ADDED Requirements, Purpose, Requirement: Compile-time level naming, Requirement: Runtime level control, Requirement: Severity catalogue, Requirement: Sub-threshold calls short-circuit, Scenario: Enumerators are distinct and severity-ordered, Scenario: Filtered call performs no logging work (+9 more)
 
-### Community 330 - "Client"
-Cohesion: 0.15
-Nodes (6): Client, inner_, service_name_, telemetry_, std::formatter<nexigen::com::Client<Req, Resp>>, to_string()
+### Community 330 - "Requirements"
+Cohesion: 0.05
+Nodes (33): std::formatter<nexigen::chrono::Timestamp>, D6 — Registry layout and memory budget, Requirement: Background snapshot delivery and collection period, Scenario: Configured period is honored, Scenario: Manual snapshot is deterministic, Scenario: Zero interval disables background delivery, Context, Design (+25 more)
 
 ### Community 331 - "Requirement: Logger concept core surface"
 Cohesion: 0.11
@@ -2593,25 +2597,25 @@ Nodes (17): ADDED Requirements, Purpose, Requirement: Managed startup, Requireme
 Cohesion: 0.11
 Nodes (17): com/waitset Specification, Purpose, Requirement: Attachment lifecycle, Requirement: Callback dispatch and source identity, Requirement: Deadline attachment, Requirement: Event notification attachment, Requirement: Interval attachment, Requirement: Multiplexed blocking wait (+9 more)
 
-### Community 339 - "RecoveryNotification"
-Cohesion: 0.10
-Nodes (20): Configuration, Deferred, Running, Snapshot format, Trace Daemon (`nexigen-traced`), Trigger and shutdown, RecoveryNotification, function_group (+12 more)
+### Community 339 - "CommandLineOptions"
+Cohesion: 0.17
+Nodes (11): CommandLineOptions, app_name, global_settings_dir, help, local_settings_dir, log_level, to_string(), Requirement: App name round-trips through serialization (+3 more)
 
 ### Community 340 - "Requirements"
 Cohesion: 0.11
 Nodes (17): Purpose, Requirement: Managed startup, Requirement: Memory locking, Requirement: Scheduler priorities, Requirement: Self-health supervision, Requirement: Thread affinity, Requirement: Transition watchdog, Requirement: WaitSet event loop (+9 more)
 
 ### Community 341 - "function_group_registry.cpp"
-Cohesion: 0.15
-Nodes (20): FunctionGroupRegistry::apps_in_state(), FunctionGroupRegistry::bound_apps(), FunctionGroupRegistry::command_of(), FunctionGroupRegistry::command_vector(), FunctionGroupRegistry::config_of(), FunctionGroupRegistry::find_group(), FunctionGroupRegistry::group_count(), FunctionGroupRegistry::group_name() (+12 more)
+Cohesion: 0.16
+Nodes (19): FunctionGroupRegistry::apps_in_state(), FunctionGroupRegistry::bound_apps(), FunctionGroupRegistry::command_of(), FunctionGroupRegistry::command_vector(), FunctionGroupRegistry::config_of(), FunctionGroupRegistry::find_group(), FunctionGroupRegistry::group_count(), FunctionGroupRegistry::group_name() (+11 more)
 
-### Community 342 - "Supervisor"
-Cohesion: 0.08
-Nodes (21): std::formatter<nexigen::phm::Supervisor>, Supervisor, k_function_group_length, manifest_, states_, to_string(), D1. Function Group приходит в lifecycle-событии, а не из второго манифеста, D2. Ответ EM означает допуск, а не выполнение (+13 more)
+### Community 342 - "RecoveryAck"
+Cohesion: 0.13
+Nodes (18): from_json(), RecoveryAck, outcome, reason, request_id, std::formatter<nexigen::phm::RecoveryAck>, to_json(), to_string() (+10 more)
 
 ### Community 343 - "supervisor.cpp"
-Cohesion: 0.09
-Nodes (26): Entry, name, value, EnumTraits<nexigen::phm::FaultKind>, entries, FaultKind, AliveFailure, DeadlineFailure (+18 more)
+Cohesion: 0.08
+Nodes (28): Entry, name, value, EnumTraits<nexigen::phm::FaultKind>, entries, FaultKind, AliveFailure, DeadlineFailure (+20 more)
 
 ### Community 344 - "ADDED Requirements"
 Cohesion: 0.08
@@ -2622,8 +2626,8 @@ Cohesion: 0.12
 Nodes (16): ADDED Requirements, MODIFIED Requirements, Requirement: Composite logger diagnostic string, Requirement: Level control propagation, Requirement: Sub-logger access by index and by type, Requirement: Virtual-free fan-out composition, Scenario: Composite of composites works, Scenario: Composite short-circuit matches its own level (+8 more)
 
 ### Community 346 - "ADDED Requirements"
-Cohesion: 0.12
-Nodes (16): ADDED Requirements, MODIFIED Requirements, Requirement: LogLevel JSON serialization, Requirement: LogLevel name parsing, Requirement: std::formatter for LogLevel, Requirement: Sub-threshold calls short-circuit, Scenario: Every level name round-trips with to_string, Scenario: Filtered call performs no logging work (+8 more)
+Cohesion: 0.14
+Nodes (13): ADDED Requirements, MODIFIED Requirements, Requirement: LogLevel name parsing, Requirement: std::formatter for LogLevel, Requirement: Sub-threshold calls short-circuit, Scenario: Every level name round-trips with to_string, Scenario: Filtered call performs no logging work, Scenario: Filtered call reports success (+5 more)
 
 ### Community 347 - "ADDED Requirements"
 Cohesion: 0.12
@@ -2643,7 +2647,7 @@ Nodes (15): metrics/iceoryx2-metric-sink Specification, Purpose, Requirement: Ba
 
 ### Community 351 - "Decisions"
 Cohesion: 0.12
-Nodes (15): Context, D1. File layout and fixed names, D2. Preparation order and cleanup safety, D3. Generated settings contents, D4. Command-line composition, D5. Workload and bounded runtime, D7. Runner and cleanup scripts, D8. Verification strategy (+7 more)
+Nodes (16): Context, D1. File layout and fixed names, D2. Preparation order and cleanup safety, D3. Generated settings contents, D4. Command-line composition, D5. Workload and bounded runtime, D6. Stateless file policy, D7. Runner and cleanup scripts (+8 more)
 
 ### Community 352 - "Decisions"
 Cohesion: 0.12
@@ -2653,9 +2657,9 @@ Nodes (16): Context, D10. Migration and rollback, D1. Free-function logging faca
 Cohesion: 0.12
 Nodes (16): hub/http-api — internal structure (delta), Purpose, Requirement: Client read logic is layered, Requirement: Complexity of decomposed functions stays within the project target, Requirement: `HttpServer::Impl::start` is split into setup phases, Requirement: Refactored internals preserve all observable behavior, Requirement: The server run loop uses an explicit state stepper, Requirements (+8 more)
 
-### Community 354 - "BasicBody"
-Cohesion: 0.13
-Nodes (10): BasicBody, count, ran, seen, seen_out, BlockingBody, ran, OrderBody (+2 more)
+### Community 354 - "RecoveryOutcome"
+Cohesion: 0.11
+Nodes (20): Entry, name, value, EnumTraits<nexigen::phm::RecoveryOutcome>, entries, from_json(), from_string(), RecoveryOutcome (+12 more)
 
 ### Community 355 - "ADDED Requirements"
 Cohesion: 0.08
@@ -2666,12 +2670,12 @@ Cohesion: 0.12
 Nodes (16): ADDED Requirements, Purpose, Requirement: Asynchronous pending responses, Requirement: Correlation of requests, Requirement: Method port diagnostics, Requirement: Method zero-copy and non-POD rejection, Requirement: Synchronous call with timeout, Requirement: Typed client and server (+8 more)
 
 ### Community 357 - "4.9 `exec` — исполнение и супервизия"
-Cohesion: 0.04
-Nodes (48): 4.9 `exec` — исполнение и супервизия, cgroup_root_of(), group_has_cgroup_budget(), FunctionGroupPortMapping, function_group, requester_id, ResourceGroupConfig, cpu_period_us (+40 more)
+Cohesion: 0.03
+Nodes (60): 4.9 `exec` — исполнение и супервизия, cgroup_root_of(), group_has_cgroup_budget(), FunctionGroupPortMapping, function_group, requester_id, ResourceGroupConfig, cpu_period_us (+52 more)
 
-### Community 358 - "Requirements"
-Cohesion: 0.12
-Nodes (16): com/request-response Specification, Purpose, Requirement: Asynchronous pending responses, Requirement: Correlation of requests, Requirement: Method port diagnostics, Requirement: Method zero-copy and non-POD rejection, Requirement: Synchronous call with timeout, Requirement: Typed client and server (+8 more)
+### Community 358 - "RecoveryNotification"
+Cohesion: 0.10
+Nodes (19): Configuration, Deferred, Running, Snapshot format, Trace Daemon (`nexigen-traced`), Trigger and shutdown, RecoveryNotification, function_group (+11 more)
 
 ### Community 359 - "session_reader.cpp"
 Cohesion: 0.06
@@ -2682,20 +2686,20 @@ Cohesion: 0.15
 Nodes (10): Sample, affinity_ok, ns, SpacingSink, affinity_ok_, batch_status_, expected_cpu_, flush_status_ (+2 more)
 
 ### Community 361 - ".emit"
-Cohesion: 0.15
-Nodes (14): arg_offsets(), arg_total(), pack_one(), render_impl(), render_text(), render_tuple(), slot_size(), string_slot_size() (+6 more)
+Cohesion: 0.22
+Nodes (10): arg_offsets(), arg_total(), pack_one(), render_impl(), render_text(), render_tuple(), slot_size(), string_slot_size() (+2 more)
 
 ### Community 362 - "ADDED Requirements"
-Cohesion: 0.12
-Nodes (15): ADDED Requirements, Purpose, Requirement: Batches are published as frames, Requirement: Iceoryx2 metric sink satisfies the sink concept, Requirement: Sink diagnostics, Requirement: Sink flush is a no-op, Scenario: Every record becomes a frame, Scenario: Flush succeeds (+7 more)
+Cohesion: 0.14
+Nodes (13): ADDED Requirements, Purpose, Requirement: Batches are published as frames, Requirement: Iceoryx2 metric sink satisfies the sink concept, Requirement: Sink diagnostics, Scenario: Every record becomes a frame, Scenario: Listeners are notified once per batch, Scenario: Out-of-samples does not block (+5 more)
 
 ### Community 363 - "ADDED Requirements"
 Cohesion: 0.12
 Nodes (15): ADDED Requirements, Purpose, Requirement: Hot-path safety of timestamps, Requirement: Monotonic clock sourcing, Requirement: Nanosecond timestamp value type, Requirement: Timestamp arithmetic, Scenario: Clock discipline, Scenario: Clock failure is non-fatal (+7 more)
 
-### Community 364 - "ProcessSupervision"
+### Community 364 - "ADDED Requirements"
 Cohesion: 0.09
-Nodes (17): DeadlineClock, started, ForkFrame, entered, fork_index, ProcessSupervision, checkpoints_this_window, consecutive_failures (+9 more)
+Nodes (22): ADDED Requirements, Purpose, Requirement: Counter reset windows, Requirement: Counter serialization contract, Requirement: Gauge recording surface, Requirement: Gauge reset windows, Requirement: Gauge serialization contract, Scenario: Concurrent window records land once (+14 more)
 
 ### Community 365 - "Requirement: Example runner and cleanup scripts"
 Cohesion: 0.12
@@ -2717,69 +2721,65 @@ Nodes (15): ADDED Requirements, MODIFIED Requirements, Requirement: App name opt
 Cohesion: 0.12
 Nodes (15): MODIFIED Requirements, Requirement: Identity validation rejects unsafe values, Requirement: Instance directory is derived when not supplied, Requirement: Run identity is read from a fixed environment contract, Scenario: Complete environment populates every field, Scenario: Derived instance directory, Scenario: Empty identity is valid, Scenario: Explicit instance directory wins (+7 more)
 
-### Community 370 - "ADDED Requirements"
-Cohesion: 0.09
-Nodes (22): ADDED Requirements, Purpose, Requirement: Explicit bucket configuration, Requirement: Explicit histogram percentile snapshots, Requirement: Explicit histogram recording and aggregation, Requirement: Explicit histogram reset windows, Requirement: Multi-threaded explicit histogram recording, Scenario: Bounds are immutable after creation (+14 more)
+### Community 370 - "Requirements"
+Cohesion: 0.07
+Nodes (28): Purpose, Requirement: Environment overrides are documented and typed, Requirement: Invalid input degrades to best effort, Requirement: Invalid sink configuration degrades to best effort, Requirement: Merge precedence matches the other subsystems, Requirement: Settings loading is cold path only, Requirement: Settings sources are explicit, Requirement: Sink fields merge with documented precedence (+20 more)
 
 ### Community 371 - "E2eSubscriber"
-Cohesion: 0.10
-Nodes (11): E2eMessage, header, payload, E2eSample, sample_, E2eSubscriber, config_, inner_ (+3 more)
+Cohesion: 0.06
+Nodes (23): E2eStatus, Error, Ok, Repeated, WrongSequence, Entry, name, value (+15 more)
 
 ### Community 372 - "Requirements"
 Cohesion: 0.12
 Nodes (15): chrono/chrono-snapshot Specification, Purpose, Requirement: Monotonic series key, Requirement: Signed UTC offset semantics, Requirement: Snapshot serialization, Requirement: Snapshot value type, Requirements, Scenario: Copy preserves the value (+7 more)
 
 ### Community 373 - "Decisions"
-Cohesion: 0.07
-Nodes (26): D10 — Chrono worker logger start guard: reject with `Conflict`, D1 — Identity anchor is `proc_start_ticks`, recorded at spawn, compared from `/proc`, D3 — Failed starts reap the supervisor: bounded blocking wait, D4 — Env values are NUL-screened on the CLI path, D5 — Spam config: per-field atomics (honest "race-free", not "wait-free-linearized"), D6 — Delete `SpscShardRing`/`SpscShardPool` headers and their specs, D7 — `claim_slot()` TLS cache 4→8 with no-burn overflow, D8 — `get_meter` under the harvest mutex (+18 more)
+Cohesion: 0.06
+Nodes (27): D10 — Chrono worker logger start guard: reject with `Conflict`, D1 — Identity anchor is `proc_start_ticks`, recorded at spawn, compared from `/proc`, D3 — Failed starts reap the supervisor: bounded blocking wait, D4 — Env values are NUL-screened on the CLI path, D5 — Spam config: per-field atomics (honest "race-free", not "wait-free-linearized"), D6 — Delete `SpscShardRing`/`SpscShardPool` headers and their specs, D7 — `claim_slot()` TLS cache 4→8 with no-burn overflow, D8 — `get_meter` under the harvest mutex (+19 more)
 
 ### Community 374 - "Requirement: Missing acknowledgement escalates to the watchdog"
 Cohesion: 0.09
 Nodes (21): ADDED Requirements, MODIFIED Requirements, Requirement: Local process recovery, Requirement: Missing acknowledgement escalates to the watchdog, Requirement: Recovery request correlation, Requirement: SafeState escalation, Scenario: Absent acknowledgement fires the watchdog, Scenario: Accepted acknowledgement keeps the platform alive (+13 more)
 
 ### Community 375 - "ADDED Requirements"
-Cohesion: 0.22
-Nodes (8): ADDED Requirements, Requirement: Format detection, Requirement: Minimal XML reader, Scenario: Extension selects ARXML, Scenario: JSON remains the default, Scenario: Malformed document is rejected, Scenario: Nested elements parse, Spec Delta
+Cohesion: 0.18
+Nodes (10): ADDED Requirements, Requirement: Auto-detected suite load, Requirement: Format detection, Requirement: Minimal XML reader, Scenario: CLI accepts either format, Scenario: Extension selects ARXML, Scenario: JSON remains the default, Scenario: Malformed document is rejected (+2 more)
 
 ### Community 376 - "ADDED Requirements"
 Cohesion: 0.11
 Nodes (17): ADDED Requirements, Purpose, Requirement: Daemon readiness is reported, Requirement: Process termination behavior is declared, Requirement: State change is confirmed by readiness and completion, Requirement: Unexpected self-termination is a failure, Requirement: Unrecoverable State stops all activity, Scenario: All processes ready confirms the switch (+9 more)
 
-### Community 377 - ".emplace_logger"
-Cohesion: 0.24
-Nodes (3): fail(), main(), SimplePolicy
-
 ### Community 378 - "PayloadBlob"
 Cohesion: 0.13
 Nodes (7): PayloadBlob::create(), PayloadBlob, data_, kSize, kWindowReserve, splitmix64(), window_offset()
 
-### Community 379 - "Decisions"
-Cohesion: 0.10
-Nodes (19): D10. Clock calibration for UTC JSON timestamps, D11. Directory rotation on the consumer thread, D12. JSON line formatting — exact schema, escaping, no allocation, D13. ConsoleLogger sink details, D14. FileLogger configuration surface, D15. Affinity: `pthread_setaffinity_np` in `affinity.cpp`, D16. CompositeLogger, D17. CMake and test wiring (+11 more)
+### Community 379 - "SuiteMetadata"
+Cohesion: 0.06
+Nodes (25): SuiteMetadata, apps, artifacts_path, execution_manager_control_thread, execution_manager_logger_thread, execution_manager_name, global_settings_path, manifest_path (+17 more)
 
 ### Community 380 - "ChromeTraceSink"
 Cohesion: 0.12
 Nodes (9): ChromeTraceSink, base_ns_, base_set_, config_, fd_, first_event_, pid_, scratch_ (+1 more)
 
-### Community 381 - "cmd_status"
-Cohesion: 0.26
-Nodes (17): D5 — CLI: file-local helpers in one TU, byte-identical output, 6. `nexigen-run` CLI report helpers, 3. `nexigen-run` CLI — per-verb option structs and shared target resolution, What Changes, Why, 1. Baseline and guards, 4. nexigen-run CLI, cmd_start() (+9 more)
+### Community 381 - "StateAck"
+Cohesion: 0.05
+Nodes (29): StateAck, accepted, result, std::formatter<nexigen::exec::StateAck>, to_string(), D5 — StateClient protocol and transition results, Context, D1 — `request_id` is a 64-bit field on `StateCommand` (+21 more)
 
 ### Community 382 - "Requirement: Traceability matrix"
 Cohesion: 0.08
 Nodes (25): Purpose, quality/safety-traceability Specification, Requirement: Declared programme boundary, Requirement: Pinned requirement catalog, Requirement: Static traceability gate, Requirement: Status vocabulary, Requirement: Traceability matrix, Requirements (+17 more)
 
 ### Community 383 - "SupervisionStatus"
-Cohesion: 0.05
-Nodes (38): Entry, name, value, EnumTraits<nexigen::phm::SupervisionStatus>, entries, from_json(), from_string(), SupervisionStatus (+30 more)
+Cohesion: 0.12
+Nodes (18): Entry, name, value, EnumTraits<nexigen::phm::SupervisionStatus>, entries, from_json(), from_string(), SupervisionStatus (+10 more)
 
 ### Community 384 - "CompositeMetricSink"
 Cohesion: 0.16
 Nodes (4): CompositeMetricSink, std::formatter<nexigen::metrics::CompositeMetricSink<Sinks...>>, to_json(), to_string()
 
-### Community 385 - "NullMetricSink"
-Cohesion: 0.10
-Nodes (19): 4.5 `metrics` — метрики, 4.6 `tracing` — трассировка, 4.7 `diagnostics` — измерения интервалов, 4. Модули, from_json(), NullMetricSink, std::formatter<nexigen::metrics::NullMetricSink>, to_json() (+11 more)
+### Community 385 - "HardwareMetadata"
+Cohesion: 0.05
+Nodes (30): EventOptions, max_listeners, max_nodes, max_notifiers, std::formatter<nexigen::com::EventOptions>, to_string(), EventTime, domain (+22 more)
 
 ### Community 386 - "ADDED Requirements"
 Cohesion: 0.13
@@ -2797,17 +2797,17 @@ Nodes (14): MODIFIED Requirements, Requirement: Runnable command-line settings e
 Cohesion: 0.08
 Nodes (23): exec/process-types Specification, Purpose, Requirement: Daemon readiness is reported, Requirement: Process lifecycle states, Requirement: Process termination behavior is declared, Requirement: State change is confirmed by readiness and completion, Requirement: Unexpected self-termination is a failure, Requirement: Unrecoverable State stops all activity (+15 more)
 
-### Community 390 - "Requirements"
-Cohesion: 0.09
-Nodes (22): metrics/state-gauge Specification, Purpose, Requirement: Multi-threaded last-writer-wins, Requirement: Single-threaded state storage, Requirement: State read surface, Requirement: State recording surface, Requirement: State reset windows, Requirement: State serialization contract (+14 more)
+### Community 390 - "RecoveryRequest"
+Cohesion: 0.11
+Nodes (14): from_json(), RecoveryRequest, action, function_group, name, pid, request_id, std::formatter<nexigen::phm::RecoveryRequest> (+6 more)
 
 ### Community 391 - "Requirement: Metrics render structured by kind"
 Cohesion: 0.13
 Nodes (14): ADDED Requirements, MODIFIED Requirements, Requirement: Metrics render structured by kind, Requirement: Stream viewer supports replay and live modes, Scenario: Counter and gauge render as name and value, Scenario: Descriptive statistics render their summary, Scenario: Histogram renders its summary, Scenario: Malformed batch falls back to raw text (+6 more)
 
-### Community 392 - "SuiteMetadata"
-Cohesion: 0.03
-Nodes (91): log_level_json(), read_canonical_thread(), read_cpu_array(), read_cpu_set(), read_env_object(), read_legacy_execution_manager_cpus(), read_log_level(), read_string_array() (+83 more)
+### Community 392 - "SuiteStatus"
+Cohesion: 0.05
+Nodes (38): SuiteLaunchPlan, artifact_dir, command, identity, options, SuiteExit, reason, state (+30 more)
 
 ### Community 393 - "Requirement: Drop summaries are synthesized by the worker"
 Cohesion: 0.13
@@ -2854,16 +2854,16 @@ Cohesion: 0.23
 Nodes (14): steps, steps, steps, name, runs-on, steps, timeout-minutes, format (+6 more)
 
 ### Community 404 - "E2eServer"
-Cohesion: 0.16
-Nodes (7): E2eServer, config_, inner_, next_counter_, receiver_, std::formatter<nexigen::com::E2eServer<Req, Resp>>, to_string()
+Cohesion: 0.12
+Nodes (10): E2eMessage, header, payload, E2eServer, config_, inner_, next_counter_, receiver_ (+2 more)
 
 ### Community 405 - "ExecutionStateTracker"
 Cohesion: 0.14
 Nodes (11): ExecutionStateTracker, processes_, Record, attempt, config, failed, name, process_state (+3 more)
 
 ### Community 406 - "ManifestFormat"
-Cohesion: 0.11
-Nodes (17): Entry, name, value, EnumTraits<nexigen::exec::ManifestFormat>, entries, from_json(), from_string(), ManifestFormat (+9 more)
+Cohesion: 0.12
+Nodes (15): Entry, name, value, EnumTraits<nexigen::exec::ManifestFormat>, entries, from_json(), from_string(), ManifestFormat (+7 more)
 
 ### Community 407 - "Requirements"
 Cohesion: 0.07
@@ -2893,9 +2893,9 @@ Nodes (13): ADDED Requirements, MODIFIED Requirements, Requirement: File logger 
 Cohesion: 0.14
 Nodes (13): ADDED Requirements, MODIFIED Requirements, Requirement: App settings aggregate every subsystem, Requirement: App settings are serializable, Requirement: Chrono settings use an explicit file pair, Scenario: Chrono pair is supplied, Scenario: Chrono settings render through App_settings, Scenario: Loader output has no from_json (+5 more)
 
-### Community 414 - "lightweight_state_machine.cpp"
-Cohesion: 0.17
-Nodes (15): has_duplicate_states(), LightweightStateMachine::recover(), LightweightStateMachine::request(), LightweightStateMachine::reset_to(), LightweightStateMachine::run_actions(), LightweightStateMachine::to_string(), LightweightStateMachineConfig::to_string(), LightweightStateMachineConfig::validate() (+7 more)
+### Community 414 - "mcap_adapter.cpp"
+Cohesion: 0.05
+Nodes (35): count_records_in_memory(), McapBenchWriter::close(), McapBenchWriter::McapBenchWriter(), McapBenchWriter::stats(), McapBenchWriter, impl_, channel, output (+27 more)
 
 ### Community 415 - "ADDED Requirements"
 Cohesion: 0.14
@@ -2905,9 +2905,9 @@ Nodes (13): ADDED Requirements, Requirement: Command-line tools install when bui
 Cohesion: 0.14
 Nodes (13): ADDED Requirements, MODIFIED Requirements, Requirement: Child environment and CPU affinity are configurable, Requirement: Stdout and stderr are captured to files, Scenario: Child stderr goes to the instance log, Scenario: Child stdout goes to the instance log, Scenario: CPU affinity restricts the child, Scenario: Environment entries are visible to the child (+5 more)
 
-### Community 417 - ".user_header"
-Cohesion: 0.08
-Nodes (26): Context, Decisions, Design, Goals / Non-Goals, Risks / Trade-offs, Capabilities, Impact, Modified Capabilities (+18 more)
+### Community 417 - "Iceoryx2MetricSinkConfig"
+Cohesion: 0.15
+Nodes (14): Iceoryx2MetricSinkConfig, app_id, service_name, subscriber_max_buffer_size, std::formatter<nexigen::metrics::Iceoryx2MetricSinkConfig>, to_string(), Requirement: Iceoryx2 metric sink configuration, Scenario: Config diagnostics contract (+6 more)
 
 ### Community 418 - "Requirement: CPU-pinned background consumer"
 Cohesion: 0.14
@@ -2934,8 +2934,8 @@ Cohesion: 0.14
 Nodes (13): Purpose, Requirement: Nested and cross-thread spans example, Requirement: Perfetto Chrome trace example, Requirement: Tracing examples pass in every build mode, Requirements, Scenario: Full build-mode matrix is green, Scenario: The example guides the user, Scenario: The example is self-contained (+5 more)
 
 ### Community 424 - "SpanContext"
-Cohesion: 0.06
-Nodes (34): SpanContext, sampled, span_id, trace_id, ADDED Requirements, Purpose, Requirement: Automatic intra-thread parent tracking, Requirement: Propagable span context (+26 more)
+Cohesion: 0.04
+Nodes (50): SpanContext, sampled, span_id, trace_id, ADDED Requirements, Purpose, Requirement: Automatic intra-thread parent tracking, Requirement: Propagable span context (+42 more)
 
 ### Community 425 - "run_suite"
 Cohesion: 0.24
@@ -2946,16 +2946,16 @@ Cohesion: 0.17
 Nodes (15): drain_lifecycle(), lifecycle_order_ok(), lifecycle_seen(), main(), make_e2e_manifest(), make_manifest(), request_state(), stop_group_and_wait() (+7 more)
 
 ### Community 427 - "TraceDaemonConfig"
-Cohesion: 0.10
-Nodes (16): std::formatter<nexigen::tracing::TraceDaemonConfig>, to_string(), TraceDaemonConfig, app_name, bg_cpu_affinity, drain_interval_ms, dump_directory, max_dump_files (+8 more)
+Cohesion: 0.08
+Nodes (21): std::formatter<nexigen::tracing::TraceDaemonConfig>, to_string(), TraceDaemonConfig, app_name, bg_cpu_affinity, drain_interval_ms, dump_directory, max_dump_files (+13 more)
 
-### Community 428 - "OverflowPolicy"
+### Community 428 - "TerminatedBy"
+Cohesion: 0.09
+Nodes (20): Entry, name, value, EnumTraits<nexigen::exec::TerminatedBy>, entries, from_string(), TerminatedBy, ExecutionManager (+12 more)
+
+### Community 429 - "SettingsDigest"
 Cohesion: 0.15
-Nodes (14): Entry, name, value, EnumTraits<nexigen::logging::ShardState>, entries, from_json(), from_string(), ShardState (+6 more)
-
-### Community 429 - "read_verified"
-Cohesion: 0.10
-Nodes (14): digests_equal(), fold_hex(), read_verified(), Context, Design, Goals / Non-Goals, Migration Plan, Risks / Trade-offs (+6 more)
+Nodes (11): from_json(), SettingsDigest, path, sha256, std::formatter<nexigen::exec::SettingsDigest>, to_json(), to_string(), 1. Manifest section (+3 more)
 
 ### Community 430 - "ADDED Requirements"
 Cohesion: 0.07
@@ -3002,56 +3002,56 @@ Cohesion: 0.15
 Nodes (12): ADDED Requirements, Purpose, Requirement: Field diagnostics, Requirement: Field get-set-notify, Requirement: Field is owned by one writer, Requirement: Last value on connect, Scenario: Field renders its state, Scenario: Late subscriber reads the current value (+4 more)
 
 ### Community 441 - "self_affinity"
-Cohesion: 0.06
-Nodes (39): cpuset_to_mask(), pin_self(), self_affinity(), D2 — Header and source layout, 5. Thread slots, affinity, and Welford core, Context, D2 — Header and source layout, 4. Parent stack, affinity, and hot-path details (+31 more)
+Cohesion: 0.04
+Nodes (63): cpuset_to_mask(), pin_self(), self_affinity(), D2 — Header and source layout, 5. Thread slots, affinity, and Welford core, Context, D2 — Header and source layout, 4. Parent stack, affinity, and hot-path details (+55 more)
 
 ### Community 442 - "Requirements"
 Cohesion: 0.15
 Nodes (12): com/field Specification, Purpose, Requirement: Field diagnostics, Requirement: Field get-set-notify, Requirement: Field is owned by one writer, Requirement: Last value on connect, Requirements, Scenario: Field renders its state (+4 more)
 
-### Community 443 - "trace_daemon_test.cpp"
+### Community 443 - "BestMedians"
 Cohesion: 0.06
-Nodes (40): heap_in_use(), LogFrame256, bytes, main(), measure_direct_pass(), measure_worker_path(), place_benchmark_threads(), Placement (+32 more)
+Nodes (34): operator delete(), operator new(), BestMedians, copy, copy_stats, direct, direct_stats, event_stats (+26 more)
 
 ### Community 444 - "Requirement: Function Group configuration"
 Cohesion: 0.12
 Nodes (16): ADDED Requirements, MODIFIED Requirements, Requirement: Function Group configuration, Requirement: Function Group initial state, Requirement: State-dependent startup configuration, Scenario: Cross-group state is rejected, Scenario: Default initial state is the first non-Off state, Scenario: Duplicate state is rejected (+8 more)
 
 ### Community 445 - "AppState"
-Cohesion: 0.07
-Nodes (28): Entry, name, value, EnumTraits<nexigen::exec::ProcessState>, entries, fallback, from_string(), ProcessState (+20 more)
+Cohesion: 0.06
+Nodes (31): ExecutionDependency, process, state, std::formatter<nexigen::exec::ExecutionDependency>, to_string(), Entry, name, value (+23 more)
 
 ### Community 446 - "Requirements"
 Cohesion: 0.15
 Nodes (12): hub/http-api Specification, Purpose, Requirement: Complexity of decomposed functions stays within the project target, Requirement: HTTP serving is cold path only, Requirement: Refactored internals preserve all observable behavior, Requirement: The server run loop uses an explicit state stepper, Requirements, Scenario: Application ticks are untouched (+4 more)
 
-### Community 447 - "E2eConfig"
-Cohesion: 0.12
-Nodes (12): E2eConfig, data_id, max_delta_counter, profile, std::formatter<nexigen::com::E2eConfig>, to_string(), valid_e2e_config(), 1. Guard (+4 more)
+### Community 447 - ".create"
+Cohesion: 0.09
+Nodes (20): valid_e2e_config(), D3 — Service options are additive, Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes (+12 more)
 
-### Community 448 - "CompositeSink"
-Cohesion: 0.18
-Nodes (4): CompositeSink, std::formatter<nexigen::chrono::CompositeSink<Sinks...>>, to_json(), to_string()
+### Community 448 - "trace_daemon_test.cpp"
+Cohesion: 0.15
+Nodes (17): count_dumps(), E2eContext, config, dir, make_dir(), make_e2e_context(), make_frame(), make_record() (+9 more)
 
 ### Community 450 - "HttpServer"
 Cohesion: 0.13
 Nodes (3): HttpServer, impl_, test_http_server_shutdown()
 
-### Community 451 - "SecurityEventKind"
-Cohesion: 0.14
-Nodes (12): Entry, name, value, EnumTraits<nexigen::phm::SecurityEventKind>, entries, from_json(), from_string(), SecurityEventKind (+4 more)
+### Community 451 - "SecurityEvent"
+Cohesion: 0.04
+Nodes (46): 7. Сквозные контракты, Безопасность и целостность, Горячий и холодный путь, Идентичность запуска и телеметрия, Ошибки и сериализация, Потоки и affinity, bounded_name(), CheckpointClaim (+38 more)
 
 ### Community 452 - "http_parse.hpp"
-Cohesion: 0.17
-Nodes (20): ascii_lower(), equals_ignore_case(), header_value(), parse_request_line(), query_value(), RequestLine, method, path (+12 more)
+Cohesion: 0.28
+Nodes (13): ascii_lower(), equals_ignore_case(), header_value(), parse_request_line(), query_value(), RequestLine, method, path (+5 more)
 
 ### Community 453 - "Tasks"
-Cohesion: 0.15
-Nodes (12): format_param, 10. Verification, 1. Convention anchor, 2. Leaf enums, 3. Public vocabulary structs, 4. Config structs, 5. Format/record helpers, 7. Logger classes (+4 more)
+Cohesion: 0.17
+Nodes (11): format_param, 10. Verification, 1. Convention anchor, 2. Leaf enums, 4. Config structs, 5. Format/record helpers, 7. Logger classes, 8. src/logging split (+3 more)
 
 ### Community 454 - "StateCommand"
-Cohesion: 0.06
-Nodes (35): StateCommand, function_group, request_id, requester_id, target_state, std::formatter<nexigen::exec::StateCommand>, to_string(), Capabilities (+27 more)
+Cohesion: 0.05
+Nodes (37): StateCommand, function_group, request_id, requester_id, target_state, std::formatter<nexigen::exec::StateCommand>, to_string(), ADDED Requirements (+29 more)
 
 ### Community 455 - "openspec-explore/SKILL.md"
 Cohesion: 0.17
@@ -3085,9 +3085,9 @@ Nodes (11): ADDED Requirements, Purpose, Requirement: Coverage includes forked s
 Cohesion: 0.17
 Nodes (11): MODIFIED Requirements, Requirement: Generated settings contain absolute sink paths, Requirement: Instance directory layout is deterministic, Scenario: Artifact root relocates sink paths, Scenario: Directory layout is created on start, Scenario: Every sink.path points under the instance directory, Scenario: Four settings files are written, Scenario: Logging settings use the correct root (+3 more)
 
-### Community 463 - "CivilTime"
-Cohesion: 0.08
-Nodes (15): 4.2 `chrono` — время и калиброванный TSC, CivilTime, day, hour, minute, month, nanosecond, second (+7 more)
+### Community 463 - "NullSink"
+Cohesion: 0.10
+Nodes (13): 4.2 `chrono` — время и калиброванный TSC, from_json(), NullSink, std::formatter<nexigen::chrono::NullSink>, to_json(), to_string(), D4 — Telemetry via iceoryx2 sinks, wired in the `Infrastructure` policy, 2. Generator (+5 more)
 
 ### Community 464 - "Requirement: Suite-metadata read targets are run-root contained"
 Cohesion: 0.17
@@ -3099,11 +3099,11 @@ Nodes (11): MODIFIED Requirements, Requirement: Global logging settings supply o
 
 ### Community 466 - "DatasetInfo"
 Cohesion: 0.03
-Nodes (67): DatasetField, count, element_size, name, offset, stride, type, units (+59 more)
+Nodes (71): DatasetField, count, element_size, name, offset, stride, type, units (+63 more)
 
-### Community 467 - "Publisher"
-Cohesion: 0.11
-Nodes (11): std::formatter<nexigen::com::Subscriber<T, H>>, Subscriber, inner_, service_name_, to_string(), ADDED Requirements, Requirement: Configurable subscriber buffer depth, Scenario: A full publish burst survives (+3 more)
+### Community 467 - "lightweight_state_machine.cpp"
+Cohesion: 0.17
+Nodes (16): from_json(), has_duplicate_states(), LightweightStateMachine::recover(), LightweightStateMachine::request(), LightweightStateMachine::reset_to(), LightweightStateMachine::run_actions(), LightweightStateMachine::to_string(), LightweightStateMachineConfig::to_string() (+8 more)
 
 ### Community 468 - "WatchdogConfig"
 Cohesion: 0.14
@@ -3130,8 +3130,8 @@ Cohesion: 0.17
 Nodes (11): logging/null-logger Specification, Purpose, Requirement: Calls compile away, Requirement: Conforming no-op logger, Requirement: NullLogger diagnostic string, Requirements, Scenario: Dump names the threshold, Scenario: Every call succeeds silently (+3 more)
 
 ### Community 474 - "RootFG"
-Cohesion: 0.06
-Nodes (36): RootFG, Off, Restart, Run, Shutdown, Startup, Verify, std::formatter<nexigen::sm::RootFG> (+28 more)
+Cohesion: 0.07
+Nodes (29): from_json(), RootFG, Off, Restart, Run, Shutdown, Startup, Verify (+21 more)
 
 ### Community 475 - "Requirement: Coverage includes forked supervisors"
 Cohesion: 0.17
@@ -3141,13 +3141,13 @@ Nodes (11): Purpose, quality/coverage Specification, Requirement: Coverage inclu
 Cohesion: 0.11
 Nodes (17): Context, D10. Concurrency and memory model, D11. Migration and rollback, D1. Manifest schema (v1), D2. Directory layout and metadata, D3. Process model: suite supervisor over per-instance supervisors, D4. Start handshake, D5. Restart policy and state machine (+9 more)
 
-### Community 477 - "arena_used"
-Cohesion: 0.23
-Nodes (7): suite_latency(), test_latency(), test_latency_calibration(), test_latency_measured_pass(), test_latency_non_x86(), test_latency_report(), test_latency_setup()
+### Community 477 - "Requirements"
+Cohesion: 0.10
+Nodes (19): metrics/descriptive-statistics Specification, Purpose, Requirement: Cumulative statistics window, Requirement: Multi-threaded statistics merging, Requirement: Online moment statistics, Requirement: Reset-on-read statistics windows, Requirements, Scenario: Empty statistics are well defined (+11 more)
 
-### Community 478 - "Decisions"
+### Community 478 - "logging_test_support.hpp"
 Cohesion: 0.07
-Nodes (43): read_json_into(), Context, Decisions, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs (+35 more)
+Nodes (20): find_log_file(), main(), print_line(), verify_log_file(), main(), print_line(), FaultHook, set_fault_hook() (+12 more)
 
 ### Community 479 - "Sample"
 Cohesion: 0.31
@@ -3157,13 +3157,13 @@ Nodes (3): Sample, inner_, to_string()
 Cohesion: 0.22
 Nodes (16): LatencyStats, max_ns, median_ns, p999_ns, p99_ns, make_record(), receive_frames(), stats_of() (+8 more)
 
-### Community 481 - "Sink"
-Cohesion: 0.11
-Nodes (24): D2 — Root cause: the daemon never flushes the pending batch on its timer, D3 — Fix: time-based flush in the drain path, Decisions, 1. Reproduce, 2. Isolate the root cause, 3. Fix, 4. Verify, Tasks (+16 more)
+### Community 481 - "nexigen-logd/main.cpp"
+Cohesion: 0.09
+Nodes (28): D2 — Root cause: the daemon never flushes the pending batch on its timer, D3 — Fix: time-based flush in the drain path, Decisions, 1. Reproduce, 2. Isolate the root cause, 3. Fix, 4. Verify, Tasks (+20 more)
 
 ### Community 482 - "Decisions"
-Cohesion: 0.12
-Nodes (15): Context, D1 — Один поток: WaitSet, interval + notification, D2 — Ring: pre-allocated массив, drop-oldest, без атомиков, D3 — Триггер: PHM→SM RecoveryNotification, не SM-поле, D4 — Бинарный снимок с версионированным заголовком, D5 — Политика сброса: freeze, temp+rename, clear, no dump on SIGTERM, D6 — Ротация дампов, D7 — Lifecycle, affinity, mlockall, readiness (+7 more)
+Cohesion: 0.17
+Nodes (12): D10. Ручки для сокращения прогона, D12. Память и конкурентность, D13. Пробуждение по событию вместо опроса, D1. Каталог и имена, D2. Все конфигурации генерируются драйвером, D3. Падение — аварийное завершение, поднимает ExecutionManager, D4. Payload и измерение задержки, D7. Надзор PHM (+4 more)
 
 ### Community 483 - "example_of_system_manifest.yaml"
 Cohesion: 0.18
@@ -3185,9 +3185,9 @@ Nodes (11): composite_reset_method, scalar_reset_method, scraping, reset_policie
 Cohesion: 0.18
 Nodes (10): Check for context, Ending Discovery, Guardrails, OpenSpec Awareness, Planning a Change, The Stance, What You Don't Have To Do, What You Might Do (+2 more)
 
-### Community 488 - "nexigen-em/main.cpp"
-Cohesion: 0.18
-Nodes (11): apply_string_option(), is_string_option(), main(), Options, config, machine, manifest_sha256, run_dir (+3 more)
+### Community 488 - "ThrottleConfig"
+Cohesion: 0.08
+Nodes (23): ThrottleConfig, enabled, max_records_per_window, window_ns, to_string(), Context, Design, Goals / Non-Goals (+15 more)
 
 ### Community 489 - "ADDED Requirements"
 Cohesion: 0.18
@@ -3201,9 +3201,9 @@ Nodes (10): ADDED Requirements, Requirement: Runnable command-line settings exam
 Cohesion: 0.04
 Nodes (44): make_infrastructure(), Context, D10 — Migration and tests, D1 — Composition replaces inheritance, D2 — Stateless policy contract, D3 — `Infrastructure` API and member order, D4 — Heap-only factory, D5 — Process-global signal ownership guard (+36 more)
 
-### Community 492 - "Requirements"
-Cohesion: 0.10
-Nodes (21): Requirement: All deserialization is exception-free under `JSON_NOEXCEPTION=1`, Requirement: Complexity of decomposed functions stays within the project target, Requirement: Identity and scalar snapshots round-trip safely, Requirement: MetricBatchSnapshot deserialization is array-length safe, Requirement: MetricProviderConfig deserialization uses safe nlohmann accessors, Requirement: MetricRecord deserialization selects the union member by kind, Requirement: Serialization helpers do not change hot-path contracts, Requirement: Statistics and histogram snapshots use typed numeric readers (+13 more)
+### Community 492 - "CustomRecWriter"
+Cohesion: 0.09
+Nodes (15): CustomRecWriter, buffer_, CustomRecWriter::CustomRecWriter(), index_bytes_, index_interval_ns_, index_stride_, interval_max_event_, interval_min_event_ (+7 more)
 
 ### Community 493 - "Requirement: Portable Release mode"
 Cohesion: 0.18
@@ -3218,12 +3218,12 @@ Cohesion: 0.18
 Nodes (10): MODIFIED Requirements, Requirement: Documented example invocation, Requirement: Runnable example catalogue, Scenario: Example executables exist after a default build, Scenario: Examples are self-contained, Scenario: Reader can build and run an example from the README, Scenario: Reader can run and clean the command-line settings example, Scenario: Reader can run and clean the suite demonstration (+2 more)
 
 ### Community 496 - "Requirement: Deterministic configuration conversion set"
-Cohesion: 0.14
-Nodes (11): ADDED Requirements, Requirement: Deterministic pseudo-random sequence, Scenario: Different seed diverges, Scenario: Same seed yields the same sequence, Spec Delta, exec/deterministic-execution Specification, Purpose, Requirement: Deterministic pseudo-random sequence (+3 more)
+Cohesion: 0.10
+Nodes (17): ADDED Requirements, Requirement: Deterministic configuration conversion set, Requirement: Deterministic pseudo-random sequence, Scenario: Client renders its cycle, Scenario: Config round-trips, Scenario: Different seed diverges, Scenario: Same seed yields the same sequence, Spec Delta (+9 more)
 
 ### Community 497 - "TerminatedBy"
-Cohesion: 0.14
-Nodes (14): Entry, name, value, EnumTraits<nexigen::exec::TerminatedBy>, entries, from_string(), TerminatedBy, ExecutionManager (+6 more)
+Cohesion: 0.06
+Nodes (48): cpus_within_online(), online_cpu_count(), absolute_from_cwd(), absolute_path(), current_directory(), directory_of(), has_parent_segment(), instance_dir_path() (+40 more)
 
 ### Community 498 - "Requirement: Child environment and CPU affinity are configurable"
 Cohesion: 0.18
@@ -3238,8 +3238,8 @@ Cohesion: 0.10
 Nodes (11): FakeWatchdogDevice, disarms, fail_open, feeds, granted, max_granted, opened_, opens (+3 more)
 
 ### Community 501 - "recorder_format.cpp"
-Cohesion: 0.05
-Nodes (43): RecorderConfig, channels, schemas, storage, digest_matches(), load_channels(), load_recorder_config(), load_schema_entry() (+35 more)
+Cohesion: 0.09
+Nodes (32): ChannelDeclare::to_string(), ChannelDeclare::validate(), DatasetField::to_string(), DatasetInfo::to_string(), DatasetSegmentInfo::to_string(), ExportSelection::to_string(), from_json(), GapMarkerPayload::to_string() (+24 more)
 
 ### Community 502 - "ADDED Requirements"
 Cohesion: 0.18
@@ -3265,13 +3265,13 @@ Nodes (16): Purpose, Requirement: Current state publication, Requirement: LSM-bo
 Cohesion: 0.22
 Nodes (8): Ala, visit, Bet, visit, DupA, visit, DupPack, Triple
 
-### Community 508 - "Requirements"
-Cohesion: 0.11
-Nodes (17): diagnostics/examples Specification, Purpose, Requirement: ex_stopwatch demonstrates loop tick budgeting, Requirement: ex_stopwatch_histogram is buildable, runnable, and a CTest smoke test, Requirement: ex_stopwatch_histogram records measured scopes into a histogram, Requirement: ex_stopwatch_histogram renders the histogram on the console, Requirement: ex_stopwatch is buildable, runnable, and a CTest smoke test, Requirements (+9 more)
+### Community 508 - "Meter::create_explicit_histogram"
+Cohesion: 0.26
+Nodes (7): Meter::create_counter(), Meter::create_explicit_histogram(), Meter::create_exponential_histogram(), Meter::create_gauge(), Meter::create_instrument(), Meter::create_state(), Meter::create_statistics()
 
 ### Community 509 - "4.9 `exec` — исполнение и супервизия"
-Cohesion: 0.14
-Nodes (13): Entry, name, value, EnumTraits<nexigen::exec::ProcessType>, entries, fallback, from_string(), ProcessType (+5 more)
+Cohesion: 0.15
+Nodes (14): Entry, name, value, EnumTraits<nexigen::exec::ProcessType>, entries, fallback, from_string(), ProcessType (+6 more)
 
 ### Community 510 - "E2eClient"
 Cohesion: 0.13
@@ -3286,12 +3286,12 @@ Cohesion: 0.24
 Nodes (3): Fanout, members_, size
 
 ### Community 513 - "MetricDaemonConfig"
-Cohesion: 0.06
-Nodes (34): HttpFront, server, stop, worker, start_http(), stop_http(), MetricDaemonConfig, batch_flush_interval_ms (+26 more)
+Cohesion: 0.08
+Nodes (23): MetricDaemonConfig, batch_flush_interval_ms, bg_cpu_affinity, bind_address, enable_http, endpoint, http_thread, max_metrics (+15 more)
 
 ### Community 514 - "machine_manifest.cpp"
-Cohesion: 0.18
-Nodes (14): duplicate_function_group(), duplicate_machine(), duplicate_process(), Machine::find_function_group(), Machine::find_process(), Machine::to_string(), MachineFunctionGroup::to_string(), MachineManifest::find_machine() (+6 more)
+Cohesion: 0.15
+Nodes (15): D4 — Validation and execution cross-check, duplicate_function_group(), duplicate_machine(), duplicate_process(), Machine::find_function_group(), Machine::find_process(), Machine::to_string(), MachineFunctionGroup::to_string() (+7 more)
 
 ### Community 515 - "DroppedStats"
 Cohesion: 0.24
@@ -3338,7 +3338,7 @@ Cohesion: 0.20
 Nodes (9): MODIFIED Requirements, Requirement: Error code catalogue, Scenario: Conflict formats by name, Scenario: Conflict has stable value and naming, Scenario: Conflict is distinguishable from NotInitialized, Scenario: Enumerators are available and distinct, Scenario: Success is representable, Scenario: Throttle rejection is distinguishable from queue rejection (+1 more)
 
 ### Community 526 - "MetricHttpServer"
-Cohesion: 0.08
+Cohesion: 0.09
 Nodes (12): ExpositionBuffer, buffers, capacity, lengths, published, Body, exposition, server (+4 more)
 
 ### Community 527 - "ADDED Requirements"
@@ -3358,8 +3358,8 @@ Cohesion: 0.20
 Nodes (9): MODIFIED Requirements, Requirement: Live updates use Server-Sent Events, Scenario: All streams are available, Scenario: Heartbeat keeps the connection alive, Scenario: Replay then live, Scenario: Slow client is closed, Scenario: SSE headers are correct, Scenario: Tree snapshots are streamed (+1 more)
 
 ### Community 531 - "cstdint"
-Cohesion: 0.05
-Nodes (21): Result, Status, Node, inner_, std::formatter<nexigen::com::Node>, to_string(), Client, Publisher (+13 more)
+Cohesion: 0.04
+Nodes (27): to_string(), to_string(), Entry, name, value, EnumTraits<nexigen::chrono::TimeSyncStatus>, entries, from_json() (+19 more)
 
 ### Community 532 - "Requirement: JSON-lines file sink"
 Cohesion: 0.20
@@ -3374,8 +3374,8 @@ Cohesion: 0.20
 Nodes (9): hub/http-api delta spec, MODIFIED Requirements, Requirement: HTTP listener is loopback by default, Scenario: Bracketed IPv6 listener is honored, Scenario: Default listener is localhost, Scenario: Full-dual-stack wildcard binds both families, Scenario: Invalid address fails startup, Scenario: Listen override is honored (+1 more)
 
 ### Community 535 - "Requirement: Applications resolve one resource group"
-Cohesion: 0.08
-Nodes (24): exec/resource-groups Specification, Purpose, Requirement: Applications resolve one resource group, Requirement: Budget validation, Requirement: Group cgroups are prepared before launch, Requirement: Resource group vocabulary, Requirement: Resource limits are enforced at launch, Requirement: The child joins its group cgroup (+16 more)
+Cohesion: 0.05
+Nodes (37): ADDED Requirements, Requirement: Applications resolve one resource group, Requirement: Resource group vocabulary, Requirement: Resource limits are enforced at launch, Scenario: Application CPU override wins, Scenario: Group defaults apply, Scenario: Hostile JSON leaves the group unchanged, Scenario: Limit failure is visible (+29 more)
 
 ### Community 536 - "Requirement: Merged settings apply to provider configuration"
 Cohesion: 0.20
@@ -3406,12 +3406,12 @@ Cohesion: 0.20
 Nodes (9): core/worker-tuning Specification, Purpose, Requirement: Backoff sleeps grow geometrically to the ceiling, Requirement: Poll ceiling is clamped to a supported range, Requirement: Timer slack is widened on the worker thread, Requirements, Scenario: Requests outside the range are clamped, Scenario: Slack never drops below the kernel default (+1 more)
 
 ### Community 543 - "TraceHeader"
-Cohesion: 0.12
-Nodes (17): active_span_stack(), std::formatter<nexigen::tracing::TraceHeader>, to_string(), TraceHeader, publish_timestamp_ns, sequence_number, source_span_id, trace_id (+9 more)
+Cohesion: 0.08
+Nodes (27): active_span_stack(), current_trace_context(), make_trace_header(), std::formatter<nexigen::tracing::TraceHeader>, to_string(), TraceHeader, publish_timestamp_ns, sequence_number (+19 more)
 
 ### Community 544 - "Requirements"
-Cohesion: 0.05
-Nodes (38): phm/manifest Specification, Purpose, Requirement: Alive count configuration, Requirement: Declarative health manifest, Requirement: Expected process identity, Requirement: Fork/join configuration, Requirement: Manifest diagnostics, Requirement: Manifest serialization (+30 more)
+Cohesion: 0.06
+Nodes (33): phm/manifest Specification, Purpose, Requirement: Alive count configuration, Requirement: Declarative health manifest, Requirement: Expected process identity, Requirement: Fork/join configuration, Requirement: Manifest diagnostics, Requirement: Manifest serialization (+25 more)
 
 ### Community 545 - "Requirements"
 Cohesion: 0.10
@@ -3430,39 +3430,39 @@ Cohesion: 0.19
 Nodes (3): SpanRing, head_, slots_
 
 ### Community 549 - "seal_message"
-Cohesion: 0.23
-Nodes (14): check_message(), checksum_bits(), counter_mask(), Crc16, crc16(), state_, Crc32P4, crc32p4() (+6 more)
+Cohesion: 0.22
+Nodes (12): check_message(), checksum_bits(), counter_mask(), Crc16, crc16(), state_, Crc32P4, crc32p4() (+4 more)
 
-### Community 550 - "ADDED Requirements"
-Cohesion: 0.12
-Nodes (16): ADDED Requirements, Purpose, Requirement: Hot path performs zero allocation and meets latency budgets, Requirement: Stopwatch diagnostic rendering, Requirement: Stopwatch state machine with accumulated intervals, Scenario: Fresh stopwatch is idle with zero elapsed, Scenario: Hot operations never allocate, Scenario: Layout stays within one cache line (+8 more)
+### Community 550 - "Tasks"
+Cohesion: 0.11
+Nodes (15): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why, 1. Baseline and guards (+7 more)
 
 ### Community 551 - "payload_decoder.cpp"
 Cohesion: 0.14
 Nodes (28): PayloadKind, Json, Opaque, PayloadView, kind, text, base64(), decode_field() (+20 more)
 
-### Community 552 - "Iceoryx2MetricSinkConfig"
+### Community 552 - "InitialRootStateTransitionResultResponse"
 Cohesion: 0.15
-Nodes (14): Iceoryx2MetricSinkConfig, app_id, service_name, subscriber_max_buffer_size, std::formatter<nexigen::metrics::Iceoryx2MetricSinkConfig>, to_string(), Requirement: Iceoryx2 metric sink configuration, Scenario: Config diagnostics contract (+6 more)
+Nodes (7): InitialRootStateTransitionResultResponse, result, std::formatter<nexigen::exec::InitialRootStateTransitionResultResponse>, to_string(), from_json(), to_json(), RootLifecycleClient::RootLifecycleClient()
 
 ### Community 553 - "RootLifecycleClient"
 Cohesion: 0.09
 Nodes (12): RootLifecycleClient, app_name_, command_, next_request_id_, query_, reporter_, advance_platform_startup(), gate_machine_startup() (+4 more)
 
-### Community 554 - "2. ARXML and cross-check"
-Cohesion: 0.40
-Nodes (3): 2. ARXML and cross-check, 3. CLI and docs, Tasks
+### Community 554 - "IEventConsumer"
+Cohesion: 0.08
+Nodes (16): IEventConsumer, 1. Назначение и эксплуатационные параметры, 2. Транспортная архитектура (iceoryx2), 3.2. Маркер пустых данных (`EmptyPayload`), 3.3. Конфигурация канала (`ChannelConfig`), 3.4. Генератор событий (`EventProducer<T>`), 3.5. Базовый интерфейс приемника (`IEventConsumer`), 3.6. Приемник событий (`EventConsumer<T>`) (+8 more)
 
 ### Community 555 - "prometheus_render_test.cpp"
 Cohesion: 0.45
 Nodes (10): contains(), make_frame(), render(), test_prometheus_counter(), test_prometheus_descriptive_statistics(), test_prometheus_gauge(), test_prometheus_histogram(), test_prometheus_overflow() (+2 more)
 
-### Community 556 - "Decisions"
-Cohesion: 0.12
-Nodes (16): Context, D10 — Backward compatibility, D1 — `LoggerOptions` + `SpamProtectionConfig` as plain aggregates, D2 — `SpscShardRing` with per-slot sequence counters (Vyukov-style), D3 — `SpscShardPool` pre-allocates at initialization, D4 — `LogRecord` 256 bytes, `alignas(64)`, D5 — Two-level anti-spam, D6 — Integration into `Producer` (+8 more)
+### Community 556 - "JsonFileTraceSinkConfig"
+Cohesion: 0.06
+Nodes (27): ChromeTraceSinkConfig, path, std::formatter<nexigen::tracing::ChromeTraceSinkConfig>, JsonFileTraceSinkConfig, app_name, max_spans_per_window, path, rotation (+19 more)
 
 ### Community 557 - "chrono/settings.cpp"
-Cohesion: 0.22
+Cohesion: 0.20
 Nodes (19): apply_env_interval(), apply_env_mask(), apply_environment(), apply_to(), merge_document(), read_collect_interval(), read_core_mask(), read_kind() (+11 more)
 
 ### Community 558 - "Requirement: Dependency-ordered startup"
@@ -3506,8 +3506,8 @@ Cohesion: 0.22
 Nodes (8): 1. Общие положения, 2.1. `nexigen::sm` — Управление состояниями системы (State Management), 2.2. `nexigen::exec` — Исполнительная часть (Execution Management), 2.3. `nexigen::phm` — Контроль здоровья платформы (Platform Health Management), 2. Требования к распределению ответственности по пространствам имен, 3. Схема взаимодействия подсистем (Sequence Diagram), 4. Требования к реализации межпроцессного взаимодействия (C++23 + iceoryx2), Высокоуровневые требования: Архитектура управления состояниями платформы Nexigen
 
 ### Community 568 - "Requirements"
-Cohesion: 0.11
-Nodes (18): phm/supervised-entity Specification, Purpose, Requirement: Checkpoint reporting, Requirement: Function Group state read, Requirement: Health status reporting, Requirement: Optional identity claim from the supervised entity, Requirement: Supervised entity configuration, Requirement: Supervised entity diagnostics (+10 more)
+Cohesion: 0.10
+Nodes (19): phm/supervised-entity Specification, Purpose, Requirement: Checkpoint reporting, Requirement: Function Group state read, Requirement: Health status reporting, Requirement: Optional identity claim from the supervised entity, Requirement: Supervised entity configuration, Requirement: Supervised entity diagnostics (+11 more)
 
 ### Community 569 - "Requirement: Runnable composite logger example"
 Cohesion: 0.22
@@ -3578,8 +3578,8 @@ Cohesion: 0.22
 Nodes (8): ADDED Requirements, MODIFIED Requirements, Requirement: Canonical and legacy worker settings merge deterministically, Scenario: Canonical fields override legacy fields in one source, Scenario: Console does not inherit legacy file affinity, Scenario: Explicit empty canonical CPUs clear affinity, Scenario: Legacy environment affinity remains compatible, Spec Delta
 
 ### Community 586 - "Mode"
-Cohesion: 0.05
-Nodes (49): is_video(), Mode, McapChunked1m, McapChunked256k, McapNoMessageIndex, McapUnchunked, McapVideo, NxrecBatched1m (+41 more)
+Cohesion: 0.06
+Nodes (41): is_video(), Mode, McapChunked1m, McapChunked256k, McapNoMessageIndex, McapUnchunked, McapVideo, NxrecBatched1m (+33 more)
 
 ### Community 587 - "CompositeTraceSink"
 Cohesion: 0.15
@@ -3602,28 +3602,28 @@ Cohesion: 0.11
 Nodes (18): ADDED Requirements, Purpose, Requirement: Checkpoint claim channel, Requirement: Checkpoint gating, Requirement: Claim verification through /proc, Requirement: Security event channel, Scenario: A claim reaches the daemon, Scenario: A foreign UID is rejected (+10 more)
 
 ### Community 593 - "Tasks"
-Cohesion: 0.11
-Nodes (15): Context, Decisions, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs, 3. Function Groups (+7 more)
+Cohesion: 0.05
+Nodes (32): Context, Decisions, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs, 1. Readiness reporting (+24 more)
 
 ### Community 594 - "exec/application-state Specification"
 Cohesion: 0.22
 Nodes (8): exec/application-state Specification, Purpose, Requirement: Application state diagnostics, Requirement: Report application state, Requirements, Scenario: Application reports running, Scenario: Reporter renders its state, Scenario: Unreported application stays starting
 
-### Community 595 - "E2eState"
-Cohesion: 0.12
-Nodes (13): E2eState, checked, failed, repeated, wrong_sequence, std::formatter<nexigen::com::E2eState>, to_string(), Decisions (+5 more)
+### Community 595 - "run_telemetry"
+Cohesion: 0.16
+Nodes (24): base_settings(), compute_stats(), directory_bytes(), heap_in_use(), main(), Options, keep, out_directory (+16 more)
 
 ### Community 596 - "phmd_identity_helper.cpp"
-Cohesion: 0.15
-Nodes (23): drive(), LifecycleChannel, event, publisher, main(), make_name(), open_claimer(), open_lifecycle() (+15 more)
+Cohesion: 0.08
+Nodes (28): ClaimPublisher, channel_, event_, publisher_, to_string(), drive(), LifecycleChannel, event (+20 more)
 
 ### Community 597 - "Requirement: Dependency-ordered startup"
 Cohesion: 0.14
 Nodes (13): MODIFIED Requirements, Requirement: Dependency-ordered startup, Requirement: Startup-timeout recovery policy, Scenario: Cross-state dependency is rejected, Scenario: Dependent waits for its dependency, Scenario: Dependent waits for Terminated, Scenario: Exhausted startup budget fails the transition, Scenario: Missing dependency fails startup (+5 more)
 
 ### Community 598 - "DroppedStats"
-Cohesion: 0.31
-Nodes (5): DroppedStats, buffer_full, rate_limited, slot_exhausted, to_string()
+Cohesion: 0.16
+Nodes (12): DroppedStats, buffer_full, rate_limited, slot_exhausted, to_string(), D2 — Target file tree (~33 headers), D3 — Promote vocabulary types out of `detail`, delete aliases, D4 — Rename files to match their entity (+4 more)
 
 ### Community 599 - "Requirements"
 Cohesion: 0.12
@@ -3638,8 +3638,8 @@ Cohesion: 0.17
 Nodes (12): name, runs-on, strategy, timeout-minutes, build_type, cmake_args, container_options, name (+4 more)
 
 ### Community 602 - "CommandLineOptions"
-Cohesion: 0.17
-Nodes (11): CommandLineOptions, app_name, global_settings_dir, help, local_settings_dir, log_level, to_string(), Requirement: App name round-trips through serialization (+3 more)
+Cohesion: 0.18
+Nodes (11): 4.8 `app` — прикладной слой, CommandLineDiagnostic, message, option, to_string(), CommandLineError, code, diagnostics (+3 more)
 
 ### Community 603 - "example_of_log_daemon_config.yaml"
 Cohesion: 0.25
@@ -3670,24 +3670,24 @@ Cohesion: 0.25
 Nodes (7): 1. Введение и область применения, 2. Жизненный цикл и изоляция ресурсов (Lifecycle & CPU Affinity), 3. Режимы работы и сбор данных (Collection Modes), 4. Интеграция с трассировкой ядра ОС (Kernel & Scheduling Trace), 5. Формат экспорта и визуализация (Perfetto Serialization), 6. Конфигурация (TraceDaemon Manifest), Спецификация требований к демону трассировки (TraceDaemon)
 
 ### Community 610 - "ADDED Requirements"
-Cohesion: 0.04
-Nodes (46): ADDED Requirements, Purpose, Requirement: Driver and cleanup scripts, Requirement: Event-driven receive, Requirement: Flaky receiver terminates and the platform raises it, Requirement: Generated manifests and daemon configuration, Requirement: Per-vector trace propagation, Requirement: Platform integration of every application (+38 more)
+Cohesion: 0.06
+Nodes (31): ADDED Requirements, Purpose, Requirement: Generated manifests and daemon configuration, Requirement: Per-vector trace propagation, Requirement: Platform integration of every application, Requirement: Pre-loaned publication, Requirement: Receiver display contract, Requirement: Simulation Function Group with three applications (+23 more)
 
 ### Community 611 - "Requirement: Runnable console logger example"
 Cohesion: 0.25
 Nodes (7): ADDED Requirements, Requirement: Runnable console logger example, Scenario: Console diagnostics render, Scenario: Levels format directly, Scenario: Multi-threaded console logging completes, Scenario: Runtime level filtering is visible, Spec Delta
 
-### Community 612 - "Requirements"
-Cohesion: 0.12
-Nodes (16): Purpose, Requirement: Propagable span context, Requirement: Span attribute capacity bounds, Requirement: Span attribute string storage, Requirement: Trace and span identifier generation, Requirements, Scenario: Attribute capacity is bounded, Scenario: Context renders and parses as a diagnostic (+8 more)
+### Community 612 - "Requirement: Restarts follow abnormal termination only"
+Cohesion: 0.13
+Nodes (14): ADDED Requirements, MODIFIED Requirements, Requirement: PHM recovery requests are served, Requirement: Restarts follow abnormal termination only, Scenario: Abnormal exit triggers a delayed retry, Scenario: Exhausted per-application retries mark the application failed, Scenario: Normal exit does not restart, Scenario: Operator stop does not restart (+6 more)
 
 ### Community 613 - "Proposal"
 Cohesion: 0.25
 Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
-### Community 614 - "Requirement: Restarts follow abnormal termination only"
-Cohesion: 0.13
-Nodes (14): ADDED Requirements, MODIFIED Requirements, Requirement: PHM recovery requests are served, Requirement: Restarts follow abnormal termination only, Scenario: Abnormal exit triggers a delayed retry, Scenario: Exhausted per-application retries mark the application failed, Scenario: Normal exit does not restart, Scenario: Operator stop does not restart (+6 more)
+### Community 614 - "Meter"
+Cohesion: 0.11
+Nodes (22): Meter, provider_, MetricProvider, MetricProvider::get_meter(), MetricProvider::has_duplicate(), exp_hist_containment(), exp_hist_empty(), exp_hist_fallback() (+14 more)
 
 ### Community 615 - "Requirement: SpscShardRing overflow policies"
 Cohesion: 0.25
@@ -3710,12 +3710,12 @@ Cohesion: 0.11
 Nodes (18): phm/identity Specification, Purpose, Requirement: Checkpoint claim channel, Requirement: Checkpoint gating, Requirement: Claim verification through /proc, Requirement: Security event channel, Requirements, Scenario: A claim reaches the daemon (+10 more)
 
 ### Community 620 - "MetricAggregator"
-Cohesion: 0.17
+Cohesion: 0.16
 Nodes (6): MetricAggregator, slots_, used_, Slot, frame, used
 
-### Community 621 - "TransitionPreparation"
-Cohesion: 0.14
-Nodes (7): std::formatter<nexigen::sm::TransitionPreparation>, to_string(), TransitionPreparation, publisher_, service_name_, TransitionPreparationPayload, target_state
+### Community 621 - "RecoveryAckTracker"
+Cohesion: 0.10
+Nodes (14): Decision, matched, watchdog_reaction, Entry, active, deadline, group, request_id (+6 more)
 
 ### Community 622 - "Proposal"
 Cohesion: 0.25
@@ -3726,8 +3726,8 @@ Cohesion: 0.25
 Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
 ### Community 624 - "Requirements"
-Cohesion: 0.04
-Nodes (46): examples/simulation-suite Specification, Purpose, Requirement: Driver and cleanup scripts, Requirement: Event-driven receive, Requirement: Flaky receiver terminates and the platform raises it, Requirement: Generated manifests and daemon configuration, Requirement: Per-vector trace propagation, Requirement: Platform integration of every application (+38 more)
+Cohesion: 0.06
+Nodes (32): examples/simulation-suite Specification, Purpose, Requirement: Driver and cleanup scripts, Requirement: Generated manifests and daemon configuration, Requirement: Per-vector trace propagation, Requirement: Platform integration of every application, Requirement: Pre-loaned publication, Requirement: Receiver display contract (+24 more)
 
 ### Community 625 - "Proposal"
 Cohesion: 0.25
@@ -3749,6 +3749,10 @@ Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Propos
 Cohesion: 0.25
 Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
+### Community 630 - "EventConsumer"
+Cohesion: 0.07
+Nodes (15): Channel model, Event system (`com/event-system`), FPGA gateway, Header, Limits, Loss handling, Waiting, EventConsumer (+7 more)
+
 ### Community 631 - "Requirement: State write failures are reported"
 Cohesion: 0.25
 Nodes (7): ADDED Requirements, Requirement: State write failures are reported, Scenario: Failed instance exit write is recorded, Scenario: Failed suite exit write is recorded, Scenario: Failed suite state write is recorded, Scenario: Successful writes stay quiet, Spec Delta
@@ -3757,17 +3761,17 @@ Nodes (7): ADDED Requirements, Requirement: State write failures are reported, S
 Cohesion: 0.17
 Nodes (11): MODIFIED Requirements, Requirement: Documented example invocation, Requirement: Runnable example catalogue, Scenario: Example executables exist after a default build, Scenario: Examples are self-contained, Scenario: Reader can build and run an example from the README, Scenario: Reader can run and clean the command-line settings example, Scenario: Reader can run and clean the suite demonstration (+3 more)
 
-### Community 633 - "load_suite_manifest_auto"
-Cohesion: 0.07
-Nodes (29): ManifestAccessor, Context, ADDED Requirements, Requirement: Machine Manifest loading, Scenario: ARXML machine loads, Scenario: Malformed machine is rejected, Spec Delta, Context (+21 more)
+### Community 633 - "Decisions"
+Cohesion: 0.12
+Nodes (16): Context, D10 — Backward compatibility, D1 — `LoggerOptions` + `SpamProtectionConfig` as plain aggregates, D2 — `SpscShardRing` with per-slot sequence counters (Vyukov-style), D3 — `SpscShardPool` pre-allocates at initialization, D4 — `LogRecord` 256 bytes, `alignas(64)`, D5 — Two-level anti-spam, D6 — Integration into `Producer` (+8 more)
 
 ### Community 634 - "Proposal"
 Cohesion: 0.25
 Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
-### Community 635 - "PublishResult"
-Cohesion: 0.08
-Nodes (18): compute_stats(), TscClock::calibrate(), TscClock::now(), measure_tick_overhead(), peak_rss_kb(), read_ram_kb(), steady_now_ns(), thread_cpu_ns() (+10 more)
+### Community 635 - "metrics.cpp"
+Cohesion: 0.12
+Nodes (22): usage_text(), main(), build_type(), collect_metadata(), compute_stats(), TscClock::calibrate(), TscClock::now(), filesystem_name() (+14 more)
 
 ### Community 636 - "Requirement: Settings sources merge per application"
 Cohesion: 0.25
@@ -3810,12 +3814,12 @@ Cohesion: 0.25
 Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
 ### Community 646 - "FileSink"
-Cohesion: 0.10
-Nodes (15): CountingSink, bytes_, FileSink::file_size(), FileSink::flush(), FileSink, bytes_, fd_, main() (+7 more)
+Cohesion: 0.09
+Nodes (14): CountingSink, bytes_, FileSink::file_size(), FileSink::flush(), FileSink, bytes_, fd_, Sink (+6 more)
 
 ### Community 647 - "ServiceName"
-Cohesion: 0.05
-Nodes (17): EventNotifier, inner_, service_name_, ServiceName, inner_, std::formatter<nexigen::com::ServiceName>, to_string(), CheckpointEmitter (+9 more)
+Cohesion: 0.04
+Nodes (21): EventListener, inner_, service_name_, EventNotifier, inner_, service_name_, std::formatter<nexigen::com::EventListener>, std::formatter<nexigen::com::EventNotifier> (+13 more)
 
 ### Community 648 - "Proposal"
 Cohesion: 0.25
@@ -3826,12 +3830,12 @@ Cohesion: 0.25
 Nodes (7): 1. Baseline and scaffolding, 2. Extract JSON enum validators, 3. Recompose `json_enum_fields_valid`, 4. Extend unit tests, 5. Verification and quality gates, Tasks, Workflow follow-up
 
 ### Community 650 - "SuiteManifest"
-Cohesion: 0.03
-Nodes (109): AppSpec, allow_rt_priority, app, command, cpus, executable_digest, function_group, gid (+101 more)
+Cohesion: 0.04
+Nodes (105): AppSpec, allow_rt_priority, app, command, cpus, executable_digest, function_group, gid (+97 more)
 
 ### Community 651 - "LogicalFork"
-Cohesion: 0.13
-Nodes (9): LogicalFork, branch_entries, fork_id, join_id, std::formatter<nexigen::phm::LogicalFork>, to_string(), from_json(), LogicalFork::to_string() (+1 more)
+Cohesion: 0.08
+Nodes (17): LogicalFork, branch_entries, fork_id, join_id, std::formatter<nexigen::phm::LogicalFork>, to_string(), 1. Types and manifest, 2. Supervision semantics (+9 more)
 
 ### Community 652 - "Proposal"
 Cohesion: 0.25
@@ -3843,15 +3847,15 @@ Nodes (14): ADDED Requirements, Requirement: Recovery response carries a rejecti
 
 ### Community 654 - ".collect_now"
 Cohesion: 0.03
-Nodes (75): Context, D11 — Enabler 5: registration-vs-harvest publication fix (scope addition, user-approved), D1 — Four-example decomposition (supersedes the planned two), D3 — Enabler 2: composite construction from configured members, D4 — TSan-safe harvesting strategy per example, D5 — Self-verification and exit codes, D6 — CMake and CTest wiring, D7 — Robust output path and CI-safe affinity (+67 more)
+Nodes (72): Context, D11 — Enabler 5: registration-vs-harvest publication fix (scope addition, user-approved), D1 — Four-example decomposition (supersedes the planned two), D3 — Enabler 2: composite construction from configured members, D4 — TSan-safe harvesting strategy per example, D5 — Self-verification and exit codes, D6 — CMake and CTest wiring, D7 — Robust output path and CI-safe affinity (+64 more)
 
-### Community 655 - "Requirements"
-Cohesion: 0.12
-Nodes (16): diagnostics/stopwatch Specification, Purpose, Requirement: Hot path performs zero allocation and meets latency budgets, Requirement: Stopwatch diagnostic rendering, Requirement: Stopwatch state machine with accumulated intervals, Requirements, Scenario: Fresh stopwatch is idle with zero elapsed, Scenario: Hot operations never allocate (+8 more)
+### Community 655 - ".restart"
+Cohesion: 0.05
+Nodes (51): D10 — Test TU, latency harness, and the Release overhead benchmark, D11 — Example and documentation, D2 — `Stopwatch` layout: 64-byte, single cache line, zero atomics, D4 — Control-path arithmetic (the exact operations), D5 — Enum contract: `stopwatch_state.hpp`, PascalCase spellings, exact pattern copy, D6 — `LapSnapshot`: value struct, state-first layout, 24 bytes, D7 — `ScopedStopwatch`: single class template + CTAD, sink stored inline, D8 — Guard budget check (+43 more)
 
 ### Community 656 - "RunIdentity"
-Cohesion: 0.03
-Nodes (79): RunIdentity, instance_dir, instance_id, run_dir, run_id, to_string(), resolve_telemetry_paths(), TelemetryPaths (+71 more)
+Cohesion: 0.04
+Nodes (57): RunIdentity, instance_dir, instance_id, run_dir, run_id, to_string(), resolve_telemetry_paths(), TelemetryPaths (+49 more)
 
 ### Community 657 - "Requirements"
 Cohesion: 0.10
@@ -3869,13 +3873,17 @@ Nodes (7): ADDED Requirements, Requirement: Function Group configuration, Requir
 Cohesion: 0.25
 Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
+### Community 661 - "Requirement: Lifecycle-armed supervision"
+Cohesion: 0.12
+Nodes (16): ADDED Requirements, MODIFIED Requirements, Requirement: Exhaustion escalates instead of restarting, Requirement: Lifecycle-armed supervision, Requirement: Status aggregation, Scenario: Deliberate stop is not exhaustion, Scenario: Exhausted process is not restarted again, Scenario: Failed exhaustion is terminal (+8 more)
+
 ### Community 662 - "ADDED Requirements"
 Cohesion: 0.25
 Nodes (7): ADDED Requirements, Purpose, Requirement: PHM fault-event interface, Requirement: Recovery diagnostics, Scenario: Fault event drives SafeState, Scenario: Recovery renders its last fault, Spec Delta
 
-### Community 663 - "execution_manager_logging_test.cpp"
-Cohesion: 0.27
-Nodes (16): contains(), cpu_is_set(), first_allowed_cpu(), main(), read_text(), remove_tree(), run_suite(), test_affinity_and_logger_mask() (+8 more)
+### Community 663 - "CivilTime"
+Cohesion: 0.12
+Nodes (14): CivilTime, day, hour, minute, month, nanosecond, second, year (+6 more)
 
 ### Community 664 - "Tasks"
 Cohesion: 0.25
@@ -3893,9 +3901,9 @@ Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Propos
 Cohesion: 0.25
 Nodes (7): context, rules, design, proposal, specs, tasks, schema
 
-### Community 668 - "Requirements"
-Cohesion: 0.17
-Nodes (11): Metadata, Overview, REC-001: Zero-Impact Subscription & Ingestion, REC-002: Segmented Storage Layout & Out-of-Band Video Blobs, REC-003: Compressed Video Pass-Through, REC-004: All-Intra Encoding for RAW Video Streams, REC-005: Sparse Indexing & Fast Extraction, REC-006: Data Integrity & Crash Resilience (+3 more)
+### Community 668 - "config_loader.cpp"
+Cohesion: 0.21
+Nodes (6): digest_matches(), load_channels(), load_recorder_config(), load_schema_entry(), load_schemas(), read_file()
 
 ### Community 669 - "Requirement: Affinity failures are non-fatal warnings"
 Cohesion: 0.25
@@ -3914,36 +3922,36 @@ Cohesion: 0.25
 Nodes (8): Requirement: Malformed requests are rejected consistently, Scenario: HTTP version is unsupported, Scenario: Invalid limit and cursor values are ignored, Scenario: Invalid percent escape is treated literally, Scenario: Request line exceeds its limit, Scenario: Request line has no target, Scenario: Unsupported method does not change state, Scenario: URL cannot bypass the request-line limit
 
 ### Community 673 - "5. Oversized tests — split into focused sub-functions"
-Cohesion: 0.14
-Nodes (31): 5. Oversized tests — split into focused sub-functions, exp_hist_containment(), exp_hist_empty(), exp_hist_fallback(), exp_hist_log_uniform(), exp_hist_sharded(), exp_hist_windowed(), test_exponential_histogram() (+23 more)
+Cohesion: 0.35
+Nodes (14): 5. Oversized tests — split into focused sub-functions, provider_affinity(), provider_drop_counters(), provider_flush(), provider_idle_wakeups(), provider_lifecycle(), provider_pin_failure(), provider_pool_exhaustion() (+6 more)
 
-### Community 674 - "ApplicationStateReporter"
-Cohesion: 0.16
-Nodes (6): application_state_service(), ApplicationStateReporter, app_name_, notifier_, std::formatter<nexigen::exec::ApplicationStateReporter>, to_string()
+### Community 674 - "EmptyPayload"
+Cohesion: 0.07
+Nodes (28): EmptyPayload, std::formatter<nexigen::com::EmptyPayload>, to_string(), ADDED Requirements, Purpose, Requirement: Channel configuration and limits, Requirement: Event payload contract, Requirement: Event production and publish outcome (+20 more)
 
 ### Community 675 - "coverage_report.py"
 Cohesion: 0.28
 Nodes (4): clean_counters(), collect_line_counts(), main(), summarize()
 
 ### Community 676 - "ExecutionManager"
-Cohesion: 0.07
-Nodes (27): ExecutionManager, Context, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs, Context (+19 more)
+Cohesion: 0.06
+Nodes (32): DataSample, message, sequence, ExecutionManager, Context, Design, Goals / Non-Goals, Migration Plan (+24 more)
 
-### Community 677 - "CustomRecWriter"
-Cohesion: 0.07
-Nodes (23): crc32c_fast(), CustomRecWriter, buffer_, CustomRecWriter::CustomRecWriter(), index_bytes_, index_interval_ns_, index_stride_, interval_max_event_ (+15 more)
+### Community 677 - "Header compilation audit — compiled-module JSON pairs"
+Cohesion: 0.13
+Nodes (10): Audit command, Follow-up candidates (not in this change), Header compilation audit — compiled-module JSON pairs, Result, Rule, Verification for future moves, What this change moved, std::formatter<nexigen::logging::LogFrame> (+2 more)
 
-### Community 678 - "SettingsDigest"
+### Community 678 - "DeterministicConfig"
+Cohesion: 0.09
+Nodes (15): DeterministicConfig, cycle_period_ns, seed, std::formatter<nexigen::exec::DeterministicClient>, std::formatter<nexigen::exec::DeterministicConfig>, to_string(), DeterministicClient::cycle_time_ns(), DeterministicClient::DeterministicClient() (+7 more)
+
+### Community 679 - "EventProducerStats"
 Cohesion: 0.15
-Nodes (11): from_json(), SettingsDigest, path, sha256, std::formatter<nexigen::exec::SettingsDigest>, to_json(), to_string(), 1. Manifest section (+3 more)
+Nodes (9): EventProducerStats, current_epoch, current_sequence, last_notify_error, notify_failures, published, send_failures, std::formatter<nexigen::com::EventProducerStats> (+1 more)
 
-### Community 679 - "mcap_adapter.cpp"
-Cohesion: 0.28
-Nodes (6): count_records_in_memory(), read_opcode(), read_u32(), read_u64(), scan_mcap(), skip_bytes()
-
-### Community 680 - ".bump"
-Cohesion: 0.11
-Nodes (16): Context, D1 — Drop summaries are synthesized by the worker, never pushed into foreign rings, D2 — Runner handshake: EOF means exec succeeded, Decisions, Design, Goals / Non-Goals, Migration Plan, Open Questions (+8 more)
+### Community 680 - "Design"
+Cohesion: 0.20
+Nodes (9): Context, D1 — Drop summaries are synthesized by the worker, never pushed into foreign rings, D2 — Runner handshake: EOF means exec succeeded, Decisions, Design, Goals / Non-Goals, Migration Plan, Open Questions (+1 more)
 
 ### Community 681 - "custom_metric_rules"
 Cohesion: 0.29
@@ -3954,20 +3962,20 @@ Cohesion: 0.29
 Nodes (7): enabled, file_format, flush_interval_sec, flush_on_safestate, max_total_storage_mb, storage_directory, disk_flight_recorder
 
 ### Community 683 - "RunResult"
-Cohesion: 0.07
-Nodes (26): LatencyStats, max_ns, mean_ns, p50_ns, p999_ns, p99_ns, RunResult, allocation_free (+18 more)
+Cohesion: 0.05
+Nodes (35): LatencyStats, max_ns, mean_ns, p50_ns, p999_ns, p99_ns, RunMetadata, build_type (+27 more)
 
-### Community 684 - "impl_"
+### Community 684 - "PendingResponse"
 Cohesion: 0.14
-Nodes (7): impl_, channel, output, schema, stats, writer, SinkWriter
+Nodes (9): ClientTelemetry, correlation_, outstanding_, PendingResponse, inner_, telemetry_, std::formatter<nexigen::com::PendingResponse<Req, Resp>>, to_string() (+1 more)
 
 ### Community 685 - "Requirement: Suite manifest is validated before launch"
 Cohesion: 0.22
 Nodes (9): Requirement: Suite manifest is validated before launch, Scenario: CPU above 63 is not rejected merely for its width, Scenario: CPU index outside the online set is rejected, Scenario: Duplicate application identity is rejected, Scenario: Invalid settings paths are rejected, Scenario: Unknown impact value is rejected, Scenario: Unknown log level is rejected, Scenario: Unsafe identity or relative run directory is rejected (+1 more)
 
-### Community 686 - "RecoveryClient"
-Cohesion: 0.09
-Nodes (15): RecoveryClient, client_, em_channel_, sm_event_, sm_notifier_, std::formatter<nexigen::phm::RecoveryClient>, to_string(), Context (+7 more)
+### Community 686 - "Design"
+Cohesion: 0.12
+Nodes (11): Context, Decisions, Design, Goals / Non-Goals, Open Questions, Risks / Trade-offs, 1. Harness scaffold, 2. Measurement variants (+3 more)
 
 ### Community 687 - "Requirement: Runnable simple settings example"
 Cohesion: 0.29
@@ -4013,9 +4021,9 @@ Nodes (6): Capabilities, Impact, Modified Capabilities, Proposal, What Changes, 
 Cohesion: 0.29
 Nodes (6): ADDED Requirements, Requirement: Embedded script parses and bootstraps, Scenario: Connection badge leaves the initial state, Scenario: Initial tree is fetched and rendered, Scenario: Script parses without error, Spec Delta
 
-### Community 698 - "metric_provider_test.cpp"
-Cohesion: 0.12
-Nodes (15): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why, metrics_fail_scheduler() (+7 more)
+### Community 698 - "load_suite_manifest_auto"
+Cohesion: 0.13
+Nodes (14): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why, 1. XML reader (+6 more)
 
 ### Community 699 - "metric_frame_test.cpp"
 Cohesion: 0.17
@@ -4029,25 +4037,25 @@ Nodes (6): MODIFIED Requirements, Requirement: Stateless infrastructure policy, 
 Cohesion: 0.29
 Nodes (6): ADDED Requirements, Requirement: Application name is app-level, Scenario: App name is set on the aggregate, Scenario: App name renders and serializes, Scenario: Empty app name is allowed, Spec Delta
 
-### Community 702 - "RecoveryResponse"
-Cohesion: 0.11
-Nodes (15): from_json(), RecoveryResponse, outcome, reason, request_id, std::formatter<nexigen::phm::RecoveryResponse>, to_json(), to_string() (+7 more)
+### Community 702 - ".now"
+Cohesion: 0.05
+Nodes (34): D1. `Result`/`Status` are thin aliases over `std::expected`, not a bespoke type, D2. `Timestamp` is a 8-byte value type; `now()` returns `Result<Timestamp>`, D3. SPSC ring buffer: monotonically increasing indices, power-of-two mask, one cache line per direction, D4. Zero-dependency single-file test harness, D5. CMake shape: one INTERFACE library per namespace module plus a `tests/` subdir, Decisions, 1. Build scaffolding, 2. `result.hpp` — error model (+26 more)
 
 ### Community 703 - ".initialize"
 Cohesion: 0.05
-Nodes (41): 4.3. Низкие, check_capacity(), D6. Stateless file policy, 1. LoggerOptions gains runtime message_capacity, 2. Settings loader and capacity check, 3. Logger call sites, 4. Tests, 5. Full build and test matrix (+33 more)
+Nodes (41): 4.3. Низкие, Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why (+33 more)
 
-### Community 704 - "Requirement: Executable digest verification"
-Cohesion: 0.14
-Nodes (13): exec/trusted-executable Specification, Purpose, Requirement: Executable digest verification, Requirement: SHA-256 implementation, Requirement: Trusted executable policy, Requirements, Scenario: Empty input matches, Scenario: Known vector matches (+5 more)
+### Community 704 - "clock_id.hpp"
+Cohesion: 0.20
+Nodes (13): ClockId, boottime, monotonic_raw, realtime, Entry, name, value, EnumTraits<nexigen::chrono::ClockId> (+5 more)
 
 ### Community 705 - "Requirements"
 Cohesion: 0.12
 Nodes (16): Purpose, Requirement: Complexity of decomposed functions stays within the project target, Requirement: Refactored internals preserve all observable behavior, Requirement: `Runner::start` is split into validation, layout, and launch phases, Requirement: `Runner::stop` uses state helpers, Requirement: `supervise_child` delegates to wait helpers, Requirements, runner/process-supervision — internal structure (delta) (+8 more)
 
-### Community 706 - "WaitSetAttachmentId"
-Cohesion: 0.17
-Nodes (4): std::formatter<nexigen::com::WaitSetAttachmentId>, to_string(), WaitSetAttachmentId, inner_
+### Community 706 - "WaitSetGuard"
+Cohesion: 0.07
+Nodes (16): Slot, consumer, guard, std::formatter<nexigen::com::WaitSetAttachmentId>, to_string(), WaitSetAttachmentId, inner_, std::formatter<nexigen::com::WaitSetGuard> (+8 more)
 
 ### Community 707 - "cpp-project-analizer/analyzer.py"
 Cohesion: 0.26
@@ -4065,17 +4073,17 @@ Nodes (17): ADDED Requirements, Purpose, Requirement: Feed policy, Requirement: 
 Cohesion: 0.29
 Nodes (6): Context, Decisions, Design, Goals / Non-Goals, Open Questions, Risks / Trade-offs
 
-### Community 711 - "Tasks"
-Cohesion: 0.13
-Nodes (13): ControlHostFactory, 1. Readiness reporting, 2. Dependency-ordered startup, 4. SafeState priority, 5. Recovery policy and crash cleanup, 6. Tests, 7. Gates, Tasks (+5 more)
+### Community 711 - "suite_json.hpp"
+Cohesion: 0.29
+Nodes (13): collect_array_into(), log_level_json(), read_canonical_thread(), read_cpu_array(), read_cpu_set(), read_env_object(), read_legacy_execution_manager_cpus(), read_log_level() (+5 more)
 
-### Community 712 - "Meter"
-Cohesion: 0.13
-Nodes (14): Meter, provider_, MetricProvider, MetricProvider::get_meter(), MetricProvider::has_duplicate(), test_explicit_histogram_mt(), test_explicit_histogram_mt_empty(), test_explicit_histogram_mt_fallback() (+6 more)
+### Community 712 - "explicit_histogram_test.cpp"
+Cohesion: 0.18
+Nodes (16): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why, test_explicit_histogram_mt() (+8 more)
 
-### Community 713 - "Settings"
-Cohesion: 0.15
-Nodes (11): Settings, diagnostics, global_loaded, local_loaded, max_threads_set, message_capacity_set, options, ring_capacity_set (+3 more)
+### Community 713 - "check_capacity"
+Cohesion: 0.08
+Nodes (23): check_capacity(), D5 — Applying settings is an explicit, lifetime-documented step, Context, Decisions, Design, Goals / Non-Goals, Migration Plan, Risks / Trade-offs (+15 more)
 
 ### Community 714 - "Requirements"
 Cohesion: 0.13
@@ -4093,9 +4101,9 @@ Nodes (6): execution_manager/logging Specification, Purpose, Requirement: Execut
 Cohesion: 0.29
 Nodes (7): Requirement: Live updates use Server-Sent Events, Scenario: All streams are available, Scenario: Heartbeat keeps the connection alive, Scenario: Replay then live, Scenario: Slow client is closed, Scenario: SSE headers are correct, Scenario: Tree snapshots are streamed
 
-### Community 718 - "ChromeTraceSinkConfig"
-Cohesion: 0.15
-Nodes (10): ChromeTraceSinkConfig, path, std::formatter<nexigen::tracing::ChromeTraceSinkConfig>, ChromeTraceSink::to_string(), ChromeTraceSinkConfig::to_string(), from_json(), JsonFileTraceSink::to_string(), JsonFileTraceSinkConfig::to_string() (+2 more)
+### Community 718 - "sink_format.cpp"
+Cohesion: 0.33
+Nodes (3): append_padded(), JsonFileTraceSink::window_filename(), JsonFileTraceSink::write_record_line()
 
 ### Community 719 - "posix_watchdog_device.cpp"
 Cohesion: 0.22
@@ -4114,16 +4122,16 @@ Cohesion: 0.20
 Nodes (9): ADDED Requirements, Requirement: Lifecycle-armed supervision, Requirement: Lifecycle channel diagnostics, Scenario: Legacy PHM keeps working, Scenario: Lifecycle diagnostics are readable, Scenario: Running arms supervision, Scenario: Terminated does not trigger recovery, Scenario: Terminating suspends supervision (+1 more)
 
 ### Community 723 - "Requirement: Infrastructure exposes logger, metric and tracer factories"
-Cohesion: 0.13
-Nodes (14): MODIFIED Requirements, Requirement: Initialization follows a fixed order, Requirement: Runnable minimal infrastructure example, Requirement: Stateless infrastructure policy, Scenario: Components outlive the providers, Scenario: Example exercises logging, metrics and tracing, Scenario: Example reports failures, Scenario: Example stops and flushes (+6 more)
+Cohesion: 0.20
+Nodes (9): MODIFIED Requirements, Requirement: Initialization follows a fixed order, Requirement: Stateless infrastructure policy, Scenario: Components outlive the providers, Scenario: Failure rolls back partial initialization, Scenario: Logger is ready before providers start, Scenario: Policy types are validated at compile time, Scenario: Repeated initialization is idempotent (+1 more)
 
 ### Community 724 - "ControlHost"
-Cohesion: 0.05
-Nodes (22): 10. Recorder: формат и конвертация, 11. Источники, 1. Назначение и принципы, 2. Карта модулей, 3. Слои и зависимости, 6. Инструменты командной строки, 8. Спецификации и трассируемость, 9. Сборка, тесты, установка (+14 more)
+Cohesion: 0.04
+Nodes (36): 10. Recorder: формат и конвертация, 11. Источники, 1. Назначение и принципы, 2. Карта модулей, 3. Слои и зависимости, 6. Инструменты командной строки, 8. Спецификации и трассируемость, 9. Сборка, тесты, установка (+28 more)
 
-### Community 725 - "ClaimPublisher"
-Cohesion: 0.16
-Nodes (5): ClaimPublisher, channel_, event_, publisher_, to_string()
+### Community 725 - "Settings"
+Cohesion: 0.15
+Nodes (11): Settings, diagnostics, global_loaded, local_loaded, max_threads_set, message_capacity_set, options, ring_capacity_set (+3 more)
 
 ### Community 726 - "Requirement: Machine Manifest vocabulary"
 Cohesion: 0.14
@@ -4143,7 +4151,7 @@ Nodes (12): ADDED Requirements, Requirement: Budget validation, Requirement: Gro
 
 ### Community 730 - "thread_management.hpp"
 Cohesion: 0.07
-Nodes (53): apply_affinity(), apply_name(), apply_scheduler(), apply_thread_spec_self(), compute_requested_mask(), Entry, name, value (+45 more)
+Nodes (54): apply_affinity(), apply_name(), apply_scheduler(), apply_thread_spec_self(), compute_requested_mask(), fill_native_cpu_set(), from_json(), from_string() (+46 more)
 
 ### Community 731 - "Requirement: App settings aggregate every subsystem"
 Cohesion: 0.10
@@ -4165,13 +4173,13 @@ Nodes (20): ADDED Requirements, Requirement: Initial machine result conversion s
 Cohesion: 0.18
 Nodes (10): Purpose, Requirement: Update completion and cancellation, Requirement: Update lock blocks TriggerIn, Requirements, Scenario: Cancel restores the previous state, Scenario: Complete restores the target, Scenario: Locked group rejects a trigger, Scenario: Other groups still switch (+2 more)
 
-### Community 736 - "span_frame_format.cpp"
-Cohesion: 0.30
-Nodes (12): force_inline_string(), from_json(), read_app_id(), read_attributes(), read_identity_numbers(), read_ids(), read_name(), read_source_numbers() (+4 more)
+### Community 736 - "HardwareEvent"
+Cohesion: 0.15
+Nodes (10): HardwareEvent, hardware_event_code, hardware_sequence, hardware_timestamp_ns, has_event_code, has_sequence, has_timestamp, payload (+2 more)
 
-### Community 737 - ".append_raw"
-Cohesion: 0.40
-Nodes (5): channel_bit(), mono_now(), SessionWriter::append(), SessionWriter::append_from_shard(), SessionWriter::append_time_sync()
+### Community 737 - "Requirement: EM publishes process lifecycle"
+Cohesion: 0.14
+Nodes (13): exec/process-lifecycle-events Specification, Purpose, Requirement: EM publishes process lifecycle, Requirement: Lifecycle event performance, Requirement: Process lifecycle notification, Requirements, Scenario: Exhausted budget publishes Failed once, Scenario: Hostile JSON leaves the event unchanged (+5 more)
 
 ### Community 738 - "ADDED Requirements"
 Cohesion: 0.17
@@ -4181,9 +4189,9 @@ Nodes (11): ADDED Requirements, Requirement: Platform-control manifest fields, R
 Cohesion: 0.18
 Nodes (10): Context, D1 — Bulk reformat with the pinned version instead of aligning tooling to the tree, D2 — Accept the expanded `NX_CHECK` macro in `log_daemon_test.cpp`, D3 — Accept the formatter's string-literal splitting, D4 — `.git-blame-ignore-revs` lands in a second commit, D5 — Verification order, Decisions, Design (+2 more)
 
-### Community 740 - "CountingSink"
-Cohesion: 0.19
-Nodes (3): CountingSink, deliveries, FailingOnSpanSink
+### Community 740 - "manifest_accessor.cpp"
+Cohesion: 0.24
+Nodes (14): array_json(), decode_entities(), is_array_key(), is_bool_key(), is_numeric_key(), json_key(), load_machine_manifest_auto(), ManifestAccessor::detect() (+6 more)
 
 ### Community 741 - "Tasks"
 Cohesion: 0.33
@@ -4194,20 +4202,20 @@ Cohesion: 0.33
 Nodes (5): 1. Pin nlohmann::json to v3.12.0, 2. Actualize documentation figures, 3. Verification, Tasks, Workflow follow-up
 
 ### Community 743 - "Decisions"
-Cohesion: 0.08
-Nodes (25): current_trace_context(), make_trace_header(), 2. tracing: TraceHeader + TraceContext, 3. tracing: NEW_ROOT + start_span fallback, 4. Tests, 5. Verification matrix, Tasks, Workflow follow-up (+17 more)
+Cohesion: 0.13
+Nodes (14): Context, D1 — Two separate executables, not one role-based binary, D2 — Payload is a fixed, trivially-copyable struct, D5 — Trace observability via the log daemon, D6 — Driver generates all config into a demo root, D7 — Concrete affinity map, D8 — `SCHED_OTHER`, priority 0, everywhere, D9 — Launch order via `dependencies` (+6 more)
 
 ### Community 744 - "SuiteState"
-Cohesion: 0.05
-Nodes (36): Entry, name, value, EnumTraits<nexigen::exec::ImpactOnAppSuiteOperability>, entries, fallback, from_string(), ImpactOnAppSuiteOperability (+28 more)
+Cohesion: 0.06
+Nodes (31): Entry, name, value, EnumTraits<nexigen::exec::ImpactOnAppSuiteOperability>, entries, fallback, from_string(), ImpactOnAppSuiteOperability (+23 more)
 
-### Community 745 - "McapBenchWriter"
-Cohesion: 0.14
-Nodes (8): McapBenchWriter::close(), McapBenchWriter::stats(), McapBenchWriter, McapStats, bytes, channels, failed, messages
+### Community 745 - "TransitionRecord"
+Cohesion: 0.12
+Nodes (12): std::formatter<nexigen::sm::TransitionRecord>, to_string(), TransitionRecord, function_group, new_state, old_state, requester_id, result (+4 more)
 
-### Community 746 - "clock_id.hpp"
-Cohesion: 0.20
-Nodes (13): ClockId, boottime, monotonic_raw, realtime, Entry, name, value, EnumTraits<nexigen::chrono::ClockId> (+5 more)
+### Community 746 - "crc32c_fast"
+Cohesion: 0.16
+Nodes (10): crc32c_fast(), CustomVerify, header_crc_ok, index_entries, index_ok, messages, payload_crc_ok, read_record_header() (+2 more)
 
 ### Community 747 - "Tasks"
 Cohesion: 0.33
@@ -4241,9 +4249,9 @@ Nodes (5): Capabilities, Impact, Proposal, What Changes, Why
 Cohesion: 0.33
 Nodes (5): ADDED Requirements, metrics/metric-provider delta spec, Requirement: Meter publication is serialized with harvesting, Scenario: Concurrent identical get_meter hands out one meter, Scenario: get_meter races the harvester
 
-### Community 755 - "make_test_infra"
-Cohesion: 0.23
-Nodes (9): make_test_infra(), TestInfra, test_infrastructure_conflict(), test_infrastructure_failures(), test_infrastructure_lifecycle(), test_infrastructure_required_thread_rollback(), test_infrastructure_signals(), test_infrastructure_stop_and_mask() (+1 more)
+### Community 755 - "TransitionPreparation"
+Cohesion: 0.14
+Nodes (7): std::formatter<nexigen::sm::TransitionPreparation>, to_string(), TransitionPreparation, publisher_, service_name_, TransitionPreparationPayload, target_state
 
 ### Community 756 - "Proposal"
 Cohesion: 0.33
@@ -4262,20 +4270,20 @@ Cohesion: 0.33
 Nodes (5): Capabilities, Impact, Proposal, What Changes, Why
 
 ### Community 760 - "StatePublication"
-Cohesion: 0.08
-Nodes (16): StatePublication, fields_, std::formatter<nexigen::sm::StatePublication>, to_string(), copy_name(), is_off_like(), LsmRuntime::create(), LsmRuntime::handles() (+8 more)
+Cohesion: 0.09
+Nodes (11): Deferred: отложенные работы платформы (не забыть доделать), EM — продакшн-харденинг (отложено до этапа production hardening), SM — event-нотификация смены состояния (future), SM — интеграция с UCM (отложено до появления Update Manager), Контекст аудита EM (2026-11-10), Манифесты — YAML-вход (отложено из-за mandate 12), Переименование под SRS-номенклатуру (planned), StatePublication (+3 more)
 
 ### Community 761 - "Requirement: SafeState priority"
 Cohesion: 0.33
 Nodes (5): ADDED Requirements, Requirement: SafeState priority, Scenario: Ordinary transitions proceed afterwards, Scenario: SafeState overtakes queued transitions, Spec Delta
 
-### Community 762 - "Design"
-Cohesion: 0.18
-Nodes (10): Context, D1 — Vocabulary and payload live in `nexigen_exec`, D2 — One standard channel, D5 — Event ordering, Decisions, Design, Goals / Non-Goals, Migration Plan (+2 more)
+### Community 762 - "Requirement: Executable digest verification"
+Cohesion: 0.14
+Nodes (13): exec/trusted-executable Specification, Purpose, Requirement: Executable digest verification, Requirement: SHA-256 implementation, Requirement: Trusted executable policy, Requirements, Scenario: Empty input matches, Scenario: Known vector matches (+5 more)
 
-### Community 763 - "bounded_name"
-Cohesion: 0.15
-Nodes (8): bounded_name(), 1. Identity primitives, 2. Daemon wiring, 3. Documentation and verification, 4. Review follow-up, Tasks, Workflow follow-up, Workflow follow-up
+### Community 763 - "Settings"
+Cohesion: 0.12
+Nodes (16): Settings, app_name, chrono, logging, metrics, signal_thread, tracing, to_string() (+8 more)
 
 ### Community 764 - "SampleMut"
 Cohesion: 0.28
@@ -4302,8 +4310,8 @@ Cohesion: 0.33
 Nodes (6): Requirement: Request headers are matched case-insensitively, Scenario: A similarly named header is not used, Scenario: Header whitespace is tolerated, Scenario: Invalid cursor is ignored, Scenario: Lowercase header resumes the stream, Scenario: Mixed-case header resumes the stream
 
 ### Community 770 - "McapOutput"
-Cohesion: 0.14
-Nodes (3): McapOutput::close(), McapOutput::McapOutput(), McapOutput
+Cohesion: 0.09
+Nodes (8): McapOutput::close(), McapOutput::McapOutput(), McapOutput, impl_, channels, failed, schemas, writer
 
 ### Community 771 - "Requirement: Factory hierarchy and passkey construction"
 Cohesion: 0.14
@@ -4313,13 +4321,13 @@ Nodes (13): MODIFIED Requirements, Requirement: Factory hierarchy and passkey co
 Cohesion: 0.20
 Nodes (9): ADDED Requirements, Requirement: Field-extraction helpers are non-throwing and cold-path only, Requirement: Manifest and config deserialization uses a shared field vocabulary, Scenario: Missing field leaves the destination untouched, Scenario: Object and array composition keep the current semantics, Scenario: Out-of-range unsigned value is rejected without terminating, Scenario: Vocabulary is cold-path only, Scenario: Wrong-typed field is ignored (+1 more)
 
-### Community 773 - "Decisions"
-Cohesion: 0.06
-Nodes (29): ScalarShard, value, ShardedScalar, shards_, slot_kind_index(), thread_slot(), D2 — Enabler 1: `thread_slot()` call-site fix, Capabilities (+21 more)
+### Community 773 - "thread_slot"
+Cohesion: 0.09
+Nodes (16): ScalarShard, value, ShardedScalar, shards_, slot_kind_index(), thread_slot(), D2 — Enabler 1: `thread_slot()` call-site fix, Capabilities (+8 more)
 
-### Community 774 - "What Changes"
-Cohesion: 0.16
-Nodes (15): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why, suite_console() (+7 more)
+### Community 774 - "TimestampDomain"
+Cohesion: 0.12
+Nodes (14): Entry, name, value, EnumTraits<nexigen::com::TimestampDomain>, entries, from_string(), std::formatter<nexigen::com::TimestampDomain>, TimestampDomain (+6 more)
 
 ### Community 777 - "Requirement: Function Group initial state"
 Cohesion: 0.22
@@ -4329,9 +4337,9 @@ Nodes (8): MODIFIED Requirements, Requirement: Function Group initial state, Sce
 Cohesion: 0.06
 Nodes (30): phm/recovery Specification, Purpose, Requirement: Fault log record integrity, Requirement: Fault storage, Requirement: Local process recovery, Requirement: Missing acknowledgement escalates to the watchdog, Requirement: Recovery diagnostics, Requirement: Recovery request correlation (+22 more)
 
-### Community 779 - "ADDED Requirements"
+### Community 779 - "ShardState"
 Cohesion: 0.15
-Nodes (12): ADDED Requirements, Purpose, Requirement: Background-thread CPU isolation, Requirement: Node and daemon-less discovery, Requirement: Protocol-independent boundary, Requirement: Service naming, Scenario: Business code is transport-agnostic, Scenario: Infrastructure threads pin to background cores (+4 more)
+Nodes (14): Entry, name, value, EnumTraits<nexigen::logging::ShardState>, entries, from_json(), from_string(), ShardState (+6 more)
 
 ### Community 780 - "security"
 Cohesion: 0.40
@@ -4350,20 +4358,20 @@ Cohesion: 0.15
 Nodes (12): Context, D1 — Action sink boundary, D2 — Transition rule, D3 — JSON shape, D4 — Manifest integration, D5 — No concurrency, Decisions, Design (+4 more)
 
 ### Community 784 - "RecoveryHandler"
-Cohesion: 0.07
-Nodes (16): PendingRestart, app, RecoveryHandler, k_pending_capacity, manifest_, pending_count_, restart_, server_ (+8 more)
+Cohesion: 0.05
+Nodes (21): PendingRestart, app, RecoveryHandler, k_pending_capacity, manifest_, pending_count_, restart_, server_ (+13 more)
 
-### Community 785 - "MODIFIED Requirements"
-Cohesion: 0.14
-Nodes (13): MODIFIED Requirements, Requirement: Chrono settings carry a sink configuration, Requirement: Invalid sink configuration degrades to best effort, Requirement: Merged settings apply to provider configuration, Scenario: Absent sink block leaves an unconfigured sink, Scenario: Empty path is accepted as unconfigured, Scenario: Non-object sink keeps the previous sink, Scenario: Provider config receives every mapped field (+5 more)
+### Community 785 - "SegmentFileHeader"
+Cohesion: 0.12
+Nodes (13): SegmentFileHeader, file_kind, flags, header_crc32c, magic, reserved0, reserved1, segment_seq (+5 more)
 
 ### Community 786 - "SessionWriter"
-Cohesion: 0.08
-Nodes (10): Converter, Recorder raw format and converter, Records, Regression suite, Schema-driven payloads, Storage layout, SessionWriter, impl_ (+2 more)
+Cohesion: 0.13
+Nodes (4): SessionWriter, impl_, SessionWriter::SessionWriter(), dummy_control_factory()
 
-### Community 787 - "deterministic_client.cpp"
-Cohesion: 0.20
-Nodes (8): DeterministicClient::cycle_time_ns(), DeterministicClient::random_u64(), DeterministicClient::to_string(), DeterministicClient::wait_for_next_cycle(), DeterministicConfig::to_string(), from_json(), monotonic_now_ns(), to_json()
+### Community 787 - "read_verified"
+Cohesion: 0.15
+Nodes (8): digests_equal(), fold_hex(), read_verified(), Context, Design, Goals / Non-Goals, Migration Plan, Risks / Trade-offs
 
 ### Community 788 - "Requirement: Degrade and not-impact levels bound the damage"
 Cohesion: 0.40
@@ -4415,7 +4423,7 @@ Nodes (4): MODIFIED Requirements, Requirement: Complexity of decomposed function
 
 ### Community 800 - "SupervisedEntity"
 Cohesion: 0.05
-Nodes (33): ClaimConfig, channel, event, interval, std::formatter<nexigen::phm::SupervisedEntity>, SupervisedEntity, checkpoint_, claim_ (+25 more)
+Nodes (29): ClaimConfig, channel, event, interval, std::formatter<nexigen::phm::SupervisedEntity>, SupervisedEntity, checkpoint_, claim_ (+21 more)
 
 ### Community 801 - "MODIFIED Requirements"
 Cohesion: 0.40
@@ -4450,20 +4458,20 @@ Cohesion: 0.40
 Nodes (5): Requirement: Suite supervisor records lifecycle and policy events, Scenario: Application exit is recorded, Scenario: Retry and failure decisions are recorded, Scenario: Stop and forced stop are recorded, Scenario: Whole-suite restart is recorded
 
 ### Community 809 - "Decisions"
-Cohesion: 0.17
-Nodes (11): D1 — Model, D2 — Reference syntax, D3 — ARXML profile, D5 — CLI, D6 — No hot path or concurrency, Decisions, Design, Goals / Non-Goals (+3 more)
+Cohesion: 0.15
+Nodes (12): Context, D1 — Model, D2 — Reference syntax, D3 — ARXML profile, D5 — CLI, D6 — No hot path or concurrency, Decisions, Design (+4 more)
 
 ### Community 810 - "Requirement: HTTP parsing and errors are bounded"
 Cohesion: 0.40
 Nodes (5): Requirement: HTTP parsing and errors are bounded, Scenario: Keep-alive is supported, Scenario: Oversized request is rejected, Scenario: Unknown path is not found, Scenario: Unsupported method is rejected
 
-### Community 811 - "ADDED Requirements"
-Cohesion: 0.14
-Nodes (13): ADDED Requirements, Requirement: Update completion and cancellation, Requirement: Update lock blocks TriggerIn, Requirement: Update start, Scenario: Cancel restores the previous state, Scenario: Complete restores the target, Scenario: Concurrent update is busy, Scenario: Locked group rejects a trigger (+5 more)
+### Community 811 - "Decisions"
+Cohesion: 0.11
+Nodes (16): Context, D1 — Один поток: WaitSet, interval + notification, D2 — Ring: pre-allocated массив, drop-oldest, без атомиков, D3 — Триггер: PHM→SM RecoveryNotification, не SM-поле, D4 — Бинарный снимок с версионированным заголовком, D5 — Политика сброса: freeze, temp+rename, clear, no dump on SIGTERM, D6 — Ротация дампов, D7 — Lifecycle, affinity, mlockall, readiness (+8 more)
 
-### Community 812 - "arena_used"
-Cohesion: 0.22
-Nodes (12): test_attributes(), test_ids_and_context(), test_ids_and_context_alloc_free(), test_ids_and_context_concurrent(), test_ids_and_context_diagnostics(), test_ids_and_context_handoff(), test_ids_and_context_hex_json(), test_ids_and_context_sentinels() (+4 more)
+### Community 812 - ".pop"
+Cohesion: 0.14
+Nodes (10): Body, self, SinkBinding, self, TracerProvider<ShardCapacity, MaxThreads>::answer_flush(), TracerProvider<ShardCapacity, MaxThreads>::deliver_batch(), TracerProvider<ShardCapacity, MaxThreads>::flush(), TracerProvider<ShardCapacity, MaxThreads>::initialize() (+2 more)
 
 ### Community 813 - "ListenAddress"
 Cohesion: 0.20
@@ -4489,21 +4497,21 @@ Nodes (3): find_app(), find_runner(), run_suite_demo.sh script
 Cohesion: 0.22
 Nodes (8): Context, D1 — Rename to PascalCase, do not add `// NX_ALLOW_NAMING` opt-outs, D2 — Fix the result-value finding by renaming the test local, not by opting out, D3 — Rename in place, one file per commit-sized step, Decisions, Design, Goals / Non-Goals, Risks / Trade-offs
 
-### Community 819 - "Decisions"
-Cohesion: 0.15
-Nodes (12): Context, D1 — One binary, role and timing via environment (not CLI tokens), D2 — Settings via `--global-settings <instance_dir>/settings`, D3 — Three-role manifest with concrete timings, D5 — Exit path per role, D6 — Script-generated manifest (no machine-specific absolute paths), D7 — No new concurrent/atomic component, Decisions (+4 more)
+### Community 819 - "ADDED Requirements"
+Cohesion: 0.10
+Nodes (20): ADDED Requirements, Purpose, Requirement: Budget-overrun check, Requirement: Construction overloads and default-clock fallback, Requirement: Hot-path and layout guarantees, Requirement: RAII scope measurement, Requirement: ScopedStopwatch diagnostic rendering, Scenario: Default budget participates when configured (+12 more)
 
-### Community 820 - "Tasks"
-Cohesion: 0.15
-Nodes (12): 3. Сильные стороны, D1: Flush gcov counters explicitly in forked children, 1. Coverage across fork boundaries, 2. Per-module coverage gates, 4. HTTP edge hardening, 5. Runner state-write warnings, 6. Reproducible and portable builds, 7. Coverage growth for runner and hub (+4 more)
+### Community 820 - "Decisions"
+Cohesion: 0.13
+Nodes (14): Context, D1. Module structure: `nexigen::runner` library + `nexigen-run` binary, D2b. Detached supervisor, D3. Settings generation reuses `app/telemetry-layout` resolution, D4. resource.json and exit.json are plain structs with the serialisation trio, D5. `Runner::stop` uses SIGTERM → grace → SIGKILL, D6. `Runner::status` checks /proc, D7. Cold-path and concurrency impact (+6 more)
 
-### Community 821 - "DataSample"
-Cohesion: 0.17
-Nodes (11): DataSample, message, sequence, Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal (+3 more)
+### Community 821 - "UnrecoverableState"
+Cohesion: 0.23
+Nodes (4): to_string(), UnrecoverableState, project_hook_, terminator_
 
-### Community 822 - ".prepare"
-Cohesion: 0.33
-Nodes (9): Requirement: Provider construction and sink binding, Requirement: Calibration gates issuance, Scenario: Calibration failure is surfaced and retrievable, Scenario: Issuance before prepare is rejected, Scenario: Prepared provider issues calibrated sources, Requirement: Calibration gates issuance, Scenario: Calibration failure is surfaced and retrievable, Scenario: Issuance before prepare is rejected (+1 more)
+### Community 822 - "Requirements"
+Cohesion: 0.12
+Nodes (16): com/request-response Specification, Purpose, Requirement: Asynchronous pending responses, Requirement: Correlation of requests, Requirement: Method port diagnostics, Requirement: Method zero-copy and non-POD rejection, Requirement: Synchronous call with timeout, Requirement: Typed client and server (+8 more)
 
 ### Community 823 - "lifecycle"
 Cohesion: 0.50
@@ -4517,9 +4525,9 @@ Nodes (4): ipc_iceoryx2, batch_timeout_ms, event_channel, service_name
 Cohesion: 0.50
 Nodes (4): compression, max_archive_files, max_file_size_mb, rotation
 
-### Community 826 - "Requirement: Settings diagnostics are serializable"
-Cohesion: 0.18
-Nodes (10): MODIFIED Requirements, Requirement: Runnable simple settings example, Requirement: Settings diagnostics are serializable, Scenario: Diagnostic JSON round-trips, Scenario: Diagnostic renders its source and field, Scenario: Example creates its own inputs, Scenario: Failures are visible, Scenario: Logger initializes from the merged files (+2 more)
+### Community 826 - "example_format.hpp"
+Cohesion: 0.08
+Nodes (13): LogFrame256, bytes, find_log_file(), main(), print_line(), verify_log_file(), wait_for_writer(), EnumTraits<ErrorCode> (+5 more)
 
 ### Community 827 - "Design"
 Cohesion: 0.22
@@ -4573,17 +4581,17 @@ Nodes (4): Requirement: Runner diagnostics use the project file logger, Scenario
 Cohesion: 0.50
 Nodes (3): logging/spsc-shard-ring delta spec, REMOVED Requirements, Requirement: SpscShardRing overflow policies
 
-### Community 840 - "TransitionRecord"
-Cohesion: 0.12
-Nodes (12): std::formatter<nexigen::sm::TransitionRecord>, to_string(), TransitionRecord, function_group, new_state, old_state, requester_id, result (+4 more)
+### Community 840 - "Requirement: Settings diagnostic records a finding"
+Cohesion: 0.15
+Nodes (12): ADDED Requirements, Purpose, Requirement: Settings diagnostic records a finding, Requirement: Settings source enumerates the merge layers, Requirement: Settings vocabulary is cold path only, Scenario: Diagnostic renders source, field, and message, Scenario: Diagnostic round-trips through JSON, Scenario: Hostile JSON leaves the diagnostic unchanged (+4 more)
 
 ### Community 841 - "Requirement: Function Group initial state"
 Cohesion: 0.25
 Nodes (7): MODIFIED Requirements, Requirement: Function Group initial state, Scenario: Default initial state is the first non-Off state, Scenario: Initial-state transition failure is visible, Scenario: Suite start enters the configured state, Scenario: Unknown initial state is rejected, Spec Delta
 
-### Community 842 - ".shutdown"
-Cohesion: 0.06
-Nodes (40): Context, D1 — New module and dependency direction, D3 — Initialization order and rollback, D5 — SIGINT/SIGTERM via signalfd watcher, D6 — Shutdown order and idempotency, D7 — Settings model and loaders, D8 — Example and tests, Decisions (+32 more)
+### Community 842 - "REMOVED Requirements"
+Cohesion: 0.15
+Nodes (12): REMOVED Requirements, Requirement: Background snapshot delivery and collection period, Requirement: CPU core affinity, Requirement: Deferred worker start, Requirement: Optional worker logger, Requirement: Provider configuration serialization, Requirement: Provider construction and sink binding, Requirement: Provider control plane (+4 more)
 
 ### Community 843 - "Requirement: MetricsDaemon HTTP thread is configurable"
 Cohesion: 0.25
@@ -4597,9 +4605,9 @@ Nodes (16): ADDED Requirements, Purpose, Requirement: Allocation-free hashing pa
 Cohesion: 0.08
 Nodes (23): ADDED Requirements, Purpose, Requirement: Benchmark is isolated from production artifacts, Requirement: Candidate storage modes cover the decision space, Requirement: Metrics and integrity are reported, Requirement: Publish-path header cost is measured, Requirement: Results are reproducible and drive a recommendation, Requirement: Workloads are deterministic and identical across formats (+15 more)
 
-### Community 846 - "ExecutionDependency"
-Cohesion: 0.24
-Nodes (7): ExecutionDependency, process, state, std::formatter<nexigen::exec::ExecutionDependency>, to_string(), from_json(), to_json()
+### Community 846 - "nexigen-em/main.cpp"
+Cohesion: 0.21
+Nodes (11): apply_string_option(), is_string_option(), main(), Options, config, machine, manifest_sha256, run_dir (+3 more)
 
 ### Community 847 - "Requirements"
 Cohesion: 0.12
@@ -4633,25 +4641,25 @@ Nodes (4): Requirement: Control-plane refresh failures are reported, Scenario: A
 Cohesion: 0.50
 Nodes (4): Requirement: Web assets are served by the binary, Scenario: Assets are served, Scenario: Assets work offline, Scenario: Index is served
 
-### Community 855 - "UnrecoverableState"
-Cohesion: 0.23
-Nodes (4): to_string(), UnrecoverableState, project_hook_, terminator_
+### Community 855 - "Requirements"
+Cohesion: 0.10
+Nodes (20): diagnostics/stopwatch Specification, Purpose, Requirement: Hot path performs zero allocation and meets latency budgets, Requirement: Sampled from the nexigen chrono clock domain, Requirement: Stopwatch diagnostic rendering, Requirement: Stopwatch state machine with accumulated intervals, Requirements, Scenario: Default construction uses the raw monotonic clock (+12 more)
 
 ### Community 856 - "Sha256"
-Cohesion: 0.20
+Cohesion: 0.19
 Nodes (8): load_be32(), rotr(), Sha256, buffer_, buffer_len_, state_, total_len_, store_be32()
 
 ### Community 857 - "Минимальные задержки: пошаговое руководство"
-Cohesion: 0.05
-Nodes (38): 0. Сначала договоритесь, что измеряете, 10. Сводка, 11. Чек-лист, 12. Как воспроизвести, 1. Собирайте Release, а не Debug (×7), 2. Не опрашивайте — просыпайтесь по событию, 3. Предзаймите чанк — держите `loan` вне горячего пути, 5. `SCHED_FIFO` — убрать очередь планировщика (+30 more)
+Cohesion: 0.07
+Nodes (27): 0. Сначала договоритесь, что измеряете, 10. Сводка, 11. Чек-лист, 12. Как воспроизвести, 1. Собирайте Release, а не Debug (×7), 2. Не опрашивайте — просыпайтесь по событию, 3. Предзаймите чанк — держите `loan` вне горячего пути, 5. `SCHED_FIFO` — убрать очередь планировщика (+19 more)
 
 ### Community 858 - "Proposal"
 Cohesion: 0.25
 Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
-### Community 860 - "ADDED Requirements"
-Cohesion: 0.14
-Nodes (13): ADDED Requirements, Requirement: Applications resolve one resource group, Requirement: Resource group vocabulary, Requirement: Resource limits are enforced at launch, Scenario: Application CPU override wins, Scenario: Group defaults apply, Scenario: Hostile JSON leaves the group unchanged, Scenario: Limit failure is visible (+5 more)
+### Community 860 - "Requirements"
+Cohesion: 0.17
+Nodes (11): Metadata, Overview, REC-001: Zero-Impact Subscription & Ingestion, REC-002: Segmented Storage Layout & Out-of-Band Video Blobs, REC-003: Compressed Video Pass-Through, REC-004: All-Intra Encoding for RAW Video Streams, REC-005: Sparse Indexing & Fast Extraction, REC-006: Data Integrity & Crash Resilience (+3 more)
 
 ### Community 861 - "Storage-format benchmark results"
 Cohesion: 0.10
@@ -4661,13 +4669,13 @@ Nodes (19): Build, Production writer companion, Recorder storage-format benchmar
 Cohesion: 0.14
 Nodes (13): ADDED Requirements, Purpose, Requirement: Monitor diagnostics, Requirement: Threshold policy, Requirement: Time synchronization classification, Scenario: A backwards jump is detected, Scenario: A custom policy is honoured, Scenario: A fast slew is detected (+5 more)
 
-### Community 864 - "Requirement: EM action sink"
-Cohesion: 0.15
-Nodes (12): Purpose, Requirement: EM action sink, Requirement: LSM application-group gate, Requirement: LSM Function Group binding, Requirements, Scenario: Duplicate binding is rejected, Scenario: Platform not ready, Scenario: Publish action updates the field (+4 more)
+### Community 864 - "smoke_test.cpp"
+Cohesion: 0.32
+Nodes (11): call_run(), count_lines(), main(), make_command(), make_root(), StateClient, verify_digest_gate(), verify_phm_restart() (+3 more)
 
-### Community 865 - "SpanId"
-Cohesion: 0.11
-Nodes (7): ActiveFrame, span_id, trace_id, ActiveSpanStack, frames_, SpanId, TraceId
+### Community 865 - "ActiveSpanStack"
+Cohesion: 0.24
+Nodes (5): ActiveFrame, span_id, trace_id, ActiveSpanStack, frames_
 
 ### Community 866 - "Requirement: Client read logic is layered"
 Cohesion: 0.67
@@ -4682,64 +4690,64 @@ Cohesion: 0.67
 Nodes (3): Requirement: The API is observation-only, Scenario: No control endpoint exists, Scenario: State files are not modified
 
 ### Community 904 - "Requirements"
-Cohesion: 0.14
-Nodes (13): Purpose, Requirement: Pending transitions carry a request id, Requirement: Request arbitration, Requirement: State machines execution, Requirements, Scenario: Cancellation drops the pending transition, Scenario: Higher priority wins, Scenario: InProgress retries reuse the id (+5 more)
+Cohesion: 0.10
+Nodes (20): Purpose, Requirement: Pending transitions carry a request id, Requirement: Request arbitration, Requirement: Startup and shutdown sequencing, Requirement: State machines execution, Requirements, Scenario: Application groups wait for RootFG Run, Scenario: Cancellation drops the pending transition (+12 more)
 
 ### Community 905 - "exec/update-state Specification"
 Cohesion: 0.20
 Nodes (9): exec/update-state Specification, Purpose, Requirement: Daemons relaunch after Update, Requirement: Update is an off-like EM state, Requirements, Scenario: Completed oneshot stays terminal, Scenario: Daemon returns after update, Scenario: Entering Update stops the group (+1 more)
 
-### Community 906 - "CheckpointClaim"
-Cohesion: 0.24
-Nodes (6): CheckpointClaim, name, pid, uid, std::formatter<nexigen::phm::CheckpointClaim>, to_string()
+### Community 906 - "Options"
+Cohesion: 0.12
+Nodes (15): Options, help, iterations, keep_files, mode, no_chunk_crc, out_directory, seconds (+7 more)
 
-### Community 907 - "Decisions"
-Cohesion: 0.15
-Nodes (12): D2 — Service lives directly in `nexigen::chrono`, D3 — Snapshot record is a 16-byte value type, D5 — Concurrency and memory layout, D6 — Offset sampling skew, D7 — Sink contract mirrors metrics/tracing, D8 — Settings loader reuses the logging vocabulary, D9 — Serialization on every new type, Decisions (+4 more)
+### Community 907 - "ADDED Requirements"
+Cohesion: 0.17
+Nodes (11): ADDED Requirements, Purpose, Requirement: LoggerOptions defines the engine configuration, Requirement: OverflowPolicy enum controls full-ring behavior, Requirement: Runtime reconfiguration is wait-free, Scenario: Default-constructed options carry documented defaults, Scenario: Overflow policy values are serializable, Scenario: Runtime reconfiguration never blocks producers (+3 more)
 
-### Community 908 - "SecurityEvent"
-Cohesion: 0.21
-Nodes (7): SecurityEvent, kind, pid, process, uid, std::formatter<nexigen::phm::SecurityEvent>, to_string()
+### Community 908 - "ADDED Requirements"
+Cohesion: 0.17
+Nodes (11): ADDED Requirements, Requirement: EM publishes process lifecycle, Requirement: Lifecycle event performance, Requirement: Process lifecycle notification, Scenario: Hostile JSON leaves the event unchanged, Scenario: Lifecycle event round-trips, Scenario: No PHM subscriber is harmless, Scenario: Readiness publishes Running (+3 more)
 
-### Community 909 - "Proposal"
-Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+### Community 909 - "LossInfo"
+Cohesion: 0.06
+Nodes (27): LossInfo, actual_sequence, actual_timestamp_domain, actual_timestamp_ns, expected_sequence, lost_count, new_epoch, old_epoch (+19 more)
 
 ### Community 910 - "ADDED Requirements"
 Cohesion: 0.12
 Nodes (15): ADDED Requirements, Purpose, Requirement: Compile-time level naming, Requirement: LogLevel name parsing, Requirement: Severity catalogue, Requirement: std::formatter for LogLevel, Scenario: Enumerators are distinct and severity-ordered, Scenario: Every level name round-trips with to_string (+7 more)
 
-### Community 911 - "Requirement: CPU core affinity"
-Cohesion: 0.14
-Nodes (13): MODIFIED Requirements, Requirement: CPU core affinity, Requirement: Provider configuration serialization, Scenario: Configuration formats, Scenario: Configuration JSON round-trip, Scenario: Configuration renders diagnostics, Scenario: CPU above 63 is supported, Scenario: Disabled harvesting applies nothing (+5 more)
+### Community 911 - "Design"
+Cohesion: 0.18
+Nodes (10): fault(), Context, D3: Inline test-only fault seam, D4: Analyzer opt-ins, Decisions, Design, Goals / Non-Goals, Migration Plan (+2 more)
 
-### Community 912 - "instance_dir_path"
-Cohesion: 0.11
-Nodes (20): absolute_from_cwd(), absolute_path(), current_directory(), directory_of(), has_parent_segment(), instance_dir_path(), join_path(), 1. Validator decomposition (+12 more)
+### Community 912 - "Decisions"
+Cohesion: 0.17
+Nodes (11): 1. Validator decomposition, 2. Keep validators in the anonymous namespace, 3. Test through the public orchestrator, 4. Error handling stays uniform, 5. CPU online count is fetched once, Context, Decisions, Design (+3 more)
 
-### Community 913 - "ADDED Requirements"
-Cohesion: 0.14
-Nodes (13): ADDED Requirements, Requirement: Newer request cancels the older transition, Requirement: Per-group request ordering, Requirement: Request-id allocation is requester-local, Requirement: Request identity in StateCommand, Scenario: Legacy zero id is accepted, Scenario: Newer target wins, Scenario: Non-zero id travels with the command (+5 more)
+### Community 913 - ".cycle_index"
+Cohesion: 0.09
+Nodes (29): DeterministicClient, config_, rng_state_, start_ns_, Context, D1 — Resource groups are manifest data, resolved at launch, D2 — Enforcement in the child, before `exec`, D4 — DeterministicClient is allocation-free (+21 more)
 
-### Community 914 - "DeterministicClient"
-Cohesion: 0.07
-Nodes (35): DeterministicClient, config_, rng_state_, start_ns_, DeterministicConfig, cycle_period_ns, seed, std::formatter<nexigen::exec::DeterministicClient> (+27 more)
+### Community 914 - "NullLogger"
+Cohesion: 0.08
+Nodes (10): Cell, level, pad_, LevelControl, cell_, NullLogger, levels_, to_string() (+2 more)
 
-### Community 915 - ".now"
-Cohesion: 0.05
-Nodes (34): D1. `Result`/`Status` are thin aliases over `std::expected`, not a bespoke type, D2. `Timestamp` is a 8-byte value type; `now()` returns `Result<Timestamp>`, D4. Zero-dependency single-file test harness, D5. CMake shape: one INTERFACE library per namespace module plus a `tests/` subdir, Decisions, 1. Build scaffolding and the `RateLimited` error code, 2. `log_level.hpp` + level control + the concept, 3. `log_record.hpp` + the shared hot-path pipeline (+26 more)
+### Community 915 - "Requirement: Settings diagnostics are serializable"
+Cohesion: 0.18
+Nodes (10): MODIFIED Requirements, Requirement: Runnable simple settings example, Requirement: Settings diagnostics are serializable, Scenario: Diagnostic JSON round-trips, Scenario: Diagnostic renders its source and field, Scenario: Example creates its own inputs, Scenario: Failures are visible, Scenario: Logger initializes from the merged files (+2 more)
 
 ### Community 918 - "build.sh"
 Cohesion: 0.48
 Nodes (5): build_one(), cache_value(), list_dirs(), build.sh script, usage()
 
-### Community 919 - "REMOVED Requirements"
-Cohesion: 0.15
-Nodes (13): REMOVED Requirements, Requirement: Chrono settings use an explicit file pair, Requirement: Environment overrides are documented and typed, Requirement: Invalid input degrades to best effort, Requirement: Invalid sink configuration degrades to best effort, Requirement: Merge precedence matches logging, Requirement: Metrics and tracing settings carry a sink member, Requirement: Metrics and tracing use explicit file pairs (+5 more)
+### Community 919 - "JsonFileMetricSink"
+Cohesion: 0.10
+Nodes (20): JsonFileMetricSink, app_, app_len_, discarded_batches_, fd_, scratch_, stamp_text_, std::formatter<nexigen::metrics::JsonFileMetricSink> (+12 more)
 
 ### Community 920 - "VideoWriter"
-Cohesion: 0.11
-Nodes (4): Sink, VideoWriter, header_written_, kAlignment
+Cohesion: 0.14
+Nodes (3): VideoWriter, header_written_, kAlignment
 
 ### Community 921 - "Proposal"
 Cohesion: 0.25
@@ -4749,13 +4757,13 @@ Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Propos
 Cohesion: 0.22
 Nodes (8): ADDED Requirements, Requirement: Daemons relaunch after Update, Requirement: Update is an off-like EM state, Scenario: Completed oneshot stays terminal, Scenario: Daemon returns after update, Scenario: Entering Update stops the group, Scenario: Undeclared Update is rejected, Spec Delta
 
-### Community 924 - "Color"
-Cohesion: 0.18
-Nodes (10): Color, Blue, Green, Red, Entry, name, value, EnumTraits<probe::Color> (+2 more)
+### Community 924 - "Decisions"
+Cohesion: 0.14
+Nodes (13): Context, D2. Ответ EM означает допуск, а не выполнение, D3. Исход перезапуска сообщает EM, бюджет попыток принадлежит EM, D4. Ack — отдельное событие, три состояния, D5. `Stopped` → `Exhausted`, D6. Три словаря вместо одного, D7. Память и конкурентность, Decisions (+5 more)
 
-### Community 928 - "Design"
-Cohesion: 0.25
-Nodes (7): Context, Decisions, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs
+### Community 928 - "Converter"
+Cohesion: 0.20
+Nodes (6): Converter, Recorder raw format and converter, Records, Regression suite, Schema-driven payloads, Storage layout
 
 ### Community 929 - "Requirement: Time synchronization classification"
 Cohesion: 0.14
@@ -4765,41 +4773,41 @@ Nodes (13): chrono/time-sync Specification, Purpose, Requirement: Monitor diagno
 Cohesion: 0.15
 Nodes (9): std::formatter<nexigen::tracing::JsonFileTraceSink>, 1. Build + output fixes (P2-16, P2-17), 2. Sink overflow observability (P2-18; spec deltas metric-sinks + trace-sinks), 3. Gauge/StateGauge honesty (P2-20), 5. Composite parity (P2-22), 6. App/runner hardening (P2-23), 7. Shared detail unification (P3-24, P3-25), 8. Repo + verification matrix (+1 more)
 
-### Community 932 - "Requirement: Settings diagnostic records a finding"
-Cohesion: 0.15
-Nodes (12): ADDED Requirements, Purpose, Requirement: Settings diagnostic records a finding, Requirement: Settings source enumerates the merge layers, Requirement: Settings vocabulary is cold path only, Scenario: Diagnostic renders source, field, and message, Scenario: Diagnostic round-trips through JSON, Scenario: Hostile JSON leaves the diagnostic unchanged (+4 more)
+### Community 932 - "VideoFrameRef"
+Cohesion: 0.18
+Nodes (11): VideoFrameRef, capture_mono_ns, codec, frame_flags, height, reserved, stride, vid_crc32c (+3 more)
 
-### Community 934 - "Design"
-Cohesion: 0.29
-Nodes (6): Context, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs
+### Community 934 - "PaddedPayload"
+Cohesion: 0.14
+Nodes (13): e2e_bytes(), E2eAck, value, E2eBlob256, bytes, E2eBlob64, bytes, E2eCommand (+5 more)
 
-### Community 937 - "Requirement: Settings diagnostic records a finding"
-Cohesion: 0.15
-Nodes (12): core/settings-vocabulary Specification, Purpose, Requirement: Settings diagnostic records a finding, Requirement: Settings source enumerates the merge layers, Requirement: Settings vocabulary is cold path only, Requirements, Scenario: Diagnostic renders source, field, and message, Scenario: Diagnostic round-trips through JSON (+4 more)
+### Community 937 - "Design"
+Cohesion: 0.18
+Nodes (10): Context, D1: Extract phases without changing call order, D3: Receiver-allowlisted `.value()` guard, D4: Static-analysis nits, Decisions, Design, Goals / Non-Goals, Migration Plan (+2 more)
 
-### Community 938 - "from_json"
-Cohesion: 0.13
-Nodes (16): enum_from_json(), enum_to_json(), read_optional_enum(), Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal (+8 more)
+### Community 938 - "nexigen-run application suites"
+Cohesion: 0.18
+Nodes (11): Application fields, Commands, Limitations, nexigen-run application suites, Restart and impact policy, Runner logging, Runner thread affinity, Runtime artifacts (+3 more)
 
 ### Community 939 - "Requirements"
 Cohesion: 0.12
 Nodes (16): exec/root-function-group Specification, Purpose, Requirement: Initial machine result conversion set, Requirement: Initial machine transition result query, Requirement: RootFG Off is EM-owned, Requirement: The EM owns the initial RootFG transition, Requirements, Scenario: External Off is rejected (+8 more)
 
-### Community 940 - "ADDED Requirements"
-Cohesion: 0.15
-Nodes (12): ADDED Requirements, Purpose, Requirement: Pinning the calling thread by core mask, Requirement: Querying the calling thread's affinity, Requirement: Single implementation behind module shims, Scenario: Audit finds one implementation and four forwarders, Scenario: Each thread pins only itself, Scenario: Query reports the pre-pinning platform state (+4 more)
+### Community 940 - "Tasks"
+Cohesion: 0.18
+Nodes (10): 1. Build scaffolding and the `RateLimited` error code, 2. `log_level.hpp` + level control + the concept, 3. `log_record.hpp` + the shared hot-path pipeline, 4. `null_logger.hpp` and `console_logger.hpp`, 5. FileLogger cold units (`src/logging/`), 6. `file_logger.hpp` assembly, 7. `composite_logger.hpp` + subsystem documentation, 8. Cross-mode integration verification (+2 more)
 
 ### Community 944 - "Design"
 Cohesion: 0.18
 Nodes (10): D2: Deterministic malformed-request corpus, 1. HTTP request handling, 2. Runner start phases, 3. Suite supervisor phases, 4. Convention guard, 5. Static-analysis nits and docs, 6. Verification, Tasks (+2 more)
 
-### Community 945 - "Requirement: Pinning the calling thread by core mask"
-Cohesion: 0.15
-Nodes (12): core/affinity Specification, Purpose, Requirement: Pinning the calling thread by core mask, Requirement: Querying the calling thread's affinity, Requirement: Single implementation behind module shims, Requirements, Scenario: Audit finds one implementation and four forwarders, Scenario: Each thread pins only itself (+4 more)
+### Community 945 - "Requirement: Consumer waiting and multiplexing"
+Cohesion: 0.22
+Nodes (9): 4.3a `com/event-system` — событийные каналы, Requirement: Consumer waiting and multiplexing, Scenario: Capacity is fixed, Scenario: Consumer modes are exclusive, Scenario: Idle wait does not spin, Scenario: Set wakes on any consumer, Scenario: Single consumer waits without a timeout, Scenario: Timeout is a normal outcome (+1 more)
 
 ### Community 947 - "ADDED Requirements"
-Cohesion: 0.17
-Nodes (11): ADDED Requirements, Purpose, Requirement: LoggerOptions defines the engine configuration, Requirement: OverflowPolicy enum controls full-ring behavior, Requirement: Runtime reconfiguration is wait-free, Scenario: Default-constructed options carry documented defaults, Scenario: Overflow policy values are serializable, Scenario: Runtime reconfiguration never blocks producers (+3 more)
+Cohesion: 0.14
+Nodes (13): ADDED Requirements, Requirement: Newer request cancels the older transition, Requirement: Per-group request ordering, Requirement: Request-id allocation is requester-local, Requirement: Request identity in StateCommand, Scenario: Legacy zero id is accepted, Scenario: Newer target wins, Scenario: Non-zero id travels with the command (+5 more)
 
 ### Community 948 - "wire_types.hpp"
 Cohesion: 0.03
@@ -4818,8 +4826,8 @@ Cohesion: 0.29
 Nodes (6): 1. Fix the stripper in both guards, 2. Clear the revealed violations, 3. Pin the regression, 4. Verification, Tasks, Workflow follow-up
 
 ### Community 954 - "TimeSyncPolicy"
-Cohesion: 0.24
-Nodes (6): std::formatter<nexigen::chrono::TimeSyncPolicy>, TimeSyncPolicy, max_rate_ppm, max_step_ns, min_window_ns, to_string()
+Cohesion: 0.22
+Nodes (5): std::formatter<nexigen::chrono::TimeSyncPolicy>, TimeSyncPolicy, max_rate_ppm, max_step_ns, min_window_ns
 
 ### Community 955 - "Requirement: LoggerOptions defines the engine configuration"
 Cohesion: 0.14
@@ -4877,49 +4885,49 @@ Nodes (5): 1. Track the workflow inputs, 2. Ignore the local leftovers, 3. Verif
 Cohesion: 0.13
 Nodes (14): ADDED Requirements, Requirement: Alive count configuration, Requirement: Fork/join configuration, Requirement: Watchdog configuration, Scenario: Count fields are parsed, Scenario: Counts default to legacy behaviour, Scenario: Disabled by default, Scenario: Feed period longer than half the timeout is rejected (+6 more)
 
-### Community 976 - "Proposal: Strengthen the JSON Field-Extraction Vocabulary Rule"
-Cohesion: 0.22
-Nodes (8): Breaking changes, Capabilities, Impact, Modified Capabilities, New Capabilities, Performance, Proposal: Strengthen the JSON Field-Extraction Vocabulary Rule, Why
+### Community 976 - "Requirement: Meter instrument creation"
+Cohesion: 0.20
+Nodes (9): MODIFIED Requirements, Requirement: Meter instrument creation, Scenario: Counter and gauge creation, Scenario: Histogram creation parameters, Scenario: Instrument types are distinct, Scenario: Invalid histogram parameters, Scenario: State gauge creation, Scenario: Unit is declared and stored (+1 more)
 
-### Community 977 - "Deferred: отложенные работы платформы (не забыть доделать)"
-Cohesion: 0.17
-Nodes (7): Deferred: отложенные работы платформы (не забыть доделать), EM — продакшн-харденинг (отложено до этапа production hardening), SM — event-нотификация смены состояния (future), SM — интеграция с UCM (отложено до появления Update Manager), Контекст аудита EM (2026-11-10), Манифесты — YAML-вход (отложено из-за mandate 12), Переименование под SRS-номенклатуру (planned)
+### Community 977 - "Subscriber"
+Cohesion: 0.12
+Nodes (10): std::formatter<nexigen::com::Subscriber<T, H>>, Subscriber, inner_, service_name_, to_string(), 1. Введение и область применения, 2. Инструментация кода и профилирование (RAII Spans & Instant Events), 3. Сквозная трассировка конвейеров данных через iceoryx2 (End-to-End Causality) (+2 more)
 
 ### Community 979 - "sha256_hex"
 Cohesion: 0.22
 Nodes (9): sha256_file(), sha256_hex(), to_hex(), Requirement: SHA-256 in the base library, Scenario: Existing call sites keep compiling, Scenario: Known digest matches, Requirement: SHA-256 in the base library, Scenario: Existing call sites keep compiling (+1 more)
 
-### Community 980 - "Meter::create_explicit_histogram"
-Cohesion: 0.26
-Nodes (7): Meter::create_counter(), Meter::create_explicit_histogram(), Meter::create_exponential_histogram(), Meter::create_gauge(), Meter::create_instrument(), Meter::create_state(), Meter::create_statistics()
+### Community 980 - "Tasks"
+Cohesion: 0.22
+Nodes (8): 2. App settings loader — +85 lines, 3. JSON writers — +38 lines, 4. Metric and trace sinks — +56 lines, 5. App lifecycle branches — +10 `app.hpp` lines, 6. Remaining module gaps — +~95 lines, 7. Coverage gate, docs and matrix, Tasks, Workflow follow-up
 
 ### Community 983 - "Decisions"
 Cohesion: 0.13
 Nodes (14): D1 — Extend existing suites; no new executables, D2 — Settings loaders: valid + invalid per key, D3 — JSON writers: drive escaping through sinks, D4 — Sinks: success and failure paths, D5 — App branches, D6 — Remaining modules, D7 — Measurement loop, D8 — Documented unreachable exceptions (+6 more)
 
-### Community 984 - "Requirement: Suite status reports aggregate and application state"
-Cohesion: 0.29
-Nodes (7): Requirement: Suite status reports aggregate and application state, Scenario: Degraded and failed suites are distinguishable, Scenario: JSON output matches text output, Scenario: Running suite reports every application, Scenario: Status is independent of the query route, Scenario: Stopped suite reports stopped, Scenario: Unknown suite has no record
+### Community 984 - "Requirement: JSON-lines file sink"
+Cohesion: 0.20
+Nodes (9): metrics/metric-sinks delta spec, MODIFIED Requirements, Requirement: JSON-lines file sink, Scenario: Batch becomes one JSON line, Scenario: Flush persists pending data, Scenario: JSON strings are escaped, Scenario: Multiple batches append, Scenario: Open and write failures surface (+1 more)
 
-### Community 985 - "JsonFileTraceSinkConfig"
-Cohesion: 0.11
-Nodes (14): JsonFileTraceSinkConfig, app_name, max_spans_per_window, path, rotation, window_ns, std::formatter<nexigen::tracing::JsonFileTraceSinkConfig>, 1. Hub DTO split (+6 more)
+### Community 985 - "ADDED Requirements"
+Cohesion: 0.14
+Nodes (13): ADDED Requirements, Requirement: Update completion and cancellation, Requirement: Update lock blocks TriggerIn, Requirement: Update start, Scenario: Cancel restores the previous state, Scenario: Complete restores the target, Scenario: Concurrent update is busy, Scenario: Locked group rejects a trigger (+5 more)
 
-### Community 989 - "Design"
-Cohesion: 0.12
-Nodes (11): Context, Decisions, Design, Goals / Non-Goals, Open Questions, Risks / Trade-offs, 1. Harness scaffold, 2. Measurement variants (+3 more)
+### Community 989 - "example_format.hpp"
+Cohesion: 0.15
+Nodes (15): gap_reason_from_string(), GapReason, ChecksumMismatch, EncoderOverload, IoBackpressure, IoxRingOverflow, Unknown, record_type_from_string() (+7 more)
 
 ### Community 993 - "Requirement: Startup and shutdown sequencing"
 Cohesion: 0.20
 Nodes (9): MODIFIED Requirements, Requirement: Startup and shutdown sequencing, Scenario: Application groups wait for PlatformFG Run, Scenario: Restart re-enters startup without power-off, Scenario: Shutdown sequences the groups, Scenario: Standalone SM keeps the synchronous fallback, Scenario: Startup advances through the states, Scenario: Startup failure aborts visibly (+1 more)
 
-### Community 999 - "InitialRootStateTransitionResultResponse"
-Cohesion: 0.12
-Nodes (9): InitialRootStateTransitionResultResponse, result, std::formatter<nexigen::exec::InitialRootStateTransitionResultResponse>, to_string(), from_json(), InitialRootStateTransitionResultResponse::to_string(), to_json(), RootLifecycleClient::create() (+1 more)
+### Community 999 - "Requirement: Tracing settings map every provider field"
+Cohesion: 0.20
+Nodes (9): ADDED Requirements, MODIFIED Requirements, Requirement: Tracing settings map every provider field, Requirement: Worker thread settings preserve legacy affinity compatibility, Scenario: Canonical worker fields merge across sources, Scenario: Legacy environment override remains effective, Scenario: Rate budget defaults to unlimited, Scenario: Tracing fields load from the global file (+1 more)
 
-### Community 1010 - "McapConfig"
-Cohesion: 0.12
-Nodes (14): McapBenchWriter::McapBenchWriter(), McapConfig, chunk_crc, chunk_size, chunked, data_crc, no_message_index, no_summary (+6 more)
+### Community 1010 - "Requirements"
+Cohesion: 0.11
+Nodes (17): diagnostics/examples Specification, Purpose, Requirement: ex_stopwatch demonstrates loop tick budgeting, Requirement: ex_stopwatch_histogram is buildable, runnable, and a CTest smoke test, Requirement: ex_stopwatch_histogram records measured scopes into a histogram, Requirement: ex_stopwatch_histogram renders the histogram on the console, Requirement: ex_stopwatch is buildable, runnable, and a CTest smoke test, Requirements (+9 more)
 
 ### Community 1012 - "Requirement: Alive supervision"
 Cohesion: 0.15
@@ -4929,9 +4937,9 @@ Nodes (12): MODIFIED Requirements, Requirement: Alive supervision, Requirement: 
 Cohesion: 0.22
 Nodes (8): ADDED Requirements, Requirement: Single-call publication of a caller-owned payload, Scenario: Diagnostics stay consistent, Scenario: Lost-sample snapshot spans the call, Scenario: Payload is delivered unchanged, Scenario: Publication is allocation-free, Scenario: Transport refusal is reported, not blocked, Spec Delta
 
-### Community 1026 - "ADDED Requirements"
-Cohesion: 0.15
-Nodes (12): ADDED Requirements, Requirement: Executable digest verification, Requirement: SHA-256 implementation, Requirement: Trusted executable policy, Scenario: Empty input matches, Scenario: Known vector matches, Scenario: Matching digest starts, Scenario: Mismatch is refused (+4 more)
+### Community 1026 - "Boxed"
+Cohesion: 0.33
+Nodes (7): Boxed, counter, diagnostics, path, read_counter(), read_path(), write_counter()
 
 ### Community 1030 - "ADDED Requirements"
 Cohesion: 0.17
@@ -4945,109 +4953,97 @@ Nodes (7): std::formatter<nexigen::chrono::TimeSyncSample>, TimeSyncSample, offs
 Cohesion: 0.36
 Nodes (4): evaluate_rate_ppm(), TimeSyncMonitor::classify(), TimeSyncMonitor::sample(), to_ns()
 
-### Community 1034 - "Decisions"
-Cohesion: 0.17
-Nodes (11): D1 — LTO via `INTERPROCEDURAL_OPTIMIZATION_<CONFIG>`, D3 — Scratch-overflow loss counters in the JSON-line sinks, D4 — `Gauge<MultiThreaded>::set` assigns, not adds, D5 — Composite parity: `CompositeLogger::flush` returns the first error, D8 — `.gitignore` gains `build-*/`, Decisions, Design, Goals / Non-Goals (+3 more)
+### Community 1034 - "Tasks"
+Cohesion: 0.06
+Nodes (31): Actual thread inventory, Context, D1. Fixed 1024-bit `CpuSet`, not a dynamic bitset, D2. `ThreadSpec` is a fixed, immutable-at-start value, D3. Self-application with an explicit report and bounded rollback, D4. Startup publication is the only new shared state, D5. Integration does not alter worker algorithms, D7. Runner applies, never computes (+23 more)
 
-### Community 1035 - "REMOVED Requirements"
-Cohesion: 0.17
-Nodes (11): REMOVED Requirements, Requirement: Background snapshot delivery and collection period, Requirement: CPU core affinity, Requirement: Deferred worker start, Requirement: Optional worker logger, Requirement: Provider configuration serialization, Requirement: Provider control plane, Requirement: Provider diagnostics (+3 more)
+### Community 1035 - "Tasks"
+Cohesion: 0.20
+Nodes (9): 1. Shared payload and application scaffold, 2. Vector generator, 3. Working receiver, 4. Flaky receiver, 5. Generated stack configuration, 6. Build integration and smoke tests, 7. Verification, Tasks (+1 more)
 
 ### Community 1036 - ".on_batch"
-Cohesion: 0.11
-Nodes (14): 1. Add the unit to the metric identity, 2. Thread the unit through creation, 3. Serialize and render the unit, 4. Verify, Tasks, Workflow follow-up, Context, D1 — Serialize State records in the sink (+6 more)
+Cohesion: 0.06
+Nodes (29): 1. Add the unit to the metric identity, 2. Thread the unit through creation, 3. Serialize and render the unit, 4. Verify, Tasks, Workflow follow-up, Context, D1 — Serialize State records in the sink (+21 more)
 
 ### Community 1037 - "MeterPasskey"
 Cohesion: 0.28
 Nodes (3): MeterPasskey, std::formatter<nexigen::metrics::MeterPasskey>, to_string()
 
-### Community 1038 - "CvState"
+### Community 1038 - "Design"
 Cohesion: 0.22
-Nodes (6): CvBody, state, CvState, condition, exited, mutex
+Nodes (7): Context, Decisions, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs
 
-### Community 1040 - "E2ePod"
-Cohesion: 0.15
-Nodes (11): E2ePod, sequence, value, MethodRequest, id, MethodResponse, value, PodPayload (+3 more)
-
-### Community 1041 - "ADDED Requirements"
-Cohesion: 0.17
-Nodes (11): ADDED Requirements, Purpose, Requirement: Request arbitration, Requirement: Startup and shutdown sequencing, Requirement: State machines execution, Scenario: Higher priority wins, Scenario: Invalid transition is rejected, Scenario: Shutdown sequences the groups (+3 more)
-
-### Community 1042 - "OtherPayload"
-Cohesion: 0.40
-Nodes (4): OtherPayload, a, b, c
+### Community 1041 - "tracing/latency_test.cpp"
+Cohesion: 0.12
+Nodes (19): suite_latency(), test_latency(), test_latency_calibration(), test_latency_measured_pass(), test_latency_non_x86(), test_latency_report(), test_latency_setup(), test_ids_and_context() (+11 more)
 
 ### Community 1044 - "Requirement: Declarative health manifest"
 Cohesion: 0.29
 Nodes (6): MODIFIED Requirements, Requirement: Declarative health manifest, Scenario: Lifecycle channel needs no new field, Scenario: Manifest configures supervision, Scenario: Process entry carries its supervision parameters, Spec Delta
 
 ### Community 1047 - "StartOptions"
-Cohesion: 0.03
-Nodes (57): StartOptions, allow_rt_priority, artifact_dir, cgroup_path, cpus, env, expected_executable_digest, gid (+49 more)
+Cohesion: 0.02
+Nodes (71): StartOptions, allow_rt_priority, artifact_dir, cgroup_path, cpus, env, expected_executable_digest, gid (+63 more)
 
-### Community 1050 - "Proposal"
-Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+### Community 1050 - "Requirement: JsonFileTraceSink JSONL output"
+Cohesion: 0.22
+Nodes (8): MODIFIED Requirements, Requirement: JsonFileTraceSink JSONL output, Scenario: Attribute values serialize by their packed type, Scenario: One parseable JSON object per span per line, Scenario: Open and write failures are visible, Scenario: Scratch overflow discards the line and counts it, Scenario: Timestamps render in UTC ISO-8601 shape, tracing/trace-sinks delta spec
 
 ### Community 1051 - ".chrono"
-Cohesion: 0.05
-Nodes (44): D1 — Module shape: one STATIC target `nexigen_chrono` (alias `nexigen::chrono`), D3 — `std::chrono` shadowing discipline, D4 — Concurrency & memory layout of `Stamp_source` (unchanged, restated as module contract), D7 — Spec/archival bookkeeping, Decisions, Design, Goals / Non-Goals, Migration Plan (+36 more)
+Cohesion: 0.04
+Nodes (51): Context, D1 — Module shape: one STATIC target `nexigen_chrono` (alias `nexigen::chrono`), D3 — `std::chrono` shadowing discipline, D4 — Concurrency & memory layout of `Stamp_source` (unchanged, restated as module contract), D6 — Tests: dedicated chrono suite, suites moved not duplicated, D7 — Spec/archival bookkeeping, Decisions, Design (+43 more)
 
-### Community 1056 - "WaitSetGuard"
-Cohesion: 0.14
-Nodes (9): std::formatter<nexigen::com::WaitSetGuard>, to_string(), WaitSetGuard, inner_, MonitoredProcess, attachment, guard, index (+1 more)
+### Community 1056 - "Requirement: LoggerOptions defines the engine configuration"
+Cohesion: 0.22
+Nodes (8): MODIFIED Requirements, Requirement: LoggerOptions defines the engine configuration, Scenario: Default-constructed options carry documented defaults, Scenario: Poll interval is applied by the loggers, Scenario: `spsc_ring_buffer_capacity` rounds up to power of two, Scenario: `to_string` renders every option field, Scenario: Worker thread JSON and diagnostics round-trip, Spec Delta
 
 ### Community 1057 - "identity_test.sh"
 Cohesion: 0.36
 Nodes (8): expect_fault(), expect_no_fault(), identity_test.sh script, start_helper(), start_phmd(), stop_helper(), stop_phmd(), write_manifest()
 
-### Community 1062 - "Decisions"
-Cohesion: 0.17
-Nodes (11): Context, D1 — Reserved `MachineFG` vocabulary lives in `nexigen_exec`, D2 — The EM owns the initial transition, D4 — Query service, D6 — Readiness reporting for platform processes, Decisions, Design, Goals / Non-Goals (+3 more)
+### Community 1062 - "E2eReceiver"
+Cohesion: 0.18
+Nodes (7): E2eReceiver, data_id_, have_last_, last_, max_delta_, profile_, to_string()
 
 ### Community 1068 - "Requirement: Daemon subscribes and drains log frames"
 Cohesion: 0.29
 Nodes (6): MODIFIED Requirements, Requirement: Daemon subscribes and drains log frames, Scenario: Frame arrives and is processed, Scenario: Idle daemon costs zero CPU, Scenario: Real daemon receives a published frame end-to-end, Spec Delta
 
-### Community 1069 - "Requirement: Runnable command-line settings example"
-Cohesion: 0.17
-Nodes (12): Requirement: Runnable command-line settings example, Scenario: All four artifact kinds are written, Scenario: Command-line options drive initialization, Scenario: Existing output directory is cleared, Scenario: Failure demo exercises a real failure path, Scenario: Failures are reported, Scenario: Help prints usage without initializing, Scenario: Inputs are prepared before parsing (+4 more)
+### Community 1069 - "Spec Delta"
+Cohesion: 0.22
+Nodes (8): ADDED Requirements, MODIFIED Requirements, Purpose, Requirement: Background writer uses the shared idle-backoff policy, Requirement: Console logger diagnostic strings, Scenario: Config and logger render, Scenario: Idle console writer wake-ups are bounded by the ceiling, Spec Delta
 
 ### Community 1070 - "crc32c"
 Cohesion: 0.23
 Nodes (5): Crc32c, crc32c(), state_, make_crc32c_table(), D3: CRC-32C coverage and acceleration
 
-### Community 1075 - "span_frame_test.cpp"
-Cohesion: 0.20
-Nodes (4): fnv1a_64(), D3 — FNV-1a 64 с memo-кэшем на worker, suite_span_frame(), test_fnv1a()
+### Community 1075 - "Requirement: Console writer accepts a thread specification"
+Cohesion: 0.18
+Nodes (10): ADDED Requirements, MODIFIED Requirements, Requirement: Console logger diagnostic strings, Requirement: Console writer accepts a thread specification, Scenario: Config and logger render, Scenario: Config JSON and formatter preserve the worker spec, Scenario: Console writer applies valid attributes, Scenario: Default console behavior is unchanged (+2 more)
 
 ### Community 1076 - "crc64"
 Cohesion: 0.26
 Nodes (4): Crc64, crc64(), state_, make_crc64_table()
 
-### Community 1077 - "bench_tests.cpp"
-Cohesion: 0.15
-Nodes (4): EnumTraits<ErrorCode>, entries, Result, Status
-
-### Community 1078 - "JsonFileMetricSink"
-Cohesion: 0.09
-Nodes (21): JsonFileMetricSink, app_, app_len_, discarded_batches_, fd_, scratch_, stamp_text_, std::formatter<nexigen::metrics::JsonFileMetricSink> (+13 more)
+### Community 1078 - "HttpFront"
+Cohesion: 0.24
+Nodes (12): HttpFront, server, stop, worker, start_http(), stop_http(), D3 — metricsd HTTP: `WorkerThread` + stop_callback, 5. Metrics daemon HTTP (+4 more)
 
 ### Community 1079 - "Proposal"
 Cohesion: 0.25
 Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
-### Community 1080 - "Requirement: Provider kind setting"
-Cohesion: 0.18
-Nodes (10): ADDED Requirements, MODIFIED Requirements, Requirement: Manual kind records ignored worker fields, Requirement: Provider kind setting, Scenario: Default kind is daemon, Scenario: Environment overrides do not touch the kind, Scenario: Invalid kind keeps the previous value, Scenario: Local file overrides global kind (+2 more)
+### Community 1080 - "make_test_infra"
+Cohesion: 0.13
+Nodes (15): make_test_infra(), run_suite(), TestInfra, run_app_command_line_suites(), run_app_infrastructure_suites(), test_infrastructure_conflict(), test_infrastructure_failures(), test_infrastructure_lifecycle() (+7 more)
 
-### Community 1081 - "Requirement: Runnable minimal infrastructure example"
-Cohesion: 0.20
-Nodes (9): ADDED Requirements, REMOVED Requirements, Requirement: Runnable application lifecycle example, Requirement: Runnable minimal infrastructure example, Scenario: Example exercises logging, metrics and tracing, Scenario: Example reports failures, Scenario: Example stops and flushes, Scenario: Example uses a direct main flow (+1 more)
+### Community 1081 - "ADDED Requirements"
+Cohesion: 0.15
+Nodes (12): ADDED Requirements, Purpose, Requirement: Background-thread CPU isolation, Requirement: Node and daemon-less discovery, Requirement: Protocol-independent boundary, Requirement: Service naming, Scenario: Business code is transport-agnostic, Scenario: Infrastructure threads pin to background cores (+4 more)
 
-### Community 1082 - "Design"
-Cohesion: 0.20
-Nodes (9): D2 — Render client-side in the existing viewer, D3 — Dispatch on the metric `kind`, D4 — Keep the raw JSON fallback, Decisions, Design, Goals / Non-Goals, Migration Plan, Open Questions (+1 more)
+### Community 1082 - "Proposal"
+Cohesion: 0.25
+Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
 ### Community 1083 - "Requirement: Environment overrides are documented and typed"
 Cohesion: 0.20
@@ -5057,9 +5053,9 @@ Nodes (9): MODIFIED Requirements, REMOVED Requirements, Requirement: App name is
 Cohesion: 0.22
 Nodes (8): 1. Leaf enums (settings vocabulary), 2. settings_io, 3. shard_pool, 4. thread_management — leaf enums, 6. Single-entity confirmation, 7. Include-site updates, 8. Verification, Tasks
 
-### Community 1085 - "PaddedPayload"
-Cohesion: 0.13
-Nodes (13): e2e_bytes(), E2eAck, value, E2eBlob256, bytes, E2eBlob64, bytes, E2eCommand (+5 more)
+### Community 1085 - "Requirement: LoggerOptions defines the engine configuration"
+Cohesion: 0.22
+Nodes (8): MODIFIED Requirements, Purpose, Requirement: LoggerOptions defines the engine configuration, Scenario: Default-constructed options carry documented defaults, Scenario: Poll interval is applied by the loggers, Scenario: `spsc_ring_buffer_capacity` rounds up to power of two, Scenario: `to_string` renders every option field, Spec Delta
 
 ### Community 1088 - "Proposal"
 Cohesion: 0.25
@@ -5069,49 +5065,49 @@ Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Propos
 Cohesion: 0.17
 Nodes (11): MODIFIED Requirements, Requirement: CLI log level overrides loaded settings, Requirement: Command-line contract is documented, Requirement: Fixed file names produce the four settings pairs, Scenario: Absent CLI level preserves the loaded value, Scenario: Absent directory disables that source, Scenario: Both directories produce eight paths, Scenario: CLI level wins over files and environment (+3 more)
 
-### Community 1090 - "enum_name"
-Cohesion: 0.05
-Nodes (38): enum_name(), enum_value(), EnumTraits, MandateFormatter, to_string(), Entry, name, value (+30 more)
+### Community 1090 - "Entry"
+Cohesion: 0.33
+Nodes (5): Entry, name, value, EnumTraits<SettingsSource>, entries
 
-### Community 1091 - "Requirement: Meter instrument creation"
-Cohesion: 0.20
-Nodes (9): MODIFIED Requirements, Requirement: Meter instrument creation, Scenario: Counter and gauge creation, Scenario: Histogram creation parameters, Scenario: Instrument types are distinct, Scenario: Invalid histogram parameters, Scenario: State gauge creation, Scenario: Unit is declared and stored (+1 more)
+### Community 1091 - "Tasks"
+Cohesion: 0.25
+Nodes (7): 1. Fuzzable HTTP parser, 2. Fault injection, 3. Analyzer depth, 4. Documentation, 5. Verification, Tasks, Workflow follow-up
 
 ### Community 1092 - "Requirement: Child credentials are dropped before exec"
 Cohesion: 0.17
 Nodes (11): ADDED Requirements, Requirement: Child credentials are dropped before exec, Requirement: Non-root launch policy, Scenario: A failed drop starts nothing, Scenario: An explicit uid satisfies the policy, Scenario: GID without UID is rejected, Scenario: Root is refused under the policy, Scenario: The child runs as the configured user (+3 more)
 
-### Community 1094 - "Requirement: App settings aggregate every subsystem"
-Cohesion: 0.20
-Nodes (9): MODIFIED Requirements, Requirement: App settings aggregate every subsystem, Requirement: App settings are serializable, Scenario: Chrono settings render through App_settings, Scenario: Loader output has no from_json, Scenario: Metrics settings render and serialize, Scenario: One call loads all three subsystems, Scenario: Worst status is reported (+1 more)
+### Community 1094 - "Proposal"
+Cohesion: 0.25
+Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
 ### Community 1095 - "Design"
 Cohesion: 0.18
 Nodes (10): Context, D1 — Inline stateless policy, D2 — Direct main, default settings, D3 — Demonstrate all three paths, D4 — Failure visibility, Decisions, Design, Goals / Non-Goals (+2 more)
 
-### Community 1096 - "Requirement: JSON-lines file sink"
-Cohesion: 0.20
-Nodes (9): metrics/metric-sinks delta spec, MODIFIED Requirements, Requirement: JSON-lines file sink, Scenario: Batch becomes one JSON line, Scenario: Flush persists pending data, Scenario: JSON strings are escaped, Scenario: Multiple batches append, Scenario: Open and write failures surface (+1 more)
-
-### Community 1102 - "Proposal"
+### Community 1096 - "Modified Capabilities"
 Cohesion: 0.25
 Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
-### Community 1105 - "Tasks"
-Cohesion: 0.07
-Nodes (25): fsync_fd(), open_output(), write_all(), combine(), Concurrency / memory layout, Context, D1 — Placement: `nexigen::core::sink_pack` and `nexigen::core::sink_io` (named sub-namespaces, not `core::detail`), D2 — Fanout shape: public non-virtual base `Fanout<Sinks...>`, moved verbatim (+17 more)
+### Community 1102 - "Decisions"
+Cohesion: 0.17
+Nodes (10): fnv1a_64(), D1 — SpanFrame: 384 Б, identity внутри, указатели → хэши, D2 — Альтернативы: 64 Б + словарь отложены по триггеру, D3 — FNV-1a 64 с memo-кэшем на worker, D6 — Всё состояние sink — worker-confined, без атомиков, D7 — Отдельная INTERFACE-цель nexigen_tracing_com, D8 — Публикация один кадр на спан, D9 — Latency-гейт: медиана on_span ≤ 400 нс (+2 more)
+
+### Community 1105 - "FileRead"
+Cohesion: 0.05
+Nodes (34): FileRead, Absent, Failed, Ok, fsync_fd(), open_output(), write_all(), combine() (+26 more)
 
 ### Community 1106 - "checkpoint_claim_verdict"
-Cohesion: 0.44
-Nodes (4): checkpoint_claim_status_verdict(), checkpoint_claim_verdict(), parse_status_real_uid(), read_status_text()
+Cohesion: 0.20
+Nodes (8): ClaimVerdict, reason, verified, std::formatter<nexigen::phm::ClaimVerdict>, checkpoint_claim_status_verdict(), checkpoint_claim_verdict(), parse_status_real_uid(), read_status_text()
 
-### Community 1107 - "Tasks"
-Cohesion: 0.25
-Nodes (7): 1. Fuzzable HTTP parser, 2. Fault injection, 3. Analyzer depth, 4. Documentation, 5. Verification, Tasks, Workflow follow-up
+### Community 1107 - "format_context"
+Cohesion: 0.17
+Nodes (6): std::formatter<nexigen::recorder::GapMarkerPayload>, std::formatter<nexigen::recorder::GapReason>, std::formatter<nexigen::recorder::RecordType>, std::formatter<nexigen::recorder::SegmentFileKind>, std::formatter<nexigen::recorder::VideoCodecTag>, std::formatter<nexigen::recorder::VideoFrameRef>
 
-### Community 1108 - ".write_manifest"
-Cohesion: 0.18
-Nodes (4): SessionWriter::close(), SessionWriter::declare_channel(), SessionWriter::declare_schema(), SessionWriter::rotate()
+### Community 1108 - "GapMarkerPayload"
+Cohesion: 0.14
+Nodes (12): GapMarkerPayload, first_lost_seq, lost_count, reason, reserved0, reserved1, IndexEntry, channel_mask (+4 more)
 
 ### Community 1109 - "com"
 Cohesion: 0.28
@@ -5121,9 +5117,9 @@ Nodes (9): container, container, name, runs-on, timeout-minutes, image, options,
 Cohesion: 0.83
 Nodes (3): find_app(), find_bin(), run_suite_2_apps.sh script
 
-### Community 1114 - "Proposal"
-Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+### Community 1114 - "Requirement: EM action sink"
+Cohesion: 0.15
+Nodes (12): Purpose, Requirement: EM action sink, Requirement: LSM application-group gate, Requirement: LSM Function Group binding, Requirements, Scenario: Duplicate binding is rejected, Scenario: Platform not ready, Scenario: Publish action updates the field (+4 more)
 
 ### Community 1115 - "Requirements"
 Cohesion: 0.14
@@ -5133,40 +5129,40 @@ Nodes (13): 1. Session Inspection & Integrity Check, 2. Anomaly Investigation (T
 Cohesion: 0.29
 Nodes (6): MODIFIED Requirements, Requirement: StateClient command reception, Scenario: EM receives a SetState command, Scenario: Result vocabulary round-trips, Scenario: Superseded request is canceled, Spec Delta
 
-### Community 1117 - "Boxed"
-Cohesion: 0.33
-Nodes (7): Boxed, counter, diagnostics, path, read_counter(), read_path(), write_counter()
+### Community 1117 - "com_test.cpp"
+Cohesion: 0.05
+Nodes (19): to_string(), from_json(), to_json(), from_string(), to_string(), has_user_header, has_user_header<S, std::void_t<decltype(std::declval<const S&>().user_header())>>, main() (+11 more)
 
-### Community 1121 - "SpanRecord"
-Cohesion: 0.04
-Nodes (50): TimelineSink, SpanRecord, attribute_count, attributes, column, end, file_name, flag_ended_explicit (+42 more)
+### Community 1121 - "Proposal"
+Cohesion: 0.25
+Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
 ### Community 1122 - "ex_counters_and_gauges.cpp"
 Cohesion: 0.12
 Nodes (17): CaptureSink, seen_, CounterMT, CounterST, CounterWindow, CounterWriteOnly, expect(), GaugeDoubleST (+9 more)
 
-### Community 1124 - "Header compilation audit — compiled-module JSON pairs"
-Cohesion: 0.11
-Nodes (15): Audit command, Follow-up candidates (not in this change), Header compilation audit — compiled-module JSON pairs, Result, Rule, Verification for future moves, What this change moved, D1 — Shared field vocabulary as free functions in `include/nexigen/core/detail/json_field.hpp` (+7 more)
+### Community 1124 - "service_manifest.cpp"
+Cohesion: 0.12
+Nodes (20): D1 — Shared field vocabulary as free functions in `include/nexigen/core/detail/json_field.hpp`, D2 — Range-checked unsigned reads replace unchecked `get<T>()`, D3 — Decomposition shape: flat `from_json` + per-type sub-parsers in the defining unit, D5 — Daemon entry points: per-tool staging, no new shared runner, D6 — Gate widening and CTest wiring, D7 — Verification mechanics, Decisions, Design (+12 more)
 
-### Community 1125 - "Tasks"
+### Community 1125 - "RecordHeader"
 Cohesion: 0.20
-Nodes (9): 1. MetricFrame wire type, 2. Iceoryx2MetricSink, 3. Prometheus text rendering, 4. MetricDaemonConfig, 5. MetricsDaemon tool, 6. Tests, 7. Verification matrix, Tasks (+1 more)
+Nodes (10): RecordHeader, channel_id, flags, header_crc32c, magic, mono_ns, payload_crc32c, payload_size (+2 more)
 
 ### Community 1126 - ".shutdown"
-Cohesion: 0.04
-Nodes (66): D2 — CRTP contract and member order, Capabilities, Modified Capabilities, New Capabilities, Proposal, What Changes, Why, Requirement: App exposes logger, metric and tracer factories (+58 more)
+Cohesion: 0.03
+Nodes (76): D8 — Example and tests, Capabilities, Modified Capabilities, New Capabilities, Proposal, What Changes, Why, Requirement: App exposes logger, metric and tracer factories (+68 more)
 
 ### Community 1127 - "Requirement: Pending transitions carry a request id"
 Cohesion: 0.29
 Nodes (6): ADDED Requirements, Requirement: Pending transitions carry a request id, Scenario: Cancellation drops the pending transition, Scenario: InProgress retries reuse the id, Scenario: MachineFG requests use their own ids, Spec Delta
 
-### Community 1128 - "Requirement: Function-Group-port authorization"
-Cohesion: 0.20
-Nodes (9): exec/state-client-access-control Specification, Purpose, Requirement: Function-Group-port authorization, Requirement: Requester identity in StateCommand, Requirements, Scenario: Authorized requester switches a group, Scenario: Command round-trips the requester, Scenario: Empty mapping keeps compatibility (+1 more)
+### Community 1128 - "Proposal"
+Cohesion: 0.25
+Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
 ### Community 1129 - "TimeSyncMonitor"
-Cohesion: 0.25
+Cohesion: 0.29
 Nodes (3): TimeSyncMonitor, previous_mono_ns_, previous_offset_ns_
 
 ### Community 1130 - "Requirement: Optional machine cross-check before launch"
@@ -5181,13 +5177,13 @@ Nodes (5): 1. Monitor, 2. Documentation and verification, 3. Review follow-up, T
 Cohesion: 0.20
 Nodes (9): MODIFIED Requirements, Requirement: Local process recovery, Requirement: SafeState escalation, Scenario: Critical failure escalates to SafeState, Scenario: Expired process is restarted, Scenario: Missing Execution Manager escalates, Scenario: Rejected restart escalates, Scenario: Watchdog reset is local actuation (+1 more)
 
-### Community 1133 - "uint32_t"
-Cohesion: 0.27
-Nodes (3): segment_base(), SessionWriter::append_video(), SessionWriter::current_segment_seq()
+### Community 1133 - "Proposal"
+Cohesion: 0.25
+Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
-### Community 1134 - "Requirement: LoggerOptions defines the engine configuration"
-Cohesion: 0.22
-Nodes (8): MODIFIED Requirements, Requirement: LoggerOptions defines the engine configuration, Scenario: Default-constructed options carry documented defaults, Scenario: Poll interval is applied by the loggers, Scenario: `spsc_ring_buffer_capacity` rounds up to power of two, Scenario: `to_string` renders every option field, Scenario: Worker thread JSON and diagnostics round-trip, Spec Delta
+### Community 1134 - ".shutdown"
+Cohesion: 0.04
+Nodes (53): D1 — New module and dependency direction, D2 — CRTP contract and member order, D3 — Initialization order and rollback, D5 — SIGINT/SIGTERM via signalfd watcher, D6 — Shutdown order and idempotency, D7 — Settings model and loaders, Decisions, Requirement: Shutdown is idempotent and flushes in order (+45 more)
 
 ### Community 1135 - "Requirement: LSM-bound TriggerIn execution"
 Cohesion: 0.33
@@ -5197,93 +5193,97 @@ Nodes (5): ADDED Requirements, Requirement: LSM-bound TriggerIn execution, Scena
 Cohesion: 0.19
 Nodes (22): app_running(), main(), make_command(), make_suite_manifest(), read_text_file(), test_access_control(), test_daemon_exit_detection(), test_dependency_order() (+14 more)
 
-### Community 1149 - "ClaimVerdict"
-Cohesion: 0.32
-Nodes (4): ClaimVerdict, reason, verified, std::formatter<nexigen::phm::ClaimVerdict>
+### Community 1149 - "What Changes"
+Cohesion: 0.16
+Nodes (15): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why, suite_console() (+7 more)
 
-### Community 1150 - "Tasks"
+### Community 1150 - "Proposal"
 Cohesion: 0.25
-Nodes (7): 1. Module scaffold and build target, 2. StopwatchState enum and serialization contract, 4. ScopedStopwatch RAII guard, 5. Runnable example and README, 6. Full verification matrix, Tasks, Workflow follow-up
+Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
-### Community 1151 - "example_format.hpp"
-Cohesion: 0.02
-Nodes (98): gap_reason_from_string(), GapMarkerPayload, first_lost_seq, lost_count, reason, reserved0, reserved1, GapReason (+90 more)
+### Community 1151 - "SegmentFooter"
+Cohesion: 0.18
+Nodes (11): SegmentFooter, channel_count, end_mono_ns, footer_crc32c, magic, magic_end, rec_bytes_written, reserved (+3 more)
 
 ### Community 1154 - "Requirement: LSM manifest validation"
 Cohesion: 0.33
 Nodes (5): ADDED Requirements, Requirement: LSM manifest validation, Scenario: Existing manifest remains valid, Scenario: Unknown group is rejected, Spec Delta
 
 ### Community 1155 - "RecordEnvelope"
-Cohesion: 0.10
+Cohesion: 0.11
 Nodes (18): 4.13 `recorder` — сырые сессии и конвертер, Dropped, channel_id, count, first_sequence, RecordEnvelope, channel_id, event_ns (+10 more)
 
-### Community 1156 - "Decisions"
-Cohesion: 0.22
-Nodes (9): D1 — Public surface: one loader, one result type, thin apply helpers, D2 — JSON schema mirrors `LoggerOptions` keys, D3 — Precedence by sequential overlay, with explicit presence tracking, D4 — Diagnostics are data, not logs, D5 — Applying settings is an explicit, lifetime-documented step, D6 — Size-based rotation in the existing writer, D7 — Mounting the loader without changing the hot path, D8 — Tests and example (+1 more)
-
-### Community 1157 - "Requirement: JsonFileTraceSink JSONL output"
-Cohesion: 0.22
-Nodes (8): MODIFIED Requirements, Requirement: JsonFileTraceSink JSONL output, Scenario: Attribute values serialize by their packed type, Scenario: One parseable JSON object per span per line, Scenario: Open and write failures are visible, Scenario: Scratch overflow discards the line and counts it, Scenario: Timestamps render in UTC ISO-8601 shape, tracing/trace-sinks delta spec
-
-### Community 1158 - "Proposal"
+### Community 1156 - "Requirement: CPU-pinned background consumer"
 Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+Nodes (8): Requirement: CPU-pinned background consumer, Scenario: CPU above 63 is supported, Scenario: Idle consumer wake-ups are bounded by the ceiling, Scenario: Per-shard FIFO and fair drain hold, Scenario: Pin failures are visible without stopping the pipeline, Scenario: Producers never wait on the worker, Scenario: Required failure rolls back initialization, Scenario: Worker affinity matches the configured mask
 
-### Community 1159 - "Tasks"
-Cohesion: 0.22
-Nodes (8): 1. Directory relocation, 2. Namespace and string sweep, 3. Build system, 4. Spec capability relocation, 5. Grep gate, 6. Full gate, Tasks, Workflow follow-up
+### Community 1157 - "ADDED Requirements"
+Cohesion: 0.17
+Nodes (11): ADDED Requirements, Purpose, Requirement: Request arbitration, Requirement: Startup and shutdown sequencing, Requirement: State machines execution, Scenario: Higher priority wins, Scenario: Invalid transition is rejected, Scenario: Shutdown sequences the groups (+3 more)
+
+### Community 1158 - "run_daemon"
+Cohesion: 0.29
+Nodes (6): load_config(), main(), Options, config_path, parse_args(), run_daemon()
+
+### Community 1159 - "execution_manager_logging.cpp"
+Cohesion: 0.07
+Nodes (46): 1. Surface the apply report, 2. Report-based diagnostics at call sites, 3. Tests and validation, Tasks, 1. Directory relocation, 2. Namespace and string sweep, 3. Build system, 4. Spec capability relocation (+38 more)
 
 ### Community 1160 - "Спецификация требований к демону Platform Health Management (PHM)"
 Cohesion: 0.22
 Nodes (8): 1. Введение и область применения, 2. Мониторинг выполнения (Supervision Core), 3. Сбор и обработка локальных сбоев (Health Channel Management), 4. Стратегии восстановления и интеграция с EM (Recovery Actions), 5. Инфраструктурные требования и транспорт iceoryx2 (Infrastructure & IPC), 6. Конфигурация (Configuration Manifest), 7. Взаимодействие со средой выполнения и ОС (Runtime Environment), Спецификация требований к демону Platform Health Management (PHM)
 
-### Community 1161 - "Tasks"
-Cohesion: 0.22
-Nodes (8): 2. App settings loader — +85 lines, 3. JSON writers — +38 lines, 4. Metric and trace sinks — +56 lines, 5. App lifecycle branches — +10 `app.hpp` lines, 6. Remaining module gaps — +~95 lines, 7. Coverage gate, docs and matrix, Tasks, Workflow follow-up
+### Community 1161 - "event_time_source.hpp"
+Cohesion: 0.38
+Nodes (3): event_now_ns(), make_event_epoch(), next_event_set_id()
 
 ### Community 1162 - "Decisions"
-Cohesion: 0.22
-Nodes (8): Context, D1 — Extract steps as free functions in the file's anonymous namespace, D2 — Preserve lifetime boundaries exactly, D3 — `main` stays a numbered narrative, D4 — Verification is output equality, not code review, Decisions, Design, Goals / Non-Goals
+Cohesion: 0.20
+Nodes (9): Context, D1 — Extract steps as free functions in the file's anonymous namespace, D2 — Preserve lifetime boundaries exactly, D3 — `main` stays a numbered narrative, D4 — Verification is output equality, not code review, Decisions, Design, Goals / Non-Goals (+1 more)
 
 ### Community 1163 - "Design"
 Cohesion: 0.29
 Nodes (6): Context, Decisions, Design, Goals / Non-Goals, Migration Plan, Risks / Trade-offs
 
 ### Community 1164 - "Requirements"
-Cohesion: 0.15
-Nodes (12): exec/manifest-accessor Specification, Purpose, Requirement: Format detection, Requirement: Machine Manifest loading, Requirement: Minimal XML reader, Requirements, Scenario: ARXML machine loads, Scenario: Extension selects ARXML (+4 more)
+Cohesion: 0.13
+Nodes (14): exec/manifest-accessor Specification, Purpose, Requirement: Format detection, Requirement: Machine Manifest loading, Requirement: Manifest format vocabulary, Requirement: Minimal XML reader, Requirements, Scenario: ARXML machine loads (+6 more)
 
-### Community 1166 - "Proposal: Extract ChildProcess Class for Child Application Supervision"
-Cohesion: 0.22
-Nodes (8): Capabilities, Modified Capabilities, Modified Capabilities, New Capabilities, New Capabilities, Proposal: Extract ChildProcess Class for Child Application Supervision, What Changes, Why
+### Community 1165 - "Tasks"
+Cohesion: 0.29
+Nodes (6): 2. `nexigen::logging` console example, 3. `nexigen::logging` file example, 4. `nexigen::logging` composite example, 5. Documentation, 6. Full verification matrix, Tasks
+
+### Community 1166 - "Design"
+Cohesion: 0.29
+Nodes (6): Context, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs
 
 ### Community 1167 - "coverage-com"
 Cohesion: 0.40
 Nodes (5): name, runs-on, steps, timeout-minutes, coverage-com
 
-### Community 1168 - "Proposal"
+### Community 1168 - "3. Per-file plan"
+Cohesion: 0.08
+Nodes (23): 2. Shared state, 3. Per-file plan, 4. No ODR / linkage impact, Context, Decisions, Design, Goals / Non-Goals, Migration Plan (+15 more)
+
+### Community 1169 - "SpanRecord"
+Cohesion: 0.04
+Nodes (49): Edge, child, parent, find_span(), main(), report(), TimelineSink, SpanRecord (+41 more)
+
+### Community 1170 - "Requirement: Suite status reports aggregate and application state"
 Cohesion: 0.29
-Nodes (6): Capabilities, Impact, Modified Capabilities, Proposal, What Changes, Why
+Nodes (7): Requirement: Suite status reports aggregate and application state, Scenario: Degraded and failed suites are distinguishable, Scenario: JSON output matches text output, Scenario: Running suite reports every application, Scenario: Status is independent of the query route, Scenario: Stopped suite reports stopped, Scenario: Unknown suite has no record
 
-### Community 1169 - "Tasks"
-Cohesion: 0.22
-Nodes (8): 1. Configuration, ring, and snapshot writer, 2. Snapshot naming and retention, 3. Daemon session, 4. Tool and build, 5. Documentation, 6. Integration verification, Tasks, Workflow follow-up
-
-### Community 1170 - "Proposal"
-Cohesion: 0.29
-Nodes (6): Capabilities, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
-
-### Community 1171 - "Decisions"
-Cohesion: 0.11
-Nodes (17): Context, D10. Ручки для сокращения прогона, D12. Память и конкурентность, D1. Каталог и имена, D2. Все конфигурации генерируются драйвером, D3. Падение — аварийное завершение, поднимает ExecutionManager, D4. Payload и измерение задержки, D7. Надзор PHM (+9 more)
+### Community 1171 - "Spec Delta"
+Cohesion: 0.40
+Nodes (4): ADDED Requirements, REMOVED Requirements, Requirement: Runnable application lifecycle example, Spec Delta
 
 ### Community 1172 - "MODIFIED Requirements"
 Cohesion: 0.20
 Nodes (9): MODIFIED Requirements, Requirement: Command-line options initialize the infrastructure, Requirement: Initialization follows a fixed order, Scenario: Existing settings overload still works, Scenario: Failure rolls back partial initialization, Scenario: Logger is ready before providers start, Scenario: Repeated initialization is idempotent, Scenario: Valid options initialize from loaded settings (+1 more)
 
-### Community 1173 - "BestMedians"
-Cohesion: 0.16
-Nodes (12): BestMedians, copy, copy_stats, direct, direct_stats, event_stats, with_event, LatencyStats (+4 more)
+### Community 1173 - "Proposal"
+Cohesion: 0.29
+Nodes (6): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, Why
 
 ### Community 1174 - "Requirement: Recovery acknowledgement timeout configuration"
 Cohesion: 0.25
@@ -5298,24 +5298,24 @@ Cohesion: 0.40
 Nodes (5): container, name, runs-on, timeout-minutes, clang
 
 ### Community 1177 - "Design"
-Cohesion: 0.29
-Nodes (6): D1 — Use `Transfer-Encoding: chunked` and frame every SSE write, Decisions, Design, Migration Plan, Open Questions, Risks / Trade-offs
+Cohesion: 0.22
+Nodes (8): Context, D1 — Use `Transfer-Encoding: chunked` and frame every SSE write, Decisions, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs
 
 ### Community 1178 - "ConsoleLogger"
 Cohesion: 0.07
 Nodes (6): ConsoleLogger, producer_, worker_, to_string(), from_json(), to_json()
 
 ### Community 1179 - "StressResult"
-Cohesion: 0.18
-Nodes (11): fill_payload(), Payload, field, StressResult, consumer_retries, order_violations, pop_sum, producer_retries (+3 more)
+Cohesion: 0.25
+Nodes (8): StressResult, consumer_retries, order_violations, pop_sum, producer_retries, push_sum, received, sent
 
 ### Community 1180 - "Entry"
 Cohesion: 0.22
 Nodes (7): Entry, name, value, EnumTraits<nexigen::sm::RootFG>, entries, from_string(), to_string()
 
-### Community 1181 - "app_settings.cpp"
-Cohesion: 0.28
-Nodes (4): AppSettingsPaths::to_string(), load_app_settings(), Settings::to_string(), to_json()
+### Community 1181 - "Requirement: LoggerOptions defines the engine configuration"
+Cohesion: 0.29
+Nodes (6): MODIFIED Requirements, Requirement: LoggerOptions defines the engine configuration, Scenario: Default-constructed options carry documented defaults, Scenario: `spsc_ring_buffer_capacity` rounds up to power of two, Scenario: `to_string` renders every option field, Spec Delta
 
 ### Community 1183 - "test_http_server_failure_report"
 Cohesion: 0.25
@@ -5325,10 +5325,9 @@ Nodes (7): test_http_server_failure_report(), test_http_start_errors(), diagnost
 Cohesion: 0.50
 Nodes (4): openspec, name, runs-on, timeout-minutes
 
-### Community 1185 - "chrono_test.cpp"
-Cohesion: 0.05
-Nodes (33): Timestamp, ns_, to_string(), arena_exhausted(), BoottimeComponent, has_from_json, has_from_json<
-    T, std::void_t<decltype(from_json(std::declval<const nlohmann::json&>(), std::declval<T&>()))>>, main() (+25 more)
+### Community 1185 - "cstddef"
+Cohesion: 0.03
+Nodes (49): main(), read_file(), report(), Snapshot, realtime_offset_ns, stamp, std::formatter<nexigen::chrono::Snapshot>, Timestamp (+41 more)
 
 ### Community 1186 - "Design"
 Cohesion: 0.25
@@ -5342,9 +5341,9 @@ Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Propos
 Cohesion: 0.25
 Nodes (7): ADDED Requirements, Requirement: Fault log record integrity, Scenario: A flipped byte is detected, Scenario: A truncated tail is reported, Scenario: Legacy records stay readable, Scenario: Written records verify, Spec Delta
 
-### Community 1189 - "impl_"
-Cohesion: 0.25
-Nodes (5): impl_, channels, failed, schemas, writer
+### Community 1189 - "RecordType"
+Cohesion: 0.22
+Nodes (9): RecordType, ChannelDeclare, ComPayload, GapMarker, LogFrame, MetricFrame, SpanFrame, TimeSync (+1 more)
 
 ### Community 1190 - "Design"
 Cohesion: 0.25
@@ -5370,9 +5369,9 @@ Nodes (5): Iceoryx2Logger, node_, producer_, worker_, to_string()
 Cohesion: 0.18
 Nodes (10): Context, D1: Target remaining failure branches, not synthetic line hits, D2: Clang-tidy profile with documented exclusions, D3: Fix findings in production code, not by suppressions, Decisions, Design, Goals / Non-Goals, Migration Plan (+2 more)
 
-### Community 1202 - "Спецификация требований к демону логирования (LogDaemon)"
-Cohesion: 0.25
-Nodes (7): 1. Введение и область применения, 2. Жизненный цикл и системное окружение (Lifecycle & Infrastructure), 3. Маршрутизация и раздельная фильтрация по приемникам (Sink-Specific Filtering), 4. Сохранение на диск и кольцевая ротация (Storage Management), 5. Сетевая трансляция и динамическое управление (Network Sinks & Control), 6. Конфигурация (LogDaemon Manifest), Спецификация требований к демону логирования (LogDaemon)
+### Community 1202 - "Tasks"
+Cohesion: 0.29
+Nodes (6): 1. Baseline and scaffolding, 2. Decompose `validate_suite_manifest`, 3. Extend unit tests, 4. Verification and quality gates, Tasks, Workflow follow-up
 
 ### Community 1204 - "Proposal"
 Cohesion: 0.25
@@ -5386,29 +5385,29 @@ Nodes (7): ADDED Requirements, Requirement: Expected process identity, Scenario:
 Cohesion: 0.11
 Nodes (18): Entry, name, value, EnumTraits<nexigen::logging::OverflowPolicy>, entries, from_json(), from_string(), OverflowPolicy (+10 more)
 
-### Community 1208 - "FanoutConfiguredSink"
-Cohesion: 0.40
-Nodes (3): FanoutConfiguredSink, configured, moved_from_marker
+### Community 1208 - "Tasks"
+Cohesion: 0.20
+Nodes (9): 1. Probe helper, 2. PHM, 3. SM, 6. Log daemon main, 7. Exec probes, 8. Documentation, 9. Integration verification, Tasks (+1 more)
 
-### Community 1211 - "Proposal"
+### Community 1211 - "uint64_t"
 Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+Nodes (7): cached_thread_id(), IdGenerator, state_, next_id(), seed_input(), splitmix64(), D6 — Identifier generation: non-zero thread-local xorshift
 
-### Community 1212 - "Tasks"
-Cohesion: 0.25
-Nodes (7): 1. Clock_id and domain declaration, 2. Chrono_snapshot value type, 3. ChronoSink concept and sinks, 5. Chrono_settings loader, 6. Integration and verification, Tasks, Workflow follow-up
+### Community 1212 - "Proposal"
+Cohesion: 0.22
+Nodes (8): Capabilities, Impact, Modified Capabilities, New Capabilities, Performance, latency, and allocation impact, Proposal, What Changes, Why
 
 ### Community 1214 - "Requirement: PHM fault-event interface"
 Cohesion: 0.18
 Nodes (10): Purpose, Requirement: PHM fault-event interface, Requirement: Recovery diagnostics, Requirements, Scenario: Fault event drives SafeState, Scenario: Recovery renders its last fault, Scenario: The Emergency Manager is commanded, Scenario: The new state is published (+2 more)
 
 ### Community 1215 - "Design"
-Cohesion: 0.40
-Nodes (4): Context, Decisions, Design, Target file tree (~20 headers)
+Cohesion: 0.33
+Nodes (5): Context, D1 — `serialization_mandate.hpp` kept intact, Decisions, Design, Target file tree (~20 headers)
 
-### Community 1216 - "Proposal"
+### Community 1216 - "Tasks"
 Cohesion: 0.29
-Nodes (6): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, Why
+Nodes (6): 1. Build-system accelerators, 2. Test-cycle unlock, 3. Validation entrypoint, 4. Measurement and acceptance, 5. Wrap-up, Tasks
 
 ### Community 1217 - "Proposal"
 Cohesion: 0.25
@@ -5418,37 +5417,37 @@ Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Propos
 Cohesion: 0.20
 Nodes (9): MED-001: Strict Dependency Isolation & Build Gating, MED-002: Hardware-Agnostic All-Intra Video Encoder, MED-003: Zero-Copy DMA-BUF Hardware Ingestion, MED-004: Zero-Reencode Container Muxer (`.mp4` / `.mkv`), MED-005: C++23 & `nexigen-cpp` Mandate Compliance, Metadata, Overview, Requirements (+1 more)
 
-### Community 1226 - "RecoveryAck"
-Cohesion: 0.07
-Nodes (31): from_json(), RecoveryAck, outcome, reason, request_id, std::formatter<nexigen::phm::RecoveryAck>, to_json(), to_string() (+23 more)
+### Community 1226 - "Requirement: PHM fault-event interface"
+Cohesion: 0.22
+Nodes (8): ADDED Requirements, MODIFIED Requirements, Requirement: PHM fault-event interface, Scenario: Fault event drives SafeState, Scenario: The Emergency Manager is commanded, Scenario: The new state is published, Scenario: Unknown group is acknowledged as rejected, Spec Delta
 
-### Community 1227 - "Proposal"
-Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+### Community 1227 - "Design"
+Cohesion: 0.29
+Nodes (6): Context, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs
 
 ### Community 1228 - "ADDED Requirements"
 Cohesion: 0.20
 Nodes (9): ADDED Requirements, Requirement: A failed start reaps the supervisor child, Requirement: Supervisor environment rejects NUL in values, Requirement: Unreapable child errors do not fabricate success, runner/process-supervision delta spec, Scenario: ECHILD during the SIGKILL leg reports unknown, Scenario: Failed handshake leaves no zombie, Scenario: Normal reaping is unchanged (+1 more)
 
-### Community 1232 - "StateResult"
-Cohesion: 0.06
-Nodes (31): Entry, name, value, EnumTraits<nexigen::exec::StateResult>, entries, fallback, from_string(), StateResult (+23 more)
+### Community 1232 - "Requirement: AccessDenied transition result"
+Cohesion: 0.33
+Nodes (5): ADDED Requirements, Requirement: AccessDenied transition result, Scenario: AccessDenied round-trips, Scenario: Existing results keep their values, Spec Delta
 
-### Community 1233 - "Proposal"
-Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+### Community 1233 - "TracerProviderConfig"
+Cohesion: 0.11
+Nodes (12): std::formatter<nexigen::tracing::TracerProviderConfig>, TracerProviderConfig, max_spans_per_window, max_tracers, window_ns, worker_poll_interval_us, worker_thread, D2 — `core_mask` renders as `{:#x}` (+4 more)
 
-### Community 1238 - "Proposal"
-Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+### Community 1238 - "PublishResult"
+Cohesion: 0.15
+Nodes (9): heap_in_use(), pin_to_lowest_core(), PublishResult, heap_delta_bytes, loan_with_header, ok, producer_try_push, send_copy (+1 more)
 
-### Community 1239 - "Modified Capabilities"
-Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+### Community 1239 - "Requirement: Optional identity claim from the supervised entity"
+Cohesion: 0.29
+Nodes (6): ADDED Requirements, Requirement: Optional identity claim from the supervised entity, Scenario: A periodic claim repairs a lost one, Scenario: Creation claims the identity, Scenario: On-demand claim is available, Spec Delta
 
 ### Community 1241 - "Approach"
-Cohesion: 0.25
-Nodes (7): Approach, design: refactor-high-complexity-functions, Key Decisions, Open Questions, Risks and Mitigations, runner/app-suite, tracing/record-format
+Cohesion: 0.20
+Nodes (8): Approach, design: refactor-high-complexity-functions, hub/http-api, Key Decisions, Open Questions, Risks and Mitigations, runner/app-suite, tracing/record-format
 
 ### Community 1242 - "Proposal"
 Cohesion: 0.25
@@ -5462,9 +5461,9 @@ Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Propos
 Cohesion: 0.25
 Nodes (7): ADDED Requirements, Requirement: Settings files are digest-verified before launch, Scenario: A changed settings file starts nothing, Scenario: An absent section keeps plain behavior, Scenario: Malformed entries are rejected, Scenario: Matching settings start the suite, Spec Delta
 
-### Community 1245 - "load_logging_settings"
-Cohesion: 0.06
-Nodes (31): 1. Settings vocabulary and diagnostics, 2. Global/local loader and merge, 3. Apply helpers and logger initialization, 4. Size-based file rotation, 5. Example, documentation and integration, Tasks, Workflow follow-up, Capabilities (+23 more)
+### Community 1245 - "Proposal"
+Cohesion: 0.29
+Nodes (6): Capabilities, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
 ### Community 1249 - "Design"
 Cohesion: 0.29
@@ -5478,33 +5477,33 @@ Nodes (6): Requirement: Long and short option forms are supported, Scenario: Lon
 Cohesion: 0.29
 Nodes (6): Context, Decisions, Design, Goals / Non-Goals, Migration Plan, Risks / Trade-offs
 
-### Community 1252 - "hub_test_support.hpp"
-Cohesion: 0.11
-Nodes (15): http_request(), make_counter(), test_aggregation_latest_wins(), test_daemon_components(), test_exposition_and_http(), test_history_append_and_rotation(), test_http_front_thread_spec(), http_request() (+7 more)
+### Community 1252 - "Design"
+Cohesion: 0.29
+Nodes (6): Context, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs
 
-### Community 1253 - "Tasks"
-Cohesion: 0.25
-Nodes (7): 1. Baseline and scaffolding, 2. Decompose `sanitize_document`, 3. Decompose `apply_environment`, 4. Decompose `logger_options_format.cpp` `from_json` overloads, 6. Verification and quality gates, Tasks, Workflow follow-up
+### Community 1253 - "Proposal: Extract ChildProcess Class for Child Application Supervision"
+Cohesion: 0.22
+Nodes (8): Capabilities, Modified Capabilities, Modified Capabilities, New Capabilities, New Capabilities, Proposal: Extract ChildProcess Class for Child Application Supervision, What Changes, Why
 
-### Community 1254 - "Tasks"
+### Community 1254 - "Спецификация требований к демону логирования (LogDaemon)"
 Cohesion: 0.25
-Nodes (7): 1. File relocation, 2. Identifier sweep (design D2 map), 3. Spec text update, 4. Grep gate, 5. Full gate, Tasks, Workflow follow-up
+Nodes (7): 1. Введение и область применения, 2. Жизненный цикл и системное окружение (Lifecycle & Infrastructure), 3. Маршрутизация и раздельная фильтрация по приемникам (Sink-Specific Filtering), 4. Сохранение на диск и кольцевая ротация (Storage Management), 5. Сетевая трансляция и динамическое управление (Network Sinks & Control), 6. Конфигурация (LogDaemon Manifest), Спецификация требований к демону логирования (LogDaemon)
 
 ### Community 1255 - "safety_loop_test.sh"
 Cohesion: 0.52
 Nodes (5): fail(), run_case(), safety_loop_test.sh script, start_daemon(), stop_daemon()
 
-### Community 1256 - "Proposal"
+### Community 1256 - "Requirement: Event-driven receive"
+Cohesion: 0.29
+Nodes (7): Requirement: Event-driven receive, Scenario: Coalesced notifications still drain, Scenario: Idle receiver does not poll, Scenario: Missing event channel falls back to polling, Scenario: Realtime policy is opt-in and degrades gracefully, Scenario: Receiver wakes on the publish event, Scenario: Spin mode trades a core for latency
+
+### Community 1257 - "Tasks"
+Cohesion: 0.25
+Nodes (7): 1. Clock_id and domain declaration, 2. Chrono_snapshot value type, 3. ChronoSink concept and sinks, 5. Chrono_settings loader, 6. Integration and verification, Tasks, Workflow follow-up
+
+### Community 1258 - "Proposal"
 Cohesion: 0.25
 Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
-
-### Community 1257 - "Proposal"
-Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
-
-### Community 1258 - "Requirement: LogDaemon main thread applies a configurable spec"
-Cohesion: 0.25
-Nodes (7): ADDED Requirements, Requirement: LogDaemon main thread applies a configurable spec, Scenario: Default derives affinity from the legacy field, Scenario: Explicit spec adds scheduler attributes, Scenario: Main spec round-trips through JSON, Scenario: Required failure stops startup, Spec Delta
 
 ### Community 1259 - "Design"
 Cohesion: 0.29
@@ -5518,9 +5517,9 @@ Nodes (6): Context, Decisions, Design, Goals / Non-Goals, Migration Plan, Risks 
 Cohesion: 0.40
 Nodes (5): name, runs-on, steps, timeout-minutes, complexity
 
-### Community 1262 - "Proposal"
-Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+### Community 1262 - "FanoutConfiguredSink"
+Cohesion: 0.40
+Nodes (3): FanoutConfiguredSink, configured, moved_from_marker
 
 ### Community 1263 - "Design"
 Cohesion: 0.18
@@ -5530,61 +5529,65 @@ Nodes (10): 1. Validator decomposition, 2. Reuse the existing `read_log_level` p
 Cohesion: 0.33
 Nodes (6): Requirement: Failure impact restarts the whole suite, Scenario: Exhausted suite budget fails the suite, Scenario: Failure application crash restarts every application, Scenario: Failure application ignores its own retry budget, Scenario: Suite restart budget is shared, Scenario: Suite restart creates new attempt files for every application
 
-### Community 1265 - "Requirement: LoggerOptions defines the engine configuration"
-Cohesion: 0.22
-Nodes (8): MODIFIED Requirements, Purpose, Requirement: LoggerOptions defines the engine configuration, Scenario: Default-constructed options carry documented defaults, Scenario: Poll interval is applied by the loggers, Scenario: `spsc_ring_buffer_capacity` rounds up to power of two, Scenario: `to_string` renders every option field, Spec Delta
+### Community 1265 - "Requirement: Event-driven receive"
+Cohesion: 0.29
+Nodes (7): Requirement: Event-driven receive, Scenario: Coalesced notifications still drain, Scenario: Idle receiver does not poll, Scenario: Missing event channel falls back to polling, Scenario: Realtime policy is opt-in and degrades gracefully, Scenario: Receiver wakes on the publish event, Scenario: Spin mode trades a core for latency
+
+### Community 1266 - "Requirement: Manifest launch settings reach each child"
+Cohesion: 0.29
+Nodes (7): Requirement: Manifest launch settings reach each child, Scenario: Arguments are passed exactly, Scenario: CPU affinity is restricted, Scenario: Environment additions are visible to the child, Scenario: Identity variables take precedence, Scenario: Idle timeout terminates the application, Scenario: Rejected affinity is a launch failure
 
 ### Community 1267 - "Requirement: Execution Manager health heartbeat"
 Cohesion: 0.29
 Nodes (6): ADDED Requirements, Requirement: Execution Manager health heartbeat, Scenario: A deployment without the channel is unaffected, Scenario: A missing heartbeat expires the EM, Scenario: The EM heartbeat reaches PHM, Spec Delta
 
-### Community 1268 - "Requirement: Child environment and CPU affinity are configurable"
-Cohesion: 0.25
-Nodes (8): Requirement: Child environment and CPU affinity are configurable, Scenario: Application name is passed via argv, Scenario: CPU affinity restricts the child, Scenario: CPUs above 63 reach the child unchanged, Scenario: Empty CPU set retains existing reset behavior, Scenario: Environment entries are visible to the child, Scenario: ExecutionManager identity takes precedence, Scenario: Invalid CPU index is rejected before fork
+### Community 1268 - "Requirement: Size-based file rotation"
+Cohesion: 0.29
+Nodes (7): Requirement: Size-based file rotation, Scenario: Flush covers the active segment, Scenario: Limit reached starts the next segment, Scenario: Pre-existing content counts toward the limit, Scenario: Producers observe no size-rotation hitch, Scenario: Segment naming preserves the extension, Scenario: Zero disables size-based rotation
 
-### Community 1269 - "first_core_of"
-Cohesion: 0.25
-Nodes (8): first_core_of(), reset_thread_faults(), saw_thread_call(), test_affinity_core(), test_rt_integration_opt_in(), test_thread_apply(), test_thread_apply_failure_modes(), test_thread_report_and_publication()
+### Community 1269 - "Requirement: State-dependent startup configuration"
+Cohesion: 0.50
+Nodes (4): Requirement: State-dependent startup configuration, Scenario: Duplicate state is rejected, Scenario: Off startup configuration is rejected, Scenario: Startup configuration round-trips
 
 ### Community 1270 - "Requirement: At least one settings directory is required"
 Cohesion: 0.40
 Nodes (5): Requirement: At least one settings directory is required, Scenario: Documented flow terminates on the missing-directory error, Scenario: Neither directory is supplied, Scenario: Only the global directory is supplied, Scenario: Only the local directory is supplied
 
-### Community 1271 - "Design"
+### Community 1271 - "Requirement: JSON-lines file sink"
 Cohesion: 0.29
-Nodes (6): Context, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs
+Nodes (7): Requirement: JSON-lines file sink, Scenario: Batch becomes one JSON line, Scenario: Flush persists pending data, Scenario: JSON strings are escaped, Scenario: Multiple batches append, Scenario: Open and write failures surface, Scenario: State records serialize their value
 
 ### Community 1272 - "Stopwatch"
 Cohesion: 0.08
-Nodes (33): std::formatter<nexigen::diagnostics::Stopwatch>, Stopwatch, accumulated_ns_, anchor_, lap_anchor_, no_lap_value, to_string(), Context (+25 more)
+Nodes (35): std::formatter<nexigen::diagnostics::Stopwatch>, Stopwatch, accumulated_ns_, anchor_, lap_anchor_, no_lap_value, to_string(), Context (+27 more)
 
 ### Community 1273 - "coverage"
 Cohesion: 0.33
 Nodes (6): container, name, runs-on, steps, timeout-minutes, coverage
 
-### Community 1275 - "ADDED Requirements"
-Cohesion: 0.29
-Nodes (6): ADDED Requirements, Requirement: Stamp source diagnostic string, Requirement: Stamp source dump content, Scenario: Calibrated source reports its anchors, Scenario: Uncalibrated source is identifiable, Spec Delta
+### Community 1275 - "Design"
+Cohesion: 0.25
+Nodes (7): Context, Decisions, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs
 
-### Community 1276 - "Tasks"
-Cohesion: 0.29
-Nodes (6): 1. ChronoProvider two-phase lifecycle, 3. App settings integration, 4. Example and test policies, 5. Verification, Tasks, Workflow follow-up
+### Community 1276 - "Decisions"
+Cohesion: 0.12
+Nodes (15): D1. Root CMake option and test-enable ordering, D2. Example target factory in `examples/CMakeLists.txt`, D3. `examples/core/ex_spsc_ring_buffer.cpp`, D4. `examples/logging/ex_console_logger.cpp`, D5. `examples/logging/ex_file_logger.cpp`, D6. `examples/logging/ex_composite_logger.cpp`, D7. README update, D8. Concurrency and memory summary (+7 more)
 
 ### Community 1277 - "Requirement: Command-line types are serializable"
 Cohesion: 0.40
 Nodes (5): Requirement: Command-line types are serializable, Scenario: Diagnostics and errors round-trip through JSON, Scenario: Every type renders through to_string and formatter, Scenario: Non-object JSON is ignored, Scenario: Options round-trip through JSON
 
-### Community 1278 - "Decisions"
-Cohesion: 0.29
-Nodes (7): D1. Fixed 1024-bit `CpuSet`, not a dynamic bitset, D3. Self-application with an explicit report and bounded rollback, D4. Startup publication is the only new shared state, D5. Integration does not alter worker algorithms, D7. Runner applies, never computes, D8. Root-free deterministic verification, Decisions
+### Community 1278 - "Tasks"
+Cohesion: 0.25
+Nodes (7): 1. Settings vocabulary and diagnostics, 2. Global/local loader and merge, 3. Apply helpers and logger initialization, 4. Size-based file rotation, 5. Example, documentation and integration, Tasks, Workflow follow-up
 
-### Community 1279 - "Proposal"
-Cohesion: 0.29
-Nodes (6): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, Why
+### Community 1279 - "Tasks"
+Cohesion: 0.25
+Nodes (7): 1. File relocation, 2. Identifier sweep (design D2 map), 3. Spec text update, 4. Grep gate, 5. Full gate, Tasks, Workflow follow-up
 
-### Community 1280 - "Requirement: Manifest launch settings reach each child"
-Cohesion: 0.29
-Nodes (7): Requirement: Manifest launch settings reach each child, Scenario: Arguments are passed exactly, Scenario: CPU affinity is restricted, Scenario: Environment additions are visible to the child, Scenario: Identity variables take precedence, Scenario: Idle timeout terminates the application, Scenario: Rejected affinity is a launch failure
+### Community 1280 - "Proposal"
+Cohesion: 0.25
+Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
 ### Community 1281 - "from_json"
 Cohesion: 0.52
@@ -5594,65 +5597,61 @@ Nodes (6): Correctly scoped local helpers (not duplication), from_json(), read_c
 Cohesion: 0.40
 Nodes (5): Requirement: Global and local directory shapes are validated, Scenario: Absolute local directory is rejected, Scenario: Empty directory value is rejected, Scenario: Relative global directory is rejected, Scenario: Valid directory pair is accepted
 
-### Community 1283 - "Requirement: Optional identity claim from the supervised entity"
+### Community 1283 - "Requirement: CLI contract"
 Cohesion: 0.29
-Nodes (6): ADDED Requirements, Requirement: Optional identity claim from the supervised entity, Scenario: A periodic claim repairs a lost one, Scenario: Creation claims the identity, Scenario: On-demand claim is available, Spec Delta
+Nodes (7): Requirement: CLI contract, Scenario: Extract needs a selection, Scenario: Help is successful, Scenario: Info needs a dataset, Scenario: Invalid arguments fail, Scenario: List is available, Scenario: Unsupported format is controlled
 
 ### Community 1299 - "Requirement: Restarts follow abnormal termination only"
 Cohesion: 0.29
 Nodes (7): Requirement: Restarts follow abnormal termination only, Scenario: Abnormal exit triggers a delayed retry, Scenario: Exhausted per-application retries mark the application failed, Scenario: Normal exit does not restart, Scenario: Operator stop does not restart, Scenario: PHM restart bypasses the normal-exit rule, Scenario: Retries create new artifact files
 
-### Community 1300 - "recorder_test.cpp"
-Cohesion: 0.20
-Nodes (27): json_bytes(), main(), temp_root(), test_builtins_and_config(), test_crc32c_hardware_matches_table(), test_encoder_restart_not_gap(), test_export_selection_roundtrip(), test_index_channel_mask() (+19 more)
+### Community 1300 - "Entry"
+Cohesion: 0.33
+Nodes (5): Entry, name, value, EnumTraits<nexigen::com::CallbackProgression>, entries
 
 ### Community 1301 - "Requirement: Unknown, missing, repeated, and positional arguments are handled"
 Cohesion: 0.40
 Nodes (5): Requirement: Unknown, missing, repeated, and positional arguments are handled, Scenario: Missing value is rejected, Scenario: Positional argument is rejected, Scenario: Repeated option keeps the last value, Scenario: Unknown option is rejected
 
-### Community 1302 - "Requirement: Stdout and stderr are captured to files"
-Cohesion: 0.40
-Nodes (5): Requirement: Stdout and stderr are captured to files, Scenario: Child stderr goes to the instance log, Scenario: Child stdout goes to the instance log, Scenario: Log files are truncated on each start, Scenario: Restarted attempts use a new log file
+### Community 1302 - "Requirement: Merged settings apply to logger configuration"
+Cohesion: 0.25
+Nodes (7): MODIFIED Requirements, Purpose, Requirement: Merged settings apply to logger configuration, Scenario: Console config receives the poll interval, Scenario: Empty affinity means OS placement, Scenario: File config receives every mapped field, Spec Delta
 
-### Community 1303 - "Requirement: Dependency-ordered startup"
-Cohesion: 0.29
-Nodes (7): Requirement: Dependency-ordered startup, Scenario: Cross-state dependency is rejected, Scenario: Dependent waits for its dependency, Scenario: Dependent waits for Terminated, Scenario: Missing dependency fails startup, Scenario: Mutual dependency is rejected, Scenario: Termination follows reverse order
+### Community 1304 - "Proposal"
+Cohesion: 0.25
+Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
-### Community 1304 - "Requirement: Log level accepts canonical enumerator names"
-Cohesion: 0.29
-Nodes (6): MODIFIED Requirements, Requirement: Log level accepts canonical enumerator names, Scenario: Every canonical level is accepted, Scenario: Omitted level records no override, Scenario: Unknown level is rejected, Spec Delta
+### Community 1305 - "Requirement: Recovery acknowledgement channel"
+Cohesion: 0.33
+Nodes (5): ADDED Requirements, Requirement: Recovery acknowledgement channel, Scenario: Acknowledgement reaches the PHM daemon, Scenario: No PHM subscriber is harmless, Spec Delta
 
-### Community 1305 - "Requirement: Suite supervisor hosts the StateClient control path"
-Cohesion: 0.29
-Nodes (6): ADDED Requirements, Requirement: Suite supervisor hosts the StateClient control path, Scenario: Gate-off suite exposes no StateClient, Scenario: Suite readiness gates confirmation, Scenario: Suite supervisor receives SetState, Spec Delta
+### Community 1306 - "core_test.cpp"
+Cohesion: 0.07
+Nodes (31): arena_exhausted(), FanoutABC, FanoutProbe, FanoutStubAlpha, visit, FanoutStubBeta, visit, FanoutStubGamma (+23 more)
 
-### Community 1306 - "Tasks"
-Cohesion: 0.40
-Nodes (4): 1. Surface the apply report, 2. Report-based diagnostics at call sites, 3. Tests and validation, Tasks
+### Community 1307 - "Requirement: Suite manifest source format"
+Cohesion: 0.33
+Nodes (5): ADDED Requirements, Requirement: Suite manifest source format, Scenario: ARXML source is normalized, Scenario: JSON source is unchanged, Spec Delta
 
-### Community 1307 - "Proposal"
-Cohesion: 0.29
-Nodes (6): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, Why
-
-### Community 1308 - "Requirement: JSON-lines file sink"
-Cohesion: 0.29
-Nodes (7): Requirement: JSON-lines file sink, Scenario: Batch becomes one JSON line, Scenario: Flush persists pending data, Scenario: JSON strings are escaped, Scenario: Multiple batches append, Scenario: Open and write failures surface, Scenario: State records serialize their value
+### Community 1308 - "Proposal"
+Cohesion: 0.25
+Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
 ### Community 1309 - "Tasks"
 Cohesion: 0.33
 Nodes (5): 1. EM heartbeat, 2. Example and matrix, 3. Verification, Tasks, Workflow follow-up
 
-### Community 1310 - "Why"
-Cohesion: 0.08
-Nodes (24): 2. Shared state, 3. Per-file plan, 4. No ODR / linkage impact, Context, Decisions, Design, Goals / Non-Goals, Migration Plan (+16 more)
+### Community 1310 - "PhmManifest"
+Cohesion: 0.06
+Nodes (26): ClaimRegistry, manifest_, verified_, std::formatter<nexigen::phm::ClaimRegistry>, to_string(), PhmManifest, bg_thread, fault_storage_thread (+18 more)
 
 ### Community 1311 - "Proposal"
 Cohesion: 0.25
 Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
-### Community 1312 - "Proposal"
-Cohesion: 0.25
-Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+### Community 1312 - "Requirement: SM manifest carries lightweight state machines"
+Cohesion: 0.33
+Nodes (5): ADDED Requirements, Requirement: SM manifest carries lightweight state machines, Scenario: Existing manifest remains valid, Scenario: State machines round-trip, Spec Delta
 
 ### Community 1313 - "Proposal"
 Cohesion: 0.25
@@ -5662,21 +5661,17 @@ Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Propos
 Cohesion: 0.40
 Nodes (4): 1. Matrix refresh, 2. Verification, Tasks, Workflow follow-up
 
-### Community 1315 - "recovery_handler.cpp"
-Cohesion: 0.29
-Nodes (3): RecoveryHandler::set_restart(), RecoveryHandler::set_validate(), RecoveryHandler::to_string()
+### Community 1315 - "Requirement: Function Group initial state"
+Cohesion: 0.33
+Nodes (6): Requirement: Function Group initial state, Scenario: Default initial state is the first non-Off state, Scenario: Initial-state transition failure is visible, Scenario: RootFG starts in Startup, Scenario: Suite start enters the configured state, Scenario: Unknown initial state is rejected
 
 ### Community 1316 - "Proposal"
 Cohesion: 0.33
 Nodes (5): Capabilities, Impact, Ordering note, Proposal, What Changes
 
-### Community 1318 - "test_result"
-Cohesion: 0.38
-Nodes (5): parse_fails(), parse_succeeds(), status_fails_not_initialized(), status_succeeds(), test_result()
-
-### Community 1319 - "PhmManifest"
-Cohesion: 0.07
-Nodes (21): ClaimRegistry, manifest_, verified_, std::formatter<nexigen::phm::ClaimRegistry>, to_string(), PhmManifest, bg_thread, fault_storage_thread (+13 more)
+### Community 1319 - "Supervisor"
+Cohesion: 0.04
+Nodes (40): DeadlineClock, started, ForkFrame, entered, fork_index, ProcessSupervision, checkpoints_this_window, consecutive_failures (+32 more)
 
 ### Community 1320 - "run_simulation_suite.sh"
 Cohesion: 0.60
@@ -5686,17 +5681,21 @@ Nodes (5): collect_binaries(), find_app(), find_bin(), run_simulation_suite.sh s
 Cohesion: 0.25
 Nodes (7): ADDED Requirements, Requirement: SM manifest carries background thread specs, Scenario: Audit spec overrides the background fallback, Scenario: Empty audit spec inherits the background fallback, Scenario: Empty specs preserve inherited attributes, Scenario: Thread specs round-trip through JSON, Spec Delta
 
-### Community 1322 - "Placement"
-Cohesion: 0.29
-Nodes (5): Placement, hi, lo, orig, pinned
+### Community 1322 - "logging/latency_test.cpp"
+Cohesion: 0.13
+Nodes (14): measure_one_pass(), Medians, accepted, filtered, filtered_max, filtered_p999, overhead, place_benchmark_threads() (+6 more)
 
 ### Community 1323 - "VectorSample"
-Cohesion: 0.08
-Nodes (24): fill_values(), std::formatter<simulation_suite::VectorSample>, to_string(), VectorSample, sent_ns, sequence, values, Requirement: Vector payload with canonical conversions (+16 more)
+Cohesion: 0.13
+Nodes (15): fill_values(), std::formatter<simulation_suite::VectorSample>, to_string(), VectorSample, sent_ns, sequence, values, Requirement: Vector payload with canonical conversions (+7 more)
 
-### Community 1331 - "Requirement: Suite types follow the serialization contract"
-Cohesion: 0.50
-Nodes (4): Requirement: Suite types follow the serialization contract, Scenario: Hostile suite JSON is ignored, Scenario: Impact and state enums round-trip through text and JSON, Scenario: Manifest and status structures round-trip
+### Community 1325 - "iceoryx2_metric_sink_test.cpp"
+Cohesion: 0.43
+Nodes (7): main(), run_suite(), test_burst_no_drop(), test_concept_and_diagnostics(), test_out_of_samples_no_block(), test_publish_roundtrip(), test_sink()
+
+### Community 1331 - ".user_header"
+Cohesion: 0.07
+Nodes (29): Context, Decisions, Design, Goals / Non-Goals, Risks / Trade-offs, Capabilities, Impact, Modified Capabilities (+21 more)
 
 ### Community 1332 - "Design"
 Cohesion: 0.40
@@ -5710,25 +5709,29 @@ Nodes (6): Metadata, Overview, REC-SVC-001: Execution Manifest & Resource Isolat
 Cohesion: 0.25
 Nodes (8): Requirement: Settings sources merge per application, Scenario: Application global path replaces the suite path, Scenario: Invalid settings values fail the launch, Scenario: Local path is resolved from the manifest directory, Scenario: Local settings override global settings, Scenario: Missing settings files keep defaults, Scenario: Suite global settings apply by default, Scenario: Unreadable settings file fails the launch
 
-### Community 1336 - "Proposal"
-Cohesion: 0.33
-Nodes (5): Capabilities, Modified Capabilities, New Capabilities, Proposal, Why
+### Community 1336 - "Requirement: Suite supervisor hosts the StateClient control path"
+Cohesion: 0.29
+Nodes (6): ADDED Requirements, Requirement: Suite supervisor hosts the StateClient control path, Scenario: Gate-off suite exposes no StateClient, Scenario: Suite readiness gates confirmation, Scenario: Suite supervisor receives SetState, Spec Delta
 
-### Community 1338 - "Proposal"
-Cohesion: 0.33
-Nodes (5): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal
+### Community 1337 - "ADDED Requirements"
+Cohesion: 0.29
+Nodes (6): ADDED Requirements, Requirement: Stamp source diagnostic string, Requirement: Stamp source dump content, Scenario: Calibrated source reports its anchors, Scenario: Uncalibrated source is identifiable, Spec Delta
 
-### Community 1339 - "7. Сквозные контракты"
+### Community 1338 - "Requirement: Runnable file logger example"
 Cohesion: 0.33
-Nodes (6): 7. Сквозные контракты, Безопасность и целостность, Горячий и холодный путь, Идентичность запуска и телеметрия, Ошибки и сериализация, Потоки и affinity
+Nodes (6): Requirement: Runnable file logger example, Scenario: Affinity outcome is reported, Scenario: Cold-path read-back verification, Scenario: Configuration is inspectable, Scenario: Configured JSONL file is produced, Scenario: UTF-8 messages survive the pipeline
+
+### Community 1339 - "Requirement: Composite metric sink fan-out"
+Cohesion: 0.33
+Nodes (6): Requirement: Composite metric sink fan-out, Scenario: Composite diagnostics contract, Scenario: Composite flush aggregates, Scenario: Every sink receives every batch, Scenario: One failing sink does not starve the rest, Scenario: Typed and indexed access
 
 ### Community 1340 - "Requirement: Effective log level applies to each application"
 Cohesion: 0.33
 Nodes (6): Requirement: Effective log level applies to each application, Scenario: Absent level preserves settings, Scenario: Application level overrides the suite, Scenario: Effective level beats settings and environment, Scenario: Generated logging settings carry the level, Scenario: Suite level applies by default
 
-### Community 1341 - "Requirement: Composite metric sink fan-out"
+### Community 1341 - "Requirement: Lifecycle-armed supervision"
 Cohesion: 0.33
-Nodes (6): Requirement: Composite metric sink fan-out, Scenario: Composite diagnostics contract, Scenario: Composite flush aggregates, Scenario: Every sink receives every batch, Scenario: One failing sink does not starve the rest, Scenario: Typed and indexed access
+Nodes (6): Requirement: Lifecycle-armed supervision, Scenario: Failed exhaustion is terminal, Scenario: Legacy PHM keeps working, Scenario: Running arms supervision, Scenario: Terminated does not trigger recovery, Scenario: Terminating suspends supervision
 
 ### Community 1350 - "Fixture"
 Cohesion: 0.33
@@ -5746,9 +5749,9 @@ Nodes (4): Requirement: Help short-circuits with success, Scenario: Help alone s
 Cohesion: 0.50
 Nodes (4): Requirement: Log level accepts canonical enumerator names, Scenario: Every canonical level is accepted, Scenario: Omitted level records no override, Scenario: Unknown level is rejected
 
-### Community 1354 - "Tasks"
+### Community 1354 - "Run"
 Cohesion: 0.33
-Nodes (5): 2. Hub CLI rename, 3. Tracing test renames and result-value finding, 4. Verification, Tasks, Workflow follow-up
+Nodes (6): 5.3 Жизненный цикл suite и Function Groups, 5.5 RootFG, Run, code, err, out
 
 ### Community 1355 - "Tasks"
 Cohesion: 0.40
@@ -5766,27 +5769,27 @@ Nodes (4): Capabilities, proposal: refactor-high-complexity-functions, Success C
 Cohesion: 0.33
 Nodes (5): ADDED Requirements, Requirement: LSM configuration names its Function Group, Scenario: Function Group round-trips, Scenario: Missing group fails validation, Spec Delta
 
-### Community 1359 - "Tasks"
-Cohesion: 0.40
-Nodes (4): 6. Test decomposition, 7. Verification, Tasks, Workflow follow-up
+### Community 1359 - "Spec Delta"
+Cohesion: 0.50
+Nodes (4): MODIFIED Requirements, Requirement: File logger vocabulary diagnostic strings, Scenario: Config dump is complete, Scenario: Drop snapshot renders
 
-### Community 1360 - "iceoryx2_logger_config.cpp"
-Cohesion: 0.67
-Nodes (4): from_json(), parse_throttle(), parse_worker_thread(), to_json()
-
-### Community 1361 - "StatusArgs"
+### Community 1360 - "BoundedSink"
 Cohesion: 0.33
-Nodes (6): StatusArgs, config, have_dir, instance_dir, json_output, suite_dir
+Nodes (4): BoundedSink, left, p, spill
 
-### Community 1362 - "Requirement: Degrade and not-impact levels bound the damage"
+### Community 1361 - "Why"
+Cohesion: 0.29
+Nodes (6): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, Why
+
+### Community 1362 - "Design"
 Cohesion: 0.40
-Nodes (5): Requirement: Degrade and not-impact levels bound the damage, Scenario: Degrade exhaustion degrades the suite, Scenario: Neither level restarts the suite, Scenario: Not-impact exhaustion leaves the suite running, Scenario: Not-impact retries never change suite state
+Nodes (4): Context, Design, Goals / Non-Goals, Risks / Trade-offs
 
 ### Community 1364 - "Requirement: Option parsing honors the terminator"
 Cohesion: 0.67
 Nodes (3): Requirement: Option parsing honors the terminator, Scenario: A bare terminator is accepted, Scenario: Arguments after the terminator are positional
 
-### Community 1365 - "src/recorder/crc32c_fast.hpp"
+### Community 1365 - "crc32c"
 Cohesion: 0.40
 Nodes (3): crc32c(), crc32c_aarch64(), crc32c_sse42()
 
@@ -5794,53 +5797,53 @@ Nodes (3): crc32c(), crc32c_aarch64(), crc32c_sse42()
 Cohesion: 0.40
 Nodes (5): Requirement: Function Group configuration, Scenario: Cross-group state is rejected, Scenario: Group switch starts its processes, Scenario: Group switch stops its processes, Scenario: Process unchanged between states keeps running
 
-### Community 1367 - "Requirement: RT priority capability is opt-in"
-Cohesion: 0.40
-Nodes (5): Requirement: RT priority capability is opt-in, Scenario: A failed drop starts nothing, Scenario: Opt-in keeps the capability, Scenario: The default drops CAP_SYS_NICE, Scenario: The opt-in cannot target a non-root uid
+### Community 1367 - "Proposal"
+Cohesion: 0.25
+Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
-### Community 1374 - "log_record_test.cpp"
-Cohesion: 0.50
-Nodes (3): rendered(), suite_record(), test_record()
-
-### Community 1380 - "Requirement: Settings files are digest-verified before launch"
+### Community 1374 - "Requirement: Settings files are digest-verified before launch"
 Cohesion: 0.40
 Nodes (5): Requirement: Settings files are digest-verified before launch, Scenario: A changed settings file starts nothing, Scenario: An absent section keeps plain behavior, Scenario: Malformed entries are rejected, Scenario: Matching settings start the suite
 
-### Community 1381 - "null_logger_test.cpp"
-Cohesion: 0.67
-Nodes (3): null_loop(), suite_null_logger(), test_null_logger()
+### Community 1380 - "Requirement: Log level accepts canonical enumerator names"
+Cohesion: 0.29
+Nodes (6): MODIFIED Requirements, Requirement: Log level accepts canonical enumerator names, Scenario: Every canonical level is accepted, Scenario: Omitted level records no override, Scenario: Unknown level is rejected, Spec Delta
 
-### Community 1382 - "Design"
-Cohesion: 0.33
-Nodes (4): Decisions, Design, Risks, Specs
-
-### Community 1384 - "Requirement: Recovery restart consumes the restart budget"
-Cohesion: 0.50
-Nodes (4): Requirement: Recovery restart consumes the restart budget, Scenario: Budget exhaustion is not a crash retry, Scenario: Each recovery restart spends one attempt, Scenario: Exhausted budget reports Failed
-
-### Community 1385 - "Requirement: Suite manifest has a fixed schema"
+### Community 1381 - "Requirement: Alive supervision"
 Cohesion: 0.40
-Nodes (5): Requirement: Suite manifest has a fixed schema, Scenario: Complete manifest is accepted, Scenario: ExecutionManager name is optional, Scenario: Optional fields default deterministically, Scenario: Unknown fields are ignored
+Nodes (5): Requirement: Alive supervision, Scenario: Legacy manifest keeps at-least-one semantics, Scenario: Legitimate faster execution passes, Scenario: Missing checkpoints fail aliveness, Scenario: Too many checkpoints fail aliveness
 
-### Community 1387 - "Requirement: Logical supervision"
-Cohesion: 0.40
-Nodes (5): Requirement: Logical supervision, Scenario: All branches entered before the join pass, Scenario: Join without every branch fails logic, Scenario: Out-of-order checkpoint fails logic, Scenario: Process without fork declarations is unaffected
-
-### Community 1388 - "BindAddress"
+### Community 1382 - "BindAddress"
 Cohesion: 0.40
 Nodes (3): BindAddress, in, in6
 
-### Community 1390 - "com_test.cpp"
-Cohesion: 0.05
-Nodes (14): has_user_header, has_user_header<S, std::void_t<decltype(std::declval<const S&>().user_header())>>, main(), measure_e2e_overhead(), NonPodPayload, name, operator delete(), operator new() (+6 more)
+### Community 1384 - "Requirement: Application settings carry the signal-watcher thread spec"
+Cohesion: 0.29
+Nodes (6): ADDED Requirements, Requirement: Application settings carry the signal-watcher thread spec, Scenario: Empty spec preserves inheritance, Scenario: Explicit spec is applied by the watcher, Scenario: The spec round-trips through settings JSON, Spec Delta
 
-### Community 1395 - "Requirement: Suite manifest source format"
-Cohesion: 0.33
-Nodes (5): ADDED Requirements, Requirement: Suite manifest source format, Scenario: ARXML source is normalized, Scenario: JSON source is unchanged, Spec Delta
+### Community 1385 - "Requirement: Wrappers require a protection profile"
+Cohesion: 0.29
+Nodes (6): ADDED Requirements, MODIFIED Requirements, Requirement: Wrappers require a protection profile, Scenario: Protected profiles are accepted, Scenario: Wrapper creation with None is rejected, Spec Delta
 
-### Community 1405 - "Tasks"
+### Community 1387 - "log_record_test.cpp"
+Cohesion: 0.50
+Nodes (3): rendered(), suite_record(), test_record()
+
+### Community 1388 - "Requirement: Dependency-ordered startup"
+Cohesion: 0.29
+Nodes (7): Requirement: Dependency-ordered startup, Scenario: Cross-state dependency is rejected, Scenario: Dependent waits for its dependency, Scenario: Dependent waits for Terminated, Scenario: Missing dependency fails startup, Scenario: Mutual dependency is rejected, Scenario: Termination follows reverse order
+
+### Community 1390 - "ControlHostFactory"
+Cohesion: 0.67
+Nodes (3): ControlHostFactory, control_host_factory(), set_control_host_factory()
+
+### Community 1395 - "Tasks"
 Cohesion: 0.50
 Nodes (3): 2. Migrate loaders (wire/diagnostic-identical), 3. Gates and verification, Tasks
+
+### Community 1405 - "Requirement: Driver and cleanup scripts"
+Cohesion: 0.50
+Nodes (4): Requirement: Driver and cleanup scripts, Scenario: Cleanup is idempotent, Scenario: Driver brings the stack up in dependency order, Scenario: Receivers start before the generator
 
 ### Community 1416 - "Requirement: Execution Manager health heartbeat"
 Cohesion: 0.50
@@ -5850,41 +5853,81 @@ Nodes (4): Requirement: Execution Manager health heartbeat, Scenario: A deployme
 Cohesion: 0.50
 Nodes (4): Requirement: Suite launch is detached, Scenario: A per-application launch failure does not fail start, Scenario: Manifest or supervisor failure fails start, Scenario: Start returns while applications keep running
 
-### Community 1418 - "Requirement: Suite metadata lives in a deterministic suite directory"
+### Community 1418 - "Requirement: Flaky receiver terminates and the platform raises it"
 Cohesion: 0.50
-Nodes (4): Requirement: Suite metadata lives in a deterministic suite directory, Scenario: Another process can operate from the suite directory, Scenario: Metadata writes are atomic, Scenario: Suite directory is created on start
+Nodes (4): Requirement: Flaky receiver terminates and the platform raises it, Scenario: ExecutionManager relaunches it, Scenario: Flaky receiver exits on schedule, Scenario: Supervision tolerates the restart window
 
-### Community 1419 - "Requirement: CompositeTraceSink fan-out"
+### Community 1419 - "Requirement: Flaky receiver terminates and the platform raises it"
+Cohesion: 0.50
+Nodes (4): Requirement: Flaky receiver terminates and the platform raises it, Scenario: ExecutionManager relaunches it, Scenario: Flaky receiver exits on schedule, Scenario: Supervision tolerates the restart window
+
+### Community 1420 - "Requirement: CompositeTraceSink fan-out"
 Cohesion: 0.50
 Nodes (4): Requirement: CompositeTraceSink fan-out, Scenario: A failing member does not starve the rest, Scenario: Every member receives the same record, Scenario: Members are reachable by index and type
 
-### Community 1420 - "Requirement: ConsoleTraceSink"
+### Community 1422 - "Requirement: ConsoleTraceSink"
 Cohesion: 0.50
 Nodes (4): Requirement: ConsoleTraceSink, Scenario: Console lines carry span identity and detail, Scenario: Console rendering allocates nothing per record, Scenario: Write failures surface without abort
 
-### Community 1425 - "Capabilities"
+### Community 1425 - "Entry"
+Cohesion: 0.33
+Nodes (5): Entry, name, value, EnumTraits<probe::Color>, entries
+
+### Community 1426 - "EventProducerFaults"
+Cohesion: 0.33
+Nodes (5): EventProducerFaults, fail_loan, fail_notify, fail_send, D11 — Deterministic fault injection stays test-only
+
+### Community 1427 - "RequestLineError"
+Cohesion: 0.40
+Nodes (5): RequestLineError, BadRequest, BadVersion, MethodNotAllowed, None
+
+### Community 1428 - "ManifestAccessor"
+Cohesion: 0.12
+Nodes (13): ManifestAccessor, ADDED Requirements, Requirement: Machine Manifest loading, Scenario: ARXML machine loads, Scenario: Malformed machine is rejected, Spec Delta, 2. ARXML and cross-check, Context (+5 more)
+
+### Community 1430 - "null_logger_test.cpp"
 Cohesion: 0.67
-Nodes (3): Capabilities, Modified Capabilities, New Capabilities
+Nodes (3): null_loop(), suite_null_logger(), test_null_logger()
+
+### Community 1431 - "Requirement: Telemetry reaches the three daemons"
+Cohesion: 0.67
+Nodes (3): Requirement: Telemetry reaches the three daemons, Scenario: Logs, metrics, and traces reach the daemons, Scenario: Shared trace id is observable
+
+### Community 1436 - "Requirement: Suite manifest has a fixed schema"
+Cohesion: 0.40
+Nodes (5): Requirement: Suite manifest has a fixed schema, Scenario: Complete manifest is accepted, Scenario: ExecutionManager name is optional, Scenario: Optional fields default deterministically, Scenario: Unknown fields are ignored
+
+### Community 1438 - "Requirement: RT priority capability is opt-in"
+Cohesion: 0.40
+Nodes (5): Requirement: RT priority capability is opt-in, Scenario: A failed drop starts nothing, Scenario: Opt-in keeps the capability, Scenario: The default drops CAP_SYS_NICE, Scenario: The opt-in cannot target a non-root uid
+
+### Community 1447 - "Requirement: Each attempt writes to a new artifact directory"
+Cohesion: 0.50
+Nodes (4): Requirement: Each attempt writes to a new artifact directory, Scenario: Control files stay in the instance directory, Scenario: First attempt uses attempt-0001, Scenario: Restart creates the next attempt directory
+
+### Community 1448 - "Requirement: Suite types follow the serialization contract"
+Cohesion: 0.50
+Nodes (4): Requirement: Suite types follow the serialization contract, Scenario: Hostile suite JSON is ignored, Scenario: Impact and state enums round-trip through text and JSON, Scenario: Manifest and status structures round-trip
 
 ## Knowledge Gaps
-- **2826 isolated node(s):** `entries`, `values`, `name`, `None`, `P04` (+2821 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 12797 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **272 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **2961 isolated node(s):** `value`, `code`, `value`, `data`, `other` (+2956 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 13089 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **277 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `LogLevel` connect `LogLevel` to `ADDED Requirements`, `ConsoleLoggerConfig`, `ResetPolicy`, `SuiteMetadata`, `SuiteManifest`, `REMOVED Requirements`, `SpamProtection`, `.log`, `Iceoryx2LoggerConfig`, `LogFrame`, `ADDED Requirements`, `LoggerOptions`, `execution_manager.cpp`, `StartOptions`, `LogRecord`, `Requirement: Log level accepts canonical enumerator names`, `ConsoleLogger`, `ErrorCode`, `cstddef`, `SettingsSource`, `SpanAttribute`, `suite_supervisor.cpp`, `Iceoryx2Logger`, `Requirements`, `FileLogger`, `ProviderConfig`, `ex_spsc_ring_buffer.cpp`, `SpscRingBuffer`, `nexigen-exec/main.cpp`, `enum_name`, `Requirements`, `RecordingClockLogger`, `ADDED Requirements`, `Requirement: Log level accepts canonical enumerator names`, `Requirement: Logger concept core surface`, `.shutdown`, `.chrono`, `ControlHost`, `format_param_t`, `FileLoggerConfig`, `Requirements`, `CommandLineOptions`, `ADDED Requirements`, `SpamProtectionConfig`, `Requirement: Runnable console logger example`, `.emit`, `RotationSchedule`, `LogDaemonConfig`, `format_json_line`, `Stopwatch`, `Producer`, `Decisions`?**
+- **Why does `LogLevel` connect `LogLevel` to `ADDED Requirements`, `ConsoleLoggerConfig`, `ResetPolicy`, `execution_manager_logging.cpp`, `SuiteManifest`, `SpamProtection`, `Iceoryx2LoggerConfig`, `LogFrame`, `ADDED Requirements`, `LoggerOptions`, `NullLogger`, `cstdint`, `execution_manager.cpp`, `StartOptions`, `LogRecord`, `format_json_line`, `ConsoleLogger`, `ChronoWorker`, `ErrorCode`, `SettingsSource`, `SpanAttribute`, `suite_supervisor.cpp`, `Iceoryx2Logger`, `Requirements`, `FileLogger`, `ProviderConfig`, `SpscRingBuffer`, `Proposal`, `Requirements`, `suite_json.hpp`, `ADDED Requirements`, `Requirement: Log level accepts canonical enumerator names`, `Requirement: Logger concept core surface`, `REMOVED Requirements`, `.chrono`, `CommandLineOptions`, `ControlHost`, `format_param_t`, `FileLoggerConfig`, `Requirements`, `SpamProtectionConfig`, `Snapshot`, `Requirement: Runnable console logger example`, `Requirement: Log level accepts canonical enumerator names`, `ThrottleConfig`, `.emit`, `nexigen-exec/main.cpp`, `.shutdown`, `LogDaemonConfig`, `Stopwatch`, `Producer`, `Decisions`?**
   _High betweenness centrality (0.040) - this node is a cross-community bridge._
 - **Are the 78 inferred relationships involving `LogLevel` (e.g. with `2. Карта модулей` and `2. Уровни логирования и ранняя фильтрация (Early Filtering)`) actually correct?**
   _`LogLevel` has 78 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `entries`, `values`, `name` to the rest of the system?**
-  _2826 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **What connects `value`, `code`, `value` to the rest of the system?**
+  _2961 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `string` be split into smaller, more focused modules?**
-  _Cohesion score 0.031209263093321064 - nodes in this community are weakly interconnected._
-- **Why does `ErrorCode` connect `ErrorCode` to `Requirements`, `GapMarker`, `WorkerThread`, `Requirements`, `Decisions`, `ResetPolicy`, `Error`, `.now`, `LogRecord`, `ConsoleLogger`, `string_view`, `SpanAttribute`, `from_json`, `Iceoryx2Logger`, `MetricProvider`, `FileLogger`, `VideoStreamConfig`, `app_suite_test.cpp`, `ex_spsc_ring_buffer.cpp`, `TracerProvider`, `bench_tests.cpp`, `self_affinity`, `sim_common.hpp`, `Decisions`, `.initialize`, `enum_name`, `command_line.cpp`, `Requirements`, `TraceDaemonSession`, `SettingsPaths`, `StateCommand`, `string_view`, `ADDED Requirements`, `recorder_types.hpp`, `execution_manager_test.cpp`, `.chrono`, `ThreadApplyReport`, `ControlHost`, `LogLevel`, `make_infrastructure`, `AsyncWorker`, `ScopedSpan`, `Stopwatch`, `Decisions`, `Decisions`?**
-  _High betweenness centrality (0.029) - this node is a cross-community bridge._
+  _Cohesion score 0.039724741945573974 - nodes in this community are weakly interconnected._
+- **Why does `ThreadApplyReport` connect `ThreadApplyReport` to `WorkerThread`, `execution_manager_logging.cpp`, `ADDED Requirements`, `Tasks`, `Requirements`, `Requirement: `apply_thread_spec_self` delegates to single-attribute applicators`, `ConsoleLogger`, `ChronoWorker`, `ErrorCode`, `Requirement: Affinity failures are non-fatal warnings`, `nexigen-run application suites`, `Iceoryx2Logger`, `FileLogger`, `TracerProvider`, `self_affinity`, `FaultStorage`, `SecurityEvent`, `TraceDaemonSession`, `.has_requests`, `SignalWatcher`, `.chrono`, `CpuSet`, `thread_management.hpp`, `Requirements`, `Requirement: The worker applies its own ThreadSpec before the body`, `LogLevel`, `ADDED Requirements`, `AsyncWorker`, `Requirement: Affinity failures are non-fatal warnings`, `TransitionAudit`, `ADDED Requirements`?**
+  _High betweenness centrality (0.035) - this node is a cross-community bridge._
 - **Are the 28 inferred relationships involving `SuiteManifest` (e.g. with `4.9 `exec` — исполнение и супервизия` and `Context`) actually correct?**
   _`SuiteManifest` has 28 INFERRED edges - model-reasoned connections that need verification._
 - **Should `E2eProfile` be split into smaller, more focused modules?**
-  _Cohesion score 0.06006006006006006 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.07586206896551724 - nodes in this community are weakly interconnected._
