@@ -5,8 +5,8 @@
 публичным заголовкам `include/nexigen/`, спецификациям `openspec/specs/` и
 целям сборки `CMakeLists.txt`.
 
-Актуально на 15.11.2026: 12 модулей, 337 публичных заголовков, 121
-capability, 834 требования и 2087 сценариев в OpenSpec.
+Актуально на 17.11.2026: 13 модулей, 356 публичных заголовков, 125
+capability, 893 требования и 2262 сценария в OpenSpec.
 
 ## 1. Назначение и принципы
 
@@ -45,6 +45,7 @@ capability, 834 требования и 2087 сценариев в OpenSpec.
 | L2 | `nexigen::metrics` | `nexigen_metrics` | STATIC | 49 | Счётчики, gauge, гистограммы, статистика, `MetricProvider`, sinks, Prometheus, кадры |
 | L2 | `nexigen::tracing` | `nexigen_tracing` | STATIC | 35 | `TracerProvider`, `ScopedSpan`, контекст трассировки, sinks, кадры и daemon-сессия |
 | L2 | `nexigen::diagnostics` | `nexigen_diagnostics` | STATIC | 5 | `Stopwatch`, `ScopedStopwatch`, снимки интервалов |
+| L2 | `nexigen::recorder` | `nexigen_recorder` | STATIC | 15 | Raw session storage: `.nxrec`/`.nxidx`/`.nxvid` + `session.json`, writer/reader, CRC-32C, rotation/retention, dataset inventory, video refs |
 | L3 | `nexigen::app` | `nexigen_app` | STATIC | 11 | Командная строка, настройки, `Infrastructure`, телеметрическая раскладка, `signalfd` |
 | L3 | `nexigen::exec` | `nexigen_exec` | STATIC | 56 | Suite/instance lifecycle, супервизия процессов, Function Groups, манифесты, platform controls |
 | L3 | `nexigen::hub` | `nexigen_hub` | STATIC | 15 | Discovery, ограниченные потоки с gap-маркерами, HTTP/SSE-сервер, web UI |
@@ -61,12 +62,19 @@ capability, 834 требования и 2087 сценариев в OpenSpec.
 Остальные модули компилируют холодные пути (калибровка, harvest-циклы,
 файловый и сетевой ввод-вывод, разбор манифестов) в статические архивы.
 
+`nexigen::recorder` — единственный модуль хранения. Он зависит только от
+`core` и `chrono` и по построению не линкует COM, media, MCAP или FFmpeg.
+`nexigen-export` — отдельный on-demand инструмент поверх `nexigen_recorder`
+(опционально с MCAP); MP4/MKV остаются follow-up до появления
+`nexigen_media`.
+
 ## 3. Слои и зависимости
 
 ```mermaid
 flowchart TB
     subgraph L4["L4 · инструменты"]
-        TOOLS["nexigen-exec · nexigen-em · nexigen-hub<br/>nexigen-logd · nexigen-traced · nexigen-metricsd<br/>nexigen-phmd · nexigen-sm"]
+        TOOLS["nexigen-exec · nexigen-em · nexigen-hub<br/>nexigen-logd · nexigen-traced · nexigen-metricsd<br/>nexigen-phmd · nexigen-sm · nexigen-export"]
+        EXP["nexigen-export<br/>on-demand converter"]
     end
 
     subgraph L3["L3 · платформенные сервисы"]
@@ -77,11 +85,12 @@ flowchart TB
         SM["sm<br/>arbitration · RootFG · UCM · LSM"]
     end
 
-    subgraph L2["L2 · телеметрия"]
+    subgraph L2["L2 · телеметрия и хранение"]
         LOG["logging<br/>loggers · records · daemon transport"]
         MET["metrics<br/>instruments · provider · sinks"]
         TRC["tracing<br/>provider · spans · sinks"]
         DIA["diagnostics<br/>stopwatch"]
+        REC["recorder<br/>session writer/reader · CRC · retention"]
     end
 
     subgraph L1["L1 · примитивы"]
@@ -96,6 +105,8 @@ flowchart TB
     TOOLS --> HUB
     TOOLS --> PHM
     TOOLS --> SM
+    TOOLS --> REC
+    EXP --> REC
 
     APP --> LOG
     APP --> MET
@@ -110,6 +121,7 @@ flowchart TB
     MET --> CHR
     TRC --> CHR
     DIA --> CHR
+    REC --> CHR
 
     APP --> CORE
     EXEC --> CORE
@@ -122,6 +134,7 @@ flowchart TB
     MET --> CORE
     TRC --> CORE
     DIA --> CORE
+    REC --> CORE
 
     LOG -.->|"logging_com"| COM
     MET -.->|"metrics_com"| COM
@@ -137,6 +150,8 @@ flowchart TB
 
 - `core` зависит только от стандартной библиотеки и `nlohmann/json`;
   `chrono` и `com` — только от `core`; телеметрия — от `core`/`chrono`.
+- `recorder` зависит только от `core`/`chrono` и не линкует COM, media, MCAP
+  или FFmpeg; `nexigen-export` — отдельная цель поверх `recorder`.
 - `app` — единственный владелец подсистем телеметрии; `exec` использует
   `app`, но не тянет `com` в незагеймленное ядро.
 - `hub` зависит от `exec` только ради типов раскладки запусков; он ничего не
@@ -540,6 +555,40 @@ TSC, эталонные часы процесса, периодические с
 `lsm-runtime`, `manifest`, `recovery-handler`, `state-machine`,
 `telemetry`, `ucm-coordination`.
 
+### 4.13 `recorder` — сырые сессии и конвертер
+
+`nexigen_recorder` — self-contained хранилище сессий: `session.json` плюс
+триплеты `.nxrec` (append-only записи), `.nxidx` (разреженный индекс) и
+`.nxvid` (кадры с выравниванием 4 KiB). Модуль не зависит от COM, media,
+MCAP или FFmpeg; всё, что нужно для чтения, лежит внутри сессии.
+
+- **Горячий путь.** Один writer владеет порядком и индексом; все буферы
+  выделены в `create()`, `append()` не аллоцирует и не блокируется.
+  Производители передают записи через SPSC `RecordShard`, переполнение
+  превращается в `GapMarker` (`IoBackpressure`).
+- **Формат.** Каждая запись покрыта CRC-32C; метаданные — `RecordHeader`
+  (48 B), `VideoFrameRef` (64 B), `VideoStreamConfig` (1056 B),
+  `SegmentFooter` (64 B). Видео хранится как непрозрачные байты с
+  необязательным per-frame CRC; запись не декодирует и не перекодирует
+  битстрим.
+- **Ротация и восстановление.** Сегмент закрывается по байтам (`.nxrec` +
+  `.nxvid`), длительности или числу записей; `circular` удаляет только
+  закрытые триплеты, `stop` финализирует и останавливает приём,
+  `min_free_bytes` не даёт открыть новый сегмент. Повреждённый хвост
+  читается как префикс, отсутствующий `.nxidx` перестраивается.
+- **Чтение и конвертация.** `SessionReader` строит инвентарь датасетов,
+  фильтрует по каналу и event-time, проверяет CRC и читает видео по
+  `VideoFrameRef`. `nexigen-export` — on-demand CLI: `inspect`, `list`,
+  `info`, `extract`, `verify`; выходы JSONL, Perfetto, MCAP (опционально)
+  и elementary video. MP4/MKV отложены до `nexigen_media`.
+
+**Зависимости.** `core`, `chrono`; MCAP — только в `nexigen-export`.
+
+**Capabilities (3):** `recorder/raw-storage`, `recorder/video-storage`,
+`recorder/export`.
+
+Подробности формата и CLI: [recorder.md](recorder.md), раздел 10.
+
 ## 5. Взаимодействие компонентов
 
 ### 5.1 Карта процессов и каналов
@@ -749,12 +798,57 @@ stateDiagram-v2
 `Running`/`Terminating`/`Terminated` в `Nexigen/PHM/ExecutionState`, чтобы
 PHM приостанавливал супервизию на время штатной остановки.
 
+### 5.6 Запись и конвертация raw-сессии
+
+```mermaid
+flowchart LR
+    subgraph RT["Процесс приложения / encoder"]
+        PROD["producer threads<br/>и encoder'ы"]
+        SHARD["RecordShard<br/>SPSC на производителя"]
+        W["SessionWriter<br/>единственный writer"]
+        PROD --> SHARD
+        SHARD --> W
+    end
+
+    W --> REC[(".nxrec<br/>записи + декларации")]
+    W --> IDX[(".nxidx<br/>разреженный индекс")]
+    W --> VID[(".nxvid<br/>кадры 4 KiB")]
+    W --> MAN[("session.json<br/>манифест")]
+
+    REC --> READER["SessionReader<br/>инвентарь · фильтры · verify"]
+    IDX --> READER
+    VID --> READER
+    MAN --> READER
+
+    READER --> EXP["nexigen-export<br/>один запуск, без daemon/follow"]
+    EXP --> JSONL["JSONL"]
+    EXP --> PERF["Perfetto"]
+    EXP --> MCAP["MCAP<br/>(опционально)"]
+    EXP --> ELEM["elementary video<br/>+ timestamps sidecar"]
+```
+
+- **Запись.** Несколько producer-потоков пишут каждый в свой `RecordShard`;
+  только `SessionWriter` владеет порядком, индексом, ротацией и retention.
+  При переполнении shard'а теряется диапазон, но появляется `GapMarker`
+  (`IoBackpressure`), поэтому потеря наблюдаема.
+- **Файлы.** Writer добавляет декларации схем/каналов до первых записей,
+  считает CRC-32C, пишет разреженный `.nxidx`, выравнивает кадры в
+  `.nxvid` и периодически атомарно заменяет `session.json`.
+- **Чтение.** `SessionReader` открывает либо каталог сессии, либо один
+  `.nxrec`; отсутствующий индекс перестраивается, повреждённый хвост
+  читается как префикс, `verify` проверяет записи, footer'ы и CRC кадров.
+- **Конвертация.** `nexigen-export` — on-demand процесс: он не является
+  демоном, не поддерживает `--follow` и завершается после записи выхода.
+  MCAP включается отдельной опцией сборки; MP4/MKV отложены до
+  `nexigen_media`.
+
 ## 6. Инструменты командной строки
 
 | Инструмент | Сборка | Роль |
 |---|---|---|
 | `nexigen-exec` | всегда | CLI жизненного цикла suite и instance: `start`, `stop`, `status`; при COM — с `ControlHost` |
 | `nexigen-hub` | всегда | HTTP/SSE-обсерватория над run-root'ами, встроенный web UI |
+| `nexigen-export` | всегда (MCAP опционально) | On-demand конвертер raw-сессий: `inspect`, `list`, `info`, `extract`, `verify`; JSONL, Perfetto, MCAP, elementary video |
 | `nexigen-em` | COM | фронтенд Execution Manager: запускает тот же detached-супервизор, что и `nexigen-exec` |
 | `nexigen-sm` | COM | State Manager: арбитраж, публикация состояний, TriggerIn, UCM, аудит |
 | `nexigen-phmd` | COM | супервизия, recovery, faults, watchdog; `--verify-fault-log` |
@@ -826,7 +920,7 @@ COM-зависимые инструменты появляются только 
 повторяет структуру `include/nexigen/`. Каждая capability содержит
 требования (`Requirement`) и проверяемые сценарии (`Scenario`).
 
-- Всего: 121 capability, 834 требования, 2087 сценариев.
+- Всего: 125 capability, 893 требования, 2262 сценария.
 - Межмодульные возможности: `packaging`, `examples`, `quality/*`.
 - Проверка корпуса: `openspec validate --specs`.
 - Покрытие требований AUTOSAR `RS_Safety` отслеживается в
@@ -851,6 +945,10 @@ ctest --test-dir build/debug --output-on-failure
   по умолчанию `ON`;
 - `NEXIGEN_ENABLE_COM` — по умолчанию `OFF`, требует Rust-тулчейн и
   собирает `com`, `phm`, `sm` и COM-инструменты;
+- `NEXIGEN_ENABLE_MCAP` — по умолчанию `OFF`; добавляет MCAP-выход только
+  в `nexigen-export` и не попадает в `nexigen_recorder`;
+- `NEXIGEN_BUILD_STORAGE_BENCHMARKS` — по умолчанию `OFF`; собирает
+  opt-in бенчмарки форматов хранения (MCAP против `.nxrec`);
 - `NEXIGEN_ENABLE_ASAN`, `NEXIGEN_ENABLE_TSAN` — взаимоисключающие
   санитайзеры; coverage с ними несовместим;
 - `NEXIGEN_ENABLE_COVERAGE` — цель `coverage` и порог покрытия;
@@ -873,11 +971,12 @@ target_link_libraries(app PRIVATE nexigen::app nexigen::exec)
 `com`, `phm`, `sm`, и сам разрешает `Threads` и `nlohmann_json` через
 `find_dependency`.
 
-## 10. Recorder
+## 10. Recorder: формат и конвертация
 
 `nexigen::recorder` — self-contained raw session storage (`.nxrec/.nxidx/.nxvid`
 + `session.json`), COM-free and media-free. `nexigen-export` is the on-demand
-converter; MCAP/FFmpeg are converter-only dependencies.
+converter; MCAP/FFmpeg are converter-only dependencies. Модульный обзор — в
+разделе 4.13.
 
 ```mermaid
 flowchart LR
