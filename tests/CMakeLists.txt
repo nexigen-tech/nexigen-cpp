@@ -451,3 +451,11 @@ if(NEXIGEN_COMPLEXITY_PYTHON)
 else()
     message(WARNING "nexigen_complexity_gate not registered — python3 not found")
 endif()
+
+# Юнит-тесты nexigen::recorder: raw session writer/reader, schema registry,
+# dataset inventory, video references and recovery (change add-recorder-raw-format).
+add_executable(nexigen_recorder_tests recorder/recorder_test.cpp)
+target_link_libraries(nexigen_recorder_tests PRIVATE nexigen_recorder Threads::Threads)
+
+add_test(NAME nexigen_recorder_tests COMMAND nexigen_recorder_tests)
+set_tests_properties(nexigen_recorder_tests PROPERTIES TIMEOUT 300 LABELS "recorder")

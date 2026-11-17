@@ -1,0 +1,84 @@
+// nexigen::recorder — built-in schema descriptors.
+#include <nexigen/recorder/builtin_schemas.hpp>
+
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "crc32c_fast.hpp"
+
+namespace nexigen::recorder {
+
+namespace {
+
+[[nodiscard]] SchemaDeclare make_schema(std::uint32_t id, std::string name, std::string fields) {
+    SchemaDeclare schema{};
+    schema.id = id;
+    schema.name = std::move(name);
+    schema.version = 1;
+    schema.encoding = "jsonschema";
+    schema.endianness = "little";
+    const std::string text = "{\"type\":\"object\",\"fields\":" + std::move(fields) + "}";
+    schema.data.assign(text.begin(), text.end());
+    schema.data_crc32c = detail::crc32c(schema.data.data(), schema.data.size());
+    return schema;
+}
+
+} // namespace
+
+std::vector<SchemaDeclare> builtin_schemas() {
+    std::vector<SchemaDeclare> schemas;
+    schemas.push_back(make_schema(
+        1, "nexigen.log.LogFrame",
+        R"([{"name":"timestamp_ns","type":"u64","offset":0,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"app_id","type":"char[4]","offset":8,"element_size":1,"count":4,"stride":1},)"
+        R"({"name":"context_id","type":"u32","offset":12,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"thread_id","type":"u32","offset":16,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"pid","type":"u32","offset":20,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"dropped_counter","type":"u32","offset":24,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"payload_size","type":"u16","offset":28,"element_size":2,"count":1,"stride":2},)"
+        R"({"name":"log_level","type":"u8","offset":30,"element_size":1,"count":1,"stride":1},)"
+        R"({"name":"payload","type":"u8[225]","offset":31,"element_size":1,"count":225,"stride":1}])"));
+    schemas.push_back(make_schema(2, "nexigen.metrics.MetricFrame", R"([])"));
+    schemas.push_back(make_schema(
+        3, "nexigen.tracing.SpanFrame",
+        R"([{"name":"trace_id","type":"u64","offset":0,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"span_id","type":"u64","offset":8,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"parent_span_id","type":"u64","offset":16,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"start_ns","type":"u64","offset":32,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"end_ns","type":"u64","offset":40,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"name","type":"char[48]","offset":72,"element_size":1,"count":48,"stride":1}])"));
+    schemas.push_back(make_schema(
+        4, "nexigen.recorder.GapMarker",
+        R"([{"name":"first_lost_sequence","type":"u64","offset":0,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"lost_count","type":"u64","offset":8,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"reason","type":"u16","offset":16,"element_size":2,"count":1,"stride":2}])"));
+    schemas.push_back(make_schema(
+        5, "nexigen.recorder.TimeSync",
+        R"([{"name":"mono_ns","type":"u64","offset":0,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"utc_offset_ns","type":"i64","offset":8,"element_size":8,"count":1,"stride":8}])"));
+    schemas.push_back(make_schema(
+        6, "nexigen.recorder.VideoFrameRef",
+        R"([{"name":"vid_offset","type":"u64","offset":0,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"capture_mono_ns","type":"u64","offset":8,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"source_sequence","type":"u64","offset":16,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"config_epoch","type":"u64","offset":24,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"vid_size","type":"u32","offset":32,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"vid_crc32c","type":"u32","offset":36,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"width","type":"u32","offset":40,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"height","type":"u32","offset":44,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"codec","type":"u16","offset":48,"element_size":2,"count":1,"stride":2},)"
+        R"({"name":"bitstream","type":"u16","offset":50,"element_size":2,"count":1,"stride":2},)"
+        R"({"name":"vid_segment_seq","type":"u32","offset":52,"element_size":4,"count":1,"stride":4}])"));
+    schemas.push_back(make_schema(
+        7, "nexigen.recorder.VideoStreamConfig",
+        R"([{"name":"codec","type":"u16","offset":0,"element_size":2,"count":1,"stride":2},)"
+        R"({"name":"bitstream","type":"u16","offset":2,"element_size":2,"count":1,"stride":2},)"
+        R"({"name":"width","type":"u32","offset":4,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"height","type":"u32","offset":8,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"config_epoch","type":"u64","offset":24,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"extradata","type":"u8[1024]","offset":32,"element_size":1,"count":1024,"stride":1}])"));
+    return schemas;
+}
+
+} // namespace nexigen::recorder

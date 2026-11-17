@@ -1,766 +1,910 @@
-# nexigen Architecture
+# Архитектура nexigen
 
-How the `nexigen` ecosystem is put together and the invariants every module and
-contributor must keep. For per-module usage, start with
-[`metrics-guide.md`](metrics-guide.md); the authoritative behaviour contract lives
-in the OpenSpec capabilities under [`openspec/specs/`](../openspec/specs).
+Документ описывает устройство платформы `nexigen-cpp`: состав модулей, их
+границы, зависимости и взаимодействие компонентов в рантайме. Он собран по
+публичным заголовкам `include/nexigen/`, спецификациям `openspec/specs/` и
+целям сборки `CMakeLists.txt`.
 
-Coverage of the AUTOSAR `RS_Safety` requirements is tracked in
-[`safety/traceability.md`](safety/traceability.md), which is validated by
-`cmake/check_safety_traceability.py`.
+Актуально на 15.11.2026: 12 модулей, 337 публичных заголовков, 121
+capability, 834 требования и 2087 сценариев в OpenSpec.
 
-## Module map
+## 1. Назначение и принципы
 
-| Namespace | Directory | Build target | Kind |
-|---|---|---|---|
-| `nexigen::core` | `include/nexigen/core/`, `tests/core/` | `nexigen_core` (INTERFACE) | header-only |
-| `nexigen::chrono` | `include/nexigen/chrono/`, `src/chrono/` | `nexigen_chrono` | STATIC |
-| `nexigen::logging` | `include/nexigen/logging/`, `src/logging/` | `nexigen_logging` | STATIC |
-| `nexigen::metrics` | `include/nexigen/metrics/`, `src/metrics/` | `nexigen_metrics` (alias `nexigen::metrics`) | STATIC |
-| `nexigen::tracing` | `include/nexigen/tracing/`, `src/tracing/` | `nexigen_tracing` (alias `nexigen::tracing`) | STATIC |
-| `nexigen::diagnostics` | `include/nexigen/diagnostics/`, `src/diagnostics/` | `nexigen_diagnostics` (alias `nexigen::diagnostics`) | STATIC |
-| `nexigen::app` | `include/nexigen/app/`, `src/app/` | `nexigen_app` (alias `nexigen::app`) | STATIC |
-| `nexigen::exec` | `include/nexigen/exec/`, `src/exec/` | `nexigen_exec` (alias `nexigen::exec`) | STATIC |
-| `nexigen::com` | `include/nexigen/com/`, `src/com/` | `nexigen_com` (alias `nexigen::com`) | STATIC |
-| `nexigen::phm` | `include/nexigen/phm/`, `src/phm/` | `nexigen_phm` (alias `nexigen::phm`) | STATIC |
-| `nexigen::sm` | `include/nexigen/sm/`, `src/sm/` | `nexigen_sm` (alias `nexigen::sm`) | STATIC |
-| `nexigen::hub` | `include/nexigen/hub/`, `src/hub/` | `nexigen_hub` (alias `nexigen::hub`) | STATIC |
-| examples | `examples/<module>/` | `NEXIGEN_BUILD_EXAMPLES` option | executables |
-| tests | `tests/<module>/` | `NEXIGEN_BUILD_TESTS` option | CTest suites |
+`nexigen-cpp` — библиотека C++23 для Linux для систем жёсткого реального
+времени и симуляторов аппаратуры. Платформа даёт приложению готовые
+примитивы времени, телеметрии, межпроцессного обмена, супервизии процессов,
+управления состояниями и наблюдаемости.
 
-`nexigen::core` is INTERFACE because it is pure templates; `chrono`, `logging`,
-`metrics`, `tracing`, `diagnostics`, `app`, `exec`, `com`, `phm`, `sm`, and `hub`
-are STATIC because
-they own compiled cold paths (calibration, the harvest loop, sink I/O, snapshot
-serialisation, process supervision, HTTP/SSE serving) that must not be inlined into
-every consumer. Modules never consume another module's `detail/` — the chrono extraction
-established that rule (a module needing shared machinery promotes it or
-duplicates it, keeping dependency arrows one-way: `metrics → chrono/core`,
-`logging → chrono/core`).
+Инварианты, общие для всех модулей:
 
-`nexigen::logging` also owns the cold-path deployment surface:
-`logging_settings.hpp` reads an explicitly supplied global JSON file, then a local
-JSON file, then `NEXIGEN_LOG_*` environment overrides, merging field by field into
-`LoggerOptions` with best-effort diagnostics. `FileLogger` adds optional
-size-based segments (`app.jsonl` → `app.1.jsonl` → …) on top of the existing
-period-directory rotation. Both are initialization-time features: producers never
-observe the loader, and the writer performs a segment switch only at an already
-cold rotation point.
+- **Контракт первичен.** Поведение описывается capability-спецификациями в
+  `openspec/specs/<module>/<capability>/spec.md`; код приводится к спецификации,
+  а не наоборот.
+- **Ошибки без исключений.** Глобальные `-fno-exceptions -fno-rtti`; публичные
+  fallible-API возвращают `core::Result<T, ErrorCode>` (или `core::Status`).
+  Ветвление — по `has_value()`/`.error()`, вызов `.value()` запрещён.
+- **Горячий путь без выделения памяти и блокировок.** Производитель пишет
+  только в свой SPSC-shard; форматирование, JSON и файловый ввод-вывод
+  вынесены на холодный путь.
+- **Один namespace — один модуль.** Внутренности живут в `detail/` и не
+  являются публичным контрактом. Зависимости направлены только вниз.
+- **Опциональный COM-слой.** Всё, что требует iceoryx2 (Rust), собирается
+  только при `NEXIGEN_ENABLE_COM=ON`; остальные модули от него не зависят.
+- **Сериализация как мандат.** Публичные типы имеют холодные `to_string()`,
+  ADL `to_json`/`from_json` (при `JSON_NOEXCEPTION=1`), а перечисления —
+  `constexpr to_string`/`from_string` и `std::formatter`.
 
-`nexigen::app` is the application layer above them: `Infrastructure<Policy, ...>` is a
-heap-only service owned by the application (not a base class). It owns the logger,
-metric/tracing sinks and providers in a lifetime-safe order, loads per-subsystem
-settings pairs, claims process-global signal ownership, blocks `SIGINT`/`SIGTERM`
-before any worker starts, runs a `signalfd` watcher, and shuts down through one flush
-path that logs the stop reason. A required worker-thread attribute failure follows
-the same reverse-order rollback as existing initialization failures; explicit
-best-effort partial application remains non-fatal and visible in worker reports.
-`make_infrastructure<Policy>()` is the only
-construction path; a second initialized infrastructure receives
-`ErrorCode::Conflict`. The hot path is unchanged: `run()` performs one acquire load
-per tick, and the watcher only records a reason. Dependency arrows stay one-way:
-`app → logging, metrics, tracing, chrono, core`.
+## 2. Карта модулей
 
-`nexigen::exec` owns detached per-instance and per-suite supervision: instance
-directory layout, generated settings, fork/exec with `setsid`, signal escalation,
-restart policy, and JSON-lines runner logging. Control and logger worker threads
-apply a copied `ThreadSpec` and report per-attribute outcomes; warnings render the
-`ThreadApplyReport`, so a best-effort partial application is visible without
-claiming the thread is unpinned. `nexigen::hub` is a read-only observatory over
-explicit run roots: inotify discovery, bounded stream rings with replay/gap
-markers, and an epoll HTTP/SSE server with an embedded web UI. Neither module adds
-work to the application tick, producer, snapshot, or sink paths; both depend on
-`core`/`chrono`/`exec` in one direction only.
+| Слой | Модуль | CMake-цель | Тип | Заголовки | Назначение |
+|---|---|---|---:|---:|---|
+| L0 | `nexigen::core` | `nexigen_core` | INTERFACE | 25 | `Result`/`ErrorCode`, сериализация, `LogLevel`, enum-словари, SPSC-очереди, потоки и affinity, sink/settings-инфраструктура, integrity-примитивы |
+| L1 | `nexigen::chrono` | `nexigen_chrono` | STATIC | 27 | `Timestamp`, `CivilTime`, калиброванный TSC, `Provider`/`Worker`, UTC-смещение, time-sync монитор, sinks и настройки |
+| L1 | `nexigen::com` | `nexigen_com` | STATIC, gate | 31 | SOA поверх iceoryx2: `Node`, pub/sub, request/response, `Event`, `Field`, `WaitSet`, `ServiceManifest`, E2E |
+| L2 | `nexigen::logging` | `nexigen_logging` | STATIC | 37 | Асинхронные логгеры, `LogRecord`, уровни, anti-spam, ротация, кадры и настройки |
+| L2 | `nexigen::metrics` | `nexigen_metrics` | STATIC | 49 | Счётчики, gauge, гистограммы, статистика, `MetricProvider`, sinks, Prometheus, кадры |
+| L2 | `nexigen::tracing` | `nexigen_tracing` | STATIC | 35 | `TracerProvider`, `ScopedSpan`, контекст трассировки, sinks, кадры и daemon-сессия |
+| L2 | `nexigen::diagnostics` | `nexigen_diagnostics` | STATIC | 5 | `Stopwatch`, `ScopedStopwatch`, снимки интервалов |
+| L3 | `nexigen::app` | `nexigen_app` | STATIC | 11 | Командная строка, настройки, `Infrastructure`, телеметрическая раскладка, `signalfd` |
+| L3 | `nexigen::exec` | `nexigen_exec` | STATIC | 56 | Suite/instance lifecycle, супервизия процессов, Function Groups, манифесты, platform controls |
+| L3 | `nexigen::hub` | `nexigen_hub` | STATIC | 15 | Discovery, ограниченные потоки с gap-маркерами, HTTP/SSE-сервер, web UI |
+| L3 | `nexigen::phm` | `nexigen_phm` | STATIC, gate | 27 | Platform Health Management: супервизия, checkpoints, claims, recovery, watchdog |
+| L3 | `nexigen::sm` | `nexigen_sm` | STATIC, gate | 19 | State Management: арбитраж Function Groups, RootFG, LSM, UCM |
 
-## Platform layers
+Дополнительные цели, появляющиеся только при `NEXIGEN_ENABLE_COM=ON`:
+`nexigen_state_client` (приёмная сторона `SetState` в EM),
+`nexigen_exec_control` (COM-реализация `ControlHost`), а также интерфейсные
+обёртки `nexigen_logging_com`, `nexigen_metrics_com`, `nexigen_tracing_com`
+для iceoryx2-sink'ов.
 
-Dependencies run strictly downward; a lower layer never knows about an upper one.
-The include graph is the check: `core` includes only the standard library,
-`chrono`/`com` include only `core`, telemetry includes only L0/L1, and services
-may use everything below themselves.
+`nexigen::core` — INTERFACE, потому что состоит из шаблонов и inline-кода.
+Остальные модули компилируют холодные пути (калибровка, harvest-циклы,
+файловый и сетевой ввод-вывод, разбор манифестов) в статические архивы.
+
+## 3. Слои и зависимости
 
 ```mermaid
-flowchart TD
-    subgraph L3["L3 · platform services"]
-        APP["app<br/>command line, settings,<br/>telemetry-layout, infrastructure"]
-        EXEC["exec<br/>suite/instance lifecycle,<br/>process supervision, state-client"]
-        HUB["hub<br/>discovery, streaming with gap markers,<br/>HTTP/SSE server, web-assets"]
-        PHM["phm<br/>health-channel, manifest,<br/>recovery, supervised-entity"]
-        SM["sm<br/>manifest, RootFG state machine,<br/>transitions, audit, recovery-handler"]
+flowchart TB
+    subgraph L4["L4 · инструменты"]
+        TOOLS["nexigen-exec · nexigen-em · nexigen-hub<br/>nexigen-logd · nexigen-traced · nexigen-metricsd<br/>nexigen-phmd · nexigen-sm"]
     end
 
-    subgraph L2["L2 · telemetry"]
-        LOG["logging<br/>loggers, LogRecord, spam-protection,<br/>frame/daemon transport"]
-        MET["metrics<br/>counter/gauge, histograms,<br/>snapshot, sinks, prometheus"]
-        TRC["tracing<br/>TracerProvider, ScopedSpan,<br/>span-context, sinks, record-format"]
-        DIA["diagnostics<br/>Stopwatch, ScopedStopwatch,<br/>stopwatch-state"]
+    subgraph L3["L3 · платформенные сервисы"]
+        APP["app<br/>CLI · settings · telemetry layout · Infrastructure"]
+        EXEC["exec<br/>suite · instances · supervision · Function Groups"]
+        HUB["hub<br/>discovery · streaming · HTTP/SSE"]
+        PHM["phm<br/>supervision · recovery · watchdog"]
+        SM["sm<br/>arbitration · RootFG · UCM · LSM"]
     end
 
-    subgraph L1["L1 · primitives"]
-        CHR["chrono<br/>Timestamp, CivilTime, utc-offset,<br/>StampSource, Provider/Worker"]
-        COM["com<br/>Message, Field, Client/Server,<br/>Publisher/Subscriber, WaitSet"]
+    subgraph L2["L2 · телеметрия"]
+        LOG["logging<br/>loggers · records · daemon transport"]
+        MET["metrics<br/>instruments · provider · sinks"]
+        TRC["tracing<br/>provider · spans · sinks"]
+        DIA["diagnostics<br/>stopwatch"]
     end
 
-    CORE["core · L0<br/>Result/ErrorCode, serialization, LogLevel,<br/>thread-management/affinity, SPSC ring, sink_io"]
+    subgraph L1["L1 · примитивы"]
+        CHR["chrono<br/>timestamp · stamp source · provider"]
+        COM["com<br/>iceoryx2 SOA"]
+    end
+
+    CORE["core · L0<br/>Result · serialization · SPSC · threading · integrity"]
+
+    TOOLS --> APP
+    TOOLS --> EXEC
+    TOOLS --> HUB
+    TOOLS --> PHM
+    TOOLS --> SM
 
     APP --> LOG
     APP --> MET
     APP --> TRC
     APP --> CHR
     EXEC --> APP
-    EXEC --> COM
-    EXEC --> LOG
     HUB --> EXEC
     PHM --> COM
-    PHM --> SM
     SM --> COM
+
     LOG --> CHR
-    LOG --> COM
     MET --> CHR
     TRC --> CHR
-    TRC --> COM
     DIA --> CHR
+
+    APP --> CORE
+    EXEC --> CORE
+    HUB --> CORE
+    PHM --> CORE
+    SM --> CORE
     CHR --> CORE
     COM --> CORE
     LOG --> CORE
     MET --> CORE
     TRC --> CORE
     DIA --> CORE
-    APP --> CORE
-    EXEC --> CORE
-    HUB --> CORE
-    PHM --> CORE
-    SM --> CORE
+
+    LOG -.->|"logging_com"| COM
+    MET -.->|"metrics_com"| COM
+    TRC -.->|"tracing_com"| COM
+    EXEC -.->|"state_client (COM)"| COM
+    PHM -.->|"state / recovery vocabulary"| SM
+
+    classDef optional fill:#fff4d6,stroke:#b8860b,stroke-dasharray: 5 4,color:#333
+    class COM,PHM,SM,TOOLS optional
 ```
 
-Known deviations (both inside `detail/`, i.e. private to the module, never part
-of a module's public contract):
+Правила, которые проверяет граф включений:
 
-- `metrics/detail/metric_http_server.hpp` → `hub/detail/http_parse.hpp`
-  (reuses the HTTP parser instead of copying it);
-- `tracing/detail/trace_daemon_session.hpp` → `exec/app_state.hpp`,
-  `exec/application_state.hpp`, `sm/recovery_notification.hpp`
-  (trace-daemon session state).
+- `core` зависит только от стандартной библиотеки и `nlohmann/json`;
+  `chrono` и `com` — только от `core`; телеметрия — от `core`/`chrono`.
+- `app` — единственный владелец подсистем телеметрии; `exec` использует
+  `app`, но не тянет `com` в незагеймленное ядро.
+- `hub` зависит от `exec` только ради типов раскладки запусков; он ничего не
+  запускает и не изменяет.
+- `phm` и `sm` работают поверх `com`; их связь с `exec` идёт через
+  сообщения, а не через линковку.
 
-Candidates for a future promotion into `core`/`com` to keep the layers clean.
+Осознанные исключения, все — внутри `detail/` и не часть публичного
+контракта:
 
-## Capabilities per module
+- `metrics/detail/metric_http_server.hpp` использует
+  `hub/detail/http_parse.hpp`, чтобы не дублировать HTTP-парсер;
+- `tracing/detail/trace_daemon_session.hpp` включает типы `exec` и `sm` для
+  состояния trace-демона;
+- заголовки `phm` включают словари `sm` (`group_state_payload`,
+  `recovery_notification`), потому что PHM и SM обмениваются этими
+  сообщениями.
 
-Each capability under `openspec/specs/` describes one subsystem; the spec path
-mirrors the module directory (`logging/log-level` → `include/nexigen/logging/`).
+## 4. Модули
 
-| Module | Headers | Purpose | Capability specs |
-|---|---:|---|---|
-| `core` | 20 | Shared primitives: `Result`/`ErrorCode`, the serialization mandate, the `LogLevel` vocabulary, `EnumTraits`, thread management and CPU affinity, SPSC rings, `sink_io`, settings vocabulary | `core/result`, `core/serialization`, `core/log-level`, `core/settings-vocabulary`, `core/affinity`, `core/thread-management`, `core/worker-thread`, `core/worker-tuning`, `core/spsc-ring-buffer`, `core/sink-plumbing` |
-| `chrono` | 23 | Time: `Timestamp`, `CivilTime`, UTC offset, `StampSource` (rdtsc), time-source providers and their workers, sinks | `chrono/timestamp`, `chrono/time-format`, `chrono/clock-id`, `chrono/stamp-source`, `chrono/provider`, `chrono/worker`, `chrono/chrono-sink`, `chrono/chrono-snapshot`, `chrono/chrono-settings` |
-| `com` | 20 | Communication: the `Message` contract, `Field`, request/response `Client`/`Server`, publish/subscribe, `EventNotifier`, `WaitSet`, service manifest | `com/field`, `com/request-response`, `com/publish-subscribe`, `com/service-management`, `com/waitset` |
-| `logging` | 37 | Logging: the logger concept, the logger family (console/file/composite/null/iceoryx2), `LogRecord`, levels, spam protection, multi-producer, frame/daemon transport | `logging/logger-concept`, `logging/console-logger`, `logging/file-logger`, `logging/composite-logger`, `logging/null-logger`, `logging/iceoryx2-logger`, `logging/log-record`, `logging/log-level`, `logging/format-api`, `logging/logger-options`, `logging/logging-settings`, `logging/spam-protection`, `logging/multi-producer`, `logging/log-daemon` |
-| `metrics` | 49 | Metrics: `Counter`/`Gauge`, explicit and exponential histograms, descriptive statistics, state gauge, `MetricProvider`, sinks and Prometheus rendering, daemon | `metrics/metric-concepts`, `metrics/counter-gauge`, `metrics/explicit-histogram`, `metrics/exponential-histogram`, `metrics/descriptive-statistics`, `metrics/state-gauge`, `metrics/metric-provider`, `metrics/metric-sinks`, `metrics/iceoryx2-metric-sink`, `metrics/metrics-settings`, `metrics/metrics-daemon`, `metrics/snapshot-format`, `metrics/policy-enums`, `metrics/examples` |
-| `tracing` | 35 | Tracing: `TracerProvider` with per-thread SPSC shards, `ScopedSpan`, trace context (`TraceId`/`SpanId`/`SpanContext`), sinks (chrome/json/iceoryx2), record format, daemon transport | `tracing/tracer-concepts`, `tracing/tracer-provider`, `tracing/scoped-span`, `tracing/span-context`, `tracing/span-enums`, `tracing/trace-sinks`, `tracing/iceoryx2-trace-sink`, `tracing/record-format`, `tracing/tracing-settings`, `tracing/trace-daemon`, `tracing/trace-propagation`, `tracing/examples` |
-| `diagnostics` | 5 | Measurement: `Stopwatch`, `ScopedStopwatch`, stopwatch state | `diagnostics/stopwatch`, `diagnostics/scoped-stopwatch`, `diagnostics/stopwatch-state`, `diagnostics/examples` |
-| `app` | 11 | Application layer: command-line parsing, application settings, telemetry layout, infrastructure (subsystem init/shutdown) | `app/command-line`, `app/settings`, `app/application`, `app/telemetry-layout` |
-| `exec` | 37 | Execution: suite and application-instance lifecycle, process supervision, child processes, state client, run logging | `exec/app-suite`, `exec/instance-lifecycle`, `exec/process-supervision`, `exec/application-state`, `exec/state-client`, `exec/logging` |
-| `hub` | 15 | Observatory: run-tree discovery, streaming delivery with gap markers, HTTP/SSE server, web assets | `hub/discovery`, `hub/streaming`, `hub/http-api`, `hub/web-ui` |
-| `phm` | 13 | Health and reliability: manifest, supervisor, health channel, checkpoints, recovery | `phm/manifest`, `phm/supervision`, `phm/health-channel`, `phm/supervised-entity`, `phm/recovery` |
-| `sm` | 14 | State machine: manifest, `RootFG` (`Off`/`Startup`/`Verify`/`Run`/`Shutdown`/`Restart`) state manager, transitions and their preparation, audit, recovery, IPC | `sm/manifest`, `sm/state-machine`, `sm/lifecycle`, `sm/telemetry`, `sm/ipc`, `sm/recovery-handler` |
+### 4.1 `core` — базовые примитивы
 
-Cross-cutting capabilities that are not tied to a single module:
-`quality/code-structure`, `quality/coverage`, `quality/reproducible-builds`,
-`packaging`, `examples` (plus `examples/suite-demo`, the runnable suite
-walkthrough).
+**Ответственность.** Фундамент, на котором стоят все остальные модули:
+модель ошибок, сериализация, словари перечислений, примитивы конкурентности,
+управление потоками, общие cold-path утилиты и криптографические хеши.
 
-## Telemetry flow
+**Ключевые типы.**
 
-Producer code calls a logger, a tracer or the metric instruments. Each provider
-owns a per-thread SPSC shard; a background consumer drains batches into the
-sinks; the daemons transport frames between processes, and `hub` reads the
-streams from disk and serves them over HTTP/SSE.
+- `Result<T, E = ErrorCode>` и `Status` над `std::expected`; девять кодов:
+  `Ok`, `BufferFull`, `BufferEmpty`, `InvalidArgument`, `SystemError`,
+  `NotInitialized`, `RateLimited`, `Conflict`, `ResourceExhausted`.
+- `serialization_mandate`, `EnumTraits`, `FixedWriter` — единый контракт
+  `to_string`/`to_json`/`from_json`/`std::formatter`.
+- `SpscRingBuffer<T, Capacity>` — wait-free очередь с одной записью и одним
+  чтением, индексы на отдельных cache line.
+- `ShardPool` (`shard_pool`) — пул per-thread shard'ов для многопоточных
+  производителей.
+- `thread_management`: `CpuSet` до 1024 CPU, `ThreadSpec` (имя, политика
+  Other/FIFO/RR, приоритет, required/best-effort), `ThreadApplyReport`,
+  `apply_thread_spec_self`; `worker_thread` и `worker_tuning` задают
+  поведение фоновых потребителей.
+- `sink_pack::Fanout`, `sink_io`, `settings_io`/`settings_paths`/
+  `settings_source`/`settings_diagnostic` — общая инфраструктура sinks и
+  настроек.
+- `integrity`: CRC-32C, CRC-64/XZ, SHA-256, сравнение дайджестов за
+  постоянное время, `read_verified(path, sha256)`.
+
+**Горячий/холодный путь.** SPSC-очередь и форматирование enum'ов — hot path;
+парсинг настроек, JSON и файловые операции — cold path.
+
+**Зависимости.** Только стандартная библиотека и `nlohmann/json`.
+
+**Capabilities (11):** `affinity`, `integrity`, `log-level`, `result`,
+`serialization`, `settings-vocabulary`, `sink-plumbing`, `spsc-ring-buffer`,
+`thread-management`, `worker-thread`, `worker-tuning`.
+
+### 4.2 `chrono` — время и калиброванный TSC
+
+**Ответственность.** Монотонное время, гражданское время и UTC, калибровка
+TSC, эталонные часы процесса, периодические снимки смещения UTC и контроль
+пересинхронизации системных часов.
+
+**Ключевые типы.**
+
+- `Timestamp` — наносекунды монотонного времени; `CivilTime`, `ClockId` —
+  форматирование и домены часов; `utc_offset` — преобразование монотонного
+  штампа в UTC по снятому смещению.
+- `StampSource` — hot-path источник штампа: `__rdtsc()` плюс
+  зафиксированная при калибровке пара `(tsc_anchor, mono_anchor)` и
+  fixed-point множитель; периодическая перекалибровка, монотонный clamp и
+  безопасный откат на `Timestamp::now()` при ошибке или на не-x86.
+- `Provider<MaxSources>` — «беспоточный» авторитет времени: выдаёт stamper'ы
+  производителям, снимает UTC-смещение на холодном пути и доставляет
+  снимки в sink по триггеру. Банк источников фиксирован; исчерпание —
+  `ResourceExhausted`.
+- `Worker` — опциональная демон-обёртка для периодических снимков.
+- Sinks: `ConsoleSink`, `JsonFileSink`, `NullSink`, `CompositeSink`;
+  `settings` и `snapshot` описывают загрузку конфигурации и сохранение
+  смещения.
+- `TimeSyncMonitor` сравнивает `CLOCK_REALTIME − CLOCK_MONOTONIC_RAW` и
+  классифицирует переходы как `Ok`, `Stepped`, `GoingBackwards`,
+  `RateExceeded`; по умолчанию порог шага 1 мс, скорость 500 ppm, окно
+  100 мс. Монитор не создаёт поток и не выделяет память.
+
+**Зависимости.** `core`.
+
+**Capabilities (10):** `chrono-settings`, `chrono-sink`, `chrono-snapshot`,
+`clock-id`, `provider`, `stamp-source`, `time-format`, `timestamp`,
+`time-sync`, `worker`.
+
+### 4.3 `com` — межпроцессный обмен (gate)
+
+**Ответственность.** Тонкая объектная обёртка над iceoryx2, которая скрывает
+`iox2::` от прикладного кода и даёт zero-copy паттерны AUTOSAR-подобной SOA.
+
+**Ключевые типы.**
+
+- `Node` — участие процесса в коммуникационной фабрике.
+- `Publisher<T>`/`Subscriber<T>` — публикация и подписка без копирования;
+  `Sample<T>`/`SampleMut<T>` — read-only и loaned-представления слота.
+- `Client<Req, Resp>`/`Server<Req, Resp>` — request/response;
+  `PendingResponse` — отложенный ответ.
+- `Event`/`EventId` — уведомления; `Field<T>` — последнее опубликованное
+  значение; `WaitSet` — мультиплексирование ожиданий в ядре с callback
+  progression и RAII-гардами вложений.
+- `ServiceManifest`, `ServiceName` — архитектурные параметры сервисов
+  (глубина истории, число подписчиков, QoS); размеры payload выводятся из
+  типа на этапе компиляции.
+- `com/e2e` — E2E-защита: `E2eHeader` (16 байт), профили `None`, `P04`,
+  `P05`, `P06`, `P07`, обёртки `E2ePublisher`, `E2eSubscriber`, `E2eClient`,
+  `E2eServer`, счётчики и `max_delta_counter`.
+- `com::Error` — собственная модель ошибок без утечки типов iceoryx2.
+
+**Особенности.** Модуль собирается только при `NEXIGEN_ENABLE_COM=ON`.
+Ради cold-path механизма имён типов iceoryx2 модуль локально включает RTTI,
+хотя остальной проект собирается с `-fno-rtti`.
+
+**Зависимости.** `core`, `iceoryx2-cxx`.
+
+**Capabilities (6):** `e2e`, `field`, `publish-subscribe`,
+`request-response`, `service-management`, `waitset`.
+
+### 4.4 `logging` — асинхронные логи
+
+**Ответственность.** Запись логов без блокировок на горячем пути:
+производитель кладёт отложенный формат в свой shard, фоновый потребитель
+форматирует и отдаёт запись в sink.
+
+**Ключевые типы.**
+
+- Концепт логгера и семейство: `ConsoleLogger`, `FileLogger`,
+  `CompositeLogger`, `NullLogger`, `Iceoryx2Logger`.
+- `LogRecord` — payload между производителем и потребителем с отложенным
+  набором аргументов; `format_with_location` добавляет место вызова.
+- `LoggerOptions` — единая конфигурация инициализации (ёмкости, пороги,
+  `ThreadSpec`, overflow policy); после старта читаются только relaxed
+  atomics.
+- Многопроизводительный режим: до `MaxThreads` (по умолчанию 32) потоков,
+  у каждого свой SPSC-shard, единственный потребитель — внутренний worker.
+- Anti-spam: квоты, окна throttle, `SpamProtectionConfig`,
+  `ThrottleConfig`; статистика потерь — `DroppedStats`.
+- Ротация: `RotationConfig`, `RotationSchedule`, размерные сегменты
+  `app.jsonl → app.1.jsonl → …` и почасовые директории.
+- `LogFrame`/`LogDaemonConfig` — фиксированный кадр и конфигурация
+  центрального демона `nexigen-logd`.
+- `logging_settings` — загрузка global/local JSON и `NEXIGEN_LOG_*`
+  окружения с best-effort диагностикой.
+
+**Зависимости.** `core`, `chrono`; `Iceoryx2Logger` доступен только через
+интерфейсную цель `nexigen_logging_com`.
+
+**Capabilities (14):** `composite-logger`, `console-logger`, `file-logger`,
+`format-api`, `iceoryx2-logger`, `log-daemon`, `logger-concept`,
+`logger-options`, `logging-settings`, `log-level`, `log-record`,
+`multi-producer`, `null-logger`, `spam-protection`.
+
+### 4.5 `metrics` — метрики
+
+**Ответственность.** Инструменты измерения, фоновый сбор и доставка
+снимков в sinks без выделения памяти и блокировок на пути записи.
+
+**Ключевые типы.**
+
+- `Counter`, `Gauge`, `StateGauge`.
+- `ExplicitHistogram`, `ExponentialHistogram`, `DescriptiveStatistics`,
+  снимки `HistogramSnapshot`, `StatisticsSnapshot`.
+- `Meter` — фабрика инструментов и владелец идентичности метрики.
+- `MetricProvider` — реестр, фабричный корень и фоновый harvester: один
+  выровненный блок памяти на арены, таблицы слотов и буфер сбора; поток
+  применяет `ThreadSpec` до первой партии.
+- Sinks: `ConsoleMetricSink`, `JsonFileMetricSink`, `Iceoryx2MetricSink`,
+  `NullMetricSink`, `CompositeMetricSink`; тип-стёртая привязка через
+  указатели на функции, без виртуальности и RTTI.
+- `MetricFrame` — фиксированный кросс-процессный кадр; `MetricDaemonConfig`
+  и `metrics_settings` — конфигурация демона и загрузчик настроек.
+- Cold-path рендеринг Prometheus и запись JSONL-истории.
+
+**Зависимости.** `core`, `chrono`; iceoryx2-sink — через
+`nexigen_metrics_com`.
+
+**Capabilities (14):** `counter-gauge`, `descriptive-statistics`,
+`examples`, `explicit-histogram`, `exponential-histogram`,
+`iceoryx2-metric-sink`, `metric-concepts`, `metric-provider`,
+`metrics-daemon`, `metric-sinks`, `metrics-settings`, `policy-enums`,
+`snapshot-format`, `state-gauge`.
+
+### 4.6 `tracing` — трассировка
+
+**Ответственность.** RAII-спаны, распространение контекста между потоками и
+процессами, доставка записей в sinks и аварийные снимки trace-демона.
+
+**Ключевые типы.**
+
+- `TracerProvider<ShardCapacity = 1024, MaxThreads = 32>` — владеет всем
+  объёмом памяти трассировки: per-thread SPSC-shards, отдельный `StampSource`
+  на слот, счётчики потерь и пул tracer'ов; объект порядка 10 MiB, поэтому
+  живёт в статической памяти или на куче.
+- `Tracer`, `ScopedSpan` — старт/завершение спана; `SpanContext`, `TraceId`,
+  `SpanId`, `TraceHeader` — распространение контекста.
+- `SpanRecord`, `SpanFrame`, `SpanKind`, `SpanStatus`, `SamplingDecision`.
+- Sinks: `ConsoleTraceSink`, `JsonFileTraceSink`, `ChromeTraceSink`
+  (Perfetto-совместимый), `Iceoryx2TraceSink`, `NullTraceSink`,
+  `CompositeTraceSink`; `RotationPolicy` управляет ротацией файлов.
+- `TraceDaemonConfig` и `trace_daemon_session` — RAM-ring последних секунд и
+  версионированный снимок по аварийному событию PHM.
+
+**Зависимости.** `core`, `chrono`; iceoryx2-sink — через
+`nexigen_tracing_com`.
+
+**Capabilities (12):** `examples`, `iceoryx2-trace-sink`, `record-format`,
+`scoped-span`, `span-context`, `span-enums`, `trace-daemon`,
+`trace-propagation`, `tracer-concepts`, `tracer-provider`, `trace-sinks`,
+`tracing-settings`.
+
+### 4.7 `diagnostics` — измерения интервалов
+
+**Ответственность.** Дешёвое измерение длительности операций и бюджетов
+реального времени.
+
+**Ключевые типы.** `Stopwatch` — один cache line, trivially copyable, без
+атомиков, блокировок и кучи; источник штампа — `Timestamp::now()` или
+внедрённый `StampSource`. `ScopedStopwatch` — RAII-гард с `OutRefSink` для
+записи результата. `StopwatchState`, `LapSnapshot` — состояние и снимки.
+
+**Зависимости.** `core`, `chrono`.
+
+**Capabilities (4):** `examples`, `scoped-stopwatch`, `stopwatch`,
+`stopwatch-state`.
+
+### 4.8 `app` — прикладной слой
+
+**Ответственность.** Запуск приложения: разбор командной строки, слияние
+настроек, телеметрическая раскладка и владение подсистемами телеметрии.
+
+**Ключевые типы.**
+
+- `parse_command_line` (`command_line`), `CommandLineOptions`,
+  `CommandLineError`, `CommandLineDiagnostic` — холодный парсер аргументов
+  (`-h/--help` короткозамыкает разбор).
+- `app::Settings` (`app_settings`), `AppSettingsPaths` — слияние
+  global/local JSON.
+- `RunIdentity`, `telemetry_layout` (load/validate/resolve), `TelemetryPaths` —
+  идентичность запуска из `NEXIGEN_*` окружения и пути трёх JSONL-потоков
+  (metrics, traces, chrono).
+- `Infrastructure<Policy>` — heap-only сервис, создаваемый только через
+  `make_infrastructure<Policy>()`. Владеет логгером, метриками,
+  трассировкой и chrono в безопасном порядке, монопольно владеет
+  обработкой `SIGINT`/`SIGTERM` через `signalfd`, выполняет
+  `run(tick)`, фиксирует причину остановки и детерминированно освобождает
+  ресурсы в обратном порядке. Второй инициализированный экземпляр получает
+  `ErrorCode::Conflict`.
+
+**Зависимости.** `core`, `chrono`, `logging`, `metrics`, `tracing`.
+
+**Capabilities (4):** `application`, `command-line`, `settings`,
+`telemetry-layout`.
+
+### 4.9 `exec` — исполнение и супервизия
+
+**Ответственность.** Управление жизненным циклом suite и приложений:
+манифесты, запуск, readiness, остановка, рестарты, Function Groups и
+артефакты запуска.
+
+**Ключевые типы.**
+
+- `ExecutionManager` — stateless-контроль одного instance через его
+  директорию: `start` создаёт layout, генерирует настройки, делает
+  `fork`/`setsid`/`execvp` и пишет `resource.json`; `stop`/`status`
+  работают только с диском.
+- `SuiteManifest`, `AppSpec`, `FunctionGroupConfig` — suite-манифест,
+  приложения, Function Groups и `initial_state`.
+- `start_suite`/`stop_suite` (`suite_control`), `ChildProcess`,
+  `ExecutionStateTracker` — detached-супервизор, состояние каждого ребёнка и
+  подтверждение готовности.
+- Модель процессов: `ProcessType` (`daemon`/`oneshot`), `ProcessState`,
+  `AppState`, `ApplicationStateReporter`, `SuiteState`, `SuiteStatus`,
+  `UnrecoverableState`.
+- Раскладка и артефакты: `suite_paths`, `instance_layout`,
+  `instance_settings`, `instance_file_io`, `SuiteMetadata`,
+  `SuiteAppMetadata`, `SuiteExit`, `ResourceMetadata`, `ExitMetadata`,
+  `run`-лог.
+- `ManifestAccessor` — определение JSON/ARXML и единый путь
+  `from_json` + `validate_suite_manifest`; `MachineManifest` —
+  кросс-проверка ссылок на процессы машины (`nexigen-exec --machine`).
+- `ControlHost` — COM-свободная граница супервизора; конкретная
+  COM-реализация живёт в `nexigen_exec_control`.
+- `StateClient` — приёмная сторона `SetState`; `FunctionGroupRegistry`,
+  `StateCommand`/`StateAck`/`StateResult`, `state_dependent_startup_config`,
+  `request_id` и access control по `function_group_port_mapping`.
+- Platform controls: `ResourceGroupConfig` (RLIMIT_AS, cgroup v2
+  CPU/memory, CPU set, working folder), `cgroup_budget`,
+  `sha256_file`/`executable_digest`, `SettingsDigest`,
+  `TrustedPlatformConfig`, `uid`/`gid` и сброс `CAP_SYS_NICE`.
+- `DeterministicClient` — фиксированный такт, seeded splitmix64 и работа
+  без выделений для одного execution-потока.
+- `root_function_group`/`root_state_query` — словарь имён и состояний RootFG
+  и payload результата начального перехода.
+
+**Границы.** `nexigen_exec` не содержит COM-символов и собирается при
+выключенном gate. `state_client.cpp`, `control_host_com.cpp` и
+`recovery_handler.cpp` вынесены в отдельные цели, подключаемые только к
+инструментам при `NEXIGEN_ENABLE_COM=ON`.
+
+**Зависимости.** `core`, `app`; COM-части — `com`.
+
+**Capabilities (18):** `application-state`, `app-suite`,
+`deterministic-execution`, `function-group-state`, `instance-lifecycle`,
+`logging`, `machine-manifest`, `manifest-accessor`,
+`process-lifecycle-events`, `process-supervision`, `process-types`,
+`resource-groups`, `root-function-group`, `state-client`,
+`state-client-access-control`, `state-request-ids`, `trusted-executable`,
+`update-state`.
+
+### 4.10 `hub` — наблюдаемость
+
+**Ответственность.** Read-only обзор завершённых и текущих запусков:
+обнаружение директорий, потоковая доставка телеметрии и HTTP/SSE API.
+
+**Ключевые типы.**
+
+- `Discovery` — явные run-root'ы, канонизация путей, inotify и
+  согласование дерева `run → suite → app → instance/attempt`.
+- `StreamManager` — ограниченные tailer'ы, replay-ring по числу записей и
+  байтам, `GapMarker` при переполнении, подписчики.
+- `HttpServer` — один epoll-цикл (listener, eventfd, inotify, клиенты,
+  таймеры, polling потоков), HTTP/1.1 + SSE, встроенный web UI, только
+  `GET`; лимиты запроса и клиентов, `400`/`404`/`405`.
+- DTO: `HubTree`, `HubRun`, `HubSuite`, `HubApp`, `HubInstance`,
+  `HubAttempt`, `HubStream`, `StreamRecord`, `StreamKind`.
+
+**Зависимости.** `core`, `exec` (типы раскладки).
+
+**Capabilities (4):** `discovery`, `http-api`, `streaming`, `web-ui`.
+
+### 4.11 `phm` — здоровье и восстановление (gate)
+
+**Ответственность.** Замкнутый контур «обнаружение → реакция»: супервизия
+процессов, проверка identity, запись отказов, watchdog и восстановление
+через EM.
+
+**Ключевые типы.**
+
+- `PhmManifest` — декларативное описание наблюдаемых сущностей.
+- `Supervisor` — по одной headless-машине на процесс: `Alive` (счётчики за
+  окно и допуски), `Logical` (граф разрешённых переходов и fork/join),
+  `Deadline` (пары source→target), толерантность `Ok → Failed → Expired`.
+  Все горячие пути O(1) по размеру манифеста, без выделений и блокировок.
+- `CheckpointEmitter`, `HealthChannel`, `SupervisedEntity` — клиентская
+  сторона: checkpoints, отчёты о здоровье, чтение состояния Function Group,
+  периодическая публикация claim.
+- `ClaimPublisher`, `ClaimRegistry`, `ClaimVerdict`,
+  `SecurityEvent` — проверка `{name, pid, uid}` через `/proc` и события
+  безопасности при чужом или неизвестном claim.
+- `RecoveryClient`, `RecoveryRequest`, `RecoveryResponse`, `RecoveryAction` —
+  `RestartProcess` (через EM, без расхода retry-бюджета) и локальный
+  `TriggerWatchdogReset`.
+- `FaultStorage`, `FaultKind`, `verify_fault_log`/`FaultLogReport` —
+  неблокирующая запись отказов с монотонным номером и CRC-32C; проверка
+  целостности журнала.
+- `Watchdog`, `WatchdogDevice`, `PosixWatchdogDevice`, `WatchdogState`,
+  `WatchdogConfig` — `/dev/watchdog`, период кормления не более половины
+  таймаута, отключён по умолчанию, magic close при остановке.
+- `LogicalFork`, `EmLifecycleState`, `SupervisionStatus` — логические
+  fork/join-регионы и приостановка супервизии на время штатной остановки.
+
+**Зависимости.** `com`; словари `sm` — только на уровне заголовков.
+
+**Capabilities (7):** `health-channel`, `identity`, `manifest`, `recovery`,
+`supervised-entity`, `supervision`, `watchdog`.
+
+### 4.12 `sm` — управление состояниями (gate)
+
+**Ответственность.** Центральный арбитр Function Groups: проверка переходов,
+приоритеты запросов, публикация состояний, аудит, RootFG, лёгкие
+декларативные машины и координация обновлений UCM.
+
+**Ключевые типы.**
+
+- `SmManifest`, `StateManager` — по одной headless-машине на группу,
+  проверка перехода по графу и арбитраж по приоритету текущего держателя;
+  startup/shutdown — явные шаги, а не рёбра графа. Прикладная группа не
+  покидает off-like состояние, пока `RootFG` не достиг `Run`.
+- `GroupStatePayload`, `StatePublication` — публикация состояния как
+  `Field`; `TriggerRequest`/`TriggerResponse` — входящие запросы;
+  `TransitionPreparation` — handshake подготовки.
+- `TransitionResult`, `TransitionRecord`, `TransitionAudit` — результат,
+  запись и неблокирующий журнал аудита; `SmMetrics` — метрики арбитража.
+- `LightweightStateMachine`, `LsmRuntime` — декларативные таблицы
+  переходов, действий и recovery для группы.
+- `RootFG` (enum), `RootLifecycleClient` — словарь `Off`/`Startup`/`Verify`/
+  `Run`/`Shutdown`/`Restart` и клиент начального перехода EM.
+- `UpdateRequest`/`UpdateResponse`, `UpdateCoordinator` — `Start`/`Complete`/
+  `Cancel` обновления: блокировка группы, состояние `Update`, отказ
+  `RejectedByUpdate`, единственный активный update.
+- `RecoveryHandler`, `RecoveryNotification` — обработка восстановления от
+  PHM.
+
+**Зависимости.** `com`.
+
+**Capabilities (9):** `ipc`, `lifecycle`, `lightweight-state-machine`,
+`lsm-runtime`, `manifest`, `recovery-handler`, `state-machine`,
+`telemetry`, `ucm-coordination`.
+
+## 5. Взаимодействие компонентов
+
+### 5.1 Карта процессов и каналов
+
+```mermaid
+flowchart TB
+    subgraph PROC["Процессы приложений"]
+        APP["Application<br/>app::Infrastructure::run(tick)"]
+        ENT["phm::SupervisedEntity<br/>checkpoints · claims · health"]
+        APP --- ENT
+    end
+
+    subgraph PLANE["Плоскость управления"]
+        EM["nexigen-exec / nexigen-em<br/>detached suite supervisor + ControlHost"]
+        SM["nexigen-sm<br/>StateManager"]
+        PHM["nexigen-phmd<br/>Supervisor + Watchdog"]
+        WD["/dev/watchdog"]
+    end
+
+    subgraph OBS["Плоскость наблюдаемости"]
+        SINKS["sinks: console · JSONL · iceoryx2"]
+        BUS(("iceoryx2"))
+        LOGD["nexigen-logd"]
+        MD["nexigen-metricsd"]
+        TD["nexigen-traced"]
+        DISK[("run directory<br/>JSONL · suite.json · fault log")]
+        HUB["nexigen-hub"]
+        UI["HTTP/SSE · Web UI · Prometheus"]
+    end
+
+    EM -->|"fork/exec · setsid<br/>SIGTERM → SIGKILL"| APP
+    SM -->|"SetState"| EM
+    EM -->|"StateAck · readiness"| SM
+    SM -->|"state fields"| APP
+    APP -->|"checkpoints · health · claims"| PHM
+    PHM -->|"RestartProcess"| EM
+    PHM -->|"SafeState"| SM
+    PHM --- WD
+
+    APP --> SINKS
+    SINKS -->|"JSONL"| DISK
+    SINKS -->|"fixed frames"| BUS
+    BUS --> LOGD
+    BUS --> MD
+    BUS --> TD
+    LOGD --> DISK
+    MD --> DISK
+    TD -.->|"dump on PHM event"| DISK
+    EM -->|"suite metadata"| DISK
+    DISK --> HUB
+    HUB --> UI
+    MD -->|"Prometheus /metrics"| UI
+```
+
+Ключевые потоки:
+
+- **EM → приложение.** `nexigen-exec`/`nexigen-em` поднимают detached
+  супервизор, который запускает каждое приложение в новой сессии и группе
+  процессов и применяет остановку по таймауту (`SIGTERM` → `SIGKILL`).
+- **SM → EM → приложение.** `nexigen-sm` отправляет `SetState` в
+  `StateClient`; EM разрешает состояние в набор процессов через
+  `FunctionGroupRegistry` и выполняет stop/restart/start через
+  `ChildProcess`.
+- **Приложение → EM.** Readiness каждого процесса и результаты переходов
+  собирает трекер готовности EM через state-каналы
+  (`Nexigen/EM/State/*`); SM получает итог перехода.
+- **Приложение → PHM.** Checkpoints, отчёты о здоровье и identity claims
+  публикуются в `Nexigen/PHM/*`; PHM принимает checkpoints только после
+  проверки claim.
+- **PHM → EM/SM.** При `Expired` PHM выполняет настроенное правило
+  восстановления: `RestartProcess` через `Nexigen/PHM/Recovery` или
+  SafeState-команду в SM; watchdog останавливает кормление, если есть
+  просроченные сущности.
+- **Телеметрия → диск → hub.** Sinks пишут JSONL в run-директорию или
+  отправляют кадры в iceoryx2; демоны агрегируют их; `nexigen-hub` читает
+  файлы и отдаёт клиентам.
+
+### 5.2 Телеметрический конвейер
 
 ```mermaid
 flowchart LR
-    APP["Application code<br/>producer"] -->|log call| LOG["logging::Logger"]
-    APP -->|span start/end| TRC["tracing::Tracer"]
-    APP -->|counter/gauge/histogram| MET["metrics::MetricProvider"]
+    CALL["Hot path<br/>log · span · metric"] --> SHARD["Per-thread SPSC shard"]
+    SHARD --> WORKER["Cold worker / harvester<br/>deferred formatting · serialization"]
+    WORKER --> CONSOLE["Console sink"]
+    WORKER --> JSONL["JSONL file sink"]
+    WORKER --> FRAME["Iceoryx2 sink<br/>fixed frame"]
 
-    LOG --> LSINK["sinks: console / file / iceoryx2"]
-    TRC --> TSINK["sinks: chrome-trace / jsonl / iceoryx2"]
-    MET --> MSINK["sinks: console / jsonl / iceoryx2 / prometheus"]
+    FRAME --> LOGD["nexigen-logd"]
+    FRAME --> MD["nexigen-metricsd"]
+    FRAME --> TD["nexigen-traced"]
 
-    LSINK -->|frame| LDM["nexigen-logd"]
-    TSINK -->|frame| TDM["nexigen-traced"]
-    MSINK -->|frame| MDM["nexigen-metricsd"]
+    LOGD --> FILES[("hourly JSONL")]
+    MD --> HIST[("quota JSONL history")]
+    MD --> PROM["Prometheus /metrics"]
+    TD --> RING[("RAM ring → dump on PHM event")]
 
-    LDM -->|frames over IPC| LSINK
-    TDM -->|frames over IPC| TSINK
-    MDM -->|frames over IPC| MSINK
-
-    LSINK -->|"jsonl on disk"| HUB["hub::StreamManager"]
-    TSINK -->|"jsonl on disk"| HUB
-    MSINK -->|"jsonl on disk"| HUB
-    HUB -->|"gap marker on ring overflow"| HUB
-
-    HUB -->|"HTTP + SSE"| CLI["nexigen-hub<br/>UI / clients"]
+    FILES --> HUB["nexigen-hub"]
+    HIST --> HUB
+    RING -.-> HUB
+    HUB --> UI["HTTP/SSE · Web UI"]
 ```
 
-Invariants of the flow:
+Инварианты конвейера:
 
-- **No allocation and no blocking on the hot path.** The producer only writes to
-  its own SPSC shard; logging, metrics and tracing share no state and never
-  block each other.
-- **Bounded rings.** When a ring overflows the consumer emits a `gap` marker
-  (the lost sequence range) — loss is visible, not masked.
-- **Cold path.** JSON serialization, name parsing and formatting live off the
-  hot path; `core::mandate` provides the shared non-throwing contract.
+- производитель не выделяет память, не форматирует и не блокируется;
+- при переполнении ring'а публикуется `GapMarker` с диапазоном потерянных
+  последовательностей — потеря видима, а не маскируется;
+- каждый модуль телеметрии имеет собственный shard и не блокирует
+  соседние;
+- JSON-сериализация, разбор имён и файловый ввод-вывод выполняются только
+  на холодном пути.
 
-## Suite and application-instance lifecycle
-
-`nexigen-exec` reads the suite manifest, validates it, starts the supervisor
-process and the application instances, then governs their restarts and shutdown.
-`phm`/`sm` layer health, transitions and recovery on top of that.
-
-The manifest uses one Function Group per application and a non-empty
-`startup_configs` list; each entry names a Function Group State and supplies the
-arguments, environment, startup/termination timeouts, restart budget, and
-execution dependencies for that state. `Off` remains the manifest initial state.
-A group may declare `initial_state`; after start the supervisor drives each
-group from `Off` to that state (default: its first non-`Off` state) through the
-state-transition path, preserving the `nexigen-exec start --config` auto-start
-contract without mapping processes to `Off`.
+### 5.3 Жизненный цикл suite и Function Groups
 
 ```mermaid
 flowchart TD
-    MAN["Suite manifest<br/>SuiteManifest"] --> VAL["validate_suite_manifest"]
-    VAL --> PRE["preflight_suite_threads<br/>CPU mask and priority check"]
-    PRE --> SUP["run_suite_supervisor_child<br/>fork supervisor"]
-    SUP --> APPS["ControlHost + transition engine<br/>initial_state -> start/stop handlers"]
-    APPS --> STATE["AppState / SuiteStatus<br/>app_state + suite_state"]
-    STATE --> REPORT["suite_status / metadata<br/>suite_reporting"]
-    REPORT --> META["suite.json / run log<br/>on disk"]
-    META --> HUB2["hub::Discovery<br/>run → suite → app → instance tree"]
-    STATE --> STOP["stop_suite / stop_suite_apps<br/>grace period, SIGTERM → SIGKILL"]
-    STOP --> SUP
-    STATE --> PHM2["phm::Supervisor<br/>health-channel, recovery"]
-    STATE --> SM2["sm::StateManager<br/>RootFG transitions and audit"]
+    MAN["Suite manifest<br/>JSON или ARXML"] --> ACCESSOR["ManifestAccessor<br/>определение формата · разрешение ссылок"]
+    ACCESSOR --> VALID["SuiteManifest<br/>from_json + validate"]
+    VALID --> PRE["preflight потоков<br/>CPU-маски · приоритеты"]
+    PRE --> SUP["Detached suite supervisor"]
+    SUP --> HOST["ControlHost<br/>COM-граница"]
+    HOST --> SC["StateClient<br/>+ readiness tracker"]
+    SUP --> CHILD["ChildProcess на приложение<br/>setsid · fork · exec"]
+    CHILD --> STATE["suite-state.json · suite.json<br/>suite-exit.json · run-лог"]
+    STATE --> HUB["hub::Discovery"]
+    SC --> FG["FunctionGroupRegistry<br/>state → процессы"]
+    FG --> CHILD
+    SM["nexigen-sm"] -->|"SetState"| SC
+    PHM["nexigen-phmd"] -->|"recovery"| SC
 ```
 
-### State-driven EM control (suite supervisor)
+Порядок выполнения:
 
-The suite supervisor owns the COM-facing control path. `nexigen-exec start` and
-`nexigen-em --config` both start the same detached supervisor; the executable
-installs a COM-gated `ControlHostFactory` before `fork`, so the supervisor child
-creates the `ComControlHost` that hosts `StateClient`, the per-application
-readiness listeners, the process table, and the transition engine. `nexigen-em`
-is only a thin front-end that hands the manifest to `start_suite`; it no longer
-runs a direct per-app launch loop.
+1. `nexigen-exec start --config` или `nexigen-em --config` загружают
+   манифест, проверяют его и при необходимости сверяют с Machine Manifest.
+2. Запускается detached-супервизор; при COM-сборке он устанавливает
+   `ControlHost` и создаёт `StateClient` с трекером готовности.
+3. Супервизор входит в `initial_state` через тот же движок переходов, что
+   и любой `SetState`, а не прямым циклом запуска.
+4. `daemon`-процессы обязаны сообщить `Run`, `oneshot` — завершиться с
+   кодом 0; только после этого переход подтверждается.
+5. `stop` останавливает приложения с grace-периодом, затем супервизор
+   фиксирует `suite-exit.json` и причину остановки.
 
-`nexigen_exec` itself stays COM-free: it defines only the `ControlHost`
-interface and the factory slot. `nexigen_exec_control` (built only with
-`NEXIGEN_ENABLE_COM=ON`) holds the concrete host. The supervisor keeps
-ownership of `ChildProcess`, attempt artifacts, and the restart policy through
-the start/stop handlers, while the control host drives transitions.
-
-`StateClient` accepts `SetState(FunctionGroup, State)`, the registry resolves the
-state to its process set, and the transition engine stops, restarts, and starts
-processes through the suite handlers. A process table tracks
-`Idle`/`Starting`/`Running`/`Terminating`/`Terminated`; reporting processes wait
-for `Run`, non-reporting processes become `Running` immediately. The suite's
-configured `initial_state` is entered through the same transition engine, not by
-a direct launch loop, and readiness gates dependent startup and transition
-confirmation.
+### 5.4 Последовательность `SetState`
 
 ```mermaid
-flowchart LR
-    SM3["SM<br/>SetState"] --> SC3["StateClient"]
-    SC3 --> REG3["FunctionGroupRegistry<br/>state -> processes"]
-    SC3 --> PT3["ProcessTable<br/>Idle/Starting/Running/<br/>Terminating/Terminated"]
-    SC3 --> TR3["FunctionGroupTransition<br/>stop / restart / start"]
-    TR3 -->|start/stop handler| SUP3["Suite supervisor<br/>ChildProcess + artifacts"]
-    SUP3 --> EM3["ExecutionManager<br/>SIGTERM -> SIGKILL"]
-    APP3["Applications"] -->|Nexigen/EM/State/app| SC3
-    PT3 --> SC3
-    EXEC3["nexigen-exec / nexigen-em"] -->|start_suite + factory| SUP3
+sequenceDiagram
+    autonumber
+    participant SM as nexigen-sm (StateManager)
+    participant EM as Suite supervisor (EM)
+    participant REG as FunctionGroupRegistry
+    participant APP as Application
+    participant PHM as nexigen-phmd
+
+    SM->>EM: SetState(group, state, requester_id, request_id)
+    EM->>EM: access policy + request id arbitration
+    EM->>REG: state → набор процессов
+    REG-->>EM: процессы + startup config
+    EM->>APP: stop / restart / start (ChildProcess)
+    APP-->>EM: readiness (Run или exit 0)
+    EM-->>SM: StateAck / StateResult
+    SM->>SM: publish State field + audit record
+
+    APP->>PHM: checkpoints · health · claims
+    PHM->>EM: RestartProcess (recovery)
+    PHM->>SM: SafeState
 ```
 
-With `NEXIGEN_ENABLE_COM=OFF` no factory is installed. The supervisor keeps the
-documented file-based/non-reporting fallback: it selects the processes configured
-for `initial_state` directly and exposes no `StateClient`. No COM symbol enters
-`nexigen_exec`.
+### 5.5 RootFG
 
-## RootFG state management
-
-`RootFG` is the reserved root-foundation Function Group: it owns the
-message broker, SM, PHM, EM and the future DataRecorder. A suite manifest may
-declare it with the fixed states `Off`, `Startup`, `Verify`, `Run`, `Shutdown`,
-and `Restart`. `Off` has no bound processes, `Startup` brings the foundation up,
-`Verify` runs its self-diagnosis, `Run` is the target state, `Shutdown` stops the
-foundation, and `Restart` is a fast reboot that returns to `Startup` without
-passing through `Off`.
-
-The EM owns the initial `Off -> Startup` transition: the suite supervisor
-requests it through the same transition engine as any other group and records
-the first terminal result. A State Manager reads that result from
-`Nexigen/EM/InitialRootStateTransitionResult`, then commands `Verify` and
-`Run` through `StateClient`. An external `SetState(RootFG, Off)` is rejected
-with `InvalidTransition`; only the EM's own shutdown path records `Off`.
-Application Function Groups are gated on `Run`: no application group leaves an
-off-like state before the root foundation is ready.
+`RootFG` — зарезервированная корневая Function Group: брокер сообщений, SM,
+PHM, EM и будущий DataRecorder. Манифест может объявить её с фиксированным
+набором состояний; `Off` не имеет привязанных процессов, `Run` — целевое
+состояние, `Restart` — быстрый перезапуск без прохода через `Off`.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Off
-    Off --> Startup: EM initial transition
+    Off --> Startup: начальный переход EM
     Startup --> Verify: SM SetState(Verify)
     Verify --> Run: SM SetState(Run)
     Run --> Shutdown: SM SetState(Shutdown)
-    Shutdown --> Off: EM shutdown path
-    Run --> Restart: SM restart
+    Shutdown --> Off: путь остановки EM
+    Run --> Restart: рестарт SM
     Restart --> Startup: fast reboot
 
     note right of Off
-        EM-owned; external SetState(Off) is rejected.
+        Владелец — EM.
+        Внешний SetState(Off) отклоняется.
     end note
     note right of Run
-        Target state; application groups may start.
+        Целевое состояние.
+        Прикладные группы могут стартовать.
     end note
     note right of Restart
-        Fast reboot; skips Off.
+        Быстрый перезапуск.
+        Состояние Off пропускается.
     end note
 ```
 
-When an EM control path is reachable, the SM reports its own readiness, waits
-for the initial result, and advances `Verify -> Run` only after the EM confirms
-each state. Without an EM it keeps the synchronous fallback. The EM process
-table also publishes `Running`/`Terminating`/`Terminated` lifecycle samples on
-`Nexigen/PHM/ExecutionState`; PHM arms supervision on `Running` and suspends it
-during a deliberate stop, so shutdown cannot be misread as an Alive fault.
+Начальный переход `Off → Startup` выполняет EM через общий движок
+переходов и публикует результат в
+`Nexigen/EM/InitialRootStateTransitionResult`. SM читает результат, затем
+командует `Verify` и `Run`. Пока RootFG не в `Run`, прикладные группы не
+покидают off-like состояния. EM также публикует
+`Running`/`Terminating`/`Terminated` в `Nexigen/PHM/ExecutionState`, чтобы
+PHM приостанавливал супервизию на время штатной остановки.
 
-## Safety mechanisms
+## 6. Инструменты командной строки
 
-The PHM daemon closes the detect → actuate loop:
-
-- **Alive counts** — `alive_expected_indications` with `alive_min_margin_cycles`
-  and `alive_max_margin_cycles` fails a window whose count leaves the inclusive
-  range; an entry without counts keeps the legacy at-least-one rule.
-- **Fork/join** — `logical_forks` declares `{fork_id, branch_entries, join_id}`;
-  a join reached without every branch is a logical failure. The supervisor keeps
-  a fixed-depth stack of entered-branch bitsets, so the checkpoint path stays
-  allocation-free and bounded.
-- **Watchdog** — `phm::Watchdog` owns `/dev/watchdog` (feed period at most half
-  the timeout), feeds only while no armed process is `Expired`, disarms with the
-  magic close on shutdown, and is **disabled by default**:
-  ```json
-  "watchdog": { "enabled": true, "device": "/dev/watchdog",
-                "timeout_ms": 1000, "feed_period_ms": 200 }
-  ```
-  To exercise it on a development machine, load `softdog` and point the manifest
-  at the resulting device; never enable it on a host you cannot reboot.
-- **Liveness channels** — SM emits checkpoint `1` on `Nexigen/SM/Health` and the
-  suite supervisor emits checkpoint `1` on `Nexigen/EM/Health` once per control
-  poll; the example manifest supervises both daemons, so an `Expired` SM or EM
-  stops the watchdog feed.
-- **Identity claims** — a process whose manifest entry declares `expected_uid`
-  publishes `{name, pid, uid}` on `Nexigen/PHM/Claim` and wakes
-  `Nexigen/PHM/ClaimEvent`; the daemon checks `/proc/<pid>`, gates checkpoints
-  until the claim is verified, and publishes a `SecurityEvent` on
-  `Nexigen/PHM/Security` for a foreign or unknown claim. A supervised entity
-  created with a `ClaimConfig` re-publishes the claim once per second, so a
-  restarted daemon re-learns the identity, and the daemon drops the verified
-  flag when the EM reports the process stopping, so a new incarnation must claim
-  again. `expected_uid` must be nonzero and the process name must fit the
-  32-byte claim buffer. A same-UID impostor can still claim another pid;
-  kernel-attested credentials are a follow-up.
-- **Recovery** — `RestartProcess` is served by the EM on
-  `Nexigen/PHM/Recovery` (forced restart in a new attempt, no retry-budget
-  consumption); `TriggerWatchdogReset` is local to PHM (stop feeding, no EM
-  request).
-
-The complete example manifest is `examples/phm/safety_manifest.json`.
-
-## Integrity primitives
-
-`nexigen::core::integrity` is header-only and allocation-free on the hashing
-path: CRC-32C and CRC-64/XZ (one-shot and streaming), FIPS 180-4 SHA-256 (the
-`nexigen::exec` names are now aliases), a constant-time hex digest comparison,
-and `read_verified(path, sha256)`, which reads a file once and hashes exactly
-the bytes it returns.
-
-The tools accept an optional expected digest before parsing:
-
-```
-nexigen-em         --config <manifest> --manifest-sha256 <hex>
-nexigen-exec start --config <manifest> --manifest-sha256 <hex>
-nexigen-phmd       --manifest <manifest> --manifest-sha256 <hex>
-nexigen-sm         --config <manifest> --config-sha256 <hex>
-```
-
-Digest verification is JSON-only; ARXML manifests have no byte-digest contract.
-A mismatch fails with `SecurityError` before anything is launched.
-
-Every fault record now appends a monotonic sequence number and a CRC-32C over
-the exact bytes before it. `nexigen-phmd --verify-fault-log <path>` reports
-intact, corrupted, truncated, and legacy counts, and exits non-zero when a
-record is corrupted; four-field lines written before this change are accepted
-as legacy.
-
-## End-to-end protection
-
-`nexigen::com::e2e` protects service exchange against corruption, repetition,
-loss, reordering, and misdelivery:
-
-- **Envelope** — `E2eMessage<T>` carries a fixed 16-byte `E2eHeader` (`data_id`,
-  `counter`, `length`, `crc`) beside the payload and travels as an ordinary
-  `Message`, so the existing ports carry it unchanged.
-- **Profiles** — `None`, `P04`/`P07` (CRC-32/AUTOSAR), `P05`/`P06`
-  (CRC-16/CCITT); counter widths are 16/8/16/32 bits.
-- **Ports** — `E2ePublisher<T>`, `E2eSubscriber<T>`, `E2eClient<Req, Resp>`, and
-  `E2eServer<Req, Resp>` keep the loan/write/send style and return the check
-  result next to the payload. The server hands the request status to the
-  handler, so a corrupt request can still be answered safely.
-- **Counters** — the sender starts at 1 and wraps at the profile width; the
-  receiver accepts a forward gap up to `max_delta_counter`, reports an exact
-  repeat as `Repeated`, and a larger or backwards jump as `WrongSequence`.
-  Integrity is checked first, so a corrupt message never advances sequence
-  state.
-- **Configuration** — `ServiceManifest` entries accept an optional
-  `e2e: {profile, data_id, max_delta_counter}` section; absent means `None`.
-  `None` selects plain communication: use the ordinary ports. The E2E wrappers
-  reject `None` with `InvalidArgument` at creation, so a wrapper can never send
-  an envelope without a checksum.
-
-The framing is ours, not byte-compatible with AUTOSAR wire profiles (there is
-no shared bus here); only the CRC polynomials are AUTOSAR's. Checksums cover the
-payload's object representation, so a payload with padding should provide its
-own `e2e_bytes` view. Both ends must migrate to the wrappers together.
-
-Cost: seal+check measures about 175 ns for a 64-byte and 790 ns for a 256-byte
-payload on the reference machine in Release (about 1.1 us / 3.2 us under
-Debug+ASan). These numbers are the performance contract enforced by
-`e2e_overhead` (1 us / 2.5 us in Release, 5 us / 10 us in sanitizer builds).
-The table-driven CRC dominates; a slicing-by-8 or hardware path may lower the
-numbers behind the same API without changing the contract.
-
-## Time base supervision
-
-`chrono::TimeSyncMonitor` samples `CLOCK_REALTIME − CLOCK_MONOTONIC_RAW` on the
-caller's schedule and classifies each transition: `Ok`, `Stepped` (forward jump
-above `max_step_ns`), `GoingBackwards`, or `RateExceeded` (slew above
-`max_rate_ppm` over at least `min_window_ns`). Defaults are 1 ms, 500 ppm, and
-100 ms. The monitor is allocation-free, starts no thread, and leaves the
-reaction (log, degrade, reset) to the application or PHM.
-
-## P2 platform controls
-
-The manifest carries optional platform controls that apply before a child is
-created:
-
-- **Resource groups** — a named memory budget (`RLIMIT_AS`), cgroup v2 CPU and
-  memory budgets (`cpu_quota_us`/`cpu_period_us` → `cpu.max`, `memory_max_mb` →
-  `memory.max`), a CPU set, and a working folder. An application references one
-  group; its own CPU set wins over the group default. Budgeted groups are
-  prepared under `<cgroup_root>/nexigen/<suite>/<group>` before the supervisor
-  fork, the child joins its cgroup before `exec`, and an unavailable hierarchy
-  fails the start. The child applies the folder and `RLIMIT_AS` before `exec`.
-- **Trusted executables** — a suite-wide policy plus a per-app SHA-256 digest.
-  When enabled, commands must be absolute and the digest is verified in the
-  parent before the fork; a mismatch fails with `SecurityError` and creates no
-  instance layout.
-- **Least privilege** — an application entry may declare `uid`/`gid`; the child
-  clears supplementary groups when privileged, calls `setgid`/`setuid`, verifies
-  the drop with `getuid`/`geteuid`/`getgid`, and only then `exec`. A `uid` or
-  `gid` of `0` is rejected, and `trusted_platform.require_non_root` refuses a
-  root launch without an explicit `uid`. Unless `allow_rt_priority` is set, the
-  child drops `CAP_SYS_NICE` from its capability bounding set before `exec`, so
-  it cannot raise its own real-time priority. The opt-in cannot be combined with
-  a non-root `uid` (the credential drop would clear the capability anyway) and
-  the manifest is rejected when both are present.
-- **Settings digests** — an optional `settings_digests: [{path, sha256}]` list.
-  The detached supervisor verifies every listed settings file once before it
-  launches any application; a mismatch reports `SecurityError` and starts
-  nothing. The section is additive, and a deployment without it keeps the
-  previous behavior.
-- **Access control** — `StateCommand` carries `requester_id`, and a manifest
-  `function_group_port_mapping` list authorizes `(requester, Function Group)`
-  pairs. An unmapped requester is rejected with `AccessDenied`; an empty list
-  preserves the legacy accept-all behavior.
-- **Deterministic execution** — `exec::DeterministicClient` provides a fixed
-  cycle clock (`wait_for_next_cycle`, `cycle_time_ns`), a seeded splitmix64
-  PRNG, and allocation-free operation for one execution thread.
-- **Request identity** — `StateCommand` also carries a 64-bit `request_id`.
-  A newer id supersedes an in-flight transition; retries of the older id get
-  `OperationCanceled`, and the SM drops a canceled pending transition without a
-  SafeState fallback. `request_id == 0` keeps the legacy behavior.
-
-```mermaid
-flowchart LR
-    MAN2["Suite manifest<br/>resource groups, trusted policy,<br/>port mapping"] --> VAL2["validation"]
-    VAL2 --> TRUST["SHA-256 trust gate<br/>before fork"]
-    TRUST --> RES["child resources<br/>chdir + RLIMIT_AS"]
-    RES --> APP4["application"]
-    SM4["SM SetState<br/>requester_id"] --> AUTH["port mapping<br/>AccessDenied / accept"]
-    AUTH --> EM4["EM transition engine"]
-```
-
-## UCM update coordination
-
-The SM serves `Nexigen/UCM/UpdateRequest`. `Start` checks that `RootFG` is
-`Run`, the target group is not `RootFG`, and the group declares `Update`;
-the EM then enters `Update` (an off-like state that stops the group's
-processes), and the SM records the previous state and locks the group. A
-TriggerIn for a locked group is rejected with `RejectedByUpdate` while other
-groups remain controllable. `Complete` moves to the requested target (or the
-previous state), `Cancel` restores the previous state, and both clear the lock.
-Only one update is active at a time (`Busy` otherwise). The coordinator owns
-the UCM/EM handshake; the arbitration thread stays the single writer.
-
-## Lightweight state machines and ARXML manifests
-
-`SmManifest` may also carry declarative `state_machines`. Each
-`LightweightStateMachineConfig` names one Function Group and holds a transition
-table, ordered action lists, and an error-recovery table. `sm::LsmRuntime`
-binds the machine to the group and supplies an `EmActionSink`:
-`RequestFunctionGroupState` sends a `StateCommand` to the EM, `PublishState`
-writes the group's State field, and the `StateManager` is kept in sync with the
-machine after every attempt. TriggerIn for a bound group runs the declarative
-table; unbound groups keep the generic graph and priority arbitration. Recovery
-fallbacks are visible through `TransitionResult::ActionFailed` and the synced
-group state.
-
-Suite manifests can be loaded from JSON or from the documented ARXML
-execution-manifest profile. `ManifestAccessor` detects the source format,
-converts the ARXML tree into the existing JSON object shape, then runs the same
-`from_json` and `validate_suite_manifest` path. The XML reader is small and
-dependency-free; it covers elements, nesting, text, comments, processing
-instructions, entities, and namespace-prefix stripping. This is a subset
-profile, not a full AUTOSAR XSD implementation or a machine-manifest resolver.
-
-## Machine Manifest and references
-
-A Machine Manifest (`<MACHINE-MANIFEST>`) defines machines, their Function
-Groups, and their processes. `ManifestAccessor::load_machine` accepts JSON or
-the ARXML profile, resolves every
-`/Machine/FunctionGroups/<id-or-name>` process reference, and validates names,
-ids, executables, and resolved groups. `validate_execution_against_machine`
-then requires every execution application to map to a machine process with the
-same name, executable, and Function Group. `nexigen-exec start --machine` and
-`nexigen-em --machine` perform this cross-check before the suite supervisor is
-created, so a reference mismatch forks no process.
-
-## CLI tools
-
-| Tool | Purpose | Key options |
+| Инструмент | Сборка | Роль |
 |---|---|---|
-| `nexigen-exec` | Drive suites and application instances | `--help` |
-| `nexigen-hub` | HTTP/SSE observatory over run roots | `--help` |
-| `nexigen-logd` | Log-frame transport daemon | `--config <path>` |
-| `nexigen-traced` | Trace-frame transport daemon | `--config <trace-daemon-config.json>` |
-| `nexigen-metricsd` | Metric-frame transport daemon | `--config <path>` |
-| `nexigen-phmd` | Health/reliability (PHM) daemon | `--manifest <path> [--manifest-sha256 <hex>] [--core <mask>] [--priority <n>] [--fault-log <path>] [--app-name <name>]`; `--verify-fault-log <path>` |
-| `nexigen-sm` | State-machine daemon | `--config <path> [--config-sha256 <hex>] [--rt-core <mask>] [--priority <n>] [--audit-log <path>] [--app-name <name>]` |
-| `nexigen-em` | Execution Manager suite front-end (`start_suite`; the supervisor hosts StateClient + readiness tracker) | `--config <suite-manifest> [--manifest-sha256 <hex>] [--run-id <id>] [--run-dir <path>]` |
+| `nexigen-exec` | всегда | CLI жизненного цикла suite и instance: `start`, `stop`, `status`; при COM — с `ControlHost` |
+| `nexigen-hub` | всегда | HTTP/SSE-обсерватория над run-root'ами, встроенный web UI |
+| `nexigen-em` | COM | фронтенд Execution Manager: запускает тот же detached-супервизор, что и `nexigen-exec` |
+| `nexigen-sm` | COM | State Manager: арбитраж, публикация состояний, TriggerIn, UCM, аудит |
+| `nexigen-phmd` | COM | супервизия, recovery, faults, watchdog; `--verify-fault-log` |
+| `nexigen-logd` | COM | приём `LogFrame`, форматирование и почасовая JSONL-запись |
+| `nexigen-metricsd` | COM | агрегация метрик, Prometheus HTTP, квотируемая JSONL-история |
+| `nexigen-traced` | COM | RAM-ring спанов и аварийный снимок по событию PHM |
 
-## The hard mandates
+Инструменты при `NEXIGEN_BUILD_TOOLS=ON` собираются вместе с библиотекой;
+COM-зависимые инструменты появляются только при включённом gate.
 
-1. **C++23, no compiler extensions** (`-std=c++23`).
-2. **No exceptions, no RTTI** — global `-fno-exceptions -fno-rtti`; never
-   `try/catch/throw`, `dynamic_cast` or `typeid`. JSON compiles with
-   `JSON_NOEXCEPTION=1`.
-3. **Error model** — `nexigen::core::Result<T, E = ErrorCode>` / `core::Status`
-   over `std::expected`. Branch on `has_value()`, dereference with `*res` /
-   `res->`, read `.error()`. **Never `.value()`** — it aborts under
-   `-fno-exceptions`.
-4. **Zero heap allocation on hot paths** — producer loops, worker loops, harvest
-   and sink callbacks never touch the allocator. All capacity is pre-allocated
-   once at initialisation (explicitly allowed and expected).
-5. **Lock-free / wait-free hot paths** — no mutexes, spinlocks or condition
-   variables on hot paths. Multi-producer state uses per-thread sharding
-   (`thread_local` slot registration) with `std::atomic` and explicit memory
-   orders; shared atomic state is `alignas(64)` to kill false sharing.
-6. **Linux high-resolution time & affinity** — `nexigen::chrono` calibrates the
-   TSC against `CLOCK_MONOTONIC_RAW`; background workers pin themselves through
-   the shared cold-path CPU machinery. `core::CpuSet` represents up to 1024 CPUs
-   inline; `core::affinity` retains the legacy uint64 mask adapter for callers
-   that only need CPUs 0–63. `ThreadSpec` adds a 15-byte name, Other/FIFO/RR
-   policy and priority, and best-effort/required application. Workers apply a
-   copied spec to themselves before sink startup; a required failure restores
-   earlier changes and prevents the main loop, while a best-effort failure is
-   exposed in `ThreadApplyReport` without stopping the worker. Reports are
-   published once through release/acquire startup readiness, never per record.
-   See [`thread-management.md`](thread-management.md) for the type contract and
-   application order.
-7. **Deferred formatting** — variadic format arguments are packed cold-side;
-   never format on a producer hot path.
-8. **Naming** — PascalCase types, `snake_case` functions/fields, trailing
-   `snake_case_` private members; aggressive `noexcept`/`constexpr`/`[[nodiscard]]`.
+## 7. Сквозные контракты
 
-## Serialization contract (all modules)
+### Ошибки и сериализация
 
-Every public class/struct/snapshot/config exposes a cold-path
-`std::string to_string() const` **and** a free `to_string(const T&)`; every
-public value type provides non-throwing ADL `to_json`/`from_json`
-(`JSON_NOEXCEPTION=1`); every enum additionally gets `constexpr to_string` /
-`from_string`; every public type is usable in `std::format` via a
-`std::formatter` specialization that delegates to `to_string()`. Types whose
-reconstruction is factory- or I/O-bound (instruments, composite sinks) provide
-`to_json` and deliberately **no** `from_json` — the absence is compile-time
-pinned in the test TU. `std::string` and `nlohmann::json` are cold-path tools
-only; serialisation bodies live in compiled units (`src/*/…_format.cpp`) so they
-never bloat consumer TUs.
+- Публичные fallible-функции возвращают `Result`/`Status`; исключения и
+  RTTI запрещены глобально (кроме cold-path исключения в `com` для
+  iceoryx2).
+- Каждый публичный тип имеет холодный `to_string()` (член и свободную
+  функцию), `to_json`/`from_json` и `std::formatter`; перечисления —
+  `constexpr to_string`/`from_string`.
+- Тела сериализации живут в скомпилированных единицах `src/*/*_format.cpp`,
+  чтобы не раздувать TU потребителей.
 
-## Hot path vs cold path
+### Горячий и холодный путь
 
-| | Hot path (per-record / per-message) | Cold path (init, diagnostics, harvest edge) |
+| | Горячий путь | Холодный путь |
 |---|---|---|
-| Allocation | never | allowed (`std::string`, `nlohmann::json`) |
-| Synchronisation | wait-free atomics only | may take the control-plane mutexes |
-| Failure reporting | pre-checked `Status` returns | `core::Result` branching |
-| Cost budget | ns-class, measured by `*_STRICT_LATENCY` gates | unbounded |
+| Память | без выделений | `std::string`, `nlohmann::json`, файлы |
+| Синхронизация | wait-free atomics, SPSC | мьютексы control plane |
+| Ошибки | предпроверенные `Status` | `Result` с диагностикой |
+| Бюджет | наносекунды, latency-гейты | не ограничен |
 
-Single-threaded instrument/log recorders use plain storage under a documented
-single-writer contract; multi-threaded variants pay a locked or relaxed RMW per
-record to stay exact under any thread interleaving.
+### Потоки и affinity
 
-## Build, test and verification matrix
+`CpuSet` адресует до 1024 CPU; `ThreadSpec` задаёт имя, политику и
+приоритет, а также режим применения — required (ошибка откатывает
+инициализацию) или best-effort (ошибка видна в `ThreadApplyReport`). Каждый
+фоновый worker применяет копию спецификации к себе до старта sink'а.
+
+### Идентичность запуска и телеметрия
+
+`app::load_run_identity` читает `NEXIGEN_RUN_ID`, `NEXIGEN_EXEC_DIR`,
+`NEXIGEN_INSTANCE_ID`, `NEXIGEN_INSTANCE_DIR`; `resolve_telemetry_paths`
+отображает их в пути metrics/traces/chrono. Контракт не зависит от языка и
+используется реализациями на C#, Python и C++.
+
+### Безопасность и целостность
+
+- Дайджесты SHA-256 для манифестов, исполняемых файлов и файлов настроек;
+  проверка до `fork`/запуска, ошибка — `SecurityError`.
+- `trusted_platform` требует абсолютных команд; `require_non_root` и
+  `uid`/`gid` выполняют сброс привилегий до `exec`; `CAP_SYS_NICE`
+  сбрасывается, если не разрешён явно.
+- Identity claims (`{name, pid, uid}`) проверяются через `/proc`; чужой
+  claim порождает `SecurityEvent`.
+- Access control для `SetState` по парам `(requester, Function Group)`;
+  `request_id` отменяет устаревшие переходы.
+- E2E-профили защищают обмен от искажения, повторов, потерь, переупорядочения
+  и ошибочной доставки.
+- `TimeSyncMonitor` обнаруживает шаг, обратный ход и превышение скорости
+  системных часов.
+- Fault-журнал PHM содержит монотонный номер и CRC-32C; режим
+  `--verify-fault-log` различает целые, повреждённые, усечённые и legacy
+  записи.
+
+## 8. Спецификации и трассируемость
+
+Спецификации лежат в `openspec/specs/<module>/<capability>/spec.md`; путь
+повторяет структуру `include/nexigen/`. Каждая capability содержит
+требования (`Requirement`) и проверяемые сценарии (`Scenario`).
+
+- Всего: 121 capability, 834 требования, 2087 сценариев.
+- Межмодульные возможности: `packaging`, `examples`, `quality/*`.
+- Проверка корпуса: `openspec validate --specs`.
+- Покрытие требований AUTOSAR `RS_Safety` отслеживается в
+  [`safety/traceability.md`](safety/traceability.md) и проверяется
+  `cmake/check_safety_traceability.py`.
+
+Если код и спецификация расходятся, побеждает спецификация: код
+исправляется либо открывается change, который меняет спецификацию. Тихая
+рассинхронизация не допускается.
+
+## 9. Сборка, тесты, установка
 
 ```bash
-# Debug (development, correctness only)
 cmake -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
-# Release (production: -O3 -march=native + LTO, latency gates active)
-cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release
-# Portable Release: -O3 + LTO without host-specific -march/-mtune
-cmake -B build/portable -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEXIGEN_NATIVE_ARCH=OFF
-# Shared CI runners: optimized code without the ns-class gate
-cmake -B build/release-ci -G Ninja -DCMAKE_BUILD_TYPE=Release \
-      -DNEXIGEN_STRICT_LATENCY_TESTS=OFF
-# ThreadSanitizer (RelWithDebInfo so the STRICT_LATENCY define stays inert)
-cmake -B build/tsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DNEXIGEN_ENABLE_TSAN=ON
-# AddressSanitizer/UBSan
-cmake -B build/asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_ASAN=ON
-# Clang (requires a C++23 standard library: std::expected)
-cmake -B build/clang -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++
-
-cmake --build <dir> && ctest --test-dir <dir> --output-on-failure
+cmake --build build/debug -j 64
+ctest --test-dir build/debug --output-on-failure
 ```
 
-`NEXIGEN_STRICT_LATENCY_TESTS` (default `ON`) controls the ns-class gates in
-Release and RelWithDebInfo. CI disables them because shared runners cannot
-guarantee the 20 ns budget; run the default on dedicated hardware before a
-performance-sensitive release. `NEXIGEN_NATIVE_ARCH` (default `ON`) adds
-`-march=native`/`-mtune=native`; set it to `OFF` for binaries that must run on
-other x86-64 hosts.
+Основные опции:
 
-Coverage instrumentation and the aggregated report target:
+- `NEXIGEN_BUILD_TESTS`, `NEXIGEN_BUILD_EXAMPLES`, `NEXIGEN_BUILD_TOOLS` —
+  по умолчанию `ON`;
+- `NEXIGEN_ENABLE_COM` — по умолчанию `OFF`, требует Rust-тулчейн и
+  собирает `com`, `phm`, `sm` и COM-инструменты;
+- `NEXIGEN_ENABLE_ASAN`, `NEXIGEN_ENABLE_TSAN` — взаимоисключающие
+  санитайзеры; coverage с ними несовместим;
+- `NEXIGEN_ENABLE_COVERAGE` — цель `coverage` и порог покрытия;
+- `NEXIGEN_NATIVE_ARCH` — `-march=native`/`-mtune=native`;
+- `NEXIGEN_STRICT_LATENCY_TESTS` — наносекундные latency-гейты в
+  Release/RelWithDebInfo;
+- `NEXIGEN_ENABLE_FAULT_INJECTION`, `NEXIGEN_BUILD_FUZZERS` — расширенная
+  проверка холодных путей и HTTP-парсера.
 
-```bash
-cmake -B build/coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEXIGEN_ENABLE_COVERAGE=ON
-cmake --build build/coverage --target coverage
-# overall gate: -DNEXIGEN_COVERAGE_FAIL_UNDER=95
-```
-
-`coverage` cleans `.gcda`, builds and runs the eleven unit-test binaries, and prints
-line coverage per module via `cmake/coverage_report.py` (stdlib only). CLI smoke
-tests are excluded because they exercise subprocesses rather than instrumented
-library code. The target is mutually exclusive with ASan/TSan, enforces
-`runner >= 90` and `hub >= 90`, and flushes gcov counters from forked runner
-supervisors before `_exit()`/`exec`, so control-plane work is measured.
-
-Current unit-test line coverage is **95.2%** (≈11 191 / 11 753 lines):
-
-| Scope | Coverage |
-|---|---:|
-| Original seven modules | 95.9% (7 341 / 7 651) |
-| `runner` | 93.0% (≈2 280 / 2 452) |
-| `hub` | 95.2% (≈1 570 / 1 650) |
-
-The project target is **≥95%**. CI enforces the **≥95%** project gate
-(`-DNEXIGEN_COVERAGE_FAIL_UNDER=95`) plus the 90% exec and hub module gates.
-(The coverage snapshot above predates the `runner` → `exec` module rename.)
-Remaining uncovered lines are concentrated in platform-specific calibration
-branches, sink open/read failure paths, `std::to_chars` error arms, and
-retry/fork failure arms that cannot be triggered without fault injection. The
-measured baseline and the P4 backlog are recorded in
-[`project-analysis.md`](project-analysis.md).
-
-`nexigen_hub_tests` also runs a fixed-seed malformed-request corpus against the
-live server. `cmake/check_result_value.py` enforces the `Result::value()` ban in
-CI; it strips comments/literals and allowlists only known non-Result receivers.
-The Clang CI job runs `.clang-tidy` (`bugprone-*`, `performance-*`,
-`portability-*`, and clang-analyzer including the cplusplus/portability opt-ins,
-excluding the intentional-padding check) over every `src/*.cpp` translation
-unit with warnings treated as errors.
-
-Formatting is a separate gate: `.clang-format` (clang-format 22.1.8, pinned in
-CI through the Python package) defines the house style for every `.cpp`/`.hpp`
-file under `include/`, `src/`, `tests/`, `examples/`, and `tools/`;
-`cmake --build <build-dir> --target format` rewrites files in place and
-`format-check` fails on any drift. Include order is intentionally preserved: the
-modules group headers by ownership, and alphabetising them would obscure that
-structure.
-
-Optional verification depth:
-
-- `-DNEXIGEN_ENABLE_FAULT_INJECTION=ON` enables test-only cold-path hooks for
-  exec `pipe2`/`fork`/`/dev/null` and hub `socket`/`bind`/`epoll`/`eventfd`.
-  The Debug and coverage CI builds use it; production builds compile the checks
-  to constant `false`.
-- `-DNEXIGEN_BUILD_FUZZERS=ON` (Clang only) builds
-  `nexigen_http_parse_fuzz`, a libFuzzer harness over the pure helpers in
-  `include/nexigen/hub/detail/http_parse.hpp`. CI runs a 20 000-iteration smoke
-  over `tests/fuzz/corpus/http_parse`.
-- `NEXIGEN_RT_INTEGRATION_TESTS=1 ./tests/nexigen_core_tests` enables the
-  `rt_integration_opt_in` suite on an explicitly configured RT host with
-  `CAP_SYS_NICE`. It verifies real thread names, affinity, FIFO and RR priority.
-  Without the variable the suite prints a skip and requires no root or
-  `CAP_SYS_NICE`; ordinary CI therefore stays unprivileged.
-
-All five GCC modes (Debug, Release, portable Release, TSan, ASan) must report
-`100% tests passed` with no sanitizer diagnostics; the Clang job must do the same
-under `-Werror`. TSan and ASan are mutually exclusive.
-GitHub Actions runs the same matrix, plus the coverage gate and OpenSpec
-validation, from `.github/workflows/ci.yml`. Tests are zero-dependency harnesses
-(`NX_CHECK` / `run_suite`, arena `operator new` counter + `mallinfo2` delta for
-allocation windows); Release adds the numeric latency gates
-(`NEXIGEN_METRICS_STRICT_LATENCY`), which are compiled out under Debug and
-sanitizers.
-
-## Install and package
-
-The build exports every module target under the `nexigen::` namespace and installs
-a CMake package:
+Установка и потребление как CMake-пакета:
 
 ```bash
 cmake --install build/release --prefix /opt/nexigen
+find_package(nexigen CONFIG REQUIRED)
+target_link_libraries(app PRIVATE nexigen::app nexigen::exec)
 ```
 
-The prefix receives `include/nexigen/`, the eight static archives, the
-`nexigen-run`/`nexigen-hub` tools, and
-`lib/cmake/nexigen/{nexigenConfig,nexigenConfigVersion,nexigenTargets}.cmake`.
-`nexigenConfig.cmake` resolves `Threads` and `nlohmann_json` with
-`find_dependency`; installed consumers therefore link `nexigen::logging`,
-`nexigen::metrics`, etc. without repeating dependency discovery. Compatibility is
-same-minor (`0.1.x`).
+Пакет экспортирует `nexigen::core`, `chrono`, `logging`, `metrics`,
+`tracing`, `diagnostics`, `app`, `exec`, `hub`, `recorder`, а при включённом gate —
+`com`, `phm`, `sm`, и сам разрешает `Threads` и `nlohmann_json` через
+`find_dependency`.
 
-Build-only flags (`-Werror`, LTO, sanitizers) are attached through
-`$<BUILD_INTERFACE:nexigen_options>` and never leak into consumer targets. The
-`nexigen::core` JSON dependency is also re-attached by the package config, which
-keeps the export valid when nlohmann/json came from FetchContent.
+## 10. Recorder
 
-`tests/packaging/smoke_test.sh <build-dir> [prefix]` installs into a scratch
-prefix and builds `tests/packaging/consumer/`, a standalone CMake project that
-uses only `find_package(nexigen CONFIG REQUIRED)`.
+`nexigen::recorder` — self-contained raw session storage (`.nxrec/.nxidx/.nxvid`
++ `session.json`), COM-free and media-free. `nexigen-export` is the on-demand
+converter; MCAP/FFmpeg are converter-only dependencies.
 
+```mermaid
+flowchart LR
+    P[producers / encoders] --> W[nexigen_recorder single writer]
+    W --> R[.nxrec records + schemas + CRC-32C]
+    W --> I[.nxidx sparse index]
+    W --> V[.nxvid aligned frames]
+    W --> M[session.json]
+    R --> C[nexigen-export on demand]
+    I --> C
+    V --> C
+    M --> C
+    C --> J[JSONL]
+    C --> PF[Perfetto]
+    C --> MC[MCAP optional]
+    C --> E[elementary video]
+```
 
-## Spec-driven process
+Подробности: [recorder.md](recorder.md).
 
-Behaviour is contract-first via [OpenSpec](https://openspec.github.io/openspec/):
+## 11. Источники
 
-1. `openspec/new change` → planning artifacts (proposal → specs/design → tasks).
-2. `openspec apply` works the task list; each task carries its verification.
-3. `openspec sync` merges the change's capability deltas into
-   `openspec/specs/**`; `openspec archive` applies remaining deltas and retires
-   the change.
-4. `openspec validate --specs` gates the main-spec corpus (currently 68
-   capabilities / 489 requirements / 1 344 scenarios).
-
-Archived changes live in `openspec/changes/archive/` with their full planning
-history. If code and specs disagree, the spec wins — fix the code or open a
-change that revises the spec; never silently drift.
+- Публичные заголовки: `include/nexigen/`.
+- Контракты: `openspec/specs/`.
+- Цели и зависимости сборки: `CMakeLists.txt`, `tools/CMakeLists.txt`.
+- [Руководство по метрикам](metrics-guide.md)
+- [Управление потоками и CPU](thread-management.md)
+- [Trace Daemon](trace-daemon.md)
+- [nexigen-hub](nexigen-hub.md)
+- [Трассировка требований безопасности](safety/traceability.md)

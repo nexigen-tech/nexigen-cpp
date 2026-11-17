@@ -215,6 +215,24 @@ target_compile_definitions(nexigen_chrono PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOU
 target_link_libraries(nexigen_chrono PUBLIC nexigen_core PRIVATE Threads::Threads)
 
 # =============================================================================
+# nexigen::recorder — raw session storage (change add-recorder-raw-format).
+# COM-free and media-free by design: the writer/reader never link MCAP, FFmpeg,
+# or iceoryx2. Public headers in include/nexigen/recorder/, cold units in
+# src/recorder/.
+# =============================================================================
+file(GLOB NEXIGEN_RECORDER_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/recorder/*.cpp")
+
+add_library(nexigen_recorder STATIC ${NEXIGEN_RECORDER_SOURCES})
+add_library(nexigen::recorder ALIAS nexigen_recorder)
+
+target_include_directories(nexigen_recorder PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(nexigen_recorder PUBLIC nexigen_core nexigen_chrono)
+
+# =============================================================================
 # nexigen::logging — компилируемая библиотека: публичные заголовки в include/,
 # холодные потребительские юниты (JSON-формат, аффинность, ротация) в
 # src/logging/ — форматирование времени и калибровка вынесены в nexigen::chrono.
@@ -550,6 +568,9 @@ endif()
 option(NEXIGEN_BUILD_TESTS "Build nexigen unit tests" ON)
 option(NEXIGEN_BUILD_EXAMPLES "Build nexigen runnable examples" ON)
 option(NEXIGEN_BUILD_TOOLS "Build nexigen command-line tools" ON)
+option(NEXIGEN_ENABLE_MCAP "Build MCAP output support for nexigen-export" OFF)
+option(NEXIGEN_BUILD_STORAGE_BENCHMARKS
+    "Build the opt-in recorder storage-format benchmarks (MCAP vs .nxrec)" OFF)
 
 if(NEXIGEN_BUILD_TESTS OR NEXIGEN_BUILD_EXAMPLES)
     enable_testing()
@@ -565,6 +586,10 @@ endif()
 
 if(NEXIGEN_BUILD_TOOLS)
     add_subdirectory(tools)
+endif()
+
+if(NEXIGEN_BUILD_STORAGE_BENCHMARKS)
+    add_subdirectory(benchmarks/recorder)
 endif()
 
 # =============================================================================
@@ -676,7 +701,8 @@ set(NEXIGEN_EXPORT_TARGETS
     nexigen_diagnostics
     nexigen_app
     nexigen_exec
-    nexigen_hub)
+    nexigen_hub
+    nexigen_recorder)
 if(NEXIGEN_ENABLE_COM)
     list(APPEND NEXIGEN_EXPORT_TARGETS nexigen_com nexigen_phm nexigen_sm)
 endif()
@@ -690,6 +716,7 @@ set_target_properties(nexigen_diagnostics PROPERTIES EXPORT_NAME diagnostics)
 set_target_properties(nexigen_app         PROPERTIES EXPORT_NAME app)
 set_target_properties(nexigen_exec      PROPERTIES EXPORT_NAME exec)
 set_target_properties(nexigen_hub         PROPERTIES EXPORT_NAME hub)
+set_target_properties(nexigen_recorder    PROPERTIES EXPORT_NAME recorder)
 if(NEXIGEN_ENABLE_COM)
     set_target_properties(nexigen_com     PROPERTIES EXPORT_NAME com)
     set_target_properties(nexigen_phm     PROPERTIES EXPORT_NAME phm)

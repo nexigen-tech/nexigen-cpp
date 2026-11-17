@@ -570,9 +570,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/core/result.hpp": {
-    "mtime": 1794732835.0381248,
-    "seen": 1794734214.1926367,
-    "ast_hash": "c138dc544e965cfd7c62ddc7d79457c3",
+    "mtime": 1794867084.186889,
+    "seen": 1794869257.9180105,
+    "ast_hash": "bde5481742e0c0b1e09e08ff8f4fee2f",
     "semantic_hash": ""
   },
   "include/nexigen/core/serialization_mandate.hpp": {
@@ -3060,9 +3060,9 @@
     "semantic_hash": ""
   },
   "tests/packaging/consumer/main.cpp": {
-    "mtime": 1794035965.828112,
-    "seen": 1794351957.9655628,
-    "ast_hash": "d7104fbc5a2ae8f80399a79ecfb3d8d6",
+    "mtime": 1794935137.025915,
+    "seen": 1794935318.0751832,
+    "ast_hash": "d77a815a25fc1660629e4970d16a3e0e",
     "semantic_hash": ""
   },
   "tests/packaging/smoke_test.sh": {
@@ -3366,9 +3366,9 @@
     "semantic_hash": ""
   },
   "CMakeLists.txt": {
-    "mtime": 1794769454.457783,
-    "seen": 1794770423.7531729,
-    "ast_hash": "85b4f3d91ef599bdcc71ed2b8ed981e4",
+    "mtime": 1794867177.60467,
+    "seen": 1794869257.9278889,
+    "ast_hash": "22cbdd6732a44c497e9a94a2b49795a9",
     "semantic_hash": ""
   },
   "README.md": {
@@ -3384,9 +3384,9 @@
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1794765717.196851,
-    "seen": 1794765732.1798737,
-    "ast_hash": "3d56a3ae9e864b092c4b2c7415b47d72",
+    "mtime": 1794867476.2179852,
+    "seen": 1794869257.9279163,
+    "ast_hash": "122f4cf0d9a9668cbd265729cbc548cb",
     "semantic_hash": ""
   },
   "docs/code-analysis-2026-11-03.md": {
@@ -3432,9 +3432,9 @@
     "semantic_hash": ""
   },
   "examples/CMakeLists.txt": {
-    "mtime": 1794527449.12456,
-    "seen": 1794547625.2887542,
-    "ast_hash": "3cc05a003fba8f57996d12d4012399bb",
+    "mtime": 1794868372.9151187,
+    "seen": 1794869257.9280546,
+    "ast_hash": "83f4a5d5ee7493ebab2db58771f4786d",
     "semantic_hash": ""
   },
   "examples/app/CMakeLists.txt": {
@@ -7098,21 +7098,21 @@
     "semantic_hash": ""
   },
   "tests/CMakeLists.txt": {
-    "mtime": 1794696189.742968,
-    "seen": 1794697158.4974535,
-    "ast_hash": "2e6dd063f48c2e31a0d481551af1fa96",
+    "mtime": 1794866792.7615716,
+    "seen": 1794869257.943428,
+    "ast_hash": "4ea71d1c2fe75846c7d9cb043bf34b10",
     "semantic_hash": ""
   },
   "tests/packaging/consumer/CMakeLists.txt": {
-    "mtime": 1793530759.611688,
-    "seen": 1794351957.9659553,
-    "ast_hash": "0a568fbd5b7715f683e3ba0f4dcaf8f1",
+    "mtime": 1794935132.6959338,
+    "seen": 1794935318.0926874,
+    "ast_hash": "eed0a3272ec94a1b63f79c9b50411336",
     "semantic_hash": ""
   },
   "tools/CMakeLists.txt": {
-    "mtime": 1794772899.6907027,
-    "seen": 1794773463.334951,
-    "ast_hash": "921065ab347bd7ac7542f5ffe9d18374",
+    "mtime": 1794892539.941235,
+    "seen": 1794893222.1956336,
+    "ast_hash": "0c5f16e4e3defe12d43e128596528b62",
     "semantic_hash": ""
   },
   "tests/logging/log_daemon_test.cpp": {
@@ -10313,12 +10313,6 @@
     "ast_hash": "e79518b9d588217d6014abf6aafbfc3a",
     "semantic_hash": ""
   },
-  "openspec/changes/add-simulation-suite-example/.openspec.yaml": {
-    "mtime": 1794775103.388758,
-    "seen": 1794777820.436744,
-    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
-    "semantic_hash": ""
-  },
   "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/.openspec.yaml": {
     "mtime": 1794770666.5432181,
     "seen": 1794777820.438692,
@@ -10329,30 +10323,6 @@
     "mtime": 1794775625.6708298,
     "seen": 1794777820.442485,
     "ast_hash": "6ab38cc5435aa0d27521e00aa3fdda69",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-simulation-suite-example/design.md": {
-    "mtime": 1794781686.4957032,
-    "seen": 1794781752.158329,
-    "ast_hash": "344254eabcf60d8d098c52c7c2d7c8fe",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-simulation-suite-example/proposal.md": {
-    "mtime": 1794775115.7057598,
-    "seen": 1794777820.4427607,
-    "ast_hash": "2efbca132880193772120cab6e5d7ea7",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-simulation-suite-example/specs/examples/simulation-suite/spec.md": {
-    "mtime": 1794781686.4946876,
-    "seen": 1794781752.1583474,
-    "ast_hash": "2adc6ce7dbc69398d767980e738afab9",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-simulation-suite-example/tasks.md": {
-    "mtime": 1794782321.6277387,
-    "seen": 1794782346.175726,
-    "ast_hash": "61afe3cf92385a8d09a1eaf3743c6f48",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-15-complete-phm-safety-loop/design.md": {
@@ -10419,6 +10389,504 @@
     "mtime": 1794782321.6276133,
     "seen": 1794782346.1751966,
     "ast_hash": "8a13c18afe8fc8e62fee0b5b48e4b6dc",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/bench_types.cpp": {
+    "mtime": 1794863346.13139,
+    "seen": 1794869257.9156828,
+    "ast_hash": "1c8d16b00cc82f4182623a0ab52647f7",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/bench_types.hpp": {
+    "mtime": 1794863335.6764147,
+    "seen": 1794869257.9156852,
+    "ast_hash": "a07e273e6fc3365b1d8cb19eb0bb4533",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/crc32c_fast.hpp": {
+    "mtime": 1794862582.0211926,
+    "seen": 1794869257.9156866,
+    "ast_hash": "cd61722bcdff70ff75cb5c3803b0aef6",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/custom_writer.cpp": {
+    "mtime": 1794861991.0798023,
+    "seen": 1794869257.9156883,
+    "ast_hash": "c4129dcbb7ccc3a4236d20c42c85829f",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/custom_writer.hpp": {
+    "mtime": 1794861660.7108567,
+    "seen": 1794869257.9156897,
+    "ast_hash": "ae4b89df83d5253438da9339bcf6fd4c",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/main.cpp": {
+    "mtime": 1794863357.7723627,
+    "seen": 1794869257.9156907,
+    "ast_hash": "c9ec9204d43cd686371ce52a72ba4abc",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/mcap_adapter.cpp": {
+    "mtime": 1794861987.8918123,
+    "seen": 1794869257.9156926,
+    "ast_hash": "847ae596eefca9d3f9d8fb34e31a5493",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/mcap_adapter.hpp": {
+    "mtime": 1794861007.0179431,
+    "seen": 1794869257.9156935,
+    "ast_hash": "bb2596cf230299284a9ed4dbfce186d9",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/mcap_impl.cpp": {
+    "mtime": 1794860997.8129725,
+    "seen": 1794869257.915695,
+    "ast_hash": "2db85123f3caff6b92ced6f13a9c4711",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/metrics.cpp": {
+    "mtime": 1794861836.8882945,
+    "seen": 1794869257.9156964,
+    "ast_hash": "d7cfc569952e57c6699fd4304642264d",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/metrics.hpp": {
+    "mtime": 1794861815.5433624,
+    "seen": 1794869257.9156976,
+    "ast_hash": "2adb20e6e79371a5f052e9ebc4329ea6",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/payload_blob.cpp": {
+    "mtime": 1794860885.5783308,
+    "seen": 1794869257.9156988,
+    "ast_hash": "90d23479d6f1dfd068d54331b3d5c66a",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/payload_blob.hpp": {
+    "mtime": 1794860879.59335,
+    "seen": 1794869257.9157002,
+    "ast_hash": "ff49eb677f6016ed7ef071270e28efcf",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/production_main.cpp": {
+    "mtime": 1794868545.745741,
+    "seen": 1794869257.9157012,
+    "ast_hash": "c1f494056c092c10d766347d2ab947c0",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/publish_bench.cpp": {
+    "mtime": 1794861054.6937912,
+    "seen": 1794869257.9157026,
+    "ast_hash": "0f0cb619c17ddc139b91401d7cd997a7",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/publish_bench.hpp": {
+    "mtime": 1794861043.8378258,
+    "seen": 1794869257.915704,
+    "ast_hash": "b88d7dc4c79e7f2dc9f30beee8be9da5",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/run_matrix.sh": {
+    "mtime": 1794861937.8009722,
+    "seen": 1794869257.9157054,
+    "ast_hash": "70b6ec5d414dbea7dac301f021315026",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/sink.cpp": {
+    "mtime": 1794860896.6802955,
+    "seen": 1794869257.9157069,
+    "ast_hash": "e99e6bde353376f27a1ec93e44685719",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/sink.hpp": {
+    "mtime": 1794860891.6413114,
+    "seen": 1794869257.9157078,
+    "ast_hash": "4478a0f599d97a1a9fa3955eee9e72b1",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/tests/bench_tests.cpp": {
+    "mtime": 1794861914.4240468,
+    "seen": 1794869257.9157088,
+    "ast_hash": "61ca8bdea1a3b5aa396f86e8895eef41",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/video_writer.cpp": {
+    "mtime": 1794861681.7967894,
+    "seen": 1794869257.9157104,
+    "ast_hash": "669110fc70f7eac566b9e70667bf671b",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/video_writer.hpp": {
+    "mtime": 1794861726.5906465,
+    "seen": 1794869257.9157114,
+    "ast_hash": "7599bc4e1e8bf7323c01dc1e910a87e1",
+    "semantic_hash": ""
+  },
+  "examples/recorder/ex_recorder_session.cpp": {
+    "mtime": 1794868370.5264187,
+    "seen": 1794869257.916695,
+    "ast_hash": "777636af5a2a422b92739bfa4a3404ee",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/builtin_schemas.hpp": {
+    "mtime": 1794870129.9172187,
+    "seen": 1794870624.6676705,
+    "ast_hash": "d4bca8e23ab6b9ad77f0cf079a54ff27",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/channel_declare.hpp": {
+    "mtime": 1794870321.1465116,
+    "seen": 1794870624.667673,
+    "ast_hash": "5116f847dcce7bbbc225a249864ab54d",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/config_loader.hpp": {
+    "mtime": 1794870125.7181547,
+    "seen": 1794870624.667675,
+    "ast_hash": "9bde44ccc5006b723d6d0daf1afd17b8",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/dataset_info.hpp": {
+    "mtime": 1794870141.32676,
+    "seen": 1794870624.6676767,
+    "ast_hash": "a067cd22cc96128d3bfe2fc4220c9b7d",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/payload_decoder.hpp": {
+    "mtime": 1794870125.7231548,
+    "seen": 1794870624.6676803,
+    "ast_hash": "d4e3e5a451eeee4897e79b4d796c01fb",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/record_shard.hpp": {
+    "mtime": 1794869789.419914,
+    "seen": 1794870624.667682,
+    "ast_hash": "1073dc817fe863beccf86afcbf758479",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/recorder_types.hpp": {
+    "mtime": 1794870321.1463218,
+    "seen": 1794870624.6676834,
+    "ast_hash": "9e4f676ac8b487a40969934dd5088a6a",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/schema_declare.hpp": {
+    "mtime": 1794870321.1464798,
+    "seen": 1794870624.6676846,
+    "ast_hash": "c3f4339be496bd602933657fca1ea0fe",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/segment_info.hpp": {
+    "mtime": 1794870321.1464326,
+    "seen": 1794870624.667686,
+    "ast_hash": "a8b2a0649dea030b8a1e03fb519295c4",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/session_manifest.hpp": {
+    "mtime": 1794870321.1465733,
+    "seen": 1794870624.6676872,
+    "ast_hash": "4c74a282c16e0f444f51f79122db444c",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/session_reader.hpp": {
+    "mtime": 1794869723.9090617,
+    "seen": 1794870624.6676884,
+    "ast_hash": "72b5eb6de9298d80d7d4d69b6d0d8bad",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/session_writer.hpp": {
+    "mtime": 1794870136.8928893,
+    "seen": 1794870624.6676896,
+    "ast_hash": "0c81670d2f687846089078b4027e9d6b",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/storage_settings.hpp": {
+    "mtime": 1794935128.767951,
+    "seen": 1794935318.0692286,
+    "ast_hash": "a905175cf14d043674ca73867223a3e2",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/wire_types.hpp": {
+    "mtime": 1794866527.976192,
+    "seen": 1794869257.9209728,
+    "ast_hash": "1730f6b5b93155d8b159ace61327da77",
+    "semantic_hash": ""
+  },
+  "initial_spec/recorder/example_format.hpp": {
+    "mtime": 1794786498.3319383,
+    "seen": 1794869257.921752,
+    "ast_hash": "a758bfe061b4b15e2ea7ef821dc0b112",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-storage-format-benchmark/.openspec.yaml": {
+    "mtime": 1794860517.2515066,
+    "seen": 1794869257.921754,
+    "ast_hash": "f0ea2220fe48c5e33a279f6953b78d39",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-16-add-simulation-suite-example/.openspec.yaml": {
+    "mtime": 1794775103.388758,
+    "seen": 1794869257.9241562,
+    "ast_hash": "b8f4f2144dfcc889b8bf76c80088e593",
+    "semantic_hash": ""
+  },
+  "src/recorder/builtin_schemas.cpp": {
+    "mtime": 1794867337.5312953,
+    "seen": 1794869257.9253347,
+    "ast_hash": "2b6bc17e4260e3da268018914569b22e",
+    "semantic_hash": ""
+  },
+  "src/recorder/config_loader.cpp": {
+    "mtime": 1794868079.0557303,
+    "seen": 1794869257.9253356,
+    "ast_hash": "4e1834f689aa0337ba9f680c2505dbd8",
+    "semantic_hash": ""
+  },
+  "src/recorder/crc32c_fast.hpp": {
+    "mtime": 1794933635.8385625,
+    "seen": 1794934730.8150198,
+    "ast_hash": "5a59f1dbffc330876864e6747d5061bc",
+    "semantic_hash": ""
+  },
+  "src/recorder/payload_decoder.cpp": {
+    "mtime": 1794868867.928007,
+    "seen": 1794869257.925337,
+    "ast_hash": "0f9fa40ffb48c43e3150d0aa5043a401",
+    "semantic_hash": ""
+  },
+  "src/recorder/recorder_format.cpp": {
+    "mtime": 1794869808.83987,
+    "seen": 1794870624.6720302,
+    "ast_hash": "9e3ba6a5faec750dfa5cfff4f6b8d579",
+    "semantic_hash": ""
+  },
+  "src/recorder/session_reader.cpp": {
+    "mtime": 1794934472.273783,
+    "seen": 1794934730.8150473,
+    "ast_hash": "a07eb6e0f35e0a8d00032e90065facba",
+    "semantic_hash": ""
+  },
+  "src/recorder/session_writer.cpp": {
+    "mtime": 1794935143.2548876,
+    "seen": 1794935318.0739837,
+    "ast_hash": "0b9bc4274694ed6fb4898823143253e1",
+    "semantic_hash": ""
+  },
+  "tests/recorder/recorder_test.cpp": {
+    "mtime": 1794935143.2548876,
+    "seen": 1794935318.0752232,
+    "ast_hash": "6ea9f68dca2565d26039f73986d9d639",
+    "semantic_hash": ""
+  },
+  "tools/nexigen-export/main.cpp": {
+    "mtime": 1794934486.6827104,
+    "seen": 1794934730.8166566,
+    "ast_hash": "af0f657697005e2b0b5b62166f7218df",
+    "semantic_hash": ""
+  },
+  "tools/nexigen-export/mcap_impl.cpp": {
+    "mtime": 1794866942.4942207,
+    "seen": 1794869257.9271193,
+    "ast_hash": "dd282592ac0f14d0094ce9601e5cc682",
+    "semantic_hash": ""
+  },
+  "tools/nexigen-export/mcap_output.cpp": {
+    "mtime": 1794869955.1225398,
+    "seen": 1794870624.6737099,
+    "ast_hash": "cfe75dfc51e8d11185cdf56e1f0221fe",
+    "semantic_hash": ""
+  },
+  "tools/nexigen-export/mcap_output.hpp": {
+    "mtime": 1794869955.1225398,
+    "seen": 1794870624.6737113,
+    "ast_hash": "218fd34e3c4337eca6adb488631fb278",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/CMakeLists.txt": {
+    "mtime": 1794868529.942777,
+    "seen": 1794869257.9279122,
+    "ast_hash": "45f83ee9cd14f0dcbcde0f9d3fe407c0",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/README.md": {
+    "mtime": 1794868597.8279634,
+    "seen": 1794869257.9279137,
+    "ast_hash": "7143c2ca75c371eabd401486be69f357",
+    "semantic_hash": ""
+  },
+  "benchmarks/recorder/RESULTS.md": {
+    "mtime": 1794868597.8136225,
+    "seen": 1794869257.927915,
+    "ast_hash": "a4960a5803cfed830c0a415ec774cf02",
+    "semantic_hash": ""
+  },
+  "docs/project-brief.md": {
+    "mtime": 1794783816.112537,
+    "seen": 1794869257.9280028,
+    "ast_hash": "30f2ffdb2cc0680e4d2b7499f62c7970",
+    "semantic_hash": ""
+  },
+  "docs/recorder.md": {
+    "mtime": 1794934706.5637176,
+    "seen": 1794934730.8174314,
+    "ast_hash": "81dcaf94be845062874cbf22692e0258",
+    "semantic_hash": ""
+  },
+  "examples/recorder/CMakeLists.txt": {
+    "mtime": 1794868370.5264187,
+    "seen": 1794869257.9282002,
+    "ast_hash": "d86833ef2deb0404b0514605a30fdaca",
+    "semantic_hash": ""
+  },
+  "initial_spec/media/video-encoder/spec.md": {
+    "mtime": 1794786174.1327057,
+    "seen": 1794869257.9283087,
+    "ast_hash": "336ab319086c76400761aa0772c1abb2",
+    "semantic_hash": ""
+  },
+  "initial_spec/recorder/export-cli-spec.md": {
+    "mtime": 1794785953.902227,
+    "seen": 1794869257.9283764,
+    "ast_hash": "a2cb201b25c3d4e7d616535fc1b13dc3",
+    "semantic_hash": ""
+  },
+  "initial_spec/recorder/recorder-service-spec.md": {
+    "mtime": 1794785646.0419307,
+    "seen": 1794869257.9283776,
+    "ast_hash": "705f6e1fefa9d685f79e1ab87fb89842",
+    "semantic_hash": ""
+  },
+  "initial_spec/recorder/service-lifecycle-spec.md": {
+    "mtime": 1794786010.5030928,
+    "seen": 1794869257.9283783,
+    "ast_hash": "ad99672dbcc7d67e054c70c3f222d5e5",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-storage-format-benchmark/design.md": {
+    "mtime": 1794860632.1001399,
+    "seen": 1794869257.9284503,
+    "ast_hash": "b061aaa1efc4351d5cd37a18672fca48",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-storage-format-benchmark/proposal.md": {
+    "mtime": 1794860548.8534057,
+    "seen": 1794869257.928451,
+    "ast_hash": "0a933cfd9a39cae25ad87dc85bb146dc",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-storage-format-benchmark/specs/quality/storage-format-benchmark/spec.md": {
+    "mtime": 1794860572.7983294,
+    "seen": 1794869257.9284518,
+    "ast_hash": "d333af34881854637228d8d4298e1edc",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-storage-format-benchmark/tasks.md": {
+    "mtime": 1794862678.8059642,
+    "seen": 1794869257.928453,
+    "ast_hash": "b922807051f7f4636d1c4533317936c2",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-16-add-simulation-suite-example/design.md": {
+    "mtime": 1794781686.4957032,
+    "seen": 1794869257.9414797,
+    "ast_hash": "344254eabcf60d8d098c52c7c2d7c8fe",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-16-add-simulation-suite-example/proposal.md": {
+    "mtime": 1794775115.7057598,
+    "seen": 1794869257.941481,
+    "ast_hash": "2efbca132880193772120cab6e5d7ea7",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-16-add-simulation-suite-example/specs/examples/simulation-suite/spec.md": {
+    "mtime": 1794781686.4946876,
+    "seen": 1794869257.9414825,
+    "ast_hash": "2adc6ce7dbc69398d767980e738afab9",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-16-add-simulation-suite-example/tasks.md": {
+    "mtime": 1794782321.6277387,
+    "seen": 1794869257.9414833,
+    "ast_hash": "61afe3cf92385a8d09a1eaf3743c6f48",
+    "semantic_hash": ""
+  },
+  "openspec/specs/examples/simulation-suite/spec.md": {
+    "mtime": 1794782479.1620271,
+    "seen": 1794869257.942084,
+    "ast_hash": "3045cfa7f339f9507b09fc76822ecf5f",
+    "semantic_hash": ""
+  },
+  "include/nexigen/recorder/export_selection.hpp": {
+    "mtime": 1794869804.5368798,
+    "seen": 1794870624.6676784,
+    "ast_hash": "8a7cd29c0ec40207faee7a5422ee984c",
+    "semantic_hash": ""
+  },
+  "tools/nexigen-export/export_cli_test.cpp": {
+    "mtime": 1794934292.4026897,
+    "seen": 1794934730.816655,
+    "ast_hash": "e880848f46a6973ac4f54c309c0cfda5",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-17-add-recorder-raw-format/.openspec.yaml": {
+    "mtime": 1794864515.9798522,
+    "seen": 1794893308.2635229,
+    "ast_hash": "46692162161aea945e424ee8b44c7c3a",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-17-add-recorder-raw-format/design.md": {
+    "mtime": 1794935128.767951,
+    "seen": 1794935318.0901978,
+    "ast_hash": "478fdf1123f1a2a11b5eb446f029bc4a",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-17-add-recorder-raw-format/proposal.md": {
+    "mtime": 1794867510.7359133,
+    "seen": 1794893308.2812343,
+    "ast_hash": "2845c1bbeb8236818dacd377494ca3f6",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-17-add-recorder-raw-format/specs/recorder/export/spec.md": {
+    "mtime": 1794935128.767951,
+    "seen": 1794935318.0902238,
+    "ast_hash": "3e05990479c8f367e2847d2cc3b4a8d9",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-17-add-recorder-raw-format/specs/recorder/raw-storage/spec.md": {
+    "mtime": 1794865966.6576538,
+    "seen": 1794893308.281236,
+    "ast_hash": "642fa1043934a4d3b3c32ac7c50d1b60",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-17-add-recorder-raw-format/specs/recorder/video-storage/spec.md": {
+    "mtime": 1794865972.2506523,
+    "seen": 1794893308.2812376,
+    "ast_hash": "9e36eb96a9f593baf17c082dbca197f0",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-17-add-recorder-raw-format/tasks.md": {
+    "mtime": 1794893202.0143769,
+    "seen": 1794893308.2812388,
+    "ast_hash": "24ee8fd43aa42492f24ff4f045074790",
+    "semantic_hash": ""
+  },
+  "openspec/specs/recorder/export/spec.md": {
+    "mtime": 1794935128.771951,
+    "seen": 1794935318.092282,
+    "ast_hash": "2a79f508f6ab2335303cae82367fcbae",
+    "semantic_hash": ""
+  },
+  "openspec/specs/recorder/raw-storage/spec.md": {
+    "mtime": 1794893227.8131585,
+    "seen": 1794893308.283183,
+    "ast_hash": "8a87d8936e50f005036ea9d45f0cb1c6",
+    "semantic_hash": ""
+  },
+  "openspec/specs/recorder/video-storage/spec.md": {
+    "mtime": 1794893227.8136082,
+    "seen": 1794893308.2831843,
+    "ast_hash": "988906839c189a733ebf88b9fe195c1d",
     "semantic_hash": ""
   }
 }

@@ -1,7 +1,7 @@
 // Packaging smoke test: consumes the installed nexigen package only through
-// find_package(nexigen CONFIG REQUIRED). Link nexigen::logging and
-// nexigen::metrics; dependencies (Threads, nlohmann_json) must resolve from the
-// package config.
+// find_package(nexigen CONFIG REQUIRED). Link nexigen::logging, nexigen::metrics
+// and nexigen::recorder; dependencies (Threads, nlohmann_json) must resolve from
+// the package config.
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -9,6 +9,7 @@
 #include <nexigen/logging/null_logger.hpp>
 #include <nexigen/metrics/metric_provider.hpp>
 #include <nexigen/metrics/null_metric_sink.hpp>
+#include <nexigen/recorder/storage_settings.hpp>
 
 int main() {
     nexigen::logging::NullLogger logger{};
@@ -41,6 +42,15 @@ int main() {
         return 1;
     }
 
-    std::printf("installed consumer: ticks=%llu\n", static_cast<unsigned long long>(value));
+    nexigen::recorder::StorageSettings storage{};
+    storage.session_root = "/tmp/nexigen-consumer";
+    storage.session_id = "consumer";
+    if (!storage.validate().has_value()) {
+        std::fputs("recorder settings validation failed\n", stderr);
+        return 1;
+    }
+
+    std::printf("installed consumer: ticks=%llu recorder=ok\n",
+                static_cast<unsigned long long>(value));
     return 0;
 }

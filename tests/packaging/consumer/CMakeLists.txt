@@ -8,4 +8,5 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(nexigen 0.1 CONFIG REQUIRED)
 
 add_executable(nexigen_consumer main.cpp)
-target_link_libraries(nexigen_consumer PRIVATE nexigen::logging nexigen::metrics)
+target_link_libraries(nexigen_consumer PRIVATE
+    nexigen::logging nexigen::metrics nexigen::recorder)

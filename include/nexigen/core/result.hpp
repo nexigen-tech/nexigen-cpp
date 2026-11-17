@@ -54,6 +54,9 @@ enum class ErrorCode : std::uint8_t {
     Conflict,          ///< Another owner holds a process-global resource/state.
     ResourceExhausted, ///< Fixed-capacity pool of a preallocated resource is fully issued.
     SecurityError,     ///< A trust/integrity precondition failed.
+    UnsupportedFormat, ///< A requested encoding, codec, or container is not supported.
+    NotFound,          ///< A referenced schema, channel, segment, or record is missing.
+    CorruptData,       ///< Stored data failed integrity or structural validation.
 };
 
 /// @brief Vocabulary table for `ErrorCode` (`core::enum_name`/`enum_value`).
@@ -69,7 +72,7 @@ template <> struct EnumTraits<ErrorCode> {
         std::string_view name; ///< Canonical PascalCase wire name.
     };
     /// @brief Name table covering every enumerator in declaration order.
-    static constexpr std::array<Entry, 10> entries{{
+    static constexpr std::array<Entry, 13> entries{{
         {ErrorCode::Ok, "Ok"},
         {ErrorCode::BufferFull, "BufferFull"},
         {ErrorCode::BufferEmpty, "BufferEmpty"},
@@ -80,6 +83,9 @@ template <> struct EnumTraits<ErrorCode> {
         {ErrorCode::Conflict, "Conflict"},
         {ErrorCode::ResourceExhausted, "ResourceExhausted"},
         {ErrorCode::SecurityError, "SecurityError"},
+        {ErrorCode::UnsupportedFormat, "UnsupportedFormat"},
+        {ErrorCode::NotFound, "NotFound"},
+        {ErrorCode::CorruptData, "CorruptData"},
     }};
 };
 

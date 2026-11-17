@@ -193,3 +193,69 @@ endif()
 
 install(TARGETS nexigen-exec nexigen-hub
         RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+
+# nexigen-export — on-demand raw-session converter (change add-recorder-raw-format).
+# The storage library never links MCAP or media; optional MCAP output lives in
+# this tool behind NEXIGEN_ENABLE_MCAP. MP4/MKV remux is a follow-up.
+add_executable(nexigen-export nexigen-export/main.cpp)
+target_link_libraries(nexigen-export PRIVATE
+    nexigen_recorder nexigen_logging nexigen_metrics nexigen_tracing Threads::Threads)
+target_include_directories(nexigen-export PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_test(NAME nexigen_export_help COMMAND nexigen-export --help)
+set_tests_properties(nexigen_export_help PROPERTIES TIMEOUT 60 LABELS "tools")
+
+# Optional MCAP output for nexigen-export. MCAP stays out of nexigen_recorder;
+# its implementation TU is compiled with exceptions and linked only here.
+if(NEXIGEN_ENABLE_MCAP)
+    include(FetchContent)
+    cmake_policy(SET CMP0169 OLD)
+    FetchContent_Declare(nx_mcap_export
+        URL https://codeload.github.com/foxglove/mcap/tar.gz/42aea98d01dbbfe14c53f787378ee3d70ddb2e61
+        URL_HASH SHA256=b4dbe68b88244365cc4627c5a88f6ed517e1ad4e5d5ed50236f80d3ade9d501e
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_GetProperties(nx_mcap_export)
+    if(NOT nx_mcap_export_POPULATED)
+        FetchContent_Populate(nx_mcap_export)
+    endif()
+    add_library(nx_mcap_export INTERFACE)
+    target_include_directories(nx_mcap_export SYSTEM INTERFACE
+        ${nx_mcap_export_SOURCE_DIR}/cpp/mcap/include)
+    target_compile_definitions(nx_mcap_export INTERFACE
+        MCAP_COMPRESSION_NO_ZSTD MCAP_COMPRESSION_NO_LZ4)
+    add_library(nx_mcap_export_impl OBJECT
+        nexigen-export/mcap_output.cpp
+        nexigen-export/mcap_impl.cpp)
+    target_link_libraries(nx_mcap_export_impl PRIVATE
+        nx_mcap_export nlohmann_json::nlohmann_json Threads::Threads)
+    target_include_directories(nx_mcap_export_impl PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-export
+        ${CMAKE_SOURCE_DIR}/include)
+    target_compile_definitions(nx_mcap_export_impl PRIVATE
+        JSON_NOEXCEPTION=1 _GNU_SOURCE _POSIX_C_SOURCE=200809L)
+    target_compile_options(nx_mcap_export_impl PRIVATE -fexceptions)
+    target_link_libraries(nexigen-export PRIVATE nx_mcap_export nx_mcap_export_impl)
+    target_compile_definitions(nexigen-export PRIVATE NEXIGEN_HAS_MCAP=1)
+endif()
+
+install(TARGETS nexigen-export RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+
+# Converter CLI regression suite: the test writes a real raw session with the
+# recorder library, then drives the installed `nexigen-export` binary through
+# every subcommand and checks exit codes, inventories, extraction payloads,
+# format rejections and verify diagnostics. MCAP is exercised when the option
+# is on, and asserted to fail with the documented message when it is off.
+add_executable(nexigen_export_cli_tests nexigen-export/export_cli_test.cpp)
+target_link_libraries(nexigen_export_cli_tests PRIVATE
+    nexigen_recorder nexigen_tracing Threads::Threads)
+add_dependencies(nexigen_export_cli_tests nexigen-export)
+
+if(NEXIGEN_ENABLE_MCAP)
+    set(NEXIGEN_EXPORT_CLI_MCAP mcap-on)
+else()
+    set(NEXIGEN_EXPORT_CLI_MCAP mcap-off)
+endif()
+add_test(NAME nexigen_export_cli
+    COMMAND nexigen_export_cli_tests $<TARGET_FILE:nexigen-export>
+            ${NEXIGEN_EXPORT_CLI_MCAP})
+set_tests_properties(nexigen_export_cli PROPERTIES TIMEOUT 300 LABELS "tools;recorder")
