@@ -3366,9 +3366,9 @@
     "semantic_hash": ""
   },
   "CMakeLists.txt": {
-    "mtime": 1794867177.60467,
-    "seen": 1794869257.9278889,
-    "ast_hash": "22cbdd6732a44c497e9a94a2b49795a9",
+    "mtime": 1795030188.6980114,
+    "seen": 1795031135.5455503,
+    "ast_hash": "4b91319118c579fb6082af5c54058c06",
     "semantic_hash": ""
   },
   "README.md": {
@@ -3384,9 +3384,9 @@
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1794949872.363294,
-    "seen": 1794950083.7700071,
-    "ast_hash": "4b1ba278120296b9321a3fa3fc4cffb9",
+    "mtime": 1795033912.5838284,
+    "seen": 1795033940.3832228,
+    "ast_hash": "be4c5742403ab1606bdc398a09b3a803",
     "semantic_hash": ""
   },
   "docs/code-analysis-2026-11-03.md": {
@@ -7098,9 +7098,9 @@
     "semantic_hash": ""
   },
   "tests/CMakeLists.txt": {
-    "mtime": 1794952142.2366514,
-    "seen": 1794952282.8509383,
-    "ast_hash": "43fa0eb099bce5a44b7da326a14920aa",
+    "mtime": 1795030580.3308916,
+    "seen": 1795031135.5639343,
+    "ast_hash": "d1bd6463fdfe432dcf96909d87aea5ca",
     "semantic_hash": ""
   },
   "tests/packaging/consumer/CMakeLists.txt": {
@@ -11091,6 +11091,288 @@
     "mtime": 1794953301.7197483,
     "seen": 1794954109.443702,
     "ast_hash": "5e8a73fbc6a7745ab696bca930afb59b",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/detail/sync_clock.hpp": {
+    "mtime": 1795033702.2232065,
+    "seen": 1795033743.8013866,
+    "ast_hash": "d89335fbd4da61da6f0827c64d653ddc",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/detail/sync_faults.hpp": {
+    "mtime": 1795033011.824785,
+    "seen": 1795033080.2013047,
+    "ast_hash": "bf965465269addbd457ac16b08f9b4b5",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/late_event_policy.hpp": {
+    "mtime": 1795033702.2368336,
+    "seen": 1795033743.8014064,
+    "ast_hash": "5d0600557e8d6ceca3aab76345c9dbb6",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/past_target_policy.hpp": {
+    "mtime": 1795033594.938535,
+    "seen": 1795033743.8014078,
+    "ast_hash": "66bd3832317e3d3f716e678f7c531a15",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/start_mode.hpp": {
+    "mtime": 1795029762.833229,
+    "seen": 1795031135.5383112,
+    "ast_hash": "5ac42bbc8adca5357c8d17e33e6076bb",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/start_policy.hpp": {
+    "mtime": 1795033702.2212036,
+    "seen": 1795033743.8014312,
+    "ast_hash": "d0dbe88933542ff3b8c0355d33b57e05",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_channel_config.hpp": {
+    "mtime": 1795033603.368517,
+    "seen": 1795033743.8014336,
+    "ast_hash": "60e967ffd298b8be659c6c63852a715d",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_config.hpp": {
+    "mtime": 1795033702.2361238,
+    "seen": 1795033743.8014352,
+    "ast_hash": "4ff0b6cf2bf5e1860677d378599e8a15",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_consumer.hpp": {
+    "mtime": 1795033689.8383315,
+    "seen": 1795033743.8014367,
+    "ast_hash": "c59d38983b67f42619b9345017597748",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_consumer_config.hpp": {
+    "mtime": 1795033702.2389505,
+    "seen": 1795033743.8014386,
+    "ast_hash": "1f7b51efffbe53653dac1d96e85e789e",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_consumer_state.hpp": {
+    "mtime": 1795033637.2214444,
+    "seen": 1795033743.8014407,
+    "ast_hash": "78d235f07b87b985bf0816865890910b",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_consumer_stats.hpp": {
+    "mtime": 1795033702.234513,
+    "seen": 1795033743.8014426,
+    "ast_hash": "fff50c91833a41acf3ee8a71ef4e8c5f",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_context.hpp": {
+    "mtime": 1795033619.637482,
+    "seen": 1795033743.8014438,
+    "ast_hash": "419d59b6653f4eefacba37a4737077b4",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_error.hpp": {
+    "mtime": 1795033626.4784672,
+    "seen": 1795033743.8014455,
+    "ast_hash": "ea8c6f7a42c6089a59d5d00fdeb6755b",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_error_kind.hpp": {
+    "mtime": 1795033629.479461,
+    "seen": 1795033743.8014464,
+    "ast_hash": "f26653e6cf47fd2bc9b3c97be4ce97e5",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_generator.hpp": {
+    "mtime": 1795033677.1903586,
+    "seen": 1795033743.8014476,
+    "ast_hash": "481dec23b60f9a30e37b927a79ed6bd2",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_generator_stats.hpp": {
+    "mtime": 1795033702.214326,
+    "seen": 1795033743.8014488,
+    "ast_hash": "f2c34dcd4a101e4aacab687638b3e438",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_payload.hpp": {
+    "mtime": 1795033623.4604738,
+    "seen": 1795033743.8014503,
+    "ast_hash": "664d4bace926fff886eb04311a4f881a",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_runner.hpp": {
+    "mtime": 1795033702.2330859,
+    "seen": 1795033743.8014514,
+    "ast_hash": "dc59bf4907316e8d380fdfd94742a402",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_schedule.hpp": {
+    "mtime": 1795033702.2255952,
+    "seen": 1795033743.8014529,
+    "ast_hash": "ff87832ed808a958009d2f932f1b9fed",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_state.hpp": {
+    "mtime": 1795033702.233891,
+    "seen": 1795033743.8014545,
+    "ast_hash": "3ed895f85af9e789766c535e3a32a1c2",
+    "semantic_hash": ""
+  },
+  "include/nexigen/synchro/sync_tracker.hpp": {
+    "mtime": 1795033702.2355485,
+    "seen": 1795033743.8014562,
+    "ast_hash": "cbdc3840704530fcb75e69f5fcf42342",
+    "semantic_hash": ""
+  },
+  "src/synchro/endpoint_stats.cpp": {
+    "mtime": 1795030174.7510486,
+    "seen": 1795031135.5431216,
+    "ast_hash": "4138678071ae732da7097af9407609a8",
+    "semantic_hash": ""
+  },
+  "src/synchro/protocol_types.cpp": {
+    "mtime": 1795030687.9596877,
+    "seen": 1795031135.5431232,
+    "ast_hash": "573862d5b9684265527f5f3324cb51f6",
+    "semantic_hash": ""
+  },
+  "src/synchro/schedule.cpp": {
+    "mtime": 1795030179.8410368,
+    "seen": 1795031135.543124,
+    "ast_hash": "42545ab50ad643436d5dd90d04f28635",
+    "semantic_hash": ""
+  },
+  "tests/synchro/consumer_test.cpp": {
+    "mtime": 1795032785.3272707,
+    "seen": 1795032908.921595,
+    "ast_hash": "ba6b5029da5a63262799bc4894098031",
+    "semantic_hash": ""
+  },
+  "tests/synchro/generator_test.cpp": {
+    "mtime": 1795032826.166183,
+    "seen": 1795032908.9215965,
+    "ast_hash": "3da4bcac16a74c593ec47b412de82527",
+    "semantic_hash": ""
+  },
+  "tests/synchro/integration_test.cpp": {
+    "mtime": 1795030566.1135705,
+    "seen": 1795031135.5444772,
+    "ast_hash": "4468579edd5e6232127050d42fc6698c",
+    "semantic_hash": ""
+  },
+  "tests/synchro/main.cpp": {
+    "mtime": 1795030570.2669203,
+    "seen": 1795031135.5444777,
+    "ast_hash": "fd7826514dadc53ee592a347b07dca6c",
+    "semantic_hash": ""
+  },
+  "tests/synchro/protocol_test.cpp": {
+    "mtime": 1795030238.12187,
+    "seen": 1795031135.5444784,
+    "ast_hash": "87f3dbe030d000076a83d3e356848c15",
+    "semantic_hash": ""
+  },
+  "tests/synchro/runner_test.cpp": {
+    "mtime": 1795030508.149551,
+    "seen": 1795031135.544479,
+    "ast_hash": "464070585c747a9654fc3a7159234256",
+    "semantic_hash": ""
+  },
+  "tests/synchro/schedule_tracker_test.cpp": {
+    "mtime": 1795030662.5880861,
+    "seen": 1795031135.5444798,
+    "ast_hash": "20f1c36673c181aaf84bba654c0ff3a2",
+    "semantic_hash": ""
+  },
+  "tests/synchro/synchro_test_support.cpp": {
+    "mtime": 1795030221.8959165,
+    "seen": 1795031135.5444803,
+    "ast_hash": "af5a720ebf170e52c81537fff072d663",
+    "semantic_hash": ""
+  },
+  "tests/synchro/synchro_test_support.hpp": {
+    "mtime": 1795032309.737332,
+    "seen": 1795032359.6571863,
+    "ast_hash": "01448164a3cd78918e41bc0e3c6f257a",
+    "semantic_hash": ""
+  },
+  "TO-EXPLORE.md": {
+    "mtime": 1795027658.585569,
+    "seen": 1795031135.5455635,
+    "ast_hash": "2a5b6840c0a560a1ca9be8cc809014bd",
+    "semantic_hash": ""
+  },
+  "initial_spec/synchro/sync_consumer_spec.md": {
+    "mtime": 1794957551.6511176,
+    "seen": 1795031135.5462646,
+    "ast_hash": "dcb41ee8060f13e94718bf2faa5e5ca3",
+    "semantic_hash": ""
+  },
+  "initial_spec/synchro/sync_generator_spec.md": {
+    "mtime": 1794957475.5372984,
+    "seen": 1795031135.5462654,
+    "ast_hash": "5a6e90d25aca3d82c956be5a12b9761f",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-18-add-synchro-event-sync/.openspec.yaml": {
+    "mtime": 1795029168.7754087,
+    "seen": 1795033743.804456,
+    "ast_hash": "e381aee74037cbb6e7cff9bd8b737b62",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-18-add-synchro-event-sync/design.md": {
+    "mtime": 1795032789.4312618,
+    "seen": 1795033743.8222647,
+    "ast_hash": "d16867de673831f946458566e3d1eb93",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-18-add-synchro-event-sync/proposal.md": {
+    "mtime": 1795029196.2433586,
+    "seen": 1795033743.8222656,
+    "ast_hash": "7b3bcba5eee424dee126637ddaf6743c",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-18-add-synchro-event-sync/specs/synchro/consumer/spec.md": {
+    "mtime": 1795029250.47826,
+    "seen": 1795033743.8222668,
+    "ast_hash": "7eda1f79ed358f293eeb57405c232bc4",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-18-add-synchro-event-sync/specs/synchro/generator/spec.md": {
+    "mtime": 1795029254.1632533,
+    "seen": 1795033743.8222682,
+    "ast_hash": "c5d5fe212ab0dad5b866b9646fb982cb",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-18-add-synchro-event-sync/specs/synchro/protocol/spec.md": {
+    "mtime": 1795029220.4213147,
+    "seen": 1795033743.822269,
+    "ast_hash": "710a9b65403f603361de7437ae9db33e",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-18-add-synchro-event-sync/tasks.md": {
+    "mtime": 1795031063.6295862,
+    "seen": 1795033743.82227,
+    "ast_hash": "d02e2ebc3b7bcabac47e8fec4a018bd8",
+    "semantic_hash": ""
+  },
+  "openspec/specs/synchro/consumer/spec.md": {
+    "mtime": 1795033237.3977678,
+    "seen": 1795033743.824126,
+    "ast_hash": "dfc53ea82b23df12bfd5163329073985",
+    "semantic_hash": ""
+  },
+  "openspec/specs/synchro/generator/spec.md": {
+    "mtime": 1795033237.3977087,
+    "seen": 1795033743.824127,
+    "ast_hash": "27c23e474698c1043d2afc091e302b4b",
+    "semantic_hash": ""
+  },
+  "openspec/specs/synchro/protocol/spec.md": {
+    "mtime": 1795033237.3976293,
+    "seen": 1795033743.824128,
+    "ast_hash": "65ec52679021f8eefae7de9a85381456",
     "semantic_hash": ""
   }
 }

@@ -476,6 +476,26 @@ if(NEXIGEN_ENABLE_COM)
     target_compile_definitions(nexigen_sm PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
     target_link_libraries(nexigen_sm PUBLIC nexigen_com PRIVATE Threads::Threads)
 
+    # nexigen::synchro — synchronization event layer (change
+    # add-synchro-event-sync): absolute CLOCK_MONOTONIC_RAW phase generator,
+    # consumer with logical continuity and a bounded runner. Gated by
+    # NEXIGEN_ENABLE_COM because it publishes over nexigen::com event channels;
+    # also needs logging, metrics, and chrono.
+    file(GLOB NEXIGEN_SYNCHRO_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/synchro/*.cpp")
+
+    add_library(nexigen_synchro STATIC ${NEXIGEN_SYNCHRO_SOURCES})
+    add_library(nexigen::synchro ALIAS nexigen_synchro)
+
+    target_include_directories(nexigen_synchro PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_compile_definitions(nexigen_synchro PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
+    target_link_libraries(nexigen_synchro
+        PUBLIC nexigen_com nexigen_chrono nexigen_logging nexigen_metrics nexigen_core
+        PRIVATE Threads::Threads)
+
     # nexigen::exec::StateClient (change add-sm): приёмная сторона SetState в
     # EM. Зависит от com, поэтому отдельный gated-таргет; линкуется к
     # nexigen-exec при NEXIGEN_ENABLE_COM=ON.
@@ -557,6 +577,7 @@ if(NEXIGEN_ENABLE_COM)
     nexigen_precompile(nexigen_com)
     nexigen_precompile(nexigen_phm)
     nexigen_precompile(nexigen_sm)
+    nexigen_precompile(nexigen_synchro)
     nexigen_precompile(nexigen_state_client)
 endif()
 
@@ -704,7 +725,7 @@ set(NEXIGEN_EXPORT_TARGETS
     nexigen_hub
     nexigen_recorder)
 if(NEXIGEN_ENABLE_COM)
-    list(APPEND NEXIGEN_EXPORT_TARGETS nexigen_com nexigen_phm nexigen_sm)
+    list(APPEND NEXIGEN_EXPORT_TARGETS nexigen_com nexigen_phm nexigen_sm nexigen_synchro)
 endif()
 
 set_target_properties(nexigen_core        PROPERTIES EXPORT_NAME core)
@@ -721,6 +742,7 @@ if(NEXIGEN_ENABLE_COM)
     set_target_properties(nexigen_com     PROPERTIES EXPORT_NAME com)
     set_target_properties(nexigen_phm     PROPERTIES EXPORT_NAME phm)
     set_target_properties(nexigen_sm      PROPERTIES EXPORT_NAME sm)
+    set_target_properties(nexigen_synchro PROPERTIES EXPORT_NAME synchro)
 endif()
 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/nexigen"

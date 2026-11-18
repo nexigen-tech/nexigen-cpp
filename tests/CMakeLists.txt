@@ -334,6 +334,25 @@ if(NEXIGEN_ENABLE_COM)
     add_test(NAME nexigen_metrics_daemon_tests COMMAND nexigen_metrics_daemon_tests)
     set_tests_properties(nexigen_metrics_daemon_tests PROPERTIES TIMEOUT 600)
 
+    # nexigen::synchro — synchronization event layer (change
+    # add-synchro-event-sync): protocol grid, generator, consumer, runner,
+    # integration, allocation, and logging suites.
+    add_executable(nexigen_synchro_tests
+        synchro/main.cpp
+        synchro/synchro_test_support.cpp
+        synchro/protocol_test.cpp
+        synchro/schedule_tracker_test.cpp
+        synchro/generator_test.cpp
+        synchro/consumer_test.cpp
+        synchro/runner_test.cpp
+        synchro/integration_test.cpp)
+    target_link_libraries(nexigen_synchro_tests PRIVATE
+        nexigen_synchro Threads::Threads)
+    target_compile_definitions(nexigen_synchro_tests PRIVATE NEXIGEN_SYNCHRO_TESTING)
+
+    add_test(NAME nexigen_synchro_tests COMMAND nexigen_synchro_tests)
+    set_tests_properties(nexigen_synchro_tests PROPERTIES TIMEOUT 900)
+
     # Negative-compile probe: non-trivially-copyable payloads (owning string,
     # virtuals, containers) must be rejected by concepts::Message at compile
     # time. Тот же механизм, что tests/core/negative_compile.sh.
@@ -413,6 +432,7 @@ foreach(_nexigen_test
         nexigen_trace_roundtrip_tests
         nexigen_logging_com_tests
         nexigen_logging_com_daemon_tests
+        nexigen_synchro_tests
         nexigen_hub_tests)
     if(TARGET ${_nexigen_test})
         nexigen_precompile(${_nexigen_test})

@@ -5,8 +5,10 @@
 публичным заголовкам `include/nexigen/`, спецификациям `openspec/specs/` и
 целям сборки `CMakeLists.txt`.
 
-Актуально на 18.11.2026: 13 модулей, 379 публичных заголовков, 126
-capability, 906 требований и 2317 сценариев в OpenSpec.
+Актуально на 18.11.2026: 14 модулей и 401 заголовок в `include/nexigen/`
+(включая `detail/`). Основной корпус OpenSpec — 129 capability, 929 требований
+и 2409 сценариев (включая `synchro`, добавленный архивированным change
+`add-synchro-event-sync`).
 
 ## 1. Назначение и принципы
 
@@ -51,12 +53,14 @@ capability, 906 требований и 2317 сценариев в OpenSpec.
 | L3 | `nexigen::hub` | `nexigen_hub` | STATIC | 15 | Discovery, ограниченные потоки с gap-маркерами, HTTP/SSE-сервер, web UI |
 | L3 | `nexigen::phm` | `nexigen_phm` | STATIC, gate | 31 | Platform Health Management: супервизия, checkpoints, claims, recovery, watchdog |
 | L3 | `nexigen::sm` | `nexigen_sm` | STATIC, gate | 19 | State Management: арбитраж Function Groups, RootFG, LSM, UCM |
+| L3 | `nexigen::synchro` | `nexigen_synchro` | STATIC, gate | 22 | Фазовая сетка поверх `com` event-каналов: `SyncGenerator`, `SyncConsumer`, `SyncRunner`, непрерывность фаз, watchdog |
 
 Дополнительные цели, появляющиеся только при `NEXIGEN_ENABLE_COM=ON`:
 `nexigen_state_client` (приёмная сторона `SetState` в EM),
-`nexigen_exec_control` (COM-реализация `ControlHost`), а также интерфейсные
-обёртки `nexigen_logging_com`, `nexigen_metrics_com`, `nexigen_tracing_com`
-для iceoryx2-sink'ов.
+`nexigen_exec_control` (COM-реализация `ControlHost`), интерфейсные обёртки
+`nexigen_logging_com`, `nexigen_metrics_com`, `nexigen_tracing_com` для
+iceoryx2-sink'ов, а также `nexigen_synchro` (фазовая синхронизация поверх
+event-каналов).
 
 `nexigen::core` — INTERFACE, потому что состоит из шаблонов и inline-кода.
 Остальные модули компилируют холодные пути (калибровка, harvest-циклы,
@@ -83,6 +87,7 @@ flowchart TB
         HUB["hub<br/>discovery · streaming · HTTP/SSE"]
         PHM["phm<br/>supervision · recovery · watchdog"]
         SM["sm<br/>arbitration · RootFG · UCM · LSM"]
+        SYN["synchro<br/>phase grid · generator · consumer · runner"]
     end
 
     subgraph L2["L2 · телеметрия и хранение"]
@@ -116,6 +121,10 @@ flowchart TB
     HUB --> EXEC
     PHM --> COM
     SM --> COM
+    SYN --> COM
+    SYN --> CHR
+    SYN --> LOG
+    SYN --> MET
 
     LOG --> CHR
     MET --> CHR
@@ -128,6 +137,7 @@ flowchart TB
     HUB --> CORE
     PHM --> CORE
     SM --> CORE
+    SYN --> CORE
     CHR --> CORE
     COM --> CORE
     LOG --> CORE
@@ -143,7 +153,7 @@ flowchart TB
     PHM -.->|"state / recovery vocabulary"| SM
 
     classDef optional fill:#fff4d6,stroke:#b8860b,stroke-dasharray: 5 4,color:#333
-    class COM,PHM,SM,TOOLS optional
+    class COM,PHM,SM,SYN,TOOLS optional
 ```
 
 Правила, которые проверяет граф включений:
@@ -158,6 +168,9 @@ flowchart TB
   запускает и не изменяет.
 - `phm` и `sm` работают поверх `com`; их связь с `exec` идёт через
   сообщения, а не через линковку.
+- `synchro` — прикладной слой поверх `com`: он зависит от транспорта,
+  `chrono`, `logging` и `metrics`, но сам `com` о телеметрии не знает.
+  Модуль целиком исчезает при `NEXIGEN_ENABLE_COM=OFF`.
 
 Осознанные исключения, все — внутри `detail/` и не часть публичного
 контракта:
@@ -308,6 +321,76 @@ flowchart LR
 ```
 
 Подробности: [com-event-system.md](com-event-system.md).
+
+### 4.3b `synchro` — фазовая синхронизация (gate)
+
+**Ответственность.** Прикладной слой над `com/event-system`: публикует
+события по абсолютной фазовой сетке и превращает поток этих событий в
+проверяемую временную опору для потребителей. Модуль решает ровно одну
+задачу — «какая фаза сейчас и насколько мы от неё отклонились», не подменяя
+собой транспорт и не добавляя собственный брокер.
+
+**Ключевые типы.**
+
+- `SyncPayload` — 32-байтовый trivially-copyable payload: номер цикла, индекс
+  и общее число фаз, исходный дедлайн и период цикла. Передаётся zero-copy.
+- `SyncSchedule` — арифметика сетки: `T(c, p) = T_start + c·Tc + ⌊p·Tc/N⌋`,
+  `classify_overrun` для пропуска устаревших слотов и `resolve_start` для
+  политик `NextCycle`/`AtTarget` (включая `Reject` и
+  `RealignToNextCycle`).
+- `SyncGenerator<Logger>` — один `EventProducer<SyncPayload>` и один worker:
+  гибридное ожидание `ppoll` + финальный спин до дедлайна
+  (`CLOCK_MONOTONIC_RAW`), публикация с исходным `scheduled_time_ns` в
+  payload и фактическим временем в заголовке, счётчики перегрузок и джиттера.
+- `SyncConsumer<Logger>` — реализует `com::IEventConsumer`, владеет
+  `com::EventConsumer<SyncPayload>` и `SyncTracker`. Считает IPC- и
+  end-to-end-задержки, классифицирует опоздания (`DropAndWarn` /
+  `DeliverWithFlag`), ведёт watchdog (`initial_sync_timeout_ns`,
+  `sync_loss_timeout_ns`) и вызывает обработчики фаз.
+- `SyncRunner<Logger>` — ровно один consumer и один
+  `EventConsumerSet<16>`: `run_once()` возвращает `com::WaitOutcome`, `run()`
+  крутится до `stop_token`, `wake_up()` будит ожидание при остановке.
+  Несколько каналов обслуживаются несколькими runner'ами.
+- `SyncError`/`SyncResult` — собственная модель ошибок с `SyncErrorKind`,
+  транспортом `com::Error` и `core::ErrorCode`.
+
+**Непрерывность.** Абсолютная позиция фазы — `cycle_number * phases_total +
+phase_index`. `transport gap` объясняет часть скачка, остаток относится к
+перегрузке генератора (`generator_skips`); смена epoch, изменение
+`phases_total`, обратный ход цикла и неожиданный reset дают `resync` без
+ложного пропуска. Это позволяет отличить потерю транспорта от пропуска
+дедлайна, не смешивая два разных класса отказов.
+
+```mermaid
+sequenceDiagram
+    participant G as SyncGenerator (worker)
+    participant C as EventChannel (iceoryx2)
+    participant R as SyncRunner (one thread)
+    participant U as phase handlers
+
+    G->>G: resolve_start(now, StartPolicy)
+    loop each absolute phase
+        G->>G: ppoll deadline + final spin
+        G->>C: publish(SyncPayload{scheduled_time_ns}, header ptime)
+        C-->>R: EventConsumerSet wait_for -> Events
+        R->>R: SyncConsumer.handle_event
+        R->>R: SyncTracker.observe -> skips / resync
+        R->>R: latency + late policy + watchdog lock
+        R->>U: on_any_phase -> on_cycle_start/on_phase
+    end
+    Note over R: Timeout -> check_sync_loss -> Unsynced + WARN
+```
+
+**Особенности.** Модуль собирается только при `NEXIGEN_ENABLE_COM=ON`.
+Каждый канал требует собственного `metrics::Meter`: имена инструментов
+фиксированы, дубликат регистрации — ошибка создания. Все инструменты
+`MultiThreaded`, горячий путь не выделяет память и не берёт блокировки.
+Жёсткий предел v1 — 16 потребителей в одном наборе и минимальный период
+фазы 1 мс; масштабирование идёт каналами и runner'ами.
+
+**Зависимости.** `com`, `chrono`, `logging`, `metrics`, `core`.
+
+**Capabilities (3):** `consumer`, `generator`, `protocol`.
 
 ### 4.4 `logging` — асинхронные логи
 
@@ -955,7 +1038,10 @@ COM-зависимые инструменты появляются только 
 повторяет структуру `include/nexigen/`. Каждая capability содержит
 требования (`Requirement`) и проверяемые сценарии (`Scenario`).
 
-- Всего: 126 capability, 906 требований, 2317 сценариев.
+- Основной корпус: 129 capability, 929 требований, 2409 сценариев.
+- `synchro` вошёл в основной корпус из архивированного change
+  `add-synchro-event-sync` (2026-11-18): `synchro/{protocol,generator,consumer}`,
+  3 capability, 23 требования, 92 сценария.
 - Межмодульные возможности: `packaging`, `examples`, `quality/*`.
 - Проверка корпуса: `openspec validate --specs`.
 - Покрытие требований AUTOSAR `RS_Safety` отслеживается в
