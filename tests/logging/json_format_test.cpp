@@ -8,11 +8,12 @@ void test_json() {
     alignas(64) static char scratch[detail::json_scratch_capacity];
 
     // Byte-exact golden line (schema AND field order pinned, basename only).
-    const std::size_t len =
-        detail::format_json_line(1'784'850'120'321'841'133LL, LogLevel::Warning, "hil", 1'772'393U,
-                                 "/home/dev/src/app.cpp", 42U, "void drive()", "ok", scratch);
+    const std::size_t len = detail::format_json_line(
+        1'784'850'120'321'841'133LL, true, 9'876'543'210ULL, "0123456789abcdef", LogLevel::Warning,
+        "hil", 1'772'393U, "/home/dev/src/app.cpp", 42U, "void drive()", "ok", scratch);
     const std::string_view golden =
-        "{\"timestamp\":\"2026-07-23T23:42:00.321841133Z\",\"level\":\"warning\","
+        "{\"timestamp\":\"2026-07-23T23:42:00.321841133Z\",\"mono_ns\":9876543210,"
+        "\"boot\":\"0123456789abcdef\",\"level\":\"warning\","
         "\"app\":\"hil\",\"thread_id\":1772393,"
         "\"message\":\"[app.cpp:42] (void drive()) ok\"}\n";
     NX_CHECK(len == golden.size());
@@ -20,8 +21,9 @@ void test_json() {
 
     // Escapes: quote, backslash, short control forms, \u00XX for the rest.
     const char evil[] = "q\"bs\\ tab\tnl\nct\x01\x1fx";
-    const std::size_t elen = detail::format_json_line(0LL, LogLevel::Error, "app", 7U, "f.cpp", 1U,
-                                                      "main", evil, scratch);
+    const std::size_t elen =
+        detail::format_json_line(0LL, true, 1ULL, "0000000000000000", LogLevel::Error, "app", 7U,
+                                 "f.cpp", 1U, "main", evil, scratch);
     NX_CHECK(elen > 0);
     scratch[elen] = '\0';
     const std::string_view line(scratch, elen);
@@ -34,20 +36,42 @@ void test_json() {
     // Cyrillic UTF-8 passes through as raw bytes (no \u rewriting).
     const std::string_view ru = "Привет, мир";
     const std::size_t rlen =
-        detail::format_json_line(0LL, LogLevel::Info, "app", 1U, "t.cpp", 2U, "main", ru, scratch);
+        detail::format_json_line(0LL, true, 2ULL, "0000000000000000", LogLevel::Info, "app", 1U,
+                                 "t.cpp", 2U, "main", ru, scratch);
     NX_CHECK(rlen > 0);
     scratch[rlen] = '\0';
     NX_CHECK(std::strstr(scratch, "Привет, мир") != nullptr);
+
+    // An uncalibrated instant keeps mono_ns/boot and emits no fabricated UTC.
+    const std::size_t ulen =
+        detail::format_json_line(0LL, false, 42ULL, "0123456789abcdef", LogLevel::Info, "app", 1U,
+                                 "t.cpp", 2U, "main", "m", scratch);
+    NX_CHECK(ulen > 0);
+    scratch[ulen] = '\0';
+    const std::string_view uline(scratch, ulen);
+    NX_CHECK(uline.find("\"timestamp\":null") != std::string_view::npos);
+    NX_CHECK(uline.find("\"mono_ns\":42") != std::string_view::npos);
+    NX_CHECK(uline.find("\"boot\":\"0123456789abcdef\"") != std::string_view::npos);
 
     // Overflow guard: a monstrous function name cannot half-write a line.
     alignas(64) static char huge_fn[6000];
     static_assert(sizeof huge_fn > 0);
     std::memset(huge_fn, 'x', sizeof huge_fn - 1);
     huge_fn[sizeof huge_fn - 1] = '\0';
-    const std::size_t over =
-        detail::format_json_line(0LL, LogLevel::Info, "app", 1U, "t.cpp", 2U,
-                                 std::string_view(huge_fn, sizeof huge_fn - 1), "m", scratch);
+    const std::size_t over = detail::format_json_line(
+        0LL, true, 1ULL, "0000000000000000", LogLevel::Info, "app", 1U, "t.cpp", 2U,
+        std::string_view(huge_fn, sizeof huge_fn - 1), "m", scratch);
     NX_CHECK(over == 0);
+
+    // The JSON line renderer is allocation-free on the steady-state path.
+    const std::size_t before = ::mallinfo2().uordblks;
+    for (int i = 0; i < 2'000; ++i) {
+        const std::size_t n = detail::format_json_line(
+            1'784'850'120'321'841'133LL, true, static_cast<std::uint64_t>(i), "0123456789abcdef",
+            LogLevel::Info, "app", 1U, "t.cpp", 2U, "main", "message", scratch);
+        NX_CHECK(n > 0U);
+    }
+    NX_CHECK(::mallinfo2().uordblks == before);
 
     // FixedWriter unit: rejects writes that would exceed the small buffer.
     char small_[64];

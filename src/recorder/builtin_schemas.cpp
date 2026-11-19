@@ -78,6 +78,39 @@ std::vector<SchemaDeclare> builtin_schemas() {
         R"({"name":"height","type":"u32","offset":8,"element_size":4,"count":1,"stride":4},)"
         R"({"name":"config_epoch","type":"u64","offset":24,"element_size":8,"count":1,"stride":8},)"
         R"({"name":"extradata","type":"u8[1024]","offset":32,"element_size":1,"count":1024,"stride":1}])"));
+    schemas.push_back(make_schema(
+        8, "nexigen.recorder.TimeBase",
+        R"([{"name":"generation","type":"u64","offset":0,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"time_base_epoch","type":"u64","offset":8,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"boot_token","type":"u64","offset":16,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"layout","type":"u32","offset":24,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"status","type":"u8","offset":28,"element_size":1,"count":1,"stride":1},)"
+        R"({"name":"sync_mode","type":"u8","offset":29,"element_size":1,"count":1,"stride":1},)"
+        R"({"name":"gap","type":"u8","offset":30,"element_size":1,"count":1,"stride":1},)"
+        R"({"name":"service_flags","type":"u32","offset":32,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"tai_offset_ns","type":"i64","offset":40,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"utc_offset_ns","type":"i64","offset":48,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"utc_unc_ns","type":"u64","offset":56,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"domain_count","type":"u16","offset":64,"element_size":2,"count":1,"stride":2},)"
+        R"({"name":"boot_uuid","type":"char[37]","offset":68,"element_size":1,"count":37,"stride":1},)"
+        R"({"name":"rows","type":"u8[4096]","offset":128,"element_size":1,"count":4096,"stride":1}])"));
+    schemas.push_back(make_schema(
+        9, "nexigen.recorder.TimeSnapshot",
+        R"([{"name":"generation","type":"u64","offset":0,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"boot_token","type":"u64","offset":8,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"status","type":"u8","offset":16,"element_size":1,"count":1,"stride":1},)"
+        R"({"name":"sync_mode","type":"u8","offset":17,"element_size":1,"count":1,"stride":1},)"
+        R"({"name":"service_flags","type":"u32","offset":20,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"monotonic_raw_ns","type":"u64","offset":24,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"monotonic_ns","type":"u64","offset":32,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"tai_ns","type":"u64","offset":40,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"realtime_ns","type":"u64","offset":48,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"tai_offset_ns","type":"i64","offset":56,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"utc_offset_ns","type":"i64","offset":64,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"unc_ns","type":"u64","offset":72,"element_size":8,"count":1,"stride":8},)"
+        R"({"name":"domain_count","type":"u32","offset":80,"element_size":4,"count":1,"stride":4},)"
+        R"({"name":"domains","type":"u8[768]","offset":88,"element_size":1,"count":768,"stride":1},)"
+        R"({"name":"reserved2","type":"u8[40]","offset":856,"element_size":1,"count":40,"stride":1}])"));
     return schemas;
 }
 

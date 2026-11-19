@@ -86,7 +86,7 @@ std::string RunIdentity::to_string() const {
 }
 
 std::string TelemetryPaths::to_string() const {
-    return "TelemetryPaths(metrics=" + metrics + ", traces=" + traces + ", chrono=" + chrono + ")";
+    return "TelemetryPaths(metrics=" + metrics + ", traces=" + traces + ")";
 }
 
 RunIdentity load_run_identity() noexcept {
@@ -117,15 +117,13 @@ core::Status validate_run_identity(const RunIdentity& identity) noexcept {
 core::Status resolve_telemetry_paths(const RunIdentity& identity,
                                      std::string_view explicit_metrics_path,
                                      std::string_view explicit_traces_path,
-                                     std::string_view explicit_chrono_path,
                                      TelemetryPaths& out) noexcept {
     const core::Status valid = validate_run_identity(identity);
     if (!valid) {
         return valid;
     }
     TelemetryPaths resolved{choose_path(identity, explicit_metrics_path, "metrics.jsonl"),
-                            choose_path(identity, explicit_traces_path, "traces.jsonl"),
-                            choose_path(identity, explicit_chrono_path, "chrono.jsonl")};
+                            choose_path(identity, explicit_traces_path, "traces.jsonl")};
     out = resolved;
     return {};
 }
@@ -145,14 +143,12 @@ void from_json(const nlohmann::json& j, RunIdentity& identity) noexcept {
 }
 
 void to_json(nlohmann::json& j, const TelemetryPaths& paths) {
-    j = nlohmann::json{
-        {"metrics", paths.metrics}, {"traces", paths.traces}, {"chrono", paths.chrono}};
+    j = nlohmann::json{{"metrics", paths.metrics}, {"traces", paths.traces}};
 }
 
 void from_json(const nlohmann::json& j, TelemetryPaths& paths) noexcept {
     core::detail::read_string(j, "metrics", paths.metrics);
     core::detail::read_string(j, "traces", paths.traces);
-    core::detail::read_string(j, "chrono", paths.chrono);
 }
 
 } // namespace nexigen::app

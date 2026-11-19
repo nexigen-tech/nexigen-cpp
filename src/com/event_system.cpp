@@ -75,28 +75,30 @@ void from_json(const nlohmann::json& j, EventOptions& options) noexcept {
 
 std::string EventHeader::to_string() const {
     return std::format(
-        "EventHeader(sequence={}, timestamp_ns={}, domain={}, epoch={}, ingest_ns={}, "
-        "event_code={}, hardware_sequence={}, hardware_timestamp_ns={}, "
+        "EventHeader(sequence={}, timestamp_ns={}, canonical={}, domain={}, domain_epoch={}, "
+        "ingest_ns={}, event_code={}, native_ticks={}, hardware_sequence={}, "
         "hardware_event_code={}, flags={})",
-        sequence_id, timestamp_ns, nexigen::com::to_string(timestamp_domain), producer_epoch,
-        ingest_timestamp_ns, event_code, hardware_sequence, hardware_timestamp_ns,
-        hardware_event_code, flags);
+        sequence_id, timestamp_ns, has_canonical_projection(), domain_id, domain_epoch,
+        ingest_timestamp_ns, event_code, native_ticks, hardware_sequence, hardware_event_code,
+        flags);
 }
 
 void to_json(nlohmann::json& j, const EventHeader& header) {
     j = nlohmann::json{{"sequence_id", header.sequence_id},
                        {"timestamp_ns", header.timestamp_ns},
-                       {"timestamp_domain", nexigen::com::to_string(header.timestamp_domain)},
+                       {"has_canonical_projection", header.has_canonical_projection()},
+                       {"domain_id", header.domain_id},
+                       {"domain_epoch", header.domain_epoch},
                        {"producer_epoch", header.producer_epoch},
                        {"ingest_timestamp_ns", header.ingest_timestamp_ns},
                        {"hardware_sequence", header.hardware_sequence},
-                       {"hardware_timestamp_ns", header.hardware_timestamp_ns},
+                       {"native_ticks", header.native_ticks},
                        {"event_code", header.event_code},
                        {"hardware_event_code", header.hardware_event_code},
                        {"flags", header.flags},
                        {"has_payload", header.has_payload()},
                        {"has_hardware_sequence", header.has_hardware_sequence()},
-                       {"has_hardware_timestamp", header.has_hardware_timestamp()},
+                       {"has_native_ticks", header.has_native_ticks()},
                        {"has_hardware_event_code", header.has_hardware_event_code()}};
 }
 
@@ -108,17 +110,18 @@ void from_json(const nlohmann::json& j, EventHeader& header) noexcept {
     core::detail::read_unsigned(j, "timestamp_ns", header.timestamp_ns);
     core::detail::read_unsigned(j, "producer_epoch", header.producer_epoch);
     core::detail::read_unsigned(j, "ingest_timestamp_ns", header.ingest_timestamp_ns);
+    core::detail::read_unsigned(j, "domain_epoch", header.domain_epoch);
     core::detail::read_unsigned(j, "hardware_sequence", header.hardware_sequence);
-    core::detail::read_unsigned(j, "hardware_timestamp_ns", header.hardware_timestamp_ns);
+    core::detail::read_unsigned(j, "native_ticks", header.native_ticks);
     core::detail::read_unsigned(j, "event_code", header.event_code);
     core::detail::read_unsigned(j, "hardware_event_code", header.hardware_event_code);
+    core::detail::read_unsigned(j, "domain_id", header.domain_id);
     core::detail::read_unsigned(j, "flags", header.flags);
+    // Legacy diagnostics carried `hardware_timestamp_ns` and a domain name.
+    core::detail::read_unsigned(j, "hardware_timestamp_ns", header.native_ticks);
     std::string domain;
-    if (core::detail::read_string(j, "timestamp_domain", domain)) {
-        TimestampDomain parsed{};
-        if (from_string(domain, parsed)) {
-            header.timestamp_domain = parsed;
-        }
+    if (core::detail::read_string(j, "timestamp_domain", domain) && domain == "Hardware") {
+        header.domain_id = header.domain_id == 0U ? 1U : header.domain_id;
     }
 }
 
@@ -159,11 +162,11 @@ std::string ChannelConfig::to_string() const {
 }
 
 void to_json(nlohmann::json& j, const ChannelConfig& config) {
-    j = nlohmann::json{{"max_consumers", config.max_consumers},
-                       {"queue_size", config.queue_size},
-                       {"history_size", config.history_size},
-                       {"default_timestamp_domain",
-                        nexigen::com::to_string(config.default_timestamp_domain)}};
+    j = nlohmann::json{
+        {"max_consumers", config.max_consumers},
+        {"queue_size", config.queue_size},
+        {"history_size", config.history_size},
+        {"default_timestamp_domain", nexigen::com::to_string(config.default_timestamp_domain)}};
 }
 
 void from_json(const nlohmann::json& j, ChannelConfig& config) noexcept {
@@ -187,8 +190,7 @@ std::string EventTime::to_string() const {
 }
 
 void to_json(nlohmann::json& j, const EventTime& time) {
-    j = nlohmann::json{{"ns", time.ns},
-                       {"domain", nexigen::com::to_string(time.domain)}};
+    j = nlohmann::json{{"ns", time.ns}, {"domain", nexigen::com::to_string(time.domain)}};
 }
 
 void from_json(const nlohmann::json& j, EventTime& time) noexcept {
@@ -206,19 +208,20 @@ void from_json(const nlohmann::json& j, EventTime& time) noexcept {
 }
 
 std::string HardwareMetadata::to_string() const {
-    return std::format("HardwareMetadata(sequence={}, timestamp_ns={}, event_code={}, "
-                       "has_sequence={}, has_timestamp={}, has_event_code={})",
-                       sequence, timestamp_ns, event_code, has_sequence, has_timestamp,
-                       has_event_code);
+    return std::format("HardwareMetadata(sequence={}, native_ticks={}, domain={}, epoch={}, "
+                       "canonical_ns={}, event_code={}, has_sequence={}, has_ticks={}, "
+                       "has_canonical={}, has_event_code={})",
+                       sequence, native_ticks, domain_id, domain_epoch, canonical_ns, event_code,
+                       has_sequence, has_ticks, has_canonical, has_event_code);
 }
 
 void to_json(nlohmann::json& j, const HardwareMetadata& metadata) {
-    j = nlohmann::json{{"sequence", metadata.sequence},
-                       {"timestamp_ns", metadata.timestamp_ns},
-                       {"event_code", metadata.event_code},
-                       {"has_sequence", metadata.has_sequence},
-                       {"has_timestamp", metadata.has_timestamp},
-                       {"has_event_code", metadata.has_event_code}};
+    j = nlohmann::json{
+        {"sequence", metadata.sequence},           {"native_ticks", metadata.native_ticks},
+        {"domain_id", metadata.domain_id},         {"domain_epoch", metadata.domain_epoch},
+        {"canonical_ns", metadata.canonical_ns},   {"event_code", metadata.event_code},
+        {"has_sequence", metadata.has_sequence},   {"has_ticks", metadata.has_ticks},
+        {"has_canonical", metadata.has_canonical}, {"has_event_code", metadata.has_event_code}};
 }
 
 void from_json(const nlohmann::json& j, HardwareMetadata& metadata) noexcept {
@@ -226,11 +229,21 @@ void from_json(const nlohmann::json& j, HardwareMetadata& metadata) noexcept {
         return;
     }
     core::detail::read_unsigned(j, "sequence", metadata.sequence);
-    core::detail::read_unsigned(j, "timestamp_ns", metadata.timestamp_ns);
+    core::detail::read_unsigned(j, "native_ticks", metadata.native_ticks);
+    core::detail::read_unsigned(j, "domain_id", metadata.domain_id);
+    core::detail::read_unsigned(j, "domain_epoch", metadata.domain_epoch);
+    core::detail::read_unsigned(j, "canonical_ns", metadata.canonical_ns);
     core::detail::read_unsigned(j, "event_code", metadata.event_code);
     core::detail::read_bool(j, "has_sequence", metadata.has_sequence);
-    core::detail::read_bool(j, "has_timestamp", metadata.has_timestamp);
+    core::detail::read_bool(j, "has_ticks", metadata.has_ticks);
+    core::detail::read_bool(j, "has_canonical", metadata.has_canonical);
     core::detail::read_bool(j, "has_event_code", metadata.has_event_code);
+    // Legacy diagnostics: a driver-converted timestamp was the only time field.
+    core::detail::read_unsigned(j, "timestamp_ns", metadata.native_ticks);
+    bool legacy_has_timestamp = false;
+    if (core::detail::read_bool(j, "has_timestamp", legacy_has_timestamp) && legacy_has_timestamp) {
+        metadata.has_ticks = metadata.has_ticks || metadata.native_ticks != 0U;
+    }
 }
 
 std::string LossInfo::to_string() const {
@@ -242,15 +255,15 @@ std::string LossInfo::to_string() const {
 }
 
 void to_json(nlohmann::json& j, const LossInfo& info) {
-    j = nlohmann::json{{"reason", nexigen::com::to_string(info.reason)},
-                       {"expected_sequence", info.expected_sequence},
-                       {"actual_sequence", info.actual_sequence},
-                       {"lost_count", info.lost_count},
-                       {"old_epoch", info.old_epoch},
-                       {"new_epoch", info.new_epoch},
-                       {"actual_timestamp_ns", info.actual_timestamp_ns},
-                       {"actual_timestamp_domain",
-                        nexigen::com::to_string(info.actual_timestamp_domain)}};
+    j = nlohmann::json{
+        {"reason", nexigen::com::to_string(info.reason)},
+        {"expected_sequence", info.expected_sequence},
+        {"actual_sequence", info.actual_sequence},
+        {"lost_count", info.lost_count},
+        {"old_epoch", info.old_epoch},
+        {"new_epoch", info.new_epoch},
+        {"actual_timestamp_ns", info.actual_timestamp_ns},
+        {"actual_timestamp_domain", nexigen::com::to_string(info.actual_timestamp_domain)}};
 }
 
 void from_json(const nlohmann::json& j, LossInfo& info) noexcept {
@@ -283,8 +296,7 @@ std::string EventProducerStats::to_string() const {
     return std::format("EventProducerStats(published={}, send_failures={}, notify_failures={}, "
                        "last_notify_error={}, sequence={}, epoch={})",
                        published, send_failures, notify_failures,
-                       nexigen::com::to_string(last_notify_error), current_sequence,
-                       current_epoch);
+                       nexigen::com::to_string(last_notify_error), current_sequence, current_epoch);
 }
 
 void to_json(nlohmann::json& j, const EventProducerStats& stats) {
@@ -319,8 +331,7 @@ std::string EventConsumerStats::to_string() const {
                        "duplicates={}, unexpected_resets={}, first_sequence={}, "
                        "last_sequence={}, history_skipped={}, epoch={}, has_received={})",
                        received, transport_lost, restarts, duplicates, unexpected_resets,
-                       first_sequence, last_sequence, history_skipped, current_epoch,
-                       has_received);
+                       first_sequence, last_sequence, history_skipped, current_epoch, has_received);
 }
 
 void to_json(nlohmann::json& j, const EventConsumerStats& stats) {

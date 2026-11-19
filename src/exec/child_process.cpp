@@ -79,6 +79,7 @@ void to_json(nlohmann::json& j, const ChildProcess& child) {
         {"state", to_string(child.state)},
         {"attempt", child.attempt},
         {"restarts_used", child.restarts_used},
+        {"time_base_held", child.time_base_held},
     };
 }
 
@@ -97,6 +98,7 @@ void from_json(const nlohmann::json& j, ChildProcess& child) noexcept {
     }
     core::detail::read_unsigned(j, "attempt", child.attempt);
     core::detail::read_unsigned(j, "restarts_used", child.restarts_used);
+    core::detail::read_bool(j, "time_base_held", child.time_base_held);
 }
 
 } // namespace nexigen::exec

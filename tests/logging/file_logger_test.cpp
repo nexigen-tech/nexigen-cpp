@@ -1,6 +1,8 @@
 // Split from file_logger_test.cpp: nexigen::logging FileLogger.
 
 #include "logging_test_support.hpp"
+#include "../support/test_time_base.hpp"
+#include <nexigen/chrono/civil_time.hpp>
 
 namespace {
 
@@ -84,6 +86,8 @@ void test_file_logger_happy_path() {
         NX_CHECK(n != SIZE_MAX);
         const std::string_view sv(content, n);
         NX_CHECK(sv.substr(0, 14) == "{\"timestamp\":\"");
+        NX_CHECK(sv.find("\"mono_ns\":") != std::string_view::npos);
+        NX_CHECK(sv.find("\"boot\":\"") != std::string_view::npos);
         if (sv.size() > 64) { // structural deep-checks only with real content present
             // exact field order: timestamp < level < app < thread_id < message
             const std::size_t i_ts = sv.find("\"timestamp\"");
@@ -208,7 +212,7 @@ void test_file_logger_rotation() {
     static FileLogger<256, 128> flr{};
     {
         std::uint64_t proc_mask = 0;
-        static_cast<void>(detail::self_affinity(proc_mask));
+        static_cast<void>(nexigen::logging::detail::self_affinity(proc_mask));
         int allowed = 0;
         for (std::uint64_t m = proc_mask; m != 0ULL; m &= m - 1ULL) {
             ++allowed;
@@ -330,6 +334,120 @@ void test_file_logger_soak() {
     }
 }
 
+void test_file_logger_time_base_source() {
+    // Custom +1h calibration: the sink must use the published offset instead
+    // of sampling the wall clock, and keep mono_ns authoritative.
+    chrono::TimeBaseClock::detach();
+    const std::string offset_name =
+        nexigen::tests::publish_test_time_base("offset", 3'600'000'000'000LL, /*calibrated=*/true);
+    NX_CHECK(!offset_name.empty());
+    {
+        static FileLogger<64, 128> logger{};
+        FileLoggerConfig cfg{};
+        cfg.app_name = "tb-offset";
+        cfg.base_dir = std::string(file_logger_base()) + "-tb-offset";
+        cfg.file_name = "app.jsonl";
+        cfg.rotation.kind = RotationSchedule::None;
+        NX_CHECK(logger.initialize(cfg).has_value());
+        wait_writer(logger);
+        logger.info("first");
+        logger.info("second");
+        logger.info("third");
+        NX_CHECK(logger.flush().has_value());
+
+        std::ifstream input{cfg.base_dir + "/app.jsonl"};
+        NX_CHECK(input.is_open());
+        std::string line;
+        std::uint64_t previous_mono = 0;
+        std::string previous_timestamp;
+        std::size_t lines = 0;
+        while (std::getline(input, line)) {
+            const nlohmann::json parsed = nlohmann::json::parse(line, nullptr, false);
+            NX_CHECK(!parsed.is_discarded());
+            if (parsed.is_discarded()) {
+                continue;
+            }
+            const std::string timestamp = parsed.at("timestamp").get<std::string>();
+            const std::uint64_t mono = parsed.at("mono_ns").get<std::uint64_t>();
+            char expected[31];
+            chrono::format_utc_iso8601_ns(static_cast<std::int64_t>(mono) + 3'600'000'000'000LL,
+                                          expected);
+            NX_CHECK(timestamp == std::string_view(expected, 30U));
+            NX_CHECK(mono >= previous_mono);
+            NX_CHECK(timestamp >= previous_timestamp);
+            previous_mono = mono;
+            previous_timestamp = timestamp;
+            ++lines;
+        }
+        NX_CHECK(lines == 3U);
+    }
+
+    // Without a covering calibration the line carries mono_ns/boot and a null
+    // timestamp, never a fabricated UTC value.
+    chrono::TimeBaseClock::detach();
+    const std::string empty_name =
+        nexigen::tests::publish_test_time_base("uncalibrated", 0, /*calibrated=*/false);
+    NX_CHECK(!empty_name.empty());
+    {
+        static FileLogger<64, 128> logger{};
+        FileLoggerConfig cfg{};
+        cfg.app_name = "tb-uncalibrated";
+        cfg.base_dir = std::string(file_logger_base()) + "-tb-uncal";
+        cfg.file_name = "app.jsonl";
+        cfg.rotation.kind = RotationSchedule::None;
+        NX_CHECK(logger.initialize(cfg).has_value());
+        wait_writer(logger);
+        logger.info("uncalibrated");
+        NX_CHECK(logger.flush().has_value());
+
+        std::ifstream input{cfg.base_dir + "/app.jsonl"};
+        NX_CHECK(input.is_open());
+        std::string line;
+        NX_CHECK(static_cast<bool>(std::getline(input, line)));
+        NX_CHECK(line.find("\"timestamp\":null") != std::string::npos);
+        NX_CHECK(line.find("\"mono_ns\":") != std::string::npos);
+        NX_CHECK(line.find("\"boot\":\"") != std::string::npos);
+    }
+
+    chrono::TimeBaseClock::detach();
+    nexigen::tests::install_test_time_base();
+
+    // With the calibrated default base, file timestamps track wall time.
+    {
+        static FileLogger<64, 128> logger{};
+        FileLoggerConfig cfg{};
+        cfg.app_name = "tb-wall";
+        cfg.base_dir = std::string(file_logger_base()) + "-tb-wall";
+        cfg.file_name = "app.jsonl";
+        cfg.rotation.kind = RotationSchedule::None;
+        NX_CHECK(logger.initialize(cfg).has_value());
+        wait_writer(logger);
+        logger.info("wall");
+        NX_CHECK(logger.flush().has_value());
+
+        std::ifstream input{cfg.base_dir + "/app.jsonl"};
+        std::string line;
+        NX_CHECK(static_cast<bool>(std::getline(input, line)));
+        const nlohmann::json parsed = nlohmann::json::parse(line, nullptr, false);
+        NX_CHECK(!parsed.is_discarded());
+        if (parsed.is_object()) {
+            ::timespec realtime{};
+            NX_CHECK(::clock_gettime(CLOCK_REALTIME, &realtime) == 0);
+            const std::int64_t now_utc =
+                static_cast<std::int64_t>(realtime.tv_sec) * 1'000'000'000LL + realtime.tv_nsec;
+            char expected[31];
+            char previous[31];
+            chrono::format_utc_iso8601_ns(now_utc, expected);
+            chrono::format_utc_iso8601_ns(now_utc - 1'000'000'000LL, previous);
+            const std::string timestamp = parsed.at("timestamp").get<std::string>();
+            // Same second, or the immediately neighbouring one when the log
+            // crossed a second boundary.
+            NX_CHECK(timestamp.substr(0, 19) == std::string_view(expected, 19U) ||
+                     timestamp.substr(0, 19) == std::string_view(previous, 19U));
+        }
+    }
+}
+
 /// FileLogger cold path: validation, schema, write failure, throttling,
 /// rotation/affinity and the allocation-free soak (spec logging/file-logger).
 void test_file_logger() {
@@ -339,6 +457,7 @@ void test_file_logger() {
     test_file_logger_throttling();
     test_file_logger_rotation();
     test_file_logger_soak();
+    test_file_logger_time_base_source();
 }
 } // namespace
 

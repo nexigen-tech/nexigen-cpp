@@ -59,12 +59,22 @@ void* operator new(std::size_t size) {
     return pointer;
 }
 
-void* operator new[](std::size_t size) { return ::operator new(size); }
+void* operator new[](std::size_t size) {
+    return ::operator new(size);
+}
 
-void operator delete(void* pointer) noexcept { std::free(pointer); }
-void operator delete(void* pointer, std::size_t) noexcept { std::free(pointer); }
-void operator delete[](void* pointer) noexcept { std::free(pointer); }
-void operator delete[](void* pointer, std::size_t) noexcept { std::free(pointer); }
+void operator delete(void* pointer) noexcept {
+    std::free(pointer);
+}
+void operator delete(void* pointer, std::size_t) noexcept {
+    std::free(pointer);
+}
+void operator delete[](void* pointer) noexcept {
+    std::free(pointer);
+}
+void operator delete[](void* pointer, std::size_t) noexcept {
+    std::free(pointer);
+}
 
 namespace {
 
@@ -160,8 +170,7 @@ void test_value_serialization() {
     com::EventOptions eo_untouched = eo;
     com::from_json(nlohmann::json::array(), eo_untouched);
     NX_CHECK(eo_untouched.to_string() == eo.to_string());
-    com::from_json(nlohmann::json{{"max_listeners", false}, {"max_notifiers", -1}},
-                   eo_untouched);
+    com::from_json(nlohmann::json{{"max_listeners", false}, {"max_notifiers", -1}}, eo_untouched);
     NX_CHECK(eo_untouched.to_string() == eo.to_string());
 
     com::ChannelConfig config{};
@@ -195,18 +204,18 @@ void test_value_serialization() {
 
     com::HardwareMetadata hw{};
     hw.sequence = 7U;
-    hw.timestamp_ns = 900U;
+    hw.native_ticks = 900U;
     hw.event_code = 42U;
     hw.has_sequence = true;
-    hw.has_timestamp = true;
+    hw.has_ticks = true;
     hw.has_event_code = true;
     const nlohmann::json hw_json = hw;
     com::HardwareMetadata hw_back{};
     com::from_json(hw_json, hw_back);
     NX_CHECK(hw_back.sequence == 7U);
-    NX_CHECK(hw_back.timestamp_ns == 900U);
+    NX_CHECK(hw_back.native_ticks == 900U);
     NX_CHECK(hw_back.event_code == 42U);
-    NX_CHECK(hw_back.has_sequence && hw_back.has_timestamp && hw_back.has_event_code);
+    NX_CHECK(hw_back.has_sequence && hw_back.has_ticks && hw_back.has_event_code);
     NX_CHECK(std::format("{}", hw) == hw.to_string());
 
     com::LossInfo loss{};
@@ -260,19 +269,22 @@ void test_value_serialization() {
     header.producer_epoch = 33U;
     header.ingest_timestamp_ns = 44U;
     header.hardware_sequence = 55U;
-    header.hardware_timestamp_ns = 66U;
+    header.native_ticks = 66U;
+    header.domain_id = 7U;
+    header.domain_epoch = 9U;
     header.event_code = 77U;
     header.hardware_event_code = 88U;
-    header.timestamp_domain = com::TimestampDomain::Hardware;
-    header.flags = com::EventHeader::has_payload_bit |
-                   com::EventHeader::has_hardware_sequence_bit |
+    header.flags = com::EventHeader::has_canonical_projection_bit |
+                   com::EventHeader::has_payload_bit | com::EventHeader::has_hardware_sequence_bit |
                    com::EventHeader::has_hardware_timestamp_bit |
                    com::EventHeader::has_hardware_event_code_bit;
     const nlohmann::json header_json = header;
     com::EventHeader header_back{};
     com::from_json(header_json, header_back);
     NX_CHECK(header_back.sequence_id == 11U);
-    NX_CHECK(header_back.timestamp_domain == com::TimestampDomain::Hardware);
+    NX_CHECK(header_back.domain_id == 7U);
+    NX_CHECK(header_back.domain_epoch == 9U);
+    NX_CHECK(header_back.native_ticks == 66U);
     NX_CHECK(header_back.has_payload());
     NX_CHECK(header_back.has_hardware_sequence());
     NX_CHECK(header_back.has_hardware_timestamp());
@@ -280,8 +292,7 @@ void test_value_serialization() {
     NX_CHECK(std::format("{}", header) == header.to_string());
 
     NX_CHECK(com::to_string(com::TimestampDomain::Hardware) == "Hardware");
-    NX_CHECK(com::to_string(com::LossReason::UnexpectedSequenceReset) ==
-             "UnexpectedSequenceReset");
+    NX_CHECK(com::to_string(com::LossReason::UnexpectedSequenceReset) == "UnexpectedSequenceReset");
     NX_CHECK(com::to_string(com::PublishOutcome::NotifyFailed) == "NotifyFailed");
     NX_CHECK(com::to_string(com::WaitOutcome::WokenUp) == "WokenUp");
     com::PublishOutcome po{};
@@ -291,8 +302,7 @@ void test_value_serialization() {
     NX_CHECK(std::format("{}", com::LossReason::Duplicate) == "Duplicate");
 }
 
-template <class E, std::size_t N>
-void check_enum_roundtrip(const std::array<E, N>& values) {
+template <class E, std::size_t N> void check_enum_roundtrip(const std::array<E, N>& values) {
     for (const E value : values) {
         const std::string name{com::to_string(value)};
         E parsed{};
@@ -328,8 +338,7 @@ void test_enum_roundtrip_table() {
     check_enum_roundtrip<com::PublishOutcome>(
         std::array{com::PublishOutcome::Notified, com::PublishOutcome::NotifyFailed});
     check_enum_roundtrip<com::WaitOutcome>(
-        std::array{com::WaitOutcome::Events, com::WaitOutcome::Timeout,
-                   com::WaitOutcome::WokenUp});
+        std::array{com::WaitOutcome::Events, com::WaitOutcome::Timeout, com::WaitOutcome::WokenUp});
 }
 
 void test_sequence_tracker() {
@@ -440,7 +449,8 @@ void test_channel_roundtrip() {
         NX_CHECK(received[0].sequence_id == 0U);
         NX_CHECK(received[0].event_code == 0x1234U);
         NX_CHECK(received[0].has_payload());
-        NX_CHECK(received[0].timestamp_domain == com::TimestampDomain::MonotonicRaw);
+        NX_CHECK(received[0].domain_id == 0U);
+        NX_CHECK(received[0].has_canonical_projection());
         NX_CHECK(received[0].ingest_timestamp_ns > 0U);
         NX_CHECK(received[0].timestamp_ns == received[0].ingest_timestamp_ns);
         NX_CHECK(!received[0].has_hardware_sequence());
@@ -451,7 +461,8 @@ void test_channel_roundtrip() {
     NX_CHECK(losses.empty());
     NX_CHECK(consumer->stats().received == 2U);
 
-    producer->on_source_reset();    Pod third{30U, 3U};
+    producer->on_source_reset();
+    Pod third{30U, 3U};
     outcome = producer->publish_now(third, 0x1236U);
     NX_CHECK(outcome.has_value());
     NX_CHECK(consumer->wait().has_value());
@@ -492,11 +503,10 @@ void test_empty_payload_and_hardware() {
     auto& channel = *channel_result;
 
     std::vector<com::EventHeader> received;
-    auto consumer = channel.consumer(
-        [&received](const com::EventHeader& header, const com::EmptyPayload&) {
-            received.push_back(header);
-        },
-        [](const com::LossInfo&) {});
+    auto consumer =
+        channel.consumer([&received](const com::EventHeader& header,
+                                     const com::EmptyPayload&) { received.push_back(header); },
+                         [](const com::LossInfo&) {});
     NX_CHECK(consumer.has_value());
     if (!consumer.has_value()) {
         return;
@@ -509,14 +519,18 @@ void test_empty_payload_and_hardware() {
 
     com::HardwareMetadata hardware{};
     hardware.sequence = 77U;
-    hardware.timestamp_ns = 123456U;
+    hardware.native_ticks = 123456U;
+    hardware.canonical_ns = 123456U;
+    hardware.has_canonical = true;
+    hardware.domain_id = 7U;
+    hardware.domain_epoch = 5U;
     hardware.event_code = 0xABCU;
     hardware.has_sequence = true;
-    hardware.has_timestamp = true;
+    hardware.has_ticks = true;
     hardware.has_event_code = true;
-    const auto outcome = producer->publish(com::EmptyPayload{}, 0x55U,
-                                           com::EventTime{123456U, com::TimestampDomain::Hardware},
-                                           hardware);
+    const auto outcome =
+        producer->publish(com::EmptyPayload{}, 0x55U,
+                          com::EventTime{123456U, com::TimestampDomain::Hardware}, hardware);
     NX_CHECK(outcome.has_value());
     NX_CHECK(*outcome == com::PublishOutcome::Notified);
     NX_CHECK(consumer->wait().has_value());
@@ -528,9 +542,10 @@ void test_empty_payload_and_hardware() {
         NX_CHECK(header.has_hardware_timestamp());
         NX_CHECK(header.has_hardware_event_code());
         NX_CHECK(header.hardware_sequence == 77U);
-        NX_CHECK(header.hardware_timestamp_ns == 123456U);
+        NX_CHECK(header.native_ticks == 123456U);
         NX_CHECK(header.hardware_event_code == 0xABCU);
-        NX_CHECK(header.timestamp_domain == com::TimestampDomain::Hardware);
+        NX_CHECK(header.domain_id == hardware.domain_id);
+        NX_CHECK(header.has_canonical_projection());
         NX_CHECK(header.timestamp_ns == 123456U);
         NX_CHECK(header.ingest_timestamp_ns > 0U);
     }
@@ -560,9 +575,9 @@ void test_gap_from_slow_consumer() {
 
     std::vector<com::LossInfo> losses;
     std::size_t received = 0;
-    auto consumer = channel.consumer(
-        [&received](const com::EventHeader&, const Pod&) { ++received; },
-        [&losses](const com::LossInfo& info) { losses.push_back(info); });
+    auto consumer =
+        channel.consumer([&received](const com::EventHeader&, const Pod&) { ++received; },
+                         [&losses](const com::LossInfo& info) { losses.push_back(info); });
     NX_CHECK(consumer.has_value());
     if (!consumer.has_value()) {
         return;
@@ -629,12 +644,12 @@ void test_consumer_set() {
 
     std::size_t received_a = 0;
     std::size_t received_b = 0;
-    auto consumer_a = channel_a.consumer(
-        [&received_a](const com::EventHeader&, const Pod&) { ++received_a; },
-        [](const com::LossInfo&) {});
-    auto consumer_b = channel_b.consumer(
-        [&received_b](const com::EventHeader&, const Other&) { ++received_b; },
-        [](const com::LossInfo&) {});
+    auto consumer_a =
+        channel_a.consumer([&received_a](const com::EventHeader&, const Pod&) { ++received_a; },
+                           [](const com::LossInfo&) {});
+    auto consumer_b =
+        channel_b.consumer([&received_b](const com::EventHeader&, const Other&) { ++received_b; },
+                           [](const com::LossInfo&) {});
     NX_CHECK(consumer_a.has_value() && consumer_b.has_value());
     if (!consumer_a.has_value() || !consumer_b.has_value()) {
         return;
@@ -673,12 +688,12 @@ void test_consumer_set_delivery() {
 
     std::size_t received_a = 0;
     std::size_t received_b = 0;
-    auto consumer_a = channel_a.consumer(
-        [&received_a](const com::EventHeader&, const Pod&) { ++received_a; },
-        [](const com::LossInfo&) {});
-    auto consumer_b = channel_b.consumer(
-        [&received_b](const com::EventHeader&, const Other&) { ++received_b; },
-        [](const com::LossInfo&) {});
+    auto consumer_a =
+        channel_a.consumer([&received_a](const com::EventHeader&, const Pod&) { ++received_a; },
+                           [](const com::LossInfo&) {});
+    auto consumer_b =
+        channel_b.consumer([&received_b](const com::EventHeader&, const Other&) { ++received_b; },
+                           [](const com::LossInfo&) {});
     NX_CHECK(consumer_a.has_value() && consumer_b.has_value());
     if (!consumer_a.has_value() || !consumer_b.has_value()) {
         return;
@@ -700,8 +715,7 @@ void test_consumer_set_delivery() {
     const auto outcome = set.wait_for(std::chrono::milliseconds{200});
     NX_CHECK(outcome.has_value());
     if (outcome.has_value()) {
-        NX_CHECK(*outcome == com::WaitOutcome::Events ||
-                 *outcome == com::WaitOutcome::WokenUp);
+        NX_CHECK(*outcome == com::WaitOutcome::Events || *outcome == com::WaitOutcome::WokenUp);
     }
     NX_CHECK(received_a + received_b >= 1U);
 
@@ -735,10 +749,10 @@ void test_consumer_set_capacity() {
     }
     auto& channel_a = *channel_a_result;
     auto& channel_b = *channel_b_result;
-    auto consumer_a = channel_a.consumer(
-        [](const com::EventHeader&, const Pod&) {}, [](const com::LossInfo&) {});
-    auto consumer_b = channel_b.consumer(
-        [](const com::EventHeader&, const Other&) {}, [](const com::LossInfo&) {});
+    auto consumer_a =
+        channel_a.consumer([](const com::EventHeader&, const Pod&) {}, [](const com::LossInfo&) {});
+    auto consumer_b = channel_b.consumer([](const com::EventHeader&, const Other&) {},
+                                         [](const com::LossInfo&) {});
     NX_CHECK(consumer_a.has_value() && consumer_b.has_value());
     if (!consumer_a.has_value() || !consumer_b.has_value()) {
         return;
@@ -792,8 +806,8 @@ void test_default_channel_and_std_function() {
     NX_CHECK(channel.config().queue_size == 512U);
     NX_CHECK(channel.config().history_size == 16U);
 
-    std::function<void(const com::EventHeader&, const Pod&)> on_event =
-        [](const com::EventHeader&, const Pod&) {};
+    std::function<void(const com::EventHeader&, const Pod&)> on_event = [](const com::EventHeader&,
+                                                                           const Pod&) {};
     std::function<void(const com::LossInfo&)> on_loss = [](const com::LossInfo&) {};
     auto consumer = channel.consumer(std::move(on_event), std::move(on_loss));
     NX_CHECK(consumer.has_value());
@@ -881,10 +895,12 @@ void test_hardware_ring() {
     nexigen::core::SpscRingBuffer<com::HardwareEvent<Pod>, 8U> ring{};
     com::HardwareEvent<Pod> event{};
     event.hardware_sequence = 12U;
-    event.hardware_timestamp_ns = 3456U;
+    event.native_ticks = 3456U;
+    event.domain_id = 7U;
+    event.domain_epoch = 9U;
     event.hardware_event_code = 0x77U;
     event.has_sequence = true;
-    event.has_timestamp = true;
+    event.has_ticks = true;
     event.has_event_code = true;
     event.payload = Pod{42U, 7U};
     NX_CHECK(ring.try_push(event).has_value());
@@ -893,23 +909,47 @@ void test_hardware_ring() {
 
     com::HardwareMetadata metadata{};
     metadata.sequence = popped.hardware_sequence;
-    metadata.timestamp_ns = popped.hardware_timestamp_ns;
+    metadata.native_ticks = popped.native_ticks;
+    metadata.domain_id = popped.domain_id;
+    metadata.domain_epoch = popped.domain_epoch;
     metadata.event_code = popped.hardware_event_code;
     metadata.has_sequence = popped.has_sequence;
-    metadata.has_timestamp = popped.has_timestamp;
+    metadata.has_ticks = popped.has_ticks;
     metadata.has_event_code = popped.has_event_code;
-    const auto outcome = producer->publish(popped.payload, 0x77U,
-                                           com::EventTime{popped.hardware_timestamp_ns,
-                                                          com::TimestampDomain::Hardware},
-                                           metadata);
+    const auto outcome = producer->publish(
+        popped.payload, 0x77U, com::EventTime{popped.native_ticks, com::TimestampDomain::Hardware},
+        metadata);
     NX_CHECK(outcome.has_value());
     NX_CHECK(consumer->wait().has_value());
     NX_CHECK(received.size() == 1U);
     if (received.size() == 1U) {
         NX_CHECK(received[0].hardware_sequence == 12U);
-        NX_CHECK(received[0].hardware_timestamp_ns == 3456U);
+        NX_CHECK(received[0].native_ticks == 3456U);
         NX_CHECK(received[0].hardware_event_code == 0x77U);
-        NX_CHECK(received[0].timestamp_domain == com::TimestampDomain::Hardware);
+        NX_CHECK(received[0].domain_id != 0U);
+    }
+
+    // The ring is quiesced (popped above); a new source lifecycle changes the
+    // producer epoch and the domain epoch while ticks stay raw.
+    const std::uint64_t first_epoch = received.empty() ? 0U : received[0].producer_epoch;
+    producer->on_source_reset();
+    event.native_ticks = 3500U;
+    event.domain_epoch = 10U;
+    NX_CHECK(ring.try_push(event).has_value());
+    NX_CHECK(ring.try_pop(popped).has_value());
+    metadata.native_ticks = popped.native_ticks;
+    metadata.domain_epoch = popped.domain_epoch;
+    NX_CHECK(producer
+                 ->publish(popped.payload, 0x78U,
+                           com::EventTime{popped.native_ticks, com::TimestampDomain::Hardware},
+                           metadata)
+                 .has_value());
+    NX_CHECK(consumer->wait().has_value());
+    NX_CHECK(received.size() == 2U);
+    if (received.size() == 2U) {
+        NX_CHECK(received[1].native_ticks == 3500U); // unchanged by the gateway
+        NX_CHECK(received[1].domain_epoch == 10U);
+        NX_CHECK(received[1].producer_epoch != first_epoch);
     }
 }
 
@@ -947,25 +987,26 @@ void test_partial_hardware_flags() {
     com::HardwareMetadata sequence_only{};
     sequence_only.sequence = 5U;
     sequence_only.has_sequence = true;
-    NX_CHECK(producer->publish(Pod{1U, 0U}, 1U,
-                               com::EventTime{100U, com::TimestampDomain::Hardware},
-                               sequence_only)
+    NX_CHECK(producer
+                 ->publish(Pod{1U, 0U}, 1U, com::EventTime{100U, com::TimestampDomain::Hardware},
+                           sequence_only)
                  .has_value());
 
     com::HardwareMetadata timestamp_only{};
-    timestamp_only.timestamp_ns = 200U;
-    timestamp_only.has_timestamp = true;
-    NX_CHECK(producer->publish(Pod{2U, 0U}, 2U,
-                               com::EventTime{200U, com::TimestampDomain::Hardware},
-                               timestamp_only)
+    timestamp_only.native_ticks = 200U;
+    timestamp_only.domain_id = 7U;
+    timestamp_only.has_ticks = true;
+    NX_CHECK(producer
+                 ->publish(Pod{2U, 0U}, 2U, com::EventTime{200U, com::TimestampDomain::Hardware},
+                           timestamp_only)
                  .has_value());
 
     com::HardwareMetadata code_only{};
     code_only.event_code = 7U;
     code_only.has_event_code = true;
-    NX_CHECK(producer->publish(Pod{3U, 0U}, 3U,
-                               com::EventTime{300U, com::TimestampDomain::Hardware},
-                               code_only)
+    NX_CHECK(producer
+                 ->publish(Pod{3U, 0U}, 3U, com::EventTime{300U, com::TimestampDomain::Hardware},
+                           code_only)
                  .has_value());
 
     NX_CHECK(consumer->wait().has_value());
@@ -1022,22 +1063,24 @@ void test_source_reset_after_quiescence() {
     nexigen::core::SpscRingBuffer<com::HardwareEvent<Pod>, 8U> ring{};
     com::HardwareEvent<Pod> old_event{};
     old_event.payload = Pod{1U, 0U};
-    old_event.hardware_timestamp_ns = 100U;
+    old_event.native_ticks = 100U;
     old_event.hardware_event_code = 1U;
-    old_event.has_timestamp = true;
+    old_event.has_ticks = true;
     old_event.has_event_code = true;
     NX_CHECK(ring.try_push(old_event).has_value());
     com::HardwareEvent<Pod> popped{};
     NX_CHECK(ring.try_pop(popped).has_value());
     com::HardwareMetadata old_metadata{};
-    old_metadata.timestamp_ns = popped.hardware_timestamp_ns;
+    old_metadata.native_ticks = popped.native_ticks;
+    old_metadata.domain_id = popped.domain_id;
+    old_metadata.domain_epoch = popped.domain_epoch;
     old_metadata.event_code = popped.hardware_event_code;
-    old_metadata.has_timestamp = popped.has_timestamp;
+    old_metadata.has_ticks = popped.has_ticks;
     old_metadata.has_event_code = popped.has_event_code;
-    NX_CHECK(producer->publish(popped.payload, 0x10U,
-                               com::EventTime{popped.hardware_timestamp_ns,
-                                              com::TimestampDomain::Hardware},
-                               old_metadata)
+    NX_CHECK(producer
+                 ->publish(popped.payload, 0x10U,
+                           com::EventTime{popped.native_ticks, com::TimestampDomain::Hardware},
+                           old_metadata)
                  .has_value());
     NX_CHECK(consumer->wait().has_value());
     NX_CHECK(headers.size() == 1U);
@@ -1045,32 +1088,33 @@ void test_source_reset_after_quiescence() {
 
     com::HardwareEvent<Pod> stale{};
     stale.payload = Pod{2U, 0U};
-    stale.hardware_timestamp_ns = 200U;
-    stale.has_timestamp = true;
+    stale.native_ticks = 200U;
+    stale.has_ticks = true;
     NX_CHECK(ring.try_push(stale).has_value());
     com::HardwareEvent<Pod> discarded{};
-    while (ring.try_pop(discarded).has_value()) {
-    }
+    while (ring.try_pop(discarded).has_value()) {}
 
     producer->on_source_reset();
 
     com::HardwareEvent<Pod> fresh{};
     fresh.payload = Pod{3U, 0U};
-    fresh.hardware_timestamp_ns = 300U;
+    fresh.native_ticks = 300U;
     fresh.hardware_event_code = 3U;
-    fresh.has_timestamp = true;
+    fresh.has_ticks = true;
     fresh.has_event_code = true;
     NX_CHECK(ring.try_push(fresh).has_value());
     NX_CHECK(ring.try_pop(popped).has_value());
     com::HardwareMetadata fresh_metadata{};
-    fresh_metadata.timestamp_ns = popped.hardware_timestamp_ns;
+    fresh_metadata.native_ticks = popped.native_ticks;
+    fresh_metadata.domain_id = popped.domain_id;
+    fresh_metadata.domain_epoch = popped.domain_epoch;
     fresh_metadata.event_code = popped.hardware_event_code;
-    fresh_metadata.has_timestamp = popped.has_timestamp;
+    fresh_metadata.has_ticks = popped.has_ticks;
     fresh_metadata.has_event_code = popped.has_event_code;
-    NX_CHECK(producer->publish(popped.payload, 0x11U,
-                               com::EventTime{popped.hardware_timestamp_ns,
-                                              com::TimestampDomain::Hardware},
-                               fresh_metadata)
+    NX_CHECK(producer
+                 ->publish(popped.payload, 0x11U,
+                           com::EventTime{popped.native_ticks, com::TimestampDomain::Hardware},
+                           fresh_metadata)
                  .has_value());
     NX_CHECK(consumer->wait().has_value());
     NX_CHECK(headers.size() == 2U && payloads.size() == 2U);
@@ -1112,8 +1156,7 @@ void test_channel_port_isolation() {
     NX_CHECK(producer.has_value());
     auto external_subscriber = com::Subscriber<Pod, com::EventHeader>::create(
         *node, *name_a, config.publish_subscribe_options());
-    auto external_listener =
-        com::EventListener::create(*node, *name_a, config.event_options());
+    auto external_listener = com::EventListener::create(*node, *name_a, config.event_options());
     NX_CHECK(external_subscriber.has_value());
     NX_CHECK(external_listener.has_value());
 
@@ -1122,13 +1165,12 @@ void test_channel_port_isolation() {
     if (!consumer_channel.has_value()) {
         return;
     }
-    auto consumer = consumer_channel->consumer(
-        [](const com::EventHeader&, const Pod&) {}, [](const com::LossInfo&) {});
+    auto consumer = consumer_channel->consumer([](const com::EventHeader&, const Pod&) {},
+                                               [](const com::LossInfo&) {});
     NX_CHECK(consumer.has_value());
     auto external_publisher = com::Publisher<Pod, com::EventHeader>::create(
         *node, *name_b, config.publish_subscribe_options());
-    auto external_notifier =
-        com::EventNotifier::create(*node, *name_b, config.event_options());
+    auto external_notifier = com::EventNotifier::create(*node, *name_b, config.event_options());
     NX_CHECK(external_publisher.has_value());
     NX_CHECK(external_notifier.has_value());
 }
@@ -1225,9 +1267,9 @@ void test_consumer_set_sixteen_full_capacity() {
     std::vector<Consumer> consumers;
     consumers.reserve(17U);
     for (std::size_t i = 0; i < 16U; ++i) {
-        auto consumer = channel_a->consumer(
-            std::function<void(const com::EventHeader&, const Pod&)>{},
-            std::function<void(const com::LossInfo&)>{});
+        auto consumer =
+            channel_a->consumer(std::function<void(const com::EventHeader&, const Pod&)>{},
+                                std::function<void(const com::LossInfo&)>{});
         NX_CHECK(consumer.has_value());
         if (!consumer.has_value()) {
             return;
@@ -1241,9 +1283,8 @@ void test_consumer_set_sixteen_full_capacity() {
     if (!channel_b.has_value()) {
         return;
     }
-    auto extra = channel_b->consumer(
-        std::function<void(const com::EventHeader&, const Pod&)>{},
-        std::function<void(const com::LossInfo&)>{});
+    auto extra = channel_b->consumer(std::function<void(const com::EventHeader&, const Pod&)>{},
+                                     std::function<void(const com::LossInfo&)>{});
     NX_CHECK(extra.has_value());
     if (!extra.has_value()) {
         return;
@@ -1292,8 +1333,7 @@ void test_config_validation_and_options() {
     if (invalid_name.has_value()) {
         com::ChannelConfig invalid_channel{};
         invalid_channel.max_consumers = 0U;
-        const auto rejected = com::EventChannel<Pod>::create(*node, *invalid_name,
-                                                             invalid_channel);
+        const auto rejected = com::EventChannel<Pod>::create(*node, *invalid_name, invalid_channel);
         NX_CHECK(!rejected.has_value());
         if (!rejected.has_value()) {
             NX_CHECK(rejected.error() == com::Error::InvalidArgument);
@@ -1373,8 +1413,9 @@ void test_hardware_sequence_is_trace_only() {
         com::HardwareMetadata hw{};
         hw.sequence = hardware;
         hw.has_sequence = true;
-        NX_CHECK(producer->publish(Pod{hardware, 0U}, 1U,
-                                   com::EventTime{0U, com::TimestampDomain::Hardware}, hw)
+        NX_CHECK(producer
+                     ->publish(Pod{hardware, 0U}, 1U,
+                               com::EventTime{0U, com::TimestampDomain::Hardware}, hw)
                      .has_value());
     }
     NX_CHECK(consumer->wait().has_value());
@@ -1385,11 +1426,9 @@ void test_hardware_sequence_is_trace_only() {
 
 void test_notify_outcome_mapping() {
     const com::Status success{};
-    NX_CHECK(com::detail::publish_outcome_from_notify(success) ==
-             com::PublishOutcome::Notified);
+    NX_CHECK(com::detail::publish_outcome_from_notify(success) == com::PublishOutcome::Notified);
     const com::Status failed = std::unexpected(com::Error::ConnectionFailure);
-    NX_CHECK(com::detail::publish_outcome_from_notify(failed) ==
-             com::PublishOutcome::NotifyFailed);
+    NX_CHECK(com::detail::publish_outcome_from_notify(failed) == com::PublishOutcome::NotifyFailed);
 }
 
 void test_allocation_free_hot_paths() {
@@ -1414,9 +1453,8 @@ void test_allocation_free_hot_paths() {
     }
     auto& channel = *channel_result;
     auto producer = channel.producer();
-    auto consumer = channel.consumer(
-        [](const com::EventHeader&, const Pod&) {},
-        [](const com::LossInfo&) {});
+    auto consumer =
+        channel.consumer([](const com::EventHeader&, const Pod&) {}, [](const com::LossInfo&) {});
     NX_CHECK(producer.has_value() && consumer.has_value());
     if (!producer.has_value() || !consumer.has_value()) {
         return;
@@ -1427,8 +1465,8 @@ void test_allocation_free_hot_paths() {
     nexigen::core::SpscRingBuffer<com::HardwareEvent<Pod>, 8U> ring{};
     com::HardwareEvent<Pod> event{};
     event.payload = Pod{1U, 1U};
-    event.hardware_timestamp_ns = 10U;
-    event.has_timestamp = true;
+    event.native_ticks = 10U;
+    event.has_ticks = true;
     com::HardwareEvent<Pod> popped{};
 
     g_allocation_count.store(0U, std::memory_order_relaxed);

@@ -39,7 +39,8 @@ public:
     /// @note Spec `recorder/raw-storage`, requirement "Session manifest and
     ///       segment triplet"; the manifest is written atomically before the
     ///       writer is returned.
-    [[nodiscard]] static core::Result<SessionWriter> create(const StorageSettings& settings) noexcept;
+    [[nodiscard]] static core::Result<SessionWriter>
+    create(const StorageSettings& settings) noexcept;
 
     /// @brief Move ownership of the writer and its open segment descriptors.
     /// @param other Writer to move from; it becomes empty.
@@ -83,8 +84,7 @@ public:
     ///       keeps reconnects from fragmenting the dataset inventory.
     [[nodiscard]] core::Result<std::uint32_t>
     declare_channel(std::string_view topic, std::uint32_t schema_id, DatasetKind kind,
-                    std::string_view message_encoding,
-                    std::string_view metadata = {}) noexcept;
+                    std::string_view message_encoding, std::string_view metadata = {}) noexcept;
 
     /// @brief Append one record. `payload` is copied into the write buffer.
     /// @param type Record type.
@@ -100,8 +100,7 @@ public:
     ///       `.nxrec` plus `.nxvid`.
     [[nodiscard]] core::Status append(RecordType type, std::uint32_t channel_id,
                                       std::span<const std::byte> payload, std::uint64_t event_ns,
-                                      std::uint64_t sequence,
-                                      std::uint64_t publisher_id) noexcept;
+                                      std::uint64_t sequence, std::uint64_t publisher_id) noexcept;
 
     /// @brief Drain one producer shard into the active segment.
     /// @param shard Producer shard owned by one producer thread.
@@ -116,6 +115,22 @@ public:
     /// @note Spec `recorder/raw-storage`, requirement "Time and sequence
     ///       mapping"; the converter derives UTC from this record.
     [[nodiscard]] core::Status append_time_sync(std::int64_t utc_offset_ns) noexcept;
+
+    /// @brief Record one published time-base change (domain history entry).
+    /// @param entry History entry with rows, boot identity and epoch binding.
+    /// @return `Ok`, or a failure when the segment cannot be written.
+    /// @note Spec `recorder/raw-storage`, requirement "Time-base history
+    ///       persistence"; the entry is appended verbatim, so the exporter
+    ///       resolves native instants without the original daemon.
+    [[nodiscard]] core::Status append_time_base(const TimeBasePayload& entry) noexcept;
+
+    /// @brief Record one 1 Hz time-service snapshot.
+    /// @param snapshot Snapshot with every domain value, epoch, and flag.
+    /// @return `Ok`, or a failure when the segment cannot be written.
+    /// @note Spec `recorder/raw-storage`, requirement "TimeSnapshot record"; the
+    ///       snapshot never duplicates the coefficient table, so a reader pairs
+    ///       it with the `TimeBase` entry of the same generation.
+    [[nodiscard]] core::Status append_time_snapshot(const chrono::TimeSnapshot& snapshot) noexcept;
 
     /// @brief Write a video frame into `.nxvid` and append its reference.
     ///

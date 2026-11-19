@@ -33,24 +33,30 @@ namespace nexigen::recorder {
 struct StorageSettings {
     std::string session_root{"/var/log/nexigen/sessions"}; ///< Absolute session root.
     std::string session_id{};                              ///< Safe relative session id.
-    std::string session_layout{"{session_id}"};            ///< Relative layout; {session_id}/{label} tokens.
-    RecorderFormat format{RecorderFormat::Raw};            ///< revision 1: Raw only
-    TimeDomain time_domain{TimeDomain::MonotonicRaw};      ///< declared session time domain
-    std::uint64_t max_segment_bytes{1ULL << 30U};          ///< Byte cap; `.nxrec` + `.nxvid`.
+    std::string session_layout{"{session_id}"}; ///< Relative layout; {session_id}/{label} tokens.
+    RecorderFormat format{RecorderFormat::Raw}; ///< revision 1: Raw only
+    TimeDomain time_domain{TimeDomain::MonotonicRaw}; ///< declared session time domain
+    std::uint64_t max_segment_bytes{1ULL << 30U};     ///< Byte cap; `.nxrec` + `.nxvid`.
     std::uint64_t max_segment_duration_ns{60ULL * 1'000'000'000ULL}; ///< Wall-clock cap.
-    std::uint64_t max_segment_records{0};                  ///< 0 = no record-count cap
-    std::uint64_t index_stride_bytes{256ULL * 1024ULL};    ///< 256 KiB index stride.
-    std::uint64_t index_interval_ns{50ULL * 1'000'000ULL}; ///< 50 ms index interval.
-    std::uint64_t write_buffer_bytes{1ULL << 20U};         ///< Preallocated record buffer.
-    std::uint64_t index_buffer_bytes{64ULL * 1024ULL};     ///< Preallocated index buffer.
-    std::uint64_t video_frame_buffer_bytes{4ULL << 20U};   ///< Max accepted frame size.
-    std::uint64_t max_record_bytes{1ULL << 20U};           ///< Max accepted record payload.
-    std::uint64_t retention_max_bytes{0};                  ///< 0 = unlimited retained bytes.
-    std::uint64_t min_free_bytes{10ULL << 30U};            ///< Free-space floor for a new segment.
-    RetentionPolicy retention{RetentionPolicy::Circular};  ///< closed-segment policy
+    std::uint64_t max_segment_records{0};                            ///< 0 = no record-count cap
+    std::uint64_t index_stride_bytes{256ULL * 1024ULL};              ///< 256 KiB index stride.
+    std::uint64_t index_interval_ns{50ULL * 1'000'000ULL};           ///< 50 ms index interval.
+    std::uint64_t write_buffer_bytes{1ULL << 20U};        ///< Preallocated record buffer.
+    std::uint64_t index_buffer_bytes{64ULL * 1024ULL};    ///< Preallocated index buffer.
+    std::uint64_t video_frame_buffer_bytes{4ULL << 20U};  ///< Max accepted frame size.
+    std::uint64_t max_record_bytes{1ULL << 20U};          ///< Max accepted record payload.
+    std::uint64_t retention_max_bytes{0};                 ///< 0 = unlimited retained bytes.
+    std::uint64_t min_free_bytes{10ULL << 30U};           ///< Free-space floor for a new segment.
+    RetentionPolicy retention{RetentionPolicy::Circular}; ///< closed-segment policy
     /// @brief Optional per-frame CRC. Off is the default; spec
     ///        `recorder/video-storage`, scenario "CRC off is the default".
     VideoCrcMode video_crc{VideoCrcMode::Off};
+    /// 16-hex boot token the session's instants belong to.
+    std::string boot_token{};
+    /// Full kernel boot UUID (optional; low-rate manifest field).
+    std::string boot_uuid{};
+    /// Time-base daemon epoch/generation the session was recorded under.
+    std::uint64_t time_base_epoch{0};
 
     /// @brief Validate every limit and the format before any file is created.
     /// @return `Ok`, or `InvalidArgument`/`UnsupportedFormat` for a rejected value.

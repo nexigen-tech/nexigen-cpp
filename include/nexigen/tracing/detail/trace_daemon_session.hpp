@@ -26,6 +26,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <nexigen/chrono/time_base_clock.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/chrono/utc_offset.hpp>
 #include <nexigen/com/callback_progression.hpp>
@@ -122,6 +123,9 @@ public:
         }
         apply_affinity();
         static_cast<void>(chrono::sample_utc_offset(utc_offset_ns_));
+        // Best effort: derive UTC from the suite time base when it publishes
+        // under the default name.
+        static_cast<void>(chrono::TimeBaseClock::attach("/nexigen-timebase"));
 
         const core::Status ports = open_ports();
         if (!ports) {

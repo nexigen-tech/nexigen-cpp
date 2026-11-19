@@ -27,6 +27,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/chrono/time_base_clock.hpp>
 #include <nexigen/chrono/utc_offset.hpp>
 #include <nexigen/com/callback_progression.hpp>
 #include <nexigen/com/event.hpp>
@@ -177,6 +178,9 @@ int run_session(const metrics::MetricDaemonConfig& cfg) {
     // UTC offset for the history line's utc_ns (best-effort; 0 on failure).
     std::int64_t utc_offset_ns = 0;
     static_cast<void>(chrono::sample_utc_offset(utc_offset_ns));
+    // Best effort: use the published suite time base for the history UTC
+    // fields when it is present under the default name.
+    static_cast<void>(chrono::TimeBaseClock::attach("/nexigen-timebase"));
 
     if (!ensure_dir(cfg.storage_directory)) {
         std::fprintf(stderr, "nexigen-metricsd: cannot create storage directory %s\n",

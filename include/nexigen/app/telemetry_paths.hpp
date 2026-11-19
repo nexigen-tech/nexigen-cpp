@@ -4,7 +4,7 @@
 #include <nlohmann/json.hpp>
 namespace nexigen::app {
 
-/// @brief Resolved output locations of the three JSONL telemetry streams.
+/// @brief Resolved output locations of the telemetry streams.
 ///
 /// Each member holds an absolute path, or an empty string meaning "the helper
 /// does not configure that sink". The resolver fills them independently:
@@ -16,11 +16,10 @@ namespace nexigen::app {
 struct TelemetryPaths {
     std::string metrics{}; ///< Metrics JSONL path ("" = unconfigured).
     std::string traces{};  ///< Traces JSONL path ("" = unconfigured).
-    std::string chrono{};  ///< Chrono JSONL path ("" = unconfigured).
 
     /// @brief Render the resolved paths as a cold-path diagnostic string.
     ///
-    /// @return Text naming all three stream locations.
+    /// @return Text naming the metrics and traces stream locations.
     /// @note Spec `app/telemetry-layout`, requirement "Identity and resolved
     ///       paths are serializable"; diagnostic only (project mandate 9).
     [[nodiscard]] std::string to_string() const;
@@ -35,7 +34,7 @@ struct TelemetryPaths {
 }
 /// @brief Write the resolved paths as JSON (cold path).
 ///
-/// @param j Output JSON object with the metrics, traces and chrono paths.
+/// @param j Output JSON object with the metrics and traces paths.
 /// @param paths Resolved paths to serialize.
 /// @note Spec `app/telemetry-layout`, requirement "Identity and resolved paths
 ///       are serializable"; JSON only (project mandate 10).

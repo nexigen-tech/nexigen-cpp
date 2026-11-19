@@ -46,26 +46,28 @@ enum class TimeDomain : std::uint8_t {
 /// @note Spec `recorder/raw-storage`, requirements "Record framing and CRC-32C"
 ///       and "Time and sequence mapping"; declarations carry no payload.
 enum class RecordType : std::uint16_t {
-    ChannelDeclare = 1,   ///< `ChannelDeclare` JSON payload.
-    SchemaDeclare = 2,    ///< `SchemaDeclare` JSON payload.
-    LogFrame = 3,         ///< `nexigen.logging::LogFrame` bytes.
-    MetricFrame = 4,      ///< `nexigen.metrics::MetricFrame` bytes.
-    SpanFrame = 5,        ///< `nexigen.tracing::SpanFrame` bytes.
-    ComPayload = 6,       ///< Opaque/telemetry payload bytes.
-    VideoFrameRef = 7,    ///< `VideoFrameRef` pointing into `.nxvid`.
-    VideoStreamConfig = 8,///< `VideoStreamConfig` codec declaration.
-    GapMarker = 9,        ///< `GapMarkerPayload` for a sequence discontinuity.
-    TimeSync = 10,        ///< `TimeSyncPayload` monotonic-to-UTC calibration.
+    ChannelDeclare = 1,    ///< `ChannelDeclare` JSON payload.
+    SchemaDeclare = 2,     ///< `SchemaDeclare` JSON payload.
+    LogFrame = 3,          ///< `nexigen.logging::LogFrame` bytes.
+    MetricFrame = 4,       ///< `nexigen.metrics::MetricFrame` bytes.
+    SpanFrame = 5,         ///< `nexigen.tracing::SpanFrame` bytes.
+    ComPayload = 6,        ///< Opaque/telemetry payload bytes.
+    VideoFrameRef = 7,     ///< `VideoFrameRef` pointing into `.nxvid`.
+    VideoStreamConfig = 8, ///< `VideoStreamConfig` codec declaration.
+    GapMarker = 9,         ///< `GapMarkerPayload` for a sequence discontinuity.
+    TimeSync = 10,         ///< `TimeSyncPayload` monotonic-to-UTC calibration.
+    TimeBase = 11,         ///< `TimeBasePayload` published domain-history entry.
+    TimeSnapshot = 12,     ///< `chrono::TimeSnapshot` 1 Hz service snapshot.
 };
 
 /// @brief Reason attached to a `GapMarker` record.
 /// @note Spec `recorder/raw-storage`, requirement "Time and sequence mapping";
 ///       spec `recorder/video-storage`, requirement "Video gap reporting".
 enum class GapReason : std::uint16_t {
-    Unknown = 0,         ///< No specific reason was supplied.
-    IoxRingOverflow = 1, ///< The iceoryx2 receive ring overflowed.
-    EncoderOverload = 2, ///< The encoder could not keep up with the source.
-    IoBackpressure = 3,  ///< A producer shard was full and dropped records.
+    Unknown = 0,             ///< No specific reason was supplied.
+    IoxRingOverflow = 1,     ///< The iceoryx2 receive ring overflowed.
+    EncoderOverload = 2,     ///< The encoder could not keep up with the source.
+    IoBackpressure = 3,      ///< A producer shard was full and dropped records.
     StreamDiscontinuity = 4, ///< The source sequence skipped frames.
 };
 
@@ -74,16 +76,16 @@ enum class GapReason : std::uint16_t {
 ///       "Self-contained video codec configuration"; the recorder never decodes
 ///       or re-encodes the bytes.
 enum class VideoCodec : std::uint16_t {
-    Unknown = 0,   ///< No codec was declared; extraction must reject it.
-    RawRgb24 = 1,  ///< Uncompressed RGB24.
-    RawBgr24 = 2,  ///< Uncompressed BGR24.
-    RawNv12 = 3,   ///< Uncompressed NV12.
-    RawYuv420p = 4,///< Uncompressed YUV 4:2:0 planar.
-    RawBayer8 = 5, ///< Uncompressed 8-bit Bayer mosaic.
-    JpegXs = 10,   ///< JPEG XS compressed stream.
-    H264 = 11,     ///< H.264/AVC elementary stream.
-    H265 = 12,     ///< H.265/HEVC elementary stream.
-    Av1 = 13,      ///< AV1 OBU stream.
+    Unknown = 0,    ///< No codec was declared; extraction must reject it.
+    RawRgb24 = 1,   ///< Uncompressed RGB24.
+    RawBgr24 = 2,   ///< Uncompressed BGR24.
+    RawNv12 = 3,    ///< Uncompressed NV12.
+    RawYuv420p = 4, ///< Uncompressed YUV 4:2:0 planar.
+    RawBayer8 = 5,  ///< Uncompressed 8-bit Bayer mosaic.
+    JpegXs = 10,    ///< JPEG XS compressed stream.
+    H264 = 11,      ///< H.264/AVC elementary stream.
+    H265 = 12,      ///< H.265/HEVC elementary stream.
+    Av1 = 13,       ///< AV1 OBU stream.
 };
 
 /// @brief Bitstream framing of a stored video codec.
@@ -101,8 +103,8 @@ enum class BitstreamFormat : std::uint16_t {
 /// @note Spec `recorder/video-storage`, requirement "Optional per-frame CRC";
 ///       `Off` is the default and the benchmarked fast path.
 enum class VideoCrcMode : std::uint8_t {
-    Off,     ///< No per-frame CRC; the footer CRC still covers metadata.
-    PerFrame,///< `VideoFrameRef::vid_crc32c` covers the exact frame bytes.
+    Off,      ///< No per-frame CRC; the footer CRC still covers metadata.
+    PerFrame, ///< `VideoFrameRef::vid_crc32c` covers the exact frame bytes.
 };
 
 /// @brief Semantic kind of a declared channel.
@@ -151,11 +153,11 @@ using VideoGapReason = GapReason;
 /// @note Every recorder enum is serialized by its canonical PascalCase spelling,
 ///       matching the on-disk manifest and declaration records.
 #define NEXIGEN_RECORDER_ENUM_JSON(Type)                                                           \
-    inline void to_json(nlohmann::json& j, Type value) {                                          \
-        core::mandate::enum_to_json(j, value);                                                    \
-    }                                                                                             \
-    inline void from_json(const nlohmann::json& j, Type& value) noexcept {                        \
-        core::mandate::enum_from_json(j, value);                                                  \
+    inline void to_json(nlohmann::json& j, Type value) {                                           \
+        core::mandate::enum_to_json(j, value);                                                     \
+    }                                                                                              \
+    inline void from_json(const nlohmann::json& j, Type& value) noexcept {                         \
+        core::mandate::enum_from_json(j, value);                                                   \
     }
 
 NEXIGEN_RECORDER_ENUM_JSON(RecorderFormat)
@@ -183,10 +185,11 @@ template <> struct EnumTraits<nexigen::recorder::RecorderFormat> {
     /// @brief One canonical spelling row.
     struct Entry {
         nexigen::recorder::RecorderFormat value; ///< Enum value.
-        std::string_view name; ///< Canonical PascalCase spelling.
+        std::string_view name;                   ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical spelling table.
-    static constexpr std::array<Entry, 1> entries{{{nexigen::recorder::RecorderFormat::Raw, "Raw"}}};
+    static constexpr std::array<Entry, 1> entries{
+        {{nexigen::recorder::RecorderFormat::Raw, "Raw"}}};
 };
 
 /// @brief Canonical name table for a recorder enum (`core::enum_name`/`enum_value`).
@@ -196,7 +199,7 @@ template <> struct EnumTraits<nexigen::recorder::TimeDomain> {
     /// @brief One canonical spelling row.
     struct Entry {
         nexigen::recorder::TimeDomain value; ///< Enum value.
-        std::string_view name; ///< Canonical PascalCase spelling.
+        std::string_view name;               ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical spelling table.
     static constexpr std::array<Entry, 2> entries{
@@ -211,10 +214,10 @@ template <> struct EnumTraits<nexigen::recorder::RecordType> {
     /// @brief One canonical spelling row.
     struct Entry {
         nexigen::recorder::RecordType value; ///< Enum value.
-        std::string_view name; ///< Canonical PascalCase spelling.
+        std::string_view name;               ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical spelling table.
-    static constexpr std::array<Entry, 10> entries{
+    static constexpr std::array<Entry, 12> entries{
         {{nexigen::recorder::RecordType::ChannelDeclare, "ChannelDeclare"},
          {nexigen::recorder::RecordType::SchemaDeclare, "SchemaDeclare"},
          {nexigen::recorder::RecordType::LogFrame, "LogFrame"},
@@ -224,7 +227,9 @@ template <> struct EnumTraits<nexigen::recorder::RecordType> {
          {nexigen::recorder::RecordType::VideoFrameRef, "VideoFrameRef"},
          {nexigen::recorder::RecordType::VideoStreamConfig, "VideoStreamConfig"},
          {nexigen::recorder::RecordType::GapMarker, "GapMarker"},
-         {nexigen::recorder::RecordType::TimeSync, "TimeSync"}}};
+         {nexigen::recorder::RecordType::TimeSync, "TimeSync"},
+         {nexigen::recorder::RecordType::TimeBase, "TimeBase"},
+         {nexigen::recorder::RecordType::TimeSnapshot, "TimeSnapshot"}}};
 };
 
 /// @brief Canonical name table for a recorder enum (`core::enum_name`/`enum_value`).
@@ -234,7 +239,7 @@ template <> struct EnumTraits<nexigen::recorder::GapReason> {
     /// @brief One canonical spelling row.
     struct Entry {
         nexigen::recorder::GapReason value; ///< Enum value.
-        std::string_view name; ///< Canonical PascalCase spelling.
+        std::string_view name;              ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical spelling table.
     static constexpr std::array<Entry, 5> entries{
@@ -252,7 +257,7 @@ template <> struct EnumTraits<nexigen::recorder::VideoCodec> {
     /// @brief One canonical spelling row.
     struct Entry {
         nexigen::recorder::VideoCodec value; ///< Enum value.
-        std::string_view name; ///< Canonical PascalCase spelling.
+        std::string_view name;               ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical spelling table.
     static constexpr std::array<Entry, 10> entries{
@@ -275,7 +280,7 @@ template <> struct EnumTraits<nexigen::recorder::BitstreamFormat> {
     /// @brief One canonical spelling row.
     struct Entry {
         nexigen::recorder::BitstreamFormat value; ///< Enum value.
-        std::string_view name; ///< Canonical PascalCase spelling.
+        std::string_view name;                    ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical spelling table.
     static constexpr std::array<Entry, 5> entries{
@@ -293,7 +298,7 @@ template <> struct EnumTraits<nexigen::recorder::VideoCrcMode> {
     /// @brief One canonical spelling row.
     struct Entry {
         nexigen::recorder::VideoCrcMode value; ///< Enum value.
-        std::string_view name; ///< Canonical PascalCase spelling.
+        std::string_view name;                 ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical spelling table.
     static constexpr std::array<Entry, 2> entries{
@@ -308,7 +313,7 @@ template <> struct EnumTraits<nexigen::recorder::DatasetKind> {
     /// @brief One canonical spelling row.
     struct Entry {
         nexigen::recorder::DatasetKind value; ///< Enum value.
-        std::string_view name; ///< Canonical PascalCase spelling.
+        std::string_view name;                ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical spelling table.
     static constexpr std::array<Entry, 3> entries{
@@ -324,7 +329,7 @@ template <> struct EnumTraits<nexigen::recorder::RetentionPolicy> {
     /// @brief One canonical spelling row.
     struct Entry {
         nexigen::recorder::RetentionPolicy value; ///< Enum value.
-        std::string_view name; ///< Canonical PascalCase spelling.
+        std::string_view name;                    ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical spelling table.
     static constexpr std::array<Entry, 2> entries{
@@ -339,7 +344,7 @@ template <> struct EnumTraits<nexigen::recorder::ExportFormat> {
     /// @brief One canonical spelling row.
     struct Entry {
         nexigen::recorder::ExportFormat value; ///< Enum value.
-        std::string_view name; ///< Canonical PascalCase spelling.
+        std::string_view name;                 ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical spelling table.
     static constexpr std::array<Entry, 4> entries{
@@ -356,7 +361,7 @@ template <> struct EnumTraits<nexigen::recorder::VideoExportFormat> {
     /// @brief One canonical spelling row.
     struct Entry {
         nexigen::recorder::VideoExportFormat value; ///< Enum value.
-        std::string_view name; ///< Canonical PascalCase spelling.
+        std::string_view name;                      ///< Canonical PascalCase spelling.
     };
     /// @brief Canonical spelling table.
     static constexpr std::array<Entry, 3> entries{

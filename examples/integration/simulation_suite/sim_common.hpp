@@ -24,6 +24,7 @@
 #include <vector>
 
 #include <nexigen/app/infrastructure.hpp>
+#include "../../app/time_base_fixture.hpp"
 #include <nexigen/chrono/null_sink.hpp>
 #include <nexigen/com/error.hpp>
 #include <nexigen/com/node.hpp>
@@ -235,8 +236,7 @@ inline void print_error(std::string_view tag, std::string_view message) {
 /// @return Always 1.
 template <class Result>
 inline int fail_status(std::string_view tag, std::string_view action, const Result& status) {
-    print_error(tag, std::string(action) + " failed: " +
-                         std::string(render_error(status.error())));
+    print_error(tag, std::string(action) + " failed: " + std::string(render_error(status.error())));
     return 1;
 }
 
@@ -273,8 +273,7 @@ inline int fail_status(std::string_view tag, std::string_view action, const Resu
         {"chrono.json", k_chrono_settings},
     };
     for (const auto& [name, contents] : files) {
-        const std::string path =
-            std::string(k_standalone_settings_dir) + "/" + std::string(name);
+        const std::string path = std::string(k_standalone_settings_dir) + "/" + std::string(name);
         if (!write_settings_file(tag, path, contents)) {
             return false;
         }
@@ -359,10 +358,27 @@ inline int fail_status(std::string_view tag, std::string_view action, const Resu
 /// @return The initialization status.
 template <class Infrastructure>
 [[nodiscard]] core::Status initialize_infrastructure(Infrastructure& infra,
-                                                    const app::CommandLineOptions& options,
-                                                    app::Settings& loaded,
-                                                    std::string_view tag) {
-    const core::Status initialized = infra.initialize(options, loaded);
+                                                     const app::CommandLineOptions& options,
+                                                     app::Settings& loaded, std::string_view tag) {
+    static nexigen::examples::LocalTimeBase time_base{"sim"};
+    const core::Status loaded_status = app::load_app_settings(options, loaded);
+    loaded.chrono.segment_name = time_base.name();
+    if (!loaded_status) {
+        for (const auto& diagnostic : loaded.logging.diagnostics) {
+            print_error(tag, "logging: " + diagnostic.to_string());
+        }
+        for (const auto& diagnostic : loaded.metrics.diagnostics) {
+            print_error(tag, "metrics: " + diagnostic.to_string());
+        }
+        for (const auto& diagnostic : loaded.tracing.diagnostics) {
+            print_error(tag, "tracing: " + diagnostic.to_string());
+        }
+        for (const auto& diagnostic : loaded.chrono.diagnostics) {
+            print_error(tag, "chrono: " + diagnostic.to_string());
+        }
+        return loaded_status;
+    }
+    const core::Status initialized = infra.initialize(loaded);
     if (initialized) {
         return initialized;
     }
@@ -446,8 +462,7 @@ template <char A, char B, char C, char D> struct SimTelemetryPolicy {
 
     /// @brief Start the iceoryx2 metric sink.
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&,
-                                             std::string_view) noexcept {
+                                             const metrics::Settings&, std::string_view) noexcept {
         com::Node* node = telemetry_node();
         if (node == nullptr) {
             return std::unexpected(core::ErrorCode::SystemError);
@@ -460,8 +475,7 @@ template <char A, char B, char C, char D> struct SimTelemetryPolicy {
     }
 
     /// @brief Emplace the iceoryx2 trace sink.
-    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
-                                           const tracing::Settings&,
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
                                            std::string_view) noexcept {
         com::Node* node = telemetry_node();
         if (node == nullptr) {
@@ -475,11 +489,6 @@ template <char A, char B, char C, char D> struct SimTelemetryPolicy {
     }
 
     /// @brief Emplace the chrono sink (the example does not calibrate clocks).
-    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
-                                            const chrono::Settings&) noexcept {
-        out.emplace();
-        return {};
-    }
 };
 
 /// @brief The three platform channels every simulation application owns.
@@ -555,7 +564,6 @@ public:
         std::snprintf(group_state_, sizeof(group_state_), "%s", (*state)->state);
         return std::string_view{group_state_};
     }
-
 
 private:
     PlatformLink(exec::ApplicationStateReporter reporter, phm::SupervisedEntity entity) noexcept

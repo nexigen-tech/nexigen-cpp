@@ -19,6 +19,28 @@ add_test(NAME nexigen_hub_help COMMAND nexigen-hub --help)
 set_tests_properties(nexigen_hub_help PROPERTIES
     TIMEOUT 60 LABELS "tools")
 
+# nexigen-chronod — time-base daemon (change add-time-base-service). Ungated:
+# the time base must build and run with NEXIGEN_ENABLE_COM=OFF.
+add_executable(nexigen-chronod nexigen-chronod/main.cpp)
+target_link_libraries(nexigen-chronod PRIVATE nexigen_chrono nexigen_recorder Threads::Threads)
+target_include_directories(nexigen-chronod PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# Test-only probe that attaches to a live chronod like an application.
+add_executable(nexigen_chronod_live_probe nexigen-chronod/live_probe.cpp)
+target_link_libraries(nexigen_chronod_live_probe PRIVATE nexigen_chrono Threads::Threads)
+
+add_test(NAME nexigen_chronod_help COMMAND nexigen-chronod --help)
+set_tests_properties(nexigen_chronod_help PROPERTIES
+    TIMEOUT 60 LABELS "tools")
+
+add_test(NAME nexigen_chronod_smoke
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-chronod/smoke_test.sh
+            $<TARGET_FILE:nexigen-chronod>
+            $<TARGET_FILE:nexigen_chronod_live_probe>
+            $<TARGET_FILE:nexigen-export>)
+set_tests_properties(nexigen_chronod_smoke PROPERTIES
+    TIMEOUT 60 LABELS "tools")
+
 if(NEXIGEN_ENABLE_COM)
     # nexigen-phmd — Platform Health Management daemon (change add-phm).
     add_executable(nexigen-phmd nexigen-phmd/main.cpp)

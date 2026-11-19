@@ -10,6 +10,7 @@
 
 #include <cerrno>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,6 +21,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/chrono/time_base_clock.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/chrono/utc_offset.hpp>
 #include <nexigen/metrics/metric_batch_snapshot.hpp>
@@ -49,8 +51,12 @@ namespace nexigen::metrics::detail {
     MetricBatchSnapshot batch{};
     if (count > 0U) {
         batch.stamp = chrono::Timestamp{static_cast<std::uint64_t>(frames[0].timestamp_ns)};
-        batch.utc_ns = chrono::utc_from_mono_ns(static_cast<std::uint64_t>(frames[0].timestamp_ns),
-                                                utc_offset_ns);
+        const std::optional<std::int64_t> published =
+            chrono::TimeBaseClock::attached()
+                ? chrono::TimeBaseClock::utc_from_canonical(frames[0].timestamp_ns)
+                : std::nullopt;
+        batch.utc_ns = published.value_or(chrono::utc_from_mono_ns(
+            static_cast<std::uint64_t>(frames[0].timestamp_ns), utc_offset_ns));
     }
     batch.records = records.data();
     batch.record_count = static_cast<std::uint32_t>(count);

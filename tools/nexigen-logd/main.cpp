@@ -24,6 +24,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/chrono/boot_identity.hpp>
+#include <nexigen/chrono/time_base_clock.hpp>
 #include <nexigen/chrono/civil_time.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/chrono/utc_offset.hpp>
@@ -51,15 +53,28 @@ void signal_handler(int) {
 /// Render one LogFrame into a JSON line in the provided buffer.
 std::size_t format_frame(const logging::LogFrame& frame, char* out, std::size_t cap,
                          std::int64_t utc_offset_ns) {
+    char boot_text[chrono::boot_token_text_size + 1U];
+    static_cast<void>(chrono::format_boot_token(chrono::current_boot_token(), boot_text));
+    const std::optional<std::int64_t> utc =
+        chrono::TimeBaseClock::attached() ? chrono::TimeBaseClock::utc_from_canonical(
+                                                static_cast<std::int64_t>(frame.timestamp_ns))
+                                          : std::optional<std::int64_t>{chrono::utc_from_mono_ns(
+                                                frame.timestamp_ns, utc_offset_ns)};
     char ts_buf[31];
-    const std::int64_t utc = chrono::utc_from_mono_ns(frame.timestamp_ns, utc_offset_ns);
-    chrono::format_utc_iso8601_ns(utc, ts_buf);
+    chrono::format_utc_iso8601_ns(utc.value_or(0), ts_buf);
+    char ts_field[40];
+    if (utc.has_value()) {
+        std::snprintf(ts_field, sizeof(ts_field), "\"%.30s\"", ts_buf);
+    } else {
+        std::snprintf(ts_field, sizeof(ts_field), "null");
+    }
     int n = std::snprintf(
         out, cap,
-        R"({"app":"%.*s","level":"%s","timestamp":"%.30s","thread":%u,"pid":%u,"message":"%.*s"})"
+        R"({"timestamp":%s,"mono_ns":%llu,"boot":"%.16s","app":"%.*s","level":"%s","thread_id":%u,"pid":%u,"message":"%.*s"})"
         "\n",
+        ts_field, static_cast<unsigned long long>(frame.timestamp_ns), boot_text,
         static_cast<int>(frame.app_id_text().size()), frame.app_id_text().data(),
-        core::to_string(frame.log_level).data(), ts_buf, frame.thread_id, frame.pid,
+        core::to_string(frame.log_level).data(), frame.thread_id, frame.pid,
         static_cast<int>(frame.payload_text().size()), frame.payload_text().data());
     return (n > 0 && static_cast<std::size_t>(n) < cap) ? static_cast<std::size_t>(n) : 0U;
 }
@@ -263,6 +278,9 @@ int run_session(const logging::LogDaemonConfig& cfg) {
         std::fprintf(stderr, "nexigen-logd: failed to sample UTC offset\n");
         return 1;
     }
+    // Best effort: when the suite publishes a time base under the default name,
+    // rendered UTC comes from it; otherwise the sampled offset is used.
+    static_cast<void>(chrono::TimeBaseClock::attach("/nexigen-timebase"));
 
     const auto svc = com::ServiceName::create(cfg.service_name.c_str());
     if (!svc) {

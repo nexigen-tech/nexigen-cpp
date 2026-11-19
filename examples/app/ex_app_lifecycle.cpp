@@ -17,6 +17,8 @@
 #include <nexigen/metrics/console_metric_sink.hpp>
 #include <nexigen/tracing/console_trace_sink.hpp>
 
+#include "time_base_fixture.hpp"
+
 namespace {
 
 namespace app = nexigen::app;
@@ -50,11 +52,6 @@ struct SimplePolicy {
         return {};
     }
 
-    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
-                                            const chrono::Settings&) noexcept {
-        out.emplace();
-        return {};
-    }
 };
 
 int fail(std::string_view message) {
@@ -65,20 +62,29 @@ int fail(std::string_view message) {
 } // namespace
 
 int main() {
+    nexigen::examples::LocalTimeBase time_base{"lifecycle"};
+    if (!time_base.is_open()) {
+        return fail("local time base could not be created");
+    }
+
     auto created = app::make_infrastructure<SimplePolicy, 256, 8>();
     if (!created.has_value()) {
         return fail("make_infrastructure failed");
     }
     auto infra = std::move(*created);
 
-    if (!infra->initialize(app::Settings{}).has_value()) {
+    app::Settings settings{};
+    settings.chrono.segment_name = time_base.name();
+    if (!infra->initialize(settings).has_value()) {
         return fail("Infrastructure::initialize failed");
     }
 
     infra->logger().info("infrastructure ready");
 
-    if (!infra->chrono().snapshot_now()) {
-        return fail("infra->chrono().snapshot_now failed");
+    const auto base_now = chrono::Timestamp::now();
+    if (!base_now ||
+        infra->chrono().on_tick(base_now->nanoseconds()) == chrono::ClientState::Lost) {
+        return fail("time base is not usable");
     }
 
     const auto meter = infra->meter("demo", "1.0");

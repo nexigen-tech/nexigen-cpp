@@ -57,7 +57,7 @@ bool g_mcap_enabled = false;
         ++g_checks;                                                                                \
         if (!(__VA_ARGS__)) {                                                                      \
             ++g_failures;                                                                          \
-            std::fprintf(stderr, "FAIL %s:%d [%s] exit=%d\n  stdout=%s\n  stderr=%s\n", __FILE__,   \
+            std::fprintf(stderr, "FAIL %s:%d [%s] exit=%d\n  stdout=%s\n  stderr=%s\n", __FILE__,  \
                          __LINE__, label, (result).code, (result).out.c_str(),                     \
                          (result).err.c_str());                                                    \
         }                                                                                          \
@@ -158,8 +158,7 @@ struct Run {
     std::size_t start = 0;
     while (start < text.size()) {
         const auto newline = text.find('\n', start);
-        const auto length =
-            newline == std::string::npos ? text.size() - start : newline - start;
+        const auto length = newline == std::string::npos ? text.size() - start : newline - start;
         const std::string line = text.substr(start, length);
         if (!line.empty()) {
             auto parsed = parse_json(line);
@@ -265,8 +264,8 @@ struct FixtureChannels {
     opaque.id = 3;
     opaque.name = "test.Opaque";
     opaque.encoding = "protobuf";
-    const std::array<std::uint8_t, 14> descriptor{
-        0x0AU, 0x0CU, 0x0AU, 0x0AU, 't', 'e', 's', 't', '.', 'p', 'r', 'o', 't', 'o'};
+    const std::array<std::uint8_t, 14> descriptor{0x0AU, 0x0CU, 0x0AU, 0x0AU, 't', 'e', 's',
+                                                  't',   '.',   'p',   'r',   'o', 't', 'o'};
     opaque.data.assign(descriptor.begin(), descriptor.end());
     if (!writer.declare_schema(opaque).has_value()) {
         return false;
@@ -281,30 +280,26 @@ struct FixtureChannels {
 
 [[nodiscard]] bool declare_channels(nexigen::recorder::SessionWriter& writer,
                                     FixtureChannels& ids) {
-    const auto telemetry = writer.declare_channel("test/log", 1,
-                                                  nexigen::recorder::DatasetKind::Telemetry,
-                                                  "nexigen.pod");
+    const auto telemetry = writer.declare_channel(
+        "test/log", 1, nexigen::recorder::DatasetKind::Telemetry, "nexigen.pod");
     if (!telemetry.has_value()) {
         return false;
     }
     ids.telemetry = *telemetry;
     const auto video = writer.declare_channel("test/camera", 2,
-                                              nexigen::recorder::DatasetKind::Video,
-                                              "nexigen.pod");
+                                              nexigen::recorder::DatasetKind::Video, "nexigen.pod");
     if (!video.has_value()) {
         return false;
     }
     ids.video = *video;
     const auto opaque = writer.declare_channel("test/opaque", 3,
-                                               nexigen::recorder::DatasetKind::Opaque,
-                                               "protobuf");
+                                               nexigen::recorder::DatasetKind::Opaque, "protobuf");
     if (!opaque.has_value()) {
         return false;
     }
     ids.opaque = *opaque;
-    const auto trace = writer.declare_channel("test/trace", 4,
-                                              nexigen::recorder::DatasetKind::Telemetry,
-                                              "nexigen.pod");
+    const auto trace = writer.declare_channel(
+        "test/trace", 4, nexigen::recorder::DatasetKind::Telemetry, "nexigen.pod");
     if (!trace.has_value()) {
         return false;
     }
@@ -330,8 +325,8 @@ struct FixtureChannels {
         std::size_t size;
         std::uint8_t seed;
     };
-    const std::array<FrameSpec, 2> specs{{{1'000'000ULL, 0ULL, 256U, 0x10},
-                                          {21'000'000ULL, 1ULL, 400U, 0x90}}};
+    const std::array<FrameSpec, 2> specs{
+        {{1'000'000ULL, 0ULL, 256U, 0x10}, {21'000'000ULL, 1ULL, 400U, 0x90}}};
     for (const auto& spec : specs) {
         const auto frame = make_frame(spec.size, spec.seed);
         nexigen::recorder::VideoFrameRef reference{};
@@ -354,8 +349,9 @@ struct FixtureChannels {
         std::vector<std::byte> payload(16, std::byte{0});
         put_u64(payload, 0, value);
         const std::uint64_t sequence = value / 10U - 1U;
-        if (!writer.append(nexigen::recorder::RecordType::ComPayload, ids.telemetry, payload,
-                           value, sequence, 1)
+        if (!writer
+                 .append(nexigen::recorder::RecordType::ComPayload, ids.telemetry, payload, value,
+                         sequence, 1)
                  .has_value()) {
             return false;
         }
@@ -363,11 +359,11 @@ struct FixtureChannels {
     if (!append_video_frames(writer, ids.video)) {
         return false;
     }
-    const std::vector<std::byte> opaque_payload{std::byte{0x08}, std::byte{0x2A},
-                                                std::byte{0x00}};
+    const std::vector<std::byte> opaque_payload{std::byte{0x08}, std::byte{0x2A}, std::byte{0x00}};
     for (std::uint64_t sequence = 0; sequence < 2U; ++sequence) {
-        if (!writer.append(nexigen::recorder::RecordType::ComPayload, ids.opaque,
-                           opaque_payload, sequence, sequence, 1)
+        if (!writer
+                 .append(nexigen::recorder::RecordType::ComPayload, ids.opaque, opaque_payload,
+                         sequence, sequence, 1)
                  .has_value()) {
             return false;
         }
@@ -378,10 +374,11 @@ struct FixtureChannels {
     span.pid = 42;
     span.thread_id = 7;
     std::snprintf(span.name, sizeof(span.name), "%s", "export.span");
-    const auto span_bytes = std::span<const std::byte>(
-        reinterpret_cast<const std::byte*>(&span), sizeof(span));
-    if (!writer.append(nexigen::recorder::RecordType::SpanFrame, ids.trace, span_bytes,
-                       span.start_ns, 0, 0)
+    const auto span_bytes =
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(&span), sizeof(span));
+    if (!writer
+             .append(nexigen::recorder::RecordType::SpanFrame, ids.trace, span_bytes, span.start_ns,
+                     0, 0)
              .has_value()) {
         return false;
     }
@@ -418,6 +415,152 @@ struct FixtureChannels {
     return append_records(*writer, ids);
 }
 
+/// @brief UTC epoch base used by the time-base fixture rows.
+constexpr std::uint64_t kFixtureRealtimeBase = 1'700'000'000'000'000'000ULL;
+
+/// @brief Write a hardware-domain session with time-base history and snapshots.
+///
+/// @param root Session root; the session id is `sess`.
+/// @param append_legacy Also append a retired-layout payload, as an old runtime
+///        would have written.
+/// @return `true` when the session closed cleanly.
+[[nodiscard]] bool write_time_base_fixture(const std::string& root, bool append_legacy,
+                                           bool unresolved = false) {
+    nexigen::recorder::StorageSettings settings{};
+    settings.session_root = root;
+    settings.session_id = "sess";
+    settings.max_segment_bytes = 1U << 20U;
+    settings.write_buffer_bytes = 8192;
+    settings.index_buffer_bytes = 4096;
+    settings.index_stride_bytes = 4096;
+    settings.max_record_bytes = 8192;
+    settings.min_free_bytes = 0;
+    settings.boot_token = "0123456789abcdef";
+    settings.boot_uuid = "01234567-89ab-cdef-0123-456789abcdef";
+    settings.time_base_epoch = 42;
+    auto writer = nexigen::recorder::SessionWriter::create(settings);
+    if (!writer.has_value()) {
+        return false;
+    }
+
+    nexigen::recorder::SchemaDeclare ticks{};
+    ticks.id = 10;
+    ticks.name = "test.FpgaTicks";
+    ticks.encoding = "jsonschema";
+    ticks.data = json_bytes(
+        R"({"type":"object","fields":[{"name":"native_ticks","type":"u64","offset":0,"element_size":8,"count":1,"stride":8}]})");
+    if (!writer->declare_schema(ticks).has_value()) {
+        return false;
+    }
+    nexigen::recorder::ChannelDeclare channel{};
+    channel.id = 1;
+    channel.schema_id = 10;
+    channel.topic = "fpga/events";
+    channel.kind = nexigen::recorder::DatasetKind::Telemetry;
+    channel.message_encoding = "nexigen.pod";
+    channel.native_domain = "device";
+    channel.domain_id = 7;
+    channel.domain_epoch = 5;
+    if (!writer->declare_channel(channel).has_value()) {
+        return false;
+    }
+    nexigen::recorder::ChannelDeclare meta = channel;
+    meta.id = 2;
+    meta.topic = "fpga/meta";
+    if (!writer->declare_channel(meta).has_value()) {
+        return false;
+    }
+
+    nexigen::recorder::TimeBasePayload entry{};
+    entry.generation = 7U;
+    entry.time_base_epoch = 42U;
+    entry.boot_token = 0x0123456789abcdefULL;
+    entry.status = nexigen::chrono::TimeBaseStatus::Ready;
+    entry.sync_mode = nexigen::chrono::SyncMode::PtpSynced;
+    entry.service_flags =
+        nexigen::chrono::ServiceFlag::PhcPresent | nexigen::chrono::ServiceFlag::TaiSynchronized;
+    entry.tai_offset_ns = 37'000'000'000LL;
+    entry.utc_unc_ns = 250U;
+    entry.domain_count = 3U;
+    std::memcpy(entry.boot_uuid.data(), "01234567-89ab-cdef-0123-456789abcdef", 36);
+    entry.rows[0].domain_id = 7U;
+    entry.rows[0].domain_class = nexigen::chrono::TimeDomainClass::DeviceClock;
+    entry.rows[0].lock = nexigen::chrono::LockState::Locked;
+    entry.rows[0].epoch = 5U;
+    entry.rows[0].native_anchor = 1'000U;
+    entry.rows[0].canonical_anchor_ns = 2'000;
+    entry.rows[0].scale_fwd_q32 = 1ULL << 32U;
+    entry.rows[0].scale_rev_q32 = 1ULL << 32U;
+    entry.rows[0].valid_from_native = 0U;
+    entry.rows[0].valid_to_native = unresolved ? 5'000U : 10'000U;
+    entry.rows[0].valid_from_canonical = 1'000U;
+    entry.rows[0].valid_to_canonical = unresolved ? 6'000U : 11'000U;
+    entry.rows[0].flags = nexigen::chrono::DomainCoefficient::has_reverse_bit;
+    entry.rows[1].domain_id = nexigen::chrono::k_realtime_domain_id;
+    entry.rows[1].domain_class = nexigen::chrono::TimeDomainClass::SystemClock;
+    entry.rows[1].lock = nexigen::chrono::LockState::Locked;
+    entry.rows[1].epoch = 1U;
+    entry.rows[1].native_anchor = kFixtureRealtimeBase;
+    entry.rows[1].canonical_anchor_ns = 2'000;
+    entry.rows[1].scale_fwd_q32 = 1ULL << 32U;
+    entry.rows[1].scale_rev_q32 = 1ULL << 32U;
+    entry.rows[1].valid_from_canonical = 1'000U;
+    entry.rows[1].valid_to_canonical = 11'000U;
+    entry.rows[1].flags = nexigen::chrono::DomainCoefficient::has_reverse_bit;
+    entry.rows[2].domain_id = nexigen::chrono::k_tai_domain_id;
+    entry.rows[2].domain_class = nexigen::chrono::TimeDomainClass::SystemClock;
+    entry.rows[2].lock = nexigen::chrono::LockState::Locked;
+    entry.rows[2].epoch = 1U;
+    entry.rows[2].native_anchor = kFixtureRealtimeBase + 37'000'000'000ULL;
+    entry.rows[2].canonical_anchor_ns = 2'000;
+    entry.rows[2].scale_fwd_q32 = 1ULL << 32U;
+    entry.rows[2].scale_rev_q32 = 1ULL << 32U;
+    entry.rows[2].valid_from_canonical = 1'000U;
+    entry.rows[2].valid_to_canonical = 11'000U;
+    entry.rows[2].flags = nexigen::chrono::DomainCoefficient::has_reverse_bit;
+    if (!writer->append_time_base(entry).has_value()) {
+        return false;
+    }
+
+    nexigen::chrono::TimeSnapshot snapshot{};
+    snapshot.generation = 7U;
+    snapshot.boot_token = entry.boot_token;
+    snapshot.status = nexigen::chrono::TimeBaseStatus::Ready;
+    snapshot.sync_mode = nexigen::chrono::SyncMode::PtpSynced;
+    snapshot.monotonic_raw_ns = unresolved ? 50'000U : 5'000U;
+    snapshot.realtime_ns = kFixtureRealtimeBase + 3'000U;
+    snapshot.tai_ns = kFixtureRealtimeBase + 37'000'000'000ULL + 3'000U;
+    snapshot.domain_count = 1U;
+    snapshot.domains[0].domain_id = 7U;
+    snapshot.domains[0].domain_class = nexigen::chrono::TimeDomainClass::DeviceClock;
+    snapshot.domains[0].lock = nexigen::chrono::LockState::Locked;
+    snapshot.domains[0].epoch = 5U;
+    snapshot.domains[0].value = 4'000U;
+    if (!writer->append_time_snapshot(snapshot).has_value()) {
+        return false;
+    }
+
+    if (append_legacy) {
+        nexigen::recorder::TimeBasePayload legacy = entry;
+        legacy.layout = 0U;
+        const auto bytes =
+            std::span<const std::byte>(reinterpret_cast<const std::byte*>(&legacy), sizeof(legacy));
+        if (!writer->append(nexigen::recorder::RecordType::TimeBase, 2, bytes, 5'000U, 0, 0)
+                 .has_value()) {
+            return false;
+        }
+    }
+
+    std::vector<std::byte> payload(8, std::byte{0});
+    const std::uint64_t native = unresolved ? 20'000U : 1'500U;
+    put_u64(payload, 0, native);
+    if (!writer->append(nexigen::recorder::RecordType::ComPayload, 1, payload, native, 0, 1)
+             .has_value()) {
+        return false;
+    }
+    return writer->close().has_value();
+}
+
 // Scenario checks ------------------------------------------------------------
 
 void test_help_and_usage() {
@@ -436,11 +579,10 @@ void test_help_and_usage() {
     NX_CHECK_RUN("bad-option", bad_option, bad_option.code == 2);
     NX_CHECK(bad_option.err.find("unknown argument: --nope") != std::string::npos);
 
-    const auto bad_bound = run_exporter({"extract", g_session, "--dataset", "1", "--start",
-                                         "not-a-number"});
+    const auto bad_bound =
+        run_exporter({"extract", g_session, "--dataset", "1", "--start", "not-a-number"});
     NX_CHECK_RUN("bad-bound", bad_bound, bad_bound.code == 2);
-    NX_CHECK(bad_bound.err.find("--start: invalid value: not-a-number") !=
-             std::string::npos);
+    NX_CHECK(bad_bound.err.find("--start: invalid value: not-a-number") != std::string::npos);
 
     const auto unknown_command = run_exporter({"explode", g_session});
     NX_CHECK_RUN("unknown-command", unknown_command, unknown_command.code == 2);
@@ -489,7 +631,7 @@ void test_list_and_inspect() {
 
     const auto inspect = run_exporter({"inspect", g_session});
     NX_CHECK_RUN("inspect", inspect, inspect.code == 0);
-    NX_CHECK(inspect.out.find("format=Raw version=1 session=sess domain=MonotonicRaw "
+    NX_CHECK(inspect.out.find("format=Raw version=2 session=sess domain=MonotonicRaw "
                               "clean=true") != std::string::npos);
     NX_CHECK(inspect.out.find("dataset id=2 kind=Video codec=H265 bitstream=AnnexB") !=
              std::string::npos);
@@ -499,7 +641,7 @@ void test_list_and_inspect() {
     const auto manifest = parse_json(inspect_json.out);
     NX_CHECK(manifest.is_object());
     NX_CHECK(manifest["format"] == "Raw");
-    NX_CHECK(manifest["version"] == 1U);
+    NX_CHECK(manifest["version"] == 2U);
     NX_CHECK(manifest["time_domain"] == "MonotonicRaw");
     NX_CHECK(manifest["clean_close"] == true);
     NX_CHECK(manifest["segments"].size() == 1U);
@@ -538,8 +680,8 @@ void test_info() {
 
 void test_jsonl_and_ranges() {
     const std::string telemetry_path = g_root + "/telemetry.jsonl";
-    const auto telemetry = run_exporter(
-        {"jsonl", g_session, "--dataset", "1", "--output", telemetry_path});
+    const auto telemetry =
+        run_exporter({"jsonl", g_session, "--dataset", "1", "--output", telemetry_path});
     NX_CHECK_RUN("jsonl-telemetry", telemetry, telemetry.code == 0);
     const auto lines = parse_lines(read_file(telemetry_path));
     NX_CHECK(lines.size() == 3U);
@@ -553,8 +695,8 @@ void test_jsonl_and_ranges() {
     }
 
     const std::string opaque_path = g_root + "/opaque.jsonl";
-    const auto opaque = run_exporter(
-        {"jsonl", g_session, "--dataset", "3", "--output", opaque_path});
+    const auto opaque =
+        run_exporter({"jsonl", g_session, "--dataset", "3", "--output", opaque_path});
     NX_CHECK_RUN("jsonl-opaque", opaque, opaque.code == 0);
     const auto opaque_lines = parse_lines(read_file(opaque_path));
     NX_CHECK(opaque_lines.size() == 2U);
@@ -639,35 +781,34 @@ void test_video() {
     }
 
     const std::string ranged_path = g_root + "/frames-range.h265";
-    const auto ranged = run_exporter({"extract", g_session, "--dataset", "2", "--format",
-                                      "elementary", "--start", "20000000", "--output",
-                                      ranged_path});
+    const auto ranged =
+        run_exporter({"extract", g_session, "--dataset", "2", "--format", "elementary", "--start",
+                      "20000000", "--output", ranged_path});
     NX_CHECK_RUN("video-range", ranged, ranged.code == 0);
     NX_CHECK(file_size(ranged_path) == 400U);
 
-    const auto telemetry = run_exporter({"video", g_session, "--dataset", "1", "--output",
-                                         g_root + "/not-video.bin"});
+    const auto telemetry =
+        run_exporter({"video", g_session, "--dataset", "1", "--output", g_root + "/not-video.bin"});
     NX_CHECK_RUN("video-non-video", telemetry, telemetry.code == 1);
     NX_CHECK(telemetry.err.find("requires a video dataset") != std::string::npos);
 }
 
 void test_format_rejections() {
     const std::string mp4 = g_root + "/out.mp4";
-    const auto mp4_run = run_exporter({"extract", g_session, "--dataset", "2", "--format", "mp4",
-                                       "--output", mp4});
+    const auto mp4_run =
+        run_exporter({"extract", g_session, "--dataset", "2", "--format", "mp4", "--output", mp4});
     NX_CHECK_RUN("mp4", mp4_run, mp4_run.code == 3);
     NX_CHECK(mp4_run.err.find("UnsupportedFormat") != std::string::npos);
     NX_CHECK(mp4_run.err.find("nexigen_media") != std::string::npos);
     NX_CHECK(!std::filesystem::exists(mp4));
 
     const std::string mkv = g_root + "/out.mkv";
-    const auto mkv_run = run_exporter({"extract", g_session, "--dataset", "2", "--format", "mkv",
-                                       "--output", mkv});
+    const auto mkv_run =
+        run_exporter({"extract", g_session, "--dataset", "2", "--format", "mkv", "--output", mkv});
     NX_CHECK_RUN("mkv", mkv_run, mkv_run.code == 3);
     NX_CHECK(!std::filesystem::exists(mkv));
 
-    const auto bogus = run_exporter({"extract", g_session, "--dataset", "1", "--format",
-                                     "bogus"});
+    const auto bogus = run_exporter({"extract", g_session, "--dataset", "1", "--format", "bogus"});
     NX_CHECK_RUN("bogus-format", bogus, bogus.code == 3);
     NX_CHECK(bogus.err.find("UnsupportedFormat: bogus") != std::string::npos);
 
@@ -721,8 +862,8 @@ void test_relocated_session() {
     NX_CHECK_RUN("relocated-list", list, list.code == 0);
     NX_CHECK(list.out.find("id=2 kind=Video") != std::string::npos);
     const std::string relocated_path = g_root + "/relocated.jsonl";
-    const auto extract = run_exporter(
-        {"jsonl", relocated, "--dataset", "1", "--output", relocated_path});
+    const auto extract =
+        run_exporter({"jsonl", relocated, "--dataset", "1", "--output", relocated_path});
     NX_CHECK_RUN("relocated-jsonl", extract, extract.code == 0);
     NX_CHECK(parse_lines(read_file(relocated_path)).size() == 3U);
     const std::string relocated_video = g_root + "/relocated.h265";
@@ -754,8 +895,7 @@ void test_unclosed_session() {
     NX_CHECK(size > sizeof(nexigen::recorder::SegmentFooter));
     std::error_code error;
     if (size > sizeof(nexigen::recorder::SegmentFooter)) {
-        std::filesystem::resize_file(rec, size - sizeof(nexigen::recorder::SegmentFooter),
-                                     error);
+        std::filesystem::resize_file(rec, size - sizeof(nexigen::recorder::SegmentFooter), error);
         NX_CHECK(!error);
     }
 
@@ -821,37 +961,33 @@ void test_gap_jsonl() {
     schema.encoding = "jsonschema";
     schema.data = json_bytes(R"({"fields":[]})");
     NX_CHECK(writer->declare_schema(schema).has_value());
-    const auto channel = writer->declare_channel("test/gap", 1,
-                                                 nexigen::recorder::DatasetKind::Telemetry,
-                                                 "nexigen.pod");
+    const auto channel = writer->declare_channel(
+        "test/gap", 1, nexigen::recorder::DatasetKind::Telemetry, "nexigen.pod");
     NX_CHECK(channel.has_value());
     if (!channel.has_value()) {
         return;
     }
     const std::vector<std::byte> payload(8);
-    NX_CHECK(writer
-                 ->append(nexigen::recorder::RecordType::ComPayload, *channel, payload, 1U,
-                          0U, 1U)
-                 .has_value());
+    NX_CHECK(
+        writer->append(nexigen::recorder::RecordType::ComPayload, *channel, payload, 1U, 0U, 1U)
+            .has_value());
     nexigen::recorder::GapMarkerPayload gap{};
     gap.first_lost_sequence = 1U;
     gap.lost_count = 2U;
     gap.reason = static_cast<std::uint16_t>(nexigen::recorder::GapReason::StreamDiscontinuity);
-    const auto gap_bytes = std::span<const std::byte>(
-        reinterpret_cast<const std::byte*>(&gap), sizeof(gap));
-    NX_CHECK(writer
-                 ->append(nexigen::recorder::RecordType::GapMarker, *channel, gap_bytes, 2U,
-                          1U, 1U)
-                 .has_value());
-    NX_CHECK(writer
-                 ->append(nexigen::recorder::RecordType::ComPayload, *channel, payload, 3U,
-                          3U, 1U)
-                 .has_value());
+    const auto gap_bytes =
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(&gap), sizeof(gap));
+    NX_CHECK(
+        writer->append(nexigen::recorder::RecordType::GapMarker, *channel, gap_bytes, 2U, 1U, 1U)
+            .has_value());
+    NX_CHECK(
+        writer->append(nexigen::recorder::RecordType::ComPayload, *channel, payload, 3U, 3U, 1U)
+            .has_value());
     NX_CHECK(writer->close().has_value());
 
     const std::string output = g_root + "/gap.jsonl";
-    const auto exported = run_exporter({"jsonl", root + "/sess", "--dataset", "1",
-                                        "--output", output});
+    const auto exported =
+        run_exporter({"jsonl", root + "/sess", "--dataset", "1", "--output", output});
     NX_CHECK_RUN("gap-jsonl", exported, exported.code == 0);
     const auto lines = parse_lines(read_file(output));
     NX_CHECK(lines.size() == 3U);
@@ -895,10 +1031,10 @@ void test_video_codecs() {
     schema.encoding = "jsonschema";
     schema.data = json_bytes(R"({"fields":[]})");
     NX_CHECK(writer->declare_schema(schema).has_value());
-    const auto raw = writer->declare_channel("test/raw", 1,
-                                             nexigen::recorder::DatasetKind::Video, "nexigen.pod");
-    const auto jxs = writer->declare_channel("test/jxs", 1,
-                                             nexigen::recorder::DatasetKind::Video, "nexigen.pod");
+    const auto raw = writer->declare_channel("test/raw", 1, nexigen::recorder::DatasetKind::Video,
+                                             "nexigen.pod");
+    const auto jxs = writer->declare_channel("test/jxs", 1, nexigen::recorder::DatasetKind::Video,
+                                             "nexigen.pod");
     NX_CHECK(raw.has_value() && jxs.has_value());
     if (!raw.has_value() || !jxs.has_value()) {
         return;
@@ -977,15 +1113,14 @@ void test_missing_video_metadata() {
             const auto bytes = std::span<const std::byte>(
                 reinterpret_cast<const std::byte*>(&reference), sizeof(reference));
             NX_CHECK(no_config
-                         ->append(nexigen::recorder::RecordType::VideoFrameRef, *channel, bytes,
-                                  0U, 0U, 1U)
+                         ->append(nexigen::recorder::RecordType::VideoFrameRef, *channel, bytes, 0U,
+                                  0U, 1U)
                          .has_value());
         }
         NX_CHECK(no_config->close().has_value());
     }
-    const auto missing_config =
-        run_exporter({"video", no_config_root + "/sess", "--dataset", "1",
-                      "--output", g_root + "/no-config.bin"});
+    const auto missing_config = run_exporter({"video", no_config_root + "/sess", "--dataset", "1",
+                                              "--output", g_root + "/no-config.bin"});
     NX_CHECK(missing_config.code != 0);
     NX_CHECK(missing_config.err.find("missing codec configuration") != std::string::npos);
 
@@ -1010,8 +1145,7 @@ void test_missing_video_metadata() {
         if (channel.has_value()) {
             nexigen::recorder::VideoStreamConfig config{};
             config.codec = static_cast<std::uint16_t>(nexigen::recorder::VideoCodec::H265);
-            config.bitstream = static_cast<std::uint16_t>(
-                nexigen::recorder::BitstreamFormat::Avcc);
+            config.bitstream = static_cast<std::uint16_t>(nexigen::recorder::BitstreamFormat::Avcc);
             config.config_epoch = 1;
             const auto frame = make_frame(64U, 0x33U);
             nexigen::recorder::VideoFrameRef reference{};
@@ -1022,17 +1156,16 @@ void test_missing_video_metadata() {
         }
         NX_CHECK(no_extradata->close().has_value());
     }
-    const auto missing_extradata =
-        run_exporter({"video", no_extradata_root + "/sess", "--dataset", "1",
-                      "--output", g_root + "/no-extradata.bin"});
+    const auto missing_extradata = run_exporter({"video", no_extradata_root + "/sess", "--dataset",
+                                                 "1", "--output", g_root + "/no-extradata.bin"});
     NX_CHECK(missing_extradata.code != 0);
     NX_CHECK(missing_extradata.err.find("missing codec extradata") != std::string::npos);
 }
 
 void test_mcap() {
     const std::string path = g_root + "/export.mcap";
-    const auto result = run_exporter({"extract", g_session, "--channels", "1,2,3,4", "--format",
-                                      "mcap", "--output", path});
+    const auto result = run_exporter(
+        {"extract", g_session, "--channels", "1,2,3,4", "--format", "mcap", "--output", path});
     if (!g_mcap_enabled) {
         NX_CHECK_RUN("mcap-disabled", result, result.code == 1);
         NX_CHECK(result.err.find("NEXIGEN_ENABLE_MCAP=OFF") != std::string::npos);
@@ -1056,12 +1189,10 @@ void test_mcap() {
     NX_CHECK(reader.has_value());
     if (reader.has_value()) {
         std::vector<std::uint64_t> commits;
-        const auto collector = [](void* context,
-                                  const nexigen::recorder::RecordHeader& header,
+        const auto collector = [](void* context, const nexigen::recorder::RecordHeader& header,
                                   std::span<const std::byte>, std::uint64_t) {
             if (header.channel_id != 0U) {
-                static_cast<std::vector<std::uint64_t>*>(context)->push_back(
-                    header.commit_mono_ns);
+                static_cast<std::vector<std::uint64_t>*>(context)->push_back(header.commit_mono_ns);
             }
             return true;
         };
@@ -1074,6 +1205,63 @@ void test_mcap() {
             }
         }
         NX_CHECK(found == commits.size());
+    }
+}
+
+void test_time_base_resolution() {
+    const std::string valid_root = g_root + "/tb-valid";
+    const std::string legacy_root = g_root + "/tb-legacy";
+    NX_CHECK(write_time_base_fixture(valid_root, false));
+    NX_CHECK(write_time_base_fixture(legacy_root, true));
+    const std::string gap_root = g_root + "/tb-gap";
+    NX_CHECK(write_time_base_fixture(gap_root, false, true));
+
+    const auto verified = run_exporter({"verify", valid_root + "/sess"});
+    NX_CHECK_RUN("time-base-verify", verified, verified.code == 0);
+    NX_CHECK(verified.out.find("clean=true") != std::string::npos);
+
+    const std::string path = g_root + "/time-base.jsonl";
+    const auto run =
+        run_exporter({"jsonl", valid_root + "/sess", "--dataset", "1", "--output", path});
+    NX_CHECK_RUN("time-base-jsonl", run, run.code == 0);
+    const auto lines = parse_lines(read_file(path));
+    NX_CHECK(lines.size() == 1U);
+    if (lines.size() == 1U) {
+        NX_CHECK(lines[0]["time_base"] == "resolved");
+        NX_CHECK(lines[0]["native_ns"] == 1'500U);
+        NX_CHECK(lines[0]["native_domain"] == "device");
+        NX_CHECK(lines[0]["domain_id"] == 7U);
+        NX_CHECK(lines[0]["domain_epoch"] == 5U);
+        NX_CHECK(lines[0]["canonical_ns"] == 2'500U);
+        NX_CHECK(lines[0]["utc_ns"] == kFixtureRealtimeBase + 500U);
+        NX_CHECK(lines[0].contains("tai_ns"));
+        NX_CHECK(lines[0].contains("utc"));
+        NX_CHECK(lines[0].contains("boot"));
+    }
+
+    const std::string gap_path = g_root + "/time-base-gap.jsonl";
+    const auto gap_run =
+        run_exporter({"jsonl", gap_root + "/sess", "--dataset", "1", "--output", gap_path});
+    NX_CHECK_RUN("time-base-gap-jsonl", gap_run, gap_run.code == 0);
+    const auto gap_lines = parse_lines(read_file(gap_path));
+    NX_CHECK(gap_lines.size() == 1U);
+    if (gap_lines.size() == 1U) {
+        NX_CHECK(gap_lines[0]["time_base"] == "unresolved");
+        NX_CHECK(!gap_lines[0].contains("utc_ns"));
+        NX_CHECK(!gap_lines[0].contains("native_ns"));
+    }
+
+    const std::string legacy_path = g_root + "/time-base-legacy.jsonl";
+    const auto legacy =
+        run_exporter({"jsonl", legacy_root + "/sess", "--dataset", "1", "--output", legacy_path});
+    NX_CHECK_RUN("time-base-legacy-jsonl", legacy, legacy.code == 0);
+    const auto legacy_lines = parse_lines(read_file(legacy_path));
+    NX_CHECK(legacy_lines.size() == 1U);
+    if (legacy_lines.size() == 1U) {
+        NX_CHECK(legacy_lines[0]["time_base"] == "legacy");
+        NX_CHECK(!legacy_lines[0].contains("utc_ns"));
+        NX_CHECK(!legacy_lines[0].contains("native_ns"));
+        NX_CHECK(!legacy_lines[0].contains("boot"));
     }
 }
 
@@ -1120,6 +1308,7 @@ int main(int argc, char** argv) {
     test_gap_jsonl();
     test_video_codecs();
     test_missing_video_metadata();
+    test_time_base_resolution();
     test_mcap();
 
     std::printf("export CLI tests: %d checks, %d failed\n", g_checks, g_failures);

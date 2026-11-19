@@ -19,6 +19,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/chrono/boot_identity.hpp>
+#include <nexigen/chrono/civil_time.hpp>
+#include <nexigen/chrono/time_domain.hpp>
 #include <nexigen/logging/log_frame.hpp>
 #include <nexigen/metrics/metric_frame.hpp>
 #include <nexigen/recorder/dataset_info.hpp>
@@ -27,6 +30,7 @@
 #include <nexigen/recorder/recorder_types.hpp>
 #include <nexigen/recorder/schema_declare.hpp>
 #include <nexigen/recorder/session_reader.hpp>
+#include <nexigen/recorder/time_base_resolver.hpp>
 #include <nexigen/recorder/wire_types.hpp>
 #include <nexigen/tracing/span_frame.hpp>
 
@@ -74,8 +78,8 @@ void split_channels(std::string_view value, std::vector<std::string>& out) {
     std::size_t start = 0;
     while (start <= value.size()) {
         const auto comma = value.find(',', start);
-        const auto part = value.substr(
-            start, comma == std::string_view::npos ? value.size() - start : comma - start);
+        const auto part = value.substr(start, comma == std::string_view::npos ? value.size() - start
+                                                                              : comma - start);
         if (!part.empty()) {
             out.emplace_back(part);
         }
@@ -105,8 +109,7 @@ void split_channels(std::string_view value, std::vector<std::string>& out) {
     } else if (arg == "--format") {
         options.format = std::string(value);
     } else if (arg == "--start") {
-        return parse_bound(value, options.selection.start_event_ns,
-                           options.selection.has_start);
+        return parse_bound(value, options.selection.start_event_ns, options.selection.has_start);
     } else if (arg == "--end") {
         return parse_bound(value, options.selection.end_event_ns, options.selection.has_end);
     } else {
@@ -116,9 +119,9 @@ void split_channels(std::string_view value, std::vector<std::string>& out) {
 }
 
 [[nodiscard]] bool valid_command(std::string_view command) {
-    return command == "inspect" || command == "verify" || command == "list" ||
-           command == "info" || command == "extract" || command == "jsonl" ||
-           command == "perfetto" || command == "video";
+    return command == "inspect" || command == "verify" || command == "list" || command == "info" ||
+           command == "extract" || command == "jsonl" || command == "perfetto" ||
+           command == "video";
 }
 
 [[nodiscard]] bool parse_options(int argc, char** argv, Options& options, std::string& error) {
@@ -196,8 +199,8 @@ void print_usage(std::FILE* stream) {
     return nullptr;
 }
 
-[[nodiscard]] const nexigen::recorder::SchemaDeclare*
-find_schema(const SessionReader& reader, std::uint32_t schema_id) {
+[[nodiscard]] const nexigen::recorder::SchemaDeclare* find_schema(const SessionReader& reader,
+                                                                  std::uint32_t schema_id) {
     for (const auto& schema : reader.manifest().schemas) {
         if (schema.id == schema_id) {
             return &schema;
@@ -216,10 +219,9 @@ void print_available(const std::vector<DatasetInfo>& datasets) {
 }
 
 [[nodiscard]] nexigen::core::Status visit_dataset(const SessionReader& reader,
-                                                 const Options& options,
-                                                 std::uint32_t channel_id,
-                                                 nexigen::recorder::RecordVisitor visitor,
-                                                 void* context);
+                                                  const Options& options, std::uint32_t channel_id,
+                                                  nexigen::recorder::RecordVisitor visitor,
+                                                  void* context);
 
 [[nodiscard]] std::string hex(std::span<const std::byte> bytes) {
     static constexpr char digits[] = "0123456789abcdef";
@@ -238,61 +240,170 @@ struct JsonlContext {
     const std::vector<nexigen::recorder::DatasetField>* fields{nullptr};
     std::span<const std::uint8_t> descriptor{};
     std::string_view encoding{};
+    const nexigen::recorder::TimeBaseResolver* resolver{nullptr};
+    const DatasetInfo* dataset{nullptr};
+    std::string_view boot_token{};
     bool failed{false};
 };
 
+/// @brief Decode one payload into `out` when the record type and size match.
+///
+/// @tparam T Wire struct with an ADL `to_json`.
+/// @param header Record header.
+/// @param payload Record payload.
+/// @param expected Record type tag of `T`.
+/// @param out Destination JSON.
+/// @return `true` when the payload was decoded.
+template <class T>
+[[nodiscard]] bool copy_typed(const RecordHeader& header, std::span<const std::byte> payload,
+                              RecordType expected, nlohmann::json& out) {
+    if (header.type != static_cast<std::uint16_t>(expected) || payload.size() != sizeof(T)) {
+        return false;
+    }
+    T frame{};
+    std::memcpy(&frame, payload.data(), sizeof(frame));
+    out = frame;
+    return true;
+}
+
 [[nodiscard]] bool typed_payload(const RecordHeader& header, std::span<const std::byte> payload,
                                  nlohmann::json& out) {
-    if (header.type == static_cast<std::uint16_t>(RecordType::LogFrame) &&
-        payload.size() == sizeof(nexigen::logging::LogFrame)) {
-        nexigen::logging::LogFrame frame{};
-        std::memcpy(&frame, payload.data(), sizeof(frame));
-        out = frame;
-        return true;
+    return copy_typed<nexigen::logging::LogFrame>(header, payload, RecordType::LogFrame, out) ||
+           copy_typed<nexigen::metrics::MetricFrame>(header, payload, RecordType::MetricFrame,
+                                                     out) ||
+           copy_typed<nexigen::tracing::SpanFrame>(header, payload, RecordType::SpanFrame, out) ||
+           copy_typed<nexigen::recorder::VideoFrameRef>(header, payload, RecordType::VideoFrameRef,
+                                                        out) ||
+           copy_typed<nexigen::recorder::VideoStreamConfig>(header, payload,
+                                                            RecordType::VideoStreamConfig, out) ||
+           copy_typed<nexigen::recorder::GapMarkerPayload>(header, payload, RecordType::GapMarker,
+                                                           out) ||
+           copy_typed<nexigen::recorder::TimeSyncPayload>(header, payload, RecordType::TimeSync,
+                                                          out) ||
+           copy_typed<nexigen::recorder::TimeBasePayload>(header, payload, RecordType::TimeBase,
+                                                          out) ||
+           copy_typed<nexigen::chrono::TimeSnapshot>(header, payload, RecordType::TimeSnapshot,
+                                                     out);
+}
+
+/// @brief Native-domain resolution of one record.
+struct NativeResolution {
+    std::uint64_t canonical{0}; ///< Hub instant after the forward map.
+    std::uint64_t ticks{0};     ///< Raw native value from the payload.
+    std::uint16_t domain_id{0}; ///< Resolved source domain id.
+    bool resolved{false};       ///< A forward row covered the value.
+};
+
+/// @brief Hub domain id; a value in this domain needs no forward map.
+constexpr std::uint16_t kHubDomainId =
+    static_cast<std::uint16_t>(nexigen::chrono::TimeDomain::MonotonicRaw);
+
+/// @brief Resolve a dataset's declared native domain to an id.
+///
+/// @param dataset Inventory entry carrying the channel declaration.
+/// @param known Set when the declaration named a domain.
+/// @return Domain id, or zero when the name is unknown.
+[[nodiscard]] std::uint16_t declared_domain_id(const DatasetInfo& dataset, bool& known) noexcept {
+    if (dataset.domain_id != 0U) {
+        known = true;
+        return dataset.domain_id;
     }
-    if (header.type == static_cast<std::uint16_t>(RecordType::MetricFrame) &&
-        payload.size() == sizeof(nexigen::metrics::MetricFrame)) {
-        nexigen::metrics::MetricFrame frame{};
-        std::memcpy(&frame, payload.data(), sizeof(frame));
-        out = frame;
-        return true;
+    nexigen::chrono::TimeDomain parsed = nexigen::chrono::TimeDomain::MonotonicRaw;
+    if (!nexigen::chrono::from_string(dataset.native_domain, parsed)) {
+        known = false;
+        return 0U;
     }
-    if (header.type == static_cast<std::uint16_t>(RecordType::SpanFrame) &&
-        payload.size() == sizeof(nexigen::tracing::SpanFrame)) {
-        nexigen::tracing::SpanFrame frame{};
-        std::memcpy(&frame, payload.data(), sizeof(frame));
-        out = frame;
-        return true;
+    known = true;
+    return static_cast<std::uint16_t>(parsed);
+}
+
+/// @brief Find the hardware counter value inside a decoded payload.
+[[nodiscard]] bool native_ticks_of(const nlohmann::json& line, std::uint64_t& ticks) noexcept {
+    const auto payload = line.find("payload");
+    if (payload == line.end() || !payload->is_object()) {
+        return false;
     }
-    if (header.type == static_cast<std::uint16_t>(RecordType::VideoFrameRef) &&
-        payload.size() == sizeof(nexigen::recorder::VideoFrameRef)) {
-        nexigen::recorder::VideoFrameRef frame{};
-        std::memcpy(&frame, payload.data(), sizeof(frame));
-        out = frame;
-        return true;
+    auto value = payload->find("native_ticks");
+    if (value == payload->end()) {
+        value = payload->find("ticks");
     }
-    if (header.type == static_cast<std::uint16_t>(RecordType::VideoStreamConfig) &&
-        payload.size() == sizeof(nexigen::recorder::VideoStreamConfig)) {
-        nexigen::recorder::VideoStreamConfig frame{};
-        std::memcpy(&frame, payload.data(), sizeof(frame));
-        out = frame;
-        return true;
+    if (value == payload->end() || !value->is_number_unsigned()) {
+        return false;
     }
-    if (header.type == static_cast<std::uint16_t>(RecordType::GapMarker) &&
-        payload.size() == sizeof(nexigen::recorder::GapMarkerPayload)) {
-        nexigen::recorder::GapMarkerPayload frame{};
-        std::memcpy(&frame, payload.data(), sizeof(frame));
-        out = frame;
-        return true;
+    ticks = value->get<std::uint64_t>();
+    return true;
+}
+
+/// @brief Map a record's native instant into the hub domain.
+[[nodiscard]] NativeResolution resolve_native_instant(const JsonlContext& state,
+                                                      const nlohmann::json& line) noexcept {
+    NativeResolution result{};
+    if (state.dataset == nullptr || state.resolver == nullptr) {
+        return result;
     }
-    if (header.type == static_cast<std::uint16_t>(RecordType::TimeSync) &&
-        payload.size() == sizeof(nexigen::recorder::TimeSyncPayload)) {
-        nexigen::recorder::TimeSyncPayload frame{};
-        std::memcpy(&frame, payload.data(), sizeof(frame));
-        out = frame;
-        return true;
+    bool known = false;
+    const std::uint16_t domain_id = declared_domain_id(*state.dataset, known);
+    if (!known || domain_id == kHubDomainId || !native_ticks_of(line, result.ticks)) {
+        return result;
     }
-    return false;
+    const auto mapped =
+        state.resolver->canonical_from_native(domain_id, state.dataset->domain_epoch, result.ticks);
+    if (!mapped.has_value() || *mapped < 0) {
+        return result;
+    }
+    result.canonical = static_cast<std::uint64_t>(*mapped);
+    result.domain_id = domain_id;
+    result.resolved = true;
+    return result;
+}
+
+void apply_time_base(const JsonlContext* state, const RecordHeader& header, nlohmann::json& line) {
+    line["canonical_ns"] = header.commit_mono_ns;
+    if (state == nullptr) {
+        return;
+    }
+    if (state->resolver == nullptr || state->resolver->empty()) {
+        // Legacy session: only the embedded TimeSync record existed.
+        line["time_base"] = "legacy";
+        return;
+    }
+    if (state->resolver->saw_legacy_payload()) {
+        // The session carries the retired payload layout; it cannot be resolved
+        // by the current contract.
+        line["time_base"] = "legacy";
+        return;
+    }
+    if (const auto boot = state->resolver->boot_token(); boot.has_value()) {
+        char text[nexigen::chrono::boot_token_text_size + 1U]{};
+        static_cast<void>(nexigen::chrono::format_boot_token(*boot, text));
+        line["boot"] = std::string(std::string_view(text, nexigen::chrono::boot_token_text_size));
+    }
+    std::uint64_t canonical = header.commit_mono_ns;
+    const NativeResolution native = resolve_native_instant(*state, line);
+    if (native.resolved) {
+        canonical = native.canonical;
+        line["native_ns"] = native.ticks;
+        line["native_domain"] = state->dataset->native_domain;
+        line["domain_id"] = native.domain_id;
+        line["domain_epoch"] = state->dataset->domain_epoch;
+    }
+    const auto utc = state->resolver->utc_from_canonical(canonical);
+    if (!utc.has_value()) {
+        if (native.resolved) {
+            line["canonical_ns"] = canonical;
+        }
+        line["time_base"] = "unresolved";
+        return;
+    }
+    line["canonical_ns"] = canonical;
+    line["utc_ns"] = static_cast<std::uint64_t>(*utc);
+    char iso[31]{};
+    nexigen::chrono::format_utc_iso8601_ns(*utc, iso);
+    line["utc"] = std::string(std::string_view(iso, 30U));
+    if (const auto tai = state->resolver->tai_from_canonical(canonical); tai.has_value()) {
+        line["tai_ns"] = static_cast<std::uint64_t>(*tai);
+    }
+    line["time_base"] = "resolved";
 }
 
 nlohmann::json make_line(const RecordHeader& header, std::span<const std::byte> payload,
@@ -307,29 +418,27 @@ nlohmann::json make_line(const RecordHeader& header, std::span<const std::byte> 
     nlohmann::json decoded{};
     if (typed_payload(header, payload, decoded)) {
         line["payload"] = std::move(decoded);
-        return line;
-    }
-    if (state != nullptr && state->fields != nullptr && !state->encoding.empty()) {
-        const auto view = nexigen::recorder::decode_payload(
-            state->encoding, state->descriptor, *state->fields, payload);
-        if (view.has_value() &&
-            view->kind == nexigen::recorder::PayloadKind::Json) {
+    } else if (state != nullptr && state->fields != nullptr && !state->encoding.empty()) {
+        const auto view = nexigen::recorder::decode_payload(state->encoding, state->descriptor,
+                                                            *state->fields, payload);
+        if (view.has_value() && view->kind == nexigen::recorder::PayloadKind::Json) {
             auto parsed = nlohmann::json::parse(view->text, nullptr, false);
             if (!parsed.is_discarded()) {
                 line["payload"] = std::move(parsed);
                 line["encoding"] = state->encoding;
-                return line;
             }
         } else if (view.has_value()) {
             line["payload_base64"] = view->text;
             line["encoding"] = state->encoding;
-            return line;
         } else {
             line["decode_error"] = nexigen::core::to_string(view.error());
             line["encoding"] = state->encoding;
         }
     }
-    line["payload_hex"] = hex(payload);
+    if (!line.contains("payload") && !line.contains("payload_base64")) {
+        line["payload_hex"] = hex(payload);
+    }
+    apply_time_base(state, header, line);
     return line;
 }
 
@@ -343,6 +452,36 @@ bool jsonl_visitor(void* context, const RecordHeader& header, std::span<const st
         return false;
     }
     return true;
+}
+
+struct TimeBaseCollector {
+    nexigen::recorder::TimeBaseResolver resolver{};
+};
+
+bool time_base_visitor(void* context, const RecordHeader& header,
+                       std::span<const std::byte> payload, std::uint64_t /*offset*/) {
+    auto& collector = *static_cast<TimeBaseCollector*>(context);
+    if (header.type == static_cast<std::uint16_t>(RecordType::TimeBase) &&
+        payload.size() == sizeof(nexigen::recorder::TimeBasePayload)) {
+        nexigen::recorder::TimeBasePayload entry{};
+        std::memcpy(&entry, payload.data(), sizeof(entry));
+        static_cast<void>(collector.resolver.add(entry));
+        return true;
+    }
+    if (header.type == static_cast<std::uint16_t>(RecordType::TimeSnapshot) &&
+        payload.size() == sizeof(nexigen::chrono::TimeSnapshot)) {
+        nexigen::chrono::TimeSnapshot snapshot{};
+        std::memcpy(&snapshot, payload.data(), sizeof(snapshot));
+        collector.resolver.add_snapshot(snapshot);
+        return true;
+    }
+    return true;
+}
+
+[[nodiscard]] nexigen::recorder::TimeBaseResolver read_time_base(const SessionReader& reader) {
+    TimeBaseCollector collector{};
+    static_cast<void>(reader.for_each(0, false, 0, 0, false, time_base_visitor, &collector));
+    return std::move(collector.resolver);
 }
 
 #if defined(NEXIGEN_HAS_MCAP)
@@ -418,8 +557,8 @@ struct PerfettoContext {
     bool failed{false};
 };
 
-bool perfetto_visitor(void* context, const RecordHeader& header,
-                      std::span<const std::byte> payload, std::uint64_t /*offset*/) {
+bool perfetto_visitor(void* context, const RecordHeader& header, std::span<const std::byte> payload,
+                      std::uint64_t /*offset*/) {
     if (header.type != static_cast<std::uint16_t>(RecordType::SpanFrame) ||
         payload.size() != sizeof(nexigen::tracing::SpanFrame)) {
         return true;
@@ -427,7 +566,8 @@ bool perfetto_visitor(void* context, const RecordHeader& header,
     auto& state = *static_cast<PerfettoContext*>(context);
     nexigen::tracing::SpanFrame frame{};
     std::memcpy(&frame, payload.data(), sizeof(frame));
-    const std::uint64_t duration = frame.end_ns > frame.start_ns ? frame.end_ns - frame.start_ns : 0;
+    const std::uint64_t duration =
+        frame.end_ns > frame.start_ns ? frame.end_ns - frame.start_ns : 0;
     nlohmann::json event{};
     event["ph"] = "X";
     event["name"] = std::string(frame.name);
@@ -444,8 +584,8 @@ int run_perfetto(const SessionReader& reader, const Options& options,
     std::vector<nlohmann::json> events;
     PerfettoContext context{&events, false};
     for (const DatasetInfo* dataset : datasets) {
-        const auto status = visit_dataset(reader, options, dataset->channel_id, perfetto_visitor,
-                                          &context);
+        const auto status =
+            visit_dataset(reader, options, dataset->channel_id, perfetto_visitor, &context);
         if (!status.has_value()) {
             return 1;
         }
@@ -538,23 +678,22 @@ int run_inspect(const SessionReader& reader, const Options& options) {
                     schema.name.c_str(), schema.encoding.c_str(), schema.data.size());
     }
     for (const auto& channel : manifest.channels) {
-        std::printf("  channel id=%u topic=%s kind=%s schema=%u message_encoding=%s\n",
-                    channel.id, channel.topic.c_str(),
+        std::printf("  channel id=%u topic=%s kind=%s schema=%u message_encoding=%s\n", channel.id,
+                    channel.topic.c_str(),
                     std::string(nexigen::recorder::to_string(channel.kind)).c_str(),
                     channel.schema_id, channel.message_encoding.c_str());
     }
     const auto datasets = reader.datasets();
     if (datasets.has_value()) {
         for (const auto& dataset : *datasets) {
-            std::printf("  dataset id=%u kind=%s codec=%s bitstream=%s records=%llu gaps=%llu "
-                        "closed=%s\n",
-                        dataset.channel_id,
-                        std::string(nexigen::recorder::to_string(dataset.kind)).c_str(),
-                        std::string(nexigen::recorder::to_string(dataset.codec)).c_str(),
-                        std::string(nexigen::recorder::to_string(dataset.bitstream)).c_str(),
-                        static_cast<unsigned long long>(dataset.records),
-                        static_cast<unsigned long long>(dataset.gaps),
-                        dataset.closed ? "true" : "false");
+            std::printf(
+                "  dataset id=%u kind=%s codec=%s bitstream=%s records=%llu gaps=%llu "
+                "closed=%s\n",
+                dataset.channel_id, std::string(nexigen::recorder::to_string(dataset.kind)).c_str(),
+                std::string(nexigen::recorder::to_string(dataset.codec)).c_str(),
+                std::string(nexigen::recorder::to_string(dataset.bitstream)).c_str(),
+                static_cast<unsigned long long>(dataset.records),
+                static_cast<unsigned long long>(dataset.gaps), dataset.closed ? "true" : "false");
         }
     }
     return 0;
@@ -585,8 +724,8 @@ int run_list(const SessionReader& reader, const Options& options) {
                     static_cast<unsigned long long>(dataset.gaps),
                     static_cast<unsigned long long>(dataset.payload_bytes),
                     static_cast<unsigned long long>(dataset.first_event_ns),
-                    static_cast<unsigned long long>(dataset.last_event_ns),
-                    dataset.segments.size(), dataset.closed ? "true" : "false");
+                    static_cast<unsigned long long>(dataset.last_event_ns), dataset.segments.size(),
+                    dataset.closed ? "true" : "false");
     }
     return 0;
 }
@@ -620,8 +759,7 @@ int run_info(const SessionReader& reader, const Options& options) {
 }
 
 /// @brief Resolve the requested datasets; returns the process exit code on failure.
-[[nodiscard]] int resolve_datasets(const std::vector<DatasetInfo>& datasets,
-                                   const Options& options,
+[[nodiscard]] int resolve_datasets(const std::vector<DatasetInfo>& datasets, const Options& options,
                                    std::vector<const DatasetInfo*>& out) {
     std::vector<std::string> requested;
     if (!options.selection.dataset.empty()) {
@@ -650,17 +788,15 @@ int run_info(const SessionReader& reader, const Options& options) {
 }
 
 [[nodiscard]] nexigen::core::Status visit_dataset(const SessionReader& reader,
-                                                 const Options& options,
-                                                 std::uint32_t channel_id,
-                                                 nexigen::recorder::RecordVisitor visitor,
-                                                 void* context) {
+                                                  const Options& options, std::uint32_t channel_id,
+                                                  nexigen::recorder::RecordVisitor visitor,
+                                                  void* context) {
     const auto& selection = options.selection;
     const std::uint64_t start = selection.has_start ? selection.start_event_ns : 0U;
-    const std::uint64_t end = selection.has_end
-                                  ? selection.end_event_ns
-                                  : std::numeric_limits<std::uint64_t>::max();
-    return reader.for_each(channel_id, true, start, end,
-                           selection.has_start || selection.has_end, visitor, context);
+    const std::uint64_t end =
+        selection.has_end ? selection.end_event_ns : std::numeric_limits<std::uint64_t>::max();
+    return reader.for_each(channel_id, true, start, end, selection.has_start || selection.has_end,
+                           visitor, context);
 }
 
 #if defined(NEXIGEN_HAS_MCAP)
@@ -687,9 +823,9 @@ int export_mcap(const SessionReader& reader, const Options& options,
             schema_data.assign(reinterpret_cast<const char*>(schema->data.data()),
                                schema->data.size());
         }
-        const std::string schema_name =
-            dataset->schema_name.empty() ? std::string("nexigen.export.Record")
-                                         : dataset->schema_name;
+        const std::string schema_name = dataset->schema_name.empty()
+                                            ? std::string("nexigen.export.Record")
+                                            : dataset->schema_name;
         const std::string schema_encoding =
             opaque ? dataset->schema_encoding : std::string("jsonschema");
         const std::string message_encoding =
@@ -707,8 +843,8 @@ int export_mcap(const SessionReader& reader, const Options& options,
         context.opaque = opaque;
         context.has_utc = sync.found;
         context.utc_offset_ns = sync.offset_ns;
-        const auto status = visit_dataset(reader, options, dataset->channel_id, mcap_visitor,
-                                          &context);
+        const auto status =
+            visit_dataset(reader, options, dataset->channel_id, mcap_visitor, &context);
         if (!status.has_value() || context.failed) {
             std::fprintf(stderr, "nexigen-export: MCAP export failed for channel %u\n",
                          dataset->channel_id);
@@ -747,13 +883,11 @@ int export_elementary(const SessionReader& reader, const Options& options,
                      dataset.channel_id, dataset.name.c_str());
         return 1;
     }
-    const bool needs_extradata =
-        (dataset.codec == nexigen::recorder::VideoCodec::H264 ||
-         dataset.codec == nexigen::recorder::VideoCodec::H265) &&
-        dataset.bitstream != nexigen::recorder::BitstreamFormat::AnnexB;
+    const bool needs_extradata = (dataset.codec == nexigen::recorder::VideoCodec::H264 ||
+                                  dataset.codec == nexigen::recorder::VideoCodec::H265) &&
+                                 dataset.bitstream != nexigen::recorder::BitstreamFormat::AnnexB;
     if (needs_extradata && dataset.extradata_size == 0U) {
-        std::fprintf(stderr,
-                     "nexigen-export: video dataset %u (%s) is missing codec extradata\n",
+        std::fprintf(stderr, "nexigen-export: video dataset %u (%s) is missing codec extradata\n",
                      dataset.channel_id, dataset.name.c_str());
         return 1;
     }
@@ -768,8 +902,7 @@ int export_elementary(const SessionReader& reader, const Options& options,
         return 1;
     }
     VideoContext context{&reader, &stream, &sidecar, false};
-    const auto status = visit_dataset(reader, options, dataset.channel_id, video_visitor,
-                                      &context);
+    const auto status = visit_dataset(reader, options, dataset.channel_id, video_visitor, &context);
     if (!status.has_value()) {
         std::fprintf(stderr, "nexigen-export: video extraction failed: %s\n",
                      std::string(nexigen::core::to_string(status.error())).c_str());
@@ -794,16 +927,20 @@ int export_jsonl(const SessionReader& reader, const Options& options,
         return 1;
     }
     std::ostream* output = &file;
+    const nexigen::recorder::TimeBaseResolver resolver = read_time_base(reader);
     for (const DatasetInfo* dataset : datasets) {
         JsonlContext context{};
         context.output = output;
         context.fields = &dataset->fields;
         context.encoding = dataset->schema_encoding;
+        context.resolver = &resolver;
+        context.dataset = dataset;
+        context.boot_token = reader.manifest().boot_token;
         if (const auto* schema = find_schema(reader, dataset->schema_id); schema != nullptr) {
             context.descriptor = schema->data;
         }
-        const auto status = visit_dataset(reader, options, dataset->channel_id, jsonl_visitor,
-                                          &context);
+        const auto status =
+            visit_dataset(reader, options, dataset->channel_id, jsonl_visitor, &context);
         if (!status.has_value() || context.failed) {
             std::fprintf(stderr, "nexigen-export: extraction failed for channel %u\n",
                          dataset->channel_id);
@@ -837,9 +974,8 @@ int run_extract(const SessionReader& reader, const Options& options) {
 #if defined(NEXIGEN_HAS_MCAP)
         return export_mcap(reader, options, datasets);
 #else
-        std::fprintf(stderr,
-                     "nexigen-export: MCAP output is not enabled in this build "
-                     "(NEXIGEN_ENABLE_MCAP=OFF)\n");
+        std::fprintf(stderr, "nexigen-export: MCAP output is not enabled in this build "
+                             "(NEXIGEN_ENABLE_MCAP=OFF)\n");
         return 1;
 #endif
     }
@@ -850,8 +986,7 @@ int run_extract(const SessionReader& reader, const Options& options) {
         return export_elementary(reader, options, datasets);
     }
     if (options.format != "jsonl") {
-        std::fprintf(stderr, "nexigen-export: UnsupportedFormat: %s\n",
-                     options.format.c_str());
+        std::fprintf(stderr, "nexigen-export: UnsupportedFormat: %s\n", options.format.c_str());
         return 3;
     }
     return export_jsonl(reader, options, datasets);
@@ -863,15 +998,13 @@ int run_verify(const SessionReader& reader) {
     nexigen::recorder::VerifyFailure failure{};
     const auto status = reader.verify(records, gaps, &failure);
     if (!status.has_value()) {
-        std::fprintf(stderr,
-                     "nexigen-export: verification failed: %s segment=%u offset=%llu channel=%u\n",
-                     std::string(nexigen::core::to_string(status.error())).c_str(),
-                     failure.segment_seq, static_cast<unsigned long long>(failure.offset),
-                     failure.channel_id);
+        std::fprintf(
+            stderr, "nexigen-export: verification failed: %s segment=%u offset=%llu channel=%u\n",
+            std::string(nexigen::core::to_string(status.error())).c_str(), failure.segment_seq,
+            static_cast<unsigned long long>(failure.offset), failure.channel_id);
         return 1;
     }
-    std::printf("records=%llu gaps=%llu clean=%s\n",
-                static_cast<unsigned long long>(records),
+    std::printf("records=%llu gaps=%llu clean=%s\n", static_cast<unsigned long long>(records),
                 static_cast<unsigned long long>(gaps),
                 reader.manifest().clean_close ? "true" : "false");
     return 0;

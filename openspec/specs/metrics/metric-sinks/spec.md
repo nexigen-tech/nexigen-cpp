@@ -70,12 +70,22 @@ Defines the sink contract the provider harvests into, plus the null, console, JS
 
 ### Requirement: JSON-lines file sink
 
-`JsonFileMetricSink` SHALL be constructed from a configuration carrying a file path and append flag, open the file during initialization, and write one JSON object per batch per line with a UTC ISO-8601 timestamp rendered through `nexigen::chrono`. Each line SHALL be valid JSON written with raw `::write`; `flush()` SHALL push pending data to the file and report I/O failures as `core::Status`. Scratch overflow is pinned by its own scenario as a counted, whole-batch discard.
+`JsonFileMetricSink` SHALL be constructed from a configuration carrying a file path and append flag, open the file during initialization, and write one JSON object per batch per line carrying the canonical monotonic instant, the boot token, and a UTC ISO-8601 timestamp derived from the time base. Each line SHALL be valid JSON written with raw `::write`; `flush()` SHALL push pending data to the file and report I/O failures as `core::Status`. Scratch overflow is pinned by its own scenario as a counted, whole-batch discard.
 
 #### Scenario: Batch becomes one JSON line
 
 - **WHEN** a batch is written to a temporary file and read back line by line
-- **THEN** the file contains exactly one parseable JSON object for that batch, its timestamp matches the `YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ` shape, and its record array matches the batch contents
+- **THEN** the file contains exactly one parseable JSON object for that batch, it carries `timestamp` in the `YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ` shape, numeric `mono_ns`, a 16-character `boot` token, and a record array matching the batch contents
+
+#### Scenario: Monotonic instant is the source of truth
+
+- **WHEN** the same batch's `timestamp` and `mono_ns` are compared after a UTC calibration change
+- **THEN** `mono_ns` is unchanged and `timestamp` is the derived value for that instant
+
+#### Scenario: Legacy lines remain readable
+
+- **WHEN** a reader parses a line that has no `mono_ns` or `boot` field
+- **THEN** it treats the line as the legacy format and relies on `timestamp` alone
 
 #### Scenario: JSON strings are escaped
 

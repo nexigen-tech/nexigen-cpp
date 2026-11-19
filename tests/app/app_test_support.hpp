@@ -43,6 +43,11 @@
 #include <nexigen/app/telemetry_layout.hpp>
 #include <nexigen/chrono/json_file_sink.hpp>
 #include <nexigen/chrono/null_sink.hpp>
+#include <nexigen/chrono/detail/time_base_segment.hpp>
+#include <nexigen/chrono/detail/time_base_seqlock.hpp>
+#include <nexigen/chrono/time_base_host_domain.hpp>
+#include <nexigen/chrono/timestamp.hpp>
+#include <nexigen/chrono/utc_offset.hpp>
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/metrics/json_file_metric_sink.hpp>
 #include <nexigen/metrics/null_metric_sink.hpp>
@@ -156,11 +161,6 @@ struct TestPolicy {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
-                                            const chrono::Settings&) noexcept {
-        out.emplace();
-        return {};
-    }
 };
 
 /// File-backed policy used by the telemetry-layout integration test. It reads
@@ -206,14 +206,6 @@ struct ResolvedPathPolicy {
         out.emplace(config);
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
-                                            const chrono::Settings& settings) noexcept {
-        if (settings.sink.path.empty()) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        out.emplace(settings.sink);
-        return {};
-    }
 };
 
 struct RtPolicy {
@@ -245,11 +237,6 @@ struct RtPolicy {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
-                                            const chrono::Settings&) noexcept {
-        out.emplace();
-        return {};
-    }
 };
 
 struct FailLoggerPolicy {
@@ -269,11 +256,6 @@ struct FailLoggerPolicy {
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
                                            std::string_view) noexcept {
-        out.emplace();
-        return {};
-    }
-    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
-                                            const chrono::Settings&) noexcept {
         out.emplace();
         return {};
     }
@@ -299,11 +281,6 @@ struct FailMetricsPolicy {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
-                                            const chrono::Settings&) noexcept {
-        out.emplace();
-        return {};
-    }
 };
 
 struct FailTracePolicy {
@@ -326,11 +303,6 @@ struct FailTracePolicy {
                                            std::string_view) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
-                                            const chrono::Settings&) noexcept {
-        out.emplace();
-        return {};
-    }
 };
 
 struct FlushFailPolicy {
@@ -351,11 +323,6 @@ struct FlushFailPolicy {
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
                                            std::string_view) noexcept {
-        out.emplace();
-        return {};
-    }
-    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
-                                            const chrono::Settings&) noexcept {
         out.emplace();
         return {};
     }
@@ -382,10 +349,6 @@ struct FailChronoPolicy {
         out.emplace();
         return {};
     }
-    static core::Status emplace_chrono_sink(std::optional<Sink>&,
-                                            const chrono::Settings&) noexcept {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
 };
 
 template <class Policy> using TestInfra = app::Infrastructure<Policy, 64, 4>;
@@ -395,6 +358,96 @@ template <class Policy> [[nodiscard]] std::unique_ptr<TestInfra<Policy>> make_te
     NX_CHECK(created.has_value());
     return created.has_value() ? std::move(*created) : nullptr;
 }
+
+// --- default time-base fixture ---------------------------------------------
+// Every application test initializes an Infrastructure, which now requires a
+// published time base. This fixture owns the production default segment name
+// for the test process: the first test binary creates it, and concurrent
+// binaries attach to the same published block. The heartbeat is published far
+// in the future so the client never enters holdover during an unrelated test;
+// the dedicated time-base suites exercise the real windows with their own
+// segments.
+
+class DefaultTimeBaseFixture {
+public:
+    DefaultTimeBaseFixture() {
+        auto created = chrono::detail::TimeBaseSegment::create(std::string(k_name), 0x7465U);
+        if (created) {
+            segment_.emplace(std::move(*created));
+            publish();
+            return;
+        }
+        if (created.error() == core::ErrorCode::Conflict) {
+            auto attached = chrono::detail::TimeBaseSegment::attach(std::string(k_name));
+            if (attached) {
+                segment_.emplace(std::move(*attached));
+            }
+        }
+    }
+
+    /// @brief The segment name the fixture publishes under.
+    [[nodiscard]] static constexpr std::string_view name() noexcept { return k_name; }
+
+private:
+    void publish() {
+        const auto now = chrono::Timestamp::now();
+        if (!now) {
+            return;
+        }
+        const std::uint64_t mono = now->nanoseconds();
+        chrono::TimeBaseBlock block{};
+        block.status = chrono::TimeBaseStatus::Ready;
+        block.boot_token = 0x7465U;
+        block.domain_count = 3U;
+        std::int64_t utc_offset = 0;
+        static_cast<void>(chrono::sample_utc_offset(utc_offset));
+        block.utc_offset_ns = utc_offset;
+        block.rows[0].domain_id = chrono::k_monotonic_raw_domain_id;
+        block.rows[0].domain_class = chrono::TimeDomainClass::SystemClock;
+        block.rows[0].lock = chrono::LockState::Locked;
+        block.rows[0].scale_fwd_q32 = 1ULL << 32U;
+        block.rows[0].native_anchor = mono;
+        block.rows[0].canonical_anchor_ns = static_cast<std::int64_t>(mono);
+        block.rows[0].valid_from_native = mono;
+        block.rows[0].valid_to_native = mono + 10'000'000'000ULL;
+        block.rows[0].valid_from_canonical = mono;
+        block.rows[0].valid_to_canonical = mono + 10'000'000'000ULL;
+        block.rows[1].domain_id = chrono::k_host_counter_domain_id;
+        block.rows[1].domain_class = chrono::TimeDomainClass::CycleCounter;
+        block.rows[1].lock = chrono::LockState::Locked;
+        block.rows[1].epoch = 1U;
+        block.rows[1].scale_fwd_q32 = 1ULL << 32U;
+        block.rows[1].native_anchor = mono * 3U;
+        block.rows[1].canonical_anchor_ns = static_cast<std::int64_t>(mono);
+        block.rows[1].valid_from_native = mono * 3U;
+        block.rows[1].valid_to_native = (mono + 10'000'000'000ULL) * 3U;
+        block.rows[1].valid_from_canonical = mono;
+        block.rows[1].valid_to_canonical = mono + 10'000'000'000ULL;
+        block.rows[1].scale_rev_q32 = 1ULL << 32U;
+        block.rows[1].flags = chrono::DomainCoefficient::has_reverse_bit;
+        block.rows[2].domain_id = chrono::k_realtime_domain_id;
+        block.rows[2].domain_class = chrono::TimeDomainClass::SystemClock;
+        block.rows[2].lock = chrono::LockState::Locked;
+        block.rows[2].epoch = 1U;
+        block.rows[2].native_anchor =
+            static_cast<std::uint64_t>(static_cast<std::int64_t>(mono) + utc_offset);
+        block.rows[2].canonical_anchor_ns = static_cast<std::int64_t>(mono);
+        block.rows[2].scale_fwd_q32 = 1ULL << 32U;
+        block.rows[2].scale_rev_q32 = 1ULL << 32U;
+        block.rows[2].flags = chrono::DomainCoefficient::has_reverse_bit;
+        block.rows[2].valid_from_native = block.rows[2].native_anchor;
+        block.rows[2].valid_to_native = block.rows[2].native_anchor + 3'600'000'000'000ULL;
+        block.rows[2].valid_from_canonical = mono;
+        block.rows[2].valid_to_canonical = mono + 3'600'000'000'000ULL;
+        chrono::detail::TimeBaseWriter writer{*segment_->block()};
+        writer.publish(block, mono + 3'600'000'000'000ULL);
+    }
+
+    static constexpr std::string_view k_name = "/nexigen-timebase";
+    std::optional<chrono::detail::TimeBaseSegment> segment_{};
+};
+
+inline DefaultTimeBaseFixture g_default_time_base{};
 
 template <class T, class = void> struct has_from_json : std::false_type {};
 template <class T>

@@ -21,6 +21,7 @@
 #include <nexigen/recorder/schema_declare.hpp>
 #include <nexigen/recorder/segment_info.hpp>
 #include <nexigen/recorder/storage_settings.hpp>
+#include <nexigen/recorder/wire_types.hpp>
 
 namespace nexigen::recorder {
 
@@ -32,15 +33,18 @@ namespace nexigen::recorder {
 /// @note Spec `recorder/raw-storage`, requirement "Session manifest and segment
 ///       triplet"; `clean_close` is false until the final footer is written.
 struct SessionManifest {
-    RecorderFormat format{RecorderFormat::Raw}; ///< raw only in revision 1
-    std::uint16_t version{1};                   ///< format major version
-    std::string session_id{};                   ///< safe session id
+    RecorderFormat format{RecorderFormat::Raw};       ///< raw only in revision 1
+    std::uint16_t version{kFormatVersion};            ///< format major version
+    std::string session_id{};                         ///< safe session id
     TimeDomain time_domain{TimeDomain::MonotonicRaw}; ///< timestamp domain
-    StorageSettings settings{};                 ///< effective storage settings
-    std::vector<SchemaDeclare> schemas{};       ///< full embedded schema table
-    std::vector<ChannelDeclare> channels{};     ///< channel table
-    std::vector<SegmentInfo> segments{};        ///< segment catalog
-    bool clean_close{false};                    ///< final segment footer written
+    std::string boot_token{};                         ///< 16-hex kernel boot token
+    std::string boot_uuid{};                          ///< full kernel boot UUID
+    std::uint64_t time_base_epoch{0};                 ///< time-base epoch binding
+    StorageSettings settings{};                       ///< effective storage settings
+    std::vector<SchemaDeclare> schemas{};             ///< full embedded schema table
+    std::vector<ChannelDeclare> channels{};           ///< channel table
+    std::vector<SegmentInfo> segments{};              ///< segment catalog
+    bool clean_close{false};                          ///< final segment footer written
 
     /// @brief Validate the schema/channel tables and segment catalog.
     /// @return `Ok`, or `InvalidArgument`/`NotFound`/`Conflict`/`ResourceExhausted`.

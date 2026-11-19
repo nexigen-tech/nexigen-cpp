@@ -82,8 +82,8 @@ public:
         if (!valid.has_value()) {
             return std::unexpected(valid.error());
         }
-        auto publisher = Publisher<T, EventHeader>::create(
-            node, name, config.publish_subscribe_options());
+        auto publisher =
+            Publisher<T, EventHeader>::create(node, name, config.publish_subscribe_options());
         if (!publisher.has_value()) {
             return std::unexpected(publisher.error());
         }
@@ -183,38 +183,41 @@ public:
     }
 
 private:
-    EventProducer(ServiceName name, Publisher<T, EventHeader> publisher,
-                  EventNotifier notifier, const ChannelConfig& config) noexcept
+    EventProducer(ServiceName name, Publisher<T, EventHeader> publisher, EventNotifier notifier,
+                  const ChannelConfig& config) noexcept
         : service_name_(std::move(name)), publisher_(std::move(publisher)),
           notifier_(std::move(notifier)), config_(config), epoch_(detail::make_event_epoch()) {
         stats_.current_epoch = epoch_;
     }
 
-    [[nodiscard]] Result<PublishOutcome>
-    publish_impl(const T& payload, std::uint32_t event_code, EventTime time,
-                 const HardwareMetadata& hardware, std::uint64_t ingest_ns) noexcept {
+    [[nodiscard]] Result<PublishOutcome> publish_impl(const T& payload, std::uint32_t event_code,
+                                                      EventTime time,
+                                                      const HardwareMetadata& hardware,
+                                                      std::uint64_t ingest_ns) noexcept {
         EventHeader header{};
         header.sequence_id = sequence_;
-        header.timestamp_ns = time.ns;
+        const bool software_time = time.domain != TimestampDomain::Hardware;
+        header.timestamp_ns =
+            hardware.has_canonical ? hardware.canonical_ns : (software_time ? time.ns : 0U);
         header.producer_epoch = epoch_;
         header.ingest_timestamp_ns = ingest_ns;
         header.event_code = event_code;
-        header.timestamp_domain = time.domain;
-        header.hardware_sequence = hardware.sequence;
-        header.hardware_timestamp_ns = hardware.timestamp_ns;
+        header.domain_epoch = hardware.domain_epoch;
+        header.native_ticks = hardware.native_ticks;
+        header.hardware_sequence = static_cast<std::uint32_t>(hardware.sequence);
         header.hardware_event_code = hardware.event_code;
-        if constexpr (!std::is_same_v<T, EmptyPayload>) {
-            header.flags |= EventHeader::has_payload_bit;
-        }
-        if (hardware.has_sequence) {
-            header.flags |= EventHeader::has_hardware_sequence_bit;
-        }
-        if (hardware.has_timestamp) {
-            header.flags |= EventHeader::has_hardware_timestamp_bit;
-        }
-        if (hardware.has_event_code) {
-            header.flags |= EventHeader::has_hardware_event_code_bit;
-        }
+        header.domain_id = software_time ? 0U : hardware.domain_id;
+        const bool has_payload = !std::is_same_v<T, EmptyPayload>;
+        const bool has_projection = software_time || hardware.has_canonical;
+        header.flags = static_cast<std::uint16_t>(
+            static_cast<std::uint16_t>(has_payload) * EventHeader::has_payload_bit |
+            static_cast<std::uint16_t>(has_projection) * EventHeader::has_canonical_projection_bit |
+            static_cast<std::uint16_t>(hardware.has_sequence) *
+                EventHeader::has_hardware_sequence_bit |
+            static_cast<std::uint16_t>(hardware.has_ticks) *
+                EventHeader::has_hardware_timestamp_bit |
+            static_cast<std::uint16_t>(hardware.has_event_code) *
+                EventHeader::has_hardware_event_code_bit);
 
 #if defined(NEXIGEN_EVENT_SYSTEM_TESTING)
         if (detail::EventProducerFaults::fail_loan) {

@@ -103,6 +103,7 @@ public:
     bool launch_failed{false};               ///< Last launch attempt failed.
     bool dependencies_pending{false};        ///< Waiting for dependencies to report Running.
     std::uint64_t dependency_deadline_ns{0}; ///< Deadline for the wait; 0 = no deadline.
+    bool time_base_held{false};              ///< Retry held until the base is Ready.
 };
 
 /// @brief Free helper (mandate 9): mirrors the member.

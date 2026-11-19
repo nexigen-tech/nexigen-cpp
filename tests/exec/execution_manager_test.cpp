@@ -365,11 +365,10 @@ void test_generate_settings() {
     app::TelemetryPaths resolved{
         directory + "/custom-metrics.jsonl",
         "/etc/traces.jsonl",
-        "",
     };
     NX_CHECK(exec::generate_settings(directory, resolved).has_value());
 
-    for (const auto* name : {"logging.json", "metrics.json", "tracing.json", "chrono.json"}) {
+    for (const auto* name : {"logging.json", "metrics.json", "tracing.json"}) {
         const std::string path = directory + "/settings/" + std::string(name);
         struct stat status{};
         NX_CHECK(::stat(path.c_str(), &status) == 0);
@@ -402,11 +401,8 @@ void test_generate_settings() {
         NX_CHECK((*tracing)["sink"]["path"] == directory + "/traces.jsonl");
     }
 
-    const auto chrono = exec::read_json_file(directory + "/settings/chrono.json");
-    NX_CHECK(chrono.has_value());
-    if (chrono) {
-        NX_CHECK((*chrono)["sink"]["path"] == directory + "/chrono.jsonl");
-    }
+    // The time-base history is suite-level (nexigen-chronod), not per instance.
+    NX_CHECK(!exec::read_json_file(directory + "/settings/chrono.json").has_value());
 
     remove_tree(directory);
 }
@@ -456,7 +452,7 @@ void test_json_file_io() {
     NX_CHECK(failed_with(exec::generate_settings("/proc/nexigen_settings_denied", {}),
                          core::ErrorCode::SystemError));
 
-    for (const char* blocked : {"metrics.json", "tracing.json", "chrono.json"}) {
+    for (const char* blocked : {"metrics.json", "tracing.json"}) {
         const std::string settings_root = unique_dir(std::string("settings_") + blocked);
         std::error_code mkdir_error;
         std::filesystem::create_directories(settings_root + "/settings/" + blocked, mkdir_error);
@@ -532,11 +528,11 @@ void test_start_status_stop() {
     NX_CHECK(metadata.instance_dir == identity.instance_dir);
     NX_CHECK(::getsid(static_cast<pid_t>(metadata.pid)) != ::getsid(::getpid()));
 
-    for (const auto* name : {"logging.json", "metrics.json", "tracing.json", "chrono.json"}) {
+    for (const auto* name : {"logging.json", "metrics.json", "tracing.json"}) {
         struct stat status_info{};
         NX_CHECK(::stat((identity.instance_dir + "/settings/" + name).c_str(), &status_info) == 0);
     }
-    for (const auto* name : {"app.jsonl", "metrics.jsonl", "traces.jsonl", "chrono.jsonl"}) {
+    for (const auto* name : {"app.jsonl", "metrics.jsonl", "traces.jsonl"}) {
         struct stat status_info{};
         NX_CHECK(::stat((identity.instance_dir + "/" + name).c_str(), &status_info) == 0);
     }
@@ -756,7 +752,7 @@ void test_env_identity_layout() {
 
     const std::string instance_dir = root + "/env_app/env_instance";
     if (started) {
-        for (const auto* name : {"logging.json", "metrics.json", "tracing.json", "chrono.json"}) {
+        for (const auto* name : {"logging.json", "metrics.json", "tracing.json"}) {
             struct stat status_info{};
             NX_CHECK(::stat((instance_dir + "/settings/" + name).c_str(), &status_info) == 0);
         }
@@ -1049,7 +1045,7 @@ void test_start_options() {
     NX_CHECK(wait_until(
         [&] { return contains(read_text(artifacts + "/stdout.log"), "option=yes"); }, 3000));
     NX_CHECK(execution_manager.stop(identity.instance_dir, 2).has_value());
-    for (const auto* name : {"logging.json", "metrics.json", "tracing.json", "chrono.json"}) {
+    for (const auto* name : {"logging.json", "metrics.json", "tracing.json"}) {
         struct stat status_info{};
         NX_CHECK(::stat((identity.instance_dir + "/settings/" + name).c_str(), &status_info) == 0);
     }

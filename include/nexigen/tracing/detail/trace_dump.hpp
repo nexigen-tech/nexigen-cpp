@@ -23,6 +23,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <nexigen/chrono/boot_identity.hpp>
 #include <nexigen/chrono/civil_time.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/sink_io.hpp>
@@ -100,8 +101,8 @@ struct alignas(8) TraceDumpHeader {
     char trigger_group[trace_dump_trigger_group_size]{};
     /// Monotonic time the recovery trigger was observed.
     std::uint64_t trigger_ts_ns{0U};
-    /// Zeroed padding reserved for future header fields.
-    std::uint64_t reserved{0U};
+    /// Boot token of the kernel that produced this dump.
+    std::uint64_t boot_token{0U};
 };
 
 // Layout contract (design D4): exact size, alignment, and field offsets are
@@ -118,7 +119,7 @@ static_assert(offsetof(TraceDumpHeader, last_end_ns) == 32);
 static_assert(offsetof(TraceDumpHeader, ring_overwrites) == 40);
 static_assert(offsetof(TraceDumpHeader, trigger_group) == 48);
 static_assert(offsetof(TraceDumpHeader, trigger_ts_ns) == 80);
-static_assert(offsetof(TraceDumpHeader, reserved) == 88);
+static_assert(offsetof(TraceDumpHeader, boot_token) == 88);
 
 /// @brief Create an absolute directory tree (`mkdir -p`), tolerating existing
 /// entries.
@@ -238,6 +239,7 @@ write_trace_dump(std::string_view final_path, const SpanRing& ring, std::string_
     std::memcpy(header.trigger_group, trigger_group.data(), group_size);
     header.trigger_group[group_size] = '\0';
     header.trigger_ts_ns = trigger_ts_ns;
+    header.boot_token = chrono::current_boot_token();
 
     std::string tmp_path{final_path};
     tmp_path += ".tmp";

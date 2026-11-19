@@ -41,7 +41,7 @@
 | Слой | Модуль | CMake-цель | Тип | Заголовки | Назначение |
 |---|---|---|---:|---:|---|
 | L0 | `nexigen::core` | `nexigen_core` | INTERFACE | 25 | `Result`/`ErrorCode`, сериализация, `LogLevel`, enum-словари, SPSC-очереди, потоки и affinity, sink/settings-инфраструктура, integrity-примитивы |
-| L1 | `nexigen::chrono` | `nexigen_chrono` | STATIC | 27 | `Timestamp`, `CivilTime`, калиброванный TSC, `Provider`/`Worker`, UTC-смещение, time-sync монитор, sinks и настройки |
+| L1 | `nexigen::chrono` | `nexigen_chrono` | STATIC | 40 | `Timestamp`, `CivilTime`, калиброванный TSC, `Provider`/`Worker`, UTC-смещение, time-sync монитор, **time base (домены, seqlock-блок, `nexigen-chronod`)**, sinks и настройки |
 | L1 | `nexigen::com` | `nexigen_com` | STATIC, gate | 54 | SOA поверх iceoryx2: `Node`, pub/sub, request/response, `Event`, event channels, `Field`, `WaitSet`, `ServiceManifest`, E2E |
 | L2 | `nexigen::logging` | `nexigen_logging` | STATIC | 37 | Асинхронные логгеры, `LogRecord`, уровни, anti-spam, ротация, кадры и настройки |
 | L2 | `nexigen::metrics` | `nexigen_metrics` | STATIC | 49 | Счётчики, gauge, гистограммы, статистика, `MetricProvider`, sinks, Prometheus, кадры |
@@ -77,7 +77,7 @@ event-каналов).
 ```mermaid
 flowchart TB
     subgraph L4["L4 · инструменты"]
-        TOOLS["nexigen-exec · nexigen-em · nexigen-hub<br/>nexigen-logd · nexigen-traced · nexigen-metricsd<br/>nexigen-phmd · nexigen-sm · nexigen-export"]
+        TOOLS["nexigen-exec · nexigen-em · nexigen-hub<br/>nexigen-logd · nexigen-traced · nexigen-metricsd<br/>nexigen-chronod · nexigen-phmd · nexigen-sm · nexigen-export"]
         EXP["nexigen-export<br/>on-demand converter"]
     end
 
@@ -99,7 +99,7 @@ flowchart TB
     end
 
     subgraph L1["L1 · примитивы"]
-        CHR["chrono<br/>timestamp · stamp source · provider"]
+        CHR["chrono<br/>timestamp · stamp source · time base"]
         COM["com<br/>iceoryx2 SOA"]
     end
 
@@ -229,9 +229,14 @@ TSC, эталонные часы процесса, периодические с
 
 **Ключевые типы.**
 
-- `Timestamp` — наносекунды монотонного времени; `CivilTime`, `ClockId` —
-  форматирование и домены часов; `utc_offset` — преобразование монотонного
-  штампа в UTC по снятому смещению.
+- `Timestamp` — наносекунды монотонного времени; `CivilTime` и
+  `utc_offset` — форматирование и преобразование монотонного штампа в UTC по
+  снятому смещению.
+- `TimeDomainClass` (`system_clock`, `cycle_counter`, `device_clock`) и
+  `TimeDomain` (`monotonic_raw`, `monotonic`, `tai`, `realtime`,
+  `host_counter`; аппаратные домены — `device_domain_base + index`) —
+  двухуровневый словарь доменов. `clock_domain<T>` заменён на
+  `time_domain<T>`; `ClockId` и `DomainKind` удалены.
 - `StampSource` — hot-path источник штампа: `__rdtsc()` плюс
   зафиксированная при калибровке пара `(tsc_anchor, mono_anchor)` и
   fixed-point множитель; периодическая перекалибровка, монотонный clamp и
@@ -241,18 +246,93 @@ TSC, эталонные часы процесса, периодические с
   снимки в sink по триггеру. Банк источников фиксирован; исчерпание —
   `ResourceExhausted`.
 - `Worker` — опциональная демон-обёртка для периодических снимков.
+- `TimeBaseBlock` / `DomainCoefficient` — опубликованная таблица доменов:
+  хаб `CLOCK_MONOTONIC_RAW` (`monotonic_raw`, identity), системные строки
+  `monotonic`/`tai`/`realtime`, TSC (`host_counter`) и аппаратные таймеры,
+  каждая с прямыми и обратными Q32-коэффициентами, неопределённостью,
+  статусом блокировки, эпохой и интервалами валидности в обеих шкалах.
+  Строка — 128 байт; блок — 5120 байт: заголовок, 32 строки, встроенный
+  `TimeSnapshot` (896 байт). Блок читается через seqlock без блокировки
+  писателя. Транспорт (`TimeBaseSegment`, seqlock) живёт в `chrono::detail`,
+  а не в `core`: он типизирован `TimeBaseBlock`, и перенос создал бы обратную
+  зависимость `core → chrono`. Это уточнение design D-B.
+
+  Раскладка блока:
+
+  | Смещение | Размер | Поле |
+  |---:|---:|---|
+  | 0 | 24 | `magic`/`version`/`capacity`/`domain_count` |
+  | 24 | 40 | `generation` (24) и `status`/флаги |
+  | 64 | 64 | `heartbeat_ns` (отдельная cache line) |
+  | 128 | 4096 | 32 × `DomainCoefficient` (128 байт) |
+  | 4224 | 896 | `last_snapshot` (`TimeSnapshot`) |
+
+  `TimeSnapshot` публикуется на 1 Гц и содержит поколение карт, boot token,
+  `sync_mode`, `ServiceFlags`, системные инстанты, смещения TAI/UTC и
+  epoch/value/lock каждого домена; таблицу коэффициентов он не дублирует.
+- `TimeBaseEstimator` / `TimeBasePublisher` — оценка карты аппаратного домена
+  по парам «тики ↔ хаб» (min-residual) и цикл публикации 10 Гц с историей
+  только по изменениям, явными gap'ами, четырьмя системными строками и
+  снимком 1 Гц. `DeviceAccessMode` задаёт способ получения пары:
+  `phc_cross_timestamp` (`PTP_SYS_OFFSET_PRECISE`), `register_pair`
+  (D1–D3 latch под sequence/CRC) или `manual_pair` (счётчик и
+  `CLOCK_MONOTONIC_RAW` читаются программно, окно чтения становится
+  неопределённостью). У каждого объявленного домена свой backend, оценщик,
+  эпоха, строка и история; отсутствующий объявленный домен даёт `Degraded`.
+- `nexigen-chronod` — обязательный демон: формирует единую монотонную шкалу,
+  публикует блок в POSIX shared memory, ведёт `chrono.jsonl` и сообщает
+  статус `not_ready/ready/degraded/lost`. Демон владеет единственным
+  `chrono::Provider`, снимает им UTC-смещение и передаёт его в
+  `TimeBasePublisher`; приложения провайдера не создают. Собирается на
+  `chrono` напрямую, без `app::Infrastructure`, и работает при
+  `NEXIGEN_ENABLE_COM=OFF`.
+
+  Режимы синхронизации: `Standalone` — мастер локальный осциллятор/RTC;
+  `PtpSynced` — внешний IEEE 1588 GM через PHC сетевой карты (`ptp4l` и
+  `phc2sys` остаются внешними службами, демон их не запускает и не ищет
+  процессы); `Holdover` — lock потерян, используется последняя модель дрейфа
+  до истечения окна. Политика (`sync_mode` в конфигурации) задаёт ожидание:
+  `Standalone`/`Holdover` публикуются как есть, а `PtpSynced` выводится на
+  каждом интервале из состояния `CLOCK_TAI` — дисциплинированный TAI даёт
+  `PtpSynced`, потеря — `Holdover` на `holdover_window_ns`, затем `Standalone`. `ServiceFlags` отражают наблюдаемое состояние
+  (`phc_present`, `tai_available/synchronized`, `host_counter_*`,
+  `ptp4l_required`/`phc2sys_required`, `ptp_stack_ready`, `step_detected`,
+  `slew_active`, `rt_sched_applied`, `mlock_applied`,
+  `declared_domains_complete`), а не наличие процессов.
+
+  Исполнение: `core::ThreadSpec` (`SCHED_FIFO`, опциональная affinity),
+  best-effort `mlockall(MCL_CURRENT|MCL_FUTURE)` и абсолютные дедлайны
+  `clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME)`; обязательный отказ
+  атрибута останавливает старт, а `rt_sched_applied`/`mlock_applied` берутся из
+  фактического отчёта применения (`DaemonRuntimeReport`), не выставляются
+  безусловно. Пороги `TimeSyncMonitor` задаются в конфигурации (`time_sync`).
+
+  Аппаратные домены: `phc_cross_timestamp` читает `PTP_SYS_OFFSET_PRECISE`;
+  `register_pair` проходит контракт D1–D3 (двойное чтение `pair_sequence`,
+  проверка CRC-32C по D1+D2, отбрасывание torn/stale пар) — при `simulate: true`
+  демон поднимает simulated-устройство; `manual_pair` читает счётчик и
+  `CLOCK_MONOTONIC_RAW` программно и публикует окно чтения как неопределённость.
+  Каждый домен имеет свой backend, оценщик, эпоху, строку и историю.
+
+  Запись сессии: при заданном `record_session_path` демон создаёт
+  `recorder::SessionWriter` и через `TimeBaseSessionBridge` пишет по одному
+  `TimeBase` на поколение (потеря базы — явный gap) и `TimeSnapshot` на каждый
+  новый 1 Гц снимок.
 - Sinks: `ConsoleSink`, `JsonFileSink`, `NullSink`, `CompositeSink`;
   `settings` и `snapshot` описывают загрузку конфигурации и сохранение
   смещения.
 - `TimeSyncMonitor` сравнивает `CLOCK_REALTIME − CLOCK_MONOTONIC_RAW` и
   классифицирует переходы как `Ok`, `Stepped`, `GoingBackwards`,
   `RateExceeded`; по умолчанию порог шага 1 мс, скорость 500 ppm, окно
-  100 мс. Монитор не создаёт поток и не выделяет память.
+  100 мс. Демон вызывает его на каждом 10 Гц сэмпле и переносит вердикт в
+  `step_detected`/`slew_active` и lock-состояние строки `realtime`.
+  Fixed-point 2-state Kalman (offset, drift, Q12) сглаживает смещения
+  `MONOTONIC`/`TAI`/`REALTIME` и даёт неопределённость UTC.
 
 **Зависимости.** `core`.
 
-**Capabilities (10):** `chrono-settings`, `chrono-sink`, `chrono-snapshot`,
-`clock-id`, `provider`, `stamp-source`, `time-format`, `timestamp`,
+**Capabilities (11):** `chrono-settings`, `chrono-sink`, `chrono-snapshot`,
+`provider`, `stamp-source`, `time-base`, `time-domain`, `time-format`, `timestamp`,
 `time-sync`, `worker`.
 
 ### 4.3 `com` — межпроцессный обмен (gate)
@@ -1013,6 +1093,39 @@ COM-зависимые инструменты появляются только 
 отображает их в пути metrics/traces/chrono. Контракт не зависит от языка и
 используется реализациями на C#, Python и C++.
 
+### Формат JSONL v2 (монотонное время)
+
+Все три файловых потока (логи, метрики, трейсы) несут канонический
+монотонный инстант и boot-токен; UTC остаётся производным полем.
+Каноническая шкала — `CLOCK_MONOTONIC_RAW`; UTC берётся из опубликованной
+базы времени (`TimeBaseClock`), а не из локальных часов писателя.
+
+Порядок и состав полей:
+
+- лог: `timestamp, mono_ns, boot, level, app, thread_id, message`;
+- метрики: `timestamp, mono_ns, boot, app, records`;
+- трейс: `app, trace_id, span_id, parent_span_id, kind, status, thread_id,
+  start, end, start_mono_ns, end_mono_ns, boot, duration_ns, name, file,
+  function, line, column, attributes`.
+
+`mono_ns`/`start_mono_ns`/`end_mono_ns` — числа наносекунд канонической
+шкалы, `boot` — 16 шестнадцатеричных символов (первые 8 байт
+`/proc/sys/kernel/random/boot_id`). `timestamp`/`start`/`end` — строки
+`YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ`. Если опубликованная калибровка не покрывает
+инстант, соответствующее поле равно `null`: `mono_ns` и `boot` остаются
+достоверными, выдуманный UTC не появляется.
+
+Строка без `mono_ns` (для трейса — без `start_mono_ns`/`end_mono_ns`)
+считается legacy-форматом: читатель опирается только на ISO-время.
+Неизвестные поля читатели игнорируют, поэтому добавление ключей не ломает
+старые парсеры.
+
+`nexigen-logd` пишет тот же набор полей для входящих `LogFrame`, а
+`nexigen-metricsd` добавляет `mono_ns`/`boot` к каждому окну истории.
+`nexigen-traced` фиксирует boot-токен в заголовке бинарного снимка
+(`TraceDumpHeader.boot_token`).
+
+
 ### Безопасность и целостность
 
 - Дайджесты SHA-256 для манифестов, исполняемых файлов и файлов настроек;
@@ -1028,6 +1141,9 @@ COM-зависимые инструменты появляются только 
   и ошибочной доставки.
 - `TimeSyncMonitor` обнаруживает шаг, обратный ход и превышение скорости
   системных часов.
+- `nexigen-chronod` публикует статус базы времени и историю карт доменов;
+  потеря обязательного домена или устаревший heartbeat переводят приложение
+  в holdover ≤ 2 с и затем в `time_base_lost`, без самостоятельных ретраев.
 - Fault-журнал PHM содержит монотонный номер и CRC-32C; режим
   `--verify-fault-log` различает целые, повреждённые, усечённые и legacy
   записи.

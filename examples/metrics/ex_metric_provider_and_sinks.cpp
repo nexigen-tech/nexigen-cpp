@@ -35,6 +35,7 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
+#include "../app/time_base_fixture.hpp"
 #include <nexigen/metrics/composite_metric_sink.hpp>
 #include <nexigen/metrics/console_metric_sink.hpp>
 #include <nexigen/metrics/counter.hpp>
@@ -274,6 +275,7 @@ void read_back(const std::string& path) {
 }
 
 int main() {
+    static nexigen::examples::LocalTimeBase time_base{"standalone"};
     // (0) Output location and per-run file (append-safe across ctest runs).
     std::error_code dir_error;
     std::filesystem::create_directories("/tmp/nexigen-examples-metrics", dir_error);

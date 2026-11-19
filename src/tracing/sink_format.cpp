@@ -20,6 +20,24 @@
 namespace nexigen::tracing {
 namespace {
 
+/// Append a UTC ISO-8601 JSON string, or the JSON literal `null` when no
+/// calibration covers the instant.
+///
+/// @param writer Destination writer.
+/// @param utc UTC nanoseconds, or empty.
+/// @note Hot path safe: fixed buffer, no allocation.
+void append_utc_or_null(detail::FixedWriter& writer, std::optional<std::int64_t> utc) noexcept {
+    if (!utc.has_value()) {
+        static_cast<void>(writer.append_sv("null"));
+        return;
+    }
+    char stamp[31];
+    chrono::format_utc_iso8601_ns(*utc, stamp);
+    static_cast<void>(writer.append_char('"'));
+    static_cast<void>(writer.append_sv(std::string_view(stamp, 30U)));
+    static_cast<void>(writer.append_char('"'));
+}
+
 /// Zero-padded decimal append into a char buffer (fixed-width fields).
 void append_padded(char* out, std::size_t& len, std::int64_t value, std::size_t width) noexcept {
     char digits[24];
@@ -123,12 +141,11 @@ std::string_view JsonFileTraceSink::window_filename(std::int64_t utc_ns) noexcep
 }
 
 core::Status JsonFileTraceSink::write_record_line(const SpanRecord& record,
-                                                  std::int64_t utc_ns) noexcept {
-    const std::int64_t end_utc_ns = chrono::utc_from_mono_ns(record.end.nanoseconds(), offset_ns_);
-    char start_stamp[31];
-    char end_stamp[31];
-    chrono::format_utc_iso8601_ns(utc_ns, start_stamp);
-    chrono::format_utc_iso8601_ns(end_utc_ns, end_stamp);
+                                                  std::optional<std::int64_t> utc) noexcept {
+    const std::uint64_t start_mono = record.start.nanoseconds();
+    const std::uint64_t end_mono = record.end.nanoseconds();
+    const std::optional<std::int64_t> end_utc =
+        chrono::TimeBaseClock::utc_from_canonical(static_cast<std::int64_t>(end_mono));
 
     detail::FixedWriter writer{scratch_, detail::json_scratch_capacity};
     static_cast<void>(writer.append_sv("{\"app\":\""));
@@ -145,10 +162,16 @@ core::Status JsonFileTraceSink::write_record_line(const SpanRecord& record,
     static_cast<void>(writer.append_sv(tracing::to_string(record.status)));
     static_cast<void>(writer.append_sv("\",\"thread_id\":"));
     static_cast<void>(writer.append_u64(record.thread_id));
-    static_cast<void>(writer.append_sv(",\"start\":\""));
-    static_cast<void>(writer.append_sv(std::string_view(start_stamp, 30U)));
-    static_cast<void>(writer.append_sv("\",\"end\":\""));
-    static_cast<void>(writer.append_sv(std::string_view(end_stamp, 30U)));
+    static_cast<void>(writer.append_sv(",\"start\":"));
+    append_utc_or_null(writer, utc);
+    static_cast<void>(writer.append_sv(",\"end\":"));
+    append_utc_or_null(writer, end_utc);
+    static_cast<void>(writer.append_sv(",\"start_mono_ns\":"));
+    static_cast<void>(writer.append_u64(start_mono));
+    static_cast<void>(writer.append_sv(",\"end_mono_ns\":"));
+    static_cast<void>(writer.append_u64(end_mono));
+    static_cast<void>(writer.append_sv(",\"boot\":\""));
+    static_cast<void>(writer.append_sv(std::string_view(boot_text_, chrono::boot_token_text_size)));
     static_cast<void>(writer.append_sv("\",\"duration_ns\":"));
     static_cast<void>(writer.append_u64(record.duration_ns()));
     static_cast<void>(writer.append_sv(",\"name\":\""));

@@ -79,6 +79,10 @@ struct SuiteManifest {
     std::vector<FunctionGroupPortMapping> function_group_port_mapping{};
     std::vector<FunctionGroupConfig> function_groups{}; ///< Declared Function Groups.
     std::vector<AppSpec> apps{};                        ///< Applications; must be non-empty.
+    /// Process name of the time-base daemon; empty disables the readiness gate.
+    std::string time_base_process{};
+    /// POSIX shared-memory name of the published base; defaulted from `suite_id`.
+    std::string time_base_segment{};
 
     /// @brief Cold-path diagnostic rendering of the manifest.
     ///

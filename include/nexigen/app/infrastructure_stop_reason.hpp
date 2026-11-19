@@ -21,20 +21,28 @@ namespace nexigen::app {
 ///
 /// `None` is the sentinel meaning "no stop requested yet"; the first recorded
 /// cause wins and later requests never replace it. The vocabulary spellings are
-/// `none`, `requested`, `sigint` and `sigterm`, and the values are stable and
-/// append-only. Only a single `std::atomic` write records a cause, so the type
-/// is safe for the signal watcher and the host tick to publish concurrently.
+/// `none`, `requested`, `sigint`, `sigterm` and `time_base_lost`, and the values
+/// are stable and append-only. Only a single `std::atomic` write records a
+/// cause, so the type is safe for the signal watcher and the host tick to
+/// publish concurrently.
 ///
 /// @note Spec `app/application`, requirement "Infrastructure stop reason is
 ///       serializable".
 /// @note String, JSON and `std::formatter` support follow project mandates 9,
 ///       10 and 11; formatting and serialization are cold path only.
 enum class InfrastructureStopReason : std::uint8_t {
-    None,      ///< No stop requested yet.
-    Requested, ///< Host code requested a stop (explicit call or false tick).
-    Sigint,    ///< SIGINT received.
-    Sigterm,   ///< SIGTERM received.
+    None,         ///< No stop requested yet.
+    Requested,    ///< Host code requested a stop (explicit call or false tick).
+    Sigint,       ///< SIGINT received.
+    Sigterm,      ///< SIGTERM received.
+    TimeBaseLost, ///< The required time base was lost after the holdover window.
 };
+
+/// @brief Exit code an application uses when it stops for `TimeBaseLost`.
+///
+/// The supervisor distinguishes this reason from an ordinary self-exit and holds
+/// the retry until the time-base daemon is running again.
+inline constexpr int time_base_lost_exit_code = 75;
 
 } // namespace nexigen::app
 
@@ -54,11 +62,12 @@ template <> struct EnumTraits<nexigen::app::InfrastructureStopReason> {
     };
 
     /// @brief Ordered rows; the names are the wire contract, the order is not.
-    static constexpr std::array<Entry, 4> entries{{
+    static constexpr std::array<Entry, 5> entries{{
         {nexigen::app::InfrastructureStopReason::None, "none"},
         {nexigen::app::InfrastructureStopReason::Requested, "requested"},
         {nexigen::app::InfrastructureStopReason::Sigint, "sigint"},
         {nexigen::app::InfrastructureStopReason::Sigterm, "sigterm"},
+        {nexigen::app::InfrastructureStopReason::TimeBaseLost, "time_base_lost"},
     }};
 };
 

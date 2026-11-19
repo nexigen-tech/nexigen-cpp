@@ -563,11 +563,18 @@ private:
         // claim (see get_tracer): provider pointer + name pointer, 16 bytes,
         // 8-aligned — fits the slot's alignment without a separate arena.
     };
+    /// @brief Alignment required by the tracer objects in the inline pool.
+    static constexpr std::size_t tracer_alignment = alignof(Tracer<ShardCapacity, MaxThreads>);
+    /// @brief First byte of a tracer inside one slot, aligned for `Tracer`.
+    static constexpr std::size_t tracer_offset =
+        (sizeof(TracerSlot) + tracer_alignment - 1U) / tracer_alignment * tracer_alignment;
+    /// @brief Bytes per slot: aligned tracer offset plus the tracer itself.
+    static constexpr std::size_t tracer_slot_stride =
+        tracer_offset + sizeof(Tracer<ShardCapacity, MaxThreads>);
+    static_assert(tracer_offset % tracer_alignment == 0U,
+                  "placement-new target must satisfy Tracer alignment");
     /// @brief Single inline block holding `tracer_pool_capacity` slot + tracer pairs.
-    alignas(64)
-        std::array<std::byte, tracer_pool_capacity *
-                                  (sizeof(TracerSlot) +
-                                   sizeof(Tracer<ShardCapacity, MaxThreads>))> tracer_storage_{};
+    alignas(64) std::array<std::byte, tracer_pool_capacity * tracer_slot_stride> tracer_storage_{};
     /// @brief Effective tracer limit taken from the configuration at construction.
     std::size_t tracer_limit_{0};
 
@@ -676,29 +683,24 @@ TracerProvider<ShardCapacity, MaxThreads>::get_tracer(std::string_view scope_nam
         return std::unexpected(core::ErrorCode::InvalidArgument); // bounded slot storage
     }
     const std::lock_guard<std::mutex> lock(tracer_mutex_);
-    // One tracer slot = name storage + the Tracer object, carved out of the
-    // single inline block.
-    constexpr std::size_t slot_stride =
-        (sizeof(TracerSlot) + alignof(Tracer<ShardCapacity, MaxThreads>) - 1U) /
-            alignof(Tracer<ShardCapacity, MaxThreads>) *
-            alignof(Tracer<ShardCapacity, MaxThreads>) +
-        sizeof(Tracer<ShardCapacity, MaxThreads>);
     for (std::size_t i = 0; i < tracer_limit_; ++i) {
-        auto* const slot = reinterpret_cast<TracerSlot*>(tracer_storage_.data() + i * slot_stride);
+        auto* const slot =
+            reinterpret_cast<TracerSlot*>(tracer_storage_.data() + i * tracer_slot_stride);
         if (slot->occupied && std::string_view(slot->name) == scope_name) {
             return reinterpret_cast<Tracer<ShardCapacity, MaxThreads>*>(
-                reinterpret_cast<std::byte*>(slot) + sizeof(TracerSlot));
+                reinterpret_cast<std::byte*>(slot) + tracer_offset);
         }
     }
     for (std::size_t i = 0; i < tracer_limit_; ++i) {
-        auto* const slot = reinterpret_cast<TracerSlot*>(tracer_storage_.data() + i * slot_stride);
+        auto* const slot =
+            reinterpret_cast<TracerSlot*>(tracer_storage_.data() + i * tracer_slot_stride);
         if (!slot->occupied) {
             for (std::size_t c = 0; c < scope_name.size(); ++c) {
                 slot->name[c] = scope_name[c];
             }
             slot->name[scope_name.size()] = '\0';
             slot->occupied = true;
-            auto* const tracer = new (reinterpret_cast<std::byte*>(slot) + sizeof(TracerSlot))
+            auto* const tracer = new (reinterpret_cast<std::byte*>(slot) + tracer_offset)
                 Tracer<ShardCapacity, MaxThreads>(this, slot->name);
             return tracer;
         }

@@ -88,11 +88,15 @@ std::string FunctionGroupConfig::to_string() const {
 std::string SuiteManifest::to_string() const {
     return std::format("SuiteManifest(version={}, suite_id={}, run_id={}, run_dir={}, "
                        "global_settings_path={}, artifacts_path={}, log_level={}, "
-                       "suite_restart_attempts={}, suite_restart_delay_s={}, apps={})",
+                       "suite_restart_attempts={}, suite_restart_delay_s={}, time_base={}, "
+                       "apps={})",
                        version, suite_id, run_id, run_dir, global_settings_path, artifacts_path,
                        log_level.has_value() ? std::string(core::to_string(*log_level))
                                              : std::string("inherit"),
-                       suite_restart_attempts, suite_restart_delay_s, apps.size());
+                       suite_restart_attempts, suite_restart_delay_s,
+                       time_base_process.empty() ? std::string("none")
+                                                 : time_base_process + "@" + time_base_segment,
+                       apps.size());
 }
 
 std::string SuiteAppMetadata::to_string() const {
@@ -255,8 +259,26 @@ void to_json(nlohmann::json& j, const SuiteManifest& manifest) {
         {"cgroup_root", manifest.cgroup_root},
         {"function_group_port_mapping", std::move(port_mappings)},
         {"function_groups", std::move(groups)},
+        {"time_base",
+         {{"process", manifest.time_base_process}, {"segment", manifest.time_base_segment}}},
         {"apps", std::move(apps)},
     };
+}
+
+/// @brief Read the optional time-base binding and default its segment.
+///
+/// @param j Source manifest object.
+/// @param manifest Destination manifest.
+void read_time_base(const nlohmann::json& j, SuiteManifest& manifest) {
+    const auto it = j.find("time_base");
+    if (it == j.end() || !it->is_object()) {
+        return;
+    }
+    static_cast<void>(core::detail::read_string(*it, "process", manifest.time_base_process));
+    static_cast<void>(core::detail::read_string(*it, "segment", manifest.time_base_segment));
+    if (!manifest.time_base_process.empty() && manifest.time_base_segment.empty()) {
+        manifest.time_base_segment = "/nexigen-timebase-" + manifest.suite_id;
+    }
 }
 
 void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
@@ -339,6 +361,7 @@ void from_json(const nlohmann::json& j, SuiteManifest& manifest) noexcept {
         }
         manifest.apps = std::move(apps);
     }
+    read_time_base(j, manifest);
 }
 
 void to_json(nlohmann::json& j, const SuiteAppMetadata& app) {
@@ -929,6 +952,39 @@ core::Status validate_settings_digests(const SuiteManifest& manifest) noexcept {
 
 } // namespace
 
+/// @brief Validate the optional time-base binding.
+///
+/// An absent process disables the gate and forbids a segment; a present process
+/// must name an application in the same manifest, and the segment must be a
+/// single-slash POSIX shared-memory name.
+///
+/// @param manifest Manifest to check.
+/// @return OK, or `InvalidArgument` when the binding is inconsistent.
+[[nodiscard]] core::Status validate_time_base_binding(const SuiteManifest& manifest) noexcept {
+    if (manifest.time_base_process.empty()) {
+        if (!manifest.time_base_segment.empty()) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        return {};
+    }
+    bool named = false;
+    for (const AppSpec& app : manifest.apps) {
+        if (app.app == manifest.time_base_process) {
+            named = true;
+            break;
+        }
+    }
+    if (!named) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    const std::string& segment = manifest.time_base_segment;
+    if (segment.size() < 2U || segment.size() > 255U || segment[0] != '/' ||
+        segment.find('/', 1U) != std::string::npos) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    return {};
+}
+
 core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
     if (const core::Status status = validate_suite_header_and_paths(manifest); !status) {
         return status;
@@ -955,6 +1011,9 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
         if (const core::Status status = validate_app_spec(app, manifest); !status) {
             return status;
         }
+    }
+    if (const core::Status status = validate_time_base_binding(manifest); !status) {
+        return status;
     }
     return validate_unique_app_instances(manifest.apps);
 }

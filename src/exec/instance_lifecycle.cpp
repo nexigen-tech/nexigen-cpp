@@ -337,7 +337,6 @@ core::Status generate_settings(std::string_view instance_dir, std::string_view s
     const std::string app_log = instance_file_path(stream_root, "app.jsonl");
     const std::string metrics_log = stream_path(stream_root, resolved.metrics, "metrics.jsonl");
     const std::string traces_log = stream_path(stream_root, resolved.traces, "traces.jsonl");
-    const std::string chrono_log = stream_path(stream_root, resolved.chrono, "chrono.jsonl");
 
     {
         nlohmann::json document = {
@@ -375,16 +374,8 @@ core::Status generate_settings(std::string_view instance_dir, std::string_view s
             return status;
         }
     }
-    {
-        nlohmann::json document = {
-            {"collect_interval_ns", 1'000'000'000},
-            {"sink", {{"path", chrono_log}, {"append", true}}},
-        };
-        const core::Status status = write("chrono.json", document);
-        if (!status) {
-            return status;
-        }
-    }
+    // The time-base history is produced once per suite by nexigen-chronod, not
+    // per instance: no chrono settings file is generated here.
     return {};
 }
 

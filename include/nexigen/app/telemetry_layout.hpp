@@ -70,10 +70,10 @@ namespace nexigen::app {
 /// @note Cold path only; never applies the identity or touches the filesystem.
 [[nodiscard]] core::Status validate_run_identity(const RunIdentity& identity) noexcept;
 
-/// @brief Resolve the three stream paths from explicit settings then identity.
+/// @brief Resolve the metrics and traces stream paths from settings then identity.
 ///
 /// Each stream resolves independently: a non-empty explicit path wins,
-/// otherwise `<instance_dir>/<metrics|traces|chrono>.jsonl` when the identity
+/// otherwise `<instance_dir>/<metrics|traces>.jsonl` when the identity
 /// carries an instance directory, otherwise the path stays empty (the helper
 /// does not configure that sink). The resolver performs no I/O and creates
 /// nothing.
@@ -81,7 +81,6 @@ namespace nexigen::app {
 /// @param identity Identity supplying the instance-directory fallback.
 /// @param explicit_metrics_path Configured metrics path ("" = none).
 /// @param explicit_traces_path Configured traces path ("" = none).
-/// @param explicit_chrono_path Configured chrono path ("" = none).
 /// @param out Destination, left untouched when `identity` is invalid.
 /// @return OK with `out` assigned; `InvalidArgument` when the identity does not
 ///         validate.
@@ -93,7 +92,6 @@ namespace nexigen::app {
 [[nodiscard]] core::Status resolve_telemetry_paths(const RunIdentity& identity,
                                                    std::string_view explicit_metrics_path,
                                                    std::string_view explicit_traces_path,
-                                                   std::string_view explicit_chrono_path,
                                                    TelemetryPaths& out) noexcept;
 
 /// @brief Settings overload: reads `sink.path` from each subsystem.
@@ -101,7 +99,6 @@ namespace nexigen::app {
 /// @param identity Identity supplying the instance-directory fallback.
 /// @param metrics Metrics settings whose `sink.path` is the explicit override.
 /// @param tracing Tracing settings whose `sink.path` is the explicit override.
-/// @param chrono Chrono settings whose `sink.path` is the explicit override.
 /// @param out Destination, left untouched when `identity` is invalid.
 /// @return OK with `out` assigned; `InvalidArgument` when the identity does not
 ///         validate.
@@ -111,10 +108,8 @@ namespace nexigen::app {
 [[nodiscard]] inline core::Status resolve_telemetry_paths(const RunIdentity& identity,
                                                           const metrics::Settings& metrics,
                                                           const tracing::Settings& tracing,
-                                                          const chrono::Settings& chrono,
                                                           TelemetryPaths& out) noexcept {
-    return resolve_telemetry_paths(identity, metrics.sink.path, tracing.sink.path, chrono.sink.path,
-                                   out);
+    return resolve_telemetry_paths(identity, metrics.sink.path, tracing.sink.path, out);
 }
 
 } // namespace nexigen::app

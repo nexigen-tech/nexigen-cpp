@@ -15,6 +15,8 @@
 #include <format>
 #include <string>
 
+#include <nexigen/chrono/boot_identity.hpp>
+
 namespace nexigen::metrics {
 
 // --- member to_string (mandate 9).
@@ -372,8 +374,12 @@ void to_json(nlohmann::json& j, const MetricBatchSnapshot& batch) {
         }
         records.push_back(batch.records[i]);
     }
+    char boot_text[chrono::boot_token_text_size + 1U]{};
+    static_cast<void>(chrono::format_boot_token(chrono::current_boot_token(), boot_text));
     j = nlohmann::json{
         {"stamp_ns", batch.stamp.nanoseconds()},
+        {"mono_ns", batch.stamp.nanoseconds()},
+        {"boot", std::string(std::string_view(boot_text, chrono::boot_token_text_size))},
         {"utc_ns", batch.utc_ns},
         {"record_count", batch.record_count},
         {"records", records},

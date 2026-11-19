@@ -12,18 +12,23 @@ namespace nexigen::com {
 
 /// @brief Optional hardware metadata supplied by a gateway.
 ///
-/// The sequence is trace-only; the timestamp is the driver-converted
-/// nanosecond value; the event code is the raw FPGA code, separate from the
-/// canonical platform event code.
+/// The sequence is trace-only. The event instant is the raw device counter plus
+/// the time-base domain id and epoch; drivers never convert ticks to
+/// nanoseconds. `canonical_ns` is an optional projection the gateway may derive
+/// from a domain map it holds.
 ///
 /// @note Spec `com/event-system`, requirement "Hardware gateway ingress".
 struct HardwareMetadata {
-    std::uint64_t sequence{0};       ///< Raw FPGA sequence.
-    std::uint64_t timestamp_ns{0};   ///< Raw FPGA timestamp, nanoseconds.
-    std::uint32_t event_code{0};     ///< Raw FPGA event code.
-    bool has_sequence{false};        ///< Enables `sequence`.
-    bool has_timestamp{false};       ///< Enables `timestamp_ns`.
-    bool has_event_code{false};      ///< Enables `event_code`.
+    std::uint64_t sequence{0};     ///< Raw FPGA sequence (trace-only).
+    std::uint64_t native_ticks{0}; ///< Raw device counter, unchanged.
+    std::uint64_t domain_epoch{0}; ///< Epoch of the native domain.
+    std::uint64_t canonical_ns{0}; ///< Optional canonical projection.
+    std::uint16_t domain_id{0};    ///< Time-base domain id.
+    std::uint32_t event_code{0};   ///< Raw FPGA event code.
+    bool has_sequence{false};      ///< Enables `sequence`.
+    bool has_ticks{false};         ///< Enables `native_ticks`.
+    bool has_event_code{false};    ///< Enables `event_code`.
+    bool has_canonical{false};     ///< Enables `canonical_ns`.
 
     /// @brief Render the cold-path diagnostic string.
     /// @return Human-readable metadata summary.

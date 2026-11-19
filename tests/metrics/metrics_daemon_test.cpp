@@ -195,6 +195,8 @@ void test_daemon_e2e() {
                                   std::istreambuf_iterator<char>());
         NX_CHECK(content.find("e2e_total") != std::string::npos);
         NX_CHECK(content.find("record_count") != std::string::npos);
+        NX_CHECK(content.find("\"mono_ns\"") != std::string::npos);
+        NX_CHECK(content.find("\"boot\"") != std::string::npos);
         ::unlink(path);
     }
 

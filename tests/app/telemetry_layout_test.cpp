@@ -83,58 +83,50 @@ void test_telemetry_layout() {
     // Per-signal precedence: explicit path, instance fallback, then empty.
     {
         app::TelemetryPaths paths{};
-        NX_CHECK(app::resolve_telemetry_paths(valid, "", "", "", paths).has_value());
+        NX_CHECK(app::resolve_telemetry_paths(valid, "", "", paths).has_value());
         NX_CHECK(paths.metrics == "/var/nexigen/runs/r1/controller/i42/metrics.jsonl");
         NX_CHECK(paths.traces == "/var/nexigen/runs/r1/controller/i42/traces.jsonl");
-        NX_CHECK(paths.chrono == "/var/nexigen/runs/r1/controller/i42/chrono.jsonl");
 
-        NX_CHECK(app::resolve_telemetry_paths(valid, "/explicit/metrics.jsonl", "", "", paths)
-                     .has_value());
+        NX_CHECK(
+            app::resolve_telemetry_paths(valid, "/explicit/metrics.jsonl", "", paths).has_value());
         NX_CHECK(paths.metrics == "/explicit/metrics.jsonl");
         NX_CHECK(paths.traces == "/var/nexigen/runs/r1/controller/i42/traces.jsonl");
-        NX_CHECK(paths.chrono == "/var/nexigen/runs/r1/controller/i42/chrono.jsonl");
 
-        NX_CHECK(app::resolve_telemetry_paths(valid, "", "/explicit/traces.jsonl",
-                                              "/explicit/chrono.jsonl", paths)
-                     .has_value());
+        NX_CHECK(
+            app::resolve_telemetry_paths(valid, "", "/explicit/traces.jsonl", paths).has_value());
         NX_CHECK(paths.metrics == "/var/nexigen/runs/r1/controller/i42/metrics.jsonl");
         NX_CHECK(paths.traces == "/explicit/traces.jsonl");
-        NX_CHECK(paths.chrono == "/explicit/chrono.jsonl");
     }
 
     // The settings overload reads each sink path.
     {
         metrics::Settings metrics{};
         tracing::Settings tracing{};
-        chrono::Settings chrono{};
         metrics.sink.path = "/settings/metrics.jsonl";
         tracing.sink.path = "";
-        chrono.sink.path = "/settings/chrono.jsonl";
         app::TelemetryPaths paths{};
-        NX_CHECK(app::resolve_telemetry_paths(valid, metrics, tracing, chrono, paths).has_value());
+        NX_CHECK(app::resolve_telemetry_paths(valid, metrics, tracing, paths).has_value());
         NX_CHECK(paths.metrics == "/settings/metrics.jsonl");
         NX_CHECK(paths.traces == "/var/nexigen/runs/r1/controller/i42/traces.jsonl");
-        NX_CHECK(paths.chrono == "/settings/chrono.jsonl");
     }
 
     // Empty identity and no explicit paths yield empty paths.
     {
         app::TelemetryPaths paths{};
-        NX_CHECK(app::resolve_telemetry_paths(app::RunIdentity{}, "", "", "", paths).has_value());
-        NX_CHECK(paths.metrics.empty() && paths.traces.empty() && paths.chrono.empty());
+        NX_CHECK(app::resolve_telemetry_paths(app::RunIdentity{}, "", "", paths).has_value());
+        NX_CHECK(paths.metrics.empty() && paths.traces.empty());
     }
 
     // Invalid identity is rejected before output is touched.
     {
         app::RunIdentity bad = valid;
         bad.instance_id = "bad id";
-        app::TelemetryPaths untouched{"keep-metrics", "keep-traces", "keep-chrono"};
-        const core::Status status = app::resolve_telemetry_paths(bad, "/x", "", "", untouched);
+        app::TelemetryPaths untouched{"keep-metrics", "keep-traces"};
+        const core::Status status = app::resolve_telemetry_paths(bad, "/x", "", untouched);
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == core::ErrorCode::InvalidArgument);
         NX_CHECK(untouched.metrics == "keep-metrics");
         NX_CHECK(untouched.traces == "keep-traces");
-        NX_CHECK(untouched.chrono == "keep-chrono");
     }
 
     // Resolution is pure: a non-existent instance directory is not created.
@@ -142,7 +134,7 @@ void test_telemetry_layout() {
         const std::string missing = unique_path("telemetry_layout_missing") + "/controller/i1";
         app::RunIdentity absent{"r1", "/tmp", "i1", missing};
         app::TelemetryPaths paths{};
-        NX_CHECK(app::resolve_telemetry_paths(absent, "", "", "", paths).has_value());
+        NX_CHECK(app::resolve_telemetry_paths(absent, "", "", paths).has_value());
         NX_CHECK(paths.metrics == missing + "/metrics.jsonl");
         NX_CHECK(::access(missing.c_str(), F_OK) != 0);
     }
@@ -165,13 +157,12 @@ void test_telemetry_layout() {
         NX_CHECK(back.run_id == valid.run_id);
         NX_CHECK(back.instance_dir == valid.instance_dir);
 
-        app::TelemetryPaths paths{"/m", "/t", "/c"};
+        app::TelemetryPaths paths{"/m", "/t"};
         nlohmann::json paths_json;
         app::to_json(paths_json, paths);
         app::TelemetryPaths paths_back{};
         app::from_json(paths_json, paths_back);
-        NX_CHECK(paths_back.metrics == "/m" && paths_back.traces == "/t" &&
-                 paths_back.chrono == "/c");
+        NX_CHECK(paths_back.metrics == "/m" && paths_back.traces == "/t");
         NX_CHECK(std::format("{}", paths) == paths.to_string());
 
         app::from_json(nlohmann::json::array(), paths);
@@ -203,15 +194,12 @@ void test_telemetry_layout_infrastructure() {
     settings.app_name = "layout-app";
 
     app::TelemetryPaths resolved{};
-    NX_CHECK(app::resolve_telemetry_paths(identity, settings.metrics, settings.tracing,
-                                          settings.chrono, resolved)
+    NX_CHECK(app::resolve_telemetry_paths(identity, settings.metrics, settings.tracing, resolved)
                  .has_value());
     NX_CHECK(resolved.metrics == instance_dir + "/metrics.jsonl");
     NX_CHECK(resolved.traces == instance_dir + "/traces.jsonl");
-    NX_CHECK(resolved.chrono == instance_dir + "/chrono.jsonl");
     settings.metrics.sink.path = resolved.metrics;
     settings.tracing.sink.path = resolved.traces;
-    settings.chrono.sink.path = resolved.chrono;
 
     auto infra = make_test_infra<ResolvedPathPolicy>();
     NX_CHECK(infra != nullptr);
@@ -233,7 +221,11 @@ void test_telemetry_layout_infrastructure() {
         }
     }
     NX_CHECK(infra->metrics().collect_now().has_value());
-    NX_CHECK(infra->chrono().snapshot_now().has_value());
+    const auto base_now = chrono::Timestamp::now();
+    NX_CHECK(base_now.has_value());
+    if (base_now) {
+        NX_CHECK(infra->chrono().on_tick(base_now->nanoseconds()) != chrono::ClientState::Lost);
+    }
 
     const auto tracer = infra->tracer_for("layout.span");
     NX_CHECK(tracer.has_value());
@@ -251,7 +243,9 @@ void test_telemetry_layout_infrastructure() {
     NX_CHECK(non_empty(instance_dir + "/app.jsonl"));
     NX_CHECK(non_empty(resolved.metrics));
     NX_CHECK(non_empty(resolved.traces));
-    NX_CHECK(non_empty(resolved.chrono));
+
+    // Every artefact lives directly under the instance directory; the time-base
+    // history is suite-level and produced by nexigen-chronod.
 
     // Every artefact lives directly under the instance directory.
     DIR* const dir = ::opendir(instance_dir.c_str());
@@ -264,18 +258,17 @@ void test_telemetry_layout_infrastructure() {
                 continue;
             }
             ++entries;
-            const bool known = name == "app.jsonl" || name == "metrics.jsonl" ||
-                               name == "traces.jsonl" || name == "chrono.jsonl";
+            const bool known =
+                name == "app.jsonl" || name == "metrics.jsonl" || name == "traces.jsonl";
             NX_CHECK(known);
         }
-        NX_CHECK(entries == 4);
+        NX_CHECK(entries == 3);
         static_cast<void>(::closedir(dir));
     }
 
     static_cast<void>(std::remove((instance_dir + "/app.jsonl").c_str()));
     static_cast<void>(std::remove(resolved.metrics.c_str()));
     static_cast<void>(std::remove(resolved.traces.c_str()));
-    static_cast<void>(std::remove(resolved.chrono.c_str()));
     static_cast<void>(::rmdir(instance_dir.c_str()));
 }
 

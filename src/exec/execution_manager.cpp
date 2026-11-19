@@ -183,8 +183,6 @@ constexpr std::uint64_t poll_interval_ms = 20;
     settings.metrics.sink.path = instance_file_path(stream_root, "metrics.jsonl");
     settings.metrics.sink.append = true;
     settings.tracing.sink.path = instance_file_path(stream_root, "traces.jsonl");
-    settings.chrono.sink.path = instance_file_path(stream_root, "chrono.jsonl");
-    settings.chrono.sink.append = true;
 
     const std::string settings_dir = instance_file_path(instance_dir, "settings");
     auto write = [&](const char* name, const nlohmann::json& document) {
@@ -215,11 +213,9 @@ constexpr std::uint64_t poll_interval_ms = 20;
         return tracing_status;
     }
 
-    nlohmann::json chrono_json;
-    to_json(chrono_json, settings.chrono);
-    chrono_json["sink"] = nlohmann::json{{"path", settings.chrono.sink.path},
-                                         {"append", settings.chrono.sink.append}};
-    return write("chrono.json", chrono_json);
+    // The time-base history is suite-level (nexigen-chronod); no per-instance
+    // chrono settings file is generated.
+    return {};
 }
 
 /// Wait for the child while enforcing the optional idle timeout. When the
@@ -428,7 +424,7 @@ struct StartLayout {
 
     app::TelemetryPaths resolved_paths{};
     const core::Status paths_status =
-        app::resolve_telemetry_paths(layout.resolved, "", "", "", resolved_paths);
+        app::resolve_telemetry_paths(layout.resolved, "", "", resolved_paths);
     if (!paths_status) {
         return paths_status;
     }
@@ -442,9 +438,9 @@ struct StartLayout {
         return settings_status;
     }
 
-    // The deterministic layout lists all four JSONL streams; make sure they
-    // exist before the child starts (the sinks append to them).
-    for (const char* stream : {"app.jsonl", "metrics.jsonl", "traces.jsonl", "chrono.jsonl"}) {
+    // The deterministic layout lists the per-instance JSONL streams; the
+    // suite-level time-base history is written by nexigen-chronod instead.
+    for (const char* stream : {"app.jsonl", "metrics.jsonl", "traces.jsonl"}) {
         const std::string stream_file = instance_file_path(layout.stream_root, stream);
         const int stream_fd = ::open(stream_file.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
         if (stream_fd < 0) {

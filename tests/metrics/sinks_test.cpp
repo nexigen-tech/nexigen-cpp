@@ -1,6 +1,7 @@
 // Split from metrics_test.cpp: nexigen::metrics sinks.
 
 #include "metrics_test_support.hpp"
+#include "../support/test_time_base.hpp"
 
 namespace {
 
@@ -126,6 +127,14 @@ void test_sinks_json_timestamp(const nlohmann::json& parsed) {
                     NX_CHECK(stamp.size() == 30U); // YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ
                     NX_CHECK(stamp[10] == 'T' && stamp[19] == '.' && stamp[29] == 'Z');
                 }
+                // The batch carries the canonical instant and the boot token.
+                const auto mono_it = parsed.find("mono_ns");
+                NX_CHECK(mono_it != parsed.end() && mono_it->is_number_unsigned());
+                const auto boot_it = parsed.find("boot");
+                NX_CHECK(boot_it != parsed.end() && boot_it->is_string());
+                if (boot_it != parsed.end() && boot_it->is_string()) {
+                    NX_CHECK(boot_it->get<std::string>().size() == 16U);
+                }
             }
         }
     }
@@ -228,6 +237,8 @@ void test_sinks_json_file(const char* path) {
         records[0].kind = metrics::MetricKind::Counter;
         records[0].scalar.counter = 5;
         metrics::MetricBatchSnapshot batch{};
+        const auto stamp = chrono::Timestamp::now();
+        batch.stamp = stamp ? *stamp : chrono::Timestamp{};
         batch.records = records;
         batch.record_count = 1;
         batch.record_capacity = 1;
@@ -248,6 +259,47 @@ void test_sinks_json() {
     ::unlink(path);
 }
 
+void test_sinks_time_base_source() {
+    chrono::TimeBaseClock::detach();
+    const std::string name = nexigen::tests::publish_test_time_base(
+        "metrics-offset", 3'600'000'000'000LL, /*calibrated=*/true);
+    NX_CHECK(!name.empty());
+
+    const std::string path = "/tmp/opencode/metrics_tb_source_" +
+                             std::to_string(static_cast<long>(::getpid())) + ".jsonl";
+    ::unlink(path.c_str());
+    metrics::JsonFileMetricSinkConfig config{};
+    config.path = path;
+    config.append = false;
+    metrics::JsonFileMetricSink sink{config};
+    metrics::MetricBatchSnapshot batch{};
+    const auto stamp = chrono::Timestamp::now();
+    NX_CHECK(stamp.has_value());
+    const std::uint64_t mono = stamp ? stamp->nanoseconds() : 0U;
+    batch.stamp = chrono::Timestamp{mono};
+    batch.utc_ns = 42; // deliberately wrong: the base owns UTC
+    NX_CHECK(sink.on_batch(batch).has_value());
+    NX_CHECK(sink.flush().has_value());
+
+    std::ifstream input{path};
+    NX_CHECK(input.is_open());
+    std::string line;
+    NX_CHECK(static_cast<bool>(std::getline(input, line)));
+    const nlohmann::json parsed = nlohmann::json::parse(line, nullptr, false);
+    NX_CHECK(!parsed.is_discarded());
+    if (parsed.is_object()) {
+        char expected[31];
+        chrono::format_utc_iso8601_ns(static_cast<std::int64_t>(mono) + 3'600'000'000'000LL,
+                                      expected);
+        NX_CHECK(parsed.at("timestamp").get<std::string>() == std::string_view(expected, 30U));
+        NX_CHECK(parsed.at("mono_ns").get<std::uint64_t>() == mono);
+    }
+    ::unlink(path.c_str());
+
+    chrono::TimeBaseClock::detach();
+    nexigen::tests::install_test_time_base();
+}
+
 } // namespace
 
 void suite_sinks_null_console() {
@@ -256,4 +308,5 @@ void suite_sinks_null_console() {
 
 void suite_sinks_json() {
     run_suite("sinks_json", test_sinks_json);
+    run_suite("sinks_time_base_source", test_sinks_time_base_source);
 }

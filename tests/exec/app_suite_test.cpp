@@ -26,6 +26,13 @@
 #include "../support/test_temp.hpp"
 
 #include <nexigen/core/integrity/sha256.hpp>
+#include <nexigen/app/infrastructure_stop_reason.hpp>
+#include <nexigen/chrono/detail/time_base_segment.hpp>
+#include <nexigen/chrono/detail/time_base_seqlock.hpp>
+#include <nexigen/chrono/time_base_host_domain.hpp>
+#include <nexigen/chrono/time_base_status.hpp>
+#include <nexigen/chrono/timestamp.hpp>
+#include <nexigen/exec/detail/time_base_gate.hpp>
 #include <nexigen/exec/cgroup_budget.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/exec/app_suite.hpp>
@@ -767,6 +774,41 @@ void test_manifest_validation() {
     NX_CHECK(loaded.manifest_path == path);
     NX_CHECK(loaded.apps.size() == 2);
 
+    // Time-base binding (change add-time-base-service): explicit process and
+    // segment round-trip; an omitted segment defaults from the suite id.
+    exec::SuiteManifest bound = manifest;
+    bound.time_base_process = "alpha";
+    bound.time_base_segment = "/nexigen-timebase-test";
+    NX_CHECK(exec::validate_suite_manifest(bound).has_value());
+    NX_CHECK(write_manifest(root + "/time_base.json", bound));
+    exec::SuiteManifest bound_loaded{};
+    NX_CHECK(exec::load_suite_manifest(root + "/time_base.json", bound_loaded).has_value());
+    NX_CHECK(bound_loaded.time_base_process == "alpha");
+    NX_CHECK(bound_loaded.time_base_segment == "/nexigen-timebase-test");
+
+    exec::SuiteManifest defaulted = bound;
+    defaulted.time_base_segment.clear();
+    NX_CHECK(write_manifest(root + "/time_base_default.json", defaulted));
+    exec::SuiteManifest defaulted_loaded{};
+    NX_CHECK(
+        exec::load_suite_manifest(root + "/time_base_default.json", defaulted_loaded).has_value());
+    NX_CHECK(defaulted_loaded.time_base_segment == "/nexigen-timebase-suite");
+
+    bad = manifest;
+    bad.time_base_process = "ghost";
+    bad.time_base_segment = "/nexigen-timebase-test";
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.time_base_segment = "/nexigen-timebase-test";
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    for (const char* malformed : {"relative", "/two/slashes", ""}) {
+        bad = bound;
+        bad.time_base_segment = malformed;
+        NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+    }
+
     std::ofstream invalid(root + "/bad.json", std::ios::binary | std::ios::trunc);
     invalid << "{not json";
     invalid.close();
@@ -1094,7 +1136,6 @@ void test_start_status_stop() {
         NX_CHECK(file_exists(app.artifact_dir + "/app.jsonl"));
         NX_CHECK(file_exists(app.artifact_dir + "/metrics.jsonl"));
         NX_CHECK(file_exists(app.artifact_dir + "/traces.jsonl"));
-        NX_CHECK(file_exists(app.artifact_dir + "/chrono.jsonl"));
         NX_CHECK(file_exists(app.instance_dir + "/settings/logging.json"));
     }
 
@@ -2267,7 +2308,197 @@ void test_control_host_factory_slot() {
     NX_CHECK(exec::control_host_factory() == nullptr);
 }
 
+void test_time_base_dependency_orders_start() {
+    const std::string root = unique_dir("tb_order");
+    const std::string artifacts = unique_dir("tb_order_artifacts");
+    exec::SuiteManifest manifest = base_manifest(root, artifacts);
+    manifest.time_base_process = "alpha";
+    manifest.time_base_segment =
+        "/nexigen-tb-order-" + std::to_string(static_cast<long>(::getpid()));
+
+    exec::AppSpec alpha =
+        app_spec("alpha", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Degrade);
+    first_config(alpha).args = {"-c", "printf a > " + root + "/alpha.started; exec sleep 60"};
+    exec::AppSpec beta =
+        app_spec("beta", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
+    first_config(beta).args = {"-c", "printf b > " + root + "/beta.started; exec sleep 60"};
+    first_config(beta).dependencies.push_back({"alpha", exec::ProcessState::Running});
+    manifest.apps.push_back(std::move(alpha));
+    manifest.apps.push_back(std::move(beta));
+
+    auto created = nexigen::chrono::detail::TimeBaseSegment::create(manifest.time_base_segment, 1U);
+    NX_CHECK(created.has_value());
+    if (!created) {
+        remove_tree(root);
+        remove_tree(artifacts);
+        return;
+    }
+    nexigen::chrono::detail::TimeBaseSegment segment = std::move(*created);
+
+    std::string suite_dir;
+    NX_CHECK(exec::start_suite(manifest, suite_dir).has_value());
+    // alpha starts, beta is gated on the base being Ready.
+    for (int attempt = 0; attempt < 50 && !file_exists(root + "/alpha.started"); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    }
+    NX_CHECK(file_exists(root + "/alpha.started"));
+    std::this_thread::sleep_for(std::chrono::milliseconds{500});
+    NX_CHECK(!file_exists(root + "/beta.started"));
+
+    const auto now = nexigen::chrono::Timestamp::now();
+    NX_CHECK(now.has_value());
+    if (now.has_value()) {
+        nexigen::chrono::TimeBaseBlock block{};
+        block.status = nexigen::chrono::TimeBaseStatus::Ready;
+        block.boot_token = 1U;
+        block.domain_count = 1U;
+        block.rows[0].domain_id = nexigen::chrono::k_monotonic_raw_domain_id;
+        block.rows[0].domain_class = nexigen::chrono::TimeDomainClass::SystemClock;
+        block.rows[0].lock = nexigen::chrono::LockState::Locked;
+        block.rows[0].scale_fwd_q32 = 1ULL << 32U;
+        block.rows[0].native_anchor = now->nanoseconds();
+        block.rows[0].canonical_anchor_ns = static_cast<std::int64_t>(now->nanoseconds());
+        block.rows[0].valid_from_native = now->nanoseconds();
+        block.rows[0].valid_to_native = now->nanoseconds() + 60'000'000'000ULL;
+        block.rows[0].valid_from_canonical = now->nanoseconds();
+        block.rows[0].valid_to_canonical = now->nanoseconds() + 60'000'000'000ULL;
+        nexigen::chrono::detail::TimeBaseWriter{*segment.block()}.publish(block,
+                                                                          now->nanoseconds());
+    }
+
+    // Once the base reports Ready, the dependent starts under the configured
+    // restart policy.
+    for (int attempt = 0; attempt < 100 && !file_exists(root + "/beta.started"); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    }
+    NX_CHECK(file_exists(root + "/beta.started"));
+    NX_CHECK(exec::stop_suite(suite_dir, 1).has_value());
+    remove_tree(root);
+    remove_tree(artifacts);
+}
+
+void test_time_base_retry_hold() {
+    const std::string root = unique_dir("tb_retry");
+    const std::string artifacts = unique_dir("tb_retry_artifacts");
+    exec::SuiteManifest manifest = base_manifest(root, artifacts);
+    manifest.time_base_process = "alpha";
+    manifest.time_base_segment =
+        "/nexigen-tb-retry-" + std::to_string(static_cast<long>(::getpid()));
+
+    exec::AppSpec alpha =
+        app_spec("alpha", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Degrade);
+    first_config(alpha).args = {"-c", "exec sleep 60"};
+    exec::AppSpec beta =
+        app_spec("beta", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
+    first_config(beta).args = {"-c", "printf b >> " + root + "/beta.runs; exit 75"};
+    first_config(beta).restart_attempts = 3;
+    first_config(beta).restart_delay_s = 0;
+    manifest.apps.push_back(std::move(alpha));
+    manifest.apps.push_back(std::move(beta));
+
+    auto created = nexigen::chrono::detail::TimeBaseSegment::create(manifest.time_base_segment, 1U);
+    NX_CHECK(created.has_value());
+    if (!created) {
+        remove_tree(root);
+        remove_tree(artifacts);
+        return;
+    }
+    nexigen::chrono::detail::TimeBaseSegment segment = std::move(*created);
+
+    std::string suite_dir;
+    NX_CHECK(exec::start_suite(manifest, suite_dir).has_value());
+    for (int attempt = 0; attempt < 50 && !file_exists(root + "/beta.runs"); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    }
+    NX_CHECK(file_exists(root + "/beta.runs"));
+    const std::size_t first_count = read_text(root + "/beta.runs").size();
+    NX_CHECK(first_count == 1U);
+
+    // The base is not Ready: the retry is held and no relaunch happens even
+    // though the restart delay is zero.
+    std::this_thread::sleep_for(std::chrono::milliseconds{1'000});
+    NX_CHECK(read_text(root + "/beta.runs").size() == 1U);
+
+    const auto now = nexigen::chrono::Timestamp::now();
+    NX_CHECK(now.has_value());
+    if (now.has_value()) {
+        nexigen::chrono::TimeBaseBlock block{};
+        block.status = nexigen::chrono::TimeBaseStatus::Ready;
+        block.boot_token = 1U;
+        block.domain_count = 1U;
+        block.rows[0].domain_id = nexigen::chrono::k_monotonic_raw_domain_id;
+        block.rows[0].domain_class = nexigen::chrono::TimeDomainClass::SystemClock;
+        block.rows[0].lock = nexigen::chrono::LockState::Locked;
+        block.rows[0].scale_fwd_q32 = 1ULL << 32U;
+        block.rows[0].native_anchor = now->nanoseconds();
+        block.rows[0].canonical_anchor_ns = static_cast<std::int64_t>(now->nanoseconds());
+        block.rows[0].valid_from_native = now->nanoseconds();
+        block.rows[0].valid_to_native = now->nanoseconds() + 60'000'000'000ULL;
+        block.rows[0].valid_from_canonical = now->nanoseconds();
+        block.rows[0].valid_to_canonical = now->nanoseconds() + 60'000'000'000ULL;
+        nexigen::chrono::detail::TimeBaseWriter{*segment.block()}.publish(block,
+                                                                          now->nanoseconds());
+    }
+
+    for (int attempt = 0; attempt < 100 && read_text(root + "/beta.runs").size() < 2U; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    }
+    NX_CHECK(read_text(root + "/beta.runs").size() >= 2U);
+    NX_CHECK(exec::stop_suite(suite_dir, 1).has_value());
+    remove_tree(root);
+    remove_tree(artifacts);
+}
+
 } // namespace
+
+void test_time_base_gate() {
+    const std::string name = "/nexigen-tb-gate-" + std::to_string(static_cast<long>(::getpid()));
+    auto created = nexigen::chrono::detail::TimeBaseSegment::create(name, 1U);
+    NX_CHECK(created.has_value());
+    if (!created) {
+        return;
+    }
+    nexigen::chrono::detail::TimeBaseSegment segment = std::move(*created);
+    nexigen::chrono::detail::TimeBaseWriter writer{*segment.block()};
+
+    const auto now = nexigen::chrono::Timestamp::now();
+    NX_CHECK(now.has_value());
+    if (!now) {
+        return;
+    }
+    const std::uint64_t mono = now->nanoseconds();
+
+    nexigen::chrono::TimeBaseBlock block{};
+    block.boot_token = 1U;
+    block.domain_count = 1U;
+    block.rows[0].domain_id = nexigen::chrono::k_monotonic_raw_domain_id;
+    block.rows[0].domain_class = nexigen::chrono::TimeDomainClass::SystemClock;
+    block.rows[0].lock = nexigen::chrono::LockState::Locked;
+    block.rows[0].scale_fwd_q32 = 1ULL << 32U;
+    block.rows[0].native_anchor = mono;
+    block.rows[0].canonical_anchor_ns = static_cast<std::int64_t>(mono);
+    block.rows[0].valid_from_native = mono;
+    block.rows[0].valid_to_native = mono + 10'000'000'000ULL;
+    block.rows[0].valid_from_canonical = mono;
+    block.rows[0].valid_to_canonical = mono + 10'000'000'000ULL;
+
+    block.status = nexigen::chrono::TimeBaseStatus::Ready;
+    writer.publish(block, mono);
+    NX_CHECK(exec::detail::time_base_ready(name));
+    NX_CHECK(!exec::detail::hold_retry_for_time_base(name, /*daemon_running=*/true,
+                                                     nexigen::app::time_base_lost_exit_code));
+
+    block.status = nexigen::chrono::TimeBaseStatus::NotReady;
+    writer.publish(block, mono);
+    NX_CHECK(!exec::detail::time_base_ready(name));
+    NX_CHECK(exec::detail::hold_retry_for_time_base(name, /*daemon_running=*/true,
+                                                    nexigen::app::time_base_lost_exit_code));
+
+    NX_CHECK(exec::detail::hold_retry_for_time_base(name, /*daemon_running=*/false,
+                                                    nexigen::app::time_base_lost_exit_code));
+    NX_CHECK(!exec::detail::hold_retry_for_time_base(name, /*daemon_running=*/false, 1));
+    NX_CHECK(!exec::detail::time_base_ready("/nexigen-tb-gate-missing"));
+}
 
 int main() {
     run_suite("control_host_factory", test_control_host_factory_slot);
@@ -2280,6 +2511,9 @@ int main() {
     run_suite("machine_manifest", test_machine_manifest);
     run_suite("enums_serialization", test_enums_and_serialization);
     run_suite("manifest_validation", test_manifest_validation);
+    run_suite("time_base_gate", test_time_base_gate);
+    run_suite("time_base_dependency_order", test_time_base_dependency_orders_start);
+    run_suite("time_base_retry_hold", test_time_base_retry_hold);
     run_suite("manifest_digest", test_manifest_digest);
     run_suite("settings_digests", test_settings_digests);
     run_suite("app_credentials", test_app_credentials);

@@ -27,12 +27,22 @@ Defines the span sinks: console rendering, rotating rate-limited JSONL files wit
 
 ### Requirement: JsonFileTraceSink JSONL output
 
-`JsonFileTraceSink` SHALL write one complete JSON object per span per line (JSONL) with UTC ISO-8601 start and end timestamps (`YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ` from `nexigen::chrono`), identifiers as zero-padded 16-character hexadecimal strings, kind/status as their canonical names, and attributes as typed key/value pairs; `flush()` SHALL synchronize the file, surfacing I/O failures as `SystemError`. Scratch overflow is pinned by its own scenario as a counted, whole-line discard.
+`JsonFileTraceSink` SHALL write one complete JSON object per span per line (JSONL) with canonical monotonic start and end instants, the boot token, UTC ISO-8601 start and end timestamps derived from the time base (`YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ` from `nexigen::chrono`), identifiers as zero-padded 16-character hexadecimal strings, kind/status as their canonical names, and attributes as typed key/value pairs; `flush()` SHALL synchronize the file, surfacing I/O failures as `SystemError`. Scratch overflow is pinned by its own scenario as a counted, whole-line discard.
 
 #### Scenario: One parseable JSON object per span per line
 
 - **WHEN** drained records are written and the file is read back line by line and each line parsed as JSON
-- **THEN** every line parses to one object carrying the span's ids, parent id, kind, status, thread id, both ISO-8601 timestamps, duration, name, source location, and attributes, and each field round-trips to the original record
+- **THEN** every line parses to one object carrying the span's ids, parent id, kind, status, thread id, both ISO-8601 timestamps, numeric `start_mono_ns` and `end_mono_ns`, the `boot` token, duration, name, source location, and attributes, and each field round-trips to the original record
+
+#### Scenario: Monotonic instants are the source of truth
+
+- **WHEN** the same span's ISO timestamps and monotonic fields are compared after a UTC calibration change
+- **THEN** `start_mono_ns` and `end_mono_ns` are unchanged and the ISO values are derived for those instants
+
+#### Scenario: Legacy lines remain readable
+
+- **WHEN** a reader parses a line that has no `start_mono_ns`, `end_mono_ns`, or `boot` field
+- **THEN** it treats the line as the legacy format and relies on the ISO timestamps alone
 
 #### Scenario: Timestamps render in UTC ISO-8601 shape
 

@@ -2,6 +2,8 @@
 
 #include "app_test_support.hpp"
 
+#include <limits>
+
 void test_infrastructure_lifecycle() {
     auto app = make_test_infra<TestPolicy>();
     NX_CHECK(app != nullptr);
@@ -21,7 +23,11 @@ void test_infrastructure_lifecycle() {
     app->logger().info("lifecycle record");
     NX_CHECK(g_log_lines.size() == 1U);
 
-    NX_CHECK(app->chrono().snapshot_now().has_value());
+    const auto base_now = chrono::Timestamp::now();
+    NX_CHECK(base_now.has_value());
+    if (base_now) {
+        NX_CHECK(app->chrono().on_tick(base_now->nanoseconds()) != chrono::ClientState::Lost);
+    }
 
     const auto meter = app->meter("sim", "1.0");
     NX_CHECK(meter.has_value());
@@ -89,11 +95,13 @@ void test_infrastructure_failures() {
         NX_CHECK(!fail_trace->initialize(app::Settings{}).has_value());
         NX_CHECK(fail_trace->shutdown().has_value());
     }
-    auto fail_chrono = make_test_infra<FailChronoPolicy>();
-    NX_CHECK(fail_chrono != nullptr);
-    if (fail_chrono) {
-        NX_CHECK(!fail_chrono->initialize(app::Settings{}).has_value());
-        NX_CHECK(fail_chrono->shutdown().has_value());
+    auto missing_base = make_test_infra<TestPolicy>();
+    NX_CHECK(missing_base != nullptr);
+    if (missing_base) {
+        app::Settings settings{};
+        settings.chrono.segment_name = "/nexigen-timebase-does-not-exist";
+        NX_CHECK(!missing_base->initialize(settings).has_value());
+        NX_CHECK(missing_base->shutdown().has_value());
     }
     auto flush_fail = make_test_infra<FlushFailPolicy>();
     NX_CHECK(flush_fail != nullptr);
@@ -464,9 +472,61 @@ void test_infrastructure_stop_and_mask() {
     NX_CHECK(masked->shutdown().has_value());
 }
 
+void test_time_base_loss() {
+    const std::string name = "/nexigen-tb-loss-" + std::to_string(static_cast<long>(::getpid()));
+    auto created = chrono::detail::TimeBaseSegment::create(name, 0x1U);
+    NX_CHECK(created.has_value());
+    if (!created) {
+        return;
+    }
+    chrono::detail::TimeBaseSegment segment = std::move(*created);
+
+    // A published but stale base: the client attaches successfully, then the run
+    // loop must stop with the dedicated reason instead of spinning.
+    const auto now = chrono::Timestamp::now();
+    NX_CHECK(now.has_value());
+    if (!now) {
+        return;
+    }
+    chrono::TimeBaseBlock block{};
+    block.status = chrono::TimeBaseStatus::Ready;
+    block.boot_token = 0x1U;
+    block.domain_count = 1U;
+    block.rows[0].domain_id = chrono::k_monotonic_raw_domain_id;
+    block.rows[0].domain_class = chrono::TimeDomainClass::SystemClock;
+    block.rows[0].lock = chrono::LockState::Locked;
+    block.rows[0].scale_fwd_q32 = 1ULL << 32U;
+    block.rows[0].native_anchor = 1U;
+    block.rows[0].canonical_anchor_ns = 1;
+    block.rows[0].valid_from_native = 1U;
+    block.rows[0].valid_to_native = std::numeric_limits<std::uint64_t>::max();
+    block.rows[0].valid_from_canonical = 1U;
+    block.rows[0].valid_to_canonical = std::numeric_limits<std::uint64_t>::max();
+    chrono::detail::TimeBaseWriter writer{*segment.block()};
+    writer.publish(block, 1U); // heartbeat far behind the current canonical instant
+
+    app::Settings settings{};
+    settings.chrono.segment_name = name;
+    settings.chrono.stale_after = std::chrono::milliseconds{1};
+    settings.chrono.holdover = std::chrono::milliseconds{2};
+
+    auto app = make_test_infra<TestPolicy>();
+    NX_CHECK(app != nullptr);
+    if (!app) {
+        return;
+    }
+    NX_CHECK(app->initialize(settings).has_value());
+    int ticks = 0;
+    const app::InfrastructureStopReason reason = app->run([&] { ++ticks; });
+    NX_CHECK(reason == app::InfrastructureStopReason::TimeBaseLost);
+    NX_CHECK(ticks == 0);
+    NX_CHECK(app->shutdown().has_value());
+}
+
 void run_app_infrastructure_suites() {
     run_suite("lifecycle", test_infrastructure_lifecycle);
     run_suite("failures", test_infrastructure_failures);
+    run_suite("time_base_loss", test_time_base_loss);
     run_suite("required_thread_rollback", test_infrastructure_required_thread_rollback);
     run_suite("conflict", test_infrastructure_conflict);
     run_suite("watcher_empty_spec", test_watcher_empty_spec_inherits);

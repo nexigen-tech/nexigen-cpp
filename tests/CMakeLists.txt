@@ -31,6 +31,14 @@ target_link_libraries(nexigen_chrono_tests PRIVATE nexigen_chrono Threads::Threa
 add_test(NAME nexigen_chrono_tests COMMAND nexigen_chrono_tests)
 set_tests_properties(nexigen_chrono_tests PROPERTIES TIMEOUT 600)
 
+# Time-base service (change add-time-base-service): vocabularies, shared-memory
+# block layout, seqlock, segment lifecycle and client contract.
+add_executable(nexigen_chrono_time_base_tests chrono/time_base_test.cpp)
+target_link_libraries(nexigen_chrono_time_base_tests PRIVATE nexigen_chrono Threads::Threads)
+
+add_test(NAME nexigen_chrono_time_base_tests COMMAND nexigen_chrono_time_base_tests)
+set_tests_properties(nexigen_chrono_time_base_tests PROPERTIES TIMEOUT 300)
+
 # Юнит-тесты nexigen::logging: один TU на сущность (design.md D18/D4), потоки и
 # аффинность требуют полного времени; тот же увеличенный таймаут под TSan.
 add_executable(nexigen_logging_tests
@@ -157,8 +165,9 @@ add_executable(nexigen_app_tests
     app/command_line_test.cpp
     app/app_settings_test.cpp
     app/telemetry_layout_test.cpp
-    app/infrastructure_test.cpp)
-target_link_libraries(nexigen_app_tests PRIVATE nexigen_app Threads::Threads)
+    app/infrastructure_test.cpp
+    app/time_base_e2e_test.cpp)
+target_link_libraries(nexigen_app_tests PRIVATE nexigen_app nexigen_recorder Threads::Threads)
 
 add_test(NAME nexigen_app_tests COMMAND nexigen_app_tests)
 set_tests_properties(nexigen_app_tests PROPERTIES TIMEOUT 600)

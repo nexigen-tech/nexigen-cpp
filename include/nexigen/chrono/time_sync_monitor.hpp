@@ -68,6 +68,20 @@ public:
     ///       blocking).
     [[nodiscard]] std::optional<TimeSyncSample> sample() noexcept;
 
+    /// @brief Classify an externally sampled realtime/monotonic pair.
+    ///
+    /// Use this when the daemon already read the clocks for its publication:
+    /// the monitor updates its baseline exactly like `sample()` but never reads
+    /// a clock itself.
+    ///
+    /// @param realtime_ns `CLOCK_REALTIME` instant of the sample.
+    /// @param monotonic_raw_ns `CLOCK_MONOTONIC_RAW` instant of the same sample.
+    /// @return The classification, or `std::nullopt` when the sample is not
+    ///         ordered (a backwards monotonic value).
+    /// @note Hot-path safe; no clock read and no allocation.
+    [[nodiscard]] std::optional<TimeSyncSample> sample(std::int64_t realtime_ns,
+                                                       std::uint64_t monotonic_raw_ns) noexcept;
+
     /// @brief The active policy.
     ///
     /// @return Borrowed view of the thresholds bound at construction; valid for

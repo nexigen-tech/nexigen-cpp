@@ -23,6 +23,7 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include <nexigen/chrono/boot_identity.hpp>
 #include <nexigen/chrono/civil_time.hpp>
 #include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
@@ -267,6 +268,7 @@ void test_dump() {
     NX_CHECK(header.ring_overwrites == 0U);
     NX_CHECK(std::string_view{header.trigger_group} == "ADAS_FG");
     NX_CHECK(header.trigger_ts_ns == 777U);
+    NX_CHECK(header.boot_token == nexigen::chrono::current_boot_token());
     NX_CHECK(frames.size() == 4U);
     for (std::size_t i = 0; i < frames.size(); ++i) {
         NX_CHECK(frames[i].sequence == i);

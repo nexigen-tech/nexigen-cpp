@@ -110,9 +110,11 @@ bool verify_log_file(const std::string& path) {
 } // namespace
 
 int main() {
-    // Fresh output tree for the composite sink (the file example owns the
-    // parent directory).
+    // Fresh output tree for the composite sink. The parent directory is shared
+    // with the file-logger example and may not exist when tests run in parallel,
+    // so create it here instead of relying on that example having run first.
     std::error_code cleanup_ec;
+    std::filesystem::create_directories("/tmp/nexigen-examples-logs", cleanup_ec);
     std::filesystem::remove_all(std::string(k_base_dir), cleanup_ec);
 
     nexigen::logging::FileLoggerConfig file_config{};

@@ -42,8 +42,7 @@ using nexigen::core::settings_io::read_text_file;
 
 std::string Settings::to_string() const {
     return nexigen::core::settings_io::format_settings_summary(
-        global_loaded, local_loaded, nexigen::chrono::to_string(options),
-        nexigen::chrono::to_string(sink), diagnostics);
+        global_loaded, local_loaded, nexigen::chrono::to_string(options), "none", diagnostics);
 }
 
 namespace {
@@ -89,14 +88,41 @@ void read_kind(const char* key, const nlohmann::json& document, core::SettingsSo
     out.options.kind = parsed;
 }
 
-void read_sink_path(const char* key, const nlohmann::json& sink, core::SettingsSource source,
-                    std::vector<core::SettingsDiagnostic>& diagnostics, Settings& out) {
-    io::read_sink_string(sink, key, out.sink.path, diagnostics, source);
+void read_segment_name(const char* key, const nlohmann::json& document, core::SettingsSource source,
+                       std::vector<core::SettingsDiagnostic>& diagnostics, Settings& out) {
+    io::read_sink_string(document, key, out.segment_name, diagnostics, source);
 }
 
-void read_sink_append(const char* key, const nlohmann::json& sink, core::SettingsSource source,
+void read_required_domains(const char* key, const nlohmann::json& document,
+                           core::SettingsSource source,
+                           std::vector<core::SettingsDiagnostic>& diagnostics, Settings& out) {
+    const auto it = document.find(key);
+    if (it == document.end()) {
+        return;
+    }
+    if (!it->is_array()) {
+        add_diagnostic(diagnostics, source, key, "expected an array of domain ids");
+        return;
+    }
+    std::vector<std::uint16_t> parsed;
+    for (const auto& item : *it) {
+        if (!item.is_number_unsigned() || item.get<std::uint64_t>() > 0xFFFFULL) {
+            add_diagnostic(diagnostics, source, key, "expected domain ids in 0..65535");
+            return;
+        }
+        parsed.push_back(static_cast<std::uint16_t>(item.get<std::uint64_t>()));
+    }
+    out.required_domains = std::move(parsed);
+}
+
+void read_stale_after(const char* key, const nlohmann::json& document, core::SettingsSource source,
                       std::vector<core::SettingsDiagnostic>& diagnostics, Settings& out) {
-    io::read_sink_bool(sink, key, out.sink.append, diagnostics, source);
+    io::read_duration_ns(document, key, source, diagnostics, out.stale_after);
+}
+
+void read_holdover(const char* key, const nlohmann::json& document, core::SettingsSource source,
+                   std::vector<core::SettingsDiagnostic>& diagnostics, Settings& out) {
+    io::read_duration_ns(document, key, source, diagnostics, out.holdover);
 }
 
 constexpr io::ReadField<Settings> document_fields[] = {
@@ -104,11 +130,10 @@ constexpr io::ReadField<Settings> document_fields[] = {
     {"core_mask", &read_core_mask},
     {"worker_thread", &read_worker_thread},
     {"kind", &read_kind},
-};
-
-constexpr io::SinkReadField<Settings> sink_fields[] = {
-    {"path", &read_sink_path},
-    {"append", &read_sink_append},
+    {"segment_name", &read_segment_name},
+    {"required_domains", &read_required_domains},
+    {"stale_after_ns", &read_stale_after},
+    {"holdover_ns", &read_holdover},
 };
 
 // --- write hooks: the to_json slots, same table pattern (design D4). -------
@@ -132,8 +157,20 @@ void write_kind(nlohmann::json& object, const char* key, const Settings& setting
     object[key] = settings.options.kind;
 }
 
-void write_sink(nlohmann::json& object, const char* key, const Settings& settings) {
-    object[key] = nlohmann::json{{"path", settings.sink.path}, {"append", settings.sink.append}};
+void write_segment_name(nlohmann::json& object, const char* key, const Settings& settings) {
+    object[key] = settings.segment_name;
+}
+
+void write_required_domains(nlohmann::json& object, const char* key, const Settings& settings) {
+    object[key] = settings.required_domains;
+}
+
+void write_stale_after(nlohmann::json& object, const char* key, const Settings& settings) {
+    object[key] = settings.stale_after.count();
+}
+
+void write_holdover(nlohmann::json& object, const char* key, const Settings& settings) {
+    object[key] = settings.holdover.count();
 }
 
 constexpr io::WriteField<Settings> json_fields[] = {
@@ -142,7 +179,10 @@ constexpr io::WriteField<Settings> json_fields[] = {
     {"collect_interval_ns", &write_collect_interval},
     {"worker_thread", &write_worker_thread},
     {"kind", &write_kind},
-    {"sink", &write_sink},
+    {"segment_name", &write_segment_name},
+    {"required_domains", &write_required_domains},
+    {"stale_after_ns", &write_stale_after},
+    {"holdover_ns", &write_holdover},
 };
 
 } // namespace
@@ -162,7 +202,6 @@ void merge_document(const nlohmann::json& document, core::SettingsSource source,
         return;
     }
     io::read_fields(document, source, document_fields, out);
-    io::read_sink_fields(document, source, sink_fields, out);
 }
 
 void apply_env_interval(const char* env_name, const char* field,

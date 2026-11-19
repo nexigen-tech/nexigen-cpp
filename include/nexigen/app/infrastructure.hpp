@@ -34,10 +34,9 @@
 #include <nexigen/app/app_settings.hpp>
 #include <nexigen/app/command_line.hpp>
 #include <nexigen/app/infrastructure_stop_reason.hpp>
-#include <nexigen/chrono/provider.hpp>
+#include <nexigen/chrono/time_base_client.hpp>
+#include <nexigen/chrono/time_base_clock.hpp>
 #include <nexigen/chrono/settings.hpp>
-#include <nexigen/chrono/worker.hpp>
-#include <nexigen/chrono/concepts/sink_concept.hpp>
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
@@ -60,14 +59,15 @@ class Infrastructure;
 
 /// @brief Stateless policy contract: component types plus static emplacement hooks.
 ///
-/// A policy names the four component types and provides the static hooks that
-/// construct them into the infrastructure's optionals. Every hook is `noexcept`
-/// and returns `core::Status`; the logger, metrics-sink and trace-sink hooks also
-/// receive the application name, while the chrono-sink hook does not. A policy
+/// A policy names the three telemetry component types and provides the static
+/// hooks that construct them into the infrastructure's optionals. Every hook is
+/// `noexcept` and returns `core::Status`; the logger, metrics-sink and trace-sink
+/// hooks also receive the application name. The time base is not a policy
+/// component: it is the mandatory daemon every application attaches to. A policy
 /// holds no runtime state.
 ///
 /// @tparam Policy Candidate policy type checked for the nested aliases and the
-///         four static hooks.
+///         three static hooks.
 /// @note Spec `app/application`, requirement "Stateless infrastructure policy".
 /// @note Cold path only: the hooks run once during `Infrastructure::initialize`.
 template <class Policy>
@@ -75,14 +75,11 @@ concept InfrastructurePolicy =
     requires(std::optional<typename Policy::Logger>& logger,
              std::optional<typename Policy::MetricsSink>& metrics_sink,
              std::optional<typename Policy::TraceSink>& trace_sink,
-             std::optional<typename Policy::Sink>& chrono_sink,
              const logging::Settings& logging_settings, const metrics::Settings& metrics_settings,
-             const tracing::Settings& tracing_settings, const chrono::Settings& chrono_settings,
-             std::string_view app_name) {
+             const tracing::Settings& tracing_settings, std::string_view app_name) {
         typename Policy::Logger;
         typename Policy::MetricsSink;
         typename Policy::TraceSink;
-        typename Policy::Sink;
         {
             Policy::emplace_logger(logger, logging_settings, app_name)
         } noexcept -> std::same_as<core::Status>;
@@ -91,9 +88,6 @@ concept InfrastructurePolicy =
         } noexcept -> std::same_as<core::Status>;
         {
             Policy::emplace_trace_sink(trace_sink, tracing_settings, app_name)
-        } noexcept -> std::same_as<core::Status>;
-        {
-            Policy::emplace_chrono_sink(chrono_sink, chrono_settings)
         } noexcept -> std::same_as<core::Status>;
     };
 
@@ -287,39 +281,6 @@ private:
     core::WorkerThread<Body> worker_{}; ///< LAST member: joins before fd_ closes
 };
 
-/// @brief Bridges the application logger to the chrono worker's log hook.
-///
-/// Chrono must not depend on logging, so the worker reports through a
-/// module-local hook; this adapter forwards a pre-formatted message through the
-/// application logger at the matching `core::LogLevel`. The pointer is borrowed
-/// and must outlive the chrono worker.
-///
-/// @tparam Logger Logger type satisfying `logging::concepts::Logger`.
-/// @note Spec `app/application`, requirement "Initialization follows a fixed
-///       order"; the bridge lives on the cold worker path only.
-template <class Logger> struct ChronoLoggerBridge {
-    Logger* logger{nullptr}; ///< Borrowed application logger (non-null while running).
-
-    /// @brief Forward one worker message at the equivalent log level.
-    ///
-    /// @param level Severity reported by the chrono worker; `Off` produces no
-    ///        record.
-    /// @param message Pre-formatted message forwarded as a `{}` argument.
-    /// @warning Only valid while `logger` points at a live logger, i.e. while
-    ///          the chrono worker started by the infrastructure is running.
-    void log(core::LogLevel level, std::string_view message) noexcept {
-        switch (level) {
-            case core::LogLevel::Verbose: logger->verbose("{}", message); break;
-            case core::LogLevel::Debug:   logger->debug("{}", message); break;
-            case core::LogLevel::Info:    logger->info("{}", message); break;
-            case core::LogLevel::Warning: logger->warning("{}", message); break;
-            case core::LogLevel::Error:   logger->error("{}", message); break;
-            case core::LogLevel::Fatal:   logger->fatal("{}", message); break;
-            case core::LogLevel::Off:     break; // filtered: no record
-        }
-    }
-};
-
 } // namespace detail
 
 /// @brief Heap-only infrastructure service composing logging, metrics, tracing and time.
@@ -350,23 +311,21 @@ public:
     using MetricsSink = typename Policy::MetricsSink;
     /// @brief Trace sink type produced by `Policy::emplace_trace_sink`.
     using TraceSink = typename Policy::TraceSink;
-    /// @brief Chrono sink type produced by `Policy::emplace_chrono_sink`.
-    using Sink = typename Policy::Sink;
     /// @brief Tracer provider owned by this infrastructure.
     using TracerProvider = tracing::TracerProvider<TracerCapacity, TracerThreads>;
     /// @brief Tracer handle type returned by `tracer_for`.
     using TracerType = tracing::Tracer<TracerCapacity, TracerThreads>;
 
     static_assert(InfrastructurePolicy<Policy>,
-                  "Policy must declare Logger/MetricsSink/TraceSink/Sink and static "
-                  "emplace hooks");
+                  "Policy must declare Logger/MetricsSink/TraceSink and static emplace hooks");
     static_assert(logging::concepts::Logger<Logger>,
                   "Policy::Logger must satisfy nexigen::logging::concepts::Logger");
     static_assert(metrics::concepts::MetricSink<MetricsSink>,
                   "Policy::MetricsSink must satisfy metrics::concepts::MetricSink");
     static_assert(tracing::concepts::TraceSink<TraceSink>,
                   "Policy::TraceSink must satisfy tracing::concepts::TraceSink");
-    static_assert(chrono::concepts::Sink<Sink>, "Policy::Sink must satisfy chrono::concepts::Sink");
+    // The time base is attached from the daemon, not a policy component.
+    // (change add-time-base-service)
 
     /// @brief Copying is impossible: the infrastructure owns threads and signals.
     Infrastructure(const Infrastructure&) = delete;
@@ -503,6 +462,12 @@ public:
     ///       stop reason, not through the caller's signal mask.
     template <class Tick> [[nodiscard]] InfrastructureStopReason run(Tick&& tick) noexcept {
         while (!stop_requested()) {
+            const core::Result<chrono::Timestamp> now = chrono::Timestamp::now();
+            if (!now || !time_base_ ||
+                time_base_->on_tick(now->nanoseconds()) == chrono::ClientState::Lost) {
+                request_stop(InfrastructureStopReason::TimeBaseLost);
+                break;
+            }
             if constexpr (std::is_invocable_r_v<bool, Tick&>) {
                 if (!tick()) {
                     request_stop(InfrastructureStopReason::Requested);
@@ -600,6 +565,9 @@ public:
                 case InfrastructureStopReason::Requested:
                     logger_->info("shutdown reason: requested");
                     break;
+                case InfrastructureStopReason::TimeBaseLost:
+                    logger_->warning("shutdown reason: time_base_lost");
+                    break;
                 case InfrastructureStopReason::None:
                 default:                             logger_->info("shutdown reason: none"); break;
             }
@@ -613,9 +581,9 @@ public:
             capture(metrics_->collect_now());
             capture(metrics_->flush());
         }
-        // The chrono worker's destructor stops the thread and delivers the
-        // final snapshot + flush; reset it first so the provider outlives it.
-        worker_.reset();
+        // The time base is a read-only mapping: releasing it needs no flush.
+        chrono::TimeBaseClock::detach();
+        time_base_.reset();
 
         static_cast<void>(::pthread_sigmask(SIG_SETMASK, &previous_mask_, nullptr));
 
@@ -623,8 +591,6 @@ public:
         trace_sink_.reset();
         metrics_.reset();
         metrics_sink_.reset();
-        provider_.reset();
-        chrono_sink_.reset();
         logger_.reset();
         initialized_ = false;
         detail::signal_owner.store(nullptr, std::memory_order_release);
@@ -658,15 +624,14 @@ public:
     ///       metric and tracer factories".
     [[nodiscard]] TracerProvider& tracer() noexcept { return *tracer_; }
 
-    /// @brief Access the chrono provider.
+    /// @brief Access the attached time base.
     ///
-    /// @return Reference to the provider built at initialization.
-    /// @warning Only valid after a successful `initialize`; snapshots are
-    ///          delivered through the configured chrono sink and flushed on
-    ///          shutdown.
+    /// @return Reference to the client handle attached at initialization.
+    /// @warning Only valid after a successful `initialize`; the handle reports
+    ///          the current status and the coefficients of the required domains.
     /// @note Spec `app/application`, requirement "Infrastructure exposes logger,
     ///       metric and tracer factories".
-    [[nodiscard]] chrono::Provider<>& chrono() noexcept { return *provider_; }
+    [[nodiscard]] chrono::TimeBaseClient& chrono() noexcept { return *time_base_; }
 
     /// @brief Create or fetch a meter through the metrics provider.
     ///
@@ -744,38 +709,51 @@ private:
         return {};
     }
 
-    /// @brief Build the chrono sink/provider, logger, bridge and chrono worker.
+    /// @brief Attach the time base and build the logger.
     ///
-    /// Chrono is the time foundation, so its sink and provider are constructed
-    /// first (the worker is not started yet); the logger is configured next, the
-    /// bridge is bound, and only then does the chrono worker start.
+    /// The time-base daemon is a mandatory start dependency: attachment is the
+    /// first action, and a missing or unusable base fails initialization before
+    /// any logger or provider exists. The logger is configured next so every
+    /// later diagnostic can be logged.
     ///
-    /// @param settings Merged settings supplying the chrono and logging
-    ///        configuration plus the application name.
-    /// @return OK when all four pieces exist; otherwise the failing status after
-    ///         rollback.
+    /// @param settings Merged settings supplying the time-base client and
+    ///        logging configuration plus the application name.
+    /// @return OK when the base is attached and the logger exists; otherwise the
+    ///         failing status after rollback.
     /// @note Spec `app/application`, scenario "Logger is ready before providers
-    ///       start".
+    ///       start" and "Missing time base fails initialization".
     /// @note Spec `app/settings`, requirement "Application name is app-level".
     [[nodiscard]] core::Status build_time_and_logging(const Settings& settings) noexcept {
-        const core::Status chrono_status =
-            Policy::emplace_chrono_sink(chrono_sink_, settings.chrono);
-        if (const core::Status step = emplace_checked(chrono_status, chrono_sink_.has_value());
-            !step) {
-            return step;
+        chrono::TimeBaseClientConfig client{};
+        if (settings.chrono.required_domains.size() > client.required_domains.size()) {
+            return fail(std::unexpected(core::ErrorCode::InvalidArgument));
         }
-        provider_.emplace(settings.chrono.options, *chrono_sink_);
+        for (std::size_t i = 0; i < settings.chrono.required_domains.size(); ++i) {
+            client.required_domains[i] = settings.chrono.required_domains[i];
+        }
+        client.required_count = static_cast<std::uint8_t>(settings.chrono.required_domains.size());
+        client.stale_after = settings.chrono.stale_after;
+        client.holdover = settings.chrono.holdover;
+
+        auto attached = chrono::TimeBaseClient::attach(settings.chrono.segment_name, client);
+        if (!attached) {
+            return fail(std::unexpected(attached.error()));
+        }
+        time_base_.emplace(std::move(*attached));
+
+        // Telemetry renderers derive UTC from the same published calibration;
+        // binding the segment here keeps the sinks independent of the client
+        // object's lifetime and of the settings plumbing.
+        const core::Status clock_bound =
+            chrono::TimeBaseClock::attach(settings.chrono.segment_name);
+        if (!clock_bound) {
+            return fail(clock_bound);
+        }
 
         const core::Status logger_status =
             Policy::emplace_logger(logger_, settings.logging, settings.app_name);
         if (const core::Status step = emplace_checked(logger_status, logger_.has_value()); !step) {
             return step;
-        }
-        chrono_logger_bridge_.logger = &*logger_;
-        worker_.emplace(*provider_, settings.chrono.options);
-        const core::Status started = worker_->start(chrono_logger_bridge_);
-        if (!started) {
-            return fail(started);
         }
         return {};
     }
@@ -849,29 +827,23 @@ private:
         trace_sink_.reset();
         metrics_.reset();
         metrics_sink_.reset();
-        worker_.reset();
-        provider_.reset();
-        chrono_sink_.reset();
+        chrono::TimeBaseClock::detach();
+        time_base_.reset();
         logger_.reset();
         static_cast<void>(::pthread_sigmask(SIG_SETMASK, &previous_mask_, nullptr));
         initialized_ = false;
         detail::signal_owner.store(nullptr, std::memory_order_release);
     }
 
-    // Declaration order is the lifetime contract: the worker references the
-    // provider, which references the chrono sink, so reverse-declaration
-    // teardown destroys worker -> provider -> sink. The chrono worker is
-    // declared after the logger/sink bridge it references, so the bridge, the
-    // chrono sink, and the logger all outlive the chrono worker.
-    std::optional<Logger> logger_{};                            ///< Logger component, built first.
-    detail::ChronoLoggerBridge<Logger> chrono_logger_bridge_{}; ///< Borrows `logger_`.
-    std::optional<MetricsSink> metrics_sink_{};                 ///< Metrics sink component.
-    std::optional<metrics::MetricProvider> metrics_{};          ///< Metrics provider over the sink.
-    std::optional<TraceSink> trace_sink_{};                     ///< Trace sink component.
-    std::optional<TracerProvider> tracer_{};                    ///< Tracer provider over the sink.
-    std::optional<Sink> chrono_sink_{};                         ///< Chrono sink component.
-    std::optional<chrono::Provider<>> provider_{};              ///< Chrono provider over the sink.
-    std::optional<chrono::ChronoWorker<chrono::Provider<>>> worker_{}; ///< Chrono worker.
+    // Declaration order is the lifetime contract: the time base has no
+    // dependencies, the logger is next, and the providers reference their
+    // sinks. Reverse-declaration teardown releases providers before sinks.
+    std::optional<chrono::TimeBaseClient> time_base_{}; ///< Attached time-base client.
+    std::optional<Logger> logger_{};                    ///< Logger component, built first.
+    std::optional<MetricsSink> metrics_sink_{};         ///< Metrics sink component.
+    std::optional<metrics::MetricProvider> metrics_{};  ///< Metrics provider over the sink.
+    std::optional<TraceSink> trace_sink_{};             ///< Trace sink component.
+    std::optional<TracerProvider> tracer_{};            ///< Tracer provider over the sink.
     detail::SignalWatcher signals_{}; ///< Signal watcher, stopped first on teardown.
 
     sigset_t previous_mask_{};                  ///< Mask restored by shutdown/rollback.

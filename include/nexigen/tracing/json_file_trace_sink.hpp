@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <cstring>
 #include <format>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -42,7 +43,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include <nexigen/chrono/utc_offset.hpp>
+#include <nexigen/chrono/boot_identity.hpp>
+#include <nexigen/chrono/time_base_clock.hpp>
 #include <nexigen/chrono/civil_time.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/core/result.hpp>
@@ -109,13 +111,14 @@ public:
     /// @warning A moved-from sink must not be used for delivery.
     JsonFileTraceSink(JsonFileTraceSink&& other) noexcept
         : rotation_(other.rotation_), max_per_window_(other.max_per_window_),
-          window_ns_(other.window_ns_), offset_ns_(other.offset_ns_),
-          window_start_utc_(other.window_start_utc_), window_key_(other.window_key_),
-          tokens_used_(other.tokens_used_), dropped_in_window_(other.dropped_in_window_),
-          discarded_lines_(other.discarded_lines_), fd_(other.fd_), path_len_(other.path_len_),
+          window_ns_(other.window_ns_), window_start_utc_(other.window_start_utc_),
+          window_key_(other.window_key_), tokens_used_(other.tokens_used_),
+          dropped_in_window_(other.dropped_in_window_), discarded_lines_(other.discarded_lines_),
+          boot_token_(other.boot_token_), fd_(other.fd_), path_len_(other.path_len_),
           app_len_(other.app_len_) {
         std::memcpy(path_, other.path_, sizeof(path_));
         std::memcpy(app_, other.app_, sizeof(app_));
+        std::memcpy(boot_text_, other.boot_text_, sizeof(boot_text_));
         other.fd_ = -1;
     }
     /// @brief Move assignment is deleted: rebinding a live sink is a
@@ -133,11 +136,9 @@ public:
     /// @note Spec `tracing/trace-sinks`, requirement "JsonFileTraceSink JSONL
     ///       output".
     [[nodiscard]] core::Status start() noexcept {
-        std::int64_t offset_ns = 0;
-        if (chrono::sample_utc_offset(offset_ns).has_value()) {
-            offset_ns_ = offset_ns;
-        }
-        return open_for_window(now_utc_ns());
+        boot_token_ = chrono::current_boot_token();
+        static_cast<void>(chrono::format_boot_token(boot_token_, boot_text_));
+        return open_for_window(now_utc_ns().value_or(0));
     }
 
     /// @brief Write one span as one complete JSON line.
@@ -157,19 +158,20 @@ public:
     ///       "JsonFileTraceSink rotation and rate limiting". The delivery path
     ///       allocates nothing.
     [[nodiscard]] core::Status on_span(const SpanRecord& record) noexcept {
-        const std::int64_t utc_ns =
-            chrono::utc_from_mono_ns(record.start.nanoseconds(), offset_ns_);
-        const core::Status rotated = advance_window(utc_ns);
+        const std::uint64_t start_mono = record.start.nanoseconds();
+        const std::optional<std::int64_t> utc =
+            chrono::TimeBaseClock::utc_from_canonical(static_cast<std::int64_t>(start_mono));
+        const core::Status rotated = utc.has_value() ? advance_window(*utc) : core::Status{};
         if (!rotated) {
             return rotated; // rotation failure: no partial line emitted
         }
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
-        if (max_per_window_ != 0ULL && window_ns_ != 0ULL) {
+        if (utc.has_value() && max_per_window_ != 0ULL && window_ns_ != 0ULL) {
             if (window_start_utc_ == INT64_MIN) {
-                window_start_utc_ = utc_ns; // first record opens window 0
-            } else if (utc_ns - window_start_utc_ >= static_cast<std::int64_t>(window_ns_)) {
+                window_start_utc_ = *utc; // first record opens window 0
+            } else if (*utc - window_start_utc_ >= static_cast<std::int64_t>(window_ns_)) {
                 // Window boundary: the exact drop summary BEFORE further
                 // records land (spec "Rate limiting drops with an exact
                 // summary").
@@ -180,7 +182,7 @@ public:
                     }
                 }
                 window_start_utc_ += static_cast<std::int64_t>(
-                    (static_cast<std::uint64_t>(utc_ns - window_start_utc_) / window_ns_) *
+                    (static_cast<std::uint64_t>(*utc - window_start_utc_) / window_ns_) *
                     window_ns_);
                 tokens_used_ = 0;
                 dropped_in_window_ = 0;
@@ -191,7 +193,7 @@ public:
             }
             ++tokens_used_;
         }
-        return write_record_line(record, utc_ns);
+        return write_record_line(record, utc);
     }
 
     /// @brief Synchronize the active file with `fsync`.
@@ -250,15 +252,16 @@ private:
         path_len_ = take;
     }
 
-    /// The consumer thread's UTC now (offset snapshot; stale-but-valid on a
-    /// failed re-sample).
-    [[nodiscard]] std::int64_t now_utc_ns() const noexcept {
+    /// The consumer thread's UTC now from the bound time base when available,
+    /// otherwise from the legacy offset snapshot (stale-but-valid on a failed
+    /// re-sample).
+    [[nodiscard]] std::optional<std::int64_t> now_utc_ns() const noexcept {
         const core::Result<chrono::Timestamp> now = chrono::Timestamp::now();
         std::uint64_t mono = 0;
         if (now) {
             mono = now->nanoseconds();
         }
-        return chrono::utc_from_mono_ns(mono, offset_ns_);
+        return chrono::TimeBaseClock::utc_from_canonical(static_cast<std::int64_t>(mono));
     }
 
     /// Period identity of a UTC instant (monotonic in utc_ns): hourly =
@@ -316,10 +319,6 @@ private:
         }
         const std::int64_t key = period_key(rotation_, utc_ns);
         if (fd_ < 0 || key != window_key_) {
-            std::int64_t offset_ns = 0;
-            if (chrono::sample_utc_offset(offset_ns).has_value()) {
-                offset_ns_ = offset_ns; // per-window re-sample (cold)
-            }
             const core::Status opened = open_for_window(utc_ns);
             if (!opened) {
                 return opened;
@@ -340,9 +339,10 @@ private:
         return write_all(writer.size());
     }
 
-    /// One complete JSON object for one span.
+    /// One complete JSON object for one span; `utc` is empty when no
+    /// calibration covers the span's instants.
     [[nodiscard]] core::Status write_record_line(const SpanRecord& record,
-                                                 std::int64_t utc_ns) noexcept;
+                                                 std::optional<std::int64_t> utc) noexcept;
 
     [[nodiscard]] core::Status write_all(std::size_t bytes) noexcept {
         return core::sink_io::write_all(fd_, scratch_, bytes);
@@ -351,12 +351,13 @@ private:
     RotationPolicy rotation_{RotationPolicy::None};
     std::uint64_t max_per_window_{0};
     std::uint64_t window_ns_{0};
-    std::int64_t offset_ns_{0};                ///< sampled UTC offset
     std::int64_t window_start_utc_{INT64_MIN}; ///< rate-limit window anchor
     std::int64_t window_key_{-1};              ///< rotation period identity
     std::uint64_t tokens_used_{0};
     std::uint64_t dropped_in_window_{0};
-    std::uint64_t discarded_lines_{0}; ///< lines over the JSON scratch (P2-18)
+    std::uint64_t discarded_lines_{0};                    ///< lines over the JSON scratch (P2-18)
+    std::uint64_t boot_token_{0};                         ///< kernel boot token of this process
+    char boot_text_[chrono::boot_token_text_size + 1U]{}; ///< 16-hex boot token
     int fd_{-1};
     std::size_t path_len_{0};
     std::size_t app_len_{0};

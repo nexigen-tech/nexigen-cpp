@@ -1,6 +1,8 @@
 // Split from tracing_test.cpp: nexigen::tracing sinks.
 
 #include "tracing_test_support.hpp"
+#include <filesystem>
+#include "../support/test_time_base.hpp"
 
 namespace {
 
@@ -171,6 +173,8 @@ void test_sinks_console() {
 template <typename HourMidUtc, typename MonoForUtc>
 void test_sinks_jsonl_basic(const chrono::CivilTime& now_civil, const HourMidUtc& hour_mid_utc,
                             const MonoForUtc& mono_for_utc);
+void test_sinks_jsonl_time_base_source();
+
 template <typename HourMidUtc, typename MonoForUtc>
 void test_sinks_jsonl_overflow(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc);
 template <typename HourMidUtc, typename MonoForUtc>
@@ -187,7 +191,9 @@ template <typename HourMidUtc, typename MonoForUtc>
 void test_sinks_composite(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono_for_utc);
 
 void test_sinks() {
-    static_cast<void>(::mkdir(sink_tmp_dir, 0755)); // exists is fine
+    std::error_code cleanup_error;
+    std::filesystem::remove_all(sink_tmp_dir, cleanup_error);
+    static_cast<void>(::mkdir(sink_tmp_dir, 0755));
 
     test_sinks_console();
 
@@ -211,6 +217,7 @@ void test_sinks() {
     };
 
     test_sinks_jsonl_basic(now_civil, hour_mid_utc, mono_for_utc);
+    test_sinks_jsonl_time_base_source();
 
     test_sinks_jsonl_overflow(hour_mid_utc, mono_for_utc);
 
@@ -270,6 +277,11 @@ void test_sinks_jsonl_basic(const chrono::CivilTime& now_civil, const HourMidUtc
         NX_CHECK(parsed.at("status").get<std::string>() == "Ok");
         NX_CHECK(parsed.at("thread_id").get<std::uint32_t>() == 4242);
         NX_CHECK(parsed.at("duration_ns").get<std::uint64_t>() == 1'500);
+        // Canonical monotonic instants and the boot token are authoritative.
+        const std::uint64_t crafted_start = mono_for_utc(hour_mid_utc(0));
+        NX_CHECK(parsed.at("start_mono_ns").get<std::uint64_t>() == crafted_start);
+        NX_CHECK(parsed.at("end_mono_ns").get<std::uint64_t>() == crafted_start + 1'500U);
+        NX_CHECK(parsed.at("boot").get<std::string>().size() == 16U);
         NX_CHECK(parsed.at("name").get<std::string>() == "basic-span");
         NX_CHECK(parsed.at("file").get<std::string>() == "engine.cpp");
         NX_CHECK(parsed.at("line").get<std::uint32_t>() == 77);
@@ -295,6 +307,43 @@ void test_sinks_jsonl_basic(const chrono::CivilTime& now_civil, const HourMidUtc
         NX_CHECK(attrs[3].at("type").get<std::string>() == "String" &&
                  attrs[3].at("value").get<std::string>() == "hil");
     }
+}
+
+void test_sinks_jsonl_time_base_source() {
+    chrono::TimeBaseClock::detach();
+    const std::string name = nexigen::tests::publish_test_time_base(
+        "tracing-offset", 3'600'000'000'000LL, /*calibrated=*/true);
+    NX_CHECK(!name.empty());
+
+    const std::string path = std::string(sink_tmp_dir) + "/jsonl-time-base-source.jsonl";
+    static_cast<void>(::unlink(path.c_str()));
+    tracing::JsonFileTraceSinkConfig config{};
+    config.path = path;
+    tracing::JsonFileTraceSink sink{config};
+    NX_CHECK(sink.start().has_value());
+    const tracing::SpanRecord record = crafted_record(2'000'000'000ULL, "tb-source");
+    NX_CHECK(sink.on_span(record).has_value());
+    NX_CHECK(sink.flush().has_value());
+    sink.stop();
+
+    const std::string content = read_file(path.c_str());
+    NX_CHECK(!content.empty());
+    const nlohmann::json parsed = nlohmann::json::parse(content, nullptr, false);
+    NX_CHECK(!parsed.is_discarded());
+    if (parsed.is_object()) {
+        char start_expected[31];
+        char end_expected[31];
+        chrono::format_utc_iso8601_ns(3'602'000'000'000LL, start_expected); // 2e9 + 1h
+        chrono::format_utc_iso8601_ns(3'602'000'001'500LL, end_expected);
+        NX_CHECK(parsed.at("start").get<std::string>() == std::string_view(start_expected, 30U));
+        NX_CHECK(parsed.at("end").get<std::string>() == std::string_view(end_expected, 30U));
+        NX_CHECK(parsed.at("start_mono_ns").get<std::uint64_t>() == 2'000'000'000ULL);
+        NX_CHECK(parsed.at("end_mono_ns").get<std::uint64_t>() == 2'000'001'500ULL);
+    }
+    ::unlink(path.c_str());
+
+    chrono::TimeBaseClock::detach();
+    nexigen::tests::install_test_time_base();
 }
 
 template <typename HourMidUtc, typename MonoForUtc>

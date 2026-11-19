@@ -23,6 +23,7 @@
 #include <vector>
 
 #include <nexigen/app/infrastructure.hpp>
+#include "../../app/time_base_fixture.hpp"
 #include <nexigen/chrono/null_sink.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/publisher.hpp>
@@ -129,11 +130,6 @@ struct SuitePolicy {
         return {};
     }
 
-    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
-                                            const chrono::Settings&) noexcept {
-        out.emplace();
-        return {};
-    }
 };
 
 constexpr std::string_view kLoggingSettings = R"({
@@ -294,7 +290,25 @@ using Infrastructure = app::Infrastructure<SuitePolicy, 256, 8>;
 core::Status initialize_infrastructure(Infrastructure& infra,
                                        const app::CommandLineOptions& options,
                                        app::Settings& loaded) {
-    const core::Status initialized = infra.initialize(options, loaded);
+    static nexigen::examples::LocalTimeBase time_base{"suite2"};
+    const core::Status loaded_status = app::load_app_settings(options, loaded);
+    loaded.chrono.segment_name = time_base.name();
+    if (!loaded_status) {
+        for (const auto& diagnostic : loaded.logging.diagnostics) {
+            print_error("logging: " + diagnostic.to_string());
+        }
+        for (const auto& diagnostic : loaded.metrics.diagnostics) {
+            print_error("metrics: " + diagnostic.to_string());
+        }
+        for (const auto& diagnostic : loaded.tracing.diagnostics) {
+            print_error("tracing: " + diagnostic.to_string());
+        }
+        for (const auto& diagnostic : loaded.chrono.diagnostics) {
+            print_error("chrono: " + diagnostic.to_string());
+        }
+        return loaded_status;
+    }
+    const core::Status initialized = infra.initialize(loaded);
     if (initialized) {
         return initialized;
     }

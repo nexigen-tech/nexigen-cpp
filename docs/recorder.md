@@ -38,6 +38,13 @@ flowchart LR
 - `IndexEntry` is 64 bytes and bounds an interval with `min_event_ns` and
   `max_event_ns`.
 - `VideoFrameRef` is 64 bytes and points into the companion `.nxvid`.
+- `TimeBasePayload` is 4224 bytes: generation, time-base epoch, boot token and
+  full boot UUID, layout guard, aggregate status, sync mode, service flags, TAI
+  and UTC offsets with uncertainty, domain count, and the 32-row
+  `chrono::DomainCoefficient` table.
+- `TimeSnapshot` is 896 bytes: one 1 Hz service snapshot with the hub and
+  system-scale instants, TAI/UTC offsets, and every domain's id, class, epoch,
+  value, lock state, and flags. It never duplicates the coefficient table.
 - `SegmentFooter` is 64 bytes and carries the close CRC.
 - Every segment starts with the schema and channel declarations it uses.
 
@@ -79,6 +86,55 @@ contains a `TimeSync` record, MCAP timestamps are converted to UTC epoch
 nanoseconds with its offset. MP4/MKV are explicitly deferred: requesting them
 exits with `UnsupportedFormat` naming the `nexigen_media` follow-up.
 
+### Two `TimeDomain` vocabularies
+
+`recorder::TimeDomain` is the session manifest tag (`MonotonicRaw` or `Utc`),
+while `chrono::TimeDomain` is the five-value platform vocabulary. Both spell the
+hub as `MonotonicRaw`; channel declarations and resolver APIs use the
+`chrono::TimeDomain` names, and the manifest tag only declares the session's
+stamp family.
+
+### Time base in a session
+
+A session recorded with `nexigen-chronod` active stores `TimeBase` records
+(`SessionWriter::append_time_base`) and one `TimeSnapshot` record per second
+(`SessionWriter::append_time_snapshot`) and binds itself to the kernel boot and
+the daemon epoch. `nexigen::recorder::TimeBaseSessionBridge` is the production
+adapter: `nexigen-chronod` feeds it every published block (enabled with
+`record_session_path`) and it appends one `TimeBase` record per generation — a
+`Lost` block becomes an explicit gap entry — plus a snapshot record whenever the
+embedded 1 Hz snapshot generation moves.
+
+- `session.json` carries `boot_token` (16 hex), `boot_uuid`, and
+  `time_base_epoch` at the top level and inside `settings`;
+- every channel declares `native_domain` (`monotonic_raw`, `host_counter`, or
+  `device`) plus `domain_id`/`domain_epoch` for hardware fields; an unknown
+  domain name is rejected before a record is written;
+- each `TimeBase` record carries the full domain table, the aggregate
+  status/sync mode/service flags, the TAI/UTC offsets, and an explicit `gap`
+  marker for daemon downtime; `generation` selects the row table active for the
+  matching `TimeSnapshot`;
+- each `TimeSnapshot` carries the per-domain values, epochs, and lock states for
+  that generation without repeating the coefficient table.
+
+The exporter resolves instants through the `TimeDomain::MonotonicRaw` hub
+(`TimeBaseResolver`): the native domain value is mapped forward through the
+`DomainCoefficient` row valid at that instant (or anchored at a recorded
+snapshot when no row interval covers the value), the result is a hub
+`CLOCK_MONOTONIC_RAW` value, and a destination row maps it back. UTC comes from
+the `Realtime` row and TAI from the `Tai` row; any-to-any conversion is a
+two-hop operation through the hub. JSONL lines gain `canonical_ns`, `boot`,
+`utc_ns`/`utc`, `tai_ns`, and `time_base: resolved|unresolved|legacy`;
+hardware payloads carrying `native_ticks` also gain `native_ns`,
+`native_domain`, `domain_id`, and `domain_epoch`. An instant in a gap is
+`unresolved` and never falls back to a neighbouring row or a gap entry.
+
+Sessions written by the retired pre-contract runtime are rejected: their
+`TimeBase` payload has no `TBP2` layout guard, so the resolver reports them as
+`legacy` instead of reinterpreting the bytes. There is no offline converter for
+sessions written by the old time-base service.
+
+
 A single `.nxrec` can also be opened without `session.json`:
 `SessionReader::open_segment()` reads the leading schema/channel declarations,
 derives the index/video names, and rebuilds a missing index on demand. The
@@ -118,9 +174,10 @@ codes and output for every subcommand — usage errors, `list`/`inspect`/`info`
 (both text and `--json`), schema-driven and opaque JSONL, event-time windows,
 multi-channel selection, Perfetto, elementary video plus the timestamp sidecar,
 MP4/MKV/unknown-format rejections, truncated-tail and corrupted-frame `verify`
-diagnostics, relocated sessions, and MCAP (enabled, or the documented
-`NEXIGEN_ENABLE_MCAP=OFF` failure). It runs in Release, Debug, ASan, and TSan
-trees and needs no fixtures beyond the session it writes itself:
+diagnostics, relocated sessions, time-base resolution (a device native instant
+through the hub to TAI/UTC, plus legacy-payload rejection), and MCAP (enabled,
+or the documented `NEXIGEN_ENABLE_MCAP=OFF` failure). It runs in Release, Debug,
+ASan, and TSan trees and needs no fixtures beyond the session it writes itself:
 
 ```bash
 ctest --test-dir build -R nexigen_export_cli --output-on-failure

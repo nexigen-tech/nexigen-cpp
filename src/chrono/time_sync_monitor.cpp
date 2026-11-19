@@ -68,6 +68,42 @@ TimeSyncStatus TimeSyncMonitor::classify(std::int64_t previous_offset_ns,
     return TimeSyncStatus::Ok;
 }
 
+namespace {
+
+/// @brief Classify one offset against the stored baseline and update it.
+///
+/// @param policy Thresholds.
+/// @param previous_offset_ns Baseline offset, if any.
+/// @param previous_mono_ns Baseline monotonic instant, if any.
+/// @param offset_ns Current offset.
+/// @param monotonic_ns Current monotonic instant.
+/// @return The classification.
+[[nodiscard]] TimeSyncSample classify_and_store(const TimeSyncPolicy& policy,
+                                                std::optional<std::int64_t>& previous_offset_ns,
+                                                std::optional<std::int64_t>& previous_mono_ns,
+                                                std::int64_t offset_ns,
+                                                std::int64_t monotonic_ns) noexcept {
+    TimeSyncSample result{};
+    result.offset_ns = offset_ns;
+    if (!previous_offset_ns.has_value() || !previous_mono_ns.has_value()) {
+        result.status = TimeSyncStatus::Ok;
+    } else {
+        const std::int64_t elapsed_ns = monotonic_ns - *previous_mono_ns;
+        const std::int64_t max_step_ns = policy.max_step_ns < 0 ? 0 : policy.max_step_ns;
+        result.step_ns = offset_ns - *previous_offset_ns;
+        result.status =
+            TimeSyncMonitor::classify(*previous_offset_ns, offset_ns, elapsed_ns, policy);
+        if (result.step_ns <= max_step_ns && result.step_ns >= -max_step_ns) {
+            result.rate_ppm = evaluate_rate_ppm(result.step_ns, elapsed_ns, policy);
+        }
+    }
+    previous_offset_ns = offset_ns;
+    previous_mono_ns = monotonic_ns;
+    return result;
+}
+
+} // namespace
+
 std::optional<TimeSyncSample> TimeSyncMonitor::sample() noexcept {
     timespec realtime{};
     timespec monotonic{};
@@ -78,24 +114,21 @@ std::optional<TimeSyncSample> TimeSyncMonitor::sample() noexcept {
     }
     const std::int64_t realtime_ns = to_ns(realtime);
     const std::int64_t monotonic_ns = to_ns(monotonic);
-    const std::int64_t offset_ns = realtime_ns - monotonic_ns;
+    return classify_and_store(policy_, previous_offset_ns_, previous_mono_ns_,
+                              realtime_ns - monotonic_ns, monotonic_ns);
+}
 
-    TimeSyncSample result{};
-    result.offset_ns = offset_ns;
-    if (!previous_offset_ns_.has_value() || !previous_mono_ns_.has_value()) {
-        result.status = TimeSyncStatus::Ok;
-    } else {
-        const std::int64_t elapsed_ns = monotonic_ns - *previous_mono_ns_;
-        const std::int64_t max_step_ns = policy_.max_step_ns < 0 ? 0 : policy_.max_step_ns;
-        result.step_ns = offset_ns - *previous_offset_ns_;
-        result.status = classify(*previous_offset_ns_, offset_ns, elapsed_ns, policy_);
-        if (result.step_ns <= max_step_ns && result.step_ns >= -max_step_ns) {
-            result.rate_ppm = evaluate_rate_ppm(result.step_ns, elapsed_ns, policy_);
-        }
+std::optional<TimeSyncSample> TimeSyncMonitor::sample(std::int64_t realtime_ns,
+                                                      std::uint64_t monotonic_raw_ns) noexcept {
+    if (monotonic_raw_ns > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+        return std::nullopt;
     }
-    previous_offset_ns_ = offset_ns;
-    previous_mono_ns_ = monotonic_ns;
-    return result;
+    const std::int64_t monotonic_ns = static_cast<std::int64_t>(monotonic_raw_ns);
+    if (previous_mono_ns_.has_value() && monotonic_ns < *previous_mono_ns_) {
+        return std::nullopt;
+    }
+    return classify_and_store(policy_, previous_offset_ns_, previous_mono_ns_,
+                              realtime_ns - monotonic_ns, monotonic_ns);
 }
 
 } // namespace nexigen::chrono

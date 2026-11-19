@@ -18,10 +18,13 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <optional>
 
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/sink_io.hpp>
+#include <nexigen/chrono/boot_identity.hpp>
 #include <nexigen/chrono/civil_time.hpp>
+#include <nexigen/chrono/time_base_clock.hpp>
 #include <nexigen/metrics/concepts/metric_sink_concept.hpp>
 #include <nexigen/metrics/detail/json_writer.hpp>
 #include <nexigen/metrics/json_file_metric_sink_config.hpp>
@@ -58,6 +61,8 @@ public:
             app_[i] = config.app_name[i];
         }
         app_len_ = take;
+        boot_token_ = chrono::current_boot_token();
+        static_cast<void>(chrono::format_boot_token(boot_token_, boot_text_));
     }
 
     /// @brief Copy construction is deleted: the sink owns a descriptor.
@@ -72,8 +77,9 @@ public:
     ///
     /// @param other Sink to move from; left disarmed but otherwise intact.
     JsonFileMetricSink(JsonFileMetricSink&& other) noexcept
-        : fd_(other.fd_), app_len_(other.app_len_) {
+        : fd_(other.fd_), app_len_(other.app_len_), boot_token_(other.boot_token_) {
         std::memcpy(app_, other.app_, sizeof(app_));
+        std::memcpy(boot_text_, other.boot_text_, sizeof(boot_text_));
         other.fd_ = -1;
     }
 
@@ -89,6 +95,8 @@ public:
             }
             app_len_ = other.app_len_;
             std::memcpy(app_, other.app_, sizeof(app_));
+            boot_token_ = other.boot_token_;
+            std::memcpy(boot_text_, other.boot_text_, sizeof(boot_text_));
             fd_ = other.fd_;
             other.fd_ = -1;
         }
@@ -120,15 +128,28 @@ public:
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
+        // The canonical instant is authoritative; UTC comes from the published
+        // time base and is never sampled by the sink.
+        const std::uint64_t mono = batch.stamp.nanoseconds();
+        const std::optional<std::int64_t> utc =
+            chrono::TimeBaseClock::utc_from_canonical(static_cast<std::int64_t>(mono));
         detail::FixedWriter writer{scratch_, detail::json_scratch_capacity};
-        // UTC ISO-8601 stamp of this collection window.
-        char stamp[31];
-        chrono::format_utc_iso8601_ns(batch.utc_ns, stamp);
-        for (std::size_t i = 0; i < 31U; ++i) {
-            stamp_text_[i] = stamp[i];
+        static_cast<void>(writer.append_sv("{\"timestamp\":"));
+        if (utc.has_value()) {
+            // UTC ISO-8601 stamp of this collection window.
+            char stamp[31];
+            chrono::format_utc_iso8601_ns(*utc, stamp);
+            static_cast<void>(writer.append_char('"'));
+            static_cast<void>(writer.append_sv(std::string_view(stamp, 30U)));
+            static_cast<void>(writer.append_char('"'));
+        } else {
+            static_cast<void>(writer.append_sv("null"));
         }
-        static_cast<void>(writer.append_sv("{\"timestamp\":\""));
-        static_cast<void>(writer.append_sv(stamp_text_));
+        static_cast<void>(writer.append_sv(",\"mono_ns\":"));
+        static_cast<void>(writer.append_u64(mono));
+        static_cast<void>(writer.append_sv(",\"boot\":\""));
+        static_cast<void>(
+            writer.append_sv(std::string_view(boot_text_, chrono::boot_token_text_size)));
         static_cast<void>(writer.append_sv("\",\"app\":\""));
         static_cast<void>(writer.append_escaped(std::string_view(app_, app_len_)));
         static_cast<void>(writer.append_sv("\",\"records\":["));
@@ -263,7 +284,8 @@ private:
     std::size_t discarded_batches_{0}; ///< batches over the JSON scratch (P2-18)
     char app_[64]{};
     std::size_t app_len_{0};
-    char stamp_text_[32]{};
+    std::uint64_t boot_token_{0};                         ///< kernel boot token of this process
+    char boot_text_[chrono::boot_token_text_size + 1U]{}; ///< 16-hex boot token
     char scratch_[detail::json_scratch_capacity]{};
 };
 

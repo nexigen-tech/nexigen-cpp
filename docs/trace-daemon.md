@@ -66,12 +66,15 @@ under the final name.
 | 40 | 8 | ring overwrite count |
 | 48 | 32 | trigger function group (NUL-terminated) |
 | 80 | 8 | trigger timestamp (monotonic ns) |
-| 88 | 8 | reserved |
+| 88 | 8 | boot token (16-hex token; same value as JSONL `boot`) |
 | 96 | `count × 384` | `SpanFrame` records, oldest first |
 
 The header is pointer-free and fixed-width; frames are the same `SpanFrame`
 records published on the wire (publisher identity and `version` inline,
-source locations as FNV-1a hashes).
+source locations as FNV-1a hashes). Unlike the JSONL sinks, `nexigen-traced`
+does not emit `boot` per span: the boot token is written once in the snapshot
+header (`boot_token`), and each `SpanFrame` keeps the native monotonic
+`start_ns`/`end_ns` unchanged.
 
 ## Trigger and shutdown
 

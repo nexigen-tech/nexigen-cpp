@@ -138,8 +138,7 @@ struct SessionWriter::Impl {
         header.commit_mono_ns = mono_now();
         header.sequence = sequence;
         header.publisher_id = publisher_id;
-        header.header_crc32c =
-            detail::crc32c(&header, offsetof(RecordHeader, header_crc32c));
+        header.header_crc32c = detail::crc32c(&header, offsetof(RecordHeader, header_crc32c));
         header.payload_crc32c = detail::crc32c(payload.data(), payload.size());
 
         if (track_index) {
@@ -267,8 +266,7 @@ struct SessionWriter::Impl {
             }
             return;
         }
-        while (closed_bytes() > settings.retention_max_bytes &&
-               manifest.segments.size() > 1U) {
+        while (closed_bytes() > settings.retention_max_bytes && manifest.segments.size() > 1U) {
             auto victim = manifest.segments.begin();
             while (victim != manifest.segments.end() &&
                    (victim->closed == false || victim + 1 == manifest.segments.end())) {
@@ -297,8 +295,8 @@ struct SessionWriter::Impl {
         gap.first_lost_sequence = channel_last_sequence[channel_id] + 1U;
         gap.lost_count = reference.source_sequence - gap.first_lost_sequence;
         gap.reason = static_cast<std::uint16_t>(GapReason::StreamDiscontinuity);
-        const auto gap_bytes = std::span<const std::byte>(
-            reinterpret_cast<const std::byte*>(&gap), sizeof(gap));
+        const auto gap_bytes =
+            std::span<const std::byte>(reinterpret_cast<const std::byte*>(&gap), sizeof(gap));
         const bool ok = append_raw(RecordType::GapMarker, channel_id, gap_bytes,
                                    reference.capture_mono_ns, reference.source_sequence, 0, true);
         channel_last_sequence[channel_id] = reference.source_sequence;
@@ -431,6 +429,9 @@ core::Result<SessionWriter> SessionWriter::create(const StorageSettings& setting
         impl->manifest.session_id = std::format("session-{}", mono_now());
     }
     impl->manifest.time_domain = settings.time_domain;
+    impl->manifest.boot_token = settings.boot_token;
+    impl->manifest.boot_uuid = settings.boot_uuid;
+    impl->manifest.time_base_epoch = settings.time_base_epoch;
     impl->manifest.settings = settings;
     impl->manifest.settings.session_id = impl->manifest.session_id;
     std::string layout = settings.session_layout;
@@ -473,8 +474,8 @@ core::Status SessionWriter::declare_schema(const SchemaDeclare& schema) noexcept
     impl_->manifest.schemas.push_back(stored);
     nlohmann::json j = stored;
     const std::string text = j.dump();
-    const auto bytes = std::span<const std::byte>(
-        reinterpret_cast<const std::byte*>(text.data()), text.size());
+    const auto bytes =
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(text.data()), text.size());
     if (!impl_->append_raw(RecordType::SchemaDeclare, 0, bytes, 0, 0, 0, false)) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
@@ -484,10 +485,11 @@ core::Status SessionWriter::declare_schema(const SchemaDeclare& schema) noexcept
     return {};
 }
 
-core::Result<std::uint32_t>
-SessionWriter::declare_channel(std::string_view topic, std::uint32_t schema_id, DatasetKind kind,
-                               std::string_view message_encoding,
-                               std::string_view metadata) noexcept {
+core::Result<std::uint32_t> SessionWriter::declare_channel(std::string_view topic,
+                                                           std::uint32_t schema_id,
+                                                           DatasetKind kind,
+                                                           std::string_view message_encoding,
+                                                           std::string_view metadata) noexcept {
     if (!impl_) {
         return std::unexpected(core::ErrorCode::NotInitialized);
     }
@@ -549,8 +551,8 @@ core::Status SessionWriter::declare_channel(const ChannelDeclare& channel) noexc
     impl_->channel_declared[channel.id] = true;
     nlohmann::json j = channel;
     const std::string text = j.dump();
-    const auto bytes = std::span<const std::byte>(
-        reinterpret_cast<const std::byte*>(text.data()), text.size());
+    const auto bytes =
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(text.data()), text.size());
     if (!impl_->append_raw(RecordType::ChannelDeclare, 0, bytes, 0, 0, 0, false)) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
@@ -562,11 +564,9 @@ core::Status SessionWriter::declare_channel(const ChannelDeclare& channel) noexc
 
 core::Status SessionWriter::append(RecordType type, std::uint32_t channel_id,
                                    std::span<const std::byte> payload, std::uint64_t event_ns,
-                                   std::uint64_t sequence,
-                                   std::uint64_t publisher_id) noexcept {
+                                   std::uint64_t sequence, std::uint64_t publisher_id) noexcept {
     if (!impl_ || impl_->closed || impl_->halted || channel_id >= kMaxChannels ||
-        !impl_->channel_declared[channel_id] ||
-        payload.size() > impl_->settings.max_record_bytes) {
+        !impl_->channel_declared[channel_id] || payload.size() > impl_->settings.max_record_bytes) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     if (!impl_->append_raw(type, channel_id, payload, event_ns, sequence, publisher_id, true)) {
@@ -595,8 +595,8 @@ core::Status SessionWriter::append_from_shard(RecordShard& shard) noexcept {
         if (envelope.payload_size > envelope.payload.size()) {
             return std::unexpected(core::ErrorCode::CorruptData);
         }
-        const auto payload = std::span<const std::byte>(envelope.payload.data(),
-                                                        envelope.payload_size);
+        const auto payload =
+            std::span<const std::byte>(envelope.payload.data(), envelope.payload_size);
         const auto status = append(envelope.type, envelope.channel_id, payload, envelope.event_ns,
                                    envelope.sequence, envelope.publisher_id);
         if (!status.has_value()) {
@@ -609,10 +609,10 @@ core::Status SessionWriter::append_from_shard(RecordShard& shard) noexcept {
         gap.first_lost_sequence = dropped->first_sequence;
         gap.lost_count = dropped->count;
         gap.reason = static_cast<std::uint16_t>(GapReason::IoBackpressure);
-        const auto gap_bytes = std::span<const std::byte>(
-            reinterpret_cast<const std::byte*>(&gap), sizeof(gap));
-        if (!impl_->append_raw(RecordType::GapMarker, dropped->channel_id, gap_bytes,
-                               mono_now(), dropped->first_sequence, 0, true)) {
+        const auto gap_bytes =
+            std::span<const std::byte>(reinterpret_cast<const std::byte*>(&gap), sizeof(gap));
+        if (!impl_->append_raw(RecordType::GapMarker, dropped->channel_id, gap_bytes, mono_now(),
+                               dropped->first_sequence, 0, true)) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         if (!impl_->maybe_emit_index(mono_now())) {
@@ -629,8 +629,8 @@ core::Status SessionWriter::append_time_sync(std::int64_t utc_offset_ns) noexcep
     TimeSyncPayload sync{};
     sync.mono_ns = mono_now();
     sync.utc_offset_ns = utc_offset_ns;
-    const auto bytes = std::span<const std::byte>(
-        reinterpret_cast<const std::byte*>(&sync), sizeof(sync));
+    const auto bytes =
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(&sync), sizeof(sync));
     if (!impl_->append_raw(RecordType::TimeSync, 0, bytes, sync.mono_ns, 0, 0, true)) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
@@ -640,8 +640,39 @@ core::Status SessionWriter::append_time_sync(std::int64_t utc_offset_ns) noexcep
     return {};
 }
 
-core::Status SessionWriter::append_video(std::uint32_t channel_id,
-                                         const VideoStreamConfig& config,
+core::Status SessionWriter::append_time_base(const TimeBasePayload& entry) noexcept {
+    if (!impl_ || impl_->closed || impl_->halted) {
+        return std::unexpected(core::ErrorCode::NotInitialized);
+    }
+    const std::uint64_t commit = mono_now();
+    const auto bytes =
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(&entry), sizeof(entry));
+    if (!impl_->append_raw(RecordType::TimeBase, 0, bytes, commit, 0, 0, true)) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    if (!impl_->maybe_emit_index(commit)) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return {};
+}
+
+core::Status SessionWriter::append_time_snapshot(const chrono::TimeSnapshot& snapshot) noexcept {
+    if (!impl_ || impl_->closed || impl_->halted) {
+        return std::unexpected(core::ErrorCode::NotInitialized);
+    }
+    const std::uint64_t commit = mono_now();
+    const auto bytes =
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(&snapshot), sizeof(snapshot));
+    if (!impl_->append_raw(RecordType::TimeSnapshot, 0, bytes, commit, 0, 0, true)) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    if (!impl_->maybe_emit_index(commit)) {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    return {};
+}
+
+core::Status SessionWriter::append_video(std::uint32_t channel_id, const VideoStreamConfig& config,
                                          const VideoFrameRef& reference,
                                          std::span<const std::byte> frame) noexcept {
     if (!impl_ || impl_->closed || channel_id >= kMaxChannels ||
@@ -650,8 +681,8 @@ core::Status SessionWriter::append_video(std::uint32_t channel_id,
         frame.size() > impl_->settings.video_frame_buffer_bytes) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    const auto config_bytes = std::span<const std::byte>(
-        reinterpret_cast<const std::byte*>(&config), sizeof(config));
+    const auto config_bytes =
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(&config), sizeof(config));
     if (impl_->channel_config_epoch[channel_id] != config.config_epoch) {
         if (!impl_->append_raw(RecordType::VideoStreamConfig, channel_id, config_bytes,
                                reference.capture_mono_ns, 0, 0, false)) {
@@ -687,8 +718,8 @@ core::Status SessionWriter::append_video(std::uint32_t channel_id,
     } else {
         stored.vid_crc32c = 0;
     }
-    const auto ref_bytes = std::span<const std::byte>(
-        reinterpret_cast<const std::byte*>(&stored), sizeof(stored));
+    const auto ref_bytes =
+        std::span<const std::byte>(reinterpret_cast<const std::byte*>(&stored), sizeof(stored));
     return append(RecordType::VideoFrameRef, channel_id, ref_bytes, stored.capture_mono_ns,
                   stored.source_sequence, 0);
 }

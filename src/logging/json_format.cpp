@@ -13,17 +13,29 @@ namespace nexigen::logging::detail {
 
 using namespace std::literals::string_view_literals; // for the schema string literals
 
-std::size_t format_json_line(std::int64_t utc_ns, core::LogLevel level, std::string_view app,
+std::size_t format_json_line(std::int64_t utc_ns, bool utc_valid, std::uint64_t mono_ns,
+                             std::string_view boot, core::LogLevel level, std::string_view app,
                              std::uint32_t thread_id, std::string_view file_name,
                              std::uint32_t line, std::string_view function_name,
                              std::string_view message,
                              char (&scratch)[json_scratch_capacity]) noexcept {
-    char ts[31];
-    chrono::format_utc_iso8601_ns(utc_ns, ts);
-
     FixedWriter w{scratch, json_scratch_capacity};
-    static_cast<void>(w.append_sv("{\"timestamp\":\""sv));
-    static_cast<void>(w.append_sv(std::string_view(ts, 30)));
+    static_cast<void>(w.append_sv("{\"timestamp\":"sv));
+    if (utc_valid) {
+        char ts[31];
+        chrono::format_utc_iso8601_ns(utc_ns, ts);
+        static_cast<void>(w.append_char('"'));
+        static_cast<void>(w.append_sv(std::string_view(ts, 30)));
+        static_cast<void>(w.append_char('"'));
+    } else {
+        // No calibration covers this instant: mono_ns stays authoritative and
+        // no UTC value is fabricated (spec "Uncalibrated instant is explicit").
+        static_cast<void>(w.append_sv("null"sv));
+    }
+    static_cast<void>(w.append_sv(",\"mono_ns\":"sv));
+    static_cast<void>(w.append_u64(mono_ns));
+    static_cast<void>(w.append_sv(",\"boot\":\""sv));
+    static_cast<void>(w.append_sv(boot));
     static_cast<void>(w.append_sv("\",\"level\":\""sv));
     static_cast<void>(w.append_sv(to_string(level)));
     static_cast<void>(w.append_sv("\",\"app\":\""sv));

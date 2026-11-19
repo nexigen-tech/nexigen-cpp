@@ -13,6 +13,7 @@
 // needs to depend on the logging module to avoid the duplication).
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <format>
 #include <string>
@@ -21,7 +22,6 @@
 
 #include <nlohmann/json.hpp>
 
-#include <nexigen/chrono/json_file_sink_config.hpp>
 #include <nexigen/chrono/provider_config.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/settings_diagnostic.hpp>
@@ -32,8 +32,8 @@ namespace nexigen::chrono {
 
 /// @brief Merged result of one chrono settings load.
 ///
-/// Carries the provider configuration, the file-sink configuration, per-source
-/// presence flags, and every non-fatal diagnostic. The loader always populates
+/// Carries the provider configuration, per-source presence flags, and every
+/// non-fatal diagnostic. The loader always populates
 /// this value best-effort, so a caller may construct a provider even when the
 /// returned `Status` reports a problem. `global_loaded`/`local_loaded` report
 /// file presence, not parse success.
@@ -41,8 +41,15 @@ namespace nexigen::chrono {
 /// @note Spec `chrono/chrono-settings`, requirement "Invalid input degrades to
 ///       best effort"; requirement "Settings diagnostics are serializable".
 struct Settings {
-    ProviderConfig options{};  ///< Merged provider configuration.
-    JsonFileSinkConfig sink{}; ///< Merged file-sink path and append flag.
+    ProviderConfig options{}; ///< Merged provider configuration.
+    /// POSIX shared-memory name of the time-base segment this application attaches to.
+    std::string segment_name{"/nexigen-timebase"};
+    /// Domain ids the application requires beyond the canonical row.
+    std::vector<std::uint16_t> required_domains{};
+    /// Heartbeat age after which the client reports holdover.
+    std::chrono::nanoseconds stale_after{std::chrono::seconds{1}};
+    /// Heartbeat age after which the client reports the base lost.
+    std::chrono::nanoseconds holdover{std::chrono::seconds{2}};
     bool global_loaded{false}; ///< Whether the supplied global file was present.
     bool local_loaded{false};  ///< Whether the supplied local file was present.
     std::vector<core::SettingsDiagnostic> diagnostics{}; ///< Every non-fatal finding.
@@ -51,8 +58,7 @@ struct Settings {
     ///
     /// The body lives in `src/chrono/settings.cpp`; allocates.
     ///
-    /// @return The rendered text naming provider fields, sink fields, loaded
-    ///         flags, and diagnostics.
+    /// @return The rendered text naming provider fields, loaded flags, and diagnostics.
     /// @note Spec `chrono/chrono-settings`, requirement "Settings diagnostics
     ///       are serializable"; project mandate 9.
     [[nodiscard]] std::string to_string() const;
@@ -69,11 +75,9 @@ struct Settings {
 
 /// @brief Serialize merged settings as JSON (cold path).
 ///
-/// Includes provider fields, the full sink configuration, loaded flags, and
-/// diagnostics. The body lives in `src/chrono/settings.cpp`. There is
-/// deliberately no `from_json(Settings&)`: the loader is the only
-/// reconstruction path, so a partially read document can never masquerade as a
-/// merged result.
+/// Includes provider fields, loaded flags, and diagnostics. The body lives in
+/// `src/chrono/settings.cpp`. There is deliberately no `from_json(Settings&)`: the loader is the
+/// only reconstruction path, so a partially read document can never masquerade as a merged result.
 ///
 /// @param j Destination JSON value, replaced by the serialized settings.
 /// @param settings Merged settings to serialize.
@@ -106,8 +110,8 @@ void to_json(nlohmann::json& j, const Settings& settings);
 /// @brief Map merged settings into a provider construction config.
 ///
 /// Transfers the interval, the complete worker thread spec, and the provider
-/// kind. Sink configuration is intentionally not transferred: sink construction
-/// is a separate policy concern (`app/telemetry-layout`).
+/// kind. Sink construction is a separate policy concern
+/// (`app/telemetry-layout`).
 ///
 /// @param settings Merged settings to read.
 /// @param out Destination provider configuration, replaced by `options`.

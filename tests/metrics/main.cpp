@@ -6,6 +6,7 @@
 // thin `suite_*` wrapper per suite and this file sequences them explicitly.
 
 #include "metrics_test_support.hpp"
+#include "../support/test_time_base.hpp"
 
 void suite_thread_slots_affinity();
 void suite_policy_names();
@@ -45,6 +46,7 @@ void suite_exponential_histogram_mt();
 void suite_latency();
 
 int main() {
+    nexigen::tests::install_test_time_base("metrics");
     // Suite order matters for the per-kind thread-slot budgets (design D7,
     // slots are never recycled): the slot probe claims the counter/gauge
     // spaces, the statistics race claims the 32 exclusive statistics slots
@@ -86,6 +88,7 @@ int main() {
     suite_explicit_histogram_mt();
     suite_exponential_histogram_mt();
     suite_latency();
+    nexigen::tests::detach_test_time_base();
     const int failures = g_failures;
     std::printf("total: %d checks, %d failed\n", g_checks, failures);
     return failures;

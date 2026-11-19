@@ -27,6 +27,8 @@
 #include <nexigen/metrics/json_file_metric_sink.hpp>
 #include <nexigen/tracing/json_file_trace_sink.hpp>
 
+#include "time_base_fixture.hpp"
+
 namespace {
 
 namespace app = nexigen::app;
@@ -41,7 +43,6 @@ constexpr std::string_view kOutputDir = "./nexigen-example-output";
 constexpr std::string_view kLogPath = "./nexigen-example-output/app.jsonl";
 constexpr std::string_view kMetricsPath = "./nexigen-example-output/metrics.jsonl";
 constexpr std::string_view kTracesPath = "./nexigen-example-output/traces.jsonl";
-constexpr std::string_view kChronoPath = "./nexigen-example-output/chrono.jsonl";
 
 // Paced workload: fifteen seconds of 10 ms ticks (~1500), one log record per
 // 500 ms, one trace batch per 2 s. The background workers configured with
@@ -54,7 +55,6 @@ constexpr std::chrono::seconds kBatchPeriod{2};
 // Self-verification floors (spec app/application "Runnable command-line
 // settings example"): periodic collection and the multi-trace shape.
 constexpr std::uint64_t kMinMetricBatches = 10;
-constexpr std::uint64_t kMinChronoSnapshots = 10;
 constexpr std::uint64_t kMinTraceIds = 3;
 constexpr std::uint64_t kMinParentEdges = 1;
 constexpr std::uint64_t kMinSpanKinds = 2;
@@ -147,14 +147,6 @@ struct CliFilePolicy {
         return {};
     }
 
-    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
-                                            const chrono::Settings& settings) noexcept {
-        if (settings.sink.path.empty()) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        out.emplace(settings.sink);
-        return {};
-    }
 };
 
 void print_error(std::string_view message) {
@@ -553,9 +545,12 @@ bool run_shutdown_trace(Infrastructure& infra, CliTracer& tracer, std::uint64_t 
         {
             auto collect =
                 tracer.start_span("final-collect", tracing::SpanKind::Internal, &stop_ctx);
-            if (!infra.metrics().collect_now() || !infra.chrono().snapshot_now()) {
+            const auto base_now = chrono::Timestamp::now();
+            const bool base_ok = base_now && infra.chrono().on_tick(base_now->nanoseconds()) !=
+                                                 chrono::ClientState::Lost;
+            if (!infra.metrics().collect_now() || !base_ok) {
                 workload_ok = false;
-                print_error("final metric collection or chrono snapshot failed");
+                print_error("final metric collection or time-base check failed");
                 static_cast<void>(collect.set_status(tracing::SpanStatus::Error));
             } else {
                 static_cast<void>(collect.set_status(tracing::SpanStatus::Ok));
@@ -580,7 +575,6 @@ bool run_shutdown_trace(Infrastructure& infra, CliTracer& tracer, std::uint64_t 
 /// Record counts read back from the artifacts.
 struct ArtifactCounts {
     std::uint64_t metric_batches{0};
-    std::uint64_t chrono_snapshots{0};
     std::uint64_t trace_ids{0};
     std::uint64_t parent_edges{0};
     std::uint64_t span_kinds{0};
@@ -592,21 +586,15 @@ bool verify_artifacts(ArtifactCounts& counts) {
         return false;
     }
     std::uint64_t& metric_batches = counts.metric_batches;
-    std::uint64_t& chrono_snapshots = counts.chrono_snapshots;
     std::uint64_t& trace_ids = counts.trace_ids;
     std::uint64_t& parent_edges = counts.parent_edges;
     std::uint64_t& span_kinds = counts.span_kinds;
-    if (!count_lines(kMetricsPath, metric_batches) || !count_lines(kChronoPath, chrono_snapshots) ||
-        !count_trace_ids(kTracesPath, trace_ids) ||
+    if (!count_lines(kMetricsPath, metric_batches) || !count_trace_ids(kTracesPath, trace_ids) ||
         !scan_trace_shape(kTracesPath, parent_edges, span_kinds)) {
         return false;
     }
     if (metric_batches < kMinMetricBatches) {
         print_error("too few metric batches: " + std::to_string(metric_batches));
-        return false;
-    }
-    if (chrono_snapshots < kMinChronoSnapshots) {
-        print_error("too few chrono snapshots: " + std::to_string(chrono_snapshots));
         return false;
     }
     if (trace_ids < kMinTraceIds) {
@@ -638,8 +626,19 @@ int main(int argc, char* argv[]) {
     }
     auto infra = std::move(*created);
 
+    nexigen::examples::LocalTimeBase time_base{"cli"};
+    if (!time_base.is_open()) {
+        return fail("local time base could not be created");
+    }
+
     app::Settings loaded{};
-    const core::Status initialized = infra->initialize(options, loaded);
+    const core::Status loaded_status = app::load_app_settings(options, loaded);
+    if (!loaded_status) {
+        print_loaded_diagnostics(loaded);
+        return fail_status("app::load_app_settings", loaded_status);
+    }
+    loaded.chrono.segment_name = time_base.name();
+    const core::Status initialized = infra->initialize(loaded);
     if (!initialized) {
         print_loaded_diagnostics(loaded);
         return fail_status("Infrastructure::initialize", initialized);
@@ -680,11 +679,10 @@ int main(int argc, char* argv[]) {
     }
 
     std::printf("ex_app_cli_settings: OK (ticks=%llu, batches=%llu, metric_batches=%llu, "
-                "chrono_snapshots=%llu, trace_ids=%llu, parent_edges=%llu, span_kinds=%llu, "
+                "trace_ids=%llu, parent_edges=%llu, span_kinds=%llu, "
                 "output=%s)\n",
                 static_cast<unsigned long long>(ticks), static_cast<unsigned long long>(batches),
                 static_cast<unsigned long long>(counts.metric_batches),
-                static_cast<unsigned long long>(counts.chrono_snapshots),
                 static_cast<unsigned long long>(counts.trace_ids),
                 static_cast<unsigned long long>(counts.parent_edges),
                 static_cast<unsigned long long>(counts.span_kinds),

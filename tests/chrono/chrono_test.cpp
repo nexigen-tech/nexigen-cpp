@@ -49,7 +49,9 @@
 #include <nexigen/chrono/worker.hpp>
 #include <nexigen/chrono/settings.hpp>
 #include <nexigen/chrono/snapshot.hpp>
-#include <nexigen/chrono/clock_id.hpp>
+#include <nexigen/chrono/time_domain.hpp>
+#include <nexigen/chrono/detail/domain_map.hpp>
+#include <nexigen/core/detail/int128.hpp>
 #include <nexigen/chrono/composite_sink.hpp>
 #include <nexigen/chrono/concepts/logger_concept.hpp>
 #include <nexigen/chrono/concepts/provider_concept.hpp>
@@ -143,13 +145,13 @@ void operator delete[](void* ptr, std::size_t) noexcept {
         }                                                                                          \
     } while (false)
 
-// A component that declares a non-default clock domain (spec chrono/clock-id
+// A component that declares a non-default time domain (spec chrono/time-domain
 // "Compile-time domain declaration"); the specialization lives at global scope
 // because the primary template is a member of nexigen::chrono.
-struct BoottimeComponent {};
+struct HostCounterComponent {};
 template <>
-inline constexpr nexigen::chrono::ClockId nexigen::chrono::clock_domain<BoottimeComponent> =
-    nexigen::chrono::ClockId::boottime;
+inline constexpr nexigen::chrono::TimeDomain nexigen::chrono::time_domain<HostCounterComponent> =
+    nexigen::chrono::TimeDomain::HostCounter;
 
 namespace {
 
@@ -403,8 +405,7 @@ void test_diag_strings() {
     std::printf("diag_strings: Timestamp/StampSource/CivilTime dumps verified\n");
 }
 
-// --- clock service suites (change add-chrono-clock-service): ClockId,
-// Snapshot, sinks, Provider, ChronoWorker, Settings.
+// --- clock service suites: Snapshot, sinks, Provider, ChronoWorker, Settings.
 
 [[nodiscard]] bool write_file(const char* path, std::string_view content) {
     const int fd = ::open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
@@ -480,51 +481,88 @@ struct RecordingClockLogger {
     }
 };
 
-void test_clock_id() {
-    // Three base domains only.
-    NX_CHECK(to_string(ClockId::monotonic_raw) == "monotonic_raw");
-    NX_CHECK(to_string(ClockId::boottime) == "boottime");
-    NX_CHECK(to_string(ClockId::realtime) == "realtime");
-
-    // to_string / from_string round-trip for every value.
-    for (const ClockId id : {ClockId::monotonic_raw, ClockId::boottime, ClockId::realtime}) {
-        ClockId back{};
-        NX_CHECK(from_string(to_string(id), back));
-        NX_CHECK(back == id);
-    }
-
-    // Unknown spelling leaves the out-parameter unchanged.
-    ClockId out = ClockId::realtime;
-    NX_CHECK(!from_string("bogus", out));
-    NX_CHECK(out == ClockId::realtime);
-    NX_CHECK(!from_string("Unknown", out)); // "Unknown" is a rendering, not an enumerator
-
-    // JSON round-trip and non-string rejection under JSON_NOEXCEPTION=1.
-    for (const ClockId id : {ClockId::monotonic_raw, ClockId::boottime, ClockId::realtime}) {
+void test_time_domain() {
+    NX_CHECK(to_string(TimeDomainClass::SystemClock) == "system_clock");
+    NX_CHECK(to_string(TimeDomainClass::CycleCounter) == "cycle_counter");
+    NX_CHECK(to_string(TimeDomainClass::DeviceClock) == "device_clock");
+    for (const TimeDomainClass value : {TimeDomainClass::SystemClock, TimeDomainClass::CycleCounter,
+                                        TimeDomainClass::DeviceClock}) {
+        TimeDomainClass back{};
+        NX_CHECK(from_string(to_string(value), back));
+        NX_CHECK(back == value);
         nlohmann::json j;
-        to_json(j, id);
-        NX_CHECK(j.is_string());
-        ClockId back{};
-        from_json(j, back);
-        NX_CHECK(back == id);
+        to_json(j, value);
+        TimeDomainClass decoded{};
+        from_json(j, decoded);
+        NX_CHECK(decoded == value);
+        NX_CHECK(std::format("{}", value) == to_string(value));
     }
-    ClockId untouched = ClockId::realtime;
+
+    NX_CHECK(to_string(TimeDomain::MonotonicRaw) == "monotonic_raw");
+    NX_CHECK(to_string(TimeDomain::Monotonic) == "monotonic");
+    NX_CHECK(to_string(TimeDomain::Tai) == "tai");
+    NX_CHECK(to_string(TimeDomain::Realtime) == "realtime");
+    NX_CHECK(to_string(TimeDomain::HostCounter) == "host_counter");
+    for (const TimeDomain domain :
+         {TimeDomain::MonotonicRaw, TimeDomain::Monotonic, TimeDomain::Tai, TimeDomain::Realtime,
+          TimeDomain::HostCounter}) {
+        TimeDomain back{};
+        NX_CHECK(from_string(to_string(domain), back));
+        NX_CHECK(back == domain);
+        nlohmann::json j;
+        to_json(j, domain);
+        TimeDomain decoded{};
+        from_json(j, decoded);
+        NX_CHECK(decoded == domain);
+        NX_CHECK(std::format("{}", domain) == to_string(domain));
+    }
+    TimeDomain untouched = TimeDomain::Realtime;
+    NX_CHECK(!from_string("bogus", untouched));
+    NX_CHECK(untouched == TimeDomain::Realtime);
     from_json(nlohmann::json{42}, untouched);
-    NX_CHECK(untouched == ClockId::realtime);
+    NX_CHECK(untouched == TimeDomain::Realtime);
 
-    // Formatter matches to_string.
-    NX_CHECK(std::format("{}", ClockId::monotonic_raw) ==
-             std::string(to_string(ClockId::monotonic_raw)));
+    NX_CHECK(time_domain<int> == TimeDomain::MonotonicRaw);
+    NX_CHECK(time_domain<HostCounterComponent> == TimeDomain::HostCounter);
+    NX_CHECK(device_domain_id(0U) == 16U);
+    NX_CHECK(device_domain_id(31U) == 47U);
+    NX_CHECK(domain_class(TimeDomain::Tai) == TimeDomainClass::SystemClock);
+    NX_CHECK(domain_class(TimeDomain::HostCounter) == TimeDomainClass::CycleCounter);
+}
 
-    // Compile-time domain declaration: default is monotonic_raw; a component
-    // may specialize (BoottimeComponent declares boottime at global scope).
-    NX_CHECK(clock_domain<int> == ClockId::monotonic_raw);
-    NX_CHECK(clock_domain<BoottimeComponent> == ClockId::boottime);
+void test_int128_and_maps() {
+    using nexigen::core::detail::divide_u128_u64;
+    using nexigen::core::detail::make_u128;
+    using nexigen::core::detail::multiply_u64;
+    using nexigen::core::detail::mul_shift_i64;
+    using nexigen::core::detail::shift_right_u128;
+    using nexigen::chrono::detail::map_forward;
+    using nexigen::chrono::detail::map_reverse;
+    using nexigen::chrono::detail::reciprocal_scale_q32;
+
+    const auto product = multiply_u64(0xFFFF'FFFF'FFFF'FFFFULL, 2U);
+    NX_CHECK(shift_right_u128(product, 0U) == 0xFFFF'FFFF'FFFF'FFFEULL);
+    NX_CHECK(shift_right_u128(product, 64U) == 1U);
+    NX_CHECK(divide_u128_u64(make_u128(1U, 0U), 1ULL << 32U) == (1ULL << 32U));
+    NX_CHECK(mul_shift_i64(1'000'000'000LL, 1ULL << 32U, 32U) == 1'000'000'000LL);
+    NX_CHECK(mul_shift_i64(-1'000'000'000LL, 1ULL << 32U, 32U) == -1'000'000'000LL);
+
+    // 100 MHz device counter: 10 ns per tick, Q32.
+    constexpr std::uint64_t scale_fwd = 10ULL << 32U;
+    constexpr std::uint64_t scale_rev = 429496729ULL; // 0.1 tick/ns in Q32
+    constexpr std::uint64_t native_anchor = 1'000U;
+    constexpr std::int64_t canonical_anchor = 5'000'000LL;
+    const std::int64_t hub =
+        map_forward(native_anchor + 1234U, native_anchor, canonical_anchor, scale_fwd);
+    NX_CHECK(hub == canonical_anchor + 12'340LL);
+    const std::uint64_t native = map_reverse(hub, canonical_anchor, native_anchor, scale_rev);
+    NX_CHECK(native >= native_anchor + 1233U && native <= native_anchor + 1235U);
+    NX_CHECK(reciprocal_scale_q32(scale_fwd) == scale_rev);
 }
 
 void test_enum_contracts() {
     // Rendering an out-of-range enumerator is well-defined ("Unknown").
-    NX_CHECK(to_string(static_cast<ClockId>(0x7f)) == "Unknown");
+    NX_CHECK(to_string(static_cast<TimeDomain>(0x7f)) == "Unknown");
 
     // core::SettingsSource: all values round-trip; unknown spellings are
     // rejected without touching the out-parameter.
@@ -1451,13 +1489,13 @@ void test_chrono_required_thread_failure() {
 
 void test_affinity_edges() {
     // Zero mask is rejected before touching the thread affinity.
-    const Status zero = detail::pin_self(0);
+    const Status zero = nexigen::chrono::detail::pin_self(0);
     NX_CHECK(!zero.has_value());
     NX_CHECK(zero.error() == ErrorCode::InvalidArgument);
 
     // self_affinity reports the current mask.
     std::uint64_t mask = 0;
-    NX_CHECK(detail::self_affinity(mask).has_value());
+    NX_CHECK(nexigen::chrono::detail::self_affinity(mask).has_value());
     NX_CHECK(mask != 0ULL);
 
     // Pinning to a core outside the process's allowed set fails. Some
@@ -1476,7 +1514,7 @@ void test_affinity_edges() {
     if (denied >= 0) {
         std::atomic<int> result{-1};
         std::thread worker([denied, &result] {
-            const Status pinned = detail::pin_self(std::uint64_t{1} << denied);
+            const Status pinned = nexigen::chrono::detail::pin_self(std::uint64_t{1} << denied);
             result.store(pinned.has_value() ? 0 : static_cast<int>(pinned.error()),
                          std::memory_order_relaxed);
         });
@@ -1676,11 +1714,11 @@ void test_settings_sink() {
     const std::string global_path = base + "_global.json";
     const std::string local_path = base + "_local.json";
 
-    // Local path overrides global; absent local append inherits global.
-    NX_CHECK(write_file(global_path.c_str(),
-                        R"({"collect_interval_ns":1,)"
-                        R"("sink":{"path":"/tmp/global-chrono.jsonl","append":false}})"));
-    NX_CHECK(write_file(local_path.c_str(), R"({"sink":{"path":"/tmp/local-chrono.jsonl"}})"));
+    // Local path overrides global for the time-base client settings.
+    NX_CHECK(write_file(global_path.c_str(), R"({"collect_interval_ns":1,)"
+                                             R"("segment_name":"/global-timebase",)"
+                                             R"("holdover_ns":2000})"));
+    NX_CHECK(write_file(local_path.c_str(), R"({"segment_name":"/local-timebase"})"));
     {
         Settings settings;
         core::SettingsPaths paths;
@@ -1688,22 +1726,11 @@ void test_settings_sink() {
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
         NX_CHECK(settings.options.collect_interval == std::chrono::nanoseconds{1});
-        NX_CHECK(settings.sink.path == "/tmp/local-chrono.jsonl");
-        NX_CHECK(!settings.sink.append);
+        NX_CHECK(settings.segment_name == "/local-timebase");
+        NX_CHECK(settings.holdover == std::chrono::nanoseconds{2000});
     }
 
-    // Without a local sink block the global path and append flag are retained.
-    {
-        Settings settings;
-        core::SettingsPaths paths;
-        paths.global_file = global_path;
-        paths.local_file = "";
-        NX_CHECK(load_chrono_settings(paths, settings).has_value());
-        NX_CHECK(settings.sink.path == "/tmp/global-chrono.jsonl");
-        NX_CHECK(!settings.sink.append);
-    }
-
-    // Provider environment overrides do not touch the sink.
+    // Environment overrides do not touch the client settings.
     ::setenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS", "42", 1);
     {
         Settings settings;
@@ -1712,24 +1739,22 @@ void test_settings_sink() {
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
         NX_CHECK(settings.options.collect_interval == std::chrono::nanoseconds{42});
-        NX_CHECK(settings.sink.path == "/tmp/local-chrono.jsonl");
-        NX_CHECK(!settings.sink.append);
+        NX_CHECK(settings.segment_name == "/local-timebase");
     }
     ::unsetenv("NEXIGEN_CHRONO_COLLECT_INTERVAL_NS");
 
-    // Serialization carries the sink; apply_to ignores it.
+    // Serialization carries the client settings and no per-instance sink.
     {
         Settings settings;
         core::SettingsPaths paths;
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
-        NX_CHECK(settings.to_string().find("sink=JsonFileSinkConfig") != std::string::npos);
         NX_CHECK(std::format("{}", settings) == settings.to_string());
         nlohmann::json j;
         to_json(j, settings);
-        NX_CHECK(j["sink"]["path"] == "/tmp/local-chrono.jsonl");
-        NX_CHECK(j["sink"]["append"] == false);
+        NX_CHECK(j["segment_name"] == "/local-timebase");
+        NX_CHECK(j.contains("sink") == false);
 
         ProviderConfig config;
         NX_CHECK(apply_to(settings, config).has_value());
@@ -1737,8 +1762,10 @@ void test_settings_sink() {
         NX_CHECK(config.worker_thread == settings.options.worker_thread);
     }
 
-    // Absent sink blocks leave the sink unconfigured.
-    NX_CHECK(write_file(global_path.c_str(), "{}"));
+    // A legacy `sink` object is ignored, not diagnosed: the daemon owns the
+    // suite-level history file now.
+    NX_CHECK(write_file(global_path.c_str(),
+                        R"({"sink":{"path":"/tmp/legacy-chrono.jsonl"},"segment_name":"/s"})"));
     NX_CHECK(write_file(local_path.c_str(), "{}"));
     {
         Settings settings;
@@ -1746,52 +1773,8 @@ void test_settings_sink() {
         paths.global_file = global_path;
         paths.local_file = local_path;
         NX_CHECK(load_chrono_settings(paths, settings).has_value());
-        NX_CHECK(settings.sink.path.empty());
-        NX_CHECK(settings.sink.append);
+        NX_CHECK(settings.segment_name == "/s");
         NX_CHECK(settings.diagnostics.empty());
-    }
-
-    // An empty path is accepted as unconfigured, not a diagnostic.
-    NX_CHECK(write_file(global_path.c_str(), R"({"sink":{"path":""}})"));
-    {
-        Settings settings;
-        core::SettingsPaths paths;
-        paths.global_file = global_path;
-        NX_CHECK(load_chrono_settings(paths, settings).has_value());
-        NX_CHECK(settings.sink.path.empty());
-        NX_CHECK(settings.diagnostics.empty());
-    }
-
-    // Wrong field types keep the previous value and name sink.<field>; the
-    // shared-vocabulary texts stay pinned byte-identical (dedup-sink-plumbing).
-    NX_CHECK(write_file(global_path.c_str(), R"({"sink":{"path":"/tmp/keep-chrono.jsonl"}})"));
-    NX_CHECK(write_file(local_path.c_str(), R"({"sink":{"path":3,"append":3}})"));
-    {
-        Settings settings;
-        core::SettingsPaths paths;
-        paths.global_file = global_path;
-        paths.local_file = local_path;
-        NX_CHECK(!load_chrono_settings(paths, settings).has_value());
-        NX_CHECK(settings.sink.path == "/tmp/keep-chrono.jsonl");
-        NX_CHECK(settings.sink.append);
-        NX_CHECK(settings.diagnostics.size() == 2U);
-        NX_CHECK(settings.diagnostics[0].field == "sink.path");
-        NX_CHECK(settings.diagnostics[0].message == "expected a string");
-        NX_CHECK(settings.diagnostics[1].field == "sink.append");
-        NX_CHECK(settings.diagnostics[1].message == "expected a boolean");
-    }
-
-    // A non-object sink keeps the whole previous sink and reports "sink".
-    NX_CHECK(write_file(local_path.c_str(), R"({"sink":[]})"));
-    {
-        Settings settings;
-        core::SettingsPaths paths;
-        paths.global_file = global_path;
-        paths.local_file = local_path;
-        NX_CHECK(!load_chrono_settings(paths, settings).has_value());
-        NX_CHECK(settings.sink.path == "/tmp/keep-chrono.jsonl");
-        NX_CHECK(settings.diagnostics[0].field == "sink");
-        NX_CHECK(settings.diagnostics[0].message == "expected a JSON object");
     }
 
     ::unlink(global_path.c_str());
@@ -2097,7 +2080,8 @@ int main() {
     run_suite("time_format", test_time_format);
     run_suite("diag_strings", test_diag_strings);
     run_suite("enum_contracts", test_enum_contracts);
-    run_suite("clock_id", test_clock_id);
+    run_suite("time_domain", test_time_domain);
+    run_suite("int128_and_maps", test_int128_and_maps);
     run_suite("snapshot", test_snapshot);
     run_suite("snapshot_edges", test_snapshot_edges);
     run_suite("sinks", test_sinks);

@@ -23,8 +23,7 @@ namespace {
 using core::detail::read_bool;
 using core::detail::read_string;
 
-template <class T>
-void read_uint(const nlohmann::json& object, const char* key, T& out) noexcept {
+template <class T> void read_uint(const nlohmann::json& object, const char* key, T& out) noexcept {
     if constexpr (std::is_signed_v<T>) {
         static_cast<void>(core::detail::read_signed(object, key, out));
     } else {
@@ -64,8 +63,8 @@ void read_bytes(const nlohmann::json& object, const char* key, std::vector<std::
 }
 
 [[nodiscard]] bool session_id_char(char c) noexcept {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-           c == '_' || c == '-' || c == '.' || c == '/';
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' ||
+           c == '-' || c == '.' || c == '/';
 }
 
 [[nodiscard]] bool safe_session_id(std::string_view id) noexcept {
@@ -85,8 +84,7 @@ void read_bytes(const nlohmann::json& object, const char* key, std::vector<std::
 
 /// @brief Layout tokens are relative and limited to `{session_id}`/`{label}`.
 [[nodiscard]] bool safe_layout(std::string_view layout) noexcept {
-    if (layout.empty() || layout.front() == '/' ||
-        layout.find("..") != std::string_view::npos) {
+    if (layout.empty() || layout.front() == '/' || layout.find("..") != std::string_view::npos) {
         return false;
     }
     for (std::size_t i = 0; i < layout.size(); ++i) {
@@ -168,15 +166,71 @@ void read_bytes(const nlohmann::json& object, const char* key, std::vector<std::
     return {};
 }
 
+/// @brief Read one vocabulary field through its non-throwing ADL parser.
+template <class T>
+void read_chrono_field(const nlohmann::json& object, const char* key, T& out) noexcept {
+    if (!object.is_object()) {
+        return;
+    }
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return;
+    }
+    T parsed = out;
+    chrono::from_json(*it, parsed);
+    out = parsed;
+}
+
+/// @brief Read a NUL-terminated fixed-size text field.
+void read_fixed_text(const nlohmann::json& object, const char* key, char* out,
+                     std::size_t size) noexcept {
+    if (!object.is_object()) {
+        return;
+    }
+    const auto it = object.find(key);
+    if (it == object.end() || !it->is_string()) {
+        return;
+    }
+    const std::string text = it->get<std::string>();
+    const std::size_t take = text.size() < size - 1U ? text.size() : size - 1U;
+    for (std::size_t i = 0; i < take; ++i) {
+        out[i] = text[i];
+    }
+    out[take] = '\0';
+}
+
+/// @brief Read the bounded domain table of one time-base payload.
+void read_time_base_rows(const nlohmann::json& object, TimeBasePayload& value) noexcept {
+    if (!object.is_object()) {
+        return;
+    }
+    const auto rows = object.find("rows");
+    if (rows == object.end() || !rows->is_array()) {
+        return;
+    }
+    std::uint32_t count = 0;
+    for (const auto& entry : *rows) {
+        if (count >= kTimeBaseMaxRows) {
+            break;
+        }
+        nlohmann::from_json(entry, value.rows[count]);
+        ++count;
+    }
+    if (value.domain_count > count) {
+        value.domain_count = static_cast<std::uint16_t>(count);
+    }
+}
+
 } // namespace
 
 // Wire structs ---------------------------------------------------------------
 
 std::string RecordHeader::to_string() const {
-    return std::format("RecordHeader(magic=0x{:08X}, type={}, flags={}, channel={}, payload={}, "
-                       "commit={}, seq={}, publisher={}, header_crc=0x{:08X}, payload_crc=0x{:08X})",
-                       magic, type, flags, channel_id, payload_size, commit_mono_ns, sequence,
-                       publisher_id, header_crc32c, payload_crc32c);
+    return std::format(
+        "RecordHeader(magic=0x{:08X}, type={}, flags={}, channel={}, payload={}, "
+        "commit={}, seq={}, publisher={}, header_crc=0x{:08X}, payload_crc=0x{:08X})",
+        magic, type, flags, channel_id, payload_size, commit_mono_ns, sequence, publisher_id,
+        header_crc32c, payload_crc32c);
 }
 
 void to_json(nlohmann::json& j, const RecordHeader& value) {
@@ -213,15 +267,12 @@ std::string IndexEntry::to_string() const {
 }
 
 void to_json(nlohmann::json& j, const IndexEntry& value) {
-    j = nlohmann::json{{"commit_ns", value.commit_ns},
-                       {"rec_offset", value.rec_offset},
-                       {"min_event_ns", value.min_event_ns},
-                       {"max_event_ns", value.max_event_ns},
-                       {"channel_mask", value.channel_mask},
-                       {"end_rec_offset", value.end_rec_offset},
-                       {"record_count", value.record_count},
-                       {"flags", value.flags},
-                       {"entry_crc32c", value.entry_crc32c}};
+    j = nlohmann::json{
+        {"commit_ns", value.commit_ns},       {"rec_offset", value.rec_offset},
+        {"min_event_ns", value.min_event_ns}, {"max_event_ns", value.max_event_ns},
+        {"channel_mask", value.channel_mask}, {"end_rec_offset", value.end_rec_offset},
+        {"record_count", value.record_count}, {"flags", value.flags},
+        {"entry_crc32c", value.entry_crc32c}};
 }
 
 void from_json(const nlohmann::json& j, IndexEntry& value) {
@@ -305,8 +356,7 @@ void from_json(const nlohmann::json& j, VideoStreamConfig& value) {
             std::size_t index = 0;
             for (const auto& element : *it) {
                 if (index < value.extradata.size() && element.is_number_unsigned()) {
-                    value.extradata[index] =
-                        static_cast<std::uint8_t>(element.get<unsigned>());
+                    value.extradata[index] = static_cast<std::uint8_t>(element.get<unsigned>());
                 }
                 ++index;
             }
@@ -344,7 +394,82 @@ void from_json(const nlohmann::json& j, TimeSyncPayload& value) {
     read_uint(j, "utc_offset_ns", value.utc_offset_ns);
 }
 
-std::string SegmentFooter::to_string() const {    return std::format("SegmentFooter(version={}, records={}, gaps={}, rec_bytes={}, vid_bytes={}, "
+std::string_view TimeBasePayload::boot_uuid_view() const noexcept {
+    std::size_t length = 0;
+    while (length < boot_uuid.size() && boot_uuid[length] != '\0') {
+        ++length;
+    }
+    return std::string_view{boot_uuid.data(), length};
+}
+
+bool TimeBasePayload::has_current_layout() const noexcept {
+    return layout == kTimeBasePayloadLayout && domain_count <= kTimeBaseMaxRows &&
+           static_cast<std::uint8_t>(status) <=
+               static_cast<std::uint8_t>(chrono::TimeBaseStatus::Lost) &&
+           static_cast<std::uint8_t>(sync_mode) <=
+               static_cast<std::uint8_t>(chrono::SyncMode::Holdover);
+}
+
+std::string TimeBasePayload::to_string() const {
+    return std::format("TimeBase(generation={}, epoch={}, boot=0x{:016x}, layout=0x{:08X}, "
+                       "status={}, sync={}, flags={}, domains={}, gap={}, tai_offset={}, "
+                       "utc_offset={}, utc_unc={})",
+                       generation, time_base_epoch, boot_token, layout, chrono::to_string(status),
+                       chrono::to_string(sync_mode), chrono::to_string(service_flags), domain_count,
+                       gap != 0U, tai_offset_ns, utc_offset_ns, utc_unc_ns);
+}
+
+void to_json(nlohmann::json& j, const TimeBasePayload& value) {
+    const std::uint32_t count = value.domain_count < kTimeBaseMaxRows
+                                    ? value.domain_count
+                                    : static_cast<std::uint32_t>(kTimeBaseMaxRows);
+    nlohmann::json rows = nlohmann::json::array();
+    for (std::uint32_t i = 0; i < count; ++i) {
+        rows.push_back(value.rows[i]);
+    }
+    j = nlohmann::json{
+        {"generation", value.generation},
+        {"time_base_epoch", value.time_base_epoch},
+        {"boot_token", value.boot_token},
+        {"boot_uuid", std::string(value.boot_uuid_view())},
+        {"layout", value.layout},
+        {"status", value.status},
+        {"sync_mode", value.sync_mode},
+        {"service_flags", value.service_flags},
+        {"tai_offset_ns", value.tai_offset_ns},
+        {"utc_offset_ns", value.utc_offset_ns},
+        {"utc_unc_ns", value.utc_unc_ns},
+        {"domain_count", value.domain_count},
+        {"gap", value.gap != 0U},
+        {"rows", rows},
+    };
+}
+
+void from_json(const nlohmann::json& j, TimeBasePayload& value) noexcept {
+    if (!j.is_object()) {
+        return;
+    }
+    read_uint(j, "generation", value.generation);
+    read_uint(j, "time_base_epoch", value.time_base_epoch);
+    read_uint(j, "boot_token", value.boot_token);
+    read_uint(j, "layout", value.layout);
+    read_chrono_field(j, "status", value.status);
+    read_chrono_field(j, "sync_mode", value.sync_mode);
+    read_chrono_field(j, "service_flags", value.service_flags);
+    read_uint(j, "tai_offset_ns", value.tai_offset_ns);
+    read_uint(j, "utc_offset_ns", value.utc_offset_ns);
+    read_uint(j, "utc_unc_ns", value.utc_unc_ns);
+    read_uint(j, "domain_count", value.domain_count);
+    bool gap = value.gap != 0U;
+    if (read_bool(j, "gap", gap)) {
+        value.gap = gap ? 1U : 0U;
+    }
+    read_fixed_text(j, "boot_uuid", value.boot_uuid.data(), value.boot_uuid.size());
+    read_time_base_rows(j, value);
+}
+
+std::string SegmentFooter::to_string() const {
+    return std::format("SegmentFooter(version={}, records={}, gaps={}, rec_bytes={}, vid_bytes={}, "
                        "index_entries={}, end_commit={}, crc=0x{:08X})",
                        version, total_records, total_gaps, rec_bytes, vid_bytes, index_entries,
                        end_commit_ns, footer_crc32c);
@@ -389,9 +514,9 @@ core::Status StorageSettings::validate() const noexcept {
     if (!safe_layout(session_layout)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    if (max_segment_bytes == 0U || max_segment_duration_ns == 0U ||
-        index_stride_bytes == 0U || index_interval_ns == 0U || write_buffer_bytes == 0U ||
-        index_buffer_bytes == 0U || video_frame_buffer_bytes == 0U || max_record_bytes == 0U) {
+    if (max_segment_bytes == 0U || max_segment_duration_ns == 0U || index_stride_bytes == 0U ||
+        index_interval_ns == 0U || write_buffer_bytes == 0U || index_buffer_bytes == 0U ||
+        video_frame_buffer_bytes == 0U || max_record_bytes == 0U) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     return {};
@@ -403,10 +528,10 @@ std::string StorageSettings::to_string() const {
                        "index_interval_ns={}, write_buffer={}, video_buffer={}, video_crc={}, "
                        "retention={})",
                        session_root, session_id, session_layout, recorder::to_string(format),
-                       recorder::to_string(time_domain), max_segment_bytes,
-                       max_segment_duration_ns, max_segment_records, index_stride_bytes,
-                       index_interval_ns, write_buffer_bytes, video_frame_buffer_bytes,
-                       recorder::to_string(video_crc), recorder::to_string(retention));
+                       recorder::to_string(time_domain), max_segment_bytes, max_segment_duration_ns,
+                       max_segment_records, index_stride_bytes, index_interval_ns,
+                       write_buffer_bytes, video_frame_buffer_bytes, recorder::to_string(video_crc),
+                       recorder::to_string(retention));
 }
 
 void to_json(nlohmann::json& j, const StorageSettings& settings) {
@@ -427,7 +552,10 @@ void to_json(nlohmann::json& j, const StorageSettings& settings) {
                        {"retention_max_bytes", settings.retention_max_bytes},
                        {"min_free_bytes", settings.min_free_bytes},
                        {"retention", settings.retention},
-                       {"video_crc", settings.video_crc}};
+                       {"video_crc", settings.video_crc},
+                       {"boot_token", settings.boot_token},
+                       {"boot_uuid", settings.boot_uuid},
+                       {"time_base_epoch", settings.time_base_epoch}};
 }
 
 void from_json(const nlohmann::json& j, StorageSettings& settings) noexcept {
@@ -449,6 +577,9 @@ void from_json(const nlohmann::json& j, StorageSettings& settings) noexcept {
     read_uint(j, "min_free_bytes", settings.min_free_bytes);
     read_enum_field(j, "retention", settings.retention);
     read_enum_field(j, "video_crc", settings.video_crc);
+    read_string(j, "boot_token", settings.boot_token);
+    read_string(j, "boot_uuid", settings.boot_uuid);
+    read_uint(j, "time_base_epoch", settings.time_base_epoch);
 }
 
 // Schema / channel / segment / manifest -------------------------------------
@@ -468,19 +599,16 @@ core::Status SchemaDeclare::validate() const noexcept {
 }
 
 std::string SchemaDeclare::to_string() const {
-    return std::format("SchemaDeclare(id={}, name={}, version={}, encoding={}, bytes={}, crc=0x{:08X})",
-                       id, name, version, encoding, data.size(), data_crc32c);
+    return std::format(
+        "SchemaDeclare(id={}, name={}, version={}, encoding={}, bytes={}, crc=0x{:08X})", id, name,
+        version, encoding, data.size(), data_crc32c);
 }
 
 void to_json(nlohmann::json& j, const SchemaDeclare& schema) {
-    j = nlohmann::json{{"id", schema.id},
-                       {"name", schema.name},
-                       {"version", schema.version},
-                       {"encoding", schema.encoding},
-                       {"units", schema.units},
-                       {"endianness", schema.endianness},
-                       {"data", schema.data},
-                       {"data_crc32c", schema.data_crc32c}};
+    j = nlohmann::json{{"id", schema.id},           {"name", schema.name},
+                       {"version", schema.version}, {"encoding", schema.encoding},
+                       {"units", schema.units},     {"endianness", schema.endianness},
+                       {"data", schema.data},       {"data_crc32c", schema.data_crc32c}};
 }
 
 void from_json(const nlohmann::json& j, SchemaDeclare& schema) noexcept {
@@ -499,12 +627,24 @@ core::Status ChannelDeclare::validate() const noexcept {
         message_encoding.empty()) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
+    if (native_domain.empty()) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (native_domain != "device") {
+        chrono::TimeDomain parsed = chrono::TimeDomain::MonotonicRaw;
+        if (!chrono::from_string(native_domain, parsed)) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+    }
     return {};
 }
 
 std::string ChannelDeclare::to_string() const {
-    return std::format("ChannelDeclare(id={}, schema={}, topic={}, kind={}, encoding={})", id,
-                       schema_id, topic, recorder::to_string(kind), message_encoding);
+    return std::format(
+        "ChannelDeclare(id={}, schema={}, topic={}, kind={}, encoding={}, native_domain={}, "
+        "domain_id={}, domain_epoch={})",
+        id, schema_id, topic, recorder::to_string(kind), message_encoding, native_domain, domain_id,
+        domain_epoch);
 }
 
 void to_json(nlohmann::json& j, const ChannelDeclare& channel) {
@@ -513,7 +653,12 @@ void to_json(nlohmann::json& j, const ChannelDeclare& channel) {
                        {"topic", channel.topic},
                        {"kind", channel.kind},
                        {"message_encoding", channel.message_encoding},
-                       {"metadata", channel.metadata}};
+                       {"metadata", channel.metadata},
+                       {"native_domain", channel.native_domain},
+                       {"domain_id", channel.domain_id},
+                       {"domain_epoch", channel.domain_epoch},
+                       {"domain_class", channel.domain_class},
+                       {"access_mode", channel.access_mode}};
 }
 
 void from_json(const nlohmann::json& j, ChannelDeclare& channel) noexcept {
@@ -523,6 +668,11 @@ void from_json(const nlohmann::json& j, ChannelDeclare& channel) noexcept {
     read_enum_field(j, "kind", channel.kind);
     read_string(j, "message_encoding", channel.message_encoding);
     read_string(j, "metadata", channel.metadata);
+    read_string(j, "native_domain", channel.native_domain);
+    read_uint(j, "domain_id", channel.domain_id);
+    read_uint(j, "domain_epoch", channel.domain_epoch);
+    read_enum_field(j, "domain_class", channel.domain_class);
+    read_enum_field(j, "access_mode", channel.access_mode);
 }
 
 std::string SegmentInfo::to_string() const {
@@ -561,8 +711,12 @@ void from_json(const nlohmann::json& j, SegmentInfo& segment) noexcept {
 }
 
 core::Status SessionManifest::validate() const noexcept {
-    if (format != RecorderFormat::Raw || version == 0U || session_id.empty() ||
-        !safe_session_id(session_id)) {
+    // There is no dual-layout runtime: a session written by the retired payload
+    // contract is rejected wholesale instead of being decoded into garbage.
+    if (version != kFormatVersion) {
+        return std::unexpected(core::ErrorCode::UnsupportedFormat);
+    }
+    if (format != RecorderFormat::Raw || session_id.empty() || !safe_session_id(session_id)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     const auto schemas_status = validate_schema_list(schemas);
@@ -593,6 +747,9 @@ void to_json(nlohmann::json& j, const SessionManifest& manifest) {
                        {"version", manifest.version},
                        {"session_id", manifest.session_id},
                        {"time_domain", manifest.time_domain},
+                       {"boot_token", manifest.boot_token},
+                       {"boot_uuid", manifest.boot_uuid},
+                       {"time_base_epoch", manifest.time_base_epoch},
                        {"settings", manifest.settings},
                        {"schemas", manifest.schemas},
                        {"channels", manifest.channels},
@@ -605,6 +762,9 @@ void from_json(const nlohmann::json& j, SessionManifest& manifest) noexcept {
     read_uint(j, "version", manifest.version);
     read_string(j, "session_id", manifest.session_id);
     read_enum_field(j, "time_domain", manifest.time_domain);
+    read_string(j, "boot_token", manifest.boot_token);
+    read_string(j, "boot_uuid", manifest.boot_uuid);
+    read_uint(j, "time_base_epoch", manifest.time_base_epoch);
     if (j.is_object()) {
         const auto settings = j.find("settings");
         if (settings != j.end() && settings->is_object()) {
@@ -640,11 +800,10 @@ std::string ExportSelection::to_string() const {
         }
         channels_text += channel;
     }
-    return std::format("ExportSelection(dataset={}, channels=[{}], event=[{}{}, {}{}])",
-                       dataset, channels_text, has_start ? "" : "...",
+    return std::format("ExportSelection(dataset={}, channels=[{}], event=[{}{}, {}{}])", dataset,
+                       channels_text, has_start ? "" : "...",
                        has_start ? std::to_string(start_event_ns) : "",
-                       has_end ? std::to_string(end_event_ns) : "",
-                       has_end ? "" : "...");
+                       has_end ? std::to_string(end_event_ns) : "", has_end ? "" : "...");
 }
 
 void to_json(nlohmann::json& j, const ExportSelection& selection) {
@@ -737,8 +896,7 @@ std::string DatasetInfo::to_string() const {
                        channel_id, name, recorder::to_string(kind), schema_name,
                        recorder::to_string(codec), records, gaps, payload_bytes, first_event_ns,
                        last_event_ns, first_rec_offset, last_rec_offset, width, height,
-                       extradata_size, config_epochs.size(),
-                       closed ? "true" : "false");
+                       extradata_size, config_epochs.size(), closed ? "true" : "false");
 }
 
 void to_json(nlohmann::json& j, const DatasetInfo& dataset) {
@@ -749,6 +907,9 @@ void to_json(nlohmann::json& j, const DatasetInfo& dataset) {
                        {"schema_name", dataset.schema_name},
                        {"schema_encoding", dataset.schema_encoding},
                        {"message_encoding", dataset.message_encoding},
+                       {"native_domain", dataset.native_domain},
+                       {"domain_id", dataset.domain_id},
+                       {"domain_epoch", dataset.domain_epoch},
                        {"codec", dataset.codec},
                        {"bitstream", dataset.bitstream},
                        {"width", dataset.width},
@@ -775,6 +936,9 @@ void from_json(const nlohmann::json& j, DatasetInfo& dataset) noexcept {
     read_string(j, "schema_name", dataset.schema_name);
     read_string(j, "schema_encoding", dataset.schema_encoding);
     read_string(j, "message_encoding", dataset.message_encoding);
+    read_string(j, "native_domain", dataset.native_domain);
+    read_uint(j, "domain_id", dataset.domain_id);
+    read_uint(j, "domain_epoch", dataset.domain_epoch);
     read_enum_field(j, "codec", dataset.codec);
     read_enum_field(j, "bitstream", dataset.bitstream);
     read_uint(j, "width", dataset.width);
@@ -789,8 +953,7 @@ void from_json(const nlohmann::json& j, DatasetInfo& dataset) noexcept {
     read_uint(j, "last_rec_offset", dataset.last_rec_offset);
     read_bool(j, "closed", dataset.closed);
     if (j.is_object()) {
-        if (const auto epochs = j.find("config_epochs");
-            epochs != j.end() && epochs->is_array()) {
+        if (const auto epochs = j.find("config_epochs"); epochs != j.end() && epochs->is_array()) {
             dataset.config_epochs.clear();
             for (const auto& entry : *epochs) {
                 if (entry.is_number_unsigned()) {

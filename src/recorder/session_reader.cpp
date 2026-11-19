@@ -40,8 +40,7 @@ constexpr std::uint32_t kMaxReaderPayload = 64U * 1024U * 1024U;
 
 [[nodiscard]] bool valid_header(const RecordHeader& header) {
     return header.magic == kRecordMagic &&
-           header.header_crc32c ==
-               detail::crc32c(&header, offsetof(RecordHeader, header_crc32c));
+           header.header_crc32c == detail::crc32c(&header, offsetof(RecordHeader, header_crc32c));
 }
 
 [[nodiscard]] std::uint64_t event_of(const RecordHeader& header,
@@ -63,8 +62,7 @@ constexpr std::uint32_t kMaxReaderPayload = 64U * 1024U * 1024U;
     }
     IndexEntry entry{};
     while (input.read(reinterpret_cast<char*>(&entry), sizeof(entry))) {
-        if (entry.entry_crc32c !=
-            detail::crc32c(&entry, offsetof(IndexEntry, entry_crc32c))) {
+        if (entry.entry_crc32c != detail::crc32c(&entry, offsetof(IndexEntry, entry_crc32c))) {
             break;
         }
         entries.push_back(entry);
@@ -73,9 +71,9 @@ constexpr std::uint32_t kMaxReaderPayload = 64U * 1024U * 1024U;
 }
 
 /// @brief Rebuild a segment's sparse index by scanning `.nxrec`.
-[[nodiscard]] std::vector<IndexEntry>
-rebuild_index_entries(const SegmentInfo& segment, const std::string& directory,
-                      std::uint64_t stride) {
+[[nodiscard]] std::vector<IndexEntry> rebuild_index_entries(const SegmentInfo& segment,
+                                                            const std::string& directory,
+                                                            std::uint64_t stride) {
     std::vector<IndexEntry> entries;
     std::ifstream input(directory + "/" + segment.rec_path, std::ios::binary);
     if (!input) {
@@ -241,17 +239,16 @@ bool video_check_visitor(void* context, const RecordHeader& header,
     SegmentFooter footer{};
     if (!read_exact(input, &footer, sizeof(footer)) || footer.magic != kFooterMagic ||
         footer.magic_end != kFooterMagic ||
-        footer.footer_crc32c !=
-            detail::crc32c(&footer, offsetof(SegmentFooter, footer_crc32c))) {
+        footer.footer_crc32c != detail::crc32c(&footer, offsetof(SegmentFooter, footer_crc32c))) {
         return std::unexpected(core::ErrorCode::CorruptData);
     }
     return {};
 }
 
 /// @brief Locate the first invalid record in one segment.
-[[nodiscard]] std::optional<VerifyFailure>
-diagnose_records(const SegmentInfo& segment, const std::string& directory,
-                 const SessionReader& reader) {
+[[nodiscard]] std::optional<VerifyFailure> diagnose_records(const SegmentInfo& segment,
+                                                            const std::string& directory,
+                                                            const SessionReader& reader) {
     std::ifstream input(directory + "/" + segment.rec_path, std::ios::binary);
     if (!input) {
         return VerifyFailure{segment.seq, 0, 0};
@@ -285,8 +282,8 @@ diagnose_records(const SegmentInfo& segment, const std::string& directory,
 }
 
 /// @brief Validate a closed segment's trailing footer.
-[[nodiscard]] std::optional<VerifyFailure>
-diagnose_footer(const SegmentInfo& segment, const std::string& directory) {
+[[nodiscard]] std::optional<VerifyFailure> diagnose_footer(const SegmentInfo& segment,
+                                                           const std::string& directory) {
     std::ifstream tail(directory + "/" + segment.rec_path, std::ios::binary | std::ios::ate);
     if (!tail) {
         return VerifyFailure{segment.seq, 0, 0};
@@ -306,12 +303,11 @@ diagnose_footer(const SegmentInfo& segment, const std::string& directory) {
 }
 
 /// @brief Locate the first record/footer that fails validation.
-[[nodiscard]] std::optional<VerifyFailure>
-diagnose_failure(const SessionManifest& manifest, const std::string& directory,
-                 const SessionReader& reader) {
+[[nodiscard]] std::optional<VerifyFailure> diagnose_failure(const SessionManifest& manifest,
+                                                            const std::string& directory,
+                                                            const SessionReader& reader) {
     for (const auto& segment : manifest.segments) {
-        if (const auto record = diagnose_records(segment, directory, reader);
-            record.has_value()) {
+        if (const auto record = diagnose_records(segment, directory, reader); record.has_value()) {
             return record;
         }
         if (segment.closed) {
@@ -391,8 +387,8 @@ core::Result<SessionReader> SessionReader::open_segment(const std::string& rec_p
     const std::filesystem::path absolute = std::filesystem::absolute(rec_path, error);
     const std::string resolved = error ? rec_path : absolute.string();
     const auto slash = resolved.find_last_of('/');
-    const std::string directory = slash == std::string::npos ? std::string(".")
-                                                               : resolved.substr(0, slash);
+    const std::string directory =
+        slash == std::string::npos ? std::string(".") : resolved.substr(0, slash);
     const std::string file = slash == std::string::npos ? resolved : resolved.substr(slash + 1U);
     if (file.empty()) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -463,6 +459,9 @@ namespace {
     info.name = channel.topic;
     info.schema_id = channel.schema_id;
     info.message_encoding = channel.message_encoding;
+    info.native_domain = channel.native_domain;
+    info.domain_id = channel.domain_id;
+    info.domain_epoch = channel.domain_epoch;
     for (const auto& schema : schemas) {
         if (schema.id == channel.schema_id) {
             info.schema_name = schema.name;
@@ -512,10 +511,9 @@ void apply_record(DatasetInfo& dataset, const RecordHeader& header,
     dataset.last_event_ns = event;
     dataset.last_rec_offset = record_offset;
 
-    auto part = std::find_if(dataset.segments.begin(), dataset.segments.end(),
-                             [&](const DatasetSegmentInfo& value) {
-                                 return value.seq == segment.seq;
-                             });
+    auto part =
+        std::find_if(dataset.segments.begin(), dataset.segments.end(),
+                     [&](const DatasetSegmentInfo& value) { return value.seq == segment.seq; });
     if (part == dataset.segments.end()) {
         DatasetSegmentInfo created{};
         created.seq = segment.seq;
@@ -551,17 +549,16 @@ void add_epoch(DatasetInfo& dataset, std::uint64_t epoch) {
     }
 }
 
-void process_video_config(std::span<const std::byte> payload,
-                          std::vector<DatasetInfo>& datasets, std::uint32_t channel_id) {
+void process_video_config(std::span<const std::byte> payload, std::vector<DatasetInfo>& datasets,
+                          std::uint32_t channel_id) {
     if (payload.size() != sizeof(VideoStreamConfig)) {
         return;
     }
     VideoStreamConfig config{};
     std::memcpy(&config, payload.data(), sizeof(config));
-    const auto dataset = std::find_if(datasets.begin(), datasets.end(),
-                                      [&](const DatasetInfo& value) {
-                                          return value.channel_id == channel_id;
-                                      });
+    const auto dataset =
+        std::find_if(datasets.begin(), datasets.end(),
+                     [&](const DatasetInfo& value) { return value.channel_id == channel_id; });
     if (dataset == datasets.end()) {
         return;
     }
@@ -595,10 +592,9 @@ void process_inventory_record(const RecordHeader& header, std::span<const std::b
         }
         ChannelDeclare channel{};
         from_json(document, channel);
-        const auto existing = std::find_if(datasets.begin(), datasets.end(),
-                                           [&](const DatasetInfo& value) {
-                                               return value.channel_id == channel.id;
-                                           });
+        const auto existing =
+            std::find_if(datasets.begin(), datasets.end(),
+                         [&](const DatasetInfo& value) { return value.channel_id == channel.id; });
         if (existing == datasets.end()) {
             datasets.push_back(make_dataset(channel, schemas));
         }
@@ -608,10 +604,10 @@ void process_inventory_record(const RecordHeader& header, std::span<const std::b
         process_video_config(payload, datasets, header.channel_id);
         return;
     }
-    const auto dataset = std::find_if(datasets.begin(), datasets.end(),
-                                      [&](const DatasetInfo& value) {
-                                          return value.channel_id == header.channel_id;
-                                      });
+    const auto dataset =
+        std::find_if(datasets.begin(), datasets.end(), [&](const DatasetInfo& value) {
+            return value.channel_id == header.channel_id;
+        });
     if (dataset != datasets.end()) {
         apply_record(*dataset, header, payload, event_of(header, payload), record_offset, segment);
     }
@@ -669,10 +665,9 @@ core::Result<std::vector<DatasetInfo>> SessionReader::datasets() const noexcept 
     for (const auto& segment : manifest_.segments) {
         scan_inventory_segment(segment, directory_, schemas, datasets);
     }
-    std::sort(datasets.begin(), datasets.end(),
-              [](const DatasetInfo& lhs, const DatasetInfo& rhs) {
-                  return lhs.channel_id < rhs.channel_id;
-              });
+    std::sort(datasets.begin(), datasets.end(), [](const DatasetInfo& lhs, const DatasetInfo& rhs) {
+        return lhs.channel_id < rhs.channel_id;
+    });
     return datasets;
 }
 
@@ -697,8 +692,8 @@ struct RecordFilter {
 
 /// @brief Read one record and dispatch it; `false` means EOF/torn (stop cleanly).
 [[nodiscard]] core::Result<bool> visit_record(std::ifstream& input, const SessionManifest& manifest,
-                                             const RecordFilter& filter, RecordVisitor visitor,
-                                             void* context) {
+                                              const RecordFilter& filter, RecordVisitor visitor,
+                                              void* context) {
     RecordHeader header{};
     const std::streamoff before = input.tellg();
     if (!read_header(input, header) || !valid_header(header)) {
@@ -719,8 +714,8 @@ struct RecordFilter {
     }
     const std::uint64_t event = event_of(header, payload);
     const bool channel_match = !filter.has_channel || header.channel_id == filter.channel_id;
-    const bool range_match = !filter.has_range ||
-                             (event >= filter.start_event_ns && event <= filter.end_event_ns);
+    const bool range_match =
+        !filter.has_range || (event >= filter.start_event_ns && event <= filter.end_event_ns);
     if (!channel_match || !range_match) {
         return true;
     }
@@ -732,10 +727,11 @@ struct RecordFilter {
 ///
 /// A missing or empty `.nxidx` is rebuilt from `.nxrec` before searching.
 /// Returns `NotFound` when no block can cover the requested range.
-[[nodiscard]] core::Result<std::streamoff>
-range_start_offset(const SegmentInfo& segment, const std::string& directory,
-                   std::uint64_t start_event_ns, std::uint64_t end_event_ns,
-                   std::uint64_t index_stride_bytes) {
+[[nodiscard]] core::Result<std::streamoff> range_start_offset(const SegmentInfo& segment,
+                                                              const std::string& directory,
+                                                              std::uint64_t start_event_ns,
+                                                              std::uint64_t end_event_ns,
+                                                              std::uint64_t index_stride_bytes) {
     auto entries = read_index(directory + "/" + segment.idx_path);
     if (entries.empty()) {
         entries = rebuild_index_entries(segment, directory, index_stride_bytes);
@@ -767,13 +763,12 @@ core::Status visit_segment(const SegmentInfo& segment, const std::string& direct
         return {};
     }
     if (filter.has_range) {
-        const auto offset = range_start_offset(segment, directory, filter.start_event_ns,
-                                               filter.end_event_ns,
-                                               manifest.settings.index_stride_bytes);
+        const auto offset =
+            range_start_offset(segment, directory, filter.start_event_ns, filter.end_event_ns,
+                               manifest.settings.index_stride_bytes);
         if (!offset.has_value()) {
-            return offset.error() == core::ErrorCode::NotFound
-                       ? core::Status{}
-                       : std::unexpected(offset.error());
+            return offset.error() == core::ErrorCode::NotFound ? core::Status{}
+                                                               : std::unexpected(offset.error());
         }
         input.seekg(*offset, std::ios::beg);
         if (!input.good()) {
@@ -802,8 +797,7 @@ core::Status SessionReader::for_each(std::uint32_t channel_id, bool has_channel,
     }
     const RecordFilter filter{channel_id, has_channel, start_event_ns, end_event_ns, has_range};
     for (const auto& segment : manifest_.segments) {
-        const auto status = visit_segment(segment, directory_, manifest_, filter, visitor,
-                                          context);
+        const auto status = visit_segment(segment, directory_, manifest_, filter, visitor, context);
         if (!status.has_value()) {
             return status;
         }
@@ -827,10 +821,9 @@ bool epoch_visitor(void* context, const RecordHeader& header,
         return true;
     }
     auto& epochs = *static_cast<std::vector<EpochState>*>(context);
-    auto epoch = std::find_if(epochs.rbegin(), epochs.rend(),
-                              [&](const EpochState& value) {
-                                  return value.channel_id == header.channel_id;
-                              });
+    auto epoch = std::find_if(epochs.rbegin(), epochs.rend(), [&](const EpochState& value) {
+        return value.channel_id == header.channel_id;
+    });
     if (epoch == epochs.rend() || epoch->publisher_id != header.publisher_id ||
         header.sequence <= epoch->last_sequence) {
         epochs.push_back(EpochState{header.channel_id, header.publisher_id, header.sequence,
@@ -934,8 +927,7 @@ core::Status SessionReader::verify(std::uint64_t& records, std::uint64_t& gaps,
     gaps = counts.gaps;
     if (manifest_records != 0U && records != manifest_records) {
         if (failure != nullptr) {
-            failure->segment_seq =
-                manifest_.segments.empty() ? 0U : manifest_.segments.back().seq;
+            failure->segment_seq = manifest_.segments.empty() ? 0U : manifest_.segments.back().seq;
         }
         return std::unexpected(core::ErrorCode::CorruptData);
     }

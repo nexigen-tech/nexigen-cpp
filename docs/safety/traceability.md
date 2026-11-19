@@ -72,7 +72,7 @@ Declared out of scope for the programme: the Classic Platform BSW cluster
 | RS_SAF_10039 | Detect unintended alteration | supported | `exec/trusted-executable`, `phm/recovery`, `com/publish-subscribe` | `tests/exec/app_suite_test.cpp`, `tests/phm/phm_test.cpp`, `tests/com/com_test.cpp` | - |
 | RS_SAF_10040 | Data recovery | out-of-scope | - | - | boundary: persistency is outside the product boundary. |
 | RS_SAF_10041 | Configurable safety mechanisms | supported | `phm/manifest`, `exec/app-suite`, `com/service-management` | `tests/phm/phm_test.cpp`, `tests/exec/app_suite_test.cpp`, `tests/com/com_test.cpp` | - |
-| RS_SAF_10042 | Detect time-sync violations | supported | `chrono/time-sync`, `chrono/clock-id` | `tests/chrono/chrono_test.cpp` | - |
+| RS_SAF_10042 | Detect time-sync violations | supported | `chrono/time-sync`, `chrono/time-base`, `chrono/time-domain` | `tests/chrono/chrono_test.cpp`, `tests/chrono/time_base_test.cpp` (`time_base_step_detection`, `kalman2`, `time_base_hardware`), `tests/app/time_base_e2e_test.cpp` | `time_base_e2e_loss` fails when holdover/expiry supervision is removed; the retry hold is covered by `tests/exec/app_suite_test.cpp`. |
 | RS_HM_09125 | Alive supervision | supported | `phm/supervision` | `tests/phm/phm_test.cpp` | - |
 | RS_HM_09222 | Logical supervision | supported | `phm/supervision` | `tests/phm/phm_test.cpp` | - |
 | RS_HM_09235 | Deadline supervision | supported | `phm/supervision` | `tests/phm/phm_test.cpp` | - |

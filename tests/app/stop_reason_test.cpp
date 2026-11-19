@@ -7,6 +7,8 @@ void test_stop_reason() {
     NX_CHECK(app::to_string(app::InfrastructureStopReason::Requested) == "requested");
     NX_CHECK(app::to_string(app::InfrastructureStopReason::Sigint) == "sigint");
     NX_CHECK(app::to_string(app::InfrastructureStopReason::Sigterm) == "sigterm");
+    NX_CHECK(app::to_string(app::InfrastructureStopReason::TimeBaseLost) == "time_base_lost");
+    NX_CHECK(app::time_base_lost_exit_code == 75);
 
     app::InfrastructureStopReason reason = app::InfrastructureStopReason::None;
     NX_CHECK(app::from_string("sigterm", reason));

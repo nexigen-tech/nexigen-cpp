@@ -20,7 +20,10 @@
 #include <unistd.h>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/app/infrastructure_stop_reason.hpp>
 #include <nexigen/app/run_identity.hpp>
+#include <nexigen/chrono/time_base_client.hpp>
+#include <nexigen/exec/detail/time_base_gate.hpp>
 #include <nexigen/exec/app_state.hpp>
 #include <nexigen/exec/child_process.hpp>
 #include <nexigen/exec/control_host.hpp>
@@ -313,9 +316,39 @@ void trigger_suite_restart(RuntimeSuite& suite) {
     write_suite_status(suite);
 }
 
-void handle_abnormal(RuntimeSuite& suite, RuntimeApp& app) {
+/// The manifest's time-base daemon is alive (or no binding is declared).
+[[nodiscard]] bool time_base_daemon_running(const RuntimeSuite& suite) noexcept {
+    if (suite.manifest == nullptr || suite.manifest->time_base_process.empty()) {
+        return true;
+    }
+    for (const RuntimeApp& candidate : suite.apps) {
+        if (candidate.spec.app == suite.manifest->time_base_process) {
+            return candidate.state == AppState::Running;
+        }
+    }
+    return false;
+}
+
+void handle_abnormal(RuntimeSuite& suite, RuntimeApp& app, int exit_code) {
     if (app.spec.impact == ImpactOnAppSuiteOperability::Failure) {
         trigger_suite_restart(suite);
+        return;
+    }
+    // A process that stopped because the time base was lost is held out of the
+    // restart loop until the daemon is running and Ready again; the hold does
+    // not consume its restart budget.
+    if (suite.manifest != nullptr && !suite.manifest->time_base_process.empty() &&
+        detail::hold_retry_for_time_base(suite.manifest->time_base_segment,
+                                         time_base_daemon_running(suite), exit_code)) {
+        app.state = AppState::Restarting;
+        app.time_base_held = true;
+        app.next_restart_ns =
+            monotonic_now_ns() + active_config(app).restart_delay_s * nanoseconds_per_second;
+        log_execution_manager(core::LogLevel::Warning,
+                              std::format("event=retry_held app={} instance={} "
+                                          "reason=time_base_lost",
+                                          app.spec.app, app.spec.instance));
+        suite.dirty = true;
         return;
     }
     schedule_retry_or_fail(suite, app);
@@ -351,6 +384,11 @@ void handle_abnormal(RuntimeSuite& suite, RuntimeApp& app) {
         const RuntimeApp* dep = find_app_by_name(suite, dependency.process);
         if (dep == nullptr || !dependency_satisfied(suite, *dep, dependency.state)) {
             return false;
+        }
+        if (suite.manifest != nullptr && !suite.manifest->time_base_process.empty() &&
+            dependency.process == suite.manifest->time_base_process &&
+            !detail::time_base_ready(suite.manifest->time_base_segment)) {
+            return false; // daemon is Running but the base is not Ready yet
         }
     }
     return true;
@@ -601,13 +639,24 @@ private:
             suite_.dirty = true;
             return false;
         }
-        handle_abnormal(suite_, app_);
+        handle_abnormal(suite_, app_, exit.exit_code.value_or(1));
         return suite_.suite_restart_pending;
     }
 
     [[nodiscard]] bool on_restart_timer(std::uint64_t now) {
         if (app_.next_restart_ns == 0 || now < app_.next_restart_ns) {
             return false;
+        }
+        // A retry held because the time base was lost stays parked until the
+        // daemon reports Ready; polling keeps the restart budget untouched and
+        // never launches while the base is unusable.
+        if (app_.time_base_held) {
+            if (suite_.manifest == nullptr ||
+                !detail::time_base_ready(suite_.manifest->time_base_segment)) {
+                app_.next_restart_ns = now;
+                return false;
+            }
+            app_.time_base_held = false;
         }
         app_.launch_failed = false;
         suspend_execution_manager_logging();

@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <string_view>
 
 #include <cerrno>
@@ -12,7 +13,8 @@
 #include <unistd.h>
 
 #include <nexigen/core/result.hpp>
-#include <nexigen/chrono/utc_offset.hpp>
+#include <nexigen/chrono/boot_identity.hpp>
+#include <nexigen/chrono/time_base_clock.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/logging/detail/json_writer.hpp>
 #include <nexigen/logging/detail/rotation.hpp>
@@ -85,18 +87,18 @@ public:
     ///       via calibrated clocks"; pre-existing content counting toward the
     ///       limit is specified by "Size-based file rotation".
     [[nodiscard]] core::Status start() noexcept {
-        std::int64_t offset = 0;
-        const core::Status sampled = chrono::sample_utc_offset(offset);
-        if (!sampled) {
-            return sampled;
-        }
-        utc_offset_ns_ = offset;
-
+        // The application infrastructure binds the published time base before
+        // the logger exists; UTC is derived from it and the sink never samples
+        // the wall clock itself.
         const core::Result<chrono::Timestamp> now = chrono::Timestamp::now();
         if (!now) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
-        last_utc_ns_ = static_cast<std::int64_t>(now->nanoseconds()) + offset;
+        const std::uint64_t mono = now->nanoseconds();
+        last_utc_ns_ =
+            chrono::TimeBaseClock::utc_from_canonical(static_cast<std::int64_t>(mono)).value_or(0);
+        boot_token_ = chrono::current_boot_token();
+        static_cast<void>(chrono::format_boot_token(boot_token_, boot_text_));
         active_key_ = period_key(settings_.kind, settings_.custom_ns, last_utc_ns_);
         segment_ = 0;
         const core::Status opened = open_current();
@@ -126,11 +128,13 @@ public:
     ///       `logging/log-record`, requirement "Consumer-side rendering of
     ///       packed records".
     template <class Record> void handle(Record& rec) noexcept {
-        const std::int64_t utc = chrono::utc_from_mono_ns(rec.stamp.nanoseconds(), utc_offset_ns_);
-        if (settings_.kind != RotationSchedule::None) {
-            const std::int64_t key = period_key(settings_.kind, settings_.custom_ns, utc);
+        const std::uint64_t mono = rec.stamp.nanoseconds();
+        const std::optional<std::int64_t> utc =
+            chrono::TimeBaseClock::utc_from_canonical(static_cast<std::int64_t>(mono));
+        if (settings_.kind != RotationSchedule::None && utc.has_value()) {
+            const std::int64_t key = period_key(settings_.kind, settings_.custom_ns, *utc);
             if (key != active_key_) {
-                last_utc_ns_ = utc;
+                last_utc_ns_ = *utc;
                 segment_ = 0;
                 const core::Status opened = open_current();
                 if (opened) { // spec: never lose the old fd before the new one is live
@@ -151,7 +155,9 @@ public:
         const std::size_t msg_len = rec.render_into(msg_, msg_capacity);
 
         std::size_t len = format_json_line(
-            utc, rec.level, std::string_view(settings_.app, settings_.app_len), rec.thread_id,
+            utc.value_or(0), utc.has_value(), mono,
+            std::string_view(boot_text_, chrono::boot_token_text_size), rec.level,
+            std::string_view(settings_.app, settings_.app_len), rec.thread_id,
             std::string_view(rec.file_name), rec.line, std::string_view(rec.function_name),
             std::string_view(msg_, msg_len), line_);
         if (len == 0U) {
@@ -180,10 +186,6 @@ public:
     /// @note Spec `logging/file-logger`, requirement "Flush synchronizes the
     ///       file" (including the "Flush surfaces write failure" scenario).
     [[nodiscard]] core::Status synchronize() noexcept {
-        std::int64_t offset = 0;
-        if (chrono::sample_utc_offset(offset)) {
-            utc_offset_ns_ = offset;
-        }
         bool failed = pending_write_error_ != 0U;
         pending_write_error_ = 0U;
         if (fd_ >= 0 && ::fsync(fd_) != 0) {
@@ -298,11 +300,12 @@ private:
 
     /// Validated fixed-footprint config supplied at construction.
     Settings settings_{};
-    int fd_ = -1;                     ///< active period descriptor (consumer-only)
-    int new_fd_ = -1;                 ///< staged fd during a rotation switch
-    std::int64_t active_key_ = 0;     ///< period identity of fd_
-    std::int64_t utc_offset_ns_ = 0;  ///< monotonic -> UTC conversion snapshot
-    std::int64_t last_utc_ns_ = 0;    ///< utc at the current boundary
+    int fd_ = -1;                  ///< active period descriptor (consumer-only)
+    int new_fd_ = -1;              ///< staged fd during a rotation switch
+    std::int64_t active_key_ = 0;  ///< period identity of fd_
+    std::int64_t last_utc_ns_ = 0; ///< utc at the current boundary
+    std::uint64_t boot_token_ = 0; ///< kernel boot token of this process
+    char boot_text_[chrono::boot_token_text_size + 1U]{}; ///< 16-hex boot token
     std::uint64_t segment_ = 0;       ///< size-based segment index (writer-only)
     std::uint64_t bytes_written_ = 0; ///< active segment size (writer-only)
     std::uint64_t malformed_ = 0;     ///< formatter overflow skips (diagnostic)

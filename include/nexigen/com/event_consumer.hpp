@@ -44,15 +44,15 @@ public:
     /// @param on_event Event callback.
     /// @param on_loss Loss callback.
     /// @return Consumer, or a mapped `com::Error`/`InvalidArgument`.
-    [[nodiscard]] static Result<EventConsumer>
-    create(Node& node, ServiceName name, const ChannelConfig& config, OnEvent on_event,
-           OnLoss on_loss) noexcept {
+    [[nodiscard]] static Result<EventConsumer> create(Node& node, ServiceName name,
+                                                      const ChannelConfig& config, OnEvent on_event,
+                                                      OnLoss on_loss) noexcept {
         const Status valid = config.validate();
         if (!valid.has_value()) {
             return std::unexpected(valid.error());
         }
-        auto subscriber = Subscriber<T, EventHeader>::create(
-            node, name, config.publish_subscribe_options());
+        auto subscriber =
+            Subscriber<T, EventHeader>::create(node, name, config.publish_subscribe_options());
         if (!subscriber.has_value()) {
             return std::unexpected(subscriber.error());
         }
@@ -152,8 +152,8 @@ public:
     }
 
 private:
-    EventConsumer(ServiceName name, Subscriber<T, EventHeader> subscriber,
-                  EventListener listener, OnEvent on_event, OnLoss on_loss) noexcept
+    EventConsumer(ServiceName name, Subscriber<T, EventHeader> subscriber, EventListener listener,
+                  OnEvent on_event, OnLoss on_loss) noexcept
         : service_name_(std::move(name)), subscriber_(std::move(subscriber)),
           listener_(std::move(listener)), on_event_(std::move(on_event)),
           on_loss_(std::move(on_loss)) {}
@@ -169,7 +169,8 @@ private:
             info.old_epoch = observation.old_epoch;
             info.new_epoch = observation.new_epoch;
             info.actual_timestamp_ns = header.timestamp_ns;
-            info.actual_timestamp_domain = header.timestamp_domain;
+            info.actual_timestamp_domain =
+                header.domain_id == 0U ? TimestampDomain::MonotonicRaw : TimestampDomain::Hardware;
             on_loss_(info);
         }
         if (observation.deliver) {

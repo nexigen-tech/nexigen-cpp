@@ -7,8 +7,9 @@
 // logging::detail and owns the module's scratch-size contract:
 //
 // format_json_line emits the EXACT schema and field order:
-//   {"timestamp":"YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ","level":"<lowercase>",
-//    "app":"<escaped>","thread_id":<int>,
+//   {"timestamp":"YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ" | null,
+//    "mono_ns":<canonical nanoseconds>,"boot":"<16-hex token>",
+//    "level":"<lowercase>","app":"<escaped>","thread_id":<int>,
 //    "message":"[<basename>:<line>] (<function>) <user message>"}\n
 //
 // Escaping: '"' and '\\' two-char form; '\b' '\t' '\n' '\f' '\r' short forms;
@@ -53,11 +54,17 @@ inline constexpr std::size_t json_scratch_capacity = 4096;
 /// @brief Format one record as a complete JSON line in `scratch`.
 ///
 /// Emits the exact schema and field order
-/// `timestamp, level, app, thread_id, message`; the message is decorated as
-/// `"[<basename>:<line>] (<function>) <user message>"`. Escaping uses the
-/// shared `FixedWriter` policy, so UTF-8 passes through verbatim.
+/// `timestamp, mono_ns, boot, level, app, thread_id, message`; the message is
+/// decorated as `"[<basename>:<line>] (<function>) <user message>"`. Escaping
+/// uses the shared `FixedWriter` policy, so UTF-8 passes through verbatim. When
+/// no calibration covers the record's instant, `timestamp` is the JSON literal
+/// `null` and `mono_ns`/`boot` stay authoritative.
 ///
-/// @param utc_ns UTC timestamp in nanoseconds since the Unix epoch.
+/// @param utc_ns UTC timestamp in nanoseconds since the Unix epoch, or any
+///        value when `utc_valid` is `false`.
+/// @param utc_valid Whether a time-base calibration covers this instant.
+/// @param mono_ns Canonical `CLOCK_MONOTONIC_RAW` nanoseconds of the record.
+/// @param boot 16-character boot token text.
 /// @param level Severity whose lowercase name is emitted.
 /// @param app Configured application name, escaped.
 /// @param thread_id Producing thread id, emitted as a JSON number.
@@ -73,10 +80,10 @@ inline constexpr std::size_t json_scratch_capacity = 4096;
 ///       and requirement "Nanosecond UTC timestamps via calibrated clocks".
 ///       Mandate 10 (JSON serialization): rendering is allocation-free and
 ///       never emits a half line.
-[[nodiscard]] std::size_t format_json_line(std::int64_t utc_ns, core::LogLevel level,
-                                           std::string_view app, std::uint32_t thread_id,
-                                           std::string_view file_name, std::uint32_t line,
-                                           std::string_view function_name, std::string_view message,
-                                           char (&scratch)[json_scratch_capacity]) noexcept;
+[[nodiscard]] std::size_t
+format_json_line(std::int64_t utc_ns, bool utc_valid, std::uint64_t mono_ns, std::string_view boot,
+                 core::LogLevel level, std::string_view app, std::uint32_t thread_id,
+                 std::string_view file_name, std::uint32_t line, std::string_view function_name,
+                 std::string_view message, char (&scratch)[json_scratch_capacity]) noexcept;
 
 } // namespace nexigen::logging::detail

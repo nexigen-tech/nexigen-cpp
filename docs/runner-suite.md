@@ -26,6 +26,7 @@ nexigen-run stop /var/run/nexigen/app/1
   "log_level": "info",
   "suite_restart_attempts": 2,
   "suite_restart_delay_s": 10,
+  "time_base": {"process": "chronod", "segment": "/nexigen-timebase-hil"},
   "runner_control_thread": {"name": "suite-control", "cpus": [0, 1], "mode": "best_effort"},
   "runner_logger_thread": {"name": "runner-logger", "cpus": [2], "mode": "best_effort"},
   "apps": [
@@ -62,6 +63,7 @@ nexigen-run stop /var/run/nexigen/app/1
 | `log_level` | no | Suite-wide `verbose`, `debug`, `info`, `warning`, `error`, `fatal`, or `off`. |
 | `suite_restart_attempts` | no | Whole-suite relaunches for `failure` applications. Default `0`. |
 | `suite_restart_delay_s` | no | Pause before a whole-suite relaunch. Default `5`. |
+| `time_base` | no | `{"process": "<daemon app>", "segment": "/<shm name>"}`. Binds the time-base gate: dependents wait for the daemon to be `Running` **and** the published base to be `ready`. `segment` defaults to `/nexigen-timebase-<suite_id>`; a segment without a process is rejected. |
 | `runner_control_thread` | no | Thread spec (`name`, `cpus`, `policy`, `priority`, `mode`) for the CLI/suite-supervisor control thread. |
 | `runner_logger_thread` | no | Thread spec for the runner logger worker; defaults to `worker_thread` or legacy `flush_cpu_affinity` from `logging.json`. |
 | `apps` | yes | 1–256 application entries. |
@@ -256,8 +258,11 @@ in [`thread-management.md`](thread-management.md).
 
 ## Limitations
 
-- No dependency ordering or readiness probes; applications launch in manifest
-  order.
+- Applications launch in manifest order; a dependency declared in a
+  state-dependent startup configuration holds the dependent until the dependency
+  reaches the required state. When `time_base` is bound, the dependent also waits
+  for the published base to report `ready`, and an application that exits with
+  the `time_base_lost` code is not retried until the daemon is running again.
 - No dynamic manifest reload.
 - No scheduled log rotation; every application attempt keeps its own files, so
   disk usage grows with attempts. The runner log also uses no scheduled

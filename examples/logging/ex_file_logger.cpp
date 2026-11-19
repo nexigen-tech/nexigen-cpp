@@ -21,6 +21,7 @@
 #include <unistd.h>
 
 #include <nexigen/logging/file_logger.hpp>
+#include "../app/time_base_fixture.hpp"
 #include <nexigen/core/log_level.hpp>
 
 namespace {
@@ -120,6 +121,7 @@ bool verify_log_file(const std::string& path) {
 } // namespace
 
 int main() {
+    static nexigen::examples::LocalTimeBase time_base{"standalone"};
     using nexigen::core::LogLevel;
 
     // Fresh output tree: stale runs must not leak into verification.

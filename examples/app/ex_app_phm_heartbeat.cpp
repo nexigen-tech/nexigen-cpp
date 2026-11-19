@@ -10,6 +10,7 @@
 #include <utility>
 
 #include <nexigen/app/infrastructure.hpp>
+#include "../app/time_base_fixture.hpp"
 #include <nexigen/chrono/null_sink.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
@@ -54,11 +55,6 @@ struct SimplePolicy {
         return {};
     }
 
-    static core::Status emplace_chrono_sink(std::optional<Sink>& out,
-                                            const chrono::Settings&) noexcept {
-        out.emplace();
-        return {};
-    }
 };
 
 int fail(std::string_view message) {
@@ -89,7 +85,10 @@ auto main() -> int {
         return fail("infrastructure allocation failed");
     }
     auto infra = std::move(*created);
-    if (!infra->initialize(app::Settings{}).has_value()) {
+    static nexigen::examples::LocalTimeBase time_base{"phm"};
+    app::Settings settings{};
+    settings.chrono.segment_name = time_base.name();
+    if (!infra->initialize(settings).has_value()) {
         return fail("Infrastructure::initialize failed");
     }
 

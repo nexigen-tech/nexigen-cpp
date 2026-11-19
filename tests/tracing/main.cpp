@@ -2,6 +2,7 @@
 // `suite_*` wrapper per suite; this file preserves the historical order.
 
 #include "tracing_test_support.hpp"
+#include "../support/test_time_base.hpp"
 
 void suite_span_enums();
 void suite_ids_and_context();
@@ -22,6 +23,7 @@ void suite_tracing_worker_thread_settings();
 void suite_trace_propagation();
 
 int main() {
+    nexigen::tests::install_test_time_base("tracing");
     run_suite("harness", test_harness);
     suite_span_enums();
     suite_ids_and_context();
@@ -40,6 +42,7 @@ int main() {
     suite_tracing_required_thread_failure();
     suite_tracing_worker_thread_settings();
     suite_trace_propagation();
+    nexigen::tests::detach_test_time_base();
     std::printf("tracing: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }
