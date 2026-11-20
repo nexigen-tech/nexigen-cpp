@@ -627,7 +627,7 @@ transitively — and include what you use. Deep dive with copy-paste recipes:
   `startup_status()`.
 * **`<nexigen/metrics/null_metric_sink.hpp>`, `console_metric_sink.hpp`,
   `json_file_metric_sink.hpp`, `composite_metric_sink.hpp>`** — the sink contract
-  (`concepts::MetricSink`: `on_batch(const MetricBatchSnapshot&) noexcept` +
+  (`concepts::MetricSink`: `on_event(const MetricBatchSnapshot&) noexcept` +
   `flush() noexcept`, both returning `core::Status`, no virtuals). `NullMetricSink`,
   `ConsoleMetricSink` (raw `::write` to a fd), `JsonFileMetricSink` (JSONL + UTC
   ISO-8601 stamps) and `CompositeMetricSink<Sinks...>` (tuple fan-out without
@@ -725,7 +725,7 @@ brings `nexigen_core` and `nexigen_chrono` transitively.
   source locations as pinned FNV-1a hashes (a 64-entry memo cache avoids
   rehashing repeated call sites), and up to four attributes. Delivery is
   `DiscardData` with counted drops; consumers drain by interval (no per-span
-  event) and detect gaps from the sequence. Release x86-64 gates `on_span` at a
+  event) and detect gaps from the sequence. Release x86-64 gates `on_event` at a
   400 ns median.
 * **Flight recorder (`nexigen-traced`)** — built with `NEXIGEN_ENABLE_COM=ON`,
   drains the span service every `drain_interval_ms` (default 20 ms) into a

@@ -73,10 +73,10 @@ public:
     ///         non-success status in member order.
     /// @note Spec `metrics/metric-sinks`, requirement "Composite metric sink
     ///       fan-out"; the delivery path stays allocation-free.
-    [[nodiscard]] core::Status on_batch(const MetricBatchSnapshot& batch) noexcept {
+    [[nodiscard]] core::Status on_event(const MetricBatchSnapshot& batch) noexcept {
         core::Status result{};
         this->for_each([&batch, &result](auto& sink) noexcept {
-            result = core::sink_pack::combine(result, sink.on_batch(batch));
+            result = core::sink_pack::combine(result, sink.on_event(batch));
         });
         return result;
     }

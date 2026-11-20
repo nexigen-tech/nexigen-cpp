@@ -6,7 +6,7 @@
 // round-robins across registered shards, ≤ 16 records per shard per sweep,
 // up to 64 records per batch), render each record's deferred format into the
 // sink's pre-allocated scratch, hand the line to the Sink (console write /
-// JSON file write), answer flush() requests, and drain + synchronize +
+// JSON file write), answer flush() requests, and drain + flush +
 // publish on shutdown.
 //
 // MULTI-PRODUCER CONTRACT: producers never wait on this thread; the sweep
@@ -41,7 +41,7 @@
 //              publishes everything it had enqueued before asking;
 //   drained:   store(release) by the worker AFTER writes+fsync complete for
 //              all requests up to that sequence; acquire-load by the waiter;
-//   sync_error: last synchronize() result code (or 0), stored relaxed before
+//   sync_error: last flush() result code (or 0), stored relaxed before
 //              the drained publication it explains.
 // flush() is therefore "all records accepted before this call are durable",
 // and it surfaces file-layer failures as ErrorCode::SystemError (spec
@@ -68,6 +68,7 @@
 #include <nexigen/core/worker_thread.hpp>
 #include <nexigen/core/worker_tuning.hpp>
 #include <nexigen/logging/detail/affinity.hpp>
+#include <nexigen/logging/detail/record_sink_concept.hpp>
 
 namespace nexigen::logging::detail {
 
@@ -84,18 +85,19 @@ using core::WorkerTuning;
 /// bounded batches, renders deferred formats into sink-owned scratch on this
 /// thread, and answers flush barriers between sweeps.
 ///
-/// Sink contract (duck-typed): core::Status start() noexcept;
-/// void handle(const Producer::record_type&) noexcept;
-/// core::Status synchronize() noexcept; void stop() noexcept.
+/// Sink contract: `core::concepts::LifecycleSink<Sink, record_type>` —
+/// `start()`/`on_event()`/`flush()`/`stop()`, all noexcept.
 ///
 /// @tparam Producer Sharded producer type; must expose `record_type`, `pop()`,
 ///         and `synthesize_flush_summary()`.
 /// @tparam Sink Consumer-side sink constructed in place by `start()`; must
-///         satisfy the four-call contract above.
+///         satisfy `detail::RecordSink<Sink, record_type>`.
 /// @note Spec `logging/multi-producer`, requirement "Consumer drains every
 ///       active shard"; idle policy is `logging/file-logger`, requirement
 ///       "Background writer uses the shared idle-backoff policy".
-template <class Producer, class Sink> class AsyncWorker {
+template <class Producer, class Sink>
+    requires RecordSink<Sink, typename Producer::record_type>
+class AsyncWorker {
     /// @brief Record type carried by the producer's shards.
     using record_type = typename Producer::record_type;
 
@@ -105,7 +107,7 @@ template <class Producer, class Sink> class AsyncWorker {
     /// 10 s of a worker that is gone or stuck.
     static constexpr std::uint64_t flush_sleep_budget = 50'000; ///< * 200 us ~ 10 s escape hatch
 
-    /// @brief Flush sequencing plus the last synchronize error, on one line.
+    /// @brief Flush sequencing plus the last flush error, on one line.
     ///
     /// A single padded cache line keeps the two sequence counters and the error
     /// byte off the drain loop's data lines. The ordering rules are: request
@@ -181,7 +183,7 @@ template <class Producer, class Sink> class AsyncWorker {
         while (!st.stop_requested()) {
             std::size_t n = 0;
             while (n < 64 && producer_->pop(rec)) { // bounded batch
-                sink.handle(rec);
+                sink.on_event(rec);
                 ++n;
             }
             if (n != 0) {
@@ -199,7 +201,7 @@ template <class Producer, class Sink> class AsyncWorker {
             if (req > flush_.drained.load(std::memory_order_relaxed)) {
                 record_type summary{};
                 if (producer_->synthesize_flush_summary(summary)) {
-                    sink.handle(summary);
+                    sink.on_event(summary);
                 }
                 publish_sync(req);
             }
@@ -210,11 +212,11 @@ template <class Producer, class Sink> class AsyncWorker {
                 WorkerTuning::backoff_us(idle - spin_budget, poll_max_us)));
         }
 
-        // Shutdown: drain what is still queued, synchronize once, publish,
+        // Shutdown: drain what is still queued, flush once, publish,
         // then let the sink close (spec: "Destruction does not lose accepted
         // records" — the join happens before any logger member dies).
         while (producer_->pop(rec)) {
-            sink.handle(rec);
+            sink.on_event(rec);
         }
         publish_sync(flush_.requested.load(std::memory_order_relaxed));
         sink.stop();
@@ -222,7 +224,7 @@ template <class Producer, class Sink> class AsyncWorker {
 
     /// @brief Synchronize the sink and publish the drained sequence.
     ///
-    /// Runs on the worker thread only. Calls `sink.synchronize()`, stores the
+    /// Runs on the worker thread only. Calls `sink.flush()`, stores the
     /// encoded result (`ErrorCode + 1`, or 0 for OK) with relaxed order, then
     /// publishes `seq` with release so a waiter that acquire-loads it also sees
     /// the error byte and every write the sync covered.
@@ -235,7 +237,7 @@ template <class Producer, class Sink> class AsyncWorker {
             return;
         }
         Sink& sink = *sink_;
-        const core::Status sync = sink.synchronize();
+        const core::Status sync = sink.flush();
         flush_.sync_error.store(
             sync ? std::uint8_t{0}
                  : static_cast<std::uint8_t>(static_cast<std::uint8_t>(sync.error()) + 1U),
@@ -312,7 +314,7 @@ public:
     /// this thread never touches a foreign shard.
     ///
     /// @return OK when every record accepted before the call is durable; the
-    ///         last synchronize error for a file-layer failure;
+    ///         last flush error for a file-layer failure;
     ///         `ErrorCode::NotInitialized` when the worker is not running;
     ///         `ErrorCode::SystemError` when the escape hatch fires.
     /// @warning This is a blocking control-plane call, explicitly outside the

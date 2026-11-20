@@ -38,7 +38,7 @@ namespace core = nexigen::core;
 class TimelineSink {
 public:
     core::Status start() noexcept { return {}; }
-    core::Status on_span(const tracing::SpanRecord& record) noexcept {
+    core::Status on_event(const tracing::SpanRecord& record) noexcept {
         records_.push_back(record);
         return {};
     }

@@ -8,7 +8,7 @@
 #include <format>
 #include <string>
 
-#include <nexigen/com/concepts/message_concept.hpp>
+#include <nexigen/core/concepts/message_concept.hpp>
 #include <nexigen/exec/state_result.hpp>
 
 namespace nexigen::exec {
@@ -36,7 +36,7 @@ struct StateAck {
 };
 
 /// @brief The payload contract: plain bytes, safe for zero-copy transport.
-static_assert(com::concepts::Message<StateAck>);
+static_assert(core::concepts::Message<StateAck>);
 
 /// @brief Free helper (mandate 9): mirrors the member.
 ///

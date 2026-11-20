@@ -99,10 +99,10 @@ public:
     ///         first non-success status in member order.
     /// @note Spec `tracing/trace-sinks`, requirement "CompositeTraceSink
     ///       fan-out"; the delivery path stays allocation-free.
-    [[nodiscard]] core::Status on_span(const SpanRecord& record) noexcept {
+    [[nodiscard]] core::Status on_event(const SpanRecord& record) noexcept {
         core::Status result{};
         this->for_each([&record, &result](auto& sink) noexcept {
-            result = core::sink_pack::combine(result, sink.on_span(record));
+            result = core::sink_pack::combine(result, sink.on_event(record));
         });
         return result;
     }

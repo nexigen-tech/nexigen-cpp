@@ -30,7 +30,7 @@
 #include <nexigen/chrono/concepts/provider_concept.hpp>
 #include <nexigen/chrono/concepts/sink_concept.hpp>
 #include <nexigen/chrono/concepts/stamper_concept.hpp>
-#include <nexigen/chrono/detail/sink_binding.hpp>
+#include <nexigen/core/sink_binding.hpp>
 #include <nexigen/chrono/provider_config.hpp>
 #include <nexigen/chrono/snapshot.hpp>
 #include <nexigen/chrono/stamp_source.hpp>
@@ -84,10 +84,10 @@ public:
     ///       binding".
     template <concepts::Sink Sink>
     Provider(const ProviderConfig& config, Sink& sink)
-        : Provider(config, detail::SinkBinding{
+        : Provider(config, core::SinkBinding<Snapshot>{
                                static_cast<void*>(&sink),
                                [](void* self, const Snapshot& snapshot) noexcept -> core::Status {
-                                   return static_cast<Sink*>(self)->on_snapshot(snapshot);
+                                   return static_cast<Sink*>(self)->on_event(snapshot);
                                },
                                [](void* self) noexcept -> core::Status {
                                    return static_cast<Sink*>(self)->flush();
@@ -220,10 +220,10 @@ public:
         const std::int64_t rt_ns = static_cast<std::int64_t>(realtime.tv_sec) * 1'000'000'000LL +
                                    static_cast<std::int64_t>(realtime.tv_nsec);
         const Snapshot snapshot{*stamp, rt_ns - static_cast<std::int64_t>(stamp->nanoseconds())};
-        if (binding_.on_snapshot == nullptr) {
+        if (binding_.on_event == nullptr) {
             return {};
         }
-        return binding_.on_snapshot(binding_.self, snapshot);
+        return binding_.on_event(binding_.self, snapshot);
     }
 
     /// @brief Flush the bound sink.
@@ -262,7 +262,7 @@ private:
     ///
     /// @param config Provider configuration copied into the instance.
     /// @param binding Type-erased sink thunks; `self` must outlive the provider.
-    Provider(const ProviderConfig& config, detail::SinkBinding binding)
+    Provider(const ProviderConfig& config, core::SinkBinding<Snapshot> binding)
         : config_(config), binding_(binding) {}
 
     alignas(64) std::array<StampSource, MaxSources> bank_{}; ///< Fixed stamper storage.
@@ -270,7 +270,7 @@ private:
     std::atomic<bool> prepared_{false};           ///< Release/acquire gate for calibration.
     std::atomic<bool> calibration_failed_{false}; ///< Sticky cold-path failure flag.
     ProviderConfig config_{};                     ///< Copied construction configuration.
-    detail::SinkBinding binding_{};               ///< Type-erased sink thunks.
+    core::SinkBinding<Snapshot> binding_{};       ///< Type-erased sink thunks.
     std::mutex snapshot_mutex_{}; ///< Serializes manual + worker delivery (cold only).
 };
 

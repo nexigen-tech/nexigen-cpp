@@ -6,7 +6,7 @@
 // std::to_chars (allocation-free numerics; deliberately NOT iostreams —
 // their lazy init, buffering, and locale state allocate and can block).
 // Writes go through ::write with EINTR/partial-write retry; unrecoverable
-// failures surface as SystemError from on_span WITHOUT aborting, and the
+// failures surface as SystemError from on_event WITHOUT aborting, and the
 // sink stays usable for error reporting. flush() is a no-op success: the
 // descriptor is unbuffered by contract.
 //
@@ -35,7 +35,7 @@ namespace nexigen::tracing {
 
 /// @brief Sink that writes one human-readable line per span to a descriptor.
 ///
-/// Each `on_span` renders the full identity (trace/span/parent ids, kind,
+/// Each `on_event` renders the full identity (trace/span/parent ids, kind,
 /// status, name, duration, thread id, source location) and every attribute
 /// into a fixed 1024-byte line buffer using `std::to_chars`, then writes it
 /// with `::write` retrying `EINTR` and partial writes. No iostreams, no
@@ -98,7 +98,7 @@ public:
     ///         descriptor write fails, without aborting the process.
     /// @note Spec `tracing/trace-sinks`, requirement "ConsoleTraceSink";
     ///       delivery allocates nothing per record.
-    [[nodiscard]] core::Status on_span(const SpanRecord& record) noexcept {
+    [[nodiscard]] core::Status on_event(const SpanRecord& record) noexcept {
         len_ = 0;
         append_sv("[trace ");
         append_hex16(record.trace_id.value());

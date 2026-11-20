@@ -49,7 +49,7 @@ public:
     /// @brief Open the configured output file.
     ///
     /// An unopenable path leaves the sink without a descriptor; subsequent
-    /// `on_snapshot()` and `flush()` calls then report `SystemError`.
+    /// `on_event()` and `flush()` calls then report `SystemError`.
     ///
     /// @param config Path and append policy copied at construction.
     explicit JsonFileSink(const JsonFileSinkConfig& config) noexcept
@@ -97,7 +97,7 @@ public:
     ///         `core::ErrorCode::SystemError` when the file is not open or the
     ///         write fails.
     /// @note Spec `chrono/chrono-sink`, requirement "JSON-file chrono sink".
-    [[nodiscard]] core::Status on_snapshot(const Snapshot& snapshot) noexcept {
+    [[nodiscard]] core::Status on_event(const Snapshot& snapshot) noexcept {
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }

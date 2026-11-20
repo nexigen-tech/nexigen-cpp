@@ -14,7 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <nexigen/com/concepts/message_concept.hpp>
+#include <nexigen/core/concepts/message_concept.hpp>
 #include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/phm/recovery_outcome.hpp>
 #include <nexigen/phm/recovery_reason.hpp>
@@ -47,7 +47,7 @@ struct RecoveryResponse {
 /// @brief The payload contract: plain bytes, safe for zero-copy transport.
 ///
 /// @note Spec `phm/recovery`, requirement "Local process recovery".
-static_assert(com::concepts::Message<RecoveryResponse>);
+static_assert(core::concepts::Message<RecoveryResponse>);
 
 /// @brief Free helper mirroring `RecoveryResponse::to_string()` (mandate 9).
 ///

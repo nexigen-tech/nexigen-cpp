@@ -26,7 +26,7 @@ public:
     ///
     /// @return Always success.
     /// @note Spec `chrono/chrono-sink`, requirement "Null chrono sink".
-    [[nodiscard]] core::Status on_snapshot(const Snapshot&) noexcept { return {}; }
+    [[nodiscard]] core::Status on_event(const Snapshot&) noexcept { return {}; }
 
     /// @brief Flush the sink.
     ///

@@ -124,7 +124,7 @@ public:
     /// @note Spec `logging/console-logger`, requirement "Flush drains
     ///       asynchronously-accepted records"; the worker's flush barrier
     ///       provides the ordering, this sink has nothing left to sync.
-    [[nodiscard]] core::Status synchronize() noexcept { return {}; }
+    [[nodiscard]] core::Status flush() noexcept { return {}; }
 
     /// @brief Render one record and write its console line.
     ///
@@ -140,7 +140,7 @@ public:
     ///       per `logging/log-record`, requirement "Consumer-side rendering of
     ///       packed records". The level name goes through `to_string`
     ///       (mandate 9).
-    template <class Record> void handle(Record& rec) noexcept {
+    template <class Record> core::Status on_event(const Record& rec) noexcept {
         // Deferred formatting executes HERE (spec logging/log-record):
         // render_into writes the pack through the record's callback into
         // msg_ scratch, allocation-free and bounded, flagging truncation.
@@ -166,6 +166,7 @@ public:
         append_char('\n');
         const int fd = (rec.level >= core::LogLevel::Warning) ? STDERR_FILENO : STDOUT_FILENO;
         write_all(fd, len_);
+        return {};
     }
 };
 

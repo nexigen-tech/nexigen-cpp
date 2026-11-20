@@ -208,7 +208,7 @@ public:
         bool affinity_ok;
     };
 
-    [[nodiscard]] core::Status on_batch(const metrics::MetricBatchSnapshot&) noexcept {
+    [[nodiscard]] core::Status on_event(const metrics::MetricBatchSnapshot&) noexcept {
         timespec ts{};
         clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
         const double ns = static_cast<double>(ts.tv_sec) * 1e9 + static_cast<double>(ts.tv_nsec);

@@ -13,7 +13,7 @@ struct ProbeSink {
     core::Status batch_status{};
     core::Status flush_status{};
 
-    [[nodiscard]] core::Status on_batch(const metrics::MetricBatchSnapshot&) noexcept {
+    [[nodiscard]] core::Status on_event(const metrics::MetricBatchSnapshot&) noexcept {
         ++batches;
         return batch_status;
     }
@@ -88,8 +88,8 @@ void test_composite_injection() {
 
     // Every member receives each batch exactly once: the JSON member emits
     // one line per batch, the console member one line per record.
-    NX_CHECK(composite.on_batch(batch).has_value());
-    NX_CHECK(composite.on_batch(batch).has_value());
+    NX_CHECK(composite.on_event(batch).has_value());
+    NX_CHECK(composite.on_event(batch).has_value());
     NX_CHECK(composite.flush().has_value());
     NX_CHECK(line_count(json_path) == 2);
     NX_CHECK(line_count(console_path) == 4);
@@ -106,7 +106,7 @@ void test_composite_injection() {
               metrics::JsonFileMetricSink{
                   metrics::JsonFileMetricSinkConfig{std::string(json2_path), "", false}},
               metrics::NullMetricSink{}};
-    const Status flaky_status = flaky.on_batch(batch);
+    const Status flaky_status = flaky.on_event(batch);
     NX_CHECK(!flaky_status.has_value());
     NX_CHECK(flaky_status.error() == ErrorCode::SystemError);
     NX_CHECK(line_count(json2_path) == 1);
@@ -115,7 +115,7 @@ void test_composite_injection() {
     metrics::CompositeMetricSink<ProbeSink, ProbeSink> probes{ProbeSink{}, ProbeSink{}};
     probes.get<0>().batch_status = std::unexpected(ErrorCode::InvalidArgument);
     probes.get<1>().flush_status = std::unexpected(ErrorCode::SystemError);
-    const Status probe_batch = probes.on_batch(batch);
+    const Status probe_batch = probes.on_event(batch);
     NX_CHECK(!probe_batch.has_value());
     NX_CHECK(probe_batch.error() == ErrorCode::InvalidArgument);
     NX_CHECK(probes.get<0>().batches == 1);

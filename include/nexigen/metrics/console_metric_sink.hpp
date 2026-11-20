@@ -28,7 +28,7 @@ namespace nexigen::metrics {
 
 /// @brief Sink that writes one human-readable line per record to a descriptor.
 ///
-/// Rendering uses fixed stack buffers and `std::to_chars`, so `on_batch` never
+/// Rendering uses fixed stack buffers and `std::to_chars`, so `on_event` never
 /// touches the heap; bytes go out through raw `::write` (no iostreams, whose
 /// lazy initialization and locale state allocate and can block). Partial writes
 /// and `EINTR` are retried. The sink holds no buffers between batches, so a
@@ -55,7 +55,7 @@ public:
     /// @return Success, or `core::ErrorCode::SystemError` when a write fails
     ///         unrecoverably after the `EINTR`/partial-write retries.
     /// @note Spec `metrics/metric-sinks`, requirement "Console metric sink".
-    [[nodiscard]] core::Status on_batch(const MetricBatchSnapshot& batch) noexcept {
+    [[nodiscard]] core::Status on_event(const MetricBatchSnapshot& batch) noexcept {
         for (std::uint32_t i = 0; i < batch.record_count; ++i) {
             if (batch.records == nullptr) {
                 break;
@@ -123,7 +123,7 @@ public:
 
     /// @brief Complete a flush request; console output is already unbuffered.
     ///
-    /// @return Success status, always: every line is written before `on_batch`
+    /// @return Success status, always: every line is written before `on_event`
     ///         returns.
     /// @note Spec `metrics/metric-sinks`, requirement "Console metric sink".
     [[nodiscard]] core::Status flush() noexcept { return {}; }

@@ -200,7 +200,7 @@ void test_drop_semantics() {
     Producer::record_type rec{};
     int handled = 0;
     while (producer.pop(rec)) {
-        sink.handle(rec);
+        sink.on_event(rec);
         ++handled;
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }

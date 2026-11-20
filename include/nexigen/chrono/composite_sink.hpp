@@ -44,7 +44,7 @@ namespace nexigen::chrono {
 /// member addresses stay stable for the lifetime of the composite.
 ///
 /// @tparam Sinks Member sink types; each must satisfy `concepts::Sink`
-///         (`on_snapshot(const Snapshot&)` and `flush()` returning
+///         (`on_event(const Snapshot&)` and `flush()` returning
 ///         `core::Status`).
 /// @note Spec `chrono/chrono-sink`, requirement "Composite chrono sink fan-out".
 template <concepts::Sink... Sinks> class CompositeSink : public core::sink_pack::Fanout<Sinks...> {
@@ -75,10 +75,10 @@ public:
     ///         member's failure status.
     /// @note Spec `chrono/chrono-sink`, requirement "Composite chrono sink
     ///       fan-out"; fan-out never short-circuits.
-    [[nodiscard]] core::Status on_snapshot(const Snapshot& snapshot) noexcept {
+    [[nodiscard]] core::Status on_event(const Snapshot& snapshot) noexcept {
         core::Status result{};
         this->for_each([&snapshot, &result](auto& sink) noexcept {
-            result = core::sink_pack::combine(result, sink.on_snapshot(snapshot));
+            result = core::sink_pack::combine(result, sink.on_event(snapshot));
         });
         return result;
     }

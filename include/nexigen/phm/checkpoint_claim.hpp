@@ -11,7 +11,7 @@
 #include <string>
 #include <string_view>
 
-#include <nexigen/com/concepts/message_concept.hpp>
+#include <nexigen/core/concepts/message_concept.hpp>
 
 namespace nexigen::phm {
 
@@ -46,7 +46,7 @@ inline constexpr std::size_t k_claim_name_length = 32;
 /// Published by a supervised process on the claim channel and drained by the
 /// PHM daemon, which matches `name` to a manifest entry and verifies that the
 /// claimed uid and the real uid of `/proc/<pid>` equal the entry's
-/// `expected_uid`. The struct is a `com::concepts::Message`: fixed-size,
+/// `expected_uid`. The struct is a `core::concepts::Message`: fixed-size,
 /// trivially copyable, no serialization step.
 ///
 /// The fields describe what the process *claims*, not what the kernel attests;
@@ -73,7 +73,7 @@ struct CheckpointClaim {
     }
 };
 
-static_assert(com::concepts::Message<CheckpointClaim>);
+static_assert(core::concepts::Message<CheckpointClaim>);
 
 /// @brief Free helper mirroring `CheckpointClaim::to_string()` (mandate 9).
 ///

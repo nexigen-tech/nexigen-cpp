@@ -1,28 +1,24 @@
 // nexigen::com — the payload contract (change add-com-module;
 // spec com/publish-subscribe "Trivially-copyable message contract").
 //
-// Every com port template constrains its payload on Message<T>: satisfied
-// exactly when std::is_trivially_copyable_v<T> holds. Pointers, virtual
-// tables, and owning members are rejected at compile time — the payload must
-// be plain bytes that survive a zero-copy shared-memory exchange unchanged.
+// Unified onto core::concepts::Message by change unify-core-concepts: the
+// constraint stays visible under the com name, but its definition no longer
+// lives in this module.
 #pragma once
 
-#include <concepts>
-#include <type_traits>
+#include <nexigen/core/concepts/message_concept.hpp>
 
 namespace nexigen::com::concepts {
 
 /// @brief Payload contract for every `com` port template.
 ///
-/// Satisfied exactly when `std::is_trivially_copyable_v<T>` holds, so the
-/// payload is plain bytes that survive a zero-copy shared-memory exchange
-/// unchanged: no pointers, no virtual tables, and no owning members.
+/// An alias of `core::concepts::Message<T>`, satisfied exactly when
+/// `std::is_trivially_copyable_v<T>` holds.
 ///
 /// @tparam T Candidate payload type.
 /// @note Spec `com/publish-subscribe`, requirement "Trivially-copyable message
-///       contract". A violating type is rejected at compile time, never at
-///       runtime.
+///       contract".
 template <class T>
-concept Message = std::is_trivially_copyable_v<T>;
+concept Message = core::concepts::Message<T>;
 
 } // namespace nexigen::com::concepts

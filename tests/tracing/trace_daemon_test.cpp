@@ -431,7 +431,7 @@ void test_session_e2e() {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     for (std::uint64_t i = 0; i < 3U; ++i) {
-        NX_CHECK(sink.on_span(make_record(i)).has_value());
+        NX_CHECK(sink.on_event(make_record(i)).has_value());
     }
     NX_CHECK(wait_for(session, [&]() { return session.ring()->count() == 3U; }));
     if (session.ring()->count() == 3U) {

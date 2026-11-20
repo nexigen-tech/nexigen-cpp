@@ -441,7 +441,7 @@ struct RecordingSink {
     Status flush_status{};
     int flushes{0};
 
-    Status on_snapshot(const Snapshot& snapshot) noexcept {
+    Status on_event(const Snapshot& snapshot) noexcept {
         snapshots.push_back(snapshot);
         cpu_set_t set;
         CPU_ZERO(&set);
@@ -459,7 +459,7 @@ struct RecordingSink {
 
 struct CountSink {
     int count{0};
-    Status on_snapshot(const Snapshot&) noexcept {
+    Status on_event(const Snapshot&) noexcept {
         ++count;
         return {};
     }
@@ -468,7 +468,7 @@ struct CountSink {
 };
 
 struct FailSink {
-    Status on_snapshot(const Snapshot&) noexcept { return std::unexpected(ErrorCode::SystemError); }
+    Status on_event(const Snapshot&) noexcept { return std::unexpected(ErrorCode::SystemError); }
     Status flush() noexcept { return std::unexpected(ErrorCode::SystemError); }
     std::string to_string() const { return "FailSink()"; }
 };
@@ -674,15 +674,15 @@ void test_snapshot_edges() {
 
 void test_sinks() {
     // Concept membership (compile-time).
-    static_assert(concepts::Sink<NullSink>);
-    static_assert(concepts::Sink<ConsoleSink>);
-    static_assert(concepts::Sink<JsonFileSink>);
-    static_assert(concepts::Sink<CompositeSink<>>);
+    static_assert(nexigen::chrono::concepts::Sink<NullSink>);
+    static_assert(nexigen::chrono::concepts::Sink<ConsoleSink>);
+    static_assert(nexigen::chrono::concepts::Sink<JsonFileSink>);
+    static_assert(nexigen::chrono::concepts::Sink<CompositeSink<>>);
 
     // Null sink: no-op, no allocation, diagnostics contract.
     {
         NullSink sink;
-        NX_CHECK(sink.on_snapshot(Snapshot{}).has_value());
+        NX_CHECK(sink.on_event(Snapshot{}).has_value());
         NX_CHECK(sink.flush().has_value());
         NX_CHECK(sink.to_string() == "NullSink()");
         NX_CHECK(to_string(sink) == sink.to_string());
@@ -699,7 +699,7 @@ void test_sinks() {
         NX_CHECK(::pipe(fds) == 0);
         {
             ConsoleSink sink{fds[1]};
-            NX_CHECK(sink.on_snapshot(Snapshot{Timestamp{1000ULL}, 500}).has_value());
+            NX_CHECK(sink.on_event(Snapshot{Timestamp{1000ULL}, 500}).has_value());
             NX_CHECK(sink.flush().has_value());
             NX_CHECK(sink.descriptor() == fds[1]);
             NX_CHECK(sink.to_string().find("fd=") != std::string::npos);
@@ -715,7 +715,7 @@ void test_sinks() {
     }
     {
         ConsoleSink bad{-1};
-        NX_CHECK(!bad.on_snapshot(Snapshot{}).has_value());
+        NX_CHECK(!bad.on_event(Snapshot{}).has_value());
     }
 
     // JSON-file sink: JSON-lines output, append, flush, config round-trip,
@@ -731,8 +731,8 @@ void test_sinks() {
         config.append = true;
         JsonFileSink sink{config};
         NX_CHECK(sink.is_open());
-        NX_CHECK(sink.on_snapshot(Snapshot{Timestamp{111ULL}, 222}).has_value());
-        NX_CHECK(sink.on_snapshot(Snapshot{Timestamp{333ULL}, -444}).has_value());
+        NX_CHECK(sink.on_event(Snapshot{Timestamp{111ULL}, 222}).has_value());
+        NX_CHECK(sink.on_event(Snapshot{Timestamp{333ULL}, -444}).has_value());
         NX_CHECK(sink.flush().has_value());
 
         // Config serialization round-trip.
@@ -784,14 +784,14 @@ void test_sinks() {
         bad.path = "/nonexistent_dir_nexigen/no_file.jsonl";
         JsonFileSink sink{bad};
         NX_CHECK(!sink.is_open());
-        NX_CHECK(!sink.on_snapshot(Snapshot{}).has_value());
+        NX_CHECK(!sink.on_event(Snapshot{}).has_value());
         NX_CHECK(!sink.flush().has_value());
     }
 
     // Composite sink: fan-out, first-failure aggregation, typed/indexed access.
     {
         CompositeSink<CountSink, CountSink, CountSink> comp{CountSink{}, CountSink{}, CountSink{}};
-        NX_CHECK(comp.on_snapshot(Snapshot{}).has_value());
+        NX_CHECK(comp.on_event(Snapshot{}).has_value());
         NX_CHECK(comp.get<0>().count == 1);
         NX_CHECK(comp.get<1>().count == 1);
         NX_CHECK(comp.get<2>().count == 1);
@@ -800,7 +800,7 @@ void test_sinks() {
     {
         // First failure does not starve the rest.
         CompositeSink<FailSink, CountSink, CountSink> comp{FailSink{}, CountSink{}, CountSink{}};
-        const Status s = comp.on_snapshot(Snapshot{});
+        const Status s = comp.on_event(Snapshot{});
         NX_CHECK(!s.has_value());
         NX_CHECK(s.error() == ErrorCode::SystemError);
         NX_CHECK(comp.get<1>().count == 1);
@@ -850,7 +850,7 @@ void test_sink_edges() {
         config.append = false;
         JsonFileSink sink{config};
         NX_CHECK(sink.is_open());
-        NX_CHECK(sink.on_snapshot(Snapshot{Timestamp{5ULL}, 6}).has_value());
+        NX_CHECK(sink.on_event(Snapshot{Timestamp{5ULL}, 6}).has_value());
         NX_CHECK(sink.flush().has_value());
     }
     {
@@ -867,7 +867,7 @@ void test_sink_edges() {
         config.append = false;
         JsonFileSink sink{config};
         NX_CHECK(sink.is_open());
-        NX_CHECK(sink.on_snapshot(Snapshot{}).has_value());
+        NX_CHECK(sink.on_event(Snapshot{}).has_value());
         NX_CHECK(!sink.flush().has_value());
     }
 
@@ -878,13 +878,13 @@ void test_sink_edges() {
         config.append = false;
         JsonFileSink sink{config};
         NX_CHECK(sink.is_open());
-        NX_CHECK(!sink.on_snapshot(Snapshot{}).has_value());
+        NX_CHECK(!sink.on_event(Snapshot{}).has_value());
     }
     {
         const int fd = ::open("/dev/full", O_WRONLY | O_CLOEXEC);
         NX_CHECK(fd >= 0);
         ConsoleSink sink{fd};
-        NX_CHECK(!sink.on_snapshot(Snapshot{}).has_value());
+        NX_CHECK(!sink.on_event(Snapshot{}).has_value());
         ::close(fd);
     }
 }
@@ -1193,7 +1193,7 @@ void test_provider_slow_sink() {
     {
         struct SlowSink {
             std::atomic<int> count{0};
-            Status on_snapshot(const Snapshot&) noexcept {
+            Status on_event(const Snapshot&) noexcept {
                 std::this_thread::sleep_for(std::chrono::milliseconds{5});
                 count.fetch_add(1, std::memory_order_relaxed);
                 return {};
@@ -1233,10 +1233,10 @@ struct FakeProvider {
     std::string to_string() { return "FakeProvider()"; }
 };
 
-static_assert(concepts::Stamper<FakeStamper>);
-static_assert(concepts::Stamper<StampSource>);
-static_assert(concepts::Provider<FakeProvider>);
-static_assert(concepts::Provider<Provider<>>);
+static_assert(nexigen::chrono::concepts::Stamper<FakeStamper>);
+static_assert(nexigen::chrono::concepts::Stamper<StampSource>);
+static_assert(nexigen::chrono::concepts::Provider<FakeProvider>);
+static_assert(nexigen::chrono::concepts::Provider<Provider<>>);
 
 void test_provider_issuance() {
     // Issuance: prepare gates acquire, distinct sources, exhaustion, zero

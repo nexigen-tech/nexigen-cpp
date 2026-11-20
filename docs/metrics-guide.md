@@ -89,7 +89,7 @@ Two triggers, both cold-path:
 * **Background** — `config.collect_interval > 0` starts a `std::jthread`
   harvester that self-pins to `config.core_mask` (`0` inherits the process
   mask; pinning failures surface via `startup_status()`, never silently). Batches
-  arrive through `sink.on_batch` at the fixed rate.
+  arrive through `sink.on_event` at the fixed rate.
 * **Deterministic** — `provider.collect_now()` harvests and delivers
   synchronously on the calling thread and returns a `core::Status`; this is what
   tests and shutdown paths should use. `provider.flush()` forwards to the sink;
@@ -108,7 +108,7 @@ Two triggers, both cold-path:
 
 ## 5. Sinks
 
-The sink contract is `concepts::MetricSink`: `on_batch(const
+The sink contract is `concepts::MetricSink`: `on_event(const
 MetricBatchSnapshot&) noexcept -> core::Status` plus `flush() noexcept`, no
 virtuals. Never allocate or block in a sink callback.
 

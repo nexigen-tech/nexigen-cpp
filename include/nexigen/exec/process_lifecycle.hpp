@@ -55,7 +55,7 @@ inline void from_json(const nlohmann::json& j, ProcessLifecycleState& out) noexc
 
 /// @brief One process lifecycle notification.
 ///
-/// Fixed-size and trivially copyable, so it is a valid `com::concepts::Message`
+/// Fixed-size and trivially copyable, so it is a valid `core::concepts::Message`
 /// without serialization or heap allocation.
 struct ProcessLifecycleEvent {
     char app[k_process_lifecycle_name_length]{}; ///< NUL-terminated application name.

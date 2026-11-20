@@ -13,7 +13,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <nexigen/com/concepts/message_concept.hpp>
+#include <nexigen/core/concepts/message_concept.hpp>
 #include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/phm/recovery_outcome.hpp>
 #include <nexigen/phm/recovery_reason.hpp>
@@ -51,7 +51,7 @@ struct RecoveryAck {
 ///
 /// @note Spec `sm/recovery-handler`, requirement "Recovery acknowledgement
 ///       event".
-static_assert(com::concepts::Message<RecoveryAck>);
+static_assert(core::concepts::Message<RecoveryAck>);
 
 /// @brief Free helper mirroring `RecoveryAck::to_string()` (mandate 9).
 ///

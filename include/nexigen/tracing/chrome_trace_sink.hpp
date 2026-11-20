@@ -44,7 +44,7 @@ namespace nexigen::tracing {
 /// @brief Chrome Trace Event sink: one Perfetto-loadable JSON object per run.
 ///
 /// `start()` truncates the configured file and writes the `traceEvents` array
-/// header; every `on_span` appends one complete (`"ph": "X"`) event, and
+/// header; every `on_event` appends one complete (`"ph": "X"`) event, and
 /// `stop()` writes the closing footer so the whole file parses as a single
 /// JSON value. Timestamps are integer microseconds relative to the first
 /// drained span, the process id is cached once at `start()`, and `args`
@@ -127,7 +127,7 @@ public:
     ///         `SystemError` when no file is open or the write fails.
     /// @note Spec `tracing/trace-sinks`, requirement "ChromeTraceSink
     ///       Perfetto-compatible output"; the delivery path allocates nothing.
-    [[nodiscard]] core::Status on_span(const SpanRecord& record) noexcept {
+    [[nodiscard]] core::Status on_event(const SpanRecord& record) noexcept {
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }

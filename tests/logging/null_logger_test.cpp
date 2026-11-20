@@ -6,11 +6,11 @@ namespace {
 
 // --- concept pins (task 6.1/6.2 / spec logging/logger-concept: published
 // loggers are compile-time conformant on the variadic void surface).
-static_assert(concepts::Logger<NullLogger>);
-static_assert(concepts::Logger<ConsoleLogger<>>);
-static_assert(concepts::Logger<ConsoleLogger<32, 128>>);
-static_assert(concepts::Logger<FileLogger<>>);
-static_assert(concepts::Logger<FileLogger<64, 128>>);
+static_assert(nexigen::logging::concepts::Logger<NullLogger>);
+static_assert(nexigen::logging::concepts::Logger<ConsoleLogger<>>);
+static_assert(nexigen::logging::concepts::Logger<ConsoleLogger<32, 128>>);
+static_assert(nexigen::logging::concepts::Logger<FileLogger<>>);
+static_assert(nexigen::logging::concepts::Logger<FileLogger<64, 128>>);
 static_assert(ConsoleLogger<>::capacity() == 128); // per-shard default (design D6)
 static_assert(FileLogger<>::capacity() == 128);
 static_assert(ConsoleLogger<>::max_threads() == 32);
@@ -29,11 +29,12 @@ static_assert(requires(ConsoleLogger<32, 64> cl) {
 
 // --- composite pins (task 7.1 / spec logging/composite-logger): the fan-out
 // satisfies the contract — including the empty pack and nested composites.
-static_assert(concepts::Logger<CompositeLogger<>>);
-static_assert(concepts::Logger<CompositeLogger<NullLogger>>);
-static_assert(concepts::Logger<CompositeLogger<ConsoleLogger<>, FileLogger<>>>);
-static_assert(concepts::Logger<CompositeLogger<CompositeLogger<NullLogger, ConsoleLogger<64, 128>>,
-                                               FileLogger<64, 128>>>);
+static_assert(nexigen::logging::concepts::Logger<CompositeLogger<>>);
+static_assert(nexigen::logging::concepts::Logger<CompositeLogger<NullLogger>>);
+static_assert(nexigen::logging::concepts::Logger<CompositeLogger<ConsoleLogger<>, FileLogger<>>>);
+static_assert(
+    nexigen::logging::concepts::Logger<
+        CompositeLogger<CompositeLogger<NullLogger, ConsoleLogger<64, 128>>, FileLogger<64, 128>>>);
 
 // --- null logger suite (task 6.2 / spec logging/null-logger).
 void test_null_logger() {

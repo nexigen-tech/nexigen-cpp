@@ -278,7 +278,7 @@ if(NEXIGEN_ENABLE_COM)
 
     # Юнит-тесты nexigen::tracing::Iceoryx2TraceSink (change
     # add-iceoryx2-trace-sink): round-trip, memo cache, overflow/sequence,
-    # allocation freedom and the 400 ns on_span latency gate.
+    # allocation freedom and the 400 ns on_event latency gate.
     add_executable(nexigen_tracing_com_tests
         tracing/iceoryx2_trace_sink_test.cpp
         tracing/tracing_test_support.cpp)

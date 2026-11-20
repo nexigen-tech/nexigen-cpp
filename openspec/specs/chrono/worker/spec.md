@@ -94,7 +94,7 @@ The worker SHALL expose `startup_status() const noexcept -> core::Status`, the a
 
 ### Requirement: Worker logger binding
 
-`ChronoWorker` SHALL support an optional logger binding for the daemon thread: a caller MAY bind a logger before `start()`, and the worker SHALL log its diagnostics (startup, attribute result, delivery failures, shutdown) through a `log(core::LogLevel, std::string_view)` call shape. The worker SHALL start and run normally without a bound logger.
+`ChronoWorker` SHALL support an optional logger binding for the daemon thread: a caller MAY bind a logger before `start()`, and the worker SHALL log its diagnostics (startup, attribute result, delivery failures, shutdown) through a `log(core::LogLevel, std::string_view)` call shape constrained by `core::concepts::LevelLogger`. The worker SHALL start and run normally without a bound logger.
 
 #### Scenario: Worker logs through the bound logger
 
@@ -105,6 +105,11 @@ The worker SHALL expose `startup_status() const noexcept -> core::Status`, the a
 
 - **WHEN** a worker is started without a logger
 - **THEN** snapshots still flow and no logging call occurs
+
+#### Scenario: Non-conforming logger is rejected
+
+- **WHEN** a probe logger lacks `log(LogLevel, std::string_view) noexcept`
+- **THEN** binding it fails at compile time against `core::concepts::LevelLogger`
 
 ### Requirement: Worker logger rebinding contract
 

@@ -50,7 +50,7 @@ void test_trace_writer_escape_matrix() {
         config.path = json_path;
         tracing::JsonFileTraceSink sink{config};
         NX_CHECK(sink.start().has_value());
-        NX_CHECK(sink.on_span(record).has_value());
+        NX_CHECK(sink.on_event(record).has_value());
         NX_CHECK(sink.flush().has_value());
         sink.stop();
         const std::string content = read_file(json_path.c_str());
@@ -64,7 +64,7 @@ void test_trace_writer_escape_matrix() {
         config.path = chrome_path;
         tracing::ChromeTraceSink sink{config};
         NX_CHECK(sink.start().has_value());
-        NX_CHECK(sink.on_span(record).has_value());
+        NX_CHECK(sink.on_event(record).has_value());
         NX_CHECK(sink.flush().has_value());
         sink.stop();
         const std::string content = read_file(chrome_path.c_str());

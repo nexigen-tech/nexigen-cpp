@@ -85,7 +85,7 @@ void test_serialization_record(const metrics::MetricRecord& record) {
     }
 }
 
-void test_serialization_batch(const metrics::MetricRecord& record,
+void test_serialization_event(const metrics::MetricRecord& record,
                               const metrics::MetricIdentity& identity) {
     // A multi-record MetricBatchSnapshot round-trips count, timestamp and
     // per-record contents.
@@ -179,7 +179,7 @@ void test_serialization() {
     record.histogram = histogram;
     test_serialization_record(record);
 
-    test_serialization_batch(record, identity);
+    test_serialization_event(record, identity);
 
     // Factory-only types are not deserializable (compile-time absence).
     static_assert(!DeserializableFromJson<metrics::Counter<ST, Readable, Cumulative>>);
@@ -271,7 +271,7 @@ void test_sink_kind_matrix() {
         metrics::JsonFileMetricSink sink{
             metrics::JsonFileMetricSinkConfig{std::string(path), "", false}};
         NX_CHECK(sink.is_open());
-        NX_CHECK(sink.on_batch(batch).has_value());
+        NX_CHECK(sink.on_event(batch).has_value());
         NX_CHECK(sink.flush().has_value());
         std::ifstream input(path);
         std::string line;
@@ -302,7 +302,7 @@ void test_sink_kind_matrix() {
     {
         metrics::JsonFileMetricSink sink{
             metrics::JsonFileMetricSinkConfig{std::string(path), "", false}};
-        NX_CHECK(sink.on_batch(make_batch(escaped, 1)).has_value());
+        NX_CHECK(sink.on_event(make_batch(escaped, 1)).has_value());
         NX_CHECK(sink.flush().has_value());
         std::ifstream input(path);
         std::string line;
@@ -319,8 +319,8 @@ void test_sink_kind_matrix() {
         metrics::MetricBatchSnapshot null_batch{};
         null_batch.records = nullptr;
         null_batch.record_count = 1;
-        NX_CHECK(sink.on_batch(null_batch).has_value());
-        NX_CHECK(sink.on_batch(make_batch(records, 0)).has_value());
+        NX_CHECK(sink.on_event(null_batch).has_value());
+        NX_CHECK(sink.on_event(make_batch(records, 0)).has_value());
 
         metrics::MetricRecord many[120]{};
         for (auto& record : many) {
@@ -329,7 +329,7 @@ void test_sink_kind_matrix() {
             record.identity.meter_name[sizeof(record.identity.meter_name) - 1U] = '\0';
             record.scalar.counter = 1;
         }
-        const Status overflow = sink.on_batch(make_batch(many, 120));
+        const Status overflow = sink.on_event(make_batch(many, 120));
         NX_CHECK(!overflow.has_value());
         NX_CHECK(overflow.error() == ErrorCode::BufferFull);
     }
@@ -339,9 +339,9 @@ void test_sink_kind_matrix() {
     NX_CHECK(::pipe(fds) == 0);
     {
         metrics::ConsoleMetricSink console{fds[1]};
-        NX_CHECK(console.on_batch(batch).has_value());
+        NX_CHECK(console.on_event(batch).has_value());
         metrics::ConsoleMetricSink broken{-1};
-        NX_CHECK(!broken.on_batch(batch).has_value());
+        NX_CHECK(!broken.on_event(batch).has_value());
         NX_CHECK(broken.flush().has_value()); // console flushes are no-ops
         ::close(fds[1]);
         char buffer[8192];
@@ -357,12 +357,12 @@ void test_sink_kind_matrix() {
         ::close(fds[0]);
     }
 
-    // Failed open: on_batch and flush both report SystemError.
+    // Failed open: on_event and flush both report SystemError.
     {
         metrics::JsonFileMetricSink broken{
             metrics::JsonFileMetricSinkConfig{"/nonexistent-nexigen/x.jsonl", "", false}};
         NX_CHECK(!broken.is_open());
-        NX_CHECK(!broken.on_batch(batch).has_value());
+        NX_CHECK(!broken.on_event(batch).has_value());
         NX_CHECK(!broken.flush().has_value());
     }
     ::unlink(path);

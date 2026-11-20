@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-#include <nexigen/com/concepts/message_concept.hpp>
+#include <nexigen/core/concepts/message_concept.hpp>
 #include <nexigen/phm/checkpoint_claim.hpp>
 #include <nexigen/phm/security_event_kind.hpp>
 
@@ -45,7 +45,7 @@ struct SecurityEvent {
     }
 };
 
-static_assert(com::concepts::Message<SecurityEvent>);
+static_assert(core::concepts::Message<SecurityEvent>);
 
 /// @brief Free helper mirroring `SecurityEvent::to_string()` (mandate 9).
 ///

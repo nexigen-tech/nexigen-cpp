@@ -234,17 +234,17 @@ inline std::size_t read_whole_file(const char* path, char (&buf)[40096]) {
 
 // --- drop-summary fixtures (spec logging/multi-producer): the sink collects
 // rendered lines into a caller-owned buffer shared with the test; the
-// barrier's release/acquire on `drained` orders every handle() before flush()
+// barrier's release/acquire on `drained` orders every on_event() before flush()
 // returns, and probes read only while the worker is idle or joined.
 template <class RecordT> struct LinesSink {
     LinesSink(char* buffer, std::size_t cap) noexcept : buf_(buffer), cap_(cap) {}
 
     [[nodiscard]] core::Status start() noexcept { return {}; }
-    void handle(RecordT& rec) noexcept {
+    core::Status on_event(const RecordT& rec) noexcept {
         char msg[256];
         const std::size_t n = rec.render_into(msg, sizeof msg);
         if (n == 0U || used_ >= cap_) {
-            return;
+            return {};
         }
         std::size_t take = n;
         if (used_ + take > cap_) {
@@ -255,8 +255,9 @@ template <class RecordT> struct LinesSink {
         if (used_ < cap_) {
             buf_[used_++] = '\n';
         }
+        return {};
     }
-    [[nodiscard]] core::Status synchronize() noexcept { return {}; }
+    [[nodiscard]] core::Status flush() noexcept { return {}; }
     void stop() noexcept {}
 
     // Barrier-ordered reads (after flush()/join): the zero-padded tail beyond

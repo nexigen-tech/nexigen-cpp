@@ -2,7 +2,7 @@
 // add-iceoryx2-trace-sink; spec tracing/iceoryx2-trace-sink; design D1–D9).
 //
 // Satisfies tracing::concepts::TraceSink. The provider's single background
-// consumer calls on_span; the sink maps the in-process SpanRecord into the
+// consumer calls on_event; the sink maps the in-process SpanRecord into the
 // pointer-free SpanFrame, fills the publisher identity, and publishes it with
 // Publisher::send_copy() — one transport call that loans a shared-memory slot,
 // copies the frame into it, and sends. No producer thread ever enters this
@@ -42,7 +42,7 @@ namespace nexigen::tracing {
 
 /// @brief Publishes one `SpanFrame` per delivered span over an iceoryx2 service.
 ///
-/// The provider's single background consumer calls `on_span`; the sink maps the
+/// The provider's single background consumer calls `on_event`; the sink maps the
 /// in-process `SpanRecord` into the pointer-free `SpanFrame`, stamps the
 /// publisher identity (application code, pid, format version), and publishes it
 /// with one `Publisher::send_copy()` call that loans a shared-memory slot,
@@ -150,7 +150,7 @@ public:
     /// @note Spec `tracing/iceoryx2-trace-sink`, requirements "Publication never
     ///       blocks and drops are counted" and "Sequence numbers make gaps
     ///       observable"; allocation-free after `start()`.
-    [[nodiscard]] core::Status on_span(const SpanRecord& record) noexcept {
+    [[nodiscard]] core::Status on_event(const SpanRecord& record) noexcept {
         if (!publisher_.has_value()) {
             return std::unexpected(core::ErrorCode::NotInitialized);
         }

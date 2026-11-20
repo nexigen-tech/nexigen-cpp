@@ -8,7 +8,7 @@ Defines the sink contract the provider harvests into, plus the null, console, JS
 
 ### Requirement: Metric sink concept
 
-`nexigen::metrics::concepts::MetricSink` SHALL be a C++23 concept satisfied only by types offering `on_batch(const MetricBatchSnapshot&) noexcept -> core::Status` and `flush() noexcept -> core::Status`, with no virtual functions required.
+`nexigen::metrics::concepts::MetricSink` SHALL be a C++23 concept satisfied only by types satisfying `core::concepts::Sink<T, MetricBatchSnapshot>`: `on_event(const MetricBatchSnapshot&) noexcept -> core::Status` and `flush() noexcept -> core::Status`, with no virtual functions required.
 
 #### Scenario: Conforming sinks satisfy the concept
 
@@ -17,13 +17,18 @@ Defines the sink contract the provider harvests into, plus the null, console, JS
 
 #### Scenario: Missing or wrong member rejects the concept
 
-- **WHEN** a type lacks `on_batch`, lacks `flush`, or returns a non-`core::Status` type from either
+- **WHEN** a type lacks `on_event`, lacks `flush`, or returns a non-`core::Status` type from either
 - **THEN** `concepts::MetricSink<T>` is `false`
 
 #### Scenario: Sink callbacks are allocation-free
 
 - **WHEN** any sink processes a batch under an armed allocation arena
 - **THEN** no `operator new`, `delete`, `malloc`, `free`, or dynamic container growth occurs
+
+#### Scenario: Old delivery name is rejected
+
+- **WHEN** a type still exposes `on_batch`
+- **THEN** `concepts::MetricSink<T>` is `false`
 
 ### Requirement: Null metric sink
 

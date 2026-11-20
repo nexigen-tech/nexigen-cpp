@@ -33,7 +33,7 @@
 #include <nexigen/metrics/detail/layout.hpp>
 #include <nexigen/metrics/meter.hpp>
 #include <nexigen/metrics/metric_provider_config.hpp>
-#include <nexigen/metrics/sink_binding.hpp>
+#include <nexigen/core/sink_binding.hpp>
 #include <nexigen/metrics/metric_snapshot.hpp>
 #include <nexigen/metrics/policy_enums.hpp>
 
@@ -71,7 +71,7 @@ public:
     /// starts the harvester when the configured interval is non-zero.
     ///
     /// @tparam Sink Concrete sink type satisfying the `MetricSink` concept; its
-    ///         `on_batch` and `flush` must be callable without throwing.
+    ///         `on_event` and `flush` must be callable without throwing.
     /// @param config Provider configuration (capacities, interval, worker spec).
     /// @param sink Sink receiving batches; it MUST outlive the provider.
     /// @note Spec `metrics/metric-provider`, requirement "Background harvesting
@@ -80,11 +80,11 @@ public:
     ///          the provider leaves a dangling callback target.
     template <concepts::MetricSink Sink>
     MetricProvider(const MetricProviderConfig& config, Sink& sink)
-        : MetricProvider(config, detail::SinkBinding{
+        : MetricProvider(config, core::SinkBinding<MetricBatchSnapshot>{
                                      static_cast<void*>(&sink),
                                      [](void* self,
                                         const MetricBatchSnapshot& batch) noexcept -> core::Status {
-                                         return static_cast<Sink*>(self)->on_batch(batch);
+                                         return static_cast<Sink*>(self)->on_event(batch);
                                      },
                                      [](void* self) noexcept -> core::Status {
                                          return static_cast<Sink*>(self)->flush();
@@ -179,7 +179,8 @@ private:
     /// @param config Provider configuration copied into the instance.
     /// @param binding Type-erased sink callbacks; the sink itself must outlive
     ///        the provider.
-    MetricProvider(const MetricProviderConfig& config, detail::SinkBinding binding);
+    MetricProvider(const MetricProviderConfig& config,
+                   core::SinkBinding<MetricBatchSnapshot> binding);
 
     /// @brief One registry slot: identity, classification and harvest hooks.
     ///
@@ -288,7 +289,7 @@ private:
     /// @brief Configuration copied at construction.
     MetricProviderConfig config_{};
     /// @brief Type-erased sink callbacks bound at construction.
-    detail::SinkBinding binding_{};
+    core::SinkBinding<MetricBatchSnapshot> binding_{};
 
     /// @brief Single aligned allocation backing arenas, slots and records.
     std::byte* block_{nullptr};

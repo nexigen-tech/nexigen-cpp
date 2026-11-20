@@ -22,6 +22,7 @@
 #include <string>
 #include <string_view>
 
+#include <nexigen/core/concepts/meter_concept.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/metrics/counter.hpp>
 #include <nexigen/metrics/descriptive_statistics.hpp>
@@ -302,6 +303,22 @@ private:
 [[nodiscard]] inline std::string to_string(const Meter& meter) {
     return meter.to_string();
 }
+
+static_assert(core::concepts::MeterLike<Meter>, "Meter must satisfy core::concepts::MeterLike");
+static_assert(core::concepts::InstrumentMeterLike<Meter>,
+              "Meter must create every instrument kind");
+static_assert(core::concepts::CounterLike<Counter<>>,
+              "Counter must satisfy core::concepts::CounterLike");
+static_assert(core::concepts::GaugeLike<Gauge<>, std::int64_t>,
+              "Gauge must satisfy core::concepts::GaugeLike");
+static_assert(core::concepts::StateGaugeLike<StateGauge<>>,
+              "StateGauge must satisfy core::concepts::StateGaugeLike");
+static_assert(core::concepts::DescriptiveStatisticsLike<DescriptiveStatistics<>>,
+              "DescriptiveStatistics must satisfy the statistics concept");
+static_assert(core::concepts::HistogramLike<ExplicitBucketHistogram<>>,
+              "ExplicitBucketHistogram must satisfy core::concepts::HistogramLike");
+static_assert(core::concepts::HistogramLike<ExponentialHistogram<>>,
+              "ExponentialHistogram must satisfy core::concepts::HistogramLike");
 
 } // namespace nexigen::metrics
 

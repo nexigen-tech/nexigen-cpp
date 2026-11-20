@@ -22,7 +22,7 @@ The system SHALL define `nexigen::tracing::concepts::Tracer` as a C++23 structur
 
 ### Requirement: TraceSink structural concept
 
-The system SHALL define `nexigen::tracing::concepts::TraceSink` as a structural concept requiring `start() noexcept -> core::Status`, `on_span(const SpanRecord&) noexcept -> core::Status`, `flush() noexcept -> core::Status`, `stop() noexcept`, and a cold-path `to_string()`, checkable at compile time via `static_assert`.
+The system SHALL define `nexigen::tracing::concepts::TraceSink` as `core::concepts::LifecycleSink<S, SpanRecord>` plus a cold-path `to_string()`: `start() noexcept -> core::Status`, `on_event(const SpanRecord&) noexcept -> core::Status`, `flush() noexcept -> core::Status`, `stop() noexcept`, and `to_string()`, checkable at compile time via `static_assert`.
 
 #### Scenario: Conforming sinks satisfy the concept
 
@@ -31,8 +31,13 @@ The system SHALL define `nexigen::tracing::concepts::TraceSink` as a structural 
 
 #### Scenario: Non-conforming sinks are rejected
 
-- **WHEN** a probe type missing `flush`, or with a throwing `on_span`, is tested against the concept
+- **WHEN** a probe type missing `flush`, missing `stop`, or with a throwing `on_event`, is tested against the concept
 - **THEN** the concept evaluates false at compile time
+
+#### Scenario: Old delivery name is rejected
+
+- **WHEN** a probe type still exposes `on_span`
+- **THEN** `concepts::TraceSink` evaluates false
 
 ### Requirement: NullTracer zero-instruction path
 

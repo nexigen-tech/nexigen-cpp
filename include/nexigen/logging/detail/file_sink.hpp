@@ -117,7 +117,7 @@ public:
     /// strict JSON line, and appends it with a retry-on-`EINTR` write loop. A
     /// line that does not fit the scratch is skipped and counted instead of
     /// being half-written; an unwritten line marks a pending error for
-    /// `synchronize()`.
+    /// `flush()`.
     ///
     /// @tparam Record Record type produced by the owning `Producer`.
     /// @param rec Drained record, owned by the worker for the duration of the
@@ -127,7 +127,7 @@ public:
     ///       rotation" and "Size-based file rotation"; rendering is
     ///       `logging/log-record`, requirement "Consumer-side rendering of
     ///       packed records".
-    template <class Record> void handle(Record& rec) noexcept {
+    template <class Record> core::Status on_event(const Record& rec) noexcept {
         const std::uint64_t mono = rec.stamp.nanoseconds();
         const std::optional<std::int64_t> utc =
             chrono::TimeBaseClock::utc_from_canonical(static_cast<std::int64_t>(mono));
@@ -162,7 +162,7 @@ public:
             std::string_view(msg_, msg_len), line_);
         if (len == 0U) {
             ++malformed_; // overflowing/unrepresentable line skipped atomically
-            return;       // (never a half-written line in the file)
+            return {};    // (never a half-written line in the file)
         }
         if (settings_.max_file_size_bytes != 0ULL && bytes_written_ > 0ULL &&
             bytes_written_ + len > settings_.max_file_size_bytes) {
@@ -170,9 +170,10 @@ public:
         }
         if (!write_all(len)) {
             pending_write_error_ = 1U;
-        } else {
-            bytes_written_ += len;
+            return std::unexpected(core::ErrorCode::SystemError);
         }
+        bytes_written_ += len;
+        return {};
     }
 
     /// @brief Flush hook: re-sample UTC, fsync, and surface accumulated failure.
@@ -185,7 +186,7 @@ public:
     ///         `ErrorCode::SystemError` otherwise.
     /// @note Spec `logging/file-logger`, requirement "Flush synchronizes the
     ///       file" (including the "Flush surfaces write failure" scenario).
-    [[nodiscard]] core::Status synchronize() noexcept {
+    [[nodiscard]] core::Status flush() noexcept {
         bool failed = pending_write_error_ != 0U;
         pending_write_error_ = 0U;
         if (fd_ >= 0 && ::fsync(fd_) != 0) {
@@ -200,7 +201,7 @@ public:
     /// @brief Worker shutdown: fsync and close the active descriptor.
     ///
     /// Idempotent: the descriptor is reset to `-1`, so a second call is a no-op.
-    /// Called by the worker after its final drain and synchronize.
+    /// Called by the worker after its final drain and flush.
     ///
     /// @note Spec `logging/file-logger`, requirement "Flush synchronizes the
     ///       file"; the worker calls this after its final drain and publish.
@@ -309,7 +310,7 @@ private:
     std::uint64_t segment_ = 0;       ///< size-based segment index (writer-only)
     std::uint64_t bytes_written_ = 0; ///< active segment size (writer-only)
     std::uint64_t malformed_ = 0;     ///< formatter overflow skips (diagnostic)
-    /// Set after a failed write and cleared by the next `synchronize()`.
+    /// Set after a failed write and cleared by the next `flush()`.
     std::uint8_t pending_write_error_ = 0;
     RotationScratch paths_{}; ///< pre-allocated path buffers (D11)
     /// Render scratch capacity reserved for one deferred message.

@@ -17,7 +17,7 @@ void test_sinks_null_console() {
         batch.record_count = 1;
         batch.record_capacity = 1;
         const std::size_t armed = g_alloc_used;
-        const Status delivered = null_sink.on_batch(batch);
+        const Status delivered = null_sink.on_event(batch);
         const Status flushed = null_sink.flush();
         NX_CHECK(delivered.has_value() && flushed.has_value());
         NX_CHECK(g_alloc_used == armed);
@@ -48,7 +48,7 @@ void test_sinks_null_console() {
         batch.record_capacity = 2;
 
         metrics::ConsoleMetricSink console{fds[1]};
-        NX_CHECK(console.on_batch(batch).has_value());
+        NX_CHECK(console.on_event(batch).has_value());
         NX_CHECK(console.flush().has_value());
         ::close(fds[1]);
         char buffer[4096];
@@ -65,7 +65,7 @@ void test_sinks_null_console() {
 
         // Closed descriptor: SystemError, no abort.
         metrics::ConsoleMetricSink broken{-1};
-        const Status failed = broken.on_batch(batch);
+        const Status failed = broken.on_event(batch);
         NX_CHECK(!failed.has_value());
         NX_CHECK(failed.error() == ErrorCode::SystemError);
 
@@ -99,8 +99,8 @@ void test_sinks_json_records(const nlohmann::json& parsed);
 void test_sinks_json_write(const char* path, metrics::JsonFileMetricSink& sink,
                            const metrics::MetricBatchSnapshot& batch, const auto& read_lines) {
     {
-        NX_CHECK(sink.on_batch(batch).has_value());
-        NX_CHECK(sink.on_batch(batch).has_value());
+        NX_CHECK(sink.on_event(batch).has_value());
+        NX_CHECK(sink.on_event(batch).has_value());
         NX_CHECK(sink.flush().has_value());
 
         const std::vector<std::string> lines = read_lines(path);
@@ -165,7 +165,7 @@ void test_sinks_json_append(const char* path, const metrics::MetricBatchSnapshot
         // Append ordering: a second sink appends one more line.
         metrics::JsonFileMetricSinkConfig appended{std::string(path), "", true};
         metrics::JsonFileMetricSink append_sink{appended};
-        NX_CHECK(append_sink.on_batch(batch).has_value());
+        NX_CHECK(append_sink.on_event(batch).has_value());
         NX_CHECK(append_sink.flush().has_value());
         NX_CHECK(read_lines(path).size() == 3U);
     }
@@ -195,7 +195,7 @@ void test_sinks_json_open_failure() {
         metrics::JsonFileMetricSink broken{broken_config};
         NX_CHECK(!broken.is_open());
         metrics::MetricBatchSnapshot empty{};
-        const Status failed = broken.on_batch(empty);
+        const Status failed = broken.on_event(empty);
         NX_CHECK(!failed.has_value());
         NX_CHECK(failed.error() == ErrorCode::SystemError);
     }
@@ -278,7 +278,7 @@ void test_sinks_time_base_source() {
     const std::uint64_t mono = stamp ? stamp->nanoseconds() : 0U;
     batch.stamp = chrono::Timestamp{mono};
     batch.utc_ns = 42; // deliberately wrong: the base owns UTC
-    NX_CHECK(sink.on_batch(batch).has_value());
+    NX_CHECK(sink.on_event(batch).has_value());
     NX_CHECK(sink.flush().has_value());
 
     std::ifstream input{path};

@@ -155,7 +155,7 @@ struct RecordingSink {
         started.store(true, std::memory_order_relaxed);
         return {};
     }
-    core::Status on_span(const tracing::SpanRecord& record) noexcept {
+    core::Status on_event(const tracing::SpanRecord& record) noexcept {
         // Worker identity: SYS_gettid + the affinity the DELIVERING thread
         // observes (pthread_getaffinity_np round-trip on the worker). Once
         // per sink — the syscalls are cheap enough once, expensive per
@@ -199,7 +199,7 @@ struct RecordingSink {
 /// A sink whose flush always fails (error propagation through the barrier).
 struct FailingFlushSink {
     core::Status start() noexcept { return {}; }
-    core::Status on_span(const tracing::SpanRecord&) noexcept { return {}; }
+    core::Status on_event(const tracing::SpanRecord&) noexcept { return {}; }
     core::Status flush() noexcept { return std::unexpected(core::ErrorCode::SystemError); }
     void stop() noexcept {}
     std::string to_string() const { return "FailingFlushSink"; }

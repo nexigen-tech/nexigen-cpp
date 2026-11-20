@@ -15,7 +15,7 @@ namespace nexigen::metrics {
 
 /// @brief Cheapest conforming sink: accepts every batch and discards it.
 ///
-/// `on_batch` never reads the snapshot, writes no output, allocates nothing and
+/// `on_event` never reads the snapshot, writes no output, allocates nothing and
 /// makes no system call; `flush` succeeds unconditionally. The type is
 /// stateless and trivially shareable, so it can be used as a placeholder sink or
 /// as the neutral member of a `CompositeMetricSink`. Only `to_string`, the JSON
@@ -32,7 +32,7 @@ public:
     /// @return Success status, always.
     /// @note Spec `metrics/metric-sinks`, requirement "Metric sink concept";
     ///       the callback stays allocation-free and makes no system call.
-    [[nodiscard]] core::Status on_batch(const MetricBatchSnapshot&) noexcept { return {}; }
+    [[nodiscard]] core::Status on_event(const MetricBatchSnapshot&) noexcept { return {}; }
 
     /// @brief Complete a flush request without doing any work.
     ///

@@ -58,7 +58,7 @@ namespace nexigen::tracing {
 
 /// @brief Rotating, rate-limited JSON-lines sink (one JSON object per span).
 ///
-/// Every `on_span` advances the UTC window, optionally rotates the file
+/// Every `on_event` advances the UTC window, optionally rotates the file
 /// (`Hourly`/`Daily` names the next file from the span's own UTC time, `None`
 /// keeps one file), applies the per-window span budget, then appends one
 /// complete escaped JSON line with UTC ISO-8601 timestamps, hexadecimal ids,
@@ -132,7 +132,7 @@ public:
     ///
     /// @return Success when the file opened; `SystemError` when the path is
     ///         unopenable, which leaves the sink without a descriptor and makes
-    ///         later `on_span` calls report `SystemError` without partial lines.
+    ///         later `on_event` calls report `SystemError` without partial lines.
     /// @note Spec `tracing/trace-sinks`, requirement "JsonFileTraceSink JSONL
     ///       output".
     [[nodiscard]] core::Status start() noexcept {
@@ -157,7 +157,7 @@ public:
     ///       output" (scratch overflow discards and counts) and
     ///       "JsonFileTraceSink rotation and rate limiting". The delivery path
     ///       allocates nothing.
-    [[nodiscard]] core::Status on_span(const SpanRecord& record) noexcept {
+    [[nodiscard]] core::Status on_event(const SpanRecord& record) noexcept {
         const std::uint64_t start_mono = record.start.nanoseconds();
         const std::optional<std::int64_t> utc =
             chrono::TimeBaseClock::utc_from_canonical(static_cast<std::int64_t>(start_mono));

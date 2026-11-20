@@ -2,7 +2,7 @@
 // phm/recovery; design D4).
 //
 // The request the daemon sends over the PHM→EM request-response channel.
-// Trivially copyable (com::concepts::Message): fixed char buffers instead of
+// Trivially copyable (core::concepts::Message): fixed char buffers instead of
 // owning strings, so it travels zero-copy.
 #pragma once
 
@@ -14,7 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <nexigen/com/concepts/message_concept.hpp>
+#include <nexigen/core/concepts/message_concept.hpp>
 #include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/phm/recovery_action.hpp>
 
@@ -31,7 +31,7 @@ inline constexpr std::size_t k_recovery_name_length = 32;
 /// @brief One recovery command: an action plus its target identity.
 ///
 /// The payload of the PHM->EM request-response channel. Fixed `char` buffers
-/// replace owning strings, so the type satisfies `com::concepts::Message` and
+/// replace owning strings, so the type satisfies `core::concepts::Message` and
 /// is delivered without a serialization step. Buffers are NUL-terminated by
 /// the sender; a value with an empty buffer names no target.
 ///
@@ -61,7 +61,7 @@ struct RecoveryRequest {
 /// @brief The payload contract: plain bytes, safe for zero-copy transport.
 ///
 /// @note Spec `phm/recovery`, requirement "Local process recovery".
-static_assert(com::concepts::Message<RecoveryRequest>);
+static_assert(core::concepts::Message<RecoveryRequest>);
 
 /// @brief Free helper mirroring `RecoveryRequest::to_string()` (mandate 9).
 ///

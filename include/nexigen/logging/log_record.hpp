@@ -119,11 +119,11 @@ template <std::size_t MessageCapacity = NEXIGEN_LOG_MESSAGE_CAPACITY> struct ali
     /// @param cap Capacity of `out` in bytes; `0` disables rendering.
     /// @return Bytes written into `out`, in `[0, cap]`.
     /// @note Sets the render-truncation flag when the output consumed the whole
-    ///       buffer. Non-const by design: the flag is written in the consumer's
-    ///       own popped copy, never in a producer-visible slot.
+    ///       buffer. The flag is `mutable`: rendering is a consumer-side read of
+    ///       the popped copy, never a write into a producer-visible slot.
     /// @note Spec `logging/log-record`, requirement "Consumer-side rendering of
     ///       packed records", scenario "Render overflow is bounded".
-    std::size_t render_into(char* out, std::size_t cap) noexcept {
+    std::size_t render_into(char* out, std::size_t cap) const noexcept {
         if (render == nullptr || cap == 0U) {
             return 0U;
         }
@@ -177,7 +177,7 @@ template <std::size_t MessageCapacity = NEXIGEN_LOG_MESSAGE_CAPACITY> struct ali
     chrono::Timestamp stamp{};                  ///< Monotonic nanoseconds, chrono domain.
     std::uint32_t thread_id{};                  ///< Cached Linux `SYS_gettid` of the producer.
     core::LogLevel level{core::LogLevel::Info}; ///< Severity carried by the record.
-    std::uint8_t flags{};                       ///< Bit 0 args trunc; bit 1 render trunc.
+    mutable std::uint8_t flags{};               ///< Bit 0 args trunc; bit 1 render trunc.
     std::uint16_t arg_length{};                 ///< Used bytes of `arg_payload_` (per pack).
     const char* file_name{};                    ///< `source_location::file_name`, static.
     const char* function_name{};                ///< `source_location::function_name`, static.

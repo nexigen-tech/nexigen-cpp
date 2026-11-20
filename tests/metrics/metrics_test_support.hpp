@@ -163,7 +163,7 @@ inline void run_suite(const char* suite_name, void (*body)()) {
 /// A sink that records what it receives (used by the provider suites).
 class RecordingSink {
 public:
-    [[nodiscard]] core::Status on_batch(const metrics::MetricBatchSnapshot& batch) noexcept {
+    [[nodiscard]] core::Status on_event(const metrics::MetricBatchSnapshot& batch) noexcept {
         ++batches_;
         records_ += batch.record_count;
         last_count_ = batch.record_count;

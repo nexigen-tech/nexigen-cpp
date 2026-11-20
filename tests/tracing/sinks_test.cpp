@@ -50,7 +50,7 @@ namespace {
 
 struct FailingOnSpanSink {
     core::Status start() noexcept { return {}; }
-    core::Status on_span(const tracing::SpanRecord&) noexcept {
+    core::Status on_event(const tracing::SpanRecord&) noexcept {
         return std::unexpected(core::ErrorCode::SystemError);
     }
     core::Status flush() noexcept { return {}; }
@@ -64,7 +64,7 @@ static_assert(tracing::concepts::TraceSink<FailingOnSpanSink>);
 struct CountingSink {
     int deliveries{0};
     core::Status start() noexcept { return {}; }
-    core::Status on_span(const tracing::SpanRecord&) noexcept {
+    core::Status on_event(const tracing::SpanRecord&) noexcept {
         ++deliveries;
         return {};
     }
@@ -91,7 +91,7 @@ void test_sinks_console() {
         NX_CHECK(::pipe(fds) == 0);
         tracing::ConsoleTraceSink sink{fds[1]};
         NX_CHECK(sink.start().has_value());
-        NX_CHECK(sink.on_span(crafted_record(1'000'000'000ULL, "query")).has_value());
+        NX_CHECK(sink.on_event(crafted_record(1'000'000'000ULL, "query")).has_value());
         NX_CHECK(sink.flush().has_value()); // no-op success
         // Read the line back from the pipe.
         char pipe_buffer[2048];
@@ -131,7 +131,7 @@ void test_sinks_console() {
             tracing::ConsoleTraceSink loop_sink{devnull};
             const tracing::SpanRecord record = crafted_record(2'000'000'000ULL, "alloc-free");
             for (int i = 0; i < 500; ++i) {
-                static_cast<void>(loop_sink.on_span(record));
+                static_cast<void>(loop_sink.on_event(record));
             }
             NX_CHECK(arena_used() == arena_before);
             NX_CHECK(heap_in_use() == heap_before);
@@ -146,10 +146,10 @@ void test_sinks_console() {
             static_cast<void>(::close(stale));
             tracing::ConsoleTraceSink dead_sink{stale};
             const core::Status failed =
-                dead_sink.on_span(crafted_record(3'000'000'000ULL, "doomed"));
+                dead_sink.on_event(crafted_record(3'000'000'000ULL, "doomed"));
             NX_CHECK(!failed.has_value());
             NX_CHECK(failed.error() == core::ErrorCode::SystemError);
-            NX_CHECK(!dead_sink.on_span(crafted_record(3'000'000'000ULL, "again"))
+            NX_CHECK(!dead_sink.on_event(crafted_record(3'000'000'000ULL, "again"))
                           .has_value()); // still usable, still SystemError
             dead_sink.stop();
         }
@@ -249,7 +249,7 @@ void test_sinks_jsonl_basic(const chrono::CivilTime& now_civil, const HourMidUtc
         NX_CHECK(sink.start().has_value());
         const tracing::SpanRecord record =
             crafted_record(mono_for_utc(hour_mid_utc(0)), "basic-span");
-        NX_CHECK(sink.on_span(record).has_value());
+        NX_CHECK(sink.on_event(record).has_value());
         NX_CHECK(sink.flush().has_value()); // fsync surfaced
         sink.stop();
 
@@ -322,7 +322,7 @@ void test_sinks_jsonl_time_base_source() {
     tracing::JsonFileTraceSink sink{config};
     NX_CHECK(sink.start().has_value());
     const tracing::SpanRecord record = crafted_record(2'000'000'000ULL, "tb-source");
-    NX_CHECK(sink.on_span(record).has_value());
+    NX_CHECK(sink.on_event(record).has_value());
     NX_CHECK(sink.flush().has_value());
     sink.stop();
 
@@ -368,7 +368,7 @@ void test_sinks_jsonl_overflow(const HourMidUtc& hour_mid_utc, const MonoForUtc&
         static_cast<void>(big.attributes[0].store(
             "payload", std::string_view(huge_payload, sizeof huge_payload)));
         big.attribute_count = 1;
-        const core::Status overflow = sink.on_span(big);
+        const core::Status overflow = sink.on_event(big);
         NX_CHECK(!overflow.has_value() && overflow.error() == core::ErrorCode::BufferFull);
         NX_CHECK(sink.to_string().find("discarded_lines=1") != std::string::npos);
         NX_CHECK(sink.flush().has_value()); // no I/O failure hides the discard
@@ -391,7 +391,7 @@ void test_sinks_jsonl_escape(const HourMidUtc& hour_mid_utc, const MonoForUtc& m
         NX_CHECK(sink.start().has_value());
         tracing::SpanRecord record = crafted_record(mono_for_utc(hour_mid_utc(0)), "esc\"ap\\e\nx");
         static_cast<void>(record.attributes[3].store("ctl", std::string_view("tab\tend\"q\\")));
-        NX_CHECK(sink.on_span(record).has_value());
+        NX_CHECK(sink.on_event(record).has_value());
         sink.stop();
         const std::string content = read_file(path.c_str());
         const nlohmann::json parsed = nlohmann::json::parse(content);
@@ -417,14 +417,14 @@ void test_sinks_jsonl_rotation(const HourMidUtc& hour_mid_utc, const MonoForUtc&
             tracing::JsonFileTraceSink sink{config};
             NX_CHECK(sink.start().has_value());
             // Span A: 30 min into the current hour/day.
-            NX_CHECK(sink.on_span(crafted_record(mono_for_utc(hour_mid_utc(0)), "window-a"))
+            NX_CHECK(sink.on_event(crafted_record(mono_for_utc(hour_mid_utc(0)), "window-a"))
                          .has_value());
             // Span B: one period later (next hour / next day).
             const std::int64_t period_ns = policy == tracing::RotationPolicy::Hourly
                                                ? 3'600'000'000'000LL
                                                : 86'400'000'000'000LL;
             NX_CHECK(
-                sink.on_span(crafted_record(mono_for_utc(hour_mid_utc(0) + period_ns), "window-b"))
+                sink.on_event(crafted_record(mono_for_utc(hour_mid_utc(0) + period_ns), "window-b"))
                     .has_value());
             sink.stop();
 
@@ -467,9 +467,9 @@ void test_sinks_jsonl_rotation(const HourMidUtc& hour_mid_utc, const MonoForUtc&
         tracing::JsonFileTraceSink none_sink{none_config};
         NX_CHECK(none_sink.start().has_value());
         NX_CHECK(
-            none_sink.on_span(crafted_record(mono_for_utc(hour_mid_utc(0)), "s-one")).has_value());
-        NX_CHECK(
-            none_sink.on_span(crafted_record(mono_for_utc(hour_mid_utc(48)), "s-two")).has_value());
+            none_sink.on_event(crafted_record(mono_for_utc(hour_mid_utc(0)), "s-one")).has_value());
+        NX_CHECK(none_sink.on_event(crafted_record(mono_for_utc(hour_mid_utc(48)), "s-two"))
+                     .has_value());
         none_sink.stop();
         const std::string single_content = read_file(single.c_str());
         NX_CHECK(single_content.find("s-one") != std::string::npos);
@@ -492,14 +492,14 @@ void test_sinks_jsonl_rate_limit(const HourMidUtc& hour_mid_utc, const MonoForUt
         NX_CHECK(sink.start().has_value());
         const std::uint64_t w0 = mono_for_utc(hour_mid_utc(0));
         // Two in-budget spans.
-        NX_CHECK(sink.on_span(crafted_record(w0, "budget-1")).has_value());
-        NX_CHECK(sink.on_span(crafted_record(w0 + 1'000, "budget-2")).has_value());
+        NX_CHECK(sink.on_event(crafted_record(w0, "budget-1")).has_value());
+        NX_CHECK(sink.on_event(crafted_record(w0 + 1'000, "budget-2")).has_value());
         // Two beyond the budget: NOT written, exactly counted.
-        NX_CHECK(sink.on_span(crafted_record(w0 + 2'000, "over-1")).has_value());
-        NX_CHECK(sink.on_span(crafted_record(w0 + 3'000, "over-2")).has_value());
+        NX_CHECK(sink.on_event(crafted_record(w0 + 2'000, "over-1")).has_value());
+        NX_CHECK(sink.on_event(crafted_record(w0 + 3'000, "over-2")).has_value());
         // A record past the window boundary: the summary line lands BEFORE
         // this record's line.
-        NX_CHECK(sink.on_span(crafted_record(w0 + 61'000'000'000ULL, "next-window")).has_value());
+        NX_CHECK(sink.on_event(crafted_record(w0 + 61'000'000'000ULL, "next-window")).has_value());
         sink.stop();
 
         const std::string content = read_file(path.c_str());
@@ -533,7 +533,7 @@ void test_sinks_jsonl_rate_limit(const HourMidUtc& hour_mid_utc, const MonoForUt
         NX_CHECK(all_sink.start().has_value());
         for (int i = 0; i < 10; ++i) {
             NX_CHECK(
-                all_sink.on_span(crafted_record(w0 + static_cast<std::uint64_t>(i), "unthrottled"))
+                all_sink.on_event(crafted_record(w0 + static_cast<std::uint64_t>(i), "unthrottled"))
                     .has_value());
         }
         all_sink.stop();
@@ -554,7 +554,7 @@ void test_sinks_jsonl_open_failure(const HourMidUtc& hour_mid_utc, const MonoFor
         NX_CHECK(!started.has_value());
         NX_CHECK(started.error() == core::ErrorCode::SystemError);
         const core::Status delivered =
-            sink.on_span(crafted_record(mono_for_utc(hour_mid_utc(0)), "void"));
+            sink.on_event(crafted_record(mono_for_utc(hour_mid_utc(0)), "void"));
         NX_CHECK(!delivered.has_value());
         NX_CHECK(delivered.error() == core::ErrorCode::SystemError);
         NX_CHECK(!sink.flush().has_value());
@@ -644,9 +644,9 @@ void test_sinks_chrome() {
         child.trace_id = parent.trace_id;
         child.parent_span_id = parent.span_id;
         tracing::SpanRecord later = crafted_record(10'006'000'000ULL, "later-span");
-        NX_CHECK(sink.on_span(parent).has_value());
-        NX_CHECK(sink.on_span(child).has_value());
-        NX_CHECK(sink.on_span(later).has_value());
+        NX_CHECK(sink.on_event(parent).has_value());
+        NX_CHECK(sink.on_event(child).has_value());
+        NX_CHECK(sink.on_event(later).has_value());
         NX_CHECK(sink.flush().has_value());
         sink.stop();
 
@@ -738,7 +738,7 @@ void test_sinks_composite(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono
             composite{tracing::ConsoleTraceSink{fds[1]}, tracing::JsonFileTraceSink{file_config},
                       tracing::NullTraceSink{}};
         NX_CHECK(composite.start().has_value());
-        NX_CHECK(composite.on_span(crafted_record(mono_for_utc(hour_mid_utc(0)), "fan-out"))
+        NX_CHECK(composite.on_event(crafted_record(mono_for_utc(hour_mid_utc(0)), "fan-out"))
                      .has_value());
         NX_CHECK(composite.flush().has_value());
         composite.stop();
@@ -765,7 +765,7 @@ void test_sinks_composite(const HourMidUtc& hour_mid_utc, const MonoForUtc& mono
                                                                            CountingSink{}};
         NX_CHECK(mixed.start().has_value());
         const core::Status failed =
-            mixed.on_span(crafted_record(mono_for_utc(hour_mid_utc(0)), "no-starve"));
+            mixed.on_event(crafted_record(mono_for_utc(hour_mid_utc(0)), "no-starve"));
         NX_CHECK(!failed.has_value());
         NX_CHECK(failed.error() == core::ErrorCode::SystemError);
         NX_CHECK(mixed.get<1>().deliveries == 1); // the second member received it

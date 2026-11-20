@@ -59,7 +59,8 @@ std::size_t MetricProvider::kind_object_size(MetricKind kind) noexcept {
     return 0;
 }
 
-MetricProvider::MetricProvider(const MetricProviderConfig& config, detail::SinkBinding binding)
+MetricProvider::MetricProvider(const MetricProviderConfig& config,
+                               core::SinkBinding<MetricBatchSnapshot> binding)
     : config_(config), binding_(binding) {
     const std::uint32_t capacities[kind_count] = {config_.max_counters,
                                                   config_.max_gauges,
@@ -139,7 +140,7 @@ MetricProvider::~MetricProvider() {
     worker_.stop();
 
     // Drain the sink once more so the last window is not lost.
-    if (binding_.on_batch != nullptr) {
+    if (binding_.on_event != nullptr) {
         static_cast<void>(collect_now());
     }
     if (binding_.flush != nullptr) {
@@ -345,10 +346,10 @@ core::Status MetricProvider::collect_now() noexcept {
     batch.record_count = count;
     batch.record_capacity = record_capacity_;
 
-    if (binding_.on_batch == nullptr) {
+    if (binding_.on_event == nullptr) {
         return {};
     }
-    return binding_.on_batch(binding_.self, batch);
+    return binding_.on_event(binding_.self, batch);
 }
 
 core::Status MetricProvider::flush() noexcept {

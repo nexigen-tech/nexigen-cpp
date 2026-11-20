@@ -87,8 +87,11 @@ void test_shutdown_drain_race() {
     struct CountSink {
         std::atomic<std::uint64_t>* received{nullptr};
         [[nodiscard]] core::Status start() noexcept { return {}; }
-        void handle(RecordT&) noexcept { received->fetch_add(1, std::memory_order_relaxed); }
-        [[nodiscard]] core::Status synchronize() noexcept { return {}; }
+        core::Status on_event(const RecordT&) noexcept {
+            received->fetch_add(1, std::memory_order_relaxed);
+            return {};
+        }
+        [[nodiscard]] core::Status flush() noexcept { return {}; }
         void stop() noexcept {}
     };
     std::atomic<std::uint64_t> sink_received{0};

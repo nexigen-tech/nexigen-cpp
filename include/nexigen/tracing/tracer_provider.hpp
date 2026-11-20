@@ -52,6 +52,7 @@
 
 #include <nexigen/chrono/stamp_source.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/sink_binding.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/worker_thread.hpp>
 #include <nexigen/core/shard_pool.hpp>
@@ -82,18 +83,7 @@ namespace detail {
 ///
 /// @note Spec `tracing/tracer-concepts`, requirement "TraceSink structural
 ///       concept".
-struct SinkBinding {
-    /// @brief The sink object bound to every pointer below.
-    void* self{nullptr};
-    /// @brief Calls `sink.start()`; may be null (skipped).
-    core::Status (*start)(void*) noexcept {nullptr};
-    /// @brief Calls `sink.on_span(record)`; may be null (records discarded).
-    core::Status (*on_span)(void*, const SpanRecord&) noexcept {nullptr};
-    /// @brief Calls `sink.flush()`; may be null (nothing to synchronize).
-    core::Status (*flush)(void*) noexcept {nullptr};
-    /// @brief Calls `sink.stop()`; may be null (nothing to stop).
-    void (*stop)(void*) noexcept {nullptr};
-};
+using SinkBinding = core::SinkBinding<SpanRecord>;
 
 } // namespace detail
 
@@ -158,14 +148,14 @@ public:
         : TracerProvider(config,
                          detail::SinkBinding{
                              static_cast<void*>(&sink),
-                             [](void* self) noexcept -> core::Status {
-                                 return static_cast<Sink*>(self)->start();
-                             },
                              [](void* self, const SpanRecord& record) noexcept -> core::Status {
-                                 return static_cast<Sink*>(self)->on_span(record);
+                                 return static_cast<Sink*>(self)->on_event(record);
                              },
                              [](void* self) noexcept -> core::Status {
                                  return static_cast<Sink*>(self)->flush();
+                             },
+                             [](void* self) noexcept -> core::Status {
+                                 return static_cast<Sink*>(self)->start();
                              },
                              [](void* self) noexcept { static_cast<Sink*>(self)->stop(); }}) {}
 
@@ -652,7 +642,7 @@ TracerProvider<ShardCapacity, MaxThreads>::~TracerProvider() {
         // publishes + stops the sink, all while this object is still whole
         // (the worker member is declared last and joins before the pool dies).
         worker_.stop();
-    } else if (binding_.on_span != nullptr &&
+    } else if (binding_.on_event != nullptr &&
                !(config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required &&
                  worker_.report().first_error() != core::ErrorCode::Ok)) {
         // Never initialized: no worker ever touched the sink — drain inline
@@ -662,7 +652,7 @@ TracerProvider<ShardCapacity, MaxThreads>::~TracerProvider() {
                                                     : core::Status{});
         Record record{};
         while (pop(record)) {
-            static_cast<void>(binding_.on_span(binding_.self, record));
+            static_cast<void>(binding_.on_event(binding_.self, record));
         }
         static_cast<void>(binding_.flush != nullptr ? binding_.flush(binding_.self)
                                                     : core::Status{});
@@ -712,11 +702,11 @@ template <std::size_t ShardCapacity, std::size_t MaxThreads>
 std::size_t TracerProvider<ShardCapacity, MaxThreads>::deliver_batch(Record& out) noexcept {
     std::size_t delivered = 0;
     while (delivered < 64 && pop(out)) { // bounded batch
-        if (binding_.on_span != nullptr) {
+        if (binding_.on_event != nullptr) {
             // Delivery failures never stop the drain: the consumer keeps
             // serving every shard; a failing sink surfaces its own state
             // through flush() (sync_error) and its diagnostics.
-            static_cast<void>(binding_.on_span(binding_.self, out));
+            static_cast<void>(binding_.on_event(binding_.self, out));
         }
         ++delivered;
     }
@@ -736,8 +726,8 @@ void TracerProvider<ShardCapacity, MaxThreads>::shutdown_drain(Record& out) noex
     // Drain what is still queued, synchronize once, publish, then stop the
     // sink (spec "Destruction does not lose accepted records").
     while (pop(out)) {
-        if (binding_.on_span != nullptr) {
-            static_cast<void>(binding_.on_span(binding_.self, out));
+        if (binding_.on_event != nullptr) {
+            static_cast<void>(binding_.on_event(binding_.self, out));
         }
     }
     publish_sync(flush_.requested.load(std::memory_order_relaxed));

@@ -57,7 +57,7 @@ public:
     ///         `core::ErrorCode::SystemError` when the descriptor reports an
     ///         unrecoverable write error.
     /// @note Spec `chrono/chrono-sink`, requirement "Console chrono sink".
-    [[nodiscard]] core::Status on_snapshot(const Snapshot& snapshot) noexcept {
+    [[nodiscard]] core::Status on_event(const Snapshot& snapshot) noexcept {
         len_ = 0;
         append_str("stamp_ns=");
         append_u64(snapshot.stamp.nanoseconds());
@@ -72,7 +72,7 @@ public:
 
     /// @brief Flush the sink.
     ///
-    /// Console output is unbuffered: every `on_snapshot` write is already
+    /// Console output is unbuffered: every `on_event` write is already
     /// complete, so this is a no-op kept for the sink contract.
     ///
     /// @return Always success.

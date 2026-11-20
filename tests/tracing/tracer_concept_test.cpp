@@ -77,7 +77,7 @@ static_assert(!tracing::concepts::Tracer<TracerWithoutToStringModel>);
 /// Complete conforming sink surface (the positive reference).
 struct FullSinkModel {
     core::Status start() noexcept { return {}; }
-    core::Status on_span(const tracing::SpanRecord&) noexcept { return {}; }
+    core::Status on_event(const tracing::SpanRecord&) noexcept { return {}; }
     core::Status flush() noexcept { return {}; }
     void stop() noexcept {}
     std::string to_string() const { return "FullSinkModel"; }
@@ -87,16 +87,16 @@ static_assert(tracing::concepts::TraceSink<FullSinkModel>);
 /// flush omitted entirely.
 struct SinkWithoutFlushModel {
     core::Status start() noexcept { return {}; }
-    core::Status on_span(const tracing::SpanRecord&) noexcept { return {}; }
+    core::Status on_event(const tracing::SpanRecord&) noexcept { return {}; }
     void stop() noexcept {}
     std::string to_string() const { return "no-flush"; }
 };
 static_assert(!tracing::concepts::TraceSink<SinkWithoutFlushModel>);
 
-/// on_span is NOT noexcept — a throwing delivery fails the contract.
+/// on_event is NOT noexcept — a throwing delivery fails the contract.
 struct ThrowingOnSpanModel {
     core::Status start() noexcept { return {}; }
-    core::Status on_span(const tracing::SpanRecord&) { return {}; } // no noexcept
+    core::Status on_event(const tracing::SpanRecord&) { return {}; } // no noexcept
     core::Status flush() noexcept { return {}; }
     void stop() noexcept {}
     std::string to_string() const { return "throwing"; }
@@ -106,7 +106,7 @@ static_assert(!tracing::concepts::TraceSink<ThrowingOnSpanModel>);
 /// stop omitted entirely.
 struct SinkWithoutStopModel {
     core::Status start() noexcept { return {}; }
-    core::Status on_span(const tracing::SpanRecord&) noexcept { return {}; }
+    core::Status on_event(const tracing::SpanRecord&) noexcept { return {}; }
     core::Status flush() noexcept { return {}; }
     std::string to_string() const { return "no-stop"; }
 };
@@ -155,7 +155,7 @@ void test_concepts() {
         const std::size_t arena_before = arena_used();
         NX_CHECK(sink.start().has_value());
         for (int i = 0; i < 50'000; ++i) {
-            NX_CHECK(sink.on_span(record).has_value());
+            NX_CHECK(sink.on_event(record).has_value());
         }
         NX_CHECK(sink.flush().has_value());
         sink.stop();

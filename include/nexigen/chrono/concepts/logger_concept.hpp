@@ -1,29 +1,20 @@
 // nexigen::chrono — chrono-local worker logger concept (change
-// add-chrono-clock-service; spec chrono/chrono-provider). Switched onto the
-// shared core::LogLevel by change add-clock-authority-core.
+// add-chrono-clock-service; spec chrono/worker). Unified onto
+// core::concepts::LevelLogger by change unify-core-concepts.
 #pragma once
 
-#include <concepts>
-#include <string_view>
-
-#include <nexigen/core/log_level.hpp>
+#include <nexigen/core/concepts/level_logger_concept.hpp>
 
 namespace nexigen::chrono::concepts {
 
-/// @brief A chrono-local logger accepting `void log(core::LogLevel, std::string_view) noexcept`.
+/// @brief The worker-side logger contract: one noexcept level/message call.
 ///
-/// The worker-side contract for daemon diagnostics, deliberately narrower than
-/// the full logging module: one noexcept call, no virtual dispatch, no
-/// allocation required by the concept. The application bridges a
-/// `nexigen::logging` logger to this shape, and the bound logger must outlive
-/// the worker that holds it.
+/// An alias of `core::concepts::LevelLogger`, so a worker can accept a logger
+/// without depending on the logging module.
 ///
-/// @tparam T Candidate logger type; it must expose
-///         `log(core::LogLevel, std::string_view) noexcept` returning `void`.
+/// @tparam T Candidate logger type.
 /// @note Spec `chrono/worker`, requirement "Worker logger binding".
 template <class T>
-concept Logger = requires(T& logger, core::LogLevel level, std::string_view message) {
-    { logger.log(level, message) } noexcept -> std::same_as<void>;
-};
+concept Logger = core::concepts::LevelLogger<T>;
 
 } // namespace nexigen::chrono::concepts

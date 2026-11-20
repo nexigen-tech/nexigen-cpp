@@ -34,7 +34,7 @@ struct RecordingSink {
     std::array<metrics::MetricRecord, 64> records{};
     std::uint32_t count{0};
 
-    core::Status on_batch(const metrics::MetricBatchSnapshot& batch) noexcept {
+    core::Status on_event(const metrics::MetricBatchSnapshot& batch) noexcept {
         count = 0;
         if (batch.records == nullptr) {
             return {};
@@ -76,8 +76,8 @@ void test_end_to_end_grid() {
     MeterFixture generator_meter{};
     MeterFixture consumer_meter{};
 
-    auto generator = synchro::SyncGenerator<CaptureLogger>::create(
-        *node, generator_config, logger, *generator_meter.meter);
+    auto generator = synchro::SyncGenerator<CaptureLogger>::create(*node, generator_config, logger,
+                                                                   *generator_meter.meter);
     NX_CHECK(generator.has_value());
     auto runner = synchro::SyncRunner<CaptureLogger>::create(*node, consumer_config, logger,
                                                              *consumer_meter.meter);
@@ -93,42 +93,38 @@ void test_end_to_end_grid() {
     std::atomic<std::int64_t> max_e2e{0};
 
     NX_CHECK((*runner)
-                  ->consumer()
-                  .on_any_phase([&](const synchro::SyncContext& context) {
-                      const std::uint64_t absolute =
-                          context.cycle_number * context.phases_total + context.phase_index;
-                      const std::uint64_t previous_count =
-                          count.load(std::memory_order_relaxed);
-                      if (previous_count != 0U &&
-                          absolute != last_absolute.load(std::memory_order_relaxed) + 1U) {
-                          monotonic.store(false, std::memory_order_relaxed);
-                      }
-                      if (context.is_late) {
-                          saw_late.store(true, std::memory_order_relaxed);
-                      }
-                      if (context.e2e_latency_ns >
-                          max_e2e.load(std::memory_order_relaxed)) {
-                          max_e2e.store(context.e2e_latency_ns, std::memory_order_relaxed);
-                      }
-                      last_absolute.store(absolute, std::memory_order_relaxed);
-                      count.fetch_add(1U, std::memory_order_relaxed);
-                  })
-                  .has_value());
+                 ->consumer()
+                 .on_any_phase([&](const synchro::SyncContext& context) {
+                     const std::uint64_t absolute =
+                         context.cycle_number * context.phases_total + context.phase_index;
+                     const std::uint64_t previous_count = count.load(std::memory_order_relaxed);
+                     if (previous_count != 0U &&
+                         absolute != last_absolute.load(std::memory_order_relaxed) + 1U) {
+                         monotonic.store(false, std::memory_order_relaxed);
+                     }
+                     if (context.is_late) {
+                         saw_late.store(true, std::memory_order_relaxed);
+                     }
+                     if (context.e2e_latency_ns > max_e2e.load(std::memory_order_relaxed)) {
+                         max_e2e.store(context.e2e_latency_ns, std::memory_order_relaxed);
+                     }
+                     last_absolute.store(absolute, std::memory_order_relaxed);
+                     count.fetch_add(1U, std::memory_order_relaxed);
+                 })
+                 .has_value());
 
     NX_CHECK((*generator)->start().has_value());
     std::stop_source stop{};
     std::jthread thread{[&runner, token = stop.get_token()] { (*runner)->run(token); }};
 
-    const bool reached = wait_for(
-        [&count] { return count.load(std::memory_order_relaxed) >= 60U; },
-        std::chrono::milliseconds{5'000});
+    const bool reached = wait_for([&count] { return count.load(std::memory_order_relaxed) >= 60U; },
+                                  std::chrono::milliseconds{5'000});
     stop.request_stop();
     thread.join();
     (*generator)->stop();
 
     NX_CHECK(reached);
-    NX_CHECK_EQ(count.load(std::memory_order_relaxed),
-                (*runner)->stats().received);
+    NX_CHECK_EQ(count.load(std::memory_order_relaxed), (*runner)->stats().received);
     NX_CHECK(count.load(std::memory_order_relaxed) >= 60U);
     NX_CHECK(monotonic.load(std::memory_order_relaxed));
     NX_CHECK(!saw_late.load(std::memory_order_relaxed));
@@ -165,8 +161,8 @@ void test_restart_resync() {
     MeterFixture generator_meter{};
     MeterFixture consumer_meter{};
 
-    auto generator = synchro::SyncGenerator<CaptureLogger>::create(
-        *node, generator_config, logger, *generator_meter.meter);
+    auto generator = synchro::SyncGenerator<CaptureLogger>::create(*node, generator_config, logger,
+                                                                   *generator_meter.meter);
     NX_CHECK(generator.has_value());
     auto runner = synchro::SyncRunner<CaptureLogger>::create(*node, consumer_config, logger,
                                                              *consumer_meter.meter);
@@ -182,23 +178,22 @@ void test_restart_resync() {
     std::atomic<bool> saw_cycle_zero{false};
 
     NX_CHECK((*runner)
-                  ->consumer()
-                  .on_any_phase([&](const synchro::SyncContext& context) {
-                      const std::uint64_t previous = count.load(std::memory_order_relaxed);
-                      if (previous != 0U &&
-                          context.producer_epoch !=
-                              last_epoch.load(std::memory_order_relaxed)) {
-                          epoch_changes.fetch_add(1U, std::memory_order_relaxed);
-                          first_sequence_of_new_epoch.store(context.sequence_id,
-                                                            std::memory_order_relaxed);
-                          saw_cycle_zero.store(context.cycle_number == 0U &&
-                                                   context.phase_index == 0U,
-                                               std::memory_order_relaxed);
-                      }
-                      last_epoch.store(context.producer_epoch, std::memory_order_relaxed);
-                      count.fetch_add(1U, std::memory_order_relaxed);
-                  })
-                  .has_value());
+                 ->consumer()
+                 .on_any_phase([&](const synchro::SyncContext& context) {
+                     const std::uint64_t previous = count.load(std::memory_order_relaxed);
+                     if (previous != 0U &&
+                         context.producer_epoch != last_epoch.load(std::memory_order_relaxed)) {
+                         epoch_changes.fetch_add(1U, std::memory_order_relaxed);
+                         first_sequence_of_new_epoch.store(context.sequence_id,
+                                                           std::memory_order_relaxed);
+                         saw_cycle_zero.store(context.cycle_number == 0U &&
+                                                  context.phase_index == 0U,
+                                              std::memory_order_relaxed);
+                     }
+                     last_epoch.store(context.producer_epoch, std::memory_order_relaxed);
+                     count.fetch_add(1U, std::memory_order_relaxed);
+                 })
+                 .has_value());
 
     NX_CHECK((*generator)->start().has_value());
     std::stop_source stop{};
@@ -209,9 +204,9 @@ void test_restart_resync() {
     (*generator)->stop();
     std::this_thread::sleep_for(std::chrono::milliseconds{20});
     NX_CHECK((*generator)->start().has_value());
-    NX_CHECK(wait_for(
-        [&epoch_changes] { return epoch_changes.load(std::memory_order_relaxed) >= 1U; },
-        std::chrono::milliseconds{3'000}));
+    NX_CHECK(
+        wait_for([&epoch_changes] { return epoch_changes.load(std::memory_order_relaxed) >= 1U; },
+                 std::chrono::milliseconds{3'000}));
 
     stop.request_stop();
     thread.join();
@@ -241,8 +236,8 @@ void test_allocation_free_steady_state() {
 
     MeterFixture generator_meter{};
     MeterFixture consumer_meter{};
-    auto generator = synchro::SyncGenerator<CaptureLogger>::create(
-        *node, generator_config, logger, *generator_meter.meter);
+    auto generator = synchro::SyncGenerator<CaptureLogger>::create(*node, generator_config, logger,
+                                                                   *generator_meter.meter);
     NX_CHECK(generator.has_value());
     auto consumer = synchro::SyncConsumer<CaptureLogger>::create(*node, consumer_config, logger,
                                                                  *consumer_meter.meter);
@@ -253,10 +248,10 @@ void test_allocation_free_steady_state() {
 
     std::atomic<std::uint64_t> delivered{0};
     NX_CHECK((*consumer)
-                  ->on_any_phase([&delivered](const synchro::SyncContext&) {
-                      delivered.fetch_add(1U, std::memory_order_relaxed);
-                  })
-                  .has_value());
+                 ->on_any_phase([&delivered](const synchro::SyncContext&) {
+                     delivered.fetch_add(1U, std::memory_order_relaxed);
+                 })
+                 .has_value());
 
     NX_CHECK((*generator)->start().has_value());
     const bool locked = wait_for(
@@ -378,8 +373,10 @@ void test_multiple_channels_use_separate_runners() {
 
     MeterFixture meter_a{};
     MeterFixture meter_b{};
-    auto runner_a = synchro::SyncRunner<CaptureLogger>::create(*node, config_a, logger, *meter_a.meter);
-    auto runner_b = synchro::SyncRunner<CaptureLogger>::create(*node, config_b, logger, *meter_b.meter);
+    auto runner_a =
+        synchro::SyncRunner<CaptureLogger>::create(*node, config_a, logger, *meter_a.meter);
+    auto runner_b =
+        synchro::SyncRunner<CaptureLogger>::create(*node, config_b, logger, *meter_b.meter);
     NX_CHECK(runner_a.has_value());
     NX_CHECK(runner_b.has_value());
     if (!runner_a.has_value() || !runner_b.has_value()) {
@@ -389,17 +386,17 @@ void test_multiple_channels_use_separate_runners() {
     std::atomic<std::uint32_t> received_a{0};
     std::atomic<std::uint32_t> received_b{0};
     NX_CHECK((*runner_a)
-                  ->consumer()
-                  .on_any_phase([&received_a](const synchro::SyncContext&) {
-                      received_a.fetch_add(1U, std::memory_order_relaxed);
-                  })
-                  .has_value());
+                 ->consumer()
+                 .on_any_phase([&received_a](const synchro::SyncContext&) {
+                     received_a.fetch_add(1U, std::memory_order_relaxed);
+                 })
+                 .has_value());
     NX_CHECK((*runner_b)
-                  ->consumer()
-                  .on_any_phase([&received_b](const synchro::SyncContext&) {
-                      received_b.fetch_add(1U, std::memory_order_relaxed);
-                  })
-                  .has_value());
+                 ->consumer()
+                 .on_any_phase([&received_b](const synchro::SyncContext&) {
+                     received_b.fetch_add(1U, std::memory_order_relaxed);
+                 })
+                 .has_value());
 
     std::stop_source stop{};
     std::jthread thread_a{[&runner_a, token = stop.get_token()] { (*runner_a)->run(token); }};

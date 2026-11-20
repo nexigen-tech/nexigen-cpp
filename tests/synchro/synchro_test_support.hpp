@@ -209,7 +209,7 @@ struct RecordingMetricSink {
     /// @param batch Harvested snapshot.
     /// @return Success status, always.
     [[nodiscard]] nexigen::core::Status
-    on_batch(const nexigen::metrics::MetricBatchSnapshot& batch) noexcept {
+    on_event(const nexigen::metrics::MetricBatchSnapshot& batch) noexcept {
         count = 0U;
         if (batch.records == nullptr) {
             return {};

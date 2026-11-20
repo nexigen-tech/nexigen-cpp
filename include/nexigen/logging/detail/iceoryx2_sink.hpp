@@ -2,7 +2,7 @@
 // (change add-iceoryx2-logger; spec logging/iceoryx2-logger; design D3-D5).
 //
 // The Sink contract (duck-typed, see detail::async_worker.hpp): start() /
-// handle(Record&) / synchronize() / stop(), constructed in place by
+// on_event(Record&) / flush() / stop(), constructed in place by
 // AsyncWorker::start on the worker thread. Unlike FileSink (which renders a
 // JSON line and writes a file), this sink renders the message text, packs a
 // fixed LogFrame, and publishes it over pub-sub + an event notify — the final
@@ -26,8 +26,8 @@ namespace nexigen::logging::detail {
 
 /// @brief Consumer-thread sink publishing rendered `LogFrame`s to iceoryx2.
 ///
-/// Implements the duck-typed Sink contract (`start()` / `handle(Record&)` /
-/// `synchronize()` / `stop()`) and is constructed in place by
+/// Implements the duck-typed Sink contract (`start()` / `on_event(Record&)` /
+/// `flush()` / `stop()`) and is constructed in place by
 /// `AsyncWorker::start` on the worker thread. Unlike the file sink, it renders
 /// the message text, packs a fixed `LogFrame`, publishes it over pub-sub, then
 /// notifies the companion event service; final line formatting and disk I/O
@@ -132,9 +132,9 @@ public:
     ///       zero-copy frame"; deferred rendering per `logging/log-record`,
     ///       requirement "Consumer-side rendering of packed records".
     ///       Publication works with zero subscribers.
-    template <class Record> void handle(Record& rec) noexcept {
+    template <class Record> core::Status on_event(const Record& rec) noexcept {
         if (!publisher_.has_value()) {
-            return;
+            return {};
         }
         const std::size_t rendered =
             rec.render_into(reinterpret_cast<char*>(frame_.payload), sizeof(frame_.payload));
@@ -151,11 +151,12 @@ public:
         // One transport call: loan, copy and send. A failed publish drops the
         // frame and never blocks (DiscardData).
         if (!publisher_->send_copy(frame_)) {
-            return;
+            return std::unexpected(core::ErrorCode::SystemError);
         }
         if (notifier_.has_value()) {
             static_cast<void>(notifier_->notify());
         }
+        return {};
     }
 
     /// @brief No-op synchronization: frame data is already in shared memory.
@@ -164,7 +165,7 @@ public:
     ///         published frame.
     /// @note Spec `logging/iceoryx2-logger`, requirement "Worker publishes
     ///       frames off the hot path".
-    [[nodiscard]] core::Status synchronize() noexcept { return {}; }
+    [[nodiscard]] core::Status flush() noexcept { return {}; }
 
     /// @brief Release the publisher and notifier; safe to call repeatedly.
     void stop() noexcept {

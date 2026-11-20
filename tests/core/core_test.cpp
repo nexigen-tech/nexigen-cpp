@@ -47,6 +47,12 @@
 #include <nexigen/core/shard_pool.hpp>
 #include <nexigen/core/affinity.hpp>
 #include <nexigen/core/sink_io.hpp>
+#include <nexigen/core/concepts/level_logger_concept.hpp>
+#include <nexigen/core/concepts/message_concept.hpp>
+#include <nexigen/core/concepts/meter_concept.hpp>
+#include <nexigen/core/concepts/sink_concept.hpp>
+#include <nexigen/core/sink_binding.hpp>
+#include <nexigen/core/null_meter.hpp>
 #include <nexigen/core/sink_pack.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
 #include <nexigen/core/thread_management.hpp>
@@ -2226,6 +2232,126 @@ void test_integrity() {
     NX_CHECK(g_alloc_used == before);
 }
 
+void test_null_meter() {
+    static_assert(nexigen::core::concepts::MeterLike<nexigen::core::NullMeter>);
+    static_assert(nexigen::core::concepts::CounterLike<nexigen::core::NullMeter::Counter>);
+
+    const auto counter = nexigen::core::NullMeter::create_counter<>("noop", "1");
+    NX_CHECK(counter.has_value());
+    (*counter)->add(3U);
+    (*counter)->inc();
+    NX_CHECK(counter.has_value());
+}
+
+void test_core_concepts() {
+    using namespace nexigen::core;
+
+    struct Pod {
+        int x;
+    };
+    struct NonPod {
+        std::string text;
+    };
+    static_assert(concepts::Message<Pod>);
+    static_assert(!concepts::Message<NonPod>);
+
+    struct MinimalLogger {
+        void log(LogLevel, std::string_view) noexcept {}
+    };
+    struct ThrowingLogger {
+        void log(LogLevel, std::string_view) {}
+    };
+    static_assert(concepts::LevelLogger<MinimalLogger>);
+    static_assert(!concepts::LevelLogger<ThrowingLogger>);
+
+    struct GoodSink {
+        Status on_event(const Pod&) noexcept { return {}; }
+        Status flush() noexcept { return {}; }
+    };
+    struct OldNameSink {
+        Status on_snapshot(const Pod&) noexcept { return {}; }
+        Status flush() noexcept { return {}; }
+    };
+    struct ThrowingSink {
+        Status on_event(const Pod&) { return {}; }
+        Status flush() noexcept { return {}; }
+    };
+    struct NoStopSink : GoodSink {};
+    static_assert(concepts::Sink<GoodSink, Pod>);
+    static_assert(!concepts::Sink<OldNameSink, Pod>);
+    static_assert(!concepts::Sink<ThrowingSink, Pod>);
+    static_assert(!concepts::LifecycleSink<NoStopSink, Pod>);
+
+    struct GoodGauge {
+        void set(int) noexcept {}
+        void add(int) noexcept {}
+        void sub(int) noexcept {}
+    };
+    struct NoSubGauge {
+        void set(int) noexcept {}
+        void add(int) noexcept {}
+    };
+    static_assert(concepts::GaugeLike<GoodGauge, int>);
+    static_assert(!concepts::GaugeLike<NoSubGauge, int>);
+
+    struct GoodState {
+        bool set(std::string_view) noexcept { return true; }
+    };
+    struct VoidState {
+        void set(std::string_view) noexcept {}
+    };
+    static_assert(concepts::StateGaugeLike<GoodState>);
+    static_assert(!concepts::StateGaugeLike<VoidState>);
+
+    struct Plain {
+        int value{};
+    };
+    struct Rendering {
+        [[nodiscard]] std::string to_string() const { return "x"; }
+    };
+    struct GoodStats {
+        void record(double) noexcept {}
+        Rendering read() const { return {}; }
+        Rendering snapshot() const { return {}; }
+    };
+    struct BadStats {
+        void record(double) noexcept {}
+        Plain read() const { return {}; }
+        Plain snapshot() const { return {}; }
+    };
+    static_assert(concepts::Diagnosable<Rendering>);
+    static_assert(!concepts::Diagnosable<Plain>);
+    static_assert(concepts::DescriptiveStatisticsLike<GoodStats>);
+    static_assert(!concepts::DescriptiveStatisticsLike<BadStats>);
+
+    struct GoodHistogram {
+        void record(double) noexcept {}
+        Rendering read() const { return {}; }
+        Rendering snapshot() const { return {}; }
+    };
+    struct NoRecordHistogram {
+        Rendering read() const { return {}; }
+        Rendering snapshot() const { return {}; }
+    };
+    static_assert(concepts::HistogramLike<GoodHistogram>);
+    static_assert(!concepts::HistogramLike<NoRecordHistogram>);
+
+    static_assert(concepts::MeterLike<NullMeter>);
+    static_assert(!concepts::InstrumentMeterLike<NullMeter>);
+
+    const std::size_t before = g_alloc_used;
+    const SinkBinding<Pod> binding{};
+    NX_CHECK(binding.on_event == nullptr);
+    NX_CHECK(binding.flush == nullptr);
+    NX_CHECK(g_alloc_used == before);
+
+    const auto first = NullMeter::create_counter("noop");
+    const auto second = NullMeter::create_counter<>("noop");
+    NX_CHECK(first.has_value());
+    NX_CHECK(second.has_value());
+    NX_CHECK(*first == *second);
+}
+
 int main() {
     run_suite("result", test_result);
     run_suite("json_smoke", test_json_smoke);
@@ -2251,6 +2377,8 @@ int main() {
     run_suite("thread_apply_failure_modes", test_thread_apply_failure_modes);
     run_suite("thread_report_and_publication", test_thread_report_and_publication);
     run_suite("rt_integration_opt_in", test_rt_integration_opt_in);
+    run_suite("null_meter", test_null_meter);
+    run_suite("core_concepts", test_core_concepts);
 
     const int failures = g_failures;
     std::printf("total: %d checks, %d failed\n", g_checks, failures);

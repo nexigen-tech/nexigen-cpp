@@ -75,7 +75,7 @@ void expect(bool condition, const char* what) {
 // saw, so the example can verify what the provider harvested.
 class CaptureSink {
 public:
-    [[nodiscard]] core::Status on_batch(const metrics::MetricBatchSnapshot& batch) noexcept {
+    [[nodiscard]] core::Status on_event(const metrics::MetricBatchSnapshot& batch) noexcept {
         for (std::uint32_t i = 0; i < batch.record_count; ++i) {
             if (batch.records == nullptr) {
                 break;

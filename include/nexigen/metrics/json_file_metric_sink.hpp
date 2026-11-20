@@ -47,7 +47,7 @@ public:
     /// @brief Open the configured path and copy the application name.
     ///
     /// An unopenable path leaves the sink without a descriptor (`is_open()` is
-    /// `false`) instead of failing construction; `on_batch` then reports
+    /// `false`) instead of failing construction; `on_event` then reports
     /// `SystemError`, so the error stays visible through the sink contract.
     ///
     /// @param config Sink configuration: file path, append flag and application
@@ -124,7 +124,7 @@ public:
     /// @note Spec `metrics/metric-sinks`, requirement "JSON-lines file sink"
     ///       and scenario "Scratch overflow discards the batch and counts
     ///       it"; the callback stays allocation-free.
-    [[nodiscard]] core::Status on_batch(const MetricBatchSnapshot& batch) noexcept {
+    [[nodiscard]] core::Status on_event(const MetricBatchSnapshot& batch) noexcept {
         if (fd_ < 0) {
             return std::unexpected(core::ErrorCode::SystemError);
         }

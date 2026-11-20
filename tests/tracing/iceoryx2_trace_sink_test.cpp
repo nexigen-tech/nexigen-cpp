@@ -4,7 +4,7 @@
 // The suite shares the tracing allocation-arena harness: operator new is
 // re-backed by a fixed arena, so `arena_used()` is an exact C++-heap counter
 // (iceoryx2's Rust allocations go through the system allocator and are outside
-// that counter; the structural no-allocation guarantee of `on_span` is what is
+// that counter; the structural no-allocation guarantee of `on_event` is what is
 // asserted).
 #include "tracing_test_support.hpp"
 
@@ -125,9 +125,9 @@ void test_concept_and_diagnostics() {
     NX_CHECK(json.contains("hash_hits"));
     NX_CHECK(json.contains("hash_misses"));
 
-    // Not started: on_span reports NotInitialized and never touches transport.
+    // Not started: on_event reports NotInitialized and never touches transport.
     const auto record = make_record(0U);
-    NX_CHECK(!sink.on_span(record).has_value());
+    NX_CHECK(!sink.on_event(record).has_value());
     NX_CHECK(sink.flush().has_value());
 }
 
@@ -159,7 +159,7 @@ void test_publish_roundtrip() {
     NX_CHECK(record.attributes[1].store("blob", long_text));
     NX_CHECK(!record.attributes[1].text_inline); // zero-copy view arm
     record.attribute_count = 2U;
-    NX_CHECK(sink.on_span(record).has_value());
+    NX_CHECK(sink.on_event(record).has_value());
 
     tracing::SpanFrame frame{};
     NX_CHECK(receive_frames(*subscriber, &frame, 1U) == 1U);
@@ -217,10 +217,10 @@ void test_memo_cache() {
     // No subscriber needed for the counter semantics: sends succeed into an
     // empty service and the frames are discarded.
     const tracing::SpanRecord record = make_record(1U);
-    NX_CHECK(sink.on_span(record).has_value());
+    NX_CHECK(sink.on_event(record).has_value());
     NX_CHECK(sink.hash_misses() == 2U); // file + function
     NX_CHECK(sink.hash_hits() == 0U);
-    NX_CHECK(sink.on_span(record).has_value());
+    NX_CHECK(sink.on_event(record).has_value());
     NX_CHECK(sink.hash_hits() == 2U);
     NX_CHECK(sink.hash_misses() == 2U);
 
@@ -239,7 +239,7 @@ void test_memo_cache() {
     static char paths[distinct][32]{};
     for (std::size_t i = 0; i < distinct; ++i) {
         std::snprintf(paths[i], sizeof(paths[i]), "/src/file_%02zu.cpp", i);
-        NX_CHECK(sink.on_span(make_record(i, paths[i], "run")).has_value());
+        NX_CHECK(sink.on_event(make_record(i, paths[i], "run")).has_value());
     }
     tracing::SpanFrame frames[distinct]{};
     NX_CHECK(receive_frames(*subscriber, frames, static_cast<std::uint32_t>(distinct)) == distinct);
@@ -251,7 +251,7 @@ void test_memo_cache() {
     // Null locations hash to zero without entering the cache.
     const std::uint64_t misses_before = sink.hash_misses();
     tracing::SpanRecord null_location = make_record(99U, nullptr, nullptr);
-    NX_CHECK(sink.on_span(null_location).has_value());
+    NX_CHECK(sink.on_event(null_location).has_value());
     NX_CHECK(sink.hash_misses() == misses_before);
     tracing::SpanFrame null_frame{};
     NX_CHECK(receive_frames(*subscriber, &null_frame, 1U) == 1U);
@@ -283,15 +283,15 @@ void test_overflow_and_gap() {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    NX_CHECK(sink.on_span(make_record(0U)).has_value()); // seq 0, queued
-    NX_CHECK(sink.on_span(make_record(1U)).has_value()); // seq 1, queue full -> dropped
+    NX_CHECK(sink.on_event(make_record(0U)).has_value()); // seq 0, queued
+    NX_CHECK(sink.on_event(make_record(1U)).has_value()); // seq 1, queue full -> dropped
     NX_CHECK(sink.dropped() >= 1U);
 
     tracing::SpanFrame first{};
     NX_CHECK(receive_frames(*subscriber, &first, 1U) == 1U);
     NX_CHECK(first.sequence == 0U);
 
-    NX_CHECK(sink.on_span(make_record(2U)).has_value()); // seq 2, delivered
+    NX_CHECK(sink.on_event(make_record(2U)).has_value()); // seq 2, delivered
     tracing::SpanFrame third{};
     NX_CHECK(receive_frames(*subscriber, &third, 1U) == 1U);
     NX_CHECK(third.sequence == 2U); // the dropped 1 is an observable gap
@@ -324,7 +324,7 @@ void test_burst_and_sequences() {
 
     constexpr std::uint32_t count = 8U;
     for (std::uint32_t i = 0; i < count; ++i) {
-        NX_CHECK(sink.on_span(make_record(i)).has_value());
+        NX_CHECK(sink.on_event(make_record(i)).has_value());
     }
     tracing::SpanFrame frames[count]{};
     NX_CHECK(receive_frames(*subscriber, frames, count) == count);
@@ -350,11 +350,11 @@ void test_allocation_free() {
 
     const tracing::SpanRecord record = make_record(7U);
     for (int i = 0; i < 64; ++i) { // warm up lazy transport paths first
-        NX_CHECK(sink.on_span(record).has_value());
+        NX_CHECK(sink.on_event(record).has_value());
     }
     const std::size_t before = arena_used();
     for (int i = 0; i < 1000; ++i) {
-        NX_CHECK(sink.on_span(record).has_value());
+        NX_CHECK(sink.on_event(record).has_value());
     }
     NX_CHECK(arena_used() == before);
     sink.stop();
@@ -411,7 +411,7 @@ void test_latency() {
 
     const tracing::SpanRecord record = make_record(1U);
     for (int i = 0; i < 2000; ++i) {
-        NX_CHECK(sink.on_span(record).has_value());
+        NX_CHECK(sink.on_event(record).has_value());
     }
 
     const std::uint64_t t0 = __rdtsc();
@@ -428,7 +428,7 @@ void test_latency() {
     static std::uint64_t overhead[n]{};
     for (std::size_t i = 0; i < n; ++i) {
         const std::uint64_t r0 = __rdtsc();
-        NX_CHECK(sink.on_span(record).has_value());
+        NX_CHECK(sink.on_event(record).has_value());
         const std::uint64_t r1 = __rdtsc();
         raw[i] = r1 - r0;
     }
@@ -441,7 +441,7 @@ void test_latency() {
     std::sort(overhead, overhead + n);
     const double overhead_ns = static_cast<double>(overhead[n / 2U]) * ns_per_tick;
     const LatencyStats stats = stats_of(raw, n, ns_per_tick, overhead_ns);
-    std::printf("latency: on_span median %.1f ns  p99 %.1f ns  p99.9 %.1f ns  max %.1f ns "
+    std::printf("latency: on_event median %.1f ns  p99 %.1f ns  p99.9 %.1f ns  max %.1f ns "
                 "(gate 400, overhead %.2f ns, ns/tick %.4f)\n",
                 stats.median_ns, stats.p99_ns, stats.p999_ns, stats.max_ns, overhead_ns,
                 ns_per_tick);
@@ -467,7 +467,7 @@ void test_latency() {
     tracing::Iceoryx2TraceSink sink{config, &*node};
     NX_CHECK(sink.start().has_value());
     for (int i = 0; i < 1000; ++i) {
-        NX_CHECK(sink.on_span(make_record(1U)).has_value());
+        NX_CHECK(sink.on_event(make_record(1U)).has_value());
     }
     std::printf("latency: accounting-only run (non-x86)\n");
     sink.stop();

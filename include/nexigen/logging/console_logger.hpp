@@ -268,11 +268,11 @@ public:
         producer_.emit(core::LogLevel::Fatal, fmt, std::forward<Args>(args)...);
     }
 
-    /// @brief Control-plane barrier: drain every shard and synchronize the streams.
+    /// @brief Control-plane barrier: drain every shard and flush the streams.
     ///
     /// Returns once every record accepted before the call has been written to its
     /// stream across all shards. Console writes are unbuffered syscalls, so the
-    /// sink-level synchronize is trivially complete.
+    /// sink-level flush is trivially complete.
     ///
     /// @return OK when the barrier completed; `ErrorCode::NotInitialized` if the
     ///         writer was never started and `ErrorCode::SystemError` if it is gone

@@ -27,6 +27,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/concepts/sink_concept.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/tracing/span_context.hpp>
 #include <nexigen/tracing/span_enums.hpp>
@@ -98,28 +99,19 @@ concept Tracer = requires(T& tracer, std::string_view name, SpanKind kind,
 /// @brief A trace sink: lifecycle start/stop, per-record delivery, flush, and a
 ///        cold-path diagnostic.
 ///
-/// Every member is `noexcept` — a throwing `on_span` fails the concept at
+/// Every member is `noexcept` — a throwing `on_event` fails the concept at
 /// compile time, so the worker can drain without exception handling. `start`,
-/// `on_span` and `flush` report through `core::Status`; `stop` is a plain
+/// `on_event` and `flush` report through `core::Status`; `stop` is a plain
 /// `noexcept` call. Conforming sinks are pinned by `static_assert` in their own
 /// headers.
 ///
 /// @tparam S Candidate sink type, constrained to `noexcept`
-///         `start`/`on_span`/`flush` returning `core::Status`, a `noexcept`
+///         `start`/`on_event`/`flush` returning `core::Status`, a `noexcept`
 ///         `stop`, and `to_string()` returning `std::string`.
 /// @note Spec `tracing/tracer-concepts`, requirement "TraceSink structural
 ///       concept".
 template <class S>
-concept TraceSink = requires(S& sink, const SpanRecord& record) {
-    /// @brief Begin delivery; non-throwing, reports through `core::Status`.
-    { sink.start() } noexcept -> std::same_as<core::Status>;
-    /// @brief Deliver one drained record; must never throw across the worker.
-    { sink.on_span(record) } noexcept -> std::same_as<core::Status>;
-    /// @brief Make accepted records durable; surfaces sink errors.
-    { sink.flush() } noexcept -> std::same_as<core::Status>;
-    /// @brief Stop delivery; plain non-throwing call with no status.
-    { sink.stop() } noexcept;
-    /// @brief Cold-path diagnostic text.
+concept TraceSink = core::concepts::LifecycleSink<S, SpanRecord> && requires(S& sink) {
     { sink.to_string() } -> std::same_as<std::string>;
 };
 

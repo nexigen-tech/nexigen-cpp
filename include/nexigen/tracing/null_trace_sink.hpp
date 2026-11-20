@@ -2,7 +2,7 @@
 // tracing/tracer-concepts "NullTraceSink zero-work sink").
 //
 // The cheapest conforming sink: it accepts every span and does nothing. No
-// output, no allocation, no system call — on_span discards the record
+// output, no allocation, no system call — on_event discards the record
 // without reading it. start/flush succeed as no-ops; stop does nothing.
 #pragma once
 
@@ -19,7 +19,7 @@ namespace nexigen::tracing {
 
 /// @brief Cheapest conforming sink: accepts every span and discards it.
 ///
-/// `on_span` never reads the record, writes no output, allocates nothing and
+/// `on_event` never reads the record, writes no output, allocates nothing and
 /// makes no system call; `start()`/`flush()` succeed unconditionally and
 /// `stop()` does nothing. The type is stateless and trivially shareable, so it
 /// can serve as a placeholder sink or as the neutral member of a
@@ -43,7 +43,7 @@ public:
     ///         allocated.
     /// @note Spec `tracing/tracer-concepts`, requirement "NullTraceSink
     ///       zero-work sink".
-    [[nodiscard]] core::Status on_span(const SpanRecord&) noexcept { return {}; }
+    [[nodiscard]] core::Status on_event(const SpanRecord&) noexcept { return {}; }
 
     /// @brief Complete a flush request without doing any work.
     ///

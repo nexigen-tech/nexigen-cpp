@@ -3,7 +3,7 @@
 // design D1/D2/D3).
 //
 // Satisfies concepts::MetricSink. The provider's background harvester calls
-// on_batch; the sink fans the batch out into one MetricFrame per record,
+// on_event; the sink fans the batch out into one MetricFrame per record,
 // publishes each over the configured pub-sub service, and notifies listeners
 // once per batch. Nothing here runs on a producer hot path: the provider only
 // delivers batches on its harvester thread, and the publish path is
@@ -32,7 +32,7 @@ namespace nexigen::metrics {
 
 /// @brief Sink that publishes one `MetricFrame` per harvested record over iceoryx2.
 ///
-/// The provider's background harvester is the only caller of `on_batch`; the
+/// The provider's background harvester is the only caller of `on_event`; the
 /// sink fans the batch into one fixed frame per record, publishes each over the
 /// configured pub-sub service and notifies listeners once per non-empty batch.
 /// Nothing runs on a producer hot path, and publishing is allocation-free (one
@@ -121,7 +121,7 @@ public:
     ///         not succeeded.
     /// @note Spec `metrics/iceoryx2-metric-sink`, requirement "Batches are
     ///       published as frames".
-    [[nodiscard]] core::Status on_batch(const MetricBatchSnapshot& batch) noexcept {
+    [[nodiscard]] core::Status on_event(const MetricBatchSnapshot& batch) noexcept {
         if (!publisher_.has_value()) {
             return std::unexpected(core::ErrorCode::NotInitialized);
         }
@@ -153,7 +153,7 @@ public:
 
     /// @brief Drop the publisher and notifier, returning the sink to unstarted.
     ///
-    /// Safe to call without a prior `start()`; `on_batch` then reports
+    /// Safe to call without a prior `start()`; `on_event` then reports
     /// `NotInitialized` until the next successful `start()`.
     void stop() noexcept {
         publisher_.reset();

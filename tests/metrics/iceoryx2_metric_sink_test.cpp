@@ -7,7 +7,7 @@
 // to the live publish path.
 //
 // Allocation-free guarantee (spec scenario "Sink callbacks are allocation-free"):
-// on_batch touches only the fixed `frame_` member and the transport's zero-copy
+// on_event touches only the fixed `frame_` member and the transport's zero-copy
 // loan/write/send — no std::string, no new/delete, no container growth — so an
 // armed arena would observe no C++ heap traffic. The arena is intentionally not
 // armed here because the iceoryx2 system allocator would drown it; the
@@ -75,13 +75,13 @@ void test_concept_and_diagnostics() {
     NX_CHECK(metrics::to_string(sink) == sink.to_string());
     NX_CHECK(std::format("{}", sink) == sink.to_string());
     NX_CHECK(sink.to_string().find("TEST") != std::string::npos);
-    // Not started yet: on_batch reports NotInitialized without allocating.
+    // Not started yet: on_event reports NotInitialized without allocating.
     metrics::MetricRecord record{};
     metrics::MetricBatchSnapshot batch{};
     batch.records = &record;
     batch.record_count = 1;
     batch.record_capacity = 1;
-    NX_CHECK(!sink.on_batch(batch).has_value());
+    NX_CHECK(!sink.on_event(batch).has_value());
     NX_CHECK(sink.flush().has_value());
 }
 
@@ -127,7 +127,7 @@ void test_publish_roundtrip() {
     batch.record_capacity = 2;
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100)); // let discovery connect
-    NX_CHECK(sink.on_batch(batch).has_value());
+    NX_CHECK(sink.on_event(batch).has_value());
 
     // Every record becomes one frame.
     std::uint32_t received = 0;
@@ -201,7 +201,7 @@ void test_burst_no_drop() {
     batch.record_capacity = 8;
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    NX_CHECK(sink.on_batch(batch).has_value());
+    NX_CHECK(sink.on_event(batch).has_value());
 
     std::uint32_t received = 0;
     for (int attempt = 0; attempt < 1000 && received < 8; ++attempt) {
@@ -262,7 +262,7 @@ void test_out_of_samples_no_block() {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     // Publishing 8 frames into a 2-deep buffer must return promptly: the
     // transport discards the excess (DiscardData) and the sink never blocks.
-    NX_CHECK(sink.on_batch(batch).has_value());
+    NX_CHECK(sink.on_event(batch).has_value());
     sink.stop();
 }
 

@@ -49,7 +49,7 @@ struct FullLoggerModel {
     }
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(concepts::Logger<FullLoggerModel>);
+static_assert(nexigen::logging::concepts::Logger<FullLoggerModel>);
 
 /// Failing member for the composite flush parity test (analysis #21 /
 /// change fix-p2-observability-and-writers): carries its own error code so
@@ -73,7 +73,7 @@ struct NoFatalModel { // fatal omitted entirely
     NX_CONV_5()
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(!concepts::Logger<NoFatalModel>);
+static_assert(!nexigen::logging::concepts::Logger<NoFatalModel>);
 
 struct NoFlushModel { // flush omitted entirely
     void set_level(LogLevel) noexcept {}
@@ -84,7 +84,7 @@ struct NoFlushModel { // flush omitted entirely
         log(LogLevel::Fatal, f, std::forward<A>(a)...);
     }
 };
-static_assert(!concepts::Logger<NoFlushModel>);
+static_assert(!nexigen::logging::concepts::Logger<NoFlushModel>);
 
 struct LevelNonconstModel { // level() loses const
     void set_level(LogLevel) noexcept {}
@@ -96,7 +96,7 @@ struct LevelNonconstModel { // level() loses const
     }
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(!concepts::Logger<LevelNonconstModel>);
+static_assert(!nexigen::logging::concepts::Logger<LevelNonconstModel>);
 
 struct LogNotNoexceptModel { // log() loses noexcept
     void set_level(LogLevel) noexcept {}
@@ -107,7 +107,7 @@ struct LogNotNoexceptModel { // log() loses noexcept
     template <class... A> void fatal(detail::format_param_t<A...>, A&&...) noexcept {}
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(!concepts::Logger<LogNotNoexceptModel>);
+static_assert(!nexigen::logging::concepts::Logger<LogNotNoexceptModel>);
 
 struct LogReturnsStatusModel { // old surface: log() returns Status, not void
     void set_level(LogLevel) noexcept {}
@@ -121,7 +121,7 @@ struct LogReturnsStatusModel { // old surface: log() returns Status, not void
     template <class... A> void fatal(detail::format_param_t<A...>, A&&...) noexcept {}
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(!concepts::Logger<LogReturnsStatusModel>);
+static_assert(!nexigen::logging::concepts::Logger<LogReturnsStatusModel>);
 
 struct InfoNeedsLocationModel { // info() demands an explicit location arg
     void set_level(LogLevel) noexcept {}
@@ -138,7 +138,7 @@ struct InfoNeedsLocationModel { // info() demands an explicit location arg
     template <class... A> void fatal(detail::format_param_t<A...>, A&&...) noexcept {}
     [[nodiscard]] Status flush() noexcept { return {}; }
 };
-static_assert(!concepts::Logger<InfoNeedsLocationModel>);
+static_assert(!nexigen::logging::concepts::Logger<InfoNeedsLocationModel>);
 
 #undef NX_CONV_5
 

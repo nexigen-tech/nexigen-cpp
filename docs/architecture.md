@@ -35,6 +35,12 @@
 - **Сериализация как мандат.** Публичные типы имеют холодные `to_string()`,
   ADL `to_json`/`from_json` (при `JSON_NOEXCEPTION=1`), а перечисления —
   `constexpr to_string`/`from_string` и `std::formatter`.
+- **Концепты для развязки.** Общие структурные контракты (`Message`,
+  `LevelLogger`, `Logger`, `Sink`, `LifecycleSink`, `CounterLike`, `GaugeLike`,
+  `StateGaugeLike`, `DescriptiveStatisticsLike`, `HistogramLike`, `MeterLike`) живут в
+  `nexigen::core::concepts`; доменные концепты остаются в своих модулях.
+  Sink-и доставляют через `on_event()`/`flush()`, lifecycle-часть —
+  `start()`/`stop()`, и связываются общим `core::SinkBinding<Event>`.
 
 ## 2. Карта модулей
 
