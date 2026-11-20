@@ -83,6 +83,13 @@ inline void from_json(const nlohmann::json& j, DeviceAccessMode& out) noexcept {
 template <>
 struct std::formatter<nexigen::chrono::DeviceAccessMode> : std::formatter<std::string_view> {
     /// @brief Format the mode through `to_string()`.
+    ///
+    /// @tparam Ctx Format context type.
+    /// @param value Mode to format.
+    /// @param ctx Output context supplied by `std::format`.
+    /// @return Iterator past the last written character.
+    /// @note Mandate 11 (`std::formatter`); spec `chrono/time-base`,
+    ///       requirement "Hardware domain access modes".
     template <class Ctx>
     auto format(const nexigen::chrono::DeviceAccessMode value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(nexigen::chrono::to_string(value), ctx);

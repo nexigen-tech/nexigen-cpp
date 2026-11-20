@@ -35,6 +35,11 @@ struct AdjtimexStatus {
     [[nodiscard]] bool locked() const noexcept { return pll_engaged && !unsynchronized; }
 
     /// @brief Render the status as a diagnostic string.
+    ///
+    /// @return Text naming the offset, frequency correction, error bounds and
+    ///         lock state.
+    /// @note Spec `chrono/time-sync`, requirement "Time-service availability
+    ///       flags"; cold path only (allocates).
     [[nodiscard]] std::string to_string() const;
 };
 
@@ -60,6 +65,13 @@ void from_json(const nlohmann::json& j, AdjtimexStatus& status) noexcept;
 template <>
 struct std::formatter<nexigen::chrono::AdjtimexStatus> : std::formatter<std::string_view> {
     /// @brief Format the status through `to_string()`.
+    ///
+    /// @tparam Ctx Format context type.
+    /// @param value Status to format.
+    /// @param ctx Output context supplied by `std::format`.
+    /// @return Iterator past the last written character.
+    /// @note Mandate 11 (`std::formatter`); spec `chrono/time-sync`,
+    ///       requirement "Time-service availability flags".
     template <class Ctx> auto format(const nexigen::chrono::AdjtimexStatus& value, Ctx& ctx) const {
         const std::string text = value.to_string();
         return std::formatter<std::string_view>::format(text, ctx);

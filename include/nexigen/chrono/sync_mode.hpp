@@ -75,6 +75,13 @@ inline void from_json(const nlohmann::json& j, SyncMode& out) noexcept {
 /// @brief `std::formatter` for `SyncMode`.
 template <> struct std::formatter<nexigen::chrono::SyncMode> : std::formatter<std::string_view> {
     /// @brief Format the mode through its canonical name.
+    ///
+    /// @tparam Ctx Format context type.
+    /// @param value Mode to format.
+    /// @param ctx Output context supplied by `std::format`.
+    /// @return Iterator past the last written character.
+    /// @note Mandate 11 (`std::formatter`); spec `chrono/time-sync`,
+    ///       requirement "Platform sync mode".
     template <class Ctx> auto format(const nexigen::chrono::SyncMode value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(nexigen::chrono::to_string(value), ctx);
     }

@@ -85,6 +85,8 @@ template <> struct EnumTraits<nexigen::chrono::TimeSyncStatus> {
         nexigen::chrono::TimeSyncStatus value; ///< Enumerator.
         std::string_view name;                 ///< Canonical name.
     };
+    /// @brief Append-only rows in enumerator order.
+    /// @note Spec `chrono/time-sync`, requirement "Monitor diagnostics".
     static constexpr std::array<Entry, 4> entries{{
         {nexigen::chrono::TimeSyncStatus::Ok, "Ok"},
         {nexigen::chrono::TimeSyncStatus::Stepped, "Stepped"},

@@ -87,12 +87,18 @@ public:
     [[nodiscard]] bool bind_device(TimeBaseDeviceBackend backend) noexcept;
 
     /// @brief Number of bound hardware domains.
+    /// @return Bound-device count.
+    /// @note Spec `chrono/time-base`, requirement "Daemon configuration".
     [[nodiscard]] std::uint32_t device_count() const noexcept { return device_count_; }
 
     /// @brief Number of declared domains that are not bound.
+    /// @return Declared-but-missing domain count.
+    /// @note Spec `chrono/time-base`, requirement "Daemon configuration".
     [[nodiscard]] std::uint32_t missing_domain_count() const noexcept;
 
     /// @brief The published synchronization mode (derived from the policy).
+    /// @return Mode carried by the latest publication.
+    /// @note Spec `chrono/time-sync`, requirement "Platform sync mode".
     [[nodiscard]] SyncMode sync_mode() const noexcept { return sync_mode_; }
 
     /// @brief Set the synchronization policy for the next publications.

@@ -73,6 +73,9 @@ struct alignas(64) TimeBaseBlock {
     }
 
     /// @brief Render this block as a diagnostic string.
+    /// @return Text naming the generation, status, row count and snapshot.
+    /// @note Spec `chrono/time-base`, requirement "Time-base serialization";
+    ///       cold path only (allocates).
     [[nodiscard]] std::string to_string() const;
 };
 

@@ -72,6 +72,9 @@ struct alignas(64) TimeSnapshot {
     }
 
     /// @brief Render the snapshot as a diagnostic string.
+    /// @return Text naming the generation, status, mode, flags and every domain.
+    /// @note Spec `chrono/time-base`, requirement "1 Hz service snapshot";
+    ///       cold path only (allocates).
     [[nodiscard]] std::string to_string() const;
 };
 
@@ -93,6 +96,13 @@ void from_json(const nlohmann::json& j, TimeSnapshot& snapshot) noexcept;
 template <>
 struct std::formatter<nexigen::chrono::TimeSnapshot> : std::formatter<std::string_view> {
     /// @brief Format the snapshot through `to_string()`.
+    ///
+    /// @tparam Ctx Format context type.
+    /// @param value Snapshot to format.
+    /// @param ctx Output context supplied by `std::format`.
+    /// @return Iterator past the last written character.
+    /// @note Mandate 11 (`std::formatter`); spec `chrono/time-base`,
+    ///       requirement "1 Hz service snapshot".
     template <class Ctx> auto format(const nexigen::chrono::TimeSnapshot& value, Ctx& ctx) const {
         const std::string text = value.to_string();
         return std::formatter<std::string_view>::format(text, ctx);

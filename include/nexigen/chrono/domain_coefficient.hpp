@@ -60,27 +60,40 @@ struct alignas(64) DomainCoefficient {
     std::uint8_t reserved[24]{}; ///< Reserved; zero in this version.
 
     /// @brief Whether the reverse map is valid.
+    /// @return `true` when `scale_rev_q32` may be applied.
+    /// @note Spec `chrono/time-base`, requirement "Domain coefficient row".
     [[nodiscard]] constexpr bool has_reverse() const noexcept {
         return (flags & has_reverse_bit) != 0U;
     }
 
     /// @brief Whether the pair came from a hardware latch.
+    /// @return `true` for a latched register pair or cross-timestamp.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] constexpr bool latched() const noexcept { return (flags & latched_bit) != 0U; }
 
     /// @brief Whether the device supports PCIe PTM.
+    /// @return `true` when the firmware advertised the PTM capability.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] constexpr bool ptm_capable() const noexcept {
         return (flags & ptm_capable_bit) != 0U;
     }
 
     /// @brief Whether the pair is a software-read manual pair.
+    /// @return `true` when the counter and hub clock were read in software.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] constexpr bool manual_pair() const noexcept {
         return (flags & manual_pair_bit) != 0U;
     }
 
     /// @brief The stored domain name as a view.
+    /// @return Text up to the NUL terminator of `name`.
+    /// @note Spec `chrono/time-base`, requirement "Domain coefficient row".
     [[nodiscard]] std::string_view name_view() const noexcept;
 
     /// @brief Render the row as a diagnostic string.
+    /// @return Text naming the id, class, epoch, maps, validity and flags.
+    /// @note Spec `chrono/time-base`, requirement "Time-base serialization";
+    ///       cold path only (allocates).
     [[nodiscard]] std::string to_string() const;
 };
 

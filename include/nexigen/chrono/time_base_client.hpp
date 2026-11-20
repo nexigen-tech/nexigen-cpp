@@ -149,6 +149,9 @@ public:
     /// @brief Move-construct, transferring the mapping.
     TimeBaseClient(TimeBaseClient&&) noexcept = default;
     /// @brief Move-assign, transferring the mapping.
+    /// @return This client; the source is left empty.
+    /// @note Spec `chrono/time-base`, requirement "Client attach and required
+    ///       domains".
     TimeBaseClient& operator=(TimeBaseClient&&) noexcept = default;
     /// @brief Release the mapping.
     ~TimeBaseClient() = default;

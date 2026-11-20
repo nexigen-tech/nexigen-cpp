@@ -20,8 +20,10 @@ namespace nexigen::chrono::detail {
 ///
 /// @note Spec `chrono/worker`, requirement "Worker logger binding".
 struct LogBinding {
-    void* self{nullptr}; ///< Opaque logger instance passed back to `log`.
-    void (*log)(void*, core::LogLevel, std::string_view) noexcept {nullptr}; ///< Adapter thunk.
+    /// @brief Opaque logger instance passed back to `log`.
+    void* self{nullptr};
+    /// @brief Adapter thunk forwarding one formatted record to the logger.
+    void (*log)(void*, core::LogLevel, std::string_view) noexcept {nullptr};
 };
 
 } // namespace nexigen::chrono::detail

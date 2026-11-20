@@ -43,17 +43,26 @@ struct ServiceFlags {
     std::uint32_t bits{0}; ///< Active flags.
 
     /// @brief Whether one flag is set.
+    /// @param flag Flag to test.
+    /// @return `true` when the bit is present.
+    /// @note Spec `chrono/time-sync`, requirement "Time-service availability flags".
     [[nodiscard]] constexpr bool has(ServiceFlag flag) const noexcept {
         return (bits & static_cast<std::uint32_t>(flag)) != 0U;
     }
 
     /// @brief Set one flag.
+    /// @param flag Flag to add.
+    /// @note Spec `chrono/time-sync`, requirement "Time-service availability flags".
     constexpr void set(ServiceFlag flag) noexcept { bits |= static_cast<std::uint32_t>(flag); }
 
     /// @brief Clear one flag.
+    /// @param flag Flag to remove.
+    /// @note Spec `chrono/time-sync`, requirement "Time-service availability flags".
     constexpr void clear(ServiceFlag flag) noexcept { bits &= ~static_cast<std::uint32_t>(flag); }
 
     /// @brief Whether two flag sets are equal.
+    /// @return `true` when every bit of the other set matches.
+    /// @note Spec `chrono/time-sync`, requirement "Time-service availability flags".
     [[nodiscard]] constexpr bool operator==(const ServiceFlags&) const noexcept = default;
 };
 
@@ -137,6 +146,13 @@ void from_json(const nlohmann::json& j, ServiceFlags& flags) noexcept;
 /// @brief `std::formatter` for one service flag.
 template <> struct std::formatter<nexigen::chrono::ServiceFlag> : std::formatter<std::string_view> {
     /// @brief Format one flag through its canonical name.
+    ///
+    /// @tparam Ctx Format context type.
+    /// @param value Flag to format.
+    /// @param ctx Output context supplied by `std::format`.
+    /// @return Iterator past the last written character.
+    /// @note Mandate 11 (`std::formatter`); spec `chrono/time-sync`,
+    ///       requirement "Time-service availability flags".
     template <class Ctx> auto format(const nexigen::chrono::ServiceFlag value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(nexigen::chrono::to_string(value), ctx);
     }
@@ -146,6 +162,13 @@ template <> struct std::formatter<nexigen::chrono::ServiceFlag> : std::formatter
 template <>
 struct std::formatter<nexigen::chrono::ServiceFlags> : std::formatter<std::string_view> {
     /// @brief Format the set through `to_string(ServiceFlags)`.
+    ///
+    /// @tparam Ctx Format context type.
+    /// @param value Flags to format.
+    /// @param ctx Output context supplied by `std::format`.
+    /// @return Iterator past the last written character.
+    /// @note Mandate 11 (`std::formatter`); spec `chrono/time-sync`,
+    ///       requirement "Time-service availability flags".
     template <class Ctx> auto format(const nexigen::chrono::ServiceFlags& value, Ctx& ctx) const {
         const std::string text = nexigen::chrono::to_string(value);
         return std::formatter<std::string_view>::format(text, ctx);

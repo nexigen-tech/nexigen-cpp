@@ -89,12 +89,20 @@ public:
     }
 
     /// @brief Domain id this backend publishes.
+    /// @return Id in `device_domain_base..device_domain_last`.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] std::uint16_t domain_id() const noexcept { return domain_id_; }
     /// @brief Domain epoch this backend publishes.
+    /// @return Epoch of the current device lifecycle.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] std::uint64_t epoch() const noexcept { return epoch_; }
     /// @brief Human-readable device name.
+    /// @return Borrowed name stamped into the published row.
+    /// @note Spec `chrono/time-base`, requirement "Domain coefficient row".
     [[nodiscard]] std::string_view name() const noexcept { return name_; }
     /// @brief Access mode.
+    /// @return Mode that produced the pair.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] DeviceAccessMode mode() const noexcept { return mode_; }
 
     /// @brief Feed one read pair into an estimator.
@@ -187,6 +195,8 @@ public:
     [[nodiscard]] bool read_pair(TimeBaseCorrelationPair& out) noexcept;
 
     /// @brief Backend adapter over this reader.
+    /// @return Callable backend that applies the sequence/CRC protocol.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] TimeBaseDeviceBackend backend() noexcept;
 
 private:
@@ -221,6 +231,8 @@ public:
                             std::uint64_t latency_ns) noexcept;
 
     /// @brief Register block of the device (all D1-D3 fields).
+    /// @return Borrowed view of the current register map.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] const DeviceRegisterMap& registers() const noexcept { return registers_; }
 
     /// @brief Advance the device and read one fresh latched pair.
@@ -248,6 +260,7 @@ public:
 
     /// @brief Backend adapter over this device.
     /// @return A callable backend for the daemon loop.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] TimeBaseDeviceBackend backend() noexcept;
 
 private:
@@ -288,6 +301,8 @@ public:
     [[nodiscard]] bool read_pair(TimeBaseCorrelationPair& out) noexcept;
 
     /// @brief Backend adapter over this PHC.
+    /// @return A callable cross-timestamp backend.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] TimeBaseDeviceBackend backend() noexcept;
 
 private:
@@ -336,6 +351,8 @@ public:
     [[nodiscard]] bool read_pair(TimeBaseCorrelationPair& out) noexcept;
 
     /// @brief Backend adapter over this reader.
+    /// @return A callable manual-pair backend.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] TimeBaseDeviceBackend backend() noexcept;
 
 private:

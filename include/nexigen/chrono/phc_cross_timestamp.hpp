@@ -35,8 +35,13 @@ public:
     [[nodiscard]] static core::Result<PhcCrossTimestampClock> open(std::string_view path) noexcept;
 
     /// @brief Move-construct, transferring the descriptor.
+    /// @param other Clock whose descriptor is adopted; it becomes closed.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     PhcCrossTimestampClock(PhcCrossTimestampClock&& other) noexcept;
     /// @brief Move-assign, closing any descriptor already held.
+    /// @param other Clock whose descriptor is adopted; it becomes closed.
+    /// @return This clock.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     PhcCrossTimestampClock& operator=(PhcCrossTimestampClock&& other) noexcept;
     /// @brief Copying is deleted: the class owns a descriptor.
     PhcCrossTimestampClock(const PhcCrossTimestampClock&) = delete;
@@ -47,10 +52,16 @@ public:
     ~PhcCrossTimestampClock();
 
     /// @brief Whether a descriptor is held.
+    /// @return `true` when the clock is open and readable.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] bool is_open() const noexcept { return fd_ >= 0; }
     /// @brief The held descriptor, or `-1`.
+    /// @return Native file descriptor owned by this clock.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] int descriptor() const noexcept { return fd_; }
     /// @brief The device path this clock was opened from.
+    /// @return Borrowed path text, or empty for a moved-from clock.
+    /// @note Spec `chrono/time-base`, requirement "Hardware domain access modes".
     [[nodiscard]] std::string_view path() const noexcept { return path_; }
 
     /// @brief Read one `PTP_SYS_OFFSET_PRECISE` cross-timestamp pair.

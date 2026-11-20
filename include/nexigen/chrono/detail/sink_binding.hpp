@@ -19,9 +19,12 @@ namespace nexigen::chrono::detail {
 /// @note Spec `chrono/provider`, requirement "Provider construction and sink
 ///       binding".
 struct SinkBinding {
-    void* self{nullptr}; ///< Opaque sink instance passed to both thunks.
-    core::Status (*on_snapshot)(void*, const Snapshot&) noexcept {nullptr}; ///< Delivery thunk.
-    core::Status (*flush)(void*) noexcept {nullptr};                        ///< Flush thunk.
+    /// @brief Opaque sink instance passed to both thunks.
+    void* self{nullptr};
+    /// @brief Delivery thunk forwarding one snapshot to the sink.
+    core::Status (*on_snapshot)(void*, const Snapshot&) noexcept {nullptr};
+    /// @brief Flush thunk forwarding the sink's flush operation.
+    core::Status (*flush)(void*) noexcept {nullptr};
 };
 
 } // namespace nexigen::chrono::detail
