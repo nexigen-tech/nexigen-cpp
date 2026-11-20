@@ -7,6 +7,7 @@
 #include <utility>
 
 #include <nexigen/chrono/phc_cross_timestamp.hpp>
+#include <nexigen/core/detail/fault_injection.hpp>
 
 #if defined(__linux__)
 #include <fcntl.h>
@@ -85,15 +86,29 @@ bool PhcCrossTimestampClock::read_pair(TimeBaseCorrelationPair& out) noexcept {
     if (fd_ < 0) {
         return false;
     }
-    ptp_sys_offset_precise precise{};
-    if (::ioctl(fd_, PTP_SYS_OFFSET_PRECISE, &precise) != 0) {
-        return false;
-    }
-    const std::uint64_t device_ns = clock_time_ns(precise.device);
-    const std::uint64_t raw_before = clock_time_ns(precise.sys_monoraw);
-    const std::uint64_t realtime = clock_time_ns(precise.sys_realtime);
-    if (device_ns == 0U || raw_before == 0U) {
-        return false;
+    std::uint64_t device_ns = 0U;
+    std::uint64_t raw_before = 0U;
+    if (nexigen::core::fault_injection::fault(
+            nexigen::core::fault_injection::FaultPoint::Chrono_phc_cross_timestamp)) {
+        // Test-only seam: synthesize the pair the driver would return so the
+        // conversion and publication path is exercised without a PTP device.
+        ::timespec ts{};
+        if (::clock_gettime(CLOCK_MONOTONIC_RAW, &ts) != 0) {
+            return false;
+        }
+        raw_before = static_cast<std::uint64_t>(ts.tv_sec) * 1'000'000'000ULL +
+                     static_cast<std::uint64_t>(ts.tv_nsec);
+        device_ns = raw_before + 1'000U;
+    } else {
+        ptp_sys_offset_precise precise{};
+        if (::ioctl(fd_, PTP_SYS_OFFSET_PRECISE, &precise) != 0) {
+            return false;
+        }
+        device_ns = clock_time_ns(precise.device);
+        raw_before = clock_time_ns(precise.sys_monoraw);
+        if (device_ns == 0U || raw_before == 0U) {
+            return false;
+        }
     }
     out.native_ticks = device_ns;
     out.canonical_ns = static_cast<std::int64_t>(raw_before);
@@ -102,7 +117,6 @@ bool PhcCrossTimestampClock::read_pair(TimeBaseCorrelationPair& out) noexcept {
     out.uncertainty_ns = 1U;
     out.latched = true;
     out.ptm_capable = false;
-    static_cast<void>(realtime);
     return true;
 #else
     static_cast<void>(out);

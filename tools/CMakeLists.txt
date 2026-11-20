@@ -51,6 +51,12 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_phmd_help PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
+    add_test(NAME nexigen_phmd_usage
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-phmd/usage_test.sh
+                $<TARGET_FILE:nexigen-phmd>)
+    set_tests_properties(nexigen_phmd_usage PROPERTIES
+        TIMEOUT 60 LABELS "tools")
+
     add_test(NAME nexigen_phmd_hostile_config
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hostile_config_test.sh
                 $<TARGET_FILE:nexigen-phmd> --manifest)

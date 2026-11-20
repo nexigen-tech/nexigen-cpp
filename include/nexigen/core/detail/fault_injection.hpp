@@ -36,17 +36,18 @@ enum class FaultPoint : std::uint8_t {
     Phm_claim_send,
     /// Waking the daemon after an identity claim.
     Phm_claim_event,
-    Hub_socket,               ///< Hub socket creation.
-    Hub_bind,                 ///< Hub address binding.
-    Hub_epoll,                ///< Hub epoll instance creation.
-    Hub_eventfd,              ///< Hub eventfd creation.
-    Thread_set_name,          ///< Applying a thread name.
-    Thread_set_affinity,      ///< Applying a CPU affinity.
-    Thread_set_scheduler,     ///< Applying a scheduling policy/priority.
-    Thread_snapshot,          ///< Snapshotting inherited thread attributes.
-    Thread_restore_name,      ///< Rolling back a thread name.
-    Thread_restore_affinity,  ///< Rolling back a CPU affinity.
-    Thread_restore_scheduler, ///< Rolling back a scheduling policy/priority.
+    Hub_socket,                 ///< Hub socket creation.
+    Hub_bind,                   ///< Hub address binding.
+    Hub_epoll,                  ///< Hub epoll instance creation.
+    Hub_eventfd,                ///< Hub eventfd creation.
+    Thread_set_name,            ///< Applying a thread name.
+    Thread_set_affinity,        ///< Applying a CPU affinity.
+    Thread_set_scheduler,       ///< Applying a scheduling policy/priority.
+    Thread_snapshot,            ///< Snapshotting inherited thread attributes.
+    Thread_restore_name,        ///< Rolling back a thread name.
+    Thread_restore_affinity,    ///< Rolling back a CPU affinity.
+    Thread_restore_scheduler,   ///< Rolling back a scheduling policy/priority.
+    Chrono_phc_cross_timestamp, ///< PHC cross-timestamp ioctl (synthesize a pair).
 };
 
 #if defined(NEXIGEN_ENABLE_FAULT_INJECTION)

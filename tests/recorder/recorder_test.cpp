@@ -17,6 +17,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/enum_traits.hpp>
 #include <nexigen/recorder/dataset_info.hpp>
 #include <nexigen/recorder/builtin_schemas.hpp>
 #include <nexigen/recorder/config_loader.hpp>
@@ -51,6 +52,20 @@ int g_failures = 0;
 
 [[nodiscard]] std::vector<std::uint8_t> json_bytes(const std::string& text) {
     return std::vector<std::uint8_t>(text.begin(), text.end());
+}
+
+template <class E> void check_recorder_enum_vocabulary() {
+    for (const auto& entry : nexigen::core::EnumTraits<E>::entries) {
+        NX_CHECK(nexigen::recorder::to_string(entry.value) == entry.name);
+        E parsed{};
+        NX_CHECK(nexigen::recorder::from_string(entry.name, parsed));
+        NX_CHECK(parsed == entry.value);
+        NX_CHECK(std::format("{}", entry.value) == entry.name);
+        const nlohmann::json encoded = entry.value;
+        E decoded{};
+        nexigen::recorder::from_json(encoded, decoded);
+        NX_CHECK(decoded == entry.value);
+    }
 }
 
 void test_wire_layout() {
@@ -1441,6 +1456,144 @@ void test_payload_decoder() {
     NX_CHECK(!nexigen::recorder::encoding_supported("capnproto"));
 }
 
+void test_payload_decoder_extended() {
+    using nexigen::recorder::DatasetField;
+    using nexigen::recorder::PayloadKind;
+
+    auto field = [](const char* name, const char* type, std::uint32_t offset, std::uint32_t size,
+                    std::uint32_t count, std::uint32_t stride) {
+        DatasetField out{};
+        out.name = name;
+        out.type = type;
+        out.offset = offset;
+        out.element_size = size;
+        out.count = count;
+        out.stride = stride;
+        return out;
+    };
+
+    // Signed, float, and array fields exercise every scalar branch.
+    std::array<std::byte, 40> pod{};
+    auto put = [&pod](std::size_t offset, std::uint64_t value, std::size_t size) {
+        for (std::size_t i = 0; i < size; ++i) {
+            pod[offset + i] = static_cast<std::byte>((value >> (8U * i)) & 0xFFU);
+        }
+    };
+    put(0U, 0xFFU, 1U);
+    put(1U, 0xFFFEU, 2U);
+    put(3U, 0xFFFFFFFDU, 4U);
+    put(7U, 0xFFFFFFFFFFFFFFFCULL, 8U);
+    const float f32 = 1.5F;
+    std::memcpy(&pod[15], &f32, sizeof(f32));
+    const double f64 = 2.5;
+    std::memcpy(&pod[19], &f64, sizeof(f64));
+    put(27U, 1U, 2U);
+    put(29U, 2U, 2U);
+    put(31U, 3U, 2U);
+    const std::vector<DatasetField> fields{
+        field("i8", "i8", 0U, 1U, 1U, 1U),    field("i16", "i16", 1U, 2U, 1U, 2U),
+        field("i32", "i32", 3U, 4U, 1U, 4U),  field("i64", "i64", 7U, 8U, 1U, 8U),
+        field("f32", "f32", 15U, 4U, 1U, 4U), field("f64", "f64", 19U, 8U, 1U, 8U),
+        field("arr", "u16", 27U, 2U, 3U, 2U)};
+    const auto decoded = nexigen::recorder::decode_payload("jsonschema", {}, fields, pod);
+    NX_CHECK(decoded.has_value());
+    if (decoded.has_value()) {
+        const auto document = nlohmann::json::parse(decoded->text, nullptr, false);
+        NX_CHECK(!document.is_discarded());
+        NX_CHECK(document["i8"] == -1);
+        NX_CHECK(document["i16"] == -2);
+        NX_CHECK(document["i32"] == -3);
+        NX_CHECK(document["i64"] == -4);
+        NX_CHECK(document["f32"] == 1.5);
+        NX_CHECK(document["f64"] == 2.5);
+        NX_CHECK(document["arr"].size() == 3U);
+        NX_CHECK(document["arr"][2] == 3);
+    }
+
+    // An unsupported scalar type and a truncated payload are rejected.
+    const auto unknown_type = nexigen::recorder::decode_payload(
+        "jsonschema", {}, std::vector<DatasetField>{field("v", "u128", 0U, 16U, 1U, 16U)}, pod);
+    NX_CHECK(!unknown_type.has_value());
+    if (!unknown_type.has_value()) {
+        NX_CHECK(unknown_type.error() == nexigen::core::ErrorCode::UnsupportedFormat);
+    }
+    const auto truncated = nexigen::recorder::decode_payload(
+        "jsonschema", {}, std::vector<DatasetField>{field("v", "u32", 8U, 4U, 1U, 4U)},
+        std::span<const std::byte>(pod).first(4));
+    NX_CHECK(!truncated.has_value());
+    if (!truncated.has_value()) {
+        NX_CHECK(truncated.error() == nexigen::core::ErrorCode::CorruptData);
+    }
+
+    // JSON documents that do not parse are corrupt.
+    const std::string bad_json = "not-json";
+    const auto bad_json_span = std::span<const std::byte>(
+        reinterpret_cast<const std::byte*>(bad_json.data()), bad_json.size());
+    const auto bad_json_view = nexigen::recorder::decode_payload("json", {}, {}, bad_json_span);
+    NX_CHECK(!bad_json_view.has_value());
+    if (!bad_json_view.has_value()) {
+        NX_CHECK(bad_json_view.error() == nexigen::core::ErrorCode::CorruptData);
+    }
+
+    // Opaque payloads cover every base64 padding branch.
+    const std::array<std::uint8_t, 1> ros_descriptor{0x01U};
+    for (std::size_t size = 1U; size <= 3U; ++size) {
+        std::array<std::byte, 3> bytes{};
+        for (std::size_t i = 0; i < size; ++i) {
+            bytes[i] = static_cast<std::byte>(0x40U + i);
+        }
+        const auto view = nexigen::recorder::decode_payload(
+            "ros2msg", ros_descriptor, {}, std::span<const std::byte>(bytes).first(size));
+        NX_CHECK(view.has_value());
+        if (view.has_value()) {
+            NX_CHECK(view->kind == PayloadKind::Opaque);
+            NX_CHECK(view->text.size() == 4U);
+            if (size == 1U) {
+                NX_CHECK(view->text.ends_with("=="));
+            } else if (size == 2U) {
+                NX_CHECK(view->text.ends_with("="));
+            } else {
+                NX_CHECK(!view->text.ends_with("="));
+            }
+        }
+    }
+
+    // Protobuf wire types 0, 1, 2 and 5, including a nested message.
+    const std::array<std::uint8_t, 14> descriptor{0x0AU, 0x0CU, 0x0AU, 0x0AU, 't', 'e', 's',
+                                                  't',   '.',   'p',   'r',   'o', 't', 'o'};
+    std::vector<std::byte> proto{std::byte{0x08}, std::byte{0x2A}, // varint
+                                 std::byte{0x11}, std::byte{1},    std::byte{2},
+                                 std::byte{3}, // fixed64
+                                 std::byte{4},    std::byte{5},    std::byte{6},
+                                 std::byte{7},    std::byte{8},    std::byte{0x1D},
+                                 std::byte{9},    std::byte{10},   std::byte{11}, // fixed32
+                                 std::byte{12},   std::byte{0x22}, std::byte{0x02},
+                                 std::byte{0x08}, std::byte{0x01},  // nested
+                                 std::byte{0x2A}, std::byte{0x00}}; // empty nested
+    const auto proto_view = nexigen::recorder::decode_payload("protobuf", descriptor, {}, proto);
+    NX_CHECK(proto_view.has_value());
+    if (proto_view.has_value()) {
+        NX_CHECK(proto_view->kind == PayloadKind::Opaque);
+    }
+
+    // Missing descriptors are named errors per encoding.
+    const auto proto_empty = nexigen::recorder::decode_payload("protobuf", {}, {}, proto);
+    NX_CHECK(!proto_empty.has_value());
+    if (!proto_empty.has_value()) {
+        NX_CHECK(proto_empty.error() == nexigen::core::ErrorCode::CorruptData);
+    }
+    const auto flat_empty = nexigen::recorder::decode_payload("flatbuffer", {}, {}, proto);
+    NX_CHECK(!flat_empty.has_value());
+    if (!flat_empty.has_value()) {
+        NX_CHECK(flat_empty.error() == nexigen::core::ErrorCode::CorruptData);
+    }
+    const auto ros_empty = nexigen::recorder::decode_payload("ros2msg", {}, {}, proto);
+    NX_CHECK(!ros_empty.has_value());
+    if (!ros_empty.has_value()) {
+        NX_CHECK(ros_empty.error() == nexigen::core::ErrorCode::NotFound);
+    }
+}
+
 void test_opaque_channel_decode() {
     const std::string root = temp_root() + "-opaque";
     std::error_code error;
@@ -2167,6 +2320,9 @@ void test_time_base_session_bridge() {
     NX_CHECK(bridge.recorded_entries() == 3U);
 
     NX_CHECK(writer->close().has_value());
+    // A closed writer makes the bridge report failure instead of throwing.
+    block.generation = 8U;
+    NX_CHECK(!bridge.record(block));
 
     auto reader = nexigen::recorder::SessionReader::open(root + "/bridge");
     NX_CHECK(reader.has_value());
@@ -2197,6 +2353,1434 @@ void test_time_base_session_bridge() {
         NX_CHECK(counts.time_base == 3U);
         NX_CHECK(counts.snapshots == 2U);
         NX_CHECK(counts.gaps == 1U);
+    }
+    std::filesystem::remove_all(root, error);
+}
+
+void check_wire_struct_serialization() {
+    using namespace nexigen::recorder;
+
+    using namespace nexigen::recorder;
+
+    check_recorder_enum_vocabulary<RecorderFormat>();
+    check_recorder_enum_vocabulary<TimeDomain>();
+    check_recorder_enum_vocabulary<RecordType>();
+    check_recorder_enum_vocabulary<GapReason>();
+    check_recorder_enum_vocabulary<VideoCodec>();
+    check_recorder_enum_vocabulary<BitstreamFormat>();
+    check_recorder_enum_vocabulary<VideoCrcMode>();
+    check_recorder_enum_vocabulary<DatasetKind>();
+    check_recorder_enum_vocabulary<RetentionPolicy>();
+    check_recorder_enum_vocabulary<ExportFormat>();
+    check_recorder_enum_vocabulary<VideoExportFormat>();
+
+    RecordHeader header{};
+    header.magic = kRecordMagic;
+    header.type = static_cast<std::uint16_t>(RecordType::ComPayload);
+    header.flags = 3U;
+    header.channel_id = 7U;
+    header.payload_size = 11U;
+    header.commit_mono_ns = 13U;
+    header.sequence = 17U;
+    header.publisher_id = 19U;
+    header.header_crc32c = 23U;
+    header.payload_crc32c = 29U;
+    NX_CHECK(!header.to_string().empty());
+    NX_CHECK(std::format("{}", header) == header.to_string());
+    {
+        const nlohmann::json j = header;
+        RecordHeader back{};
+        from_json(j, back);
+        NX_CHECK(back.magic == header.magic && back.type == header.type);
+        NX_CHECK(back.channel_id == header.channel_id);
+        NX_CHECK(back.payload_size == header.payload_size);
+        NX_CHECK(back.commit_mono_ns == header.commit_mono_ns);
+        NX_CHECK(back.sequence == header.sequence && back.publisher_id == header.publisher_id);
+        NX_CHECK(back.header_crc32c == header.header_crc32c);
+        NX_CHECK(back.payload_crc32c == header.payload_crc32c);
+    }
+
+    IndexEntry index{};
+    index.commit_ns = 1U;
+    index.rec_offset = 2U;
+    index.min_event_ns = 3U;
+    index.max_event_ns = 4U;
+    index.channel_mask = 5U;
+    index.end_rec_offset = 6U;
+    index.record_count = 7U;
+    index.flags = 8U;
+    index.entry_crc32c = 9U;
+    NX_CHECK(!index.to_string().empty());
+    {
+        const nlohmann::json j = index;
+        IndexEntry back{};
+        from_json(j, back);
+        NX_CHECK(back.commit_ns == 1U && back.rec_offset == 2U && back.record_count == 7U);
+        NX_CHECK(back.entry_crc32c == 9U);
+    }
+
+    VideoFrameRef frame{};
+    frame.vid_segment_seq = 2U;
+    frame.vid_offset = 4096U;
+    frame.vid_size = 1024U;
+    frame.vid_crc32c = 0xABCDU;
+    frame.codec = static_cast<std::uint16_t>(VideoCodec::H265);
+    frame.bitstream = static_cast<std::uint16_t>(BitstreamFormat::AnnexB);
+    frame.width = 1920U;
+    frame.height = 1080U;
+    frame.capture_mono_ns = 99U;
+    frame.source_sequence = 5U;
+    frame.config_epoch = 3U;
+    NX_CHECK(!frame.to_string().empty());
+    {
+        const nlohmann::json j = frame;
+        VideoFrameRef back{};
+        from_json(j, back);
+        NX_CHECK(back.vid_offset == 4096U && back.vid_size == 1024U);
+        NX_CHECK(back.codec == static_cast<std::uint16_t>(VideoCodec::H265));
+        NX_CHECK(back.bitstream == static_cast<std::uint16_t>(BitstreamFormat::AnnexB));
+        NX_CHECK(back.width == 1920U && back.capture_mono_ns == 99U);
+    }
+
+    VideoStreamConfig config{};
+    config.codec = static_cast<std::uint16_t>(VideoCodec::H264);
+    config.bitstream = static_cast<std::uint16_t>(BitstreamFormat::Avcc);
+    config.width = 1280U;
+    config.height = 720U;
+    config.timebase_num = 1U;
+    config.timebase_den = 30U;
+    config.extradata_size = 3U;
+    config.config_epoch = 4U;
+    config.extradata[0] = 0xAAU;
+    config.extradata[1] = 0xBBU;
+    config.extradata[2] = 0xCCU;
+    NX_CHECK(!config.to_string().empty());
+    {
+        const nlohmann::json j = config;
+        VideoStreamConfig back{};
+        from_json(j, back);
+        NX_CHECK(back.width == 1280U && back.timebase_den == 30U);
+        NX_CHECK(back.extradata[0] == 0xAAU && back.extradata[2] == 0xCCU);
+    }
+
+    GapMarkerPayload gap{};
+    gap.first_lost_sequence = 11U;
+    gap.lost_count = 3U;
+    gap.reason = static_cast<std::uint16_t>(GapReason::IoBackpressure);
+    NX_CHECK(!gap.to_string().empty());
+    {
+        const nlohmann::json j = gap;
+        GapMarkerPayload back{};
+        from_json(j, back);
+        NX_CHECK(back.first_lost_sequence == 11U && back.lost_count == 3U);
+        NX_CHECK(back.reason == static_cast<std::uint16_t>(GapReason::IoBackpressure));
+    }
+
+    TimeSyncPayload sync{};
+    sync.mono_ns = 5U;
+    sync.utc_offset_ns = 100U;
+    NX_CHECK(!sync.to_string().empty());
+    {
+        const nlohmann::json j = sync;
+        TimeSyncPayload back{};
+        from_json(j, back);
+        NX_CHECK(back.mono_ns == 5U && back.utc_offset_ns == 100U);
+    }
+
+    SegmentFooter footer{};
+    footer.magic = kFooterMagic;
+    footer.version = kFormatVersion;
+    footer.total_records = 10U;
+    footer.total_gaps = 1U;
+    footer.rec_bytes = 1000U;
+    footer.vid_bytes = 2000U;
+    footer.index_entries = 4U;
+    footer.end_commit_ns = 42U;
+    footer.footer_crc32c = 7U;
+    NX_CHECK(!footer.to_string().empty());
+    {
+        const nlohmann::json j = footer;
+        SegmentFooter back{};
+        from_json(j, back);
+        NX_CHECK(back.magic == kFooterMagic && back.total_records == 10U);
+        NX_CHECK(back.rec_bytes == 1000U && back.footer_crc32c == 7U);
+    }
+}
+
+void check_declaration_and_manifest_serialization() {
+    using namespace nexigen::recorder;
+    SchemaDeclare schema{};
+    schema.id = 5U;
+    schema.name = "test.Schema";
+    schema.version = 2U;
+    schema.encoding = "jsonschema";
+    schema.units = "m/s";
+    schema.endianness = "big";
+    schema.data = {1U, 2U, 3U};
+    schema.data_crc32c = 99U;
+    NX_CHECK(!schema.to_string().empty());
+    NX_CHECK(nexigen::recorder::to_string(schema) == schema.to_string());
+    NX_CHECK(schema.validate().has_value());
+    {
+        const nlohmann::json j = schema;
+        SchemaDeclare back{};
+        from_json(j, back);
+        NX_CHECK(back.id == 5U && back.name == "test.Schema");
+        NX_CHECK(back.units == "m/s" && back.endianness == "big");
+        NX_CHECK(back.data.size() == 3U && back.data_crc32c == 99U);
+    }
+
+    ChannelDeclare channel{};
+    channel.id = 2U;
+    channel.schema_id = 5U;
+    channel.topic = "test/topic";
+    channel.kind = DatasetKind::Video;
+    channel.message_encoding = "raw";
+    channel.metadata = R"({"k":1})";
+    channel.native_domain = "device";
+    channel.domain_id = 7U;
+    channel.domain_epoch = 8U;
+    channel.domain_class = nexigen::chrono::TimeDomainClass::DeviceClock;
+    channel.access_mode = nexigen::chrono::DeviceAccessMode::ManualPair;
+    NX_CHECK(!channel.to_string().empty());
+    NX_CHECK(channel.validate().has_value());
+    {
+        const nlohmann::json j = channel;
+        ChannelDeclare back{};
+        from_json(j, back);
+        NX_CHECK(back.topic == "test/topic" && back.kind == DatasetKind::Video);
+        NX_CHECK(back.metadata == channel.metadata);
+        NX_CHECK(back.domain_class == nexigen::chrono::TimeDomainClass::DeviceClock);
+        NX_CHECK(back.access_mode == nexigen::chrono::DeviceAccessMode::ManualPair);
+    }
+
+    SegmentInfo segment{};
+    segment.seq = 3U;
+    segment.rec_path = "seg.nxrec";
+    segment.idx_path = "seg.nxidx";
+    segment.vid_path = "seg.nxvid";
+    segment.closed = true;
+    segment.records = 12U;
+    segment.gaps = 1U;
+    segment.rec_bytes = 500U;
+    segment.vid_bytes = 600U;
+    segment.start_commit_ns = 1U;
+    segment.end_commit_ns = 2U;
+    NX_CHECK(!segment.to_string().empty());
+    NX_CHECK(nexigen::recorder::to_string(segment) == segment.to_string());
+    {
+        const nlohmann::json j = segment;
+        SegmentInfo back{};
+        from_json(j, back);
+        NX_CHECK(back.seq == 3U && back.rec_path == "seg.nxrec");
+        NX_CHECK(back.closed && back.records == 12U && back.vid_bytes == 600U);
+    }
+    SessionManifest manifest{};
+    manifest.format = RecorderFormat::Raw;
+    manifest.version = kFormatVersion;
+    manifest.session_id = "sess";
+    manifest.time_domain = TimeDomain::MonotonicRaw;
+    manifest.boot_token = "0123456789abcdef";
+    manifest.boot_uuid = "01234567-89ab-cdef-0123-456789abcdef";
+    manifest.time_base_epoch = 7U;
+    manifest.settings.session_root = "/tmp";
+    manifest.settings.session_id = "sess";
+    manifest.schemas.push_back(schema);
+    manifest.channels.push_back(channel);
+    manifest.segments.push_back(segment);
+    manifest.clean_close = true;
+    NX_CHECK(!manifest.to_string().empty());
+    NX_CHECK(nexigen::recorder::to_string(manifest) == manifest.to_string());
+    {
+        const nlohmann::json j = manifest;
+        SessionManifest back{};
+        from_json(j, back);
+        NX_CHECK(back.session_id == "sess" && back.time_domain == TimeDomain::MonotonicRaw);
+        NX_CHECK(back.boot_uuid == manifest.boot_uuid && back.time_base_epoch == 7U);
+        NX_CHECK(back.schemas.size() == 1U && back.channels.size() == 1U);
+        NX_CHECK(back.segments.size() == 1U && back.clean_close);
+        NX_CHECK(back.validate().has_value());
+    }
+}
+
+void check_dataset_serialization() {
+    using namespace nexigen::recorder;
+    DatasetField field{};
+    field.name = "speed";
+    field.type = "f32";
+    field.units = "m/s";
+    field.offset = 4U;
+    field.element_size = 4U;
+    field.count = 1U;
+    field.stride = 4U;
+    NX_CHECK(!field.to_string().empty());
+    NX_CHECK(nexigen::recorder::to_string(field) == field.to_string());
+    {
+        const nlohmann::json j = field;
+        DatasetField back{};
+        from_json(j, back);
+        NX_CHECK(back.name == "speed" && back.type == "f32" && back.units == "m/s");
+        NX_CHECK(back.offset == 4U && back.stride == 4U);
+    }
+
+    DatasetSegmentInfo dataset_segment{};
+    dataset_segment.seq = 1U;
+    dataset_segment.path = "seg.nxrec";
+    dataset_segment.records = 9U;
+    dataset_segment.gaps = 0U;
+    dataset_segment.bytes = 123U;
+    dataset_segment.start_event_ns = 10U;
+    dataset_segment.end_event_ns = 20U;
+    dataset_segment.closed = true;
+    NX_CHECK(!dataset_segment.to_string().empty());
+    NX_CHECK(nexigen::recorder::to_string(dataset_segment) == dataset_segment.to_string());
+    {
+        const nlohmann::json j = dataset_segment;
+        DatasetSegmentInfo back{};
+        from_json(j, back);
+        NX_CHECK(back.seq == 1U && back.path == "seg.nxrec" && back.closed);
+        NX_CHECK(back.bytes == 123U && back.end_event_ns == 20U);
+    }
+
+    DatasetInfo dataset{};
+    dataset.channel_id = 2U;
+    dataset.kind = DatasetKind::Telemetry;
+    dataset.name = "test/topic";
+    dataset.schema_id = 5U;
+    dataset.schema_name = "test.Schema";
+    dataset.schema_encoding = "jsonschema";
+    dataset.message_encoding = "nexigen.pod";
+    dataset.native_domain = "host_counter";
+    dataset.domain_id = 4U;
+    dataset.domain_epoch = 1U;
+    dataset.codec = VideoCodec::H265;
+    dataset.bitstream = BitstreamFormat::AnnexB;
+    dataset.width = 64U;
+    dataset.height = 32U;
+    dataset.extradata_size = 1U;
+    dataset.records = 9U;
+    dataset.gaps = 1U;
+    dataset.payload_bytes = 100U;
+    dataset.first_event_ns = 1U;
+    dataset.last_event_ns = 2U;
+    dataset.first_rec_offset = 48U;
+    dataset.last_rec_offset = 96U;
+    dataset.closed = true;
+    dataset.config_epochs = {1U, 2U};
+    dataset.fields.push_back(field);
+    dataset.segments.push_back(dataset_segment);
+    NX_CHECK(!dataset.to_string().empty());
+    NX_CHECK(nexigen::recorder::to_string(dataset) == dataset.to_string());
+    {
+        const nlohmann::json j = dataset;
+        DatasetInfo back{};
+        from_json(j, back);
+        NX_CHECK(back.channel_id == 2U && back.name == "test/topic");
+        NX_CHECK(back.native_domain == "host_counter" && back.domain_id == 4U);
+        NX_CHECK(back.codec == VideoCodec::H265);
+        NX_CHECK(back.config_epochs.size() == 2U && back.config_epochs[1] == 2U);
+        NX_CHECK(back.fields.size() == 1U && back.fields[0].name == "speed");
+        NX_CHECK(back.segments.size() == 1U && back.segments[0].path == "seg.nxrec");
+    }
+}
+
+void test_recorder_serialization_extended() {
+    check_wire_struct_serialization();
+    check_declaration_and_manifest_serialization();
+    check_dataset_serialization();
+}
+
+void test_config_loader_errors() {
+    const std::string root = temp_root() + "-cfg-errors";
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    std::filesystem::create_directories(root, error);
+    const auto write = [&root](const std::string& name, const std::string& text) {
+        const std::string path = root + "/" + name;
+        std::ofstream output(path);
+        output << text;
+        return path;
+    };
+
+    NX_CHECK(!nexigen::recorder::load_recorder_config(root + "/missing.json").has_value());
+    if (const auto missing = nexigen::recorder::load_recorder_config(root + "/missing.json");
+        !missing.has_value()) {
+        NX_CHECK(missing.error() == nexigen::core::ErrorCode::NotFound);
+    }
+
+    const auto malformed = write("malformed.json", "{not json");
+    NX_CHECK(!nexigen::recorder::load_recorder_config(malformed).has_value());
+    const auto no_storage = write("no-storage.json", R"({"schemas":[]})");
+    NX_CHECK(!nexigen::recorder::load_recorder_config(no_storage).has_value());
+    const auto bad_storage =
+        write("bad-storage.json", R"({"storage":{"session_root":"relative","session_id":"s"}})");
+    NX_CHECK(!nexigen::recorder::load_recorder_config(bad_storage).has_value());
+
+    const std::string schema_path = write("schema.json", R"({"type":"object"})");
+    const auto bad_schema_entry =
+        write("bad-schema-entry.json",
+              R"({"storage":{"session_root":")" + root + R"(","session_id":"s"},"schemas":[42]})");
+    NX_CHECK(!nexigen::recorder::load_recorder_config(bad_schema_entry).has_value());
+    const auto no_schema_path =
+        write("no-schema-path.json", R"({"storage":{"session_root":")" + root +
+                                         R"(","session_id":"s"},"schemas":[{"id":1}]})");
+    NX_CHECK(!nexigen::recorder::load_recorder_config(no_schema_path).has_value());
+    const auto unreadable_schema =
+        write("unreadable-schema.json",
+              R"({"storage":{"session_root":")" + root +
+                  R"(","session_id":"s"},)"
+                  R"("schemas":[{"id":1,"name":"n","encoding":"jsonschema","path":")" +
+                  root + R"(/nope.json"}]})");
+    NX_CHECK(!nexigen::recorder::load_recorder_config(unreadable_schema).has_value());
+    const auto bad_digest = write(
+        "bad-digest.json", R"({"storage":{"session_root":")" + root +
+                               R"(","session_id":"s"},)"
+                               R"("schemas":[{"id":1,"name":"n","encoding":"jsonschema","path":")" +
+                               schema_path + R"(","sha256":"deadbeef"}]})");
+    const auto digest = nexigen::recorder::load_recorder_config(bad_digest);
+    NX_CHECK(!digest.has_value());
+    if (!digest.has_value()) {
+        NX_CHECK(digest.error() == nexigen::core::ErrorCode::SecurityError);
+    }
+
+    const std::string big_schema = root + "/big-schema.json";
+    {
+        std::ofstream out(big_schema, std::ios::binary);
+        std::vector<char> blob(nexigen::recorder::kMaxSchemaBytes + 1U, 'x');
+        out.write(blob.data(), static_cast<std::streamsize>(blob.size()));
+    }
+    const auto oversized_schema =
+        write("oversized-schema.json",
+              R"({"storage":{"session_root":")" + root +
+                  R"(","session_id":"s"},)"
+                  R"("schemas":[{"id":1,"name":"n","encoding":"jsonschema","path":")" +
+                  big_schema + R"("}]})");
+    NX_CHECK(!nexigen::recorder::load_recorder_config(oversized_schema).has_value());
+
+    const auto zero_digest =
+        write("zero-digest.json",
+              R"({"storage":{"session_root":")" + root +
+                  R"(","session_id":"s"},)"
+                  R"("schemas":[{"id":1,"name":"n","encoding":"jsonschema","path":")" +
+                  schema_path + R"(","sha256":")" + std::string(64U, '0') + R"("}]})");
+    const auto zero = nexigen::recorder::load_recorder_config(zero_digest);
+    NX_CHECK(!zero.has_value());
+    if (!zero.has_value()) {
+        NX_CHECK(zero.error() == nexigen::core::ErrorCode::SecurityError);
+    }
+
+    const auto no_digest = write(
+        "no-digest.json", R"({"storage":{"session_root":")" + root +
+                              R"(","session_id":"s"},)"
+                              R"("schemas":[{"id":1,"name":"n","encoding":"jsonschema","path":")" +
+                              schema_path + R"("}]})");
+    NX_CHECK(nexigen::recorder::load_recorder_config(no_digest).has_value());
+
+    const auto bad_channel_entry =
+        write("bad-channel-entry.json",
+              R"({"storage":{"session_root":")" + root + R"(","session_id":"s"},"channels":[7]})");
+    NX_CHECK(!nexigen::recorder::load_recorder_config(bad_channel_entry).has_value());
+    const auto invalid_channel =
+        write("invalid-channel.json",
+              R"({"storage":{"session_root":")" + root +
+                  R"(","session_id":"s"},)"
+                  R"("channels":[{"id":1,"schema_id":1,"topic":"","message_encoding":"raw"}]})");
+    NX_CHECK(!nexigen::recorder::load_recorder_config(invalid_channel).has_value());
+
+    std::filesystem::remove_all(root, error);
+}
+
+void run_writer_video_paths(const nexigen::recorder::StorageSettings& settings,
+                            const nexigen::recorder::SchemaDeclare& schema,
+                            const nexigen::recorder::ChannelDeclare& channel) {
+    using namespace nexigen::recorder;
+    // Video paths: wrong kind, oversized frame, per-frame CRC, and closed writer.
+    nexigen::recorder::StorageSettings video_settings = settings;
+    video_settings.session_id = "video";
+    video_settings.video_crc = nexigen::recorder::VideoCrcMode::PerFrame;
+    auto video_writer = nexigen::recorder::SessionWriter::create(video_settings);
+    NX_CHECK(video_writer.has_value());
+    if (video_writer.has_value()) {
+        NX_CHECK(video_writer->declare_schema(schema).has_value());
+        nexigen::recorder::ChannelDeclare video_channel = channel;
+        video_channel.id = 1U;
+        video_channel.kind = nexigen::recorder::DatasetKind::Video;
+        NX_CHECK(video_writer->declare_channel(video_channel).has_value());
+        nexigen::recorder::VideoStreamConfig stream{};
+        stream.codec = static_cast<std::uint16_t>(nexigen::recorder::VideoCodec::H264);
+        stream.bitstream = static_cast<std::uint16_t>(nexigen::recorder::BitstreamFormat::AnnexB);
+        stream.width = 16U;
+        stream.height = 16U;
+        stream.timebase_num = 1U;
+        stream.timebase_den = 30U;
+        nexigen::recorder::VideoFrameRef reference{};
+        reference.capture_mono_ns = 1U;
+        const std::array<std::byte, 4> frame{std::byte{1}, std::byte{2}, std::byte{3},
+                                             std::byte{4}};
+        NX_CHECK(video_writer->append_video(1U, stream, reference, frame).has_value());
+        NX_CHECK(!video_writer->append_video(9U, stream, reference, frame).has_value());
+        const std::vector<std::byte> huge_frame(5000);
+        NX_CHECK(!video_writer->append_video(1U, stream, reference, huge_frame).has_value());
+        NX_CHECK(video_writer->close().has_value());
+        NX_CHECK(!video_writer->append_video(1U, stream, reference, frame).has_value());
+    }
+}
+
+void run_writer_move_and_retention_paths(const std::string& root,
+                                         const nexigen::recorder::StorageSettings& settings,
+                                         const nexigen::recorder::SchemaDeclare& schema,
+                                         const nexigen::recorder::ChannelDeclare& channel,
+                                         const std::vector<std::byte>& payload) {
+    using namespace nexigen::recorder;
+    std::error_code error;
+    // A moved-from writer reports NotInitialized instead of touching null state.
+    auto owner = nexigen::recorder::SessionWriter::create(settings);
+    auto moved = nexigen::recorder::SessionWriter::create(settings);
+    NX_CHECK(owner.has_value() && moved.has_value());
+    if (owner.has_value() && moved.has_value()) {
+        *owner = std::move(*moved);
+        NX_CHECK(!moved->declare_schema(schema).has_value());
+        NX_CHECK(
+            !moved->declare_channel("topic/x", 1U, nexigen::recorder::DatasetKind::Telemetry, "raw")
+                 .has_value());
+        NX_CHECK(!moved->rotate().has_value());
+        nexigen::recorder::RecordShard shard{};
+        NX_CHECK(!moved->append_from_shard(shard).has_value());
+        static_cast<void>(owner->close());
+    }
+
+    // Retention Stop halts cleanly once the retention limit is exceeded.
+    nexigen::recorder::StorageSettings stop = settings;
+    stop.session_id = "stop";
+    stop.retention = nexigen::recorder::RetentionPolicy::Stop;
+    stop.retention_max_bytes = 1U;
+    auto stop_writer = nexigen::recorder::SessionWriter::create(stop);
+    NX_CHECK(stop_writer.has_value());
+    if (stop_writer.has_value()) {
+        NX_CHECK(stop_writer->declare_schema(schema).has_value());
+        NX_CHECK(stop_writer->declare_channel(channel).has_value());
+        NX_CHECK(
+            stop_writer->append(nexigen::recorder::RecordType::ComPayload, 1U, payload, 1U, 1U, 1U)
+                .has_value());
+        const auto halted = stop_writer->rotate();
+        NX_CHECK(!halted.has_value());
+        if (!halted.has_value()) {
+            NX_CHECK(halted.error() == nexigen::core::ErrorCode::ResourceExhausted);
+        }
+        static_cast<void>(stop_writer->close());
+    }
+
+    std::filesystem::remove_all(root, error);
+}
+
+void test_session_writer_error_paths() {
+    using namespace nexigen::recorder;
+
+    std::error_code error;
+    const std::string root = temp_root() + "-writer-errors";
+    std::filesystem::remove_all(root, error);
+    std::filesystem::create_directories(root, error);
+
+    nexigen::recorder::StorageSettings invalid{};
+    invalid.session_root = "relative";
+    invalid.session_id = "s";
+    NX_CHECK(!nexigen::recorder::SessionWriter::create(invalid).has_value());
+
+    nexigen::recorder::StorageSettings settings{};
+    settings.session_root = root;
+    settings.session_id = ""; // auto-generated
+    settings.session_layout = "{session_id}/{label}";
+    settings.min_free_bytes = 0;
+    settings.write_buffer_bytes = 4096;
+    settings.index_buffer_bytes = 4096;
+    settings.max_record_bytes = 4096;
+    settings.video_frame_buffer_bytes = 4096;
+    auto writer = nexigen::recorder::SessionWriter::create(settings);
+    NX_CHECK(writer.has_value());
+    if (!writer.has_value()) {
+        return;
+    }
+    NX_CHECK(!writer->manifest().session_id.empty());
+    NX_CHECK(writer->current_segment_seq() == 0U);
+
+    nexigen::recorder::SchemaDeclare schema{};
+    schema.id = 1;
+    schema.name = "test.Errors";
+    schema.encoding = "jsonschema";
+    schema.data = {1U, 2U, 3U};
+    NX_CHECK(writer->declare_schema(schema).has_value());
+    nexigen::recorder::SchemaDeclare duplicate = schema;
+    duplicate.name = "test.Duplicate";
+    NX_CHECK(!writer->declare_schema(duplicate).has_value()); // conflict
+    nexigen::recorder::SchemaDeclare invalid_schema{};
+    invalid_schema.id = 0;
+    NX_CHECK(!writer->declare_schema(invalid_schema).has_value()); // invalid
+
+    nexigen::recorder::ChannelDeclare channel{};
+    channel.id = 1;
+    channel.schema_id = 1;
+    channel.topic = "test/topic";
+    channel.message_encoding = "nexigen.pod";
+    NX_CHECK(writer->declare_channel(channel).has_value());
+    nexigen::recorder::ChannelDeclare duplicate_channel = channel;
+    duplicate_channel.topic = "test/other";
+    NX_CHECK(!writer->declare_channel(duplicate_channel).has_value()); // conflict id
+    nexigen::recorder::ChannelDeclare missing_schema = channel;
+    missing_schema.id = 2;
+    missing_schema.schema_id = 99;
+    NX_CHECK(!writer->declare_channel(missing_schema).has_value()); // not found
+    nexigen::recorder::ChannelDeclare invalid_channel = channel;
+    invalid_channel.id = 3;
+    invalid_channel.topic = "";
+    NX_CHECK(!writer->declare_channel(invalid_channel).has_value()); // invalid
+
+    // Declare-by-topic reuses the id for the same pair and allocates a new one.
+    const auto first_id = writer->declare_channel(
+        "topic/a", 1, nexigen::recorder::DatasetKind::Telemetry, "nexigen.pod");
+    const auto same_id = writer->declare_channel(
+        "topic/a", 1, nexigen::recorder::DatasetKind::Telemetry, "nexigen.pod");
+    const auto second_id =
+        writer->declare_channel("topic/b", 1, nexigen::recorder::DatasetKind::Opaque, "protobuf");
+    NX_CHECK(first_id.has_value() && same_id.has_value() && second_id.has_value());
+    if (first_id && same_id && second_id) {
+        NX_CHECK(*first_id == *same_id);
+        NX_CHECK(*first_id != *second_id);
+    }
+
+    const std::vector<std::byte> payload(8);
+    NX_CHECK(!writer->append(nexigen::recorder::RecordType::ComPayload, 55U, payload, 1U, 1U, 1U)
+                  .has_value()); // undeclared channel
+    const std::vector<std::byte> oversized(5000);
+    NX_CHECK(
+        !writer->append(nexigen::recorder::RecordType::ComPayload, *first_id, oversized, 1U, 1U, 1U)
+             .has_value()); // above max_record_bytes
+    NX_CHECK(
+        writer->append(nexigen::recorder::RecordType::ComPayload, *first_id, payload, 1U, 1U, 1U)
+            .has_value());
+
+    NX_CHECK(writer->rotate().has_value());
+    NX_CHECK(writer->current_segment_seq() == 1U);
+    NX_CHECK(writer->close().has_value());
+    NX_CHECK(
+        !writer->append(nexigen::recorder::RecordType::ComPayload, *first_id, payload, 1U, 1U, 1U)
+             .has_value());                  // closed
+    NX_CHECK(!writer->rotate().has_value()); // closed
+    NX_CHECK(writer->close().has_value());   // idempotent
+
+    // Move assignment transfers ownership.
+    auto first_writer = nexigen::recorder::SessionWriter::create(settings);
+    auto second_writer = nexigen::recorder::SessionWriter::create(settings);
+    NX_CHECK(first_writer.has_value() && second_writer.has_value());
+    if (first_writer.has_value() && second_writer.has_value()) {
+        *first_writer = std::move(*second_writer);
+        NX_CHECK(!first_writer->manifest().session_id.empty());
+        static_cast<void>(first_writer->close());
+    }
+
+    // A directory that cannot be created maps to SystemError.
+    nexigen::recorder::StorageSettings bad_root = settings;
+    bad_root.session_id = "badroot";
+    bad_root.session_root = "/proc/nexigen-no-such";
+    const auto denied = nexigen::recorder::SessionWriter::create(bad_root);
+    NX_CHECK(!denied.has_value());
+    if (!denied.has_value()) {
+        NX_CHECK(denied.error() == nexigen::core::ErrorCode::SystemError);
+    }
+
+    run_writer_video_paths(settings, schema, channel);
+    run_writer_move_and_retention_paths(root, settings, schema, channel, payload);
+}
+
+void test_session_reader_error_paths() {
+    using nexigen::recorder::RecordHeader;
+    using nexigen::recorder::RecordType;
+    using nexigen::recorder::SessionReader;
+    using nexigen::recorder::SessionWriter;
+    using nexigen::recorder::VerifyFailure;
+
+    std::error_code error;
+    const std::string root = temp_root() + "-reader-errors";
+    std::filesystem::remove_all(root, error);
+    std::filesystem::create_directories(root, error);
+
+    nexigen::recorder::StorageSettings settings{};
+    settings.session_root = root;
+    settings.session_id = "sess";
+    settings.min_free_bytes = 0;
+    settings.write_buffer_bytes = 4096;
+    settings.index_buffer_bytes = 4096;
+    settings.max_record_bytes = 4096;
+    auto writer = SessionWriter::create(settings);
+    NX_CHECK(writer.has_value());
+    if (!writer.has_value()) {
+        return;
+    }
+    nexigen::recorder::SchemaDeclare schema{};
+    schema.id = 1;
+    schema.name = "test.Reader";
+    schema.encoding = "jsonschema";
+    schema.data = {1U, 2U, 3U};
+    NX_CHECK(writer->declare_schema(schema).has_value());
+    nexigen::recorder::ChannelDeclare channel{};
+    channel.id = 1;
+    channel.schema_id = 1;
+    channel.topic = "test/topic";
+    channel.message_encoding = "nexigen.pod";
+    NX_CHECK(writer->declare_channel(channel).has_value());
+    const std::vector<std::byte> payload(8, std::byte{0x11});
+    NX_CHECK(writer->append(RecordType::ComPayload, 1U, payload, 10U, 0U, 1U).has_value());
+    NX_CHECK(writer->append(RecordType::ComPayload, 1U, payload, 20U, 1U, 1U).has_value());
+    NX_CHECK(writer->close().has_value());
+
+    const std::string directory = root + "/sess";
+    const auto segment = writer->manifest().segments.front();
+    const std::string rec = directory + "/" + segment.rec_path;
+
+    // Open failures: absent directory/manifest, malformed and rejected manifests.
+    NX_CHECK(!SessionReader::open(root + "/absent").has_value());
+    const std::string bad_dir = root + "/bad";
+    std::filesystem::create_directories(bad_dir, error);
+    {
+        std::ofstream out(bad_dir + "/session.json");
+        out << "{broken";
+    }
+    NX_CHECK(!SessionReader::open(bad_dir).has_value());
+    {
+        std::ofstream out(bad_dir + "/session.json");
+        out << R"({"session_id":"x","version":1})";
+    }
+    NX_CHECK(!SessionReader::open(bad_dir).has_value());
+
+    // Bare-segment open failures.
+    NX_CHECK(!SessionReader::open_segment(root + "/missing.nxrec").has_value());
+    const std::string empty_segment = root + "/empty_000000.nxrec";
+    { std::ofstream out(empty_segment, std::ios::binary); }
+    NX_CHECK(!SessionReader::open_segment(empty_segment).has_value());
+
+    auto reader = SessionReader::open(directory);
+    NX_CHECK(reader.has_value());
+    if (!reader.has_value()) {
+        return;
+    }
+    NX_CHECK(!reader->recover_index(99U).has_value());
+
+    std::uint64_t records = 0;
+    std::uint64_t gaps = 0;
+    VerifyFailure failure{};
+    NX_CHECK(reader->verify(records, gaps, &failure).has_value());
+
+    // Locate the first ComPayload payload for corruption.
+    std::ifstream input(rec, std::ios::binary);
+    std::streamoff payload_offset = -1;
+    while (true) {
+        const std::streamoff position = input.tellg();
+        RecordHeader header{};
+        if (!input.read(reinterpret_cast<char*>(&header), sizeof(header))) {
+            break;
+        }
+        if (header.type == static_cast<std::uint16_t>(RecordType::ComPayload)) {
+            payload_offset = position + static_cast<std::streamoff>(sizeof(RecordHeader));
+            break;
+        }
+        input.seekg(static_cast<std::streamoff>(header.payload_size), std::ios::cur);
+    }
+    NX_CHECK(payload_offset > 0);
+
+    std::vector<char> original;
+    {
+        std::ifstream in(rec, std::ios::binary);
+        original.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    const auto write_bytes = [&](const std::vector<char>& bytes) {
+        std::ofstream out(rec, std::ios::binary | std::ios::trunc);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    };
+
+    // A corrupt payload CRC is diagnosed with its segment and offset.
+    auto corrupted = original;
+    corrupted[static_cast<std::size_t>(payload_offset)] ^= 0x5A;
+    write_bytes(corrupted);
+    NX_CHECK(!reader->verify(records, gaps, &failure).has_value());
+    NX_CHECK(failure.segment_seq == segment.seq);
+    NX_CHECK(failure.offset > 0U);
+    write_bytes(original);
+    NX_CHECK(reader->verify(records, gaps).has_value());
+
+    // A corrupt footer is diagnosed for the closed segment.
+    auto bad_footer = original;
+    bad_footer.back() = static_cast<char>(bad_footer.back() ^ 0xFF);
+    write_bytes(bad_footer);
+    NX_CHECK(!reader->verify(records, gaps, &failure).has_value());
+    NX_CHECK(failure.segment_seq == segment.seq);
+    write_bytes(original);
+
+    // A missing segment file is diagnosed.
+    std::filesystem::rename(rec, rec + ".gone", error);
+    NX_CHECK(!error);
+    NX_CHECK(!reader->verify(records, gaps, &failure).has_value());
+    NX_CHECK(failure.segment_seq == segment.seq);
+    std::filesystem::rename(rec + ".gone", rec, error);
+    NX_CHECK(!error);
+
+    // Video reads reject an unknown segment, oversized reference, truncated
+    // blob and CRC mismatch, and accept a verified frame.
+    nexigen::recorder::VideoFrameRef reference{};
+    reference.vid_segment_seq = 0U;
+    reference.vid_offset = 0U;
+    reference.vid_size = 4U;
+    {
+        std::ofstream vid(directory + "/" + segment.vid_path, std::ios::binary | std::ios::trunc);
+        const std::array<char, 4> bytes{1, 2, 3, 4};
+        vid.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    NX_CHECK(reader->read_video(reference).has_value());
+    reference.vid_crc32c = 0xDEADBEEFU;
+    const auto bad_crc = reader->read_video(reference);
+    NX_CHECK(!bad_crc.has_value());
+    if (!bad_crc.has_value()) {
+        NX_CHECK(bad_crc.error() == nexigen::core::ErrorCode::SecurityError);
+    }
+    reference.vid_crc32c = 0U;
+    reference.vid_size = 0xFFFFFFFFU;
+    const auto oversized = reader->read_video(reference);
+    NX_CHECK(!oversized.has_value());
+    if (!oversized.has_value()) {
+        NX_CHECK(oversized.error() == nexigen::core::ErrorCode::CorruptData);
+    }
+    reference.vid_size = 4U;
+    reference.vid_segment_seq = 99U;
+    const auto unknown = reader->read_video(reference);
+    NX_CHECK(!unknown.has_value());
+    if (!unknown.has_value()) {
+        NX_CHECK(unknown.error() == nexigen::core::ErrorCode::NotFound);
+    }
+
+    // A standalone segment opens from its declarations and yields an inventory.
+    reference.vid_segment_seq = 0U;
+    const std::string standalone = root + "/standalone_000000.nxrec";
+    std::filesystem::copy_file(rec, standalone, std::filesystem::copy_options::overwrite_existing,
+                               error);
+    NX_CHECK(!error);
+    auto bare = SessionReader::open_segment(standalone);
+    NX_CHECK(bare.has_value());
+    if (bare.has_value()) {
+        const auto bare_inventory = bare->datasets();
+        NX_CHECK(bare_inventory.has_value() && !bare_inventory->empty());
+    }
+    const auto inventory = reader->datasets();
+    NX_CHECK(inventory.has_value() && !inventory->empty());
+
+    // Channel and event-range filters narrow the scan.
+    std::uint64_t channel_hits = 0;
+    std::uint64_t range_hits = 0;
+    auto count_visitor = +[](void* context, const RecordHeader&, std::span<const std::byte>,
+                             std::uint64_t) noexcept {
+        ++*static_cast<std::uint64_t*>(context);
+        return true;
+    };
+    NX_CHECK(reader->for_each(1U, true, 0U, 0U, false, count_visitor, &channel_hits).has_value());
+    NX_CHECK(channel_hits >= 2U);
+    channel_hits = 0;
+    NX_CHECK(reader->for_each(9U, true, 0U, 0U, false, count_visitor, &channel_hits).has_value());
+    NX_CHECK(channel_hits == 0U);
+    NX_CHECK(reader
+                 ->for_each(0U, false, 0U, std::numeric_limits<std::uint64_t>::max(), true,
+                            count_visitor, &range_hits)
+                 .has_value());
+    NX_CHECK(range_hits >= 1U);
+    range_hits = 0;
+    NX_CHECK(reader->for_each(0U, false, 0U, 1U, true, count_visitor, &range_hits).has_value());
+    NX_CHECK(range_hits == 0U);
+
+    // A missing blob and a truncated blob are named errors.
+    std::filesystem::remove(directory + "/" + segment.vid_path, error);
+    const auto missing_blob = reader->read_video(reference);
+    NX_CHECK(!missing_blob.has_value());
+    if (!missing_blob.has_value()) {
+        NX_CHECK(missing_blob.error() == nexigen::core::ErrorCode::NotFound);
+    }
+    {
+        std::ofstream vid(directory + "/" + segment.vid_path, std::ios::binary | std::ios::trunc);
+        const std::array<char, 2> bytes{1, 2};
+        vid.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    const auto truncated_blob = reader->read_video(reference);
+    NX_CHECK(!truncated_blob.has_value());
+    if (!truncated_blob.has_value()) {
+        NX_CHECK(truncated_blob.error() == nexigen::core::ErrorCode::SystemError);
+    }
+
+    std::filesystem::remove_all(root, error);
+}
+
+void test_time_base_resolver_edges() {
+    using nexigen::recorder::TimeBasePayload;
+    using nexigen::recorder::TimeBaseResolver;
+
+    TimeBasePayload entry{};
+    entry.generation = 7U;
+    entry.time_base_epoch = 42U;
+    entry.boot_token = 0xABCDU;
+    entry.status = nexigen::chrono::TimeBaseStatus::Ready;
+    entry.domain_count = 2U;
+    entry.rows[0].domain_id = 7U;
+    entry.rows[0].domain_class = nexigen::chrono::TimeDomainClass::DeviceClock;
+    entry.rows[0].lock = nexigen::chrono::LockState::Locked;
+    entry.rows[0].epoch = 5U;
+    entry.rows[0].native_anchor = 1'000U;
+    entry.rows[0].canonical_anchor_ns = 2'000;
+    entry.rows[0].scale_fwd_q32 = 1ULL << 32U;
+    entry.rows[0].scale_rev_q32 = 1ULL << 32U;
+    entry.rows[0].flags = nexigen::chrono::DomainCoefficient::has_reverse_bit;
+    entry.rows[0].valid_from_native = 0U;
+    entry.rows[0].valid_to_native = 10'000U;
+    entry.rows[0].valid_from_canonical = 1'000U;
+    entry.rows[0].valid_to_canonical = 11'000U;
+    entry.rows[1].domain_id = nexigen::chrono::k_realtime_domain_id;
+    entry.rows[1].domain_class = nexigen::chrono::TimeDomainClass::SystemClock;
+    entry.rows[1].lock = nexigen::chrono::LockState::Locked;
+    entry.rows[1].epoch = 1U;
+    entry.rows[1].native_anchor = 10'000U;
+    entry.rows[1].canonical_anchor_ns = 2'000;
+    entry.rows[1].scale_fwd_q32 = 1ULL << 32U;
+    entry.rows[1].scale_rev_q32 = 1ULL << 32U;
+    entry.rows[1].flags = nexigen::chrono::DomainCoefficient::has_reverse_bit;
+    entry.rows[1].valid_from_canonical = 1'000U;
+    entry.rows[1].valid_to_canonical = 11'000U;
+
+    TimeBaseResolver resolver{};
+    NX_CHECK(resolver.add(entry));
+    NX_CHECK(resolver.boot_token() == std::optional<std::uint64_t>{0xABCDU});
+    NX_CHECK(resolver.time_base_epoch() == std::optional<std::uint64_t>{42U});
+
+    NX_CHECK(resolver.canonical_from_native(nexigen::chrono::k_monotonic_raw_domain_id, 0U, 123U) ==
+             std::optional<std::int64_t>{123});
+    NX_CHECK(!resolver.canonical_from_native(7U, 6U, 1'500U).has_value());  // epoch mismatch
+    NX_CHECK(!resolver.canonical_from_native(7U, 5U, 20'000U).has_value()); // outside validity
+    NX_CHECK(!resolver.canonical_from_native(99U, 0U, 1U).has_value());     // unknown domain
+
+    NX_CHECK(!resolver.native_from_canonical(7U, 5U, -1).has_value());
+    NX_CHECK(!resolver.native_from_canonical(nexigen::chrono::k_monotonic_raw_domain_id, 0U, -1)
+                  .has_value());
+    NX_CHECK(!resolver.native_from_canonical(7U, 6U, 2'000).has_value());
+    NX_CHECK(!resolver.native_from_canonical(7U, 5U, 50'000).has_value());
+    NX_CHECK(resolver.native_from_canonical(7U, 5U, 2'500) == std::optional<std::uint64_t>{1'500U});
+
+    NX_CHECK(resolver.convert(7U, 5U, 1'500U, nexigen::chrono::k_monotonic_raw_domain_id) ==
+             std::optional<std::uint64_t>{2'500U});
+    NX_CHECK(resolver.convert(7U, 5U, 1'500U, 7U) == std::optional<std::uint64_t>{1'500U});
+    NX_CHECK(!resolver.convert(7U, 6U, 1'500U, nexigen::chrono::k_realtime_domain_id).has_value());
+
+    NX_CHECK(resolver.utc_from_canonical(2'500U) == std::optional<std::int64_t>{10'500});
+    NX_CHECK(!resolver.utc_from_canonical(50'000U).has_value());
+
+    // A snapshot with a different boot token cannot anchor a native instant.
+    nexigen::chrono::TimeSnapshot snapshot{};
+    snapshot.generation = 7U;
+    snapshot.boot_token = 0xFFFFU;
+    snapshot.monotonic_raw_ns = 5'000U;
+    snapshot.domain_count = 1U;
+    snapshot.domains[0].domain_id = 7U;
+    snapshot.domains[0].domain_class = nexigen::chrono::TimeDomainClass::DeviceClock;
+    snapshot.domains[0].lock = nexigen::chrono::LockState::Locked;
+    snapshot.domains[0].epoch = 5U;
+    snapshot.domains[0].value = 4'000U;
+    resolver.add_snapshot(snapshot);
+    NX_CHECK(!resolver.canonical_from_native(7U, 5U, 20'000U).has_value());
+
+    // Range guards and missing rows on the reverse paths.
+    NX_CHECK(!resolver.utc_from_canonical(std::numeric_limits<std::uint64_t>::max()).has_value());
+    NX_CHECK(!resolver.tai_from_canonical(std::numeric_limits<std::uint64_t>::max()).has_value());
+    NX_CHECK(!resolver.tai_from_canonical(2'500U).has_value()); // no Tai row recorded
+
+    // A matching-boot snapshot whose row does not cover the snapshot instant
+    // stays unresolved instead of anchoring an unrelated row.
+    TimeBaseResolver uncovered{};
+    NX_CHECK(uncovered.add(entry));
+    nexigen::chrono::TimeSnapshot outside{};
+    outside.generation = 7U;
+    outside.boot_token = entry.boot_token;
+    outside.monotonic_raw_ns = 50'000U;
+    outside.domain_count = 1U;
+    outside.domains[0].domain_id = 7U;
+    outside.domains[0].domain_class = nexigen::chrono::TimeDomainClass::DeviceClock;
+    outside.domains[0].lock = nexigen::chrono::LockState::Locked;
+    outside.domains[0].epoch = 5U;
+    outside.domains[0].value = 4'000U;
+    uncovered.add_snapshot(outside);
+    NX_CHECK(!uncovered.canonical_from_native(7U, 5U, 20'000U).has_value());
+
+    // A matching snapshot whose domain value belongs to another epoch is not
+    // used as an anchor.
+    TimeBaseResolver epoch_mismatch{};
+    NX_CHECK(epoch_mismatch.add(entry));
+    nexigen::chrono::TimeSnapshot wrong_epoch = outside;
+    wrong_epoch.boot_token = entry.boot_token;
+    wrong_epoch.monotonic_raw_ns = 5'000U;
+    wrong_epoch.domains[0].epoch = 99U;
+    epoch_mismatch.add_snapshot(wrong_epoch);
+    NX_CHECK(!epoch_mismatch.canonical_from_native(7U, 5U, 20'000U).has_value());
+
+    // A gap entry never anchors a map.
+    TimeBasePayload gap_entry = entry;
+    gap_entry.generation = 8U;
+    gap_entry.gap = 1U;
+    gap_entry.domain_count = 0U;
+    TimeBaseResolver with_gap{};
+    NX_CHECK(with_gap.add(gap_entry));
+    NX_CHECK(!with_gap.canonical_from_native(7U, 5U, 1'500U).has_value());
+}
+
+void test_declaration_validation_errors() {
+    using namespace nexigen::recorder;
+
+    StorageSettings settings{};
+    NX_CHECK(settings.validate().has_value());
+    settings.format = static_cast<RecorderFormat>(200);
+    NX_CHECK(!settings.validate().has_value());
+    settings = StorageSettings{};
+    settings.session_root = "relative";
+    NX_CHECK(!settings.validate().has_value());
+    settings = StorageSettings{};
+    settings.session_id = ".";
+    NX_CHECK(!settings.validate().has_value());
+    settings = StorageSettings{};
+    settings.session_id = "bad id";
+    NX_CHECK(!settings.validate().has_value());
+    settings = StorageSettings{};
+    settings.session_id = "../evil";
+    NX_CHECK(!settings.validate().has_value());
+    settings = StorageSettings{};
+    settings.session_layout = "/absolute";
+    NX_CHECK(!settings.validate().has_value());
+    settings = StorageSettings{};
+    settings.session_layout = "{bogus}";
+    NX_CHECK(!settings.validate().has_value());
+    settings = StorageSettings{};
+    settings.session_layout = "{session_id";
+    NX_CHECK(!settings.validate().has_value());
+    settings = StorageSettings{};
+    settings.write_buffer_bytes = 0;
+    NX_CHECK(!settings.validate().has_value());
+
+    SchemaDeclare schema{};
+    schema.id = 1;
+    schema.name = "test.Valid";
+    schema.encoding = "jsonschema";
+    schema.data = {1U, 2U, 3U};
+    NX_CHECK(schema.validate().has_value());
+    SchemaDeclare bad_schema = schema;
+    bad_schema.id = 0;
+    NX_CHECK(!bad_schema.validate().has_value());
+    bad_schema = schema;
+    bad_schema.encoding = "bogus";
+    NX_CHECK(!bad_schema.validate().has_value());
+    bad_schema = schema;
+    bad_schema.data.assign(kMaxSchemaBytes + 1U, 0U);
+    NX_CHECK(!bad_schema.validate().has_value());
+    bad_schema = schema;
+    bad_schema.name.clear();
+    NX_CHECK(!bad_schema.validate().has_value());
+
+    ChannelDeclare channel{};
+    channel.id = 1;
+    channel.schema_id = 1;
+    channel.topic = "test/topic";
+    channel.message_encoding = "raw";
+    NX_CHECK(channel.validate().has_value());
+    ChannelDeclare bad_channel = channel;
+    bad_channel.id = 0;
+    NX_CHECK(!bad_channel.validate().has_value());
+    bad_channel = channel;
+    bad_channel.topic.clear();
+    NX_CHECK(!bad_channel.validate().has_value());
+    bad_channel = channel;
+    bad_channel.message_encoding.clear();
+    NX_CHECK(!bad_channel.validate().has_value());
+    bad_channel = channel;
+    bad_channel.native_domain.clear();
+    NX_CHECK(!bad_channel.validate().has_value());
+    bad_channel = channel;
+    bad_channel.native_domain = "quantum";
+    NX_CHECK(!bad_channel.validate().has_value());
+
+    SessionManifest manifest{};
+    manifest.session_id = "sess";
+    manifest.settings.session_root = "/tmp";
+    manifest.settings.session_id = "sess";
+    NX_CHECK(manifest.validate().has_value());
+    manifest.version = 1U;
+    NX_CHECK(!manifest.validate().has_value());
+
+    manifest = SessionManifest{};
+    manifest.session_id = "sess";
+    manifest.settings.session_root = "/tmp";
+    manifest.settings.session_id = "sess";
+    manifest.schemas.assign(65U, schema);
+    NX_CHECK(!manifest.validate().has_value()); // too many schemas
+    manifest.schemas = {schema, schema};
+    NX_CHECK(!manifest.validate().has_value()); // duplicate schema ids
+    manifest.schemas = {SchemaDeclare{}};
+    NX_CHECK(!manifest.validate().has_value()); // invalid schema entry
+    manifest.schemas = {schema};
+    manifest.schemas = {schema};
+    manifest.channels = {channel};
+    manifest.channels[0].schema_id = 9U;
+    NX_CHECK(!manifest.validate().has_value()); // missing schema
+    manifest.channels[0].schema_id = 1U;
+    manifest.channels.push_back(manifest.channels[0]);
+    NX_CHECK(!manifest.validate().has_value()); // duplicate channel ids
+    manifest.channels = std::vector<ChannelDeclare>(65U, channel);
+    NX_CHECK(!manifest.validate().has_value()); // too many channels
+    manifest.channels = {ChannelDeclare{}};
+    NX_CHECK(!manifest.validate().has_value()); // invalid channel entry
+
+    manifest = SessionManifest{};
+    manifest.session_id = "sess";
+    manifest.settings.session_root = "/tmp";
+    manifest.settings.session_id = "sess";
+    SegmentInfo segment{};
+    segment.seq = 0U;
+    segment.rec_path = "a.nxrec";
+    segment.idx_path = "a.nxidx";
+    segment.vid_path = "a.nxvid";
+    manifest.segments = {segment, segment};
+    NX_CHECK(!manifest.validate().has_value()); // duplicate segment seq
+    manifest.segments = {segment};
+    manifest.segments[0].rec_path.clear();
+    NX_CHECK(!manifest.validate().has_value());
+    manifest.segments = {segment};
+    manifest.segments[0].rec_path = "a.nxrec";
+    manifest.settings.session_root = "relative";
+    NX_CHECK(!manifest.validate().has_value());
+}
+
+void test_payload_decoder_edges() {
+    using nexigen::recorder::DatasetField;
+
+    auto field = [](const char* name, const char* type, std::uint32_t offset, std::uint32_t size,
+                    std::uint32_t count, std::uint32_t stride) {
+        DatasetField out{};
+        out.name = name;
+        out.type = type;
+        out.offset = offset;
+        out.element_size = size;
+        out.count = count;
+        out.stride = stride;
+        return out;
+    };
+
+    // A positive 64-bit value takes the no-sign-extension branch.
+    std::array<std::byte, 8> positive{};
+    positive[0] = std::byte{0x04};
+    const auto positive_view = nexigen::recorder::decode_payload(
+        "jsonschema", {}, std::vector<DatasetField>{field("p64", "i64", 0U, 8U, 1U, 8U)}, positive);
+    NX_CHECK(positive_view.has_value());
+    if (positive_view.has_value()) {
+        const auto document = nlohmann::json::parse(positive_view->text, nullptr, false);
+        NX_CHECK(document["p64"] == 4);
+    }
+
+    // An array element outside the payload and an empty field name are corrupt.
+    std::array<std::byte, 8> small{};
+    const auto array_overrun = nexigen::recorder::decode_payload(
+        "jsonschema", {}, std::vector<DatasetField>{field("arr", "u32", 6U, 4U, 2U, 4U)}, small);
+    NX_CHECK(!array_overrun.has_value());
+    if (!array_overrun.has_value()) {
+        NX_CHECK(array_overrun.error() == nexigen::core::ErrorCode::CorruptData);
+    }
+    const auto empty_name = nexigen::recorder::decode_payload(
+        "jsonschema", {}, std::vector<DatasetField>{field("", "u8", 0U, 1U, 1U, 1U)}, small);
+    NX_CHECK(!empty_name.has_value());
+    if (!empty_name.has_value()) {
+        NX_CHECK(empty_name.error() == nexigen::core::ErrorCode::CorruptData);
+    }
+
+    // Malformed FileDescriptorSet variants are rejected by the validator.
+    const std::array<std::byte, 2> payload{std::byte{0x08}, std::byte{0x01}};
+    const std::array<std::vector<std::uint8_t>, 6> bad_descriptors{{
+        {0x0BU},             // unknown wire type 3
+        {0x0CU},             // unknown wire type 4
+        {0x08U},             // varint without a value
+        {0x09U, 1U, 2U, 3U}, // fixed64 truncated
+        {0x0DU, 1U, 2U},     // fixed32 truncated
+        {0x0AU, 0x05U, 'a'}, // length-delimited truncated
+    }};
+    for (const auto& descriptor : bad_descriptors) {
+        const auto view = nexigen::recorder::decode_payload("protobuf", descriptor, {}, payload);
+        NX_CHECK(!view.has_value());
+        if (!view.has_value()) {
+            NX_CHECK(view.error() == nexigen::core::ErrorCode::CorruptData);
+        }
+    }
+    // Structurally valid descriptors covering varint, fixed64 and fixed32
+    // wire types.
+    const std::array<std::vector<std::uint8_t>, 3> wire_descriptors{{
+        {0x08U, 0x01U},
+        {0x09U, 1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U},
+        {0x0DU, 1U, 2U, 3U, 4U},
+    }};
+    for (const auto& descriptor : wire_descriptors) {
+        static_cast<void>(nexigen::recorder::decode_payload("protobuf", descriptor, {}, payload));
+    }
+
+    const std::array<std::uint8_t, 2> short_flatbuffer{0x00U, 0xFFU};
+    const auto flat =
+        nexigen::recorder::decode_payload("flatbuffer", short_flatbuffer, {}, payload);
+    NX_CHECK(!flat.has_value());
+    if (!flat.has_value()) {
+        NX_CHECK(flat.error() == nexigen::core::ErrorCode::CorruptData);
+    }
+}
+
+void test_settings_and_payload_hostile_json() {
+    nexigen::recorder::StorageSettings settings{};
+    const auto base = settings;
+    nexigen::recorder::from_json(nlohmann::json(42), settings);
+    NX_CHECK(settings.session_root == base.session_root);
+    nexigen::recorder::from_json(nlohmann::json{{"format", 5},
+                                                {"session_root", 7},
+                                                {"session_id", true},
+                                                {"session_layout", 1},
+                                                {"time_domain", "bogus"},
+                                                {"max_segment_bytes", "x"},
+                                                {"boot_token", 5},
+                                                {"boot_uuid", false},
+                                                {"time_base_epoch", "y"}},
+                                 settings);
+    NX_CHECK(settings.session_root == base.session_root);
+    NX_CHECK(settings.format == base.format);
+
+    nexigen::recorder::TimeBasePayload payload{};
+    nexigen::recorder::from_json(nlohmann::json(42), payload);
+    NX_CHECK(payload.generation == 0U);
+    nlohmann::json rows = nlohmann::json::array();
+    for (int i = 0; i < 40; ++i) {
+        rows.push_back(nlohmann::json{{"domain_id", i}});
+    }
+    nexigen::recorder::from_json(nlohmann::json{{"rows", rows}, {"domain_count", 40U}}, payload);
+    NX_CHECK(payload.domain_count <= 32U);
+    nexigen::recorder::from_json(nlohmann::json{{"rows", 5}}, payload);
+    nexigen::recorder::DatasetInfo hostile_dataset{};
+    nexigen::recorder::from_json(nlohmann::json{{"fields", 5}, {"segments", "x"}}, hostile_dataset);
+    NX_CHECK(hostile_dataset.fields.empty() && hostile_dataset.segments.empty());
+}
+
+void test_open_segment_declaration_errors() {
+    using nexigen::recorder::RecordHeader;
+    using nexigen::recorder::SessionReader;
+    using nexigen::recorder::SessionWriter;
+
+    std::error_code error;
+    const std::string root = temp_root() + "-decl";
+    std::filesystem::remove_all(root, error);
+    std::filesystem::create_directories(root, error);
+    nexigen::recorder::StorageSettings settings{};
+    settings.session_root = root;
+    settings.session_id = "sess";
+    settings.min_free_bytes = 0;
+    settings.write_buffer_bytes = 4096;
+    settings.index_buffer_bytes = 4096;
+    settings.max_record_bytes = 4096;
+    auto writer = SessionWriter::create(settings);
+    NX_CHECK(writer.has_value());
+    if (!writer.has_value()) {
+        return;
+    }
+    nexigen::recorder::SchemaDeclare schema{};
+    schema.id = 1;
+    schema.name = "test.Decl";
+    schema.encoding = "jsonschema";
+    schema.data = {1U, 2U, 3U};
+    NX_CHECK(writer->declare_schema(schema).has_value());
+    NX_CHECK(writer->close().has_value());
+    const std::string rec = root + "/sess/" + writer->manifest().segments.front().rec_path;
+
+    std::vector<char> original;
+    {
+        std::ifstream in(rec, std::ios::binary);
+        original.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    NX_CHECK(original.size() > sizeof(RecordHeader));
+
+    const auto write_case = [&](const std::string& name, const std::vector<char>& bytes) {
+        const std::string path = root + "/" + name + "_000000.nxrec";
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        return path;
+    };
+    // Corrupt declaration payload CRC.
+    auto bad_crc = original;
+    bad_crc[sizeof(RecordHeader)] = static_cast<char>(bad_crc[sizeof(RecordHeader)] ^ 0x5A);
+    const auto bad_crc_path = write_case("badcrc", bad_crc);
+    const auto bad_crc_open = SessionReader::open_segment(bad_crc_path);
+    NX_CHECK(!bad_crc_open.has_value());
+    if (!bad_crc_open.has_value()) {
+        NX_CHECK(bad_crc_open.error() == nexigen::core::ErrorCode::SecurityError);
+    }
+
+    // A valid header and CRC over an invalid declaration document.
+    {
+        RecordHeader header{};
+        header.type = static_cast<std::uint16_t>(nexigen::recorder::RecordType::SchemaDeclare);
+        header.payload_size = 1U;
+        std::vector<char> bytes(sizeof(RecordHeader) + 1U, '{');
+        header.payload_crc32c = nexigen::core::integrity::crc32c(std::span<const std::uint8_t>(
+            reinterpret_cast<const std::uint8_t*>(bytes.data()) + sizeof(RecordHeader), 1U));
+        header.header_crc32c = nexigen::core::integrity::crc32c(std::span<const std::uint8_t>(
+            reinterpret_cast<const std::uint8_t*>(&header), offsetof(RecordHeader, header_crc32c)));
+        std::memcpy(bytes.data(), &header, sizeof(header));
+        const auto bad_json_path = write_case("badjson", bytes);
+        const auto bad_json_open = SessionReader::open_segment(bad_json_path);
+        NX_CHECK(!bad_json_open.has_value());
+        if (!bad_json_open.has_value()) {
+            NX_CHECK(bad_json_open.error() == nexigen::core::ErrorCode::CorruptData);
+        }
+    }
+
+    // A declaration larger than the reader cap.
+    auto oversized = original;
+    {
+        RecordHeader header{};
+        std::memcpy(&header, oversized.data(), sizeof(header));
+        header.payload_size = 64U * 1024U * 1024U + 1U;
+        header.header_crc32c = nexigen::core::integrity::crc32c(std::span<const std::uint8_t>(
+            reinterpret_cast<const std::uint8_t*>(&header), offsetof(RecordHeader, header_crc32c)));
+        std::memcpy(oversized.data(), &header, sizeof(header));
+    }
+    const auto oversized_path = write_case("oversized", oversized);
+    const auto oversized_open = SessionReader::open_segment(oversized_path);
+    NX_CHECK(!oversized_open.has_value());
+    if (!oversized_open.has_value()) {
+        NX_CHECK(oversized_open.error() == nexigen::core::ErrorCode::CorruptData);
+    }
+
+    // Truncated declaration payload.
+    auto truncated = original;
+    truncated.resize(sizeof(RecordHeader) + 2U);
+    const auto truncated_path = write_case("truncated", truncated);
+    const auto truncated_open = SessionReader::open_segment(truncated_path);
+    NX_CHECK(!truncated_open.has_value());
+    if (!truncated_open.has_value()) {
+        NX_CHECK(truncated_open.error() == nexigen::core::ErrorCode::CorruptData);
+    }
+
+    std::filesystem::remove_all(root, error);
+}
+
+void test_reader_video_and_manifest_errors() {
+    using nexigen::recorder::SessionReader;
+    using nexigen::recorder::SessionWriter;
+
+    std::error_code error;
+    const std::string root = temp_root() + "-video-errors";
+    std::filesystem::remove_all(root, error);
+    std::filesystem::create_directories(root, error);
+    nexigen::recorder::StorageSettings settings{};
+    settings.session_root = root;
+    settings.session_id = "sess";
+    settings.min_free_bytes = 0;
+    settings.write_buffer_bytes = 4096;
+    settings.index_buffer_bytes = 4096;
+    settings.max_record_bytes = 4096;
+    settings.video_frame_buffer_bytes = 4096;
+    settings.video_crc = nexigen::recorder::VideoCrcMode::PerFrame;
+    auto writer = SessionWriter::create(settings);
+    NX_CHECK(writer.has_value());
+    if (!writer.has_value()) {
+        return;
+    }
+    nexigen::recorder::SchemaDeclare schema{};
+    schema.id = 1U;
+    schema.name = "test.Video";
+    schema.encoding = "jsonschema";
+    schema.data = {1U, 2U, 3U};
+    NX_CHECK(writer->declare_schema(schema).has_value());
+    nexigen::recorder::ChannelDeclare channel{};
+    channel.id = 1U;
+    channel.schema_id = 1U;
+    channel.topic = "test/video";
+    channel.kind = nexigen::recorder::DatasetKind::Video;
+    channel.message_encoding = "raw";
+    NX_CHECK(writer->declare_channel(channel).has_value());
+
+    nexigen::recorder::VideoStreamConfig stream{};
+    stream.codec = static_cast<std::uint16_t>(nexigen::recorder::VideoCodec::H264);
+    stream.bitstream = static_cast<std::uint16_t>(nexigen::recorder::BitstreamFormat::AnnexB);
+    stream.width = 16U;
+    stream.height = 16U;
+    stream.timebase_num = 1U;
+    stream.timebase_den = 30U;
+    const std::array<std::byte, 4> frame{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
+    nexigen::recorder::VideoFrameRef first{};
+    first.capture_mono_ns = 1U;
+    first.source_sequence = 0U;
+    NX_CHECK(writer->append_video(1U, stream, first, frame).has_value());
+    nexigen::recorder::VideoFrameRef second = first;
+    second.capture_mono_ns = 2U;
+    second.source_sequence = 5U; // a gap marker is emitted between the frames
+    NX_CHECK(writer->append_video(1U, stream, second, frame).has_value());
+    NX_CHECK(writer->close().has_value());
+
+    const std::string directory = root + "/sess";
+    const auto segment = writer->manifest().segments.front();
+    const std::string rec = directory + "/" + segment.rec_path;
+    const std::string vid = directory + "/" + segment.vid_path;
+
+    auto reader = SessionReader::open(directory);
+    NX_CHECK(reader.has_value());
+    if (!reader.has_value()) {
+        return;
+    }
+    const auto inventory = reader->datasets();
+    NX_CHECK(inventory.has_value() && !inventory->empty());
+
+    // Rebuilding the index scans the video reference payloads.
+    std::filesystem::remove(directory + "/" + segment.idx_path, error);
+    const auto rebuilt = reader->recover_index(segment.seq);
+    NX_CHECK(rebuilt.has_value());
+
+    std::uint64_t records = 0;
+    std::uint64_t gaps = 0;
+    nexigen::recorder::VerifyFailure failure{};
+    NX_CHECK(reader->verify(records, gaps, &failure).has_value());
+
+    // A corrupted frame blob makes verification report a security failure.
+    {
+        std::fstream vid_stream(vid, std::ios::binary | std::ios::in | std::ios::out);
+        vid_stream.seekp(0, std::ios::beg);
+        vid_stream.put(static_cast<char>(0x7F));
+    }
+    NX_CHECK(!reader->verify(records, gaps, &failure).has_value());
+    if (!reader->verify(records, gaps, &failure).has_value()) {
+        NX_CHECK(reader->verify(records, gaps, &failure).error() ==
+                 nexigen::core::ErrorCode::SecurityError);
+    }
+    {
+        std::ofstream vid_out(vid, std::ios::binary | std::ios::trunc);
+        vid_out.write(reinterpret_cast<const char*>(frame.data()),
+                      static_cast<std::streamsize>(frame.size()));
+    }
+
+    // A manifest whose record count disagrees with the stream is corrupt.
+    const std::string manifest_path = directory + "/session.json";
+    nlohmann::json document;
+    {
+        std::ifstream in(manifest_path);
+        document = nlohmann::json::parse(in, nullptr, false);
+    }
+    NX_CHECK(document.is_object());
+    if (document.is_object() && document.contains("segments") && document["segments"].is_array() &&
+        !document["segments"].empty()) {
+        document["segments"][0]["records"] =
+            document["segments"][0]["records"].get<std::uint64_t>() + 1U;
+        std::ofstream out(manifest_path, std::ios::trunc);
+        out << document.dump();
+    }
+    auto mismatch = SessionReader::open(directory);
+    NX_CHECK(mismatch.has_value());
+    if (mismatch.has_value()) {
+        NX_CHECK(!mismatch->verify(records, gaps, &failure).has_value());
     }
     std::filesystem::remove_all(root, error);
 }
@@ -2252,6 +3836,17 @@ int main() {
     test_export_selection_roundtrip();
     test_time_sync_record();
     test_time_base_history();
+    test_recorder_serialization_extended();
+    test_config_loader_errors();
+    test_session_writer_error_paths();
+    test_session_reader_error_paths();
+    test_time_base_resolver_edges();
+    test_declaration_validation_errors();
+    test_payload_decoder_edges();
+    test_settings_and_payload_hostile_json();
+    test_open_segment_declaration_errors();
+    test_reader_video_and_manifest_errors();
+    test_payload_decoder_extended();
     test_time_base_session_bridge();
     std::printf("recorder tests: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

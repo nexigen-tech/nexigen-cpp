@@ -26,11 +26,14 @@
 
 #include <fcntl.h>
 #include <malloc.h>
+#include <sched.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 #include <nexigen/chrono/boot_identity.hpp>
+#include <nexigen/core/detail/fault_injection.hpp>
 #include <nexigen/chrono/phc_cross_timestamp.hpp>
 #include <nexigen/core/integrity/crc32c.hpp>
 #include <nexigen/chrono/detail/time_base_segment.hpp>
@@ -39,7 +42,9 @@
 #include <nexigen/chrono/time_base_device.hpp>
 #include <nexigen/chrono/time_base_daemon_config.hpp>
 #include <nexigen/chrono/adjtimex_status.hpp>
+#include <nexigen/chrono/time_sync_monitor.hpp>
 #include <nexigen/chrono/daemon_runtime.hpp>
+#include <nexigen/chrono/detail/domain_map.hpp>
 #include <nexigen/chrono/detail/kalman2.hpp>
 #include <nexigen/chrono/tai_deadline.hpp>
 #include <nexigen/chrono/time_base_client.hpp>
@@ -154,6 +159,26 @@ void test_domain_kind() {
     NX_CHECK(!from_string("bogus", single));
     ServiceFlags empty{};
     NX_CHECK(to_string(empty) == "none");
+
+    // JSON accepts an array of names, a pipe/space/comma separated string, and
+    // the legacy numeric bitmask.
+    ServiceFlags parsed_from_text{};
+    from_json(nlohmann::json("phc_present|tai_synchronized"), parsed_from_text);
+    NX_CHECK(parsed_from_text.has(ServiceFlag::PhcPresent));
+    NX_CHECK(parsed_from_text.has(ServiceFlag::TaiSynchronized));
+    from_json(nlohmann::json("phc_present, step_detected slew_active"), parsed_from_text);
+    NX_CHECK(parsed_from_text.has(ServiceFlag::PhcPresent));
+    NX_CHECK(parsed_from_text.has(ServiceFlag::StepDetected));
+    NX_CHECK(parsed_from_text.has(ServiceFlag::SlewActive));
+    from_json(nlohmann::json("bogus|tai_available"), parsed_from_text);
+    NX_CHECK(parsed_from_text.has(ServiceFlag::TaiAvailable));
+    NX_CHECK(!parsed_from_text.has(ServiceFlag::PhcPresent));
+    from_json(nlohmann::json(static_cast<std::uint64_t>(5)), parsed_from_text);
+    NX_CHECK(parsed_from_text.bits == 5U);
+    ServiceFlags cleared{};
+    cleared.set(ServiceFlag::PhcPresent);
+    cleared.clear(ServiceFlag::PhcPresent);
+    NX_CHECK(!cleared.has(ServiceFlag::PhcPresent));
 }
 
 void test_lock_state() {
@@ -527,6 +552,8 @@ void test_time_base_daemon_config() {
     config.record_session_path = "/tmp/nexigen-session";
     NX_CHECK(!config.domains.front().to_string().empty());
     NX_CHECK(std::format("{}", config.domains.front()) == config.domains.front().to_string());
+    NX_CHECK(to_string(config.domains.front()) == config.domains.front().to_string());
+    NX_CHECK(to_string(config) == config.to_string());
 
     nlohmann::json document;
     to_json(document, config);
@@ -797,6 +824,76 @@ void test_time_base_estimator() {
 // chrono/time-base "Client attach and required domains", "Holdover and
 // fail-fast").
 
+void run_client_edge_cases(TimeBaseClient& client, nexigen::chrono::detail::TimeBaseWriter& writer,
+                           const TimeBaseClientConfig& config, const std::string& name,
+                           std::uint64_t now, DomainInstant from_tsc) {
+    // Free-helper diagnostics for the client.
+    NX_CHECK(to_string(client) == client.to_string());
+
+    // Same-domain conversion with a conflicting epoch is rejected.
+    NX_CHECK(!client.convert(from_tsc, k_host_counter_domain_id, 2U).has_value());
+
+    // A required domain that disappears from a new generation fails fast.
+    TimeBaseBlock without_required{};
+    without_required.status = TimeBaseStatus::Ready;
+    without_required.boot_token = 0x77U;
+    without_required.domain_count = 2U;
+    without_required.rows[0].domain_id = k_monotonic_raw_domain_id;
+    without_required.rows[0].domain_class = TimeDomainClass::SystemClock;
+    without_required.rows[0].lock = LockState::Locked;
+    without_required.rows[0].scale_fwd_q32 = 1ULL << 32U;
+    without_required.rows[0].native_anchor = now;
+    without_required.rows[0].canonical_anchor_ns = static_cast<std::int64_t>(now);
+    without_required.rows[0].valid_from_native = now;
+    without_required.rows[0].valid_to_native = now + 10'000'000'000ULL;
+    without_required.rows[0].valid_from_canonical = now;
+    without_required.rows[0].valid_to_canonical = now + 10'000'000'000ULL;
+    without_required.rows[1].domain_id = k_realtime_domain_id;
+    without_required.rows[1].domain_class = TimeDomainClass::SystemClock;
+    without_required.rows[1].lock = LockState::Locked;
+    without_required.rows[1].epoch = 1U;
+    without_required.rows[1].scale_fwd_q32 = 1ULL << 32U;
+    without_required.rows[1].scale_rev_q32 = 1ULL << 32U;
+    without_required.rows[1].flags = DomainCoefficient::has_reverse_bit;
+    without_required.rows[1].native_anchor = now + 1'000'000U;
+    without_required.rows[1].canonical_anchor_ns = static_cast<std::int64_t>(now);
+    without_required.rows[1].valid_from_canonical = now;
+    without_required.rows[1].valid_to_canonical = now + 1'000'000'000ULL;
+    writer.publish(without_required, now + 300'000'000ULL);
+    NX_CHECK(client.on_tick(now + 300'000'000ULL) == ClientState::Lost);
+
+    // A block without the hub row cannot be attached.
+    auto nohub_segment = nexigen::chrono::detail::TimeBaseSegment::create(name + "-nohub", 0x77U);
+    NX_CHECK(nohub_segment.has_value());
+    if (nohub_segment) {
+        TimeBaseBlock nohub{};
+        nohub.status = TimeBaseStatus::Ready;
+        nohub.domain_count = 1U;
+        nohub.rows[0] = without_required.rows[1];
+        nexigen::chrono::detail::TimeBaseWriter{*nohub_segment->block()}.publish(nohub, now);
+        auto nohub_client = TimeBaseClient::attach(name + "-nohub", config);
+        NX_CHECK(!nohub_client.has_value());
+        if (!nohub_client.has_value()) {
+            NX_CHECK(nohub_client.error() == nexigen::core::ErrorCode::NotFound);
+        }
+        nohub_segment->unlink();
+    }
+
+    // A block with a broken identity is reported as corrupt.
+    auto corrupt_segment =
+        nexigen::chrono::detail::TimeBaseSegment::create(name + "-corrupt", 0x77U);
+    NX_CHECK(corrupt_segment.has_value());
+    if (corrupt_segment) {
+        corrupt_segment->block()->magic = 0U;
+        auto corrupt_client = TimeBaseClient::attach(name + "-corrupt", config);
+        NX_CHECK(!corrupt_client.has_value());
+        if (!corrupt_client.has_value()) {
+            NX_CHECK(corrupt_client.error() == nexigen::core::ErrorCode::CorruptData);
+        }
+        corrupt_segment->unlink();
+    }
+}
+
 void test_time_base_client() {
     const std::string name = "/nexigen-tb-client-" + std::to_string(static_cast<long>(::getpid()));
     auto segment = nexigen::chrono::detail::TimeBaseSegment::create(name, 0x77U);
@@ -1000,6 +1097,81 @@ void test_time_base_client() {
     from_json(state_json, decoded_state);
     NX_CHECK(decoded_state == ClientState::Attached);
     NX_CHECK(std::format("{}", ClientState::Holdover) == "holdover");
+
+    run_client_edge_cases(client, writer, config, name, now, from_tsc);
+}
+
+// --- production host source (spec chrono/time-base "Canonical monotonic
+// scale"; design D-D).
+
+void test_host_domain_production() {
+    using namespace nexigen;
+
+    HostClockState state{};
+    const HostClockSource source = production_host_clock(state);
+    NX_CHECK(source.self == &state);
+    NX_CHECK(source.canonical_ns != nullptr);
+    NX_CHECK(source.counter_ticks != nullptr);
+    NX_CHECK(source.monotonic_ns != nullptr && source.tai_ns != nullptr &&
+             source.realtime_ns != nullptr);
+    NX_CHECK(source.canonical_ns(source.self) != 0U);
+    static_cast<void>(source.counter_ticks(source.self));
+    static_cast<void>(source.monotonic_ns(source.self));
+    static_cast<void>(source.tai_ns(source.self));
+    static_cast<void>(source.realtime_ns(source.self));
+    NX_CHECK(source.clocksource_is_tsc != nullptr && source.tsc_synchronized != nullptr);
+    static_cast<void>(source.clocksource_is_tsc(source.self));
+    static_cast<void>(source.tsc_synchronized(source.self));
+
+    // The cross-core probe pins the caller; restore the original affinity.
+    cpu_set_t original{};
+    CPU_ZERO(&original);
+    NX_CHECK(::sched_getaffinity(0, sizeof(original), &original) == 0);
+    static_cast<void>(probe_tsc_synchronized());
+    NX_CHECK(::sched_setaffinity(0, sizeof(original), &original) == 0);
+
+    const std::uint64_t scale = measure_counter_scale(source, std::chrono::milliseconds{1});
+    TimeBaseBlock block{};
+    const HostDomainResult sampled = sample_host_domains(source, block, 1U, 1U, scale, true);
+    NX_CHECK(sampled.rows >= 1U);
+    TimeBaseBlock system{};
+    NX_CHECK(sample_system_domains(source, system, 1U, 1U));
+    NX_CHECK(system.domain_count >= 3U);
+
+    // Canonical read failure loses the base with no rows.
+    auto zero_clock = +[](void* self) noexcept -> std::uint64_t {
+        static_cast<void>(self);
+        return 0U;
+    };
+    auto fixed_clock = +[](void* self) noexcept -> std::uint64_t {
+        static_cast<void>(self);
+        return 1'000U;
+    };
+    HostClockSource failing{&state,  zero_clock, nullptr, nullptr,
+                            nullptr, nullptr,    nullptr, nullptr};
+    TimeBaseBlock lost{};
+    const HostDomainResult lost_sample = sample_host_domains(failing, lost, 1U, 1U, 1U, false);
+    NX_CHECK(lost_sample.status == TimeBaseStatus::Lost);
+    NX_CHECK(lost_sample.rows == 0U);
+
+    // A counter that never advances cannot produce a scale.
+    auto stale_counter = +[](void* self) noexcept -> std::uint64_t {
+        static_cast<void>(self);
+        return 0U;
+    };
+    HostClockSource degenerate{&state,  fixed_clock, stale_counter, nullptr,
+                               nullptr, nullptr,     nullptr,       nullptr};
+    NX_CHECK(measure_counter_scale(degenerate, std::chrono::milliseconds{1}) == 0U);
+
+    // System sampling fails when the monotonic read is zero.
+    TimeBaseBlock system_fail{};
+    NX_CHECK(!sample_system_domains(degenerate, system_fail, 1U, 1U));
+
+    // The row writer stops at the table capacity.
+    TimeBaseBlock full{};
+    full.domain_count = static_cast<std::uint16_t>(time_base_max_domains);
+    NX_CHECK(sample_system_domains(source, full, 1U, 1U));
+    NX_CHECK(full.domain_count == time_base_max_domains);
 }
 
 // --- publish loop (spec chrono/time-base "Coefficient history", "Time-base
@@ -1511,6 +1683,22 @@ void test_time_base_history_writer() {
         NX_CHECK(writer.flush().has_value());
     }
 
+    // A closed writer reports failure without aborting; a null sink callback
+    // and the free diagnostic helper are also safe.
+    TimeBaseHistoryWriter closed{
+        JsonFileSinkConfig{"/nexigen-nonexistent-dir/history.jsonl", false}};
+    NX_CHECK(!closed.is_open());
+    NX_CHECK(!closed.append(first));
+    NX_CHECK(!closed.flush().has_value());
+    NX_CHECK(!closed.sink().append(nullptr, first));
+    NX_CHECK(!closed.to_string().empty());
+    NX_CHECK(to_string(closed) == closed.to_string());
+
+    TimeBaseHistoryWriter full{JsonFileSinkConfig{"/dev/full", false}};
+    if (full.is_open()) {
+        NX_CHECK(!full.append(first));
+    }
+
     std::ifstream input{path};
     NX_CHECK(input.is_open());
     std::string line_one;
@@ -1560,6 +1748,22 @@ void test_time_base_history_restart() {
         NX_CHECK(writer.is_open());
         NX_CHECK(writer.append(second));
         NX_CHECK(writer.flush().has_value());
+    }
+
+    // A closed writer reports failure without aborting; a null sink callback
+    // and the free diagnostic helper are also safe.
+    TimeBaseHistoryWriter closed{
+        JsonFileSinkConfig{"/nexigen-nonexistent-dir/history.jsonl", false}};
+    NX_CHECK(!closed.is_open());
+    NX_CHECK(!closed.append(first));
+    NX_CHECK(!closed.flush().has_value());
+    NX_CHECK(!closed.sink().append(nullptr, first));
+    NX_CHECK(!closed.to_string().empty());
+    NX_CHECK(to_string(closed) == closed.to_string());
+
+    TimeBaseHistoryWriter full{JsonFileSinkConfig{"/dev/full", false}};
+    if (full.is_open()) {
+        NX_CHECK(!full.append(first));
     }
 
     std::ifstream input{path};
@@ -1671,6 +1875,7 @@ void test_device_backend() {
         NX_CHECK(backend.sample_into(estimator));
     }
     NX_CHECK(estimator.sample_count() == 8U);
+    NX_CHECK(to_string(estimator) == estimator.to_string());
     const std::optional<DomainCoefficient> row = estimator.estimate(7U, 5U, 1'000U);
     NX_CHECK(row.has_value());
     if (row.has_value()) {
@@ -1828,6 +2033,40 @@ void test_device_backend() {
         NX_CHECK(!null_phc->is_open());
     }
 
+    // The fault seam synthesizes a precise pair so the conversion path is
+    // exercised without a PTP device. It exists only in fault-injection builds.
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    auto seam_clock = PhcCrossTimestampClock::open("/dev/null");
+    NX_CHECK(seam_clock.has_value());
+    if (seam_clock.has_value()) {
+        auto seam_hook = +[](nexigen::core::fault_injection::FaultPoint point) noexcept {
+            return point == nexigen::core::fault_injection::FaultPoint::Chrono_phc_cross_timestamp;
+        };
+        nexigen::core::fault_injection::set_fault_hook(seam_hook);
+        TimeBaseCorrelationPair seam_pair{};
+        NX_CHECK(seam_clock->read_pair(seam_pair));
+        NX_CHECK(seam_pair.latched);
+        NX_CHECK(!seam_pair.ptm_capable);
+        NX_CHECK(seam_pair.uncertainty_ns == 1U);
+        NX_CHECK(static_cast<std::int64_t>(seam_pair.native_ticks) > seam_pair.canonical_ns);
+        TimeBaseEstimator seam_estimator{};
+        auto seam_backend = seam_clock->backend(30U, 4U, "phc-seam");
+        NX_CHECK(seam_backend.mode() == DeviceAccessMode::PhcCrossTimestamp);
+        NX_CHECK(seam_backend.sample_into(seam_estimator));
+        nexigen::core::fault_injection::set_fault_hook(nullptr);
+    }
+#endif
+
+    // Move assignment transfers the descriptor and closes the old one.
+    auto move_a = PhcCrossTimestampClock::open("/dev/null");
+    auto move_b = PhcCrossTimestampClock::open("/dev/null");
+    NX_CHECK(move_a.has_value() && move_b.has_value());
+    if (move_a.has_value() && move_b.has_value()) {
+        *move_a = std::move(*move_b);
+        NX_CHECK(move_a->is_open());
+        NX_CHECK(!move_b->is_open());
+    }
+
     // The estimated row is publishable and readable through the client path.
     const std::string name = "/nexigen-tb-device-" + std::to_string(static_cast<long>(::getpid()));
     auto created = TimeBaseSegment::create(name, 0x4445'5649U);
@@ -1917,6 +2156,17 @@ void test_kalman2() {
     stepping.reset(0);
     NX_CHECK(stepping.offset_ns() == 0);
     NX_CHECK(stepping.drift_ppb() == 0);
+
+    // A filter with zero measurement and process noise keeps the baseline.
+    Kalman2Config silent{};
+    silent.measurement_ns2 = 0;
+    silent.process_offset_ns2 = 0;
+    silent.process_drift_q12 = 0;
+    Kalman2 quiet{silent};
+    quiet.reset(5);
+    quiet.update(7, 0U);
+    NX_CHECK(quiet.offset_ns() == 5);
+    NX_CHECK(quiet.predict_offset_ns(0U) == 5);
 }
 
 // --- kernel discipline and daemon runtime bootstrap (spec chrono/time-base
@@ -1943,6 +2193,19 @@ void test_adjtimex_status() {
 #endif
 }
 
+void test_time_sync_monitor_guards() {
+    TimeSyncMonitor monitor{};
+    // A monotonic value that cannot be represented as int64 is rejected.
+    NX_CHECK(
+        !monitor
+             .sample(0, static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) + 1U)
+             .has_value());
+    NX_CHECK(monitor.sample(100, 1'000'000'000ULL).has_value());
+    // A backwards monotonic sample is rejected without updating the baseline.
+    NX_CHECK(!monitor.sample(100, 999'999'999ULL).has_value());
+    NX_CHECK(monitor.sample(200, 1'000'000'001ULL).has_value());
+}
+
 void test_daemon_runtime() {
     using nexigen::chrono::DaemonRuntimeConfig;
     using nexigen::chrono::DaemonRuntimeReport;
@@ -1957,6 +2220,46 @@ void test_daemon_runtime() {
     const auto invalid = apply_daemon_runtime(config, report);
     NX_CHECK(!invalid.has_value());
     NX_CHECK(invalid.error() == nexigen::core::ErrorCode::InvalidArgument);
+
+    // The memory-lock attempt executes even when it fails; force failure by
+    // zeroing the lock limit and restore it afterwards.
+    struct rlimit snapshot{};
+    NX_CHECK(::getrlimit(RLIMIT_MEMLOCK, &snapshot) == 0);
+    const struct rlimit none{0, 0};
+    NX_CHECK(::setrlimit(RLIMIT_MEMLOCK, &none) == 0);
+    DaemonRuntimeConfig locking{};
+    locking.lock_memory = true;
+    DaemonRuntimeReport locked_report{};
+    NX_CHECK(apply_daemon_runtime(locking, locked_report).has_value());
+    // The outcome depends on the host/allocator; the point is that the
+    // memory-lock path runs and reports through the report.
+    static_cast<void>(locked_report.memory_locked);
+    static_cast<void>(::setrlimit(RLIMIT_MEMLOCK, &snapshot));
+
+    // A successfully applied scheduler reports the runtime flag.
+    nexigen::core::ThreadSpec sched{};
+    NX_CHECK(sched.set_scheduler(nexigen::core::SchedulingPolicy::Other, 0).has_value());
+    sched.set_apply_mode(nexigen::core::ThreadApplyMode::BestEffort);
+    DaemonRuntimeReport applied{};
+    NX_CHECK(nexigen::core::apply_thread_spec_self(sched, applied.thread).has_value());
+    NX_CHECK(runtime_service_flags(SyncMode::Standalone, applied).has(ServiceFlag::RtSchedApplied));
+}
+
+// --- Q32 map saturation (spec chrono/time-base "Domain coefficient row").
+
+void test_domain_map_saturation() {
+    using nexigen::chrono::detail::map_forward;
+    using nexigen::chrono::detail::map_reverse;
+    using nexigen::chrono::detail::reciprocal_scale_q32;
+
+    NX_CHECK(map_forward(0U, 1U, std::numeric_limits<std::int64_t>::min(), 1ULL << 32U) ==
+             std::numeric_limits<std::int64_t>::min());
+    NX_CHECK(map_forward((1ULL << 63U) - 1U, 0U, 1, 1ULL << 32U) ==
+             std::numeric_limits<std::int64_t>::max());
+    NX_CHECK(map_reverse(std::numeric_limits<std::int64_t>::max(), 0,
+                         std::numeric_limits<std::uint64_t>::max() - 1U,
+                         1ULL << 32U) == std::numeric_limits<std::uint64_t>::max());
+    NX_CHECK(reciprocal_scale_q32(0U) == 0U);
 }
 
 // --- TAI absolute deadlines (spec chrono/time-base "Any-to-any domain
@@ -2091,6 +2394,85 @@ void test_time_base_contract_gaps() {
     }
 }
 
+// --- device holdover and history rejection (spec chrono/time-base
+// "Coefficient history", "Time-base status"; design D-F).
+
+namespace {
+
+/// @brief Device that yields a few pairs and then stops reading.
+struct FlakyDeviceState {
+    int reads{0};
+    std::uint64_t base{1'000U};
+};
+
+bool flaky_device_read(void* self, TimeBaseCorrelationPair& out) noexcept {
+    auto* const state = static_cast<FlakyDeviceState*>(self);
+    if (state->reads >= 3) {
+        return false;
+    }
+    ++state->reads;
+    out.native_ticks = state->base + static_cast<std::uint64_t>(state->reads) * 100U;
+    out.canonical_ns = static_cast<std::int64_t>(out.native_ticks);
+    out.read_latency_ns = 0U;
+    out.uncertainty_ns = 1'000'000U; // above max_residual_ns
+    out.latched = true;
+    out.ptm_capable = true;
+    return true;
+}
+
+bool reject_history_entry(void*, const TimeBaseHistoryEntry&) noexcept {
+    return false;
+}
+
+} // namespace
+
+void test_publisher_holdover_paths() {
+    using nexigen::chrono::detail::TimeBaseReader;
+    using nexigen::chrono::detail::TimeBaseSegment;
+
+    const std::string name =
+        "/nexigen-tb-holdover-" + std::to_string(static_cast<long>(::getpid()));
+    auto segment = TimeBaseSegment::create(name, 0x484FU);
+    NX_CHECK(segment.has_value());
+    if (!segment) {
+        return;
+    }
+    AdvancingFake clock{};
+    TimeBaseDaemonConfig config{};
+    config.segment_name = name;
+    config.publish_tsc = false;
+    config.publish_interval = std::chrono::milliseconds{100};
+    config.max_residual_ns = 50'000;
+    TimeBasePublisher publisher{*segment,
+                                config,
+                                advancing_source(clock),
+                                TimeBasePublisher::HistorySink{nullptr, &reject_history_entry},
+                                "01234567-89ab-cdef-0123-456789abcdef",
+                                0x484FU};
+    FlakyDeviceState flaky{};
+    TimeBaseDeviceBackend backend{
+        &flaky, &flaky_device_read, 22U, 1U, "flaky", DeviceAccessMode::RegisterPair};
+    NX_CHECK(publisher.bind_device(backend));
+    publisher.measure(std::chrono::milliseconds{1});
+    const auto clock_now = Timestamp::now();
+    NX_CHECK(clock_now.has_value());
+    const std::uint64_t now = clock_now ? clock_now->nanoseconds() : 1U;
+    for (std::uint64_t step = 0U; step < 5U; ++step) {
+        publisher.publish(now + step * 100'000'000ULL);
+    }
+    TimeBaseBlock block{};
+    NX_CHECK(TimeBaseReader{*segment->block()}.read(block));
+    const DomainCoefficient* const row = block.find(22U);
+    NX_CHECK(row != nullptr);
+    if (row != nullptr) {
+        // The pair's one-sided uncertainty above the residual bound keeps the
+        // row in holdover, and a missed read keeps the last map.
+        NX_CHECK(row->lock == LockState::Holdover);
+        NX_CHECK(row->valid_to_canonical >= now + 400'000'000ULL);
+    }
+    segment->unlink();
+}
+
 void test_allocation_free_paths() {
     using nexigen::chrono::detail::TimeBaseSegment;
     using nexigen::chrono::detail::TimeBaseWriter;
@@ -2207,6 +2589,7 @@ int main() {
     run_suite("time_base_segment", test_time_base_segment);
     run_suite("time_base_daemon_config", test_time_base_daemon_config);
     run_suite("host_domains", test_host_domains);
+    run_suite("host_domain_production", test_host_domain_production);
     run_suite("time_base_client", test_time_base_client);
     run_suite("time_base_estimator", test_time_base_estimator);
     run_suite("time_base_publisher", test_time_base_publisher);
@@ -2218,11 +2601,14 @@ int main() {
     run_suite("time_base_hardware", test_time_base_hardware);
     run_suite("time_base_step_detection", test_time_base_step_detection);
     run_suite("sync_mode_transitions", test_sync_mode_transitions);
+    run_suite("domain_map_saturation", test_domain_map_saturation);
     run_suite("kalman2", test_kalman2);
     run_suite("adjtimex_status", test_adjtimex_status);
+    run_suite("time_sync_monitor_guards", test_time_sync_monitor_guards);
     run_suite("daemon_runtime", test_daemon_runtime);
     run_suite("time_base_contract_gaps", test_time_base_contract_gaps);
     run_suite("tai_deadline", test_tai_deadline);
+    run_suite("publisher_holdover", test_publisher_holdover_paths);
     run_suite("allocation_free_paths", test_allocation_free_paths);
 
     std::printf("%d checks, %d failed\n", g_checks, g_failures);

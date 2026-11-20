@@ -134,12 +134,11 @@ void test_infrastructure_required_thread_rollback() {
             spec.set_cpus(core::CpuSet::from_core_mask(std::uint64_t{1} << first_cpu));
             spec.set_apply_mode(core::ThreadApplyMode::Required);
         };
+        // The chrono provider/worker now lives in nexigen-chronod, so the
+        // application only starts the logging, metrics and tracing workers.
         if (failed_worker == 0) {
             configure(settings.logging.options.worker_thread);
         } else if (failed_worker == 1) {
-            settings.chrono.options.collect_interval = std::chrono::nanoseconds{1'000'000};
-            configure(settings.chrono.options.worker_thread);
-        } else if (failed_worker == 2) {
             settings.metrics.options.collect_interval = std::chrono::nanoseconds{1'000'000};
             configure(settings.metrics.options.worker_thread);
         } else {
@@ -148,7 +147,7 @@ void test_infrastructure_required_thread_rollback() {
         return settings;
     };
 
-    for (int failed_worker = 0; failed_worker < 4; ++failed_worker) {
+    for (int failed_worker = 0; failed_worker < 3; ++failed_worker) {
         auto infra = make_test_infra<RtPolicy>();
         NX_CHECK(infra != nullptr);
         if (!infra) {
