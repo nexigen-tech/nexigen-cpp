@@ -966,9 +966,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/logging/composite_logger.hpp": {
-    "mtime": 1794745129.158599,
-    "seen": 1794745731.9942687,
-    "ast_hash": "9541beca721eba585e2e67432b66d641",
+    "mtime": 1795274028.4187846,
+    "seen": 1795274574.5064175,
+    "ast_hash": "0d53880222fec55922b4dd852bd0b046",
     "semantic_hash": ""
   },
   "include/nexigen/logging/concepts/logger_concept.hpp": {
@@ -3360,9 +3360,9 @@
     "semantic_hash": ""
   },
   "TODO.md": {
-    "mtime": 1795272231.247545,
-    "seen": 1795272676.9068954,
-    "ast_hash": "e9be73b0df486eed804e1f580516193f",
+    "mtime": 1795274544.5111108,
+    "seen": 1795274574.5173426,
+    "ast_hash": "86b005dc72541076b0b2a2f7f02fbb4e",
     "semantic_hash": ""
   },
   "docs/architecture.md": {
@@ -6792,9 +6792,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/logging/composite-logger/spec.md": {
-    "mtime": 1792932385.501411,
-    "seen": 1794351957.9659278,
-    "ast_hash": "48ea23b29a50a2ba0c04b00d91605cf0",
+    "mtime": 1795274551.2651021,
+    "seen": 1795274574.536223,
+    "ast_hash": "bbff4f2fa5778c9c402c52ae07deac99",
     "semantic_hash": ""
   },
   "openspec/specs/logging/console-logger/spec.md": {
@@ -12369,6 +12369,36 @@
     "mtime": 1795272231.2476552,
     "seen": 1795272676.9241183,
     "ast_hash": "a047d95d17dcc08736930c62acac6854",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-logging-composite-fanout/.openspec.yaml": {
+    "mtime": 1795274068.0867567,
+    "seen": 1795274574.5125704,
+    "ast_hash": "6a2bf275d80e0a3bd99e527ccc246e1f",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-logging-composite-fanout/design.md": {
+    "mtime": 1795274071.6557283,
+    "seen": 1795274574.5342767,
+    "ast_hash": "eb0c44ad00812d30ee9bfd1e22f3b678",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-logging-composite-fanout/proposal.md": {
+    "mtime": 1795274068.0867567,
+    "seen": 1795274574.5342786,
+    "ast_hash": "82d0f8193c74fc4174a4658c914a5239",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-logging-composite-fanout/specs/logging/composite-logger/spec.md": {
+    "mtime": 1795274068.1037328,
+    "seen": 1795274574.5342798,
+    "ast_hash": "f40e1fb2dce608a340bdf4ba1045c185",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-logging-composite-fanout/tasks.md": {
+    "mtime": 1795274547.0961075,
+    "seen": 1795274574.5342815,
+    "ast_hash": "aa79299360a1b88a2e5579afd174981a",
     "semantic_hash": ""
   }
 }

@@ -2,14 +2,20 @@
 // format/multi-producer rework: change add-serialization-and-wait-free-
 // logging, design D3/D10; spec logging/composite-logger).
 //
-// CompositeLogger<Loggers...> stores its members in a std::tuple and forwards
-// every operation through C++23 fold expressions: no base class, no virtual
-// table — each member call is statically resolved and inlined. The composite
+// CompositeLogger<Loggers...> stores its members in the shared
+// core::sink_pack::Fanout<Loggers...> pack and forwards every operation
+// through C++23 fold expressions: no virtual table and no runtime dispatch —
+// each member call is statically resolved and inlined. The composite
 // itself satisfies concepts::Logger (static_assert pinned at the bottom of
 // this file), so composites nest freely. Variadic packs forward VERBATIM:
 // the wrapper and argument pack are passed to every member, each member
 // packs into its own shards (spec: "Every sink receives every accepted
 // record").
+//
+// (logging-composite-fanout) Member storage, index/type access and ordered
+// iteration come from the same shared pack behind the metrics/tracing/chrono
+// composites; this module keeps only the stateful level tree, the delivery
+// surface and the diagnostic formats.
 //
 // Level policy (spec "Level control propagation"):
 //   - set_level() stores the composite's own threshold AND folds it through
@@ -44,7 +50,6 @@
 
 #include <cstddef>
 #include <string>
-#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -59,12 +64,13 @@ namespace nexigen::logging {
 
 /// @brief Variadic, virtual-free fan-out over heterogeneous conforming loggers.
 ///
-/// Stores its members in a `std::tuple` and forwards every operation through
-/// C++23 fold expressions in pack order — no base class, no virtual table, so
-/// each member call is statically resolved and inlinable. The composite itself
-/// satisfies `concepts::Logger`, so composites nest freely and fan-out reaches
-/// every leaf. Variadic packs are forwarded verbatim: the wrapper and the
-/// argument pack reach every member, which then packs into its own shards.
+/// Stores its members in `core::sink_pack::Fanout<Loggers...>` and forwards
+/// every operation through C++23 fold expressions in pack order — no virtual
+/// table and no runtime dispatch, so each member call is statically resolved
+/// and inlinable. The composite itself satisfies `concepts::Logger`, so
+/// composites nest freely and fan-out reaches every leaf. Variadic packs are
+/// forwarded verbatim: the wrapper and the argument pack reach every member,
+/// which then packs into its own shards.
 ///
 /// `set_level()` stores the composite's own threshold and folds it through every
 /// member (one call re-thresholds the whole tree); record calls short-circuit on
@@ -85,7 +91,6 @@ namespace nexigen::logging {
 ///       shard array".
 template <concepts::Logger... Loggers>
 class CompositeLogger final : public core::sink_pack::Fanout<Loggers...> {
-    using Base = core::sink_pack::Fanout<Loggers...>;
     static_assert((std::is_default_constructible_v<Loggers> && ...),
                   "composite members must be default-constructible (tuple-built)");
 
@@ -93,9 +98,6 @@ class CompositeLogger final : public core::sink_pack::Fanout<Loggers...> {
     detail::LevelControl level_{};
 
 public:
-    /// @brief Number of stored members (`sizeof...(Loggers)`).
-    static constexpr std::size_t size = sizeof...(Loggers);
-
     /// @brief Construct every member default-constructed; `initialize()` them
     ///        individually through `get<>()` before logging.
     CompositeLogger() noexcept = default;
@@ -107,9 +109,6 @@ public:
     CompositeLogger(CompositeLogger&&) = delete;
     /// @brief Move assignment is deleted; member rings are address-pinned.
     CompositeLogger& operator=(CompositeLogger&&) = delete;
-
-    /// @brief Inherit index/type member access and the protected fan-out helper.
-    using Base::get;
 
     /// @brief Store the composite threshold and propagate it to every member.
     ///
@@ -225,19 +224,13 @@ public:
     /// @note Spec `logging/composite-logger`, requirement "Virtual-free fan-out
     ///       composition".
     [[nodiscard]] core::Status flush() noexcept {
-        // First error wins (parity with CompositeTraceSink — analysis #21):
-        // every member is still flushed (no short-circuiting); later
-        // members' errors are skipped in favor of the first one.
-        core::Status first{};
-        bool have_first = false;
-        this->for_each([&](auto& lg) noexcept {
-            const core::Status s = lg.flush();
-            if (!s && !have_first) {
-                first = s;
-                have_first = true;
-            }
+        // Shared first-failure combination (parity with the metrics/tracing/
+        // chrono composites): every member is still flushed.
+        core::Status result{};
+        this->for_each([&result](auto& lg) noexcept {
+            result = core::sink_pack::combine(result, lg.flush());
         });
-        return first;
+        return result;
     }
 
     /// @brief Render the whole tree for cold-path diagnostics.

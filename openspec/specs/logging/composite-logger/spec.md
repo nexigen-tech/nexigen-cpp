@@ -8,7 +8,16 @@ Provides `CompositeLogger<Loggers...>`: a variadic, template-composed fan-out lo
 
 ### Requirement: Virtual-free fan-out composition
 
-`CompositeLogger<Loggers...>` SHALL accept zero or more types satisfying `concepts::Logger`, store them without a base class or virtual functions, and on each accepted variadic record invoke the corresponding `log`/convenience method on every member via C++23 fold expressions, forwarding the packed format arguments unchanged. The composite SHALL itself satisfy `concepts::Logger`, including for a nested `CompositeLogger`, and its record methods SHALL return `void`.
+`CompositeLogger<Loggers...>` SHALL accept zero or more types satisfying
+`concepts::Logger`, store them in the shared non-polymorphic
+`nexigen::core::sink_pack::Fanout<Loggers...>` member pack without virtual functions or
+runtime dispatch, and on each accepted variadic record invoke the corresponding
+`log`/convenience method on every member via C++23 fold expressions, forwarding the
+packed format arguments unchanged. Index-based and type-based member access, ordered
+iteration and the static pack size SHALL come from that shared pack. The composite SHALL
+itself satisfy `concepts::Logger`, including for a nested `CompositeLogger`, and its
+record methods SHALL return `void`. `flush()` SHALL visit every member without
+short-circuiting and SHALL return the first member failure.
 
 #### Scenario: Every sink receives every accepted record
 
@@ -20,10 +29,21 @@ Provides `CompositeLogger<Loggers...>`: a variadic, template-composed fan-out lo
 - **WHEN** the composite's hot path is compiled in Release
 - **THEN** no virtual table lookup appears in the generated code for forwarding (all calls are statically resolved)
 
+#### Scenario: Shared non-polymorphic pack supplies member plumbing
+
+- **WHEN** the composite's member access, ordered iteration or static `size` is used
+- **THEN** it resolves through `core::sink_pack::Fanout`, the same pack used by the metrics/tracing/chrono composites, with no virtual table or runtime dispatch added
+
 #### Scenario: Composite of composites works
 
 - **WHEN** a `CompositeLogger` is nested inside another `CompositeLogger`
 - **THEN** the outer type still satisfies `concepts::Logger` and fan-out reaches all leaves
+
+#### Scenario: Flush keeps the first failure
+
+- **WHEN** `flush()` visits a member that fails and then a member that succeeds
+- **THEN** every member is still flushed and the composite returns the first member's failure
+
 ### Requirement: Level control propagation
 
 `set_level` on a `CompositeLogger` SHALL store the level in its own relaxed atomic control and propagate it to every sub-logger so a single call re-thresholds the whole tree; `level()` SHALL report the composite's own stored level. Sub-logger-specific level control via the accessors below SHALL remain available and SHALL take effect through the sub-logger's own filter.
@@ -37,6 +57,7 @@ Provides `CompositeLogger<Loggers...>`: a variadic, template-composed fan-out lo
 
 - **WHEN** a call below the composite's active level is issued
 - **THEN** it returns immediately without invoking any sub-logger's formatting or enqueue path (bounded ≈ per-member relaxed loads, no ring traffic)
+
 ### Requirement: Sub-logger access by index and by type
 
 `CompositeLogger` SHALL provide `get<Index>()` and `get<LoggerType>()` returning references to the corresponding stored sub-loggers, usable at compile time in constant expressions where the composite is `constexpr`, and at runtime for configuration. Requesting an index out of range or a type not present SHALL be a compile-time error, not a runtime failure.
