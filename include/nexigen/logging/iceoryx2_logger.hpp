@@ -261,6 +261,27 @@ public:
     ///          that binds the record methods.
     [[nodiscard]] core::Status flush() noexcept { return worker_.flush(); }
 
+    /// @brief Stop the publisher worker after a final drain; the logger stays alive.
+    ///
+    /// Flushes every record accepted before the call, then stops and joins the
+    /// consumer. The worker's shutdown path drains the shards and stops the
+    /// iceoryx2 sink, so no later sample is published. Storage, rings and drop
+    /// accounting stay alive; a repeated call returns OK without touching the sink.
+    ///
+    /// @return The flush status, or OK when the writer was never running.
+    /// @warning Cold path only; blocks until the consumer has drained.
+    /// @note Spec `logging/logger-quiescence`, requirement "Quiescence stops the
+    ///       consumer and keeps the logger alive" and requirement "Quiescence is
+    ///       terminal and idempotent".
+    [[nodiscard]] core::Status quiesce() noexcept {
+        if (!worker_.running()) {
+            return {};
+        }
+        const core::Status flushed = worker_.flush();
+        worker_.stop();
+        return flushed;
+    }
+
     /// @brief Snapshot the aggregated drop counters across every shard.
     ///
     /// @return Per-cause totals (`rate_limited`, `buffer_full`, `slot_exhausted`)

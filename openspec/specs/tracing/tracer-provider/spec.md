@@ -8,7 +8,7 @@ Defines the TracerProvider → Tracer → ScopedSpan factory hierarchy: the pre-
 
 ### Requirement: Provider and tracer factory hierarchy
 
-`TracerProvider` SHALL be the only source of `Tracer` instances: `get_tracer(scope_name)` returns an existing tracer for a repeated scope name and a distinct tracer for a new name; tracers are created from a pre-allocated pool sized by configuration, with pool exhaustion returning `BufferFull`; tracer and span construction outside the factory hierarchy SHALL fail at compile time; handles stay valid until provider destruction.
+`TracerProvider` SHALL be the only source of `Tracer` instances: `get_tracer(scope_name)` returns an existing tracer for a repeated scope name and a distinct tracer for a new name; tracers are created from a pre-allocated pool sized by configuration, with pool exhaustion returning `BufferFull`; tracer and span construction outside the factory hierarchy SHALL fail at compile time; handles stay memory-safe until provider destruction, and once the provider is quiesced both `get_tracer` and span starts report `NotInitialized`.
 
 #### Scenario: Repeated scope names return the same tracer
 
@@ -29,6 +29,11 @@ Defines the TracerProvider → Tracer → ScopedSpan factory hierarchy: the pre-
 
 - **WHEN** a translation unit attempts to construct a `Tracer` or a `ScopedSpan` directly
 - **THEN** compilation fails — only the provider hierarchy can create them
+
+#### Scenario: Quiesced hierarchy is closed
+
+- **WHEN** `get_tracer()` is called on a quiesced provider
+- **THEN** it returns `ErrorCode::NotInitialized` and no tracer slot is claimed
 
 ### Requirement: Pre-allocated provider memory
 
@@ -132,7 +137,7 @@ The provider SHALL expose a `dropped()` snapshot counting each drop cause separa
 
 ### Requirement: Shutdown drain and flush barrier
 
-`TracerProvider` destruction SHALL stop the worker, drain every accepted record to the sink, and leave no record accepted before destruction undelivered; a `flush()` control-plane barrier SHALL return only after every span accepted before the call is sink-durable; operations on handles after provider destruction SHALL fail with `NotInitialized` rather than corrupt state.
+`TracerProvider` destruction SHALL stop the worker, drain every accepted record to the sink, and leave no record accepted before destruction undelivered; a quiesced provider SHALL NOT drain or touch its sink again. A `flush()` control-plane barrier SHALL return only after every span accepted before the call is sink-durable. Operations on handles after provider destruction or after quiescence SHALL fail with `NotInitialized` rather than corrupt state.
 
 #### Scenario: Destruction does not lose accepted records
 
@@ -148,6 +153,11 @@ The provider SHALL expose a `dropped()` snapshot counting each drop cause separa
 
 - **WHEN** a tracer handle outlives its provider and starts a span
 - **THEN** the operation fails with `NotInitialized` and no memory error or sanitizer diagnostic occurs
+
+#### Scenario: Quiesced provider is not drained again
+
+- **WHEN** a provider that has already been quiesced is destroyed
+- **THEN** the destructor performs no drain, no sink flush, and no sink stop, and no duplicate record reaches the sink
 
 ### Requirement: Provider serialization surfaces
 
@@ -200,3 +210,37 @@ unchanged, and a `NullMeter` provider SHALL contain no counter code.
 
 - **WHEN** a provider is instantiated without an explicit meter
 - **THEN** it uses `core::NullMeter` and the span counters compile away
+
+### Requirement: Explicit provider quiescence
+
+`TracerProvider::quiesce() noexcept` SHALL return `core::Status`, drain accepted spans through the flush barrier, stop and join the consumer, close the sink, seal the provider, and publish the liveness flag while keeping pool and tracer storage alive. It SHALL be idempotent, allocate nothing, and throw nothing.
+
+#### Scenario: Accepted spans are delivered
+
+- **WHEN** spans are ended and `quiesce()` is called
+- **THEN** every span accepted before the call is delivered to the sink and the sink is closed before the call returns
+
+#### Scenario: Handles stay memory-safe while span starts close
+
+- **WHEN** a tracer obtained before `quiesce()` starts a span afterwards
+- **THEN** the call returns an inactive guard with `ErrorCode::NotInitialized` and no memory error or sanitizer diagnostic occurs
+
+#### Scenario: Repeated quiescence is harmless
+
+- **WHEN** `quiesce()` is called twice
+- **THEN** the second call returns success, the sink is not contacted again, and no sanitizer reports a problem
+
+#### Scenario: Destruction does not drain twice
+
+- **WHEN** a quiesced provider is destroyed
+- **THEN** the destructor skips the drain and sink control calls, and storage is released without allocating
+
+#### Scenario: Spans already in flight
+
+- **WHEN** a span started before `quiesce()` ends after it
+- **THEN** the record is enqueued or dropped by the existing ring policy without a memory error, and it is never delivered
+
+#### Scenario: Diagnostics remain available
+
+- **WHEN** `to_string()`, the worker report, or the drop snapshot is read after `quiesce()`
+- **THEN** each returns its normal content and no memory error occurs

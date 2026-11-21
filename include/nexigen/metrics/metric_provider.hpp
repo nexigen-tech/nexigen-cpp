@@ -147,6 +147,23 @@ public:
     ///       plane".
     [[nodiscard]] core::Status flush() noexcept;
 
+    /// @brief Stop the harvester, deliver one final batch, flush, and seal.
+    ///
+    /// Stops and joins the harvester, performs one final collection, flushes the
+    /// bound sink, and marks the provider sealed while keeping the registry
+    /// storage alive. After the call the provider is closed for control-plane
+    /// and creation operations (`get_meter`, `collect_now`, `flush` report
+    /// `NotInitialized`), already-issued instruments remain memory-safe, and the
+    /// destructor performs no second drain or sink flush. Idempotent: a repeated
+    /// call returns success without touching the sink.
+    ///
+    /// @return OK, or the first failure from the final collection or sink flush.
+    ///         The provider is sealed even when a step fails.
+    /// @warning Cold path only; blocks until the harvester has joined.
+    /// @note Spec `metrics/metric-provider`, requirement "Explicit provider
+    ///       quiescence".
+    [[nodiscard]] core::Status quiesce() noexcept;
+
     /// @brief Result of the provider's startup steps (affinity pinning, ...).
     ///
     /// @return Success when startup attributes were applied or best-effort
@@ -332,6 +349,12 @@ private:
     std::condition_variable_any wake_cv_{};
     /// @brief Provider liveness flag used by debug lifetime checks.
     std::atomic<bool> alive_{true};
+    /// @brief Set once `quiesce()` completed; gates control-plane entries and
+    ///        makes the destructor skip the final drain and sink flush.
+    ///
+    /// Cold-path only: written once with release, read with acquire by
+    /// `get_meter`/`collect_now`/`flush`. No recording path reads it.
+    std::atomic<bool> sealed_{false};
     /// @brief First startup error, published through `startup_status()`.
     std::atomic<core::ErrorCode> startup_error_{core::ErrorCode::Ok};
     /// @brief Cached UTC offset in nanoseconds for collection timestamps.

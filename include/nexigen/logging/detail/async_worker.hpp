@@ -341,6 +341,30 @@ public:
         return {};
     }
 
+    /// @brief Whether the consumer thread is currently running.
+    ///
+    /// The snapshot is derived from `core::WorkerThread::joinable()`, so it turns
+    /// false only after `stop()` has joined the thread. Unlike `writer_started()`
+    /// it is not a start-time latch: a worker that was started and then stopped
+    /// reports `false`.
+    ///
+    /// @return `true` while the owned consumer thread has not been joined.
+    /// @note Cold path only; used by logger quiescence to stay idempotent.
+    [[nodiscard]] bool running() const noexcept { return worker_.joinable(); }
+
+    /// @brief Stop and join the consumer after its final drain; idempotent.
+    ///
+    /// Requests the stop token and joins the thread. The worker's shutdown path
+    /// drains every queued record, answers the last flush barrier, and calls
+    /// `Sink::stop()`, so the sink is closed exactly once. The worker object and
+    /// its sink stay alive: this is a quiesce, not a destroy. Safe when no thread
+    /// is running.
+    ///
+    /// @note Cold path only, outside the producer's never-block guarantee.
+    /// @note Spec `logging/logger-quiescence`, requirement "Quiescence stops the
+    ///       consumer and keeps the logger alive".
+    void stop() noexcept { worker_.stop(); }
+
     /// @brief Pollable start snapshot: has the worker published readiness?
     ///
     /// @return `true` once the thread exists and the start hook has finished.

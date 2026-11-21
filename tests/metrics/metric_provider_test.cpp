@@ -528,6 +528,73 @@ void test_provider_harvester_control() {
     }
 }
 
+void test_provider_quiesce() {
+    // Explicit quiescence: final batch, closed control plane, live storage.
+    RecordingSink sink;
+    metrics::MetricProviderConfig config{};
+    config.collect_interval = std::chrono::nanoseconds{0}; // manual collection only
+
+    std::optional<metrics::MetricProvider> provider;
+    provider.emplace(config, sink);
+
+    const auto meter = provider->get_meter("quiesce", "1.0");
+    NX_CHECK(meter.has_value());
+    if (!meter) {
+        return;
+    }
+    const auto counter = (*meter)->create_counter<>("events");
+    NX_CHECK(counter.has_value());
+    if (!counter) {
+        return;
+    }
+    (*counter)->add(7U);
+
+    const std::uint32_t batches_before = sink.batches();
+    NX_CHECK(provider->quiesce().has_value());
+    NX_CHECK(sink.batches() == batches_before + 1U); // one final collection
+    NX_CHECK(sink.last_count() == 1U);
+    NX_CHECK(sink.have_first());
+    NX_CHECK(sink.first().scalar.counter == 7U);
+
+    // Idempotent: no second batch, no second flush.
+    const std::uint32_t batches_sealed = sink.batches();
+    const std::uint32_t flushes_sealed = sink.flushes();
+    NX_CHECK(provider->quiesce().has_value());
+    NX_CHECK(sink.batches() == batches_sealed);
+    NX_CHECK(sink.flushes() == flushes_sealed);
+
+    // Control plane is closed.
+    const auto late_meter = provider->get_meter("late", "1.0");
+    NX_CHECK(!late_meter.has_value() && late_meter.error() == ErrorCode::NotInitialized);
+    const auto collected = provider->collect_now();
+    NX_CHECK(!collected.has_value() && collected.error() == ErrorCode::NotInitialized);
+    const auto flushed = provider->flush();
+    NX_CHECK(!flushed.has_value() && flushed.error() == ErrorCode::NotInitialized);
+
+    // Diagnostics stay readable and the instrument keeps working in memory.
+    NX_CHECK(provider->startup_status().has_value());
+    NX_CHECK(!provider->to_string().empty());
+    (*counter)->add(5U);
+    NX_CHECK((*counter)->read() == 12U);
+
+    // Destruction after quiescence performs no sink I/O.
+    const std::uint32_t batches_at_destruction = sink.batches();
+    const std::uint32_t flushes_at_destruction = sink.flushes();
+    provider.reset();
+    NX_CHECK(sink.batches() == batches_at_destruction);
+    NX_CHECK(sink.flushes() == flushes_at_destruction);
+
+    // A failing flush still seals the provider and is not retried.
+    RecordingSink failing_sink;
+    std::optional<metrics::MetricProvider> failing;
+    failing.emplace(config, failing_sink);
+    failing_sink.fail_flush(std::unexpected(ErrorCode::SystemError));
+    NX_CHECK(!failing->quiesce().has_value());
+    const std::uint32_t failing_flushes = failing_sink.flushes();
+    failing.reset();
+    NX_CHECK(failing_sink.flushes() == failing_flushes);
+}
+
 void test_provider_harvester_stale() {
     // Handle-lifetime liveness detection (task 12.2): a handle used after its
     // provider's destruction reports NotInitialized.
@@ -585,6 +652,10 @@ void suite_provider_config() {
 
 void suite_provider_harvester() {
     run_suite("provider_harvester", test_provider_harvester);
+}
+
+void suite_provider_quiesce() {
+    run_suite("provider_quiesce", test_provider_quiesce);
 }
 
 void suite_provider_required_thread_failure() {

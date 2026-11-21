@@ -233,6 +233,25 @@ public:
         return result;
     }
 
+    /// @brief Quiesce every member, keeping the composite object alive.
+    ///
+    /// Every member is quiesced exactly once in pack order; a failing member does
+    /// not starve the others and the first failure is returned. With an empty pack
+    /// the result is OK. The composite's own level and stored members stay alive.
+    ///
+    /// @return OK when every member quiesced cleanly, otherwise the status of the
+    ///         first failing member.
+    /// @warning Cold path only; each member may block on its final drain.
+    /// @note Spec `logging/logger-quiescence`, requirement "Quiescable logger
+    ///       contract", scenario "Composite quiesces every member".
+    [[nodiscard]] core::Status quiesce() noexcept {
+        core::Status result{};
+        this->for_each([&result](auto& lg) noexcept {
+            result = core::sink_pack::combine(result, lg.quiesce());
+        });
+        return result;
+    }
+
     /// @brief Render the whole tree for cold-path diagnostics.
     ///
     /// @return The composite's own level and member count, followed by each

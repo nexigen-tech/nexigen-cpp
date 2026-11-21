@@ -275,6 +275,20 @@ public:
     ///       flush barrier", scenario "Flush waits for durability".
     [[nodiscard]] core::Status flush() noexcept;
 
+    /// @brief Drain, stop the consumer, and seal the provider.
+    ///
+    /// Runs the flush barrier while the consumer is alive, then stops and joins
+    /// it (the shutdown path drains every shard and stops the sink), marks the
+    /// provider sealed, and publishes the liveness flag so later span starts and
+    /// control-plane calls report `NotInitialized`. Pool and tracer storage stay
+    /// alive; the destructor performs no second drain. Idempotent.
+    ///
+    /// @return OK, or the first sink failure observed by the flush barrier.
+    /// @warning Cold path only; blocks until the consumer has drained.
+    /// @note Spec `tracing/tracer-provider`, requirement "Explicit provider
+    ///       quiescence".
+    [[nodiscard]] core::Status quiesce() noexcept;
+
     /// @brief Third-thread snapshot diagnostics (never synchronization).
     ///
     /// Relaxed per-cause aggregate over all shards plus the shared exhaustion
@@ -621,6 +635,13 @@ private:
     ///        span start — handle-after-death detection (`NotInitialized`).
     std::atomic<bool> alive_{true};
 
+    /// @brief Set once `quiesce()` completed; makes the destructor skip the
+    ///        drain and gates the control plane.
+    ///
+    /// Cold-path only: written once with release, read with acquire by
+    /// `get_tracer`/`flush`. Span starts rely on the existing `alive_` load.
+    std::atomic<bool> sealed_{false};
+
     /// @brief Worker body: applies the spec, starts the sink, runs the consumer.
     ///
     /// Captures `this`; `worker_` is the LAST member so it joins before the
@@ -683,12 +704,12 @@ core::Status TracerProvider<ShardCapacity, MaxThreads>::initialize() noexcept {
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
 TracerProvider<ShardCapacity, MaxThreads>::~TracerProvider() {
-    if (worker_.joinable()) {
+    if (!sealed_.load(std::memory_order_relaxed) && worker_.joinable()) {
         // consume_loop's shutdown path drains every accepted record, then
         // publishes + stops the sink, all while this object is still whole
         // (the worker member is declared last and joins before the pool dies).
         worker_.stop();
-    } else if (binding_.on_event != nullptr &&
+    } else if (!sealed_.load(std::memory_order_relaxed) && binding_.on_event != nullptr &&
                !(config_.worker_thread.apply_mode() == core::ThreadApplyMode::Required &&
                  worker_.report().first_error() != core::ErrorCode::Ok)) {
         // Never initialized: no worker ever touched the sink — drain inline
@@ -712,6 +733,9 @@ TracerProvider<ShardCapacity, MaxThreads>::~TracerProvider() {
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
 core::Result<Tracer<ShardCapacity, MaxThreads>*>
 TracerProvider<ShardCapacity, MaxThreads>::get_tracer(std::string_view scope_name) {
+    if (sealed_.load(std::memory_order_acquire)) {
+        return std::unexpected(core::ErrorCode::NotInitialized);
+    }
     if (!alive_.load(std::memory_order_acquire)) {
         return std::unexpected(core::ErrorCode::NotInitialized);
     }
@@ -823,6 +847,9 @@ void TracerProvider<ShardCapacity, MaxThreads>::publish_sync(std::uint64_t seque
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
 core::Status TracerProvider<ShardCapacity, MaxThreads>::flush() noexcept {
+    if (sealed_.load(std::memory_order_acquire)) {
+        return std::unexpected(core::ErrorCode::NotInitialized);
+    }
     if (!worker_.joinable()) {
         return std::unexpected(core::ErrorCode::NotInitialized); // not initialized
     }
@@ -839,6 +866,27 @@ core::Status TracerProvider<ShardCapacity, MaxThreads>::flush() noexcept {
         return std::unexpected(static_cast<core::ErrorCode>(error - 1U));
     }
     return {};
+}
+
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+core::Status TracerProvider<ShardCapacity, MaxThreads>::quiesce() noexcept {
+    if (sealed_.load(std::memory_order_acquire)) {
+        return {};
+    }
+
+    core::Status first{};
+    if (worker_.joinable()) {
+        // Barrier while the consumer is alive: every span accepted before this
+        // call becomes sink-durable. The join then drains whatever raced the
+        // barrier and stops the sink exactly once.
+        first = flush();
+        worker_.stop();
+    }
+
+    // Seal even on a flush failure: destruction must not retry the drain.
+    sealed_.store(true, std::memory_order_release);
+    alive_.store(false, std::memory_order_release);
+    return first;
 }
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>

@@ -74,8 +74,9 @@ inline void install_test_time_base(std::string_view suffix = "module") {
     block.rows[0].valid_from_native =
         mono > 86'400'000'000'000ULL ? mono - 86'400'000'000'000ULL : 0U;
     block.rows[0].valid_to_native = mono + 604'800'000'000'000ULL;
-    block.rows[0].valid_from_canonical =
-        mono > 86'400'000'000'000ULL ? mono - 86'400'000'000'000ULL : 0U;
+    // The window starts at the epoch so synthetic instants (for example 2 s
+    // after boot) stay resolvable regardless of host uptime.
+    block.rows[0].valid_from_canonical = 0;
     block.rows[0].valid_to_canonical = mono + 604'800'000'000'000ULL;
     block.rows[0].scale_rev_q32 = 1ULL << 32U;
     block.rows[0].flags = nexigen::chrono::DomainCoefficient::has_reverse_bit;
@@ -91,8 +92,8 @@ inline void install_test_time_base(std::string_view suffix = "module") {
     block.rows[1].flags = nexigen::chrono::DomainCoefficient::has_reverse_bit;
     block.rows[1].valid_from_native = block.rows[1].native_anchor;
     block.rows[1].valid_to_native = block.rows[1].native_anchor + 604'800'000'000'000ULL;
-    block.rows[1].valid_from_canonical =
-        mono > 86'400'000'000'000ULL ? mono - 86'400'000'000'000ULL : 0U;
+    // See the rows[0] note: the canonical window starts at the epoch.
+    block.rows[1].valid_from_canonical = 0;
     block.rows[1].valid_to_canonical = mono + 604'800'000'000'000ULL;
     nexigen::chrono::detail::TimeBaseWriter{*segment->block()}.publish(
         block, mono + 604'800'000'000'000ULL);
@@ -137,8 +138,9 @@ inline std::string publish_test_time_base(std::string_view suffix, std::int64_t 
     block.rows[0].valid_from_native =
         mono > 86'400'000'000'000ULL ? mono - 86'400'000'000'000ULL : 0U;
     block.rows[0].valid_to_native = mono + 604'800'000'000'000ULL;
-    block.rows[0].valid_from_canonical =
-        mono > 86'400'000'000'000ULL ? mono - 86'400'000'000'000ULL : 0U;
+    // The window starts at the epoch so synthetic instants (for example 2 s
+    // after boot) stay resolvable regardless of host uptime.
+    block.rows[0].valid_from_canonical = 0;
     block.rows[0].valid_to_canonical = mono + 604'800'000'000'000ULL;
     block.rows[0].scale_rev_q32 = 1ULL << 32U;
     block.rows[0].flags = nexigen::chrono::DomainCoefficient::has_reverse_bit;
@@ -155,8 +157,7 @@ inline std::string publish_test_time_base(std::string_view suffix, std::int64_t 
         block.rows[1].flags = nexigen::chrono::DomainCoefficient::has_reverse_bit;
         block.rows[1].valid_from_native = block.rows[1].native_anchor;
         block.rows[1].valid_to_native = block.rows[1].native_anchor + 604'800'000'000'000ULL;
-        block.rows[1].valid_from_canonical =
-            mono > 86'400'000'000'000ULL ? mono - 86'400'000'000'000ULL : 0U;
+        block.rows[1].valid_from_canonical = 0;
         block.rows[1].valid_to_canonical = mono + 604'800'000'000'000ULL;
     }
     nexigen::chrono::detail::TimeBaseWriter{*segment.block()}.publish(

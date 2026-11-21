@@ -594,6 +594,76 @@ void provider_shutdown() {
     }
 }
 
+void test_provider_quiesce() {
+    // Explicit quiescence: final drain, closed control plane, live storage.
+    using Provider = tracing::TracerProvider<64, 32>;
+    RecordingSink sink{};
+    alignas(Provider) static std::byte storage[sizeof(Provider)];
+    auto* provider =
+        new (static_cast<void*>(storage)) Provider(tracing::TracerProviderConfig{}, sink);
+    NX_CHECK(provider->initialize().has_value());
+
+    const auto tracer = provider->get_tracer("quiesce");
+    NX_CHECK(tracer.has_value());
+    if (!tracer) {
+        return;
+    }
+
+    {
+        auto span = (*tracer)->start_span("delivered", tracing::SpanKind::Internal);
+        NX_CHECK(span.active());
+    }
+
+    NX_CHECK(provider->quiesce().has_value());
+    NX_CHECK(sink.started.load());
+    NX_CHECK(sink.stopped.load());
+    NX_CHECK(sink.count == 1U); // accepted span delivered before the call returns
+
+    // Idempotent: no second drain, no second sink stop/flush.
+    const int flushes_sealed = sink.flush_calls.load();
+    NX_CHECK(provider->quiesce().has_value());
+    NX_CHECK(sink.count == 1U);
+    NX_CHECK(sink.flush_calls.load() == flushes_sealed);
+
+    // Control plane is closed.
+    const auto late = provider->get_tracer("late");
+    NX_CHECK(!late.has_value() && late.error() == core::ErrorCode::NotInitialized);
+    const auto late_flush = provider->flush();
+    NX_CHECK(!late_flush.has_value() && late_flush.error() == core::ErrorCode::NotInitialized);
+
+    // A span started on an existing handle after quiescence is inactive.
+    auto inactive = (*tracer)->start_span("late-span", tracing::SpanKind::Internal);
+    NX_CHECK(!inactive.active());
+    NX_CHECK(inactive.error() == core::ErrorCode::NotInitialized);
+
+    // Diagnostics stay available; destruction performs no drain.
+    NX_CHECK(!provider->to_string().empty());
+    const std::size_t count_before_destruction = sink.count;
+    std::destroy_at(provider);
+    NX_CHECK(sink.count == count_before_destruction);
+
+    // A span already in flight when quiescence runs is memory-safe and never
+    // delivered.
+    RecordingSink inflight_sink{};
+    alignas(Provider) static std::byte inflight_storage[sizeof(Provider)];
+    auto* inflight_provider =
+        new (static_cast<void*>(inflight_storage)) Provider(tracing::TracerProviderConfig{},
+                                                            inflight_sink);
+    NX_CHECK(inflight_provider->initialize().has_value());
+    const auto inflight_tracer = inflight_provider->get_tracer("inflight");
+    NX_CHECK(inflight_tracer.has_value());
+    if (!inflight_tracer) {
+        return;
+    }
+    {
+        auto span = (*inflight_tracer)->start_span("still-running", tracing::SpanKind::Internal);
+        NX_CHECK(span.active());
+        NX_CHECK(inflight_provider->quiesce().has_value());
+    } // finish_span pushes into a stopped ring; no consumer, no delivery
+    NX_CHECK(inflight_sink.count == 0U);
+    std::destroy_at(inflight_provider);
+}
+
 void test_provider() {
     provider_lifecycle();
     provider_pool_exhaustion();
@@ -607,6 +677,7 @@ void test_provider() {
     provider_rate_budget();
     provider_flush();
     provider_shutdown();
+    test_provider_quiesce();
 }
 
 } // namespace

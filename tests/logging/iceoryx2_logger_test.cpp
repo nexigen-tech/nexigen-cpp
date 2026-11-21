@@ -19,6 +19,7 @@
 #include <nexigen/com/subscriber.hpp>
 #include <nexigen/com/transport_header.hpp>
 #include <nexigen/core/log_level.hpp>
+#include <nexigen/logging/concepts/quiescable_logger_concept.hpp>
 #include <nexigen/logging/detail/iceoryx2_sink.hpp>
 #include <nexigen/logging/detail/producer.hpp>
 #include <nexigen/logging/iceoryx2_logger.hpp>
@@ -29,6 +30,9 @@ namespace com = nexigen::com;
 namespace core = nexigen::core;
 
 namespace {
+
+static_assert(logging::concepts::QuiescableLogger<logging::Iceoryx2Logger<>>,
+              "Iceoryx2Logger must satisfy the quiescence contract");
 
 int g_checks = 0;
 int g_failures = 0;
@@ -231,6 +235,9 @@ void test_zero_subscriber() {
         logger.info("no subscriber {}", i);
     }
     NX_CHECK(logger.flush().has_value());
+    NX_CHECK(logger.quiesce().has_value());
+    NX_CHECK(logger.quiesce().has_value()); // idempotent
+    NX_CHECK(!logger.flush().has_value());  // barrier gone after quiescence
     const std::string text = logger.to_string();
     NX_CHECK(text.find("Iceoryx2Logger") != std::string::npos);
     NX_CHECK(std::format("{}", logger) == text);

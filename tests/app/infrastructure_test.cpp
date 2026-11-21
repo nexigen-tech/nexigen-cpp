@@ -522,8 +522,110 @@ void test_time_base_loss() {
     NX_CHECK(app->shutdown().has_value());
 }
 
+void test_infrastructure_handles_survive_shutdown() {
+    CountingMetricSink::batches.store(0, std::memory_order_relaxed);
+    auto app = make_test_infra<CountingPolicy>();
+    NX_CHECK(app != nullptr);
+    if (!app) {
+        return;
+    }
+    NX_CHECK(app->initialize(app::Settings{}).has_value());
+
+    const auto meter = app->meter("survive", "1.0");
+    NX_CHECK(meter.has_value());
+    const auto counter = (*meter)
+                             ->create_counter<metrics::ConcurrencyPolicy::SingleThreaded,
+                                              metrics::AccessPolicy::Readable>("ticks");
+    NX_CHECK(counter.has_value());
+    const auto tracer = app->tracer_for("survive");
+    NX_CHECK(tracer.has_value());
+    if (!counter || !tracer) {
+        return;
+    }
+
+    (*counter)->add(3U);
+    app->logger().info("before shutdown");
+    NX_CHECK(app->shutdown().has_value());
+
+    // Every factory is closed after shutdown, but the storage behind issued
+    // handles is alive.
+    const auto late_meter = app->meter("late", "1.0");
+    NX_CHECK(!late_meter.has_value() && late_meter.error() == core::ErrorCode::NotInitialized);
+    const auto late_tracer = app->tracer_for("late");
+    NX_CHECK(!late_tracer.has_value() && late_tracer.error() == core::ErrorCode::NotInitialized);
+
+    (*counter)->add(2U);
+    NX_CHECK((*counter)->read() == 5U); // recording stays memory-safe and visible
+    auto span = (*tracer)->start_span("late", tracing::SpanKind::Internal);
+    NX_CHECK(!span.active());
+    NX_CHECK(span.error() == core::ErrorCode::NotInitialized);
+    app->logger().info("after shutdown");
+
+    // Re-initialization is rejected and the invariant holds for the object.
+    const auto reinit = app->initialize(app::Settings{});
+    NX_CHECK(!reinit.has_value() && reinit.error() == core::ErrorCode::NotInitialized);
+
+    // Destruction does not drain again: the metric batch count is stable.
+    const std::uint32_t batches_after_shutdown = CountingMetricSink::batches.load();
+    app.reset();
+    NX_CHECK(CountingMetricSink::batches.load() == batches_after_shutdown);
+}
+
+void test_infrastructure_logs_quiesce_failures() {
+    g_log_lines.clear();
+    auto app = make_test_infra<FailingMetricSinkPolicy>();
+    NX_CHECK(app != nullptr);
+    if (!app) {
+        return;
+    }
+    NX_CHECK(app->initialize(app::Settings{}).has_value());
+
+    const core::Status status = app->shutdown();
+    NX_CHECK(!status.has_value());
+    NX_CHECK(status.error() == core::ErrorCode::SystemError);
+
+    bool logged = false;
+    for (const std::string& line : g_log_lines) {
+        if (line.find("metrics quiesce failed") != std::string::npos) {
+            logged = true;
+        }
+    }
+    NX_CHECK(logged);
+}
+
+void test_infrastructure_logger_quiesced_last() {
+    SequencedLogger::events.clear();
+    auto app = make_test_infra<OrderedQuiescePolicy>();
+    NX_CHECK(app != nullptr);
+    if (!app) {
+        return;
+    }
+    NX_CHECK(app->initialize(app::Settings{}).has_value());
+
+    const core::Status status = app->shutdown();
+    NX_CHECK(!status.has_value());
+    NX_CHECK(status.error() == core::ErrorCode::SystemError);
+
+    const std::vector<std::string>& events = SequencedLogger::events;
+    NX_CHECK(!events.empty());
+    NX_CHECK(events.back() == "quiesce"); // logger quiesced last
+
+    // The metrics quiescence failure was logged while the logger was still
+    // active, i.e. before the final quiesce call.
+    bool warning_before_quiesce = false;
+    for (std::size_t i = 0; i + 1 < events.size(); ++i) {
+        if (events[i].find("metrics quiesce failed") != std::string::npos) {
+            warning_before_quiesce = true;
+        }
+    }
+    NX_CHECK(warning_before_quiesce);
+}
+
 void run_app_infrastructure_suites() {
     run_suite("lifecycle", test_infrastructure_lifecycle);
+    run_suite("handles_survive_shutdown", test_infrastructure_handles_survive_shutdown);
+    run_suite("quiesce_failure_logging", test_infrastructure_logs_quiesce_failures);
+    run_suite("logger_quiesced_last", test_infrastructure_logger_quiesced_last);
     run_suite("failures", test_infrastructure_failures);
     run_suite("time_base_loss", test_time_base_loss);
     run_suite("required_thread_rollback", test_infrastructure_required_thread_rollback);

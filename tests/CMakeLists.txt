@@ -66,7 +66,8 @@ add_executable(nexigen_logging_tests
     logging/stress_test.cpp
     logging/settings_test.cpp
     logging/worker_test.cpp
-    logging/logger_counters_test.cpp)
+    logging/logger_counters_test.cpp
+    logging/quiescence_test.cpp)
 target_link_libraries(nexigen_logging_tests PRIVATE nexigen_logging Threads::Threads)
 # Ворота латентности ≤20 ns включаются только в Release/RelWithDebInfo (design D18):
 # числа под Debug/санитайзерами нерепрезентативны, тест тогда проверяет только

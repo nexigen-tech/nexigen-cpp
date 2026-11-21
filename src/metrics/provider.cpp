@@ -135,16 +135,20 @@ MetricProvider::MetricProvider(const MetricProviderConfig& config,
 }
 
 MetricProvider::~MetricProvider() {
-    // Stop the harvester first: no collection may run while the registry is
-    // being torn down.
-    worker_.stop();
+    // A quiesced provider already stopped the harvester, delivered its final
+    // batch, and flushed the sink. Do not repeat that I/O at destruction.
+    if (!sealed_.load(std::memory_order_relaxed)) {
+        // Stop the harvester first: no collection may run while the registry is
+        // being torn down.
+        worker_.stop();
 
-    // Drain the sink once more so the last window is not lost.
-    if (binding_.on_event != nullptr) {
-        static_cast<void>(collect_now());
-    }
-    if (binding_.flush != nullptr) {
-        static_cast<void>(binding_.flush(binding_.self));
+        // Drain the sink once more so the last window is not lost.
+        if (binding_.on_event != nullptr) {
+            static_cast<void>(collect_now());
+        }
+        if (binding_.flush != nullptr) {
+            static_cast<void>(binding_.flush(binding_.self));
+        }
     }
 
     alive_.store(false, std::memory_order_release);
@@ -173,6 +177,9 @@ MetricProvider::~MetricProvider() {
 }
 
 core::Result<Meter*> MetricProvider::get_meter(std::string_view name, std::string_view version) {
+    if (sealed_.load(std::memory_order_acquire)) {
+        return std::unexpected(core::ErrorCode::NotInitialized);
+    }
     if (!alive_.load(std::memory_order_acquire)) {
         return std::unexpected(core::ErrorCode::NotInitialized);
     }
@@ -302,6 +309,9 @@ bool MetricProvider::has_duplicate(const MetricIdentity& meter_identity,
 
 core::Status MetricProvider::collect_now() noexcept {
     std::lock_guard<std::mutex> lock(harvest_mutex_);
+    if (sealed_.load(std::memory_order_acquire)) {
+        return std::unexpected(core::ErrorCode::NotInitialized);
+    }
     if (!alive_.load(std::memory_order_acquire)) {
         return std::unexpected(core::ErrorCode::NotInitialized);
     }
@@ -353,10 +363,34 @@ core::Status MetricProvider::collect_now() noexcept {
 }
 
 core::Status MetricProvider::flush() noexcept {
+    if (sealed_.load(std::memory_order_acquire)) {
+        return std::unexpected(core::ErrorCode::NotInitialized);
+    }
     if (binding_.flush == nullptr) {
         return {};
     }
     return binding_.flush(binding_.self);
+}
+
+core::Status MetricProvider::quiesce() noexcept {
+    if (sealed_.load(std::memory_order_acquire)) {
+        return {};
+    }
+
+    // Join first: the harvester may be inside a collection. Draining afterwards
+    // guarantees a single final batch and no concurrent sink I/O.
+    worker_.stop();
+
+    core::Status first = collect_now();
+    const core::Status flushed = flush();
+    if (first && !flushed) {
+        first = flushed;
+    }
+
+    // Seal even on failure: the destructor must not retry the drain and produce
+    // a second sink I/O after shutdown reported its status.
+    sealed_.store(true, std::memory_order_release);
+    return first;
 }
 
 core::Status MetricProvider::startup_status() const noexcept {

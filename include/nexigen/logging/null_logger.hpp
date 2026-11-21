@@ -162,6 +162,16 @@ public:
     ///       `flush` returns OK immediately.
     [[nodiscard]] core::Status flush() noexcept { return {}; }
 
+    /// @brief Report a trivially complete quiescence.
+    ///
+    /// A null logger owns no consumer, ring or sink, so there is nothing to stop
+    /// and nothing to close; the call is always successful and repeatable.
+    ///
+    /// @return An OK `Status`.
+    /// @note Spec `logging/logger-quiescence`, requirement "Quiescable logger
+    ///       contract".
+    [[nodiscard]] core::Status quiesce() noexcept { return {}; }
+
     /// @brief Render the sink's complete state for cold-path diagnostics.
     ///
     /// @return `NullLogger(level=<lowercase level>)`; the stored threshold is the

@@ -154,9 +154,11 @@ histogram parameters (unsorted/non-finite bounds, scale outside 0–20) return
   set 8 ns · stats 25 ns · histograms 15 ns` medians).
 * Create instruments during startup (before the hot loop); the registry is
   append-only and never resized.
-* Keep handles inside the provider's lifetime; a stale `Meter`/instrument pointer
-  is a lifetime violation (provider entry points detect it and return
-  `NotInitialized`).
+* Metric handles are borrowed: a `Meter`/instrument pointer stays memory-safe
+  until the `Infrastructure` (and therefore the provider) is destroyed. After
+  `Infrastructure::shutdown()`, recording is accepted and discarded, while
+  `get_meter`/`collect_now`/`flush` return `NotInitialized`. A stale pointer
+  after `~Infrastructure` is a documented lifetime violation.
 
 ## 8. Troubleshooting
 

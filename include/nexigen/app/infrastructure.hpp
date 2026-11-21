@@ -42,6 +42,7 @@
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/worker_thread.hpp>
 #include <nexigen/logging/concepts/logger_concept.hpp>
+#include <nexigen/logging/concepts/quiescable_logger_concept.hpp>
 #include <nexigen/metrics/concepts/metric_sink_concept.hpp>
 #include <nexigen/metrics/metric_provider.hpp>
 #include <nexigen/tracing/concepts/tracer_concept.hpp>
@@ -320,6 +321,8 @@ public:
                   "Policy must declare Logger/MetricsSink/TraceSink and static emplace hooks");
     static_assert(logging::concepts::Logger<Logger>,
                   "Policy::Logger must satisfy nexigen::logging::concepts::Logger");
+    static_assert(logging::concepts::QuiescableLogger<Logger>,
+                  "Policy::Logger must satisfy nexigen::logging::concepts::QuiescableLogger");
     static_assert(metrics::concepts::MetricSink<MetricsSink>,
                   "Policy::MetricsSink must satisfy metrics::concepts::MetricSink");
     static_assert(tracing::concepts::TraceSink<TraceSink>,
@@ -513,17 +516,18 @@ public:
         return stop_reason_.load(std::memory_order_acquire);
     }
 
-    /// @brief Stop the watcher, flush every component, and release ownership.
+    /// @brief Stop and flush every component, keeping their storage alive.
     ///
-    /// Stops and joins the watcher, drains the logger, logs exactly one final
-    /// record naming the stop reason, flushes the tracer and metrics, then lets
-    /// the chrono worker deliver its final snapshot and flush. Afterwards the
-    /// caller's previous signal mask is restored, process-global ownership is
-    /// released, and components are destroyed in reverse dependency order.
-    /// Repeated calls after the first perform no work.
+    /// Stops the signal watcher, drains the logger, logs exactly one final
+    /// record carrying the stop reason, then quiesces tracing, quiesces metrics,
+    /// flushes the logger once more, and quiesces the logger. Tracer and metric
+    /// quiescence failures are logged while the logger is still active. The time
+    /// base is detached only after the last sink delivery. Storage and sinks are
+    /// **not** destroyed here: handles stay valid until the `Infrastructure`
+    /// object is destroyed. Repeated calls after the first perform no work.
     ///
-    /// @return OK, or the first flush failure encountered; the remaining flushes
-    ///         still run.
+    /// @return OK, or the first failure encountered; the remaining steps still
+    ///         run.
     /// @note Spec `app/application`, requirement "Shutdown is idempotent and
     ///       flushes in order".
     /// @note The logger is drained both before and after the final record, which
@@ -541,57 +545,29 @@ public:
         signals_.stop();
 
         core::Status first{};
-        const auto capture = [&first](core::Status status) noexcept {
-            if (first && !status) {
-                first = status;
-            }
-        };
 
-        // Flush order: the logger is drained first (so the final shutdown
-        // record is not dropped by a full ring), the reason is logged, and the
-        // logger is flushed again before tracer/metrics/chrono. This deviates
-        // from the spec's textual "tracer → metrics → logger → chrono" order
-        // deliberately: the logger must be drained both before and after the
-        // final record for the "every accepted record is flushed" guarantee.
+        // Drain first so the final record fits in the ring, log the reason, and
+        // drain again before the providers are quiesced.
         if (logger_) {
-            capture(logger_->flush()); // drain first so the final record fits
-            switch (stop_reason()) {
-                case InfrastructureStopReason::Sigint:
-                    logger_->warning("shutdown reason: sigint (2)");
-                    break;
-                case InfrastructureStopReason::Sigterm:
-                    logger_->warning("shutdown reason: sigterm (15)");
-                    break;
-                case InfrastructureStopReason::Requested:
-                    logger_->info("shutdown reason: requested");
-                    break;
-                case InfrastructureStopReason::TimeBaseLost:
-                    logger_->warning("shutdown reason: time_base_lost");
-                    break;
-                case InfrastructureStopReason::None:
-                default:                             logger_->info("shutdown reason: none"); break;
-            }
-            capture(logger_->flush());
+            capture_first(first, logger_->flush());
+            log_shutdown_reason();
+            capture_first(first, logger_->flush());
         }
 
-        if (tracer_) {
-            capture(tracer_->flush());
-        }
-        if (metrics_) {
-            capture(metrics_->collect_now());
-            capture(metrics_->flush());
-        }
+        // Quiesce providers while the logger is still active, so their failures
+        // are loggable. Tracing first: its final drain updates its own counters,
+        // which the metrics final harvest then captures.
+        quiesce_telemetry(first);
+
         // The time base is a read-only mapping: releasing it needs no flush.
+        // Detach only after every sink has delivered its final batch.
         chrono::TimeBaseClock::detach();
         time_base_.reset();
 
         static_cast<void>(::pthread_sigmask(SIG_SETMASK, &previous_mask_, nullptr));
 
-        tracer_.reset();
-        trace_sink_.reset();
-        metrics_.reset();
-        metrics_sink_.reset();
-        logger_.reset();
+        // Components stay engaged: the destructor releases them, and handles
+        // issued before this call remain memory-safe until then.
         initialized_ = false;
         detail::signal_owner.store(nullptr, std::memory_order_release);
         return first;
@@ -638,12 +614,14 @@ public:
     /// @param name Meter name.
     /// @param version Meter version string.
     /// @return The meter handle on success; `NotInitialized` before a successful
-    ///         `initialize`, otherwise the provider's status.
+    ///         `initialize` and after `shutdown()` began, otherwise the
+    ///         provider's status. Handles issued earlier stay valid until the
+    ///         infrastructure is destroyed.
     /// @note Spec `app/application`, requirement "Infrastructure exposes logger,
     ///       metric and tracer factories".
     [[nodiscard]] core::Result<metrics::Meter*> meter(std::string_view name,
                                                       std::string_view version) noexcept {
-        if (!metrics_) {
+        if (!initialized_) {
             return std::unexpected(core::ErrorCode::NotInitialized);
         }
         return metrics_->get_meter(name, version);
@@ -653,11 +631,13 @@ public:
     ///
     /// @param scope Tracer scope name.
     /// @return The tracer handle on success; `NotInitialized` before a successful
-    ///         `initialize`, otherwise the provider's status.
+    ///         `initialize` and after `shutdown()` began, otherwise the
+    ///         provider's status. Handles issued earlier stay memory-safe until
+    ///         the infrastructure is destroyed.
     /// @note Spec `app/application`, requirement "Infrastructure exposes logger,
     ///       metric and tracer factories".
     [[nodiscard]] core::Result<TracerType*> tracer_for(std::string_view scope) noexcept {
-        if (!tracer_) {
+        if (!initialized_) {
             return std::unexpected(core::ErrorCode::NotInitialized);
         }
         return tracer_->get_tracer(scope);
@@ -811,6 +791,78 @@ private:
         return {};
     }
 
+    /// @brief Record the first non-OK status without overwriting it.
+    ///
+    /// Failure combination for the shutdown sequence: the first failure wins and
+    /// every later success is ignored.
+    ///
+    /// @param first Accumulated status; updated only while it is OK.
+    /// @param status Candidate status from one shutdown step.
+    static void capture_first(core::Status& first, core::Status status) noexcept {
+        if (first && !status) {
+            first = status;
+        }
+    }
+
+    /// @brief Log exactly one final record naming the stop reason.
+    ///
+    /// No-op when no logger exists (a failed initialization). Called before the
+    /// logger is quiesced so the record is delivered.
+    ///
+    /// @note Spec `app/application`, scenario "Shutdown reason is logged once".
+    void log_shutdown_reason() noexcept {
+        if (!logger_) {
+            return;
+        }
+        switch (stop_reason()) {
+            case InfrastructureStopReason::Sigint:
+                logger_->warning("shutdown reason: sigint (2)");
+                break;
+            case InfrastructureStopReason::Sigterm:
+                logger_->warning("shutdown reason: sigterm (15)");
+                break;
+            case InfrastructureStopReason::Requested:
+                logger_->info("shutdown reason: requested");
+                break;
+            case InfrastructureStopReason::TimeBaseLost:
+                logger_->warning("shutdown reason: time_base_lost");
+                break;
+            case InfrastructureStopReason::None:
+            default:
+                logger_->info("shutdown reason: none");
+                break;
+        }
+    }
+
+    /// @brief Quiesce tracing, metrics, then the logger, logging failures.
+    ///
+    /// Tracing runs first so its final counter updates are captured by the
+    /// metrics final harvest; the logger is quiesced last so tracer/metric
+    /// failures can still be logged. The logger's own failure is only returned.
+    ///
+    /// @param first Accumulated first failure.
+    /// @note Spec `app/application`, scenario "Logger is quiesced last".
+    void quiesce_telemetry(core::Status& first) noexcept {
+        if (tracer_) {
+            const core::Status status = tracer_->quiesce();
+            if (!status && logger_) {
+                logger_->warning("tracing quiesce failed: {}", core::to_string(status.error()));
+            }
+            capture_first(first, status);
+        }
+        if (metrics_) {
+            const core::Status status = metrics_->quiesce();
+            if (!status && logger_) {
+                logger_->warning("metrics quiesce failed: {}", core::to_string(status.error()));
+            }
+            capture_first(first, status);
+        }
+        if (logger_) {
+            capture_first(first, logger_->flush());
+            capture_first(first, logger_->quiesce());
+        }
+    }
+
     /// @brief Tear down every partially built component and release ownership.
     ///
     /// Stops the watcher first, then destroys providers, sinks, the chrono
@@ -827,9 +879,11 @@ private:
         trace_sink_.reset();
         metrics_.reset();
         metrics_sink_.reset();
+        // The logger drains through its sink, and its sink resolves UTC through
+        // the published time base: release it before detaching the clock.
+        logger_.reset();
         chrono::TimeBaseClock::detach();
         time_base_.reset();
-        logger_.reset();
         static_cast<void>(::pthread_sigmask(SIG_SETMASK, &previous_mask_, nullptr));
         initialized_ = false;
         detail::signal_owner.store(nullptr, std::memory_order_release);

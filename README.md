@@ -804,7 +804,9 @@ infra->logger().info("started");                     // configured logger
 const auto meter = infra->meter("sim", "1.0");       // MetricProvider::get_meter
 const auto tracer = infra->tracer_for("sim.loop");   // TracerProvider::get_tracer
 const auto reason = infra->run([] { /* one tick */ });
-static_cast<void>(infra->shutdown());                // logs reason, flushes all three
+static_cast<void>(infra->shutdown());                // quiesces all three; storage stays
+// ...handles issued above are still memory-safe here...
+// ~Infrastructure() releases the registries at the end of main.
 ```
 
 * `initialize(settings)` claims the **process-global signal ownership** first; a second
@@ -815,8 +817,11 @@ static_cast<void>(infra->shutdown());                // logs reason, flushes all
   `Infrastructure_stop_reason::Requested`.
 * SIGINT/SIGTERM become `Infrastructure_stop_reason::Sigint`/`Sigterm`; shutdown logs exactly
   one `"shutdown reason: ..."` record.
-* `shutdown()` is idempotent, flushes tracer → metrics → logger, restores the signal mask and
-  releases signal ownership. The destructor calls it.
+* `shutdown()` is idempotent: it quiesces tracing, quiesces metrics, flushes and quiesces the
+  logger (tracing → metrics → logger), detaches the time base, restores the signal mask and
+  releases signal ownership. It does **not** destroy component storage: already-issued
+  handles stay memory-safe until the `Infrastructure` object is destroyed, and the destructor
+  calls `shutdown()` if it was not called explicitly.
 * There is no `current()` accessor: pass the `Infrastructure&` (or the logger/provider
   references) to code that needs it.
 * Settings are explicit per-subsystem global/local pairs (`App_settings_paths`), merged

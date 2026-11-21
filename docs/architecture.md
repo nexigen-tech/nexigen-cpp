@@ -42,7 +42,10 @@
   Sink-и доставляют через `on_event()`/`flush()`, lifecycle-часть —
   `start()`/`stop()`, и связываются общим `core::SinkBinding<Event>`.
   Компонент получает `Meter` и создаёт инструменты сам; указатели на
-  инструменты не покидают этот компонент и не передаются в другие модули.
+  инструменты не передаются в другие модули. Выданные хэндлы — заимствованные:
+  они memory-safe, пока жив объект `Infrastructure` (до его разрушения), а
+  `shutdown()` останавливает подсистемы (quiesce) и не освобождает их память.
+  Полный контракт — ADR `docs/adr/0002-telemetry-handle-lifetime.md`.
 
 ## 2. Карта модулей
 
@@ -609,6 +612,45 @@ sequenceDiagram
   `run(tick)`, фиксирует причину остановки и детерминированно освобождает
   ресурсы в обратном порядке. Второй инициализированный экземпляр получает
   `ErrorCode::Conflict`.
+
+**Порядок и остановка.** Инициализация: time base → логгер → метрики →
+трассировка → watcher. Остановка: watcher → финальная запись в лог →
+`tracer.quiesce()` → `metrics.quiesce()` → `logger.flush()` →
+`logger.quiesce()` → `TimeBaseClock::detach()`. `shutdown()` не уничтожает
+провайдеры и sink'и: память освобождает только деструктор
+`Infrastructure`, поэтому уже выданные хэндлы остаются memory-safe до конца
+`main`. После shutdown запись метрик принимается и не собирается, спаны
+отвечают `NotInitialized`, записи лога дропаются, а `meter()`/`tracer_for()`
+закрыты. Ошибки quiesce трассировки и метрик логируются, пока логгер ещё
+активен.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as main
+    participant I as Infrastructure
+    participant C as chrono (time base)
+    participant L as logger
+    participant M as metrics
+    participant T as tracing
+
+    U->>I: initialize(settings)
+    I->>C: TimeBaseClock::attach
+    I->>L: emplace + start (первым)
+    I->>M: provider start
+    I->>T: provider start
+    U->>I: run(tick)
+    U->>I: shutdown()
+    I->>L: flush + финальная запись
+    I->>T: quiesce (flush -> stop -> seal)
+    I->>M: quiesce (stop -> collect -> flush -> seal)
+    I->>L: flush + quiesce (последним)
+    I->>C: detach
+    U->>I: ~Infrastructure
+    I->>T: destroy (storage)
+    I->>M: destroy (storage)
+    I->>L: destroy (storage)
+```
 
 **Зависимости.** `core`, `chrono`, `logging`, `metrics`, `tracing`.
 

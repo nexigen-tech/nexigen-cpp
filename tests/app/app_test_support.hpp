@@ -125,6 +125,9 @@ public:
 
     [[nodiscard]] core::Status flush() noexcept { return {}; }
 
+    /// @brief Quiescence is trivial: records are captured synchronously.
+    [[nodiscard]] core::Status quiesce() noexcept { return {}; }
+
 private:
     core::LogLevel level_{core::LogLevel::Info};
 };
@@ -143,6 +146,158 @@ static_assert(logging::concepts::Logger<FlushFailLogger>);
 struct TestPolicy {
     using Logger = CaptureLogger;
     using MetricsSink = metrics::NullMetricSink;
+    using TraceSink = tracing::NullTraceSink;
+    using Sink = chrono::NullSink;
+
+    static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
+                                       std::string_view) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
+                                             const metrics::Settings&, std::string_view) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
+                                           std::string_view) noexcept {
+        out.emplace();
+        return {};
+    }
+};
+
+/// Counts metric batches without retaining them (provider quiescence tests).
+struct CountingMetricSink {
+    /// Batches observed since the last explicit reset.
+    static inline std::atomic<std::uint32_t> batches{0};
+
+    [[nodiscard]] core::Status on_event(const metrics::MetricBatchSnapshot&) noexcept {
+        batches.fetch_add(1U, std::memory_order_relaxed);
+        return {};
+    }
+    [[nodiscard]] core::Status flush() noexcept { return {}; }
+    [[nodiscard]] std::string to_string() const { return "CountingMetricSink"; }
+};
+
+static_assert(metrics::concepts::MetricSink<CountingMetricSink>);
+
+/// Test policy whose metric sink counts batches across shutdown/destruction.
+struct CountingPolicy {
+    using Logger = CaptureLogger;
+    using MetricsSink = CountingMetricSink;
+    using TraceSink = tracing::NullTraceSink;
+    using Sink = chrono::NullSink;
+
+    static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
+                                       std::string_view) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
+                                             const metrics::Settings&, std::string_view) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
+                                           std::string_view) noexcept {
+        out.emplace();
+        return {};
+    }
+};
+
+/// A metric sink whose flush always fails (quiescence-failure logging tests).
+struct FailingFlushMetricSink {
+    [[nodiscard]] core::Status on_event(const metrics::MetricBatchSnapshot&) noexcept { return {}; }
+    [[nodiscard]] core::Status flush() noexcept {
+        return std::unexpected(core::ErrorCode::SystemError);
+    }
+    [[nodiscard]] std::string to_string() const { return "FailingFlushMetricSink"; }
+};
+
+static_assert(metrics::concepts::MetricSink<FailingFlushMetricSink>);
+
+/// Logger recording the control-plane call sequence (ordering tests).
+class SequencedLogger {
+public:
+    /// Events appended in call order: `log:<text>`, `flush`, `quiesce`.
+    static inline std::vector<std::string> events;
+
+    void set_level(core::LogLevel level) noexcept { level_ = level; }
+    [[nodiscard]] core::LogLevel level() const noexcept { return level_; }
+
+    template <class... Args>
+    void log(core::LogLevel, logging::detail::format_param_t<Args...> fmt,
+             Args&&... args) noexcept {
+        events.push_back("log:" + std::vformat(fmt.fmt.get(), std::make_format_args(args...)));
+    }
+
+    template <class... Args>
+    void verbose(logging::detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        log(core::LogLevel::Verbose, fmt, std::forward<Args>(args)...);
+    }
+    template <class... Args>
+    void debug(logging::detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        log(core::LogLevel::Debug, fmt, std::forward<Args>(args)...);
+    }
+    template <class... Args>
+    void info(logging::detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        log(core::LogLevel::Info, fmt, std::forward<Args>(args)...);
+    }
+    template <class... Args>
+    void warning(logging::detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        log(core::LogLevel::Warning, fmt, std::forward<Args>(args)...);
+    }
+    template <class... Args>
+    void error(logging::detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        log(core::LogLevel::Error, fmt, std::forward<Args>(args)...);
+    }
+    template <class... Args>
+    void fatal(logging::detail::format_param_t<Args...> fmt, Args&&... args) noexcept {
+        log(core::LogLevel::Fatal, fmt, std::forward<Args>(args)...);
+    }
+
+    [[nodiscard]] core::Status flush() noexcept {
+        events.push_back("flush");
+        return {};
+    }
+    [[nodiscard]] core::Status quiesce() noexcept {
+        events.push_back("quiesce");
+        return {};
+    }
+
+private:
+    core::LogLevel level_{core::LogLevel::Info};
+};
+
+static_assert(logging::concepts::Logger<SequencedLogger>);
+static_assert(logging::concepts::QuiescableLogger<SequencedLogger>);
+
+struct FailingMetricSinkPolicy {
+    using Logger = CaptureLogger;
+    using MetricsSink = FailingFlushMetricSink;
+    using TraceSink = tracing::NullTraceSink;
+    using Sink = chrono::NullSink;
+
+    static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
+                                       std::string_view) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
+                                             const metrics::Settings&, std::string_view) noexcept {
+        out.emplace();
+        return {};
+    }
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
+                                           std::string_view) noexcept {
+        out.emplace();
+        return {};
+    }
+};
+
+struct OrderedQuiescePolicy {
+    using Logger = SequencedLogger;
+    using MetricsSink = FailingFlushMetricSink;
     using TraceSink = tracing::NullTraceSink;
     using Sink = chrono::NullSink;
 
