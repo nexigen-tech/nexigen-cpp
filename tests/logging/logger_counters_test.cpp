@@ -2,12 +2,14 @@
 #include <cstdio>
 #include <string>
 #include <string_view>
+#include <thread>
 
 #include "logging_test_support.hpp"
 
 #include <nexigen/core/concepts/meter_concept.hpp>
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/logging/throttle_config.hpp>
 #include <nexigen/logging/detail/producer.hpp>
 
 namespace {

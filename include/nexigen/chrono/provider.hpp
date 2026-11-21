@@ -222,10 +222,16 @@ public:
         std::lock_guard<std::mutex> lock(snapshot_mutex_);
         const core::Result<Timestamp> stamp = Timestamp::now();
         if (!stamp) {
+            if (snapshot_failed_ != nullptr) {
+                snapshot_failed_->add(1U);
+            }
             return std::unexpected(core::ErrorCode::SystemError);
         }
         ::timespec realtime{};
         if (::clock_gettime(CLOCK_REALTIME, &realtime) != 0) {
+            if (snapshot_failed_ != nullptr) {
+                snapshot_failed_->add(1U);
+            }
             return std::unexpected(core::ErrorCode::SystemError);
         }
         const std::int64_t rt_ns = static_cast<std::int64_t>(realtime.tv_sec) * 1'000'000'000LL +
@@ -234,7 +240,11 @@ public:
         if (binding_.on_event == nullptr) {
             return {};
         }
-        return binding_.on_event(binding_.self, snapshot);
+        const core::Status delivered = binding_.on_event(binding_.self, snapshot);
+        if (!delivered.has_value() && snapshot_failed_ != nullptr) {
+            snapshot_failed_->add(1U);
+        }
+        return delivered;
     }
 
     /// @brief Flush the bound sink.

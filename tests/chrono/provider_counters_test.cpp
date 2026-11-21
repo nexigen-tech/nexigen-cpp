@@ -39,6 +39,14 @@ struct FakeMeter {
     }
 };
 static_assert(nexigen::core::concepts::MeterLike<FakeMeter>);
+struct FailingSink {
+    [[nodiscard]] nexigen::core::Status
+    on_event(const nexigen::chrono::Snapshot&) noexcept {
+        return std::unexpected(nexigen::core::ErrorCode::SystemError);
+    }
+    [[nodiscard]] nexigen::core::Status flush() noexcept { return {}; }
+};
+
 } // namespace
 
 int main() {
@@ -54,6 +62,12 @@ int main() {
     auto second = provider.acquire();
     CHECK(!second.has_value());
     CHECK(meter.acquire_exhausted.value == 1U);
+
+    FakeMeter snapshot_meter{};
+    FailingSink failing{};
+    Provider<1, FakeMeter> snapshot_provider{config, failing, &snapshot_meter};
+    CHECK(!snapshot_provider.snapshot_now().has_value());
+    CHECK(snapshot_meter.snapshot_failed.value == 1U);
 
     std::printf("chrono provider counters: %d failures\n", g_failures);
     return g_failures == 0 ? 0 : 1;
