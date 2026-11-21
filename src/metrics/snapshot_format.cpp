@@ -78,6 +78,7 @@ std::string MetricRecord::to_string() const {
 std::string MetricBatchSnapshot::to_string() const {
     std::string out = "MetricBatchSnapshot(stamp_ns=" + std::to_string(stamp.nanoseconds()) +
                       ", utc_ns=" + std::to_string(utc_ns) +
+                      ", utc_resolved=" + (utc_resolved ? "true" : "false") +
                       ", records=" + std::to_string(record_count) + ")";
     return out;
 }
@@ -380,10 +381,13 @@ void to_json(nlohmann::json& j, const MetricBatchSnapshot& batch) {
         {"stamp_ns", batch.stamp.nanoseconds()},
         {"mono_ns", batch.stamp.nanoseconds()},
         {"boot", std::string(std::string_view(boot_text, chrono::boot_token_text_size))},
-        {"utc_ns", batch.utc_ns},
+        {"utc_resolved", batch.utc_resolved},
         {"record_count", batch.record_count},
         {"records", records},
     };
+    if (batch.utc_resolved) {
+        j["utc_ns"] = batch.utc_ns;
+    }
 }
 
 void from_json_records_array(const nlohmann::json& j, MetricBatchSnapshot& out) noexcept {
@@ -413,6 +417,10 @@ void from_json(const nlohmann::json& j, MetricBatchSnapshot& out) noexcept {
         out.stamp = chrono::Timestamp{stamp_it->get<std::uint64_t>()};
     }
     core::detail::read_signed(j, "utc_ns", out.utc_ns);
+    if (!core::detail::read_bool(j, "utc_resolved", out.utc_resolved)) {
+        // Legacy lines predate the marker: their UTC value is authoritative.
+        out.utc_resolved = j.contains("utc_ns");
+    }
     core::detail::read_unsigned(j, "record_count", out.record_count);
     from_json_records_array(j, out);
 }

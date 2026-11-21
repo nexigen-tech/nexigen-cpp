@@ -2,6 +2,10 @@
 
 #include "metrics_test_support.hpp"
 
+#include <nexigen/core/diagnostic_binding.hpp>
+#include <nexigen/chrono/time_base_clock.hpp>
+#include "../support/test_time_base.hpp"
+
 namespace {
 
 void test_reset_window_race() {
@@ -595,6 +599,119 @@ void test_provider_quiesce() {
     NX_CHECK(failing_sink.flushes() == failing_flushes);
 }
 
+struct ProviderDiagCollector {
+    int count{0};
+    nexigen::core::DiagnosticEvent last{};
+};
+
+void test_provider_diagnostics() {
+    using nexigen::core::DiagnosticEvent;
+    using nexigen::core::DiagnosticKind;
+    using nexigen::core::DiagnosticSource;
+
+    RecordingSink sink;
+    metrics::MetricProviderConfig config{};
+    config.collect_interval = std::chrono::nanoseconds{0};
+
+    ProviderDiagCollector collector{};
+    const nexigen::core::DiagnosticBinding binding{
+        &collector, [](void* self, const DiagnosticEvent& event) noexcept {
+            auto* c = static_cast<ProviderDiagCollector*>(self);
+            ++c->count;
+            c->last = event;
+        }};
+
+    std::optional<metrics::MetricProvider> provider;
+    provider.emplace(config, sink, binding);
+
+    // Started is reported once at construction.
+    NX_CHECK(collector.count == 1);
+    NX_CHECK(collector.last.source == DiagnosticSource::Metrics);
+    NX_CHECK(collector.last.kind == DiagnosticKind::Started);
+
+    const auto meter = provider->get_meter("diag", "1.0");
+    NX_CHECK(meter.has_value());
+    if (!meter) {
+        return;
+    }
+    NX_CHECK((*meter)->create_counter<>("events").has_value());
+
+    // A failing collection degrades once and is pollable without I/O.
+    sink.fail_batches(std::unexpected(ErrorCode::SystemError));
+    NX_CHECK(!provider->collect_now().has_value());
+    NX_CHECK(collector.count == 2);
+    NX_CHECK(collector.last.kind == DiagnosticKind::Degraded);
+    NX_CHECK(collector.last.error == ErrorCode::SystemError);
+    const auto harvest = provider->harvest_status();
+    NX_CHECK(!harvest.has_value() && harvest.error() == ErrorCode::SystemError);
+    NX_CHECK(!provider->collect_now().has_value());
+    NX_CHECK(collector.count == 2); // same failure, no duplicate event
+
+    // Recovery is reported and clears the status.
+    sink.fail_batches(core::Status{});
+    NX_CHECK(provider->collect_now().has_value());
+    NX_CHECK(collector.count == 3);
+    NX_CHECK(collector.last.kind == DiagnosticKind::Recovered);
+    NX_CHECK(provider->harvest_status().has_value());
+
+    // Quiescence is the terminal event; destruction emits nothing.
+    NX_CHECK(provider->quiesce().has_value());
+    NX_CHECK(collector.count == 4);
+    NX_CHECK(collector.last.kind == DiagnosticKind::Quiesced);
+    provider.reset();
+    NX_CHECK(collector.count == 4);
+    NX_CHECK(collector.last.kind == DiagnosticKind::Quiesced);
+
+    // Late binding on a healthy provider reports Started.
+    RecordingSink late_sink;
+    ProviderDiagCollector late_collector{};
+    const nexigen::core::DiagnosticBinding late_binding{
+        &late_collector, [](void* self, const DiagnosticEvent& event) noexcept {
+            auto* c = static_cast<ProviderDiagCollector*>(self);
+            ++c->count;
+            c->last = event;
+        }};
+    std::optional<metrics::MetricProvider> late_provider;
+    late_provider.emplace(config, late_sink);
+    late_provider->bind_diagnostics(late_binding);
+    NX_CHECK(late_collector.count == 1);
+    NX_CHECK(late_collector.last.kind == DiagnosticKind::Started);
+}
+
+void test_provider_utc_resolution() {
+    RecordingSink sink;
+    metrics::MetricProviderConfig config{};
+    config.collect_interval = std::chrono::nanoseconds{0};
+    metrics::MetricProvider provider{config, sink};
+
+    const auto meter = provider.get_meter("utc", "1.0");
+    NX_CHECK(meter.has_value());
+    if (!meter) {
+        return;
+    }
+    const auto counter = (*meter)->create_counter<>("events");
+    NX_CHECK(counter.has_value());
+    if (counter) {
+        (*counter)->inc();
+    }
+
+    // The test binary publishes a time base: the window resolves.
+    NX_CHECK(provider.collect_now().has_value());
+    NX_CHECK(sink.last_utc_resolved());
+    NX_CHECK(sink.last_utc_ns() != 0);
+
+    // Without a published base the window is explicitly unresolved and no raw
+    // CLOCK_REALTIME fallback is used.
+    chrono::TimeBaseClock::detach();
+    NX_CHECK(provider.collect_now().has_value());
+    NX_CHECK(!sink.last_utc_resolved());
+    NX_CHECK(sink.last_utc_ns() == 0);
+
+    nexigen::tests::install_test_time_base();
+    NX_CHECK(provider.collect_now().has_value());
+    NX_CHECK(sink.last_utc_resolved());
+}
+
 void test_provider_harvester_stale() {
     // Handle-lifetime liveness detection (task 12.2): a handle used after its
     // provider's destruction reports NotInitialized.
@@ -652,6 +769,14 @@ void suite_provider_config() {
 
 void suite_provider_harvester() {
     run_suite("provider_harvester", test_provider_harvester);
+}
+
+void suite_provider_utc_resolution() {
+    run_suite("provider_utc_resolution", test_provider_utc_resolution);
+}
+
+void suite_provider_diagnostics() {
+    run_suite("provider_diagnostics", test_provider_diagnostics);
 }
 
 void suite_provider_quiesce() {

@@ -33,6 +33,8 @@
 
 #include <nexigen/app/app_settings.hpp>
 #include <nexigen/app/command_line.hpp>
+#include <nexigen/app/detail/bootstrap_diagnostics.hpp>
+#include <nexigen/app/detail/diagnostic_forwarder.hpp>
 #include <nexigen/app/infrastructure_stop_reason.hpp>
 #include <nexigen/chrono/time_base_client.hpp>
 #include <nexigen/chrono/time_base_clock.hpp>
@@ -568,6 +570,7 @@ public:
 
         // Components stay engaged: the destructor releases them, and handles
         // issued before this call remain memory-safe until then.
+        logger_ready_ = false;
         initialized_ = false;
         detail::signal_owner.store(nullptr, std::memory_order_release);
         return first;
@@ -715,7 +718,12 @@ private:
         client.stale_after = settings.chrono.stale_after;
         client.holdover = settings.chrono.holdover;
 
-        auto attached = chrono::TimeBaseClient::attach(settings.chrono.segment_name, client);
+        const core::DiagnosticBinding bootstrap_binding{
+            &bootstrap_, [](void* self, const core::DiagnosticEvent& event) noexcept {
+                static_cast<detail::BootstrapDiagnostics*>(self)->diagnostic(event);
+            }};
+        auto attached = chrono::TimeBaseClient::attach(settings.chrono.segment_name, client,
+                                                       bootstrap_binding);
         if (!attached) {
             return fail(std::unexpected(attached.error()));
         }
@@ -735,6 +743,12 @@ private:
         if (const core::Status step = emplace_checked(logger_status, logger_.has_value()); !step) {
             return step;
         }
+
+        // The logger now exists: bind the time-base client to it so runtime
+        // transitions are logged. The bootstrap channel stays unused afterwards.
+        logger_ready_ = true;
+        diagnostics_.emplace(*logger_);
+        time_base_->bind_diagnostics(diagnostics_binding());
         return {};
     }
 
@@ -754,16 +768,18 @@ private:
     [[nodiscard]] core::Status build_metrics(const Settings& settings) noexcept {
         const core::Status sink_status =
             Policy::emplace_metrics_sink(metrics_sink_, settings.metrics, settings.app_name);
-        if (const core::Status step = emplace_checked(sink_status, metrics_sink_.has_value());
-            !step) {
-            return step;
+        if (!sink_status) {
+            return fail_logged(sink_status, "metrics sink");
         }
-        metrics_.emplace(settings.metrics.options, *metrics_sink_);
+        if (!metrics_sink_.has_value()) {
+            return fail_logged(std::unexpected(core::ErrorCode::InvalidArgument), "metrics sink");
+        }
+        metrics_.emplace(settings.metrics.options, *metrics_sink_, diagnostics_binding());
         if (settings.metrics.options.worker_thread.apply_mode() ==
             core::ThreadApplyMode::Required) {
             const core::Status startup = metrics_->startup_status();
             if (!startup) {
-                return fail(startup);
+                return fail_logged(startup, "metrics");
             }
         }
         return {};
@@ -779,16 +795,44 @@ private:
     [[nodiscard]] core::Status build_tracing(const Settings& settings) noexcept {
         const core::Status sink_status =
             Policy::emplace_trace_sink(trace_sink_, settings.tracing, settings.app_name);
-        if (const core::Status step = emplace_checked(sink_status, trace_sink_.has_value());
-            !step) {
-            return step;
+        if (!sink_status) {
+            return fail_logged(sink_status, "tracing sink");
         }
-        tracer_.emplace(settings.tracing.options, *trace_sink_);
+        if (!trace_sink_.has_value()) {
+            return fail_logged(std::unexpected(core::ErrorCode::InvalidArgument), "tracing sink");
+        }
+        tracer_.emplace(settings.tracing.options, *trace_sink_, diagnostics_binding());
         const core::Status started = tracer_->initialize();
         if (!started) {
-            return fail(started);
+            return fail_logged(started, "tracing");
         }
         return {};
+    }
+
+    /// @brief Type-erased binding to the policy-logger diagnostics adapter.
+    ///
+    /// @return A binding to `diagnostics_`, or an empty binding before the
+    ///         logger exists.
+    [[nodiscard]] core::DiagnosticBinding diagnostics_binding() noexcept {
+        if (!diagnostics_) {
+            return {};
+        }
+        return {&*diagnostics_,
+                [](void* self, const core::DiagnosticEvent& event) noexcept {
+                    static_cast<detail::DiagnosticForwarder<Logger>*>(self)->diagnostic(event);
+                }};
+    }
+
+    /// @brief Log a stage failure once when the logger is ready, then roll back.
+    ///
+    /// @param status Failing status.
+    /// @param stage Initialization stage name for the log record.
+    /// @return The same failing status after rollback.
+    core::Status fail_logged(core::Status status, std::string_view stage) noexcept {
+        if (!status && logger_ready_ && logger_) {
+            logger_->error("{} {}", stage, status.error());
+        }
+        return fail(status);
     }
 
     /// @brief Record the first non-OK status without overwriting it.
@@ -879,6 +923,8 @@ private:
         trace_sink_.reset();
         metrics_.reset();
         metrics_sink_.reset();
+        diagnostics_.reset();
+        logger_ready_ = false;
         // The logger drains through its sink, and its sink resolves UTC through
         // the published time base: release it before detaching the clock.
         logger_.reset();
@@ -894,14 +940,22 @@ private:
     // sinks. Reverse-declaration teardown releases providers before sinks.
     std::optional<chrono::TimeBaseClient> time_base_{}; ///< Attached time-base client.
     std::optional<Logger> logger_{};                    ///< Logger component, built first.
+    /// @brief Diagnostics adapter over the policy logger; declared after it so
+    ///        the adapter dies before the logger, and before providers so it
+    ///        outlives them.
+    std::optional<detail::DiagnosticForwarder<Logger>> diagnostics_{};
     std::optional<MetricsSink> metrics_sink_{};         ///< Metrics sink component.
     std::optional<metrics::MetricProvider> metrics_{};  ///< Metrics provider over the sink.
     std::optional<TraceSink> trace_sink_{};             ///< Trace sink component.
     std::optional<TracerProvider> tracer_{};            ///< Tracer provider over the sink.
     detail::SignalWatcher signals_{}; ///< Signal watcher, stopped first on teardown.
 
+    /// @brief Pre-logger synchronous diagnostics; used only during startup.
+    detail::BootstrapDiagnostics bootstrap_{};
+
     sigset_t previous_mask_{};                  ///< Mask restored by shutdown/rollback.
     bool initialized_{false};                   ///< Set once every component and the watcher exist.
+    bool logger_ready_{false};                  ///< Policy logger successfully initialized.
     std::atomic<bool> shutdown_started_{false}; ///< One-shot shutdown latch.
     /// @brief First recorded stop cause; cache-line isolated from the latch.
     alignas(64) std::atomic<InfrastructureStopReason> stop_reason_{InfrastructureStopReason::None};

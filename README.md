@@ -822,6 +822,10 @@ static_cast<void>(infra->shutdown());                // quiesces all three; stor
   releases signal ownership. It does **not** destroy component storage: already-issued
   handles stay memory-safe until the `Infrastructure` object is destroyed, and the destructor
   calls `shutdown()` if it was not called explicitly.
+* Metrics and tracing emit lifecycle diagnostics only on state transitions through the
+  `core::DiagnosticBinding`; the application binds them to the policy logger after it starts.
+  Time-base attach failures are reported by `BootstrapDiagnostics` on stderr before the logger
+  exists.
 * There is no `current()` accessor: pass the `Infrastructure&` (or the logger/provider
   references) to code that needs it.
 * Settings are explicit per-subsystem global/local pairs (`App_settings_paths`), merged

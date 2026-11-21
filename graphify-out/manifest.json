@@ -246,9 +246,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/app/infrastructure.hpp": {
-    "mtime": 1795285095.9056778,
-    "seen": 1795288681.324055,
-    "ast_hash": "0f6c499775953ae3ee0d95ff9f7873b0",
+    "mtime": 1795290857.0776675,
+    "seen": 1795297104.276235,
+    "ast_hash": "7b582f55a6b9e6baa3d60c9cb0303531",
     "semantic_hash": ""
   },
   "include/nexigen/app/infrastructure_stop_reason.hpp": {
@@ -1326,9 +1326,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/metrics/metric_batch_snapshot.hpp": {
-    "mtime": 1794513914.1714447,
-    "seen": 1794516334.6655235,
-    "ast_hash": "8453ed7faefcd3a673d59ac475d3d1fb",
+    "mtime": 1795290070.275705,
+    "seen": 1795297104.2809196,
+    "ast_hash": "601aec5d5adf2456dd3cb428c531db38",
     "semantic_hash": ""
   },
   "include/nexigen/metrics/metric_identity.hpp": {
@@ -1344,9 +1344,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/metrics/metric_provider.hpp": {
-    "mtime": 1795284171.4828382,
-    "seen": 1795288681.3288164,
-    "ast_hash": "dfc9250123a0ec3aa8aa280a0e751031",
+    "mtime": 1795294055.9973142,
+    "seen": 1795297104.2809832,
+    "ast_hash": "f562be73cc6b3c47910d083f8a377515",
     "semantic_hash": ""
   },
   "include/nexigen/metrics/metric_provider_config.hpp": {
@@ -1692,9 +1692,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/tracing/tracer_provider.hpp": {
-    "mtime": 1795284485.6964424,
-    "seen": 1795288681.330966,
-    "ast_hash": "f9090b6f055960eb4b6fd7f4f3df0ce0",
+    "mtime": 1795294055.997465,
+    "seen": 1795297104.2830555,
+    "ast_hash": "407a6dfffec662612b8c08a5df901a5f",
     "semantic_hash": ""
   },
   "include/nexigen/tracing/tracer_provider_config.hpp": {
@@ -2550,15 +2550,15 @@
     "semantic_hash": ""
   },
   "src/metrics/provider.cpp": {
-    "mtime": 1795284185.5578203,
-    "seen": 1795288681.3354213,
-    "ast_hash": "609329b0dd5101bae38dbf36ba4d6700",
+    "mtime": 1795290101.0903285,
+    "seen": 1795297104.2873425,
+    "ast_hash": "eff4550ebcb1c7aa2d089b778db1cefa",
     "semantic_hash": ""
   },
   "src/metrics/snapshot_format.cpp": {
-    "mtime": 1795068036.621693,
-    "seen": 1795072514.0936446,
-    "ast_hash": "c3327be4c71536e237ad5b0e0ccde166",
+    "mtime": 1795290083.5396893,
+    "seen": 1795297104.2873435,
+    "ast_hash": "c25e0953f27dfc9a5714d828178fdc86",
     "semantic_hash": ""
   },
   "src/phm/fault_storage.cpp": {
@@ -2640,9 +2640,9 @@
     "semantic_hash": ""
   },
   "tests/app/infrastructure_test.cpp": {
-    "mtime": 1795287641.4276214,
-    "seen": 1795288681.335986,
-    "ast_hash": "b8ce2e23264c0b92c8c09577cdf36c0a",
+    "mtime": 1795294055.99712,
+    "seen": 1795297104.2878978,
+    "ast_hash": "12919c68f3d4579244ccb8247b829d82",
     "semantic_hash": ""
   },
   "tests/app/main.cpp": {
@@ -2982,9 +2982,9 @@
     "semantic_hash": ""
   },
   "tests/metrics/main.cpp": {
-    "mtime": 1795284211.235788,
-    "seen": 1795288681.3369606,
-    "ast_hash": "c4839c7b75d65f0b4c33a6f8cd9d6ad8",
+    "mtime": 1795290153.002635,
+    "seen": 1795297104.2888737,
+    "ast_hash": "392e2e8764d70ac9f26a6cb4ce383f94",
     "semantic_hash": ""
   },
   "tests/metrics/meter_test.cpp": {
@@ -3000,9 +3000,9 @@
     "semantic_hash": ""
   },
   "tests/metrics/metric_provider_test.cpp": {
-    "mtime": 1795284230.3081641,
-    "seen": 1795288681.337021,
-    "ast_hash": "e7d9320bc8190805fd5944d976f4ca9b",
+    "mtime": 1795290152.997961,
+    "seen": 1795297104.288932,
+    "ast_hash": "c5e13c2e62ee999c16100c0c14359b13",
     "semantic_hash": ""
   },
   "tests/metrics/metrics_test_support.cpp": {
@@ -3012,9 +3012,9 @@
     "semantic_hash": ""
   },
   "tests/metrics/metrics_test_support.hpp": {
-    "mtime": 1795208246.6494234,
-    "seen": 1795248393.5408893,
-    "ast_hash": "b8fd0870ea8739521e5fdf84ff7d1e24",
+    "mtime": 1795290143.4216173,
+    "seen": 1795297104.2889616,
+    "ast_hash": "bb7fd7ca307d9622f3bd6b0d2613edb0",
     "semantic_hash": ""
   },
   "tests/metrics/policy_enums_test.cpp": {
@@ -3024,9 +3024,9 @@
     "semantic_hash": ""
   },
   "tests/metrics/serialization_test.cpp": {
-    "mtime": 1795208246.6490374,
-    "seen": 1795248393.5409136,
-    "ast_hash": "92e13874cd5aec25b85785930483e9ef",
+    "mtime": 1795290130.25175,
+    "seen": 1795297104.2889907,
+    "ast_hash": "816b4a7fed8e57295ed5e003c4c74738",
     "semantic_hash": ""
   },
   "tests/metrics/sinks_test.cpp": {
@@ -3132,9 +3132,9 @@
     "semantic_hash": ""
   },
   "tests/tracing/tracer_provider_test.cpp": {
-    "mtime": 1795284619.2843244,
-    "seen": 1795288681.3377159,
-    "ast_hash": "0ebcb7b78d8c86403aeb1822014124cf",
+    "mtime": 1795292362.5955744,
+    "seen": 1795297104.2895684,
+    "ast_hash": "5b7f53fd466d80f4eedb9a107c6ce38e",
     "semantic_hash": ""
   },
   "tests/tracing/tracing_settings_test.cpp": {
@@ -3354,9 +3354,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1795284893.8629282,
-    "seen": 1795288681.338692,
-    "ast_hash": "dd43cb23fdc64c22dd1f935f9ce14c93",
+    "mtime": 1795290903.5176053,
+    "seen": 1795297104.2905266,
+    "ast_hash": "d6dbab5d3bd4f3c74b3225ab2751bacb",
     "semantic_hash": ""
   },
   "TODO.md": {
@@ -3366,9 +3366,9 @@
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1795284879.7009459,
-    "seen": 1795288681.3387856,
-    "ast_hash": "8144f28a3175d5cdabd4c1f59bb072bb",
+    "mtime": 1795290888.5776253,
+    "seen": 1795297104.2906458,
+    "ast_hash": "939200c0efedc1a34fbc9c8a701de3ec",
     "semantic_hash": ""
   },
   "docs/code-analysis-2026-11-03.md": {
@@ -3384,9 +3384,9 @@
     "semantic_hash": ""
   },
   "docs/metrics-guide.md": {
-    "mtime": 1795284886.4069374,
-    "seen": 1795288681.3388836,
-    "ast_hash": "e5906be4563728d0bc9434093eb9847b",
+    "mtime": 1795290209.3305364,
+    "seen": 1795297104.2907414,
+    "ast_hash": "8fc786afeb0084f4c498b54fe0808f8f",
     "semantic_hash": ""
   },
   "docs/nexigen-hub.md": {
@@ -6540,9 +6540,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/app/application/spec.md": {
-    "mtime": 1795288568.5656655,
-    "seen": 1795288681.3565059,
-    "ast_hash": "c820467c20ecd7513cfb9da4c9b03873",
+    "mtime": 1795296739.555869,
+    "seen": 1795297104.3082976,
+    "ast_hash": "97ec018124aa9aecc967598172ef6490",
     "semantic_hash": ""
   },
   "openspec/specs/app/command-line/spec.md": {
@@ -6906,9 +6906,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/metrics/metric-provider/spec.md": {
-    "mtime": 1795288568.5661385,
-    "seen": 1795288681.3580563,
-    "ast_hash": "903bba516e33271dd84128148bbf2f7d",
+    "mtime": 1795296739.5566459,
+    "seen": 1795297104.3098164,
+    "ast_hash": "f800016903a491cf947ace366d590b79",
     "semantic_hash": ""
   },
   "openspec/specs/metrics/metric-sinks/spec.md": {
@@ -7062,9 +7062,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/tracing/tracer-provider/spec.md": {
-    "mtime": 1795288568.566577,
-    "seen": 1795288681.3588734,
-    "ast_hash": "1d294a4a3acdaffa7ffdbb85056fc2cd",
+    "mtime": 1795296739.556778,
+    "seen": 1795297104.310591,
+    "ast_hash": "5bddc337f2833119d6961b74efdd36e2",
     "semantic_hash": ""
   },
   "openspec/specs/tracing/tracing-settings/spec.md": {
@@ -7074,9 +7074,9 @@
     "semantic_hash": ""
   },
   "tests/CMakeLists.txt": {
-    "mtime": 1795284077.806956,
-    "seen": 1795288681.358893,
-    "ast_hash": "78b06ba92f08f1fdfcf82c7b85b8fa4c",
+    "mtime": 1795289655.9122026,
+    "seen": 1795297104.3106103,
+    "ast_hash": "ee0fa695ced22099ee875d84004e3cd9",
     "semantic_hash": ""
   },
   "tests/packaging/consumer/CMakeLists.txt": {
@@ -7230,9 +7230,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/metrics/detail/history_writer.hpp": {
-    "mtime": 1795068048.9176571,
-    "seen": 1795072514.0874968,
-    "ast_hash": "33f710bc3ffa3b07933c3cfe6259f2c1",
+    "mtime": 1795290114.547652,
+    "seen": 1795297104.2805693,
+    "ast_hash": "c21cd23a3c9f80f2dddadac1e4aa7220",
     "semantic_hash": ""
   },
   "include/nexigen/metrics/detail/metric_aggregator.hpp": {
@@ -7824,9 +7824,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/tracing/detail/trace_daemon_session.hpp": {
-    "mtime": 1795258730.8952608,
-    "seen": 1795261645.56769,
-    "ast_hash": "c769af9c4cf1735282f58d01d99cc087",
+    "mtime": 1795290569.66046,
+    "seen": 1795297104.282757,
+    "ast_hash": "f926dc9555817c8c484d8eaca7348c8b",
     "semantic_hash": ""
   },
   "include/nexigen/tracing/detail/trace_dump.hpp": {
@@ -7854,9 +7854,9 @@
     "semantic_hash": ""
   },
   "tests/tracing/trace_daemon_test.cpp": {
-    "mtime": 1795208434.183934,
-    "seen": 1795248393.5411372,
-    "ast_hash": "dd2c87cdfe83655d74460a1871529e4c",
+    "mtime": 1795294082.5858982,
+    "seen": 1795297104.2895248,
+    "ast_hash": "3605995fd29b2fb967bcbc6b29be8fbe",
     "semantic_hash": ""
   },
   "tools/nexigen-traced/main.cpp": {
@@ -7872,9 +7872,9 @@
     "semantic_hash": ""
   },
   "docs/trace-daemon.md": {
-    "mtime": 1795111995.8192515,
-    "seen": 1795112406.600412,
-    "ast_hash": "d0ab0a8a6acef1dc9e6e415119775207",
+    "mtime": 1795290653.5209405,
+    "seen": 1795297104.2908232,
+    "ast_hash": "5a2602e9e0c0d91ce63ab9c8c502124c",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-12-add-iceoryx2-trace-sink/design.md": {
@@ -7950,9 +7950,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/tracing/trace-daemon/spec.md": {
-    "mtime": 1794461045.9011645,
-    "seen": 1794465771.9181366,
-    "ast_hash": "52384de1df82fea04bd7ba26febf7c7b",
+    "mtime": 1795296739.556873,
+    "seen": 1795297104.310537,
+    "ast_hash": "ec7967471a0178c1928b10b5a4507c99",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-12-add-worker-thread/.openspec.yaml": {
@@ -10698,9 +10698,9 @@
     "semantic_hash": ""
   },
   "docs/recorder.md": {
-    "mtime": 1795270194.1728354,
-    "seen": 1795272676.9071321,
-    "ast_hash": "e8152c2edafc65a35419c8380b6c628e",
+    "mtime": 1795290898.8586113,
+    "seen": 1795297104.2907815,
+    "ast_hash": "3c26679b1eba05967a78d9c071ca457a",
     "semantic_hash": ""
   },
   "examples/recorder/CMakeLists.txt": {
@@ -11358,9 +11358,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/chrono/time_base_client.hpp": {
-    "mtime": 1795152653.4018881,
-    "seen": 1795248393.5317998,
-    "ast_hash": "3011d69ea5c2bd36ef95cc2c9e30f933",
+    "mtime": 1795289744.666096,
+    "seen": 1795297104.2768285,
+    "ast_hash": "1640f6e0d9ba25a33112edee89928ead",
     "semantic_hash": ""
   },
   "include/nexigen/chrono/time_base_clock.hpp": {
@@ -11442,9 +11442,9 @@
     "semantic_hash": ""
   },
   "src/chrono/time_base_client.cpp": {
-    "mtime": 1795118470.8943815,
-    "seen": 1795121411.3723693,
-    "ast_hash": "4deb694c94d14c777eadd42f03bac568",
+    "mtime": 1795289758.3020797,
+    "seen": 1795297104.2862694,
+    "ast_hash": "f65da9af255150bedcd87c3768940fb1",
     "semantic_hash": ""
   },
   "src/chrono/time_base_clock.cpp": {
@@ -11520,9 +11520,9 @@
     "semantic_hash": ""
   },
   "tests/chrono/time_base_test.cpp": {
-    "mtime": 1795131845.5591483,
-    "seen": 1795248393.540406,
-    "ast_hash": "5a7a4e8c59f0802b6ad695bde87e9e32",
+    "mtime": 1795289804.0090249,
+    "seen": 1795297104.2879837,
+    "ast_hash": "3662be9583ce13d4efea29d2ae4eb7cd",
     "semantic_hash": ""
   },
   "tools/nexigen-chronod/main.cpp": {
@@ -11622,9 +11622,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/chrono/time-base/spec.md": {
-    "mtime": 1795126976.0357387,
-    "seen": 1795248393.5556588,
-    "ast_hash": "a0327f2ca6eb140c8e62cd62414df289",
+    "mtime": 1795296739.5562239,
+    "seen": 1795297104.3084414,
+    "ast_hash": "51748ddc5e71448c6d3d57267fe26975",
     "semantic_hash": ""
   },
   "tests/support/test_time_base.hpp": {
@@ -12477,6 +12477,132 @@
     "mtime": 1795288568.5667572,
     "seen": 1795288681.3578596,
     "ast_hash": "a9c544822bd1e2b01eeecc10ca4746ab",
+    "semantic_hash": ""
+  },
+  "include/nexigen/app/detail/bootstrap_diagnostics.hpp": {
+    "mtime": 1795290749.8438113,
+    "seen": 1795297104.2762325,
+    "ast_hash": "88200dcedf9bca6243998b515465e2d3",
+    "semantic_hash": ""
+  },
+  "include/nexigen/app/detail/diagnostic_forwarder.hpp": {
+    "mtime": 1795290780.198891,
+    "seen": 1795297104.276234,
+    "ast_hash": "b55a74c85dd0949230ac85f5aa32dc18",
+    "semantic_hash": ""
+  },
+  "include/nexigen/core/concepts/diagnostic_logger_concept.hpp": {
+    "mtime": 1795289618.3212478,
+    "seen": 1795297104.2780333,
+    "ast_hash": "9ea2760d471f6f11571a570daf64ab9e",
+    "semantic_hash": ""
+  },
+  "include/nexigen/core/diagnostic_binding.hpp": {
+    "mtime": 1795289611.2852561,
+    "seen": 1795297104.2781715,
+    "ast_hash": "c21607b6c8faf676ae41114f1f322cd5",
+    "semantic_hash": ""
+  },
+  "include/nexigen/core/diagnostic_event.hpp": {
+    "mtime": 1795289676.7331777,
+    "seen": 1795297104.278173,
+    "ast_hash": "4de6368cf1fd18df31cfd5a2952b7721",
+    "semantic_hash": ""
+  },
+  "include/nexigen/core/diagnostic_kind.hpp": {
+    "mtime": 1795289592.7052786,
+    "seen": 1795297104.2781734,
+    "ast_hash": "27fe113b4f7b7faefdb371dacab62073",
+    "semantic_hash": ""
+  },
+  "include/nexigen/core/diagnostic_source.hpp": {
+    "mtime": 1795289586.6672857,
+    "seen": 1795297104.2781742,
+    "ast_hash": "53ddfd09b7efe1a61f364e4ab07ef11f",
+    "semantic_hash": ""
+  },
+  "include/nexigen/core/null_diagnostic_logger.hpp": {
+    "mtime": 1795289623.3552418,
+    "seen": 1795297104.278313,
+    "ast_hash": "71d382d998b67f26c34d444065c5ee4e",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-add-telemetry-diagnostics/.openspec.yaml": {
+    "mtime": 1795288808.45022,
+    "seen": 1795297104.2859645,
+    "ast_hash": "6a2bf275d80e0a3bd99e527ccc246e1f",
+    "semantic_hash": ""
+  },
+  "tests/core/diagnostic_test.cpp": {
+    "mtime": 1795289650.4862092,
+    "seen": 1795297104.2880576,
+    "ast_hash": "20ae83ce3fe857c3989c3a30b41f2d7d",
+    "semantic_hash": ""
+  },
+  "docs/adr/0003-telemetry-diagnostics.md": {
+    "mtime": 1795290881.2836351,
+    "seen": 1795297104.2906148,
+    "ast_hash": "a6b724a9fbb00884fe96094861f987de",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-add-telemetry-diagnostics/design.md": {
+    "mtime": 1795289691.4936597,
+    "seen": 1795297104.3082354,
+    "ast_hash": "1b6f2fa82c74ba9b211cef91f36ac255",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-add-telemetry-diagnostics/proposal.md": {
+    "mtime": 1795289417.0984893,
+    "seen": 1795297104.3082366,
+    "ast_hash": "53f1c940b51890a001fad851b1a0da40",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-add-telemetry-diagnostics/specs/app/application/spec.md": {
+    "mtime": 1795289422.6663036,
+    "seen": 1795297104.3082373,
+    "ast_hash": "e58852eef479baf3a18635c855ca69e1",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-add-telemetry-diagnostics/specs/chrono/time-base/spec.md": {
+    "mtime": 1795289236.4317064,
+    "seen": 1795297104.308238,
+    "ast_hash": "673bca261187340ae946bc303ebd45a9",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-add-telemetry-diagnostics/specs/core/diagnostics/spec.md": {
+    "mtime": 1795289227.1447175,
+    "seen": 1795297104.3082387,
+    "ast_hash": "02a46d93f9d875633939059589031623",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-add-telemetry-diagnostics/specs/metrics/metric-provider/spec.md": {
+    "mtime": 1795289290.6736412,
+    "seen": 1795297104.3082397,
+    "ast_hash": "580c955aadbc731fd5a3743638e00d08",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-add-telemetry-diagnostics/specs/tracing/trace-daemon/spec.md": {
+    "mtime": 1795289268.1076684,
+    "seen": 1795297104.3082404,
+    "ast_hash": "8647d8cdf41f5dc843e2c15f4e51a3c4",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-add-telemetry-diagnostics/specs/tracing/tracer-provider/spec.md": {
+    "mtime": 1795289296.5406342,
+    "seen": 1795297104.3082414,
+    "ast_hash": "eae662f153e3799458d7aa30dd3dc454",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-add-telemetry-diagnostics/tasks.md": {
+    "mtime": 1795293471.1300948,
+    "seen": 1795297104.308242,
+    "ast_hash": "b61e5fd9db2021d5c1c0557981540d30",
+    "semantic_hash": ""
+  },
+  "openspec/specs/core/diagnostics/spec.md": {
+    "mtime": 1795296739.5569973,
+    "seen": 1795297104.308689,
+    "ast_hash": "a20ce853e4ec3756687ed851848d7207",
     "semantic_hash": ""
   }
 }

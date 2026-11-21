@@ -35,6 +35,8 @@ void suite_metric_daemon_config();
 void suite_iceoryx2_metric_sink_config();
 void suite_daemon_components();
 void suite_provider_harvester();
+void suite_provider_utc_resolution();
+void suite_provider_diagnostics();
 void suite_provider_quiesce();
 void suite_provider_required_thread_failure();
 void suite_metrics_worker_thread_settings();
@@ -80,6 +82,8 @@ int main() {
     suite_iceoryx2_metric_sink_config();
     suite_daemon_components();
     suite_provider_harvester();
+    suite_provider_utc_resolution();
+    suite_provider_diagnostics();
     suite_provider_quiesce();
     suite_provider_required_thread_failure();
     suite_metrics_worker_thread_settings();

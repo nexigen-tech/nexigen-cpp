@@ -97,6 +97,7 @@ void test_serialization_event(const metrics::MetricRecord& record,
     metrics::MetricBatchSnapshot batch{};
     batch.stamp = chrono::Timestamp{123456789ULL};
     batch.utc_ns = 1'700'000'000'123'456'789LL;
+    batch.utc_resolved = true;
     batch.records = records;
     batch.record_count = 2;
     batch.record_capacity = 2;
@@ -117,6 +118,22 @@ void test_serialization_event(const metrics::MetricRecord& record,
     }
     NX_CHECK(metrics::to_string(batch) == batch.to_string());
     NX_CHECK(std::format("{}", batch) == batch.to_string());
+
+    // An unresolved window carries the marker and omits UTC from JSON.
+    metrics::MetricBatchSnapshot unresolved{};
+    unresolved.stamp = chrono::Timestamp{123456789ULL};
+    unresolved.records = records;
+    unresolved.record_count = 1;
+    unresolved.record_capacity = 2;
+    const nlohmann::json unresolved_json = unresolved;
+    NX_CHECK(unresolved_json.at("utc_resolved").get<bool>() == false);
+    NX_CHECK(unresolved_json.find("utc_ns") == unresolved_json.end());
+    metrics::MetricBatchSnapshot unresolved_back{};
+    unresolved_back.records = records;
+    unresolved_back.record_capacity = 2;
+    metrics::from_json(unresolved_json, unresolved_back);
+    NX_CHECK(!unresolved_back.utc_resolved);
+    NX_CHECK(unresolved_back.utc_ns == 0);
 }
 
 // --- Snapshot/record/config serialization (spec metrics/policy-enums

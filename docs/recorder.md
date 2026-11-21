@@ -132,6 +132,9 @@ two-hop operation through the hub. JSONL lines gain `canonical_ns`, `boot`,
 hardware payloads carrying `native_ticks` also gain `native_ns`,
 `native_domain`, `domain_id`, and `domain_epoch`. An instant in a gap is
 `unresolved` and never falls back to a neighbouring row or a gap entry.
+Telemetry uses the same distinction: `MetricBatchSnapshot::utc_resolved` and
+the trace daemon's snapshot naming resolve through the published base, so
+exported telemetry and recorder sessions agree on when UTC is authoritative.
 
 Sessions written by the retired pre-contract runtime are rejected: their
 `TimeBase` payload has no `TBP2` layout guard, so the resolver reports them as

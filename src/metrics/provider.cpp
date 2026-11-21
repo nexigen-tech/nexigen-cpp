@@ -5,8 +5,9 @@
 #include <cstdint>
 #include <cstring>
 #include <new>
+#include <optional>
 
-#include <nexigen/chrono/utc_offset.hpp>
+#include <nexigen/chrono/time_base_clock.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/metrics/detail/affinity.hpp>
@@ -60,8 +61,9 @@ std::size_t MetricProvider::kind_object_size(MetricKind kind) noexcept {
 }
 
 MetricProvider::MetricProvider(const MetricProviderConfig& config,
-                               core::SinkBinding<MetricBatchSnapshot> binding)
-    : config_(config), binding_(binding) {
+                               core::SinkBinding<MetricBatchSnapshot> binding,
+                               core::DiagnosticBinding diagnostics)
+    : config_(config), binding_(binding), diagnostics_(diagnostics) {
     const std::uint32_t capacities[kind_count] = {config_.max_counters,
                                                   config_.max_gauges,
                                                   config_.max_states,
@@ -118,11 +120,6 @@ MetricProvider::MetricProvider(const MetricProviderConfig& config,
     offset += meter_arena_size_;
     records_ = reinterpret_cast<MetricRecord*>(block_ + offset);
 
-    std::int64_t offset_ns = 0;
-    if (chrono::sample_utc_offset(offset_ns)) {
-        utc_offset_ns_ = offset_ns;
-    }
-
     const core::Status valid_thread = config_.worker_thread.validate();
     if (!valid_thread) {
         startup_error_.store(valid_thread.error(), std::memory_order_relaxed);
@@ -130,6 +127,20 @@ MetricProvider::MetricProvider(const MetricProviderConfig& config,
         const core::Status started = worker_.start(config_.worker_thread, Body{this});
         if (!started) {
             startup_error_.store(started.error(), std::memory_order_relaxed);
+        }
+    }
+
+    // Report the initial state once, with the binding already stored.
+    if (diagnostics_.on_event != nullptr) {
+        const core::ErrorCode startup = startup_error_.load(std::memory_order_relaxed);
+        if (startup == core::ErrorCode::Ok) {
+            emit_started();
+        } else {
+            const core::DiagnosticEvent event{core::DiagnosticSource::Metrics,
+                                              core::DiagnosticKind::Degraded, startup};
+            diagnostics_.on_event(diagnostics_.self, event);
+            last_reported_error_.store(static_cast<std::uint8_t>(startup) + 1U,
+                                       std::memory_order_release);
         }
     }
 }
@@ -308,7 +319,16 @@ bool MetricProvider::has_duplicate(const MetricIdentity& meter_identity,
 }
 
 core::Status MetricProvider::collect_now() noexcept {
-    std::lock_guard<std::mutex> lock(harvest_mutex_);
+    core::Status status{};
+    {
+        std::lock_guard<std::mutex> lock(harvest_mutex_);
+        status = collect_locked();
+    }
+    update_harvest_status(status);
+    return status;
+}
+
+core::Status MetricProvider::collect_locked() noexcept {
     if (sealed_.load(std::memory_order_acquire)) {
         return std::unexpected(core::ErrorCode::NotInitialized);
     }
@@ -344,14 +364,15 @@ core::Status MetricProvider::collect_now() noexcept {
     if (now) {
         stamp = *now;
     }
-    std::int64_t offset_ns = 0;
-    if (chrono::sample_utc_offset(offset_ns)) {
-        utc_offset_ns_ = offset_ns;
-    }
 
     MetricBatchSnapshot batch{};
     batch.stamp = stamp;
-    batch.utc_ns = chrono::utc_from_mono_ns(stamp.nanoseconds(), utc_offset_ns_);
+    const std::optional<std::int64_t> utc =
+        chrono::TimeBaseClock::utc_from_canonical(static_cast<std::int64_t>(stamp.nanoseconds()));
+    if (utc) {
+        batch.utc_ns = *utc;
+        batch.utc_resolved = true;
+    }
     batch.records = records_;
     batch.record_count = count;
     batch.record_capacity = record_capacity_;
@@ -360,6 +381,67 @@ core::Status MetricProvider::collect_now() noexcept {
         return {};
     }
     return binding_.on_event(binding_.self, batch);
+}
+
+void MetricProvider::emit_started() noexcept {
+    if (diagnostics_.on_event == nullptr || sealed_.load(std::memory_order_acquire)) {
+        return;
+    }
+    const core::DiagnosticEvent event{core::DiagnosticSource::Metrics, core::DiagnosticKind::Started,
+                                      core::ErrorCode::Ok};
+    diagnostics_.on_event(diagnostics_.self, event);
+    last_reported_error_.store(0, std::memory_order_release);
+}
+
+void MetricProvider::emit_transition(std::uint8_t status_code) noexcept {
+    if (diagnostics_.on_event == nullptr || sealed_.load(std::memory_order_acquire)) {
+        return;
+    }
+    // Only the thread that observes the change emits; a concurrent collector
+    // that sees the already-updated code emits nothing.
+    const std::uint8_t previous =
+        last_reported_error_.exchange(status_code, std::memory_order_acq_rel);
+    if (previous == status_code) {
+        return;
+    }
+    core::DiagnosticEvent event{core::DiagnosticSource::Metrics,
+                                core::DiagnosticKind::Recovered, core::ErrorCode::Ok};
+    if (status_code != 0) {
+        event.kind = core::DiagnosticKind::Degraded;
+        event.error = static_cast<core::ErrorCode>(status_code - 1U);
+    }
+    diagnostics_.on_event(diagnostics_.self, event);
+}
+
+void MetricProvider::update_harvest_status(core::Status status) noexcept {
+    const std::uint8_t code =
+        status ? 0U : static_cast<std::uint8_t>(status.error()) + 1U;
+    last_harvest_error_.store(code, std::memory_order_relaxed);
+    emit_transition(code);
+}
+
+core::Status MetricProvider::harvest_status() const noexcept {
+    const std::uint8_t code = last_harvest_error_.load(std::memory_order_acquire);
+    if (code == 0U) {
+        return {};
+    }
+    return std::unexpected(static_cast<core::ErrorCode>(code - 1U));
+}
+
+void MetricProvider::bind_diagnostics(core::DiagnosticBinding binding) noexcept {
+    diagnostics_ = binding;
+    const std::uint8_t code = last_harvest_error_.load(std::memory_order_acquire);
+    last_reported_error_.store(code, std::memory_order_release);
+    if (code == 0U) {
+        emit_started();
+        return;
+    }
+    if (diagnostics_.on_event != nullptr && !sealed_.load(std::memory_order_acquire)) {
+        const core::DiagnosticEvent event{core::DiagnosticSource::Metrics,
+                                          core::DiagnosticKind::Degraded,
+                                          static_cast<core::ErrorCode>(code - 1U)};
+        diagnostics_.on_event(diagnostics_.self, event);
+    }
 }
 
 core::Status MetricProvider::flush() noexcept {
@@ -387,8 +469,13 @@ core::Status MetricProvider::quiesce() noexcept {
         first = flushed;
     }
 
-    // Seal even on failure: the destructor must not retry the drain and produce
-    // a second sink I/O after shutdown reported its status.
+    // Report the terminal transition while the provider can still emit, then
+    // seal. Destruction performs no further I/O or diagnostics.
+    if (diagnostics_.on_event != nullptr) {
+        const core::DiagnosticEvent event{core::DiagnosticSource::Metrics,
+                                          core::DiagnosticKind::Quiesced, core::ErrorCode::Ok};
+        diagnostics_.on_event(diagnostics_.self, event);
+    }
     sealed_.store(true, std::memory_order_release);
     return first;
 }

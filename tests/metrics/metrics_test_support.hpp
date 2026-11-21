@@ -167,6 +167,8 @@ public:
         ++batches_;
         records_ += batch.record_count;
         last_count_ = batch.record_count;
+        last_utc_resolved_ = batch.utc_resolved;
+        last_utc_ns_ = batch.utc_ns;
         if (batch.record_count > 0U && batch.records != nullptr) {
             first_ = batch.records[0];
             have_first_ = true;
@@ -186,6 +188,8 @@ public:
     [[nodiscard]] std::uint32_t records() const noexcept { return records_.load(); }
     [[nodiscard]] std::uint32_t flushes() const noexcept { return flushes_.load(); }
     [[nodiscard]] std::uint32_t last_count() const noexcept { return last_count_.load(); }
+    [[nodiscard]] bool last_utc_resolved() const noexcept { return last_utc_resolved_.load(); }
+    [[nodiscard]] std::int64_t last_utc_ns() const noexcept { return last_utc_ns_.load(); }
     [[nodiscard]] bool have_first() const noexcept { return have_first_.load(); }
     [[nodiscard]] metrics::MetricRecord first() const noexcept { return first_; }
 
@@ -194,6 +198,8 @@ private:
     std::atomic<std::uint32_t> records_{0};
     std::atomic<std::uint32_t> flushes_{0};
     std::atomic<std::uint32_t> last_count_{0};
+    std::atomic<bool> last_utc_resolved_{false};
+    std::atomic<std::int64_t> last_utc_ns_{0};
     std::atomic<bool> have_first_{false};
     metrics::MetricRecord first_{};
     core::Status status_{};

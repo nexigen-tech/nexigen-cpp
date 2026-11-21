@@ -65,6 +65,33 @@ namespace nexigen::tracing::detail {
 /// @note Spec `tracing/trace-daemon`, requirements "Daemon drains spans
 ///       through a blocking wait set", "A recovery notification triggers one
 ///       snapshot", and "Lifecycle and steady-state I/O"; design D1–D9.
+/// @brief Resolve one snapshot instant to UTC, falling back once per session.
+///
+/// The attached published base is authoritative. When it cannot resolve the
+/// instant, the startup-sampled offset is reused and the fallback is reported
+/// on stderr exactly once; no `CLOCK_REALTIME` read happens here.
+///
+/// @param mono_ns Canonical monotonic instant of the snapshot.
+/// @param startup_offset_ns Offset sampled once during session startup.
+/// @param fallback_reported Per-session latch; set on the first fallback.
+/// @return UTC nanoseconds for the snapshot name and header.
+/// @note Spec `tracing/trace-daemon`, requirement "Snapshot UTC resolution";
+///       cold path only.
+[[nodiscard]] inline std::int64_t resolve_snapshot_utc(std::uint64_t mono_ns,
+                                                       std::int64_t startup_offset_ns,
+                                                       bool& fallback_reported) noexcept {
+    if (const auto published =
+            chrono::TimeBaseClock::utc_from_canonical(static_cast<std::int64_t>(mono_ns))) {
+        return *published;
+    }
+    if (!fallback_reported) {
+        fallback_reported = true;
+        std::fprintf(stderr,
+                     "nexigen-traced: time base unresolved; using the startup UTC offset\n");
+    }
+    return chrono::utc_from_mono_ns(mono_ns, startup_offset_ns);
+}
+
 class TraceDaemonSession {
 public:
     /// @brief Store the configuration; no port, thread, or directory is
@@ -123,7 +150,7 @@ public:
             std::fprintf(stderr, "nexigen-traced: mlockall failed: %s\n", std::strerror(errno));
         }
         apply_affinity();
-        static_cast<void>(chrono::sample_utc_offset(utc_offset_ns_));
+        static_cast<void>(chrono::sample_utc_offset(startup_utc_offset_ns_));
         // Best effort: derive UTC from the suite time base when it publishes
         // under the default name.
         static_cast<void>(chrono::TimeBaseClock::attach("/nexigen-timebase"));
@@ -541,7 +568,8 @@ private:
         }
         const auto now = chrono::Timestamp::now();
         const std::uint64_t trigger_ts_ns = now.has_value() ? now->nanoseconds() : 0ULL;
-        const std::int64_t utc_ns = chrono::utc_from_mono_ns(trigger_ts_ns, utc_offset_ns_);
+        const std::int64_t utc_ns =
+            resolve_snapshot_utc(trigger_ts_ns, startup_utc_offset_ns_, fallback_reported_);
 
         std::string path;
         for (std::uint32_t collision = 0U; collision < 1000U; ++collision) {
@@ -585,8 +613,10 @@ private:
     std::optional<com::WaitSetGuard> recovery_guard_{};
     /// Application-state publisher used to report `Running`.
     std::optional<exec::ApplicationStateReporter> reporter_{};
-    /// UTC-minus-monotonic offset sampled once at startup.
-    std::int64_t utc_offset_ns_{0};
+    /// UTC-minus-monotonic offset sampled once at startup (fallback only).
+    std::int64_t startup_utc_offset_ns_{0};
+    /// Set when the startup fallback was reported on stderr.
+    bool fallback_reported_{false};
     /// Per-attribute affinity/scheduler outcome of `apply_affinity()`.
     core::ThreadApplyReport thread_report_{};
     /// Path of the most recent successful snapshot.

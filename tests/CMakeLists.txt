@@ -13,6 +13,13 @@ target_link_libraries(nexigen_core_worker_thread_tests PRIVATE nexigen_core Thre
 add_test(NAME nexigen_core_worker_thread_tests COMMAND nexigen_core_worker_thread_tests)
 set_tests_properties(nexigen_core_worker_thread_tests PROPERTIES TIMEOUT 120)
 
+# Diagnostics vocabulary, binding, and null consumer (change add-telemetry-diagnostics).
+add_executable(nexigen_core_diagnostic_tests core/diagnostic_test.cpp)
+target_link_libraries(nexigen_core_diagnostic_tests PRIVATE nexigen_core)
+
+add_test(NAME nexigen_core_diagnostic_tests COMMAND nexigen_core_diagnostic_tests)
+set_tests_properties(nexigen_core_diagnostic_tests PROPERTIES TIMEOUT 120)
+
 # Negative-compile probe (dedup-sink-plumbing, spec core/sink-plumbing):
 # probe TU должен НЕ собраться — static_assert'ы пака обязаны сработать.
 # SCR-файл намеренно вне таргетов (см. tests/core/neg/).

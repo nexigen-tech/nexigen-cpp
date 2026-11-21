@@ -51,7 +51,9 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/chrono/stamp_source.hpp>
+#include <nexigen/core/concepts/diagnostic_logger_concept.hpp>
 #include <nexigen/core/concepts/meter_concept.hpp>
+#include <nexigen/core/diagnostic_binding.hpp>
 #include <nexigen/core/null_meter.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/sink_binding.hpp>
@@ -146,7 +148,8 @@ public:
     /// @note Spec `tracing/tracer-concepts`, requirement "TraceSink structural
     ///       concept".
     template <concepts::TraceSink Sink, core::concepts::MeterLike M = core::NullMeter>
-    TracerProvider(const TracerProviderConfig& config, Sink& sink, M* meter = nullptr) noexcept
+    TracerProvider(const TracerProviderConfig& config, Sink& sink, M* meter = nullptr,
+                   core::DiagnosticBinding diagnostics = {}) noexcept
         : TracerProvider(config,
                          detail::SinkBinding{
                              static_cast<void*>(&sink),
@@ -159,9 +162,36 @@ public:
                              [](void* self) noexcept -> core::Status {
                                  return static_cast<Sink*>(self)->start();
                              },
-                             [](void* self) noexcept { static_cast<Sink*>(self)->stop(); }}) {
+                             [](void* self) noexcept { static_cast<Sink*>(self)->stop(); }},
+                         diagnostics) {
         bind_counters(meter);
     }
+
+    /// @brief Bind a sink and a diagnostics consumer without a meter.
+    ///
+    /// @tparam Sink Concrete sink type satisfying the `TraceSink` concept.
+    /// @param config Provider configuration.
+    /// @param sink Sink receiving spans; it MUST outlive the provider.
+    /// @param diagnostics Borrowed diagnostics consumer; empty disables events.
+    /// @note Spec `tracing/tracer-provider`, requirement "Provider diagnostics
+    ///       binding".
+    template <concepts::TraceSink Sink>
+    TracerProvider(const TracerProviderConfig& config, Sink& sink,
+                   core::DiagnosticBinding diagnostics) noexcept
+        : TracerProvider(config,
+                         detail::SinkBinding{
+                             static_cast<void*>(&sink),
+                             [](void* self, const SpanRecord& record) noexcept -> core::Status {
+                                 return static_cast<Sink*>(self)->on_event(record);
+                             },
+                             [](void* self) noexcept -> core::Status {
+                                 return static_cast<Sink*>(self)->flush();
+                             },
+                             [](void* self) noexcept -> core::Status {
+                                 return static_cast<Sink*>(self)->start();
+                             },
+                             [](void* self) noexcept { static_cast<Sink*>(self)->stop(); }},
+                         diagnostics) {}
 
     /// @brief Copy construction is deleted: the provider owns worker and rings.
     TracerProvider(const TracerProvider&) = delete;
@@ -274,6 +304,45 @@ public:
     /// @note Spec `tracing/tracer-provider`, requirement "Shutdown drain and
     ///       flush barrier", scenario "Flush waits for durability".
     [[nodiscard]] core::Status flush() noexcept;
+
+    /// @brief Install or replace the diagnostics consumer.
+    ///
+    /// Reports the current delivery state once: `Started` when no delivery error
+    /// is retained, otherwise `Degraded`. Must run before `initialize()` starts
+    /// the consumer, or after quiescence; the binding is not atomic.
+    ///
+    /// @param binding Borrowed consumer; an empty binding disables reporting.
+    /// @warning Rebinding while the consumer is running is a data race on the
+    ///          16-byte binding (torn read); bind before `initialize()` or
+    ///          after quiescence.
+    /// @note Spec `tracing/tracer-provider`, requirement "Provider diagnostics
+    ///       binding".
+    void bind_diagnostics(core::DiagnosticBinding binding) noexcept;
+
+    /// @brief Install a typed diagnostics consumer.
+    ///
+    /// @tparam L Consumer satisfying `core::concepts::DiagnosticLogger`.
+    /// @param logger Borrowed consumer; must outlive the provider.
+    /// @note Spec `tracing/tracer-provider`, requirement "Provider diagnostics
+    ///       binding".
+    template <core::concepts::DiagnosticLogger L>
+    void bind_diagnostics(L& logger) noexcept {
+        bind_diagnostics(core::DiagnosticBinding{
+            &logger,
+            [](void* self, const core::DiagnosticEvent& event) noexcept {
+                static_cast<L*>(self)->diagnostic(event);
+            }});
+    }
+
+    /// @brief Last consumer delivery and sink-flush result.
+    ///
+    /// Read-only cold-path snapshot; never drains, flushes, or contacts the sink.
+    ///
+    /// @return Success when the last delivery/flush was clean, otherwise its
+    ///         error.
+    /// @note Spec `tracing/tracer-provider`, requirement "Provider diagnostics
+    ///       binding".
+    [[nodiscard]] core::Status delivery_status() const noexcept;
 
     /// @brief Drain, stop the consumer, and seal the provider.
     ///
@@ -419,7 +488,8 @@ private:
     ///
     /// @param config Provider configuration copied into the object.
     /// @param binding Erased sink callbacks produced by the public constructor.
-    TracerProvider(const TracerProviderConfig& config, detail::SinkBinding binding) noexcept;
+    TracerProvider(const TracerProviderConfig& config, detail::SinkBinding binding,
+                   core::DiagnosticBinding diagnostics = {}) noexcept;
 
     // -- hot-path machinery (inline; used by Tracer/ScopedSpan) -----------
 
@@ -642,6 +712,25 @@ private:
     /// `get_tracer`/`flush`. Span starts rely on the existing `alive_` load.
     std::atomic<bool> sealed_{false};
 
+    /// @brief Borrowed diagnostics consumer (cold path only).
+    core::DiagnosticBinding diagnostics_{};
+    /// @brief Last delivery/flush result, encoded as `ErrorCode + 1`
+    ///        (`0` means success); written by the consumer only.
+    std::atomic<std::uint8_t> last_delivery_error_{0};
+    /// @brief Last error code reported through the diagnostics binding.
+    std::atomic<std::uint8_t> last_reported_error_{0};
+
+    /// @brief Emit `Started` through the binding when one is installed.
+    void emit_started() noexcept;
+    /// @brief Store one delivery/flush result and report a transition.
+    ///
+    /// @param status Delivery or flush result.
+    void update_delivery_status(core::Status status) noexcept;
+    /// @brief Emit `Degraded`/`Recovered` for an encoded status when it changed.
+    ///
+    /// @param status_code `ErrorCode + 1`, or `0` for success.
+    void report_transition(std::uint8_t status_code) noexcept;
+
     /// @brief Worker body: applies the spec, starts the sink, runs the consumer.
     ///
     /// Captures `this`; `worker_` is the LAST member so it joins before the
@@ -674,8 +763,9 @@ private:
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
 TracerProvider<ShardCapacity, MaxThreads>::TracerProvider(const TracerProviderConfig& config,
-                                                          detail::SinkBinding binding) noexcept
-    : config_(config), binding_(binding) {
+                                                          detail::SinkBinding binding,
+                                                          core::DiagnosticBinding diagnostics) noexcept
+    : config_(config), binding_(binding), diagnostics_(diagnostics) {
     policy_.enabled = config.max_spans_per_window != 0ULL && config.window_ns != 0ULL;
     policy_.max_spans_per_window = config.max_spans_per_window;
     policy_.window_ns = config.window_ns;
@@ -689,17 +779,90 @@ core::Status TracerProvider<ShardCapacity, MaxThreads>::initialize() noexcept {
     if (worker_.joinable()) {
         return {}; // idempotent: already initialized
     }
-    const core::Status valid_thread = config_.worker_thread.validate();
-    if (!valid_thread) {
-        return valid_thread;
-    }
-    for (auto& stamp : stamps_) {
-        const core::Status calibrated = stamp.calibrate();
-        if (!calibrated) {
-            return calibrated;
+    core::Status status = config_.worker_thread.validate();
+    if (status) {
+        for (auto& stamp : stamps_) {
+            status = stamp.calibrate();
+            if (!status) {
+                break;
+            }
         }
     }
-    return worker_.start(config_.worker_thread, Body{this});
+    if (status) {
+        status = worker_.start(config_.worker_thread, Body{this});
+    }
+    if (status) {
+        emit_started();
+    } else {
+        update_delivery_status(status);
+    }
+    return status;
+}
+
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+void TracerProvider<ShardCapacity, MaxThreads>::emit_started() noexcept {
+    if (diagnostics_.on_event == nullptr || sealed_.load(std::memory_order_acquire)) {
+        return;
+    }
+    const core::DiagnosticEvent event{core::DiagnosticSource::Tracing,
+                                      core::DiagnosticKind::Started, core::ErrorCode::Ok};
+    diagnostics_.on_event(diagnostics_.self, event);
+    last_reported_error_.store(0, std::memory_order_release);
+}
+
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+void TracerProvider<ShardCapacity, MaxThreads>::report_transition(
+    std::uint8_t status_code) noexcept {
+    if (diagnostics_.on_event == nullptr || sealed_.load(std::memory_order_acquire)) {
+        return;
+    }
+    const std::uint8_t previous =
+        last_reported_error_.exchange(status_code, std::memory_order_acq_rel);
+    if (previous == status_code) {
+        return;
+    }
+    core::DiagnosticEvent event{core::DiagnosticSource::Tracing,
+                                core::DiagnosticKind::Recovered, core::ErrorCode::Ok};
+    if (status_code != 0U) {
+        event.kind = core::DiagnosticKind::Degraded;
+        event.error = static_cast<core::ErrorCode>(status_code - 1U);
+    }
+    diagnostics_.on_event(diagnostics_.self, event);
+}
+
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+void TracerProvider<ShardCapacity, MaxThreads>::update_delivery_status(
+    core::Status status) noexcept {
+    const std::uint8_t code = status ? 0U : static_cast<std::uint8_t>(status.error()) + 1U;
+    last_delivery_error_.store(code, std::memory_order_relaxed);
+    report_transition(code);
+}
+
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+core::Status TracerProvider<ShardCapacity, MaxThreads>::delivery_status() const noexcept {
+    const std::uint8_t code = last_delivery_error_.load(std::memory_order_acquire);
+    if (code == 0U) {
+        return {};
+    }
+    return std::unexpected(static_cast<core::ErrorCode>(code - 1U));
+}
+
+template <std::size_t ShardCapacity, std::size_t MaxThreads>
+void TracerProvider<ShardCapacity, MaxThreads>::bind_diagnostics(
+    core::DiagnosticBinding binding) noexcept {
+    diagnostics_ = binding;
+    const std::uint8_t code = last_delivery_error_.load(std::memory_order_acquire);
+    last_reported_error_.store(code, std::memory_order_release);
+    if (code == 0U) {
+        emit_started();
+        return;
+    }
+    if (diagnostics_.on_event != nullptr && !sealed_.load(std::memory_order_acquire)) {
+        const core::DiagnosticEvent event{core::DiagnosticSource::Tracing,
+                                          core::DiagnosticKind::Degraded,
+                                          static_cast<core::ErrorCode>(code - 1U)};
+        diagnostics_.on_event(diagnostics_.self, event);
+    }
 }
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
@@ -774,9 +937,13 @@ std::size_t TracerProvider<ShardCapacity, MaxThreads>::deliver_batch(Record& out
     while (delivered < 64 && pop(out)) { // bounded batch
         if (binding_.on_event != nullptr) {
             // Delivery failures never stop the drain: the consumer keeps
-            // serving every shard; a failing sink surfaces its own state
-            // through flush() (sync_error) and its diagnostics.
-            static_cast<void>(binding_.on_event(binding_.self, out));
+            // serving every shard. Failures are retained for `delivery_status()`
+            // and reported once per transition; success is confirmed by the
+            // flush barrier so a single bad record does not flap the state.
+            const core::Status status = binding_.on_event(binding_.self, out);
+            if (!status) {
+                update_delivery_status(status);
+            }
         }
         ++delivered;
     }
@@ -843,6 +1010,7 @@ void TracerProvider<ShardCapacity, MaxThreads>::publish_sync(std::uint64_t seque
              : static_cast<std::uint8_t>(static_cast<std::uint8_t>(sync.error()) + 1U),
         std::memory_order_relaxed);
     flush_.drained.store(sequence, std::memory_order_release);
+    update_delivery_status(sync);
 }
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
@@ -883,6 +1051,13 @@ core::Status TracerProvider<ShardCapacity, MaxThreads>::quiesce() noexcept {
         worker_.stop();
     }
 
+    // Report the terminal transition while the provider can still emit, then
+    // seal. Destruction performs no further I/O or diagnostics.
+    if (diagnostics_.on_event != nullptr) {
+        const core::DiagnosticEvent event{core::DiagnosticSource::Tracing,
+                                          core::DiagnosticKind::Quiesced, core::ErrorCode::Ok};
+        diagnostics_.on_event(diagnostics_.self, event);
+    }
     // Seal even on a flush failure: destruction must not retry the drain.
     sealed_.store(true, std::memory_order_release);
     alive_.store(false, std::memory_order_release);

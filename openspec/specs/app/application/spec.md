@@ -8,7 +8,7 @@ Defines the reusable application lifecycle: ownership and initialization order o
 
 ### Requirement: Initialization follows a fixed order
 
-`Infrastructure::initialize(const Settings&)` SHALL claim the process-global signal ownership, block `SIGINT`/`SIGTERM`, attach to the time-base daemon and fail initialization when no usable base is published, create the logger, construct the metric provider and check its required worker-start result, construct and initialize the tracing provider, and start the signal watcher. A failure at any step, including a `Required` thread-attribute failure or an unusable time base, SHALL release ownership, tear down partial state in reverse dependency order, restore the signal mask, and return a `core::Status`. The signal watcher SHALL retain its existing configuration; no separate app settings document is introduced.
+`Infrastructure::initialize(const Settings&)` SHALL claim the process-global signal ownership, block `SIGINT`/`SIGTERM`, construct a synchronous bootstrap diagnostics writer, attach to the time-base daemon (reporting an attach failure through that writer) and fail initialization when no usable base is published, create the logger, bind the time-base client to the logger diagnostics adapter, construct the metric provider and check its required worker-start result, construct and initialize the tracing provider, bind the metric and tracer providers to the same adapter, and start the signal watcher. A failure at any step, including a `Required` thread-attribute failure or an unusable time base, SHALL release ownership, tear down partial state in reverse dependency order, restore the signal mask, and return a `core::Status`. Failures of the metric or tracing provider after the logger is ready SHALL be logged once before rollback. The signal watcher SHALL retain its existing configuration; no separate app settings document is introduced.
 
 #### Scenario: Logger is ready before providers start
 
@@ -19,6 +19,21 @@ Defines the reusable application lifecycle: ownership and initialization order o
 
 - **WHEN** initialization runs while the time-base daemon is absent or not usable
 - **THEN** it returns a failure status before creating the logger, metric provider, or tracer provider
+
+#### Scenario: Attach failure reaches the bootstrap channel
+
+- **WHEN** initialization cannot attach to the time base
+- **THEN** the bootstrap writer receives one `Degraded` event carrying the failure code before `initialize` returns
+
+#### Scenario: Diagnostics are bound before providers start
+
+- **WHEN** initialization succeeds
+- **THEN** the time-base client, metric provider, and tracer provider are bound to the logger adapter before their workers are started or immediately after construction
+
+#### Scenario: Provider startup failures are logged
+
+- **WHEN** the metric or tracing provider fails its required startup check after the logger is ready
+- **THEN** one error record naming the failing subsystem is logged before rollback
 
 #### Scenario: Failure rolls back partial initialization
 

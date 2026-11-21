@@ -664,6 +664,105 @@ void test_provider_quiesce() {
     std::destroy_at(inflight_provider);
 }
 
+struct ToggleDeliverySink {
+    std::atomic<bool> fail{false};
+    std::atomic<int> events{0};
+    std::atomic<int> starts{0};
+    core::Status start() noexcept { starts.fetch_add(1); return {}; }
+    core::Status on_event(const tracing::SpanRecord&) noexcept {
+        events.fetch_add(1, std::memory_order_relaxed);
+        return fail.load(std::memory_order_relaxed)
+                   ? std::unexpected(core::ErrorCode::SystemError)
+                   : core::Status{};
+    }
+    core::Status flush() noexcept { return {}; }
+    void stop() noexcept {}
+    std::string to_string() const { return "ToggleDeliverySink"; }
+};
+
+struct TracingDiagCollector {
+    std::atomic<int> count{0};
+    std::atomic<nexigen::core::DiagnosticSource> last_source{
+        nexigen::core::DiagnosticSource::Chrono};
+    std::atomic<nexigen::core::DiagnosticKind> last_kind{
+        nexigen::core::DiagnosticKind::Started};
+    std::atomic<nexigen::core::ErrorCode> last_error{nexigen::core::ErrorCode::Ok};
+};
+
+void test_provider_diagnostics() {
+    std::thread producer([] {
+    using nexigen::core::DiagnosticKind;
+    using nexigen::core::DiagnosticSource;
+
+    using Provider = tracing::TracerProvider<64, 32>;
+    ToggleDeliverySink sink{};
+    TracingDiagCollector collector{};
+    const nexigen::core::DiagnosticBinding binding{
+        &collector, [](void* self, const nexigen::core::DiagnosticEvent& event) noexcept {
+            auto* c = static_cast<TracingDiagCollector*>(self);
+            c->last_source.store(event.source, std::memory_order_relaxed);
+            c->last_kind.store(event.kind, std::memory_order_relaxed);
+            c->last_error.store(event.error, std::memory_order_relaxed);
+            c->count.fetch_add(1, std::memory_order_release);
+        }};
+
+    alignas(Provider) static std::byte storage[sizeof(Provider)];
+    auto* provider = new (static_cast<void*>(storage))
+        Provider(tracing::TracerProviderConfig{}, sink, binding);
+
+    // initialize() reports Started.
+    NX_CHECK(provider->initialize().has_value());
+    NX_CHECK(collector.count.load() == 1);
+    NX_CHECK(collector.last_source.load() == DiagnosticSource::Tracing);
+    NX_CHECK(collector.last_kind.load() == DiagnosticKind::Started);
+    provider->set_enabled(true);
+
+    const auto tracer = provider->get_tracer("diag");
+    NX_CHECK(tracer.has_value());
+    if (!tracer) {
+        return;
+    }
+
+    // A failing delivery degrades once; repeated failures do not repeat it.
+    sink.fail.store(true, std::memory_order_relaxed);
+    {
+        auto span = (*tracer)->start_span("failing", tracing::SpanKind::Internal);
+        NX_CHECK(span.active());
+        NX_CHECK(span.error() == nexigen::core::ErrorCode::Ok);
+    }
+    for (int i = 0; i < 2000 && collector.count.load() < 2; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    NX_CHECK(collector.count.load() == 2);
+    NX_CHECK(collector.last_kind.load() == DiagnosticKind::Degraded);
+    NX_CHECK(collector.last_error.load() == nexigen::core::ErrorCode::SystemError);
+    const auto status = provider->delivery_status();
+    NX_CHECK(!status.has_value() && status.error() == nexigen::core::ErrorCode::SystemError);
+
+    // The flush barrier confirms recovery once.
+    NX_CHECK(provider->flush().has_value());
+    NX_CHECK(collector.count.load() == 3);
+    NX_CHECK(collector.last_kind.load() == DiagnosticKind::Recovered);
+    NX_CHECK(provider->delivery_status().has_value());
+
+    // A healthy delivery after recovery emits nothing new.
+    sink.fail.store(false, std::memory_order_relaxed);
+    {
+        auto span = (*tracer)->start_span("recovered", tracing::SpanKind::Internal);
+    }
+    NX_CHECK(provider->flush().has_value());
+    NX_CHECK(collector.count.load() == 3);
+
+    // Quiescence is the terminal event; destruction emits nothing.
+    NX_CHECK(provider->quiesce().has_value());
+    NX_CHECK(collector.count.load() == 4);
+    NX_CHECK(collector.last_kind.load() == DiagnosticKind::Quiesced);
+    std::destroy_at(provider);
+    NX_CHECK(collector.count.load() == 4);
+    });
+    producer.join();
+}
+
 void test_provider() {
     provider_lifecycle();
     provider_pool_exhaustion();
@@ -678,6 +777,7 @@ void test_provider() {
     provider_flush();
     provider_shutdown();
     test_provider_quiesce();
+    test_provider_diagnostics();
 }
 
 } // namespace

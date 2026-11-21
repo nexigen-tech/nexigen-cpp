@@ -26,6 +26,8 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/concepts/diagnostic_logger_concept.hpp>
+#include <nexigen/core/diagnostic_binding.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/worker_thread.hpp>
 #include <nexigen/metrics/concepts/metric_sink_concept.hpp>
@@ -88,7 +90,33 @@ public:
                                      },
                                      [](void* self) noexcept -> core::Status {
                                          return static_cast<Sink*>(self)->flush();
-                                     }}) {}
+                                     }},
+                         {}) {}
+
+    /// @brief Bind a sink and a diagnostics consumer, then start the provider.
+    ///
+    /// The diagnostics binding is stored before the harvester starts, so the
+    /// worker never observes a partially written binding.
+    ///
+    /// @tparam Sink Concrete sink type satisfying the `MetricSink` concept.
+    /// @param config Provider configuration.
+    /// @param sink Sink receiving batches; it MUST outlive the provider.
+    /// @param diagnostics Borrowed diagnostics consumer; empty disables events.
+    /// @note Spec `metrics/metric-provider`, requirement "Provider diagnostics
+    ///       binding".
+    template <concepts::MetricSink Sink>
+    MetricProvider(const MetricProviderConfig& config, Sink& sink,
+                   core::DiagnosticBinding diagnostics)
+        : MetricProvider(config, core::SinkBinding<MetricBatchSnapshot>{
+                                     static_cast<void*>(&sink),
+                                     [](void* self,
+                                        const MetricBatchSnapshot& batch) noexcept -> core::Status {
+                                         return static_cast<Sink*>(self)->on_event(batch);
+                                     },
+                                     [](void* self) noexcept -> core::Status {
+                                         return static_cast<Sink*>(self)->flush();
+                                     }},
+                         diagnostics) {}
 
     /// @brief Deleted: the provider is the unique registry owner.
     MetricProvider(const MetricProvider&) = delete;
@@ -147,6 +175,46 @@ public:
     ///       plane".
     [[nodiscard]] core::Status flush() noexcept;
 
+    /// @brief Install or replace the diagnostics consumer.
+    ///
+    /// Reports the current state once: `Started` when the last collection is
+    /// clean, otherwise `Degraded` with the retained error. The binding must not
+    /// be replaced while the harvester is running; bind before construction (via
+    /// the constructor overload) or after quiescence.
+    ///
+    /// @param binding Borrowed consumer; an empty binding disables reporting.
+    /// @warning Rebinding while the harvester is running is a data race on the
+    ///          16-byte binding (torn read); bind before construction (via the
+    ///          constructor overload) or after quiescence.
+    /// @note Spec `metrics/metric-provider`, requirement "Provider diagnostics
+    ///       binding".
+    void bind_diagnostics(core::DiagnosticBinding binding) noexcept;
+
+    /// @brief Install a typed diagnostics consumer.
+    ///
+    /// @tparam L Consumer satisfying `core::concepts::DiagnosticLogger`.
+    /// @param logger Borrowed consumer; must outlive the provider.
+    /// @note Spec `metrics/metric-provider`, requirement "Provider diagnostics
+    ///       binding".
+    template <core::concepts::DiagnosticLogger L>
+    void bind_diagnostics(L& logger) noexcept {
+        bind_diagnostics(core::DiagnosticBinding{
+            &logger,
+            [](void* self, const core::DiagnosticEvent& event) noexcept {
+                static_cast<L*>(self)->diagnostic(event);
+            }});
+    }
+
+    /// @brief Last background collection and sink-flush result.
+    ///
+    /// Read-only cold-path snapshot; never collects, flushes, or contacts the
+    /// sink.
+    ///
+    /// @return Success when the last collection was clean, otherwise its error.
+    /// @note Spec `metrics/metric-provider`, requirement "Provider diagnostics
+    ///       binding".
+    [[nodiscard]] core::Status harvest_status() const noexcept;
+
     /// @brief Stop the harvester, deliver one final batch, flush, and seal.
     ///
     /// Stops and joins the harvester, performs one final collection, flushes the
@@ -196,8 +264,11 @@ private:
     /// @param config Provider configuration copied into the instance.
     /// @param binding Type-erased sink callbacks; the sink itself must outlive
     ///        the provider.
+    /// @param diagnostics Borrowed diagnostics consumer, stored before the
+    ///        harvester starts.
     MetricProvider(const MetricProviderConfig& config,
-                   core::SinkBinding<MetricBatchSnapshot> binding);
+                   core::SinkBinding<MetricBatchSnapshot> binding,
+                   core::DiagnosticBinding diagnostics);
 
     /// @brief One registry slot: identity, classification and harvest hooks.
     ///
@@ -355,10 +426,34 @@ private:
     /// Cold-path only: written once with release, read with acquire by
     /// `get_meter`/`collect_now`/`flush`. No recording path reads it.
     std::atomic<bool> sealed_{false};
+
+    /// @brief Borrowed diagnostics consumer (cold path only).
+    core::DiagnosticBinding diagnostics_{};
+    /// @brief Last collection/flush result, encoded as `ErrorCode + 1`
+    ///        (`0` means success).
+    std::atomic<std::uint8_t> last_harvest_error_{0};
+    /// @brief Last error code reported through the diagnostics binding.
+    std::atomic<std::uint8_t> last_reported_error_{0};
+
+    /// @brief Emit `Started` through the binding when one is installed.
+    void emit_started() noexcept;
+
+    /// @brief Emit `Degraded`/`Recovered` for an encoded status when it changed.
+    ///
+    /// @param status_code `ErrorCode + 1`, or `0` for success.
+    void emit_transition(std::uint8_t status_code) noexcept;
+
+    /// @brief Store one collection result and report a transition.
+    ///
+    /// @param status Result of the collection and sink delivery.
+    void update_harvest_status(core::Status status) noexcept;
+
+    /// @brief Collection body executed under the harvest mutex.
+    ///
+    /// @return The same status `collect_now()` returns.
+    [[nodiscard]] core::Status collect_locked() noexcept;
     /// @brief First startup error, published through `startup_status()`.
     std::atomic<core::ErrorCode> startup_error_{core::ErrorCode::Ok};
-    /// @brief Cached UTC offset in nanoseconds for collection timestamps.
-    std::int64_t utc_offset_ns_{0};
     /// @brief Harvest worker; declared LAST so it joins before the registry dies.
     core::WorkerThread<Body> worker_{};
 };

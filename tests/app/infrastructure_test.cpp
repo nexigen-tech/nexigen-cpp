@@ -621,11 +621,74 @@ void test_infrastructure_logger_quiesced_last() {
     NX_CHECK(warning_before_quiesce);
 }
 
+void test_infrastructure_bootstrap_diagnostics() {
+    int pipefd[2]{};
+    NX_CHECK(::pipe(pipefd) == 0);
+    const int saved_err = ::dup(STDERR_FILENO);
+    NX_CHECK(saved_err >= 0);
+    NX_CHECK(::dup2(pipefd[1], STDERR_FILENO) == STDERR_FILENO);
+    ::close(pipefd[1]);
+
+    {
+        auto app = make_test_infra<TestPolicy>();
+        NX_CHECK(app != nullptr);
+        if (app) {
+            app::Settings settings{};
+            settings.chrono.segment_name = "/nexigen-timebase-missing-bootstrap";
+            NX_CHECK(!app->initialize(settings).has_value());
+            NX_CHECK(app->shutdown().has_value());
+        }
+    }
+
+    NX_CHECK(::dup2(saved_err, STDERR_FILENO) == STDERR_FILENO);
+    ::close(saved_err);
+    char buffer[1024]{};
+    const ssize_t n = ::read(pipefd[0], buffer, sizeof buffer - 1U);
+    ::close(pipefd[0]);
+    NX_CHECK(n > 0);
+    if (n > 0) {
+        NX_CHECK(std::strstr(buffer, "nexigen-bootstrap") != nullptr);
+        NX_CHECK(std::strstr(buffer, "source=chrono") != nullptr);
+        NX_CHECK(std::strstr(buffer, "kind=degraded") != nullptr);
+    }
+}
+
+void test_infrastructure_logs_startup_failures() {
+    g_log_lines.clear();
+    auto app = make_test_infra<FailMetricsPolicy>();
+    NX_CHECK(app != nullptr);
+    if (!app) {
+        return;
+    }
+    const core::Status status = app->initialize(app::Settings{});
+    NX_CHECK(!status.has_value());
+    NX_CHECK(status.error() == core::ErrorCode::InvalidArgument);
+
+    std::size_t chrono_index = std::string::npos;
+    std::size_t metrics_index = std::string::npos;
+    for (std::size_t i = 0; i < g_log_lines.size(); ++i) {
+        if (g_log_lines[i].find("chrono started") != std::string::npos) {
+            chrono_index = i;
+        }
+        if (g_log_lines[i].find("metrics sink") != std::string::npos &&
+            g_log_lines[i].find("InvalidArgument") != std::string::npos) {
+            metrics_index = i;
+        }
+    }
+    // The time-base client was bound to the logger before the metrics stage
+    // ran, which is what makes the startup failure loggable.
+    NX_CHECK(chrono_index != std::string::npos);
+    NX_CHECK(metrics_index != std::string::npos);
+    NX_CHECK(chrono_index < metrics_index);
+}
+
 void run_app_infrastructure_suites() {
     run_suite("lifecycle", test_infrastructure_lifecycle);
     run_suite("handles_survive_shutdown", test_infrastructure_handles_survive_shutdown);
     run_suite("quiesce_failure_logging", test_infrastructure_logs_quiesce_failures);
     run_suite("logger_quiesced_last", test_infrastructure_logger_quiesced_last);
+    run_suite("bootstrap_diagnostics", test_infrastructure_bootstrap_diagnostics);
+    run_suite("startup_failure_logging", test_infrastructure_logs_startup_failures);
     run_suite("failures", test_infrastructure_failures);
     run_suite("time_base_loss", test_time_base_loss);
     run_suite("required_thread_rollback", test_infrastructure_required_thread_rollback);

@@ -112,6 +112,11 @@ The sink contract is `concepts::MetricSink`: `on_event(const
 MetricBatchSnapshot&) noexcept -> core::Status` plus `flush() noexcept`, no
 virtuals. Never allocate or block in a sink callback.
 
+Each batch carries `utc_resolved`: when true, `utc_ns` is the window stamp
+resolved through the published time base; when false, the window is outside the
+published calibration, JSON omits `utc_ns`, and the provider does not fall back
+to a raw `CLOCK_REALTIME` read.
+
 * `NullMetricSink` — discard everything (benchmarks, background-only setups).
 * `ConsoleMetricSink{fd = 1}` — allocation-free `::write` rendering.
 * `JsonFileMetricSink{JsonFileMetricSink_config{path, append}}` — one JSON

@@ -30,6 +30,11 @@ namespace nexigen::metrics {
 struct MetricBatchSnapshot {
     chrono::Timestamp stamp{};        ///< Window start stamp (monotonic clock).
     std::int64_t utc_ns{0};           ///< Same window in UTC nanoseconds.
+    /// @brief True when `utc_ns` was resolved through the published time base.
+    ///
+    /// False means the window is outside the published calibration; consumers
+    /// must treat `utc_ns` as absent rather than as epoch zero.
+    bool utc_resolved{false};
     MetricRecord* records{nullptr};   ///< Borrowed record buffer; may be null.
     std::uint32_t record_count{0};    ///< Records written into `records`.
     std::uint32_t record_capacity{0}; ///< Capacity of the borrowed buffer.

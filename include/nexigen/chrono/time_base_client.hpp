@@ -30,6 +30,8 @@
 #include <nexigen/chrono/time_base_block.hpp>
 #include <nexigen/chrono/time_base_status.hpp>
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/concepts/diagnostic_logger_concept.hpp>
+#include <nexigen/core/diagnostic_binding.hpp>
 
 namespace nexigen::chrono {
 
@@ -134,13 +136,42 @@ public:
     ///
     /// @param segment_name POSIX shared-memory name of the daemon segment.
     /// @param config Required domains and failure windows.
+    /// @param binding Optional diagnostics consumer; an attach failure is
+    ///        reported as one `Degraded` event before the error returns.
     /// @return The attached client, `NotFound` when the segment, a required
     ///         domain, or a `Lost` base is missing, `NotInitialized` when the
     ///         block is still `NotReady`, `CorruptData` for an incompatible
     ///         block, or `SystemError` when mapping fails.
     /// @note Cold path only (application start).
     [[nodiscard]] static core::Result<TimeBaseClient>
-    attach(std::string_view segment_name, const TimeBaseClientConfig& config) noexcept;
+    attach(std::string_view segment_name, const TimeBaseClientConfig& config,
+           core::DiagnosticBinding binding = {}) noexcept;
+
+    /// @brief Install or replace the diagnostics consumer.
+    ///
+    /// Reports the current state once: `Started` when the client is `Attached`,
+    /// otherwise `Degraded` with the state's error classification. Control
+    /// thread only; the client has no worker.
+    ///
+    /// @param binding Borrowed consumer; an empty binding disables reporting.
+    /// @note Spec `chrono/time-base`, requirement "Time-base diagnostics
+    ///       binding".
+    void bind_diagnostics(core::DiagnosticBinding binding) noexcept;
+
+    /// @brief Install a typed diagnostics consumer.
+    ///
+    /// @tparam L Consumer satisfying `core::concepts::DiagnosticLogger`.
+    /// @param logger Borrowed consumer; must outlive the client.
+    /// @note Spec `chrono/time-base`, requirement "Time-base diagnostics
+    ///       binding".
+    template <core::concepts::DiagnosticLogger L>
+    void bind_diagnostics(L& logger) noexcept {
+        bind_diagnostics(core::DiagnosticBinding{
+            &logger,
+            [](void* self, const core::DiagnosticEvent& event) noexcept {
+                static_cast<L*>(self)->diagnostic(event);
+            }});
+    }
 
     /// @brief Copying is deleted: the client owns a mapping.
     TimeBaseClient(const TimeBaseClient&) = delete;
@@ -289,6 +320,16 @@ private:
     bool epoch_changed_{false};             ///< A required domain changed epoch.
     bool required_missing_{false};          ///< A required domain disappeared.
     ClientState state_{ClientState::Lost};  ///< Last evaluated state.
+
+    /// @brief Emit the current state through the binding when it changed.
+    ///
+    /// @param state State just evaluated by `on_tick` or installed by `bind`.
+    /// @note Cold/control path only; conversion functions never call it.
+    void report_state(ClientState state) noexcept;
+
+    core::DiagnosticBinding diag_{};                       ///< Borrowed diagnostics consumer.
+    ClientState last_reported_state_{ClientState::Lost};   ///< Last emitted state.
+    bool have_reported_{false};                            ///< At least one event emitted.
 };
 
 /// @brief Free-helper mirror of `TimeBaseClient::to_string`.

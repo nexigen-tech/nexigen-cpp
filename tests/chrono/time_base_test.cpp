@@ -2574,6 +2574,125 @@ void test_allocation_free_paths() {
 
 } // namespace
 
+struct DiagCollector {
+    int count{0};
+    nexigen::core::DiagnosticEvent last{};
+};
+
+void test_time_base_diagnostics() {
+    using nexigen::core::DiagnosticEvent;
+    using nexigen::core::DiagnosticKind;
+    using nexigen::core::DiagnosticSource;
+    using nexigen::core::ErrorCode;
+
+    DiagCollector collector{};
+    const nexigen::core::DiagnosticBinding binding{
+        &collector, [](void* self, const DiagnosticEvent& event) noexcept {
+            auto* c = static_cast<DiagCollector*>(self);
+            ++c->count;
+            c->last = event;
+        }};
+
+    TimeBaseClientConfig config{};
+    config.stale_after = std::chrono::milliseconds{50};
+    config.holdover = std::chrono::milliseconds{100};
+
+    // Attach failure reports exactly one Degraded through the binding.
+    auto missing = TimeBaseClient::attach("/nexigen-tb-diag-missing", config, binding);
+    NX_CHECK(!missing.has_value());
+    NX_CHECK(collector.count == 1);
+    NX_CHECK(collector.last.source == DiagnosticSource::Chrono);
+    NX_CHECK(collector.last.kind == DiagnosticKind::Degraded);
+    NX_CHECK(collector.last.error == ErrorCode::NotFound);
+
+    // A silent attach invokes no callback.
+    auto silent = TimeBaseClient::attach("/nexigen-tb-diag-missing", config);
+    NX_CHECK(!silent.has_value());
+    NX_CHECK(collector.count == 1);
+
+    const std::string name = "/nexigen-tb-diag-" + std::to_string(static_cast<long>(::getpid()));
+    auto segment = nexigen::chrono::detail::TimeBaseSegment::create(name, 0x77U);
+    NX_CHECK(segment.has_value());
+    if (!segment) {
+        return;
+    }
+    const auto now_result = Timestamp::now();
+    NX_CHECK(now_result.has_value());
+    if (!now_result) {
+        return;
+    }
+    const std::uint64_t now = now_result->nanoseconds();
+
+    auto publish = [&](std::uint64_t heartbeat, TimeBaseStatus status) {
+        TimeBaseBlock block{};
+        block.status = status;
+        block.boot_token = 0x77U;
+        block.domain_count = 1U;
+        DomainCoefficient& row = block.rows[0];
+        row.domain_id = k_monotonic_raw_domain_id;
+        row.domain_class = TimeDomainClass::SystemClock;
+        row.lock = LockState::Locked;
+        row.scale_fwd_q32 = 1ULL << 32U;
+        row.scale_rev_q32 = 1ULL << 32U;
+        row.flags = DomainCoefficient::has_reverse_bit;
+        row.native_anchor = now;
+        row.canonical_anchor_ns = static_cast<std::int64_t>(now);
+        row.valid_from_canonical = 0;
+        row.valid_to_canonical = now + 10'000'000'000ULL;
+        row.valid_from_native = 0;
+        row.valid_to_native = now + 10'000'000'000ULL;
+        nexigen::chrono::detail::TimeBaseWriter{*segment->block()}.publish(block, heartbeat);
+    };
+
+    publish(now, TimeBaseStatus::Ready);
+    auto attached = TimeBaseClient::attach(name, config);
+    NX_CHECK(attached.has_value());
+    if (!attached) {
+        segment->unlink();
+        return;
+    }
+    TimeBaseClient client = std::move(*attached);
+    collector.count = 0;
+    collector.last = DiagnosticEvent{};
+
+    // Binding a healthy client reports Started once.
+    client.bind_diagnostics(binding);
+    NX_CHECK(collector.count == 1);
+    NX_CHECK(collector.last.kind == DiagnosticKind::Started);
+
+    // No transition, no event.
+    NX_CHECK(client.on_tick(now) == ClientState::Attached);
+    NX_CHECK(collector.count == 1);
+
+    // Stale heartbeat inside the holdover window degrades once.
+    publish(now - 60'000'000ULL, TimeBaseStatus::Ready);
+    NX_CHECK(client.on_tick(now) == ClientState::Holdover);
+    NX_CHECK(collector.count == 2);
+    NX_CHECK(collector.last.kind == DiagnosticKind::Degraded);
+    NX_CHECK(collector.last.error == ErrorCode::SystemError);
+    NX_CHECK(client.on_tick(now) == ClientState::Holdover);
+    NX_CHECK(collector.count == 2);
+
+    // Beyond the window the base is lost.
+    NX_CHECK(client.on_tick(now + 200'000'000ULL) == ClientState::Lost);
+    NX_CHECK(collector.count == 3);
+    NX_CHECK(collector.last.error == ErrorCode::NotFound);
+    NX_CHECK(client.on_tick(now + 200'000'000ULL) == ClientState::Lost);
+    NX_CHECK(collector.count == 3);
+
+    // A fresh heartbeat recovers.
+    publish(now, TimeBaseStatus::Ready);
+    NX_CHECK(client.on_tick(now) == ClientState::Attached);
+    NX_CHECK(collector.count == 4);
+    NX_CHECK(collector.last.kind == DiagnosticKind::Recovered);
+
+    // Conversion never reports.
+    static_cast<void>(client.utc_from_canonical(static_cast<std::int64_t>(now)));
+    NX_CHECK(collector.count == 4);
+
+    segment->unlink();
+}
+
 int main() {
     static_assert(std::is_enum_v<TimeBaseStatus>);
     static_assert(std::is_enum_v<TimeDomainClass>);
@@ -2591,6 +2710,7 @@ int main() {
     run_suite("host_domains", test_host_domains);
     run_suite("host_domain_production", test_host_domain_production);
     run_suite("time_base_client", test_time_base_client);
+    run_suite("time_base_diagnostics", test_time_base_diagnostics);
     run_suite("time_base_estimator", test_time_base_estimator);
     run_suite("time_base_publisher", test_time_base_publisher);
     run_suite("time_base_history_writer", test_time_base_history_writer);

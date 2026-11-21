@@ -53,10 +53,17 @@ namespace nexigen::metrics::detail {
         batch.stamp = chrono::Timestamp{static_cast<std::uint64_t>(frames[0].timestamp_ns)};
         const std::optional<std::int64_t> published =
             chrono::TimeBaseClock::attached()
-                ? chrono::TimeBaseClock::utc_from_canonical(frames[0].timestamp_ns)
+                ? chrono::TimeBaseClock::utc_from_canonical(
+                      static_cast<std::int64_t>(frames[0].timestamp_ns))
                 : std::nullopt;
-        batch.utc_ns = published.value_or(chrono::utc_from_mono_ns(
-            static_cast<std::uint64_t>(frames[0].timestamp_ns), utc_offset_ns));
+        if (published) {
+            batch.utc_ns = *published;
+            batch.utc_resolved = true;
+        } else {
+            batch.utc_ns = chrono::utc_from_mono_ns(
+                static_cast<std::uint64_t>(frames[0].timestamp_ns), utc_offset_ns);
+            batch.utc_resolved = false;
+        }
     }
     batch.records = records.data();
     batch.record_count = static_cast<std::uint32_t>(count);

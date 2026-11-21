@@ -652,6 +652,29 @@ sequenceDiagram
     I->>L: destroy (storage)
 ```
 
+**Диагностика.** Все подсистемы сообщают о переходах через общий
+`core::DiagnosticBinding` (16 байт, borrowed, null = no-op). Событие несёт
+`DiagnosticSource`, `DiagnosticKind` и `ErrorCode`; эмиссия — только холодный
+путь и только на переход (`Started`, `Degraded`, `Recovered`, `Quiesced`).
+Провайдеры не знают о логгере: приложение подставляет
+`app::detail::DiagnosticForwarder<Logger>`. До появления логгера провал attach
+time base пишется синхронным `app::detail::BootstrapDiagnostics` в stderr.
+
+```mermaid
+flowchart LR
+    C[chrono client] -->|transitions| B[DiagnosticBinding]
+    M[metrics provider] -->|transitions| B
+    T[tracing provider] -->|transitions| B
+    B --> F[DiagnosticForwarder]
+    F --> L[policy logger]
+    C -. attach failure .-> BS[BootstrapDiagnostics]
+    BS --> E[stderr]
+```
+
+Runtime-пути не читают `CLOCK_REALTIME`: метрики резолвят UTC через
+`TimeBaseClock` и несут `utc_resolved`, демон трейсов использует attached
+time base, а startup-offset — только как fallback, отчитываясь один раз.
+
 **Зависимости.** `core`, `chrono`, `logging`, `metrics`, `tracing`.
 
 **Capabilities (4):** `application`, `command-line`, `settings`,

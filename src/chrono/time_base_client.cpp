@@ -31,41 +31,82 @@ TimeBaseClient::TimeBaseClient(detail::TimeBaseSegment segment,
     : segment_(std::move(segment)), reader_(*segment_.block()), config_(config) {}
 
 core::Result<TimeBaseClient> TimeBaseClient::attach(std::string_view segment_name,
-                                                    const TimeBaseClientConfig& config) noexcept {
+                                                    const TimeBaseClientConfig& config,
+                                                    core::DiagnosticBinding binding) noexcept {
+    const auto fail = [&binding](core::ErrorCode code) -> core::Result<TimeBaseClient> {
+        if (binding.on_event != nullptr) {
+            const core::DiagnosticEvent event{core::DiagnosticSource::Chrono,
+                                              core::DiagnosticKind::Degraded, code};
+            binding.on_event(binding.self, event);
+        }
+        return std::unexpected(code);
+    };
+
     auto attached = detail::TimeBaseSegment::attach(segment_name);
     if (!attached) {
-        return std::unexpected(attached.error());
+        return fail(attached.error());
     }
     TimeBaseClient client{std::move(*attached), config};
 
     TimeBaseBlock block{};
     if (!client.reader_.read(block)) {
-        return std::unexpected(core::ErrorCode::CorruptData);
+        return fail(core::ErrorCode::CorruptData);
     }
     // A base that never reached Ready, or that already reported Lost, is not
     // usable: fail attach instead of letting the application start on it.
     if (block.status == TimeBaseStatus::NotReady) {
-        return std::unexpected(core::ErrorCode::NotInitialized);
+        return fail(core::ErrorCode::NotInitialized);
     }
     if (block.status == TimeBaseStatus::Lost) {
-        return std::unexpected(core::ErrorCode::NotFound);
+        return fail(core::ErrorCode::NotFound);
     }
     client.block_ = block;
     client.generation_ = block.generation;
     client.block_valid_ = true;
 
     if (block.find(k_monotonic_raw_domain_id) == nullptr) {
-        return std::unexpected(core::ErrorCode::NotFound);
+        return fail(core::ErrorCode::NotFound);
     }
     for (std::uint8_t i = 0; i < config.required_count; ++i) {
         const DomainCoefficient* const row = block.find(config.required_domains[i]);
         if (row == nullptr) {
-            return std::unexpected(core::ErrorCode::NotFound);
+            return fail(core::ErrorCode::NotFound);
         }
         client.epochs_[i] = row->epoch;
     }
     client.state_ = ClientState::Attached;
+    client.diag_ = binding;
     return client;
+}
+
+void TimeBaseClient::bind_diagnostics(core::DiagnosticBinding binding) noexcept {
+    diag_ = binding;
+    have_reported_ = false;
+    report_state(state_);
+}
+
+void TimeBaseClient::report_state(ClientState state) noexcept {
+    if (diag_.on_event == nullptr) {
+        last_reported_state_ = state;
+        return;
+    }
+    if (have_reported_ && state == last_reported_state_) {
+        return;
+    }
+
+    core::DiagnosticEvent event{core::DiagnosticSource::Chrono, core::DiagnosticKind::Degraded,
+                                core::ErrorCode::SystemError};
+    if (state == ClientState::Attached) {
+        event.kind = have_reported_ ? core::DiagnosticKind::Recovered
+                                    : core::DiagnosticKind::Started;
+        event.error = core::ErrorCode::Ok;
+    } else if (state == ClientState::Lost) {
+        event.kind = core::DiagnosticKind::Degraded;
+        event.error = core::ErrorCode::NotFound;
+    }
+    diag_.on_event(diag_.self, event);
+    last_reported_state_ = state;
+    have_reported_ = true;
 }
 
 bool TimeBaseClient::is_required(std::uint16_t domain_id) const noexcept {
@@ -106,6 +147,7 @@ ClientState TimeBaseClient::on_tick(std::uint64_t now_ns) noexcept {
     if (!block_valid_ || block_.status == TimeBaseStatus::Lost || epoch_changed_ ||
         required_missing_ || block_.heartbeat_ns == 0U) {
         state_ = ClientState::Lost;
+        report_state(state_);
         return state_;
     }
     const std::uint64_t age = now_ns > block_.heartbeat_ns ? now_ns - block_.heartbeat_ns : 0U;
@@ -118,6 +160,7 @@ ClientState TimeBaseClient::on_tick(std::uint64_t now_ns) noexcept {
     } else {
         state_ = ClientState::Lost;
     }
+    report_state(state_);
     return state_;
 }
 

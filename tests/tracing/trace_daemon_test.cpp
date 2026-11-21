@@ -1,6 +1,9 @@
 // Tests nexigen::tracing TraceDaemon internals and end-to-end session
 // (change add-trace-daemon; spec tracing/trace-daemon). COM-gated.
 #include "tracing_test_support.hpp"
+#include "../support/test_time_base.hpp"
+
+#include <nexigen/chrono/time_base_clock.hpp>
 
 #include <array>
 #include <atomic>
@@ -8,6 +11,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -22,6 +26,7 @@
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <unistd.h>
+#include <sys/syscall.h>
 
 #include <nexigen/chrono/boot_identity.hpp>
 #include <nexigen/chrono/civil_time.hpp>
@@ -40,9 +45,25 @@
 #include <nexigen/tracing/span_frame.hpp>
 #include <nexigen/tracing/trace_daemon_config.hpp>
 
+
+namespace {
+
+/// Counts CLOCK_REALTIME reads for the trigger-path assertion.
+std::atomic<int> g_realtime_reads{0};
+
+} // namespace
+
+// Test interposer: forward to the kernel and count wall-clock reads.
+extern "C" int clock_gettime(clockid_t clock_id, struct timespec* tp) {
+    if (clock_id == CLOCK_REALTIME) {
+        g_realtime_reads.fetch_add(1, std::memory_order_relaxed);
+    }
+    return static_cast<int>(::syscall(SYS_clock_gettime, clock_id, tp));
+}
+
 namespace com = nexigen::com;
 namespace tracing = nexigen::tracing;
-namespace detail = nexigen::tracing::detail;
+namespace tdetail = nexigen::tracing::detail;
 namespace sm = nexigen::sm;
 
 namespace {
@@ -106,7 +127,7 @@ SpanRecord make_record(std::uint64_t index) {
     return record;
 }
 
-bool read_dump(const std::string& path, detail::TraceDumpHeader& header,
+bool read_dump(const std::string& path, tdetail::TraceDumpHeader& header,
                std::vector<SpanFrame>& frames) {
     const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
@@ -129,10 +150,10 @@ bool read_dump(const std::string& path, detail::TraceDumpHeader& header,
     };
     bool ok = read_all(&header, sizeof(header));
     if (ok) {
-        ok = std::memcmp(header.magic, detail::trace_dump_magic.data(),
-                         detail::trace_dump_magic.size()) == 0 &&
-             header.version == detail::trace_dump_format_version &&
-             header.header_size == detail::trace_dump_header_size;
+        ok = std::memcmp(header.magic, tdetail::trace_dump_magic.data(),
+                         tdetail::trace_dump_magic.size()) == 0 &&
+             header.version == tdetail::trace_dump_format_version &&
+             header.header_size == tdetail::trace_dump_header_size;
     }
     if (ok) {
         frames.resize(static_cast<std::size_t>(header.frame_count));
@@ -214,7 +235,7 @@ void test_config() {
 }
 
 void test_ring() {
-    detail::SpanRing ring{4U};
+    tdetail::SpanRing ring{4U};
     NX_CHECK(ring.capacity() == 4U);
     NX_CHECK(ring.count() == 0U);
     NX_CHECK(ring.empty());
@@ -244,21 +265,21 @@ void test_ring() {
 }
 
 void test_dump() {
-    static_assert(sizeof(detail::TraceDumpHeader) == 96U);
-    static_assert(alignof(detail::TraceDumpHeader) == 8U);
-    static_assert(offsetof(detail::TraceDumpHeader, trigger_group) == 48U);
-    static_assert(offsetof(detail::TraceDumpHeader, trigger_ts_ns) == 80U);
+    static_assert(sizeof(tdetail::TraceDumpHeader) == 96U);
+    static_assert(alignof(tdetail::TraceDumpHeader) == 8U);
+    static_assert(offsetof(tdetail::TraceDumpHeader, trigger_group) == 48U);
+    static_assert(offsetof(tdetail::TraceDumpHeader, trigger_ts_ns) == 80U);
 
     const std::string dir = make_dir("dump");
     const std::string path = dir + "/incident_trace_20260101T000000Z.nxtr";
 
-    detail::SpanRing ring{4U};
+    tdetail::SpanRing ring{4U};
     for (std::uint64_t i = 0; i < 4U; ++i) {
         ring.push(make_frame(i, 1000U + i * 100U, "dump"));
     }
-    NX_CHECK(detail::write_trace_dump(path, ring, "ADAS_FG", 777U, true).has_value());
+    NX_CHECK(tdetail::write_trace_dump(path, ring, "ADAS_FG", 777U, true).has_value());
 
-    detail::TraceDumpHeader header{};
+    tdetail::TraceDumpHeader header{};
     std::vector<SpanFrame> frames;
     NX_CHECK(read_dump(path, header, frames));
     NX_CHECK(header.flags == 1U);
@@ -292,14 +313,14 @@ void test_dump() {
         std::ofstream(corrupt_version.c_str(), std::ios::binary)
             .write(version_bad.data(), static_cast<std::streamsize>(version_bad.size()));
     }
-    detail::TraceDumpHeader ignored_header{};
+    tdetail::TraceDumpHeader ignored_header{};
     std::vector<SpanFrame> ignored_frames;
     NX_CHECK(!read_dump(corrupt_magic, ignored_header, ignored_frames));
     NX_CHECK(!read_dump(corrupt_version, ignored_header, ignored_frames));
 
     // A failed write leaves neither the final file nor its temp.
     const std::string missing = dir + "/missing/incident_trace_x.nxtr";
-    NX_CHECK(!detail::write_trace_dump(missing, ring, "X", 1U).has_value());
+    NX_CHECK(!tdetail::write_trace_dump(missing, ring, "X", 1U).has_value());
     NX_CHECK(::access(missing.c_str(), F_OK) != 0);
     NX_CHECK(::access((missing + ".tmp").c_str(), F_OK) != 0);
 }
@@ -307,14 +328,14 @@ void test_dump() {
 void test_naming_and_pruning() {
     const std::string dir = make_dir("retention");
     const std::string nested = dir + "/a/b/c";
-    NX_CHECK(detail::create_directories(nested).has_value());
+    NX_CHECK(tdetail::create_directories(nested).has_value());
     NX_CHECK(std::filesystem::is_directory(nested));
 
-    const std::string early = detail::snapshot_file_name(1'000'000'000'000'000'000LL, 0U);
-    const std::string later = detail::snapshot_file_name(2'000'000'000'000'000'000LL, 0U);
+    const std::string early = tdetail::snapshot_file_name(1'000'000'000'000'000'000LL, 0U);
+    const std::string later = tdetail::snapshot_file_name(2'000'000'000'000'000'000LL, 0U);
     NX_CHECK(early < later);
-    NX_CHECK(detail::snapshot_file_name(1'000'000'000'000'000'000LL, 0U) !=
-             detail::snapshot_file_name(1'000'000'000'000'000'000LL, 1U));
+    NX_CHECK(tdetail::snapshot_file_name(1'000'000'000'000'000'000LL, 0U) !=
+             tdetail::snapshot_file_name(1'000'000'000'000'000'000LL, 1U));
     NX_CHECK(early.rfind("incident_trace_", 0) == 0);
     NX_CHECK(early.substr(early.size() - 5) == ".nxtr");
 
@@ -328,7 +349,7 @@ void test_naming_and_pruning() {
     }
     std::ofstream((dir + "/unrelated.txt").c_str(), std::ios::binary).put('\0');
 
-    NX_CHECK(detail::prune_dumps(dir, 3U) == 2U);
+    NX_CHECK(tdetail::prune_dumps(dir, 3U) == 2U);
     NX_CHECK(!std::filesystem::exists(dir + "/" + names[0]));
     NX_CHECK(!std::filesystem::exists(dir + "/" + names[1]));
     NX_CHECK(std::filesystem::exists(dir + "/" + names[2]));
@@ -359,7 +380,7 @@ E2eContext make_e2e_context(const char* tag, bool trigger) {
     return context;
 }
 
-bool wait_for(detail::TraceDaemonSession& session, const std::function<bool()>& predicate,
+bool wait_for(tdetail::TraceDaemonSession& session, const std::function<bool()>& predicate,
               int attempts = 200) {
     for (int i = 0; i < attempts; ++i) {
         if (predicate()) {
@@ -403,7 +424,7 @@ void test_session_e2e() {
     auto readiness = com::EventListener::create(*test_node, *readiness_name);
     NX_CHECK(readiness.has_value());
 
-    detail::TraceDaemonSession session{config};
+    tdetail::TraceDaemonSession session{config};
     NX_CHECK(session.start().has_value());
     NX_CHECK(session.started());
     NX_CHECK(session.ring() != nullptr);
@@ -461,7 +482,7 @@ void test_session_e2e() {
     NX_CHECK(session.ring()->count() == 0U);
     NX_CHECK(session.last_dump_path().rfind(context.dir, 0) == 0);
 
-    detail::TraceDumpHeader header{};
+    tdetail::TraceDumpHeader header{};
     std::vector<SpanFrame> frames;
     NX_CHECK(read_dump(session.last_dump_path(), header, frames));
     NX_CHECK(std::string_view{header.trigger_group} == "ADAS_FG");
@@ -474,7 +495,7 @@ void test_session_e2e() {
     NX_CHECK(publish_recovery(*recovery_publisher, *event_notifier, "G2"));
     NX_CHECK(wait_for(session, [&]() { return session.dumps_written() == 2U; }));
     NX_CHECK(session.triggers() == 2U);
-    detail::TraceDumpHeader coalesced{};
+    tdetail::TraceDumpHeader coalesced{};
     std::vector<SpanFrame> coalesced_frames;
     NX_CHECK(read_dump(session.last_dump_path(), coalesced, coalesced_frames));
     NX_CHECK(std::string_view{coalesced.trigger_group} == "G2");
@@ -496,7 +517,7 @@ void test_trigger_disabled() {
     if (!test_node.has_value()) {
         return;
     }
-    detail::TraceDaemonSession session{config};
+    tdetail::TraceDaemonSession session{config};
     NX_CHECK(session.start().has_value());
 
     const auto recovery_name = com::ServiceName::create(config.recovery_service_name.c_str());
@@ -533,13 +554,53 @@ void test_mlock_best_effort() {
     }
 
     E2eContext context = make_e2e_context("mlock", true);
-    detail::TraceDaemonSession session{context.config};
+    tdetail::TraceDaemonSession session{context.config};
     NX_CHECK(session.start().has_value());
     NX_CHECK(session.mlock_failed());
     session.stop();
 }
 
 } // namespace
+
+void test_snapshot_utc_resolution() {
+    using nexigen::tracing::detail::resolve_snapshot_utc;
+
+    // Without a published base the startup offset is reused and reported once.
+    nexigen::chrono::TimeBaseClock::detach();
+    bool reported = false;
+    constexpr std::int64_t startup_offset = 123'456'789;
+    NX_CHECK(resolve_snapshot_utc(2'000'000'000ULL, startup_offset, reported) ==
+             2'123'456'789LL);
+    NX_CHECK(reported);
+    NX_CHECK(resolve_snapshot_utc(3'000'000'000ULL, startup_offset, reported) ==
+             3'123'456'789LL);
+    NX_CHECK(reported); // the latch stays set: one report per session
+
+    // The trigger path never reads CLOCK_REALTIME, and the startup fallback is
+    // sampled exactly once.
+    g_realtime_reads.store(0, std::memory_order_relaxed);
+    std::int64_t sampled_offset = 0;
+    static_cast<void>(nexigen::chrono::sample_utc_offset(sampled_offset));
+    NX_CHECK(g_realtime_reads.load() == 1);
+    g_realtime_reads.store(0, std::memory_order_relaxed);
+    bool reported_again = false;
+    static_cast<void>(resolve_snapshot_utc(1'000'000'000ULL, sampled_offset, reported_again));
+    static_cast<void>(resolve_snapshot_utc(2'000'000'000ULL, sampled_offset, reported_again));
+    NX_CHECK(g_realtime_reads.load() == 0);
+
+    // A published base is authoritative and does not touch the fallback.
+    nexigen::tests::install_test_time_base("trace-daemon-utc");
+    const auto now = nexigen::chrono::Timestamp::now();
+    NX_CHECK(now.has_value());
+    if (now) {
+        const auto expected = nexigen::chrono::TimeBaseClock::utc_from_canonical(
+            static_cast<std::int64_t>(now->nanoseconds()));
+        NX_CHECK(expected.has_value());
+        bool fallback_used = false;
+        NX_CHECK(resolve_snapshot_utc(now->nanoseconds(), 1, fallback_used) == *expected);
+        NX_CHECK(!fallback_used);
+    }
+}
 
 int main() {
     run_suite("trace_config", test_config);
@@ -549,6 +610,7 @@ int main() {
     run_suite("session_e2e", test_session_e2e);
     run_suite("trigger_disabled", test_trigger_disabled);
     run_suite("mlock_best_effort", test_mlock_best_effort);
+    run_suite("snapshot_utc", test_snapshot_utc_resolution);
     std::printf("total: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }
