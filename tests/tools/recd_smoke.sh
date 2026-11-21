@@ -5,7 +5,7 @@ recd="$1"
 producer="$2"
 exporter="$3"
 root="$(mktemp -d)"
-cleanup() { rm -rf "$root" "${root2:-}" "${root3:-}" "${root4:-}" "${root5:-}"; }
+cleanup() { rm -rf "$root" "${root2:-}" "${root3:-}" "${root4:-}" "${root5:-}" "${root6:-}"; }
 trap cleanup EXIT
 
 "$recd" --session-root "$root" >/dev/null 2>&1 &
