@@ -54,10 +54,12 @@ chronologically; a same-second collision gets a `-<n>` suffix). The writer
 uses a `.tmp` file, `fsync`, and `rename`, so a partial file never appears
 under the final name.
 
-UTC is resolved through the attached published time base. When the base cannot
-resolve the trigger instant, the offset sampled once at session startup is
-reused and the fallback is reported on stderr once per session; the trigger
-path never reads `CLOCK_REALTIME`.
+UTC is resolved through the attached published time base, which is a hard
+startup dependency: the session fails to start when no base is attached or
+attachable under `/nexigen-timebase`. The daemon stores no raw offset; when the
+base cannot resolve a trigger instant, the snapshot is not written and the
+failure is counted in `dump_failures`. The trigger path never reads
+`CLOCK_REALTIME`.
 
 | Offset | Size | Field |
 |---|---:|---|

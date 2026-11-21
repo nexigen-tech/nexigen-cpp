@@ -578,30 +578,48 @@ public:
 
     /// @brief Access the application logger.
     ///
-    /// @return Reference to the logger built at initialization; every record
-    ///         goes through it and is flushed on shutdown.
-    /// @warning Only valid after a successful `initialize`; the returned handle
-    ///          stays valid while this infrastructure is alive.
+    /// @return The logger built at initialization; every record goes through it
+    ///         and is flushed on shutdown. `NotInitialized` before a successful
+    ///         `initialize` and after `shutdown()` began.
+    /// @warning The returned handle stays valid while this infrastructure is
+    ///          alive, but the accessor is closed after shutdown.
     /// @note Spec `app/application`, requirement "Infrastructure exposes logger,
     ///       metric and tracer factories".
-    [[nodiscard]] Logger& logger() noexcept { return *logger_; }
+    [[nodiscard]] core::Result<Logger*> logger() noexcept {
+        if (!initialized_) {
+            return std::unexpected(core::ErrorCode::NotInitialized);
+        }
+        return &*logger_;
+    }
 
     /// @brief Access the metrics provider.
     ///
-    /// @return Reference to the provider built at initialization.
-    /// @warning Only valid after a successful `initialize`; instruments created
-    ///          from it are owned by this provider.
+    /// @return The provider built at initialization. `NotInitialized` before a
+    ///         successful `initialize` and after `shutdown()` began.
+    /// @warning Instruments created from it are owned by this provider; the
+    ///          returned handle stays valid until the infrastructure is destroyed.
     /// @note Spec `app/application`, requirement "Infrastructure exposes logger,
     ///       metric and tracer factories".
-    [[nodiscard]] metrics::MetricProvider& metrics() noexcept { return *metrics_; }
+    [[nodiscard]] core::Result<metrics::MetricProvider*> metrics() noexcept {
+        if (!initialized_) {
+            return std::unexpected(core::ErrorCode::NotInitialized);
+        }
+        return &*metrics_;
+    }
 
     /// @brief Access the tracer provider.
     ///
-    /// @return Reference to the provider built at initialization.
-    /// @warning Only valid after a successful `initialize`.
+    /// @return The provider built at initialization. `NotInitialized` before a
+    ///         successful `initialize` and after `shutdown()` began.
+    /// @warning The returned handle stays valid until the infrastructure is destroyed.
     /// @note Spec `app/application`, requirement "Infrastructure exposes logger,
     ///       metric and tracer factories".
-    [[nodiscard]] TracerProvider& tracer() noexcept { return *tracer_; }
+    [[nodiscard]] core::Result<TracerProvider*> tracer() noexcept {
+        if (!initialized_) {
+            return std::unexpected(core::ErrorCode::NotInitialized);
+        }
+        return &*tracer_;
+    }
 
     /// @brief Access the attached time base.
     ///

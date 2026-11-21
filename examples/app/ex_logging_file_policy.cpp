@@ -125,17 +125,17 @@ int main() {
         return fail("Infrastructure::initialize failed");
     }
 
-    infra->logger().info("infrastructure ready: app={}", std::string_view{"logging-example"});
-    infra->logger().debug("debug detail: shard={}", 0);
-    infra->logger().warning("warning goes to the file too");
+    (*infra->logger())->info("infrastructure ready: app={}", std::string_view{"logging-example"});
+    (*infra->logger())->debug("debug detail: shard={}", 0);
+    (*infra->logger())->warning("warning goes to the file too");
 
     std::thread producer(
-        [&infra] { infra->logger().info("record from a second producer thread"); });
+        [&infra] { (*infra->logger())->info("record from a second producer thread"); });
     producer.join();
 
     std::uint32_t ticks = 0;
     const app::InfrastructureStopReason reason = infra->run([&] {
-        infra->logger().info("tick {}", ++ticks);
+        (*infra->logger())->info("tick {}", ++ticks);
         if (ticks == 3) {
             infra->request_stop(app::InfrastructureStopReason::Requested);
         }
@@ -144,11 +144,11 @@ int main() {
         return fail("run() did not return Requested");
     }
 
-    const core::Status flushed = infra->logger().flush();
+    const core::Status flushed = (*infra->logger())->flush();
     if (!flushed) {
         return fail("logger flush failed");
     }
-    const logging::DroppedStats dropped = infra->logger().dropped();
+    const logging::DroppedStats dropped = (*infra->logger())->dropped();
 
     const core::Status shutdown = infra->shutdown();
     if (!shutdown) {

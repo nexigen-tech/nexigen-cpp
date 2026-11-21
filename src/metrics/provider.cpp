@@ -428,13 +428,16 @@ core::Status MetricProvider::harvest_status() const noexcept {
     return std::unexpected(static_cast<core::ErrorCode>(code - 1U));
 }
 
-void MetricProvider::bind_diagnostics(core::DiagnosticBinding binding) noexcept {
+core::Status MetricProvider::bind_diagnostics(core::DiagnosticBinding binding) noexcept {
+    if (sealed_.load(std::memory_order_acquire) || worker_.joinable()) {
+        return std::unexpected(core::ErrorCode::Conflict);
+    }
     diagnostics_ = binding;
     const std::uint8_t code = last_harvest_error_.load(std::memory_order_acquire);
     last_reported_error_.store(code, std::memory_order_release);
     if (code == 0U) {
         emit_started();
-        return;
+        return {};
     }
     if (diagnostics_.on_event != nullptr && !sealed_.load(std::memory_order_acquire)) {
         const core::DiagnosticEvent event{core::DiagnosticSource::Metrics,
@@ -442,6 +445,7 @@ void MetricProvider::bind_diagnostics(core::DiagnosticBinding binding) noexcept 
                                           static_cast<core::ErrorCode>(code - 1U)};
         diagnostics_.on_event(diagnostics_.self, event);
     }
+    return {};
 }
 
 core::Status MetricProvider::flush() noexcept {

@@ -763,6 +763,39 @@ void test_provider_diagnostics() {
     producer.join();
 }
 
+void test_provider_binding_mode() {
+    using Provider = tracing::TracerProvider<64, 32>;
+    ToggleDeliverySink sink{};
+    TracingDiagCollector collector{};
+    const nexigen::core::DiagnosticBinding binding{
+        &collector, [](void* self, const nexigen::core::DiagnosticEvent& event) noexcept {
+            auto* c = static_cast<TracingDiagCollector*>(self);
+            c->last_source.store(event.source, std::memory_order_relaxed);
+            c->last_kind.store(event.kind, std::memory_order_relaxed);
+            c->last_error.store(event.error, std::memory_order_relaxed);
+            c->count.fetch_add(1, std::memory_order_release);
+        }};
+
+    alignas(Provider) static std::byte storage[sizeof(Provider)];
+    auto* provider =
+        new (static_cast<void*>(storage)) Provider(tracing::TracerProviderConfig{}, sink);
+
+    // Configuration mode accepts the binding.
+    NX_CHECK(provider->bind_diagnostics(binding).has_value());
+    NX_CHECK(collector.count.load() == 0); // configuration binding is silent
+    NX_CHECK(provider->initialize().has_value());
+    NX_CHECK(collector.count.load() == 1); // Started from initialize
+
+    // A running consumer rejects a rebind.
+    const auto live = provider->bind_diagnostics(binding);
+    NX_CHECK(!live.has_value() && live.error() == nexigen::core::ErrorCode::Conflict);
+
+    NX_CHECK(provider->quiesce().has_value());
+    const auto sealed = provider->bind_diagnostics(binding);
+    NX_CHECK(!sealed.has_value() && sealed.error() == nexigen::core::ErrorCode::Conflict);
+    std::destroy_at(provider);
+}
+
 void test_provider() {
     provider_lifecycle();
     provider_pool_exhaustion();
@@ -778,6 +811,7 @@ void test_provider() {
     provider_shutdown();
     test_provider_quiesce();
     test_provider_diagnostics();
+    test_provider_binding_mode();
 }
 
 } // namespace

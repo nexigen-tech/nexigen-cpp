@@ -15,12 +15,18 @@ void test_infrastructure_lifecycle() {
     NX_CHECK(app->meter("sim", "1.0").error() == core::ErrorCode::NotInitialized);
     NX_CHECK(!app->tracer_for("sim").has_value());
     NX_CHECK(app->tracer_for("sim").error() == core::ErrorCode::NotInitialized);
+    NX_CHECK(!app->logger().has_value());
+    NX_CHECK(app->logger().error() == core::ErrorCode::NotInitialized);
+    NX_CHECK(!app->metrics().has_value());
+    NX_CHECK(app->metrics().error() == core::ErrorCode::NotInitialized);
+    NX_CHECK(!app->tracer().has_value());
+    NX_CHECK(app->tracer().error() == core::ErrorCode::NotInitialized);
 
     NX_CHECK(app->initialize(app::Settings{}).has_value());
     NX_CHECK(app->initialize(app::Settings{}).has_value()); // idempotent
 
     g_log_lines.clear();
-    app->logger().info("lifecycle record");
+    (*app->logger())->info("lifecycle record");
     NX_CHECK(g_log_lines.size() == 1U);
 
     const auto base_now = chrono::Timestamp::now();
@@ -66,6 +72,12 @@ void test_infrastructure_lifecycle() {
     }
     NX_CHECK(logged == 1);
     NX_CHECK(!app->meter("x", "1").has_value());
+    NX_CHECK(!app->logger().has_value());
+    NX_CHECK(app->logger().error() == core::ErrorCode::NotInitialized);
+    NX_CHECK(!app->metrics().has_value());
+    NX_CHECK(app->metrics().error() == core::ErrorCode::NotInitialized);
+    NX_CHECK(!app->tracer().has_value());
+    NX_CHECK(app->tracer().error() == core::ErrorCode::NotInitialized);
 }
 
 void test_infrastructure_failures() {
@@ -544,7 +556,9 @@ void test_infrastructure_handles_survive_shutdown() {
     }
 
     (*counter)->add(3U);
-    app->logger().info("before shutdown");
+    const auto logger_handle = app->logger();
+    NX_CHECK(logger_handle.has_value());
+    (*logger_handle)->info("before shutdown");
     NX_CHECK(app->shutdown().has_value());
 
     // Every factory is closed after shutdown, but the storage behind issued
@@ -559,7 +573,7 @@ void test_infrastructure_handles_survive_shutdown() {
     auto span = (*tracer)->start_span("late", tracing::SpanKind::Internal);
     NX_CHECK(!span.active());
     NX_CHECK(span.error() == core::ErrorCode::NotInitialized);
-    app->logger().info("after shutdown");
+    (*logger_handle)->info("after shutdown");
 
     // Re-initialization is rejected and the invariant holds for the object.
     const auto reinit = app->initialize(app::Settings{});

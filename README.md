@@ -800,7 +800,7 @@ if (!created.has_value()) { return 1; }      // SystemError on allocation failur
 auto infra = std::move(*created);
 
 if (!infra->initialize(settings).has_value()) { return 1; }
-infra->logger().info("started");                     // configured logger
+(*infra->logger())->info("started");                 // configured logger
 const auto meter = infra->meter("sim", "1.0");       // MetricProvider::get_meter
 const auto tracer = infra->tracer_for("sim.loop");   // TracerProvider::get_tracer
 const auto reason = infra->run([] { /* one tick */ });

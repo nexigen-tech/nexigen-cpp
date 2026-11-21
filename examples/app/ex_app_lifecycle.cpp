@@ -78,7 +78,7 @@ int main() {
         return fail("Infrastructure::initialize failed");
     }
 
-    infra->logger().info("infrastructure ready");
+    (*infra->logger())->info("infrastructure ready");
 
     const auto base_now = chrono::Timestamp::now();
     if (!base_now ||

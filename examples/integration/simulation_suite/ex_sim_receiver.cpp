@@ -90,14 +90,14 @@ int main(int argc, char* argv[]) {
         return fail_status(k_tag, "Infrastructure::initialize", initialized);
     }
 
-    infra->logger().info("receiver ready");
+    (*infra->logger())->info("receiver ready");
 
     if (rt_priority > 0) {
         const core::Status applied = apply_realtime_priority(rt_priority);
         if (applied) {
-            infra->logger().info("SCHED_FIFO priority {}", rt_priority);
+            (*infra->logger())->info("SCHED_FIFO priority {}", rt_priority);
         } else {
-            infra->logger().warning("SCHED_FIFO unavailable ({}); staying on the default policy",
+            (*infra->logger())->warning("SCHED_FIFO unavailable ({}); staying on the default policy",
                                     core::to_string(applied.error()));
         }
     }

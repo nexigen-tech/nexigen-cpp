@@ -345,7 +345,7 @@ int main(int argc, char* argv[]) {
         return fail_status("Infrastructure::initialize", initialized);
     }
 
-    infra->logger().info("receiver ready");
+    (*infra->logger())->info("receiver ready");
 
     const auto meter = infra->meter("receiver", "1.0");
     if (!meter.has_value()) {
@@ -399,7 +399,7 @@ int main(int argc, char* argv[]) {
         for (;;) {
             auto result = subscriber->receive();
             if (!result.has_value()) {
-                infra->logger().warning("receive failed: {}", com::to_string(result.error()));
+                (*infra->logger())->warning("receive failed: {}", com::to_string(result.error()));
                 break;
             }
             if (!result->has_value()) {
@@ -418,7 +418,7 @@ int main(int argc, char* argv[]) {
             static_cast<void>(
                 span.set_attribute("sequence", static_cast<std::int64_t>(payload.sequence)));
             (*counter)->inc();
-            infra->logger().debug("received sample seq={} message={} trace_id={:016x}",
+            (*infra->logger())->debug("received sample seq={} message={} trace_id={:016x}",
                                   payload.sequence, static_cast<const char*>(payload.message),
                                   header.trace_id.value());
             static_cast<void>(span.set_status(tracing::SpanStatus::Ok));

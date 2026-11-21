@@ -502,7 +502,7 @@ void run_tick_loop(Infrastructure& infra, CliTracer& tracer, CliCounter& counter
                 next_tick += kTickPeriod;
                 std::this_thread::sleep_until(next_tick);
                 if (std::chrono::steady_clock::now() >= next_log) {
-                    infra.logger().info("tick {}", ticks);
+                    (*infra.logger())->info("tick {}", ticks);
                     next_log = std::chrono::steady_clock::now() + kLogPeriod;
                 }
             }
@@ -511,7 +511,7 @@ void run_tick_loop(Infrastructure& infra, CliTracer& tracer, CliCounter& counter
             const tracing::SpanContext batch_ctx = batch.context();
             auto collect = tracer.start_span("collect", tracing::SpanKind::Consumer, &batch_ctx);
             static_cast<void>(collect.set_attribute("batch", static_cast<std::int64_t>(batches)));
-            infra.logger().info("batch {} closed at tick {}", batches, ticks);
+            (*infra.logger())->info("batch {} closed at tick {}", batches, ticks);
             static_cast<void>(collect.set_status(tracing::SpanStatus::Ok));
             static_cast<void>(collect.end());
 
@@ -547,7 +547,7 @@ bool run_shutdown_trace(Infrastructure& infra, CliTracer& tracer, std::uint64_t 
             const auto base_now = chrono::Timestamp::now();
             const bool base_ok = base_now && infra.chrono().on_tick(base_now->nanoseconds()) !=
                                                  chrono::ClientState::Lost;
-            if (!infra.metrics().collect_now() || !base_ok) {
+            if (!(*infra.metrics())->collect_now() || !base_ok) {
                 workload_ok = false;
                 print_error("final metric collection or time-base check failed");
                 static_cast<void>(collect.set_status(tracing::SpanStatus::Error));
@@ -559,7 +559,7 @@ bool run_shutdown_trace(Infrastructure& infra, CliTracer& tracer, std::uint64_t 
         {
             auto flush =
                 tracer.start_span("flush-artifacts", tracing::SpanKind::Internal, &stop_ctx);
-            infra.logger().info("workload finished after {} ticks", ticks);
+            (*infra.logger())->info("workload finished after {} ticks", ticks);
             static_cast<void>(flush.set_attribute("ticks", static_cast<std::int64_t>(ticks)));
             static_cast<void>(flush.set_status(tracing::SpanStatus::Ok));
             static_cast<void>(flush.end());
@@ -643,9 +643,9 @@ int main(int argc, char* argv[]) {
         return fail_status("Infrastructure::initialize", initialized);
     }
 
-    infra->logger().info("cli settings example ready");
-    infra->logger().info("local settings: {}", std::string_view{options.local_settings_dir});
-    infra->logger().debug("debug records require --log-level debug or a debug settings file");
+    (*infra->logger())->info("cli settings example ready");
+    (*infra->logger())->info("local settings: {}", std::string_view{options.local_settings_dir});
+    (*infra->logger())->debug("debug records require --log-level debug or a debug settings file");
 
     const auto tracer = infra->tracer_for("cli-example.loop");
     if (!tracer.has_value()) {

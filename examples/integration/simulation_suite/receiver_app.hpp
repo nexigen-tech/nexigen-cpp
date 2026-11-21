@@ -177,12 +177,12 @@ template <class Infrastructure, class Subscriber, class Counter, class Gauge>
             last_state_check = now;
             const std::string_view state = link.group_state();
             if (state != last_state) {
-                infra.logger().info("group state '{}'", state_name(state));
+                (*infra.logger())->info("group state '{}'", state_name(state));
                 last_state = state;
             }
             allowed = state_allows_run(state);
             if (!allowed) {
-                infra.logger().debug("receiver paused while group is '{}'", state_name(last_state));
+                (*infra.logger())->debug("receiver paused while group is '{}'", state_name(last_state));
             }
         }
 
@@ -196,7 +196,7 @@ template <class Infrastructure, class Subscriber, class Counter, class Gauge>
                     }
                     return false;
                 }
-                if (drain_once(subscriber, tracer, infra.logger(), counter, latency, link,
+                if (drain_once(subscriber, tracer, **infra.logger(), counter, latency, link,
                                allowed) != 0) {
                     return true;
                 }
@@ -211,7 +211,7 @@ template <class Infrastructure, class Subscriber, class Counter, class Gauge>
                 [&](com::WaitSetAttachmentId attachment) -> com::CallbackProgression {
                     if (attachment.has_event_from(*guard)) {
                         static_cast<void>(listener->try_wait([](com::EventId) {}));
-                        static_cast<void>(drain_once(subscriber, tracer, infra.logger(), counter,
+                        static_cast<void>(drain_once(subscriber, tracer, **infra.logger(), counter,
                                                      latency, link, allowed));
                     }
                     return com::CallbackProgression::Continue;
@@ -223,7 +223,7 @@ template <class Infrastructure, class Subscriber, class Counter, class Gauge>
         // Fallback: the event channel is unavailable, so poll the queue.
         std::this_thread::sleep_for(k_receive_poll_period);
         static_cast<void>(
-            drain_once(subscriber, tracer, infra.logger(), counter, latency, link, allowed));
+            drain_once(subscriber, tracer, **infra.logger(), counter, latency, link, allowed));
         return true;
     });
 }

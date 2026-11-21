@@ -312,12 +312,13 @@ public:
     /// the consumer, or after quiescence; the binding is not atomic.
     ///
     /// @param binding Borrowed consumer; an empty binding disables reporting.
-    /// @warning Rebinding while the consumer is running is a data race on the
-    ///          16-byte binding (torn read); bind before `initialize()` or
-    ///          after quiescence.
+    /// @warning Rebinding while the consumer is running is rejected with
+    ///          `Conflict`; the 16-byte binding is read by the worker.
+    /// @return Success when the binding is installed in configuration mode;
+    ///         `Conflict` while the consumer runs or after quiescence.
     /// @note Spec `tracing/tracer-provider`, requirement "Provider diagnostics
     ///       binding".
-    void bind_diagnostics(core::DiagnosticBinding binding) noexcept;
+    [[nodiscard]] core::Status bind_diagnostics(core::DiagnosticBinding binding) noexcept;
 
     /// @brief Install a typed diagnostics consumer.
     ///
@@ -326,8 +327,8 @@ public:
     /// @note Spec `tracing/tracer-provider`, requirement "Provider diagnostics
     ///       binding".
     template <core::concepts::DiagnosticLogger L>
-    void bind_diagnostics(L& logger) noexcept {
-        bind_diagnostics(core::DiagnosticBinding{
+    [[nodiscard]] core::Status bind_diagnostics(L& logger) noexcept {
+        return bind_diagnostics(core::DiagnosticBinding{
             &logger,
             [](void* self, const core::DiagnosticEvent& event) noexcept {
                 static_cast<L*>(self)->diagnostic(event);
@@ -848,21 +849,17 @@ core::Status TracerProvider<ShardCapacity, MaxThreads>::delivery_status() const 
 }
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
-void TracerProvider<ShardCapacity, MaxThreads>::bind_diagnostics(
+core::Status TracerProvider<ShardCapacity, MaxThreads>::bind_diagnostics(
     core::DiagnosticBinding binding) noexcept {
+    if (sealed_.load(std::memory_order_acquire) || worker_.joinable()) {
+        return std::unexpected(core::ErrorCode::Conflict);
+    }
     diagnostics_ = binding;
-    const std::uint8_t code = last_delivery_error_.load(std::memory_order_acquire);
-    last_reported_error_.store(code, std::memory_order_release);
-    if (code == 0U) {
-        emit_started();
-        return;
-    }
-    if (diagnostics_.on_event != nullptr && !sealed_.load(std::memory_order_acquire)) {
-        const core::DiagnosticEvent event{core::DiagnosticSource::Tracing,
-                                          core::DiagnosticKind::Degraded,
-                                          static_cast<core::ErrorCode>(code - 1U)};
-        diagnostics_.on_event(diagnostics_.self, event);
-    }
+    // Configuration mode: no state has been produced yet. `initialize()` emits
+    // `Started` once the consumer exists; a failed initialize emits `Degraded`.
+    last_reported_error_.store(last_delivery_error_.load(std::memory_order_acquire),
+                               std::memory_order_release);
+    return {};
 }
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>

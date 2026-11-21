@@ -143,9 +143,9 @@ The configuration SHALL provide cold-path `to_string`, `std::formatter`, and a n
 - **WHEN** `std::format("{}", config)` and `config.to_string()` are evaluated
 - **THEN** both produce the same text naming the services, interval, capacity, and directory
 
-### Requirement: Snapshot UTC resolution
+### Requirement: Snapshot UTC resolution requires the time base
 
-Trace-daemon snapshot names and header timestamps SHALL resolve UTC through the attached published time base. The trigger path SHALL NOT read `CLOCK_REALTIME`. A raw offset sampled at most once during session startup MAY serve as a fallback when the base cannot resolve an instant; the daemon SHALL report that fallback on stderr once per session and SHALL still write the snapshot.
+Trace-daemon snapshot names and header timestamps SHALL resolve UTC through the attached published time base. The daemon SHALL require a usable base at session start and SHALL fail startup when none is attached or attachable. The trigger path SHALL NOT read `CLOCK_REALTIME` and SHALL NOT use a stored raw offset; when the base cannot resolve a trigger instant, the snapshot write SHALL fail with `NotInitialized` and SHALL be counted as a dump failure without stopping the daemon.
 
 #### Scenario: Attached base names the snapshot
 
@@ -154,15 +154,20 @@ Trace-daemon snapshot names and header timestamps SHALL resolve UTC through the 
 
 #### Scenario: Trigger path never reads the wall clock
 
-- **WHEN** a recovery trigger fires with the time base attached
-- **THEN** the trigger path performs no `CLOCK_REALTIME` read (verified with fault injection or a `clock_gettime` interposer)
+- **WHEN** a recovery trigger fires
+- **THEN** the trigger path performs no `CLOCK_REALTIME` read (verified with a `clock_gettime` interposer)
 
-#### Scenario: Unresolved instant uses the startup fallback once
+#### Scenario: Startup requires a published base
 
-- **WHEN** the base cannot resolve the trigger instant
-- **THEN** the snapshot is still written using the offset sampled once at session startup, and the fallback is reported on stderr once for that session
+- **WHEN** a session starts with no attached base and none can be attached under the configured name
+- **THEN** `start()` fails with the attach error before opening ports, and no snapshot fallback state is created
 
-#### Scenario: Startup fallback is sampled at most once
+#### Scenario: Unresolved trigger fails the snapshot
 
-- **WHEN** a session starts without a resolvable base and later triggers fire
-- **THEN** only the startup sample reads `CLOCK_REALTIME`; later triggers reuse it
+- **WHEN** the attached base cannot resolve the trigger instant (outside its validity window)
+- **THEN** no snapshot file is written, the failure is counted in the daemon's dump failures, and the drain loop continues
+
+#### Scenario: No wall-clock sample is taken at startup
+
+- **WHEN** a session starts with a usable base
+- **THEN** startup performs no `CLOCK_REALTIME` read and stores no raw offset

@@ -673,9 +673,22 @@ void test_provider_diagnostics() {
         }};
     std::optional<metrics::MetricProvider> late_provider;
     late_provider.emplace(config, late_sink);
-    late_provider->bind_diagnostics(late_binding);
+    NX_CHECK(late_provider->bind_diagnostics(late_binding).has_value());
     NX_CHECK(late_collector.count == 1);
     NX_CHECK(late_collector.last.kind == DiagnosticKind::Started);
+
+    // Rejection is limited to configuration mode: a worker-less provider
+    // accepts the binding, a running or sealed one reports Conflict.
+    RecordingSink running_sink;
+    metrics::MetricProviderConfig running_config{};
+    running_config.collect_interval = std::chrono::milliseconds{10};
+    std::optional<metrics::MetricProvider> running;
+    running.emplace(running_config, running_sink);
+    const auto live = running->bind_diagnostics(late_binding);
+    NX_CHECK(!live.has_value() && live.error() == ErrorCode::Conflict);
+    NX_CHECK(running->quiesce().has_value());
+    const auto sealed = running->bind_diagnostics(late_binding);
+    NX_CHECK(!sealed.has_value() && sealed.error() == ErrorCode::Conflict);
 }
 
 void test_provider_utc_resolution() {

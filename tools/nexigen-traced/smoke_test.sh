@@ -6,10 +6,26 @@
 # shutdown is not an incident.
 set -euo pipefail
 
-BIN="${1:?usage: smoke_test.sh <nexigen-traced>}"
+BIN="${1:?usage: smoke_test.sh <nexigen-traced> <timebase-fixture>}"
+FIXTURE="${2:?usage: smoke_test.sh <nexigen-traced> <timebase-fixture>}"
 DIR="$(mktemp -d)"
-trap 'rm -rf "$DIR"' EXIT
+FIXTURE_PID=""
+trap 'kill "$FIXTURE_PID" 2>/dev/null || true; rm -rf "$DIR"' EXIT
 mkdir -p "$DIR/dumps"
+
+# The daemon requires a published base.
+"$FIXTURE" &
+FIXTURE_PID=$!
+for _ in $(seq 1 100); do
+    if [ -e /dev/shm/nexigen-timebase ]; then
+        break
+    fi
+    sleep 0.05
+done
+if [ ! -e /dev/shm/nexigen-timebase ]; then
+    echo "time-base fixture did not publish /nexigen-timebase" >&2
+    exit 1
+fi
 
 CFG="$DIR/config.json"
 cat >"$CFG" <<EOF

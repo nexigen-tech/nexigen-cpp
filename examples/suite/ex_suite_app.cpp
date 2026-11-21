@@ -458,7 +458,7 @@ int main(int argc, char* argv[]) {
         return fail_status("Infrastructure::initialize", initialized);
     }
 
-    infra->logger().info("suite app ready (role={})", role_name(config.role));
+    (*infra->logger())->info("suite app ready (role={})", role_name(config.role));
 
     const auto meter = infra->meter("suite-app", "1.0");
     if (!meter.has_value()) {
@@ -544,7 +544,7 @@ int main(int argc, char* argv[]) {
         next_tick += kTickPeriod;
         std::this_thread::sleep_until(next_tick);
         if (std::chrono::steady_clock::now() >= next_log) {
-            infra->logger().info("tick {}", ticks);
+            (*infra->logger())->info("tick {}", ticks);
             next_log = std::chrono::steady_clock::now() + kLogPeriod;
         }
         return true;

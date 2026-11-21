@@ -489,6 +489,17 @@ void test_session_e2e() {
     NX_CHECK(header.frame_count == 3U);
     NX_CHECK(frames.size() == 3U);
 
+    // The snapshot name is the published-base UTC of the trigger instant.
+    const auto dump_utc = nexigen::chrono::TimeBaseClock::utc_from_canonical(
+        static_cast<std::int64_t>(header.trigger_ts_ns));
+    NX_CHECK(dump_utc.has_value());
+    if (dump_utc) {
+        const std::string expected_name = tdetail::snapshot_file_name(*dump_utc, 0U);
+        const std::string actual_name =
+            std::filesystem::path(session.last_dump_path()).filename().string();
+        NX_CHECK(actual_name == expected_name);
+    }
+
     // Coalescing: two notifications before one wake-up produce one snapshot,
     // naming the last group; a header-only snapshot is valid (ring is empty).
     NX_CHECK(publish_recovery(*recovery_publisher, *event_notifier, "G1"));
@@ -562,33 +573,71 @@ void test_mlock_best_effort() {
 
 } // namespace
 
+void test_session_requires_time_base() {
+    nexigen::chrono::TimeBaseClock::detach();
+    E2eContext context = make_e2e_context("requires-base", true);
+    tdetail::TraceDaemonSession session{context.config};
+    g_realtime_reads.store(0, std::memory_order_relaxed);
+    const core::Status started = session.start();
+    NX_CHECK(!started.has_value());
+    NX_CHECK(!session.started());
+    NX_CHECK(g_realtime_reads.load() == 0); // no startup wall-clock sample
+    session.stop();
+    nexigen::tests::install_test_time_base("trace-daemon");
+}
+
+// W2/W3: an unresolvable trigger fails the snapshot, counts a dump failure and
+// never reads the wall clock.
+void test_trigger_requires_base() {
+    E2eContext context = make_e2e_context("trigger-no-base", true);
+    auto test_node = com::Node::create();
+    NX_CHECK(test_node.has_value());
+    if (!test_node.has_value()) {
+        return;
+    }
+    tdetail::TraceDaemonSession session{context.config};
+    NX_CHECK(session.start().has_value());
+
+    const auto recovery_name = com::ServiceName::create(context.config.recovery_service_name.c_str());
+    const auto event_name = com::ServiceName::create(context.config.recovery_event_name.c_str());
+    NX_CHECK(recovery_name.has_value() && event_name.has_value());
+    if (!recovery_name.has_value() || !event_name.has_value()) {
+        session.stop();
+        return;
+    }
+    auto publisher = com::Publisher<sm::RecoveryNotification>::create(*test_node, *recovery_name);
+    auto notifier = com::EventNotifier::create(*test_node, *event_name);
+    NX_CHECK(publisher.has_value() && notifier.has_value());
+    if (!publisher.has_value() || !notifier.has_value()) {
+        session.stop();
+        return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    nexigen::chrono::TimeBaseClock::detach();
+    g_realtime_reads.store(0, std::memory_order_relaxed);
+    NX_CHECK(publish_recovery(*publisher, *notifier, "NOBASE_FG"));
+    NX_CHECK(wait_for(session, [&]() { return session.dump_failures() >= 1U; }));
+    NX_CHECK(session.dumps_written() == 0U);
+    NX_CHECK(count_dumps(context.dir) == 0U);
+    NX_CHECK(g_realtime_reads.load() == 0);
+
+    nexigen::tests::install_test_time_base("trace-daemon");
+    session.stop();
+}
+
 void test_snapshot_utc_resolution() {
     using nexigen::tracing::detail::resolve_snapshot_utc;
 
-    // Without a published base the startup offset is reused and reported once.
+    // Without a published base the instant is unresolved and no wall-clock
+    // sample is taken anywhere.
     nexigen::chrono::TimeBaseClock::detach();
-    bool reported = false;
-    constexpr std::int64_t startup_offset = 123'456'789;
-    NX_CHECK(resolve_snapshot_utc(2'000'000'000ULL, startup_offset, reported) ==
-             2'123'456'789LL);
-    NX_CHECK(reported);
-    NX_CHECK(resolve_snapshot_utc(3'000'000'000ULL, startup_offset, reported) ==
-             3'123'456'789LL);
-    NX_CHECK(reported); // the latch stays set: one report per session
-
-    // The trigger path never reads CLOCK_REALTIME, and the startup fallback is
-    // sampled exactly once.
     g_realtime_reads.store(0, std::memory_order_relaxed);
-    std::int64_t sampled_offset = 0;
-    static_cast<void>(nexigen::chrono::sample_utc_offset(sampled_offset));
-    NX_CHECK(g_realtime_reads.load() == 1);
-    g_realtime_reads.store(0, std::memory_order_relaxed);
-    bool reported_again = false;
-    static_cast<void>(resolve_snapshot_utc(1'000'000'000ULL, sampled_offset, reported_again));
-    static_cast<void>(resolve_snapshot_utc(2'000'000'000ULL, sampled_offset, reported_again));
+    NX_CHECK(!resolve_snapshot_utc(2'000'000'000ULL).has_value());
+    NX_CHECK(!resolve_snapshot_utc(3'000'000'000ULL).has_value());
     NX_CHECK(g_realtime_reads.load() == 0);
 
-    // A published base is authoritative and does not touch the fallback.
+    // A published base is authoritative.
     nexigen::tests::install_test_time_base("trace-daemon-utc");
     const auto now = nexigen::chrono::Timestamp::now();
     NX_CHECK(now.has_value());
@@ -596,13 +645,14 @@ void test_snapshot_utc_resolution() {
         const auto expected = nexigen::chrono::TimeBaseClock::utc_from_canonical(
             static_cast<std::int64_t>(now->nanoseconds()));
         NX_CHECK(expected.has_value());
-        bool fallback_used = false;
-        NX_CHECK(resolve_snapshot_utc(now->nanoseconds(), 1, fallback_used) == *expected);
-        NX_CHECK(!fallback_used);
+        const auto resolved = resolve_snapshot_utc(now->nanoseconds());
+        NX_CHECK(resolved.has_value());
+        NX_CHECK(resolved.has_value() && *resolved == *expected);
     }
 }
 
 int main() {
+    nexigen::tests::install_test_time_base("trace-daemon");
     run_suite("trace_config", test_config);
     run_suite("span_ring", test_ring);
     run_suite("trace_dump", test_dump);
@@ -610,6 +660,8 @@ int main() {
     run_suite("session_e2e", test_session_e2e);
     run_suite("trigger_disabled", test_trigger_disabled);
     run_suite("mlock_best_effort", test_mlock_best_effort);
+    run_suite("requires_time_base", test_session_requires_time_base);
+    run_suite("trigger_requires_base", test_trigger_requires_base);
     run_suite("snapshot_utc", test_snapshot_utc_resolution);
     std::printf("total: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

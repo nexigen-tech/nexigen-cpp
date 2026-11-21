@@ -351,7 +351,7 @@ int main(int argc, char* argv[]) {
         return fail_status("Infrastructure::initialize", initialized);
     }
 
-    infra->logger().info("generator ready");
+    (*infra->logger())->info("generator ready");
 
     const auto meter = infra->meter("generator", "1.0");
     if (!meter.has_value()) {
@@ -428,15 +428,15 @@ int main(int argc, char* argv[]) {
             mut.user_header_mut() = header;
             const auto sent = publisher->send(std::move(mut));
             if (!sent) {
-                infra->logger().warning("publish failed: {}", com::to_string(sent.error()));
+                (*infra->logger())->warning("publish failed: {}", com::to_string(sent.error()));
             } else {
                 (*counter)->inc();
                 (*gauge)->set(static_cast<std::int64_t>(seq));
-                infra->logger().debug("published sample seq={} trace_id={:016x}", seq,
+                (*infra->logger())->debug("published sample seq={} trace_id={:016x}", seq,
                                       header.trace_id.value());
             }
         } else {
-            infra->logger().warning("loan_uninit failed: {}", com::to_string(loaned.error()));
+            (*infra->logger())->warning("loan_uninit failed: {}", com::to_string(loaned.error()));
         }
 
         static_cast<void>(span.set_status(tracing::SpanStatus::Ok));

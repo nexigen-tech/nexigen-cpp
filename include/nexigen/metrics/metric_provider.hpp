@@ -183,12 +183,13 @@ public:
     /// the constructor overload) or after quiescence.
     ///
     /// @param binding Borrowed consumer; an empty binding disables reporting.
-    /// @warning Rebinding while the harvester is running is a data race on the
-    ///          16-byte binding (torn read); bind before construction (via the
-    ///          constructor overload) or after quiescence.
+    /// @warning Rebinding while the harvester is running is rejected with
+    ///          `Conflict`; the 16-byte binding is read by the worker.
+    /// @return Success when the binding is installed in configuration mode;
+    ///         `Conflict` while the harvester runs or after quiescence.
     /// @note Spec `metrics/metric-provider`, requirement "Provider diagnostics
     ///       binding".
-    void bind_diagnostics(core::DiagnosticBinding binding) noexcept;
+    [[nodiscard]] core::Status bind_diagnostics(core::DiagnosticBinding binding) noexcept;
 
     /// @brief Install a typed diagnostics consumer.
     ///
@@ -197,8 +198,8 @@ public:
     /// @note Spec `metrics/metric-provider`, requirement "Provider diagnostics
     ///       binding".
     template <core::concepts::DiagnosticLogger L>
-    void bind_diagnostics(L& logger) noexcept {
-        bind_diagnostics(core::DiagnosticBinding{
+    [[nodiscard]] core::Status bind_diagnostics(L& logger) noexcept {
+        return bind_diagnostics(core::DiagnosticBinding{
             &logger,
             [](void* self, const core::DiagnosticEvent& event) noexcept {
                 static_cast<L*>(self)->diagnostic(event);

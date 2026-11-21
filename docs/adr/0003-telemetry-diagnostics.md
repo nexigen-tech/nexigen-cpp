@@ -25,7 +25,7 @@ ADR 0002 established that the logger is the last telemetry component to stop, so
 
 6. **Pre-logger bootstrap.** `BootstrapDiagnostics` writes synchronous, allocation-free stderr lines with a monotonic prefix. `TimeBaseClient::attach` accepts the binding and reports one `Degraded` before returning an attach failure; after the logger exists, the client is rebound to it and reports `Started`/`Holdover`/`Lost` transitions.
 
-7. **UTC is resolved once, at the presentation boundary.** Runtime telemetry never reads `CLOCK_REALTIME`. The metric batch carries `utc_resolved` and resolves through `TimeBaseClock`; the trace daemon resolves snapshot UTC through the attached base and reuses the startup-sampled offset only as a once-per-session fallback, reported on stderr. This closes the two ADR 0001 deviations.
+7. **UTC is resolved once, at the presentation boundary.** Runtime telemetry never reads `CLOCK_REALTIME`. The metric batch carries `utc_resolved` and resolves through `TimeBaseClock`; the trace daemon requires the attached base at startup and stores no raw offset; an unresolvable trigger instant fails the snapshot. This closes the two ADR 0001 deviations.
 
 8. **Observability remains pullable.** Providers retain `harvest_status()` / `delivery_status()` for tests and external monitors, read without I/O. They do not replace the event stream.
 
@@ -44,7 +44,7 @@ ADR 0002 established that the logger is the last telemetry component to stop, so
 - A flapping sink produces one log line per Ok↔error transition. No hysteresis is applied in this version.
 - Diagnostics are lost if the log ring is full, like any log record; the bootstrap channel covers pre-logger failures.
 - `MetricBatchSnapshot` gained a field (layout change); consumers are rebuilt. The `MetricFrame` wire layout is unchanged.
-- The daemon's fallback offset ages during a very long session; the published base is preferred on every trigger.
+- The daemon cannot start without a published base; an unresolved trigger instant loses that snapshot and is counted.
 - Live rebinding on a running worker is forbidden; integrations bind before start.
 
 ## Alternatives considered
@@ -52,7 +52,7 @@ ADR 0002 established that the logger is the last telemetry component to stop, so
 - **Template providers on the logger type.** Rejected: header-only metric provider, `ScopedSpan` type cascade, and a chrono/logging dependency.
 - **A virtual diagnostics interface.** Rejected: the project forbids virtual dispatch/RTTI in telemetry.
 - **Application-side polling only.** Rejected: it delays error visibility and duplicates the transition logic the emitters already own.
-- **Sampling `CLOCK_REALTIME` on every trigger in the daemon.** Rejected by ADR 0001; the startup fallback is the bounded exception.
+- **Sampling `CLOCK_REALTIME` on every trigger in the daemon.** Rejected by ADR 0001; the daemon now requires the published base and has no wall-clock fallback.
 
 ## References
 

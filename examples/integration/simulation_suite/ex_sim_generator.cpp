@@ -107,8 +107,8 @@ int main(int argc, char* argv[]) {
         return fail_status(k_tag, "Infrastructure::initialize", initialized);
     }
 
-    infra->logger().info("generator ready (period_ms={})", period_ms);
-    infra->logger().info("function group '{}'", k_function_group);
+    (*infra->logger())->info("generator ready (period_ms={})", period_ms);
+    (*infra->logger())->info("function group '{}'", k_function_group);
 
     const auto meter = infra->meter("generator", "1.0");
     if (!meter.has_value()) {
@@ -212,11 +212,11 @@ int main(int argc, char* argv[]) {
 
         const std::string_view state = link.group_state();
         if (state != last_state) {
-            infra->logger().info("group state '{}'", state_name(state));
+            (*infra->logger())->info("group state '{}'", state_name(state));
             last_state = state;
         }
         if (!state_allows_run(state)) {
-            infra->logger().warning("generator paused while group is '{}'", state_name(last_state));
+            (*infra->logger())->warning("generator paused while group is '{}'", state_name(last_state));
             return true;
         }
 
@@ -232,7 +232,7 @@ int main(int argc, char* argv[]) {
         if (!next_loan.has_value()) {
             // Pool was empty when we tried to pre-loan: take the cost here.
             if (const auto cold = preloan(); !cold.has_value()) {
-                infra->logger().warning("loan_uninit failed: pool empty");
+                (*infra->logger())->warning("loan_uninit failed: pool empty");
                 return true;
             }
         }
@@ -248,7 +248,7 @@ int main(int argc, char* argv[]) {
                 (*loan_cost)->set(static_cast<std::int64_t>(*cost));
             }
             if (!sent) {
-                infra->logger().warning("publish failed: {}", com::to_string(sent.error()));
+                (*infra->logger())->warning("publish failed: {}", com::to_string(sent.error()));
             } else {
                 const std::uint64_t publish_cost_us = (send_done_ns - sample.sent_ns) / 1000U;
                 (*counter)->inc();
@@ -258,7 +258,7 @@ int main(int argc, char* argv[]) {
                 // one is still covered by the queued sample.
                 static_cast<void>(vector_event->notify());
                 static_cast<void>(link.checkpoint(1));
-                infra->logger().debug("published vector #{} trace_id={:016x} cost_us={}", sequence,
+                (*infra->logger())->debug("published vector #{} trace_id={:016x} cost_us={}", sequence,
                                       header.trace_id.value(), publish_cost_us);
             }
         }

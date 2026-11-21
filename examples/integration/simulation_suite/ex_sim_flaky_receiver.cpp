@@ -95,14 +95,14 @@ int main(int argc, char* argv[]) {
         return fail_status(k_tag, "Infrastructure::initialize", initialized);
     }
 
-    infra->logger().info("flaky receiver ready (exit_after_s={})", exit_after_s);
+    (*infra->logger())->info("flaky receiver ready (exit_after_s={})", exit_after_s);
 
     if (rt_priority > 0) {
         const core::Status applied = apply_realtime_priority(rt_priority);
         if (applied) {
-            infra->logger().info("SCHED_FIFO priority {}", rt_priority);
+            (*infra->logger())->info("SCHED_FIFO priority {}", rt_priority);
         } else {
-            infra->logger().warning("SCHED_FIFO unavailable ({}); staying on the default policy",
+            (*infra->logger())->warning("SCHED_FIFO unavailable ({}); staying on the default policy",
                                     core::to_string(applied.error()));
         }
     }
@@ -174,7 +174,7 @@ int main(int argc, char* argv[]) {
         // Exit through the normal path so every destructor runs: iceoryx2
         // unregisters this process's node on teardown, and a raw `_exit` would
         // leak its registrations until the per-service node budget is gone.
-        infra->logger().warning("flaky receiver terminating on schedule");
+        (*infra->logger())->warning("flaky receiver terminating on schedule");
         const core::Status crash_shutdown = infra->shutdown();
         if (!crash_shutdown) {
             return fail_status(k_tag, "Infrastructure::shutdown", crash_shutdown);

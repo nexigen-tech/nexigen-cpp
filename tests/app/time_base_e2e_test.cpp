@@ -187,7 +187,7 @@ void test_e2e_records_and_resolution() {
         settings.app_name = "e2e";
         settings.chrono.segment_name = segment_name;
         NX_CHECK(infra->initialize(settings).has_value());
-        infra->logger().info("e2e record {}", 42);
+        (*infra->logger())->info("e2e record {}", 42);
         auto meter = infra->meter("e2e", "1.0");
         NX_CHECK(meter.has_value());
         if (meter.has_value()) {
@@ -202,9 +202,9 @@ void test_e2e_records_and_resolution() {
             auto span = (*tracer)->start_span("work", tracing::SpanKind::Internal);
             static_cast<void>(span.end());
         }
-        NX_CHECK(infra->metrics().collect_now().has_value());
-        NX_CHECK(infra->metrics().flush().has_value());
-        NX_CHECK(infra->tracer().flush().has_value());
+        NX_CHECK((*infra->metrics())->collect_now().has_value());
+        NX_CHECK((*infra->metrics())->flush().has_value());
+        NX_CHECK((*infra->tracer())->flush().has_value());
         NX_CHECK(infra->shutdown().has_value());
     }
     chrono::TimeBaseClock::detach();

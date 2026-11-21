@@ -207,7 +207,7 @@ void test_telemetry_layout_infrastructure() {
         return;
     }
     NX_CHECK(infra->initialize(settings).has_value());
-    infra->logger().info("layout integration record");
+    (*infra->logger())->info("layout integration record");
 
     const auto meter = infra->meter("layout", "1.0");
     NX_CHECK(meter.has_value());
@@ -220,7 +220,7 @@ void test_telemetry_layout_infrastructure() {
             (*counter)->inc();
         }
     }
-    NX_CHECK(infra->metrics().collect_now().has_value());
+    NX_CHECK((*infra->metrics())->collect_now().has_value());
     const auto base_now = chrono::Timestamp::now();
     NX_CHECK(base_now.has_value());
     if (base_now) {

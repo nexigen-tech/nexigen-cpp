@@ -186,12 +186,17 @@ The system SHALL require a `Policy` with nested `Logger`, `Metrics_sink`, `Trace
 
 ### Requirement: Infrastructure exposes logger, metric and tracer factories
 
-`Infrastructure` SHALL expose `logger()` for logging, `metrics()` plus `meter(name, version)` returning `core::Result<metrics::Meter*>`, `tracer()` plus `tracer_for(scope)` returning `core::Result<Tracer_type*>`, and `chrono()` returning the attached time-base client handle. Every factory and control-plane convenience except the `chrono()` accessor SHALL return `NotInitialized` before initialization and once shutdown has begun. Handles already issued SHALL remain valid and memory-safe while the infrastructure is alive; the `chrono()` handle is the documented exception: it is valid only after a successful initialization and stops being usable at shutdown.
+`Infrastructure` SHALL expose `logger()` returning `core::Result<Logger*>`, `metrics()` returning `core::Result<MetricProvider*>`, `meter(name, version)` returning `core::Result<metrics::Meter*>`, `tracer()` plus `tracer_for(scope)` returning `core::Result<Tracer_type*>`, and `chrono()` returning the attached time-base client handle. Every factory and control-plane convenience except the `chrono()` accessor SHALL return `NotInitialized` before initialization and once shutdown has begun. Handles already issued SHALL remain valid and memory-safe while the infrastructure is alive; the `chrono()` handle is the documented exception: it is valid only after a successful initialization and stops being usable at shutdown.
 
 #### Scenario: Logger access is the application logging path
 
-- **WHEN** application code calls `infra.logger().info("tick {}", n)`
+- **WHEN** application code calls `infra.logger()` after initialization and writes through the returned handle
 - **THEN** the record goes through the configured logger and is flushed on shutdown
+
+#### Scenario: Metrics access exposes the provider
+
+- **WHEN** application code calls `infra.metrics()` after initialization
+- **THEN** it returns the live `MetricProvider` and its control-plane calls operate on the infrastructure's provider
 
 #### Scenario: Metric creation goes through the infrastructure
 
@@ -210,7 +215,7 @@ The system SHALL require a `Policy` with nested `Logger`, `Metrics_sink`, `Trace
 
 #### Scenario: Factory access before initialization is rejected
 
-- **WHEN** `meter()` or `tracer_for()` is called before successful initialization
+- **WHEN** `logger()`, `metrics()`, `meter()`, or `tracer_for()` is called before successful initialization
 - **THEN** it returns `ErrorCode::NotInitialized` without dereferencing an empty provider
 
 #### Scenario: Chrono access requires successful initialization
@@ -220,12 +225,12 @@ The system SHALL require a `Policy` with nested `Logger`, `Metrics_sink`, `Trace
 
 #### Scenario: Control plane is closed after shutdown
 
-- **WHEN** `meter()`, `tracer_for()`, `get_meter`, `get_tracer`, `collect_now`, or `flush` is called after `shutdown()` has begun
-- **THEN** each returns `ErrorCode::NotInitialized` and no new meter, tracer, or instrument is created
+- **WHEN** `logger()`, `metrics()`, `meter()`, `tracer_for()`, `get_meter`, `get_tracer`, `collect_now`, or `flush` is called after `shutdown()` has begun
+- **THEN** each returns `ErrorCode::NotInitialized` and no new handle, meter, tracer, or instrument is created
 
 #### Scenario: Issued handles survive shutdown
 
-- **WHEN** a counter, gauge, statistics instrument, tracer, or logger obtained before shutdown is used after `shutdown()` returns
+- **WHEN** a logger handle, metric provider handle, counter, gauge, statistics instrument, tracer, or metrics provider obtained before shutdown is used after `shutdown()` returns
 - **THEN** no memory error or sanitizer diagnostic occurs: metric records are accepted and discarded, tracer span starts report `NotInitialized`, and log records are dropped without blocking
 
 #### Scenario: Handles do not survive the infrastructure

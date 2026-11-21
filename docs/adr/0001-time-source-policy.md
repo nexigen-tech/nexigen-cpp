@@ -57,10 +57,10 @@ The gap is that the policy is spread across four artifacts and two runtime paths
 - `MetricBatchSnapshot.utc_ns` now resolves through `TimeBaseClock::utc_from_canonical`
   and carries `utc_resolved`; JSON omits the UTC value when the base cannot resolve the
   window (`metrics/metric-provider`, "Record and batch snapshot serialization").
-- `trace_daemon_session` resolves snapshot UTC through the attached base. The offset
-  sampled once at session startup is a fallback only, reported on stderr once; the trigger
-  path performs no `CLOCK_REALTIME` read (`tracing/trace-daemon`, "Snapshot UTC
-  resolution").
+- `trace_daemon_session` requires the attached base at startup and stores no raw offset;
+  a trigger instant outside the base horizon fails the snapshot instead of using a
+  fallback. The trigger path performs no `CLOCK_REALTIME` read (`tracing/trace-daemon`,
+  "Snapshot UTC resolution requires the time base").
 - The runtime no-`CLOCK_REALTIME` rule is pinned by the `clock_gettime` interposer in
   `tests/tracing/trace_daemon_test.cpp`.
 - The diagnostics channel that reports unresolved time is recorded in

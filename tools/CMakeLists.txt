@@ -214,13 +214,19 @@ if(NEXIGEN_ENABLE_COM)
     target_link_libraries(nexigen-traced PRIVATE nexigen_tracing_com nexigen_chrono Threads::Threads)
     target_include_directories(nexigen-traced PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
+    # Test-only publisher for the smoke test (not installed): the daemon
+    # requires a published base.
+    add_executable(nexigen_traced_timebase_fixture nexigen-traced/timebase_fixture.cpp)
+    target_link_libraries(nexigen_traced_timebase_fixture PRIVATE nexigen_chrono Threads::Threads)
+
     add_test(NAME nexigen_traced_help COMMAND nexigen-traced --help)
     set_tests_properties(nexigen_traced_help PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
     add_test(NAME nexigen_traced_smoke
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-traced/smoke_test.sh
-                $<TARGET_FILE:nexigen-traced>)
+                $<TARGET_FILE:nexigen-traced>
+                $<TARGET_FILE:nexigen_traced_timebase_fixture>)
     set_tests_properties(nexigen_traced_smoke PROPERTIES
         TIMEOUT 60 LABELS "tools")
 

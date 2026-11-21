@@ -339,7 +339,22 @@ and SHALL NOT depend on `com`, `logging`, `tracing`, or `chrono`.
 
 ### Requirement: Provider diagnostics binding
 
-`MetricProvider` SHALL expose `bind_diagnostics(DiagnosticBinding)` with a templated logger convenience and `harvest_status() const noexcept -> core::Status` reporting the last collection and sink-flush result. The status SHALL be readable without collecting, flushing, or contacting the sink.
+`MetricProvider` SHALL expose `bind_diagnostics(DiagnosticBinding) noexcept -> core::Status` with a templated logger convenience and `harvest_status() const noexcept -> core::Status` reporting the last collection and sink-flush result. The binding SHALL be installable only in configuration mode — while the harvester is not running and the provider is not sealed; a bind attempt on a running or sealed provider SHALL return `ErrorCode::Conflict` and leave the previous binding unchanged. The status SHALL be readable without collecting, flushing, or contacting the sink.
+
+#### Scenario: Configuration binding succeeds
+
+- **WHEN** a binding is installed before the harvester starts (or on a worker-less provider)
+- **THEN** it returns success and later transitions reach the callback
+
+#### Scenario: Live rebinding is rejected
+
+- **WHEN** `bind_diagnostics` is called while the harvester is running
+- **THEN** it returns `ErrorCode::Conflict`, the previous binding stays installed, and the worker never observes a torn 16-byte binding
+
+#### Scenario: Sealed provider rejects binding
+
+- **WHEN** `bind_diagnostics` is called after quiescence
+- **THEN** it returns `ErrorCode::Conflict` and no event is emitted
 
 #### Scenario: A bound callback receives provider events
 
