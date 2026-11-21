@@ -18,3 +18,13 @@ Rules:
 - This is measured, not guessed: 32 physical cores / 64 threads, 122 GiB RAM. Cold full rebuild at `-j 64`: ~21 s (ASan Debug and Release), ~15 s (LTO); `-j 8` is ~4x slower, while `-j 96/128` give no further gain.
 - The rule applies to local builds only; leave CI parallelism in `.github/workflows/ci.yml` (`CMAKE_BUILD_PARALLEL_LEVEL`) unchanged.
 - Multiple trees can be built at once: `scripts/build.sh build-asan-com build-release-com build-verify-lto` or `--all`; per-build logs go to `<build-dir>/build-script.log`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as markdown files under `.scratch/<feature-slug>/`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` at the repo root plus ADRs in `docs/adr/`. See `docs/agents/domain.md`.
