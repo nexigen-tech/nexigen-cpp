@@ -1,6 +1,8 @@
 // nexigen::com — typed event producer.
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <format>
 #include <string>
@@ -81,6 +83,21 @@ public:
     /// @return Producer, or a mapped `com::Error`/`InvalidArgument`.
     [[nodiscard]] static Result<EventProducer>
     create(Node& node, ServiceName name, const ChannelConfig& config, M* meter = nullptr) noexcept {
+        return create(node, std::move(name), config, std::string_view{}, meter);
+    }
+
+    /// @brief Create the publisher and notifier and stamp an application code.
+    /// @param node Node that owns the transport membership.
+    /// @param name Service name shared with the consumer.
+    /// @param config Channel limits; must match the consumer's configuration.
+    /// @param app_id Application code (at most four ASCII bytes) copied into
+    ///        every event header.
+    /// @param meter Optional meter for producer counters.
+    /// @return Producer, or a mapped `com::Error`/`InvalidArgument`.
+    [[nodiscard]] static Result<EventProducer> create(Node& node, ServiceName name,
+                                                      const ChannelConfig& config,
+                                                      std::string_view app_id,
+                                                      M* meter = nullptr) noexcept {
         const Status valid = config.validate();
         if (!valid.has_value()) {
             return std::unexpected(valid.error());
@@ -94,7 +111,8 @@ public:
         if (!notifier.has_value()) {
             return std::unexpected(notifier.error());
         }
-        EventProducer result{std::move(name), std::move(*publisher), std::move(*notifier), config};
+        EventProducer result{std::move(name), std::move(*publisher), std::move(*notifier), config,
+                             app_id};
         result.bind_counters(meter);
         return result;
     }
@@ -189,9 +207,11 @@ public:
 
 private:
     EventProducer(ServiceName name, Publisher<T, EventHeader> publisher, EventNotifier notifier,
-                  const ChannelConfig& config) noexcept
+                  const ChannelConfig& config, std::string_view app_id) noexcept
         : service_name_(std::move(name)), publisher_(std::move(publisher)),
           notifier_(std::move(notifier)), config_(config), epoch_(detail::make_event_epoch()) {
+        const std::size_t take = app_id.size() < app_id_.size() ? app_id.size() : app_id_.size();
+        std::copy_n(app_id.begin(), take, app_id_.begin());
         stats_.current_epoch = epoch_;
     }
 
@@ -208,6 +228,7 @@ private:
         header.ingest_timestamp_ns = ingest_ns;
         header.event_code = event_code;
         header.domain_epoch = hardware.domain_epoch;
+        std::copy(app_id_.begin(), app_id_.end(), header.app_id);
         header.native_ticks = hardware.native_ticks;
         header.hardware_sequence = static_cast<std::uint32_t>(hardware.sequence);
         header.hardware_event_code = hardware.event_code;
@@ -302,6 +323,7 @@ private:
     Publisher<T, EventHeader> publisher_;
     EventNotifier notifier_;
     ChannelConfig config_{};
+    std::array<char, 4> app_id_{};
     std::uint64_t epoch_{0};
     std::uint64_t sequence_{0};
     EventProducerStats stats_{};

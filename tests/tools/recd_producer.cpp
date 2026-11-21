@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
     if (!event_channel.has_value()) {
         return 1;
     }
-    auto event_producer = event_channel->producer();
+    auto event_producer = event_channel->producer(std::string_view{"APP3"});
     if (!event_producer.has_value()) {
         return 1;
     }

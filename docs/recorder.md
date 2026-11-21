@@ -206,11 +206,10 @@ start and once per second, so recorded instants stay resolvable after rotation.
 Run one destination per stream: running the collector next to `nexigen-logd`
 stores the same telemetry twice.
 
-Each event service becomes one channel named `event.<service>`, and its
-schema is `nexigen.com.EventEnvelope`: the `EventHeader` fields followed by the
-opaque payload. `EventHeader` carries no application id, so per-application
-attribution is limited to the service name; a payload that needs an app id
-should carry it in its own fields.
+Each event becomes one channel named `event.<app>` when the producer stamped an
+application code, or `event.<service>` when it did not. The schema is
+`nexigen.com.EventEnvelope`: the 72-byte `EventHeader` (including `app_id`)
+followed by the opaque payload.
 
 The collector blocks in a `com::WaitSet` on one listener per enabled stream plus
 a 100 ms maintenance interval. Log and metric producers notify their companion

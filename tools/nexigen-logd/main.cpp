@@ -331,11 +331,9 @@ int run_session(const logging::LogDaemonConfig& cfg) {
                 cfg.log_directory.c_str());
 
     while (!g_stop.load(std::memory_order_relaxed)) {
-        const auto status = ws->wait_and_process([&](com::WaitSetAttachmentId id) {
+        const auto status = ws->wait_and_process([&](com::WaitSetAttachmentId) {
+            static_cast<void>(listener->try_wait([](com::EventId) noexcept {}));
             drain_subscriber(*sub, cfg, utc_offset_ns, sink);
-            if (id.has_event_from(*guard_ev)) {
-                // drained above
-            }
             return com::CallbackProgression::Continue;
         });
         if (!status) {

@@ -9,6 +9,7 @@
 #include <nexigen/com/loss_info.hpp>
 #include <nexigen/com/publish_subscribe_options.hpp>
 
+#include <cstring>
 #include <format>
 #include <string>
 
@@ -77,10 +78,10 @@ std::string EventHeader::to_string() const {
     return std::format(
         "EventHeader(sequence={}, timestamp_ns={}, canonical={}, domain={}, domain_epoch={}, "
         "ingest_ns={}, event_code={}, native_ticks={}, hardware_sequence={}, "
-        "hardware_event_code={}, flags={})",
+        "hardware_event_code={}, app_id={}, flags={})",
         sequence_id, timestamp_ns, has_canonical_projection(), domain_id, domain_epoch,
         ingest_timestamp_ns, event_code, native_ticks, hardware_sequence, hardware_event_code,
-        flags);
+        app_id_text(), flags);
 }
 
 void to_json(nlohmann::json& j, const EventHeader& header) {
@@ -95,6 +96,7 @@ void to_json(nlohmann::json& j, const EventHeader& header) {
                        {"native_ticks", header.native_ticks},
                        {"event_code", header.event_code},
                        {"hardware_event_code", header.hardware_event_code},
+                       {"app_id", std::string(header.app_id_text())},
                        {"flags", header.flags},
                        {"has_payload", header.has_payload()},
                        {"has_hardware_sequence", header.has_hardware_sequence()},
@@ -117,6 +119,13 @@ void from_json(const nlohmann::json& j, EventHeader& header) noexcept {
     core::detail::read_unsigned(j, "hardware_event_code", header.hardware_event_code);
     core::detail::read_unsigned(j, "domain_id", header.domain_id);
     core::detail::read_unsigned(j, "flags", header.flags);
+    std::string app_id;
+    if (core::detail::read_string(j, "app_id", app_id)) {
+        const std::size_t take =
+            app_id.size() < sizeof(header.app_id) ? app_id.size() : sizeof(header.app_id);
+        std::memset(header.app_id, 0, sizeof(header.app_id));
+        std::memcpy(header.app_id, app_id.data(), take);
+    }
     // Legacy diagnostics carried `hardware_timestamp_ns` and a domain name.
     core::detail::read_unsigned(j, "hardware_timestamp_ns", header.native_ticks);
     std::string domain;

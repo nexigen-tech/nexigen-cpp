@@ -3174,9 +3174,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logd/main.cpp": {
-    "mtime": 1795258731.228586,
-    "seen": 1795261645.5743644,
-    "ast_hash": "bd6c0eb0a49479a5a183788d152e5ff1",
+    "mtime": 1795270234.507706,
+    "seen": 1795272676.906207,
+    "ast_hash": "4c82ab9c458f3133b3a2961170d232c5",
     "semantic_hash": ""
   },
   "tools/nexigen-phmd/main.cpp": {
@@ -3360,9 +3360,9 @@
     "semantic_hash": ""
   },
   "TODO.md": {
-    "mtime": 1795264080.5688174,
-    "seen": 1795269724.2127514,
-    "ast_hash": "68c99bd56e09b5ac88a8524c21a6d4dd",
+    "mtime": 1795272231.247545,
+    "seen": 1795272676.9068954,
+    "ast_hash": "e9be73b0df486eed804e1f580516193f",
     "semantic_hash": ""
   },
   "docs/architecture.md": {
@@ -7152,9 +7152,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/logging/log-daemon/spec.md": {
-    "mtime": 1794548362.716965,
-    "seen": 1794548410.494207,
-    "ast_hash": "455fd08ecab2fb1c5f5a9855ff157dd4",
+    "mtime": 1795272651.3739176,
+    "seen": 1795272676.9262033,
+    "ast_hash": "413d83e2cef912eb86e7b67a5f46675e",
     "semantic_hash": ""
   },
   "tests/tracing/trace_roundtrip_test.cpp": {
@@ -7332,9 +7332,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-metricsd/main.cpp": {
-    "mtime": 1795258731.2414005,
-    "seen": 1795261645.5743937,
-    "ast_hash": "486b85b19d6f888f1e9de8ca40da10fb",
+    "mtime": 1795270234.5078385,
+    "seen": 1795272676.906242,
+    "ast_hash": "ccac8c4f15f4e8e9d6126041d8e09c7d",
     "semantic_hash": ""
   },
   "tools/nexigen-metricsd/smoke_test.sh": {
@@ -7422,9 +7422,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/metrics/metrics-daemon/spec.md": {
-    "mtime": 1794507533.805941,
-    "seen": 1794509974.6833262,
-    "ast_hash": "7cdf3152f32e17438cff10141628b2ab",
+    "mtime": 1795272651.3739176,
+    "seen": 1795272676.9265716,
+    "ast_hash": "16cdb600400de2dca72ab861cbdfb64f",
     "semantic_hash": ""
   },
   "include/nexigen/core/detail/json_field.hpp": {
@@ -10698,9 +10698,9 @@
     "semantic_hash": ""
   },
   "docs/recorder.md": {
-    "mtime": 1795264037.9331632,
-    "seen": 1795269724.2129867,
-    "ast_hash": "70017269b45b6e70e0fc0accaeebdf3e",
+    "mtime": 1795270194.1728354,
+    "seen": 1795272676.9071321,
+    "ast_hash": "e8152c2edafc65a35419c8380b6c628e",
     "semantic_hash": ""
   },
   "examples/recorder/CMakeLists.txt": {
@@ -10866,9 +10866,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/com/event_channel.hpp": {
-    "mtime": 1795258730.6100044,
-    "seen": 1795261645.5629196,
-    "ast_hash": "6f5be000e819247a673a88cd8ca8ba8e",
+    "mtime": 1795270173.2859762,
+    "seen": 1795272676.8938138,
+    "ast_hash": "ca89c63b9f67152ea93588f9f86e0a4f",
     "semantic_hash": ""
   },
   "include/nexigen/com/event_consumer.hpp": {
@@ -10890,9 +10890,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/com/event_header.hpp": {
-    "mtime": 1795072427.8363485,
-    "seen": 1795072514.084778,
-    "ast_hash": "53ec0a13395ad5818820e5729724d20a",
+    "mtime": 1795270160.967617,
+    "seen": 1795272676.8938622,
+    "ast_hash": "37a04dc26784f2a52bf48ec1352e528a",
     "semantic_hash": ""
   },
   "include/nexigen/com/event_options.hpp": {
@@ -10902,9 +10902,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/com/event_producer.hpp": {
-    "mtime": 1795258730.635151,
-    "seen": 1795261645.5629988,
-    "ast_hash": "c780d4e0a580d060bf3c197f94cc6e93",
+    "mtime": 1795270206.979031,
+    "seen": 1795272676.8938956,
+    "ast_hash": "17b231790381dd45b8ba7b505504da5a",
     "semantic_hash": ""
   },
   "include/nexigen/com/event_producer_stats.hpp": {
@@ -10974,15 +10974,15 @@
     "semantic_hash": ""
   },
   "src/com/event_system.cpp": {
-    "mtime": 1795072427.8920107,
-    "seen": 1795072514.0928278,
-    "ast_hash": "c7e303c5cbfdbcc8da4b27fe7016d7f5",
+    "mtime": 1795272216.5421352,
+    "seen": 1795272676.902722,
+    "ast_hash": "e7c5e61d2d674608c033b95531613f40",
     "semantic_hash": ""
   },
   "tests/com/event_system_test.cpp": {
-    "mtime": 1795106299.981734,
-    "seen": 1795107672.0525296,
-    "ast_hash": "0410851089d203a75bc8637b9f1b3a26",
+    "mtime": 1795270220.9132762,
+    "seen": 1795272676.904349,
+    "ast_hash": "dd7a1bc477c291608f783d95bf9e3539",
     "semantic_hash": ""
   },
   "docs/com-event-system.md": {
@@ -11034,9 +11034,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/com/event-system/spec.md": {
-    "mtime": 1795072450.0683274,
-    "seen": 1795072514.1125634,
-    "ast_hash": "bd7711d2e1e8c19817c2e05e6b9451c1",
+    "mtime": 1795272650.607381,
+    "seen": 1795272676.9251654,
+    "ast_hash": "bcb7d2e7baaf9cab7d2cfd019e178ca8",
     "semantic_hash": ""
   },
   "include/nexigen/synchro/detail/sync_clock.hpp": {
@@ -11868,15 +11868,15 @@
     "semantic_hash": ""
   },
   "tests/tools/recd_producer.cpp": {
-    "mtime": 1795264058.1643705,
-    "seen": 1795269724.2115686,
-    "ast_hash": "10bc59962baba4aedb83e907fc554c7f",
+    "mtime": 1795270194.1726747,
+    "seen": 1795272676.90571,
+    "ast_hash": "8894f26a952c3661c576bb9831dacab7",
     "semantic_hash": ""
   },
   "tests/tools/recd_smoke.sh": {
-    "mtime": 1795261914.880154,
-    "seen": 1795262309.1080086,
-    "ast_hash": "a26f1784f1a735573caed45359820dc4",
+    "mtime": 1795270194.1727598,
+    "seen": 1795272676.905711,
+    "ast_hash": "f18cb89ed5d2a79f9ad4764214d3eed6",
     "semantic_hash": ""
   },
   "tools/nexigen-phmd/usage_test.sh": {
@@ -11886,9 +11886,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-recd/main.cpp": {
-    "mtime": 1795264037.9512877,
-    "seen": 1795269724.2122338,
-    "ast_hash": "60325b0962d3333f0786fb3488eca876",
+    "mtime": 1795270189.576034,
+    "seen": 1795272676.9063594,
+    "ast_hash": "ae4353b42c262668b8e1f520eee1a8d6",
     "semantic_hash": ""
   },
   "tools/nexigen-recd/recorder_daemon_config.hpp": {
@@ -12252,9 +12252,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/recorder/telemetry-capture/spec.md": {
-    "mtime": 1795269699.9166584,
-    "seen": 1795269724.2319126,
-    "ast_hash": "47a1c15a38645fa310bb936678d832ab",
+    "mtime": 1795272650.608381,
+    "seen": 1795272676.9269164,
+    "ast_hash": "3cc1354ddfe63741d803731fd530b7a1",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-21-recorder-waitset/.openspec.yaml": {
@@ -12297,6 +12297,78 @@
     "mtime": 1795269698.8694572,
     "seen": 1795269724.229456,
     "ast_hash": "eef2257a1a687696cb1a197b80b8a5e9",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-daemon-waitset-drain/.openspec.yaml": {
+    "mtime": 1795270282.686219,
+    "seen": 1795272676.9021618,
+    "ast_hash": "6a2bf275d80e0a3bd99e527ccc246e1f",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-event-header-app-id/.openspec.yaml": {
+    "mtime": 1795270271.4092312,
+    "seen": 1795272676.9021628,
+    "ast_hash": "6a2bf275d80e0a3bd99e527ccc246e1f",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-daemon-waitset-drain/design.md": {
+    "mtime": 1795270283.1722183,
+    "seen": 1795272676.9241076,
+    "ast_hash": "89a6e0e760ccdc69726fb23b4ffc50df",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-daemon-waitset-drain/proposal.md": {
+    "mtime": 1795270283.1712184,
+    "seen": 1795272676.9241092,
+    "ast_hash": "471c3123453f490175c2b25c764fc425",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-daemon-waitset-drain/specs/logging/log-daemon/spec.md": {
+    "mtime": 1795270283.1752183,
+    "seen": 1795272676.9241107,
+    "ast_hash": "4d26860a5fdc8d3c584e8584d2a9cfd4",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-daemon-waitset-drain/specs/metrics/metrics-daemon/spec.md": {
+    "mtime": 1795270283.1781871,
+    "seen": 1795272676.9241116,
+    "ast_hash": "8b5542c3121d638d097297036928dff6",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-daemon-waitset-drain/tasks.md": {
+    "mtime": 1795272231.2476907,
+    "seen": 1795272676.9241126,
+    "ast_hash": "9bc8f55a1e95e227b2b89df6de4c20e4",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-event-header-app-id/design.md": {
+    "mtime": 1795270271.9640217,
+    "seen": 1795272676.924114,
+    "ast_hash": "39deba41e1bb911cf85fb501ee6a3d37",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-event-header-app-id/proposal.md": {
+    "mtime": 1795270271.9627872,
+    "seen": 1795272676.924115,
+    "ast_hash": "4e00f4ce6b219fe76ecf5929d6eaacd7",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-event-header-app-id/specs/com/event-system/spec.md": {
+    "mtime": 1795270271.9652305,
+    "seen": 1795272676.9241161,
+    "ast_hash": "6660014f335b1c280a5389bf64ff5bf8",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-event-header-app-id/specs/recorder/telemetry-capture/spec.md": {
+    "mtime": 1795270271.9672306,
+    "seen": 1795272676.924117,
+    "ast_hash": "d94dff4bc606326e1ec57bf64bda7edd",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-21-event-header-app-id/tasks.md": {
+    "mtime": 1795272231.2476552,
+    "seen": 1795272676.9241183,
+    "ast_hash": "a047d95d17dcc08736930c62acac6854",
     "semantic_hash": ""
   }
 }

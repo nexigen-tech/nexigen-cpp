@@ -59,7 +59,7 @@ kill -TERM "$pid3" 2>/dev/null || true
 wait "$pid3" 2>/dev/null || true
 session3="$(find "$root3" -mindepth 1 -maxdepth 1 -type d | head -1)"
 [ -n "$session3" ] || exit 1
-"$exporter" list "$session3" | grep -q "event.Nexigen_Test_RecdEvent" || exit 1
+"$exporter" list "$session3" | grep -q "event.APP3" || exit 1
 
 # 4. Missing event service keeps the collector alive.
 root4="$(mktemp -d)"

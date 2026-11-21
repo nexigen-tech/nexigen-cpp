@@ -271,8 +271,8 @@ int run_session(const metrics::MetricDaemonConfig& cfg) {
     auto last_render = std::chrono::steady_clock::now();
 
     while (!g_stop.load(std::memory_order_relaxed)) {
-        const auto status = ws->wait_and_process([&](com::WaitSetAttachmentId id) {
-            static_cast<void>(id);
+        const auto status = ws->wait_and_process([&](com::WaitSetAttachmentId) {
+            static_cast<void>(listener->try_wait([](com::EventId) noexcept {}));
             drain_frames(*subscriber, *aggregator, window, flush_interval, last_render, *exposition,
                          history, utc_offset_ns);
             return com::CallbackProgression::Continue;

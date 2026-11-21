@@ -209,8 +209,9 @@ absent JSON fields SHALL leave the destination unchanged.
 
 The collector SHALL record `com` event channels as `ComPayload` records without a compile-time
 payload type. Each record SHALL carry the event header followed by the payload bytes, and its
-channel SHALL name the application, service, payload type, and payload size. A new producer epoch
-SHALL start a fresh sequence baseline.
+channel SHALL name the application code from the header when it is non-empty, otherwise the service
+name, plus the payload type and payload size. A new producer epoch SHALL start a fresh sequence
+baseline.
 
 #### Scenario: Event is recorded with header and payload
 
@@ -222,6 +223,16 @@ SHALL start a fresh sequence baseline.
 
 - **WHEN** events of the type `CameraFrame` are recorded
 - **THEN** the channel metadata names `CameraFrame` and its payload size
+
+#### Scenario: Channel names the application
+
+- **WHEN** two applications with codes `LIDR` and `ADAS` publish on one event service
+- **THEN** the session declares two event channels whose topics identify `LIDR` and `ADAS`
+
+#### Scenario: Missing application code falls back to the service
+
+- **WHEN** an event arrives with an empty application code
+- **THEN** its channel topic names the service instead
 
 #### Scenario: Epoch change is not a gap
 

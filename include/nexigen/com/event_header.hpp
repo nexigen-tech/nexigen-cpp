@@ -6,7 +6,7 @@
 // and is meaningful just when `has_canonical_projection()` is true. Host events
 // are published in the canonical domain, so they always carry the projection.
 //
-// Layout (64 bytes, pinned):
+// Layout (72 bytes, pinned):
 //   0  u64 sequence_id
 //   8  u64 timestamp_ns (canonical projection, optional)
 //  16  u64 producer_epoch
@@ -18,6 +18,8 @@
 //  56  u32 hardware_sequence
 //  60  u16 domain_id
 //  62  u16 flags
+//  64  char app_id[4]
+//  68  padding to 72
 #pragma once
 
 #include <cstddef>
@@ -61,6 +63,17 @@ struct alignas(8) EventHeader {
     std::uint32_t hardware_sequence{0};   ///< Optional FPGA sequence (trace-only).
     std::uint16_t domain_id{0};           ///< Time-base domain id (0 = canonical).
     std::uint16_t flags{0};               ///< Presence flags.
+    char app_id[4]{};                     ///< Four-byte ASCII application code.
+
+    /// @brief Application code as text, stopping at the first NUL.
+    /// @return Up to four characters of the application code.
+    [[nodiscard]] std::string_view app_id_text() const noexcept {
+        std::size_t n = 0;
+        while (n < sizeof(app_id) && app_id[n] != '\0') {
+            ++n;
+        }
+        return std::string_view(app_id, n);
+    }
 
     /// @brief Whether the event carries a meaningful payload.
     /// @return `true` when `has_payload_bit` is set.
@@ -99,7 +112,7 @@ struct alignas(8) EventHeader {
     [[nodiscard]] std::string to_string() const;
 };
 
-static_assert(sizeof(EventHeader) == 64U, "EventHeader must stay 64 bytes");
+static_assert(sizeof(EventHeader) == 72U, "EventHeader must stay 72 bytes");
 static_assert(alignof(EventHeader) == 8U, "EventHeader must stay 8-byte aligned");
 static_assert(std::is_trivially_copyable_v<EventHeader>, "EventHeader must be trivially copyable");
 static_assert(offsetof(EventHeader, timestamp_ns) == 8U);
@@ -107,6 +120,7 @@ static_assert(offsetof(EventHeader, domain_epoch) == 32U);
 static_assert(offsetof(EventHeader, native_ticks) == 40U);
 static_assert(offsetof(EventHeader, domain_id) == 60U);
 static_assert(offsetof(EventHeader, flags) == 62U);
+static_assert(offsetof(EventHeader, app_id) == 64U);
 
 /// @brief Free helper mirroring `EventHeader::to_string`.
 /// @param header Header to render.

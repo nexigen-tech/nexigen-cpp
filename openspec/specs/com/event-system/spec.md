@@ -8,12 +8,17 @@ Defines 1:N event delivery over iceoryx2 with transport sequence integrity, loss
 
 ### Requirement: Event header and timestamp provenance
 
-`EventHeader` SHALL be a 64-byte, trivially copyable, 8-byte-aligned value carrying transport sequence, the event instant in its native time domain, the domain identifier, the domain epoch, the canonical projection when one is available, producer epoch, host ingest time, optional hardware sequence and raw ticks, canonical event code, optional raw hardware event code, and presence flags. Native hardware time SHALL be preserved as raw ticks; `ingest_timestamp_ns` SHALL be host monotonic raw.
+`EventHeader` SHALL be a 72-byte, trivially copyable, 8-byte-aligned value carrying transport
+sequence, the event instant in its native time domain, the domain identifier, the domain epoch, the
+canonical projection when one is available, producer epoch, host ingest time, optional hardware
+sequence and raw ticks, canonical event code, optional raw hardware event code, presence flags, and
+a four-byte application code. Native hardware time SHALL be preserved as raw ticks;
+`ingest_timestamp_ns` SHALL be host monotonic raw.
 
 #### Scenario: Header layout is pinned
 
 - **WHEN** the event-system headers are compiled
-- **THEN** `EventHeader` is exactly 64 bytes, 8-byte aligned, and trivially copyable
+- **THEN** `EventHeader` is exactly 72 bytes, 8-byte aligned, and trivially copyable
 
 #### Scenario: Optional hardware fields are explicit
 
@@ -37,6 +42,11 @@ Defines 1:N event delivery over iceoryx2 with transport sequence integrity, loss
 - **WHEN** an event is published without an explicit event time
 - **THEN** its instant and `ingest_timestamp_ns` come from the same host clock sample and
   the domain identifier names the canonical host domain
+
+#### Scenario: Application code travels with the header
+
+- **WHEN** an event is published with application code `LIDR`
+- **THEN** the consumer reads `LIDR` from `app_id_text()` and an unstamped producer reads as empty
 
 ### Requirement: Event payload contract
 
@@ -83,7 +93,12 @@ Defines 1:N event delivery over iceoryx2 with transport sequence integrity, loss
 
 ### Requirement: Event production and publish outcome
 
-`EventProducer<T>` SHALL publish through the zero-copy `com` publisher with `EventHeader`, assign the transport sequence only after a successful send, sample the host ingest timestamp, preserve optional hardware metadata, and return `PublishOutcome::Notified` or `PublishOutcome::NotifyFailed` when the sample was sent. A failed send SHALL return a `com::Error` and SHALL NOT consume a sequence number; `notify()` SHALL retry the wake without republishing.
+`EventProducer<T>` SHALL publish through the zero-copy `com` publisher with `EventHeader`, stamp
+the configured application code, assign the transport sequence only after a successful send, sample
+the host ingest timestamp, preserve optional hardware metadata, and return
+`PublishOutcome::Notified` or `PublishOutcome::NotifyFailed` when the sample was sent. A failed
+send SHALL return a `com::Error` and SHALL NOT consume a sequence number; `notify()` SHALL retry
+the wake without republishing.
 
 #### Scenario: Publish consumes one transport sequence
 
@@ -109,6 +124,11 @@ Defines 1:N event delivery over iceoryx2 with transport sequence integrity, loss
 
 - **WHEN** an event is published with `EmptyPayload`
 - **THEN** the header reports `has_payload = false` and the event is delivered normally
+
+#### Scenario: Producer stamps the application code
+
+- **WHEN** a producer is created with application code `LIDR`
+- **THEN** every published header carries `LIDR` in `app_id`
 
 ### Requirement: Producer epoch and source restart
 

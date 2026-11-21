@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <ctime>
 #include <format>
@@ -124,7 +125,7 @@ static_assert(!com::concepts::EventPayload<std::string>);
 static_assert(!com::concepts::EventPayload<std::vector<int>>);
 static_assert(!com::concepts::EventPayload<int&>);
 static_assert(!com::concepts::EventPayload<void>);
-static_assert(sizeof(com::EventHeader) == 64U);
+static_assert(sizeof(com::EventHeader) == 72U);
 static_assert(alignof(com::EventHeader) == 8U);
 
 void test_value_serialization() {
@@ -274,6 +275,7 @@ void test_value_serialization() {
     header.domain_epoch = 9U;
     header.event_code = 77U;
     header.hardware_event_code = 88U;
+    std::memcpy(header.app_id, "LIDR", 4U);
     header.flags = com::EventHeader::has_canonical_projection_bit |
                    com::EventHeader::has_payload_bit | com::EventHeader::has_hardware_sequence_bit |
                    com::EventHeader::has_hardware_timestamp_bit |
@@ -289,6 +291,7 @@ void test_value_serialization() {
     NX_CHECK(header_back.has_hardware_sequence());
     NX_CHECK(header_back.has_hardware_timestamp());
     NX_CHECK(header_back.has_hardware_event_code());
+    NX_CHECK(header_back.app_id_text() == "LIDR");
     NX_CHECK(std::format("{}", header) == header.to_string());
 
     NX_CHECK(com::to_string(com::TimestampDomain::Hardware) == "Hardware");
@@ -430,7 +433,7 @@ void test_channel_roundtrip() {
     if (!consumer.has_value()) {
         return;
     }
-    auto producer = channel.producer();
+    auto producer = channel.producer(std::string_view{"APP1"});
     NX_CHECK(producer.has_value());
     if (!producer.has_value()) {
         return;
@@ -449,6 +452,7 @@ void test_channel_roundtrip() {
         NX_CHECK(received[0].sequence_id == 0U);
         NX_CHECK(received[0].event_code == 0x1234U);
         NX_CHECK(received[0].has_payload());
+        NX_CHECK(received[0].app_id_text() == "APP1");
         NX_CHECK(received[0].domain_id == 0U);
         NX_CHECK(received[0].has_canonical_projection());
         NX_CHECK(received[0].ingest_timestamp_ns > 0U);

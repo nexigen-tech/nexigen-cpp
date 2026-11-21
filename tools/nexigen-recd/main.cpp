@@ -217,7 +217,8 @@ public:
             R"({{"name":"hardware_sequence","type":"u32","offset":56,"element_size":4,"count":1,"stride":4}},)"
             R"({{"name":"domain_id","type":"u16","offset":60,"element_size":2,"count":1,"stride":2}},)"
             R"({{"name":"flags","type":"u16","offset":62,"element_size":2,"count":1,"stride":2}},)"
-            R"({{"name":"payload","type":"u8[{}]","offset":64,"element_size":1,"count":{},"stride":1}}])",
+            R"({{"name":"app_id","type":"char[4]","offset":64,"element_size":1,"count":4,"stride":1}},)"
+            R"({{"name":"payload","type":"u8[{}]","offset":72,"element_size":1,"count":{},"stride":1}}])",
             count, count);
         schema.data.assign(fields.begin(), fields.end());
         if (!writer_.declare_schema(schema).has_value()) {
@@ -372,9 +373,13 @@ void drain_events(std::vector<com::RawSubscriber>& subs,
             std::memcpy(payload.data(), &header, sizeof(header));
             std::memcpy(payload.data() + sizeof(header), sample.payload.data(),
                         sample.payload.size());
+            std::string suffix = sanitize_topic(raw.service_name());
+            const auto app = header.app_id_text();
+            if (!app.empty()) {
+                suffix = sanitize_topic(app);
+            }
             const std::uint32_t channel =
-                rec.channel_for("event", sanitize_topic(raw.service_name()),
-                                rec.event_schema(sample.payload.size()));
+                rec.channel_for("event", suffix, rec.event_schema(sample.payload.size()));
             if (const auto gap = trackers[index].observe(header.producer_epoch, header.sequence_id);
                 gap.has_value()) {
                 static_cast<void>(rec.gap(channel, gap->first_lost_sequence, gap->lost_count,
