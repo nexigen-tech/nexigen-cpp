@@ -52,11 +52,19 @@ The gap is that the policy is spread across four artifacts and two runtime paths
 - Cold-path stamping keeps a second clock mechanism (`Timestamp::now()`), which is deliberate.
 - Cross-source ordering is approximate. Each source is non-decreasing on its own, but there is no global total order; a consumer that needs strict ordering across producers must use sequence numbers, not timestamps alone.
 
-**Known deviations to fix (migration)**
+**Deviations — resolved by `add-telemetry-diagnostics`**
 
-- `MetricBatchSnapshot.utc_ns` is computed from `sample_utc_offset` at harvest (`src/metrics/provider.cpp:122,338`). It should resolve through `TimeBaseClock::utc_from_canonical` and carry a resolved/unresolved marker, matching the recorder contract.
-- `trace_daemon_session` attaches to `/nexigen-timebase` but still computes UTC from a sampled raw offset (`tracing/detail/trace_daemon_session.hpp:126,542-544`); it should resolve through the attached time base.
-- Once both are migrated, a test should assert that runtime telemetry paths perform no `CLOCK_REALTIME` read (fault injection or a `clock_gettime` interposer).
+- `MetricBatchSnapshot.utc_ns` now resolves through `TimeBaseClock::utc_from_canonical`
+  and carries `utc_resolved`; JSON omits the UTC value when the base cannot resolve the
+  window (`metrics/metric-provider`, "Record and batch snapshot serialization").
+- `trace_daemon_session` resolves snapshot UTC through the attached base. The offset
+  sampled once at session startup is a fallback only, reported on stderr once; the trigger
+  path performs no `CLOCK_REALTIME` read (`tracing/trace-daemon`, "Snapshot UTC
+  resolution").
+- The runtime no-`CLOCK_REALTIME` rule is pinned by the `clock_gettime` interposer in
+  `tests/tracing/trace_daemon_test.cpp`.
+- The diagnostics channel that reports unresolved time is recorded in
+  `docs/adr/0003-telemetry-diagnostics.md`.
 
 ## Alternatives considered
 

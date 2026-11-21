@@ -45,6 +45,13 @@ int g_failures = 0;
         }                                                                                          \
     } while (false)
 
+/// Remove a test run directory without aborting when a child process is still
+/// unlinking its own files (the cleanup can race the exit reaper under load).
+void remove_test_dir(const std::string& dir) noexcept {
+    std::error_code error;
+    std::filesystem::remove_all(dir, error);
+}
+
 [[nodiscard]] std::string read_text_file(const std::string& path) {
     std::ifstream input(path, std::ios::binary);
     return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
@@ -199,7 +206,7 @@ void test_state_client() {
     NX_CHECK(text.find("Nexigen/Test/StateCommand") != std::string::npos);
     NX_CHECK(std::format("{}", *state_client) == text);
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_run_confirmation() {
@@ -280,7 +287,7 @@ void test_run_confirmation() {
     NX_CHECK(confirmed.result == exec::StateResult::Success);
     NX_CHECK(registry.group_state(0) == "Run");
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 bool app_running(exec::ExecutionManager& manager, const std::string& run_dir, const char* app) {
@@ -370,7 +377,7 @@ void test_state_transitions() {
     NX_CHECK(!app_running(manager, run_dir, "both_app"));
     NX_CHECK(!app_running(manager, run_dir, "fallback_app"));
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_transition_undefined() {
@@ -431,7 +438,7 @@ void test_transition_undefined() {
     NX_CHECK(failed.has_value() && failed->result == exec::StateResult::UnexpectedTermination);
     NX_CHECK(registry.group_state(0) == "Undefined");
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_dependency_order() {
@@ -511,7 +518,7 @@ void test_dependency_order() {
     NX_CHECK(confirmed.has_value() && confirmed->result == exec::StateResult::Success);
     NX_CHECK(app_running(manager, run_dir, "service"));
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_readiness_dependency() {
@@ -592,7 +599,7 @@ void test_readiness_dependency() {
     NX_CHECK(confirmed.has_value() && confirmed->result == exec::StateResult::Success);
     NX_CHECK(app_running(manager, run_dir, "client"));
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_daemon_exit_detection() {
@@ -654,7 +661,7 @@ void test_daemon_exit_detection() {
     NX_CHECK(tracker.state("quick_daemon") == exec::AppState::Failed);
     NX_CHECK(tracker.process_state("quick_daemon") == exec::ProcessState::Terminated);
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_termination_timeout() {
@@ -715,7 +722,7 @@ void test_termination_timeout() {
     NX_CHECK(registry.group_state(0) == "Off");
     NX_CHECK(!app_running(manager, run_dir, "stubborn"));
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_transition_timeout() {
@@ -780,7 +787,7 @@ void test_transition_timeout() {
     NX_CHECK(failed.has_value() && failed->result == exec::StateResult::OperationFailed);
     NX_CHECK(registry.group_state(0) == "Undefined");
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_reverse_termination_order() {
@@ -790,7 +797,7 @@ void test_reverse_termination_order() {
     NX_CHECK(name.has_value());
     const std::string run_dir = "/tmp/opencode/state_client_reverse_order";
     const std::string marker = run_dir + "/order.log";
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
     std::filesystem::create_directories(run_dir);
 
     auto trap_script = [&](const char* role) {
@@ -864,7 +871,7 @@ void test_reverse_termination_order() {
     const std::string order = read_text_file(marker);
     NX_CHECK(order.find("consumer") < order.find("provider"));
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_transition_cancellation() {
@@ -923,7 +930,7 @@ void test_transition_cancellation() {
     NX_CHECK(registry.group_state(0) == "Parking");
     NX_CHECK(!app_running(manager, run_dir, "blocking_app"));
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_process_handlers() {
@@ -979,7 +986,7 @@ void test_process_handlers() {
     NX_CHECK(stopped.size() == 1U && stopped.front() == "handler_app");
     NX_CHECK(registry.group_state(0) == "Off");
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_instance_directory_uses_manifest_instance() {
@@ -988,7 +995,7 @@ void test_instance_directory_uses_manifest_instance() {
     const auto name = com::ServiceName::create("Nexigen/Test/StateInstanceDir");
     NX_CHECK(name.has_value());
     const std::string run_dir = "/tmp/opencode/state_client_instance_dir";
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
     std::filesystem::create_directories(run_dir);
 
     exec::SuiteManifest manifest;
@@ -1020,7 +1027,17 @@ void test_instance_directory_uses_manifest_instance() {
     NX_CHECK(std::filesystem::exists(run_dir + "/instance_app/node7/resource.json"));
     NX_CHECK(!std::filesystem::exists(run_dir + "/instance_app/generic/resource.json"));
 
-    std::filesystem::remove_all(run_dir);
+    // `/bin/true` exits on its own; wait until the manager stops reporting it
+    // as running so the exit reaper has finished writing under the directory.
+    for (int i = 0; i < 1000; ++i) {
+        std::string state;
+        static_cast<void>(manager.status(run_dir + "/instance_app/node7", state));
+        if (state != "running") {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    remove_test_dir(run_dir);
 }
 
 void test_root_function_group() {
@@ -1029,7 +1046,7 @@ void test_root_function_group() {
     const auto name = com::ServiceName::create("Nexigen/Test/StateMachineFg");
     NX_CHECK(name.has_value());
     const std::string run_dir = "/tmp/opencode/state_client_machinefg";
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
     std::filesystem::create_directories(run_dir);
 
     exec::SuiteManifest manifest;
@@ -1066,7 +1083,7 @@ void test_root_function_group() {
     state_client->shutdown_machine();
     NX_CHECK(registry.group_state(0) == "Off");
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_access_control() {
@@ -1075,7 +1092,7 @@ void test_access_control() {
     const auto name = com::ServiceName::create("Nexigen/Test/StateAccess");
     NX_CHECK(name.has_value());
     const std::string run_dir = "/tmp/opencode/state_client_access";
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
     std::filesystem::create_directories(run_dir);
 
     exec::SuiteManifest manifest;
@@ -1118,7 +1135,7 @@ void test_access_control() {
     NX_CHECK(state_client->execute(command) == exec::StateResult::Success);
     NX_CHECK(registry.group_state(0) == "Run");
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_request_ids() {
@@ -1127,7 +1144,7 @@ void test_request_ids() {
     const auto name = com::ServiceName::create("Nexigen/Test/StateRequestIds");
     NX_CHECK(name.has_value());
     const std::string run_dir = "/tmp/opencode/state_client_request_ids";
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
     std::filesystem::create_directories(run_dir);
 
     exec::SuiteManifest manifest;
@@ -1180,7 +1197,7 @@ void test_request_ids() {
     NX_CHECK(state_client->execute(command("Parking", 0)) == exec::StateResult::Success);
     NX_CHECK(state_client->execute(command("Run", 5)) == exec::StateResult::InProgress);
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 void test_update_state() {
@@ -1189,7 +1206,7 @@ void test_update_state() {
     const auto name = com::ServiceName::create("Nexigen/Test/StateUpdate");
     NX_CHECK(name.has_value());
     const std::string run_dir = "/tmp/opencode/state_client_update";
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
     std::filesystem::create_directories(run_dir);
 
     exec::SuiteManifest manifest;
@@ -1231,7 +1248,7 @@ void test_update_state() {
     NX_CHECK(state_client->execute(command("Run")) == exec::StateResult::Success);
     NX_CHECK(registry.group_state(0) == "Run");
 
-    std::filesystem::remove_all(run_dir);
+    remove_test_dir(run_dir);
 }
 
 } // namespace

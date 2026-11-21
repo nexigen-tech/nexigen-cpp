@@ -2748,9 +2748,9 @@
     "semantic_hash": ""
   },
   "tests/exec/state_client_test.cpp": {
-    "mtime": 1794762967.7168474,
-    "seen": 1794765611.0362923,
-    "ast_hash": "4724e7dcbc111f75a9a71c9c0f2ed2ed",
+    "mtime": 1795297527.792545,
+    "seen": 1795298157.2612765,
+    "ast_hash": "7207a1293c36174abcb1ab1fe0af9184",
     "semantic_hash": ""
   },
   "tests/fuzz/http_parse_fuzz.cpp": {
@@ -12264,9 +12264,9 @@
     "semantic_hash": ""
   },
   ".scratch/meter-instrument-ownership/notes.md": {
-    "mtime": 1795027658.585569,
-    "seen": 1795269724.212702,
-    "ast_hash": "2a5b6840c0a560a1ca9be8cc809014bd",
+    "mtime": 1795297517.7926424,
+    "seen": 1795298157.2636478,
+    "ast_hash": "f7d4a7157f583e40b8b3bf04165acb0a",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-21-recorder-waitset/design.md": {
@@ -12420,9 +12420,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0001-time-source-policy.md": {
-    "mtime": 1795281193.693625,
-    "seen": 1795288681.338752,
-    "ast_hash": "7c0ed38203fa60d23bcfe17593498761",
+    "mtime": 1795297513.2036474,
+    "seen": 1795298157.2637541,
+    "ast_hash": "fe2dec83e752611f8621113c5e1fe4ca",
     "semantic_hash": ""
   },
   "docs/adr/0002-telemetry-handle-lifetime.md": {
