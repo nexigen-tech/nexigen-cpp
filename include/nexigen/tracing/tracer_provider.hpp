@@ -51,6 +51,8 @@
 #include <nlohmann/json.hpp>
 
 #include <nexigen/chrono/stamp_source.hpp>
+#include <nexigen/core/concepts/meter_concept.hpp>
+#include <nexigen/core/null_meter.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/sink_binding.hpp>
 #include <nexigen/core/thread_management.hpp>
@@ -143,8 +145,8 @@ public:
     /// @param sink Sink to bind; must outlive this provider.
     /// @note Spec `tracing/tracer-concepts`, requirement "TraceSink structural
     ///       concept".
-    template <concepts::TraceSink Sink>
-    TracerProvider(const TracerProviderConfig& config, Sink& sink) noexcept
+    template <concepts::TraceSink Sink, core::concepts::MeterLike M = core::NullMeter>
+    TracerProvider(const TracerProviderConfig& config, Sink& sink, M* meter = nullptr) noexcept
         : TracerProvider(config,
                          detail::SinkBinding{
                              static_cast<void*>(&sink),
@@ -157,7 +159,9 @@ public:
                              [](void* self) noexcept -> core::Status {
                                  return static_cast<Sink*>(self)->start();
                              },
-                             [](void* self) noexcept { static_cast<Sink*>(self)->stop(); }}) {}
+                             [](void* self) noexcept { static_cast<Sink*>(self)->stop(); }}) {
+        bind_counters(meter);
+    }
 
     /// @brief Copy construction is deleted: the provider owns worker and rings.
     TracerProvider(const TracerProvider&) = delete;
@@ -353,6 +357,44 @@ private:
     friend class Tracer<ShardCapacity, MaxThreads>;
     friend class ScopedSpan<ShardCapacity, MaxThreads>;
 
+    /// @brief Provider-owned instrument callbacks; no pointer leaves this component.
+    struct CounterBlock {
+        void* started_ctx{nullptr};
+        void (*started)(void*) noexcept{nullptr};
+        void* buffer_full_ctx{nullptr};
+        void (*buffer_full)(void*) noexcept{nullptr};
+        void* slot_exhausted_ctx{nullptr};
+        void (*slot_exhausted)(void*) noexcept{nullptr};
+
+        void started_hit() noexcept { if (started != nullptr) started(started_ctx); }
+        void buffer_full_hit() noexcept { if (buffer_full != nullptr) buffer_full(buffer_full_ctx); }
+        void slot_exhausted_hit() noexcept {
+            if (slot_exhausted != nullptr) slot_exhausted(slot_exhausted_ctx);
+        }
+    };
+
+    template <core::concepts::MeterLike M>
+    void bind_counters(M* meter) noexcept {
+        if (meter == nullptr) {
+            return;
+        }
+        using Counter =
+            std::remove_cvref_t<decltype(**meter->template create_counter<>("", ""))>;
+        if (auto c = meter->template create_counter<>("started", "1"); c.has_value()) {
+            counters_.started_ctx = *c;
+            counters_.started = [](void* p) noexcept { static_cast<Counter*>(p)->add(1U); };
+        }
+        if (auto c = meter->template create_counter<>("dropped.buffer_full", "1"); c.has_value()) {
+            counters_.buffer_full_ctx = *c;
+            counters_.buffer_full = [](void* p) noexcept { static_cast<Counter*>(p)->add(1U); };
+        }
+        if (auto c = meter->template create_counter<>("dropped.slot_exhausted", "1");
+            c.has_value()) {
+            counters_.slot_exhausted_ctx = *c;
+            counters_.slot_exhausted = [](void* p) noexcept { static_cast<Counter*>(p)->add(1U); };
+        }
+    }
+
     /// @brief Hidden common constructor: config + type-erased binding.
     ///
     /// Computes the rate-policy enable flag and the effective tracer limit
@@ -416,6 +458,7 @@ private:
                 core::ShardPoolState& state = pool_.state(index);
                 state.buffer_full.store(state.buffer_full.load(std::memory_order_relaxed) + 1U,
                                         std::memory_order_relaxed);
+                counters_.buffer_full_hit();
             }
         }
         detail::active_span_stack().truncate_to(stack_index);
@@ -539,6 +582,7 @@ private:
 
     TracerProviderConfig config_{}; ///< Configuration copy (cold reads).
     detail::SinkBinding binding_{}; ///< Erased sink callbacks.
+    CounterBlock counters_{};       ///< Provider-owned instrument counters.
 
     /// @brief Tracer pool: compile-time capacity; the EFFECTIVE limit is
     ///        `min(config.max_tracers, tracer_pool_capacity)`.

@@ -217,6 +217,11 @@ jobs:
         run: |
           ctest --test-dir build/com --output-on-failure --repeat until-pass:2
 
+      - name: Recorder smoke
+        run: |
+          ctest --test-dir build/com --output-on-failure \
+            -R "nexigen_recd_smoke|nexigen_event_gap_tracker_tests|nexigen_com_metrics_tests|nexigen_recd_config_tests"
+
   coverage-com:
     name: Coverage (COM)
     runs-on: ubuntu-24.04

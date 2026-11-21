@@ -30,6 +30,7 @@
 #include <nexigen/com/concepts/message_concept.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/publisher.hpp>
+#include <nexigen/com/transport_header.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/tracing/concepts/tracer_concept.hpp>
@@ -89,7 +90,11 @@ public:
                                      : sizeof(frame_.app_id);
         for (std::size_t i = 0; i < take; ++i) {
             frame_.app_id[i] = config_.app_id[i];
+            header_.app_id[i] = config_.app_id[i];
         }
+        header_.pid = pid_;
+        header_.publisher_id =
+            (static_cast<std::uint64_t>(pid_) << 32U) ^ reinterpret_cast<std::uintptr_t>(this);
         frame_.pid = pid_;
         frame_.version = SpanFrame::format_version;
     }
@@ -128,7 +133,7 @@ public:
             return std::unexpected(core::ErrorCode::SystemError);
         }
         auto publisher =
-            com::Publisher<SpanFrame>::create(*node_, *name, config_.subscriber_max_buffer_depth);
+            com::Publisher<SpanFrame, com::TransportHeader>::create(*node_, *name, config_.subscriber_max_buffer_depth);
         if (!publisher) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -156,7 +161,8 @@ public:
         }
         map_into_frame(record);
         const std::uint64_t lost_before = publisher_->lost_samples();
-        if (!publisher_->send_copy(frame_)) {
+        header_.sequence += 1U;
+        if (!publisher_->send_copy(frame_, header_)) {
             ++dropped_;
             return {};
         }
@@ -314,7 +320,8 @@ private:
 
     Iceoryx2TraceSinkConfig config_{};
     com::Node* node_{nullptr};
-    std::optional<com::Publisher<SpanFrame>> publisher_{};
+    std::optional<com::Publisher<SpanFrame, com::TransportHeader>> publisher_{};
+    com::TransportHeader header_{};
     std::uint32_t pid_{0U};
     std::uint64_t published_{0U};
     std::uint64_t dropped_{0U};

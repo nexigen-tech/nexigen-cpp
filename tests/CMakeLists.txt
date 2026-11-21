@@ -29,6 +29,10 @@ add_executable(nexigen_chrono_tests chrono/chrono_test.cpp)
 target_link_libraries(nexigen_chrono_tests PRIVATE nexigen_chrono Threads::Threads)
 
 add_test(NAME nexigen_chrono_tests COMMAND nexigen_chrono_tests)
+
+add_executable(nexigen_chrono_counters_tests chrono/provider_counters_test.cpp)
+target_link_libraries(nexigen_chrono_counters_tests PRIVATE nexigen_chrono Threads::Threads)
+add_test(NAME nexigen_chrono_counters_tests COMMAND nexigen_chrono_counters_tests)
 set_tests_properties(nexigen_chrono_tests PROPERTIES TIMEOUT 600)
 
 # Time-base service (change add-time-base-service): vocabularies, shared-memory
@@ -61,7 +65,8 @@ add_executable(nexigen_logging_tests
     logging/async_worker_test.cpp
     logging/stress_test.cpp
     logging/settings_test.cpp
-    logging/worker_test.cpp)
+    logging/worker_test.cpp
+    logging/logger_counters_test.cpp)
 target_link_libraries(nexigen_logging_tests PRIVATE nexigen_logging Threads::Threads)
 # Ворота латентности ≤20 ns включаются только в Release/RelWithDebInfo (design D18):
 # числа под Debug/санитайзерами нерепрезентативны, тест тогда проверяет только
@@ -126,6 +131,7 @@ add_executable(nexigen_tracing_tests
     tracing/latency_test.cpp
     tracing/tracing_settings_test.cpp
     tracing/tracer_provider_test.cpp
+    tracing/provider_counters_test.cpp
     tracing/record_format_test.cpp
     tracing/trace_propagation_test.cpp)
 target_link_libraries(nexigen_tracing_tests PRIVATE nexigen_tracing Threads::Threads)

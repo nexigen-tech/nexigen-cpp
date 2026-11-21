@@ -11,6 +11,7 @@
 #include <nexigen/com/error.hpp>
 #include <nexigen/com/event_consumer.hpp>
 #include <nexigen/com/event_producer.hpp>
+#include <nexigen/core/concepts/meter_concept.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
 
@@ -83,6 +84,29 @@ public:
         return EventConsumer<T, OnEvent, OnLoss>::create(*node_, name_, config_,
                                                          std::move(on_event),
                                                          std::move(on_loss));
+    }
+
+    /// @brief Create the producer endpoint with counters from `meter`.
+    ///
+    /// @tparam M Meter type satisfying `core::concepts::MeterLike`.
+    /// @param meter Borrowed meter; must outlive the producer.
+    /// @return Producer, or a mapped `com::Error`/`InvalidArgument`.
+    template <core::concepts::MeterLike M>
+    [[nodiscard]] Result<EventProducer<T, M>> producer(M& meter) noexcept {
+        return EventProducer<T, M>::create(*node_, name_, config_, &meter);
+    }
+
+    /// @brief Create the consumer endpoint with counters from `meter`.
+    ///
+    /// @tparam M Meter type satisfying `core::concepts::MeterLike`.
+    /// @param meter Borrowed meter; must outlive the consumer.
+    /// @return Consumer, or a mapped `com::Error`/`InvalidArgument`.
+    template <class OnEvent, class OnLoss, core::concepts::MeterLike M>
+    [[nodiscard]] Result<EventConsumer<T, OnEvent, OnLoss, M>>
+    consumer(OnEvent on_event, OnLoss on_loss, M& meter) noexcept {
+        return EventConsumer<T, OnEvent, OnLoss, M>::create(*node_, name_, config_,
+                                                            std::move(on_event),
+                                                            std::move(on_loss), &meter);
     }
 
     /// @brief Service name.

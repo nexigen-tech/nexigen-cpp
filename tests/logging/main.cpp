@@ -35,6 +35,7 @@ void suite_drop_visibility();
 void suite_producer_edge_cases();
 void suite_flush_summary_race();
 void suite_stress();
+void suite_logger_counters();
 
 int main() {
     nexigen::tests::install_test_time_base("logging");
@@ -70,6 +71,7 @@ int main() {
     suite_producer_edge_cases();
     suite_flush_summary_race();
     suite_stress();
+    suite_logger_counters();
     // Suites register here as groups 2..8 land (design D18).
     nexigen::tests::detach_test_time_base();
     const int failures = g_failures;

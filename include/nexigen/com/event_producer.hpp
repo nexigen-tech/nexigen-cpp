@@ -21,6 +21,8 @@
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/publish_outcome.hpp>
 #include <nexigen/com/publisher.hpp>
+#include <nexigen/core/concepts/meter_concept.hpp>
+#include <nexigen/core/null_meter.hpp>
 #include <nexigen/com/service_name.hpp>
 
 namespace nexigen::com {
@@ -69,7 +71,8 @@ struct EventProducerFaults {
 /// @tparam T Event payload; constrained by `concepts::EventPayload`.
 /// @note Spec `com/event-system`, requirements "Event production and publish
 ///       outcome" and "Producer epoch and source restart".
-template <concepts::EventPayload T> class EventProducer {
+template <concepts::EventPayload T, core::concepts::MeterLike M = core::NullMeter>
+class EventProducer {
 public:
     /// @brief Create the publisher and notifier for one channel.
     /// @param node Node that owns the transport membership.
@@ -77,7 +80,8 @@ public:
     /// @param config Channel limits; must match the consumer's configuration.
     /// @return Producer, or a mapped `com::Error`/`InvalidArgument`.
     [[nodiscard]] static Result<EventProducer> create(Node& node, ServiceName name,
-                                                      const ChannelConfig& config) noexcept {
+                                                      const ChannelConfig& config,
+                                                      M* meter = nullptr) noexcept {
         const Status valid = config.validate();
         if (!valid.has_value()) {
             return std::unexpected(valid.error());
@@ -91,7 +95,9 @@ public:
         if (!notifier.has_value()) {
             return std::unexpected(notifier.error());
         }
-        return EventProducer{std::move(name), std::move(*publisher), std::move(*notifier), config};
+        EventProducer result{std::move(name), std::move(*publisher), std::move(*notifier), config};
+        result.bind_counters(meter);
+        return result;
     }
 
     EventProducer(const EventProducer&) = delete;
@@ -221,31 +227,34 @@ private:
 
 #if defined(NEXIGEN_EVENT_SYSTEM_TESTING)
         if (detail::EventProducerFaults::fail_loan) {
-            ++stats_.send_failures;
+            record_publish_failure();
             return std::unexpected(Error::OutOfSamples);
         }
 #endif
         auto loan = publisher_.loan_uninit();
         if (!loan.has_value()) {
-            ++stats_.send_failures;
+            record_publish_failure();
             return std::unexpected(loan.error());
         }
         auto sample = loan->write_payload(payload);
         sample.user_header_mut() = header;
 #if defined(NEXIGEN_EVENT_SYSTEM_TESTING)
         if (detail::EventProducerFaults::fail_send) {
-            ++stats_.send_failures;
+            record_publish_failure();
             return std::unexpected(Error::UnableToDeliver);
         }
 #endif
         const auto sent = publisher_.send(std::move(sample));
         if (!sent.has_value()) {
-            ++stats_.send_failures;
+            record_publish_failure();
             return std::unexpected(sent.error());
         }
 
         ++sequence_;
         ++stats_.published;
+        if (published_ != nullptr) {
+            published_->add(1U);
+        }
         stats_.current_sequence = sequence_;
 #if defined(NEXIGEN_EVENT_SYSTEM_TESTING)
         const auto notified = detail::EventProducerFaults::fail_notify
@@ -261,6 +270,34 @@ private:
         return detail::publish_outcome_from_notify(notified);
     }
 
+    /// @brief Count one failed publication.
+    void record_publish_failure() noexcept {
+        ++stats_.send_failures;
+        if (publish_failed_ != nullptr) {
+            publish_failed_->add(1U);
+        }
+    }
+
+    /// @brief Create this producer's counters from the supplied meter.
+    void bind_counters(M* meter) noexcept {
+        meter_ = meter;
+        if (meter_ == nullptr) {
+            return;
+        }
+        if (auto created = meter_->template create_counter<>("published", "1"); created.has_value()) {
+            published_ = *created;
+        }
+        if (auto created = meter_->template create_counter<>("publish_failed", "1");
+            created.has_value()) {
+            publish_failed_ = *created;
+        }
+    }
+
+    using MeterCounter =
+        std::remove_cvref_t<decltype(**std::declval<M&>().template create_counter<>("", ""))>;
+    M* meter_{nullptr};
+    MeterCounter* published_{nullptr};
+    MeterCounter* publish_failed_{nullptr};
     ServiceName service_name_;
     Publisher<T, EventHeader> publisher_;
     EventNotifier notifier_;

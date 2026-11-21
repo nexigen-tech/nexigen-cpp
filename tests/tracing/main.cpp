@@ -18,6 +18,7 @@ void suite_writer_bounds_full();
 void suite_writer_escape_matrix();
 void suite_serialization_full();
 void suite_provider();
+void test_provider_counters();
 void suite_tracing_required_thread_failure();
 void suite_tracing_worker_thread_settings();
 void suite_trace_propagation();
@@ -39,6 +40,7 @@ int main() {
     suite_writer_escape_matrix();
     suite_serialization_full();
     suite_provider();
+    run_suite("provider_counters", test_provider_counters);
     suite_tracing_required_thread_failure();
     suite_tracing_worker_thread_settings();
     suite_trace_propagation();

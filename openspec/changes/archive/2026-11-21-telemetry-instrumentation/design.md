@@ -22,6 +22,18 @@ recording increments a pointer after a null check.
 - Chrono: `Provider<MaxSources, M>` creates `calibration_failed`, `acquire_exhausted`,
   `snapshot_failed`; increments sit on the existing error paths.
 
+### D1a. Instruments never leave the component that created them
+
+A component receives a `MeterLike` factory and creates the instruments it needs. The resulting
+instrument pointers stay inside that component: they are never returned, stored in another
+component, or passed across a module boundary. Other components receive behaviour, not instruments.
+
+Consequence for tracing: `TracerProvider` creates `started`, `dropped.buffer_full`, and
+`dropped.slot_exhausted`; `dropped.rate_limited` stays in the `DroppedStats` snapshot only, because
+it is counted in `Tracer::start_span` and metering it would require handing an instrument to another
+object. `Tracer` remains part of the tracing component: it may call the provider's non-template
+counter methods, but never receives a counter pointer.
+
 ### D2. Per-endpoint meters
 
 The composition root creates one meter per logger/provider (`MetricProvider::get_meter`), because

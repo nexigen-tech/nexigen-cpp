@@ -68,10 +68,10 @@ namespace nexigen::logging {
 /// @note Spec `logging/multi-producer`, requirement "Pre-allocated per-thread
 ///       shard array".
 template <std::size_t ShardCapacity = 128, std::size_t MessageCapacity = 128,
-          std::size_t MaxThreads = 32>
+          std::size_t MaxThreads = 32, core::concepts::MeterLike M = core::NullMeter>
 class Iceoryx2Logger {
     /// @brief Shard pool and hot-path producer used by this instantiation.
-    using Producer = detail::Producer<ShardCapacity, MessageCapacity, MaxThreads>;
+    using Producer = detail::Producer<ShardCapacity, MessageCapacity, MaxThreads, M>;
     /// @brief Transport sink that renders and publishes each drained record.
     using Sink = detail::Iceoryx2Sink<Producer>;
 
@@ -131,7 +131,9 @@ public:
     ///         `.value()`.
     /// @note Spec `logging/iceoryx2-logger`, requirement "Iceoryx2 logger
     ///       configuration", scenario "Invalid config is rejected".
-    [[nodiscard]] core::Status initialize(const Iceoryx2LoggerConfig& cfg) noexcept {
+    [[nodiscard]] core::Status initialize(const Iceoryx2LoggerConfig& cfg,
+                                          M* meter = nullptr) noexcept {
+        producer_.bind_meter(meter);
         if (!valid_config(cfg)) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }

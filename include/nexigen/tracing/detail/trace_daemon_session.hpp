@@ -34,6 +34,7 @@
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
+#include <nexigen/com/transport_header.hpp>
 #include <nexigen/com/waitset.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
@@ -330,7 +331,7 @@ private:
         if (!span_service) {
             return fail(core::ErrorCode::SystemError);
         }
-        auto subscriber = com::Subscriber<SpanFrame>::create(*node_, *span_service,
+        auto subscriber = com::Subscriber<SpanFrame, com::TransportHeader>::create(*node_, *span_service,
                                                              config_.subscriber_max_buffer_depth,
                                                              config_.subscriber_max_buffer_depth);
         if (!subscriber) {
@@ -571,7 +572,7 @@ private:
     /// Iceoryx2 node owning every port below.
     std::optional<com::Node> node_{};
     /// Incoming `SpanFrame` traffic.
-    std::optional<com::Subscriber<SpanFrame>> span_subscriber_{};
+    std::optional<com::Subscriber<SpanFrame, com::TransportHeader>> span_subscriber_{};
     /// Recovery notifications carrying the PHM function group.
     std::optional<com::Subscriber<sm::RecoveryNotification>> recovery_subscriber_{};
     /// Recovery event activations consumed by the trigger path.

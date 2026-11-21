@@ -191,6 +191,7 @@ public:
             // Beyond MaxThreads distinct producers: dropped and counted
             // (slot_exhausted), never blocked (spec "Threads beyond the pool
             // drop visibly").
+            provider.counters_.slot_exhausted_hit();
             return ScopedSpan<ShardCapacity, MaxThreads>{SpanPasskey{}, nullptr,
                                                          core::ErrorCode::Ok};
         }
@@ -259,6 +260,7 @@ public:
         // (8) Construct the guard as a PRVALUE (C++17 guaranteed elision —
         // constructed directly in the caller's storage, no copy, no move)
         // with the record filled inline by the constructor.
+        provider.counters_.started_hit();
         return ScopedSpan<ShardCapacity, MaxThreads>{
             SpanPasskey{},  &provider, slot,  stack_index, sampling, trace_id, span_id,
             parent_span_id, kind,      start, tid,         name,     location};

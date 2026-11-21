@@ -19,6 +19,8 @@
 #include <nexigen/com/sample.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
+#include <nexigen/core/concepts/meter_concept.hpp>
+#include <nexigen/core/null_meter.hpp>
 
 namespace nexigen::com {
 
@@ -34,7 +36,8 @@ namespace nexigen::com {
 /// @tparam OnLoss Callable invoked as `(const LossInfo&)`.
 /// @note Spec `com/event-system`, requirements "Transport loss detection and
 ///       callbacks" and "Consumer waiting and multiplexing".
-template <concepts::EventPayload T, class OnEvent, class OnLoss>
+template <concepts::EventPayload T, class OnEvent, class OnLoss,
+          core::concepts::MeterLike M = core::NullMeter>
 class EventConsumer final : public IEventConsumer {
 public:
     /// @brief Create the subscriber and listener for one channel.
@@ -46,7 +49,7 @@ public:
     /// @return Consumer, or a mapped `com::Error`/`InvalidArgument`.
     [[nodiscard]] static Result<EventConsumer> create(Node& node, ServiceName name,
                                                       const ChannelConfig& config, OnEvent on_event,
-                                                      OnLoss on_loss) noexcept {
+                                                      OnLoss on_loss, M* meter = nullptr) noexcept {
         const Status valid = config.validate();
         if (!valid.has_value()) {
             return std::unexpected(valid.error());
@@ -60,8 +63,10 @@ public:
         if (!listener.has_value()) {
             return std::unexpected(listener.error());
         }
-        return EventConsumer{std::move(name), std::move(*subscriber), std::move(*listener),
+        EventConsumer result{std::move(name), std::move(*subscriber), std::move(*listener),
                              std::move(on_event), std::move(on_loss)};
+        result.bind_counters(meter);
+        return result;
     }
 
     EventConsumer(const EventConsumer&) = delete;
@@ -161,6 +166,12 @@ private:
     void handle(const EventHeader& header, const T& payload) {
         const auto observation = tracker_.observe(header);
         if (observation.has_loss) {
+            if (lost_ != nullptr && observation.lost_count > 0U) {
+                lost_->add(observation.lost_count);
+            }
+            if (duplicates_ != nullptr && observation.reason == LossReason::Duplicate) {
+                duplicates_->add(1U);
+            }
             LossInfo info{};
             info.reason = observation.reason;
             info.expected_sequence = observation.expected_sequence;
@@ -174,10 +185,37 @@ private:
             on_loss_(info);
         }
         if (observation.deliver) {
+            if (received_ != nullptr) {
+                received_->add(1U);
+            }
             on_event_(header, payload);
         }
     }
 
+    /// @brief Create this consumer's counters from the supplied meter.
+    void bind_counters(M* meter) noexcept {
+        meter_ = meter;
+        if (meter_ == nullptr) {
+            return;
+        }
+        if (auto created = meter_->template create_counter<>("received", "1"); created.has_value()) {
+            received_ = *created;
+        }
+        if (auto created = meter_->template create_counter<>("lost", "1"); created.has_value()) {
+            lost_ = *created;
+        }
+        if (auto created = meter_->template create_counter<>("duplicates", "1");
+            created.has_value()) {
+            duplicates_ = *created;
+        }
+    }
+
+    using MeterCounter =
+        std::remove_cvref_t<decltype(**std::declval<M&>().template create_counter<>("", ""))>;
+    M* meter_{nullptr};
+    MeterCounter* received_{nullptr};
+    MeterCounter* lost_{nullptr};
+    MeterCounter* duplicates_{nullptr};
     ServiceName service_name_;
     Subscriber<T, EventHeader> subscriber_;
     EventListener listener_;

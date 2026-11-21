@@ -16,11 +16,12 @@
 #include <iox2/iceoryx2.hpp>
 
 #include <nexigen/com/concepts/message_concept.hpp>
+#include <nexigen/core/concepts/meter_concept.hpp>
 
 namespace nexigen::com {
 
 /// @brief Forward declaration of the subscriber that produces `Sample` views.
-template <concepts::Message T, typename H> class Subscriber;
+template <concepts::Message T, typename H, core::concepts::MeterLike M> class Subscriber;
 
 /// @brief Read-only view of one received payload plus an optional custom header.
 ///
@@ -84,6 +85,15 @@ public:
         return inner_.user_header();
     }
 
+    /// @brief Samples missed by this subscriber before this one.
+    ///
+    /// Non-zero only when the publisher attached a `TransportHeader`; the
+    /// subscriber compares sequences per publisher id.
+    ///
+    /// @return Number of missed samples, or `0` on the first sample or when no
+    ///         header is used.
+    [[nodiscard]] std::uint64_t lost_before() const noexcept { return lost_before_; }
+
     /// @brief Render the cold-path diagnostic string.
     ///
     /// @return The constant marker `Sample()`; per-sample state lives in the
@@ -100,16 +110,18 @@ public:
     [[nodiscard]] iox2::Sample<iox2::ServiceType::Ipc, T, H>& handle() noexcept { return inner_; }
 
 private:
-    friend class Subscriber<T, H>;
+    template <concepts::Message TP, typename HP, core::concepts::MeterLike MP> friend class Subscriber;
 
     /// @brief Adopt a received transport sample.
     ///
     /// @param inner Transport sample returned by the subscriber.
     /// @note Private by design: only `Subscriber::receive()` produces views.
-    explicit Sample(iox2::Sample<iox2::ServiceType::Ipc, T, H> inner) noexcept
-        : inner_(std::move(inner)) {}
+    explicit Sample(iox2::Sample<iox2::ServiceType::Ipc, T, H> inner,
+                    std::uint64_t lost_before = 0) noexcept
+        : inner_(std::move(inner)), lost_before_(lost_before) {}
 
     iox2::Sample<iox2::ServiceType::Ipc, T, H> inner_; ///< Owned slot borrow.
+    std::uint64_t lost_before_{0}; ///< Missed before this sample (header-based).
 };
 
 /// @brief Free helper mirroring `Sample::to_string()`.

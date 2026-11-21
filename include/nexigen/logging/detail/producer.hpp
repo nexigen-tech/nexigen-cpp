@@ -62,6 +62,8 @@
 #include <unistd.h>
 
 #include <nexigen/core/result.hpp>
+#include <nexigen/core/concepts/meter_concept.hpp>
+#include <nexigen/core/null_meter.hpp>
 #include <nexigen/core/shard_pool.hpp>
 #include <nexigen/core/spsc_ring_buffer.hpp>
 #include <nexigen/chrono/stamp_source.hpp>
@@ -116,11 +118,49 @@ namespace nexigen::logging::detail {
 /// @note Spec `logging/multi-producer`, requirements "Pre-allocated per-thread
 ///       shard array", "Thread-local slot registration", and "Sharded drop
 ///       accounting without contention".
-template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t MaxThreads = 32>
+template <std::size_t ShardCapacity, std::size_t MessageCapacity, std::size_t MaxThreads = 32,
+          core::concepts::MeterLike M = core::NullMeter>
 class Producer {
     static_assert(ShardCapacity >= 1 && (ShardCapacity & (ShardCapacity - 1)) == 0,
                   "shard capacity must be a positive power of two");
     static_assert(MaxThreads >= 1, "shard pool must hold at least one slot");
+    using MeterCounter =
+        std::remove_cvref_t<decltype(**std::declval<M&>().template create_counter<>("", ""))>;
+
+public:
+    void record_rate_limited() noexcept {
+        if (rate_limited_ != nullptr) {
+            rate_limited_->add(1U);
+        }
+    }
+
+    void record_buffer_full() noexcept {
+        if (buffer_full_ != nullptr) {
+            buffer_full_->add(1U);
+        }
+    }
+
+    /// @brief Create the producer's counters from the supplied meter.
+    void bind_meter(M* meter) noexcept {
+        meter_ = meter;
+        if (meter_ == nullptr) {
+            return;
+        }
+        if (auto c = meter_->template create_counter<>("accepted", "1"); c.has_value()) {
+            accepted_ = *c;
+        }
+        if (auto c = meter_->template create_counter<>("dropped.rate_limited", "1");
+            c.has_value()) {
+            rate_limited_ = *c;
+        }
+        if (auto c = meter_->template create_counter<>("dropped.buffer_full", "1"); c.has_value()) {
+            buffer_full_ = *c;
+        }
+        if (auto c = meter_->template create_counter<>("dropped.slot_exhausted", "1");
+            c.has_value()) {
+            slot_exhausted_ = *c;
+        }
+    }
 
     /// @brief Record type stored in every shard and rendered by the sinks.
     using Record = LogRecord<MessageCapacity>;
@@ -131,6 +171,11 @@ class Producer {
     /// `core/ShardPool` (core/shard_pool.hpp). Slot `s`'s producer end is
     /// touched ONLY by its owner thread; the worker consumes all shards.
     core::ShardPool<Record, ShardCapacity, MaxThreads> pool_{};
+    M* meter_{nullptr};
+    MeterCounter* accepted_{nullptr};
+    MeterCounter* rate_limited_{nullptr};
+    MeterCounter* buffer_full_{nullptr};
+    MeterCounter* slot_exhausted_{nullptr};
 
     /// @brief One stamp source per slot (design D6).
     ///
@@ -489,6 +534,9 @@ public:
 
         const std::int32_t slot = pool_.claim_slot();
         if (slot < 0) {
+            if (slot_exhausted_ != nullptr) {
+                slot_exhausted_->add(1U);
+            }
             return; // slot-exhausted drop already counted (never blocks)
         }
 
@@ -511,6 +559,7 @@ public:
             }
             if (st.tokens_used >= policy_.max_records_per_window) {
                 bump(st.rate_limited);
+                record_rate_limited();
                 return;
             }
             ++st.tokens_used;
@@ -561,6 +610,9 @@ public:
         const core::Status pushed = pool_.ring(static_cast<std::size_t>(slot)).try_push(rec);
         if (!pushed) {
             bump(st.buffer_full);
+            record_buffer_full();
+        } else if (accepted_ != nullptr) {
+            accepted_->add(1U);
         }
     }
 

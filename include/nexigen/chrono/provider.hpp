@@ -36,6 +36,8 @@
 #include <nexigen/chrono/stamp_source.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/chrono/utc_offset.hpp>
+#include <nexigen/core/concepts/meter_concept.hpp>
+#include <nexigen/core/null_meter.hpp>
 #include <nexigen/core/result.hpp>
 
 namespace nexigen::chrono {
@@ -64,7 +66,8 @@ namespace nexigen::chrono {
 /// @note Spec `chrono/provider`, requirement "Provider construction and sink
 ///       binding"; requirement "Fixed stamper bank capacity"; requirement
 ///       "Steady-state allocation of the authority".
-template <std::size_t MaxSources = 64> class Provider {
+template <std::size_t MaxSources = 64, core::concepts::MeterLike M = core::NullMeter>
+class Provider {
 public:
     /// @brief The per-source stamper type issued to producers.
     using Stamper = StampSource;
@@ -83,7 +86,7 @@ public:
     /// @note Spec `chrono/provider`, requirement "Provider construction and sink
     ///       binding".
     template <concepts::Sink Sink>
-    Provider(const ProviderConfig& config, Sink& sink)
+    Provider(const ProviderConfig& config, Sink& sink, M* meter = nullptr)
         : Provider(config, core::SinkBinding<Snapshot>{
                                static_cast<void*>(&sink),
                                [](void* self, const Snapshot& snapshot) noexcept -> core::Status {
@@ -91,7 +94,9 @@ public:
                                },
                                [](void* self) noexcept -> core::Status {
                                    return static_cast<Sink*>(self)->flush();
-                               }}) {}
+                               }}) {
+        bind_counters(meter);
+    }
 
     /// @brief Copying is deleted: the bank is fixed in place.
     Provider(const Provider&) = delete;
@@ -135,6 +140,9 @@ public:
         calibration_failed_.store(first != core::ErrorCode::Ok, std::memory_order_relaxed);
         prepared_.store(first == core::ErrorCode::Ok, std::memory_order_release);
         if (first != core::ErrorCode::Ok) {
+            if (calibration_failed_counter_ != nullptr) {
+                calibration_failed_counter_->add(1U);
+            }
             return std::unexpected(first);
         }
         return {};
@@ -161,6 +169,9 @@ public:
         }
         const std::size_t slot = next_free_.fetch_add(1, std::memory_order_relaxed);
         if (slot >= MaxSources) {
+            if (acquire_exhausted_ != nullptr) {
+                acquire_exhausted_->add(1U);
+            }
             return std::unexpected(core::ErrorCode::ResourceExhausted);
         }
         return &bank_[slot];
@@ -268,6 +279,30 @@ private:
     alignas(64) std::array<StampSource, MaxSources> bank_{}; ///< Fixed stamper storage.
     std::atomic<std::size_t> next_free_{0};       ///< Next bank slot; relaxed, uniqueness only.
     std::atomic<bool> prepared_{false};           ///< Release/acquire gate for calibration.
+    /// @brief Create this provider's counters from the supplied meter.
+    void bind_counters(M* meter) noexcept {
+        meter_ = meter;
+        if (meter_ == nullptr) {
+            return;
+        }
+        if (auto c = meter_->template create_counter<>("calibration_failed", "1");
+            c.has_value()) {
+            calibration_failed_counter_ = *c;
+        }
+        if (auto c = meter_->template create_counter<>("acquire_exhausted", "1"); c.has_value()) {
+            acquire_exhausted_ = *c;
+        }
+        if (auto c = meter_->template create_counter<>("snapshot_failed", "1"); c.has_value()) {
+            snapshot_failed_ = *c;
+        }
+    }
+
+    using MeterCounter =
+        std::remove_cvref_t<decltype(**std::declval<M&>().template create_counter<>("", ""))>;
+    M* meter_{nullptr};
+    MeterCounter* calibration_failed_counter_{nullptr};
+    MeterCounter* acquire_exhausted_{nullptr};
+    MeterCounter* snapshot_failed_{nullptr};
     std::atomic<bool> calibration_failed_{false}; ///< Sticky cold-path failure flag.
     ProviderConfig config_{};                     ///< Copied construction configuration.
     core::SinkBinding<Snapshot> binding_{};       ///< Type-erased sink thunks.

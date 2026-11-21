@@ -22,6 +22,7 @@
 #include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/publisher.hpp>
+#include <nexigen/com/transport_header.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/metrics/iceoryx2_metric_sink_config.hpp>
@@ -60,8 +61,12 @@ public:
                                      : sizeof(frame_.app_id);
         for (std::size_t i = 0; i < take; ++i) {
             frame_.app_id[i] = config_.app_id[i];
+            header_.app_id[i] = config_.app_id[i];
         }
         frame_.pid = pid_;
+        header_.pid = pid_;
+        header_.publisher_id =
+            (static_cast<std::uint64_t>(pid_) << 32U) ^ reinterpret_cast<std::uintptr_t>(this);
     }
 
     /// @brief Copy construction is deleted: the sink owns live transport handles.
@@ -89,7 +94,7 @@ public:
             return std::unexpected(core::ErrorCode::SystemError);
         }
         auto publisher =
-            com::Publisher<MetricFrame>::create(*node_, *name, config_.subscriber_max_buffer_size);
+            com::Publisher<MetricFrame, com::TransportHeader>::create(*node_, *name, config_.subscriber_max_buffer_size);
         if (!publisher) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -132,7 +137,8 @@ public:
         std::uint32_t published = 0;
         for (std::uint32_t i = 0; i < batch.record_count; ++i) {
             frame_.record = batch.records[i];
-            if (!publisher_->send_copy(frame_)) {
+            header_.sequence += 1U;
+            if (!publisher_->send_copy(frame_, header_)) {
                 continue; // transport out of samples: dropped, never blocks
             }
             ++published;
@@ -175,7 +181,8 @@ public:
 private:
     Iceoryx2MetricSinkConfig config_{};
     com::Node* node_{nullptr};
-    std::optional<com::Publisher<MetricFrame>> publisher_{};
+    std::optional<com::Publisher<MetricFrame, com::TransportHeader>> publisher_{};
+    com::TransportHeader header_{};
     std::optional<com::EventNotifier> notifier_{};
     std::uint32_t pid_{0};
     MetricFrame frame_{}; ///< reusable fixed scratch (no per-batch allocation)

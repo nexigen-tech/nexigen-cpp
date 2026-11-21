@@ -48,6 +48,10 @@ flowchart LR
 - `SegmentFooter` is 64 bytes and carries the close CRC.
 - Every segment starts with the schema and channel declarations it uses.
 
+The built-in descriptors for `nexigen.log.LogFrame`, `nexigen.metrics.MetricFrame`, and
+`nexigen.tracing.SpanFrame` enumerate every frame field and are pinned to the C++ layouts by
+compile-time checks in `tests/recorder/recorder_test.cpp`.
+
 ## Converter
 
 `nexigen-export` is one-shot; there is no daemon, follow mode, or background
@@ -182,3 +186,21 @@ ASan, and TSan trees and needs no fixtures beyond the session it writes itself:
 ```bash
 ctest --test-dir build -R nexigen_export_cli --output-on-failure
 ```
+
+## Telemetry collector (`nexigen-recd`)
+
+`nexigen-recd` records the suite log, metric, and trace services plus any configured
+`com` event services into one session:
+
+```bash
+nexigen-recd --session-root /var/log/nexigen/sessions \
+    --event-service Nexigen/Event/controls
+```
+
+Streams are enabled by default; `--no-logs`, `--no-metrics`, and `--no-traces`
+disable them, and `--event-service` enables event capture for one service.
+`--max-bytes` and `--retention-bytes` bound segments. The collector binds the
+session to the kernel boot token and appends `TimeSync` at start and once per
+second, so recorded instants stay resolvable after rotation. Run one
+destination per stream: running the collector next to `nexigen-logd` stores the
+same telemetry twice.

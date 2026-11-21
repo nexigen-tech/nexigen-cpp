@@ -74,10 +74,10 @@ namespace nexigen::logging {
 ///       shard array" and requirement "Slot exhaustion drops instead of
 ///       blocking".
 template <std::size_t ShardCapacity = 128, std::size_t MessageCapacity = 128,
-          std::size_t MaxThreads = 32>
+          std::size_t MaxThreads = 32, core::concepts::MeterLike M = core::NullMeter>
 class ConsoleLogger {
     /// @brief Shard pool and hot-path producer used by this instantiation.
-    using Producer = detail::Producer<ShardCapacity, MessageCapacity, MaxThreads>;
+    using Producer = detail::Producer<ShardCapacity, MessageCapacity, MaxThreads, M>;
 
     /// @brief Per-thread shards plus the level/throttle control cells.
     Producer producer_{};
@@ -131,7 +131,8 @@ public:
     /// @note Spec `logging/console-logger`, requirement "Asynchronous wait-free
     ///       console output" and requirement "Console writer accepts a thread
     ///       specification".
-    [[nodiscard]] core::Status initialize(Config cfg = Config{}) noexcept {
+    [[nodiscard]] core::Status initialize(Config cfg = Config{}, M* meter = nullptr) noexcept {
+        producer_.bind_meter(meter);
         producer_.set_level(cfg.initial_level);
         const core::Status calibrated = producer_.initialize();
         if (!calibrated) {

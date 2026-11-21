@@ -16,11 +16,12 @@
 #include <iox2/iceoryx2.hpp>
 
 #include <nexigen/com/concepts/message_concept.hpp>
+#include <nexigen/core/concepts/meter_concept.hpp>
 
 namespace nexigen::com {
 
 /// @brief Forward declaration of the publisher that loans samples.
-template <concepts::Message T, typename H> class Publisher;
+template <concepts::Message T, typename H, core::concepts::MeterLike M> class Publisher;
 
 /// @brief Forward declaration of the uninitialized loan handle.
 template <concepts::Message T, typename H> class SampleMutUninit;
@@ -100,7 +101,7 @@ public:
     }
 
 private:
-    friend class Publisher<T, H>;
+    template <concepts::Message TP, typename HP, core::concepts::MeterLike MP> friend class Publisher;
     friend class SampleMutUninit<T, H>;
 
     /// @brief Adopt an initialized transport sample.
@@ -164,7 +165,7 @@ public:
     }
 
 private:
-    friend class Publisher<T, H>;
+    template <concepts::Message TP, typename HP, core::concepts::MeterLike MP> friend class Publisher;
 
     /// @brief Adopt an uninitialized transport loan.
     ///

@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <format>
 #include <string>
 #include <type_traits>
@@ -26,6 +27,8 @@
 #include <nexigen/com/publish_subscribe_options.hpp>
 #include <nexigen/com/sample_mut.hpp>
 #include <nexigen/com/service_name.hpp>
+#include <nexigen/core/concepts/meter_concept.hpp>
+#include <nexigen/core/null_meter.hpp>
 
 namespace nexigen::com {
 
@@ -59,11 +62,16 @@ namespace nexigen::com {
 ///       "Non-blocking overflow", "Subscriber lag telemetry", and
 ///       "Port diagnostics". The service is opened or created by `create()`
 ///       (spec `com/service-management`, "Node and daemon-less discovery").
-template <concepts::Message T, typename H = void> class Publisher {
+template <concepts::Message T, typename H = void, core::concepts::MeterLike M = core::NullMeter>
+class Publisher {
     static_assert(std::is_void_v<H> || concepts::Message<H>,
                   "the custom header must satisfy com::concepts::Message");
 
 public:
+    /// @brief Counter type produced by the supplied meter.
+    using MeterCounter =
+        std::remove_cvref_t<decltype(**std::declval<M&>().template create_counter<>("", ""))>;
+
     /// @brief Open or create the service on `node` and create the publisher.
     ///
     /// Uses the transport's default subscriber buffer depth. The service is
@@ -99,7 +107,8 @@ public:
     /// @note Spec `com/publish-subscribe`, requirement "Publish-subscribe
     ///       service options".
     [[nodiscard]] static Result<Publisher> create(Node& node, const ServiceName& name,
-                                                  const PublishSubscribeOptions& options) noexcept {
+                                                  const PublishSubscribeOptions& options,
+                                                  M* meter = nullptr) noexcept {
         auto builder = node.handle().service_builder(name.handle()).publish_subscribe<T>();
         if (options.max_subscribers > 0U) {
             static_cast<void>(std::move(builder).max_subscribers(options.max_subscribers));
@@ -111,15 +120,16 @@ public:
             static_cast<void>(std::move(builder).max_nodes(options.max_nodes));
         }
         if (options.subscriber_max_buffer_size > 0U) {
-            static_cast<void>(std::move(builder).subscriber_max_buffer_size(
-                options.subscriber_max_buffer_size));
+            static_cast<void>(
+                std::move(builder).subscriber_max_buffer_size(options.subscriber_max_buffer_size));
         }
         if (options.history_size > 0U) {
             static_cast<void>(std::move(builder).history_size(options.history_size));
         }
         auto service = [&]() {
             if constexpr (std::is_void_v<H>) {
-                return std::move(builder).enable_safe_overflow(options.enable_safe_overflow)
+                return std::move(builder)
+                    .enable_safe_overflow(options.enable_safe_overflow)
                     .open_or_create();
             } else {
                 return std::move(builder)
@@ -137,7 +147,9 @@ public:
         if (!publisher) {
             return std::unexpected(detail::map_error(publisher.error()));
         }
-        return Publisher{name, std::move(*publisher)};
+        Publisher result{name, std::move(*publisher)};
+        result.bind_counters(meter);
+        return result;
     }
 
     /// @brief Open or create the service with an explicit subscriber buffer depth.
@@ -176,7 +188,10 @@ public:
     /// @note The service name is moved as well; diagnostics on the moved-from
     ///       object are unspecified.
     Publisher(Publisher&& other) noexcept
-        : service_name_(std::move(other.service_name_)), inner_(std::move(other.inner_)) {
+        : service_name_(std::move(other.service_name_)),
+          meter_(other.meter_), published_(other.published_),
+          publish_failed_(other.publish_failed_), evicted_(other.evicted_),
+          inner_(std::move(other.inner_)) {
         telemetry_.queued_samples_.store(
             other.telemetry_.queued_samples_.load(std::memory_order_relaxed),
             std::memory_order_relaxed);
@@ -201,6 +216,10 @@ public:
     Publisher& operator=(Publisher&& other) noexcept {
         if (this != &other) {
             service_name_ = std::move(other.service_name_);
+            meter_ = other.meter_;
+            published_ = other.published_;
+            publish_failed_ = other.publish_failed_;
+            evicted_ = other.evicted_;
             inner_ = std::move(other.inner_);
             telemetry_.queued_samples_.store(
                 other.telemetry_.queued_samples_.load(std::memory_order_relaxed),
@@ -257,6 +276,9 @@ public:
     [[nodiscard]] Status send(SampleMut<T, H> sample) noexcept {
         auto sent = iox2::send(std::move(sample.handle()));
         if (!sent) {
+            if (publish_failed_ != nullptr) {
+                publish_failed_->add(1U);
+            }
             return std::unexpected(detail::map_error(sent.error()));
         }
         record_delivery(*sent);
@@ -282,10 +304,35 @@ public:
     [[nodiscard]] Status send_copy(const T& payload) noexcept {
         auto sent = inner_.send_copy(payload);
         if (!sent) {
+            if (publish_failed_ != nullptr) {
+                publish_failed_->add(1U);
+            }
             return std::unexpected(detail::map_error(sent.error()));
         }
         record_delivery(*sent);
         return {};
+    }
+
+    /// @brief Publish a caller-owned payload with an explicit user header.
+    ///
+    /// The header is written into the same loaned slot before the single send,
+    /// so the payload and its `TransportHeader` travel together.
+    ///
+    /// @param payload Fully formed payload copied into shared memory once.
+    /// @param header User header attached to the sample.
+    /// @return Empty `Status` on success, or a mapped `com::Error`.
+    /// @note Spec `com/publish-subscribe`, requirement "Transport sequence
+    ///       header".
+    template <class Header = H>
+        requires(!std::is_void_v<Header>)
+    [[nodiscard]] Status send_copy(const T& payload, const Header& header) noexcept {
+        auto loaned = loan_uninit();
+        if (!loaned) {
+            return std::unexpected(loaned.error());
+        }
+        auto sample = (*loaned).write_payload(payload);
+        sample.template user_header_mut<Header>() = header;
+        return send(std::move(sample));
     }
 
     /// @brief Cumulative number of samples evicted by the discard policy.
@@ -336,6 +383,9 @@ private:
     ///       diagnostics with a single publishing writer.
     void record_delivery(std::uint64_t delivered) noexcept {
         telemetry_.send_count_.fetch_add(1, std::memory_order_relaxed);
+        if (published_ != nullptr) {
+            published_->add(1U);
+        }
         const std::uint64_t peak = telemetry_.peak_recipients_.load(std::memory_order_relaxed);
         if (delivered < peak) {
             // Some receiver's queue was full: those samples are discarded by
@@ -343,6 +393,9 @@ private:
             // event.
             telemetry_.lost_samples_.fetch_add(peak - delivered, std::memory_order_relaxed);
             telemetry_.queued_samples_.fetch_add(1, std::memory_order_relaxed);
+            if (evicted_ != nullptr) {
+                evicted_->add(peak - delivered);
+            }
         } else if (delivered > peak) {
             telemetry_.peak_recipients_.store(delivered, std::memory_order_relaxed);
         }
@@ -378,10 +431,48 @@ private:
         std::atomic<std::uint64_t> peak_recipients_{0};
     };
 
-    ServiceName service_name_; ///< Service identity rendered by `to_string()`.
+    /// @brief Create this publisher's counters from the supplied meter.
+    void bind_counters(M* meter) noexcept {
+        meter_ = meter;
+        if (meter_ == nullptr) {
+            return;
+        }
+        if (auto created = meter_->template create_counter<>("published", "1");
+            created.has_value()) {
+            published_ = *created;
+        }
+        if (auto created = meter_->template create_counter<>("publish_failed", "1");
+            created.has_value()) {
+            publish_failed_ = *created;
+        }
+        if (auto created = meter_->template create_counter<>("evicted", "1"); created.has_value()) {
+            evicted_ = *created;
+        }
+    }
+
+    ServiceName service_name_;              ///< Service identity rendered by `to_string()`.
+    M* meter_{nullptr};                     ///< Borrowed meter; outlives the publisher.
+    MeterCounter* published_{nullptr};      ///< Successful publications.
+    MeterCounter* publish_failed_{nullptr}; ///< Failed publications.
+    MeterCounter* evicted_{nullptr};        ///< Evicted samples.
     iox2::Publisher<iox2::ServiceType::Ipc, T, H> inner_; ///< Owned transport handle.
     Telemetry telemetry_{};                               ///< Publication and lag counters.
 };
+
+/// @brief Create a publisher and deduce the meter type.
+///
+/// @tparam T Payload type.
+/// @tparam H Optional user header.
+/// @tparam M Meter type satisfying `core::concepts::MeterLike`.
+/// @return The publisher, or a mapped `com::Error`.
+/// @note Spec `com/publish-subscribe`, requirement "Endpoint counters from the
+///       meter".
+template <concepts::Message T, typename H = void, core::concepts::MeterLike M>
+[[nodiscard]] Result<Publisher<T, H, M>> make_publisher(Node& node, const ServiceName& name,
+                                                        const PublishSubscribeOptions& options,
+                                                        M& meter) noexcept {
+    return Publisher<T, H, M>::create(node, name, options, &meter);
+}
 
 /// @brief Free helper mirroring `Publisher::to_string()`.
 ///

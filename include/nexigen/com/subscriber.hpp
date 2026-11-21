@@ -6,6 +6,7 @@
 #pragma once
 
 #include <format>
+#include <array>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -20,6 +21,9 @@
 #include <nexigen/com/publish_subscribe_options.hpp>
 #include <nexigen/com/sample.hpp>
 #include <nexigen/com/service_name.hpp>
+#include <nexigen/com/transport_header.hpp>
+#include <nexigen/core/concepts/meter_concept.hpp>
+#include <nexigen/core/null_meter.hpp>
 
 namespace nexigen::com {
 
@@ -48,11 +52,16 @@ namespace nexigen::com {
 ///         `com::concepts::Message`.
 /// @note Implements `com/publish-subscribe`: "Subscriber receive",
 ///       "Non-blocking overflow", and "Port diagnostics".
-template <concepts::Message T, typename H = void> class Subscriber {
+template <concepts::Message T, typename H = void, core::concepts::MeterLike M = core::NullMeter>
+class Subscriber {
     static_assert(std::is_void_v<H> || concepts::Message<H>,
                   "the custom header must satisfy com::concepts::Message");
 
 public:
+    /// @brief Counter type produced by the supplied meter.
+    using MeterCounter =
+        std::remove_cvref_t<decltype(**std::declval<M&>().template create_counter<>("", ""))>;
+
     /// @brief Open or create the service with the transport-default buffer.
     ///
     /// @param node Node that owns this process's transport membership; must
@@ -81,8 +90,9 @@ public:
     /// @return The constructed subscriber, or a mapped `com::Error` on failure.
     /// @note Spec `com/publish-subscribe`, requirement "Publish-subscribe
     ///       service options".
-    [[nodiscard]] static Result<Subscriber> create(Node& node, const ServiceName& name,
-                                                   const PublishSubscribeOptions& options) noexcept {
+    [[nodiscard]] static Result<Subscriber>
+    create(Node& node, const ServiceName& name, const PublishSubscribeOptions& options,
+           M* meter = nullptr) noexcept {
         auto builder = node.handle().service_builder(name.handle()).publish_subscribe<T>();
         if (options.max_subscribers > 0U) {
             static_cast<void>(std::move(builder).max_subscribers(options.max_subscribers));
@@ -94,15 +104,16 @@ public:
             static_cast<void>(std::move(builder).max_nodes(options.max_nodes));
         }
         if (options.subscriber_max_buffer_size > 0U) {
-            static_cast<void>(std::move(builder).subscriber_max_buffer_size(
-                options.subscriber_max_buffer_size));
+            static_cast<void>(
+                std::move(builder).subscriber_max_buffer_size(options.subscriber_max_buffer_size));
         }
         if (options.history_size > 0U) {
             static_cast<void>(std::move(builder).history_size(options.history_size));
         }
         auto service = [&]() {
             if constexpr (std::is_void_v<H>) {
-                return std::move(builder).enable_safe_overflow(options.enable_safe_overflow)
+                return std::move(builder)
+                    .enable_safe_overflow(options.enable_safe_overflow)
                     .open_or_create();
             } else {
                 return std::move(builder)
@@ -120,14 +131,16 @@ public:
                 std::move(subscriber_builder).buffer_size(options.subscriber_buffer_size));
         }
         if (options.subscriber_history_request > 0U) {
-            static_cast<void>(std::move(subscriber_builder).history_request(
-                options.subscriber_history_request));
+            static_cast<void>(
+                std::move(subscriber_builder).history_request(options.subscriber_history_request));
         }
         auto subscriber = std::move(subscriber_builder).create();
         if (!subscriber) {
             return std::unexpected(detail::map_error(subscriber.error()));
         }
-        return Subscriber{name, std::move(*subscriber)};
+        Subscriber result{name, std::move(*subscriber)};
+        result.bind_counters(meter);
+        return result;
     }
 
     /// @brief Open or create the service with an explicit receiver buffer size.
@@ -210,7 +223,18 @@ public:
         if (!received->has_value()) {
             return std::nullopt;
         }
-        return Sample<T, H>{std::move(*(*received))};
+        auto inner = std::move(*(*received));
+        std::uint64_t lost = 0;
+        if constexpr (std::same_as<H, TransportHeader>) {
+            lost = observe_sequence(inner.user_header());
+        }
+        if (received_ != nullptr) {
+            received_->add(1U);
+        }
+        if (lost_ != nullptr && lost > 0U) {
+            lost_->add(lost);
+        }
+        return Sample<T, H>{std::move(inner), lost};
     }
 
     /// @brief Render the cold-path diagnostic string.
@@ -223,6 +247,56 @@ public:
     }
 
 private:
+    /// @brief Per-publisher lost-sample tracking state.
+    struct PublisherCursor {
+        std::uint64_t publisher_id{0};
+        std::uint64_t last_sequence{0};
+        bool valid{false};
+    };
+
+    /// @brief Compare one header against the tracked baseline.
+    ///
+    /// @return Samples missed before this one; `0` for a first sample or a
+    ///         duplicate/backward sequence.
+    [[nodiscard]] std::uint64_t observe_sequence(const TransportHeader& header) noexcept {
+        PublisherCursor* free_slot = nullptr;
+        for (auto& cursor : cursors_) {
+            if (cursor.valid && cursor.publisher_id == header.publisher_id) {
+                std::uint64_t lost = 0;
+                if (header.sequence > cursor.last_sequence + 1U) {
+                    lost = header.sequence - cursor.last_sequence - 1U;
+                }
+                if (header.sequence > cursor.last_sequence) {
+                    cursor.last_sequence = header.sequence;
+                }
+                return lost;
+            }
+            if (!cursor.valid && free_slot == nullptr) {
+                free_slot = &cursor;
+            }
+        }
+        if (free_slot != nullptr) {
+            free_slot->publisher_id = header.publisher_id;
+            free_slot->last_sequence = header.sequence;
+            free_slot->valid = true;
+        }
+        return 0;
+    }
+
+    /// @brief Create this subscriber's counters from the supplied meter.
+    void bind_counters(M* meter) noexcept {
+        meter_ = meter;
+        if (meter_ == nullptr) {
+            return;
+        }
+        if (auto created = meter_->template create_counter<>("received", "1"); created.has_value()) {
+            received_ = *created;
+        }
+        if (auto created = meter_->template create_counter<>("lost", "1"); created.has_value()) {
+            lost_ = *created;
+        }
+    }
+
     /// @brief Adopt an already-created transport subscriber.
     ///
     /// @param name Service name retained for `to_string()`.
@@ -232,9 +306,26 @@ private:
     Subscriber(ServiceName name, iox2::Subscriber<iox2::ServiceType::Ipc, T, H> inner) noexcept
         : service_name_(std::move(name)), inner_(std::move(inner)) {}
 
-    ServiceName service_name_; ///< Service identity rendered by `to_string()`.
+    ServiceName service_name_;                  ///< Service identity rendered by `to_string()`.
+    std::array<PublisherCursor, 16> cursors_{}; ///< Per-publisher sequence baselines.
+    M* meter_{nullptr};                  ///< Borrowed meter; outlives the subscriber.
+    MeterCounter* received_{nullptr};    ///< Successfully received samples.
+    MeterCounter* lost_{nullptr};        ///< Samples reported missing by the header.
     iox2::Subscriber<iox2::ServiceType::Ipc, T, H> inner_; ///< Owned transport handle.
 };
+
+/// @brief Create a subscriber and deduce the meter type.
+///
+/// @tparam T Payload type.
+/// @tparam H Optional user header.
+/// @tparam M Meter type satisfying `core::concepts::MeterLike`.
+/// @return The subscriber, or a mapped `com::Error`.
+template <concepts::Message T, typename H = void, core::concepts::MeterLike M>
+[[nodiscard]] Result<Subscriber<T, H, M>>
+make_subscriber(Node& node, const ServiceName& name, const PublishSubscribeOptions& options,
+                M& meter) noexcept {
+    return Subscriber<T, H, M>::create(node, name, options, &meter);
+}
 
 /// @brief Free helper mirroring `Subscriber::to_string()`.
 ///

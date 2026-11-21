@@ -77,10 +77,10 @@ namespace nexigen::logging {
 /// @note Spec `logging/multi-producer`, requirement "Pre-allocated per-thread
 ///       shard array".
 template <std::size_t ShardCapacity = 128, std::size_t MessageCapacity = 128,
-          std::size_t MaxThreads = 32>
+          std::size_t MaxThreads = 32, core::concepts::MeterLike M = core::NullMeter>
 class FileLogger {
     /// @brief Shard pool and hot-path producer used by this instantiation.
-    using Producer = detail::Producer<ShardCapacity, MessageCapacity, MaxThreads>;
+    using Producer = detail::Producer<ShardCapacity, MessageCapacity, MaxThreads, M>;
 
     /// @brief Per-thread shards plus the level/throttle control cells.
     Producer producer_{};
@@ -133,7 +133,9 @@ public:
     ///       affinity", scenario "Required failure rolls back initialization".
     /// @note Spec `logging/file-logger`, requirement "File logger config exposes
     ///       the poll ceiling".
-    [[nodiscard]] core::Status initialize(const FileLoggerConfig& cfg) noexcept {
+    [[nodiscard]] core::Status initialize(const FileLoggerConfig& cfg,
+                                          M* meter = nullptr) noexcept {
+        producer_.bind_meter(meter);
         if (!valid_config(cfg)) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -173,7 +175,8 @@ public:
     ///         whatever the config overload reports.
     /// @note Spec `logging/logging-settings`, requirement "Merged settings apply
     ///       to logger configuration".
-    [[nodiscard]] core::Status initialize(const Settings& settings) noexcept {
+    [[nodiscard]] core::Status initialize(const Settings& settings,
+                                          M* meter = nullptr) noexcept {
         const core::Status capacity =
             check_capacity<ShardCapacity, MaxThreads, MessageCapacity>(settings);
         if (!capacity) {
@@ -184,7 +187,7 @@ public:
         if (!applied) {
             return applied;
         }
-        return initialize(cfg);
+        return initialize(cfg, meter);
     }
 
     /// @brief Install the runtime threshold in the shared relaxed level cell.

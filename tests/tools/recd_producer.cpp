@@ -74,6 +74,12 @@ namespace {
     if (!trace_pub->send_copy(span, header).has_value()) {
         return false;
     }
+    logging::LogFrame second = log;
+    std::memcpy(second.app_id, "APP2", 4U);
+    header.sequence = 5U;
+    if (!log_pub->send_copy(second, header).has_value()) {
+        return false;
+    }
     return true;
 }
 } // namespace

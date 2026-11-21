@@ -18,6 +18,7 @@
 #include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/publisher.hpp>
+#include <nexigen/com/transport_header.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/log_frame.hpp>
@@ -97,7 +98,7 @@ public:
         if (!name) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
-        auto publisher = com::Publisher<LogFrame>::create(*node_, *name);
+        auto publisher = com::Publisher<LogFrame, com::TransportHeader>::create(*node_, *name);
         if (!publisher) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -114,6 +115,10 @@ public:
         }
         notifier_.emplace(std::move(*notifier));
         sink_pid_ = static_cast<std::uint32_t>(::getpid());
+        std::memcpy(header_.app_id, settings_.app_id, sizeof(header_.app_id));
+        header_.pid = sink_pid_;
+        header_.publisher_id =
+            (static_cast<std::uint64_t>(sink_pid_) << 32U) ^ reinterpret_cast<std::uintptr_t>(this);
         return {};
     }
 
@@ -148,9 +153,10 @@ public:
         frame_.dropped_counter = dropped_delta();
         std::memcpy(frame_.app_id, settings_.app_id, sizeof(frame_.app_id));
 
+        header_.sequence += 1U;
         // One transport call: loan, copy and send. A failed publish drops the
         // frame and never blocks (DiscardData).
-        if (!publisher_->send_copy(frame_)) {
+        if (!publisher_->send_copy(frame_, header_)) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         if (notifier_.has_value()) {
@@ -200,7 +206,7 @@ private:
     /// @brief Transport node supplied by the logger; owned by the logger.
     com::Node* node_{};
     /// @brief Live publisher, empty until `start()` succeeds.
-    std::optional<com::Publisher<LogFrame>> publisher_{};
+    std::optional<com::Publisher<LogFrame, com::TransportHeader>> publisher_{};
     /// @brief Live event notifier, empty until `start()` succeeds.
     std::optional<com::EventNotifier> notifier_{};
     /// @brief Previous `dropped().total()` baseline for the frame delta.
@@ -209,6 +215,7 @@ private:
     std::uint32_t sink_pid_{0};
     /// @brief Reused frame storage; packed in place before each publication.
     LogFrame frame_{};
+    com::TransportHeader header_{};
 };
 
 } // namespace nexigen::logging::detail
