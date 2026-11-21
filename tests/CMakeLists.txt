@@ -351,12 +351,14 @@ if(NEXIGEN_ENABLE_COM)
 
     add_executable(nexigen_recd_producer tools/recd_producer.cpp)
     target_link_libraries(nexigen_recd_producer PRIVATE nexigen_com Threads::Threads)
-    add_test(NAME nexigen_recd_smoke
-        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tools/recd_smoke.sh
-                $<TARGET_FILE:nexigen-recd>
-                $<TARGET_FILE:nexigen_recd_producer>
-                $<TARGET_FILE:nexigen-export>)
-    set_tests_properties(nexigen_recd_smoke PROPERTIES TIMEOUT 60 LABELS "tools")
+    if(NEXIGEN_BUILD_TOOLS)
+        add_test(NAME nexigen_recd_smoke
+            COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tools/recd_smoke.sh
+                    $<TARGET_FILE:nexigen-recd>
+                    $<TARGET_FILE:nexigen_recd_producer>
+                    $<TARGET_FILE:nexigen-export>)
+        set_tests_properties(nexigen_recd_smoke PROPERTIES TIMEOUT 60 LABELS "tools")
+    endif()
 
     add_test(NAME nexigen_metrics_com_tests COMMAND nexigen_metrics_com_tests)
     set_tests_properties(nexigen_metrics_com_tests PROPERTIES TIMEOUT 600)

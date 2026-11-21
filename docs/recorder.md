@@ -212,6 +212,8 @@ opaque payload. `EventHeader` carries no application id, so per-application
 attribution is limited to the service name; a payload that needs an app id
 should carry it in its own fields.
 
-The collector polls every stream every 2 ms. Replacing that loop with a
-`com::WaitSet` is a planned follow-up: it needs wait-set attachments exposed by
-`RawSubscriber`, which currently owns a private transport node.
+The collector blocks in a `com::WaitSet` on one listener per enabled stream plus
+a 100 ms maintenance interval. Log and metric producers notify their companion
+`<service>Event` services; the trace sink now does the same; event producers
+notify the channel name. The interval drives the once-per-second `TimeSync` and
+bounds shutdown latency, so idle collection does not poll the transport.

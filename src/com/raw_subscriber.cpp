@@ -57,6 +57,9 @@ Result<RawSubscriber> RawSubscriber::create(const ServiceName& name, std::uint64
     result.service_name_text_ = name.to_string();
     result.payload_type_ = std::string(types.payload.type_name,
                                        strnlen(types.payload.type_name, IOX2_TYPE_NAME_LENGTH));
+    if (details.attributes != nullptr) {
+        iox2_attribute_set_drop(details.attributes);
+    }
 
     iox2_node_builder_h node_builder = iox2_node_builder_new(nullptr);
     iox2_node_h node = nullptr;

@@ -23,6 +23,7 @@
 #endif
 
 #include <nexigen/chrono/timestamp.hpp>
+#include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
@@ -45,7 +46,7 @@ template <typename T>
 concept HasFromJson = requires(const nlohmann::json& json, T& value) { from_json(json, value); };
 static_assert(!HasFromJson<tracing::Iceoryx2TraceSink>, "live sink: deliberately no from_json");
 
-// No per-span notification surface: the daemon drains by interval.
+// No public notifier surface: wake-ups stay internal to the sink.
 template <typename T>
 concept HasNotifier = requires(T& sink) { sink.notifier(); };
 template <typename T>
@@ -479,8 +480,45 @@ void test_latency() {
 }
 #endif
 
+void test_notification() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    if (!node.has_value()) {
+        return;
+    }
+    tracing::Iceoryx2TraceSinkConfig config;
+    config.service_name = "Nexigen/Test/TraceNotify";
+    config.app_id = "TEST";
+    tracing::Iceoryx2TraceSink sink{config, &*node};
+    NX_CHECK(sink.start().has_value());
+
+    const auto event_name = com::ServiceName::create("Nexigen/Test/TraceNotifyEvent");
+    NX_CHECK(event_name.has_value());
+    if (!event_name.has_value()) {
+        return;
+    }
+    auto listener = com::EventListener::create(*node, *event_name);
+    NX_CHECK(listener.has_value());
+    if (!listener.has_value()) {
+        return;
+    }
+
+    NX_CHECK(sink.on_event(make_record(1U)).has_value());
+    std::uint64_t activations = 0;
+    for (int attempt = 0; attempt < 100 && activations == 0; ++attempt) {
+        const auto drained = listener->try_wait([&activations](com::EventId) { ++activations; });
+        NX_CHECK(drained.has_value());
+        if (activations == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    NX_CHECK(activations > 0U);
+    sink.stop();
+}
+
 void test_sink() {
     test_concept_and_diagnostics();
+    test_notification();
     test_publish_roundtrip();
     test_memo_cache();
     test_overflow_and_gap();

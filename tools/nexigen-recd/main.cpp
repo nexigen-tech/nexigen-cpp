@@ -21,12 +21,16 @@
 
 #include <nexigen/chrono/boot_identity.hpp>
 #include <nexigen/chrono/utc_offset.hpp>
+#include <nexigen/com/callback_progression.hpp>
+#include <nexigen/com/event.hpp>
 #include <nexigen/com/event_header.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/raw_subscriber.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
 #include <nexigen/com/transport_header.hpp>
+#include <nexigen/com/wait_set_guard.hpp>
+#include <nexigen/com/waitset.hpp>
 #include <nexigen/logging/log_frame.hpp>
 #include <nexigen/metrics/metric_frame.hpp>
 #include <nexigen/recorder/builtin_schemas.hpp>
@@ -421,21 +425,94 @@ std::vector<com::RawSubscriber> open_event_subscribers(const Options& options) {
     return subs;
 }
 
-void drain_all(const Options& options, LogSub& log_sub, MetricSub& metric_sub, TraceSub& trace_sub,
-               std::vector<com::RawSubscriber>& event_subs, Recorder& rec) {
-    auto last_sync = std::chrono::steady_clock::now();
-    std::vector<recorder::EventGapTracker> event_trackers(event_subs.size());
-    while (g_stop == 0) {
-        if (options.logs) drain_logs(log_sub, rec);
-        if (options.metrics) drain_metrics(metric_sub, rec);
-        if (options.traces) drain_traces(trace_sub, rec);
-        if (options.events) drain_events(event_subs, event_trackers, rec);
-        const auto now = std::chrono::steady_clock::now();
-        if (now - last_sync >= std::chrono::seconds(1)) {
-            static_cast<void>(rec.time_sync());
-            last_sync = now;
+/// @brief WaitSet, wake-up listeners, and attachment guards in destruction order.
+///
+/// Guards are destroyed first, then listeners, then the wait set, so no
+/// attachment outlives its listener or the wait set.
+struct WakeupSources {
+    std::optional<com::WaitSet> waitset{};
+    std::vector<com::EventListener> listeners{};
+    std::vector<com::WaitSetGuard> guards{};
+
+    [[nodiscard]] bool add(com::Node& node, const std::string& service) {
+        const auto name = com::ServiceName::create(service.c_str());
+        if (!name) {
+            return false;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        auto listener = com::EventListener::create(node, *name);
+        if (!listener) {
+            return false;
+        }
+        listeners.push_back(std::move(*listener));
+        auto guard = waitset->attach_notification(listeners.back());
+        if (!guard) {
+            return false;
+        }
+        guards.push_back(std::move(*guard));
+        return true;
+    }
+
+    void drain_notifications() noexcept {
+        for (auto& listener : listeners) {
+            static_cast<void>(listener.try_wait([](com::EventId) noexcept {}));
+        }
+    }
+};
+
+[[nodiscard]] std::optional<WakeupSources> open_wakeup_sources(const Options& options,
+                                                               com::Node& node) {
+    WakeupSources out;
+    auto created = com::WaitSet::create_without_signal_handling();
+    if (!created) {
+        return std::nullopt;
+    }
+    out.waitset.emplace(std::move(*created));
+
+    std::size_t expected = 1U + options.event_services.size();
+    expected += options.logs ? 1U : 0U;
+    expected += options.metrics ? 1U : 0U;
+    expected += options.traces ? 1U : 0U;
+    out.listeners.reserve(expected);
+    out.guards.reserve(expected);
+
+    if (options.logs && !out.add(node, options.service_log + "Event")) {
+        return std::nullopt;
+    }
+    if (options.metrics && !out.add(node, options.service_metrics + "Event")) {
+        return std::nullopt;
+    }
+    if (options.traces && !out.add(node, options.service_traces + "Event")) {
+        return std::nullopt;
+    }
+    if (options.events) {
+        for (const auto& service : options.event_services) {
+            if (!out.add(node, service)) {
+                return std::nullopt;
+            }
+        }
+    }
+    auto timer = out.waitset->attach_interval(std::chrono::milliseconds(100));
+    if (!timer) {
+        return std::nullopt;
+    }
+    out.guards.push_back(std::move(*timer));
+    return out;
+}
+
+void drain_streams(const Options& options, LogSub& log_sub, MetricSub& metric_sub,
+                   TraceSub& trace_sub, std::vector<com::RawSubscriber>& event_subs,
+                   std::vector<recorder::EventGapTracker>& event_trackers, Recorder& rec) {
+    if (options.logs) drain_logs(log_sub, rec);
+    if (options.metrics) drain_metrics(metric_sub, rec);
+    if (options.traces) drain_traces(trace_sub, rec);
+    if (options.events) drain_events(event_subs, event_trackers, rec);
+}
+
+void sync_if_due(Recorder& rec, std::chrono::steady_clock::time_point& last_sync) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last_sync >= std::chrono::seconds(1)) {
+        static_cast<void>(rec.time_sync());
+        last_sync = now;
     }
 }
 
@@ -472,9 +549,32 @@ int run(const Options& options) {
     }
 
     std::vector<com::RawSubscriber> event_subs = open_event_subscribers(options);
-    drain_all(options, *log_sub, *metric_sub, *trace_sub, event_subs, rec);
+    auto wakeups = open_wakeup_sources(options, *node);
+    if (!wakeups.has_value()) {
+        std::fprintf(stderr, "nexigen-recd: cannot open waitset attachments\n");
+        return 1;
+    }
+
+    std::vector<recorder::EventGapTracker> event_trackers(event_subs.size());
+    auto last_sync = std::chrono::steady_clock::now();
+    bool clean = true;
+    while (g_stop == 0) {
+        const auto status = wakeups->waitset->wait_and_process([&](com::WaitSetAttachmentId) {
+            wakeups->drain_notifications();
+            drain_streams(options, *log_sub, *metric_sub, *trace_sub, event_subs, event_trackers,
+                          rec);
+            sync_if_due(rec, last_sync);
+            return com::CallbackProgression::Continue;
+        });
+        if (!status.has_value()) {
+            std::fprintf(stderr, "nexigen-recd: waitset failed\n");
+            clean = false;
+            break;
+        }
+    }
+    drain_streams(options, *log_sub, *metric_sub, *trace_sub, event_subs, event_trackers, rec);
     static_cast<void>(rec.writer().close());
-    return 0;
+    return clean ? 0 : 1;
 }
 
 } // namespace

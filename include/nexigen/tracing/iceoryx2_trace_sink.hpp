@@ -28,6 +28,7 @@
 
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/com/concepts/message_concept.hpp>
+#include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/publisher.hpp>
 #include <nexigen/com/transport_header.hpp>
@@ -111,8 +112,9 @@ public:
 
     /// @brief Validate the configuration and open the publisher (cold start).
     ///
-    /// Validates the configuration first, then resolves the service name and
-    /// creates the publisher with the configured subscriber buffer depth.
+    /// Validates the configuration first, then resolves the service name,
+    /// creates the publisher with the configured subscriber buffer depth, and
+    /// opens the companion `<service>Event` notifier.
     ///
     /// @return Success when the publisher exists; `InvalidArgument` from
     ///         validation, or `SystemError` when the node is null, the name is
@@ -137,7 +139,16 @@ public:
         if (!publisher) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
+        const auto event_name = com::ServiceName::create((config_.service_name + "Event").c_str());
+        if (!event_name) {
+            return std::unexpected(core::ErrorCode::SystemError);
+        }
+        auto notifier = com::EventNotifier::create(*node_, *event_name);
+        if (!notifier) {
+            return std::unexpected(core::ErrorCode::SystemError);
+        }
         publisher_.emplace(std::move(*publisher));
+        notifier_.emplace(std::move(*notifier));
         return {};
     }
 
@@ -147,7 +158,9 @@ public:
     /// observable gap; a frame discarded for lack of a slot (or for one
     /// receiver's full queue) is counted in `dropped()` and still reports
     /// success, and the worker is never blocked. Mapping clips zero-copy string
-    /// attributes to the inline bound.
+    /// attributes to the inline bound. After a successful send it emits a
+    /// best-effort notification on the companion event service so a blocked
+    /// collector can wake up.
     ///
     /// @param record Span to map and publish.
     /// @return Success including the drop case; `NotInitialized` when called
@@ -167,6 +180,9 @@ public:
             return {};
         }
         ++published_;
+        if (notifier_.has_value()) {
+            static_cast<void>(notifier_->notify());
+        }
         if (publisher_->lost_samples() != lost_before) {
             // At least one receiver's queue was full: the DiscardData policy
             // dropped this sample for that receiver while send() succeeded.
@@ -186,10 +202,14 @@ public:
     /// @brief Release the publisher and its ports.
     ///
     /// Delivery after `stop()` reports `NotInitialized` until `start()` runs
-    /// again; counters and the hash cache are retained.
+    /// again; the notifier and publisher are released, while counters and the
+    /// hash cache are retained.
     /// @note Spec `tracing/iceoryx2-trace-sink`, requirement "Sink publishes
     ///       each span zero-copy from the worker".
-    void stop() noexcept { publisher_.reset(); }
+    void stop() noexcept {
+        notifier_.reset();
+        publisher_.reset();
+    }
 
     // --- diagnostics (worker-confined counters; cold-path readers) ----------
 
@@ -321,6 +341,7 @@ private:
     Iceoryx2TraceSinkConfig config_{};
     com::Node* node_{nullptr};
     std::optional<com::Publisher<SpanFrame, com::TransportHeader>> publisher_{};
+    std::optional<com::EventNotifier> notifier_{};
     com::TransportHeader header_{};
     std::uint32_t pid_{0U};
     std::uint64_t published_{0U};

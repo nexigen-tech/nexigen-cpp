@@ -2,8 +2,10 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <thread>
 
+#include <nexigen/com/event.hpp>
 #include <nexigen/com/event_channel.hpp>
 #include <nexigen/com/event_producer.hpp>
 #include <nexigen/com/node.hpp>
@@ -22,20 +24,67 @@ static_assert(nexigen::com::concepts::EventPayload<EventPayload>);
 } // namespace
 
 namespace {
-[[nodiscard]] bool publish_frames(nexigen::com::Node& node, nexigen::com::TransportHeader& header) {
-    using namespace nexigen;
-    const auto log_name = com::ServiceName::create("Nexigen/Log/nexigen");
-    const auto metric_name = com::ServiceName::create("Nexigen/Metrics/nexigen");
-    const auto trace_name = com::ServiceName::create("Nexigen/Tracing/nexigen");
-    if (!log_name || !metric_name || !trace_name) {
+struct Endpoints {
+    using LogPub =
+        nexigen::com::Publisher<nexigen::logging::LogFrame, nexigen::com::TransportHeader>;
+    using MetricPub =
+        nexigen::com::Publisher<nexigen::metrics::MetricFrame, nexigen::com::TransportHeader>;
+    using TracePub =
+        nexigen::com::Publisher<nexigen::tracing::SpanFrame, nexigen::com::TransportHeader>;
+
+    std::optional<LogPub> log{};
+    std::optional<MetricPub> metric{};
+    std::optional<TracePub> trace{};
+    std::optional<nexigen::com::EventNotifier> log_notifier{};
+    std::optional<nexigen::com::EventNotifier> metric_notifier{};
+    std::optional<nexigen::com::EventNotifier> trace_notifier{};
+
+    [[nodiscard]] static std::optional<Endpoints> open(nexigen::com::Node& node) {
+        using namespace nexigen;
+        const auto log_name = com::ServiceName::create("Nexigen/Log/nexigen");
+        const auto metric_name = com::ServiceName::create("Nexigen/Metrics/nexigen");
+        const auto trace_name = com::ServiceName::create("Nexigen/Tracing/nexigen");
+        const auto log_event = com::ServiceName::create("Nexigen/Log/nexigenEvent");
+        const auto metric_event = com::ServiceName::create("Nexigen/Metrics/nexigenEvent");
+        const auto trace_event = com::ServiceName::create("Nexigen/Tracing/nexigenEvent");
+        if (!log_name || !metric_name || !trace_name || !log_event || !metric_event ||
+            !trace_event) {
+            return std::nullopt;
+        }
+        auto log = LogPub::create(node, *log_name);
+        auto metric = MetricPub::create(node, *metric_name);
+        auto trace = TracePub::create(node, *trace_name);
+        auto log_notifier = com::EventNotifier::create(node, *log_event);
+        auto metric_notifier = com::EventNotifier::create(node, *metric_event);
+        auto trace_notifier = com::EventNotifier::create(node, *trace_event);
+        if (!log || !metric || !trace || !log_notifier || !metric_notifier || !trace_notifier) {
+            return std::nullopt;
+        }
+        Endpoints out;
+        out.log.emplace(std::move(*log));
+        out.metric.emplace(std::move(*metric));
+        out.trace.emplace(std::move(*trace));
+        out.log_notifier.emplace(std::move(*log_notifier));
+        out.metric_notifier.emplace(std::move(*metric_notifier));
+        out.trace_notifier.emplace(std::move(*trace_notifier));
+        return out;
+    }
+};
+
+template <class Publisher, class Frame>
+[[nodiscard]] bool send(Publisher& publisher, nexigen::com::EventNotifier& notifier,
+                        const Frame& frame, nexigen::com::TransportHeader& header) {
+    if (!publisher.send_copy(frame, header).has_value()) {
         return false;
     }
-    auto log_pub = com::Publisher<logging::LogFrame, com::TransportHeader>::create(node, *log_name);
-    auto metric_pub =
-        com::Publisher<metrics::MetricFrame, com::TransportHeader>::create(node, *metric_name);
-    auto trace_pub =
-        com::Publisher<tracing::SpanFrame, com::TransportHeader>::create(node, *trace_name);
-    if (!log_pub || !metric_pub || !trace_pub) {
+    static_cast<void>(notifier.notify());
+    return true;
+}
+
+[[nodiscard]] bool publish_frames(nexigen::com::Node& node, nexigen::com::TransportHeader& header) {
+    using namespace nexigen;
+    auto endpoints = Endpoints::open(node);
+    if (!endpoints.has_value()) {
         return false;
     }
 
@@ -59,27 +108,25 @@ namespace {
     span.end_ns = 4U;
     std::memcpy(span.name, "smoke", 5U);
 
-    if (!log_pub->send_copy(log, header).has_value()) {
+    if (!send(*endpoints->log, *endpoints->log_notifier, log, header)) {
         return false;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     header.sequence = 4U;
-    if (!log_pub->send_copy(log, header).has_value()) {
+    if (!send(*endpoints->log, *endpoints->log_notifier, log, header)) {
         return false;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     header.sequence = 1U;
-    if (!metric_pub->send_copy(metric, header).has_value()) {
-        return false;
-    }
-    if (!trace_pub->send_copy(span, header).has_value()) {
+    if (!send(*endpoints->metric, *endpoints->metric_notifier, metric, header) ||
+        !send(*endpoints->trace, *endpoints->trace_notifier, span, header)) {
         return false;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     logging::LogFrame second = log;
     std::memcpy(second.app_id, "APP2", 4U);
     header.sequence = 5U;
-    if (!log_pub->send_copy(second, header).has_value()) {
+    if (!send(*endpoints->log, *endpoints->log_notifier, second, header)) {
         return false;
     }
     // Keep the publishers alive while the collector drains the last samples.
