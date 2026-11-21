@@ -111,6 +111,7 @@ public:
     }
 
     /// @brief Number of escalations still awaiting an acknowledgement.
+    /// @return Count of entries whose acknowledgement has not arrived.
     [[nodiscard]] std::size_t pending() const noexcept {
         std::size_t count = 0;
         for (const Entry& entry : entries_) {

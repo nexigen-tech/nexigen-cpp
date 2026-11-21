@@ -46,6 +46,11 @@ inline void from_json(const nlohmann::json& j, ManifestFormat& out) noexcept {
 class ManifestAccessor {
 public:
     /// @brief Detect the source format from the path and content.
+    ///
+    /// @param path Manifest path; the extension is a hint.
+    /// @param content Manifest content used to confirm the format.
+    /// @return The detected format; `Json` when neither hint is decisive.
+    /// @note Spec `exec/manifest-accessor`, requirement "Format detection".
     [[nodiscard]] static ManifestFormat detect(std::string_view path,
                                                std::string_view content) noexcept;
 
@@ -58,6 +63,13 @@ public:
     [[nodiscard]] static core::Status load(std::string_view path, SuiteManifest& out) noexcept;
 
     /// @brief Load a JSON or ARXML Machine Manifest and resolve its references.
+    ///
+    /// @param path Manifest path.
+    /// @param out Receives the parsed manifest with resolved references.
+    /// @return Success, `InvalidArgument` for malformed or invalid content, or
+    ///         `SystemError` when the file cannot be read.
+    /// @note Spec `exec/manifest-accessor`, requirement "Machine Manifest
+    ///       loading".
     [[nodiscard]] static core::Status load_machine(std::string_view path,
                                                    MachineManifest& out) noexcept;
 };

@@ -186,18 +186,29 @@ public:
     }
 
     /// @brief Whether an application reports readiness.
+    ///
+    /// @param name Application name.
+    /// @return `true` when the process was registered as reporting and has
+    ///         reported readiness.
     [[nodiscard]] bool reporting(std::string_view name) const noexcept {
         const Record* record = find(name);
         return record != nullptr && record->reporting;
     }
 
     /// @brief Startup configuration associated with the last launch.
+    ///
+    /// @param name Application name.
+    /// @return The associated configuration, or `nullptr` when the name is
+    ///         unknown or no configuration was recorded.
     [[nodiscard]] const StateDependentStartupConfig* config(std::string_view name) const noexcept {
         const Record* record = find(name);
         return record == nullptr ? nullptr : record->config;
     }
 
     /// @brief Attempt number associated with the last launch.
+    ///
+    /// @param name Application name.
+    /// @return The recorded attempt number, or `0` for an unknown name.
     [[nodiscard]] std::uint32_t attempt(std::string_view name) const noexcept {
         const Record* record = find(name);
         return record == nullptr ? 0U : record->attempt;

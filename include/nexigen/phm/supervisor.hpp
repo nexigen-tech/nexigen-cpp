@@ -178,6 +178,7 @@ public:
     [[nodiscard]] bool exhausted(std::size_t index) const noexcept;
 
     /// @brief Number of lifecycle notifications applied so far.
+    /// @return Count of applied lifecycle notifications.
     [[nodiscard]] std::uint64_t lifecycle_notifications() const noexcept {
         return lifecycle_notifications_;
     }

@@ -40,6 +40,8 @@ public:
     Crc64() noexcept = default;
 
     /// @brief Feed one byte buffer.
+    ///
+    /// @param bytes Bytes to fold into the running register.
     void update(std::span<const std::uint8_t> bytes) noexcept {
         std::uint64_t crc = state_;
         for (const std::uint8_t byte : bytes) {
@@ -49,12 +51,16 @@ public:
     }
 
     /// @brief Feed a text view.
+    ///
+    /// @param text Characters to fold into the running register.
     void update(std::string_view text) noexcept {
         update(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(text.data()),
                                              text.size()));
     }
 
     /// @brief Final checksum with the output XOR applied.
+    ///
+    /// @return The CRC-64/XZ of everything fed so far.
     [[nodiscard]] std::uint64_t finish() const noexcept { return state_ ^ 0xFFFFFFFFFFFFFFFFULL; }
 
 private:

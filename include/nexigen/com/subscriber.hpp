@@ -50,6 +50,8 @@ namespace nexigen::com {
 /// @tparam H Optional custom header type attached by the publisher; `void`
 ///         (the default) means no header, otherwise `H` must also satisfy
 ///         `com::concepts::Message`.
+/// @tparam M Meter type satisfying `core::concepts::MeterLike`; defaults to
+///         `core::NullMeter`, which creates no counters.
 /// @note Implements `com/publish-subscribe`: "Subscriber receive",
 ///       "Non-blocking overflow", and "Port diagnostics".
 template <concepts::Message T, typename H = void, core::concepts::MeterLike M = core::NullMeter>
@@ -87,6 +89,8 @@ public:
     /// @param node Node that owns this process's transport membership.
     /// @param name Valid service name shared with the publisher.
     /// @param options Optional service-level and subscriber settings.
+    /// @param meter Optional borrowed meter for subscriber counters; `nullptr`
+    ///        (the default) disables counter creation.
     /// @return The constructed subscriber, or a mapped `com::Error` on failure.
     /// @note Spec `com/publish-subscribe`, requirement "Publish-subscribe
     ///       service options".

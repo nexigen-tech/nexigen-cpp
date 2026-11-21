@@ -39,20 +39,24 @@ enum class UpdateResult : std::uint8_t {
 
 /// @brief One UCM update request.
 struct UpdateRequest {
-    char function_group[k_ucm_name_length]{};
-    char update_id[k_ucm_name_length]{};
-    UpdateAction action{UpdateAction::Start};
-    char target_state[k_ucm_name_length]{}; ///< Complete only; empty = previous state.
+    char function_group[k_ucm_name_length]{}; ///< Target Function Group.
+    char update_id[k_ucm_name_length]{};      ///< Update identity.
+    UpdateAction action{UpdateAction::Start}; ///< Requested update action.
+    char target_state[k_ucm_name_length]{};   ///< Complete only; empty = previous state.
 
+    /// @brief Render the request for cold-path diagnostics.
+    /// @return Text naming the Function Group, update id, action, and target.
     [[nodiscard]] std::string to_string() const;
 };
 
 /// @brief Response to one UCM update request.
 struct UpdateResponse {
-    UpdateResult result{UpdateResult::Rejected};
-    char function_group[k_ucm_name_length]{};
-    char active_update_id[k_ucm_name_length]{};
+    UpdateResult result{UpdateResult::Rejected}; ///< Arbitration outcome.
+    char function_group[k_ucm_name_length]{};    ///< Function Group the response applies to.
+    char active_update_id[k_ucm_name_length]{};  ///< Update currently blocking the group, if any.
 
+    /// @brief Render the response for cold-path diagnostics.
+    /// @return Text naming the result, Function Group, and active update id.
     [[nodiscard]] std::string to_string() const;
 };
 

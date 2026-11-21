@@ -45,7 +45,10 @@ public:
 
     Watchdog(const Watchdog&) = delete;
     Watchdog& operator=(const Watchdog&) = delete;
+    /// @brief Move-construct a watchdog, transferring the device boundary.
     Watchdog(Watchdog&&) noexcept = default;
+    /// @brief Move-assign a watchdog, transferring the device boundary.
+    /// @return This watchdog.
     Watchdog& operator=(Watchdog&&) noexcept = default;
 
     /// @brief Feed when the system is healthy and the loop kept its period.
@@ -66,21 +69,27 @@ public:
     void disarm() noexcept;
 
     /// @brief Whether the manifest enabled the watchdog.
+    /// @return `true` when the configuration enables it.
     [[nodiscard]] bool enabled() const noexcept { return config_.enabled; }
 
     /// @brief Whether feeding is currently active.
+    /// @return `true` while the watchdog is being fed.
     [[nodiscard]] bool feeding() const noexcept { return feeding_; }
 
     /// @brief Current watchdog state.
+    /// @return The current lifecycle/feed state.
     [[nodiscard]] WatchdogState state() const noexcept { return state_; }
 
     /// @brief Timeout granted by the driver, or 0 when disabled.
+    /// @return Granted timeout in milliseconds, or 0.
     [[nodiscard]] std::uint32_t timeout_ms() const noexcept { return granted_ms_; }
 
     /// @brief Number of successful feed writes.
+    /// @return Successful feed writes so far.
     [[nodiscard]] std::uint64_t feeds() const noexcept { return feeds_; }
 
     /// @brief Effective device path (`/dev/watchdog` when the config is empty).
+    /// @return The configured or default device path.
     [[nodiscard]] std::string device_path() const;
 
     /// @brief Cold-path diagnostic rendering.

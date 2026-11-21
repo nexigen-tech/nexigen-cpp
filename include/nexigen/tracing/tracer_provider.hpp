@@ -145,8 +145,14 @@ public:
     /// @param config Provider configuration (worker spec, tracer limit, rate
     ///        budget, poll interval) copied by value into the provider.
     /// @param sink Sink to bind; must outlive this provider.
+    /// @param meter Optional borrowed meter for provider counters; `nullptr`
+    ///        (the default) disables counter creation.
+    /// @param diagnostics Optional borrowed diagnostics consumer; an empty
+    ///        binding (the default) disables events.
     /// @note Spec `tracing/tracer-concepts`, requirement "TraceSink structural
     ///       concept".
+    /// @note Spec `tracing/tracer-provider`, requirement "Provider diagnostics
+    ///       binding".
     template <concepts::TraceSink Sink, core::concepts::MeterLike M = core::NullMeter>
     TracerProvider(const TracerProviderConfig& config, Sink& sink, M* meter = nullptr,
                    core::DiagnosticBinding diagnostics = {}) noexcept
@@ -324,6 +330,7 @@ public:
     ///
     /// @tparam L Consumer satisfying `core::concepts::DiagnosticLogger`.
     /// @param logger Borrowed consumer; must outlive the provider.
+    /// @return Whatever `bind_diagnostics(core::DiagnosticBinding)` reports.
     /// @note Spec `tracing/tracer-provider`, requirement "Provider diagnostics
     ///       binding".
     template <core::concepts::DiagnosticLogger L>

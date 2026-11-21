@@ -22,6 +22,8 @@
 namespace nexigen::sm {
 
 /// @brief Handles UCM Start/Complete/Cancel over one Function Group.
+///
+/// @note Spec `sm/ucm-coordination`, requirement "Update start".
 class UpdateCoordinator {
 public:
     /// @brief Bind the coordinator to the arbiter and the EM command channel.
@@ -34,6 +36,9 @@ public:
                       std::string requester_id) noexcept;
 
     /// @brief Handle one UCM request.
+    ///
+    /// @param request Start, Complete or Cancel request to apply.
+    /// @return The reply for the requester, with the resulting update state.
     [[nodiscard]] UpdateResponse handle(const UpdateRequest& request) noexcept;
 
     /// @brief Receive and answer one pending request from `server`.
@@ -45,14 +50,21 @@ public:
     serve_once(com::Server<UpdateRequest, UpdateResponse>& server) noexcept;
 
     /// @brief Whether one group is locked by an active update.
+    ///
+    /// @param group_index Group index.
+    /// @return `true` when that group is the target of the active update.
     [[nodiscard]] bool locked(std::size_t group_index) const noexcept {
         return active_ && group_index_ == group_index;
     }
 
     /// @brief Whether an update is active.
+    ///
+    /// @return `true` while a Start has not been completed or cancelled.
     [[nodiscard]] bool active() const noexcept { return active_; }
 
     /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return A human-readable summary of the active update.
     [[nodiscard]] std::string to_string() const;
 
 private:

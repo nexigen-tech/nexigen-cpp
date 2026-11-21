@@ -57,13 +57,21 @@ public:
 
     RecoveryHandler(const RecoveryHandler&) = delete;
     RecoveryHandler& operator=(const RecoveryHandler&) = delete;
+    /// @brief Move-construct the handler.
     RecoveryHandler(RecoveryHandler&&) noexcept = default;
+    /// @brief Move-assign the handler.
+    /// @return This handler.
     RecoveryHandler& operator=(RecoveryHandler&&) noexcept = default;
 
     /// @brief Install the restart callback used when a queued restart executes.
+    ///
+    /// @param restart Callback invoked on the control thread.
     void set_restart(RestartFn restart) noexcept;
 
     /// @brief Install the admission check consulted before queueing a restart.
+    ///
+    /// @param validate Check returning `RecoveryReason::None` when the restart
+    ///                 may be queued.
     void set_validate(ValidateFn validate) noexcept;
 
     /// @brief Admit one request and answer immediately.
@@ -94,9 +102,13 @@ public:
     std::size_t run_pending() noexcept;
 
     /// @brief Number of admitted restarts still waiting to execute.
+    ///
+    /// @return The occupied queue slots.
     [[nodiscard]] std::size_t pending() const noexcept { return pending_count_; }
 
     /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return Human-readable text with the service name and queue depth.
     [[nodiscard]] std::string to_string() const;
 
 private:

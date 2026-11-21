@@ -32,44 +32,54 @@ enum class LsmActionType : std::uint8_t {
 
 /// @brief One declarative action.
 struct LsmAction {
-    LsmActionType type{LsmActionType::None};
-    std::string function_group{};
-    std::string target_state{};
+    LsmActionType type{LsmActionType::None}; ///< Kind of side effect.
+    std::string function_group{};            ///< Target Function Group for request kinds.
+    std::string target_state{};              ///< Target state name.
 
+    /// @brief Render the action for cold-path diagnostics.
+    /// @return Text naming the kind, Function Group, and target state.
     [[nodiscard]] std::string to_string() const;
 };
 
 /// @brief One allowed transition plus its ordered action indices.
 struct LsmTransition {
-    std::string from{};
-    std::string to{};
-    std::vector<std::uint32_t> actions{};
+    std::string from{};                   ///< Source state (empty for the initial entry).
+    std::string to{};                     ///< Destination state.
+    std::vector<std::uint32_t> actions{}; ///< Action indices executed in order.
 
+    /// @brief Render the transition for cold-path diagnostics.
+    /// @return Text naming the source, destination, and action count.
     [[nodiscard]] std::string to_string() const;
 };
 
 /// @brief One error-recovery rule.
 struct LsmErrorRecovery {
-    std::string from{};
-    std::string fallback_state{};
-    std::vector<std::uint32_t> actions{};
+    std::string from{};                   ///< State whose failure triggers recovery.
+    std::string fallback_state{};         ///< State to adopt on recovery.
+    std::vector<std::uint32_t> actions{}; ///< Action indices executed first.
 
+    /// @brief Render the recovery rule for cold-path diagnostics.
+    /// @return Text naming the source, fallback, and action count.
     [[nodiscard]] std::string to_string() const;
 };
 
 /// @brief Configuration of one lightweight state machine.
 struct LightweightStateMachineConfig {
-    std::string name{};
-    std::string function_group{};
-    std::vector<std::string> states{};
-    std::string initial_state{};
-    std::vector<LsmAction> actions{};
-    std::vector<LsmTransition> transitions{};
-    std::vector<LsmErrorRecovery> error_recovery{};
+    std::string name{};                             ///< Machine name.
+    std::string function_group{};                   ///< Owning Function Group.
+    std::vector<std::string> states{};              ///< Declared state names.
+    std::string initial_state{};                    ///< State adopted before the first request.
+    std::vector<LsmAction> actions{};               ///< Action table.
+    std::vector<LsmTransition> transitions{};       ///< Allowed transitions and action order.
+    std::vector<LsmErrorRecovery> error_recovery{}; ///< Recovery rules.
 
+    /// @brief Render the configuration for cold-path diagnostics.
+    /// @return Text naming the machine, states, transitions, and actions.
     [[nodiscard]] std::string to_string() const;
 
     /// @brief Validate states and action indices.
+    /// @return Empty status when the configuration is coherent, otherwise
+    ///         `InvalidArgument` describing the first inconsistency.
     [[nodiscard]] core::Status validate() const noexcept;
 };
 
@@ -77,8 +87,17 @@ struct LightweightStateMachineConfig {
 class LsmActionSink {
 public:
     virtual ~LsmActionSink() = default;
+    /// @brief Request a Function Group state change through the EM.
+    /// @param group Function Group name.
+    /// @param state Target state name.
+    /// @param requester Requester identity forwarded to the EM.
+    /// @return Empty status, or the transport/arbitration error.
     virtual core::Status request_state(std::string_view group, std::string_view state,
                                        std::string_view requester) = 0;
+    /// @brief Publish a group state on the state channel.
+    /// @param group Function Group name.
+    /// @param state State name to publish.
+    /// @return Empty status, or the publish error.
     virtual core::Status publish_state(std::string_view group, std::string_view state) = 0;
 };
 
@@ -102,6 +121,7 @@ public:
                                                          std::string_view requester_id);
 
     /// @brief Current state.
+    /// @return The state adopted by the last successful transition.
     [[nodiscard]] std::string_view current_state() const noexcept { return current_; }
 
     /// @brief Align the machine with an existing group state.
@@ -111,6 +131,7 @@ public:
     [[nodiscard]] bool reset_to(std::string_view state) noexcept;
 
     /// @brief Cold-path diagnostic rendering.
+    /// @return Text naming the machine, current state, and configured sizes.
     [[nodiscard]] std::string to_string() const;
 
 private:

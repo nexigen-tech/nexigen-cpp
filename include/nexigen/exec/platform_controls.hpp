@@ -25,6 +25,8 @@ struct ResourceGroupConfig {
     std::uint64_t memory_max_mb{0};      ///< cgroup memory.max budget; 0 = unlimited.
 
     /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return Human-readable text with the resource-group limits.
     [[nodiscard]] std::string to_string() const;
 };
 
@@ -34,6 +36,8 @@ struct TrustedPlatformConfig {
     bool require_non_root{false};          ///< Refuse root launches without an explicit uid.
 
     /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return Human-readable text with the policy flags.
     [[nodiscard]] std::string to_string() const;
 };
 
@@ -43,6 +47,8 @@ struct FunctionGroupPortMapping {
     std::string function_group{}; ///< Function Group it may switch.
 
     /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return Human-readable text with the requester and Function Group.
     [[nodiscard]] std::string to_string() const;
 };
 

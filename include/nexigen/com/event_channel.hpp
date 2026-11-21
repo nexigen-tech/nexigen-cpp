@@ -115,6 +115,8 @@ public:
     /// @brief Create the consumer endpoint with counters from `meter`.
     ///
     /// @tparam M Meter type satisfying `core::concepts::MeterLike`.
+    /// @param on_event Event callback.
+    /// @param on_loss Loss callback.
     /// @param meter Borrowed meter; must outlive the consumer.
     /// @return Consumer, or a mapped `com::Error`/`InvalidArgument`.
     template <class OnEvent, class OnLoss, core::concepts::MeterLike M>

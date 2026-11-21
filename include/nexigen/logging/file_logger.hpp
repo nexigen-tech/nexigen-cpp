@@ -123,6 +123,8 @@ public:
     /// @param cfg File configuration: application name, base directory, file
     ///        name, level, throttle, rotation schedule, size limit and worker
     ///        thread spec. Views are copied, so `cfg` may die after the call.
+    /// @param meter Optional borrowed meter for producer counters; `nullptr`
+    ///        (the default) disables counter creation.
     /// @return OK once the writer is running; `ErrorCode::InvalidArgument` for an
     ///         out-of-bounds path/name, a zero throttle window with throttling
     ///         enabled or a custom rotation with a zero period;
@@ -170,6 +172,8 @@ public:
     /// copies them into its own fixed buffers.
     ///
     /// @param settings Merged settings produced by the settings layer.
+    /// @param meter Optional borrowed meter for producer counters; `nullptr`
+    ///        (the default) disables counter creation.
     /// @return OK once the writer is running; `ErrorCode::InvalidArgument` when a
     ///         capacity or mapped value violates the logger's limits, otherwise
     ///         whatever the config overload reports.

@@ -95,6 +95,7 @@ public:
     TransitionPreparation(TransitionPreparation&&) noexcept = default;
 
     /// @brief Move-assign the service name and publisher.
+    /// @return This notifier.
     TransitionPreparation& operator=(TransitionPreparation&&) noexcept = default;
 
     /// @brief Publish a pre-notification naming the upcoming target state.

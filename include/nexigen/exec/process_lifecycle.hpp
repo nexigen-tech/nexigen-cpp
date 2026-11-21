@@ -65,6 +65,8 @@ struct ProcessLifecycleEvent {
     ProcessLifecycleState state{ProcessLifecycleState::Running}; ///< Reported state.
 
     /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return Human-readable text with the application name and state.
     [[nodiscard]] std::string to_string() const;
 };
 

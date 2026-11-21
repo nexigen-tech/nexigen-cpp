@@ -47,7 +47,12 @@ public:
 
     RawSubscriber(const RawSubscriber&) = delete;
     RawSubscriber& operator=(const RawSubscriber&) = delete;
+    /// @brief Move-construct a subscriber, transferring the borrowed handles.
+    /// @param other Source subscriber; left without transport handles.
     RawSubscriber(RawSubscriber&& other) noexcept;
+    /// @brief Move-assign a subscriber, transferring the borrowed handles.
+    /// @param other Source subscriber; left without transport handles.
+    /// @return This subscriber.
     RawSubscriber& operator=(RawSubscriber&& other) noexcept;
     ~RawSubscriber();
 
@@ -58,12 +63,15 @@ public:
     [[nodiscard]] Result<std::optional<Sample>> receive() noexcept;
 
     /// @brief Payload type name reported by the service.
+    /// @return Borrowed type name.
     [[nodiscard]] std::string_view payload_type() const noexcept { return payload_type_; }
 
     /// @brief Service name this subscriber opened.
+    /// @return Borrowed service name.
     [[nodiscard]] std::string_view service_name() const noexcept { return service_name_text_; }
 
     /// @brief Payload size in bytes reported by the service.
+    /// @return Payload size in bytes.
     [[nodiscard]] std::size_t payload_size() const noexcept { return payload_size_; }
 
 private:

@@ -71,6 +71,7 @@ public:
     StatePublication(StatePublication&&) noexcept = default;
 
     /// @brief Move-assign the Field handles.
+    /// @return This publication.
     StatePublication& operator=(StatePublication&&) noexcept = default;
 
     /// @brief Publish one group's current state.

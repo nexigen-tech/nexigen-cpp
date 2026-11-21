@@ -18,6 +18,8 @@ struct SettingsDigest {
     std::string sha256{}; ///< Expected 64-character hex digest.
 
     /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return Human-readable text with the path and digest.
     [[nodiscard]] std::string to_string() const {
         return std::format("SettingsDigest(path={}, sha256={})", path, sha256);
     }

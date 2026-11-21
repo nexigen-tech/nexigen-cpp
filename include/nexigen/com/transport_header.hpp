@@ -41,6 +41,7 @@ struct TransportHeader {
     }
 
     /// @brief Cold-path diagnostic rendering.
+    /// @return Human-readable header summary.
     [[nodiscard]] std::string to_string() const {
         return "TransportHeader(app=" + std::string(app_id_text()) +
                ", pid=" + std::to_string(pid) + ", publisher=" + std::to_string(publisher_id) +

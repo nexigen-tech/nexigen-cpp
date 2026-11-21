@@ -63,6 +63,8 @@ namespace nexigen::chrono {
 ///
 /// @tparam MaxSources Fixed number of stampers the bank can issue; defaults to
 ///         64. It must be large enough for every producer that will acquire.
+/// @tparam M Meter type satisfying `core::concepts::MeterLike`; defaults to
+///         `core::NullMeter`, which creates no counters.
 /// @note Spec `chrono/provider`, requirement "Provider construction and sink
 ///       binding"; requirement "Fixed stamper bank capacity"; requirement
 ///       "Steady-state allocation of the authority".
@@ -83,6 +85,8 @@ public:
     /// @tparam Sink Concrete sink type, constrained by `concepts::Sink`.
     /// @param config Provider configuration copied into the instance.
     /// @param sink Sink that receives snapshots; it must outlive the provider.
+    /// @param meter Optional borrowed meter for the failure counters; `nullptr`
+    ///        (the default) disables counter creation.
     /// @note Spec `chrono/provider`, requirement "Provider construction and sink
     ///       binding".
     template <concepts::Sink Sink>

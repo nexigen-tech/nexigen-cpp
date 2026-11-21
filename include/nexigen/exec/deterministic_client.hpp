@@ -20,6 +20,10 @@ struct DeterministicConfig {
     std::uint64_t seed{1};                    ///< PRNG seed; 0 is accepted.
 
     /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return Human-readable text with the cycle period and seed.
+    /// @note Spec `exec/deterministic-execution`, requirement "Deterministic
+    ///       configuration conversion set".
     [[nodiscard]] std::string to_string() const;
 };
 
@@ -39,15 +43,29 @@ public:
     std::uint64_t wait_for_next_cycle() noexcept;
 
     /// @brief Number of cycles consumed so far.
+    ///
+    /// @return The count of completed cycles.
+    /// @note Spec `exec/deterministic-execution`, requirement "Deterministic
+    ///       cycle clock".
     [[nodiscard]] std::uint64_t cycle_index() const noexcept { return cycle_index_; }
 
     /// @brief Scheduled monotonic time of the current cycle.
+    ///
+    /// @return The cycle's scheduled time in nanoseconds.
+    /// @note Spec `exec/deterministic-execution`, requirement "Deterministic
+    ///       cycle clock".
     [[nodiscard]] std::uint64_t cycle_time_ns() const noexcept;
 
     /// @brief Draw the next splitmix64 value.
+    ///
+    /// @return The next value of the deterministic pseudo-random sequence.
+    /// @note Spec `exec/deterministic-execution`, requirement "Deterministic
+    ///       pseudo-random sequence".
     [[nodiscard]] std::uint64_t random_u64() noexcept;
 
     /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return Human-readable text with the configuration and cycle counters.
     [[nodiscard]] std::string to_string() const;
 
 private:

@@ -17,48 +17,83 @@ namespace nexigen::exec {
 
 /// @brief One process declared by a Machine Manifest.
 struct MachineProcess {
-    std::string name{};
-    std::string executable{};
+    std::string name{};               ///< Process name used by the execution manifest.
+    std::string executable{};         ///< Executable path or command name.
     std::string function_group_ref{}; ///< `/Machine/FunctionGroups/<id>`.
     std::string function_group{};     ///< Resolved Function Group name.
-    std::vector<std::string> args{};
+    std::vector<std::string> args{};  ///< Command-line arguments.
 
+    /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return Human-readable text naming the process and its executable.
     [[nodiscard]] std::string to_string() const;
 };
 
 /// @brief One Function Group declared by a Machine Manifest.
 struct MachineFunctionGroup {
-    std::string name{};
-    std::string id{};
-    std::vector<std::string> states{};
+    std::string name{};                ///< Function Group name.
+    std::string id{};                  ///< Machine-unique identifier referenced by processes.
+    std::vector<std::string> states{}; ///< Declared state names.
 
+    /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return Human-readable text naming the Function Group and its states.
     [[nodiscard]] std::string to_string() const;
 };
 
 /// @brief One Machine with its Function Groups and processes.
 struct Machine {
-    std::string name{};
-    std::vector<MachineFunctionGroup> function_groups{};
-    std::vector<MachineProcess> processes{};
+    std::string name{};                                  ///< Machine name.
+    std::vector<MachineFunctionGroup> function_groups{}; ///< Declared Function Groups.
+    std::vector<MachineProcess> processes{};             ///< Declared processes.
 
+    /// @brief Find one Function Group by name or id.
+    ///
+    /// @param name_or_id Function Group name or machine-unique id.
+    /// @return The matching group, or `nullptr` when none matches.
     [[nodiscard]] const MachineFunctionGroup*
     find_function_group(std::string_view name_or_id) const noexcept;
+
+    /// @brief Find one process by name.
+    ///
+    /// @param name Process name.
+    /// @return The matching process, or `nullptr` when none matches.
     [[nodiscard]] const MachineProcess* find_process(std::string_view name) const noexcept;
+
+    /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return Human-readable text naming the machine and its contents.
     [[nodiscard]] std::string to_string() const;
 };
 
 /// @brief Parsed Machine Manifest.
 struct MachineManifest {
-    std::vector<Machine> machines{};
+    std::vector<Machine> machines{}; ///< Declared machines.
 
+    /// @brief Find one Machine by name.
+    ///
+    /// @param name Machine name.
+    /// @return The matching machine, or `nullptr` when none matches.
+    /// @note Spec `exec/machine-manifest`, requirement "Machine Manifest
+    ///       vocabulary".
     [[nodiscard]] const Machine* find_machine(std::string_view name) const noexcept;
 
     /// @brief Resolve every `/Machine/FunctionGroups/<id>` reference.
+    ///
+    /// @return Success, or `InvalidArgument` when a reference does not resolve.
+    /// @note Spec `exec/machine-manifest`, requirement "Machine reference
+    ///       resolution".
     [[nodiscard]] core::Status resolve_references() noexcept;
 
     /// @brief Validate names, ids, executables, and resolved references.
+    ///
+    /// @return Success, or `InvalidArgument` describing the first violation.
+    /// @note Spec `exec/machine-manifest`, requirement "Machine validation".
     [[nodiscard]] core::Status validate() const noexcept;
 
+    /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return Human-readable text listing the declared machines.
     [[nodiscard]] std::string to_string() const;
 };
 

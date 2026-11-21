@@ -123,6 +123,8 @@ public:
     /// @param cfg Transport and worker configuration: service name, application
     ///        id, subscriber/history limits, level, throttle and worker thread
     ///        spec. Views are copied into fixed storage.
+    /// @param meter Optional borrowed meter for producer counters; `nullptr`
+    ///        (the default) disables counter creation.
     /// @return OK once the worker is running; `ErrorCode::InvalidArgument` for an
     ///         empty/oversized service name, a bad application id, zero
     ///         subscriber/history limits, an incoherent throttle policy or an

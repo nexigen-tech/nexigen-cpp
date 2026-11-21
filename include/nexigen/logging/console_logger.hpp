@@ -123,6 +123,8 @@ public:
     ///
     /// @param cfg Construction-time configuration; the default is `Info`, an
     ///        inherited worker spec and the default poll ceiling.
+    /// @param meter Optional borrowed meter for producer counters; `nullptr`
+    ///        (the default) disables counter creation.
     /// @return OK once the writer is running; `ErrorCode::SystemError` if clock
     ///         calibration or thread start fails, `ErrorCode::InvalidArgument` if
     ///         the worker thread spec is invalid. The failure is propagated

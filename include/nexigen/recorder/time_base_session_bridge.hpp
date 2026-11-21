@@ -51,9 +51,11 @@ public:
     [[nodiscard]] bool record(const chrono::TimeBaseBlock& block) noexcept;
 
     /// @brief Number of `TimeBase` records appended.
+    /// @return Appended `TimeBase` record count.
     [[nodiscard]] std::uint64_t recorded_entries() const noexcept { return entries_; }
 
     /// @brief Number of `TimeSnapshot` records appended.
+    /// @return Appended `TimeSnapshot` record count.
     [[nodiscard]] std::uint64_t recorded_snapshots() const noexcept { return snapshots_; }
 
 private:

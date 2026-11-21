@@ -45,6 +45,7 @@ struct AppSpec {
     std::vector<StateDependentStartupConfig> startup_configs{};
     core::CpuSet cpus{};             ///< Affinity request; empty means unrestricted.
     std::uint64_t idle_timeout_s{0}; ///< Run time before the stop sequence; 0 = no timeout.
+    /// Failure impact reported to the app suite (`Report`/`Degrade`/... ).
     ImpactOnAppSuiteOperability impact{ImpactOnAppSuiteOperability::Degrade};
     /// Termination behavior (`daemon`/`oneshot`), mirroring AUTOSAR
     /// `terminationBehavior`; independent of reporting mode.

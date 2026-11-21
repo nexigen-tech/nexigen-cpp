@@ -99,6 +99,7 @@ public:
     RecoveryHandler(RecoveryHandler&&) noexcept = default;
 
     /// @brief Move-assign the com handles and the manager pointer.
+    /// @return This handler.
     RecoveryHandler& operator=(RecoveryHandler&&) noexcept = default;
 
     /// @brief Install the actuation callback used for every notification.

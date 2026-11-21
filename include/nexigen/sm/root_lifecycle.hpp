@@ -52,6 +52,7 @@ public:
     /// @brief Move-construct a client, transferring every handle.
     RootLifecycleClient(RootLifecycleClient&&) noexcept = default;
     /// @brief Move-assign a client, transferring every handle.
+    /// @return This client.
     RootLifecycleClient& operator=(RootLifecycleClient&&) noexcept = default;
 
     /// @brief Report the SM's own `Running` readiness to the EM.
@@ -79,6 +80,7 @@ public:
     request_state(std::string_view target, std::chrono::milliseconds timeout) noexcept;
 
     /// @brief Whether the client owns a working readiness reporter.
+    /// @return `true` when readiness reporting is available.
     [[nodiscard]] bool available() const noexcept { return reporter_.has_value(); }
 
 private:

@@ -58,6 +58,8 @@ namespace nexigen::com {
 /// @tparam H Optional user-header type published alongside the payload.
 ///         `void` (the default) means no header; a non-void `H` must also
 ///         satisfy `com::concepts::Message`.
+/// @tparam M Meter type satisfying `core::concepts::MeterLike`; defaults to
+///         `core::NullMeter`, which creates no counters.
 /// @note Implements `com/publish-subscribe`: "Zero-copy publication",
 ///       "Non-blocking overflow", "Subscriber lag telemetry", and
 ///       "Port diagnostics". The service is opened or created by `create()`
@@ -103,6 +105,8 @@ public:
     /// @param node Node that owns this process's transport membership.
     /// @param name Valid service name shared with the subscriber.
     /// @param options Optional service-level settings.
+    /// @param meter Optional borrowed meter for publisher counters; `nullptr`
+    ///        (the default) disables counter creation.
     /// @return The constructed publisher, or a mapped `com::Error` on failure.
     /// @note Spec `com/publish-subscribe`, requirement "Publish-subscribe
     ///       service options".

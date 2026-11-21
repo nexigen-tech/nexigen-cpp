@@ -23,19 +23,35 @@
 namespace nexigen::sm {
 
 /// @brief LSM bindings and their EM/StatePublication action sink.
+///
+/// @note Spec `sm/lsm-runtime`, requirement "LSM Function Group binding".
 class LsmRuntime {
 public:
     /// @brief Build the runtime for every configured state machine.
+    ///
+    /// @param manifest Manifest selecting the Function Groups that use an LSM.
+    /// @param manager SM arbiter; borrowed and must outlive the runtime.
+    /// @param em_client EM `StateCommand` client; borrowed.
+    /// @param publication State publication sink used by the action handler.
+    /// @return The constructed runtime, or `core::ErrorCode::InvalidArgument`
+    ///         when a manifest group is unknown or its machine cannot be built.
     [[nodiscard]] static core::Result<LsmRuntime>
     create(const SmManifest& manifest, StateManager& manager,
            com::Client<exec::StateCommand, exec::StateAck>& em_client,
            StatePublication& publication);
 
+    /// @brief Move construction; the sink and bindings move with the runtime.
     LsmRuntime(LsmRuntime&&) noexcept;
+    /// @brief Move assignment; replaces every binding owned by this runtime.
+    /// @return This runtime.
     LsmRuntime& operator=(LsmRuntime&&) noexcept;
+    /// @brief Release the bindings and the action sink.
     ~LsmRuntime();
 
     /// @brief Whether one group is controlled by an LSM.
+    ///
+    /// @param group_index Group index.
+    /// @return `true` when a binding exists for `group_index`.
     [[nodiscard]] bool handles(std::size_t group_index) const noexcept;
 
     /// @brief Run the transition table for one bound group.
@@ -48,6 +64,8 @@ public:
                                            std::string_view requester_id) noexcept;
 
     /// @brief Cold-path diagnostic rendering.
+    ///
+    /// @return A human-readable summary of the bound groups.
     [[nodiscard]] std::string to_string() const;
 
 private:

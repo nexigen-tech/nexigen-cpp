@@ -41,9 +41,11 @@ public:
     set_timeout(std::uint32_t requested_ms) noexcept = 0;
 
     /// @brief Feed the device once.
+    /// @return Empty status on success, or the mapped OS error.
     [[nodiscard]] virtual core::Status feed() noexcept = 0;
 
     /// @brief Disarm the device (magic close) and release it.
+    /// @return Empty status on success, or the mapped OS error.
     [[nodiscard]] virtual core::Status disarm() noexcept = 0;
 };
 

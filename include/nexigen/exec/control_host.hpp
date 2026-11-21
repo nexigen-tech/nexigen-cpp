@@ -57,9 +57,19 @@ public:
                                                     std::string_view state) noexcept = 0;
 
     /// @brief Current state of one Function Group (`Undefined` after failure).
+    ///
+    /// @param group Function Group name.
+    /// @return Current state name, or `Undefined` after a failed transition.
+    /// @note Spec `exec/function-group-state`, requirement "Failed transition
+    ///       leaves the group Undefined".
     [[nodiscard]] virtual std::string_view group_state(std::string_view group) const noexcept = 0;
 
     /// @brief Whether a transition is currently running for one group.
+    ///
+    /// @param group Function Group name.
+    /// @return `true` while a transition for the group is in flight.
+    /// @note Spec `exec/function-group-state`, requirement "Transition is
+    ///       single-flight and cancellable".
     [[nodiscard]] virtual bool transition_active(std::string_view group) const noexcept = 0;
 
     /// @brief Reset every group to its first declared state and drop pending
@@ -70,9 +80,13 @@ public:
     virtual void shutdown_machine() noexcept = 0;
 
     /// @brief Install the suite process-start callback.
+    ///
+    /// @param handler Callback invoked for every subsequent process start.
     virtual void set_start_handler(ProcessHandler handler) = 0;
 
     /// @brief Install the suite process-stop callback.
+    ///
+    /// @param handler Callback invoked for every subsequent process stop.
     virtual void set_stop_handler(ProcessHandler handler) = 0;
 
     /// @brief Forced restart of one supervised application (PHM recovery).
@@ -83,6 +97,8 @@ public:
     using RestartHandler = std::function<core::Status(std::string_view app)>;
 
     /// @brief Install the suite recovery-restart callback.
+    ///
+    /// @param handler Callback invoked for every subsequent PHM restart.
     virtual void set_restart_handler(RestartHandler handler) = 0;
 
     /// @brief Restart one application on behalf of PHM.
@@ -94,18 +110,37 @@ public:
     [[nodiscard]] virtual core::Status restart_process(std::string_view app) noexcept = 0;
 
     /// @brief Whether an application has reported readiness.
+    ///
+    /// @param app Application name.
+    /// @return `true` when the application currently reports readiness.
+    /// @note Spec `exec/process-types`, requirement "Daemon readiness is
+    ///       reported".
     [[nodiscard]] virtual bool ready(std::string_view app) const noexcept = 0;
 
     /// @brief Current process state of one application.
+    ///
+    /// @param app Application name.
+    /// @return The recorded process state, or `Idle` for an unknown name.
+    /// @note Spec `exec/process-types`, requirement "Process lifecycle states".
     [[nodiscard]] virtual ProcessState process_state(std::string_view app) const noexcept = 0;
 
     /// @brief Current application state of one application.
+    ///
+    /// @param app Application name.
+    /// @return The reported application state, or `Unknown` for an unknown name.
+    /// @note Spec `exec/application-state`, requirement "Report application
+    ///       state".
     [[nodiscard]] virtual AppState app_state(std::string_view app) const noexcept = 0;
 
     /// @brief Notify the host that the supervisor launched/restarted a process.
+    ///
+    /// @param app Application name.
     virtual void on_launched(std::string_view app) noexcept = 0;
 
     /// @brief Notify the host that the supervisor observed an exit.
+    ///
+    /// @param app Application name.
+    /// @param exit_code Observed process exit status.
     virtual void on_exited(std::string_view app, int exit_code) noexcept = 0;
 
     /// @brief Install the admission check consulted before a PHM restart is queued.

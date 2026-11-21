@@ -195,6 +195,8 @@ public:
     ///
     /// @tparam L Consumer satisfying `core::concepts::DiagnosticLogger`.
     /// @param logger Borrowed consumer; must outlive the provider.
+    /// @return Success when the binding is installed in configuration mode;
+    ///         `Conflict` while the harvester runs or after quiescence.
     /// @note Spec `metrics/metric-provider`, requirement "Provider diagnostics
     ///       binding".
     template <core::concepts::DiagnosticLogger L>

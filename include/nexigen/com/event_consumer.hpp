@@ -34,6 +34,8 @@ namespace nexigen::com {
 /// @tparam T Event payload; constrained by `concepts::EventPayload`.
 /// @tparam OnEvent Callable invoked as `(const EventHeader&, const T&)`.
 /// @tparam OnLoss Callable invoked as `(const LossInfo&)`.
+/// @tparam M Meter type satisfying `core::concepts::MeterLike`; defaults to
+///         `core::NullMeter`, which creates no counters.
 /// @note Spec `com/event-system`, requirements "Transport loss detection and
 ///       callbacks" and "Consumer waiting and multiplexing".
 template <concepts::EventPayload T, class OnEvent, class OnLoss,
@@ -46,6 +48,8 @@ public:
     /// @param config Channel limits; must match the producer's configuration.
     /// @param on_event Event callback.
     /// @param on_loss Loss callback.
+    /// @param meter Optional borrowed meter for consumer counters; `nullptr`
+    ///        (the default) disables counter creation.
     /// @return Consumer, or a mapped `com::Error`/`InvalidArgument`.
     [[nodiscard]] static Result<EventConsumer> create(Node& node, ServiceName name,
                                                       const ChannelConfig& config, OnEvent on_event,

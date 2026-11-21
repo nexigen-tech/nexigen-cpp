@@ -78,6 +78,8 @@ public:
     Sha256() noexcept = default;
 
     /// @brief Feed bytes into the digest.
+    ///
+    /// @param bytes Bytes to hash; may be called any number of times.
     void update(std::span<const std::uint8_t> bytes) noexcept {
         total_len_ += bytes.size();
         std::size_t offset = 0;
@@ -96,12 +98,16 @@ public:
     }
 
     /// @brief Feed a text view.
+    ///
+    /// @param text Characters to hash.
     void update(std::string_view text) noexcept {
         update(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(text.data()),
                                              text.size()));
     }
 
     /// @brief Finalize and return the 32-byte digest.
+    ///
+    /// @return The SHA-256 digest of everything fed so far.
     [[nodiscard]] std::array<std::uint8_t, 32> finish() noexcept {
         const std::uint64_t bit_len = total_len_ * 8U;
         std::array<std::uint8_t, 72> padding{};

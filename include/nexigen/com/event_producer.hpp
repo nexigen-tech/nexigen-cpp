@@ -71,6 +71,8 @@ struct EventProducerFaults {
 /// and resets the sequence.
 ///
 /// @tparam T Event payload; constrained by `concepts::EventPayload`.
+/// @tparam M Meter type satisfying `core::concepts::MeterLike`; defaults to
+///         `core::NullMeter`, which creates no counters.
 /// @note Spec `com/event-system`, requirements "Event production and publish
 ///       outcome" and "Producer epoch and source restart".
 template <concepts::EventPayload T, core::concepts::MeterLike M = core::NullMeter>
@@ -80,6 +82,8 @@ public:
     /// @param node Node that owns the transport membership.
     /// @param name Service name shared with the consumer.
     /// @param config Channel limits; must match the consumer's configuration.
+    /// @param meter Optional borrowed meter for producer counters; `nullptr`
+    ///        (the default) disables counter creation.
     /// @return Producer, or a mapped `com::Error`/`InvalidArgument`.
     [[nodiscard]] static Result<EventProducer>
     create(Node& node, ServiceName name, const ChannelConfig& config, M* meter = nullptr) noexcept {
