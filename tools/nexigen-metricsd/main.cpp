@@ -33,6 +33,7 @@
 #include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/subscriber.hpp>
+#include <nexigen/com/transport_header.hpp>
 #include <nexigen/com/waitset.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
@@ -130,7 +131,7 @@ std::chrono::milliseconds flush_interval_of(const metrics::MetricDaemonConfig& c
 }
 
 /// Drain every queued frame into the window, then render/flush on the interval.
-void drain_frames(com::Subscriber<metrics::MetricFrame>& subscriber,
+void drain_frames(com::Subscriber<metrics::MetricFrame, com::TransportHeader>& subscriber,
                   metrics::detail::MetricAggregator& aggregator, Window& window,
                   std::chrono::milliseconds flush_interval,
                   std::chrono::steady_clock::time_point& last_render,
@@ -206,7 +207,7 @@ int run_session(const metrics::MetricDaemonConfig& cfg) {
     // The sink sizes the service maximum; the daemon requests the same depth so
     // a full publish burst is retained instead of the transport default of 2.
     auto subscriber =
-        com::Subscriber<metrics::MetricFrame>::create(*node, *service, buffer_depth, buffer_depth);
+        com::Subscriber<metrics::MetricFrame, com::TransportHeader>::create(*node, *service, buffer_depth, buffer_depth);
     if (!subscriber) {
         std::fprintf(stderr, "nexigen-metricsd: failed to create subscriber\n");
         return 1;

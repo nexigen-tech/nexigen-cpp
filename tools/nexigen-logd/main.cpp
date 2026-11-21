@@ -32,6 +32,7 @@
 #include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/subscriber.hpp>
+#include <nexigen/com/transport_header.hpp>
 #include <nexigen/com/waitset.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
@@ -206,7 +207,7 @@ void append_frame(const logging::LogFrame& frame, std::int64_t utc_offset_ns, Si
 }
 
 /// Drain every frame the subscriber has queued, applying the storage threshold.
-void drain_subscriber(com::Subscriber<logging::LogFrame>& sub, const logging::LogDaemonConfig& cfg,
+void drain_subscriber(com::Subscriber<logging::LogFrame, com::TransportHeader>& sub, const logging::LogDaemonConfig& cfg,
                       std::int64_t utc_offset_ns, Sink& sink) {
     for (;;) {
         auto got = sub.receive();
@@ -287,7 +288,7 @@ int run_session(const logging::LogDaemonConfig& cfg) {
         std::fprintf(stderr, "nexigen-logd: invalid service name '%s'\n", cfg.service_name.c_str());
         return 1;
     }
-    auto sub = com::Subscriber<logging::LogFrame>::create(*node, *svc);
+    auto sub = com::Subscriber<logging::LogFrame, com::TransportHeader>::create(*node, *svc);
     if (!sub) {
         std::fprintf(stderr, "nexigen-logd: failed to create subscriber\n");
         return 1;

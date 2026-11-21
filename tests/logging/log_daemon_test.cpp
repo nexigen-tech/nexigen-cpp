@@ -22,6 +22,7 @@
 #include <nexigen/com/event.hpp>
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/subscriber.hpp>
+#include <nexigen/com/transport_header.hpp>
 #include <nexigen/com/waitset.hpp>
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/iceoryx2_logger.hpp>
@@ -105,7 +106,7 @@ void test_e2e() {
     NX_CHECK(node.has_value());
     const auto svc = com::ServiceName::create("Nexigen/Test/LogdE2E");
     NX_CHECK(svc.has_value());
-    auto sub = com::Subscriber<logging::LogFrame>::create(*node, *svc);
+    auto sub = com::Subscriber<logging::LogFrame, com::TransportHeader>::create(*node, *svc);
     NX_CHECK(sub.has_value());
     if (!sub.has_value()) return;
     const auto evn = com::ServiceName::create("Nexigen/Test/LogdE2EEvent");
@@ -232,7 +233,7 @@ bool publish_main_thread(const std::string& service, std::string_view msg) {
     if (!name) {
         return false;
     }
-    auto publisher = com::Publisher<logging::LogFrame>::create(*node, *name);
+    auto publisher = com::Publisher<logging::LogFrame, com::TransportHeader>::create(*node, *name);
     if (!publisher) {
         return false;
     }
@@ -250,7 +251,11 @@ bool publish_main_thread(const std::string& service, std::string_view msg) {
     frame.payload_size = static_cast<std::uint16_t>(n);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    const auto sent = publisher->send_copy(frame);
+    com::TransportHeader header{};
+    std::memcpy(header.app_id, "TEST", 4);
+    header.pid = static_cast<std::uint32_t>(::getpid());
+    header.sequence = 1U;
+    const auto sent = publisher->send_copy(frame, header);
     if (sent.has_value() && notifier) {
         static_cast<void>(notifier->notify());
     }

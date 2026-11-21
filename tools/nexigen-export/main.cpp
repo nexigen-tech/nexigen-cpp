@@ -559,6 +559,25 @@ struct PerfettoContext {
 
 bool perfetto_visitor(void* context, const RecordHeader& header, std::span<const std::byte> payload,
                       std::uint64_t /*offset*/) {
+    if (header.type == static_cast<std::uint16_t>(RecordType::GapMarker)) {
+        if (payload.size() != sizeof(nexigen::recorder::GapMarkerPayload)) {
+            return true;
+        }
+        nexigen::recorder::GapMarkerPayload gap{};
+        std::memcpy(&gap, payload.data(), sizeof(gap));
+        auto& state = *static_cast<PerfettoContext*>(context);
+        nlohmann::json event{};
+        event["ph"] = "i";
+        event["name"] = "gap";
+        event["ts"] = header.commit_mono_ns / 1000U;
+        event["pid"] = header.publisher_id;
+        event["tid"] = 0;
+        event["args"] = {{"first_lost_sequence", gap.first_lost_sequence},
+                         {"lost_count", gap.lost_count},
+                         {"reason", gap.reason}};
+        state.events->push_back(std::move(event));
+        return true;
+    }
     if (header.type != static_cast<std::uint16_t>(RecordType::SpanFrame) ||
         payload.size() != sizeof(nexigen::tracing::SpanFrame)) {
         return true;

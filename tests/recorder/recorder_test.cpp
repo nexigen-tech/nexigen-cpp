@@ -19,6 +19,8 @@
 
 #include <nexigen/core/enum_traits.hpp>
 #include <nexigen/recorder/dataset_info.hpp>
+#include <nexigen/logging/log_frame.hpp>
+#include <nexigen/metrics/metric_frame.hpp>
 #include <nexigen/recorder/builtin_schemas.hpp>
 #include <nexigen/recorder/config_loader.hpp>
 #include <nexigen/recorder/export_selection.hpp>
@@ -30,6 +32,7 @@
 #include <nexigen/recorder/session_writer.hpp>
 #include <nexigen/recorder/time_base_resolver.hpp>
 #include <nexigen/recorder/time_base_session_bridge.hpp>
+#include <nexigen/tracing/span_frame.hpp>
 #include <nexigen/recorder/wire_types.hpp>
 
 namespace {
@@ -1154,6 +1157,59 @@ void test_multi_segment_video_refs() {
     NX_CHECK(segments_checked > 1U);
     NX_CHECK(refs_checked > 0U);
     std::filesystem::remove_all(root, error);
+}
+
+void test_builtin_frame_descriptors() {
+    using namespace nexigen;
+    static_assert(sizeof(logging::LogFrame) == 256U);
+    static_assert(offsetof(logging::LogFrame, payload) == 31U);
+    static_assert(sizeof(metrics::MetricFrame) == 4472U);
+    static_assert(offsetof(metrics::MetricFrame, record) == 16U);
+    static_assert(offsetof(metrics::MetricRecord, kind) == 256U);
+    static_assert(offsetof(metrics::MetricRecord, scalar) == 264U);
+    static_assert(sizeof(tracing::SpanFrame) == 384U);
+    static_assert(offsetof(tracing::SpanFrame, name) == 72U);
+
+    const auto schemas = recorder::builtin_schemas();
+    auto find = [&schemas](std::string_view name) -> const recorder::SchemaDeclare* {
+        for (const auto& schema : schemas) {
+            if (schema.name == name) {
+                return &schema;
+            }
+        }
+        return nullptr;
+    };
+    auto fields_of = [](const recorder::SchemaDeclare& schema) {
+        return nlohmann::json::parse(schema.data.begin(), schema.data.end()).at("fields");
+    };
+    auto has_field = [](const nlohmann::json& fields, std::string_view name, std::size_t offset,
+                        std::size_t count) {
+        for (const auto& field : fields) {
+            if (field.at("name") == name) {
+                return field.at("offset").get<std::size_t>() == offset &&
+                       field.at("count").get<std::size_t>() == count;
+            }
+        }
+        return false;
+    };
+
+    const recorder::SchemaDeclare* log = find("nexigen.log.LogFrame");
+    NX_CHECK(log != nullptr);
+    const auto log_fields = fields_of(*log);
+    NX_CHECK(has_field(log_fields, "payload", 31U, 225U));
+
+    const recorder::SchemaDeclare* metric = find("nexigen.metrics.MetricFrame");
+    NX_CHECK(metric != nullptr);
+    const auto metric_fields = fields_of(*metric);
+    NX_CHECK(has_field(metric_fields, "meter_name", 16U, 64U));
+    NX_CHECK(has_field(metric_fields, "kind", 272U, 1U));
+    NX_CHECK(has_field(metric_fields, "statistics_mean", 304U, 1U));
+    NX_CHECK(has_field(metric_fields, "histogram_buckets_count", 2424U, 256U));
+
+    const recorder::SchemaDeclare* span = find("nexigen.tracing.SpanFrame");
+    NX_CHECK(span != nullptr);
+    const auto span_fields = fields_of(*span);
+    NX_CHECK(has_field(span_fields, "name", 72U, 48U));
 }
 
 void test_builtins_and_config() {
@@ -3826,6 +3882,7 @@ int main() {
     test_encoder_restart_not_gap();
     test_multi_segment_video_refs();
     test_builtins_and_config();
+    test_builtin_frame_descriptors();
     test_torn_every_byte();
     test_shard();
     test_payload_decoder();

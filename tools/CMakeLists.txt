@@ -150,6 +150,15 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_sm_required_spec PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
+    # nexigen-recd — telemetry session recorder (change record-telemetry-sessions).
+    add_executable(nexigen-recd nexigen-recd/main.cpp)
+    target_link_libraries(nexigen-recd PRIVATE
+        nexigen_recorder nexigen_com nexigen_chrono Threads::Threads)
+
+    add_test(NAME nexigen_recd_help COMMAND nexigen-recd --help)
+    set_tests_properties(nexigen_recd_help PROPERTIES
+        WILL_FAIL TRUE TIMEOUT 60 LABELS "tools")
+
     # nexigen-logd — Log Daemon (change add-log-daemon).
     add_executable(nexigen-logd nexigen-logd/main.cpp)
     target_link_libraries(nexigen-logd PRIVATE nexigen_logging nexigen_com Threads::Threads)

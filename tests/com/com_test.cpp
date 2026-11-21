@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <format>
 #include <new>
 #include <optional>
@@ -44,12 +45,14 @@
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/pending_response.hpp>
 #include <nexigen/com/publisher.hpp>
+#include <nexigen/com/raw_subscriber.hpp>
 #include <nexigen/com/sample.hpp>
 #include <nexigen/com/sample_mut.hpp>
 #include <nexigen/com/server.hpp>
 #include <nexigen/com/service_manifest.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
+#include <nexigen/com/transport_header.hpp>
 #include <nexigen/com/wait_set_attachment_id.hpp>
 #include <nexigen/com/wait_set_guard.hpp>
 #include <nexigen/com/waitset.hpp>
@@ -974,6 +977,118 @@ void test_custom_header() {
     NX_CHECK(received);
 }
 
+void test_transport_header() {
+    com::TransportHeader header{};
+    std::memcpy(header.app_id, "LIDR", 4U);
+    header.pid = 42U;
+    header.publisher_id = 7U;
+    header.sequence = 11U;
+
+    nlohmann::json encoded = header;
+    com::TransportHeader decoded{};
+    com::from_json(encoded, decoded);
+    NX_CHECK(decoded.app_id_text() == "LIDR");
+    NX_CHECK(decoded.pid == 42U);
+    NX_CHECK(decoded.publisher_id == 7U);
+    NX_CHECK(decoded.sequence == 11U);
+
+    com::TransportHeader hostile = decoded;
+    const nlohmann::json bad = {{"pid", "nope"}, {"sequence", -1}};
+    com::from_json(bad, hostile);
+    NX_CHECK(hostile.pid == decoded.pid);
+    NX_CHECK(hostile.sequence == decoded.sequence);
+
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/TransportHeader");
+    NX_CHECK(name.has_value());
+    com::PublishSubscribeOptions options{};
+    options.subscriber_max_buffer_size = 8U;
+    options.subscriber_buffer_size = 8U;
+    auto publisher = com::Publisher<int, com::TransportHeader>::create(*node, *name, options);
+    NX_CHECK(publisher.has_value());
+    auto subscriber = com::Subscriber<int, com::TransportHeader>::create(*node, *name, options);
+    NX_CHECK(subscriber.has_value());
+
+    for (const std::uint64_t sequence : {1U, 2U, 5U}) {
+        com::TransportHeader sample_header = header;
+        sample_header.sequence = sequence;
+        NX_CHECK(publisher->send_copy(3, sample_header).has_value());
+    }
+
+    std::vector<std::uint64_t> lost;
+    for (int attempt = 0; attempt < 500 && lost.size() < 3U; ++attempt) {
+        while (true) {
+            const auto got = subscriber->receive();
+            NX_CHECK(got.has_value());
+            if (!got->has_value()) {
+                break;
+            }
+            lost.push_back((*got)->lost_before());
+        }
+        if (lost.size() < 3U) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    NX_CHECK(lost.size() == 3U);
+    NX_CHECK(lost[0] == 0U);
+    NX_CHECK(lost[1] == 0U);
+    NX_CHECK(lost[2] == 2U);
+}
+
+void test_raw_subscriber() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    const auto name = com::ServiceName::create("Nexigen/Test/RawSubscriber");
+    NX_CHECK(name.has_value());
+
+    com::PublishSubscribeOptions options{};
+    options.subscriber_max_buffer_size = 8U;
+    options.subscriber_buffer_size = 8U;
+    auto publisher = com::Publisher<int, com::TransportHeader>::create(*node, *name, options);
+    NX_CHECK(publisher.has_value());
+
+    auto raw = com::RawSubscriber::create(*name);
+    NX_CHECK(raw.has_value());
+    NX_CHECK(raw->payload_size() == sizeof(int));
+    NX_CHECK(!raw->payload_type().empty());
+
+    com::TransportHeader header{};
+    std::memcpy(header.app_id, "RAWT", 4U);
+    header.pid = 9U;
+    header.publisher_id = 3U;
+    header.sequence = 1U;
+    NX_CHECK(publisher->send_copy(17, header).has_value());
+    header.sequence = 2U;
+    NX_CHECK(publisher->send_copy(18, header).has_value());
+
+    int received = 0;
+    for (int attempt = 0; attempt < 500 && received < 2; ++attempt) {
+        const auto sample = raw->receive();
+        NX_CHECK(sample.has_value());
+        if (!sample->has_value()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            continue;
+        }
+        NX_CHECK((*sample)->payload.size() == sizeof(int));
+        NX_CHECK((*sample)->user_header.size() == sizeof(com::TransportHeader));
+        int value = 0;
+        std::memcpy(&value, (*sample)->payload.data(), sizeof(value));
+        com::TransportHeader seen{};
+        std::memcpy(&seen, (*sample)->user_header.data(), sizeof(seen));
+        NX_CHECK(seen.sequence == static_cast<std::uint64_t>(received + 1));
+        NX_CHECK(value == 17 + received);
+        ++received;
+    }
+    NX_CHECK(received == 2);
+
+    const auto missing = com::ServiceName::create("Nexigen/Test/NoSuchRawService");
+    NX_CHECK(missing.has_value());
+    const auto absent = com::RawSubscriber::create(*missing);
+    NX_CHECK(!absent.has_value());
+    NX_CHECK(absent.error() == com::Error::ServiceNotFound);
+}
+
 } // namespace
 
 namespace e2e_test {
@@ -1389,6 +1504,8 @@ int main() {
     run_suite("pub_sub_type_mismatch", test_pub_sub_type_mismatch);
     run_suite("pub_sub_two_process", test_pub_sub_two_process);
     run_suite("custom_header", test_custom_header);
+    run_suite("transport_header", test_transport_header);
+    run_suite("raw_subscriber", test_raw_subscriber);
     run_suite("event", test_event);
     run_suite("waitset", test_waitset);
     run_suite("field", test_field);

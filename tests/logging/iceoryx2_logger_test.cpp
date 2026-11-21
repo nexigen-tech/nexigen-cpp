@@ -17,6 +17,7 @@
 #include <nexigen/com/sample.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
+#include <nexigen/com/transport_header.hpp>
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/detail/iceoryx2_sink.hpp>
 #include <nexigen/logging/detail/producer.hpp>
@@ -109,7 +110,7 @@ void test_roundtrip() {
     NX_CHECK(node.has_value());
     const auto name = com::ServiceName::create("Nexigen/Test/LogRoundTrip");
     NX_CHECK(name.has_value());
-    auto subscriber = com::Subscriber<logging::LogFrame>::create(*node, *name);
+    auto subscriber = com::Subscriber<logging::LogFrame, com::TransportHeader>::create(*node, *name);
     NX_CHECK(subscriber.has_value());
 
     logging::Iceoryx2Logger<> logger;
@@ -124,7 +125,7 @@ void test_roundtrip() {
     logger.info("roundtrip {}", 42);
     NX_CHECK(logger.flush().has_value());
 
-    std::optional<com::Sample<logging::LogFrame>> got;
+    std::optional<com::Sample<logging::LogFrame, com::TransportHeader>> got;
     for (int i = 0; i < 1000 && !got.has_value(); ++i) {
         auto received = subscriber->receive();
         NX_CHECK(received.has_value());
@@ -162,7 +163,7 @@ void test_drop_semantics() {
     // Subscriber AFTER sink start so the service is already opened by the
     // publisher. Default buffer (~2): a concurrent drain thread reads frames
     // as they arrive, preventing the small buffer from overflowing.
-    auto subscriber = com::Subscriber<logging::LogFrame>::create(*node, *name);
+    auto subscriber = com::Subscriber<logging::LogFrame, com::TransportHeader>::create(*node, *name);
     NX_CHECK(subscriber.has_value());
     if (!subscriber.has_value()) return;
 

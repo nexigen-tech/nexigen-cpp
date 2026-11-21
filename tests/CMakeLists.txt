@@ -332,8 +332,33 @@ if(NEXIGEN_ENABLE_COM)
     target_link_libraries(nexigen_metrics_com_tests PRIVATE
         nexigen_metrics_com Threads::Threads)
 
+    add_executable(nexigen_recd_config_tests tools/recd_config_test.cpp)
+    target_include_directories(nexigen_recd_config_tests PRIVATE ${CMAKE_SOURCE_DIR}/tools)
+    target_link_libraries(nexigen_recd_config_tests PRIVATE nexigen_core)
+    add_test(NAME nexigen_recd_config_tests COMMAND nexigen_recd_config_tests)
+    set_tests_properties(nexigen_recd_config_tests PROPERTIES TIMEOUT 60 LABELS "tools")
+
+    add_executable(nexigen_event_gap_tracker_tests tools/event_gap_tracker_test.cpp)
+    target_include_directories(nexigen_event_gap_tracker_tests PRIVATE ${CMAKE_SOURCE_DIR}/tools)
+    add_test(NAME nexigen_event_gap_tracker_tests COMMAND nexigen_event_gap_tracker_tests)
+    set_tests_properties(nexigen_event_gap_tracker_tests PROPERTIES TIMEOUT 60 LABELS "tools")
+
+    add_executable(nexigen_recd_producer tools/recd_producer.cpp)
+    target_link_libraries(nexigen_recd_producer PRIVATE nexigen_com Threads::Threads)
+    add_test(NAME nexigen_recd_smoke
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tools/recd_smoke.sh
+                $<TARGET_FILE:nexigen-recd>
+                $<TARGET_FILE:nexigen_recd_producer>
+                $<TARGET_FILE:nexigen-export>)
+    set_tests_properties(nexigen_recd_smoke PROPERTIES TIMEOUT 60 LABELS "tools")
+
     add_test(NAME nexigen_metrics_com_tests COMMAND nexigen_metrics_com_tests)
     set_tests_properties(nexigen_metrics_com_tests PROPERTIES TIMEOUT 600)
+
+    add_executable(nexigen_com_metrics_tests metrics/com_endpoint_counters_test.cpp)
+    target_link_libraries(nexigen_com_metrics_tests PRIVATE nexigen_metrics_com Threads::Threads)
+    add_test(NAME nexigen_com_metrics_tests COMMAND nexigen_com_metrics_tests)
+    set_tests_properties(nexigen_com_metrics_tests PROPERTIES TIMEOUT 60 LABELS "tools")
 
     # End-to-end MetricsDaemon pipeline (change add-metrics-daemon).
     add_executable(nexigen_metrics_daemon_tests metrics/metrics_daemon_test.cpp)

@@ -26,6 +26,7 @@
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
+#include <nexigen/com/transport_header.hpp>
 #include <nexigen/tracing/detail/fnv1a_64.hpp>
 #include <nexigen/tracing/iceoryx2_trace_sink.hpp>
 #include <nexigen/tracing/iceoryx2_trace_sink_config.hpp>
@@ -76,7 +77,7 @@ tracing::SpanRecord make_record(std::uint64_t index, const char* file = "/src/ca
     return record;
 }
 
-std::uint32_t receive_frames(com::Subscriber<tracing::SpanFrame>& subscriber,
+std::uint32_t receive_frames(com::Subscriber<tracing::SpanFrame, com::TransportHeader>& subscriber,
                              tracing::SpanFrame* out, std::uint32_t capacity) {
     std::uint32_t received = 0U;
     for (int attempt = 0; attempt < 1000 && received < capacity; ++attempt) {
@@ -146,7 +147,7 @@ void test_publish_roundtrip() {
 
     const auto name = com::ServiceName::create(config.service_name.c_str());
     NX_CHECK(name.has_value());
-    auto subscriber = com::Subscriber<tracing::SpanFrame>::create(*node, *name, 8U, 8U);
+    auto subscriber = com::Subscriber<tracing::SpanFrame, com::TransportHeader>::create(*node, *name, 8U, 8U);
     NX_CHECK(subscriber.has_value());
     if (!subscriber.has_value()) {
         return;
@@ -228,7 +229,7 @@ void test_memo_cache() {
     // the hash of its own text. A live subscriber lets us inspect each frame.
     const auto name = com::ServiceName::create(config.service_name.c_str());
     NX_CHECK(name.has_value());
-    auto subscriber = com::Subscriber<tracing::SpanFrame>::create(*node, *name, 256U, 256U);
+    auto subscriber = com::Subscriber<tracing::SpanFrame, com::TransportHeader>::create(*node, *name, 256U, 256U);
     NX_CHECK(subscriber.has_value());
     if (!subscriber.has_value()) {
         return;
@@ -276,7 +277,7 @@ void test_overflow_and_gap() {
 
     const auto name = com::ServiceName::create(config.service_name.c_str());
     NX_CHECK(name.has_value());
-    auto subscriber = com::Subscriber<tracing::SpanFrame>::create(*node, *name, 1U, 1U);
+    auto subscriber = com::Subscriber<tracing::SpanFrame, com::TransportHeader>::create(*node, *name, 1U, 1U);
     NX_CHECK(subscriber.has_value());
     if (!subscriber.has_value()) {
         return;
@@ -315,7 +316,7 @@ void test_burst_and_sequences() {
 
     const auto name = com::ServiceName::create(config.service_name.c_str());
     NX_CHECK(name.has_value());
-    auto subscriber = com::Subscriber<tracing::SpanFrame>::create(*node, *name, 16U, 16U);
+    auto subscriber = com::Subscriber<tracing::SpanFrame, com::TransportHeader>::create(*node, *name, 16U, 16U);
     NX_CHECK(subscriber.has_value());
     if (!subscriber.has_value()) {
         return;

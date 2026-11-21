@@ -22,6 +22,7 @@
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/subscriber.hpp>
+#include <nexigen/com/transport_header.hpp>
 #include <nexigen/metrics/detail/exposition_buffer.hpp>
 #include <nexigen/metrics/detail/history_writer.hpp>
 #include <nexigen/metrics/detail/metric_aggregator.hpp>
@@ -107,7 +108,7 @@ void test_daemon_e2e() {
 
     const auto service = com::ServiceName::create(sink_config.service_name.c_str());
     NX_CHECK(service.has_value());
-    auto subscriber = com::Subscriber<metrics::MetricFrame>::create(*node, *service, 16U, 16U);
+    auto subscriber = com::Subscriber<metrics::MetricFrame, com::TransportHeader>::create(*node, *service, 16U, 16U);
     NX_CHECK(subscriber.has_value());
     if (!subscriber.has_value()) {
         return;

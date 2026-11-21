@@ -58,10 +58,6 @@ event service types are unchanged.
   reports how many samples were lost before the one it received, a type-erased raw subscriber is
   added for introspection tools, and endpoints gain a meter-constrained template parameter with
   their own counters.
-- `logging/multi-producer`: loggers accept a meter and count accepted and dropped records.
-- `tracing/tracer-provider`: the provider accepts a meter and counts started and dropped spans.
-- `chrono/provider`: the provider accepts a meter and counts calibration, acquisition, and snapshot
-  failures.
 - `recorder/export`: Perfetto output gains explicit gap objects at their sequence positions.
 
 ## Impact

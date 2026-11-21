@@ -1001,6 +1001,23 @@ void test_gap_jsonl() {
         }
     }
     NX_CHECK(gaps == 1U);
+
+    const std::string gap_perfetto = g_root + "/gap-trace.json";
+    const auto perfetto =
+        run_exporter({"perfetto", root + "/sess", "--dataset", "1", "--output", gap_perfetto});
+    NX_CHECK_RUN("gap-perfetto", perfetto, perfetto.code == 0);
+    const auto document = parse_json(read_file(gap_perfetto));
+    NX_CHECK(document["traceEvents"].is_array());
+    std::size_t gap_events = 0;
+    for (const auto& event : document["traceEvents"]) {
+        if (event.value("name", "") != "gap") {
+            continue;
+        }
+        ++gap_events;
+        NX_CHECK(event["args"]["lost_count"] == 2U);
+        NX_CHECK(event["args"]["first_lost_sequence"] == 1U);
+    }
+    NX_CHECK(gap_events == 1U);
 }
 
 /// @brief Uncompressed and JPEG XS frames are passed through byte-for-byte.
