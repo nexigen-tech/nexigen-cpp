@@ -54,8 +54,7 @@ inline constexpr std::chrono::milliseconds k_spin_slice{20};
 /// @param trace_id Trace id carried by the transport header.
 /// @return Console line naming the index, the ten values, and the latency.
 [[nodiscard]] inline std::string render_received(const VectorSample& payload,
-                                                 std::uint64_t latency_us,
-                                                 std::uint64_t trace_id) {
+                                                 std::uint64_t latency_us, std::uint64_t trace_id) {
     return std::format("{} latency_us={} trace_id={:016x}", payload.to_string(), latency_us,
                        trace_id);
 }
@@ -74,8 +73,8 @@ inline constexpr std::chrono::milliseconds k_spin_slice{20};
 /// @param allow_print Whether the Function Group state permits console output.
 /// @return The number of vectors drained, or `-1` when the transport failed.
 template <class Subscriber, class Counter, class Gauge>
-int drain_once(Subscriber& subscriber, auto* tracer, auto& logger, Counter* counter,
-               Gauge* latency, PlatformLink& link, bool allow_print) {
+int drain_once(Subscriber& subscriber, auto* tracer, auto& logger, Counter* counter, Gauge* latency,
+               PlatformLink& link, bool allow_print) {
     int drained = 0;
     for (;;) {
         auto result = subscriber.receive();
@@ -100,8 +99,8 @@ int drain_once(Subscriber& subscriber, auto* tracer, auto& logger, Counter* coun
         context.trace_id = header.trace_id;
         context.source_span_id = header.source_span_id;
         auto span = tracer->start_span("process-vector", tracing::SpanKind::Consumer);
-        static_cast<void>(span.set_attribute("sequence",
-                                             static_cast<std::int64_t>(payload.sequence)));
+        static_cast<void>(
+            span.set_attribute("sequence", static_cast<std::int64_t>(payload.sequence)));
 
         counter->inc();
         latency->set(static_cast<std::int64_t>(latency_us));
@@ -141,13 +140,11 @@ int drain_once(Subscriber& subscriber, auto* tracer, auto& logger, Counter* coun
 ///        trading a full core for the shortest possible wake-to-read path.
 /// @return The infrastructure stop reason.
 template <class Infrastructure, class Subscriber, class Counter, class Gauge>
-[[nodiscard]] app::InfrastructureStopReason
-run_receiver_loop(Infrastructure& infra, Subscriber& subscriber, PlatformLink& link,
-                  auto* tracer, Counter* counter, Gauge* latency,
-                  std::chrono::steady_clock::time_point deadline,
-                  std::chrono::steady_clock::time_point crash_at = std::chrono::steady_clock::time_point::max(),
-                  bool* crash_due = nullptr, com::EventListener* listener = nullptr,
-                  bool spin = false) {
+[[nodiscard]] app::InfrastructureStopReason run_receiver_loop(
+    Infrastructure& infra, Subscriber& subscriber, PlatformLink& link, auto* tracer,
+    Counter* counter, Gauge* latency, std::chrono::steady_clock::time_point deadline,
+    std::chrono::steady_clock::time_point crash_at = std::chrono::steady_clock::time_point::max(),
+    bool* crash_due = nullptr, com::EventListener* listener = nullptr, bool spin = false) {
     std::optional<com::WaitSet> waitset{};
     std::optional<com::WaitSetGuard> guard{};
     if (listener != nullptr) {
@@ -185,8 +182,7 @@ run_receiver_loop(Infrastructure& infra, Subscriber& subscriber, PlatformLink& l
             }
             allowed = state_allows_run(state);
             if (!allowed) {
-                infra.logger().debug("receiver paused while group is '{}'",
-                                     state_name(last_state));
+                infra.logger().debug("receiver paused while group is '{}'", state_name(last_state));
             }
         }
 

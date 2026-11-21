@@ -51,7 +51,6 @@ struct SimplePolicy {
         out.emplace(1);
         return {};
     }
-
 };
 
 int fail(std::string_view message) {

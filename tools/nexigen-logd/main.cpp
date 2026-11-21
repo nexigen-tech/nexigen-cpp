@@ -207,8 +207,8 @@ void append_frame(const logging::LogFrame& frame, std::int64_t utc_offset_ns, Si
 }
 
 /// Drain every frame the subscriber has queued, applying the storage threshold.
-void drain_subscriber(com::Subscriber<logging::LogFrame, com::TransportHeader>& sub, const logging::LogDaemonConfig& cfg,
-                      std::int64_t utc_offset_ns, Sink& sink) {
+void drain_subscriber(com::Subscriber<logging::LogFrame, com::TransportHeader>& sub,
+                      const logging::LogDaemonConfig& cfg, std::int64_t utc_offset_ns, Sink& sink) {
     for (;;) {
         auto got = sub.receive();
         if (!got || !got->has_value()) {

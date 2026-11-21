@@ -314,8 +314,8 @@ void test_recovery_handler() {
     NX_CHECK(ack_channel.has_value() && ack_event.has_value());
 
     sm::StateManager manager = make_manager();
-    auto handler = sm::RecoveryHandler::create(*node, *channel, *event, *ack_channel, *ack_event,
-                                               manager);
+    auto handler =
+        sm::RecoveryHandler::create(*node, *channel, *event, *ack_channel, *ack_event, manager);
     NX_CHECK(handler.has_value());
 
     // Mock PHM: publish a fault notification and raise the wake event.
@@ -358,12 +358,12 @@ void test_recovery_handler() {
     // An installed actuator receives the committed state and its answer is
     // forwarded verbatim.
     std::string acted_target;
-    handler->set_actuation([&acted_target](std::size_t, std::uint64_t request_id,
-                                           std::string_view target) {
-        acted_target.assign(target);
-        return nexigen::phm::RecoveryAck{request_id, nexigen::phm::RecoveryOutcome::Accepted,
-                                         nexigen::phm::RecoveryReason::None};
-    });
+    handler->set_actuation(
+        [&acted_target](std::size_t, std::uint64_t request_id, std::string_view target) {
+            acted_target.assign(target);
+            return nexigen::phm::RecoveryAck{request_id, nexigen::phm::RecoveryOutcome::Accepted,
+                                             nexigen::phm::RecoveryReason::None};
+        });
     publish_fault(42, "motion_control");
     handler->handle_pending();
     const auto accepted = read_ack();

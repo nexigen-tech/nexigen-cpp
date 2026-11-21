@@ -18,8 +18,7 @@ namespace {
     return bracket == std::string_view::npos ? type : type.substr(0, bracket);
 }
 
-[[nodiscard]] std::uint64_t read_le_unsigned(std::span<const std::byte> payload,
-                                             std::size_t offset,
+[[nodiscard]] std::uint64_t read_le_unsigned(std::span<const std::byte> payload, std::size_t offset,
                                              std::uint32_t size) noexcept {
     std::uint64_t value = 0;
     for (std::uint32_t i = 0; i < size; ++i) {
@@ -29,9 +28,8 @@ namespace {
     return value;
 }
 
-[[nodiscard]] std::int64_t read_le_signed(std::span<const std::byte> payload,
-                                         std::size_t offset,
-                                         std::uint32_t size) noexcept {
+[[nodiscard]] std::int64_t read_le_signed(std::span<const std::byte> payload, std::size_t offset,
+                                          std::uint32_t size) noexcept {
     const std::uint64_t raw = read_le_unsigned(payload, offset, size);
     const std::uint32_t bits = size * 8U;
     if (bits == 64U) {
@@ -49,18 +47,18 @@ namespace {
 }
 
 [[nodiscard]] bool is_unsigned_base(std::string_view base) noexcept {
-    return base == "u8" || base == "u16" || base == "u32" || base == "u64" ||
-           base == "uint8" || base == "uint16" || base == "uint32" || base == "uint64";
+    return base == "u8" || base == "u16" || base == "u32" || base == "u64" || base == "uint8" ||
+           base == "uint16" || base == "uint32" || base == "uint64";
 }
 
 [[nodiscard]] bool is_signed_base(std::string_view base) noexcept {
-    return base == "i8" || base == "i16" || base == "i32" || base == "i64" ||
-           base == "int8" || base == "int16" || base == "int32" || base == "int64";
+    return base == "i8" || base == "i16" || base == "i32" || base == "i64" || base == "int8" ||
+           base == "int16" || base == "int32" || base == "int64";
 }
 
 [[nodiscard]] core::Result<nlohmann::json> decode_scalar(std::span<const std::byte> payload,
-                                                        std::string_view base,
-                                                        std::size_t offset, std::uint32_t size) {
+                                                         std::string_view base, std::size_t offset,
+                                                         std::uint32_t size) {
     if (is_unsigned_base(base)) {
         return read_le_unsigned(payload, offset, size);
     }
@@ -89,8 +87,8 @@ decode_field(const DatasetField& field, std::span<const std::byte> payload) noex
     }
     const std::uint32_t stride = field.stride == 0U ? field.element_size : field.stride;
     const std::string_view base = type_base(field.type);
-    const std::size_t bytes = static_cast<std::size_t>(stride) * (field.count - 1U) +
-                              field.element_size;
+    const std::size_t bytes =
+        static_cast<std::size_t>(stride) * (field.count - 1U) + field.element_size;
     if (static_cast<std::size_t>(field.offset) + bytes > payload.size()) {
         return std::unexpected(core::ErrorCode::CorruptData);
     }
@@ -111,9 +109,8 @@ decode_field(const DatasetField& field, std::span<const std::byte> payload) noex
     }
     nlohmann::json array = nlohmann::json::array();
     for (std::uint32_t i = 0; i < field.count; ++i) {
-        auto value = decode_scalar(payload, base,
-                                   field.offset + static_cast<std::size_t>(i) * stride,
-                                   field.element_size);
+        auto value = decode_scalar(
+            payload, base, field.offset + static_cast<std::size_t>(i) * stride, field.element_size);
         if (!value.has_value()) {
             return value;
         }
@@ -277,8 +274,8 @@ decode_pod_fields(const std::vector<DatasetField>& fields,
 
 [[nodiscard]] std::uint16_t read_u16(std::span<const std::uint8_t> data,
                                      std::size_t offset) noexcept {
-    return static_cast<std::uint16_t>(
-        data[offset] | (static_cast<std::uint16_t>(data[offset + 1U]) << 8U));
+    return static_cast<std::uint16_t>(data[offset] |
+                                      (static_cast<std::uint16_t>(data[offset + 1U]) << 8U));
 }
 
 /// @brief Structural probe of an embedded FlatBuffers reflection schema.
@@ -320,8 +317,7 @@ decode_pod_fields(const std::vector<DatasetField>& fields,
     return PayloadView{PayloadKind::Json, document.dump()};
 }
 
-[[nodiscard]] core::Result<PayloadView>
-opaque(std::span<const std::byte> payload) noexcept {
+[[nodiscard]] core::Result<PayloadView> opaque(std::span<const std::byte> payload) noexcept {
     return PayloadView{PayloadKind::Opaque, base64(payload)};
 }
 
@@ -332,19 +328,19 @@ bool encoding_supported(std::string_view encoding) noexcept {
            encoding == "ros2msg";
 }
 
-core::Result<PayloadView>
-decode_payload(std::string_view encoding, std::span<const std::uint8_t> descriptor,
-               const std::vector<DatasetField>& fields,
-               std::span<const std::byte> payload) noexcept {
+core::Result<PayloadView> decode_payload(std::string_view encoding,
+                                         std::span<const std::uint8_t> descriptor,
+                                         const std::vector<DatasetField>& fields,
+                                         std::span<const std::byte> payload) noexcept {
     if (is_json_encoding(encoding)) {
         if (!fields.empty()) {
             const auto object = decode_pod_fields(fields, payload);
             if (!object.has_value()) {
                 return std::unexpected(object.error());
             }
-            return PayloadView{PayloadKind::Json,
-                               object->dump(-1, ' ', false,
-                                            nlohmann::json::error_handler_t::replace)};
+            return PayloadView{
+                PayloadKind::Json,
+                object->dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)};
         }
         return decode_json(payload);
     }

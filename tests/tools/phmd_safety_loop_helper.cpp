@@ -66,7 +66,9 @@ constexpr auto k_drain = 900ms;
     return std::move(*name);
 }
 
-[[nodiscard]] auto now() { return std::chrono::steady_clock::now(); }
+[[nodiscard]] auto now() {
+    return std::chrono::steady_clock::now();
+}
 
 /// @brief The lifecycle channel the daemon subscribes to for one process.
 struct LifecycleChannel {
@@ -85,8 +87,8 @@ struct Counters {
 struct Harness {
     std::optional<LifecycleChannel> lifecycle{};
     std::optional<nexigen::phm::CheckpointEmitter> checkpoints{};
-    std::optional<nexigen::com::Server<nexigen::phm::RecoveryRequest,
-                                       nexigen::phm::RecoveryResponse>>
+    std::optional<
+        nexigen::com::Server<nexigen::phm::RecoveryRequest, nexigen::phm::RecoveryResponse>>
         em_server{};
     std::optional<nexigen::com::Subscriber<nexigen::sm::RecoveryNotification>> sm_subscriber{};
     std::optional<nexigen::com::Publisher<nexigen::phm::RecoveryAck>> ack_publisher{};
@@ -99,8 +101,7 @@ struct Harness {
                                      std::string_view group,
                                      nexigen::exec::ProcessLifecycleState state) {
     nexigen::exec::ProcessLifecycleEvent sample{};
-    std::snprintf(sample.app, sizeof(sample.app), "%.*s", static_cast<int>(app.size()),
-                  app.data());
+    std::snprintf(sample.app, sizeof(sample.app), "%.*s", static_cast<int>(app.size()), app.data());
     std::snprintf(sample.function_group, sizeof(sample.function_group), "%.*s",
                   static_cast<int>(group.size()), group.data());
     sample.state = state;
@@ -123,8 +124,7 @@ struct Harness {
     if (!publisher || !event) {
         return false;
     }
-    harness.lifecycle.emplace(
-        LifecycleChannel{std::move(*publisher), std::move(*event)});
+    harness.lifecycle.emplace(LifecycleChannel{std::move(*publisher), std::move(*event)});
     return true;
 }
 
@@ -149,8 +149,9 @@ struct Harness {
     if (!name) {
         return false;
     }
-    auto server = nexigen::com::Server<nexigen::phm::RecoveryRequest,
-                                       nexigen::phm::RecoveryResponse>::create(node, *name);
+    auto server =
+        nexigen::com::Server<nexigen::phm::RecoveryRequest, nexigen::phm::RecoveryResponse>::create(
+            node, *name);
     if (!server) {
         return false;
     }
@@ -159,8 +160,7 @@ struct Harness {
 }
 
 /// @brief Open the State Manager notification, acknowledgement, and state.
-[[nodiscard]] bool open_sm(Harness& harness, nexigen::com::Node& node,
-                           std::string_view group) {
+[[nodiscard]] bool open_sm(Harness& harness, nexigen::com::Node& node, std::string_view group) {
     const auto notification_name = make_name("Nexigen/SM/Recovery");
     const auto ack_name = make_name("Nexigen/SM/RecoveryAck");
     const auto ack_event_name = make_name("Nexigen/SM/RecoveryAckEvent");
@@ -175,15 +175,16 @@ struct Harness {
     auto subscriber = nexigen::com::Subscriber<nexigen::sm::RecoveryNotification>::create(
         node, *notification_name);
     // PHM subscribes to the acknowledgement with a service maximum of 64.
-    auto publisher = nexigen::com::Publisher<nexigen::phm::RecoveryAck>::create(node, *ack_name, 64);
+    auto publisher =
+        nexigen::com::Publisher<nexigen::phm::RecoveryAck>::create(node, *ack_name, 64);
     auto event = nexigen::com::EventNotifier::create(node, *ack_event_name);
     if (!subscriber || !publisher || !event) {
         return false;
     }
     nexigen::sm::GroupStatePayload initial{};
     std::snprintf(initial.state, sizeof(initial.state), "%s", "Active");
-    auto field = nexigen::com::Field<nexigen::sm::GroupStatePayload>::create(node, *state_name,
-                                                                            initial);
+    auto field =
+        nexigen::com::Field<nexigen::sm::GroupStatePayload>::create(node, *state_name, initial);
     if (!field) {
         return false;
     }
@@ -211,9 +212,9 @@ void serve_em(Harness& harness, Counters& counters) noexcept {
         return;
     }
     ++counters.em_requests;
-    const nexigen::phm::RecoveryResponse response{
-        (*received)->payload().request_id, nexigen::phm::RecoveryOutcome::Accepted,
-        nexigen::phm::RecoveryReason::None};
+    const nexigen::phm::RecoveryResponse response{(*received)->payload().request_id,
+                                                  nexigen::phm::RecoveryOutcome::Accepted,
+                                                  nexigen::phm::RecoveryReason::None};
     static_cast<void>((*received)->send_copy(response));
 }
 
@@ -236,8 +237,7 @@ void send_ack(Harness& harness, Counters& counters, std::uint64_t request_id,
     if (!harness.ack_publisher || !harness.ack_event) {
         return;
     }
-    if (harness.ack_publisher->send_copy(
-            nexigen::phm::RecoveryAck{request_id, outcome, reason})) {
+    if (harness.ack_publisher->send_copy(nexigen::phm::RecoveryAck{request_id, outcome, reason})) {
         counters.ack_sent = harness.ack_event->notify().has_value();
     }
 }
@@ -309,8 +309,7 @@ void publish_failure(Harness& harness, std::string_view app, std::string_view gr
 }
 
 /// @brief Commit SafeState, then answer according to the mode.
-void answer(Harness& harness, Counters& counters, std::string_view mode,
-            std::uint64_t request_id) {
+void answer(Harness& harness, Counters& counters, std::string_view mode, std::uint64_t request_id) {
     if (mode == "noack") {
         return;
     }
@@ -341,8 +340,9 @@ void drain(Harness& harness, Counters& counters) {
 /// @brief Write the one-line summary the shell driver asserts on.
 void write_summary(const Counters& counters, const std::string& outfile) {
     std::ofstream out(outfile, std::ios::trunc);
-    out << "em_requests=" << counters.em_requests << " sm_notifications="
-        << counters.sm_notifications << " ack_sent=" << (counters.ack_sent ? 1 : 0) << '\n';
+    out << "em_requests=" << counters.em_requests
+        << " sm_notifications=" << counters.sm_notifications
+        << " ack_sent=" << (counters.ack_sent ? 1 : 0) << '\n';
 }
 
 /// @brief Drive the whole ladder for one mode.

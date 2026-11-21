@@ -60,6 +60,9 @@ public:
     /// @brief Payload type name reported by the service.
     [[nodiscard]] std::string_view payload_type() const noexcept { return payload_type_; }
 
+    /// @brief Service name this subscriber opened.
+    [[nodiscard]] std::string_view service_name() const noexcept { return service_name_text_; }
+
     /// @brief Payload size in bytes reported by the service.
     [[nodiscard]] std::size_t payload_size() const noexcept { return payload_size_; }
 
@@ -75,6 +78,7 @@ private:
     std::size_t payload_size_{0};
     std::size_t user_header_size_{0};
     std::string payload_type_{};
+    std::string service_name_text_{};
 };
 
 } // namespace nexigen::com

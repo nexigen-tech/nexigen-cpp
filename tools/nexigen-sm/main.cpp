@@ -541,7 +541,8 @@ void install_recovery_actuation(Session& session, nexigen::sm::StateManager& man
                 static_cast<void>(session.publication->publish(index, target_state));
             }
             if (!session.em_emergency_client) {
-                return RecoveryAck{request_id, RecoveryOutcome::Rejected, RecoveryReason::EmUnavailable};
+                return RecoveryAck{request_id, RecoveryOutcome::Rejected,
+                                   RecoveryReason::EmUnavailable};
             }
             nexigen::exec::StateCommand command{};
             std::snprintf(command.function_group, sizeof(command.function_group), "%s",
@@ -553,12 +554,12 @@ void install_recovery_actuation(Session& session, nexigen::sm::StateManager& man
             const auto answer = session.em_emergency_client->call(
                 command, std::chrono::milliseconds(manager.transition_max_time_ms(index)));
             if (!answer.has_value()) {
-                return RecoveryAck{request_id, RecoveryOutcome::Rejected, RecoveryReason::EmRejected};
+                return RecoveryAck{request_id, RecoveryOutcome::Rejected,
+                                   RecoveryReason::EmRejected};
             }
             switch (answer->result) {
                 case nexigen::exec::StateResult::Success:
-                    return RecoveryAck{request_id, RecoveryOutcome::Accepted,
-                                       RecoveryReason::None};
+                    return RecoveryAck{request_id, RecoveryOutcome::Accepted, RecoveryReason::None};
                 case nexigen::exec::StateResult::InProgress:
                     return RecoveryAck{request_id, RecoveryOutcome::InProgress,
                                        RecoveryReason::None};

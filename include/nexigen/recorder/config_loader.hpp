@@ -21,8 +21,8 @@ namespace nexigen::recorder {
 /// @note The returned `schemas` contain the full descriptor bytes; `channels`
 ///       reference them by id. No path, URL, or digest-only reference survives.
 struct RecorderConfig {
-    StorageSettings storage{};          ///< Effective session storage settings.
-    std::vector<SchemaDeclare> schemas{}; ///< Embedded schema descriptors.
+    StorageSettings storage{};              ///< Effective session storage settings.
+    std::vector<SchemaDeclare> schemas{};   ///< Embedded schema descriptors.
     std::vector<ChannelDeclare> channels{}; ///< Declared channels.
 };
 
@@ -36,7 +36,6 @@ struct RecorderConfig {
 /// @return Parsed configuration, or `NotFound`/`InvalidArgument`/`SecurityError`.
 /// @note Spec `recorder/raw-storage`, requirement "Embedded schema and channel
 ///       registry"; this is a cold-path operation and may allocate.
-[[nodiscard]] core::Result<RecorderConfig>
-load_recorder_config(const std::string& path) noexcept;
+[[nodiscard]] core::Result<RecorderConfig> load_recorder_config(const std::string& path) noexcept;
 
 } // namespace nexigen::recorder

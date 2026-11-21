@@ -2337,6 +2337,8 @@ void test_core_concepts() {
     static_assert(!concepts::HistogramLike<NoRecordHistogram>);
 
     static_assert(concepts::MeterLike<NullMeter>);
+    static_assert(std::is_empty_v<NullMeter>);
+    static_assert(std::is_empty_v<NullMeter::Counter>);
     static_assert(!concepts::InstrumentMeterLike<NullMeter>);
 
     const std::size_t before = g_alloc_used;

@@ -76,13 +76,13 @@ void fill_values(std::mt19937_64& rng, std::uniform_real_distribution<double>& d
 
 int main(int argc, char* argv[]) {
     const bool run_forever = env("NEXIGEN_SIM_RUN_FOREVER").value_or("") == "1";
-    const std::uint64_t worker_seconds = env_u64("NEXIGEN_SIM_WORKER_SECONDS", k_default_worker_seconds);
+    const std::uint64_t worker_seconds =
+        env_u64("NEXIGEN_SIM_WORKER_SECONDS", k_default_worker_seconds);
     const std::uint64_t period_ms = env_u64("NEXIGEN_SIM_PERIOD_MS", 1000);
 
     std::vector<std::string_view> args;
     app::CommandLineOptions options;
-    const std::optional<int> early_exit =
-        prepare_command_line(argc, argv, args, k_tag, options);
+    const std::optional<int> early_exit = prepare_command_line(argc, argv, args, k_tag, options);
     if (early_exit.has_value()) {
         return *early_exit;
     }
@@ -102,8 +102,7 @@ int main(int argc, char* argv[]) {
     auto infra = std::move(*created);
 
     app::Settings loaded{};
-    const core::Status initialized =
-        initialize_infrastructure(*infra, options, loaded, k_tag);
+    const core::Status initialized = initialize_infrastructure(*infra, options, loaded, k_tag);
     if (!initialized) {
         return fail_status(k_tag, "Infrastructure::initialize", initialized);
     }
@@ -118,12 +117,15 @@ int main(int argc, char* argv[]) {
     }
     const auto counter =
         (*meter)->create_counter<k_multi_threaded, k_readable, k_reset_on_read>("vectors_sent");
-    const auto gauge = (*meter)->create_gauge<std::int64_t, k_multi_threaded, k_readable,
-                                              k_reset_on_read>("last_sequence");
-    const auto publish_cost = (*meter)->create_gauge<std::int64_t, k_multi_threaded, k_readable,
-                                                      k_reset_on_read>("publish_cost_us");
-    const auto loan_cost = (*meter)->create_gauge<std::int64_t, k_multi_threaded, k_readable,
-                                                  k_reset_on_read>("loan_cost_us");
+    const auto gauge =
+        (*meter)->create_gauge<std::int64_t, k_multi_threaded, k_readable, k_reset_on_read>(
+            "last_sequence");
+    const auto publish_cost =
+        (*meter)->create_gauge<std::int64_t, k_multi_threaded, k_readable, k_reset_on_read>(
+            "publish_cost_us");
+    const auto loan_cost =
+        (*meter)->create_gauge<std::int64_t, k_multi_threaded, k_readable, k_reset_on_read>(
+            "loan_cost_us");
     if (!counter.has_value() || !gauge.has_value() || !publish_cost.has_value() ||
         !loan_cost.has_value()) {
         static_cast<void>(infra->shutdown());
@@ -142,13 +144,13 @@ int main(int argc, char* argv[]) {
         static_cast<void>(infra->shutdown());
         return fail_status(k_tag, "com::ServiceName::create", service);
     }
-    auto publisher =
-        com::Publisher<VectorSample, tracing::TraceHeader>::create(*node, *service);
+    auto publisher = com::Publisher<VectorSample, tracing::TraceHeader>::create(*node, *service);
     if (!publisher.has_value()) {
         static_cast<void>(infra->shutdown());
         return fail_status(k_tag, "com::Publisher::create", publisher);
     }
-    const auto event_service = com::ServiceName::create(std::string(k_vector_event_service).c_str());
+    const auto event_service =
+        com::ServiceName::create(std::string(k_vector_event_service).c_str());
     if (!event_service.has_value()) {
         static_cast<void>(infra->shutdown());
         return fail_status(k_tag, "com::ServiceName::create", event_service);
@@ -189,9 +191,8 @@ int main(int argc, char* argv[]) {
     std::uniform_real_distribution<double> distribution(-1.0, 1.0);
 
     const auto start = std::chrono::steady_clock::now();
-    const auto deadline = run_forever
-                              ? std::chrono::steady_clock::time_point::max()
-                              : start + std::chrono::seconds{worker_seconds};
+    const auto deadline = run_forever ? std::chrono::steady_clock::time_point::max()
+                                      : start + std::chrono::seconds{worker_seconds};
     const auto period = std::chrono::milliseconds(period_ms);
     std::uint64_t sequence = 0;
     std::uint32_t header_sequence = 0;
@@ -215,8 +216,7 @@ int main(int argc, char* argv[]) {
             last_state = state;
         }
         if (!state_allows_run(state)) {
-            infra->logger().warning("generator paused while group is '{}'",
-                                    state_name(last_state));
+            infra->logger().warning("generator paused while group is '{}'", state_name(last_state));
             return true;
         }
 
@@ -248,8 +248,7 @@ int main(int argc, char* argv[]) {
                 (*loan_cost)->set(static_cast<std::int64_t>(*cost));
             }
             if (!sent) {
-                infra->logger().warning("publish failed: {}",
-                                        com::to_string(sent.error()));
+                infra->logger().warning("publish failed: {}", com::to_string(sent.error()));
             } else {
                 const std::uint64_t publish_cost_us = (send_done_ns - sample.sent_ns) / 1000U;
                 (*counter)->inc();
@@ -259,8 +258,8 @@ int main(int argc, char* argv[]) {
                 // one is still covered by the queued sample.
                 static_cast<void>(vector_event->notify());
                 static_cast<void>(link.checkpoint(1));
-                infra->logger().debug("published vector #{} trace_id={:016x} cost_us={}",
-                                      sequence, header.trace_id.value(), publish_cost_us);
+                infra->logger().debug("published vector #{} trace_id={:016x} cost_us={}", sequence,
+                                      header.trace_id.value(), publish_cost_us);
             }
         }
 

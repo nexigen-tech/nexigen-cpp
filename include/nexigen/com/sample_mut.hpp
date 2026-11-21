@@ -101,7 +101,8 @@ public:
     }
 
 private:
-    template <concepts::Message TP, typename HP, core::concepts::MeterLike MP> friend class Publisher;
+    template <concepts::Message TP, typename HP, core::concepts::MeterLike MP>
+    friend class Publisher;
     friend class SampleMutUninit<T, H>;
 
     /// @brief Adopt an initialized transport sample.
@@ -165,7 +166,8 @@ public:
     }
 
 private:
-    template <concepts::Message TP, typename HP, core::concepts::MeterLike MP> friend class Publisher;
+    template <concepts::Message TP, typename HP, core::concepts::MeterLike MP>
+    friend class Publisher;
 
     /// @brief Adopt an uninitialized transport loan.
     ///

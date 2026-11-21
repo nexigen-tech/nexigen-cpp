@@ -34,9 +34,9 @@ inline constexpr std::size_t k_vector_values = 10;
 /// @note Spec `examples/simulation-suite`, requirement "Vector payload with
 ///       canonical conversions".
 struct VectorSample {
-    std::uint64_t sequence{0};                ///< Monotonic vector index.
-    std::uint64_t sent_ns{0};                 ///< Send instant, `steady_clock` nanoseconds.
-    double values[k_vector_values]{};         ///< Ten generated values.
+    std::uint64_t sequence{0};        ///< Monotonic vector index.
+    std::uint64_t sent_ns{0};         ///< Send instant, `steady_clock` nanoseconds.
+    double values[k_vector_values]{}; ///< Ten generated values.
 
     /// @brief Cold-path diagnostic rendering.
     ///
@@ -46,8 +46,8 @@ struct VectorSample {
     ///       `examples/simulation-suite`, requirement "Vector payload with
     ///       canonical conversions".
     [[nodiscard]] std::string to_string() const {
-        std::string rendered = std::format("VectorSample(sequence={}, sent_ns={}, values=[",
-                                           sequence, sent_ns);
+        std::string rendered =
+            std::format("VectorSample(sequence={}, sent_ns={}, values=[", sequence, sent_ns);
         for (std::size_t i = 0; i < k_vector_values; ++i) {
             if (i != 0U) {
                 rendered.push_back(' ');
@@ -64,8 +64,7 @@ static_assert(std::is_trivially_copyable_v<VectorSample>,
               "VectorSample must be trivially copyable to cross the com transport");
 
 /// @brief Compile-time proof of the documented message size.
-static_assert(sizeof(VectorSample) == 96,
-              "VectorSample is 8 + 8 + 10 * 8 bytes on the target ABI");
+static_assert(sizeof(VectorSample) == 96, "VectorSample is 8 + 8 + 10 * 8 bytes on the target ABI");
 
 /// @brief Free helper mirroring `VectorSample::to_string()` (mandate 9).
 ///
@@ -87,9 +86,8 @@ inline void to_json(nlohmann::json& j, const VectorSample& sample) {
     for (std::size_t i = 0; i < k_vector_values; ++i) {
         values.push_back(sample.values[i]);
     }
-    j = nlohmann::json{{"sequence", sample.sequence},
-                       {"sent_ns", sample.sent_ns},
-                       {"values", std::move(values)}};
+    j = nlohmann::json{
+        {"sequence", sample.sequence}, {"sent_ns", sample.sent_ns}, {"values", std::move(values)}};
 }
 
 /// @brief ADL JSON reader for a vector sample.
@@ -115,8 +113,7 @@ inline void from_json(const nlohmann::json& j, VectorSample& sample) noexcept {
         return;
     }
     const auto values_it = j.find("values");
-    if (values_it == j.end() || !values_it->is_array() ||
-        values_it->size() != k_vector_values) {
+    if (values_it == j.end() || !values_it->is_array() || values_it->size() != k_vector_values) {
         return;
     }
     std::array<double, k_vector_values> parsed{};
@@ -140,15 +137,15 @@ inline void from_json(const nlohmann::json& j, VectorSample& sample) noexcept {
 ///
 /// Delegates to the member diagnostic, so `std::format("{}", sample)` equals
 /// `to_string(sample)`.
-template <> struct std::formatter<simulation_suite::VectorSample> : std::formatter<std::string_view> {
+template <>
+struct std::formatter<simulation_suite::VectorSample> : std::formatter<std::string_view> {
     /// @brief Format one sample as its diagnostic string.
     ///
     /// @tparam Ctx `std::format` context type.
     /// @param sample Sample to render.
     /// @param ctx Output context supplied by `std::format`.
     /// @return Iterator one past the last written character.
-    template <class Ctx>
-    auto format(const simulation_suite::VectorSample& sample, Ctx& ctx) const {
+    template <class Ctx> auto format(const simulation_suite::VectorSample& sample, Ctx& ctx) const {
         const std::string text = sample.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

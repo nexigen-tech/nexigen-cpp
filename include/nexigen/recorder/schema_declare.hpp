@@ -25,14 +25,14 @@ namespace nexigen::recorder {
 /// @note Spec `recorder/raw-storage`, requirement "Embedded schema and channel
 ///       registry"; `encoding` is restricted to the converter's supported set.
 struct SchemaDeclare {
-    std::uint32_t id{0};             ///< session-scoped schema id
-    std::string name{};              ///< e.g. "nexigen.log.LogFrame"
-    std::uint32_t version{1};        ///< schema version
-    std::string encoding{};          ///< jsonschema | protobuf | flatbuffer | nexigen.pod.v1
-    std::string units{};             ///< optional unit hint
-    std::string endianness{"little"};///< payload byte order
-    std::vector<std::uint8_t> data{};///< full embedded descriptor bytes
-    std::uint32_t data_crc32c{0};    ///< CRC-32C of data
+    std::uint32_t id{0};              ///< session-scoped schema id
+    std::string name{};               ///< e.g. "nexigen.log.LogFrame"
+    std::uint32_t version{1};         ///< schema version
+    std::string encoding{};           ///< jsonschema | protobuf | flatbuffer | nexigen.pod.v1
+    std::string units{};              ///< optional unit hint
+    std::string endianness{"little"}; ///< payload byte order
+    std::vector<std::uint8_t> data{}; ///< full embedded descriptor bytes
+    std::uint32_t data_crc32c{0};     ///< CRC-32C of data
 
     /// @brief Validate id, bounds, encoding, and descriptor size.
     /// @return `Ok`, or `InvalidArgument`/`ResourceExhausted` for a rejected value.

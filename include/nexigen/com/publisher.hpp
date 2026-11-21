@@ -188,10 +188,9 @@ public:
     /// @note The service name is moved as well; diagnostics on the moved-from
     ///       object are unspecified.
     Publisher(Publisher&& other) noexcept
-        : service_name_(std::move(other.service_name_)),
-          meter_(other.meter_), published_(other.published_),
-          publish_failed_(other.publish_failed_), evicted_(other.evicted_),
-          inner_(std::move(other.inner_)) {
+        : service_name_(std::move(other.service_name_)), meter_(other.meter_),
+          published_(other.published_), publish_failed_(other.publish_failed_),
+          evicted_(other.evicted_), inner_(std::move(other.inner_)) {
         telemetry_.queued_samples_.store(
             other.telemetry_.queued_samples_.load(std::memory_order_relaxed),
             std::memory_order_relaxed);

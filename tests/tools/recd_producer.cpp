@@ -22,8 +22,7 @@ static_assert(nexigen::com::concepts::EventPayload<EventPayload>);
 } // namespace
 
 namespace {
-[[nodiscard]] bool publish_frames(nexigen::com::Node& node,
-                                 nexigen::com::TransportHeader& header) {
+[[nodiscard]] bool publish_frames(nexigen::com::Node& node, nexigen::com::TransportHeader& header) {
     using namespace nexigen;
     const auto log_name = com::ServiceName::create("Nexigen/Log/nexigen");
     const auto metric_name = com::ServiceName::create("Nexigen/Metrics/nexigen");

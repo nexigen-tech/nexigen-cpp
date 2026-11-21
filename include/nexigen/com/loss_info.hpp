@@ -22,13 +22,14 @@ namespace nexigen::com {
 ///       callbacks".
 struct LossInfo {
     LossReason reason{LossReason::TransportGap}; ///< Classification.
-    std::uint64_t expected_sequence{0};           ///< Expected transport sequence.
-    std::uint64_t actual_sequence{0};             ///< Observed transport sequence.
-    std::uint64_t lost_count{0};                  ///< Exact only for `TransportGap`.
-    std::uint64_t old_epoch{0};                   ///< Previous producer epoch.
-    std::uint64_t new_epoch{0};                   ///< Current producer epoch.
-    std::uint64_t actual_timestamp_ns{0};         ///< Timestamp of the triggering event.
-    TimestampDomain actual_timestamp_domain{TimestampDomain::Unknown}; ///< Domain of that timestamp.
+    std::uint64_t expected_sequence{0};          ///< Expected transport sequence.
+    std::uint64_t actual_sequence{0};            ///< Observed transport sequence.
+    std::uint64_t lost_count{0};                 ///< Exact only for `TransportGap`.
+    std::uint64_t old_epoch{0};                  ///< Previous producer epoch.
+    std::uint64_t new_epoch{0};                  ///< Current producer epoch.
+    std::uint64_t actual_timestamp_ns{0};        ///< Timestamp of the triggering event.
+    TimestampDomain actual_timestamp_domain{
+        TimestampDomain::Unknown}; ///< Domain of that timestamp.
 
     /// @brief Render the cold-path diagnostic string.
     /// @return Human-readable loss summary.
@@ -38,7 +39,9 @@ struct LossInfo {
 /// @brief Free helper mirroring `LossInfo::to_string`.
 /// @param info Info to render.
 /// @return Human-readable summary.
-[[nodiscard]] inline std::string to_string(const LossInfo& info) { return info.to_string(); }
+[[nodiscard]] inline std::string to_string(const LossInfo& info) {
+    return info.to_string();
+}
 
 /// @brief Serialize loss info to JSON.
 /// @param j Destination JSON object.

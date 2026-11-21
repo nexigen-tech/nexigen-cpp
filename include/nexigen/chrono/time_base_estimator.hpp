@@ -116,9 +116,9 @@ private:
     /// @brief Endpoint fit of the current window.
     struct Fit {
         std::uint64_t scale_fwd_q32{0}; ///< Fitted forward Q32 scale.
-        std::size_t anchor{0};         ///< Sample with the smallest residual.
-        std::uint64_t min_residual{0}; ///< Smallest residual.
-        std::uint64_t max_residual{0}; ///< Largest residual.
+        std::size_t anchor{0};          ///< Sample with the smallest residual.
+        std::uint64_t min_residual{0};  ///< Smallest residual.
+        std::uint64_t max_residual{0};  ///< Largest residual.
     };
 
     /// @brief Summarise the window endpoints.

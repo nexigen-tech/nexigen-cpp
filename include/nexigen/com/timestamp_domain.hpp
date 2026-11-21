@@ -38,7 +38,7 @@ template <> struct EnumTraits<nexigen::com::TimestampDomain> {
     /// @brief One value/name pair.
     struct Entry {
         nexigen::com::TimestampDomain value; ///< Enumerator.
-        std::string_view name;                ///< Canonical name.
+        std::string_view name;               ///< Canonical name.
     };
     /// @brief Canonical table.
     static constexpr std::array<Entry, 5> entries{{
@@ -93,8 +93,7 @@ struct std::formatter<nexigen::com::TimestampDomain> : std::formatter<std::strin
     /// @param value Domain to format.
     /// @param ctx Output context.
     /// @return Iterator past the last written character.
-    template <class Ctx>
-    auto format(const nexigen::com::TimestampDomain value, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::com::TimestampDomain value, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(nexigen::com::to_string(value), ctx);
     }
 };

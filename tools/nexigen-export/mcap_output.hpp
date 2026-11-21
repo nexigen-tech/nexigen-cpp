@@ -57,8 +57,7 @@ public:
     /// @brief Reopen a written MCAP and return its message count.
     /// @param path File to verify.
     /// @return Message count, or `CorruptData`.
-    [[nodiscard]] static core::Result<std::uint64_t>
-    verify(const std::string& path) noexcept;
+    [[nodiscard]] static core::Result<std::uint64_t> verify(const std::string& path) noexcept;
 
 private:
     struct Impl;

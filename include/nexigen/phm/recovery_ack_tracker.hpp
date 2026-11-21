@@ -40,7 +40,7 @@ public:
 
     /// @brief Result of applying one acknowledgement.
     struct Decision {
-        bool matched{false};          ///< The id belonged to an outstanding recovery.
+        bool matched{false};           ///< The id belonged to an outstanding recovery.
         bool watchdog_reaction{false}; ///< Stop feeding and fire the watchdog.
     };
 
@@ -60,8 +60,8 @@ public:
             entry.active = true;
             entry.request_id = request_id;
             entry.deadline = deadline;
-            std::snprintf(entry.group, sizeof(entry.group), "%.*s",
-                          static_cast<int>(group.size()), group.data());
+            std::snprintf(entry.group, sizeof(entry.group), "%.*s", static_cast<int>(group.size()),
+                          group.data());
             return true;
         }
         return false;
@@ -80,9 +80,7 @@ public:
             }
             decision.matched = true;
             switch (ack.outcome) {
-                case RecoveryOutcome::Accepted:
-                    entry.active = false;
-                    break;
+                case RecoveryOutcome::Accepted: entry.active = false; break;
                 case RecoveryOutcome::InProgress:
                     // The budget is not extended: the original deadline stands.
                     break;
@@ -126,10 +124,10 @@ public:
 private:
     /// @brief One outstanding escalation.
     struct Entry {
-        std::uint64_t request_id{0};              ///< Correlation id awaited.
-        Clock::time_point deadline{};             ///< Budget expiry.
-        char group[k_group_length]{};             ///< Notified group, for diagnostics.
-        bool active{false};                       ///< Slot in use.
+        std::uint64_t request_id{0};  ///< Correlation id awaited.
+        Clock::time_point deadline{}; ///< Budget expiry.
+        char group[k_group_length]{}; ///< Notified group, for diagnostics.
+        bool active{false};           ///< Slot in use.
     };
 
     std::array<Entry, k_capacity> entries_{}; ///< Outstanding escalations.

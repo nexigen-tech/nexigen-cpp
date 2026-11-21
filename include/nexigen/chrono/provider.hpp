@@ -277,16 +277,15 @@ private:
         : config_(config), binding_(binding) {}
 
     alignas(64) std::array<StampSource, MaxSources> bank_{}; ///< Fixed stamper storage.
-    std::atomic<std::size_t> next_free_{0};       ///< Next bank slot; relaxed, uniqueness only.
-    std::atomic<bool> prepared_{false};           ///< Release/acquire gate for calibration.
+    std::atomic<std::size_t> next_free_{0}; ///< Next bank slot; relaxed, uniqueness only.
+    std::atomic<bool> prepared_{false};     ///< Release/acquire gate for calibration.
     /// @brief Create this provider's counters from the supplied meter.
     void bind_counters(M* meter) noexcept {
         meter_ = meter;
         if (meter_ == nullptr) {
             return;
         }
-        if (auto c = meter_->template create_counter<>("calibration_failed", "1");
-            c.has_value()) {
+        if (auto c = meter_->template create_counter<>("calibration_failed", "1"); c.has_value()) {
             calibration_failed_counter_ = *c;
         }
         if (auto c = meter_->template create_counter<>("acquire_exhausted", "1"); c.has_value()) {

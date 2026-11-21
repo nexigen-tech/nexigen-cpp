@@ -58,8 +58,7 @@ int main() {
         const auto status = writer->append(nexigen::recorder::RecordType::LogFrame, *channel,
                                            payload, i * 1'000'000U, i, 1);
         if (!status.has_value()) {
-            std::fprintf(stderr, "cannot append record %llu\n",
-                         static_cast<unsigned long long>(i));
+            std::fprintf(stderr, "cannot append record %llu\n", static_cast<unsigned long long>(i));
             return 1;
         }
     }
@@ -85,9 +84,8 @@ int main() {
         std::fprintf(stderr, "verification failed\n");
         return 1;
     }
-    std::printf("session=%s datasets=%zu records=%llu gaps=%llu\n",
-                reader->directory().c_str(), datasets->size(),
-                static_cast<unsigned long long>(records),
+    std::printf("session=%s datasets=%zu records=%llu gaps=%llu\n", reader->directory().c_str(),
+                datasets->size(), static_cast<unsigned long long>(records),
                 static_cast<unsigned long long>(gaps));
     for (const auto& dataset : *datasets) {
         std::printf("  channel %u %s records=%llu bytes=%llu\n", dataset.channel_id,

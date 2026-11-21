@@ -41,8 +41,7 @@ namespace {
     return true;
 }
 
-[[nodiscard]] bool digest_matches(std::span<const std::uint8_t> bytes,
-                                  std::string_view expected) {
+[[nodiscard]] bool digest_matches(std::span<const std::uint8_t> bytes, std::string_view expected) {
     if (expected.empty()) {
         return true;
     }

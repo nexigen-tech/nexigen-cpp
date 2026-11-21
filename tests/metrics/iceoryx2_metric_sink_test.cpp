@@ -101,7 +101,8 @@ void test_publish_roundtrip() {
 
     const auto name = com::ServiceName::create(config.service_name.c_str());
     NX_CHECK(name.has_value());
-    auto subscriber = com::Subscriber<metrics::MetricFrame, com::TransportHeader>::create(*node, *name, 2U);
+    auto subscriber =
+        com::Subscriber<metrics::MetricFrame, com::TransportHeader>::create(*node, *name, 2U);
     NX_CHECK(subscriber.has_value());
 
     const std::string event_service = config.service_name + "Event";
@@ -182,7 +183,8 @@ void test_burst_no_drop() {
 
     const auto name = com::ServiceName::create(config.service_name.c_str());
     NX_CHECK(name.has_value());
-    auto subscriber = com::Subscriber<metrics::MetricFrame, com::TransportHeader>::create(*node, *name, 16U, 16U);
+    auto subscriber =
+        com::Subscriber<metrics::MetricFrame, com::TransportHeader>::create(*node, *name, 16U, 16U);
     NX_CHECK(subscriber.has_value());
     if (!subscriber.has_value()) {
         return;
@@ -241,7 +243,8 @@ void test_out_of_samples_no_block() {
 
     auto name = com::ServiceName::create(config.service_name.c_str());
     NX_CHECK(name.has_value());
-    auto subscriber = com::Subscriber<metrics::MetricFrame, com::TransportHeader>::create(*node, *name, 2U, 2U);
+    auto subscriber =
+        com::Subscriber<metrics::MetricFrame, com::TransportHeader>::create(*node, *name, 2U, 2U);
     NX_CHECK(subscriber.has_value());
     if (!subscriber.has_value()) {
         return;

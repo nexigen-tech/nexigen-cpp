@@ -79,11 +79,10 @@ public:
     /// @param on_loss Loss callback.
     /// @return Consumer, or a mapped `com::Error`/`InvalidArgument`.
     template <class OnEvent, class OnLoss>
-    [[nodiscard]] Result<EventConsumer<T, OnEvent, OnLoss>>
-    consumer(OnEvent on_event, OnLoss on_loss) noexcept {
+    [[nodiscard]] Result<EventConsumer<T, OnEvent, OnLoss>> consumer(OnEvent on_event,
+                                                                     OnLoss on_loss) noexcept {
         return EventConsumer<T, OnEvent, OnLoss>::create(*node_, name_, config_,
-                                                         std::move(on_event),
-                                                         std::move(on_loss));
+                                                         std::move(on_event), std::move(on_loss));
     }
 
     /// @brief Create the producer endpoint with counters from `meter`.
@@ -104,9 +103,8 @@ public:
     template <class OnEvent, class OnLoss, core::concepts::MeterLike M>
     [[nodiscard]] Result<EventConsumer<T, OnEvent, OnLoss, M>>
     consumer(OnEvent on_event, OnLoss on_loss, M& meter) noexcept {
-        return EventConsumer<T, OnEvent, OnLoss, M>::create(*node_, name_, config_,
-                                                            std::move(on_event),
-                                                            std::move(on_loss), &meter);
+        return EventConsumer<T, OnEvent, OnLoss, M>::create(
+            *node_, name_, config_, std::move(on_event), std::move(on_loss), &meter);
     }
 
     /// @brief Service name.
@@ -140,8 +138,7 @@ struct std::formatter<nexigen::com::EventChannel<T>> : std::formatter<std::strin
     /// @param channel Channel to format.
     /// @param ctx Output context.
     /// @return Iterator past the last written character.
-    template <class Ctx>
-    auto format(const nexigen::com::EventChannel<T>& channel, Ctx& ctx) const {
+    template <class Ctx> auto format(const nexigen::com::EventChannel<T>& channel, Ctx& ctx) const {
         return std::formatter<std::string_view>::format(channel.to_string(), ctx);
     }
 };

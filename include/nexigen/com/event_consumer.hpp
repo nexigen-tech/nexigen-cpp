@@ -198,7 +198,8 @@ private:
         if (meter_ == nullptr) {
             return;
         }
-        if (auto created = meter_->template create_counter<>("received", "1"); created.has_value()) {
+        if (auto created = meter_->template create_counter<>("received", "1");
+            created.has_value()) {
             received_ = *created;
         }
         if (auto created = meter_->template create_counter<>("lost", "1"); created.has_value()) {

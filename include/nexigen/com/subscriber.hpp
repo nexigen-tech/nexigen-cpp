@@ -90,9 +90,9 @@ public:
     /// @return The constructed subscriber, or a mapped `com::Error` on failure.
     /// @note Spec `com/publish-subscribe`, requirement "Publish-subscribe
     ///       service options".
-    [[nodiscard]] static Result<Subscriber>
-    create(Node& node, const ServiceName& name, const PublishSubscribeOptions& options,
-           M* meter = nullptr) noexcept {
+    [[nodiscard]] static Result<Subscriber> create(Node& node, const ServiceName& name,
+                                                   const PublishSubscribeOptions& options,
+                                                   M* meter = nullptr) noexcept {
         auto builder = node.handle().service_builder(name.handle()).publish_subscribe<T>();
         if (options.max_subscribers > 0U) {
             static_cast<void>(std::move(builder).max_subscribers(options.max_subscribers));
@@ -289,7 +289,8 @@ private:
         if (meter_ == nullptr) {
             return;
         }
-        if (auto created = meter_->template create_counter<>("received", "1"); created.has_value()) {
+        if (auto created = meter_->template create_counter<>("received", "1");
+            created.has_value()) {
             received_ = *created;
         }
         if (auto created = meter_->template create_counter<>("lost", "1"); created.has_value()) {
@@ -308,9 +309,9 @@ private:
 
     ServiceName service_name_;                  ///< Service identity rendered by `to_string()`.
     std::array<PublisherCursor, 16> cursors_{}; ///< Per-publisher sequence baselines.
-    M* meter_{nullptr};                  ///< Borrowed meter; outlives the subscriber.
-    MeterCounter* received_{nullptr};    ///< Successfully received samples.
-    MeterCounter* lost_{nullptr};        ///< Samples reported missing by the header.
+    M* meter_{nullptr};                         ///< Borrowed meter; outlives the subscriber.
+    MeterCounter* received_{nullptr};           ///< Successfully received samples.
+    MeterCounter* lost_{nullptr};               ///< Samples reported missing by the header.
     iox2::Subscriber<iox2::ServiceType::Ipc, T, H> inner_; ///< Owned transport handle.
 };
 
@@ -321,9 +322,9 @@ private:
 /// @tparam M Meter type satisfying `core::concepts::MeterLike`.
 /// @return The subscriber, or a mapped `com::Error`.
 template <concepts::Message T, typename H = void, core::concepts::MeterLike M>
-[[nodiscard]] Result<Subscriber<T, H, M>>
-make_subscriber(Node& node, const ServiceName& name, const PublishSubscribeOptions& options,
-                M& meter) noexcept {
+[[nodiscard]] Result<Subscriber<T, H, M>> make_subscriber(Node& node, const ServiceName& name,
+                                                          const PublishSubscribeOptions& options,
+                                                          M& meter) noexcept {
     return Subscriber<T, H, M>::create(node, name, options, &meter);
 }
 

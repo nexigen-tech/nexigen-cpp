@@ -15,8 +15,8 @@ namespace {
 /// @param now Current raw instant.
 /// @param cycle_period Cycle period; must be positive.
 /// @return Boundary `k * Tc` with `k * Tc > now`.
-[[nodiscard]] constexpr std::uint64_t
-next_boundary_after(std::uint64_t now, std::uint64_t cycle_period) noexcept {
+[[nodiscard]] constexpr std::uint64_t next_boundary_after(std::uint64_t now,
+                                                          std::uint64_t cycle_period) noexcept {
     const std::uint64_t boundary = (now / cycle_period) * cycle_period;
     return boundary <= now ? boundary + cycle_period : boundary;
 }
@@ -25,8 +25,8 @@ next_boundary_after(std::uint64_t now, std::uint64_t cycle_period) noexcept {
 /// @param target Instant to align.
 /// @param cycle_period Cycle period; must be positive.
 /// @return Boundary `k * Tc` with `k * Tc >= target`.
-[[nodiscard]] constexpr std::uint64_t
-align_boundary_up(std::uint64_t target, std::uint64_t cycle_period) noexcept {
+[[nodiscard]] constexpr std::uint64_t align_boundary_up(std::uint64_t target,
+                                                        std::uint64_t cycle_period) noexcept {
     const std::uint64_t boundary = (target / cycle_period) * cycle_period;
     return boundary < target ? boundary + cycle_period : boundary;
 }
@@ -34,8 +34,8 @@ align_boundary_up(std::uint64_t target, std::uint64_t cycle_period) noexcept {
 } // namespace
 
 SyncResult<StartResolution> resolve_start(std::uint64_t now_ns, std::uint64_t cycle_period_ns,
-                                         const StartPolicy& policy, bool has_target_override,
-                                         std::uint64_t target_override_ns) noexcept {
+                                          const StartPolicy& policy, bool has_target_override,
+                                          std::uint64_t target_override_ns) noexcept {
     if (cycle_period_ns == 0U) {
         return std::unexpected(make_config_error());
     }
@@ -51,9 +51,8 @@ SyncResult<StartResolution> resolve_start(std::uint64_t now_ns, std::uint64_t cy
 
     const std::uint64_t target = has_target_override ? target_override_ns : policy.target_time_ns;
     if (target > now_ns) {
-        resolved.start_time_ns = policy.align_target_to_cycle
-                                     ? align_boundary_up(target, cycle_period_ns)
-                                     : target;
+        resolved.start_time_ns =
+            policy.align_target_to_cycle ? align_boundary_up(target, cycle_period_ns) : target;
         return resolved;
     }
 

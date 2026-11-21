@@ -28,8 +28,8 @@ namespace nexigen::phm {
 ///       9/10/11 cover `to_string`, the ADL JSON pair, and the generic
 ///       `std::formatter`.
 enum class SupervisionStatus : std::uint8_t {
-    Ok,      ///< All checks pass.
-    Failed,  ///< A single failure within the tolerance.
+    Ok,        ///< All checks pass.
+    Failed,    ///< A single failure within the tolerance.
     Expired,   ///< Failures exceeded the tolerance; recovery is triggered.
     Exhausted, ///< Recovery budget spent; escalate instead of restarting again.
 };

@@ -57,7 +57,8 @@ void test_logger_counters_body() {
     NX_CHECK(meter.accepted.value == 1U);
     NX_CHECK(meter.buffer_full.value == 1U);
     NX_CHECK(meter.buffer_full.value == dropped.buffer_full);
-
 }
 
-void suite_logger_counters() { run_suite("logger_counters", test_logger_counters_body); }
+void suite_logger_counters() {
+    run_suite("logger_counters", test_logger_counters_body);
+}

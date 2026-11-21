@@ -120,7 +120,7 @@ private:
     RestartFn restart_{};           ///< Installed restart callback.
     ValidateFn validate_{};         ///< Installed admission check.
     std::array<PendingRestart, k_pending_capacity> pending_{}; ///< Admitted restarts.
-    std::size_t pending_count_{0};  ///< Occupied queue slots.
+    std::size_t pending_count_{0};                             ///< Occupied queue slots.
 };
 
 /// @brief Free helper mirroring `RecoveryHandler::to_string()` (mandate 9).

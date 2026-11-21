@@ -108,7 +108,8 @@ void test_daemon_e2e() {
 
     const auto service = com::ServiceName::create(sink_config.service_name.c_str());
     NX_CHECK(service.has_value());
-    auto subscriber = com::Subscriber<metrics::MetricFrame, com::TransportHeader>::create(*node, *service, 16U, 16U);
+    auto subscriber = com::Subscriber<metrics::MetricFrame, com::TransportHeader>::create(
+        *node, *service, 16U, 16U);
     NX_CHECK(subscriber.has_value());
     if (!subscriber.has_value()) {
         return;

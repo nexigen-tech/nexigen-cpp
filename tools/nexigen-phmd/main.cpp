@@ -398,8 +398,7 @@ void drain_acks(Session& session, nexigen::phm::RecoveryAckTracker& pending,
 
 /// Expire every acknowledgement whose budget elapsed.
 void expire_recoveries(nexigen::phm::RecoveryAckTracker& pending,
-                       nexigen::phm::Supervisor::Clock::time_point now,
-                       bool& watchdog_reaction) {
+                       nexigen::phm::Supervisor::Clock::time_point now, bool& watchdog_reaction) {
     if (pending.expire(now)) {
         watchdog_reaction = true;
         std::fprintf(stderr, "nexigen-phmd: recovery not acknowledged -> watchdog\n");
@@ -449,8 +448,7 @@ to_phm_lifecycle(nexigen::exec::ProcessLifecycleState state) noexcept {
 void drain_lifecycle(Session& session, nexigen::phm::Supervisor& supervisor,
                      const nexigen::phm::PhmManifest& manifest,
                      nexigen::phm::ClaimRegistry& registry, nexigen::phm::FaultStorage& faults,
-                     nexigen::phm::RecoveryAckTracker& pending,
-                     bool& watchdog_reaction) {
+                     nexigen::phm::RecoveryAckTracker& pending, bool& watchdog_reaction) {
     if (!session.lifecycle_subscriber) {
         return;
     }
@@ -479,9 +477,8 @@ void drain_lifecycle(Session& session, nexigen::phm::Supervisor& supervisor,
             if (event.state == nexigen::exec::ProcessLifecycleState::Failed) {
                 const auto now = nexigen::phm::Supervisor::Clock::now();
                 const auto timestamp = static_cast<std::uint64_t>(now.time_since_epoch().count());
-                faults.record(nexigen::phm::FaultRecord{supervisor.last_fault(i),
-                                                        static_cast<std::uint32_t>(i), 0U,
-                                                        timestamp});
+                faults.record(nexigen::phm::FaultRecord{
+                    supervisor.last_fault(i), static_cast<std::uint32_t>(i), 0U, timestamp});
                 if (supervisor.function_group(i).empty()) {
                     faults.record(nexigen::phm::FaultRecord{nexigen::phm::FaultKind::UnknownGroup,
                                                             static_cast<std::uint32_t>(i), 0U,
@@ -500,8 +497,7 @@ void drain_lifecycle(Session& session, nexigen::phm::Supervisor& supervisor,
                         const auto deadline =
                             now + std::chrono::milliseconds(manifest.recovery_timeout_ms);
                         static_cast<void>(pending.expect(session.recovery->last_request_id(),
-                                                         supervisor.function_group(i),
-                                                         deadline));
+                                                         supervisor.function_group(i), deadline));
                     } else {
                         watchdog_reaction = true;
                     }
@@ -599,8 +595,7 @@ void handle_attachment(Session& session, nexigen::phm::Supervisor& supervisor,
                        const nexigen::phm::PhmManifest& manifest,
                        const nexigen::com::WaitSetAttachmentId& attachment,
                        nexigen::phm::ClaimRegistry& registry, nexigen::phm::FaultStorage& faults,
-                       nexigen::phm::RecoveryAckTracker& pending,
-                       bool& watchdog_reaction) {
+                       nexigen::phm::RecoveryAckTracker& pending, bool& watchdog_reaction) {
     const auto now = nexigen::phm::Supervisor::Clock::now();
     if (session.ack_guard && attachment.has_event_from(*session.ack_guard)) {
         drain_acks(session, pending, watchdog_reaction);
@@ -639,8 +634,7 @@ void handle_attachment(Session& session, nexigen::phm::Supervisor& supervisor,
 void apply_recovery(Session& session, nexigen::phm::Supervisor& supervisor,
                     nexigen::phm::FaultStorage& faults, const nexigen::phm::PhmManifest& manifest,
                     std::vector<nexigen::phm::SupervisionStatus>& seen,
-                    nexigen::phm::RecoveryAckTracker& pending,
-                    bool& watchdog_reaction) {
+                    nexigen::phm::RecoveryAckTracker& pending, bool& watchdog_reaction) {
     for (std::size_t i = 0; i < manifest.processes.size(); ++i) {
         const nexigen::phm::SupervisionStatus status = supervisor.status(i);
         if (status == nexigen::phm::SupervisionStatus::Expired && seen[i] != status) {
@@ -671,9 +665,8 @@ void apply_recovery(Session& session, nexigen::phm::Supervisor& supervisor,
                     manifest.processes[i], group, std::chrono::milliseconds(500), stop_feeding);
                 std::fprintf(stderr, "nexigen-phmd: '%s' expired -> recovery dispatched\n",
                              manifest.processes[i].name.c_str());
-                if (dispatched &&
-                    session.recovery->last_action() ==
-                        nexigen::phm::RecoveryAction::SwitchFunctionGroupState) {
+                if (dispatched && session.recovery->last_action() ==
+                                      nexigen::phm::RecoveryAction::SwitchFunctionGroupState) {
                     const auto deadline =
                         now + std::chrono::milliseconds(manifest.recovery_timeout_ms);
                     static_cast<void>(

@@ -91,8 +91,8 @@ public:
         if (!ack_event) {
             return std::unexpected(ack_event.error());
         }
-        return RecoveryHandler{channel_name, std::move(*subscriber), std::move(*listener),
-                               std::move(*publisher), std::move(*ack_event), &manager};
+        return RecoveryHandler{channel_name,          std::move(*subscriber), std::move(*listener),
+                               std::move(*publisher), std::move(*ack_event),  &manager};
     }
 
     /// @brief Move the com handles and the manager pointer.
@@ -128,8 +128,8 @@ public:
             const RecoveryNotification& notification = (*received)->payload();
             const std::size_t index = manager_->find_group_index(notification.function_group);
             if (index == npos) {
-                publish_ack(ack_for(notification.request_id,
-                                    nexigen::phm::RecoveryReason::UnknownGroup));
+                publish_ack(
+                    ack_for(notification.request_id, nexigen::phm::RecoveryReason::UnknownGroup));
                 continue;
             }
             std::string_view target{};
@@ -139,15 +139,15 @@ public:
                 target = "DegradedMode";
             }
             if (target.empty()) {
-                publish_ack(ack_for(notification.request_id,
-                                    nexigen::phm::RecoveryReason::NoSafeState));
+                publish_ack(
+                    ack_for(notification.request_id, nexigen::phm::RecoveryReason::NoSafeState));
                 continue;
             }
             manager_->force_state(index, target);
             nexigen::phm::RecoveryAck ack =
-                actuation_ ? actuation_(index, notification.request_id, target)
-                           : ack_for(notification.request_id,
-                                     nexigen::phm::RecoveryReason::EmUnavailable);
+                actuation_
+                    ? actuation_(index, notification.request_id, target)
+                    : ack_for(notification.request_id, nexigen::phm::RecoveryReason::EmUnavailable);
             ack.request_id = notification.request_id;
             publish_ack(ack);
             last_group_ = manager_->group_name(index);
@@ -212,15 +212,15 @@ private:
           listener_(std::move(listener)), ack_publisher_(std::move(ack_publisher)),
           ack_event_(std::move(ack_event)), manager_(manager) {}
 
-    com::ServiceName channel_name_;                    ///< Recovery channel name.
-    com::Subscriber<RecoveryNotification> subscriber_; ///< Fault-notification subscription.
-    com::EventListener listener_;                      ///< Paired WaitSet wake event.
+    com::ServiceName channel_name_;                           ///< Recovery channel name.
+    com::Subscriber<RecoveryNotification> subscriber_;        ///< Fault-notification subscription.
+    com::EventListener listener_;                             ///< Paired WaitSet wake event.
     com::Publisher<nexigen::phm::RecoveryAck> ack_publisher_; ///< Acknowledgement publisher.
-    com::EventNotifier ack_event_;                     ///< Acknowledgement wake event.
-    StateManager* manager_{nullptr};                   ///< Non-owning state manager.
-    ActuationFn actuation_{};                          ///< Installed actuation callback.
-    std::string last_group_{};                         ///< Last group recovered, for diagnostics.
-    nexigen::phm::RecoveryAck last_ack_{};             ///< Last acknowledgement, for diagnostics.
+    com::EventNotifier ack_event_;                            ///< Acknowledgement wake event.
+    StateManager* manager_{nullptr};                          ///< Non-owning state manager.
+    ActuationFn actuation_{};                                 ///< Installed actuation callback.
+    std::string last_group_{};             ///< Last group recovered, for diagnostics.
+    nexigen::phm::RecoveryAck last_ack_{}; ///< Last acknowledgement, for diagnostics.
 };
 
 /// @brief Free diagnostic helper mirroring `RecoveryHandler::to_string`.

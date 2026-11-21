@@ -71,18 +71,16 @@ public:
     /// @brief Pop the next envelope for the writer.
     /// @param out Receives the envelope when one is available.
     /// @return `Ok`, or `BufferEmpty`.
-    [[nodiscard]] core::Status try_pop(RecordEnvelope& out) noexcept {
-        return ring_.try_pop(out);
-    }
+    [[nodiscard]] core::Status try_pop(RecordEnvelope& out) noexcept { return ring_.try_pop(out); }
 
     /// @brief Dropped-range record consumed by the writer.
     ///
     /// @note The writer converts this into one `GapMarker` with reason
     ///       `IoBackpressure`.
     struct Dropped {
-        std::uint32_t channel_id{0};    ///< Channel that lost records.
-        std::uint64_t first_sequence{0};///< First sequence not accepted.
-        std::uint64_t count{0};         ///< Number of dropped envelopes.
+        std::uint32_t channel_id{0};     ///< Channel that lost records.
+        std::uint64_t first_sequence{0}; ///< First sequence not accepted.
+        std::uint64_t count{0};          ///< Number of dropped envelopes.
     };
 
     /// @brief Take the accumulated backpressure drop, resetting the counter.
@@ -98,9 +96,7 @@ public:
 
     /// @brief Capacity in envelopes.
     /// @return Maximum number of buffered `RecordEnvelope` values.
-    [[nodiscard]] static constexpr std::size_t capacity() noexcept {
-        return kRecordShardSlots;
-    }
+    [[nodiscard]] static constexpr std::size_t capacity() noexcept { return kRecordShardSlots; }
 
 private:
     core::SpscRingBuffer<RecordEnvelope, kRecordShardSlots> ring_{}; ///< Wait-free ring.

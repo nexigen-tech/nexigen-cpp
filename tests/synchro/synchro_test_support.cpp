@@ -65,12 +65,24 @@ void* operator new[](std::size_t size, const std::nothrow_t&) noexcept {
     return std::malloc(size == 0U ? 1U : size);
 }
 
-void operator delete(void* memory) noexcept { std::free(memory); }
-void operator delete[](void* memory) noexcept { std::free(memory); }
-void operator delete(void* memory, std::size_t) noexcept { std::free(memory); }
-void operator delete[](void* memory, std::size_t) noexcept { std::free(memory); }
-void operator delete(void* memory, const std::nothrow_t&) noexcept { std::free(memory); }
-void operator delete[](void* memory, const std::nothrow_t&) noexcept { std::free(memory); }
+void operator delete(void* memory) noexcept {
+    std::free(memory);
+}
+void operator delete[](void* memory) noexcept {
+    std::free(memory);
+}
+void operator delete(void* memory, std::size_t) noexcept {
+    std::free(memory);
+}
+void operator delete[](void* memory, std::size_t) noexcept {
+    std::free(memory);
+}
+void operator delete(void* memory, const std::nothrow_t&) noexcept {
+    std::free(memory);
+}
+void operator delete[](void* memory, const std::nothrow_t&) noexcept {
+    std::free(memory);
+}
 
 namespace {
 
@@ -81,7 +93,9 @@ std::vector<CapturedRecord>& records() {
 
 } // namespace
 
-std::vector<CapturedRecord>& captured_records() noexcept { return records(); }
+std::vector<CapturedRecord>& captured_records() noexcept {
+    return records();
+}
 
 std::mutex& captured_mutex() noexcept {
     static std::mutex mutex;
@@ -93,7 +107,9 @@ void clear_captured_records() noexcept {
     records().clear();
 }
 
-bool captured_contains(std::string_view needle) noexcept { return captured_count(needle) != 0U; }
+bool captured_contains(std::string_view needle) noexcept {
+    return captured_count(needle) != 0U;
+}
 
 std::size_t captured_count(std::string_view needle) noexcept {
     std::lock_guard<std::mutex> guard{captured_mutex()};

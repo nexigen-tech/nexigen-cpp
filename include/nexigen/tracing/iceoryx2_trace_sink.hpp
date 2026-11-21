@@ -132,8 +132,8 @@ public:
         if (!name) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
-        auto publisher =
-            com::Publisher<SpanFrame, com::TransportHeader>::create(*node_, *name, config_.subscriber_max_buffer_depth);
+        auto publisher = com::Publisher<SpanFrame, com::TransportHeader>::create(
+            *node_, *name, config_.subscriber_max_buffer_depth);
         if (!publisher) {
             return std::unexpected(core::ErrorCode::SystemError);
         }

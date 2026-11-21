@@ -6,10 +6,12 @@
 #include <chrono>
 #include <csignal>
 #include <cstddef>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <optional>
+#include <format>
 #include <span>
 #include <string>
 #include <string_view>
@@ -162,6 +164,18 @@ void usage(std::FILE* out) {
     return 1U;
 }
 
+[[nodiscard]] std::string sanitize_topic(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const char c : text) {
+        out.push_back(std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '.' || c == '-' ||
+                              c == '_'
+                          ? c
+                          : '_');
+    }
+    return out;
+}
+
 class Recorder {
 public:
     explicit Recorder(recorder::SessionWriter writer) : writer_{std::move(writer)} {}
@@ -175,15 +189,51 @@ public:
         return true;
     }
 
-    [[nodiscard]] std::uint32_t channel_for(std::string_view stream, const char* app) {
-        const std::string topic = channel_topic(stream, std::string(app, 4U));
+    [[nodiscard]] std::uint32_t event_schema(std::size_t payload_size) {
+        for (const auto& [size, id] : event_schemas_) {
+            if (size == payload_size) {
+                return id;
+            }
+        }
+        const std::uint32_t id = 100U + static_cast<std::uint32_t>(event_schemas_.size());
+        recorder::SchemaDeclare schema{};
+        schema.id = id;
+        schema.name = "nexigen.com.EventEnvelope";
+        schema.encoding = "jsonschema";
+        const std::size_t count = payload_size == 0U ? 1U : payload_size;
+        const std::string fields = std::format(
+            R"([{{"name":"sequence_id","type":"u64","offset":0,"element_size":8,"count":1,"stride":8}},)"
+            R"({{"name":"timestamp_ns","type":"u64","offset":8,"element_size":8,"count":1,"stride":8}},)"
+            R"({{"name":"producer_epoch","type":"u64","offset":16,"element_size":8,"count":1,"stride":8}},)"
+            R"({{"name":"ingest_timestamp_ns","type":"u64","offset":24,"element_size":8,"count":1,"stride":8}},)"
+            R"({{"name":"domain_epoch","type":"u64","offset":32,"element_size":8,"count":1,"stride":8}},)"
+            R"({{"name":"native_ticks","type":"u64","offset":40,"element_size":8,"count":1,"stride":8}},)"
+            R"({{"name":"event_code","type":"u32","offset":48,"element_size":4,"count":1,"stride":4}},)"
+            R"({{"name":"hardware_event_code","type":"u32","offset":52,"element_size":4,"count":1,"stride":4}},)"
+            R"({{"name":"hardware_sequence","type":"u32","offset":56,"element_size":4,"count":1,"stride":4}},)"
+            R"({{"name":"domain_id","type":"u16","offset":60,"element_size":2,"count":1,"stride":2}},)"
+            R"({{"name":"flags","type":"u16","offset":62,"element_size":2,"count":1,"stride":2}},)"
+            R"({{"name":"payload","type":"u8[{}]","offset":64,"element_size":1,"count":{},"stride":1}}])",
+            count, count);
+        schema.data.assign(fields.begin(), fields.end());
+        if (!writer_.declare_schema(schema).has_value()) {
+            return 0U;
+        }
+        event_schemas_.emplace_back(payload_size, id);
+        return id;
+    }
+
+    [[nodiscard]] std::uint32_t channel_for(std::string_view stream, std::string_view suffix,
+                                            std::uint32_t schema_override = 0U) {
+        const std::string topic = channel_topic(stream, suffix);
         for (std::size_t i = 0; i < topics_.size(); ++i) {
             if (topics_[i] == topic) {
                 return channels_[i];
             }
         }
-        const auto channel = writer_.declare_channel(
-            topic, schema_for(stream), recorder::DatasetKind::Telemetry, "nexigen.pod");
+        const std::uint32_t schema = schema_override != 0U ? schema_override : schema_for(stream);
+        const auto channel =
+            writer_.declare_channel(topic, schema, recorder::DatasetKind::Telemetry, "nexigen.pod");
         if (!channel.has_value()) {
             return 0U;
         }
@@ -223,6 +273,7 @@ private:
     recorder::SessionWriter writer_;
     std::vector<std::string> topics_{};
     std::vector<std::uint32_t> channels_{};
+    std::vector<std::pair<std::size_t, std::uint32_t>> event_schemas_{};
 };
 
 void drain_logs(LogSub& sub, Recorder& rec) {
@@ -233,7 +284,7 @@ void drain_logs(LogSub& sub, Recorder& rec) {
         }
         const auto& frame = (*got)->payload();
         const auto ts = static_cast<std::uint64_t>(frame.timestamp_ns);
-        const std::uint32_t channel = rec.channel_for("log", frame.app_id);
+        const std::uint32_t channel = rec.channel_for("log", std::string_view(frame.app_id, 4U));
         if (channel == 0U) {
             return;
         }
@@ -260,7 +311,7 @@ void drain_metrics(MetricSub& sub, Recorder& rec) {
         }
         const auto& frame = (*got)->payload();
         const auto ts = static_cast<std::uint64_t>(frame.timestamp_ns);
-        const std::uint32_t channel = rec.channel_for("metric", frame.app_id);
+        const std::uint32_t channel = rec.channel_for("metric", std::string_view(frame.app_id, 4U));
         if (channel == 0U) {
             return;
         }
@@ -283,7 +334,7 @@ void drain_traces(TraceSub& sub, Recorder& rec) {
         }
         const auto& frame = (*got)->payload();
         const auto ts = static_cast<std::uint64_t>(frame.start_ns);
-        const std::uint32_t channel = rec.channel_for("trace", frame.app_id);
+        const std::uint32_t channel = rec.channel_for("trace", std::string_view(frame.app_id, 4U));
         if (channel == 0U) {
             return;
         }
@@ -317,12 +368,14 @@ void drain_events(std::vector<com::RawSubscriber>& subs, Recorder& rec) {
             std::memcpy(payload.data(), &header, sizeof(header));
             std::memcpy(payload.data() + sizeof(header), sample.payload.data(),
                         sample.payload.size());
-            const std::uint32_t channel = rec.channel_for("event", "EVNT");
+            const std::uint32_t channel =
+                rec.channel_for("event", sanitize_topic(raw.service_name()),
+                                rec.event_schema(sample.payload.size()));
             if (const auto gap = trackers[index].observe(header.producer_epoch, header.sequence_id);
                 gap.has_value()) {
                 static_cast<void>(rec.gap(channel, gap->first_lost_sequence, gap->lost_count,
-                                          recorder::GapReason::IoxRingOverflow,
-                                          header.timestamp_ns, header.sequence_id));
+                                          recorder::GapReason::IoxRingOverflow, header.timestamp_ns,
+                                          header.sequence_id));
             }
             static_cast<void>(rec.frame(recorder::RecordType::ComPayload, channel,
                                         std::span<const std::byte>(payload), header.timestamp_ns,

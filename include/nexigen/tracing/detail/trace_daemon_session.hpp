@@ -331,9 +331,9 @@ private:
         if (!span_service) {
             return fail(core::ErrorCode::SystemError);
         }
-        auto subscriber = com::Subscriber<SpanFrame, com::TransportHeader>::create(*node_, *span_service,
-                                                             config_.subscriber_max_buffer_depth,
-                                                             config_.subscriber_max_buffer_depth);
+        auto subscriber = com::Subscriber<SpanFrame, com::TransportHeader>::create(
+            *node_, *span_service, config_.subscriber_max_buffer_depth,
+            config_.subscriber_max_buffer_depth);
         if (!subscriber) {
             return fail(core::ErrorCode::SystemError);
         }

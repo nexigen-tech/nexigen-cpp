@@ -210,8 +210,7 @@ void test_control_host() {
 
 /// Drain every buffered lifecycle sample into a readable list.
 void drain_lifecycle(com::Subscriber<exec::ProcessLifecycleEvent>& subscriber,
-                     std::vector<std::string>& out,
-                     std::vector<std::string>* groups = nullptr) {
+                     std::vector<std::string>& out, std::vector<std::string>* groups = nullptr) {
     for (;;) {
         auto received = subscriber.receive();
         if (!received || !received->has_value()) {

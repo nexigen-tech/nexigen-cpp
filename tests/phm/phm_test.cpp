@@ -161,12 +161,12 @@ void test_vocabulary() {
                            phm::FaultKind::DeadlineFailure, phm::FaultKind::UnknownGroup});
     check_enum_round_trip({phm::RecoveryOutcome::Accepted, phm::RecoveryOutcome::InProgress,
                            phm::RecoveryOutcome::Rejected});
-    check_enum_round_trip(
-        {phm::RecoveryReason::None, phm::RecoveryReason::UnknownProcess,
-         phm::RecoveryReason::UnknownGroup, phm::RecoveryReason::NotOperational,
-         phm::RecoveryReason::AlreadyRestarting, phm::RecoveryReason::InvalidAction,
-         phm::RecoveryReason::NoSafeState, phm::RecoveryReason::EmUnavailable,
-         phm::RecoveryReason::EmRejected, phm::RecoveryReason::SystemError});
+    check_enum_round_trip({phm::RecoveryReason::None, phm::RecoveryReason::UnknownProcess,
+                           phm::RecoveryReason::UnknownGroup, phm::RecoveryReason::NotOperational,
+                           phm::RecoveryReason::AlreadyRestarting,
+                           phm::RecoveryReason::InvalidAction, phm::RecoveryReason::NoSafeState,
+                           phm::RecoveryReason::EmUnavailable, phm::RecoveryReason::EmRejected,
+                           phm::RecoveryReason::SystemError});
     check_enum_round_trip({phm::EmLifecycleState::Unknown, phm::EmLifecycleState::Running,
                            phm::EmLifecycleState::Terminating, phm::EmLifecycleState::Terminated});
     check_enum_round_trip(
@@ -529,8 +529,7 @@ void test_recovery_restart() {
                 answered.store((*request)
                                    ->send_copy(phm::RecoveryResponse{
                                        (*request)->payload().request_id,
-                                       phm::RecoveryOutcome::Accepted,
-                                       phm::RecoveryReason::None})
+                                       phm::RecoveryOutcome::Accepted, phm::RecoveryReason::None})
                                    .has_value(),
                                std::memory_order_release);
                 return;
@@ -561,7 +560,8 @@ void test_recovery_restart() {
     auto sm_listener = com::EventListener::create(*node, *sm_event_name);
     NX_CHECK(sm_subscriber.has_value() && sm_listener.has_value());
 
-    NX_CHECK(client->apply_rule(process, "motion_control", std::chrono::milliseconds(2000)).has_value());
+    NX_CHECK(
+        client->apply_rule(process, "motion_control", std::chrono::milliseconds(2000)).has_value());
     NX_CHECK(client->last_action() == phm::RecoveryAction::SwitchFunctionGroupState);
 
     bool observed = false;
@@ -597,9 +597,8 @@ void test_recovery_watchdog() {
     process.name = "brake";
     process.recovery_rules.push_back({phm::RecoveryAction::TriggerWatchdogReset, ""});
     bool stopped = false;
-    const auto status =
-        client->apply_rule(process, "motion_control", std::chrono::milliseconds(50),
-                          [&stopped] { stopped = true; });
+    const auto status = client->apply_rule(process, "motion_control", std::chrono::milliseconds(50),
+                                           [&stopped] { stopped = true; });
     NX_CHECK(status.has_value());
     NX_CHECK(stopped);
     NX_CHECK(client->last_action() == phm::RecoveryAction::TriggerWatchdogReset);
@@ -627,9 +626,9 @@ void test_recovery_rejected() {
             if (request.has_value() && request->has_value()) {
                 rejected_answered.store(
                     (*request)
-                        ->send_copy(phm::RecoveryResponse{
-                            (*request)->payload().request_id, phm::RecoveryOutcome::Rejected,
-                            phm::RecoveryReason::AlreadyRestarting})
+                        ->send_copy(phm::RecoveryResponse{(*request)->payload().request_id,
+                                                          phm::RecoveryOutcome::Rejected,
+                                                          phm::RecoveryReason::AlreadyRestarting})
                         .has_value(),
                     std::memory_order_release);
                 return;
@@ -642,8 +641,8 @@ void test_recovery_rejected() {
     process.name = "steering";
     process.recovery_rules = {{phm::RecoveryAction::RestartProcess, ""},
                               {phm::RecoveryAction::SwitchFunctionGroupState, "motion_control"}};
-    NX_CHECK(client->apply_rule(process, "motion_control", std::chrono::milliseconds(2000))
-                 .has_value());
+    NX_CHECK(
+        client->apply_rule(process, "motion_control", std::chrono::milliseconds(2000)).has_value());
     reject_em.join();
     NX_CHECK(rejected_answered.load(std::memory_order_acquire));
     NX_CHECK(client->last_action() == phm::RecoveryAction::SwitchFunctionGroupState);
@@ -696,7 +695,6 @@ void test_recovery_timeout() {
     }
     NX_CHECK(observed);
 }
-
 
 void test_recovery_ack_budget() {
     using Clock = phm::RecoveryAckTracker::Clock;
@@ -770,9 +768,10 @@ void test_recovery_ack_budget() {
             phm::RecoveryAck{13, phm::RecoveryOutcome::Accepted, phm::RecoveryReason::None});
         NX_CHECK(first.matched);
         NX_CHECK(tracker.pending() == 1U);
-        NX_CHECK(tracker.on_ack(phm::RecoveryAck{14, phm::RecoveryOutcome::Accepted,
-                                                 phm::RecoveryReason::None})
-                      .matched);
+        NX_CHECK(tracker
+                     .on_ack(phm::RecoveryAck{14, phm::RecoveryOutcome::Accepted,
+                                              phm::RecoveryReason::None})
+                     .matched);
     }
 }
 
@@ -1677,7 +1676,6 @@ void test_thread_spec() {
 
 } // namespace
 
-
 void test_recovery_payloads() {
     phm::RecoveryRequest request{};
     request.action = phm::RecoveryAction::RestartProcess;
@@ -1722,8 +1720,7 @@ void test_recovery_payloads() {
 
     nexigen::sm::RecoveryNotification notification{};
     notification.request_id = 11;
-    std::snprintf(notification.function_group, sizeof(notification.function_group), "%s",
-                  "motion");
+    std::snprintf(notification.function_group, sizeof(notification.function_group), "%s", "motion");
     NX_CHECK(notification.to_string().find("motion") != std::string::npos);
     NX_CHECK(std::format("{}", notification) == notification.to_string());
 }

@@ -175,8 +175,7 @@ public:
     ///         whatever the config overload reports.
     /// @note Spec `logging/logging-settings`, requirement "Merged settings apply
     ///       to logger configuration".
-    [[nodiscard]] core::Status initialize(const Settings& settings,
-                                          M* meter = nullptr) noexcept {
+    [[nodiscard]] core::Status initialize(const Settings& settings, M* meter = nullptr) noexcept {
         const core::Status capacity =
             check_capacity<ShardCapacity, MaxThreads, MessageCapacity>(settings);
         if (!capacity) {

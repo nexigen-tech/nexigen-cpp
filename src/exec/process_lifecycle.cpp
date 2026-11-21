@@ -37,8 +37,7 @@ void from_json(const nlohmann::json& j, ProcessLifecycleEvent& event) noexcept {
         return;
     }
     std::snprintf(event.app, sizeof(event.app), "%s", app.c_str());
-    std::snprintf(event.function_group, sizeof(event.function_group), "%s",
-                  function_group.c_str());
+    std::snprintf(event.function_group, sizeof(event.function_group), "%s", function_group.c_str());
     event.state = parsed;
 }
 

@@ -63,9 +63,9 @@ struct PayloadView {
 /// @note Spec `recorder/export`, requirements "Schema-driven decoding" and
 ///       "Self-contained decoding"; `CorruptData` is returned for an invalid
 ///       descriptor and `UnsupportedFormat` for an unknown encoding.
-[[nodiscard]] core::Result<PayloadView>
-decode_payload(std::string_view encoding, std::span<const std::uint8_t> descriptor,
-               const std::vector<DatasetField>& fields,
-               std::span<const std::byte> payload) noexcept;
+[[nodiscard]] core::Result<PayloadView> decode_payload(std::string_view encoding,
+                                                       std::span<const std::uint8_t> descriptor,
+                                                       const std::vector<DatasetField>& fields,
+                                                       std::span<const std::byte> payload) noexcept;
 
 } // namespace nexigen::recorder

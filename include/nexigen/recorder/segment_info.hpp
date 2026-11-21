@@ -21,17 +21,17 @@ namespace nexigen::recorder {
 ///       triplet"; `start_commit_ns`/`end_commit_ns` use the writer's commit
 ///       clock, not the event time.
 struct SegmentInfo {
-    std::uint32_t seq{0};                 ///< 0-based segment sequence
-    std::string rec_path{};               ///< relative `.nxrec` path
-    std::string idx_path{};               ///< relative `.nxidx` path
-    std::string vid_path{};               ///< relative `.nxvid` path
-    bool closed{false};                   ///< clean footer written
-    std::uint64_t records{0};             ///< records written
-    std::uint64_t gaps{0};                ///< gap records written
-    std::uint64_t rec_bytes{0};           ///< bytes in `.nxrec`
-    std::uint64_t vid_bytes{0};           ///< bytes in `.nxvid`
-    std::uint64_t start_commit_ns{0};     ///< first commit time
-    std::uint64_t end_commit_ns{0};       ///< last commit time
+    std::uint32_t seq{0};             ///< 0-based segment sequence
+    std::string rec_path{};           ///< relative `.nxrec` path
+    std::string idx_path{};           ///< relative `.nxidx` path
+    std::string vid_path{};           ///< relative `.nxvid` path
+    bool closed{false};               ///< clean footer written
+    std::uint64_t records{0};         ///< records written
+    std::uint64_t gaps{0};            ///< gap records written
+    std::uint64_t rec_bytes{0};       ///< bytes in `.nxrec`
+    std::uint64_t vid_bytes{0};       ///< bytes in `.nxvid`
+    std::uint64_t start_commit_ns{0}; ///< first commit time
+    std::uint64_t end_commit_ns{0};   ///< last commit time
 
     /// @brief Cold-path diagnostic rendering.
     /// @return Human-readable segment summary.

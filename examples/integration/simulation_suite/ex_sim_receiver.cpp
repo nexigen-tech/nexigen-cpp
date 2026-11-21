@@ -65,8 +65,7 @@ int main(int argc, char* argv[]) {
 
     std::vector<std::string_view> args;
     app::CommandLineOptions options;
-    const std::optional<int> early_exit =
-        prepare_command_line(argc, argv, args, k_tag, options);
+    const std::optional<int> early_exit = prepare_command_line(argc, argv, args, k_tag, options);
     if (early_exit.has_value()) {
         return *early_exit;
     }
@@ -86,8 +85,7 @@ int main(int argc, char* argv[]) {
     auto infra = std::move(*created);
 
     app::Settings loaded{};
-    const core::Status initialized =
-        initialize_infrastructure(*infra, options, loaded, k_tag);
+    const core::Status initialized = initialize_infrastructure(*infra, options, loaded, k_tag);
     if (!initialized) {
         return fail_status(k_tag, "Infrastructure::initialize", initialized);
     }
@@ -99,9 +97,8 @@ int main(int argc, char* argv[]) {
         if (applied) {
             infra->logger().info("SCHED_FIFO priority {}", rt_priority);
         } else {
-            infra->logger().warning(
-                "SCHED_FIFO unavailable ({}); staying on the default policy",
-                core::to_string(applied.error()));
+            infra->logger().warning("SCHED_FIFO unavailable ({}); staying on the default policy",
+                                    core::to_string(applied.error()));
         }
     }
 
@@ -110,10 +107,11 @@ int main(int argc, char* argv[]) {
         static_cast<void>(infra->shutdown());
         return fail_status(k_tag, "Infrastructure::meter", meter);
     }
-    const auto counter = (*meter)->create_counter<k_multi_threaded, k_readable, k_reset_on_read>(
-        "vectors_received");
-    const auto latency = (*meter)->create_gauge<std::int64_t, k_multi_threaded, k_readable,
-                                                k_reset_on_read>("last_latency_us");
+    const auto counter =
+        (*meter)->create_counter<k_multi_threaded, k_readable, k_reset_on_read>("vectors_received");
+    const auto latency =
+        (*meter)->create_gauge<std::int64_t, k_multi_threaded, k_readable, k_reset_on_read>(
+            "last_latency_us");
     if (!counter.has_value() || !latency.has_value()) {
         static_cast<void>(infra->shutdown());
         print_error(k_tag, "one or more instruments could not be created");
@@ -131,8 +129,7 @@ int main(int argc, char* argv[]) {
         static_cast<void>(infra->shutdown());
         return fail_status(k_tag, "com::ServiceName::create", service);
     }
-    auto subscriber =
-        com::Subscriber<VectorSample, tracing::TraceHeader>::create(*node, *service);
+    auto subscriber = com::Subscriber<VectorSample, tracing::TraceHeader>::create(*node, *service);
     if (!subscriber.has_value()) {
         static_cast<void>(infra->shutdown());
         return fail_status(k_tag, "com::Subscriber::create", subscriber);
@@ -159,14 +156,12 @@ int main(int argc, char* argv[]) {
     static_cast<void>(link.report_ready());
 
     const auto start = std::chrono::steady_clock::now();
-    const auto deadline = run_forever
-                              ? std::chrono::steady_clock::time_point::max()
-                              : start + std::chrono::seconds{worker_seconds};
+    const auto deadline = run_forever ? std::chrono::steady_clock::time_point::max()
+                                      : start + std::chrono::seconds{worker_seconds};
 
-    const app::InfrastructureStopReason reason =
-        run_receiver_loop(*infra, *subscriber, link, *tracer, *counter, *latency, deadline,
-                          std::chrono::steady_clock::time_point::max(), nullptr,
-                          &*vector_event, spin);
+    const app::InfrastructureStopReason reason = run_receiver_loop(
+        *infra, *subscriber, link, *tracer, *counter, *latency, deadline,
+        std::chrono::steady_clock::time_point::max(), nullptr, &*vector_event, spin);
 
     const core::Status shutdown_status = infra->shutdown();
     if (!shutdown_status) {

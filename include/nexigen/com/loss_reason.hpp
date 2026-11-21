@@ -18,10 +18,10 @@ namespace nexigen::com {
 /// @note Spec `com/event-system`, requirement "Transport loss detection and
 ///       callbacks".
 enum class LossReason : std::uint8_t {
-    TransportGap,             ///< The transport sequence skipped values.
-    ProducerRestart,          ///< The producer epoch changed.
-    Duplicate,                ///< A sequence below the expected value arrived.
-    UnexpectedSequenceReset,  ///< Sequence zero arrived without an epoch change.
+    TransportGap,            ///< The transport sequence skipped values.
+    ProducerRestart,         ///< The producer epoch changed.
+    Duplicate,               ///< A sequence below the expected value arrived.
+    UnexpectedSequenceReset, ///< Sequence zero arrived without an epoch change.
 };
 
 } // namespace nexigen::com

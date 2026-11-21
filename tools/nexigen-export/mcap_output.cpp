@@ -38,10 +38,11 @@ core::Result<McapOutput> McapOutput::create(const std::string& path) noexcept {
     }
 }
 
-core::Result<std::uint16_t>
-McapOutput::add_channel(std::string_view topic, std::string_view schema_name,
-                        std::string_view schema_encoding, std::string_view schema_data,
-                        std::string_view message_encoding) noexcept {
+core::Result<std::uint16_t> McapOutput::add_channel(std::string_view topic,
+                                                    std::string_view schema_name,
+                                                    std::string_view schema_encoding,
+                                                    std::string_view schema_data,
+                                                    std::string_view message_encoding) noexcept {
     if (!impl_ || impl_->failed) {
         return std::unexpected(core::ErrorCode::NotInitialized);
     }
@@ -65,9 +66,8 @@ McapOutput::add_channel(std::string_view topic, std::string_view schema_name,
     }
 }
 
-bool McapOutput::write(std::uint16_t channel_id, std::uint32_t sequence,
-                       std::uint64_t log_time_ns, std::uint64_t publish_time_ns,
-                       std::string_view data) noexcept {
+bool McapOutput::write(std::uint16_t channel_id, std::uint32_t sequence, std::uint64_t log_time_ns,
+                       std::uint64_t publish_time_ns, std::string_view data) noexcept {
     return write_impl(channel_id, sequence, log_time_ns, publish_time_ns,
                       reinterpret_cast<const std::byte*>(data.data()), data.size());
 }
@@ -75,8 +75,7 @@ bool McapOutput::write(std::uint16_t channel_id, std::uint32_t sequence,
 bool McapOutput::write_bytes(std::uint16_t channel_id, std::uint32_t sequence,
                              std::uint64_t log_time_ns, std::uint64_t publish_time_ns,
                              std::span<const std::byte> data) noexcept {
-    return write_impl(channel_id, sequence, log_time_ns, publish_time_ns, data.data(),
-                      data.size());
+    return write_impl(channel_id, sequence, log_time_ns, publish_time_ns, data.data(), data.size());
 }
 
 bool McapOutput::write_impl(std::uint16_t channel_id, std::uint32_t sequence,

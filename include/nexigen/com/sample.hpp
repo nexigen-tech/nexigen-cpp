@@ -110,7 +110,8 @@ public:
     [[nodiscard]] iox2::Sample<iox2::ServiceType::Ipc, T, H>& handle() noexcept { return inner_; }
 
 private:
-    template <concepts::Message TP, typename HP, core::concepts::MeterLike MP> friend class Subscriber;
+    template <concepts::Message TP, typename HP, core::concepts::MeterLike MP>
+    friend class Subscriber;
 
     /// @brief Adopt a received transport sample.
     ///

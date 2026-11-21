@@ -93,8 +93,8 @@ public:
         if (!name) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
-        auto publisher =
-            com::Publisher<MetricFrame, com::TransportHeader>::create(*node_, *name, config_.subscriber_max_buffer_size);
+        auto publisher = com::Publisher<MetricFrame, com::TransportHeader>::create(
+            *node_, *name, config_.subscriber_max_buffer_size);
         if (!publisher) {
             return std::unexpected(core::ErrorCode::SystemError);
         }

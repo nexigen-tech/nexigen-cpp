@@ -19,14 +19,15 @@ namespace nexigen::com {
 /// @note Spec `com/publish-subscribe`, requirement "Publish-subscribe service
 ///       options"; the defaults preserve the pre-change behaviour.
 struct PublishSubscribeOptions {
-    std::uint64_t max_subscribers{0};          ///< Maximum connected subscribers; 0 = default.
-    std::uint64_t max_publishers{0};           ///< Maximum connected publishers; 0 = default.
-    std::uint64_t max_nodes{0};                ///< Maximum nodes; 0 = transport default.
+    std::uint64_t max_subscribers{0};            ///< Maximum connected subscribers; 0 = default.
+    std::uint64_t max_publishers{0};             ///< Maximum connected publishers; 0 = default.
+    std::uint64_t max_nodes{0};                  ///< Maximum nodes; 0 = transport default.
     std::uint64_t subscriber_max_buffer_size{0}; ///< Service subscriber depth; 0 = default.
-    std::uint64_t subscriber_buffer_size{0};   ///< Per-subscriber depth; 0 = service default.
-    std::uint64_t history_size{0};             ///< Samples kept for late subscribers.
-    std::uint64_t subscriber_history_request{0}; ///< History requested by a subscriber; 0 = service default.
-    bool enable_safe_overflow{false};          ///< Overwrite oldest samples when full.
+    std::uint64_t subscriber_buffer_size{0};     ///< Per-subscriber depth; 0 = service default.
+    std::uint64_t history_size{0};               ///< Samples kept for late subscribers.
+    std::uint64_t subscriber_history_request{
+        0};                           ///< History requested by a subscriber; 0 = service default.
+    bool enable_safe_overflow{false}; ///< Overwrite oldest samples when full.
 
     /// @brief Render the cold-path diagnostic string.
     /// @return Human-readable option summary.

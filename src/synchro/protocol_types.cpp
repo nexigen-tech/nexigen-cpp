@@ -27,8 +27,7 @@ namespace nexigen::synchro {
 
 std::string SyncPayload::to_string() const {
     return std::format("SyncPayload(cycle={}, phase={}/{}, scheduled_ns={}, cycle_period_ns={})",
-                       cycle_number, phase_index, phases_total, scheduled_time_ns,
-                       cycle_period_ns);
+                       cycle_number, phase_index, phases_total, scheduled_time_ns, cycle_period_ns);
 }
 
 void to_json(nlohmann::json& j, const SyncPayload& payload) {
@@ -109,10 +108,10 @@ core::Status SyncChannelConfig::validate() const noexcept {
 }
 
 std::string SyncChannelConfig::to_string() const {
-    return std::format(
-        "SyncChannelConfig(service={}, cycle_period_ns={}, phases_per_cycle={}, "
-        "phase_period_ns={}, channel={})",
-        service_name, cycle_period_ns, phases_per_cycle, phase_period_ns(), channel.to_string());
+    return std::format("SyncChannelConfig(service={}, cycle_period_ns={}, phases_per_cycle={}, "
+                       "phase_period_ns={}, channel={})",
+                       service_name, cycle_period_ns, phases_per_cycle, phase_period_ns(),
+                       channel.to_string());
 }
 
 void to_json(nlohmann::json& j, const SyncChannelConfig& config) {
@@ -127,26 +126,22 @@ void from_json(const nlohmann::json& j, SyncChannelConfig& config) noexcept {
         return;
     }
     core::detail::read_string(j, "service_name", config.service_name);
-    core::detail::read_object(j, "channel",
-                              [&config](const nlohmann::json& inner) { from_json(inner, config.channel); });
+    core::detail::read_object(
+        j, "channel", [&config](const nlohmann::json& inner) { from_json(inner, config.channel); });
     core::detail::read_unsigned(j, "cycle_period_ns", config.cycle_period_ns);
     core::detail::read_unsigned(j, "phases_per_cycle", config.phases_per_cycle);
 }
 
 core::Status StartPolicy::validate() const noexcept {
     switch (mode) {
-    case StartMode::NextCycle:
-    case StartMode::AtTarget:
-        break;
-    default:
-        return std::unexpected(core::ErrorCode::InvalidArgument);
+        case StartMode::NextCycle:
+        case StartMode::AtTarget:  break;
+        default:                   return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     switch (past_target) {
-    case PastTargetPolicy::Reject:
-    case PastTargetPolicy::RealignToNextCycle:
-        break;
-    default:
-        return std::unexpected(core::ErrorCode::InvalidArgument);
+        case PastTargetPolicy::Reject:
+        case PastTargetPolicy::RealignToNextCycle: break;
+        default:                                   return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     return {};
 }
@@ -159,10 +154,11 @@ std::string StartPolicy::to_string() const {
 }
 
 void to_json(nlohmann::json& j, const StartPolicy& policy) {
-    j = nlohmann::json{{"mode", std::string(nexigen::synchro::to_string(policy.mode))},
-                       {"target_time_ns", policy.target_time_ns},
-                       {"align_target_to_cycle", policy.align_target_to_cycle},
-                       {"past_target", std::string(nexigen::synchro::to_string(policy.past_target))}};
+    j = nlohmann::json{
+        {"mode", std::string(nexigen::synchro::to_string(policy.mode))},
+        {"target_time_ns", policy.target_time_ns},
+        {"align_target_to_cycle", policy.align_target_to_cycle},
+        {"past_target", std::string(nexigen::synchro::to_string(policy.past_target))}};
 }
 
 void from_json(const nlohmann::json& j, StartPolicy& policy) noexcept {
@@ -225,14 +221,14 @@ void from_json(const nlohmann::json& j, SyncConfig& config) noexcept {
     if (!j.is_object()) {
         return;
     }
-    core::detail::read_object(j, "channel",
-                              [&config](const nlohmann::json& inner) { from_json(inner, config.channel); });
-    core::detail::read_object(j, "start",
-                              [&config](const nlohmann::json& inner) { from_json(inner, config.start); });
+    core::detail::read_object(
+        j, "channel", [&config](const nlohmann::json& inner) { from_json(inner, config.channel); });
+    core::detail::read_object(
+        j, "start", [&config](const nlohmann::json& inner) { from_json(inner, config.start); });
     core::detail::read_unsigned(j, "spin_threshold_ns", config.spin_threshold_ns);
     core::detail::read_unsigned(j, "event_code", config.event_code);
-    core::detail::read_object(j, "thread",
-                              [&config](const nlohmann::json& inner) { from_json(inner, config.thread); });
+    core::detail::read_object(
+        j, "thread", [&config](const nlohmann::json& inner) { from_json(inner, config.thread); });
 }
 
 core::Status SyncConsumerConfig::validate() const noexcept {
@@ -241,11 +237,9 @@ core::Status SyncConsumerConfig::validate() const noexcept {
         return std::unexpected(channel_valid.error());
     }
     switch (late_policy) {
-    case LateEventPolicy::DropAndWarn:
-    case LateEventPolicy::DeliverWithFlag:
-        break;
-    default:
-        return std::unexpected(core::ErrorCode::InvalidArgument);
+        case LateEventPolicy::DropAndWarn:
+        case LateEventPolicy::DeliverWithFlag: break;
+        default:                               return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     return {};
 }
@@ -272,8 +266,8 @@ void from_json(const nlohmann::json& j, SyncConsumerConfig& config) noexcept {
     if (!j.is_object()) {
         return;
     }
-    core::detail::read_object(j, "channel",
-                              [&config](const nlohmann::json& inner) { from_json(inner, config.channel); });
+    core::detail::read_object(
+        j, "channel", [&config](const nlohmann::json& inner) { from_json(inner, config.channel); });
     core::detail::read_unsigned(j, "max_allowed_latency_ns", config.max_allowed_latency_ns);
     std::string text;
     if (core::detail::read_string(j, "late_policy", text)) {

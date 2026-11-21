@@ -360,26 +360,28 @@ private:
     /// @brief Provider-owned instrument callbacks; no pointer leaves this component.
     struct CounterBlock {
         void* started_ctx{nullptr};
-        void (*started)(void*) noexcept{nullptr};
+        void (*started)(void*) noexcept {nullptr};
         void* buffer_full_ctx{nullptr};
-        void (*buffer_full)(void*) noexcept{nullptr};
+        void (*buffer_full)(void*) noexcept {nullptr};
         void* slot_exhausted_ctx{nullptr};
-        void (*slot_exhausted)(void*) noexcept{nullptr};
+        void (*slot_exhausted)(void*) noexcept {nullptr};
 
-        void started_hit() noexcept { if (started != nullptr) started(started_ctx); }
-        void buffer_full_hit() noexcept { if (buffer_full != nullptr) buffer_full(buffer_full_ctx); }
+        void started_hit() noexcept {
+            if (started != nullptr) started(started_ctx);
+        }
+        void buffer_full_hit() noexcept {
+            if (buffer_full != nullptr) buffer_full(buffer_full_ctx);
+        }
         void slot_exhausted_hit() noexcept {
             if (slot_exhausted != nullptr) slot_exhausted(slot_exhausted_ctx);
         }
     };
 
-    template <core::concepts::MeterLike M>
-    void bind_counters(M* meter) noexcept {
+    template <core::concepts::MeterLike M> void bind_counters(M* meter) noexcept {
         if (meter == nullptr) {
             return;
         }
-        using Counter =
-            std::remove_cvref_t<decltype(**meter->template create_counter<>("", ""))>;
+        using Counter = std::remove_cvref_t<decltype(**meter->template create_counter<>("", ""))>;
         if (auto c = meter->template create_counter<>("started", "1"); c.has_value()) {
             counters_.started_ctx = *c;
             counters_.started = [](void* p) noexcept { static_cast<Counter*>(p)->add(1U); };

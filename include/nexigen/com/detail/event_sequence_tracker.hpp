@@ -11,13 +11,13 @@ namespace nexigen::com::detail {
 
 /// @brief One sequence-tracker decision for the current sample.
 struct SequenceObservation {
-    bool has_loss{false};       ///< Whether a loss callback is required.
+    bool has_loss{false};                        ///< Whether a loss callback is required.
     LossReason reason{LossReason::TransportGap}; ///< Loss classification.
-    std::uint64_t expected_sequence{0}; ///< Expected transport sequence before the sample.
-    std::uint64_t lost_count{0}; ///< Exact lost count for `TransportGap`.
-    std::uint64_t old_epoch{0}; ///< Epoch before the observation.
-    std::uint64_t new_epoch{0}; ///< Epoch after the observation.
-    bool deliver{true};        ///< Whether the sample should be delivered.
+    std::uint64_t expected_sequence{0};          ///< Expected transport sequence before the sample.
+    std::uint64_t lost_count{0};                 ///< Exact lost count for `TransportGap`.
+    std::uint64_t old_epoch{0};                  ///< Epoch before the observation.
+    std::uint64_t new_epoch{0};                  ///< Epoch after the observation.
+    bool deliver{true};                          ///< Whether the sample should be delivered.
 };
 
 /// @brief Pure transport-sequence state machine used by `EventConsumer`.

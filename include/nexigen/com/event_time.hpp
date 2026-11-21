@@ -17,7 +17,7 @@ namespace nexigen::com {
 /// @note Spec `com/event-system`, requirement "Event header and timestamp
 ///       provenance".
 struct EventTime {
-    std::uint64_t ns{0}; ///< Nanoseconds in `domain`.
+    std::uint64_t ns{0};                              ///< Nanoseconds in `domain`.
     TimestampDomain domain{TimestampDomain::Unknown}; ///< Timestamp domain.
 
     /// @brief Render the cold-path diagnostic string.
@@ -28,7 +28,9 @@ struct EventTime {
 /// @brief Free helper mirroring `EventTime::to_string`.
 /// @param time Time to render.
 /// @return Human-readable summary.
-[[nodiscard]] inline std::string to_string(const EventTime& time) { return time.to_string(); }
+[[nodiscard]] inline std::string to_string(const EventTime& time) {
+    return time.to_string();
+}
 
 /// @brief Serialize an event time to JSON.
 /// @param j Destination JSON object.

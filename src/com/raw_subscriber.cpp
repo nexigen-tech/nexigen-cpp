@@ -54,6 +54,7 @@ Result<RawSubscriber> RawSubscriber::create(const ServiceName& name, std::uint64
     }
     result.payload_size_ = types.payload.size;
     result.user_header_size_ = types.user_header.size;
+    result.service_name_text_ = name.to_string();
     result.payload_type_ = std::string(types.payload.type_name,
                                        strnlen(types.payload.type_name, IOX2_TYPE_NAME_LENGTH));
 
@@ -127,8 +128,7 @@ Result<std::optional<RawSubscriber::Sample>> RawSubscriber::receive() noexcept {
     std::size_t payload_elements = 0;
     iox2_sample_payload(&sample, &payload, &payload_elements);
     static_cast<void>(payload_elements);
-    const std::size_t payload_bytes =
-        iox2_sample_payload_number_of_bytes(&sample);
+    const std::size_t payload_bytes = iox2_sample_payload_number_of_bytes(&sample);
     const void* user_header = nullptr;
     iox2_sample_user_header(&sample, &user_header);
 
@@ -163,6 +163,7 @@ RawSubscriber& RawSubscriber::operator=(RawSubscriber&& other) noexcept {
         payload_size_ = other.payload_size_;
         user_header_size_ = other.user_header_size_;
         payload_type_ = std::move(other.payload_type_);
+        service_name_text_ = std::move(other.service_name_text_);
     }
     return *this;
 }

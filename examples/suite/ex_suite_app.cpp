@@ -186,7 +186,6 @@ struct SuitePolicy {
         out.emplace(config);
         return {};
     }
-
 };
 
 // Standalone settings written when no directory option is supplied. Mirrors the

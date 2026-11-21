@@ -44,8 +44,8 @@ void test_create_and_ownership() {
     CaptureLogger logger{};
     MeterFixture meter{};
     const auto service = unique_service("run-create");
-    auto created = SyncRunner<CaptureLogger>::create(
-        *node, make_consumer_config(service), logger, *meter.meter);
+    auto created = SyncRunner<CaptureLogger>::create(*node, make_consumer_config(service), logger,
+                                                     *meter.meter);
     NX_CHECK(created.has_value());
     if (!created.has_value()) {
         return;
@@ -147,16 +147,16 @@ void test_run_once_events() {
 
     std::uint32_t delivered = 0U;
     NX_CHECK(runner.consumer()
-                  .on_any_phase([&delivered](const synchro::SyncContext&) { ++delivered; })
-                  .has_value());
+                 .on_any_phase([&delivered](const synchro::SyncContext&) { ++delivered; })
+                 .has_value());
 
     const std::uint64_t header = runner_now_ns();
     auto payload = runner_payload(0U);
     payload.scheduled_time_ns = header;
     NX_CHECK(produced
-                  ->publish(payload, 0x53594E43U,
-                            com::EventTime{header, com::TimestampDomain::MonotonicRaw})
-                  .has_value());
+                 ->publish(payload, 0x53594E43U,
+                           com::EventTime{header, com::TimestampDomain::MonotonicRaw})
+                 .has_value());
 
     auto outcome = runner.run_once();
     NX_CHECK(outcome.has_value());
@@ -202,10 +202,10 @@ void test_run_stops_promptly() {
 
     std::atomic<std::uint32_t> delivered{0};
     NX_CHECK(runner.consumer()
-                  .on_any_phase([&delivered](const synchro::SyncContext&) {
-                      delivered.fetch_add(1U, std::memory_order_relaxed);
-                  })
-                  .has_value());
+                 .on_any_phase([&delivered](const synchro::SyncContext&) {
+                     delivered.fetch_add(1U, std::memory_order_relaxed);
+                 })
+                 .has_value());
 
     std::stop_source stop{};
     std::jthread thread{[&runner, token = stop.get_token()] { runner.run(token); }};
@@ -216,13 +216,12 @@ void test_run_stops_promptly() {
     auto payload = runner_payload(0U);
     payload.scheduled_time_ns = header;
     NX_CHECK(produced
-                  ->publish(payload, 0x53594E43U,
-                            com::EventTime{header, com::TimestampDomain::MonotonicRaw})
-                  .has_value());
+                 ->publish(payload, 0x53594E43U,
+                           com::EventTime{header, com::TimestampDomain::MonotonicRaw})
+                 .has_value());
 
-    NX_CHECK(wait_for(
-        [&delivered] { return delivered.load(std::memory_order_relaxed) >= 1U; },
-        std::chrono::milliseconds{1'000}));
+    NX_CHECK(wait_for([&delivered] { return delivered.load(std::memory_order_relaxed) >= 1U; },
+                      std::chrono::milliseconds{1'000}));
 
     const auto stop_begin = std::chrono::steady_clock::now();
     stop.request_stop();

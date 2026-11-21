@@ -215,8 +215,7 @@ public:
             switch (rule.action) {
                 case RecoveryAction::RestartProcess: {
                     const auto response = restart_process(0, process.name, timeout);
-                    if (response.has_value() &&
-                        response->outcome != RecoveryOutcome::Rejected) {
+                    if (response.has_value() && response->outcome != RecoveryOutcome::Rejected) {
                         return {};
                     }
                     last = response.has_value() ? std::unexpected(com::Error::ConnectionFailure)

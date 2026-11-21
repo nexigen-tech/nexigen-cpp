@@ -79,9 +79,8 @@ public:
     /// @param name Service name shared with the consumer.
     /// @param config Channel limits; must match the consumer's configuration.
     /// @return Producer, or a mapped `com::Error`/`InvalidArgument`.
-    [[nodiscard]] static Result<EventProducer> create(Node& node, ServiceName name,
-                                                      const ChannelConfig& config,
-                                                      M* meter = nullptr) noexcept {
+    [[nodiscard]] static Result<EventProducer>
+    create(Node& node, ServiceName name, const ChannelConfig& config, M* meter = nullptr) noexcept {
         const Status valid = config.validate();
         if (!valid.has_value()) {
             return std::unexpected(valid.error());
@@ -284,7 +283,8 @@ private:
         if (meter_ == nullptr) {
             return;
         }
-        if (auto created = meter_->template create_counter<>("published", "1"); created.has_value()) {
+        if (auto created = meter_->template create_counter<>("published", "1");
+            created.has_value()) {
             published_ = *created;
         }
         if (auto created = meter_->template create_counter<>("publish_failed", "1");

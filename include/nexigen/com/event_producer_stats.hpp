@@ -17,12 +17,12 @@ namespace nexigen::com {
 /// @note Spec `com/event-system`, requirement "Event production and publish
 ///       outcome".
 struct EventProducerStats {
-    std::uint64_t published{0};        ///< Successfully sent samples.
-    std::uint64_t send_failures{0};    ///< Failed send attempts.
-    std::uint64_t notify_failures{0};  ///< Failed wake notifications.
-    Error last_notify_error{Error::Ok};///< Last notify failure, if any.
-    std::uint64_t current_sequence{0}; ///< Next transport sequence.
-    std::uint64_t current_epoch{0};    ///< Active producer epoch.
+    std::uint64_t published{0};         ///< Successfully sent samples.
+    std::uint64_t send_failures{0};     ///< Failed send attempts.
+    std::uint64_t notify_failures{0};   ///< Failed wake notifications.
+    Error last_notify_error{Error::Ok}; ///< Last notify failure, if any.
+    std::uint64_t current_sequence{0};  ///< Next transport sequence.
+    std::uint64_t current_epoch{0};     ///< Active producer epoch.
 
     /// @brief Render the cold-path diagnostic string.
     /// @return Human-readable statistics.

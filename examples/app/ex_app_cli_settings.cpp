@@ -146,7 +146,6 @@ struct CliFilePolicy {
         out.emplace(config);
         return {};
     }
-
 };
 
 void print_error(std::string_view message) {

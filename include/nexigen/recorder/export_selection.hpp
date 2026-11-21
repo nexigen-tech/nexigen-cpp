@@ -25,12 +25,12 @@ namespace nexigen::recorder {
 /// @note Spec `recorder/export`, requirement "Time-range and channel selection";
 ///       the converter uses the sparse index to skip records outside the window.
 struct ExportSelection {
-    std::string dataset{};                ///< primary dataset id or name
-    std::vector<std::string> channels{};  ///< additional dataset/channel patterns
-    std::uint64_t start_event_ns{0};      ///< inclusive start when `has_start`
-    std::uint64_t end_event_ns{0};        ///< inclusive end when `has_end`
-    bool has_start{false};                ///< enables the start bound
-    bool has_end{false};                  ///< enables the end bound
+    std::string dataset{};               ///< primary dataset id or name
+    std::vector<std::string> channels{}; ///< additional dataset/channel patterns
+    std::uint64_t start_event_ns{0};     ///< inclusive start when `has_start`
+    std::uint64_t end_event_ns{0};       ///< inclusive end when `has_end`
+    bool has_start{false};               ///< enables the start bound
+    bool has_end{false};                 ///< enables the end bound
 
     /// @brief Cold-path diagnostic rendering.
     /// @return Human-readable summary of the selected datasets and range.

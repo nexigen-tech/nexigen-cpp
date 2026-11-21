@@ -206,8 +206,8 @@ int run_session(const metrics::MetricDaemonConfig& cfg) {
     }
     // The sink sizes the service maximum; the daemon requests the same depth so
     // a full publish burst is retained instead of the transport default of 2.
-    auto subscriber =
-        com::Subscriber<metrics::MetricFrame, com::TransportHeader>::create(*node, *service, buffer_depth, buffer_depth);
+    auto subscriber = com::Subscriber<metrics::MetricFrame, com::TransportHeader>::create(
+        *node, *service, buffer_depth, buffer_depth);
     if (!subscriber) {
         std::fprintf(stderr, "nexigen-metricsd: failed to create subscriber\n");
         return 1;

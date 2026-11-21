@@ -123,7 +123,6 @@ struct SuitePolicy {
         out.emplace(config, node);
         return {};
     }
-
 };
 
 constexpr std::string_view kLoggingSettings = R"({

@@ -38,11 +38,11 @@ struct VerifyFailure {
 
 /// @brief One publisher epoch: a publisher id with a monotonically increasing sequence.
 struct PublisherEpoch {
-    std::uint32_t channel_id{0};  ///< channel the epoch belongs to
-    std::uint64_t publisher_id{0};///< publisher identity for the epoch
+    std::uint32_t channel_id{0};     ///< channel the epoch belongs to
+    std::uint64_t publisher_id{0};   ///< publisher identity for the epoch
     std::uint64_t first_sequence{0}; ///< first sequence observed in the epoch
     std::uint64_t last_sequence{0};  ///< last sequence observed in the epoch
-    std::uint64_t records{0};     ///< records observed in the epoch
+    std::uint64_t records{0};        ///< records observed in the epoch
 };
 
 /// @brief Read-only view of one raw session.
@@ -145,8 +145,7 @@ public:
     /// @return Epochs in first-observation order, or a scan failure.
     /// @note A new publisher id or a backwards sequence starts a new epoch;
     ///       gaps within an epoch are represented by `GapMarker` records.
-    [[nodiscard]] core::Result<std::vector<PublisherEpoch>>
-    publisher_epochs() const noexcept;
+    [[nodiscard]] core::Result<std::vector<PublisherEpoch>> publisher_epochs() const noexcept;
 
     /// @brief Verify record CRCs and count records/gaps.
     /// @param records Receives the validated record count.
@@ -176,8 +175,8 @@ private:
     /// @param manifest Validated manifest.
     SessionReader(std::string directory, SessionManifest manifest) noexcept;
 
-    std::string directory_;   ///< Absolute session directory.
-    SessionManifest manifest_;///< Validated manifest and registry.
+    std::string directory_;    ///< Absolute session directory.
+    SessionManifest manifest_; ///< Validated manifest and registry.
 };
 
 } // namespace nexigen::recorder

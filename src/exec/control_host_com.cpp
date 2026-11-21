@@ -69,8 +69,8 @@ public:
         }
         published_.reserve(manifest.apps.size());
         for (const AppSpec& app : manifest.apps) {
-            published_.push_back(PublishedLifecycle{app.app, app.function_group,
-                                                    ProcessState::Idle});
+            published_.push_back(
+                PublishedLifecycle{app.app, app.function_group, ProcessState::Idle});
         }
         const auto lifecycle_name = com::ServiceName::create(lifecycle_service_name);
         const auto lifecycle_event = com::ServiceName::create(lifecycle_event_name);
@@ -193,16 +193,14 @@ public:
         restart_handler_ = std::move(handler);
         if (recovery_) {
             recovery_->set_restart([this](std::string_view app) { return restart_process(app); });
-            recovery_->set_validate(
-                [this](std::string_view app) { return admit_recovery(app); });
+            recovery_->set_validate([this](std::string_view app) { return admit_recovery(app); });
         }
     }
 
     void set_recovery_admission(RecoveryAdmissionFn fn) noexcept override {
         recovery_admission_ = std::move(fn);
         if (recovery_ && restart_handler_) {
-            recovery_->set_validate(
-                [this](std::string_view app) { return admit_recovery(app); });
+            recovery_->set_validate([this](std::string_view app) { return admit_recovery(app); });
         }
     }
 
