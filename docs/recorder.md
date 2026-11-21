@@ -199,8 +199,19 @@ nexigen-recd --session-root /var/log/nexigen/sessions \
 
 Streams are enabled by default; `--no-logs`, `--no-metrics`, and `--no-traces`
 disable them, and `--event-service` enables event capture for one service.
-`--max-bytes` and `--retention-bytes` bound segments. The collector binds the
-session to the kernel boot token and appends `TimeSync` at start and once per
-second, so recorded instants stay resolvable after rotation. Run one
-destination per stream: running the collector next to `nexigen-logd` stores the
-same telemetry twice.
+`--max-bytes` and `--retention-bytes` bound segments. With circular retention,
+closed segments beyond the byte budget are removed as rotation proceeds. The
+collector binds the session to the kernel boot token and appends `TimeSync` at
+start and once per second, so recorded instants stay resolvable after rotation.
+Run one destination per stream: running the collector next to `nexigen-logd`
+stores the same telemetry twice.
+
+Each event service becomes one channel named `event.<service>`, and its
+schema is `nexigen.com.EventEnvelope`: the `EventHeader` fields followed by the
+opaque payload. `EventHeader` carries no application id, so per-application
+attribution is limited to the service name; a payload that needs an app id
+should carry it in its own fields.
+
+The collector polls every stream every 2 ms. Replacing that loop with a
+`com::WaitSet` is a planned follow-up: it needs wait-set attachments exposed by
+`RawSubscriber`, which currently owns a private transport node.

@@ -349,8 +349,8 @@ void drain_traces(TraceSub& sub, Recorder& rec) {
     }
 }
 
-void drain_events(std::vector<com::RawSubscriber>& subs, Recorder& rec) {
-    std::vector<recorder::EventGapTracker> trackers(subs.size());
+void drain_events(std::vector<com::RawSubscriber>& subs,
+                  std::vector<recorder::EventGapTracker>& trackers, Recorder& rec) {
     for (std::size_t index = 0; index < subs.size(); ++index) {
         auto& raw = subs[index];
         while (true) {
@@ -424,11 +424,12 @@ std::vector<com::RawSubscriber> open_event_subscribers(const Options& options) {
 void drain_all(const Options& options, LogSub& log_sub, MetricSub& metric_sub, TraceSub& trace_sub,
                std::vector<com::RawSubscriber>& event_subs, Recorder& rec) {
     auto last_sync = std::chrono::steady_clock::now();
+    std::vector<recorder::EventGapTracker> event_trackers(event_subs.size());
     while (g_stop == 0) {
         if (options.logs) drain_logs(log_sub, rec);
         if (options.metrics) drain_metrics(metric_sub, rec);
         if (options.traces) drain_traces(trace_sub, rec);
-        if (options.events) drain_events(event_subs, rec);
+        if (options.events) drain_events(event_subs, event_trackers, rec);
         const auto now = std::chrono::steady_clock::now();
         if (now - last_sync >= std::chrono::seconds(1)) {
             static_cast<void>(rec.time_sync());

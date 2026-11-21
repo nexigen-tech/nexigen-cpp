@@ -62,10 +62,12 @@ namespace {
     if (!log_pub->send_copy(log, header).has_value()) {
         return false;
     }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
     header.sequence = 4U;
     if (!log_pub->send_copy(log, header).has_value()) {
         return false;
     }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
     header.sequence = 1U;
     if (!metric_pub->send_copy(metric, header).has_value()) {
         return false;
@@ -73,12 +75,15 @@ namespace {
     if (!trace_pub->send_copy(span, header).has_value()) {
         return false;
     }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
     logging::LogFrame second = log;
     std::memcpy(second.app_id, "APP2", 4U);
     header.sequence = 5U;
     if (!log_pub->send_copy(second, header).has_value()) {
         return false;
     }
+    // Keep the publishers alive while the collector drains the last samples.
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
     return true;
 }
 } // namespace
@@ -111,7 +116,14 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (argc > 1 && std::string_view(argv[1]) == "--hold") {
-        std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+        // Keep the event service alive while the collector subscribes, then
+        // publish one sample from this same process (two EventChannels on one
+        // service cannot coexist).
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        if (!event_producer->publish_now(EventPayload{7U}, 1U).has_value()) {
+            return 1;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
         return 0;
     }
     if (!publish_frames(*node, header)) {

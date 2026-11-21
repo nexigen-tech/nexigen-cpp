@@ -150,7 +150,8 @@ RawSubscriber::RawSubscriber(RawSubscriber&& other) noexcept
       service_(std::exchange(other.service_, nullptr)),
       subscriber_(std::exchange(other.subscriber_, nullptr)),
       sample_(std::exchange(other.sample_, nullptr)), payload_size_(other.payload_size_),
-      user_header_size_(other.user_header_size_), payload_type_(std::move(other.payload_type_)) {}
+      user_header_size_(other.user_header_size_), payload_type_(std::move(other.payload_type_)),
+      service_name_text_(std::move(other.service_name_text_)) {}
 
 RawSubscriber& RawSubscriber::operator=(RawSubscriber&& other) noexcept {
     if (this != &other) {

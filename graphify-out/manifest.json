@@ -10698,9 +10698,9 @@
     "semantic_hash": ""
   },
   "docs/recorder.md": {
-    "mtime": 1795250396.4369023,
-    "seen": 1795261645.5752163,
-    "ast_hash": "3c57a30a705b70fb024192d32ea91e06",
+    "mtime": 1795262285.875368,
+    "seen": 1795262309.1095386,
+    "ast_hash": "2d828013894440e64a7d3a433b873d6a",
     "semantic_hash": ""
   },
   "examples/recorder/CMakeLists.txt": {
@@ -11856,9 +11856,9 @@
     "semantic_hash": ""
   },
   "src/com/raw_subscriber.cpp": {
-    "mtime": 1795258730.9371443,
-    "seen": 1795261645.5712397,
-    "ast_hash": "842211fc94b14b6bb8ce2ab3a5d5ff87",
+    "mtime": 1795261862.179889,
+    "seen": 1795262309.104953,
+    "ast_hash": "9d64fe2497380808eaa20b77ec15935a",
     "semantic_hash": ""
   },
   "tests/metrics/com_endpoint_counters_test.cpp": {
@@ -11874,15 +11874,15 @@
     "semantic_hash": ""
   },
   "tests/tools/recd_producer.cpp": {
-    "mtime": 1795258731.1687987,
-    "seen": 1795261645.5739431,
-    "ast_hash": "c1aaf9440179f257f2f5dcf065057bfb",
+    "mtime": 1795261825.6268117,
+    "seen": 1795262309.1080072,
+    "ast_hash": "6743b93a9599873f974e50075d6fa4cf",
     "semantic_hash": ""
   },
   "tests/tools/recd_smoke.sh": {
-    "mtime": 1795258700.5286636,
-    "seen": 1795261645.573944,
-    "ast_hash": "5a4984a19ed4dc76a1b6b89d2b3c41bf",
+    "mtime": 1795261914.880154,
+    "seen": 1795262309.1080086,
+    "ast_hash": "a26f1784f1a735573caed45359820dc4",
     "semantic_hash": ""
   },
   "tools/nexigen-phmd/usage_test.sh": {
@@ -11892,9 +11892,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-recd/main.cpp": {
-    "mtime": 1795258731.2739797,
-    "seen": 1795261645.5744834,
-    "ast_hash": "5afba55a67f902021e522a8bcf57d58e",
+    "mtime": 1795261862.1800158,
+    "seen": 1795262309.1087017,
+    "ast_hash": "e7bb7ca474113ec26418fa85e1297696",
     "semantic_hash": ""
   },
   "tools/nexigen-recd/recorder_daemon_config.hpp": {
