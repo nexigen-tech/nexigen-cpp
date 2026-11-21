@@ -40,8 +40,7 @@ struct FakeMeter {
 };
 static_assert(nexigen::core::concepts::MeterLike<FakeMeter>);
 struct FailingSink {
-    [[nodiscard]] nexigen::core::Status
-    on_event(const nexigen::chrono::Snapshot&) noexcept {
+    [[nodiscard]] nexigen::core::Status on_event(const nexigen::chrono::Snapshot&) noexcept {
         return std::unexpected(nexigen::core::ErrorCode::SystemError);
     }
     [[nodiscard]] nexigen::core::Status flush() noexcept { return {}; }
