@@ -45,7 +45,6 @@
 #include <nexigen/tracing/span_frame.hpp>
 #include <nexigen/tracing/trace_daemon_config.hpp>
 
-
 namespace {
 
 /// Counts CLOCK_REALTIME reads for the trigger-path assertion.
@@ -439,9 +438,9 @@ void test_session_rejects_unknown_version() {
     const auto event_name =
         com::ServiceName::create((context.config.service_name + "Event").c_str());
     NX_CHECK(event_name.has_value());
-    auto notifier = event_name ? com::EventNotifier::create(*test_node, *event_name)
-                               : com::Result<com::EventNotifier>{
-                                     std::unexpected(com::Error::Unknown)};
+    auto notifier = event_name
+                        ? com::EventNotifier::create(*test_node, *event_name)
+                        : com::Result<com::EventNotifier>{std::unexpected(com::Error::Unknown)};
 
     SpanFrame frame = make_frame(1U, 1000U, "bad version");
     frame.version = 1U;
@@ -655,7 +654,8 @@ void test_trigger_requires_base() {
     tdetail::TraceDaemonSession session{context.config};
     NX_CHECK(session.start().has_value());
 
-    const auto recovery_name = com::ServiceName::create(context.config.recovery_service_name.c_str());
+    const auto recovery_name =
+        com::ServiceName::create(context.config.recovery_service_name.c_str());
     const auto event_name = com::ServiceName::create(context.config.recovery_event_name.c_str());
     NX_CHECK(recovery_name.has_value() && event_name.has_value());
     if (!recovery_name.has_value() || !event_name.has_value()) {

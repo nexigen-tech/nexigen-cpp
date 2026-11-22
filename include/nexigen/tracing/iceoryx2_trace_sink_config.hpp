@@ -25,9 +25,9 @@ namespace nexigen::tracing {
 /// @note Spec `tracing/iceoryx2-trace-sink`, requirement "Sink configuration
 ///       and diagnostics".
 struct Iceoryx2TraceSinkConfig {
-    std::string service_name{"nexigen/trace/stream"}; ///< subscription (≤ 511 B)
+    std::string service_name{"nexigen/trace/stream"};      ///< subscription (≤ 511 B)
     core::AppId app_id{core::AppId::from_literal("TRCE")}; ///< canonical application code
-    std::uint64_t subscriber_max_buffer_depth{1024};  ///< 0 = service default (2)
+    std::uint64_t subscriber_max_buffer_depth{1024};       ///< 0 = service default (2)
 
     /// @brief Validate the configuration before any transport port exists.
     ///

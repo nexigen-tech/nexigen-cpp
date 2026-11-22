@@ -243,7 +243,8 @@ int main(int argc, char* argv[]) {
             last_state = state;
         }
         if (!state_allows_run(state)) {
-            (*infra->logger())->warning("generator paused while group is '{}'", state_name(last_state));
+            (*infra->logger())
+                ->warning("generator paused while group is '{}'", state_name(last_state));
             return true;
         }
 
@@ -291,8 +292,9 @@ int main(int argc, char* argv[]) {
                 // proves to PHM that the producer loop is alive.
                 static_cast<void>(vector_event->notify());
                 static_cast<void>(link.checkpoint(1));
-                (*infra->logger())->debug("published vector #{} trace_id={:016x} cost_us={}", sequence,
-                                      header.trace_id.value(), publish_cost_us);
+                (*infra->logger())
+                    ->debug("published vector #{} trace_id={:016x} cost_us={}", sequence,
+                            header.trace_id.value(), publish_cost_us);
             }
         }
 

@@ -189,7 +189,8 @@ template <class Infrastructure, class Subscriber, class Counter, class Gauge>
             }
             allowed = state_allows_run(state);
             if (!allowed) {
-                (*infra.logger())->debug("receiver paused while group is '{}'", state_name(last_state));
+                (*infra.logger())
+                    ->debug("receiver paused while group is '{}'", state_name(last_state));
             }
         }
 

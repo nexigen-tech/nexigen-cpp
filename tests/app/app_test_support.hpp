@@ -155,7 +155,8 @@ struct TestPolicy {
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
+                                             const metrics::Settings&,
+                                             const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -194,7 +195,8 @@ struct CountingPolicy {
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
+                                             const metrics::Settings&,
+                                             const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -284,7 +286,8 @@ struct FailingMetricSinkPolicy {
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
+                                             const metrics::Settings&,
+                                             const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -307,7 +310,8 @@ struct OrderedQuiescePolicy {
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
+                                             const metrics::Settings&,
+                                             const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -339,9 +343,9 @@ struct ResolvedPathPolicy {
         out.emplace();
         return out->initialize(config);
     }
-    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings& settings,
-                                             const nexigen::app::TelemetryIdentity& identity) noexcept {
+    static core::Status
+    emplace_metrics_sink(std::optional<MetricsSink>& out, const metrics::Settings& settings,
+                         const nexigen::app::TelemetryIdentity& identity) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -350,9 +354,9 @@ struct ResolvedPathPolicy {
         out.emplace(config);
         return {};
     }
-    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
-                                           const tracing::Settings& settings,
-                                           const nexigen::app::TelemetryIdentity& identity) noexcept {
+    static core::Status
+    emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings& settings,
+                       const nexigen::app::TelemetryIdentity& identity) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -383,7 +387,8 @@ struct RtPolicy {
         return out->initialize(config);
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
+                                             const metrics::Settings&,
+                                             const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -405,7 +410,8 @@ struct FailLoggerPolicy {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
+                                             const metrics::Settings&,
+                                             const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -450,7 +456,8 @@ struct FailTracePolicy {
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
+                                             const metrics::Settings&,
+                                             const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -472,7 +479,8 @@ struct FlushFailPolicy {
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
+                                             const metrics::Settings&,
+                                             const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -495,7 +503,8 @@ struct FailChronoPolicy {
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
+                                             const metrics::Settings&,
+                                             const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }

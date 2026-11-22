@@ -64,8 +64,7 @@ int main() {
     block.rows[1].valid_from_native = 0;
     block.rows[1].valid_to_native = mono + 604'800'000'000'000ULL;
 
-    chrono::detail::TimeBaseWriter{*segment->block()}.publish(
-        block, mono + 604'800'000'000'000ULL);
+    chrono::detail::TimeBaseWriter{*segment->block()}.publish(block, mono + 604'800'000'000'000ULL);
 
     sigset_t signals;
     sigemptyset(&signals);

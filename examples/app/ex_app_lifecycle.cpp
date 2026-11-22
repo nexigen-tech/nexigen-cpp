@@ -41,7 +41,8 @@ struct SimplePolicy {
     }
 
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
+                                             const metrics::Settings&,
+                                             const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }

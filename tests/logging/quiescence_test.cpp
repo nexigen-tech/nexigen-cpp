@@ -124,8 +124,7 @@ void test_file_quiesce() {
 /// Two instantiations of the same type cannot be configured differently, so the
 /// failure mode is a template parameter and the counters are static per
 /// instantiation.
-template <bool Fail>
-class CountingQuiesceLogger {
+template <bool Fail> class CountingQuiesceLogger {
 public:
     static inline int quiesce_calls = 0;
 
@@ -203,8 +202,7 @@ void test_composite_quiesce_members() {
 }
 
 /// Sink counting lifecycle calls (the worker constructs it in place).
-template <class Record>
-struct CountingStopSink {
+template <class Record> struct CountingStopSink {
     static inline std::atomic<int> starts{0};
     static inline std::atomic<int> stops{0};
     static inline std::atomic<int> events{0};

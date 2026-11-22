@@ -610,8 +610,8 @@ void test_manifest_validation() {
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
 
     // Uniqueness is scoped to one suite: a second manifest may reuse the id.
-    exec::SuiteManifest other = base_manifest(unique_dir("manifest-other"),
-                                              unique_dir("manifest-other-artifacts"));
+    exec::SuiteManifest other =
+        base_manifest(unique_dir("manifest-other"), unique_dir("manifest-other-artifacts"));
     exec::AppSpec other_app =
         app_spec("alpha", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Degrade);
     other_app.app_id = "CN_LOOP_1";
@@ -1422,9 +1422,10 @@ void test_env_affinity_and_log_level() {
     exec::AppSpec spec =
         app_spec("envapp", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
     spec.app_id = "CN_LOOP_1";
-    first_config(spec).args = {"-c", "echo SUITE_ENV=$SUITE_ENV; "
-                                     "echo LEVEL=$NEXIGEN_LOG_LEVEL; "
-                                     "printf 'ARG=%s\\n' \"$@\"; exec sleep 60",
+    first_config(spec).args = {"-c",
+                               "echo SUITE_ENV=$SUITE_ENV; "
+                               "echo LEVEL=$NEXIGEN_LOG_LEVEL; "
+                               "printf 'ARG=%s\\n' \"$@\"; exec sleep 60",
                                "sh"};
     first_config(spec).env = {{"SUITE_ENV", "visible"}, {"NEXIGEN_LOG_LEVEL", "debug"}};
     spec.cpus = core::CpuSet::from_core_mask(1ULL);

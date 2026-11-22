@@ -104,8 +104,7 @@ void test_enum_vocabulary() {
 
 void test_event_serialization() {
     const core::DiagnosticEvent event{core::DiagnosticSource::Metrics,
-                                      core::DiagnosticKind::Degraded,
-                                      core::ErrorCode::BufferFull};
+                                      core::DiagnosticKind::Degraded, core::ErrorCode::BufferFull};
 
     const std::string text = event.to_string();
     NX_CHECK(!text.empty());
@@ -128,8 +127,8 @@ void test_event_serialization() {
     NX_CHECK(parsed.error == event.error);
 
     // Non-object and unknown fields leave the event unchanged.
-    core::DiagnosticEvent unchanged{core::DiagnosticSource::Tracing,
-                                    core::DiagnosticKind::Started, core::ErrorCode::Ok};
+    core::DiagnosticEvent unchanged{core::DiagnosticSource::Tracing, core::DiagnosticKind::Started,
+                                    core::ErrorCode::Ok};
     core::from_json(nlohmann::json{"not-an-object"}, unchanged);
     NX_CHECK(unchanged.source == core::DiagnosticSource::Tracing);
     core::from_json(nlohmann::json{{"source", "bogus"}, {"kind", 5}, {"error", "Nope"}}, unchanged);
@@ -145,15 +144,14 @@ struct Collector {
 
 void test_binding_dispatch() {
     Collector collector{};
-    const core::DiagnosticEvent event{core::DiagnosticSource::Chrono,
-                                      core::DiagnosticKind::Started, core::ErrorCode::Ok};
-    const core::DiagnosticBinding binding{
-        &collector,
-        [](void* self, const core::DiagnosticEvent& e) noexcept {
-            auto* c = static_cast<Collector*>(self);
-            ++c->count;
-            c->last = e;
-        }};
+    const core::DiagnosticEvent event{core::DiagnosticSource::Chrono, core::DiagnosticKind::Started,
+                                      core::ErrorCode::Ok};
+    const core::DiagnosticBinding binding{&collector,
+                                          [](void* self, const core::DiagnosticEvent& e) noexcept {
+                                              auto* c = static_cast<Collector*>(self);
+                                              ++c->count;
+                                              c->last = e;
+                                          }};
 
     NX_CHECK(binding.to_string() == "DiagnosticBinding(bound=true)");
     binding.on_event(binding.self, event);

@@ -55,8 +55,7 @@ struct TelemetryIdentity {
 /// @param identity Identity to serialize.
 /// @note Project mandate 10.
 inline void to_json(nlohmann::json& j, const TelemetryIdentity& identity) {
-    j = nlohmann::json{{"app_name", std::string(identity.app_name)},
-                       {"app_id", identity.app_id}};
+    j = nlohmann::json{{"app_name", std::string(identity.app_name)}, {"app_id", identity.app_id}};
 }
 
 } // namespace nexigen::app

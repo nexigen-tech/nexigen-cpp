@@ -336,8 +336,7 @@ public:
     template <core::concepts::DiagnosticLogger L>
     [[nodiscard]] core::Status bind_diagnostics(L& logger) noexcept {
         return bind_diagnostics(core::DiagnosticBinding{
-            &logger,
-            [](void* self, const core::DiagnosticEvent& event) noexcept {
+            &logger, [](void* self, const core::DiagnosticEvent& event) noexcept {
                 static_cast<L*>(self)->diagnostic(event);
             }});
     }
@@ -770,9 +769,9 @@ private:
 // instantiates the default parameters). --------------------------------------
 
 template <std::size_t ShardCapacity, std::size_t MaxThreads>
-TracerProvider<ShardCapacity, MaxThreads>::TracerProvider(const TracerProviderConfig& config,
-                                                          detail::SinkBinding binding,
-                                                          core::DiagnosticBinding diagnostics) noexcept
+TracerProvider<ShardCapacity, MaxThreads>::TracerProvider(
+    const TracerProviderConfig& config, detail::SinkBinding binding,
+    core::DiagnosticBinding diagnostics) noexcept
     : config_(config), binding_(binding), diagnostics_(diagnostics) {
     policy_.enabled = config.max_spans_per_window != 0ULL && config.window_ns != 0ULL;
     policy_.max_spans_per_window = config.max_spans_per_window;
@@ -829,8 +828,8 @@ void TracerProvider<ShardCapacity, MaxThreads>::report_transition(
     if (previous == status_code) {
         return;
     }
-    core::DiagnosticEvent event{core::DiagnosticSource::Tracing,
-                                core::DiagnosticKind::Recovered, core::ErrorCode::Ok};
+    core::DiagnosticEvent event{core::DiagnosticSource::Tracing, core::DiagnosticKind::Recovered,
+                                core::ErrorCode::Ok};
     if (status_code != 0U) {
         event.kind = core::DiagnosticKind::Degraded;
         event.error = static_cast<core::ErrorCode>(status_code - 1U);

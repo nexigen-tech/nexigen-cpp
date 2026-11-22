@@ -18,10 +18,10 @@ namespace nexigen::core {
 /// @note Spec `core/diagnostics`, requirement "Diagnostic vocabulary and
 ///       serialization".
 enum class DiagnosticKind : std::uint8_t {
-    Started,  ///< A component started or a binding was installed on a healthy one.
-    Degraded, ///< A component entered a failing state.
-    Recovered,///< A component returned to a healthy state.
-    Quiesced, ///< A component stopped for good.
+    Started,   ///< A component started or a binding was installed on a healthy one.
+    Degraded,  ///< A component entered a failing state.
+    Recovered, ///< A component returned to a healthy state.
+    Quiesced,  ///< A component stopped for good.
 };
 
 /// @brief Vocabulary table for `DiagnosticKind`.

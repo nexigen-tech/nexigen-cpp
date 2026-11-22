@@ -259,8 +259,7 @@ public:
             "Iceoryx2TraceSink(service={}, app={}, pid={}, published={}, dropped={}, "
             "hash_hits={}, hash_misses={}, started={})",
             config_.service_name, config_.app_id.to_string(), pid_, published_, dropped_,
-            hash_hits_,
-            hash_misses_, publisher_.has_value());
+            hash_hits_, hash_misses_, publisher_.has_value());
     }
 
 private:

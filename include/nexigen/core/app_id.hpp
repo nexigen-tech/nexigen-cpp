@@ -165,8 +165,7 @@ struct AppId {
     /// @return `true` when both stored 16-byte images are equal.
     /// @note The zero-filled tail is part of the invariant, so a valid value
     ///       and the unset value never compare equal.
-    [[nodiscard]] friend constexpr bool operator==(const AppId&,
-                                                   const AppId&) noexcept = default;
+    [[nodiscard]] friend constexpr bool operator==(const AppId&, const AppId&) noexcept = default;
 
 private:
     /// @brief Whether one byte belongs to the permitted alphabet.
@@ -191,14 +190,18 @@ static_assert(std::is_trivially_copyable_v<AppId>, "AppId must cross the zero-co
 /// @param id Identifier to render.
 /// @return The stored bytes as a `std::string`.
 /// @note Allocates, so cold path only (project mandate 9).
-[[nodiscard]] inline std::string to_string(const AppId& id) { return id.to_string(); }
+[[nodiscard]] inline std::string to_string(const AppId& id) {
+    return id.to_string();
+}
 
 /// @brief Write an identifier as a JSON string.
 ///
 /// @param j Destination value.
 /// @param id Identifier to serialize.
 /// @note Cold path only (project mandate 10).
-inline void to_json(nlohmann::json& j, const AppId& id) { j = id.to_string(); }
+inline void to_json(nlohmann::json& j, const AppId& id) {
+    j = id.to_string();
+}
 
 /// @brief Read an identifier from JSON without throwing.
 ///

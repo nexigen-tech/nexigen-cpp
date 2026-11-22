@@ -82,16 +82,17 @@ public:
     ///          the provider leaves a dangling callback target.
     template <concepts::MetricSink Sink>
     MetricProvider(const MetricProviderConfig& config, Sink& sink)
-        : MetricProvider(config, core::SinkBinding<MetricBatchSnapshot>{
-                                     static_cast<void*>(&sink),
-                                     [](void* self,
-                                        const MetricBatchSnapshot& batch) noexcept -> core::Status {
-                                         return static_cast<Sink*>(self)->on_event(batch);
-                                     },
-                                     [](void* self) noexcept -> core::Status {
-                                         return static_cast<Sink*>(self)->flush();
-                                     }},
-                         {}) {}
+        : MetricProvider(
+              config,
+              core::SinkBinding<MetricBatchSnapshot>{
+                  static_cast<void*>(&sink),
+                  [](void* self, const MetricBatchSnapshot& batch) noexcept -> core::Status {
+                      return static_cast<Sink*>(self)->on_event(batch);
+                  },
+                  [](void* self) noexcept -> core::Status {
+                      return static_cast<Sink*>(self)->flush();
+                  }},
+              {}) {}
 
     /// @brief Bind a sink and a diagnostics consumer, then start the provider.
     ///
@@ -107,16 +108,17 @@ public:
     template <concepts::MetricSink Sink>
     MetricProvider(const MetricProviderConfig& config, Sink& sink,
                    core::DiagnosticBinding diagnostics)
-        : MetricProvider(config, core::SinkBinding<MetricBatchSnapshot>{
-                                     static_cast<void*>(&sink),
-                                     [](void* self,
-                                        const MetricBatchSnapshot& batch) noexcept -> core::Status {
-                                         return static_cast<Sink*>(self)->on_event(batch);
-                                     },
-                                     [](void* self) noexcept -> core::Status {
-                                         return static_cast<Sink*>(self)->flush();
-                                     }},
-                         diagnostics) {}
+        : MetricProvider(
+              config,
+              core::SinkBinding<MetricBatchSnapshot>{
+                  static_cast<void*>(&sink),
+                  [](void* self, const MetricBatchSnapshot& batch) noexcept -> core::Status {
+                      return static_cast<Sink*>(self)->on_event(batch);
+                  },
+                  [](void* self) noexcept -> core::Status {
+                      return static_cast<Sink*>(self)->flush();
+                  }},
+              diagnostics) {}
 
     /// @brief Deleted: the provider is the unique registry owner.
     MetricProvider(const MetricProvider&) = delete;
@@ -202,8 +204,7 @@ public:
     template <core::concepts::DiagnosticLogger L>
     [[nodiscard]] core::Status bind_diagnostics(L& logger) noexcept {
         return bind_diagnostics(core::DiagnosticBinding{
-            &logger,
-            [](void* self, const core::DiagnosticEvent& event) noexcept {
+            &logger, [](void* self, const core::DiagnosticEvent& event) noexcept {
                 static_cast<L*>(self)->diagnostic(event);
             }});
     }

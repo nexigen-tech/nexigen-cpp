@@ -111,8 +111,9 @@ int main(int argc, char* argv[]) {
         if (applied) {
             (*infra->logger())->info("SCHED_FIFO priority {}", rt_priority);
         } else {
-            (*infra->logger())->warning("SCHED_FIFO unavailable ({}); staying on the default policy",
-                                    core::to_string(applied.error()));
+            (*infra->logger())
+                ->warning("SCHED_FIFO unavailable ({}); staying on the default policy",
+                          core::to_string(applied.error()));
         }
     }
 

@@ -164,11 +164,9 @@ public:
     /// @param logger Borrowed consumer; must outlive the client.
     /// @note Spec `chrono/time-base`, requirement "Time-base diagnostics
     ///       binding".
-    template <core::concepts::DiagnosticLogger L>
-    void bind_diagnostics(L& logger) noexcept {
+    template <core::concepts::DiagnosticLogger L> void bind_diagnostics(L& logger) noexcept {
         bind_diagnostics(core::DiagnosticBinding{
-            &logger,
-            [](void* self, const core::DiagnosticEvent& event) noexcept {
+            &logger, [](void* self, const core::DiagnosticEvent& event) noexcept {
                 static_cast<L*>(self)->diagnostic(event);
             }});
     }
@@ -327,9 +325,9 @@ private:
     /// @note Cold/control path only; conversion functions never call it.
     void report_state(ClientState state) noexcept;
 
-    core::DiagnosticBinding diag_{};                       ///< Borrowed diagnostics consumer.
-    ClientState last_reported_state_{ClientState::Lost};   ///< Last emitted state.
-    bool have_reported_{false};                            ///< At least one event emitted.
+    core::DiagnosticBinding diag_{};                     ///< Borrowed diagnostics consumer.
+    ClientState last_reported_state_{ClientState::Lost}; ///< Last emitted state.
+    bool have_reported_{false};                          ///< At least one event emitted.
 };
 
 /// @brief Free-helper mirror of `TimeBaseClient::to_string`.

@@ -84,7 +84,7 @@ void test_app_requires_identity() {
 }
 
 void test_app_lifecycle_and_sigpipe() {
-    struct sigaction before {};
+    struct sigaction before{};
     NX_CHECK(::sigaction(SIGPIPE, nullptr, &before) == 0);
     auto argv = args({"--app-id", "RUNTIME"});
     auto created = TestApp::create(static_cast<int>(argv.size()), argv.data(), "runtime",
@@ -99,7 +99,7 @@ void test_app_lifecycle_and_sigpipe() {
         return;
     }
 
-    struct sigaction during {};
+    struct sigaction during{};
     NX_CHECK(::sigaction(SIGPIPE, nullptr, &during) == 0);
     NX_CHECK(during.sa_handler == SIG_IGN);
     int pipe_fds[2]{-1, -1};
@@ -131,7 +131,7 @@ void test_app_lifecycle_and_sigpipe() {
     NX_CHECK(app->shutdown().has_value());
     stopper.join();
 
-    struct sigaction after {};
+    struct sigaction after{};
     NX_CHECK(::sigaction(SIGPIPE, nullptr, &after) == 0);
     NX_CHECK(after.sa_handler == before.sa_handler);
     NX_CHECK(app->shutdown().has_value());
@@ -216,8 +216,8 @@ void test_app_input_and_output() {
             received.store(signal.sequence + 1U, std::memory_order_release);
             input_code.store(header.event_code, std::memory_order_release);
             if (output != nullptr) {
-                static_cast<void>(
-                    output->publish_now(RuntimeSignal{signal.sequence, signal.value * 2.0}, 0x2001U));
+                static_cast<void>(output->publish_now(
+                    RuntimeSignal{signal.sequence, signal.value * 2.0}, 0x2001U));
             }
         });
     NX_CHECK(subscribed);
@@ -274,8 +274,7 @@ void test_app_second_instance_rejected() {
 }
 
 void test_app_settings_directory_path() {
-    const std::string dir =
-        "/tmp/opencode/app-runtime-settings-" + std::to_string(::getpid());
+    const std::string dir = "/tmp/opencode/app-runtime-settings-" + std::to_string(::getpid());
     write_settings_directory(dir, "{}");
     auto argv = args({"--global-settings", dir.c_str(), "--app-id", "FILED"});
     auto created = TestApp::create(static_cast<int>(argv.size()), argv.data(), "runtime-file",
@@ -289,8 +288,7 @@ void test_app_settings_directory_path() {
 }
 
 void test_app_counter_capacity_gate() {
-    const std::string dir =
-        "/tmp/opencode/app-runtime-counter-" + std::to_string(::getpid());
+    const std::string dir = "/tmp/opencode/app-runtime-counter-" + std::to_string(::getpid());
     write_settings_directory(dir, R"({"max_counters":1})");
     auto argv = args({"--global-settings", dir.c_str(), "--app-id", "CGATE"});
     auto created = TestApp::create(static_cast<int>(argv.size()), argv.data(), "runtime-counter",
@@ -323,8 +321,7 @@ void test_app_counter_capacity_gate() {
 }
 
 void test_app_external_base_missing() {
-    const std::string dir =
-        "/tmp/opencode/app-runtime-external-" + std::to_string(::getpid());
+    const std::string dir = "/tmp/opencode/app-runtime-external-" + std::to_string(::getpid());
     write_settings_directory(dir, "{}");
     const std::string segment =
         "/nexigen-app-runtime-missing-" + std::to_string(static_cast<long>(::getpid()));

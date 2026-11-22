@@ -28,8 +28,8 @@ namespace nexigen::metrics {
 /// @note Spec `metrics/snapshot-format`, requirement "MetricBatchSnapshot
 ///       deserialization is array-length safe".
 struct MetricBatchSnapshot {
-    chrono::Timestamp stamp{};        ///< Window start stamp (monotonic clock).
-    std::int64_t utc_ns{0};           ///< Same window in UTC nanoseconds.
+    chrono::Timestamp stamp{}; ///< Window start stamp (monotonic clock).
+    std::int64_t utc_ns{0};    ///< Same window in UTC nanoseconds.
     /// @brief True when `utc_ns` was resolved through the published time base.
     ///
     /// False means the window is outside the published calibration; consumers

@@ -90,8 +90,8 @@ struct SuitePolicy {
                                        const nexigen::app::TelemetryIdentity& identity) noexcept {
         logging::Iceoryx2LoggerConfig config{};
         config.service_name = "Nexigen/Log/nexigen";
-        config.app_id = identity.app_id.empty() ? nexigen::core::AppId::from_literal("RECV")
-                                         : identity.app_id;
+        config.app_id =
+            identity.app_id.empty() ? nexigen::core::AppId::from_literal("RECV") : identity.app_id;
         config.initial_level = settings.options.initial_log_level;
         config.worker_thread = settings.options.worker_thread;
         config.worker_poll_interval_us = settings.options.worker_poll_interval_us;
@@ -99,30 +99,32 @@ struct SuitePolicy {
         return out->initialize(config);
     }
 
-    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity& identity) noexcept {
+    static core::Status
+    emplace_metrics_sink(std::optional<MetricsSink>& out, const metrics::Settings&,
+                         const nexigen::app::TelemetryIdentity& identity) noexcept {
         com::Node* node = telemetry_node();
         if (node == nullptr) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         metrics::Iceoryx2MetricSinkConfig config{};
         config.service_name = "nexigen/metrics/stream";
-        config.app_id = identity.app_id.empty() ? nexigen::core::AppId::from_literal("RECV")
-                                         : identity.app_id;
+        config.app_id =
+            identity.app_id.empty() ? nexigen::core::AppId::from_literal("RECV") : identity.app_id;
         out.emplace(config, node);
         return out->start();
     }
 
-    static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           const nexigen::app::TelemetryIdentity& identity) noexcept {
+    static core::Status
+    emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
+                       const nexigen::app::TelemetryIdentity& identity) noexcept {
         com::Node* node = telemetry_node();
         if (node == nullptr) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         tracing::Iceoryx2TraceSinkConfig config{};
         config.service_name = "nexigen/trace/stream";
-        config.app_id = identity.app_id.empty() ? nexigen::core::AppId::from_literal("RECV")
-                                         : identity.app_id;
+        config.app_id =
+            identity.app_id.empty() ? nexigen::core::AppId::from_literal("RECV") : identity.app_id;
         out.emplace(config, node);
         return {};
     }
@@ -421,9 +423,9 @@ int main(int argc, char* argv[]) {
             static_cast<void>(
                 span.set_attribute("sequence", static_cast<std::int64_t>(payload.sequence)));
             (*counter)->inc();
-            (*infra->logger())->debug("received sample seq={} message={} trace_id={:016x}",
-                                  payload.sequence, static_cast<const char*>(payload.message),
-                                  header.trace_id.value());
+            (*infra->logger())
+                ->debug("received sample seq={} message={} trace_id={:016x}", payload.sequence,
+                        static_cast<const char*>(payload.message), header.trace_id.value());
             static_cast<void>(span.set_status(tracing::SpanStatus::Ok));
             ++received;
         }

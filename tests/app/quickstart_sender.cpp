@@ -28,8 +28,8 @@ int main() {
         return 1;
     }
     for (std::uint64_t sequence = 0; sequence < 3U; ++sequence) {
-        static_cast<void>(producer->publish_now(
-            Signal{sequence, 10.0 + static_cast<double>(sequence)}, 0x1001U));
+        static_cast<void>(
+            producer->publish_now(Signal{sequence, 10.0 + static_cast<double>(sequence)}, 0x1001U));
         std::this_thread::sleep_for(std::chrono::milliseconds{100});
     }
     std::this_thread::sleep_for(std::chrono::milliseconds{200});

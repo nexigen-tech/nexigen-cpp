@@ -25,8 +25,8 @@ namespace nexigen::metrics {
 ///       configuration".
 struct Iceoryx2MetricSinkConfig {
     core::AppId app_id{core::AppId::from_literal("NEXG")}; ///< Code copied into `MetricFrame`.
-    std::string service_name{"nexigen/metrics/stream"}; ///< Pub-sub service (≤ 511 B).
-    std::uint64_t subscriber_max_buffer_size{256};      ///< Burst depth (0 = service default 2).
+    std::string service_name{"nexigen/metrics/stream"};    ///< Pub-sub service (≤ 511 B).
+    std::uint64_t subscriber_max_buffer_size{256};         ///< Burst depth (0 = service default 2).
 
     /// @brief Render the configuration as a cold-path diagnostic string.
     ///

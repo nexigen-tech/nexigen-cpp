@@ -51,7 +51,8 @@ void test_effective_id() {
     const app::TelemetryIdentity runtime{"name", nexigen::core::AppId::from_literal("CN_LOOP_1")};
     NX_CHECK(Policy::effective_id(runtime).text() == "CN_LOOP_1");
 
-    const app::TelemetryIdentity full{"name", nexigen::core::AppId::from_literal("ABCDEFGHIJKLMNOP")};
+    const app::TelemetryIdentity full{"name",
+                                      nexigen::core::AppId::from_literal("ABCDEFGHIJKLMNOP")};
     NX_CHECK(Policy::effective_id(full).size() == 16);
 }
 
@@ -146,7 +147,8 @@ void test_iceoryx2_node_failure() {
 
 void test_iceoryx2_metric_frame() {
     std::optional<Policy::MetricsSink> sink;
-    NX_CHECK(Policy::emplace_metrics_sink(sink, metrics::Settings{}, policy_identity()).has_value());
+    NX_CHECK(
+        Policy::emplace_metrics_sink(sink, metrics::Settings{}, policy_identity()).has_value());
     NX_CHECK(sink.has_value());
     if (!sink.has_value()) return;
 

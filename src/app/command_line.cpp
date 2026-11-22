@@ -32,10 +32,8 @@ struct OptionSpec {
 
 // The registered short names are mutually non-prefixing, so declaration order is unambiguous.
 constexpr OptionSpec kOptions[] = {
-    {"--global-settings", "-gs", ValueKind::Global},
-    {"--local-settings", "-ls", ValueKind::Local},
-    {"--log-level", "-lgl", ValueKind::Log_level},
-    {"--app-name", "-an", ValueKind::App_name},
+    {"--global-settings", "-gs", ValueKind::Global}, {"--local-settings", "-ls", ValueKind::Local},
+    {"--log-level", "-lgl", ValueKind::Log_level},   {"--app-name", "-an", ValueKind::App_name},
     {"--app-id", "-ai", ValueKind::App_id},
 };
 
@@ -180,8 +178,7 @@ void parse_short(std::string_view token, std::span<const std::string_view> args,
         }
     }
 
-    if (collected.app_id_supplied &&
-        !core::AppId::create(collected.app_id).has_value()) {
+    if (collected.app_id_supplied && !core::AppId::create(collected.app_id).has_value()) {
         add_diagnostic(diagnostics, "--app-id",
                        "invalid identifier \"" + collected.app_id +
                            "\": expected 1..16 characters from A-Z, a-z, 0-9, _ or -");

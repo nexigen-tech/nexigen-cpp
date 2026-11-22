@@ -18,8 +18,7 @@ namespace nexigen::app::detail {
 /// @tparam Logger Policy logger type satisfying the logging concept.
 /// @note Spec `app/application`, requirement "Initialization follows a fixed
 ///       order".
-template <class Logger>
-class DiagnosticForwarder {
+template <class Logger> class DiagnosticForwarder {
 public:
     /// @brief Store the borrowed logger.
     ///
@@ -56,7 +55,6 @@ private:
 ///
 /// @tparam Logger Policy logger type.
 template <class Logger>
-concept ForwardingDiagnosticLogger =
-    core::concepts::DiagnosticLogger<DiagnosticForwarder<Logger>>;
+concept ForwardingDiagnosticLogger = core::concepts::DiagnosticLogger<DiagnosticForwarder<Logger>>;
 
 } // namespace nexigen::app::detail

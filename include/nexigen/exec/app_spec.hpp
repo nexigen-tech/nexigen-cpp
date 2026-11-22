@@ -41,7 +41,7 @@ struct AppSpec {
     /// Telemetry identifier: 1..16 bytes from `A-Z`, `a-z`, `0-9`, `_`, `-`.
     /// Empty selects `app`; validation rejects a name that does not fit.
     std::string app_id{};
-    std::string command{};  ///< Executable path or command name.
+    std::string command{}; ///< Executable path or command name.
     /// The single Function Group this application belongs to.
     std::string function_group{};
     /// One or more state-dependent launch configurations for that group.

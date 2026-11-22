@@ -75,8 +75,7 @@ inline void from_json(const nlohmann::json& j, DiagnosticEvent& event) noexcept 
     if (!j.is_object()) {
         return;
     }
-    if (const auto source_it = j.find("source");
-        source_it != j.end() && source_it->is_string()) {
+    if (const auto source_it = j.find("source"); source_it != j.end() && source_it->is_string()) {
         if (const auto* name = source_it->get_ptr<const nlohmann::json::string_t*>()) {
             DiagnosticSource parsed = event.source;
             if (from_string(*name, parsed)) {

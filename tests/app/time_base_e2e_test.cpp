@@ -64,9 +64,9 @@ struct E2ePolicy {
         out.emplace();
         return out->initialize(config);
     }
-    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&,
-                                             const nexigen::app::TelemetryIdentity& identity) noexcept {
+    static core::Status
+    emplace_metrics_sink(std::optional<MetricsSink>& out, const metrics::Settings&,
+                         const nexigen::app::TelemetryIdentity& identity) noexcept {
         metrics::JsonFileMetricSinkConfig config{};
         config.path = e2e_dir() + "/metrics.jsonl";
         config.append = false;
@@ -74,8 +74,9 @@ struct E2ePolicy {
         out.emplace(config);
         return {};
     }
-    static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           const nexigen::app::TelemetryIdentity& identity) noexcept {
+    static core::Status
+    emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
+                       const nexigen::app::TelemetryIdentity& identity) noexcept {
         tracing::JsonFileTraceSinkConfig config{};
         config.path = e2e_dir() + "/traces.jsonl";
         config.app_name = std::string(identity.app_name);

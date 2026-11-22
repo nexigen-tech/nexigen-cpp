@@ -387,8 +387,8 @@ void MetricProvider::emit_started() noexcept {
     if (diagnostics_.on_event == nullptr || sealed_.load(std::memory_order_acquire)) {
         return;
     }
-    const core::DiagnosticEvent event{core::DiagnosticSource::Metrics, core::DiagnosticKind::Started,
-                                      core::ErrorCode::Ok};
+    const core::DiagnosticEvent event{core::DiagnosticSource::Metrics,
+                                      core::DiagnosticKind::Started, core::ErrorCode::Ok};
     diagnostics_.on_event(diagnostics_.self, event);
     last_reported_error_.store(0, std::memory_order_release);
 }
@@ -404,8 +404,8 @@ void MetricProvider::emit_transition(std::uint8_t status_code) noexcept {
     if (previous == status_code) {
         return;
     }
-    core::DiagnosticEvent event{core::DiagnosticSource::Metrics,
-                                core::DiagnosticKind::Recovered, core::ErrorCode::Ok};
+    core::DiagnosticEvent event{core::DiagnosticSource::Metrics, core::DiagnosticKind::Recovered,
+                                core::ErrorCode::Ok};
     if (status_code != 0) {
         event.kind = core::DiagnosticKind::Degraded;
         event.error = static_cast<core::ErrorCode>(status_code - 1U);
@@ -414,8 +414,7 @@ void MetricProvider::emit_transition(std::uint8_t status_code) noexcept {
 }
 
 void MetricProvider::update_harvest_status(core::Status status) noexcept {
-    const std::uint8_t code =
-        status ? 0U : static_cast<std::uint8_t>(status.error()) + 1U;
+    const std::uint8_t code = status ? 0U : static_cast<std::uint8_t>(status.error()) + 1U;
     last_harvest_error_.store(code, std::memory_order_relaxed);
     emit_transition(code);
 }

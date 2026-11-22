@@ -97,8 +97,8 @@ void TimeBaseClient::report_state(ClientState state) noexcept {
     core::DiagnosticEvent event{core::DiagnosticSource::Chrono, core::DiagnosticKind::Degraded,
                                 core::ErrorCode::SystemError};
     if (state == ClientState::Attached) {
-        event.kind = have_reported_ ? core::DiagnosticKind::Recovered
-                                    : core::DiagnosticKind::Started;
+        event.kind =
+            have_reported_ ? core::DiagnosticKind::Recovered : core::DiagnosticKind::Started;
         event.error = core::ErrorCode::Ok;
     } else if (state == ClientState::Lost) {
         event.kind = core::DiagnosticKind::Degraded;

@@ -173,8 +173,7 @@ public:
     ///       project mandate 9 (`to_string`).
     [[nodiscard]] std::string to_string() const {
         return "Iceoryx2MetricSink(service=" + config_.service_name +
-               ", app=" + config_.app_id.to_string() +
-               ", pid=" + std::to_string(pid_) +
+               ", app=" + config_.app_id.to_string() + ", pid=" + std::to_string(pid_) +
                ", started=" + (publisher_.has_value() ? "true" : "false") + ")";
     }
 

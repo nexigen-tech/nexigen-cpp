@@ -163,9 +163,9 @@ struct SuitePolicy {
         return out->initialize(config);
     }
 
-    static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings& settings,
-                                             const nexigen::app::TelemetryIdentity& identity) noexcept {
+    static core::Status
+    emplace_metrics_sink(std::optional<MetricsSink>& out, const metrics::Settings& settings,
+                         const nexigen::app::TelemetryIdentity& identity) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
@@ -175,9 +175,9 @@ struct SuitePolicy {
         return {};
     }
 
-    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
-                                           const tracing::Settings& settings,
-                                           const nexigen::app::TelemetryIdentity& identity) noexcept {
+    static core::Status
+    emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings& settings,
+                       const nexigen::app::TelemetryIdentity& identity) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }

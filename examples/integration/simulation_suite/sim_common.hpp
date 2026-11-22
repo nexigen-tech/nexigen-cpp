@@ -466,8 +466,8 @@ template <char A, char B, char C, char D> struct SimTelemetryPolicy {
                                        const app::TelemetryIdentity& identity) noexcept {
         logging::Iceoryx2LoggerConfig config{};
         config.service_name = "Nexigen/Log/nexigen";
-        config.app_id = identity.app_id.empty() ? core::AppId::from_literal(k_tag)
-                                              : identity.app_id;
+        config.app_id =
+            identity.app_id.empty() ? core::AppId::from_literal(k_tag) : identity.app_id;
         config.initial_level = settings.options.initial_log_level;
         config.worker_thread = settings.options.worker_thread;
         config.worker_poll_interval_us = settings.options.worker_poll_interval_us;
@@ -485,15 +485,14 @@ template <char A, char B, char C, char D> struct SimTelemetryPolicy {
         }
         metrics::Iceoryx2MetricSinkConfig config{};
         config.service_name = "nexigen/metrics/stream";
-        config.app_id = identity.app_id.empty() ? core::AppId::from_literal(k_tag)
-                                              : identity.app_id;
+        config.app_id =
+            identity.app_id.empty() ? core::AppId::from_literal(k_tag) : identity.app_id;
         out.emplace(config, node);
         return out->start();
     }
 
     /// @brief Emplace the iceoryx2 trace sink.
-    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
-                                           const tracing::Settings&,
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
                                            const app::TelemetryIdentity& identity) noexcept {
         com::Node* node = telemetry_node();
         if (node == nullptr) {
@@ -501,8 +500,8 @@ template <char A, char B, char C, char D> struct SimTelemetryPolicy {
         }
         tracing::Iceoryx2TraceSinkConfig config{};
         config.service_name = "nexigen/trace/stream";
-        config.app_id = identity.app_id.empty() ? core::AppId::from_literal(k_tag)
-                                              : identity.app_id;
+        config.app_id =
+            identity.app_id.empty() ? core::AppId::from_literal(k_tag) : identity.app_id;
         out.emplace(config, node);
         return {};
     }
