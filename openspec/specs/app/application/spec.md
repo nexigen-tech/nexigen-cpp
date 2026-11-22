@@ -148,7 +148,7 @@ The system SHALL provide `make_infrastructure<Policy, Tracer_capacity, Tracer_th
 
 ### Requirement: Stateless infrastructure policy
 
-The system SHALL require a `Policy` with nested `Logger`, `Metrics_sink`, `Trace_sink`, and `Chrono_sink` types and static `emplace_logger`, `emplace_metrics_sink`, `emplace_trace_sink`, and `emplace_chrono_sink` methods returning `core::Status`. The logger, metrics-sink, and trace-sink emplacement methods SHALL additionally receive the application name so each policy can inject it into its sink; `emplace_chrono_sink` SHALL NOT receive it. `Infrastructure` SHALL enforce the logger/sink concepts at compile time; the policy SHALL hold no runtime state.
+The system SHALL require a `Policy` with nested `Logger`, `MetricsSink`, and `TraceSink` types and static `emplace_logger`, `emplace_metrics_sink`, and `emplace_trace_sink` methods returning `core::Status`. All three emplacement methods SHALL receive the application name so each policy can inject it into its sink. `Infrastructure` SHALL enforce the logger/sink concepts at compile time; the policy SHALL hold no runtime state.
 
 #### Scenario: Policy types are validated at compile time
 
@@ -163,7 +163,7 @@ The system SHALL require a `Policy` with nested `Logger`, `Metrics_sink`, `Trace
 #### Scenario: Logger and sinks receive the application name
 
 - **WHEN** initialization runs with a non-empty application name
-- **THEN** `emplace_logger`, `emplace_metrics_sink`, and `emplace_trace_sink` observe that name, and `emplace_chrono_sink` does not receive it
+- **THEN** `emplace_logger`, `emplace_metrics_sink`, and `emplace_trace_sink` observe that name
 
 ### Requirement: Process-global signal ownership guard
 

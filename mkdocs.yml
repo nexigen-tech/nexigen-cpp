@@ -47,6 +47,22 @@ markdown_extensions:
 nav:
   - Главная: index.md
   - Архитектура: architecture.md
+  - Статьи:
+      - Обзор платформы: articles/platform.md
+      - core: articles/core.md
+      - chrono: articles/chrono.md
+      - com: articles/com.md
+      - app: articles/app.md
+      - exec: articles/exec.md
+      - sm: articles/sm.md
+      - phm: articles/phm.md
+      - hub: articles/hub.md
+      - metrics: articles/metrics.md
+      - tracing: articles/tracing.md
+      - diagnostics: articles/diagnostics.md
+      - synchro: articles/synchro.md
+      - logging: articles/logging.md
+      - recorder: articles/recorder.md
   - Руководства:
       - Минимальные задержки: low-latency-guide.md
   - Безопасность:

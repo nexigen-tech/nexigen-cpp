@@ -10,6 +10,7 @@ void run_app_settings_suites();
 void run_app_telemetry_layout_suites();
 void run_app_infrastructure_suites();
 void run_app_time_base_e2e_suites();
+void run_app_policies_suites();
 
 int main() {
     run_app_stop_reason_suites();
@@ -18,6 +19,7 @@ int main() {
     run_app_telemetry_layout_suites();
     run_app_infrastructure_suites();
     run_app_time_base_e2e_suites();
+    run_app_policies_suites();
 
     std::printf("app: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

@@ -180,11 +180,42 @@ add_executable(nexigen_app_tests
     app/app_settings_test.cpp
     app/telemetry_layout_test.cpp
     app/infrastructure_test.cpp
-    app/time_base_e2e_test.cpp)
+    app/time_base_e2e_test.cpp
+    app/policies_test.cpp)
 target_link_libraries(nexigen_app_tests PRIVATE nexigen_app nexigen_recorder Threads::Threads)
 
 add_test(NAME nexigen_app_tests COMMAND nexigen_app_tests)
 set_tests_properties(nexigen_app_tests PROPERTIES TIMEOUT 600)
+
+# Negative-compile probe: a policy missing a component/hook must not satisfy
+# InfrastructurePolicy (spec app/policies "Invalid policy is rejected at
+# compile time").
+get_target_property(_nexigen_json_includes nlohmann_json::nlohmann_json
+    INTERFACE_INCLUDE_DIRECTORIES)
+set(_nexigen_json_inc_flags "")
+foreach(_nexigen_json_inc IN LISTS _nexigen_json_includes)
+    list(APPEND _nexigen_json_inc_flags "-I${_nexigen_json_inc}")
+endforeach()
+add_test(NAME nexigen_app_policy_negative_compile
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/core/negative_compile.sh
+        ${CMAKE_CXX_COMPILER}
+        ${CMAKE_CURRENT_SOURCE_DIR}/app/neg/invalid_policy_negative.cpp
+        ${PROJECT_SOURCE_DIR}/include
+        ${_nexigen_json_inc_flags})
+set_tests_properties(nexigen_app_policy_negative_compile PROPERTIES TIMEOUT 120)
+unset(_nexigen_json_inc)
+unset(_nexigen_json_includes)
+unset(_nexigen_json_inc_flags)
+
+if(NEXIGEN_ENABLE_COM)
+    # COM-gated policy test: Iceoryx2Policy diagnostics, app tag and log frame.
+    add_executable(nexigen_app_policies_com_tests app/policies_com_test.cpp)
+    target_link_libraries(nexigen_app_policies_com_tests PRIVATE
+        nexigen_app nexigen_logging_com nexigen_metrics_com nexigen_tracing_com nexigen_com
+        Threads::Threads)
+    add_test(NAME nexigen_app_policies_com_tests COMMAND nexigen_app_policies_com_tests)
+    set_tests_properties(nexigen_app_policies_com_tests PROPERTIES TIMEOUT 600)
+endif()
 
 # Юнит-тесты nexigen::exec: создание каталогов, metadata, генерация настроек.
 add_executable(nexigen_exec_tests exec/execution_manager_test.cpp)
@@ -468,6 +499,7 @@ foreach(_nexigen_test
         nexigen_tracing_tests
         nexigen_diagnostics_tests
         nexigen_app_tests
+        nexigen_app_policies_com_tests
         nexigen_exec_tests
         nexigen_app_suite_tests
         nexigen_child_process_tests
