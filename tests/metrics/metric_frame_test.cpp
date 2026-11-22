@@ -14,7 +14,7 @@ void test_metric_frame_layout() {
     // The frame is app_id + pid + timestamp_ns + one record, naturally aligned.
     NX_CHECK(sizeof(metrics::MetricFrame) ==
              offsetof(metrics::MetricFrame, record) + sizeof(metrics::MetricRecord));
-    NX_CHECK(offsetof(metrics::MetricFrame, record) == 16U);
+    NX_CHECK(offsetof(metrics::MetricFrame, record) == 32U);
     NX_CHECK(alignof(metrics::MetricFrame) == alignof(metrics::MetricRecord));
 }
 
@@ -32,6 +32,14 @@ void test_metric_frame_serialization() {
     frame.record.scalar.counter = 7;
 
     NX_CHECK(frame.app_id_text() == "LIDR");
+
+    metrics::MetricFrame full{};
+    std::memcpy(full.app_id, "CN_LOOP_1_FULL16", 16U);
+    NX_CHECK(full.app_id_text().size() == 16U);
+    const nlohmann::json full_json = full;
+    metrics::MetricFrame full_back{};
+    metrics::from_json(full_json, full_back);
+    NX_CHECK(full_back.app_id_text() == "CN_LOOP_1_FULL16");
 
     const nlohmann::json j = frame;
     NX_CHECK(j.is_object());

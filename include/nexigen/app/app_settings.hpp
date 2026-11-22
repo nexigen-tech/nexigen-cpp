@@ -9,6 +9,7 @@
 
 #include <nexigen/app/app_settings_paths.hpp>
 #include <nexigen/chrono/settings.hpp>
+#include <nexigen/core/app_id.hpp>
 #include <nexigen/core/settings_source.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/logging/settings.hpp>
@@ -35,6 +36,10 @@ struct Settings {
     tracing::Settings tracing{};      ///< Merged tracing settings.
     chrono::Settings chrono{};        ///< Merged chrono settings.
     core::ThreadSpec signal_thread{}; ///< signal-watcher spec (empty = inherited)
+    /// Canonical telemetry identifier (supplied from the CLI; unset = the
+    /// policy keeps its own fallback). Appended last so existing aggregate
+    /// initializers keep their positional meaning.
+    core::AppId app_id{};
 
     /// @brief Stable named construction path that keeps `Settings` an aggregate.
     ///

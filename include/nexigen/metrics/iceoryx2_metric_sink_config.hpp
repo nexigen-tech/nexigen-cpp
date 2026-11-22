@@ -10,11 +10,13 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/app_id.hpp>
+
 namespace nexigen::metrics {
 
 /// @brief Client-side sink configuration for `Iceoryx2MetricSink`.
 ///
-/// Carries the publishing application's 4-byte identifier, the iceoryx2 service
+/// Carries the publishing application's 16-byte identifier, the iceoryx2 service
 /// to publish to, and the subscriber buffer depth the daemon needs to receive
 /// one publish burst without discards. It is bound at sink construction, so the
 /// sink itself is not deserializable; this plain value type is.
@@ -22,7 +24,7 @@ namespace nexigen::metrics {
 /// @note Spec `metrics/iceoryx2-metric-sink`, requirement "Iceoryx2 metric sink
 ///       configuration".
 struct Iceoryx2MetricSinkConfig {
-    std::string app_id{"NEXG"}; ///< 4-byte code copied into `MetricFrame.app_id`.
+    core::AppId app_id{core::AppId::from_literal("NEXG")}; ///< Code copied into `MetricFrame`.
     std::string service_name{"nexigen/metrics/stream"}; ///< Pub-sub service (≤ 511 B).
     std::uint64_t subscriber_max_buffer_size{256};      ///< Burst depth (0 = service default 2).
 
@@ -32,7 +34,7 @@ struct Iceoryx2MetricSinkConfig {
     /// @note Spec `metrics/iceoryx2-metric-sink`, requirement "Iceoryx2 metric
     ///       sink configuration"; diagnostic only (project mandate 9).
     [[nodiscard]] std::string to_string() const {
-        return "Iceoryx2MetricSinkConfig(app=" + app_id + ", service=" + service_name +
+        return "Iceoryx2MetricSinkConfig(app=" + app_id.to_string() + ", service=" + service_name +
                ", buffer=" + std::to_string(subscriber_max_buffer_size) + ")";
     }
 };

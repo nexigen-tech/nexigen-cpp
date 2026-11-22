@@ -30,6 +30,9 @@ namespace nexigen::exec::detail {
 /// @note Spec `exec/app-suite`, requirement "Settings sources merge per
 ///       application".
 struct SuiteLaunchPlan {
+    /// Resolved application identifier; empty only when the manifest entry
+    /// could not be resolved (validation rejects that case before a plan).
+    core::AppId app_id{};
     std::string artifact_dir{};         ///< Attempt artifact directory; stream root.
     StartOptions options{};             ///< Environment, CPU set, settings sources, level.
     app::RunIdentity identity{};        ///< Identity recorded in `resource.json` and env.

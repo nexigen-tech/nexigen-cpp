@@ -109,7 +109,7 @@ void test_concept_and_diagnostics() {
         return;
     }
     tracing::Iceoryx2TraceSinkConfig config;
-    config.app_id = "TEST";
+    config.app_id = nexigen::core::AppId::from_literal("TEST");
     config.service_name = "Nexigen/Test/TraceSinkDiag";
     tracing::Iceoryx2TraceSink sink{config, &*node};
 
@@ -141,7 +141,7 @@ void test_publish_roundtrip() {
     }
 
     tracing::Iceoryx2TraceSinkConfig config;
-    config.app_id = "LIDR";
+    config.app_id = nexigen::core::AppId::from_literal("LIDR");
     config.service_name = "Nexigen/Test/TraceSinkRoundTrip";
     tracing::Iceoryx2TraceSink sink{config, &*node};
     NX_CHECK(sink.start().has_value());
@@ -211,7 +211,7 @@ void test_memo_cache() {
     }
 
     tracing::Iceoryx2TraceSinkConfig config;
-    config.app_id = "MEMO";
+    config.app_id = nexigen::core::AppId::from_literal("MEMO");
     config.service_name = "Nexigen/Test/TraceSinkMemo";
     config.subscriber_max_buffer_depth = 256U;
     tracing::Iceoryx2TraceSink sink{config, &*node};
@@ -272,7 +272,7 @@ void test_overflow_and_gap() {
     }
 
     tracing::Iceoryx2TraceSinkConfig config;
-    config.app_id = "OVFL";
+    config.app_id = nexigen::core::AppId::from_literal("OVFL");
     config.service_name = "Nexigen/Test/TraceSinkOverflow";
     config.subscriber_max_buffer_depth = 1U;
     tracing::Iceoryx2TraceSink sink{config, &*node};
@@ -312,7 +312,7 @@ void test_burst_and_sequences() {
     }
 
     tracing::Iceoryx2TraceSinkConfig config;
-    config.app_id = "BRST";
+    config.app_id = nexigen::core::AppId::from_literal("BRST");
     config.service_name = "Nexigen/Test/TraceSinkBurst";
     config.subscriber_max_buffer_depth = 16U;
     tracing::Iceoryx2TraceSink sink{config, &*node};
@@ -349,7 +349,7 @@ void test_allocation_free() {
     }
 
     tracing::Iceoryx2TraceSinkConfig config;
-    config.app_id = "ALOC";
+    config.app_id = nexigen::core::AppId::from_literal("ALOC");
     config.service_name = "Nexigen/Test/TraceSinkAlloc";
     tracing::Iceoryx2TraceSink sink{config, &*node};
     NX_CHECK(sink.start().has_value());
@@ -395,7 +395,7 @@ void test_latency() {
     }
 
     tracing::Iceoryx2TraceSinkConfig config;
-    config.app_id = "LAT";
+    config.app_id = nexigen::core::AppId::from_literal("LAT");
     config.service_name = "Nexigen/Test/TraceSinkLatency";
     tracing::Iceoryx2TraceSink sink{config, &*node};
     NX_CHECK(sink.start().has_value());
@@ -488,7 +488,7 @@ void test_notification() {
     }
     tracing::Iceoryx2TraceSinkConfig config;
     config.service_name = "Nexigen/Test/TraceNotify";
-    config.app_id = "TEST";
+    config.app_id = nexigen::core::AppId::from_literal("TEST");
     tracing::Iceoryx2TraceSink sink{config, &*node};
     NX_CHECK(sink.start().has_value());
 

@@ -59,7 +59,14 @@ void from_json(const nlohmann::json& j, Iceoryx2LoggerConfig& out) noexcept {
     }
     Iceoryx2LoggerConfig parsed{};
     core::detail::read_string(j, "service_name", parsed.service_name);
-    core::detail::read_string(j, "app_id", parsed.app_id);
+    std::string app_text;
+    if (core::detail::read_string(j, "app_id", app_text)) {
+        if (auto id = core::AppId::create(app_text); id) {
+            parsed.app_id = *id;
+        } else {
+            parsed.app_id = core::AppId{};
+        }
+    }
     core::detail::read_unsigned(j, "max_subscribers", parsed.max_subscribers);
     core::detail::read_unsigned(j, "history_size", parsed.history_size);
     core::detail::read_unsigned(j, "worker_poll_interval_us", parsed.worker_poll_interval_us);

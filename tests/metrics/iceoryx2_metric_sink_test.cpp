@@ -70,7 +70,7 @@ void test_concept_and_diagnostics() {
         return;
     }
     metrics::Iceoryx2MetricSinkConfig config;
-    config.app_id = "TEST";
+    config.app_id = nexigen::core::AppId::from_literal("TEST");
     config.service_name = "Nexigen/Test/MetricSinkDiag";
     metrics::Iceoryx2MetricSink sink{config, &*node};
     NX_CHECK(metrics::to_string(sink) == sink.to_string());
@@ -94,7 +94,7 @@ void test_publish_roundtrip() {
     }
 
     metrics::Iceoryx2MetricSinkConfig config;
-    config.app_id = "LIDR";
+    config.app_id = nexigen::core::AppId::from_literal("LIDR");
     config.service_name = "Nexigen/Test/MetricSinkRoundTrip";
     metrics::Iceoryx2MetricSink sink{config, &*node};
     NX_CHECK(sink.start().has_value());
@@ -175,7 +175,7 @@ void test_burst_no_drop() {
     }
 
     metrics::Iceoryx2MetricSinkConfig config;
-    config.app_id = "LIDR";
+    config.app_id = nexigen::core::AppId::from_literal("LIDR");
     config.service_name = "Nexigen/Test/MetricSinkBurst";
     config.subscriber_max_buffer_size = 16;
     metrics::Iceoryx2MetricSink sink{config, &*node};
@@ -235,7 +235,7 @@ void test_out_of_samples_no_block() {
     }
 
     metrics::Iceoryx2MetricSinkConfig config;
-    config.app_id = "LIDR";
+    config.app_id = nexigen::core::AppId::from_literal("LIDR");
     config.service_name = "Nexigen/Test/MetricSinkOverflow";
     config.subscriber_max_buffer_size = 2;
     metrics::Iceoryx2MetricSink sink{config, &*node};
@@ -270,11 +270,29 @@ void test_out_of_samples_no_block() {
     sink.stop();
 }
 
+void test_invalid_app_id() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    if (!node.has_value()) {
+        return;
+    }
+    metrics::Iceoryx2MetricSinkConfig config;
+    config.service_name = "Nexigen/Test/MetricSinkInvalidId";
+    config.app_id.clear();
+    metrics::Iceoryx2MetricSink sink{config, &*node};
+    const core::Status started = sink.start();
+    NX_CHECK(!started.has_value());
+    if (!started.has_value()) {
+        NX_CHECK(started.error() == core::ErrorCode::InvalidArgument);
+    }
+}
+
 void test_sink() {
     test_concept_and_diagnostics();
     test_publish_roundtrip();
     test_burst_no_drop();
     test_out_of_samples_no_block();
+    test_invalid_app_id();
 }
 
 } // namespace

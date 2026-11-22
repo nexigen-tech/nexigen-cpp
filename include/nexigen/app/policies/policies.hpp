@@ -1,7 +1,9 @@
+/// @file
+/// @brief Umbrella for the COM-free infrastructure policies.
+///
+/// @note The iceoryx2 policy is intentionally not included here because it
+///       requires `NEXIGEN_ENABLE_COM=ON` and the `*_com` link targets.
 #pragma once
-
-// Basic, COM-free infrastructure policies. The iceoryx2 policy is a separate
-// header because it requires NEXIGEN_ENABLE_COM=ON.
 
 #include <nexigen/app/policies/console_policy.hpp>
 #include <nexigen/app/policies/file_policy.hpp>

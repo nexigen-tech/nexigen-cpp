@@ -7,6 +7,11 @@ nexigen_add_example(ex_app_wait_loop ex_app_wait_loop.cpp nexigen::app)
 if(NEXIGEN_ENABLE_COM)
     nexigen_add_example(ex_app_wait_loop_iceoryx2 ex_app_wait_loop_iceoryx2.cpp
         nexigen::app nexigen::logging_com nexigen::metrics_com nexigen::tracing_com nexigen::com)
+
+    # Quickstart: App<Policy> with embedded time base, one input and one output.
+    nexigen_add_example(ex_app_quickstart ex_app_quickstart.cpp
+        nexigen::app nexigen::logging_com nexigen::metrics_com nexigen::tracing_com nexigen::com
+        NO_TEST)
 endif()
 
 if(NEXIGEN_ENABLE_COM)

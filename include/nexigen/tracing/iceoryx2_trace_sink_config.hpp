@@ -10,6 +10,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/app_id.hpp>
 #include <nexigen/core/result.hpp>
 
 namespace nexigen::tracing {
@@ -17,7 +18,7 @@ namespace nexigen::tracing {
 /// @brief Construction-time configuration of `Iceoryx2TraceSink`.
 ///
 /// A plain value type validated once at startup: the service name, the
-/// publisher's 1–4 byte application code, and the subscriber buffer depth. An
+/// publisher's 1–16 byte application code, and the subscriber buffer depth. An
 /// invalid value is rejected before the publisher or any service port is
 /// created, so a bad configuration never leaves half-open transport state.
 ///
@@ -25,13 +26,13 @@ namespace nexigen::tracing {
 ///       and diagnostics".
 struct Iceoryx2TraceSinkConfig {
     std::string service_name{"nexigen/trace/stream"}; ///< subscription (≤ 511 B)
-    std::string app_id{"TRCE"};                       ///< 1–4 byte ASCII code
+    core::AppId app_id{core::AppId::from_literal("TRCE")}; ///< canonical application code
     std::uint64_t subscriber_max_buffer_depth{1024};  ///< 0 = service default (2)
 
     /// @brief Validate the configuration before any transport port exists.
     ///
     /// Rejects an empty or oversized service name (`> 511` bytes) and an empty
-    /// or oversized application code (`> 4` bytes).
+    /// application code.
     ///
     /// @return Success when all fields are in range, otherwise
     ///         `core::ErrorCode::InvalidArgument`.
@@ -41,7 +42,7 @@ struct Iceoryx2TraceSinkConfig {
         if (service_name.empty() || service_name.size() > 511U) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        if (app_id.empty() || app_id.size() > 4U) {
+        if (app_id.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         return {};
@@ -53,7 +54,7 @@ struct Iceoryx2TraceSinkConfig {
     /// @note Project mandate 9 (`to_string`); diagnostic only.
     [[nodiscard]] std::string to_string() const {
         std::string out = "Iceoryx2TraceSinkConfig(service=" + service_name;
-        out += ", app=" + app_id;
+        out += ", app=" + app_id.to_string();
         out += ", subscriber_max_buffer_depth=" + std::to_string(subscriber_max_buffer_depth) + ")";
         return out;
     }

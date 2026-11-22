@@ -150,17 +150,17 @@ struct TestPolicy {
     using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
-                                       std::string_view) noexcept {
+                                       const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -189,17 +189,17 @@ struct CountingPolicy {
     using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
-                                       std::string_view) noexcept {
+                                       const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -279,17 +279,17 @@ struct FailingMetricSinkPolicy {
     using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
-                                       std::string_view) noexcept {
+                                       const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -302,17 +302,17 @@ struct OrderedQuiescePolicy {
     using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
-                                       std::string_view) noexcept {
+                                       const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -328,36 +328,36 @@ struct ResolvedPathPolicy {
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Settings& settings,
-                                       std::string_view app_name) noexcept {
+                                       const nexigen::app::TelemetryIdentity& identity) noexcept {
         logging::FileLoggerConfig config{};
         const core::Status applied = logging::apply_to(settings, config);
         if (!applied) {
             return applied;
         }
-        config.app_name = app_name;
+        config.app_name = std::string(identity.app_name);
         config.rotation.kind = logging::RotationSchedule::None;
         out.emplace();
         return out->initialize(config);
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
                                              const metrics::Settings& settings,
-                                             std::string_view app_name) noexcept {
+                                             const nexigen::app::TelemetryIdentity& identity) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         metrics::JsonFileMetricSinkConfig config = settings.sink;
-        config.app_name = std::string(app_name);
+        config.app_name = std::string(identity.app_name);
         out.emplace(config);
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
                                            const tracing::Settings& settings,
-                                           std::string_view app_name) noexcept {
+                                           const nexigen::app::TelemetryIdentity& identity) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         tracing::JsonFileTraceSinkConfig config = settings.sink;
-        config.app_name = std::string(app_name);
+        config.app_name = std::string(identity.app_name);
         out.emplace(config);
         return {};
     }
@@ -371,24 +371,24 @@ struct RtPolicy {
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Settings& settings,
-                                       std::string_view app_name) noexcept {
+                                       const nexigen::app::TelemetryIdentity& identity) noexcept {
         logging::FileLoggerConfig config{};
         const core::Status applied = logging::apply_to(settings, config);
         if (!applied) {
             return applied;
         }
-        config.app_name = app_name;
+        config.app_name = std::string(identity.app_name);
         config.rotation.kind = logging::RotationSchedule::None;
         out.emplace();
         return out->initialize(config);
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -401,16 +401,16 @@ struct FailLoggerPolicy {
     using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>&, const logging::Settings&,
-                                       std::string_view) noexcept {
+                                       const nexigen::app::TelemetryIdentity&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -423,16 +423,16 @@ struct FailMetricsPolicy {
     using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
-                                       std::string_view) noexcept {
+                                       const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>&, const metrics::Settings&,
-                                             std::string_view) noexcept {
+                                             const nexigen::app::TelemetryIdentity&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -445,17 +445,17 @@ struct FailTracePolicy {
     using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
-                                       std::string_view) noexcept {
+                                       const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>&, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const nexigen::app::TelemetryIdentity&) noexcept {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
 };
@@ -467,17 +467,17 @@ struct FlushFailPolicy {
     using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
-                                       std::string_view) noexcept {
+                                       const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -490,17 +490,17 @@ struct FailChronoPolicy {
     using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
-                                       std::string_view) noexcept {
+                                       const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }

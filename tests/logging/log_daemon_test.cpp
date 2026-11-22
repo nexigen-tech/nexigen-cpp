@@ -98,7 +98,7 @@ void test_e2e() {
     logging::Iceoryx2Logger<> logger;
     logging::Iceoryx2LoggerConfig cfg;
     cfg.service_name = "Nexigen/Test/LogdE2E";
-    cfg.app_id = "E2E";
+    cfg.app_id = nexigen::core::AppId::from_literal("E2E");
     NX_CHECK(logger.initialize(cfg).has_value());
     wait_writer(logger);
 
@@ -224,7 +224,8 @@ void cleanup_root(const std::string& root) {
 // Publish one LogFrame from a main-thread publisher, mirroring how the metrics
 // sink constructs its transport (node + publisher + notifier on the caller's
 // thread), then notify the companion event service.
-bool publish_main_thread(const std::string& service, std::string_view msg) {
+bool publish_main_thread(const std::string& service, std::string_view msg,
+                         std::uint16_t version = logging::LogFrame::format_version) {
     auto node = com::Node::create();
     if (!node) {
         return false;
@@ -246,9 +247,10 @@ bool publish_main_thread(const std::string& service, std::string_view msg) {
     std::memcpy(frame.app_id, "TEST", 4);
     frame.pid = static_cast<std::uint32_t>(::getpid());
     frame.log_level = core::LogLevel::Info;
-    const std::size_t n = msg.size();
+    const std::size_t n = msg.size() < sizeof(frame.payload) ? msg.size() : sizeof(frame.payload);
     std::memcpy(frame.payload, msg.data(), n);
     frame.payload_size = static_cast<std::uint16_t>(n);
+    frame.version = version;
 
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     com::TransportHeader header{};
@@ -288,7 +290,7 @@ void test_real_daemon_e2e() {
         logging::Iceoryx2Logger<> logger;
         logging::Iceoryx2LoggerConfig cfg;
         cfg.service_name = service;
-        cfg.app_id = "TEST";
+        cfg.app_id = nexigen::core::AppId::from_literal("TEST");
         if (logger.initialize(cfg).has_value()) {
             wait_writer(logger);
             for (int attempt = 0; attempt < 50 && !observed; ++attempt) {
@@ -336,6 +338,40 @@ void test_real_daemon_main_thread_publisher() {
     }
     NX_CHECK(observed);
 
+    // A rendered message longer than the 211-byte frame payload is clipped.
+    const std::string long_message = std::string(250U, 'x') + "TAIL";
+    NX_CHECK(publish_main_thread(service, long_message));
+    NX_CHECK(logdir_contains(log_dir, std::string(211U, 'x'), 20));
+    NX_CHECK(!logdir_contains(log_dir, std::string(212U, 'x'), 1));
+    NX_CHECK(!logdir_contains(log_dir, "TAIL", 1));
+
+    stop_logd(pid);
+    cleanup_root(root);
+}
+
+// Unknown LogFrame versions must be dropped, not interpreted with shifted offsets.
+void test_real_daemon_rejects_unknown_version() {
+    if (g_daemon_bin == nullptr || g_daemon_bin[0] == '\0') {
+        std::printf("  (skipped: no daemon binary path)\n");
+        return;
+    }
+    const std::string service = make_unique_service("Nexigen/Test/LogdBadVersion");
+    const std::string root = "/tmp/opencode/logd_badver_" + std::to_string(::getpid());
+    const std::string log_dir = root + "/logs";
+    prepare_root(root, log_dir);
+    write_logd_config(root + "/config.json", service, log_dir);
+    const pid_t pid = spawn_logd(g_daemon_bin, root + "/config.json", root + "/out");
+    NX_CHECK(pid >= 0);
+    if (pid < 0) {
+        return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    NX_CHECK(publish_main_thread(service, "bad version must not appear", 1U));
+    NX_CHECK(publish_main_thread(service, "valid after bad version"));
+    NX_CHECK(logdir_contains(log_dir, "valid after bad version", 20));
+    NX_CHECK(!logdir_contains(log_dir, "bad version must not appear", 1));
+
     stop_logd(pid);
     cleanup_root(root);
 }
@@ -349,6 +385,7 @@ int main(int argc, char* argv[]) {
     g_daemon_bin = argc > 1 ? argv[1] : nullptr;
     run_suite("real_daemon_e2e", test_real_daemon_e2e);
     run_suite("real_daemon_main_thread", test_real_daemon_main_thread_publisher);
+    run_suite("real_daemon_bad_version", test_real_daemon_rejects_unknown_version);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

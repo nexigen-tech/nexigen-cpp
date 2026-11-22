@@ -608,10 +608,30 @@ sequenceDiagram
 - `Infrastructure<Policy>` — heap-only сервис, создаваемый только через
   `make_infrastructure<Policy>()`. Владеет логгером, метриками,
   трассировкой и chrono в безопасном порядке, монопольно владеет
-  обработкой `SIGINT`/`SIGTERM` через `signalfd`, выполняет
+  обработкой `SIGINT`/`SIGTERM`/`SIGHUP` через `signalfd`, выполняет
   `run(tick)`, фиксирует причину остановки и детерминированно освобождает
   ресурсы в обратном порядке. Второй инициализированный экземпляр получает
   `ErrorCode::Conflict`.
+- `App<Policy>` — фасад для минимальных приложений: `create` → instruments/ports
+  → `run` → `shutdown`; поддерживает `External`/`Embedded` time base, один вход
+  и опциональный выход, диагностику объявлений и `SIGPIPE`.
+
+```mermaid
+flowchart TD
+    CLI["CLI / defaults"] --> CREATE["App::create"]
+    CREATE --> TB{"TimeBaseMode"}
+    TB -->|External| EXT["attach published base"]
+    TB -->|Embedded| EMB["publish local base"]
+    EXT --> INIT["Infrastructure::initialize"]
+    EMB --> INIT
+    INIT --> DECL["counter / gauge / subscribe / publish"]
+    DECL --> GATE{"diagnostics empty?"}
+    GATE -->|no| INVALID["InvalidArgument"]
+    GATE -->|yes| RUN["App::run (WaitSet 100 ms)"]
+    RUN --> STOP{"stop reason"}
+    STOP --> SHUT["App::shutdown + SIGPIPE restore"]
+    SHUT --> CODE["exit_code: 0 / 75"]
+```
 
 **Порядок и остановка.** Инициализация: time base → логгер → метрики →
 трассировка → watcher. Остановка: watcher → финальная запись в лог →
@@ -978,11 +998,15 @@ flowchart LR
 flowchart TD
     MAN["Suite manifest<br/>JSON или ARXML"] --> ACCESSOR["ManifestAccessor<br/>определение формата · разрешение ссылок"]
     ACCESSOR --> VALID["SuiteManifest<br/>from_json + validate"]
-    VALID --> PRE["preflight потоков<br/>CPU-маски · приоритеты"]
+    VALID --> ID["AppSpec.app_id<br/>1..16 · уникален в suite<br/>default = app"]
+    ID --> PRE["preflight потоков<br/>CPU-маски · приоритеты"]
     PRE --> SUP["Detached suite supervisor"]
     SUP --> HOST["ControlHost<br/>COM-граница"]
     HOST --> SC["StateClient<br/>+ readiness tracker"]
     SUP --> CHILD["ChildProcess на приложение<br/>setsid · fork · exec"]
+    CHILD --> ARGV["argv: --app-name · --app-id"]
+    ARGV --> FRAMES["LogFrame · MetricFrame · SpanFrame<br/>app_id[16]"]
+    FRAMES --> DAEMONS["nexigen-logd · metricsd · traced · recd"]
     CHILD --> STATE["suite-state.json · suite.json<br/>suite-exit.json · run-лог"]
     STATE --> HUB["hub::Discovery"]
     SC --> FG["FunctionGroupRegistry<br/>state → процессы"]

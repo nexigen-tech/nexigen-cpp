@@ -35,19 +35,19 @@ struct SimplePolicy {
     using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
-                                       std::string_view) noexcept {
+                                       const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return out->initialize(logging::ConsoleLoggerConfig{});
     }
 
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
 
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace(1);
         return {};
     }

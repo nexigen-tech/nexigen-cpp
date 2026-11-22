@@ -30,6 +30,16 @@ add_test(NAME nexigen_sink_pack_negative_compile
                  ${PROJECT_SOURCE_DIR}/include)
 set_tests_properties(nexigen_sink_pack_negative_compile PROPERTIES TIMEOUT 120)
 
+# Negative-compile probe: an AppId literal outside the permitted alphabet must
+# be rejected at compile time (spec core/app-id "Identifier construction never
+# truncates"; used by the Iceoryx2Policy tag static_assert).
+add_test(NAME nexigen_app_id_negative_compile
+         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/core/negative_compile.sh
+                 ${CMAKE_CXX_COMPILER}
+                 ${CMAKE_CURRENT_SOURCE_DIR}/core/neg/invalid_app_id_negative.cpp
+                 ${PROJECT_SOURCE_DIR}/include)
+set_tests_properties(nexigen_app_id_negative_compile PROPERTIES TIMEOUT 120)
+
 # Юнит-тесты nexigen::chrono: один TU (тот же харнес D4): timestamp/stamp/
 # utc_offset/time_format; calibrate() спит ~2 мс — потоки линкуем.
 add_executable(nexigen_chrono_tests chrono/chrono_test.cpp)
@@ -208,6 +218,45 @@ unset(_nexigen_json_includes)
 unset(_nexigen_json_inc_flags)
 
 if(NEXIGEN_ENABLE_COM)
+    # COM-gated App<Policy> runtime tests: embedded time base, ports, signals.
+    add_executable(nexigen_app_runtime_com_tests app/app_runtime_test.cpp)
+    target_link_libraries(nexigen_app_runtime_com_tests PRIVATE
+        nexigen_app nexigen_logging nexigen_metrics nexigen_tracing nexigen_com
+        Threads::Threads)
+    add_test(NAME nexigen_app_runtime_com_tests COMMAND nexigen_app_runtime_com_tests)
+    set_tests_properties(nexigen_app_runtime_com_tests PROPERTIES TIMEOUT 600)
+
+    add_executable(nexigen_quickstart_sender app/quickstart_sender.cpp)
+    target_link_libraries(nexigen_quickstart_sender PRIVATE nexigen_com Threads::Threads)
+
+    if(NEXIGEN_BUILD_EXAMPLES)
+        add_test(NAME ex_app_quickstart_contract
+            COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/app/quickstart_contract.sh
+                $<TARGET_FILE:ex_app_quickstart>
+                ${PROJECT_SOURCE_DIR}/examples/app/ex_app_quickstart.cpp)
+        set_tests_properties(ex_app_quickstart_contract PROPERTIES
+            TIMEOUT 30 LABELS examples)
+
+        # Quickstart smoke: start, let it settle, then send SIGTERM and require 0.
+        add_test(NAME ex_app_quickstart_smoke
+            COMMAND bash -c
+                "$<TARGET_FILE:ex_app_quickstart> --app-id QSTRT & pid=$!; sleep 2; kill -TERM $pid; wait $pid")
+        set_tests_properties(ex_app_quickstart_smoke PROPERTIES TIMEOUT 30 LABELS examples)
+
+        # The recorder round-trip needs the example plus the recorder tools;
+        # sanitizer trees build with NEXIGEN_BUILD_TOOLS=OFF.
+        if(NEXIGEN_BUILD_TOOLS)
+            add_test(NAME quickstart_recorder_smoke
+                COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/app/quickstart_recorder_smoke.sh
+                    $<TARGET_FILE:ex_app_quickstart>
+                    $<TARGET_FILE:nexigen_quickstart_sender>
+                    $<TARGET_FILE:nexigen-recd>
+                    $<TARGET_FILE:nexigen-export>)
+            set_tests_properties(quickstart_recorder_smoke PROPERTIES
+                TIMEOUT 60 LABELS "examples;recorder")
+        endif()
+    endif()
+
     # COM-gated policy test: Iceoryx2Policy diagnostics, app tag and log frame.
     add_executable(nexigen_app_policies_com_tests app/policies_com_test.cpp)
     target_link_libraries(nexigen_app_policies_com_tests PRIVATE

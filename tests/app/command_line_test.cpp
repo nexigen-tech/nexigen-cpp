@@ -105,7 +105,7 @@ void test_command_line_parser_levels() {
 
 void test_command_line_parser_aliases() {
     // Single-letter aliases are not part of the contract.
-    for (const std::string_view alias : {"-g", "-l", "-L"}) {
+    for (const std::string_view alias : {"-g", "-l", "-L", "-a"}) {
         auto parsed = parse_args({alias, "/etc/nexigen"});
         NX_CHECK(!parsed.has_value());
         if (!parsed.has_value()) {
@@ -646,8 +646,58 @@ void test_command_line_infrastructure() {
     static_cast<void>(::rmdir(dir.c_str()));
 }
 
+void test_command_line_app_id() {
+    const auto separated = parse_args({"-gs", "/etc/nexigen", "-ai", "CN_LOOP_1"});
+    NX_CHECK(separated.has_value());
+    if (separated) {
+        NX_CHECK(separated->app_id == "CN_LOOP_1");
+        app::Settings settings{};
+        app::apply_to(*separated, settings);
+        NX_CHECK(settings.app_id.text() == "CN_LOOP_1");
+    }
+
+    const auto adjacent = parse_args({"-gs", "/etc/nexigen", "-aiCN_LOOP_1"});
+    NX_CHECK(adjacent.has_value());
+    if (adjacent) {
+        NX_CHECK(adjacent->app_id == "CN_LOOP_1");
+    }
+
+    const auto equals = parse_args({"--global-settings=/etc/nexigen", "--app-id=CN_LOOP_1"});
+    NX_CHECK(equals.has_value());
+    if (equals) {
+        NX_CHECK(equals->app_id == "CN_LOOP_1");
+    }
+
+    const auto omitted = parse_args({"-gs", "/etc/nexigen"});
+    NX_CHECK(omitted.has_value());
+    if (omitted) {
+        NX_CHECK(omitted->app_id.empty());
+    }
+
+    NX_CHECK(!parse_args({"-gs", "/etc/nexigen", "-ai", "ABCDEFGHIJKLMNOPQ"}).has_value());
+    NX_CHECK(!parse_args({"-gs", "/etc/nexigen", "-ai", "CN.LOOP"}).has_value());
+    NX_CHECK(!parse_args({"-gs", "/etc/nexigen", "-ai", ""}).has_value());
+    NX_CHECK(!parse_args({"-gs", "/etc/nexigen", "-ai"}).has_value());
+
+    app::CommandLineOptions options{};
+    options.app_id = "CN_LOOP_1";
+    const nlohmann::json json = options;
+    NX_CHECK(json.at("app_id") == "CN_LOOP_1");
+    app::CommandLineOptions parsed{};
+    app::from_json(json, parsed);
+    NX_CHECK(parsed.app_id == "CN_LOOP_1");
+
+    app::CommandLineOptions kept{};
+    kept.app_id = "KEEP";
+    app::from_json(nlohmann::json{{"app_id", "BAD.ID"}}, kept);
+    NX_CHECK(kept.app_id == "KEEP");
+    NX_CHECK(kept.to_string().find("KEEP") != std::string::npos);
+    NX_CHECK(std::format("{}", kept) == kept.to_string());
+}
+
 void run_app_command_line_suites() {
     run_suite("command_line", test_command_line_parser);
+    run_suite("command_line_app_id", test_command_line_app_id);
     run_suite("cli_mapping", test_command_line_mapping);
     run_suite("cli_serialization", test_command_line_serialization);
     run_suite("cli_loading", test_command_line_loading);

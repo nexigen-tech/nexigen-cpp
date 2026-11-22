@@ -48,6 +48,33 @@ inline bool read_string(const nlohmann::json& object, const char* key, std::stri
     return true;
 }
 
+/// @brief Read an optional string field, distinguishing absence from a type error.
+///
+/// Unlike `read_string`, this helper accepts a missing key but rejects a key
+/// whose value is not a string. Deserializers that must leave the whole target
+/// unchanged on a mistyped field use it to decide whether the document is
+/// acceptable.
+///
+/// @param object JSON object to probe.
+/// @param key Field name to look up.
+/// @param out Destination, assigned only when the key exists and is a string.
+/// @return `false` only when the key exists and is not a string; `true` for an
+///         absent key or a successful assignment.
+/// @note Spec `core/serialization`, requirement "Manifest and config
+///       deserialization uses a shared field vocabulary".
+inline bool read_string_optional(const nlohmann::json& object, const char* key,
+                                 std::string& out) noexcept {
+    const auto it = object.find(key);
+    if (it == object.end()) {
+        return true;
+    }
+    if (!it->is_string()) {
+        return false;
+    }
+    out = it->get<std::string>();
+    return true;
+}
+
 /// @brief Read a boolean field, assigning only on success.
 ///
 /// @param object JSON object to probe.

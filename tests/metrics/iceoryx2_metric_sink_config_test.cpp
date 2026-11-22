@@ -9,7 +9,7 @@ namespace {
 
 void test_iceoryx2_metric_sink_config() {
     metrics::Iceoryx2MetricSinkConfig config;
-    config.app_id = "LIDR";
+    config.app_id = nexigen::core::AppId::from_literal("LIDR");
     config.service_name = "nexigen/metrics/stream";
     config.subscriber_max_buffer_size = 8;
 
@@ -17,7 +17,7 @@ void test_iceoryx2_metric_sink_config() {
     NX_CHECK(j.is_object());
     metrics::Iceoryx2MetricSinkConfig parsed;
     metrics::from_json(j, parsed);
-    NX_CHECK(parsed.app_id == "LIDR");
+    NX_CHECK(parsed.app_id.text() == "LIDR");
     NX_CHECK(parsed.service_name == "nexigen/metrics/stream");
     NX_CHECK(parsed.subscriber_max_buffer_size == 8U);
 

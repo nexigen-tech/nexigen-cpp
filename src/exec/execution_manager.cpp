@@ -856,15 +856,20 @@ resolve_stop_state(const std::string& resource_path, const std::string& exit_pat
 }
 
 [[nodiscard]] std::vector<const char*> build_argv(const std::vector<std::string>& command,
-                                                  const std::string& app_name_arg) noexcept {
+                                                  const std::string& app_name_arg,
+                                                  const std::string& app_id_arg) noexcept {
     std::vector<const char*> argv;
-    argv.reserve(command.size() + 3);
+    argv.reserve(command.size() + 5);
     for (const std::string& argument : command) {
         argv.push_back(argument.c_str());
     }
     if (!app_name_arg.empty()) {
         argv.push_back("--app-name");
         argv.push_back(app_name_arg.c_str());
+    }
+    if (!app_id_arg.empty()) {
+        argv.push_back("--app-id");
+        argv.push_back(app_id_arg.c_str());
     }
     argv.push_back(nullptr);
     return argv;
@@ -985,10 +990,10 @@ resolve_stop_state(const std::string& resource_path, const std::string& exit_pat
 
 std::string StartOptions::to_string() const {
     return std::format(
-        "StartOptions(artifact_dir={}, global_settings_dir={}, "
+        "StartOptions(app_id={}, artifact_dir={}, global_settings_dir={}, "
         "local_settings_dir={}, log_level={}, env={}, cpus={}, memory_limit_bytes={}, "
         "working_dir={}, digest={}, uid={}, gid={}, require_non_root={}, cgroup={})",
-        artifact_dir, global_settings_dir, local_settings_dir,
+        app_id.text(), artifact_dir, global_settings_dir, local_settings_dir,
         log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"),
         env.size(), cpus.count(), memory_limit_bytes, working_dir,
         expected_executable_digest.empty() ? "none" : "set",
@@ -1034,7 +1039,8 @@ core::Status ExecutionManager::start(const app::RunIdentity& identity, std::stri
     }
 
     const std::string app_name_arg{app_name};
-    const std::vector<const char*> argv = build_argv(command, app_name_arg);
+    const std::string app_id_arg{options.app_id.text()};
+    const std::vector<const char*> argv = build_argv(command, app_name_arg, app_id_arg);
     ResourceMetadata metadata = ResourceMetadata::from_identity(layout.resolved, app_name, 0, 0);
 
     int pipe_fds[2]{-1, -1};

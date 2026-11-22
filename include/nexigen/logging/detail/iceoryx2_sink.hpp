@@ -54,8 +54,8 @@ public:
         char service_name[512]{};
         /// @brief Number of meaningful bytes in `service_name`.
         std::size_t service_name_len = 0;
-        /// @brief Fixed 4-byte application tag copied into every frame.
-        char app_id[4]{};
+        /// @brief Fixed 16-byte application tag copied into every frame.
+        char app_id[16]{};
         /// @brief Configured subscriber ceiling, validated before the worker.
         std::uint32_t max_subscribers = 16;
         /// @brief Configured history depth, validated before the worker.

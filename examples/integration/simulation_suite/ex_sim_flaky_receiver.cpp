@@ -6,6 +6,16 @@
 // the Execution Manager's restart policy has something to raise. It shares the
 // receive body with the healthy receiver, so display, trace linking, readiness,
 // and checkpoint behaviour cannot drift.
+//
+// Execution flow:
+//   1. read workload/spin/RT and crash-period environment overrides;
+//   2. parse the standard app command line and load settings;
+//   3. create the shared node and initialize Infrastructure;
+//   4. create the same instruments and tracer as the healthy receiver;
+//   5. open the subscription, wake-up event and platform link;
+//   6. run the shared receiver loop with a crash deadline;
+//   7. if the deadline fired, drain telemetry and exit non-zero so the EM
+//      restarts the application.
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -44,7 +54,7 @@ constexpr std::string_view k_health_service = "Nexigen/PHM/Simulation/flaky_rece
 /// @brief Default self-termination period.
 constexpr std::uint64_t k_default_exit_after_s = 15;
 
-/// @brief Four-character telemetry tag.
+/// @brief Standalone fallback tag; the suite manifest uses `SIM_FLKY`.
 using Policy = SimTelemetryPolicy<'F', 'L', 'K', 'Y'>;
 
 /// @brief Infrastructure instantiation used by the flaky receiver.
@@ -60,6 +70,8 @@ constexpr ResetPolicy k_reset_on_read = ResetPolicy::ResetOnRead;
 } // namespace
 
 int main(int argc, char* argv[]) {
+    // EXIT_AFTER_S is the deliberate fault injection: the driver defaults it to
+    // 15 s and may shorten it for a quick restart demonstration.
     const bool run_forever = env("NEXIGEN_SIM_RUN_FOREVER").value_or("") == "1";
     const std::uint64_t worker_seconds =
         env_u64("NEXIGEN_SIM_WORKER_SECONDS", k_default_worker_seconds);
@@ -163,6 +175,8 @@ int main(int argc, char* argv[]) {
     const auto start = std::chrono::steady_clock::now();
     const auto deadline = run_forever ? std::chrono::steady_clock::time_point::max()
                                       : start + std::chrono::seconds{worker_seconds};
+    // The shared loop stops at whichever comes first: the normal deadline or
+    // the injected crash instant. crash_due distinguishes the two afterwards.
     const auto crash_at = start + std::chrono::seconds{exit_after_s};
     bool crash_due = false;
 

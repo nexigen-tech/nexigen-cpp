@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include <nexigen/core/app_id.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/log_level.hpp>
 
@@ -27,6 +28,9 @@ namespace nexigen::exec {
 /// @note Spec `exec/app-suite`, requirement "Manifest launch settings reach
 ///       each child".
 struct StartOptions {
+    /// Telemetry identifier passed to the child as `--app-id`; empty = no
+    /// override, so the child keeps its own fallback identity.
+    core::AppId app_id{};
     std::string artifact_dir{};                ///< Stream root; empty = instance directory.
     std::string global_settings_dir{};         ///< Absolute directory or empty.
     std::string local_settings_dir{};          ///< Absolute directory or empty.

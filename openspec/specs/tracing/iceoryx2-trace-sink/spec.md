@@ -8,7 +8,12 @@ Defines the cross-process span transport: a fixed wire record that can safely cr
 
 ### Requirement: SpanFrame is a fixed pointer-free wire record
 
-`nexigen::tracing::SpanFrame` SHALL be a 384-byte (`alignas(64)`, six cache lines) trivially-copyable record carrying span identity, kind, status, flags, attribute count, thread id, start and end timestamps, source-location hashes, line and column, an inline 47-character name, up to four attributes, a 4-byte application code, process id, sequence, publish timestamp, and a format version. It SHALL satisfy `com::concepts::Message`, contain no pointers, and pin its layout at compile time.
+`nexigen::tracing::SpanFrame` SHALL be a 384-byte (`alignas(64)`, six cache lines)
+trivially-copyable record carrying span identity, kind, status, flags, attribute count, thread id,
+start and end timestamps, source-location hashes, line and column, an inline 47-character name, up
+to four attributes, a 16-byte application code, process id, sequence, publish timestamp, and
+`format_version` 2. It SHALL satisfy `com::concepts::Message`, contain no pointers, and pin its
+layout at compile time.
 
 #### Scenario: Layout is pinned
 
@@ -22,8 +27,13 @@ Defines the cross-process span transport: a fixed wire record that can safely cr
 
 #### Scenario: Publisher identity travels with the span
 
-- **WHEN** a sink configured with application code `LIDR` and process id 42 publishes a frame
-- **THEN** the received frame carries `LIDR`, 42, the next sequence value, and a non-zero publish timestamp
+- **WHEN** a sink configured with application code `CN_LOOP_1` and process id 42 publishes a frame
+- **THEN** the received frame carries `CN_LOOP_1`, 42, the next sequence value, and a non-zero publish timestamp
+
+#### Scenario: Sixteen-byte identifier fits the reserved tail
+
+- **WHEN** the application code uses all 16 permitted bytes
+- **THEN** the frame stores all 16 bytes, its size stays 384, and the reserved tail shrinks accordingly
 
 #### Scenario: Long span names are truncated, not overflowed
 
@@ -34,6 +44,11 @@ Defines the cross-process span transport: a fixed wire record that can safely cr
 
 - **WHEN** an in-process attribute holds a string longer than the 23-byte inline bound
 - **THEN** the published frame carries the first 23 bytes in the inline arm and no pointer
+
+#### Scenario: Version two is required
+
+- **WHEN** a consumer receives a frame whose `format_version` is not 2
+- **THEN** it rejects the frame instead of interpreting its offsets
 
 #### Scenario: Frame diagnostics render and serialize
 
@@ -141,11 +156,15 @@ Forming and publishing one frame SHALL stay within a median of 400 nanoseconds p
 
 ### Requirement: Sink configuration and diagnostics
 
-`Iceoryx2TraceSinkConfig` SHALL carry the service name, a non-empty application code of at most four bytes, and the subscriber buffer depth. It SHALL reject an empty or oversized service name and an empty or oversized application code before creating any port. The configuration and the sink SHALL provide cold-path `to_string`, `std::formatter`, and non-throwing JSON; the sink SHALL serialize its state and deliberately omit deserialization.
+`Iceoryx2TraceSinkConfig` SHALL carry the service name, a non-empty application code of at most 16
+bytes, and the subscriber buffer depth. It SHALL reject an empty or oversized service name and an
+empty, oversized, or malformed application code before creating any port. The configuration and the
+sink SHALL provide cold-path `to_string`, `std::formatter`, and non-throwing JSON; the sink SHALL
+serialize its state and deliberately omit deserialization.
 
 #### Scenario: Invalid configuration is rejected
 
-- **WHEN** the service name is empty, or the application code is empty or longer than four bytes
+- **WHEN** the service name is empty, or the application code is empty, malformed, or longer than 16 bytes
 - **THEN** validation fails before any publisher or subscriber port is created
 
 #### Scenario: Configuration round-trips through JSON

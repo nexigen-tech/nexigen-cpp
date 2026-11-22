@@ -215,6 +215,9 @@ void drain_subscriber(com::Subscriber<logging::LogFrame, com::TransportHeader>& 
             break;
         }
         const logging::LogFrame& frame = (*got)->payload();
+        if (frame.version != logging::LogFrame::format_version) {
+            continue; // unknown wire version: reject instead of misreading offsets
+        }
         if (frame.log_level < cfg.min_log_level_storage) {
             continue;
         }

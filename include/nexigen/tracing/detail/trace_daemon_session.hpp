@@ -486,7 +486,11 @@ private:
             if (!received->has_value()) {
                 break;
             }
-            ring_->push((*received)->payload());
+            const SpanFrame& frame = (*received)->payload();
+            if (frame.version != SpanFrame::format_version) {
+                continue; // reject an unknown wire version
+            }
+            ring_->push(frame);
             ++spans_received_;
         }
     }

@@ -33,6 +33,7 @@ nexigen-run stop /var/run/nexigen/app/1
     {
       "app": "plant",
       "instance": "1",
+      "app_id": "PLANT_1",
       "command": "/opt/plant",
       "args": ["--bus", "can0", "--rate", "100"],
       "env": {"PLANT_MODE": "fast"},
@@ -74,6 +75,7 @@ nexigen-run stop /var/run/nexigen/app/1
 |---|---|---|
 | `app` | yes | Safe identifier; must not be `.suite`. |
 | `instance` | yes | Safe identifier; `(app, instance)` must be unique. |
+| `app_id` | no | Telemetry identifier: 1–16 bytes from `A-Z`, `a-z`, `0-9`, `_`, `-`. Unique within the suite; defaults to `app`; a longer or malformed name is a validation error, never a truncation. Passed to the child as `--app-id`. Two different suites may reuse a code. |
 | `command` | yes | `argv[0]`, resolved through the child's `PATH` when relative. |
 | `args` | no | Arguments passed verbatim; no shell is involved. |
 | `env` | no | Extra child-only environment entries. |

@@ -26,12 +26,13 @@
 //  68   uint32_t       column            4 B
 //  72   char           name[48]         48 B (≤ 47 chars + NUL)
 // 120   SpanAttribute  attributes[4]   192 B (4 × 48)
-// 312   char           app_id[4]         4 B (ASCII code, NUL-trimmed view)
-// 316   uint32_t       pid               4 B
-// 320   uint64_t       sequence          8 B (per-sink, advances per attempt)
-// 328   uint64_t       publish_ts_ns     8 B (0 = clock unavailable)
-// 336   uint16_t       version           2 B (format version)
-// 338   uint8_t        reserved[46]     46 B (future session/category/dictionary)
+// 312   char           app_id[16]       16 B (ASCII code, NUL-trimmed view)
+// 328   uint32_t       pid               4 B
+// 332   (padding)                        4 B (keeps sequence 8-byte aligned)
+// 336   uint64_t       sequence          8 B (per-sink, advances per attempt)
+// 344   uint64_t       publish_ts_ns     8 B (0 = clock unavailable)
+// 352   uint16_t       version           2 B (format version 2)
+// 354   uint8_t        reserved[30]     30 B (future session/category/dictionary)
 // 384   → sizeof == 384 == 6 cache lines, alignas(64), trivially copyable
 #pragma once
 
@@ -66,7 +67,7 @@ struct alignas(64) SpanFrame {
     ///
     /// A receiver rejects unknown versions instead of misinterpreting the
     /// layout; the value is pinned alongside the offsets below.
-    static constexpr std::uint16_t format_version = 1;
+    static constexpr std::uint16_t format_version = 2;
 
     /// @brief Inline span name capacity in bytes (≤ 47 chars + NUL).
     static constexpr std::size_t name_capacity = 47;
@@ -87,12 +88,12 @@ struct alignas(64) SpanFrame {
     std::uint32_t column{};                    ///< source column
     char name[name_capacity + 1]{};            ///< inline name + NUL
     SpanAttribute attributes[MaxAttributes]{}; ///< inline attribute array
-    char app_id[4]{};                          ///< 4-byte ASCII application code
+    char app_id[16]{};                         ///< 16-byte application code
     std::uint32_t pid{};                       ///< publisher process id
     std::uint64_t sequence{};                  ///< per-sink monotonic sequence
     std::uint64_t publish_ts_ns{};             ///< 0 = clock unavailable
-    std::uint16_t version{format_version};     ///< wire format version
-    std::uint8_t reserved[46]{};               ///< forward-compatible tail
+    std::uint16_t version{format_version};     ///< wire format version (2)
+    std::uint8_t reserved[30]{};               ///< forward-compatible tail
 
     /// @brief The span name as a bounded view.
     ///
@@ -103,8 +104,8 @@ struct alignas(64) SpanFrame {
 
     /// @brief The application code as a non-NUL-terminated view (trimmed at NUL).
     ///
-    /// @return Up to four ASCII bytes, stopping at the first NUL; empty when
-    ///         the field is all zeros.
+    /// @return Up to sixteen ASCII bytes, stopping at the first NUL; empty
+    ///         when the field is all zeros.
     [[nodiscard]] std::string_view app_id_text() const noexcept {
         std::size_t n = 0U;
         while (n < sizeof(app_id) && app_id[n] != '\0') {
@@ -149,11 +150,12 @@ static_assert(offsetof(SpanFrame, column) == 68);
 static_assert(offsetof(SpanFrame, name) == 72);
 static_assert(offsetof(SpanFrame, attributes) == 120);
 static_assert(offsetof(SpanFrame, app_id) == 312);
-static_assert(offsetof(SpanFrame, pid) == 316);
-static_assert(offsetof(SpanFrame, sequence) == 320);
-static_assert(offsetof(SpanFrame, publish_ts_ns) == 328);
-static_assert(offsetof(SpanFrame, version) == 336);
-static_assert(offsetof(SpanFrame, reserved) == 338);
+static_assert(offsetof(SpanFrame, pid) == 328);
+static_assert(offsetof(SpanFrame, sequence) == 336);
+static_assert(offsetof(SpanFrame, publish_ts_ns) == 344);
+static_assert(offsetof(SpanFrame, version) == 352);
+static_assert(offsetof(SpanFrame, reserved) == 354);
+static_assert(sizeof(SpanFrame::reserved) == 30);
 
 /// @brief Free helper (mandate 9): mirrors `SpanFrame::to_string`.
 ///

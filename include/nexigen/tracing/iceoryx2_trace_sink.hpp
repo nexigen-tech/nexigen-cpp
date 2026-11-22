@@ -75,9 +75,9 @@ public:
 
     /// @brief Construct the sink and pre-fill the frame's publisher identity.
     ///
-    /// Copies the configuration, clamps the application code to the frame's
-    /// four-byte field, caches the pid, and pins the frame format version. No
-    /// port is created until `start()`.
+    /// Copies the configuration, copies the application code into the frame's
+    /// sixteen-byte field, caches the pid, and pins the frame format version.
+    /// No port is created until `start()`.
     ///
     /// @param config Service name, application code, and subscriber depth.
     /// @param node Communication node used by `start()` to create the publisher;
@@ -86,13 +86,8 @@ public:
     ///       and diagnostics".
     Iceoryx2TraceSink(const Iceoryx2TraceSinkConfig& config, com::Node* node) noexcept
         : config_{config}, node_{node}, pid_{static_cast<std::uint32_t>(::getpid())} {
-        const std::size_t take = config_.app_id.size() < sizeof(frame_.app_id)
-                                     ? config_.app_id.size()
-                                     : sizeof(frame_.app_id);
-        for (std::size_t i = 0; i < take; ++i) {
-            frame_.app_id[i] = config_.app_id[i];
-            header_.app_id[i] = config_.app_id[i];
-        }
+        std::memcpy(frame_.app_id, config_.app_id.data(), sizeof(frame_.app_id));
+        std::memcpy(header_.app_id, config_.app_id.data(), sizeof(header_.app_id));
         header_.pid = pid_;
         header_.publisher_id =
             (static_cast<std::uint64_t>(pid_) << 32U) ^ reinterpret_cast<std::uintptr_t>(this);
@@ -263,7 +258,8 @@ public:
         return std::format(
             "Iceoryx2TraceSink(service={}, app={}, pid={}, published={}, dropped={}, "
             "hash_hits={}, hash_misses={}, started={})",
-            config_.service_name, config_.app_id, pid_, published_, dropped_, hash_hits_,
+            config_.service_name, config_.app_id.to_string(), pid_, published_, dropped_,
+            hash_hits_,
             hash_misses_, publisher_.has_value());
     }
 

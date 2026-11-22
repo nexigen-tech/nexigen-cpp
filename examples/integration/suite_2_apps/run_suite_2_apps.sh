@@ -136,6 +136,7 @@ cat > "${manifest}" <<EOF
     {
       "app": "receiver",
       "instance": "1",
+      "app_id": "RECV",
       "command": "${receiver_bin}",
       "function_group": "demo",
       "startup_configs": [
@@ -152,6 +153,7 @@ cat > "${manifest}" <<EOF
     {
       "app": "generator",
       "instance": "1",
+      "app_id": "GENS",
       "command": "${generator_bin}",
       "function_group": "demo",
       "startup_configs": [

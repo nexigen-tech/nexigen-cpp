@@ -36,6 +36,7 @@
 #include <nexigen/app/detail/bootstrap_diagnostics.hpp>
 #include <nexigen/app/detail/diagnostic_forwarder.hpp>
 #include <nexigen/app/infrastructure_stop_reason.hpp>
+#include <nexigen/app/telemetry_identity.hpp>
 #include <nexigen/chrono/time_base_client.hpp>
 #include <nexigen/chrono/time_base_clock.hpp>
 #include <nexigen/chrono/settings.hpp>
@@ -79,18 +80,18 @@ concept InfrastructurePolicy =
              std::optional<typename Policy::MetricsSink>& metrics_sink,
              std::optional<typename Policy::TraceSink>& trace_sink,
              const logging::Settings& logging_settings, const metrics::Settings& metrics_settings,
-             const tracing::Settings& tracing_settings, std::string_view app_name) {
+             const tracing::Settings& tracing_settings, const TelemetryIdentity& identity) {
         typename Policy::Logger;
         typename Policy::MetricsSink;
         typename Policy::TraceSink;
         {
-            Policy::emplace_logger(logger, logging_settings, app_name)
+            Policy::emplace_logger(logger, logging_settings, identity)
         } noexcept -> std::same_as<core::Status>;
         {
-            Policy::emplace_metrics_sink(metrics_sink, metrics_settings, app_name)
+            Policy::emplace_metrics_sink(metrics_sink, metrics_settings, identity)
         } noexcept -> std::same_as<core::Status>;
         {
-            Policy::emplace_trace_sink(trace_sink, tracing_settings, app_name)
+            Policy::emplace_trace_sink(trace_sink, tracing_settings, identity)
         } noexcept -> std::same_as<core::Status>;
     };
 
@@ -108,12 +109,12 @@ alignas(64) inline std::atomic<const void*> signal_owner{nullptr};
 
 /// @brief Dedicated `signalfd` watcher translating signals into stop requests.
 ///
-/// The owning `Infrastructure` blocks `SIGINT`/`SIGTERM` before any worker
-/// starts; this watcher is then the only consumer of those signals and calls
-/// `Target::request_stop` with `Sigint` or `Sigterm`. Application code never
-/// runs here. The type is non-copyable and non-movable because it directly owns
-/// a signalfd descriptor and one `core::WorkerThread`; the worker is the last
-/// member so it joins before the descriptor closes.
+/// The owning `Infrastructure` blocks `SIGINT`, `SIGTERM` and `SIGHUP` before
+/// any worker starts; this watcher is then the only consumer of those signals
+/// and calls `Target::request_stop` with `Sigint`, `Sigterm` or `Sighup`.
+/// Application code never runs here. The type is non-copyable and non-movable because it directly
+/// owns a signalfd descriptor and one `core::WorkerThread`; the worker is the last member so it
+/// joins before the descriptor closes.
 ///
 /// @note Spec `app/application`, requirement "SIGINT and SIGTERM request a
 ///       graceful stop".
@@ -252,8 +253,8 @@ private:
     /// @brief Poll the signalfd until the stop token is requested.
     ///
     /// A 100 ms poll timeout keeps the loop stop-aware without another
-    /// descriptor. Only `SIGINT`/`SIGTERM` map to a stop reason; a short read or
-    /// timeout simply re-checks the token.
+    /// descriptor. `SIGINT`, `SIGTERM` and `SIGHUP` map to a stop reason; a short
+    /// read or timeout simply re-checks the token.
     ///
     /// @tparam Target Receiver of `request_stop`.
     /// @param target Receiver bound at `start`.
@@ -274,6 +275,8 @@ private:
                 target->request_stop(InfrastructureStopReason::Sigint);
             } else if (info.ssi_signo == static_cast<std::uint32_t>(SIGTERM)) {
                 target->request_stop(InfrastructureStopReason::Sigterm);
+            } else if (info.ssi_signo == static_cast<std::uint32_t>(SIGHUP)) {
+                target->request_stop(InfrastructureStopReason::Sighup);
             }
         }
     }
@@ -353,9 +356,10 @@ public:
 
     /// @brief Claim signals, build components, and start the watcher.
     ///
-    /// Claims process-global signal ownership, blocks `SIGINT`/`SIGTERM`, builds
-    /// the chrono provider, logger, chrono worker, metrics provider and tracer
-    /// provider in that order, then starts the signal watcher. A failure at any
+    /// Claims process-global signal ownership, blocks `SIGINT`, `SIGTERM` and
+    /// `SIGHUP`, builds the chrono provider, logger, chrono worker, metrics
+    /// provider and tracer provider in that order, then starts the signal
+    /// watcher. A failure at any
     /// step rolls back partial state, restores the previous mask, releases
     /// ownership and returns the failure status. Repeated calls on this instance
     /// are idempotent.
@@ -391,6 +395,7 @@ public:
         sigemptyset(&mask);
         sigaddset(&mask, SIGINT);
         sigaddset(&mask, SIGTERM);
+        sigaddset(&mask, SIGHUP);
         if (::pthread_sigmask(SIG_BLOCK, &mask, &previous_mask_) != 0) {
             detail::signal_owner.store(nullptr, std::memory_order_release);
             return std::unexpected(core::ErrorCode::SystemError);
@@ -740,8 +745,8 @@ private:
             &bootstrap_, [](void* self, const core::DiagnosticEvent& event) noexcept {
                 static_cast<detail::BootstrapDiagnostics*>(self)->diagnostic(event);
             }};
-        auto attached = chrono::TimeBaseClient::attach(settings.chrono.segment_name, client,
-                                                       bootstrap_binding);
+        auto attached =
+            chrono::TimeBaseClient::attach(settings.chrono.segment_name, client, bootstrap_binding);
         if (!attached) {
             return fail(std::unexpected(attached.error()));
         }
@@ -756,8 +761,9 @@ private:
             return fail(clock_bound);
         }
 
+        const TelemetryIdentity identity{settings.app_name, settings.app_id};
         const core::Status logger_status =
-            Policy::emplace_logger(logger_, settings.logging, settings.app_name);
+            Policy::emplace_logger(logger_, settings.logging, identity);
         if (const core::Status step = emplace_checked(logger_status, logger_.has_value()); !step) {
             return step;
         }
@@ -784,8 +790,9 @@ private:
     /// @note Spec `app/application`, scenario "Best-effort partial application
     ///       does not trigger rollback".
     [[nodiscard]] core::Status build_metrics(const Settings& settings) noexcept {
+        const TelemetryIdentity identity{settings.app_name, settings.app_id};
         const core::Status sink_status =
-            Policy::emplace_metrics_sink(metrics_sink_, settings.metrics, settings.app_name);
+            Policy::emplace_metrics_sink(metrics_sink_, settings.metrics, identity);
         if (!sink_status) {
             return fail_logged(sink_status, "metrics sink");
         }
@@ -811,8 +818,9 @@ private:
     /// @note Spec `app/application`, scenario "Failure rolls back partial
     ///       initialization".
     [[nodiscard]] core::Status build_tracing(const Settings& settings) noexcept {
+        const TelemetryIdentity identity{settings.app_name, settings.app_id};
         const core::Status sink_status =
-            Policy::emplace_trace_sink(trace_sink_, settings.tracing, settings.app_name);
+            Policy::emplace_trace_sink(trace_sink_, settings.tracing, identity);
         if (!sink_status) {
             return fail_logged(sink_status, "tracing sink");
         }
@@ -835,8 +843,7 @@ private:
         if (!diagnostics_) {
             return {};
         }
-        return {&*diagnostics_,
-                [](void* self, const core::DiagnosticEvent& event) noexcept {
+        return {&*diagnostics_, [](void* self, const core::DiagnosticEvent& event) noexcept {
                     static_cast<detail::DiagnosticForwarder<Logger>*>(self)->diagnostic(event);
                 }};
     }
@@ -883,6 +890,9 @@ private:
             case InfrastructureStopReason::Sigterm:
                 logger_->warning("shutdown reason: sigterm (15)");
                 break;
+            case InfrastructureStopReason::Sighup:
+                logger_->warning("shutdown reason: sighup (1)");
+                break;
             case InfrastructureStopReason::Requested:
                 logger_->info("shutdown reason: requested");
                 break;
@@ -890,9 +900,7 @@ private:
                 logger_->warning("shutdown reason: time_base_lost");
                 break;
             case InfrastructureStopReason::None:
-            default:
-                logger_->info("shutdown reason: none");
-                break;
+            default:                             logger_->info("shutdown reason: none"); break;
         }
     }
 
@@ -962,10 +970,10 @@ private:
     ///        the adapter dies before the logger, and before providers so it
     ///        outlives them.
     std::optional<detail::DiagnosticForwarder<Logger>> diagnostics_{};
-    std::optional<MetricsSink> metrics_sink_{};         ///< Metrics sink component.
-    std::optional<metrics::MetricProvider> metrics_{};  ///< Metrics provider over the sink.
-    std::optional<TraceSink> trace_sink_{};             ///< Trace sink component.
-    std::optional<TracerProvider> tracer_{};            ///< Tracer provider over the sink.
+    std::optional<MetricsSink> metrics_sink_{};        ///< Metrics sink component.
+    std::optional<metrics::MetricProvider> metrics_{}; ///< Metrics provider over the sink.
+    std::optional<TraceSink> trace_sink_{};            ///< Trace sink component.
+    std::optional<TracerProvider> tracer_{};           ///< Tracer provider over the sink.
     detail::SignalWatcher signals_{}; ///< Signal watcher, stopped first on teardown.
 
     /// @brief Pre-logger synchronous diagnostics; used only during startup.

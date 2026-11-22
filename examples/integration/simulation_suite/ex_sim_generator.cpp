@@ -6,6 +6,17 @@
 // Execution Manager, publishes checkpoints to PlatformHealthManagement, and
 // honours the State Manager's published Function Group state. Telemetry (logs,
 // metrics, spans) reaches the three daemons through the iceoryx2 sinks.
+//
+// Execution flow:
+//   1. read the bounded-workload / period environment overrides;
+//   2. parse the standard app command line (standalone mode adds local settings);
+//   3. create one com::Node and lend it to the telemetry policy;
+//   4. build and initialize Infrastructure (time base -> logger -> metrics ->
+//      tracing -> signal watcher);
+//   5. create the generator's instruments, tracer, publisher and event notifier;
+//   6. connect the platform link (readiness, checkpoints, group state);
+//   7. pre-loan a transport chunk, then publish one vector per period;
+//   8. shut the infrastructure down through the normal drain path.
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -47,7 +58,7 @@ constexpr std::string_view k_checkpoint_service = "Nexigen/PHM/Simulation/vector
 /// @brief Health service owned by this application.
 constexpr std::string_view k_health_service = "Nexigen/PHM/Simulation/vector_generator/health";
 
-/// @brief Four-character telemetry tag.
+/// @brief Standalone fallback tag; the suite manifest uses `SIM_GEN`.
 using Policy = SimTelemetryPolicy<'G', 'E', 'N', '0'>;
 
 /// @brief Infrastructure instantiation used by the generator.
@@ -75,6 +86,8 @@ void fill_values(std::mt19937_64& rng, std::uniform_real_distribution<double>& d
 } // namespace
 
 int main(int argc, char* argv[]) {
+    // Standalone smoke runs are bounded by default; the full-stack driver sets
+    // NEXIGEN_SIM_RUN_FOREVER=1 and can shorten the period for a quick demo.
     const bool run_forever = env("NEXIGEN_SIM_RUN_FOREVER").value_or("") == "1";
     const std::uint64_t worker_seconds =
         env_u64("NEXIGEN_SIM_WORKER_SECONDS", k_default_worker_seconds);
@@ -87,6 +100,8 @@ int main(int argc, char* argv[]) {
         return *early_exit;
     }
 
+    // One node per process: iceoryx2 has a machine-wide node budget, and the
+    // policy's metric/trace sinks borrow this same node.
     auto node = com::Node::create();
     if (!node.has_value()) {
         print_error(k_tag, "com::Node::create failed");
@@ -94,6 +109,8 @@ int main(int argc, char* argv[]) {
     }
     install_shared_node(*node);
 
+    // The constructor is private; the factory allocates the heap-only
+    // Infrastructure. initialize() below performs the actual subsystem setup.
     auto created = app::make_infrastructure<Policy, 256, 8>();
     if (!created.has_value()) {
         print_error(k_tag, "make_infrastructure failed");
@@ -110,6 +127,9 @@ int main(int argc, char* argv[]) {
     (*infra->logger())->info("generator ready (period_ms={})", period_ms);
     (*infra->logger())->info("function group '{}'", k_function_group);
 
+    // MultiThreaded/Readable/ResetOnRead: the generator and the metrics
+    // harvester are different threads, the daemon reads the values, and each
+    // harvest should see the delta since the previous one.
     const auto meter = infra->meter("generator", "1.0");
     if (!meter.has_value()) {
         static_cast<void>(infra->shutdown());
@@ -139,6 +159,8 @@ int main(int argc, char* argv[]) {
         return fail_status(k_tag, "Infrastructure::tracer_for", tracer);
     }
 
+    // The user header carries the per-vector trace context, so the receiver can
+    // continue the same trace instead of starting an unrelated one.
     const auto service = com::ServiceName::create(std::string(k_vector_service).c_str());
     if (!service.has_value()) {
         static_cast<void>(infra->shutdown());
@@ -161,6 +183,8 @@ int main(int argc, char* argv[]) {
         return fail_status(k_tag, "com::EventNotifier::create", vector_event);
     }
 
+    // PlatformLink owns the three control-plane channels: readiness to the EM,
+    // checkpoints to PHM, and the Function Group state read from the SM.
     auto link_result =
         PlatformLink::create(*node, k_app_name, k_checkpoint_service, k_health_service);
     if (!link_result.has_value()) {
@@ -210,6 +234,9 @@ int main(int argc, char* argv[]) {
         }
         next_publish += (period.count() > 0 ? period : std::chrono::milliseconds{1});
 
+        // The State Manager is the authority: a switch to Off/SafeState stops
+        // publication without stopping the process. An unpublished state (the
+        // standalone case) is treated as Running.
         const std::string_view state = link.group_state();
         if (state != last_state) {
             (*infra->logger())->info("group state '{}'", state_name(state));
@@ -220,6 +247,8 @@ int main(int argc, char* argv[]) {
             return true;
         }
 
+        // One trace per vector: the header is attached to the transport sample
+        // below, and both receivers continue this trace id.
         NEXIGEN_TRACE_NEW_ROOT("SimulationGenerator");
         auto span = (*tracer)->start_span("publish-vector", tracing::SpanKind::Producer);
         static_cast<void>(span.set_attribute("sequence", static_cast<std::int64_t>(sequence)));
@@ -237,6 +266,9 @@ int main(int argc, char* argv[]) {
             }
         }
         {
+            // The chunk was loaned before this iteration. Fill it in place,
+            // attach the trace header, then hand the same shared-memory slot to
+            // the transport — no copy and no allocation on this path.
             auto mut = next_loan->write_payload(sample);
             next_loan.reset();
             const tracing::TraceHeader header = tracing::make_trace_header(header_sequence++);
@@ -255,7 +287,8 @@ int main(int argc, char* argv[]) {
                 (*gauge)->set(static_cast<std::int64_t>(sequence));
                 (*publish_cost)->set(static_cast<std::int64_t>(publish_cost_us));
                 // Wake the receivers: the notification is a counter, so a lost
-                // one is still covered by the queued sample.
+                // one is still covered by the queued sample. The checkpoint
+                // proves to PHM that the producer loop is alive.
                 static_cast<void>(vector_event->notify());
                 static_cast<void>(link.checkpoint(1));
                 (*infra->logger())->debug("published vector #{} trace_id={:016x} cost_us={}", sequence,
@@ -268,6 +301,8 @@ int main(int argc, char* argv[]) {
         return true;
     });
 
+    // shutdown() drains tracing, metrics and the logger in dependency order;
+    // the Infrastructure object is destroyed afterwards by its unique_ptr.
     const core::Status shutdown_status = infra->shutdown();
     if (!shutdown_status) {
         return fail_status(k_tag, "Infrastructure::shutdown", shutdown_status);

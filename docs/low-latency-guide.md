@@ -319,10 +319,16 @@ BUILD_DIR=build-release-com NEXIGEN_SIM_SPIN=1 NEXIGEN_SIM_RT_PRIORITY=50 \
 # наблюдение
 tail -f /tmp/opencode/nexigen-simulation-suite/artifacts/simulation-suite/vector_receiver/1/attempt-0001/stdout.log
 curl -s http://127.0.0.1:9101/metrics | grep -E "publish_cost|loan_cost"
+```
 
+```bash
 # остановка
 ./examples/integration/simulation_suite/clean_simulation_suite.sh
 ```
+
+В suite-режиме телеметрия атрибутируется манифестным `app_id`: `SIM_GEN`,
+`SIM_RECV`, `SIM_FLKY`. Компилируемые теги `GEN0`, `RECV`, `FLKY` остаются
+только fallback для standalone smoke-запуска без `--app-id`.
 
 ## См. также
 

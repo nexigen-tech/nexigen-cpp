@@ -5,7 +5,7 @@
 // The sink fans a MetricBatchSnapshot out into one MetricFrame per record and
 // publishes each over iceoryx2; the daemon receives the same POD. The frame is
 // trivially copyable so it survives the zero-copy shared-memory exchange
-// unchanged (com::concepts::Message). app_id mirrors LogFrame: a 4-byte ASCII
+// unchanged (com::concepts::Message). app_id mirrors LogFrame: a 16-byte ASCII
 // code, not the 63-byte app name.
 #pragma once
 
@@ -31,14 +31,14 @@ namespace nexigen::metrics {
 /// @note Spec `metrics/iceoryx2-metric-sink`, requirement "MetricFrame wire
 ///       type".
 struct MetricFrame {
-    char app_id[4]{};             ///< 4-byte ASCII code (e.g. "LIDR").
+    char app_id[16]{};            ///< 16-byte application code (zero-filled tail).
     std::uint32_t pid{0};         ///< Publisher PID (`::getpid()`, cached at start).
     std::int64_t timestamp_ns{0}; ///< Window stamp (`CLOCK_MONOTONIC_RAW`).
     MetricRecord record{};        ///< One harvested metric.
 
     /// @brief The `app_id` as a non-null-terminated view.
     ///
-    /// @return View trimmed at the first NUL (at most four bytes).
+    /// @return View trimmed at the first NUL (at most sixteen bytes).
     /// @note Spec `metrics/iceoryx2-metric-sink`, requirement "MetricFrame wire
     ///       type".
     [[nodiscard]] std::string_view app_id_text() const noexcept {
@@ -88,7 +88,7 @@ void to_json(nlohmann::json& j, const MetricFrame& frame);
 ///
 /// Values are assembled into a default-constructed frame first, so fields that
 /// are missing or wrongly typed keep their defaults; the app id is truncated to
-/// the four-byte buffer and the embedded `MetricRecord` is parsed with its own
+/// the sixteen-byte buffer and the embedded `MetricRecord` is parsed with its own
 /// rules.
 ///
 /// @param j JSON object to read.

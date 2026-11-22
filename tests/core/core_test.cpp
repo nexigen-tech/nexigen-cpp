@@ -31,6 +31,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/app_id.hpp>
 #include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/core/enum_traits.hpp>
 #include <nexigen/core/integrity/crc32c.hpp>
@@ -2354,7 +2355,71 @@ void test_core_concepts() {
     NX_CHECK(*first == *second);
 }
 
+void test_app_id() {
+    using nexigen::core::AppId;
+
+    static_assert(sizeof(AppId) == 16);
+    static_assert(std::is_trivially_copyable_v<AppId>);
+    static_assert(AppId::literal_is_valid("WAIT"));
+    static_assert(!AppId::literal_is_valid("WAIT!"));
+    static_assert(!AppId::literal_is_valid("ABCDEFGHIJKLMNOPQ"));
+
+    AppId unset;
+    NX_CHECK(unset.empty());
+    NX_CHECK(unset.size() == 0);
+    NX_CHECK(unset.text().empty());
+    NX_CHECK(unset.to_string().empty());
+
+    auto id = AppId::create("CN_LOOP_1");
+    NX_CHECK(id.has_value());
+    NX_CHECK(id->size() == 9);
+    NX_CHECK(id->text() == "CN_LOOP_1");
+    NX_CHECK(id->to_string() == "CN_LOOP_1");
+    NX_CHECK(std::format("{}", *id) == "CN_LOOP_1");
+    for (std::size_t i = id->size(); i < AppId::capacity; ++i) {
+        NX_CHECK(id->data()[i] == '\0');
+    }
+
+    auto full = AppId::create("ABCDEFGHIJKLMNOP");
+    NX_CHECK(full.has_value());
+    NX_CHECK(full->size() == 16);
+    NX_CHECK(full->text().size() == 16);
+
+    NX_CHECK(!AppId::create("").has_value());
+    NX_CHECK(!AppId::create("ABCDEFGHIJKLMNOPQ").has_value());
+    NX_CHECK(!AppId::create("CN LOOP").has_value());
+    NX_CHECK(!AppId::create("CN.LOOP").has_value());
+    NX_CHECK(!AppId::create("CN/LOOP").has_value());
+    NX_CHECK(!AppId::create("CN\"LOOP").has_value());
+    NX_CHECK(!AppId::create("CN\\LOOP").has_value());
+    const char with_nul[] = {'C', 'N', '\0', 'L'};
+    NX_CHECK(!AppId::create(std::string_view(with_nul, 4)).has_value());
+
+    auto same = AppId::create("CN_LOOP_1");
+    NX_CHECK(*id == *same);
+    auto other = AppId::create("CN_LOOP_2");
+    NX_CHECK(!(*id == *other));
+
+    const auto literal = AppId::from_literal("WAIT");
+    NX_CHECK(literal.text() == "WAIT");
+
+    nlohmann::json j = *id;
+    NX_CHECK(j.is_string() && j.get<std::string>() == "CN_LOOP_1");
+    AppId parsed;
+    nexigen::core::from_json(j, parsed);
+    NX_CHECK(parsed == *id);
+
+    AppId unchanged = AppId::from_literal("KEEP");
+    nexigen::core::from_json(nlohmann::json(42), unchanged);
+    NX_CHECK(unchanged.text() == "KEEP");
+    nexigen::core::from_json(nlohmann::json("BAD ID"), unchanged);
+    NX_CHECK(unchanged.text() == "KEEP");
+    nexigen::core::from_json(nlohmann::json("ABCDEFGHIJKLMNOPQ"), unchanged);
+    NX_CHECK(unchanged.text() == "KEEP");
+}
+
 int main() {
+    run_suite("app_id", test_app_id);
     run_suite("result", test_result);
     run_suite("json_smoke", test_json_smoke);
     run_suite("json_field_scalars", test_json_field_scalars);

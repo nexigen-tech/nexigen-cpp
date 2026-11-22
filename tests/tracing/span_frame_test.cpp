@@ -58,11 +58,11 @@ void test_span_frame_layout() {
     static_assert(offsetof(SpanFrame, name) == 72);
     static_assert(offsetof(SpanFrame, attributes) == 120);
     static_assert(offsetof(SpanFrame, app_id) == 312);
-    static_assert(offsetof(SpanFrame, pid) == 316);
-    static_assert(offsetof(SpanFrame, sequence) == 320);
-    static_assert(offsetof(SpanFrame, publish_ts_ns) == 328);
-    static_assert(offsetof(SpanFrame, version) == 336);
-    static_assert(offsetof(SpanFrame, reserved) == 338);
+    static_assert(offsetof(SpanFrame, pid) == 328);
+    static_assert(offsetof(SpanFrame, sequence) == 336);
+    static_assert(offsetof(SpanFrame, publish_ts_ns) == 344);
+    static_assert(offsetof(SpanFrame, version) == 352);
+    static_assert(offsetof(SpanFrame, reserved) == 354);
 
     SpanFrame frame{};
     NX_CHECK(frame.version == SpanFrame::format_version);
@@ -88,6 +88,11 @@ void test_span_frame_layout() {
     frame.app_id[2] = 'D';
     frame.app_id[3] = 'R';
     NX_CHECK(frame.app_id_text() == "LIDR");
+    NX_CHECK(frame.version == 2U);
+
+    SpanFrame full{};
+    std::memcpy(full.app_id, "ABCDEFGHIJKLMNOP", 16U);
+    NX_CHECK(full.app_id_text() == "ABCDEFGHIJKLMNOP");
 }
 
 void test_span_frame_serialization() {
@@ -202,15 +207,11 @@ void test_trace_sink_config() {
     NX_CHECK(!invalid.validate().has_value());
 
     invalid = config;
-    invalid.app_id = "TOOLONG";
-    NX_CHECK(!invalid.validate().has_value());
-
-    invalid = config;
     invalid.service_name = std::string(512U, 's');
     NX_CHECK(!invalid.validate().has_value());
 
     config.service_name = "Nexigen/Test/TraceSinkConfig";
-    config.app_id = "LIDR";
+    config.app_id = nexigen::core::AppId::from_literal("LIDR");
     config.subscriber_max_buffer_depth = 4096U;
     const std::string text = config.to_string();
     NX_CHECK(text.find("Nexigen/Test/TraceSinkConfig") != std::string::npos);

@@ -24,14 +24,14 @@ namespace nexigen::com {
 ///
 /// @note Spec `com/publish-subscribe`, requirement "Transport sequence header".
 struct TransportHeader {
-    char app_id[4]{};              ///< Four-byte ASCII application code.
+    char app_id[16]{};             ///< Sixteen-byte application code (zero-filled).
     std::uint32_t pid{0};          ///< Publisher process id.
     std::uint64_t publisher_id{0}; ///< Unique per publisher construction.
     std::uint64_t sequence{0};     ///< Monotonic send counter.
 
     /// @brief The application code as a bounded view.
     ///
-    /// @return Up to four bytes, trimmed at the first NUL.
+    /// @return Up to sixteen bytes, trimmed at the first NUL.
     [[nodiscard]] std::string_view app_id_text() const noexcept {
         std::size_t n = 0;
         while (n < sizeof(app_id) && app_id[n] != '\0') {
@@ -49,7 +49,7 @@ struct TransportHeader {
     }
 };
 
-static_assert(sizeof(TransportHeader) == 24U);
+static_assert(sizeof(TransportHeader) == 40U);
 static_assert(std::is_trivially_copyable_v<TransportHeader>);
 
 /// @brief Free ADL diagnostic helper.

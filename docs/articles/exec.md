@@ -7,6 +7,7 @@
 ## Ответственность
 
 - Манифесты suite: `SuiteManifest`, `AppSpec`, `FunctionGroupConfig`, `initial_state`; `ManifestAccessor` определяет JSON/ARXML и ведёт единый путь `from_json` + `validate_suite_manifest`; `MachineManifest` кросс-проверяет ссылки на процессы машины.
+- Идентичность приложения: `AppSpec::app_id` — 1–16 символов `A-Z`, `a-z`, `0-9`, `_`, `-`; пустое значение означает `app`; дубликаты внутри suite и невалидный формат отклоняются при загрузке манифеста (`InvalidArgument`), имя длиннее 16 байт не обрезается. Разные suite могут переиспользовать код. Разрешённый id передаётся ребёнку как `--app-id` рядом с `--app-name`.
 - Запуск и остановка: `ExecutionManager` — stateless-контроль одного instance через его директорию; `start` создаёт layout, генерирует настройки, делает `fork`/`setsid`/`execvp` и пишет `resource.json`; `stop`/`status` работают только с диском.
 - Detached-супервизор: `start_suite`/`stop_suite`, `ChildProcess`, `ExecutionStateTracker`; readiness каждого процесса и результаты переходов.
 - Модель процессов: `ProcessType` (`daemon`/`oneshot`), `ProcessState`, `AppState`, `ApplicationStateReporter`, `SuiteState`, `SuiteStatus`, `UnrecoverableState`.

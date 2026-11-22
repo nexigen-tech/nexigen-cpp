@@ -7,6 +7,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/app/telemetry_identity.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/null_logger.hpp>
 #include <nexigen/logging/settings.hpp>
@@ -22,24 +23,49 @@ namespace nexigen::app::policies {
 /// Useful for benchmarks, unit tests and shadow runs: the call shape stays
 /// identical, but every logger/metric/trace record is discarded.
 struct NullPolicy {
-    using Logger = logging::NullLogger;
-    using MetricsSink = metrics::NullMetricSink;
-    using TraceSink = tracing::NullTraceSink;
+    using Logger = logging::NullLogger;          ///< Logger that discards every record.
+    using MetricsSink = metrics::NullMetricSink; ///< Sink that discards every batch.
+    using TraceSink = tracing::NullTraceSink;    ///< Sink that discards every span.
 
+    /// @brief Construct the no-op logger.
+    ///
+    /// @param out Optional storage filled on success.
+    ///        The settings and identity parameters are intentionally unnamed:
+    ///        the null logger ignores both.
+    /// @return Success.
+    ///
+    /// @note Spec `app/policies`, requirement "Stateless infrastructure policy".
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
-                                       std::string_view) noexcept {
+                                       const TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
 
+    /// @brief Construct the no-op metric sink.
+    ///
+    /// @param out Optional storage filled with the sink.
+    ///        The settings and identity parameters are intentionally unnamed:
+    ///        the null sink ignores both.
+    /// @return Success.
+    ///
+    /// @note Spec `app/policies`, requirement "Stateless infrastructure policy".
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&,
+                                             const TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
 
+    /// @brief Construct the no-op trace sink.
+    ///
+    /// @param out Optional storage filled with the sink.
+    ///        The settings and identity parameters are intentionally unnamed:
+    ///        the null sink ignores both.
+    /// @return Success.
+    ///
+    /// @note Spec `app/policies`, requirement "Stateless infrastructure policy".
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
@@ -55,11 +81,17 @@ struct NullPolicy {
 }
 
 /// @brief Serialize the policy identity for cold-path diagnostics.
+///
+/// @param j Output JSON object receiving `{"type":"NullPolicy"}`.
+/// @param policy Stateless policy; carries no fields.
 inline void to_json(nlohmann::json& j, const NullPolicy&) {
     j = nlohmann::json{{"type", "NullPolicy"}};
 }
 
 /// @brief Stateless policy: JSON input carries no state to restore.
+///
+/// @param j Input JSON; ignored.
+/// @param policy Policy left unchanged.
 inline void from_json(const nlohmann::json&, NullPolicy&) noexcept {}
 
 } // namespace nexigen::app::policies
@@ -67,6 +99,12 @@ inline void from_json(const nlohmann::json&, NullPolicy&) noexcept {}
 /// @brief `std::formatter` for the null policy.
 template <>
 struct std::formatter<nexigen::app::policies::NullPolicy> : std::formatter<std::string_view> {
+    /// @brief Format the policy through `to_string`.
+    ///
+    /// @tparam Ctx Format context type.
+    /// @param policy Policy to render.
+    /// @param ctx Format context receiving the text.
+    /// @return Iterator past the last emitted character.
     template <class Ctx>
     auto format(const nexigen::app::policies::NullPolicy& policy, Ctx& ctx) const {
         const std::string text = policy.to_string();

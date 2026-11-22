@@ -7,6 +7,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/app/telemetry_identity.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/file_logger.hpp>
 #include <nexigen/logging/settings.hpp>
@@ -24,13 +25,21 @@ namespace nexigen::app::policies {
 /// their settings, with `app_name` stamped on every record. The application
 /// name comes from the infrastructure, not from the logging JSON.
 struct FilePolicy {
-    using Logger = logging::FileLogger<>;
-    using MetricsSink = metrics::JsonFileMetricSink;
-    using TraceSink = tracing::JsonFileTraceSink;
+    using Logger = logging::FileLogger<>;            ///< Rotating JSONL file logger.
+    using MetricsSink = metrics::JsonFileMetricSink; ///< JSONL metric-batch sink.
+    using TraceSink = tracing::JsonFileTraceSink;    ///< JSONL span sink.
 
+    /// @brief Construct and initialize the rotating file logger.
+    ///
+    /// @param out Optional storage filled on success.
+    /// @param settings Logging settings, including the log root directory.
+    /// @param identity Run identity supplying `app_name` for every record.
+    /// @return Success, or a capacity/configuration/initialization failure.
+    ///
+    /// @note Spec `app/policies`, requirement "Stateless infrastructure policy".
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Settings& settings,
-                                       std::string_view app_name) noexcept {
+                                       const TelemetryIdentity& identity) noexcept {
         const core::Status capacity =
             logging::check_capacity<Logger::capacity(), Logger::max_threads(), 128>(settings);
         if (!capacity) {
@@ -41,31 +50,47 @@ struct FilePolicy {
         if (!applied) {
             return applied;
         }
-        config.app_name = std::string(app_name);
+        config.app_name = std::string(identity.app_name);
         out.emplace();
         return out->initialize(config);
     }
 
+    /// @brief Construct the JSONL metric sink.
+    ///
+    /// @param out Optional storage filled on success.
+    /// @param settings Metrics settings whose `sink.path` must be non-empty.
+    /// @param identity Run identity supplying `app_name` for every record.
+    /// @return Success, or `InvalidArgument` when the sink path is empty.
+    ///
+    /// @note Spec `app/policies`, requirement "Stateless infrastructure policy".
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
                                              const metrics::Settings& settings,
-                                             std::string_view app_name) noexcept {
+                                             const TelemetryIdentity& identity) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         metrics::JsonFileMetricSinkConfig config = settings.sink;
-        config.app_name = std::string(app_name);
+        config.app_name = std::string(identity.app_name);
         out.emplace(config);
         return {};
     }
 
+    /// @brief Construct the JSONL trace sink.
+    ///
+    /// @param out Optional storage filled on success.
+    /// @param settings Tracing settings whose `sink.path` must be non-empty.
+    /// @param identity Run identity supplying `app_name` for every record.
+    /// @return Success, or `InvalidArgument` when the sink path is empty.
+    ///
+    /// @note Spec `app/policies`, requirement "Stateless infrastructure policy".
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
                                            const tracing::Settings& settings,
-                                           std::string_view app_name) noexcept {
+                                           const TelemetryIdentity& identity) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         tracing::JsonFileTraceSinkConfig config = settings.sink;
-        config.app_name = std::string(app_name);
+        config.app_name = std::string(identity.app_name);
         out.emplace(config);
         return {};
     }
@@ -81,11 +106,17 @@ struct FilePolicy {
 }
 
 /// @brief Serialize the policy identity for cold-path diagnostics.
+///
+/// @param j Output JSON object receiving `{"type":"FilePolicy"}`.
+/// @param policy Stateless policy; carries no fields.
 inline void to_json(nlohmann::json& j, const FilePolicy&) {
     j = nlohmann::json{{"type", "FilePolicy"}};
 }
 
 /// @brief Stateless policy: JSON input carries no state to restore.
+///
+/// @param j Input JSON; ignored.
+/// @param policy Policy left unchanged.
 inline void from_json(const nlohmann::json&, FilePolicy&) noexcept {}
 
 } // namespace nexigen::app::policies
@@ -93,6 +124,12 @@ inline void from_json(const nlohmann::json&, FilePolicy&) noexcept {}
 /// @brief `std::formatter` for the file policy.
 template <>
 struct std::formatter<nexigen::app::policies::FilePolicy> : std::formatter<std::string_view> {
+    /// @brief Format the policy through `to_string`.
+    ///
+    /// @tparam Ctx Format context type.
+    /// @param policy Policy to render.
+    /// @param ctx Format context receiving the text.
+    /// @return Iterator past the last emitted character.
     template <class Ctx>
     auto format(const nexigen::app::policies::FilePolicy& policy, Ctx& ctx) const {
         const std::string text = policy.to_string();

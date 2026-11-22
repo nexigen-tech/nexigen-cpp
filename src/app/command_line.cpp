@@ -7,6 +7,8 @@
 #pragma GCC diagnostic pop
 
 #include <nexigen/app/command_line.hpp>
+#include <nexigen/core/app_id.hpp>
+#include <nexigen/core/detail/json_field.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -20,7 +22,7 @@
 namespace nexigen::app {
 namespace {
 
-enum class ValueKind : std::uint8_t { Global, Local, Log_level, App_name };
+enum class ValueKind : std::uint8_t { Global, Local, Log_level, App_name, App_id };
 
 struct OptionSpec {
     std::string_view long_name;
@@ -34,6 +36,7 @@ constexpr OptionSpec kOptions[] = {
     {"--local-settings", "-ls", ValueKind::Local},
     {"--log-level", "-lgl", ValueKind::Log_level},
     {"--app-name", "-an", ValueKind::App_name},
+    {"--app-id", "-ai", ValueKind::App_id},
 };
 
 struct Collected {
@@ -41,6 +44,8 @@ struct Collected {
     std::string local_settings_dir{};
     std::string log_level{};
     std::string app_name{};
+    std::string app_id{};
+    bool app_id_supplied{false};
     bool global_supplied{false};
     bool local_supplied{false};
     bool log_level_supplied{false};
@@ -70,6 +75,10 @@ void store_value(Collected& collected, ValueKind kind, std::string_view value) {
             collected.log_level_supplied = true;
             break;
         case ValueKind::App_name: collected.app_name = value; break;
+        case ValueKind::App_id:
+            collected.app_id = value;
+            collected.app_id_supplied = true;
+            break;
     }
 }
 
@@ -171,6 +180,13 @@ void parse_short(std::string_view token, std::span<const std::string_view> args,
         }
     }
 
+    if (collected.app_id_supplied &&
+        !core::AppId::create(collected.app_id).has_value()) {
+        add_diagnostic(diagnostics, "--app-id",
+                       "invalid identifier \"" + collected.app_id +
+                           "\": expected 1..16 characters from A-Z, a-z, 0-9, _ or -");
+    }
+
     if (!diagnostics.empty()) {
         return std::unexpected(
             CommandLineError{core::ErrorCode::InvalidArgument, std::move(diagnostics)});
@@ -179,6 +195,7 @@ void parse_short(std::string_view token, std::span<const std::string_view> args,
     options.global_settings_dir = std::move(collected.global_settings_dir);
     options.local_settings_dir = std::move(collected.local_settings_dir);
     options.app_name = std::move(collected.app_name);
+    options.app_id = std::move(collected.app_id);
     return options;
 }
 
@@ -200,6 +217,7 @@ constexpr std::string_view kUsage =
     "  -ls, --local-settings <relative-dir>   local settings directory\n"
     "  -lgl, --log-level <level>              verbose|debug|info|warning|error|fatal|off\n"
     "  -an, --app-name <name>                application name for telemetry\n"
+    "  -ai, --app-id <id>                    1..16 chars from A-Z, a-z, 0-9, _ or -\n"
     "  -h, --help                             show this help\n"
     "Value forms: --name value, --name=value, -name value, -namevalue, -name=value.\n"
     "Use -- to end option parsing; positional arguments are rejected.\n"
@@ -219,7 +237,8 @@ std::string CommandLineOptions::to_string() const {
     }
     return "CommandLineOptions(global_settings_dir=\"" + global_settings_dir +
            "\", local_settings_dir=\"" + local_settings_dir + "\", app_name=\"" + app_name +
-           "\", log_level=" + level + ", help=" + std::string(help ? "true" : "false") + ")";
+           "\", app_id=\"" + app_id + "\", log_level=" + level +
+           ", help=" + std::string(help ? "true" : "false") + ")";
 }
 
 std::string CommandLineError::to_string() const {
@@ -269,9 +288,69 @@ void to_json(nlohmann::json& j, const CommandLineOptions& options) {
     j = nlohmann::json{{"global_settings_dir", options.global_settings_dir},
                        {"local_settings_dir", options.local_settings_dir},
                        {"app_name", options.app_name},
+                       {"app_id", options.app_id},
                        {"log_level", std::move(level)},
                        {"help", options.help}};
 }
+
+namespace {
+
+/// @brief Read and validate the optional `app_id` field.
+///
+/// An absent or empty value means "no identifier". A non-empty value must
+/// satisfy `core::AppId`; otherwise the whole object is rejected.
+[[nodiscard]] bool read_optional_app_id(const nlohmann::json& j, std::string& out) noexcept {
+    std::string candidate;
+    if (!core::detail::read_string_optional(j, "app_id", candidate)) {
+        return false;
+    }
+    if (candidate.empty()) {
+        out.clear();
+        return true;
+    }
+    if (!core::AppId::create(candidate).has_value()) {
+        return false;
+    }
+    out = std::move(candidate);
+    return true;
+}
+
+/// @brief Read the optional `log_level` field.
+[[nodiscard]] bool read_optional_log_level(const nlohmann::json& j,
+                                           std::optional<core::LogLevel>& out) noexcept {
+    const auto it = j.find("log_level");
+    if (it == j.end()) {
+        return true;
+    }
+    if (it->is_null()) {
+        out.reset();
+        return true;
+    }
+    if (!it->is_string()) {
+        return false;
+    }
+    core::LogLevel level = core::LogLevel::Info;
+    if (!core::from_string(it->get<std::string>(), level)) {
+        return false;
+    }
+    out = level;
+    return true;
+}
+
+/// @brief Read the optional boolean `help` field.
+[[nodiscard]] bool read_optional_help(const nlohmann::json& j, bool& out) noexcept {
+    const auto it = j.find("help");
+    if (it == j.end()) {
+        return true;
+    }
+    if (!it->is_boolean()) {
+        return false;
+    }
+    out = it->get<bool>();
+    return true;
+}
+
+} // namespace
 
 void from_json(const nlohmann::json& j, CommandLineOptions& options) noexcept {
     if (!j.is_object()) {
@@ -279,47 +358,19 @@ void from_json(const nlohmann::json& j, CommandLineOptions& options) noexcept {
     }
     CommandLineOptions parsed{};
     parsed.log_level = core::LogLevel::Info;
-    auto it = j.find("global_settings_dir");
-    if (it != j.end()) {
-        if (!it->is_string()) {
-            return;
-        }
-        parsed.global_settings_dir = it->get<std::string>();
+    const bool strings_ok =
+        core::detail::read_string_optional(j, "global_settings_dir", parsed.global_settings_dir) &&
+        core::detail::read_string_optional(j, "local_settings_dir", parsed.local_settings_dir) &&
+        core::detail::read_string_optional(j, "app_name", parsed.app_name) &&
+        read_optional_app_id(j, parsed.app_id);
+    if (!strings_ok) {
+        return;
     }
-    it = j.find("local_settings_dir");
-    if (it != j.end()) {
-        if (!it->is_string()) {
-            return;
-        }
-        parsed.local_settings_dir = it->get<std::string>();
+    if (!read_optional_log_level(j, parsed.log_level)) {
+        return;
     }
-    it = j.find("app_name");
-    if (it != j.end()) {
-        if (!it->is_string()) {
-            return;
-        }
-        parsed.app_name = it->get<std::string>();
-    }
-    it = j.find("log_level");
-    if (it != j.end()) {
-        if (it->is_null()) {
-            parsed.log_level.reset();
-        } else if (it->is_string()) {
-            core::LogLevel level = core::LogLevel::Info;
-            if (!core::from_string(it->get<std::string>(), level)) {
-                return;
-            }
-            parsed.log_level = level;
-        } else {
-            return;
-        }
-    }
-    it = j.find("help");
-    if (it != j.end()) {
-        if (!it->is_boolean()) {
-            return;
-        }
-        parsed.help = it->get<bool>();
+    if (!read_optional_help(j, parsed.help)) {
+        return;
     }
     options = std::move(parsed);
 }
@@ -450,6 +501,11 @@ AppSettingsPaths make_app_settings_paths(const CommandLineOptions& options) noex
 
 void apply_to(const CommandLineOptions& options, Settings& settings) noexcept {
     settings.app_name = options.app_name;
+    if (!options.app_id.empty()) {
+        if (auto parsed = core::AppId::create(options.app_id); parsed) {
+            settings.app_id = *parsed;
+        }
+    }
     if (options.log_level.has_value()) {
         settings.logging.options.initial_log_level = *options.log_level;
     }

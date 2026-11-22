@@ -8,7 +8,14 @@ void test_stop_reason() {
     NX_CHECK(app::to_string(app::InfrastructureStopReason::Sigint) == "sigint");
     NX_CHECK(app::to_string(app::InfrastructureStopReason::Sigterm) == "sigterm");
     NX_CHECK(app::to_string(app::InfrastructureStopReason::TimeBaseLost) == "time_base_lost");
+    NX_CHECK(app::to_string(app::InfrastructureStopReason::Sighup) == "sighup");
     NX_CHECK(app::time_base_lost_exit_code == 75);
+    NX_CHECK(app::exit_code(app::InfrastructureStopReason::Requested) == 0);
+    NX_CHECK(app::exit_code(app::InfrastructureStopReason::Sigint) == 0);
+    NX_CHECK(app::exit_code(app::InfrastructureStopReason::Sigterm) == 0);
+    NX_CHECK(app::exit_code(app::InfrastructureStopReason::Sighup) == 0);
+    NX_CHECK(app::exit_code(app::InfrastructureStopReason::TimeBaseLost) == 75);
+    NX_CHECK(app::exit_code(app::InfrastructureStopReason::None) == 1);
 
     app::InfrastructureStopReason reason = app::InfrastructureStopReason::None;
     NX_CHECK(app::from_string("sigterm", reason));
@@ -24,6 +31,9 @@ void test_stop_reason() {
     app::from_json(nlohmann::json(7), reason);
     NX_CHECK(reason == app::InfrastructureStopReason::Requested);
     NX_CHECK(std::format("{}", app::InfrastructureStopReason::Sigterm) == "sigterm");
+    NX_CHECK(std::format("{}", app::InfrastructureStopReason::Sighup) == "sighup");
+    app::from_json(nlohmann::json("sighup"), reason);
+    NX_CHECK(reason == app::InfrastructureStopReason::Sighup);
 }
 
 void run_app_stop_reason_suites() {

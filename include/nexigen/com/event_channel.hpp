@@ -73,8 +73,8 @@ public:
     }
 
     /// @brief Create the producer endpoint with an application code.
-    /// @param app_id Application code (at most four ASCII bytes) stamped into
-    ///        every event header.
+    /// @param app_id Application code (at most sixteen ASCII bytes) stamped
+    ///        into every event header.
     /// @return Producer, or a mapped `com::Error`/`InvalidArgument`.
     [[nodiscard]] Result<EventProducer<T>> producer(std::string_view app_id) noexcept {
         return EventProducer<T>::create(*node_, name_, config_, app_id);
@@ -105,7 +105,7 @@ public:
 
     /// @brief Create the producer endpoint with a meter and an application code.
     /// @param meter Borrowed meter; must outlive the producer.
-    /// @param app_id Application code (at most four ASCII bytes).
+    /// @param app_id Application code (at most sixteen ASCII bytes).
     /// @return Producer, or a mapped `com::Error`/`InvalidArgument`.
     template <core::concepts::MeterLike M>
     [[nodiscard]] Result<EventProducer<T, M>> producer(M& meter, std::string_view app_id) noexcept {

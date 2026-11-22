@@ -6,6 +6,16 @@
 // values and the measured latency, and meters the result. Readiness reaches the
 // Execution Manager, checkpoints reach PlatformHealthManagement, and the
 // published Function Group state controls whether output is produced.
+//
+// Execution flow:
+//   1. read workload/spin/RT environment overrides;
+//   2. parse the standard app command line and load settings;
+//   3. create the shared node and initialize Infrastructure;
+//   4. create the receive counter, latency gauge and tracer;
+//   5. open the vector subscription and its wake-up event;
+//   6. connect the platform link and report readiness;
+//   7. run the shared receiver loop until the deadline or a stop request;
+//   8. shut down and drain telemetry.
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -40,7 +50,7 @@ constexpr std::string_view k_checkpoint_service = "Nexigen/PHM/Simulation/vector
 /// @brief Health service owned by this application.
 constexpr std::string_view k_health_service = "Nexigen/PHM/Simulation/vector_receiver/health";
 
-/// @brief Four-character telemetry tag.
+/// @brief Standalone fallback tag; the suite manifest uses `SIM_RECV`.
 using Policy = SimTelemetryPolicy<'R', 'E', 'C', 'V'>;
 
 /// @brief Infrastructure instantiation used by the receiver.
@@ -56,6 +66,8 @@ constexpr ResetPolicy k_reset_on_read = ResetPolicy::ResetOnRead;
 } // namespace
 
 int main(int argc, char* argv[]) {
+    // The CTest smoke run is bounded; the suite driver sets RUN_FOREVER and may
+    // enable spin mode or a best-effort SCHED_FIFO policy.
     const bool run_forever = env("NEXIGEN_SIM_RUN_FOREVER").value_or("") == "1";
     const std::uint64_t worker_seconds =
         env_u64("NEXIGEN_SIM_WORKER_SECONDS", k_default_worker_seconds);
@@ -70,6 +82,7 @@ int main(int argc, char* argv[]) {
         return *early_exit;
     }
 
+    // One node serves the telemetry policy and this receiver's subscriber.
     auto node = com::Node::create();
     if (!node.has_value()) {
         print_error(k_tag, "com::Node::create failed");
@@ -77,6 +90,7 @@ int main(int argc, char* argv[]) {
     }
     install_shared_node(*node);
 
+    // Heap-only Infrastructure: create it first, initialize it after settings.
     auto created = app::make_infrastructure<Policy, 256, 8>();
     if (!created.has_value()) {
         print_error(k_tag, "make_infrastructure failed");
@@ -102,6 +116,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // The receiver records from the run-loop thread and the metrics harvester
+    // reads from its own thread, hence MultiThreaded/Readable/ResetOnRead.
     const auto meter = infra->meter("receiver", "1.0");
     if (!meter.has_value()) {
         static_cast<void>(infra->shutdown());
@@ -124,6 +140,8 @@ int main(int argc, char* argv[]) {
         return fail_status(k_tag, "Infrastructure::tracer_for", tracer);
     }
 
+    // The user header carries the producer's trace context; the shared receive
+    // loop copies it into the current context before starting its consumer span.
     const auto service = com::ServiceName::create(std::string(k_vector_service).c_str());
     if (!service.has_value()) {
         static_cast<void>(infra->shutdown());
@@ -146,6 +164,8 @@ int main(int argc, char* argv[]) {
         return fail_status(k_tag, "com::EventListener::create", vector_event);
     }
 
+    // Readiness, checkpoints and Function Group state all travel over this one
+    // link; report_ready() releases the EM's dependency-ordered launch gate.
     auto link_result =
         PlatformLink::create(*node, k_app_name, k_checkpoint_service, k_health_service);
     if (!link_result.has_value()) {
@@ -159,10 +179,13 @@ int main(int argc, char* argv[]) {
     const auto deadline = run_forever ? std::chrono::steady_clock::time_point::max()
                                       : start + std::chrono::seconds{worker_seconds};
 
+    // crash_at = time_point::max() and crash_due = nullptr: this receiver never
+    // self-terminates, unlike the flaky variant.
     const app::InfrastructureStopReason reason = run_receiver_loop(
         *infra, *subscriber, link, *tracer, *counter, *latency, deadline,
         std::chrono::steady_clock::time_point::max(), nullptr, &*vector_event, spin);
 
+    // Normal drain path: tracing -> metrics -> logger, then detach the time base.
     const core::Status shutdown_status = infra->shutdown();
     if (!shutdown_status) {
         return fail_status(k_tag, "Infrastructure::shutdown", shutdown_status);

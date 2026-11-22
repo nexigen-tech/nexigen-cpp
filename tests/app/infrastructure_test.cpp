@@ -256,6 +256,35 @@ void test_infrastructure_signals() {
     NX_CHECK(term_reason == app::InfrastructureStopReason::Sigterm);
     NX_CHECK(term_app->shutdown().has_value());
     term_raiser.join();
+
+    auto hup_app = make_test_infra<TestPolicy>();
+    NX_CHECK(hup_app != nullptr);
+    if (!hup_app) {
+        return;
+    }
+    NX_CHECK(hup_app->initialize(app::Settings{}).has_value());
+    g_log_lines.clear();
+    std::atomic<bool> hup_running{false};
+    std::jthread hup_raiser{[&hup_running] {
+        while (!hup_running.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        }
+        static_cast<void>(::kill(::getpid(), SIGHUP));
+    }};
+    const app::InfrastructureStopReason hup_reason = hup_app->run([&hup_running] {
+        hup_running.store(true, std::memory_order_release);
+        std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    });
+    NX_CHECK(hup_reason == app::InfrastructureStopReason::Sighup);
+    NX_CHECK(hup_app->shutdown().has_value());
+    hup_raiser.join();
+    int hup_logged = 0;
+    for (const std::string& line : g_log_lines) {
+        if (line.find("shutdown reason: sighup (1)") != std::string::npos) {
+            ++hup_logged;
+        }
+    }
+    NX_CHECK(hup_logged == 1);
 }
 
 void test_infrastructure_tick_allocation() {
@@ -474,7 +503,8 @@ void test_infrastructure_stop_and_mask() {
         sigemptyset(&current);
         if (::pthread_sigmask(SIG_BLOCK, nullptr, &current) == 0) {
             both_blocked.store(::sigismember(&current, SIGINT) == 1 &&
-                                   ::sigismember(&current, SIGTERM) == 1,
+                                   ::sigismember(&current, SIGTERM) == 1 &&
+                                   ::sigismember(&current, SIGHUP) == 1,
                                std::memory_order_release);
         }
     }};

@@ -28,6 +28,12 @@ static_assert(app::InfrastructurePolicy<app::policies::NullPolicy>);
 
 namespace {
 
+const app::TelemetryIdentity& policy_identity() {
+    static const app::TelemetryIdentity identity{
+        "policy", nexigen::core::AppId::from_literal("POL")};
+    return identity;
+}
+
 std::string read_file(const fs::path& path) {
     std::ifstream in{path};
     return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
@@ -86,21 +92,21 @@ void test_file_policy_rejects_invalid_settings() {
     log_settings.options.spsc_ring_buffer_capacity = 1U << 20U;
     std::optional<app::policies::FilePolicy::Logger> logger;
     const core::Status capacity =
-        app::policies::FilePolicy::emplace_logger(logger, log_settings, "policy");
+        app::policies::FilePolicy::emplace_logger(logger, log_settings, policy_identity());
     NX_CHECK(!capacity.has_value());
     NX_CHECK(capacity.error() == core::ErrorCode::InvalidArgument);
 
     metrics::Settings metrics_settings{};
     std::optional<app::policies::FilePolicy::MetricsSink> metric_sink;
     const core::Status metrics =
-        app::policies::FilePolicy::emplace_metrics_sink(metric_sink, metrics_settings, "policy");
+        app::policies::FilePolicy::emplace_metrics_sink(metric_sink, metrics_settings, policy_identity());
     NX_CHECK(!metrics.has_value());
     NX_CHECK(metrics.error() == core::ErrorCode::InvalidArgument);
 
     tracing::Settings tracing_settings{};
     std::optional<app::policies::FilePolicy::TraceSink> trace_sink;
     const core::Status traces =
-        app::policies::FilePolicy::emplace_trace_sink(trace_sink, tracing_settings, "policy");
+        app::policies::FilePolicy::emplace_trace_sink(trace_sink, tracing_settings, policy_identity());
     NX_CHECK(!traces.has_value());
     NX_CHECK(traces.error() == core::ErrorCode::InvalidArgument);
 }
@@ -115,7 +121,7 @@ void test_file_policy_writes_three_streams() {
     logging::Settings log_settings{};
     log_settings.options.log_root_directory = root.string();
     std::optional<app::policies::FilePolicy::Logger> logger;
-    NX_CHECK(app::policies::FilePolicy::emplace_logger(logger, log_settings, "policy").has_value());
+    NX_CHECK(app::policies::FilePolicy::emplace_logger(logger, log_settings, policy_identity()).has_value());
     NX_CHECK(logger.has_value());
     if (!logger.has_value()) {
         return;
@@ -132,7 +138,7 @@ void test_file_policy_writes_three_streams() {
     metrics_settings.sink.path = (root / "metrics.jsonl").string();
     std::optional<app::policies::FilePolicy::MetricsSink> metric_sink;
     NX_CHECK(
-        app::policies::FilePolicy::emplace_metrics_sink(metric_sink, metrics_settings, "policy")
+        app::policies::FilePolicy::emplace_metrics_sink(metric_sink, metrics_settings, policy_identity())
             .has_value());
     NX_CHECK(metric_sink.has_value());
     NX_CHECK(fs::exists(root / "metrics.jsonl"));
@@ -153,7 +159,7 @@ void test_file_policy_writes_three_streams() {
     tracing::Settings tracing_settings{};
     tracing_settings.sink.path = (root / "traces.jsonl").string();
     std::optional<app::policies::FilePolicy::TraceSink> trace_sink;
-    NX_CHECK(app::policies::FilePolicy::emplace_trace_sink(trace_sink, tracing_settings, "policy")
+    NX_CHECK(app::policies::FilePolicy::emplace_trace_sink(trace_sink, tracing_settings, policy_identity())
                  .has_value());
     NX_CHECK(trace_sink.has_value());
     if (trace_sink.has_value()) {
@@ -194,12 +200,12 @@ void test_null_policy_has_no_output() {
     std::optional<app::policies::NullPolicy::MetricsSink> metric_sink;
     std::optional<app::policies::NullPolicy::TraceSink> trace_sink;
     const bool logger_ok =
-        app::policies::NullPolicy::emplace_logger(logger, log_settings, "policy").has_value();
+        app::policies::NullPolicy::emplace_logger(logger, log_settings, policy_identity()).has_value();
     const bool metrics_ok =
-        app::policies::NullPolicy::emplace_metrics_sink(metric_sink, metrics_settings, "policy")
+        app::policies::NullPolicy::emplace_metrics_sink(metric_sink, metrics_settings, policy_identity())
             .has_value();
     const bool traces_ok =
-        app::policies::NullPolicy::emplace_trace_sink(trace_sink, tracing_settings, "policy")
+        app::policies::NullPolicy::emplace_trace_sink(trace_sink, tracing_settings, policy_identity())
             .has_value();
     if (logger.has_value()) {
         logger->info("this must not be written");

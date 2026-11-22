@@ -408,6 +408,63 @@ bool publish_recovery(com::Publisher<sm::RecoveryNotification>& publisher,
     return notifier.notify().has_value();
 }
 
+void test_session_rejects_unknown_version() {
+    E2eContext context = make_e2e_context("badver", false);
+
+    auto test_node = com::Node::create();
+    NX_CHECK(test_node.has_value());
+    if (!test_node.has_value()) {
+        return;
+    }
+
+    tdetail::TraceDaemonSession session{context.config};
+    NX_CHECK(session.start().has_value());
+    if (!session.started()) {
+        return;
+    }
+
+    const auto service = com::ServiceName::create(context.config.service_name.c_str());
+    NX_CHECK(service.has_value());
+    if (!service.has_value()) {
+        session.stop();
+        return;
+    }
+    auto publisher = com::Publisher<SpanFrame, com::TransportHeader>::create(*test_node, *service);
+    NX_CHECK(publisher.has_value());
+    if (!publisher.has_value()) {
+        session.stop();
+        return;
+    }
+
+    const auto event_name =
+        com::ServiceName::create((context.config.service_name + "Event").c_str());
+    NX_CHECK(event_name.has_value());
+    auto notifier = event_name ? com::EventNotifier::create(*test_node, *event_name)
+                               : com::Result<com::EventNotifier>{
+                                     std::unexpected(com::Error::Unknown)};
+
+    SpanFrame frame = make_frame(1U, 1000U, "bad version");
+    frame.version = 1U;
+    com::TransportHeader header{};
+    std::memcpy(header.app_id, "BADV", 4U);
+    header.pid = static_cast<std::uint32_t>(::getpid());
+    header.sequence = 1U;
+    NX_CHECK(publisher->send_copy(frame, header).has_value());
+    if (notifier.has_value()) {
+        static_cast<void>(notifier->notify());
+    }
+
+    for (int i = 0; i < 20; ++i) {
+        if (!session.wait_and_process().has_value()) {
+            break;
+        }
+    }
+    NX_CHECK(session.spans_received() == 0U);
+    NX_CHECK(session.ring()->count() == 0U);
+
+    session.stop();
+}
+
 void test_session_e2e() {
     E2eContext context = make_e2e_context("e2e", true);
     const TraceDaemonConfig& config = context.config;
@@ -445,7 +502,7 @@ void test_session_e2e() {
 
     tracing::Iceoryx2TraceSinkConfig sink_config{};
     sink_config.service_name = config.service_name;
-    sink_config.app_id = "TEST";
+    sink_config.app_id = nexigen::core::AppId::from_literal("TEST");
     sink_config.subscriber_max_buffer_depth = config.subscriber_max_buffer_depth;
     tracing::Iceoryx2TraceSink sink{sink_config, &*test_node};
     NX_CHECK(sink.start().has_value());
@@ -657,6 +714,7 @@ int main() {
     run_suite("span_ring", test_ring);
     run_suite("trace_dump", test_dump);
     run_suite("naming_retention", test_naming_and_pruning);
+    run_suite("session_bad_version", test_session_rejects_unknown_version);
     run_suite("session_e2e", test_session_e2e);
     run_suite("trigger_disabled", test_trigger_disabled);
     run_suite("mlock_best_effort", test_mlock_best_effort);

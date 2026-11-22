@@ -86,6 +86,17 @@ void test_log_frame() {
 
     NX_CHECK(frame.app_id_text() == "LOGD");
     NX_CHECK(frame.payload_text() == "hello");
+    NX_CHECK(frame.version == logging::LogFrame::format_version);
+    static_assert(sizeof(frame.payload) == 211U);
+
+    logging::LogFrame full{};
+    std::memcpy(full.app_id, "ABCDEFGHIJKLMNOP", 16U);
+    NX_CHECK(full.app_id_text() == "ABCDEFGHIJKLMNOP");
+    nlohmann::json full_json;
+    logging::to_json(full_json, full);
+    logging::LogFrame full_back;
+    logging::from_json(full_json, full_back);
+    NX_CHECK(full_back.app_id_text() == "ABCDEFGHIJKLMNOP");
 
     nlohmann::json j;
     logging::to_json(j, frame);
@@ -121,7 +132,7 @@ void test_roundtrip() {
     logging::Iceoryx2Logger<> logger;
     logging::Iceoryx2LoggerConfig cfg;
     cfg.service_name = "Nexigen/Test/LogRoundTrip";
-    cfg.app_id = "TEST";
+    cfg.app_id = nexigen::core::AppId::from_literal("TEST");
     NX_CHECK(logger.initialize(cfg).has_value());
     wait_writer_started(logger);
     NX_CHECK(logger.writer_started());
@@ -226,7 +237,7 @@ void test_zero_subscriber() {
     logging::Iceoryx2Logger<> logger;
     logging::Iceoryx2LoggerConfig cfg;
     cfg.service_name = "Nexigen/Test/LogNoSub";
-    cfg.app_id = "NONE";
+    cfg.app_id = nexigen::core::AppId::from_literal("NONE");
     NX_CHECK(logger.initialize(cfg).has_value());
     wait_writer_started(logger);
     NX_CHECK(logger.writer_started());

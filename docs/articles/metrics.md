@@ -9,7 +9,7 @@
 - `Meter` — фабрика инструментов и владелец идентичности метрики.
 - `MetricProvider` — реестр, фабричный корень и фоновый harvester: один выровненный блок памяти на арены, таблицы слотов и буфер сбора; поток применяет `ThreadSpec` до первой партии.
 - Sinks: `ConsoleMetricSink`, `JsonFileMetricSink`, `Iceoryx2MetricSink`, `NullMetricSink`, `CompositeMetricSink`; тип-стёртая привязка через указатели на функции, без виртуальности и RTTI.
-- `MetricFrame` — фиксированный кросс-процессный кадр; `MetricDaemonConfig` и `metrics_settings` — конфигурация демона и загрузчик настроек.
+- `MetricFrame` — фиксированный кросс-процессный кадр с 16-байтовым `app_id`; `MetricDaemonConfig` и `metrics_settings` — конфигурация демона и загрузчик настроек.
 - Холодный рендеринг Prometheus и запись JSONL-истории.
 
 ## Ключевые типы

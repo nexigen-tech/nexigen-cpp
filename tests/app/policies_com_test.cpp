@@ -35,8 +35,25 @@ struct FailingNodeProvider {
 };
 using FailingPolicy = app::policies::Iceoryx2Policy<'F', 'A', 'I', 'L', FailingNodeProvider>;
 
+const app::TelemetryIdentity& policy_identity() {
+    static const app::TelemetryIdentity identity{
+        "policy-com", nexigen::core::AppId::from_literal("CN_LOOP_1_FULL16")};
+    return identity;
+}
+
 static_assert(app::InfrastructurePolicy<Policy>);
 static_assert(app::InfrastructurePolicy<FailingPolicy>);
+
+void test_effective_id() {
+    const app::TelemetryIdentity fallback{"name", nexigen::core::AppId{}};
+    NX_CHECK(Policy::effective_id(fallback).text() == "PALT");
+
+    const app::TelemetryIdentity runtime{"name", nexigen::core::AppId::from_literal("CN_LOOP_1")};
+    NX_CHECK(Policy::effective_id(runtime).text() == "CN_LOOP_1");
+
+    const app::TelemetryIdentity full{"name", nexigen::core::AppId::from_literal("ABCDEFGHIJKLMNOP")};
+    NX_CHECK(Policy::effective_id(full).size() == 16);
+}
 
 void test_iceoryx2_diagnostics() {
     Policy policy;
@@ -79,7 +96,7 @@ void test_iceoryx2_log_frame() {
     logging::Settings settings{};
     settings.options.initial_log_level = core::LogLevel::Info;
     std::optional<Policy::Logger> logger;
-    NX_CHECK(Policy::emplace_logger(logger, settings, "policy-com").has_value());
+    NX_CHECK(Policy::emplace_logger(logger, settings, policy_identity()).has_value());
     NX_CHECK(logger.has_value());
     if (!logger.has_value()) {
         return;
@@ -105,7 +122,7 @@ void test_iceoryx2_log_frame() {
     }
     NX_CHECK(received_frame.has_value());
     if (received_frame.has_value()) {
-        NX_CHECK(received_frame->payload().app_id_text() == "PALT");
+        NX_CHECK(received_frame->payload().app_id_text() == "CN_LOOP_1_FULL16");
         NX_CHECK(received_frame->payload().payload_text() == "com policy 42");
         NX_CHECK(received_frame->payload().log_level == core::LogLevel::Info);
     }
@@ -114,14 +131,14 @@ void test_iceoryx2_log_frame() {
 void test_iceoryx2_node_failure() {
     std::optional<FailingPolicy::MetricsSink> metric_sink;
     const core::Status metric_status =
-        FailingPolicy::emplace_metrics_sink(metric_sink, metrics::Settings{}, "policy-com");
+        FailingPolicy::emplace_metrics_sink(metric_sink, metrics::Settings{}, policy_identity());
     NX_CHECK(!metric_status.has_value());
     NX_CHECK(metric_status.error() == core::ErrorCode::SystemError);
     NX_CHECK(!metric_sink.has_value());
 
     std::optional<FailingPolicy::TraceSink> trace_sink;
     const core::Status trace_status =
-        FailingPolicy::emplace_trace_sink(trace_sink, tracing::Settings{}, "policy-com");
+        FailingPolicy::emplace_trace_sink(trace_sink, tracing::Settings{}, policy_identity());
     NX_CHECK(!trace_status.has_value());
     NX_CHECK(trace_status.error() == core::ErrorCode::SystemError);
     NX_CHECK(!trace_sink.has_value());
@@ -129,7 +146,7 @@ void test_iceoryx2_node_failure() {
 
 void test_iceoryx2_metric_frame() {
     std::optional<Policy::MetricsSink> sink;
-    NX_CHECK(Policy::emplace_metrics_sink(sink, metrics::Settings{}, "policy-com").has_value());
+    NX_CHECK(Policy::emplace_metrics_sink(sink, metrics::Settings{}, policy_identity()).has_value());
     NX_CHECK(sink.has_value());
     if (!sink.has_value()) return;
 
@@ -165,7 +182,7 @@ void test_iceoryx2_metric_frame() {
     }
     NX_CHECK(received_frame.has_value());
     if (received_frame.has_value()) {
-        NX_CHECK(received_frame->payload().app_id_text() == "PALT");
+        NX_CHECK(received_frame->payload().app_id_text() == "CN_LOOP_1_FULL16");
         NX_CHECK(received_frame->payload().record.kind == metrics::MetricKind::Counter);
         NX_CHECK(received_frame->payload().record.scalar.counter == 42U);
     }
@@ -173,7 +190,7 @@ void test_iceoryx2_metric_frame() {
 
 void test_iceoryx2_trace_frame() {
     std::optional<Policy::TraceSink> sink;
-    NX_CHECK(Policy::emplace_trace_sink(sink, tracing::Settings{}, "policy-com").has_value());
+    NX_CHECK(Policy::emplace_trace_sink(sink, tracing::Settings{}, policy_identity()).has_value());
     NX_CHECK(sink.has_value());
     if (!sink.has_value()) return;
     NX_CHECK(sink->start().has_value());
@@ -212,7 +229,7 @@ void test_iceoryx2_trace_frame() {
     }
     NX_CHECK(received_frame.has_value());
     if (received_frame.has_value()) {
-        NX_CHECK(received_frame->payload().app_id_text() == "PALT");
+        NX_CHECK(received_frame->payload().app_id_text() == "CN_LOOP_1_FULL16");
         NX_CHECK(received_frame->payload().name_view() == "policy span");
     }
 }
@@ -220,6 +237,7 @@ void test_iceoryx2_trace_frame() {
 } // namespace
 
 int main() {
+    run_suite("iceoryx2_policy_effective_id", test_effective_id);
     run_suite("iceoryx2_policy_diagnostics", test_iceoryx2_diagnostics);
     run_suite("iceoryx2_policy_log_frame", test_iceoryx2_log_frame);
     run_suite("iceoryx2_policy_node_failure", test_iceoryx2_node_failure);

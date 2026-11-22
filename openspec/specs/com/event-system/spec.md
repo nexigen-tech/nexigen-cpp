@@ -8,17 +8,17 @@ Defines 1:N event delivery over iceoryx2 with transport sequence integrity, loss
 
 ### Requirement: Event header and timestamp provenance
 
-`EventHeader` SHALL be a 72-byte, trivially copyable, 8-byte-aligned value carrying transport
+`EventHeader` SHALL be an 80-byte, trivially copyable, 8-byte-aligned value carrying transport
 sequence, the event instant in its native time domain, the domain identifier, the domain epoch, the
 canonical projection when one is available, producer epoch, host ingest time, optional hardware
 sequence and raw ticks, canonical event code, optional raw hardware event code, presence flags, and
-a four-byte application code. Native hardware time SHALL be preserved as raw ticks;
+a 16-byte application code. Native hardware time SHALL be preserved as raw ticks;
 `ingest_timestamp_ns` SHALL be host monotonic raw.
 
 #### Scenario: Header layout is pinned
 
 - **WHEN** the event-system headers are compiled
-- **THEN** `EventHeader` is exactly 72 bytes, 8-byte aligned, and trivially copyable
+- **THEN** `EventHeader` is exactly 80 bytes, 8-byte aligned, and trivially copyable
 
 #### Scenario: Optional hardware fields are explicit
 
@@ -45,8 +45,14 @@ a four-byte application code. Native hardware time SHALL be preserved as raw tic
 
 #### Scenario: Application code travels with the header
 
-- **WHEN** an event is published with application code `LIDR`
-- **THEN** the consumer reads `LIDR` from `app_id_text()` and an unstamped producer reads as empty
+- **WHEN** an event is published with application code `CN_LOOP_1`
+- **THEN** the consumer reads `CN_LOOP_1` from `app_id_text()` and an unstamped producer reads as
+  empty
+
+#### Scenario: Sixteen-byte identifier travels whole
+
+- **WHEN** an event is published with a 16-byte application code
+- **THEN** the consumer reads all 16 bytes without truncation
 
 ### Requirement: Event payload contract
 

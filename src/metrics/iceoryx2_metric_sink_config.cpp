@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 
+#include <nexigen/core/app_id.hpp>
 #include <nexigen/metrics/iceoryx2_metric_sink_config.hpp>
 
 namespace nexigen::metrics {
@@ -30,7 +31,12 @@ void from_json(const nlohmann::json& j, Iceoryx2MetricSinkConfig& out) noexcept 
     Iceoryx2MetricSinkConfig parsed{};
     const auto app_it = j.find("app_id");
     if (app_it != j.end() && app_it->is_string()) {
-        parsed.app_id = app_it->get<std::string>();
+        const std::string text = app_it->get<std::string>();
+        if (auto id = core::AppId::create(text); id) {
+            parsed.app_id = *id;
+        } else {
+            parsed.app_id = core::AppId{};
+        }
     }
     const auto svc_it = j.find("service_name");
     if (svc_it != j.end() && svc_it->is_string()) {

@@ -22,6 +22,9 @@ struct CommandLineOptions {
     std::string global_settings_dir{}; ///< Absolute global settings directory ("" = absent).
     std::string local_settings_dir{};  ///< Relative local settings directory ("" = absent).
     std::string app_name{};            ///< Telemetry application name ("" = absent).
+    /// Telemetry identifier text ("" = absent). Validated into
+    /// `core::AppId` when applied to `Settings`.
+    std::string app_id{};
     std::optional<core::LogLevel> log_level{}; ///< CLI log-level override; empty = keep loaded.
     bool help{false};                          ///< `-h`/`--help` was supplied.
 
@@ -43,7 +46,8 @@ struct CommandLineOptions {
 }
 /// @brief Write the parsed options as JSON (cold path).
 ///
-/// @param j Output JSON object with every option field, including `app_name`.
+/// @param j Output JSON object with every option field, including `app_name`
+///        and `app_id`.
 /// @param options Parsed options to serialize.
 /// @note Spec `app/command-line`, requirement "App name round-trips through
 ///       serialization"; JSON only (project mandate 10).

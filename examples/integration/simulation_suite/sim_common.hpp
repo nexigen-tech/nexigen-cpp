@@ -113,6 +113,8 @@ inline constexpr std::string_view k_chrono_settings = R"({
 /// @param name Variable name.
 /// @return The value, or `std::nullopt` when unset.
 [[nodiscard]] inline std::optional<std::string_view> env(std::string_view name) {
+    // getenv() needs a NUL-terminated key; the view itself usually points at a
+    // literal, but the copy keeps the helper safe for any caller.
     const std::string owned(name);
     const char* value = std::getenv(owned.c_str());
     if (value == nullptr) {
@@ -262,6 +264,10 @@ inline int fail_status(std::string_view tag, std::string_view action, const Resu
 /// @param tag Executable tag.
 /// @return `true` when every settings file was written.
 [[nodiscard]] inline bool prepare_standalone(std::string_view tag) {
+    // CTest starts each binary without a suite manifest. Materialise a private
+    // settings directory and a clean output directory so the smoke run behaves
+    // like a normal application instead of failing the "one settings source"
+    // rule. The directory is deliberately relative to the CTest working dir.
     std::error_code ec;
     std::filesystem::remove_all(std::filesystem::path(k_standalone_output_dir), ec);
     std::filesystem::create_directories(std::filesystem::path(k_standalone_output_dir), ec);
@@ -323,6 +329,9 @@ inline int fail_status(std::string_view tag, std::string_view action, const Resu
         }
     }
     if (!help_requested && !has_directory_option(args)) {
+        // Standalone mode: generate defaults and feed them through the normal
+        // CLI path, so the example exercises the same settings loader as a
+        // suite-launched application.
         if (!prepare_standalone(tag)) {
             return 1;
         }
@@ -360,6 +369,10 @@ template <class Infrastructure>
 [[nodiscard]] core::Status initialize_infrastructure(Infrastructure& infra,
                                                      const app::CommandLineOptions& options,
                                                      app::Settings& loaded, std::string_view tag) {
+    // The example owns a local time-base segment instead of requiring a
+    // separate nexigen-chronod process; the same segment is installed once for
+    // the whole smoke run. In a real deployment this would be the daemon's
+    // published segment name.
     static nexigen::examples::LocalTimeBase time_base{"sim"};
     const core::Status loaded_status = app::load_app_settings(options, loaded);
     loaded.chrono.segment_name = time_base.name();
@@ -428,13 +441,14 @@ inline void install_shared_node(com::Node& node) noexcept {
 
 /// @brief Telemetry policy shared by the three applications.
 ///
-/// The four characters are the application tag copied into every log, metric,
-/// and trace frame, so the daemons can attribute a record to one executable.
+/// The manifest `app_id` is authoritative in suite mode and is copied into every
+/// log, metric, and trace frame. The four characters are the standalone fallback
+/// used only when the application is started without `--app-id`.
 ///
-/// @tparam A First tag character.
-/// @tparam B Second tag character.
-/// @tparam C Third tag character.
-/// @tparam D Fourth tag character.
+/// @tparam A First fallback tag character.
+/// @tparam B Second fallback tag character.
+/// @tparam C Third fallback tag character.
+/// @tparam D Fourth fallback tag character.
 template <char A, char B, char C, char D> struct SimTelemetryPolicy {
     /// Three-argument records (index, latency, trace id) need a wider inline blob
     /// than the 128-byte default.
@@ -443,16 +457,17 @@ template <char A, char B, char C, char D> struct SimTelemetryPolicy {
     using TraceSink = tracing::Iceoryx2TraceSink;
     using Sink = chrono::NullSink;
 
-    /// @brief Four-character application tag.
+    /// @brief Standalone fallback tag; the manifest `app_id` wins when set.
     static constexpr char k_tag[5] = {A, B, C, D, '\0'};
 
     /// @brief Emplace the iceoryx2 logger.
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Settings& settings,
-                                       std::string_view) noexcept {
+                                       const app::TelemetryIdentity& identity) noexcept {
         logging::Iceoryx2LoggerConfig config{};
         config.service_name = "Nexigen/Log/nexigen";
-        config.app_id = std::string(k_tag, 4);
+        config.app_id = identity.app_id.empty() ? core::AppId::from_literal(k_tag)
+                                              : identity.app_id;
         config.initial_level = settings.options.initial_log_level;
         config.worker_thread = settings.options.worker_thread;
         config.worker_poll_interval_us = settings.options.worker_poll_interval_us;
@@ -462,28 +477,32 @@ template <char A, char B, char C, char D> struct SimTelemetryPolicy {
 
     /// @brief Start the iceoryx2 metric sink.
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&,
+                                             const app::TelemetryIdentity& identity) noexcept {
         com::Node* node = telemetry_node();
         if (node == nullptr) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         metrics::Iceoryx2MetricSinkConfig config{};
         config.service_name = "nexigen/metrics/stream";
-        config.app_id = std::string(k_tag, 4);
+        config.app_id = identity.app_id.empty() ? core::AppId::from_literal(k_tag)
+                                              : identity.app_id;
         out.emplace(config, node);
         return out->start();
     }
 
     /// @brief Emplace the iceoryx2 trace sink.
-    static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+    static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
+                                           const tracing::Settings&,
+                                           const app::TelemetryIdentity& identity) noexcept {
         com::Node* node = telemetry_node();
         if (node == nullptr) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
         tracing::Iceoryx2TraceSinkConfig config{};
         config.service_name = "nexigen/trace/stream";
-        config.app_id = std::string(k_tag, 4);
+        config.app_id = identity.app_id.empty() ? core::AppId::from_literal(k_tag)
+                                              : identity.app_id;
         out.emplace(config, node);
         return {};
     }
@@ -557,6 +576,10 @@ public:
     /// @note Spec `examples/simulation-suite`, requirement "Simulation Function
     ///       Group with three applications".
     [[nodiscard]] std::string_view group_state() noexcept {
+        // The Field stores a fixed-size name; copy it into the link's buffer so
+        // the returned view stays valid after the sample is released. An
+        // unpublished group yields an empty view, which the caller treats as
+        // the standalone "no State Manager yet" case.
         auto state = entity_.current_group_state(k_function_group);
         if (!state || !state->has_value()) {
             return {};

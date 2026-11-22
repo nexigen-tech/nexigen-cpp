@@ -6,11 +6,24 @@
 
 ## Ответственность
 
-- Разбор командной строки: `parse_command_line`, `CommandLineOptions`, `CommandLineError`, `CommandLineDiagnostic`. `-h/--help` короткозамыкает разбор.
+- Разбор командной строки: `parse_command_line`, `CommandLineOptions`, `CommandLineError`, `CommandLineDiagnostic`. `-h/--help` короткозамыкает разбор. `-an/--app-name` задаёт длинное имя, `-ai/--app-id` — 16-байтовый код для кадров; EM передаёт оба ребёнку.
 - Слияние настроек: `app::Settings` и `AppSettingsPaths` собирают logging/metrics/tracing/chrono из global/local JSON.
 - Идентичность запуска: `RunIdentity` читает `NEXIGEN_RUN_ID`, `NEXIGEN_EXEC_DIR`, `NEXIGEN_INSTANCE_ID`, `NEXIGEN_INSTANCE_DIR`; `telemetry_layout`/`TelemetryPaths` отображают её в пути metrics/traces/chrono.
-- `Infrastructure<Policy>` — heap-only сервис, создаваемый только через `make_infrastructure<Policy>()`. Владеет логгером, метриками, трассировкой и chrono, монопольно владеет `SIGINT`/`SIGTERM` через `signalfd`, выполняет `run(tick)`, фиксирует причину остановки и освобождает ресурсы в обратном порядке.
-- `InfrastructureStopReason` — причина остановки: запрос, сигнал, потеря time base.
+- `Infrastructure<Policy>` — heap-only сервис, создаваемый только через `make_infrastructure<Policy>()`. Владеет логгером, метриками, трассировкой и chrono, монопольно владеет `SIGINT`/`SIGTERM`/`SIGHUP` через `signalfd`, выполняет `run(tick)`, фиксирует причину остановки и освобождает ресурсы в обратном порядке.
+- `app::App<Policy>` — фасад для минимальных приложений: `create`/`run`/`shutdown`, метрики одной строкой, один вход и опциональный выход, накопление диагностики и обязательный `app_id`.
+- `InfrastructureStopReason` — причина остановки: запрос, `SIGINT`/`SIGTERM`/`SIGHUP`, потеря time base.
+- `app::exit_code(reason)` — единая таблица кодов выхода: штатные причины дают 0, потеря time base — 75, `None` — 1.
+
+### Причины остановки и коды выхода
+
+| `InfrastructureStopReason` | Источник | `app::exit_code` |
+|---|---|---|
+| `Requested` | `Infrastructure::request_stop()` | 0 |
+| `Sigint` | `SIGINT` через `signalfd` | 0 |
+| `Sigterm` | `SIGTERM` через `signalfd` | 0 |
+| `Sighup` | `SIGHUP` через `signalfd` | 0 |
+| `TimeBaseLost` | внешняя база времени пропала | 75 |
+| `None` | `run()` ещё не завершился | 1 |
 - Диагностика переходов: `DiagnosticBinding` + `DiagnosticForwarder<Logger>`; до появления логгера — `BootstrapDiagnostics` в stderr.
 
 ## Ключевые типы
@@ -39,17 +52,19 @@ struct FilePolicy {
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Settings& settings,
-                                       std::string_view app_name) noexcept;
+                                       const TelemetryIdentity& identity) noexcept;
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
                                              const metrics::Settings& settings,
-                                             std::string_view app_name) noexcept;
+                                             const TelemetryIdentity& identity) noexcept;
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
                                            const tracing::Settings& settings,
-                                           std::string_view app_name) noexcept;
+                                           const TelemetryIdentity& identity) noexcept;
 };
 ```
 
 Политика не хранит состояние: она вызывается один раз на инициализации и конструирует компоненты в `std::optional`. Именно здесь приложение выбирает, куда писать: файл, консоль, iceoryx2-кадры, композит или null.
+
+`TelemetryIdentity` несёт два поля: длинное `app_name` для файловых стоков и короткий `core::AppId` для кадров. `Settings::app_id` заполняется из `-ai/--app-id`; EM передаёт его ребёнку из манифеста. Если id не задан, `Iceoryx2Policy` использует compile-time tag `A..D` как fallback. Валидный id — 1–16 символов `A-Z`, `a-z`, `0-9`, `_`, `-`.
 
 ```cpp
 auto created = nexigen::app::make_infrastructure<FilePolicy, 256, 8>();
@@ -94,11 +109,52 @@ if (!infra->shutdown()) {
 | `app::policies::NullPolicy` | никуда (бенчмарки, тесты) | `nexigen::app` |
 | `app::policies::Iceoryx2Policy<A,B,C,D>` | всё в iceoryx2: `LogFrame`, `MetricFrame`, `SpanFrame` | `nexigen::app` + `nexigen::logging_com`, `nexigen::metrics_com`, `nexigen::tracing_com`, `nexigen::com` |
 
-Базовые политики подключаются через `<nexigen/app/policies/policies.hpp>`. Iceoryx2-политика — отдельный заголовок `<nexigen/app/policies/iceoryx2_policy.hpp>`, потому что требует `NEXIGEN_ENABLE_COM=ON`; она держит один общий `com::Node` для metric/trace-sink'ов, а логгер создаёт свой node сам. Четыре template-символа — application tag, который попадает в каждый кадр.
+Базовые политики подключаются через `<nexigen/app/policies/policies.hpp>`. Iceoryx2-политика — отдельный заголовок `<nexigen/app/policies/iceoryx2_policy.hpp>`, потому что требует `NEXIGEN_ENABLE_COM=ON`; она держит один общий `com::Node` для metric/trace-sink'ов, а логгер создаёт свой node сам. Эффективный `app_id` берётся из runtime-настроек; четыре template-символа — только fallback для standalone-приложений и тестов.
 
 `FilePolicy` требует, чтобы в `app::Settings` были заданы `logging.options.log_root_directory`, `metrics.sink.path` и `tracing.sink.path`; пустой путь — ошибка инициализации соответствующего sink'а. `ConsolePolicy` и `NullPolicy` работают с настройками по умолчанию.
 
 Примеры: `examples/app/ex_app_wait_loop.cpp` — console, `examples/app/ex_app_wait_loop_iceoryx2.cpp` — все три потока в iceoryx2 (собирается при `NEXIGEN_ENABLE_COM=ON`). Контракт политик — `openspec/specs/app/policies/spec.md`. Тесты: `tests/app/policies_test.cpp` (Console/File/Null) и `tests/app/policies_com_test.cpp` (Iceoryx2, log/metric/trace frames). У `Iceoryx2Policy` есть необязательный `NodeProvider` (по умолчанию `SharedNodeProvider` с process-wide node); тест подставляет провайдер, возвращающий `nullptr`, и проверяет `SystemError`.
+
+## `App<Policy>`: минимальное приложение
+
+`App<Policy>` собирает типовой cold-path сценарий: разбор опций, настройки по умолчанию или из каталога, time base (внешняя или явно встроенная), `Infrastructure`, метрики, один вход и опциональный выход. `run()` не стартует, если хотя бы один объявленный instrument или port не создался: ошибки копятся в `diagnostics()` и возвращаются как `InvalidArgument`.
+
+```cpp
+using Policy = nexigen::app::policies::Iceoryx2Policy<'Q', 'S', 'T', 'R'>;
+auto created = nexigen::app::App<Policy>::create(
+    argc, argv, "quickstart", nexigen::app::TimeBaseMode::Embedded);
+if (!created) return 1;
+if (!*created) return 0; // --help
+auto app = std::move(*created);
+auto processed = app->counter("signals_processed");
+auto output = app->publish<Signal>("Nexigen/Example/Quickstart/Out");
+app->subscribe<Signal>("Nexigen/Example/Quickstart/In", [&](const Signal& in) {
+    static_cast<void>(output->publish_now(Signal{in.sequence, in.value * 2.0}, 0x2001U));
+    processed->inc();
+});
+const auto reason = app->run();
+const auto status = app->shutdown();
+if (!reason || !status) return 1;
+return nexigen::app::exit_code(*reason);
+```
+
+`--app-id` обязателен и приходит из `--app-id` или suite-манифеста; fallback на имя приложения убран. `Embedded` нужен только для standalone examples/tests; production использует `External` и опубликованную базу `nexigen-chronod`.
+
+Готовый пример: `examples/app/ex_app_quickstart.cpp` — тело `main` не длиннее 30 строк. Запуск:
+
+```bash
+./ex_app_quickstart --app-id QSTRT
+```
+
+Запись через `nexigen-recd`:
+
+```bash
+nexigen-recd --session-root ./recordings \
+  --service-metrics nexigen/metrics/stream \
+  --service-traces nexigen/trace/stream \
+  --event-service Nexigen/Example/Quickstart/In \
+  --event-service Nexigen/Example/Quickstart/Out
+```
 
 ## Порядок инициализации и остановки
 
@@ -110,7 +166,7 @@ if (!infra->shutdown()) {
 
 ## Сигналы
 
-`Infrastructure` блокирует `SIGINT`/`SIGTERM` до старта воркеров и создаёт `signalfd`-watcher. Только один экземпляр `Infrastructure` может быть инициализирован в процессе; второй `initialize` возвращает `ErrorCode::Conflict`. Это защищает от двух владельцев сигналов и двух наборов подсистем.
+`Infrastructure` блокирует `SIGINT`, `SIGTERM` и `SIGHUP` до старта воркеров и создаёт `signalfd`-watcher. Все три сигнала завершают приложение штатно: `run()` возвращает соответствующую причину, `shutdown()` дренирует телеметрию, а `app::exit_code` даёт 0. Потеря time base остаётся отдельным кодом 75. Только один экземпляр `Infrastructure` может быть инициализирован в процессе; второй `initialize` возвращает `ErrorCode::Conflict`. Это защищает от двух владельцев сигналов и двух наборов подсистем. `App` дополнительно ставит `SIGPIPE` в `SIG_IGN` на время жизни и восстанавливает прежнюю диспозицию после quiesce, чтобы запись в закрытый терминал/pipe возвращала `EPIPE`, а не убивала процесс.
 
 ## Диагностика переходов
 

@@ -61,8 +61,8 @@ Defines the reusable application lifecycle: ownership and initialization order o
 
 #### Scenario: Signal stops the loop
 
-- **WHEN** a SIGINT or SIGTERM is delivered while `run` is executing ticks
-- **THEN** the loop finishes the current tick, exits without calling the tick again, and returns `Sigint` or `Sigterm` respectively
+- **WHEN** a SIGINT, SIGTERM, or SIGHUP is delivered while `run` is executing ticks
+- **THEN** the loop finishes the current tick, exits without calling the tick again, and returns `Sigint`, `Sigterm`, or `Sighup` respectively
 
 #### Scenario: Host can request a stop
 
@@ -86,7 +86,7 @@ Defines the reusable application lifecycle: ownership and initialization order o
 #### Scenario: Shutdown reason is logged once
 
 - **WHEN** shutdown runs after any stop cause
-- **THEN** the application logger contains exactly one final record naming the reason (`requested`, `sigint`, or `sigterm`)
+- **THEN** the application logger contains exactly one final record naming the reason (`requested`, `sigint`, `sigterm`, `sighup`, or `time_base_lost`)
 
 #### Scenario: Double shutdown is harmless
 
@@ -126,6 +126,20 @@ The system SHALL block `SIGINT` and `SIGTERM` before any logging, metrics, or tr
 
 - **WHEN** logging, metric, or tracing workers are created after signal masking
 - **THEN** they inherit the blocked `SIGINT`/`SIGTERM` mask and cannot consume the signal themselves
+
+### Requirement: SIGHUP requests a graceful stop
+
+`Infrastructure` SHALL block `SIGHUP` together with `SIGINT` and `SIGTERM` before any telemetry worker starts, watch it through the same `signalfd`, and translate it into `Infrastructure_stop_reason::Sighup`. The shutdown record SHALL name `sighup`.
+
+#### Scenario: SIGHUP cannot terminate the process abruptly
+
+- **WHEN** SIGHUP is delivered after initialization
+- **THEN** the default process termination is suppressed, the watcher records `Sighup`, and the application exits through `run` → `shutdown`
+
+#### Scenario: Workers inherit the SIGHUP mask
+
+- **WHEN** logging, metric, or tracing workers are created after signal masking
+- **THEN** they inherit the blocked `SIGHUP` mask and cannot consume the signal themselves
 
 ### Requirement: Heap-only infrastructure factory
 
@@ -240,7 +254,7 @@ The system SHALL require a `Policy` with nested `Logger`, `MetricsSink`, and `Tr
 
 ### Requirement: Infrastructure stop reason is serializable
 
-`InfrastructureStopReason` SHALL provide `None`, `Requested`, `Sigint`, `Sigterm` and `TimeBaseLost` with `to_string`/`from_string` (`none`, `requested`, `sigint`, `sigterm`, `time_base_lost`), non-throwing ADL `to_json`/`from_json` under `JSON_NOEXCEPTION=1`, and a `std::formatter` specialization.
+`InfrastructureStopReason` SHALL provide `None`, `Requested`, `Sigint`, `Sigterm`, `Sighup`, and `TimeBaseLost` with `to_string`/`from_string` (`none`, `requested`, `sigint`, `sigterm`, `sighup`, `time_base_lost`), non-throwing ADL `to_json`/`from_json` under `JSON_NOEXCEPTION=1`, and a `std::formatter` specialization.
 
 #### Scenario: Reason round-trips through JSON
 
@@ -251,6 +265,11 @@ The system SHALL require a `Policy` with nested `Logger`, `MetricsSink`, and `Tr
 
 - **WHEN** `std::format("{}", InfrastructureStopReason::Sigint)` is evaluated
 - **THEN** the result is `"sigint"`
+
+#### Scenario: SIGHUP reason formats and parses
+
+- **WHEN** `InfrastructureStopReason::Sighup` is rendered with `to_string` and `std::format` and parsed back with `from_string` and JSON
+- **THEN** every representation is `sighup` and the parsed value equals the original enumerator
 
 #### Scenario: Lost time base is a distinct reason
 

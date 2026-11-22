@@ -22,7 +22,15 @@ The execution_manager SHALL fork a child process and call `setsid` in the child 
 
 ### Requirement: Child environment and CPU affinity are configurable
 
-The launch contract SHALL accept optional per-child environment entries, an optional `CpuSet`, and an application name delivered as a `--app-name` argument in the child argv. It SHALL apply the environment and affinity in the child after the inherited environment/affinity reset and before `exec`, and SHALL reject an out-of-range or duplicate CPU index with `InvalidArgument` before `fork`. Identity variables set by the execution_manager SHALL take precedence over caller-supplied environment entries; the application name SHALL be delivered through argv rather than the `NEXIGEN_APP_NAME` environment variable. ExecutionManager SHALL NOT select a scheduling policy or priority for the application.
+The launch contract SHALL accept optional per-child environment entries, an optional `CpuSet`, an
+application name delivered as a `--app-name` argument in the child argv, and an application
+identifier delivered as a `--app-id` argument in the same argv. It SHALL apply the environment and
+affinity in the child after the inherited environment/affinity reset and before `exec`, and SHALL
+reject an out-of-range or duplicate CPU index with `InvalidArgument` before `fork`. Identity
+variables set by the execution_manager SHALL take precedence over caller-supplied environment
+entries; the application name and identifier SHALL be delivered through argv rather than the
+`NEXIGEN_APP_NAME` or `NEXIGEN_APP_ID` environment variables. ExecutionManager SHALL NOT select a
+scheduling policy or priority for the application.
 
 #### Scenario: Environment entries are visible to the child
 
@@ -37,7 +45,14 @@ The launch contract SHALL accept optional per-child environment entries, an opti
 #### Scenario: Application name is passed via argv
 
 - **WHEN** the execution_manager launches a child with a resolved application name
-- **THEN** the child's argv contains `--app-name <name>` and its environment does not contain `NEXIGEN_APP_NAME`
+- **THEN** the child's argv contains `--app-name <name>` and its environment does not contain
+  `NEXIGEN_APP_NAME`
+
+#### Scenario: Application identifier is passed via argv
+
+- **WHEN** the execution_manager launches a child with a resolved identifier
+- **THEN** the child's argv contains `--app-id <id>` and its environment does not contain
+  `NEXIGEN_APP_ID`
 
 #### Scenario: CPU affinity restricts the child
 

@@ -14,6 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/app_id.hpp>
 #include <nexigen/core/detail/json_field.hpp>
 #include <nexigen/core/enum_traits.hpp>
 #include <nexigen/core/integrity/verified_file.hpp>
@@ -68,11 +69,11 @@ constexpr std::uint64_t max_delay_seconds = 86400;
 
 std::string AppSpec::to_string() const {
     return std::format(
-        "AppSpec(app={}, instance={}, command={}, function_group={}, startup_configs={}, "
-        "cpus={}, idle_timeout_s={}, impact={}, type={}, reporting={}, "
+        "AppSpec(app={}, instance={}, app_id={}, command={}, function_group={}, "
+        "startup_configs={}, cpus={}, idle_timeout_s={}, impact={}, type={}, reporting={}, "
         "global_settings_path={}, local_settings_path={}, log_level={}, uid={}, gid={}, "
         "allow_rt_priority={})",
-        app, instance, command, function_group, startup_configs.size(), cpus.count(),
+        app, instance, app_id, command, function_group, startup_configs.size(), cpus.count(),
         idle_timeout_s, nexigen::exec::to_string(impact), nexigen::exec::to_string(type), reporting,
         global_settings_path, local_settings_path,
         log_level.has_value() ? std::string(core::to_string(*log_level)) : std::string("inherit"),
@@ -145,6 +146,7 @@ void to_json(nlohmann::json& j, const AppSpec& spec) {
     j = nlohmann::json{
         {"app", spec.app},
         {"instance", spec.instance},
+        {"app_id", spec.app_id},
         {"command", spec.command},
         {"function_group", spec.function_group},
         {"startup_configs", std::move(startup_configs)},
@@ -171,6 +173,7 @@ void to_json(nlohmann::json& j, const AppSpec& spec) {
 void from_json(const nlohmann::json& j, AppSpec& spec) noexcept {
     static_cast<void>(core::detail::read_string(j, "app", spec.app));
     static_cast<void>(core::detail::read_string(j, "instance", spec.instance));
+    static_cast<void>(core::detail::read_string(j, "app_id", spec.app_id));
     static_cast<void>(core::detail::read_string(j, "command", spec.command));
     static_cast<void>(core::detail::read_string(j, "function_group", spec.function_group));
     if (const auto configs = j.find("startup_configs"); configs != j.end() && configs->is_array()) {
@@ -595,9 +598,23 @@ validate_suite_version_and_log_level(const SuiteManifest& manifest) noexcept {
     return {};
 }
 
+/// @brief The identifier an application entry resolves to.
+///
+/// An explicit `app_id` wins; otherwise the application name is the
+/// identifier. The result is still subject to `core::AppId` validation, so a
+/// name that is too long or contains a forbidden byte is a manifest error, not
+/// a truncation.
+///
+/// @param app Manifest entry to inspect.
+/// @return Text view of the explicit id or the application name.
+[[nodiscard]] std::string_view resolved_app_id(const AppSpec& app) noexcept {
+    return app.app_id.empty() ? std::string_view(app.app) : std::string_view(app.app_id);
+}
+
 [[nodiscard]] core::Status validate_app_identity_and_command(const AppSpec& app) noexcept {
     if (!safe_id(app.app) || !safe_id(app.instance) || app.app == ".suite" || app.command.empty() ||
-        app.command.find('\0') != std::string::npos) {
+        app.command.find('\0') != std::string::npos ||
+        !core::AppId::create(resolved_app_id(app)).has_value()) {
         return invalid_argument();
     }
     return {};
@@ -934,6 +951,26 @@ validate_unique_app_instances(const std::vector<AppSpec>& apps) noexcept {
     return {};
 }
 
+/// @brief Reject two applications that resolve to the same identifier.
+///
+/// Uniqueness is scoped to the suite: another manifest may reuse the code, but
+/// within one suite the daemons must be able to tell the applications apart.
+///
+/// @param apps Applications of one manifest.
+/// @return OK, or `InvalidArgument` on the first duplicate.
+/// @note Spec `exec/app-suite`, requirement "Identifier uniqueness is scoped to
+///       the suite".
+[[nodiscard]] core::Status validate_unique_app_ids(const std::vector<AppSpec>& apps) noexcept {
+    for (std::size_t index = 0; index < apps.size(); ++index) {
+        for (std::size_t other = 0; other < index; ++other) {
+            if (resolved_app_id(apps[index]) == resolved_app_id(apps[other])) {
+                return invalid_argument();
+            }
+        }
+    }
+    return {};
+}
+
 } // namespace
 
 namespace {
@@ -1015,7 +1052,10 @@ core::Status validate_suite_manifest(const SuiteManifest& manifest) noexcept {
     if (const core::Status status = validate_time_base_binding(manifest); !status) {
         return status;
     }
-    return validate_unique_app_instances(manifest.apps);
+    if (const core::Status status = validate_unique_app_instances(manifest.apps); !status) {
+        return status;
+    }
+    return validate_unique_app_ids(manifest.apps);
 }
 
 [[nodiscard]] bool valid_json_log_level(const nlohmann::json& object, const char* key) {

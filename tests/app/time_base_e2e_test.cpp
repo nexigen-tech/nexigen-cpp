@@ -55,9 +55,9 @@ struct E2ePolicy {
     using Sink = chrono::NullSink;
 
     static core::Status emplace_logger(std::optional<Logger>& out, const logging::Settings&,
-                                       std::string_view app_name) noexcept {
+                                       const nexigen::app::TelemetryIdentity& identity) noexcept {
         logging::FileLoggerConfig config{};
-        config.app_name = std::string(app_name);
+        config.app_name = std::string(identity.app_name);
         config.base_dir = e2e_dir();
         config.file_name = "app.jsonl";
         config.rotation.kind = logging::RotationSchedule::None;
@@ -66,19 +66,19 @@ struct E2ePolicy {
     }
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
                                              const metrics::Settings&,
-                                             std::string_view app_name) noexcept {
+                                             const nexigen::app::TelemetryIdentity& identity) noexcept {
         metrics::JsonFileMetricSinkConfig config{};
         config.path = e2e_dir() + "/metrics.jsonl";
         config.append = false;
-        config.app_name = std::string(app_name);
+        config.app_name = std::string(identity.app_name);
         out.emplace(config);
         return {};
     }
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view app_name) noexcept {
+                                           const nexigen::app::TelemetryIdentity& identity) noexcept {
         tracing::JsonFileTraceSinkConfig config{};
         config.path = e2e_dir() + "/traces.jsonl";
-        config.app_name = std::string(app_name);
+        config.app_name = std::string(identity.app_name);
         out.emplace(config);
         return out->start();
     }

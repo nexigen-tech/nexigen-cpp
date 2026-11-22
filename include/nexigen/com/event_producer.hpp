@@ -94,8 +94,8 @@ public:
     /// @param node Node that owns the transport membership.
     /// @param name Service name shared with the consumer.
     /// @param config Channel limits; must match the consumer's configuration.
-    /// @param app_id Application code (at most four ASCII bytes) copied into
-    ///        every event header.
+    /// @param app_id Application code (at most sixteen ASCII bytes) copied
+    ///        into every event header; a shorter value zero-fills the tail.
     /// @param meter Optional meter for producer counters.
     /// @return Producer, or a mapped `com::Error`/`InvalidArgument`.
     [[nodiscard]] static Result<EventProducer> create(Node& node, ServiceName name,
@@ -327,7 +327,7 @@ private:
     Publisher<T, EventHeader> publisher_;
     EventNotifier notifier_;
     ChannelConfig config_{};
-    std::array<char, 4> app_id_{};
+    std::array<char, 16> app_id_{};
     std::uint64_t epoch_{0};
     std::uint64_t sequence_{0};
     EventProducerStats stats_{};

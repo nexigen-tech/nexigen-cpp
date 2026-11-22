@@ -192,9 +192,11 @@ exec::SuiteManifest two_app_manifest(const std::string& root, const std::string&
     exec::SuiteManifest manifest = base_manifest(root, artifacts);
     exec::AppSpec alpha =
         app_spec("alpha", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Degrade);
+    alpha.app_id = "CN_LOOP_1";
     first_config(alpha).args = {"-c", "echo alpha-out; exec sleep 60"};
     exec::AppSpec beta =
         app_spec("beta", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
+    beta.app_id = "CN_LOOP_2";
     first_config(beta).args = {"-c", "echo beta-out; exec sleep 60"};
     manifest.apps.push_back(std::move(alpha));
     manifest.apps.push_back(std::move(beta));
@@ -588,6 +590,36 @@ void test_manifest_validation() {
     bad = manifest;
     bad.apps.push_back(bad.apps.front());
     NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().app_id = "CN_LOOP_1";
+    bad.apps.back().app_id = "CN_LOOP_1";
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().app_id = "ABCDEFGHIJKLMNOPQ";
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().app_id = "CN.LOOP";
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    bad = manifest;
+    bad.apps.front().app_id.clear();
+    bad.apps.front().app = "APPLICATION_NAME_TOO_LONG";
+    NX_CHECK(failed_with(exec::validate_suite_manifest(bad), core::ErrorCode::InvalidArgument));
+
+    // Uniqueness is scoped to one suite: a second manifest may reuse the id.
+    exec::SuiteManifest other = base_manifest(unique_dir("manifest-other"),
+                                              unique_dir("manifest-other-artifacts"));
+    exec::AppSpec other_app =
+        app_spec("alpha", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Degrade);
+    other_app.app_id = "CN_LOOP_1";
+    other.apps.push_back(other_app);
+    exec::SuiteManifest first = manifest;
+    first.apps.front().app_id = "CN_LOOP_1";
+    NX_CHECK(exec::validate_suite_manifest(first).has_value());
+    NX_CHECK(exec::validate_suite_manifest(other).has_value());
 
     bad = manifest;
     bad.apps.front().impact = static_cast<exec::ImpactOnAppSuiteOperability>(0x7f);
@@ -1036,6 +1068,14 @@ void test_app_credentials() {
     NX_CHECK(plan.options.allow_rt_priority);
     NX_CHECK(!plan.options.uid.has_value());
 
+    // An explicit app_id overrides the application name in the launch plan.
+    manifest.apps[0].app_id = "CN_LOOP_1";
+    const exec::detail::SuiteLaunchPlan id_plan = exec::detail::resolve_suite_launch(
+        manifest, manifest.apps[0], first_config(manifest.apps[0]), 1U, root + "/id-instance");
+    NX_CHECK(id_plan.app_id.text() == "CN_LOOP_1");
+    NX_CHECK(id_plan.options.app_id.text() == "CN_LOOP_1");
+    manifest.apps[0].app_id.clear();
+
     // A non-root target cannot keep the capability: the combination is invalid.
     manifest.apps[0].uid = 1000U;
     NX_CHECK(!exec::validate_suite_manifest(manifest).has_value());
@@ -1381,8 +1421,11 @@ void test_env_affinity_and_log_level() {
     exec::SuiteManifest manifest = base_manifest(root, artifacts);
     exec::AppSpec spec =
         app_spec("envapp", "1", "/bin/sh", exec::ImpactOnAppSuiteOperability::Not_impact);
+    spec.app_id = "CN_LOOP_1";
     first_config(spec).args = {"-c", "echo SUITE_ENV=$SUITE_ENV; "
-                                     "echo LEVEL=$NEXIGEN_LOG_LEVEL; exec sleep 60"};
+                                     "echo LEVEL=$NEXIGEN_LOG_LEVEL; "
+                                     "printf 'ARG=%s\\n' \"$@\"; exec sleep 60",
+                               "sh"};
     first_config(spec).env = {{"SUITE_ENV", "visible"}, {"NEXIGEN_LOG_LEVEL", "debug"}};
     spec.cpus = core::CpuSet::from_core_mask(1ULL);
     spec.log_level = core::LogLevel::Error;
@@ -1401,7 +1444,8 @@ void test_env_affinity_and_log_level() {
     NX_CHECK(wait_until(
         [&] {
             const std::string output = read_text(app.artifact_dir + "/stdout.log");
-            return contains(output, "SUITE_ENV=visible") && contains(output, "LEVEL=error");
+            return contains(output, "SUITE_ENV=visible") && contains(output, "LEVEL=error") &&
+                   contains(output, "ARG=--app-id") && contains(output, "ARG=CN_LOOP_1");
         },
         5000));
 

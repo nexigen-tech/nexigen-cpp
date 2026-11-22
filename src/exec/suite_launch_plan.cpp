@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include <nexigen/core/app_id.hpp>
 #include <nexigen/exec/app_spec.hpp>
 #include <nexigen/exec/cgroup_budget.hpp>
 #include <nexigen/exec/detail/path_utils.hpp>
@@ -37,6 +38,12 @@ SuiteLaunchPlan resolve_suite_launch(const SuiteManifest& manifest, const AppSpe
                                      const StateDependentStartupConfig& config,
                                      std::uint32_t attempt, std::string_view instance_dir) {
     SuiteLaunchPlan plan{};
+    const std::string_view id_text =
+        spec.app_id.empty() ? std::string_view(spec.app) : std::string_view(spec.app_id);
+    if (auto parsed = core::AppId::create(id_text); parsed) {
+        plan.app_id = *parsed;
+        plan.options.app_id = *parsed;
+    }
     plan.artifact_dir = attempt_dir_path(manifest.artifacts_path, manifest.suite_id, spec.app,
                                          spec.instance, attempt);
 

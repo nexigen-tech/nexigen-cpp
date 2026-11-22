@@ -25,6 +25,14 @@ _Contested_: "EM" names both that process and the child-process component inside
 A declared executable together with the startup configurations it may be launched under.
 _Avoid_: binary, program
 
+**App ID**:
+The manifest-driven 16-byte code stamped into every telemetry frame (`CN_LOOP_1`), unique within its suite, defaulting to the application name, and delivered to the child as `--app-id`. It is an attribution label, not an authentication credential.
+_Avoid_: tag, app tag, app name
+
+**App Runtime**:
+The `app::App<Policy>` facade that owns settings bootstrap, time-base mode, Infrastructure lifecycle, metric handles, one event input, its optional output, and shutdown for a minimal application.
+_Avoid_: app class, application framework
+
 **Instance**:
 The run-scoped identity of one Application, owning its directory, generated settings, and resource and exit metadata.
 _Avoid_: process, copy

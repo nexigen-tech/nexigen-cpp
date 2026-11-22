@@ -125,7 +125,7 @@ static_assert(!com::concepts::EventPayload<std::string>);
 static_assert(!com::concepts::EventPayload<std::vector<int>>);
 static_assert(!com::concepts::EventPayload<int&>);
 static_assert(!com::concepts::EventPayload<void>);
-static_assert(sizeof(com::EventHeader) == 72U);
+static_assert(sizeof(com::EventHeader) == 80U);
 static_assert(alignof(com::EventHeader) == 8U);
 
 void test_value_serialization() {
@@ -294,6 +294,14 @@ void test_value_serialization() {
     NX_CHECK(header_back.app_id_text() == "LIDR");
     NX_CHECK(std::format("{}", header) == header.to_string());
 
+    com::EventHeader full{};
+    std::memcpy(full.app_id, "ABCDEFGHIJKLMNOP", 16U);
+    nlohmann::json full_json;
+    com::to_json(full_json, full);
+    com::EventHeader full_back{};
+    com::from_json(full_json, full_back);
+    NX_CHECK(full_back.app_id_text() == "ABCDEFGHIJKLMNOP");
+
     NX_CHECK(com::to_string(com::TimestampDomain::Hardware) == "Hardware");
     NX_CHECK(com::to_string(com::LossReason::UnexpectedSequenceReset) == "UnexpectedSequenceReset");
     NX_CHECK(com::to_string(com::PublishOutcome::NotifyFailed) == "NotifyFailed");
@@ -433,7 +441,7 @@ void test_channel_roundtrip() {
     if (!consumer.has_value()) {
         return;
     }
-    auto producer = channel.producer(std::string_view{"APP1"});
+    auto producer = channel.producer(std::string_view{"CN_LOOP_1_FULL16"});
     NX_CHECK(producer.has_value());
     if (!producer.has_value()) {
         return;
@@ -452,7 +460,7 @@ void test_channel_roundtrip() {
         NX_CHECK(received[0].sequence_id == 0U);
         NX_CHECK(received[0].event_code == 0x1234U);
         NX_CHECK(received[0].has_payload());
-        NX_CHECK(received[0].app_id_text() == "APP1");
+        NX_CHECK(received[0].app_id_text() == "CN_LOOP_1_FULL16");
         NX_CHECK(received[0].domain_id == 0U);
         NX_CHECK(received[0].has_canonical_projection());
         NX_CHECK(received[0].ingest_timestamp_ns > 0U);

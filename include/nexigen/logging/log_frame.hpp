@@ -24,18 +24,21 @@ namespace nexigen::logging {
 
 /// @brief Fixed 256-byte log frame published across the process boundary (`REQ_LOGC_004`).
 ///
-/// Layout per design D1: a 31-byte header plus `payload[225]`, so the frame is
-/// exactly four cache lines. The type is pointer-free, trivially copyable, and
+/// Layout: a 45-byte header plus `payload[211]`, so the frame stays exactly
+/// four cache lines. The type is pointer-free, trivially copyable, and
 /// `alignas(64)`, which lets it be memcpy-ed into (and out of) iceoryx2 shared
 /// memory without serialization. The publishing worker owns the fields while
 /// building a frame; subscribers receive an immutable copy after publication.
 ///
 /// @note Spec `logging/iceoryx2-logger`, requirement "Log frame is a fixed zero-copy frame".
 struct alignas(64) LogFrame {
+    /// @brief Wire format version carried by every frame.
+    static constexpr std::uint16_t format_version = 2;
+
     /// @brief Monotonic OS timestamp of the record, in nanoseconds.
     std::uint64_t timestamp_ns{};
-    /// @brief Four-byte ASCII application code (e.g. `"LOGD"`), not NUL-terminated.
-    char app_id[4]{};
+    /// @brief Sixteen-byte application code, zero-filled; not NUL-terminated when full.
+    char app_id[16]{};
     /// @brief Reserved context identifier; stays `0` until contexts land (`LOGC_003`).
     std::uint32_t context_id{};
     /// @brief Cached `SYS_gettid` value of the producing thread.
@@ -46,10 +49,12 @@ struct alignas(64) LogFrame {
     std::uint32_t dropped_counter{};
     /// @brief Number of bytes of `payload` in use.
     std::uint16_t payload_size{};
+    /// @brief Wire format version (2 since the application code was widened).
+    std::uint16_t version{format_version};
     /// @brief Severity of the record (one byte, so the layout is pinned).
     core::LogLevel log_level{core::LogLevel::Info};
     /// @brief Rendered message text; not NUL-terminated.
-    std::uint8_t payload[225]{};
+    std::uint8_t payload[211]{};
 
     /// @brief The `app_id` as a non-NUL-terminated view, trimmed at the first NUL byte.
     ///
@@ -86,6 +91,7 @@ struct alignas(64) LogFrame {
         out += ", tid=" + std::to_string(thread_id);
         out += ", pid=" + std::to_string(pid);
         out += ", dropped=" + std::to_string(dropped_counter);
+        out += ", version=" + std::to_string(version);
         out += ", level=" + std::string(core::to_string(log_level));
         out += ", payload=" + std::to_string(payload_size) + ")";
         return out;

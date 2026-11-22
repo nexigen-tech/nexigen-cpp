@@ -217,7 +217,7 @@ concept Logger = requires(T t, const T ct, LogLevel level) {
 
 `Iceoryx2Sink` не пишет файл. Он рендерит сообщение прямо в `payload` фиксированного `LogFrame` и публикует кадр в iceoryx2 pub/sub, после чего уведомляет парный event-сервис.
 
-`LogFrame` — 256 байт, `alignas(64)`, pointer-free и trivially copyable: 31 байт заголовка и `payload[225]`. Именно pointer-free делает возможной zero-copy передачу через shared memory: кадр можно `memcpy`-нуть в разделяемую память и обратно без сериализации. Поля: монотонный `timestamp_ns`, четырёхбайтовый `app_id`, зарезервированный `context_id`, `thread_id`, `pid`, `dropped_counter` (дельта с предыдущего кадра), `payload_size`, `log_level` и сам payload.
+`LogFrame` — 256 байт, `alignas(64)`, pointer-free и trivially copyable: 45 байт заголовка и `payload[211]`. Именно pointer-free делает возможной zero-copy передачу через shared memory: кадр можно `memcpy`-нуть в разделяемую память и обратно без сериализации. Поля: монотонный `timestamp_ns`, 16-байтовый `app_id`, зарезервированный `context_id`, `thread_id`, `pid`, `dropped_counter` (дельта с предыдущего кадра), `payload_size`, `format_version` (2), `log_level` и сам payload.
 
 Публикация — один вызов `send_copy(frame, header)`: loan, copy, send. Неудачная публикация отбрасывает кадр и не блокирует (`DiscardData`); уведомление event-сервиса best-effort. Публикация работает и с нулём подписчиков — это важно для случаев, когда демон ещё не поднялся.
 
@@ -301,7 +301,7 @@ Handshake устроен так, чтобы не будить потребите
 
 ## Конфигурация: три уровня и один загрузчик
 
-У каждого логгера свой холодный конфиг. `FileLoggerConfig` несёт `app_name`, `base_dir`, `file_name`, `initial_level`, `throttle`, `rotation`, `worker_thread`, `max_file_size_bytes` и `worker_poll_interval_us`. `ConsoleLoggerConfig` — только уровень, worker spec и poll ceiling. `Iceoryx2LoggerConfig` — имя сервиса, четырёхбайтовый `app_id`, лимиты подписчиков и истории, уровень, throttle, worker spec. `LogDaemonConfig` — своё.
+У каждого логгера свой холодный конфиг. `FileLoggerConfig` несёт `app_name`, `base_dir`, `file_name`, `initial_level`, `throttle`, `rotation`, `worker_thread`, `max_file_size_bytes` и `worker_poll_interval_us`. `ConsoleLoggerConfig` — только уровень, worker spec и poll ceiling. `Iceoryx2LoggerConfig` — имя сервиса, 16-байтовый `app_id`, лимиты подписчиков и истории, уровень, throttle, worker spec. `LogDaemonConfig` — своё.
 
 Над этим стоит `LoggerOptions` — единый агрегат, из которого настройки маппятся в конкретный конфиг:
 
@@ -333,7 +333,7 @@ Handshake устроен так, чтобы не будить потребите
 
 Порядок инициализации жёсткий: сначала прикрепляется time base, потому что без него файловый сток не получит UTC; затем создаётся логгер; только после этого — провайдеры метрик и трейсинга. Причина простая: всё, что стартует позже, должно уже иметь куда жаловаться. Если шаг падает, инфраструктура откатывает уже созданные компоненты и возвращает ошибку. `logger()` отдаёт ссылку на собранный логгер; ссылка живёт, пока жива инфраструктура.
 
-Политика решает, куда писать. В `examples/app/ex_app_cli_settings.cpp` и `examples/suite/ex_suite_app.cpp` это `FileLogger<>` с `RotationSchedule::None`: один `<log_root_directory>/app.jsonl`, без часовых подкаталогов. В `examples/integration/suite_2_apps/` — `Iceoryx2Logger<>` с `app_id` из четырёх символов (`"RECV"`, `"GENR"`), а демон собирает кадры в общий `logs/`.
+Политика решает, куда писать. В `examples/app/ex_app_cli_settings.cpp` и `examples/suite/ex_suite_app.cpp` это `FileLogger<>` с `RotationSchedule::None`: один `<log_root_directory>/app.jsonl`, без часовых подкаталогов. В `examples/integration/suite_2_apps/` — `Iceoryx2Logger<>` с `app_id` из четырёх символов (`"RECV"`, `"GENS"`), а демон собирает кадры в общий `logs/`.
 
 У Execution Manager своя, независимая от приложения, файловая ветка. `nexigen::exec` поднимает `FileLogger<64, 256, 4>` и пишет `execution_manager.jsonl` в каталог артефактов; если основной путь недоступен, пробует `<cwd>/.nexigen-exec`; если и это не вышло, диагностика уходит в stderr. Перед каждым `fork` после инициализации логгер приостанавливается и join-ится, а в родителе создаётся заново — иначе worker-поток пережил бы fork. Этот логгер не пересекается с логгером приложения и имеет собственные настройки и жизненный цикл.
 
@@ -562,7 +562,7 @@ ex_logging_file_policy: OK (ticks=3, lines=8, dropped=0, file=./nexigen-logging-
 - **Двухступенчатый анти-спам не подключён к публичным логгерам**: `enable_repeat_suppression`, `repeat_suppression_window_ms` и `bypass_min_level` из настроек не применяются; `set_spam_protection_config()` есть только у внутреннего `Producer`.
 - **Размерная ротация демона не подключена**: `max_file_size_mb` и `max_archive_files` в конфиге есть, в `main.cpp` не читаются.
 - **Демон теряет локацию вызова** и не пишет `dropped_counter` в строку, хотя кадр его несёт.
-- **`LogFrame` payload — 225 байт**, `app_id` — 4 байта; длинное сообщение усечётся.
+- **`LogFrame` payload — 211 байт**, `app_id` — 16 байт; длинное сообщение усечётся.
 - **`std::string_view` усекается до `MessageCapacity / 2`**; флаг усечения есть, но текст уже потерян.
 - **`context_id` зарезервирован**, per-context пороги не реализованы.
 - **`flush()` блокирует** и не предназначен для горячего пути.

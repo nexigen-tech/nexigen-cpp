@@ -47,8 +47,9 @@ class Iceoryx2MetricSink {
 public:
     /// @brief Copy the configuration into fixed frame metadata.
     ///
-    /// Truncates `app_id` to the frame field width, stamps the current process
-    /// ID, and leaves the transport unopened until `start()` succeeds.
+    /// Copies the 16-byte `app_id` into the frame and transport header, stamps
+    /// the current process ID, and leaves the transport unopened until
+    /// `start()` succeeds.
     ///
     /// @param config Sink configuration: app identifier, service name and
     ///        subscriber buffer depth.
@@ -56,13 +57,8 @@ public:
     ///        must outlive this sink and may be null until `start()`.
     Iceoryx2MetricSink(const Iceoryx2MetricSinkConfig& config, com::Node* node) noexcept
         : config_{config}, node_{node}, pid_{static_cast<std::uint32_t>(::getpid())} {
-        const std::size_t take = config_.app_id.size() < sizeof(frame_.app_id)
-                                     ? config_.app_id.size()
-                                     : sizeof(frame_.app_id);
-        for (std::size_t i = 0; i < take; ++i) {
-            frame_.app_id[i] = config_.app_id[i];
-            header_.app_id[i] = config_.app_id[i];
-        }
+        std::memcpy(frame_.app_id, config_.app_id.data(), sizeof(frame_.app_id));
+        std::memcpy(header_.app_id, config_.app_id.data(), sizeof(header_.app_id));
         frame_.pid = pid_;
         header_.pid = pid_;
         header_.publisher_id =
@@ -86,6 +82,9 @@ public:
     /// @note Spec `metrics/iceoryx2-metric-sink`, requirement "Iceoryx2 metric
     ///       sink configuration".
     [[nodiscard]] core::Status start() noexcept {
+        if (config_.app_id.empty()) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
         if (node_ == nullptr) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -173,7 +172,8 @@ public:
     /// @note Spec `metrics/iceoryx2-metric-sink`, requirement "Sink diagnostics";
     ///       project mandate 9 (`to_string`).
     [[nodiscard]] std::string to_string() const {
-        return "Iceoryx2MetricSink(service=" + config_.service_name + ", app=" + config_.app_id +
+        return "Iceoryx2MetricSink(service=" + config_.service_name +
+               ", app=" + config_.app_id.to_string() +
                ", pid=" + std::to_string(pid_) +
                ", started=" + (publisher_.has_value() ? "true" : "false") + ")";
     }

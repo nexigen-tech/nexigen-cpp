@@ -100,7 +100,7 @@ void test_daemon_e2e() {
     }
 
     metrics::Iceoryx2MetricSinkConfig sink_config;
-    sink_config.app_id = "LIDR";
+    sink_config.app_id = nexigen::core::AppId::from_literal("LIDR");
     sink_config.service_name = "Nexigen/Test/MetricsdE2E";
     sink_config.subscriber_max_buffer_size = 16;
     metrics::Iceoryx2MetricSink sink{sink_config, &*node};

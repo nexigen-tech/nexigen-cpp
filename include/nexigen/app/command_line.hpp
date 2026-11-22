@@ -105,8 +105,9 @@ void apply_to(const CommandLineOptions& options, Settings& settings) noexcept;
 /// @brief Static usage text naming every option and fixed file name.
 ///
 /// The text lists `-gs/--global-settings`, `-ls/--local-settings`,
-/// `-lgl/--log-level`, `-an/--app-name`, `-h/--help`, the accepted level
-/// spellings and the four fixed JSON file names. The caller prints it; this
+/// `-lgl/--log-level`, `-an/--app-name`, `-ai/--app-id`, `-h/--help`, the
+/// accepted level spellings and the four fixed JSON file names. The caller
+/// prints it; this
 /// function never fails.
 ///
 /// @return Static-storage view of the complete usage text.

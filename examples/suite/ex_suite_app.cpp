@@ -146,7 +146,7 @@ struct SuitePolicy {
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Settings& settings,
-                                       std::string_view app_name) noexcept {
+                                       const nexigen::app::TelemetryIdentity& identity) noexcept {
         const core::Status capacity =
             logging::check_capacity<Logger::capacity(), Logger::max_threads(), 128>(settings);
         if (!capacity) {
@@ -157,7 +157,7 @@ struct SuitePolicy {
         if (!applied) {
             return applied;
         }
-        config.app_name = app_name;
+        config.app_name = std::string(identity.app_name);
         config.rotation.kind = logging::RotationSchedule::None;
         out.emplace();
         return out->initialize(config);
@@ -165,24 +165,24 @@ struct SuitePolicy {
 
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
                                              const metrics::Settings& settings,
-                                             std::string_view app_name) noexcept {
+                                             const nexigen::app::TelemetryIdentity& identity) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         metrics::JsonFileMetricSinkConfig config = settings.sink;
-        config.app_name = std::string(app_name);
+        config.app_name = std::string(identity.app_name);
         out.emplace(config);
         return {};
     }
 
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out,
                                            const tracing::Settings& settings,
-                                           std::string_view app_name) noexcept {
+                                           const nexigen::app::TelemetryIdentity& identity) noexcept {
         if (settings.sink.path.empty()) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
         tracing::JsonFileTraceSinkConfig config = settings.sink;
-        config.app_name = std::string(app_name);
+        config.app_name = std::string(identity.app_name);
         out.emplace(config);
         return {};
     }

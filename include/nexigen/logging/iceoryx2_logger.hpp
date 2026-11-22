@@ -152,12 +152,7 @@ public:
 
         typename Sink::Settings settings{};
         copy_into(cfg.service_name, settings.service_name, settings.service_name_len);
-        const std::size_t app_take = cfg.app_id.size() < sizeof(settings.app_id)
-                                         ? cfg.app_id.size()
-                                         : sizeof(settings.app_id);
-        for (std::size_t i = 0; i < app_take; ++i) {
-            settings.app_id[i] = cfg.app_id[i];
-        }
+        std::memcpy(settings.app_id, cfg.app_id.data(), sizeof(settings.app_id));
         settings.max_subscribers = cfg.max_subscribers;
         settings.history_size = cfg.history_size;
 
@@ -353,7 +348,7 @@ private:
     ///
     /// @param cfg Configuration to check.
     /// @return `true` when the service name fits 511 bytes, the application id
-    ///         fits 4 bytes, both subscriber and history limits are non-zero and
+    ///         is set, both subscriber and history limits are non-zero and
     ///         the throttle budget is coherent; every rejection maps to
     ///         `ErrorCode::InvalidArgument`.
     /// @note Spec `logging/iceoryx2-logger`, requirement "Iceoryx2 logger
@@ -362,7 +357,7 @@ private:
         const bool throttle_ok =
             !cfg.throttle.enabled ||
             (cfg.throttle.max_records_per_window != 0ULL && cfg.throttle.window_ns != 0ULL);
-        return valid_text(cfg.service_name, 511U) && valid_text(cfg.app_id, 4U) &&
+        return valid_text(cfg.service_name, 511U) && !cfg.app_id.empty() &&
                cfg.max_subscribers != 0U && cfg.history_size != 0U && throttle_ok;
     }
 

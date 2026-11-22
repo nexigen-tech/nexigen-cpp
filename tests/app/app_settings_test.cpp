@@ -565,6 +565,13 @@ void test_settings_compatibility() {
         std::string{"legacy"}, nexigen::logging::Settings{}, nexigen::metrics::Settings{},
         nexigen::tracing::Settings{}, nexigen::chrono::Settings{}};
     NX_CHECK(app::Settings::create("svc").app_name == "svc");
+
+    app::Settings identified{};
+    NX_CHECK(identified.app_id.empty());
+    identified.app_id = nexigen::core::AppId::from_literal("CN_LOOP_1");
+    NX_CHECK(identified.to_string().find("CN_LOOP_1") != std::string::npos);
+    const nlohmann::json document = identified;
+    NX_CHECK(document.at("app_id") == "CN_LOOP_1");
 }
 
 void run_app_settings_suites() {

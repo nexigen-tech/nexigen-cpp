@@ -158,6 +158,10 @@ cat > "${demo_root}/daemons/traced.json" <<EOF
 EOF
 
 # --- ExecutionManager suite manifest ---------------------------------------
+# app_id is the suite-wide telemetry identity copied into every log, metric and
+# span frame. It deliberately differs from the compiled fallback tags so the
+# daemons' output proves the manifest path was used. Values are unique inside
+# the suite and fit the 1..16 byte [A-Za-z0-9_-] contract.
 cat > "${manifest}" <<EOF
 {
   "version": 1,
@@ -177,6 +181,7 @@ cat > "${manifest}" <<EOF
     {
       "app": "vector_receiver",
       "instance": "1",
+      "app_id": "SIM_RECV",
       "command": "${receiver_bin}",
       "function_group": "Simulation",
       "type": "daemon",
@@ -197,6 +202,7 @@ cat > "${manifest}" <<EOF
     {
       "app": "flaky_receiver",
       "instance": "1",
+      "app_id": "SIM_FLKY",
       "command": "${flaky_bin}",
       "function_group": "Simulation",
       "type": "daemon",
@@ -223,6 +229,7 @@ cat > "${manifest}" <<EOF
     {
       "app": "vector_generator",
       "instance": "1",
+      "app_id": "SIM_GEN",
       "command": "${generator_bin}",
       "function_group": "Simulation",
       "type": "daemon",
@@ -332,6 +339,9 @@ wait_for_line() {
 }
 
 # --- start the stack in dependency order -----------------------------------
+# Telemetry daemons first: they create the shared-memory services the
+# applications will publish to. The suite supervisor is started before SM/PHM
+# so the applications exist when those control-plane daemons look for them.
 "${logd_bin}" --config "${demo_root}/daemons/logd.json" \
     > "${demo_root}/daemons/logd.out" 2>&1 &
 echo $! > "${demo_root}/daemons/logd.pid"

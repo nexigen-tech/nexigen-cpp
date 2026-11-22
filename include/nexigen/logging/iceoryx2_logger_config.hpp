@@ -8,6 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <nexigen/core/app_id.hpp>
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/worker_tuning.hpp>
@@ -26,8 +27,8 @@ namespace nexigen::logging {
 struct Iceoryx2LoggerConfig {
     /// @brief Pub/sub service name the daemon subscribes to (at most 511 bytes).
     std::string service_name{"Nexigen/Log/nexigen"};
-    /// @brief Four-byte application code copied into `LogFrame::app_id`.
-    std::string app_id{"NEXG"};
+    /// @brief Canonical application code copied into `LogFrame::app_id`.
+    core::AppId app_id{core::AppId::from_literal("NEXG")};
     /// @brief Maximum subscriber/receiver pool size (requirement `REQ_COM_009`).
     std::uint32_t max_subscribers{16};
     /// @brief Per-subscriber receiver queue depth in frames.
@@ -51,7 +52,7 @@ struct Iceoryx2LoggerConfig {
     /// @note Project mandate 9 (`to_string` on every public value type).
     [[nodiscard]] std::string to_string() const {
         std::string out = "Iceoryx2LoggerConfig(service=" + service_name;
-        out += ", app=" + app_id;
+        out += ", app=" + app_id.to_string();
         out += ", subscribers=" + std::to_string(max_subscribers);
         out += ", history=" + std::to_string(history_size);
         out += ", level=" + std::string(core::to_string(initial_level));

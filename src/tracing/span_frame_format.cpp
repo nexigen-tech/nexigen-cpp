@@ -48,7 +48,7 @@ void read_name(const nlohmann::json& j, char (&out)[SpanFrame::name_capacity + 1
     out[take] = '\0';
 }
 
-void read_app_id(const nlohmann::json& j, char (&out)[4]) noexcept {
+void read_app_id(const nlohmann::json& j, char (&out)[16]) noexcept {
     const auto it = j.find("app_id");
     if (it == j.end() || !it->is_string()) {
         return;

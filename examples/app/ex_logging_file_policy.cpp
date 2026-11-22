@@ -53,7 +53,7 @@ struct FilePolicy {
 
     static core::Status emplace_logger(std::optional<Logger>& out,
                                        const logging::Settings& settings,
-                                       std::string_view app_name) noexcept {
+                                       const nexigen::app::TelemetryIdentity& identity) noexcept {
         const core::Status capacity =
             logging::check_capacity<Logger::capacity(), Logger::max_threads(), 128>(settings);
         if (!capacity) {
@@ -64,20 +64,20 @@ struct FilePolicy {
         if (!applied) {
             return applied;
         }
-        cfg.app_name = std::string(app_name);
+        cfg.app_name = std::string(identity.app_name);
         cfg.rotation.kind = logging::RotationSchedule::None;
         out.emplace();
         return out->initialize(cfg);
     }
 
     static core::Status emplace_metrics_sink(std::optional<MetricsSink>& out,
-                                             const metrics::Settings&, std::string_view) noexcept {
+                                             const metrics::Settings&, const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }
 
     static core::Status emplace_trace_sink(std::optional<TraceSink>& out, const tracing::Settings&,
-                                           std::string_view) noexcept {
+                                           const nexigen::app::TelemetryIdentity&) noexcept {
         out.emplace();
         return {};
     }

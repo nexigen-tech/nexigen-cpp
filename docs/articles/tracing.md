@@ -7,7 +7,7 @@
 - `TracerProvider<ShardCapacity = 1024, MaxThreads = 32>` — владеет всем объёмом памяти трассировки: per-thread SPSC-shards, отдельный `StampSource` на слот, счётчики потерь и пул tracer'ов. Объект порядка 10 MiB, поэтому живёт в статической памяти или на куче.
 - `Tracer`, `ScopedSpan` — старт/завершение спана; RAII-гард закрывает спан при выходе из области.
 - `SpanContext`, `TraceId`, `SpanId`, `TraceHeader` — распространение контекста между потоками и процессами.
-- `SpanRecord`, `SpanFrame`, `SpanKind`, `SpanStatus`, `SamplingDecision` — запись, кадр и словари.
+- `SpanRecord`, `SpanFrame`, `SpanKind`, `SpanStatus`, `SamplingDecision` — запись, 384-байтовый кадр с 16-байтовым `app_id` и `format_version = 2`, и словари.
 - Sinks: `ConsoleTraceSink`, `JsonFileTraceSink`, `ChromeTraceSink` (Perfetto-совместимый), `Iceoryx2TraceSink`, `NullTraceSink`, `CompositeTraceSink`; `RotationPolicy` управляет ротацией файлов.
 - `TraceDaemonConfig` и `TraceDaemonSession` — RAM-ring последних секунд и версионированный снимок по аварийному событию PHM.
 
@@ -48,7 +48,7 @@ ScopedSpan::~ScopedSpan -> publish record -> per-thread shard -> worker -> sink
 
 - `JsonFileTraceSink` — JSONL-поток с `RotationPolicy`.
 - `ChromeTraceSink` — Perfetto-совместимый JSON.
-- `Iceoryx2TraceSink` — фиксированный `SpanFrame` в `nexigen-traced`; живёт в `nexigen_tracing_com`.
+- `Iceoryx2TraceSink` — фиксированный `SpanFrame` в `nexigen-traced`; 16-байтовый `app_id`, версия кадра 2, живёт в `nexigen_tracing_com`.
 - `ConsoleTraceSink`/`NullTraceSink`/`CompositeTraceSink` — отладка, заглушка и fan-out.
 
 `nexigen-traced` держит RAM-ring последних секунд и по аварийному событию PHM делает версионированный снимок. Это не «логгер на всякий случай»: снимок фиксирует состояние, которое иначе было бы потеряно, и делает это по внешнему триггеру.

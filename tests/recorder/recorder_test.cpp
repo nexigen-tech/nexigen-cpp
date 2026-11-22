@@ -1162,9 +1162,9 @@ void test_multi_segment_video_refs() {
 void test_builtin_frame_descriptors() {
     using namespace nexigen;
     static_assert(sizeof(logging::LogFrame) == 256U);
-    static_assert(offsetof(logging::LogFrame, payload) == 31U);
-    static_assert(sizeof(metrics::MetricFrame) == 4472U);
-    static_assert(offsetof(metrics::MetricFrame, record) == 16U);
+    static_assert(offsetof(logging::LogFrame, payload) == 45U);
+    static_assert(sizeof(metrics::MetricFrame) == 4488U);
+    static_assert(offsetof(metrics::MetricFrame, record) == 32U);
     static_assert(offsetof(metrics::MetricRecord, kind) == 256U);
     static_assert(offsetof(metrics::MetricRecord, scalar) == 264U);
     static_assert(sizeof(tracing::SpanFrame) == 384U);
@@ -1196,20 +1196,23 @@ void test_builtin_frame_descriptors() {
     const recorder::SchemaDeclare* log = find("nexigen.log.LogFrame");
     NX_CHECK(log != nullptr);
     const auto log_fields = fields_of(*log);
-    NX_CHECK(has_field(log_fields, "payload", 31U, 225U));
+    NX_CHECK(has_field(log_fields, "app_id", 8U, 16U));
+    NX_CHECK(has_field(log_fields, "payload", 45U, 211U));
 
     const recorder::SchemaDeclare* metric = find("nexigen.metrics.MetricFrame");
     NX_CHECK(metric != nullptr);
     const auto metric_fields = fields_of(*metric);
-    NX_CHECK(has_field(metric_fields, "meter_name", 16U, 64U));
-    NX_CHECK(has_field(metric_fields, "kind", 272U, 1U));
-    NX_CHECK(has_field(metric_fields, "statistics_mean", 304U, 1U));
-    NX_CHECK(has_field(metric_fields, "histogram_buckets_count", 2424U, 256U));
+    NX_CHECK(has_field(metric_fields, "app_id", 0U, 16U));
+    NX_CHECK(has_field(metric_fields, "meter_name", 32U, 64U));
+    NX_CHECK(has_field(metric_fields, "kind", 288U, 1U));
+    NX_CHECK(has_field(metric_fields, "statistics_mean", 320U, 1U));
+    NX_CHECK(has_field(metric_fields, "histogram_buckets_count", 2440U, 256U));
 
     const recorder::SchemaDeclare* span = find("nexigen.tracing.SpanFrame");
     NX_CHECK(span != nullptr);
     const auto span_fields = fields_of(*span);
     NX_CHECK(has_field(span_fields, "name", 72U, 48U));
+    NX_CHECK(has_field(span_fields, "app_id", 312U, 16U));
 }
 
 void test_builtins_and_config() {

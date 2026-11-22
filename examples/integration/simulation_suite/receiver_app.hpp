@@ -145,6 +145,9 @@ template <class Infrastructure, class Subscriber, class Counter, class Gauge>
     Counter* counter, Gauge* latency, std::chrono::steady_clock::time_point deadline,
     std::chrono::steady_clock::time_point crash_at = std::chrono::steady_clock::time_point::max(),
     bool* crash_due = nullptr, com::EventListener* listener = nullptr, bool spin = false) {
+    // The receiver runs inside Infrastructure::run(), whose signal watcher
+    // already owns SIGINT/SIGTERM. Creating the WaitSet without its own signal
+    // handling avoids two competing handlers for the same process.
     std::optional<com::WaitSet> waitset{};
     std::optional<com::WaitSetGuard> guard{};
     if (listener != nullptr) {
@@ -158,6 +161,8 @@ template <class Infrastructure, class Subscriber, class Counter, class Gauge>
         }
     }
 
+    // Cache the last state so the loop logs transitions, not every poll. An
+    // empty state is the standalone case and means "no State Manager yet".
     std::string last_state{};
     auto last_state_check = std::chrono::steady_clock::now();
     bool allowed = state_allows_run(link.group_state());
@@ -173,6 +178,8 @@ template <class Infrastructure, class Subscriber, class Counter, class Gauge>
             return false;
         }
 
+        // State is a control-plane input, not a hot-path signal: checking it at
+        // the bounded poll period is enough and keeps the receive path clean.
         if (now - last_state_check >= k_state_poll_period) {
             last_state_check = now;
             const std::string_view state = link.group_state();
@@ -188,6 +195,7 @@ template <class Infrastructure, class Subscriber, class Counter, class Gauge>
 
         if (spin) {
             // Busy-wait: no scheduler in the path, at the cost of a full core.
+            // The slice bound is what still lets the stop request be observed.
             const auto slice_end = now + k_spin_slice;
             while (std::chrono::steady_clock::now() < slice_end) {
                 if (std::chrono::steady_clock::now() >= crash_at) {
@@ -206,7 +214,8 @@ template <class Infrastructure, class Subscriber, class Counter, class Gauge>
 
         if (waitset.has_value() && guard.has_value()) {
             // Block until the generator rings: the sample is already queued, so
-            // the drain below sees it without a polling delay.
+            // the drain below sees it without a polling delay. The timeout is
+            // only the idle-state re-check, not the data path.
             static_cast<void>(waitset->wait_and_process_once_with_timeout(
                 [&](com::WaitSetAttachmentId attachment) -> com::CallbackProgression {
                     if (attachment.has_event_from(*guard)) {
@@ -220,7 +229,9 @@ template <class Infrastructure, class Subscriber, class Counter, class Gauge>
             return true;
         }
 
-        // Fallback: the event channel is unavailable, so poll the queue.
+        // Fallback: the event channel is unavailable (standalone or a failed
+        // open), so poll the queue. This path is intentionally slower but keeps
+        // the example functional without the companion event service.
         std::this_thread::sleep_for(k_receive_poll_period);
         static_cast<void>(
             drain_once(subscriber, tracer, **infra.logger(), counter, latency, link, allowed));

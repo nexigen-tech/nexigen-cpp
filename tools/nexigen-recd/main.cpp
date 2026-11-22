@@ -217,8 +217,8 @@ public:
             R"({{"name":"hardware_sequence","type":"u32","offset":56,"element_size":4,"count":1,"stride":4}},)"
             R"({{"name":"domain_id","type":"u16","offset":60,"element_size":2,"count":1,"stride":2}},)"
             R"({{"name":"flags","type":"u16","offset":62,"element_size":2,"count":1,"stride":2}},)"
-            R"({{"name":"app_id","type":"char[4]","offset":64,"element_size":1,"count":4,"stride":1}},)"
-            R"({{"name":"payload","type":"u8[{}]","offset":72,"element_size":1,"count":{},"stride":1}}])",
+            R"({{"name":"app_id","type":"char[16]","offset":64,"element_size":1,"count":16,"stride":1}},)"
+            R"({{"name":"payload","type":"u8[{}]","offset":80,"element_size":1,"count":{},"stride":1}}])",
             count, count);
         schema.data.assign(fields.begin(), fields.end());
         if (!writer_.declare_schema(schema).has_value()) {
@@ -288,8 +288,11 @@ void drain_logs(LogSub& sub, Recorder& rec) {
             return;
         }
         const auto& frame = (*got)->payload();
+        if (frame.version != logging::LogFrame::format_version) {
+            continue;
+        }
         const auto ts = static_cast<std::uint64_t>(frame.timestamp_ns);
-        const std::uint32_t channel = rec.channel_for("log", std::string_view(frame.app_id, 4U));
+        const std::uint32_t channel = rec.channel_for("log", frame.app_id_text());
         if (channel == 0U) {
             return;
         }
@@ -316,7 +319,7 @@ void drain_metrics(MetricSub& sub, Recorder& rec) {
         }
         const auto& frame = (*got)->payload();
         const auto ts = static_cast<std::uint64_t>(frame.timestamp_ns);
-        const std::uint32_t channel = rec.channel_for("metric", std::string_view(frame.app_id, 4U));
+        const std::uint32_t channel = rec.channel_for("metric", frame.app_id_text());
         if (channel == 0U) {
             return;
         }
@@ -338,8 +341,11 @@ void drain_traces(TraceSub& sub, Recorder& rec) {
             return;
         }
         const auto& frame = (*got)->payload();
+        if (frame.version != tracing::SpanFrame::format_version) {
+            continue;
+        }
         const auto ts = static_cast<std::uint64_t>(frame.start_ns);
-        const std::uint32_t channel = rec.channel_for("trace", std::string_view(frame.app_id, 4U));
+        const std::uint32_t channel = rec.channel_for("trace", frame.app_id_text());
         if (channel == 0U) {
             return;
         }
