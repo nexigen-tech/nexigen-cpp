@@ -36,6 +36,8 @@ The gap is that the policy is spread across four artifacts and two runtime paths
 
 7. **Detach boundary.** `TimeBaseClock::detach()` SHALL run only after the last sink delivery and flush of the shutdown sequence, because sinks resolve UTC through the published time base. Quiescence ordering does not otherwise affect time values.
 
+8. **Counter certification is measured, not assumed.** A published `CycleCounter` row exists only while the counter is certified as one coherent domain across online CPUs. Certification SHALL compare the canonical instant implied by a counter value on each CPU, and each sample SHALL bracket the counter read with canonical reads so its own error bound is half the bracket span. A busy machine delays threads; it does not change the counter, so scheduling jitter SHALL be rejected by resampling rather than absorbed into the spread tolerance. The probe SHALL also leave the caller's affinity mask as it found it, so a daemon that pinned itself keeps its own configuration.
+
 ## Consequences
 
 **Positive**

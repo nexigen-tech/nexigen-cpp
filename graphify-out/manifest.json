@@ -528,9 +528,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/core/detail/fault_injection.hpp": {
-    "mtime": 1795129802.5726607,
-    "seen": 1795248393.5326595,
-    "ast_hash": "60abf02f1954e754ac7012e561927161",
+    "mtime": 1795303622.9060504,
+    "seen": 1795305779.6719997,
+    "ast_hash": "6c8d0559771bceb70e3f1edf0500c43c",
     "semantic_hash": ""
   },
   "include/nexigen/core/enum_traits.hpp": {
@@ -3360,9 +3360,9 @@
     "semantic_hash": ""
   },
   "TODO.md": {
-    "mtime": 1795274544.5111108,
-    "seen": 1795274574.5173426,
-    "ast_hash": "86b005dc72541076b0b2a2f7f02fbb4e",
+    "mtime": 1795304114.547911,
+    "seen": 1795305779.683425,
+    "ast_hash": "3d8cddf51512e15ef8492f9328efbe03",
     "semantic_hash": ""
   },
   "docs/architecture.md": {
@@ -11400,9 +11400,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/chrono/time_base_host_domain.hpp": {
-    "mtime": 1795119127.0435522,
-    "seen": 1795121411.3648505,
-    "ast_hash": "a4a4489bca33c4d73fb7cc5349065b49",
+    "mtime": 1795304097.0869262,
+    "seen": 1795305779.6709144,
+    "ast_hash": "b6a6f48ed79cd6b1330b7189b92d0b9b",
     "semantic_hash": ""
   },
   "include/nexigen/chrono/time_base_publisher.hpp": {
@@ -11478,9 +11478,9 @@
     "semantic_hash": ""
   },
   "src/chrono/time_base_host_domain.cpp": {
-    "mtime": 1795122572.1556413,
-    "seen": 1795125093.0240479,
-    "ast_hash": "5825b8340b27ad08da9b8969ffa54498",
+    "mtime": 1795304127.7616992,
+    "seen": 1795305779.6795275,
+    "ast_hash": "baba6d67852689498d8747b3d3671373",
     "semantic_hash": ""
   },
   "src/chrono/time_base_publisher.cpp": {
@@ -11520,9 +11520,9 @@
     "semantic_hash": ""
   },
   "tests/chrono/time_base_test.cpp": {
-    "mtime": 1795289804.0090249,
-    "seen": 1795297104.2879837,
-    "ast_hash": "3662be9583ce13d4efea29d2ae4eb7cd",
+    "mtime": 1795303652.9453313,
+    "seen": 1795305779.6810195,
+    "ast_hash": "1dee8694087ec6f0473319087a9bfda5",
     "semantic_hash": ""
   },
   "tools/nexigen-chronod/main.cpp": {
@@ -11622,9 +11622,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/chrono/time-base/spec.md": {
-    "mtime": 1795296739.5562239,
-    "seen": 1795297104.3084414,
-    "ast_hash": "51748ddc5e71448c6d3d57267fe26975",
+    "mtime": 1795306372.676124,
+    "seen": 1795306452.1249416,
+    "ast_hash": "f3bd75a7b54e9ad364060a50276945a0",
     "semantic_hash": ""
   },
   "tests/support/test_time_base.hpp": {
@@ -12420,9 +12420,9 @@
     "semantic_hash": ""
   },
   "docs/adr/0001-time-source-policy.md": {
-    "mtime": 1795298858.209427,
-    "seen": 1795301291.832698,
-    "ast_hash": "2be368face9795195422d114d670e0a4",
+    "mtime": 1795304102.5179214,
+    "seen": 1795305779.683466,
+    "ast_hash": "e28458789cd069c98ca03da21db9a1e5",
     "semantic_hash": ""
   },
   "docs/adr/0002-telemetry-handle-lifetime.md": {
@@ -12657,6 +12657,42 @@
     "mtime": 1795299992.7153804,
     "seen": 1795301291.851706,
     "ast_hash": "0bcb742022509c79420ca1fe27d86086",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-fix-tsc-probe-jitter/.openspec.yaml": {
+    "mtime": 1795303345.0806384,
+    "seen": 1795306452.1018152,
+    "ast_hash": "43d0cb5345b04a2f072bbf698dc930b2",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-fix-tsc-probe-jitter/README.md": {
+    "mtime": 1795303345.0819747,
+    "seen": 1795306452.124569,
+    "ast_hash": "f5134f48c5bfe4ab4c3a9a58a3bdd540",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-fix-tsc-probe-jitter/design.md": {
+    "mtime": 1795303622.9066586,
+    "seen": 1795306452.1245701,
+    "ast_hash": "7e50e181e311542a086850195b73809a",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-fix-tsc-probe-jitter/proposal.md": {
+    "mtime": 1795303622.9066095,
+    "seen": 1795306452.124571,
+    "ast_hash": "bbbb755e0714830cd610bd53eb968c71",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-fix-tsc-probe-jitter/specs/chrono/time-base/spec.md": {
+    "mtime": 1795303393.9045897,
+    "seen": 1795306452.1245723,
+    "ast_hash": "49b6fb8831086ca83dd34c5d970596ae",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-22-fix-tsc-probe-jitter/tasks.md": {
+    "mtime": 1795304155.7648747,
+    "seen": 1795306452.124573,
+    "ast_hash": "5bfd0ce5e4d6ba90125d1b1c1ff3063f",
     "semantic_hash": ""
   }
 }

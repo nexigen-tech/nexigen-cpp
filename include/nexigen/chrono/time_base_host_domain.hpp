@@ -65,13 +65,18 @@ struct HostClockState {
 
 /// @brief Probe whether the cycle counter is coherent across online CPUs.
 ///
-/// Pins the calling thread to each online CPU, reads a `(counter, canonical)`
-/// pair, and compares each CPU's implied canonical instant against the first.
-/// A spread above the tolerance means the counter is not a single time domain.
+/// Pins the calling thread to each online CPU, takes a counter value bracketed
+/// by two canonical reads on either side of it, and compares the implied
+/// canonical instant against the first CPU. Each sample carries the span of its
+/// bracket as its error bound, and the tightest of a bounded number of attempts
+/// is used, so a scheduling delay inside a sample cannot be reported as counter
+/// skew. A spread above the tolerance means the counter is not one time domain.
+/// The calling thread's affinity mask is restored before returning.
 ///
 /// @return `true` when the counter is coherent (or pinning is unavailable, in
 ///         which case the kernel's own verdict remains the only evidence).
 /// @note Cold path only; takes a few milliseconds.
+/// @note Spec `chrono/time-base`, requirement "Jitter-tolerant probe sampling".
 [[nodiscard]] bool probe_tsc_synchronized() noexcept;
 
 /// @brief Measure canonical nanoseconds per counter tick over a short window.

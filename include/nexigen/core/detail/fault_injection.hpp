@@ -48,6 +48,8 @@ enum class FaultPoint : std::uint8_t {
     Thread_restore_affinity,    ///< Rolling back a CPU affinity.
     Thread_restore_scheduler,   ///< Rolling back a scheduling policy/priority.
     Chrono_phc_cross_timestamp, ///< PHC cross-timestamp ioctl (synthesize a pair).
+    /// Stall between the paired reads of the TSC synchronization probe.
+    Chrono_tsc_probe_stall,
 };
 
 #if defined(NEXIGEN_ENABLE_FAULT_INJECTION)

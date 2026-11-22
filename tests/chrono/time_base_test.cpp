@@ -1101,11 +1101,98 @@ void test_time_base_client() {
     run_client_edge_cases(client, writer, config, name, now, from_tsc);
 }
 
+// --- probe jitter (spec chrono/time-base "Jitter-tolerant probe sampling").
+
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+std::atomic<bool> g_tsc_jitter_stalled{false};
+std::atomic<int> g_tsc_skew_cpu{-1};
+
+bool tsc_jitter_hook(nexigen::core::fault_injection::FaultPoint point) noexcept {
+    if (point != nexigen::core::fault_injection::FaultPoint::Chrono_tsc_probe_stall) {
+        return false;
+    }
+    // One-shot: the first bracketed sample is perturbed, retries are clean.
+    return !g_tsc_jitter_stalled.exchange(true);
+}
+
+bool tsc_skew_hook(nexigen::core::fault_injection::FaultPoint point) noexcept {
+    if (point != nexigen::core::fault_injection::FaultPoint::Chrono_tsc_probe_stall) {
+        return false;
+    }
+    // Persistent on one CPU: retries can never produce a clean sample there.
+    return ::sched_getcpu() == g_tsc_skew_cpu.load(std::memory_order_relaxed);
+}
+#endif
+
+void test_tsc_probe_tolerates_jitter() {
+    using namespace nexigen;
+
+    // A machine whose counter is not certifiable cannot exercise the retry
+    // path; the certification itself is covered by host_domain_production.
+    if (!probe_tsc_synchronized()) {
+        std::printf("tsc probe jitter: counter not certifiable; skipped\n");
+        return;
+    }
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    g_tsc_jitter_stalled.store(false, std::memory_order_relaxed);
+    core::fault_injection::set_fault_hook(&tsc_jitter_hook);
+    const bool certified = probe_tsc_synchronized();
+    core::fault_injection::set_fault_hook(nullptr);
+    NX_CHECK(g_tsc_jitter_stalled.load(std::memory_order_relaxed));
+    NX_CHECK(certified);
+#else
+    std::printf("tsc probe jitter: fault injection disabled; skipped\n");
+#endif
+}
+
+void test_tsc_probe_rejects_skew() {
+    using namespace nexigen;
+
+    if (!probe_tsc_synchronized()) {
+        std::printf("tsc probe skew: counter not certifiable; skipped\n");
+        return;
+    }
+#if defined(NEXIGEN_ENABLE_FAULT_INJECTION)
+    cpu_set_t mask{};
+    CPU_ZERO(&mask);
+    if (::sched_getaffinity(0, sizeof(mask), &mask) != 0) {
+        std::printf("tsc probe skew: affinity unavailable; skipped\n");
+        return;
+    }
+    int skew_cpu = -1;
+    for (int cpu = CPU_SETSIZE - 1; cpu >= 0; --cpu) {
+        if (CPU_ISSET(static_cast<std::size_t>(cpu), &mask) != 0) {
+            skew_cpu = cpu;
+            break;
+        }
+    }
+    if (skew_cpu < 0) {
+        std::printf("tsc probe skew: empty affinity mask; skipped\n");
+        return;
+    }
+    g_tsc_skew_cpu.store(skew_cpu, std::memory_order_relaxed);
+    core::fault_injection::set_fault_hook(&tsc_skew_hook);
+    const bool certified = probe_tsc_synchronized();
+    core::fault_injection::set_fault_hook(nullptr);
+    g_tsc_skew_cpu.store(-1, std::memory_order_relaxed);
+    NX_CHECK(!certified);
+#else
+    std::printf("tsc probe skew: fault injection disabled; skipped\n");
+#endif
+}
+
 // --- production host source (spec chrono/time-base "Canonical monotonic
 // scale"; design D-D).
 
 void test_host_domain_production() {
     using namespace nexigen;
+
+    // The cross-core probe pins the caller and must restore the original mask
+    // (chrono/time-base: "Jitter-tolerant probe sampling"). Snapshot before the
+    // first probe, which runs inside production_host_clock().
+    cpu_set_t original{};
+    CPU_ZERO(&original);
+    NX_CHECK(::sched_getaffinity(0, sizeof(original), &original) == 0);
 
     HostClockState state{};
     const HostClockSource source = production_host_clock(state);
@@ -1123,12 +1210,11 @@ void test_host_domain_production() {
     static_cast<void>(source.clocksource_is_tsc(source.self));
     static_cast<void>(source.tsc_synchronized(source.self));
 
-    // The cross-core probe pins the caller; restore the original affinity.
-    cpu_set_t original{};
-    CPU_ZERO(&original);
-    NX_CHECK(::sched_getaffinity(0, sizeof(original), &original) == 0);
     static_cast<void>(probe_tsc_synchronized());
-    NX_CHECK(::sched_setaffinity(0, sizeof(original), &original) == 0);
+    cpu_set_t restored{};
+    CPU_ZERO(&restored);
+    NX_CHECK(::sched_getaffinity(0, sizeof(restored), &restored) == 0);
+    NX_CHECK(CPU_EQUAL(&original, &restored) != 0);
 
     const std::uint64_t scale = measure_counter_scale(source, std::chrono::milliseconds{1});
     TimeBaseBlock block{};
@@ -2709,6 +2795,8 @@ int main() {
     run_suite("time_base_daemon_config", test_time_base_daemon_config);
     run_suite("host_domains", test_host_domains);
     run_suite("host_domain_production", test_host_domain_production);
+    run_suite("tsc_probe_jitter", test_tsc_probe_tolerates_jitter);
+    run_suite("tsc_probe_skew", test_tsc_probe_rejects_skew);
     run_suite("time_base_client", test_time_base_client);
     run_suite("time_base_diagnostics", test_time_base_diagnostics);
     run_suite("time_base_estimator", test_time_base_estimator);

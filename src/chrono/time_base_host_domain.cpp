@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -20,6 +21,7 @@
 
 #include <nexigen/chrono/time_base_host_domain.hpp>
 #include <nexigen/chrono/timestamp.hpp>
+#include <nexigen/core/detail/fault_injection.hpp>
 
 namespace nexigen::chrono {
 namespace {
@@ -123,6 +125,167 @@ HostClockSource production_host_clock(HostClockState& state) noexcept {
                            &production_synchronized};
 }
 
+#if defined(__x86_64__)
+namespace {
+
+/// @brief One counter value bracketed by two canonical reads.
+///
+/// `canonical_ns` is the midpoint of the two reads and `span_ns` is the
+/// distance between them, so a stall inside the pair can shift the midpoint by
+/// at most half the span. The sample therefore carries its own error bound.
+struct ClockSample {
+    std::uint64_t ticks{0};
+    std::int64_t canonical_ns{0};
+    std::int64_t span_ns{0};
+};
+
+/// @brief An accepted sample is ten times tighter than the certification
+///        tolerance, so scheduling delay can never consume the tolerance budget.
+constexpr std::int64_t k_tight_span_ns = 5'000;
+
+/// @brief Upper bound on bracketed attempts spent looking for a tight sample.
+constexpr int k_max_sample_attempts = 16;
+
+/// @brief Maximum canonical spread that still describes one counter domain.
+///
+/// A 50 us spread separates one coherent domain from independent counters and
+/// sits far above invariant-TSC skew.
+constexpr std::int64_t k_tolerance_ns = 50'000;
+
+/// @brief Restores the calling thread's affinity mask on scope exit.
+///
+/// The probe pins the thread to every CPU in turn; callers keep the mask they
+/// had before it ran, including when the probe returns early.
+class AffinityScope {
+public:
+    AffinityScope() noexcept : saved_(::sched_getaffinity(0, sizeof(mask_), &mask_) == 0) {}
+    ~AffinityScope() noexcept {
+        if (saved_) {
+            static_cast<void>(::sched_setaffinity(0, sizeof(mask_), &mask_));
+        }
+    }
+    AffinityScope(const AffinityScope&) = delete;
+    AffinityScope& operator=(const AffinityScope&) = delete;
+
+private:
+    cpu_set_t mask_{};
+    bool saved_{false};
+};
+
+/// @brief Take one counter value bracketed by two canonical reads.
+///
+/// @return The sample, or `std::nullopt` when a clock read fails.
+[[nodiscard]] std::optional<ClockSample> take_clock_sample() noexcept {
+    const core::Result<Timestamp> before = Timestamp::now();
+    if (!before) {
+        return std::nullopt;
+    }
+    // Test-only hook: a stall here models a preemption inside the pair.
+    if (core::fault_injection::fault(core::fault_injection::FaultPoint::Chrono_tsc_probe_stall)) {
+        std::this_thread::sleep_for(std::chrono::microseconds{200});
+    }
+    const std::uint64_t ticks = __rdtsc();
+    const core::Result<Timestamp> after = Timestamp::now();
+    if (!after) {
+        return std::nullopt;
+    }
+    const std::int64_t start = static_cast<std::int64_t>(before->nanoseconds());
+    const std::int64_t finish = static_cast<std::int64_t>(after->nanoseconds());
+    if (finish < start) {
+        return std::nullopt;
+    }
+    return ClockSample{ticks, start + (finish - start) / 2, finish - start};
+}
+
+/// @brief Keep the tightest of a bounded number of bracketed samples.
+///
+/// A sample disturbed by the scheduler reports a wider span, so the minimum is
+/// the sample least perturbed by preemption.
+///
+/// @return The tightest sample, or `std::nullopt` when every clock read failed.
+[[nodiscard]] std::optional<ClockSample> tightest_clock_sample() noexcept {
+    std::optional<ClockSample> best{};
+    for (int attempt = 0; attempt < k_max_sample_attempts; ++attempt) {
+        const std::optional<ClockSample> sample = take_clock_sample();
+        if (sample && (!best || sample->span_ns < best->span_ns)) {
+            best = sample;
+        }
+        if (best && best->span_ns <= k_tight_span_ns) {
+            break;
+        }
+    }
+    return best;
+}
+
+/// @brief Nanoseconds per counter tick in Q32 between two tight samples.
+///
+/// @param base Earlier sample.
+/// @param later Later sample, taken after a known interval.
+/// @return The forward scale, or `std::nullopt` when the pair cannot describe
+///         one (non-monotonic pair or a zero scale).
+[[nodiscard]] std::optional<std::uint64_t> sample_scale(const ClockSample& base,
+                                                        const ClockSample& later) noexcept {
+    if (later.canonical_ns <= base.canonical_ns || later.ticks <= base.ticks) {
+        return std::nullopt;
+    }
+    const core::detail::uint128 product = core::detail::multiply_u64(
+        static_cast<std::uint64_t>(later.canonical_ns - base.canonical_ns), 1ULL << 32U);
+    const std::uint64_t scale = core::detail::divide_u128_u64(product, later.ticks - base.ticks);
+    if (scale == 0U) {
+        return std::nullopt;
+    }
+    return scale;
+}
+
+/// @brief Pin the calling thread to one CPU.
+///
+/// @param cpu CPU index.
+/// @return `true` when the affinity was applied.
+[[nodiscard]] bool pin_to_cpu(long cpu) noexcept {
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(static_cast<std::size_t>(cpu), &set);
+    return ::sched_setaffinity(0, sizeof(set), &set) == 0;
+}
+
+/// @brief Compare the instant implied by the counter on every online CPU.
+///
+/// @param cpus Number of online CPUs to visit.
+/// @param base Tighter sample that anchors the scale.
+/// @param scale Forward scale in Q32 nanoseconds per tick.
+/// @return `true` when every sampled CPU agrees within the tolerance.
+[[nodiscard]] bool cpu_offsets_agree(long cpus, const ClockSample& base,
+                                     std::uint64_t scale) noexcept {
+    const AffinityScope affinity{};
+    bool have_reference = false;
+    std::int64_t reference_offset = 0;
+    for (long cpu = 0; cpu < cpus; ++cpu) {
+        if (!pin_to_cpu(cpu)) {
+            continue; // restricted affinity: skip this CPU rather than fail
+        }
+        const std::optional<ClockSample> sample = tightest_clock_sample();
+        if (!sample) {
+            return false;
+        }
+        const std::int64_t predicted =
+            detail::map_forward(sample->ticks, base.ticks, base.canonical_ns, scale);
+        const std::int64_t offset = sample->canonical_ns - predicted;
+        if (!have_reference) {
+            reference_offset = offset;
+            have_reference = true;
+            continue;
+        }
+        const std::int64_t spread = offset - reference_offset;
+        if (spread > k_tolerance_ns || spread < -k_tolerance_ns) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+#endif
+
 bool probe_tsc_synchronized() noexcept {
 #if !defined(__x86_64__)
     return true; // no counter to check; the TSC row is never published anyway
@@ -131,63 +294,20 @@ bool probe_tsc_synchronized() noexcept {
     if (cpus <= 0) {
         return true; // cannot pin; leave the kernel verdict as the evidence
     }
-
-    // Estimate the counter's nanosecond scale from one placement before
-    // comparing CPUs.
-    const std::uint64_t base_ticks = __rdtsc();
-    const core::Result<Timestamp> base_now = Timestamp::now();
-    if (!base_now) {
+    const std::optional<ClockSample> base = tightest_clock_sample();
+    if (!base) {
         return false;
     }
-    const std::uint64_t base_ns = base_now->nanoseconds();
     std::this_thread::sleep_for(std::chrono::milliseconds{2});
-    const core::Result<Timestamp> second_now = Timestamp::now();
-    const std::uint64_t second_ticks = __rdtsc();
-    if (!second_now || second_now->nanoseconds() <= base_ns || second_ticks <= base_ticks) {
+    const std::optional<ClockSample> later = tightest_clock_sample();
+    if (!later) {
         return false;
     }
-    const nexigen::core::detail::uint128 scale_product =
-        nexigen::core::detail::multiply_u64(second_now->nanoseconds() - base_ns, 1ULL << 32U);
-    const std::uint64_t scale_fwd_q32 =
-        nexigen::core::detail::divide_u128_u64(scale_product, second_ticks - base_ticks);
-    if (scale_fwd_q32 == 0U) {
+    const std::optional<std::uint64_t> scale = sample_scale(*base, *later);
+    if (!scale) {
         return false;
     }
-
-    // Every CPU must imply the same canonical instant for its counter value.
-    // A 50 us spread separates one coherent domain from independent counters
-    // and sits far above invariant-TSC skew.
-    constexpr std::int64_t tolerance_ns = 50'000;
-    bool have_reference = false;
-    std::int64_t reference_offset = 0;
-
-    for (long cpu = 0; cpu < cpus; ++cpu) {
-        const std::size_t cpu_index = static_cast<std::size_t>(cpu);
-        cpu_set_t set;
-        CPU_ZERO(&set);
-        CPU_SET(cpu_index, &set);
-        if (::sched_setaffinity(0, sizeof(set), &set) != 0) {
-            continue; // restricted affinity: skip this CPU rather than fail
-        }
-        const std::uint64_t ticks = __rdtsc();
-        const core::Result<Timestamp> now = Timestamp::now();
-        if (!now) {
-            return false;
-        }
-        const std::int64_t predicted = detail::map_forward(
-            ticks, base_ticks, static_cast<std::int64_t>(base_ns), scale_fwd_q32);
-        const std::int64_t offset = static_cast<std::int64_t>(now->nanoseconds()) - predicted;
-        if (!have_reference) {
-            reference_offset = offset;
-            have_reference = true;
-            continue;
-        }
-        const std::int64_t spread = offset - reference_offset;
-        if (spread > tolerance_ns || spread < -tolerance_ns) {
-            return false;
-        }
-    }
-    return true;
+    return cpu_offsets_agree(cpus, *base, *scale);
 #endif
 }
 
