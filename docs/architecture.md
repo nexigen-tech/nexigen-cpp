@@ -980,6 +980,32 @@ flowchart LR
     RX -->|"status"| BUS
 ```
 
+### 5.1b Log viewer data path
+
+```mermaid
+flowchart LR
+    P["Iceoryx2Logger<br/>publishers"] -->|"LogFrame + TransportHeader"| S["com::Subscriber"]
+    S --> RX["capture thread<br/>SCHED_OTHER, nice 10"]
+    RX -->|"IngressRecord (320 B)"| Q["SpscRingBuffer<br/>65 536 slots = 20 MiB"]
+    Q --> UI["UI thread<br/>ingest"]
+    UI --> R["RecordRing<br/>one mmap, absolute seq"]
+    R --> F["visible index<br/>chunked 20k/frame"]
+    R --> MM["minimap 1024 buckets"]
+    R --> E["ExportWriter<br/>4096-slot SPSC, nice 19"]
+    F --> IM["ImGui table<br/>ImGuiListClipper"]
+    IM --> V["screen"]
+    E --> FILE["JSONL / CSV / TXT"]
+    FILE --> IMP["ImportSession<br/>bounded lines"]
+    IMP --> R
+```
+
+The receive thread is the only producer and the UI thread the only consumer of
+the ingress queue; the history ring has a single owner (the UI thread), so the
+viewer needs no seqlock or torn-read protocol. Pause freezes the displayed
+range while ingest continues, and the banner reports how many displayed records
+were overwritten. `nexigen-logview` is read-only for the platform: stopping it
+changes no service or on-disk state.
+
 ### 5.2 Телеметрический конвейер
 
 ```mermaid
@@ -1173,6 +1199,7 @@ flowchart LR
 | `nexigen-logd` | COM | приём `LogFrame`, форматирование и почасовая JSONL-запись |
 | `nexigen-metricsd` | COM | агрегация метрик, Prometheus HTTP, квотируемая JSONL-история |
 | `nexigen-traced` | COM | RAM-ring спанов и аварийный снимок по событию PHM |
+| `nexigen-logview` | COM + `NEXIGEN_BUILD_LOGVIEW` | интерактивный просмотр живого `LogFrame`-потока: ImGui/GLFW, ограниченная история, фильтры, find, bookmarks, time/delta modes, экспорт/импорт, ECO |
 
 Инструменты при `NEXIGEN_BUILD_TOOLS=ON` собираются вместе с библиотекой;
 COM-зависимые инструменты появляются только при включённом gate.
@@ -1302,6 +1329,11 @@ ctest --test-dir build/debug --output-on-failure
   по умолчанию `ON`;
 - `NEXIGEN_ENABLE_COM` — по умолчанию `OFF`, требует Rust-тулчейн и
   собирает `com`, `phm`, `sm` и COM-инструменты;
+- `NEXIGEN_BUILD_LOGVIEW` — по умолчанию `OFF`, требует
+  `NEXIGEN_ENABLE_COM=ON`; собирает Linux-only GUI `nexigen-logview`
+  (ImGui/GLFW/OpenGL3) и headless-модель с тестами;
+- `NEXIGEN_LOGVIEW_GUI` — по умолчанию `ON`; `OFF` оставляет headless
+  CLI и тесты без X11/OpenGL-зависимостей;
 - `NEXIGEN_ENABLE_MCAP` — по умолчанию `OFF`; добавляет MCAP-выход только
   в `nexigen-export` и не попадает в `nexigen_recorder`;
 - `NEXIGEN_BUILD_STORAGE_BENCHMARKS` — по умолчанию `OFF`; собирает

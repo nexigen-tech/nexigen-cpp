@@ -62,6 +62,7 @@ nav:
       - diagnostics: articles/diagnostics.md
       - synchro: articles/synchro.md
       - logging: articles/logging.md
+      - log viewer: articles/log-viewer.md
       - recorder: articles/recorder.md
   - Руководства:
       - Минимальные задержки: low-latency-guide.md

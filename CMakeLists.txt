@@ -619,11 +619,21 @@ endif()
 option(NEXIGEN_BUILD_TESTS "Build nexigen unit tests" ON)
 option(NEXIGEN_BUILD_EXAMPLES "Build nexigen runnable examples" ON)
 option(NEXIGEN_BUILD_TOOLS "Build nexigen command-line tools" ON)
+# Realtime log viewer (change add-realtime-log-viewer): Linux-only GUI tool
+# over the live LogFrame service. Requires NEXIGEN_ENABLE_COM because the
+# capture backend is a com::Subscriber.
+option(NEXIGEN_BUILD_LOGVIEW "Build the nexigen-logview realtime log viewer" OFF)
+if(NEXIGEN_BUILD_LOGVIEW AND NOT NEXIGEN_ENABLE_COM)
+    message(FATAL_ERROR "❌ NEXIGEN_BUILD_LOGVIEW requires NEXIGEN_ENABLE_COM=ON.")
+endif()
+if(NEXIGEN_BUILD_LOGVIEW AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "❌ NEXIGEN_BUILD_LOGVIEW is supported on Linux only.")
+endif()
 option(NEXIGEN_ENABLE_MCAP "Build MCAP output support for nexigen-export" OFF)
 option(NEXIGEN_BUILD_STORAGE_BENCHMARKS
     "Build the opt-in recorder storage-format benchmarks (MCAP vs .nxrec)" OFF)
 
-if(NEXIGEN_BUILD_TESTS OR NEXIGEN_BUILD_EXAMPLES)
+if(NEXIGEN_BUILD_TESTS OR NEXIGEN_BUILD_EXAMPLES OR NEXIGEN_BUILD_LOGVIEW)
     enable_testing()
 endif()
 

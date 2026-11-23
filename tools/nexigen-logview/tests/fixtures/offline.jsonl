@@ -1,0 +1,3 @@
+{"timestamp":"2026-11-24T00:00:00.000000000Z","mono_ns":1000000000,"boot":"8d1a2b3c4d5e6f70","app":"Engine","level":"info","thread_id":1,"pid":100,"message":"offline first"}
+{"timestamp":"2026-11-24T00:00:00.001000000Z","mono_ns":1001000000,"boot":"8d1a2b3c4d5e6f70","app":"Viz","level":"warning","thread_id":2,"pid":101,"message":"offline second"}
+{"timestamp":"2026-11-24T00:00:00.002000000Z","mono_ns":1002000000,"boot":"8d1a2b3c4d5e6f70","app":"Engine","level":"error","thread_id":1,"pid":100,"message":"offline third"}
