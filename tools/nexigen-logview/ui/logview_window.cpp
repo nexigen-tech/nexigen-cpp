@@ -80,10 +80,30 @@ struct UiState {
     bool truncated{false};
     bool open_clicked{false};
     bool layout_loaded{false};
+    std::optional<std::uint64_t> hovered_seq{};
     bool inject_mouse_pos{false};
     bool inject_mouse_down{false};
     bool inject_mouse_up{false};
+    bool inject_right_down{false};
+    bool inject_right_up{false};
     ImVec2 inject_pos{};
+    bool id_conflict_detected{false};
+    bool capture_row_rects{false};
+    std::size_t row_rect_count{0};
+    std::array<ImVec2, 4> row_rect_min{};
+    std::array<ImVec2, 4> row_rect_max{};
+    std::array<std::uint64_t, 4> row_seqs{};
+    bool menu_open_for_tests{false};
+    std::optional<std::uint64_t> menu_target_seq{};
+    bool capture_menu_rects{false};
+    bool menu_message_rect_valid{false};
+    bool menu_record_rect_valid{false};
+    ImVec2 menu_message_rect_min{};
+    ImVec2 menu_message_rect_max{};
+    ImVec2 menu_record_rect_min{};
+    ImVec2 menu_record_rect_max{};
+    bool menu_message_copied{false};
+    bool menu_record_copied{false};
 };
 
 ImVec4 to_imgui(const Rgba& color) {
@@ -497,8 +517,122 @@ void draw_message_cell(const LogViewModel& model, const RecordView& view) {
     }
 }
 
-void draw_record_row(LogViewModel& model, const RecordView& view, float row_height,
+void draw_row_tooltip(const RecordView& view, UiState& state) {
+    state.hovered_seq = view.seq;
+    ImGui::BeginTooltip();
+    if (view.is_frame()) {
+        const std::string_view message = view.frame->payload_text();
+        ImGui::TextUnformatted(message.data(), message.data() + message.size());
+    } else {
+        ImGui::Text("[gap] %llu lost (%s)", static_cast<unsigned long long>(view.gap_count),
+                    to_string(view.kind).data());
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Ctrl+C copies this record; right-click for more");
+    ImGui::EndTooltip();
+}
+
+void draw_row_context_menu(LogViewModel& model, const RecordView& view, UiState& state) {
+    if (state.menu_open_for_tests && state.menu_target_seq.has_value() &&
+        *state.menu_target_seq == view.seq) {
+        ImGui::OpenPopup("row-menu");
+        state.menu_open_for_tests = false;
+        state.menu_target_seq.reset();
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        model.select_only(view.seq);
+    }
+    if (!ImGui::BeginPopupContextItem("row-menu")) {
+        return;
+    }
+    const bool copy_message = ImGui::MenuItem("Copy message");
+    if (state.capture_menu_rects && !state.menu_message_rect_valid) {
+        state.menu_message_rect_min = ImGui::GetItemRectMin();
+        state.menu_message_rect_max = ImGui::GetItemRectMax();
+        state.menu_message_rect_valid = true;
+    }
+    if (copy_message) {
+        if (view.is_frame()) {
+            const std::string text(view.frame->payload_text());
+            ImGui::SetClipboardText(text.c_str());
+        } else {
+            char text[96]{};
+            std::snprintf(text, sizeof(text), "[gap] %llu lost (%s)",
+                          static_cast<unsigned long long>(view.gap_count),
+                          to_string(view.kind).data());
+            ImGui::SetClipboardText(text);
+        }
+        state.status = "message copied";
+        state.menu_message_copied = true;
+    }
+    const bool copy_record = ImGui::MenuItem("Copy full record");
+    if (state.capture_menu_rects && !state.menu_record_rect_valid) {
+        state.menu_record_rect_min = ImGui::GetItemRectMin();
+        state.menu_record_rect_max = ImGui::GetItemRectMax();
+        state.menu_record_rect_valid = true;
+    }
+    if (copy_record) {
+        model.select_only(view.seq);
+        const std::string text = ui::copy_selected(model);
+        if (!text.empty()) {
+            ImGui::SetClipboardText(text.c_str());
+            state.status = "record copied";
+            state.menu_record_copied = true;
+        }
+    }
+    ImGui::EndPopup();
+}
+
+void capture_row_rect(const RecordView& view, UiState& state) {
+    if (!state.input_test || !state.capture_row_rects ||
+        state.row_rect_count >= state.row_rect_min.size()) {
+        return;
+    }
+    state.row_rect_min[state.row_rect_count] = ImGui::GetItemRectMin();
+    state.row_rect_max[state.row_rect_count] = ImGui::GetItemRectMax();
+    state.row_seqs[state.row_rect_count] = view.seq;
+    ++state.row_rect_count;
+}
+
+void draw_timestamp_cell(LogViewModel& model, const RecordView& view) {
+    const FormattedTime stamp = TimeFormatter::format_timestamp(
+        view.frame->timestamp_ns, model.config().timestamp_mode, model.time());
+    if (!stamp.unknown) {
+        ImGui::TextUnformatted(stamp.text.data());
+        return;
+    }
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0F, 0.55F, 0.35F, 1.0F));
+    ImGui::TextUnformatted(stamp.text.data());
+    ImGui::PopStyleColor();
+}
+
+void draw_app_cell(LogViewModel& model, const RecordView& view, bool critical) {
+    if (!view.is_frame()) {
+        ImGui::TextUnformatted("-");
+        return;
+    }
+    const std::size_t slot = model.ring().apps().find(view.frame->app_id_text());
+    if (slot >= AppRegistry::capacity) {
+        ImGui::TextUnformatted("-");
+        return;
+    }
+    const ImVec4 app_color =
+        to_imgui(model.colors().app_color(model.ring().apps().color_index(slot)));
+    const std::string_view app_text = model.ring().apps().at(slot).text();
+    if (model.colors().mode() == ColorMode::Combined && !critical) {
+        ImGui::PushStyleColor(ImGuiCol_Text, app_color);
+        ImGui::TextUnformatted(app_text.data(), app_text.data() + app_text.size());
+        ImGui::PopStyleColor();
+    } else {
+        ImGui::TextUnformatted(app_text.data(), app_text.data() + app_text.size());
+    }
+}
+
+void draw_record_row(LogViewModel& model, UiState& state, const RecordView& view, float row_height,
                      RowContext& context) {
+    char row_id[32]{};
+    std::snprintf(row_id, sizeof(row_id), "##row%llu", static_cast<unsigned long long>(view.seq));
+    ImGui::PushID(row_id);
     const bool selected = model.ring().is_selected(view.seq);
     const bool bookmarked = model.ring().is_bookmarked(view.seq);
     const bool is_frame = view.is_frame();
@@ -526,20 +660,17 @@ void draw_record_row(LogViewModel& model, const RecordView& view, float row_heig
     if (clicked) {
         select_row(model, view.seq);
     }
+    capture_row_rect(view, state);
+    if (ImGui::IsItemHovered()) {
+        draw_row_tooltip(view, state);
+    }
+    draw_row_context_menu(model, view, state);
     ImGui::SameLine();
     ImGui::TextUnformatted(bookmarked ? "B" : " ");
     ImGui::TableSetColumnIndex(1);
     ImGui::Text("%llu", static_cast<unsigned long long>(view.seq));
     ImGui::TableSetColumnIndex(2);
-    const FormattedTime stamp = TimeFormatter::format_timestamp(
-        view.frame->timestamp_ns, model.config().timestamp_mode, model.time());
-    if (stamp.unknown) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0F, 0.55F, 0.35F, 1.0F));
-        ImGui::TextUnformatted(stamp.text.data());
-        ImGui::PopStyleColor();
-    } else {
-        ImGui::TextUnformatted(stamp.text.data());
-    }
+    draw_timestamp_cell(model, view);
     ImGui::TableSetColumnIndex(3);
     if (is_frame && model.time().mixed_boot) {
         ImGui::TextUnformatted("-");
@@ -558,25 +689,7 @@ void draw_record_row(LogViewModel& model, const RecordView& view, float row_heig
         ImGui::TextUnformatted("-");
     }
     ImGui::TableSetColumnIndex(4);
-    if (is_frame) {
-        const std::size_t slot = model.ring().apps().find(view.frame->app_id_text());
-        if (slot < AppRegistry::capacity) {
-            const ImVec4 app_color =
-                to_imgui(model.colors().app_color(model.ring().apps().color_index(slot)));
-            const std::string_view app_text = model.ring().apps().at(slot).text();
-            if (model.colors().mode() == ColorMode::Combined && !critical) {
-                ImGui::PushStyleColor(ImGuiCol_Text, app_color);
-                ImGui::TextUnformatted(app_text.data(), app_text.data() + app_text.size());
-                ImGui::PopStyleColor();
-            } else {
-                ImGui::TextUnformatted(app_text.data(), app_text.data() + app_text.size());
-            }
-        } else {
-            ImGui::TextUnformatted("-");
-        }
-    } else {
-        ImGui::TextUnformatted("-");
-    }
+    draw_app_cell(model, view, critical);
     ImGui::TableSetColumnIndex(5);
     ImGui::TextUnformatted("-");
     ImGui::TableSetColumnIndex(6);
@@ -584,6 +697,7 @@ void draw_record_row(LogViewModel& model, const RecordView& view, float row_heig
     ImGui::TableSetColumnIndex(7);
     draw_message_cell(model, view);
     ImGui::PopStyleColor();
+    ImGui::PopID();
 }
 
 void apply_table_scroll(LogViewModel& model, UiState& state, int rows, float row_height) {
@@ -635,6 +749,7 @@ void draw_table(LogViewModel& model, UiState& state) {
         return;
     }
     draw_table_header();
+    state.hovered_seq.reset();
     const std::size_t display = model.display_count();
     const int rows = static_cast<int>(std::min<std::size_t>(display, 2'000'000'000U));
     ImGuiListClipper clipper;
@@ -653,7 +768,7 @@ void draw_table(LogViewModel& model, UiState& state) {
         for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
             const std::uint64_t seq = model.ring().visible_at(static_cast<std::size_t>(row));
             if (const auto view = model.ring().find(seq); view.has_value()) {
-                draw_record_row(model, *view, row_height, context);
+                draw_record_row(model, state, *view, row_height, context);
             }
         }
     }
@@ -1018,19 +1133,54 @@ void process_model_frame(LogViewModel& model, UiState& state, CaptureThread* cap
     }
 }
 
-void handle_shortcuts(LogViewModel& model, UiState& state) {
-    const ImGuiIO& io = ImGui::GetIO();
-    if (io.WantTextInput) {
+void handle_copy_shortcut(LogViewModel& model, UiState& state) {
+    if (!ImGui::GetIO().KeyCtrl || !ImGui::IsKeyPressed(ImGuiKey_C)) {
         return;
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Space)) {
-        model.set_paused(!model.paused());
-        state.auto_scroll = !model.paused();
+    const auto seq = state.hovered_seq.has_value() ? state.hovered_seq : model.last_selected();
+    if (!seq.has_value()) {
+        return;
     }
+    model.select_only(*seq);
+    const std::string text = ui::copy_selected(model);
+    if (!text.empty()) {
+        ImGui::SetClipboardText(text.c_str());
+        state.status = "record copied";
+    }
+}
+
+void handle_bookmark_shortcut(LogViewModel& model, UiState& state) {
     if (ImGui::IsKeyPressed(ImGuiKey_F2)) {
         if (const auto seq = model.last_selected(); seq.has_value()) {
             static_cast<void>(model.toggle_bookmark(*seq));
         }
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_F3)) {
+        const auto seq = ImGui::GetIO().KeyShift ? model.previous_bookmark(model.last_selected())
+                                                 : model.next_bookmark(model.last_selected());
+        if (seq.has_value()) {
+            model.select_only(*seq);
+            state.scroll_to = seq;
+        }
+    }
+}
+
+void handle_attention_shortcut(LogViewModel& model, UiState& state) {
+    if (!ImGui::IsKeyPressed(ImGuiKey_F4)) {
+        return;
+    }
+    const auto seq = ImGui::GetIO().KeyShift ? model.previous_attention(model.last_selected())
+                                             : model.next_attention(model.last_selected());
+    if (seq.has_value()) {
+        model.select_only(*seq);
+        state.scroll_to = seq;
+    }
+}
+
+void handle_view_shortcuts(LogViewModel& model, UiState& state) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Space)) {
+        model.set_paused(!model.paused());
+        state.auto_scroll = !model.paused();
     }
     if (ImGui::IsKeyPressed(ImGuiKey_T)) {
         if (const auto seq = model.last_selected(); seq.has_value()) {
@@ -1039,28 +1189,23 @@ void handle_shortcuts(LogViewModel& model, UiState& state) {
             }
         }
     }
+    const ImGuiIO& io = ImGui::GetIO();
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A)) {
         model.select_all_visible();
     }
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F)) {
         state.focus_find = true;
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_F3)) {
-        const auto seq = io.KeyShift ? model.previous_bookmark(model.last_selected())
-                                     : model.next_bookmark(model.last_selected());
-        if (seq.has_value()) {
-            model.select_only(*seq);
-            state.scroll_to = seq;
-        }
+}
+
+void handle_shortcuts(LogViewModel& model, UiState& state) {
+    if (ImGui::GetIO().WantTextInput) {
+        return;
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_F4)) {
-        const auto seq = io.KeyShift ? model.previous_attention(model.last_selected())
-                                     : model.next_attention(model.last_selected());
-        if (seq.has_value()) {
-            model.select_only(*seq);
-            state.scroll_to = seq;
-        }
-    }
+    handle_view_shortcuts(model, state);
+    handle_bookmark_shortcut(model, state);
+    handle_attention_shortcut(model, state);
+    handle_copy_shortcut(model, state);
 }
 
 void present_frame(GLFWwindow* window) {
@@ -1096,75 +1241,144 @@ void inject_ui_input(UiState& state) {
         io.AddMouseButtonEvent(0, false);
         state.inject_mouse_up = false;
     }
+    if (state.inject_right_down) {
+        io.AddMouseButtonEvent(1, true);
+        state.inject_right_down = false;
+    }
+    if (state.inject_right_up) {
+        io.AddMouseButtonEvent(1, false);
+        state.inject_right_up = false;
+    }
+}
+
+bool drive_hover_phases(LogViewModel& model, UiState& state) {
+    switch (state.input_phase) {
+        case 0:
+            if (model.display_count() > 0U) {
+                model.select_only(model.ring().visible_at(0));
+                state.truncated = ui::selected_payload_truncated(model);
+                state.capture_row_rects = true;
+                state.input_phase = 1;
+            }
+            break;
+        case 1:
+            if (state.row_rect_count >= 3U) {
+                state.inject_pos = rect_center(state.row_rect_min[0], state.row_rect_max[0]);
+                state.inject_mouse_pos = true;
+                state.input_phase = 2;
+            }
+            break;
+        case 2:
+            state.inject_pos = rect_center(state.row_rect_min[1], state.row_rect_max[1]);
+            state.inject_mouse_pos = true;
+            state.input_phase = 3;
+            break;
+        case 3:
+            state.inject_pos = rect_center(state.row_rect_min[2], state.row_rect_max[2]);
+            state.inject_mouse_pos = true;
+            state.input_phase = 4;
+            break;
+        default: break;
+    }
+    return false;
+}
+
+bool drive_message_menu(UiState& state) {
+    switch (state.input_phase) {
+        case 4:
+            if (state.id_conflict_detected) {
+                std::printf("UI_INPUT conflict=1\n");
+                return true;
+            }
+            state.menu_target_seq = state.row_seqs[0];
+            state.menu_open_for_tests = true;
+            state.input_phase = 5;
+            break;
+        case 5:
+            state.capture_menu_rects = true;
+            state.input_phase = 6;
+            break;
+        case 6:
+            if (state.menu_message_rect_valid) {
+                state.inject_pos =
+                    rect_center(state.menu_message_rect_min, state.menu_message_rect_max);
+                state.inject_mouse_pos = true;
+                state.input_phase = 7;
+            }
+            break;
+        case 7:
+            state.inject_mouse_down = true;
+            state.input_phase = 8;
+            break;
+        case 8:
+            state.inject_mouse_up = true;
+            state.input_phase = 9;
+            break;
+        case 9:
+            if (state.menu_message_copied) {
+                state.menu_message_rect_valid = false;
+                state.menu_record_rect_valid = false;
+                state.capture_menu_rects = false;
+                state.menu_target_seq = state.row_seqs[0];
+                state.menu_open_for_tests = true;
+                state.input_phase = 10;
+            }
+            break;
+        default: break;
+    }
+    return false;
+}
+
+bool drive_record_menu(UiState& state) {
+    switch (state.input_phase) {
+        case 10:
+            state.capture_menu_rects = true;
+            state.input_phase = 11;
+            break;
+        case 11:
+            if (state.menu_record_rect_valid) {
+                state.inject_pos =
+                    rect_center(state.menu_record_rect_min, state.menu_record_rect_max);
+                state.inject_mouse_pos = true;
+                state.input_phase = 12;
+            }
+            break;
+        case 12:
+            state.inject_mouse_down = true;
+            state.input_phase = 13;
+            break;
+        case 13:
+            state.inject_mouse_up = true;
+            state.input_phase = 14;
+            break;
+        case 14:
+            std::printf(
+                "UI_INPUT truncated=%d conflict=%d menu_message=%d menu_record=%d layout=%d\n",
+                state.truncated, state.id_conflict_detected, state.menu_message_copied,
+                state.menu_record_copied, state.layout_loaded);
+            return true;
+        default: return true;
+    }
+    return false;
 }
 
 bool drive_input_script(LogViewModel& model, UiState& state) {
     if (!state.input_test) {
         return false;
     }
-    if (state.input_phase > 0 && ++state.input_phase_frames > 600) {
-        std::printf("UI_INPUT stalled phase=%d copied=%d copy_rect=%d open_rect=%d popup=%d\n",
-                    state.input_phase, state.copied, state.copy_rect_valid,
-                    state.open_modal_rect_valid, ImGui::IsPopupOpen("Open log file"));
+    if (state.input_phase > 0 && ++state.input_phase_frames > 900) {
+        std::printf("UI_INPUT stalled phase=%d conflict=%d rows=%zu menu_msg=%d menu_rec=%d\n",
+                    state.input_phase, state.id_conflict_detected, state.row_rect_count,
+                    state.menu_message_copied, state.menu_record_copied);
         return true;
     }
-    switch (state.input_phase) {
-        case 0:
-            if (model.display_count() > 0U) {
-                model.select_only(model.ring().visible_at(0));
-                state.truncated = ui::selected_payload_truncated(model);
-                state.capture_copy_rect = true;
-                state.input_phase = 1;
-            }
-            break;
-        case 1:
-            if (state.copy_rect_valid) {
-                state.inject_pos = rect_center(state.copy_rect_min, state.copy_rect_max);
-                state.inject_mouse_pos = true;
-                state.input_phase = 2;
-            }
-            break;
-        case 2:
-            state.inject_mouse_down = true;
-            state.input_phase = 3;
-            break;
-        case 3:
-            state.inject_mouse_up = true;
-            state.input_phase = 4;
-            break;
-        case 4:
-            if (state.copied) {
-                state.open_open = true;
-                state.capture_open_modal_rect = true;
-                state.input_phase = 5;
-            }
-            break;
-        case 5:
-            if (state.open_modal_rect_valid) {
-                state.inject_pos =
-                    rect_center(state.open_modal_rect_min, state.open_modal_rect_max);
-                state.inject_mouse_pos = true;
-                state.input_phase = 6;
-            }
-            break;
-        case 6:
-            state.inject_mouse_down = true;
-            state.input_phase = 7;
-            break;
-        case 7:
-            state.inject_mouse_up = true;
-            state.input_phase = 8;
-            break;
-        case 8:
-            while (model.importing()) {
-                model.step_import(100000U);
-            }
-            std::printf("UI_INPUT copied=%d truncated=%d opened=%d layout=%d\n", state.copied,
-                        state.truncated, state.open_clicked, state.layout_loaded);
-            return true;
-        default: return true;
+    if (state.input_phase <= 3) {
+        return drive_hover_phases(model, state);
     }
-    return false;
+    if (state.input_phase <= 9) {
+        return drive_message_menu(state);
+    }
+    return drive_record_menu(state);
 }
 
 int run_ui(LogViewModel& model, const UiOptions& options) {
@@ -1239,6 +1453,9 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
         draw_minimap(model);
         draw_status(model, state);
         draw_modals(model, state);
+        if (state.input_test && ImGui::GetCurrentContext()->DebugDrawIdConflictsId != 0) {
+            state.id_conflict_detected = true;
+        }
         handle_shortcuts(model, state);
         const bool input_done = drive_input_script(model, state);
         present_frame(window);
