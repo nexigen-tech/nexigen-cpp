@@ -177,6 +177,7 @@ void test_value_serialization() {
     com::ChannelConfig config{};
     NX_CHECK(config.validate().has_value());
     NX_CHECK(config.max_consumers == 16U);
+    NX_CHECK(config.max_publishers == 1U);
     NX_CHECK(config.queue_size == 512U);
     NX_CHECK(config.history_size == 16U);
     const auto ps_options = config.publish_subscribe_options();
@@ -184,6 +185,12 @@ void test_value_serialization() {
     NX_CHECK(ps_options.max_publishers == 1U);
     NX_CHECK(ps_options.max_nodes == 17U);
     NX_CHECK(ps_options.enable_safe_overflow);
+    auto two_publishers = config;
+    two_publishers.max_publishers = 2U;
+    const auto two_options = two_publishers.publish_subscribe_options();
+    NX_CHECK(two_options.max_publishers == 2U);
+    NX_CHECK(two_options.max_nodes == 18U);
+    NX_CHECK(two_publishers.event_options().max_notifiers == 2U);
     const auto event_options = config.event_options();
     NX_CHECK(event_options.max_listeners == 16U);
     NX_CHECK(event_options.max_notifiers == 1U);
@@ -1333,6 +1340,11 @@ void test_config_validation_and_options() {
     NX_CHECK(!invalid.validate().has_value());
     invalid = com::ChannelConfig{};
     invalid.default_timestamp_domain = com::TimestampDomain::Unknown;
+    NX_CHECK(!invalid.validate().has_value());
+    invalid = com::ChannelConfig{};
+    invalid.max_publishers = 0U;
+    NX_CHECK(!invalid.validate().has_value());
+    invalid.max_publishers = 17U;
     NX_CHECK(!invalid.validate().has_value());
 
     auto node = com::Node::create();

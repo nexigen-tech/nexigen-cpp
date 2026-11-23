@@ -150,6 +150,46 @@ if(NEXIGEN_ENABLE_COM)
     set_tests_properties(nexigen_sm_required_spec PROPERTIES
         TIMEOUT 60 LABELS "tools")
 
+    # CAN hardware tools — virtual backend in this change; the vendor hardware
+    # adapter is supplied by the interface module.
+    add_executable(nexigen-canrx nexigen-canrx/main.cpp)
+    target_link_libraries(nexigen-canrx PRIVATE nexigen_hw_can_com nexigen_app Threads::Threads)
+    add_test(NAME nexigen_canrx_help COMMAND nexigen-canrx --help)
+    set_tests_properties(nexigen_canrx_help PROPERTIES TIMEOUT 60 LABELS "tools;can")
+
+    add_executable(nexigen-cantx nexigen-cantx/main.cpp)
+    target_link_libraries(nexigen-cantx PRIVATE nexigen_hw_can_com nexigen_app Threads::Threads)
+    add_test(NAME nexigen_cantx_help COMMAND nexigen-cantx --help)
+    set_tests_properties(nexigen_cantx_help PROPERTIES TIMEOUT 60 LABELS "tools;can")
+
+    add_executable(nexigen-canmon nexigen-canmon/main.cpp)
+    target_link_libraries(nexigen-canmon PRIVATE nexigen_hw_can_com nexigen_app Threads::Threads)
+    add_test(NAME nexigen_canmon_help COMMAND nexigen-canmon --help)
+    set_tests_properties(nexigen_canmon_help PROPERTIES TIMEOUT 60 LABELS "tools;can")
+
+    add_executable(nexigen-canvbus nexigen-canvbus/main.cpp)
+    target_link_libraries(nexigen-canvbus PRIVATE nexigen_hw_can_com nexigen_app Threads::Threads)
+    add_test(NAME nexigen_canvbus_help COMMAND nexigen-canvbus --help)
+    set_tests_properties(nexigen_canvbus_help PROPERTIES TIMEOUT 60 LABELS "tools;can")
+
+    # Hardware adapter skeletons: fill VendorCanDriver, then use the same
+    # CanReceiver/CanTransmitter data path as the virtual tools.
+    add_executable(nexigen-canrx-hw nexigen-canrx-hw/main.cpp)
+    target_link_libraries(nexigen-canrx-hw PRIVATE nexigen_hw_can_com nexigen_app Threads::Threads)
+    target_include_directories(nexigen-canrx-hw PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME nexigen_canrx_hw_help COMMAND nexigen-canrx-hw --help)
+    set_tests_properties(nexigen_canrx_hw_help PROPERTIES TIMEOUT 60 LABELS "tools;can")
+
+    add_executable(nexigen-cantx-hw nexigen-cantx-hw/main.cpp)
+    target_link_libraries(nexigen-cantx-hw PRIVATE nexigen_hw_can_com nexigen_app Threads::Threads)
+    target_include_directories(nexigen-cantx-hw PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME nexigen_cantx_hw_help COMMAND nexigen-cantx-hw --help)
+    set_tests_properties(nexigen_cantx_hw_help PROPERTIES TIMEOUT 60 LABELS "tools;can")
+
+    install(TARGETS nexigen-canrx nexigen-cantx nexigen-canmon nexigen-canvbus
+            nexigen-canrx-hw nexigen-cantx-hw
+            RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+
     # nexigen-recd — telemetry session recorder (change record-telemetry-sessions).
     add_executable(nexigen-recd nexigen-recd/main.cpp)
     target_link_libraries(nexigen-recd PRIVATE

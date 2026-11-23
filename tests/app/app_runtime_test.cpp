@@ -33,6 +33,10 @@ struct RuntimeSignal {
     double value{};
 };
 
+struct OtherSignal {
+    std::uint64_t sequence{};
+};
+
 using TestPolicy = app::policies::ConsolePolicy;
 using TestApp = app::App<TestPolicy>;
 
@@ -364,7 +368,7 @@ void test_app_sighup() {
     stopper.join();
 }
 
-void test_app_second_subscription_rejected() {
+void test_app_multiple_subscriptions() {
     auto argv = args({"--app-id", "SECOND"});
     auto created = TestApp::create(static_cast<int>(argv.size()), argv.data(), "runtime-second",
                                    app::TimeBaseMode::Embedded);
@@ -377,8 +381,59 @@ void test_app_second_subscription_rejected() {
         return;
     }
     NX_CHECK(app->subscribe<RuntimeSignal>(unique_service("first"), [](const RuntimeSignal&) {}));
-    NX_CHECK(!app->subscribe<RuntimeSignal>(unique_service("second"), [](const RuntimeSignal&) {}));
-    NX_CHECK(!app->run().has_value());
+    NX_CHECK(app->subscribe<RuntimeSignal>(unique_service("second"), [](const RuntimeSignal&) {}));
+    std::jthread stopper{[] {
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+        static_cast<void>(::kill(::getpid(), SIGTERM));
+    }};
+    const auto reason = app->run();
+    NX_CHECK(reason.has_value());
+    if (reason.has_value()) {
+        NX_CHECK(*reason == app::InfrastructureStopReason::Sigterm);
+    }
+    NX_CHECK(app->shutdown().has_value());
+    stopper.join();
+}
+
+void test_app_subscription_limits() {
+    auto argv = args({"--app-id", "LIMIT"});
+    auto created = TestApp::create(static_cast<int>(argv.size()), argv.data(), "runtime-limit",
+                                   app::TimeBaseMode::Embedded);
+    NX_CHECK(created.has_value());
+    if (!created.has_value() || !*created) {
+        return;
+    }
+    auto app = std::move(*created);
+    NX_CHECK(app->subscribe<RuntimeSignal>(unique_service("limit0"), [](const RuntimeSignal&) {}));
+    NX_CHECK(app->subscribe<OtherSignal>(unique_service("other"), [](const OtherSignal&) {}));
+    for (std::size_t i = 2; i < TestApp::max_subscriptions; ++i) {
+        NX_CHECK(app->subscribe<RuntimeSignal>(unique_service("limit" + std::to_string(i)),
+                                               [](const RuntimeSignal&) {}));
+    }
+    NX_CHECK(
+        !app->subscribe<RuntimeSignal>(unique_service("limit16"), [](const RuntimeSignal&) {}));
+    NX_CHECK(app->shutdown().has_value());
+}
+
+void test_app_output_config_and_loss_overload() {
+    auto argv = args({"--app-id", "OUTCFG"});
+    auto created = TestApp::create(static_cast<int>(argv.size()), argv.data(), "runtime-outcfg",
+                                   app::TimeBaseMode::Embedded);
+    NX_CHECK(created.has_value());
+    if (!created.has_value() || !*created) {
+        return;
+    }
+    auto app = std::move(*created);
+    com::ChannelConfig valid{};
+    valid.max_publishers = 2U;
+    const std::string service = unique_service("outcfg");
+    NX_CHECK(app->publish<RuntimeSignal>(service, valid) != nullptr);
+    com::ChannelConfig invalid{};
+    invalid.queue_size = 0U;
+    NX_CHECK(app->publish<RuntimeSignal>(unique_service("badcfg"), invalid) == nullptr);
+    NX_CHECK(!app->diagnostics().empty());
+    NX_CHECK(app->subscribe<RuntimeSignal>(
+        unique_service("loss"), [](const RuntimeSignal&) {}, [](const com::LossInfo&) {}));
     NX_CHECK(app->shutdown().has_value());
 }
 
@@ -416,8 +471,10 @@ void run_app_runtime_suites() {
     run_suite("app_runtime_counter_gate", test_app_counter_capacity_gate);
     run_suite("app_runtime_external", test_app_external_base_missing);
     run_suite("app_runtime_single", test_app_second_instance_rejected);
+    run_suite("app_runtime_outcfg", test_app_output_config_and_loss_overload);
     run_suite("app_runtime_ports", test_app_input_and_output);
-    run_suite("app_runtime_second", test_app_second_subscription_rejected);
+    run_suite("app_runtime_second", test_app_multiple_subscriptions);
+    run_suite("app_runtime_limits", test_app_subscription_limits);
     run_suite("app_runtime_diagnostics", test_app_diagnostic_gate);
 }
 

@@ -379,6 +379,24 @@ target_link_libraries(nexigen_app PUBLIC nexigen_core nexigen_chrono nexigen_log
     nexigen_metrics nexigen_tracing PRIVATE Threads::Threads)
 
 # =============================================================================
+# nexigen::hw::can — hardware CAN message model, channel configuration and
+# vendor-neutral driver contract. COM-free: the transport/client layer is a
+# separate optional target. Public headers in include/nexigen/hw/can/, cold
+# units in src/hw/can/.
+# =============================================================================
+file(GLOB NEXIGEN_HW_CAN_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/hw/can/*.cpp")
+
+add_library(nexigen_hw_can STATIC ${NEXIGEN_HW_CAN_SOURCES})
+add_library(nexigen::hw::can ALIAS nexigen_hw_can)
+
+target_include_directories(nexigen_hw_can PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(nexigen_hw_can PUBLIC nexigen_core)
+
+# =============================================================================
 # nexigen::exec — instance lifecycle library.
 # =============================================================================
 file(GLOB NEXIGEN_EXEC_SOURCES CONFIGURE_DEPENDS
@@ -434,6 +452,18 @@ if(NEXIGEN_ENABLE_COM)
     )
     target_compile_definitions(nexigen_com PUBLIC $<$<PLATFORM_ID:Linux>:_GNU_SOURCE>)
     target_link_libraries(nexigen_com PUBLIC nexigen_core iceoryx2-cxx::static-lib-cxx)
+
+    # Hardware CAN transport/client/bridge layer over nexigen::com and App<Policy>.
+    file(GLOB NEXIGEN_HW_CAN_COM_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/hw/can/com/*.cpp")
+    add_library(nexigen_hw_can_com STATIC ${NEXIGEN_HW_CAN_COM_SOURCES})
+    add_library(nexigen::hw::can::com ALIAS nexigen_hw_can_com)
+    target_include_directories(nexigen_hw_can_com PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+    target_link_libraries(nexigen_hw_can_com PUBLIC
+        nexigen_hw_can nexigen_com nexigen_app nexigen_chrono nexigen_logging nexigen_metrics
+        nexigen_tracing PRIVATE Threads::Threads)
 
     # iceoryx2-cxx derives payload type names via typeid (its default
     # type-name mechanism, exercised only at port creation — cold path), so
@@ -723,9 +753,11 @@ set(NEXIGEN_EXPORT_TARGETS
     nexigen_app
     nexigen_exec
     nexigen_hub
-    nexigen_recorder)
+    nexigen_recorder
+    nexigen_hw_can)
 if(NEXIGEN_ENABLE_COM)
-    list(APPEND NEXIGEN_EXPORT_TARGETS nexigen_com nexigen_phm nexigen_sm nexigen_synchro)
+    list(APPEND NEXIGEN_EXPORT_TARGETS nexigen_com nexigen_phm nexigen_sm nexigen_synchro
+         nexigen_hw_can_com)
 endif()
 
 set_target_properties(nexigen_core        PROPERTIES EXPORT_NAME core)
@@ -738,11 +770,13 @@ set_target_properties(nexigen_app         PROPERTIES EXPORT_NAME app)
 set_target_properties(nexigen_exec      PROPERTIES EXPORT_NAME exec)
 set_target_properties(nexigen_hub         PROPERTIES EXPORT_NAME hub)
 set_target_properties(nexigen_recorder    PROPERTIES EXPORT_NAME recorder)
+set_target_properties(nexigen_hw_can      PROPERTIES EXPORT_NAME hw_can)
 if(NEXIGEN_ENABLE_COM)
     set_target_properties(nexigen_com     PROPERTIES EXPORT_NAME com)
     set_target_properties(nexigen_phm     PROPERTIES EXPORT_NAME phm)
     set_target_properties(nexigen_sm      PROPERTIES EXPORT_NAME sm)
     set_target_properties(nexigen_synchro PROPERTIES EXPORT_NAME synchro)
+    set_target_properties(nexigen_hw_can_com PROPERTIES EXPORT_NAME hw_can_com)
 endif()
 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/nexigen"

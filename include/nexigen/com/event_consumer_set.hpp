@@ -96,6 +96,27 @@ public:
         return {};
     }
 
+    /// @brief Drain every attached consumer once.
+    ///
+    /// Pending events may predate the first wait notification, so callers that
+    /// multiplex several consumers should drain before waiting.
+    ///
+    /// @return Empty status, or the first drain failure.
+    [[nodiscard]] Status drain_all() noexcept {
+        if (!status_.has_value()) {
+            return std::unexpected(status_.error());
+        }
+        for (auto& slot : slots_) {
+            if (slot.consumer == nullptr) {
+                continue;
+            }
+            if (auto drained = slot.consumer->drain(); !drained.has_value()) {
+                return drained;
+            }
+        }
+        return {};
+    }
+
     /// @brief Detach one consumer listener.
     /// @param consumer Consumer to detach.
     /// @return Empty status, or `InvalidArgument` when not attached.

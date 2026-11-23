@@ -217,6 +217,22 @@ unset(_nexigen_json_inc)
 unset(_nexigen_json_includes)
 unset(_nexigen_json_inc_flags)
 
+# Hardware CAN core model: COM-free types, validation, JSON and service names.
+add_executable(nexigen_hw_can_tests hw/can/can_vocabulary_test.cpp)
+target_link_libraries(nexigen_hw_can_tests PRIVATE nexigen_hw_can)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(nexigen_can_vcan_probe hw/can/can_vcan_probe.cpp)
+    target_link_libraries(nexigen_can_vcan_probe PRIVATE nexigen_hw_can Threads::Threads)
+    add_test(NAME can_vcan_smoke
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hw/can/can_vcan_smoke.sh
+            $<TARGET_FILE:nexigen_can_vcan_probe>)
+    set_tests_properties(can_vcan_smoke PROPERTIES
+        SKIP_RETURN_CODE 77 TIMEOUT 30 LABELS "hw;can")
+endif()
+
+add_test(NAME nexigen_hw_can_tests COMMAND nexigen_hw_can_tests)
+set_tests_properties(nexigen_hw_can_tests PROPERTIES TIMEOUT 120 LABELS "hw;can")
+
 if(NEXIGEN_ENABLE_COM)
     # COM-gated App<Policy> runtime tests: embedded time base, ports, signals.
     add_executable(nexigen_app_runtime_com_tests app/app_runtime_test.cpp)
@@ -225,6 +241,50 @@ if(NEXIGEN_ENABLE_COM)
         Threads::Threads)
     add_test(NAME nexigen_app_runtime_com_tests COMMAND nexigen_app_runtime_com_tests)
     set_tests_properties(nexigen_app_runtime_com_tests PROPERTIES TIMEOUT 600)
+
+    if(NEXIGEN_BUILD_TOOLS)
+        add_executable(nexigen_can_test_sender hw/can/can_test_sender.cpp)
+        target_link_libraries(nexigen_can_test_sender PRIVATE nexigen_hw_can_com)
+        add_test(NAME can_virtual_e2e
+            COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hw/can/can_virtual_e2e.sh
+                $<TARGET_FILE:nexigen-canvbus>
+                $<TARGET_FILE:nexigen-canrx>
+                $<TARGET_FILE:nexigen-cantx>
+                $<TARGET_FILE:nexigen-canmon>
+                $<TARGET_FILE:nexigen_can_test_sender>)
+        set_tests_properties(can_virtual_e2e PROPERTIES TIMEOUT 60 LABELS "hw;can;e2e")
+
+        add_test(NAME can_fault_seed_smoke
+            COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hw/can/can_fault_seed_smoke.sh
+                $<TARGET_FILE:nexigen-canvbus>
+                $<TARGET_FILE:nexigen-canrx>
+                $<TARGET_FILE:nexigen-cantx>
+                $<TARGET_FILE:nexigen-canmon>
+                $<TARGET_FILE:nexigen_can_test_sender>)
+        set_tests_properties(can_fault_seed_smoke PROPERTIES TIMEOUT 60 LABELS "hw;can;e2e")
+
+        add_test(NAME can_heartbeat_smoke
+            COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hw/can/can_heartbeat_smoke.sh
+                $<TARGET_FILE:nexigen-canvbus>
+                $<TARGET_FILE:nexigen-canrx>
+                $<TARGET_FILE:nexigen-canmon>)
+        set_tests_properties(can_heartbeat_smoke PROPERTIES TIMEOUT 30 LABELS "hw;can;e2e")
+    endif()
+
+    add_executable(nexigen_hw_can_bridge_tests hw/can/can_bridge_test.cpp)
+    target_link_libraries(nexigen_hw_can_bridge_tests PRIVATE nexigen_hw_can_com Threads::Threads)
+    add_test(NAME nexigen_hw_can_bridge_tests COMMAND nexigen_hw_can_bridge_tests)
+    set_tests_properties(nexigen_hw_can_bridge_tests PROPERTIES TIMEOUT 60 LABELS "hw;can")
+
+    add_executable(nexigen_hw_can_client_tests hw/can/can_client_test.cpp)
+    target_link_libraries(nexigen_hw_can_client_tests PRIVATE nexigen_hw_can_com Threads::Threads)
+    add_test(NAME nexigen_hw_can_client_tests COMMAND nexigen_hw_can_client_tests)
+    set_tests_properties(nexigen_hw_can_client_tests PROPERTIES TIMEOUT 60 LABELS "hw;can")
+
+    add_executable(nexigen_hw_can_transport_tests hw/can/can_transport_test.cpp)
+    target_link_libraries(nexigen_hw_can_transport_tests PRIVATE nexigen_hw_can_com)
+    add_test(NAME nexigen_hw_can_transport_tests COMMAND nexigen_hw_can_transport_tests)
+    set_tests_properties(nexigen_hw_can_transport_tests PROPERTIES TIMEOUT 60 LABELS "hw;can")
 
     add_executable(nexigen_quickstart_sender app/quickstart_sender.cpp)
     target_link_libraries(nexigen_quickstart_sender PRIVATE nexigen_com Threads::Threads)

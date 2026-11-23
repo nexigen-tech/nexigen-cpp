@@ -96,18 +96,24 @@ any recorded diagnostic is an error, and the diagnostic SHALL name each failing 
 - **WHEN** `subscribe<Signal>` fails because the service or listener cannot be created
 - **THEN** `run()` returns `InvalidArgument`, names the service, and no callback is invoked
 
-### Requirement: One event input and an optional event output
+### Requirement: One or more event inputs and an optional event output
 
-`App` SHALL expose `subscribe<T>(service, callback)` for one input type and
-`publish<T>(service)` for an optional output type. The subscription and the borrowed
-`com::EventProducer<T>` handle SHALL stamp the application's `app_id` into the event header, and
-`run()` SHALL wait on the input through a bounded `EventConsumerSet`/WaitSet timeout so an idle
-application still observes stop requests.
+`App` SHALL expose `subscribe<T>(service, callback)` for any trivially copyable payload types and `publish<T>(service)` for optional outputs. It SHALL accept up to sixteen subscriptions, each with its own payload type, all dispatched on the `run()` thread. The subscriptions and borrowed producer handles SHALL stamp the application `app_id`, and `run()` SHALL wait on all inputs through a bounded `EventConsumerSet`/WaitSet timeout so an idle application still observes stop requests.
 
 #### Scenario: Input is delivered to the callback
 
-- **WHEN** an event arrives on the subscribed service
+- **WHEN** an event arrives on a subscribed service
 - **THEN** the registered callback runs on the `run()` thread with the payload and event header
+
+#### Scenario: Multiple subscriptions are accepted
+
+- **WHEN** the application subscribes to a second service with its own payload type
+- **THEN** `subscribe` returns `true`, both services are attached, and their callbacks are dispatched on the `run()` thread
+
+#### Scenario: Seventeenth subscription is rejected
+
+- **WHEN** the application already holds sixteen subscriptions and requests a seventeenth
+- **THEN** `subscribe` returns `false`, records a diagnostic naming the service, and the first sixteen remain active
 
 #### Scenario: Output carries the application identity
 
@@ -116,9 +122,29 @@ application still observes stop requests.
 
 #### Scenario: Idle input still observes stop
 
-- **WHEN** no event arrives for longer than the wait timeout
+- **WHEN** no event arrives on any subscribed service for longer than the wait timeout
 - **THEN** `run()` re-checks the stop request and time-base state instead of blocking forever
 
+#### Scenario: Callback work stays on the run thread
+
+- **WHEN** callbacks for several subscriptions run
+- **THEN** every callback executes on the `run()` thread and no callback is invoked from a transport worker thread
+
+### Requirement: App exposes loss and output-channel configuration
+
+`App` SHALL provide a subscribe overload with an explicit transport-loss callback and a publish overload accepting a `com::ChannelConfig` for the output channel. The loss callback SHALL run on the `run()` thread; the explicit channel configuration SHALL be validated before service creation.
+
+#### Scenario: Loss callback receives transport loss
+- **WHEN** a subscribed consumer reports lost samples
+- **THEN** the supplied loss callback runs on the `run()` thread with the loss information
+
+#### Scenario: Output channel uses explicit limits
+- **WHEN** the application publishes with a `ChannelConfig` carrying `max_publishers=2`
+- **THEN** the created output service requests two publishers
+
+#### Scenario: Invalid output configuration is diagnosed
+- **WHEN** the supplied output `ChannelConfig` is invalid
+- **THEN** publication returns `nullptr` after recording a diagnostic
 ### Requirement: Graceful signals and exit codes
 
 `App` SHALL treat `SIGINT`, `SIGTERM`, and `SIGHUP` as graceful stops through the existing

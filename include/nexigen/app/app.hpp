@@ -3,8 +3,8 @@
 ///
 /// `App<Policy>` owns the cold-path application boilerplate: command-line and
 /// default settings, the optional embedded time base, the transport node,
-/// `Infrastructure`, one meter with metric handles, one event input and an
-/// optional event output. The explicit `create` -> instruments/ports -> `run`
+/// `Infrastructure`, one meter with metric handles, up to sixteen event
+/// subscriptions, and optional event outputs. The explicit `create` -> instruments/ports -> `run`
 /// -> `shutdown` sequence keeps a minimal `main` readable without hiding
 /// lifecycle decisions.
 ///
@@ -13,6 +13,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <format>
@@ -63,9 +64,10 @@ namespace nexigen::app {
 /// are then declared through `counter`, `gauge`, `histogram`, `subscribe` and
 /// `publish`; any failure is retained as a diagnostic and blocks `run`.
 ///
-/// `run` drives the single input through a bounded `EventConsumerSet` wait so
-/// an idle application still observes a stop request, and `shutdown` drains the
-/// telemetry components and restores the previous `SIGPIPE` disposition. The
+/// `run` drives up to sixteen subscriptions of one payload type through a
+/// bounded `EventConsumerSet` wait so an idle application still observes a stop
+/// request, and `shutdown` drains the telemetry components and restores the
+/// previous `SIGPIPE` disposition. The
 /// object is heap-owned and intentionally non-copyable and non-movable because
 /// its address backs the WaitSet attachments and the borrowed producer handles
 /// returned by `publish`.
@@ -83,6 +85,9 @@ namespace nexigen::app {
 ///       shut down explicitly so failures can be reported.
 template <class Policy> class App {
 public:
+    /// @brief Maximum subscriptions one `App` can attach.
+    static constexpr std::size_t max_subscriptions = 16U;
+
     /// @brief Heap-only application factory.
     ///
     /// When `argv` names a settings directory, the strict application parser and
@@ -208,10 +213,10 @@ public:
     /// Returns immediately with `InvalidArgument` when any instrument or port
     /// declaration recorded a diagnostic, so a partially constructed
     /// application never enters the loop. Otherwise it delegates to
-    /// `Infrastructure::run` and waits on the one input through
-    /// `EventConsumerSet<1>` with a 100 ms timeout; every wake-up dispatches the
-    /// registered callback on this thread, and every timeout re-checks the stop
-    /// request and time-base state.
+    /// `Infrastructure::run` and waits on all subscriptions through
+    /// `EventConsumerSet<max_subscriptions>` with a 100 ms timeout; every
+    /// wake-up dispatches the registered callbacks on this thread, and every
+    /// timeout re-checks the stop request and time-base state.
     ///
     /// @return The `Infrastructure` stop reason (`Requested`, `Sigint`,
     ///         `Sigterm`, `Sighup`, `TimeBaseLost`, or `None`), `InvalidArgument`
@@ -234,6 +239,10 @@ public:
         }
         bool wait_failed = false;
         const InfrastructureStopReason reason = infra_->run([&]() -> bool {
+            if (auto drained = consumer_set_->drain_all(); !drained) {
+                wait_failed = true;
+                return false;
+            }
             auto waited = consumer_set_->wait_for(std::chrono::milliseconds{100});
             if (!waited) {
                 wait_failed = true;
@@ -401,7 +410,7 @@ public:
         return *created;
     }
 
-    /// @brief Subscribe to the one input event service.
+    /// @brief Subscribe to one input event service.
     ///
     /// Creates one `com::EventChannel<T>` and one `com::EventConsumer<T>` and
     /// stores them behind the type-erased `SubscriptionBase` owned by this
@@ -409,9 +418,11 @@ public:
     /// `(const com::EventHeader&, const T&)` or `(const T&)`. Event loss is
     /// reported through the infrastructure logger when one is available.
     ///
-    /// A second subscription is rejected as a diagnostic error in this slice,
-    /// and any service/channel/consumer/attach failure is retained the same way,
-    /// so `run()` refuses to start instead of silently dropping events.
+    /// Up to sixteen subscriptions are accepted; each subscription may use its
+    /// own trivially copyable payload type. A seventeenth subscription is
+    /// rejected as a diagnostic error. Any service/channel/consumer/attach
+    /// failure is retained the same way, so `run()` refuses to start instead of
+    /// silently dropping events.
     ///
     /// @tparam T Trivially copyable event payload satisfying
     ///         `com::concepts::EventPayload`.
@@ -422,16 +433,16 @@ public:
     /// @return `true` when the subscription is registered and attached,
     ///         otherwise `false` after recording a diagnostic.
     ///
-    /// @note Spec `app/runtime`, requirements "One event input and an optional
-    ///       event output" and "Declared instruments and ports must be valid
-    ///       before run".
-    /// @note Register the subscription before `run()`; the callback must be
-    ///       short because it executes on the stop-observation thread.
+    /// @note Spec `app/runtime`, requirements "One or more event inputs and an
+    ///       optional event output" and "Declared instruments and ports must be
+    ///       valid before run".
+    /// @note Register subscriptions before `run()`; callbacks must be short
+    ///       because they execute serially on the stop-observation thread.
     template <class T, class Callback>
         requires com::concepts::EventPayload<T>
     bool subscribe(std::string_view service, Callback&& callback) noexcept {
-        if (subscription_) {
-            record_failure(service, "only one input subscription is supported");
+        if (subscriptions_.size() >= max_subscriptions) {
+            record_failure(service, "subscription limit of 16 reached");
             return false;
         }
         auto name = com::ServiceName::create(std::string(service).c_str());
@@ -474,7 +485,65 @@ public:
             record_failure(service, "event consumer could not be attached");
             return false;
         }
-        subscription_ = std::move(subscription);
+        subscriptions_.push_back(std::move(subscription));
+        return true;
+    }
+
+    /// @brief Subscribe with an explicit transport-loss callback.
+    ///
+    /// Same as the two-argument overload, but replaces the default logger
+    /// warning with @p on_loss. The callback runs on the `run()` thread.
+    ///
+    /// @tparam T Trivially copyable event payload.
+    /// @tparam Callback Callable with `(const T&)` or
+    ///         `(const com::EventHeader&, const T&)`.
+    /// @tparam OnLoss Callable with `(const com::LossInfo&)`.
+    /// @param service Event service name.
+    /// @param callback Event callback.
+    /// @param on_loss Transport-loss callback.
+    /// @return `true` when the subscription is registered and attached.
+    template <class T, class Callback, class OnLoss>
+        requires com::concepts::EventPayload<T>
+    bool subscribe(std::string_view service, Callback&& callback, OnLoss&& on_loss) noexcept {
+        if (subscriptions_.size() >= max_subscriptions) {
+            record_failure(service, "subscription limit of 16 reached");
+            return false;
+        }
+        auto name = com::ServiceName::create(std::string(service).c_str());
+        if (!name) {
+            record_failure(service, "invalid service name");
+            return false;
+        }
+        auto channel = com::EventChannel<T>::create(*node_, *name, config_);
+        if (!channel) {
+            record_failure(service, "event channel could not be created");
+            return false;
+        }
+        using EventCb = std::function<void(const com::EventHeader&, const T&)>;
+        using LossCb = std::function<void(const com::LossInfo&)>;
+        EventCb on_event = [cb = std::forward<Callback>(callback)](const com::EventHeader& header,
+                                                                   const T& payload) mutable {
+            if constexpr (std::is_invocable_v<Callback&, const com::EventHeader&, const T&>) {
+                cb(header, payload);
+            } else {
+                cb(payload);
+            }
+        };
+        LossCb loss = [cb = std::forward<OnLoss>(on_loss)](const com::LossInfo& info) mutable {
+            cb(info);
+        };
+        auto consumer = channel->consumer(std::move(on_event), std::move(loss));
+        if (!consumer) {
+            record_failure(service, "event consumer could not be created");
+            return false;
+        }
+        auto subscription = std::make_unique<Subscription<T, EventCb, LossCb>>(
+            std::move(*channel), std::move(*consumer));
+        if (auto attached = consumer_set_->attach(subscription->consumer()); !attached) {
+            record_failure(service, "event consumer could not be attached");
+            return false;
+        }
+        subscriptions_.push_back(std::move(subscription));
         return true;
     }
 
@@ -501,12 +570,24 @@ public:
     template <class T>
         requires com::concepts::EventPayload<T>
     [[nodiscard]] com::EventProducer<T>* publish(std::string_view service) noexcept {
+        return publish<T>(service, config_);
+    }
+
+    /// @brief Create an optional output producer with explicit channel limits.
+    /// @tparam T Event payload type.
+    /// @param service Event service name.
+    /// @param config Channel configuration.
+    /// @return Borrowed producer, or `nullptr` after a diagnostic.
+    template <class T>
+        requires com::concepts::EventPayload<T>
+    [[nodiscard]] com::EventProducer<T>* publish(std::string_view service,
+                                                 const com::ChannelConfig& config) noexcept {
         auto name = com::ServiceName::create(std::string(service).c_str());
         if (!name) {
             record_failure(service, "invalid service name");
             return nullptr;
         }
-        auto channel = com::EventChannel<T>::create(*node_, *name, config_);
+        auto channel = com::EventChannel<T>::create(*node_, *name, config);
         if (!channel) {
             record_failure(service, "event channel could not be created");
             return nullptr;
@@ -919,15 +1000,15 @@ private:
     TimeBaseMode mode_{TimeBaseMode::External};            ///< Selected time-base ownership.
     std::unique_ptr<detail::EmbeddedTimeBase> embedded_{}; ///< Local base in Embedded mode.
     std::unique_ptr<com::Node> node_{}; ///< One transport node for input and outputs.
-    std::unique_ptr<Infrastructure<Policy, 256, 8>> infra_{}; ///< Telemetry/runtime owner.
-    metrics::Meter* meter_{nullptr};                          ///< Lazily created app meter.
-    std::unique_ptr<SubscriptionBase> subscription_{};        ///< The one type-erased input.
-    std::optional<com::EventConsumerSet<1>> consumer_set_{};  ///< Bounded input WaitSet.
-    std::vector<std::unique_ptr<OutputPortBase>> outputs_{};  ///< Type-erased output ports.
-    std::vector<core::SettingsDiagnostic> diagnostics_{};     ///< Retained cold-path failures.
-    std::unique_ptr<detail::SigpipeGuard> sigpipe_{};         ///< Process-global SIGPIPE guard.
-    bool help_requested_{false};  ///< `--help` short-circuited `create`.
-    bool shutdown_done_{false};   ///< Idempotence bit for `shutdown()`.
+    std::unique_ptr<Infrastructure<Policy, 256, 8>> infra_{};        ///< Telemetry/runtime owner.
+    metrics::Meter* meter_{nullptr};                                 ///< Lazily created app meter.
+    std::vector<std::unique_ptr<SubscriptionBase>> subscriptions_{}; ///< Type-erased inputs.
+    std::optional<com::EventConsumerSet<max_subscriptions>> consumer_set_{}; ///< Input WaitSet.
+    std::vector<std::unique_ptr<OutputPortBase>> outputs_{}; ///< Type-erased output ports.
+    std::vector<core::SettingsDiagnostic> diagnostics_{};    ///< Retained cold-path failures.
+    std::unique_ptr<detail::SigpipeGuard> sigpipe_{};        ///< Process-global SIGPIPE guard.
+    bool help_requested_{false};                             ///< `--help` short-circuited `create`.
+    bool shutdown_done_{false};                              ///< Idempotence bit for `shutdown()`.
     com::ChannelConfig config_{}; ///< Channel limits shared by input and outputs.
 };
 

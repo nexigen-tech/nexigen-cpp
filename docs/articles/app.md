@@ -10,7 +10,7 @@
 - Слияние настроек: `app::Settings` и `AppSettingsPaths` собирают logging/metrics/tracing/chrono из global/local JSON.
 - Идентичность запуска: `RunIdentity` читает `NEXIGEN_RUN_ID`, `NEXIGEN_EXEC_DIR`, `NEXIGEN_INSTANCE_ID`, `NEXIGEN_INSTANCE_DIR`; `telemetry_layout`/`TelemetryPaths` отображают её в пути metrics/traces/chrono.
 - `Infrastructure<Policy>` — heap-only сервис, создаваемый только через `make_infrastructure<Policy>()`. Владеет логгером, метриками, трассировкой и chrono, монопольно владеет `SIGINT`/`SIGTERM`/`SIGHUP` через `signalfd`, выполняет `run(tick)`, фиксирует причину остановки и освобождает ресурсы в обратном порядке.
-- `app::App<Policy>` — фасад для минимальных приложений: `create`/`run`/`shutdown`, метрики одной строкой, один вход и опциональный выход, накопление диагностики и обязательный `app_id`.
+- `app::App<Policy>` — фасад для минимальных приложений: `create`/`run`/`shutdown`, метрики одной строкой, до 16 подписок одного payload-типа и опциональные выходы, накопление диагностики и обязательный `app_id`.
 - `InfrastructureStopReason` — причина остановки: запрос, `SIGINT`/`SIGTERM`/`SIGHUP`, потеря time base.
 - `app::exit_code(reason)` — единая таблица кодов выхода: штатные причины дают 0, потеря time base — 75, `None` — 1.
 
@@ -117,7 +117,7 @@ if (!infra->shutdown()) {
 
 ## `App<Policy>`: минимальное приложение
 
-`App<Policy>` собирает типовой cold-path сценарий: разбор опций, настройки по умолчанию или из каталога, time base (внешняя или явно встроенная), `Infrastructure`, метрики, один вход и опциональный выход. `run()` не стартует, если хотя бы один объявленный instrument или port не создался: ошибки копятся в `diagnostics()` и возвращаются как `InvalidArgument`.
+`App<Policy>` собирает типовой cold-path сценарий: разбор опций, настройки по умолчанию или из каталога, time base (внешняя или явно встроенная), `Infrastructure`, метрики, до 16 подписок одного payload-типа и опциональные выходы. `run()` не стартует, если хотя бы один объявленный instrument или port не создался: ошибки копятся в `diagnostics()` и возвращаются как `InvalidArgument`.
 
 ```cpp
 using Policy = nexigen::app::policies::Iceoryx2Policy<'Q', 'S', 'T', 'R'>;

@@ -27,6 +27,7 @@ struct ChannelConfig {
     static constexpr std::uint64_t max_supported_consumers = 16U; ///< v1 consumer hard cap.
 
     std::uint64_t max_consumers{16}; ///< Maximum consumers, 1..16.
+    std::uint64_t max_publishers{1}; ///< Maximum publishers, 1..16.
     std::uint64_t queue_size{512};   ///< Per-consumer queue depth.
     std::uint64_t history_size{16};  ///< Late-join history depth.
     TimestampDomain default_timestamp_domain{

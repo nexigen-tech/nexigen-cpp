@@ -1345,7 +1345,8 @@ void test_identity() {
     const auto real_uid = phm::parse_status_real_uid(
         "Name:\tcamera\nUid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\n");
     NX_CHECK(real_uid.has_value() && *real_uid == 1000U);
-    NX_CHECK(phm::parse_status_real_uid("Uid:\t42\nUid:\t43\n").value() == 42U);
+    const auto repeated_uid = phm::parse_status_real_uid("Uid:\t42\nUid:\t43\n");
+    NX_CHECK(repeated_uid.has_value() && *repeated_uid == 42U);
     NX_CHECK(!phm::parse_status_real_uid("Name:\tcamera\n").has_value());
     NX_CHECK(!phm::parse_status_real_uid("Uid:\tabc\n").has_value());
     NX_CHECK(!phm::parse_status_real_uid("Uid:\t99999999999\n").has_value());

@@ -135,8 +135,9 @@ void from_json(const nlohmann::json& j, EventHeader& header) noexcept {
 }
 
 Status ChannelConfig::validate() const noexcept {
-    if (max_consumers == 0U || max_consumers > max_supported_consumers || queue_size == 0U ||
-        history_size > queue_size || default_timestamp_domain == TimestampDomain::Unknown) {
+    if (max_consumers == 0U || max_consumers > max_supported_consumers || max_publishers == 0U ||
+        max_publishers > max_supported_consumers || queue_size == 0U || history_size > queue_size ||
+        default_timestamp_domain == TimestampDomain::Unknown) {
         return std::unexpected(Error::InvalidArgument);
     }
     return {};
@@ -145,8 +146,8 @@ Status ChannelConfig::validate() const noexcept {
 PublishSubscribeOptions ChannelConfig::publish_subscribe_options() const noexcept {
     PublishSubscribeOptions options{};
     options.max_subscribers = max_consumers;
-    options.max_publishers = 1U;
-    options.max_nodes = max_consumers + 1U;
+    options.max_publishers = max_publishers;
+    options.max_nodes = max_consumers + max_publishers;
     options.subscriber_max_buffer_size = queue_size;
     options.subscriber_buffer_size = queue_size;
     options.history_size = history_size;
@@ -158,8 +159,8 @@ PublishSubscribeOptions ChannelConfig::publish_subscribe_options() const noexcep
 EventOptions ChannelConfig::event_options() const noexcept {
     EventOptions options{};
     options.max_listeners = max_consumers;
-    options.max_notifiers = 1U;
-    options.max_nodes = max_consumers + 1U;
+    options.max_notifiers = max_publishers;
+    options.max_nodes = max_consumers + max_publishers;
     return options;
 }
 
@@ -173,6 +174,7 @@ std::string ChannelConfig::to_string() const {
 void to_json(nlohmann::json& j, const ChannelConfig& config) {
     j = nlohmann::json{
         {"max_consumers", config.max_consumers},
+        {"max_publishers", config.max_publishers},
         {"queue_size", config.queue_size},
         {"history_size", config.history_size},
         {"default_timestamp_domain", nexigen::com::to_string(config.default_timestamp_domain)}};
@@ -183,6 +185,7 @@ void from_json(const nlohmann::json& j, ChannelConfig& config) noexcept {
         return;
     }
     core::detail::read_unsigned(j, "max_consumers", config.max_consumers);
+    core::detail::read_unsigned(j, "max_publishers", config.max_publishers);
     core::detail::read_unsigned(j, "queue_size", config.queue_size);
     core::detail::read_unsigned(j, "history_size", config.history_size);
     std::string domain;

@@ -54,6 +54,7 @@
 | L0 | `nexigen::core` | `nexigen_core` | INTERFACE | 25 | `Result`/`ErrorCode`, сериализация, `LogLevel`, enum-словари, SPSC-очереди, потоки и affinity, sink/settings-инфраструктура, integrity-примитивы |
 | L1 | `nexigen::chrono` | `nexigen_chrono` | STATIC | 40 | `Timestamp`, `CivilTime`, калиброванный TSC, `Provider`/`Worker`, UTC-смещение, time-sync монитор, **time base (домены, seqlock-блок, `nexigen-chronod`)**, sinks и настройки |
 | L1 | `nexigen::com` | `nexigen_com` | STATIC, gate | 54 | SOA поверх iceoryx2: `Node`, pub/sub, request/response, `Event`, event channels, `Field`, `WaitSet`, `ServiceManifest`, E2E |
+| L1 | `nexigen::hw::can` | `nexigen_hw_can` | STATIC | 20 | CAN ISO-11898: `CanMessage`, каналы, `CanDriver`, timestamp/sequence/error provenance; `nexigen_hw_can_com` — COM-мосты и клиент |
 | L2 | `nexigen::logging` | `nexigen_logging` | STATIC | 37 | Асинхронные логгеры, `LogRecord`, уровни, anti-spam, ротация, кадры и настройки |
 | L2 | `nexigen::metrics` | `nexigen_metrics` | STATIC | 49 | Счётчики, gauge, гистограммы, статистика, `MetricProvider`, sinks, Prometheus, кадры |
 | L2 | `nexigen::tracing` | `nexigen_tracing` | STATIC | 35 | `TracerProvider`, `ScopedSpan`, контекст трассировки, sinks, кадры и daemon-сессия |
@@ -72,6 +73,10 @@
 `nexigen_logging_com`, `nexigen_metrics_com`, `nexigen_tracing_com` для
 iceoryx2-sink'ов, а также `nexigen_synchro` (фазовая синхронизация поверх
 event-каналов).
+
+CAN-слой отделён от `com`: типы и контракт драйвера не зависят от iceoryx2,
+а `nexigen_hw_can_com` добавляет `CanClient`, `CanPublisher` и мосты
+`CanReceiver`/`CanTransmitter`.
 
 `nexigen::core` — INTERFACE, потому что состоит из шаблонов и inline-кода.
 Остальные модули компилируют холодные пути (калибровка, harvest-циклы,
@@ -956,6 +961,19 @@ flowchart TB
 - **Телеметрия → диск → hub.** Sinks пишут JSONL в run-директорию или
   отправляют кадры в iceoryx2; демоны агрегируют их; `nexigen-hub` читает
   файлы и отдаёт клиентам.
+
+### 5.1a CAN data path
+
+```mermaid
+flowchart LR
+    HW["CAN hardware /<br/>nexigen-canvbus"] --> RX["nexigen-canrx<br/>driver -> iceoryx2"]
+    TX["nexigen-cantx<br/>iceoryx2 -> driver"] --> HW
+    RX -->|"nexigen/hw/can/<ch>/rx"| BUS(("iceoryx2"))
+    BUS -->|"nexigen/hw/can/<ch>/tx"| TX
+    BUS --> MON["nexigen-canmon"]
+    BUS --> APPS["CanClient / user apps"]
+    RX -->|"status"| BUS
+```
 
 ### 5.2 Телеметрический конвейер
 
