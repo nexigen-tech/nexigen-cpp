@@ -12,6 +12,7 @@
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/core/worker_tuning.hpp>
+#include <nexigen/logging/log_service_capacity.hpp>
 #include <nexigen/logging/throttle_config.hpp>
 
 namespace nexigen::logging {
@@ -29,10 +30,10 @@ struct Iceoryx2LoggerConfig {
     std::string service_name{"Nexigen/Log/nexigen"};
     /// @brief Canonical application code copied into `LogFrame::app_id`.
     core::AppId app_id{core::AppId::from_literal("NEXG")};
-    /// @brief Maximum subscriber/receiver pool size (requirement `REQ_COM_009`).
-    std::uint32_t max_subscribers{16};
-    /// @brief Per-subscriber receiver queue depth in frames.
-    std::uint32_t history_size{4};
+    /// @brief Maximum subscriber/receiver pool size; must equal the shared log-service contract.
+    std::uint32_t max_subscribers{static_cast<std::uint32_t>(kLogServiceMaxSubscribers)};
+    /// @brief Per-subscriber receiver queue depth in frames; must equal the shared contract.
+    std::uint32_t history_size{static_cast<std::uint32_t>(kLogServiceHistoryDepth)};
     /// @brief Severity threshold applied at initialization.
     core::LogLevel initial_level{core::LogLevel::Info};
     /// @brief Window throttle policy; over-limit frames are dropped, never queued.

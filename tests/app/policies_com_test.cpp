@@ -18,6 +18,7 @@
 #include <nexigen/com/subscriber.hpp>
 #include <nexigen/com/transport_header.hpp>
 #include <nexigen/logging/log_frame.hpp>
+#include <nexigen/logging/log_service_options.hpp>
 #include <nexigen/metrics/metric_batch_snapshot.hpp>
 #include <nexigen/metrics/metric_frame.hpp>
 #include <nexigen/metrics/metric_record.hpp>
@@ -87,8 +88,8 @@ void test_iceoryx2_log_frame() {
     if (!service.has_value()) {
         return;
     }
-    auto subscriber =
-        com::Subscriber<logging::LogFrame, com::TransportHeader>::create(*node, *service);
+    auto subscriber = com::Subscriber<logging::LogFrame, com::TransportHeader>::create(
+        *node, *service, logging::log_service_options());
     NX_CHECK(subscriber.has_value());
     if (!subscriber.has_value()) {
         return;

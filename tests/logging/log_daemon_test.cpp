@@ -1,11 +1,13 @@
 // Тесты nexigen-logd (change add-log-daemon). Сборка только при NEXIGEN_ENABLE_COM=ON.
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -27,9 +29,13 @@
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/iceoryx2_logger.hpp>
 #include <nexigen/logging/log_daemon_config.hpp>
+#include <nexigen/logging/log_service_capacity.hpp>
+#include <nexigen/logging/log_service_options.hpp>
 
 #include <type_traits>
 #include <nexigen/logging/log_frame.hpp>
+
+#include "log_shape_test_support.hpp"
 
 namespace com = nexigen::com;
 namespace logging = nexigen::logging;
@@ -106,9 +112,18 @@ void test_e2e() {
     NX_CHECK(node.has_value());
     const auto svc = com::ServiceName::create("Nexigen/Test/LogdE2E");
     NX_CHECK(svc.has_value());
-    auto sub = com::Subscriber<logging::LogFrame, com::TransportHeader>::create(*node, *svc);
+    auto sub = com::Subscriber<logging::LogFrame, com::TransportHeader>::create(
+        *node, *svc, logging::log_service_options());
     NX_CHECK(sub.has_value());
     if (!sub.has_value()) return;
+
+    const auto shape = logging::test_support::query_service_shape("Nexigen/Test/LogdE2E", *node);
+    NX_CHECK(shape.has_value());
+    if (shape.has_value()) {
+        NX_CHECK(shape->buffer_depth == logging::kLogServiceBufferDepth);
+        NX_CHECK(shape->max_publishers == logging::kLogServiceMaxPublishers);
+        NX_CHECK(shape->safe_overflow == logging::kLogServiceSafeOverflow);
+    }
     const auto evn = com::ServiceName::create("Nexigen/Test/LogdE2EEvent");
     NX_CHECK(evn.has_value());
     auto listener = com::EventListener::create(*node, *evn);
@@ -234,7 +249,8 @@ bool publish_main_thread(const std::string& service, std::string_view msg,
     if (!name) {
         return false;
     }
-    auto publisher = com::Publisher<logging::LogFrame, com::TransportHeader>::create(*node, *name);
+    auto publisher = com::Publisher<logging::LogFrame, com::TransportHeader>::create(
+        *node, *name, logging::log_service_options());
     if (!publisher) {
         return false;
     }
@@ -283,6 +299,28 @@ void test_real_daemon_e2e() {
         return;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    // The daemon starts first and must publish the shared service shape.
+    {
+        auto shape_node = com::Node::create();
+        NX_CHECK(shape_node.has_value());
+        if (shape_node.has_value()) {
+            std::optional<logging::test_support::ServiceShape> shape;
+            for (int attempt = 0; attempt < 50 && !shape.has_value(); ++attempt) {
+                shape = logging::test_support::query_service_shape(service, *shape_node);
+                if (!shape.has_value()) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                }
+            }
+            NX_CHECK(shape.has_value());
+            if (shape.has_value()) {
+                NX_CHECK(shape->buffer_depth == logging::kLogServiceBufferDepth);
+                NX_CHECK(shape->max_publishers == logging::kLogServiceMaxPublishers);
+                NX_CHECK(shape->max_nodes == logging::kLogServiceMaxNodes);
+                NX_CHECK(shape->safe_overflow == logging::kLogServiceSafeOverflow);
+            }
+        }
+    }
 
     bool published = false;
     bool observed = false;
@@ -376,6 +414,72 @@ void test_real_daemon_rejects_unknown_version() {
     cleanup_root(root);
 }
 
+// A live service created with the old 2-sample shape must make the daemon
+// name both shapes instead of failing with a generic subscriber error.
+void test_real_daemon_incompatible_shape() {
+    if (g_daemon_bin == nullptr || g_daemon_bin[0] == '\0') {
+        std::printf("  (skipped: no daemon binary path)\n");
+        return;
+    }
+    const std::string service = make_unique_service("Nexigen/Test/LogdOldShape");
+    const std::string root = "/tmp/opencode/logd_oldshape_" + std::to_string(::getpid());
+    const std::string log_dir = root + "/logs";
+    prepare_root(root, log_dir);
+
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    if (!node.has_value()) {
+        cleanup_root(root);
+        return;
+    }
+    const auto name = com::ServiceName::create(service.c_str());
+    NX_CHECK(name.has_value());
+    if (!name.has_value()) {
+        cleanup_root(root);
+        return;
+    }
+    com::PublishSubscribeOptions old{};
+    old.max_subscribers = 8U;
+    old.max_publishers = 2U;
+    old.max_nodes = 20U;
+    old.subscriber_max_buffer_size = 2U;
+    old.history_size = 0U;
+    old.enable_safe_overflow = false;
+    auto publisher =
+        com::Publisher<logging::LogFrame, com::TransportHeader>::create(*node, *name, old);
+    NX_CHECK(publisher.has_value());
+    if (!publisher.has_value()) {
+        cleanup_root(root);
+        return;
+    }
+
+    write_logd_config(root + "/config.json", service, log_dir);
+    const pid_t pid = spawn_logd(g_daemon_bin, root + "/config.json", root + "/out");
+    NX_CHECK(pid >= 0);
+    if (pid < 0) {
+        cleanup_root(root);
+        return;
+    }
+
+    bool saw_existing = false;
+    bool saw_required = false;
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        std::ifstream in(root + "/out");
+        const std::string text((std::istreambuf_iterator<char>(in)),
+                               std::istreambuf_iterator<char>());
+        saw_existing = text.find("buffer_depth=2") != std::string::npos;
+        saw_required = text.find("buffer_depth=16384") != std::string::npos;
+        if (saw_existing && saw_required) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    NX_CHECK(saw_existing);
+    NX_CHECK(saw_required);
+    stop_logd(pid);
+    cleanup_root(root);
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -386,6 +490,7 @@ int main(int argc, char* argv[]) {
     run_suite("real_daemon_e2e", test_real_daemon_e2e);
     run_suite("real_daemon_main_thread", test_real_daemon_main_thread_publisher);
     run_suite("real_daemon_bad_version", test_real_daemon_rejects_unknown_version);
+    run_suite("real_daemon_old_shape", test_real_daemon_incompatible_shape);
     std::printf("TOTAL %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

@@ -97,6 +97,21 @@ endif()
 add_test(NAME nexigen_logging_tests COMMAND nexigen_logging_tests)
 set_tests_properties(nexigen_logging_tests PROPERTIES TIMEOUT 600)
 
+# Общие константы ёмкости лог-сервиса (change fix-log-subscriber-capacity).
+# Отдельный исполняемый файл: заголовок COM-free и обязан собираться в
+# конфигурации без NEXIGEN_ENABLE_COM.
+add_executable(nexigen_log_service_capacity_tests
+    logging/log_service_capacity_test.cpp)
+target_link_libraries(nexigen_log_service_capacity_tests PRIVATE nexigen_logging)
+# The capacity test also asserts that the documented table matches the
+# constants, so it needs the source root at test time.
+target_compile_definitions(nexigen_log_service_capacity_tests PRIVATE
+    NEXIGEN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+add_test(NAME nexigen_log_service_capacity_tests
+    COMMAND nexigen_log_service_capacity_tests)
+set_tests_properties(nexigen_log_service_capacity_tests PROPERTIES TIMEOUT 60)
+
 # Юнит-тесты nexigen::metrics: один TU на сущность (design.md D16), потоки и
 # аффинность требуют полного времени; тот же увеличенный таймаут под TSan.
 add_executable(nexigen_metrics_tests

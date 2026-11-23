@@ -13,6 +13,7 @@
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/com/transport_header.hpp>
 #include <nexigen/logging/log_frame.hpp>
+#include <nexigen/logging/log_service_options.hpp>
 #include <nexigen/metrics/metric_frame.hpp>
 #include <nexigen/tracing/span_frame.hpp>
 
@@ -51,7 +52,7 @@ struct Endpoints {
             !trace_event) {
             return std::nullopt;
         }
-        auto log = LogPub::create(node, *log_name);
+        auto log = LogPub::create(node, *log_name, logging::log_service_options());
         auto metric = MetricPub::create(node, *metric_name);
         auto trace = TracePub::create(node, *trace_name);
         auto log_notifier = com::EventNotifier::create(node, *log_event);

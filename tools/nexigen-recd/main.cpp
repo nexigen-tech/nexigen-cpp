@@ -32,6 +32,7 @@
 #include <nexigen/com/wait_set_guard.hpp>
 #include <nexigen/com/waitset.hpp>
 #include <nexigen/logging/log_frame.hpp>
+#include <nexigen/logging/log_service_options.hpp>
 #include <nexigen/metrics/metric_frame.hpp>
 #include <nexigen/recorder/builtin_schemas.hpp>
 #include <nexigen/recorder/session_writer.hpp>
@@ -551,7 +552,7 @@ int run(const Options& options) {
         std::fprintf(stderr, "nexigen-recd: invalid service name\n");
         return 1;
     }
-    auto log_sub = LogSub::create(*node, *log_name);
+    auto log_sub = LogSub::create(*node, *log_name, logging::log_service_options());
     auto metric_sub = MetricSub::create(*node, *metric_name);
     auto trace_sub = TraceSub::create(*node, *trace_name);
     if (!log_sub || !metric_sub || !trace_sub) {

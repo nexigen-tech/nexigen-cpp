@@ -36,8 +36,10 @@
 #include <nexigen/com/waitset.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
+#include <nexigen/logging/detail/log_service_shape.hpp>
 #include <nexigen/logging/log_daemon_config.hpp>
 #include <nexigen/logging/log_frame.hpp>
+#include <nexigen/logging/log_service_options.hpp>
 
 namespace com = nexigen::com;
 namespace logging = nexigen::logging;
@@ -291,7 +293,22 @@ int run_session(const logging::LogDaemonConfig& cfg) {
         std::fprintf(stderr, "nexigen-logd: invalid service name '%s'\n", cfg.service_name.c_str());
         return 1;
     }
-    auto sub = com::Subscriber<logging::LogFrame, com::TransportHeader>::create(*node, *svc);
+    // The daemon normally starts first and therefore fixes the service shape:
+    // every later publisher and subscriber must see the same capacities. If a
+    // live service was created with the old shape, name both shapes instead of
+    // letting the subscriber creation fail with a generic error.
+    if (const auto shape =
+            logging::detail::query_log_service_shape(*node, cfg.service_name.c_str());
+        shape.has_value() && !shape->compatible()) {
+        char diagnostic[512];
+        static_cast<void>(logging::detail::format_shape_mismatch(cfg.service_name, *shape,
+                                                                 diagnostic, sizeof(diagnostic)));
+        std::fprintf(stderr, "nexigen-logd: %s\n", diagnostic);
+        return 1;
+    }
+
+    auto sub = com::Subscriber<logging::LogFrame, com::TransportHeader>::create(
+        *node, *svc, logging::log_service_options());
     if (!sub) {
         std::fprintf(stderr, "nexigen-logd: failed to create subscriber\n");
         return 1;

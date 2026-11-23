@@ -20,6 +20,7 @@
 #include <nexigen/com/publisher.hpp>
 #include <nexigen/com/transport_header.hpp>
 #include <nexigen/com/service_name.hpp>
+#include <nexigen/logging/log_service_options.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/logging/log_frame.hpp>
 
@@ -98,7 +99,12 @@ public:
         if (!name) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
-        auto publisher = com::Publisher<LogFrame, com::TransportHeader>::create(*node_, *name);
+        // The log service is one cross-process contract: create it with the
+        // shared capacity options so every participant observes the same shape
+        // (spec logging/iceoryx2-logger "Log service capacity is a shared
+        // contract").
+        auto publisher = com::Publisher<LogFrame, com::TransportHeader>::create(
+            *node_, *name, log_service_options());
         if (!publisher) {
             return std::unexpected(core::ErrorCode::SystemError);
         }

@@ -263,6 +263,30 @@ concept Logger = requires(T t, const T ct, LogLevel level) {
 
 Демон доступен только в COM-сборке: `nexigen_logging_com` — интерфейсная цель, которая линкует `nexigen_logging` и `nexigen_com`. Ядро `nexigen_logging` при этом остаётся свободным от iceoryx2.
 
+## Форма лог-сервиса — общий контракт
+
+`Nexigen/Log/nexigen` — один сервис на весь стенд, а не по одному на приложение. Поэтому его форма (QoS) фиксируется тем участником, который создал сервис первым, и проверяется iceoryx2 при подключении каждого следующего. Значения собраны в `include/nexigen/logging/log_service_capacity.hpp`, а готовый набор отдаёт `log_service_options()`:
+
+| Параметр | Значение | Зачем |
+|---|---|---|
+| `max_subscribers` | 4 | демон, рекордер, вьюер и один запасной |
+| `max_publishers` | 64 | по одному логгеру на процесс приложения |
+| `max_nodes` | 64 | паблишеры, подписчики и инструменты |
+| `subscriber_max_buffer_size` | 16384 | ≈327 мс при 50 000 msg/s |
+| `history_size` | 4 | несколько кадров позднему подписчику; backlog не обещается |
+| `enable_safe_overflow` | `true` | подписчик теряет самый старый кадр, а паблишер не получает отказ |
+
+Цена формы — shared memory на каждый публикующий процесс:
+
+```text
+samples = max_subscribers * (buffer_depth + borrowed) + history + loaned
+bytes   ≈ samples * (LogFrame 256 + TransportHeader 40 + заголовок чанка)
+```
+
+При четырёх подписчиках и глубине 16 384 это примерно 23 МБ `/dev/shm` на каждое приложение с `Iceoryx2Logger`. Вьюер следующего change обязан подключаться через `log_service_options()`: сервис, созданный старыми бинарями с глубиной 2, отвергнется с диагностикой, в которой названы обе формы. Перезапуск: сначала останавливаются все процессы, публикующие логи, затем поднимается новый `nexigen-logd`, затем приложения.
+
+Важное следствие `enable_safe_overflow = true`: при переполнении подписчик теряет самые старые кадры, а не паблишер — отправку. Потеря видна по `TransportHeader::sequence` и `Sample::lost_before()`, то есть её можно показать как разрыв, а не молча проглотить.
+
 ## Контракт отказов
 
 Логгер интересен не тем, что он пишет, а тем, что он делает, когда писать некуда. Здесь причин больше, чем кажется по публичному `DroppedStats`.
@@ -301,7 +325,7 @@ Handshake устроен так, чтобы не будить потребите
 
 ## Конфигурация: три уровня и один загрузчик
 
-У каждого логгера свой холодный конфиг. `FileLoggerConfig` несёт `app_name`, `base_dir`, `file_name`, `initial_level`, `throttle`, `rotation`, `worker_thread`, `max_file_size_bytes` и `worker_poll_interval_us`. `ConsoleLoggerConfig` — только уровень, worker spec и poll ceiling. `Iceoryx2LoggerConfig` — имя сервиса, 16-байтовый `app_id`, лимиты подписчиков и истории, уровень, throttle, worker spec. `LogDaemonConfig` — своё.
+У каждого логгера свой холодный конфиг. `FileLoggerConfig` несёт `app_name`, `base_dir`, `file_name`, `initial_level`, `throttle`, `rotation`, `worker_thread`, `max_file_size_bytes` и `worker_poll_interval_us`. `ConsoleLoggerConfig` — только уровень, worker spec и poll ceiling. `Iceoryx2LoggerConfig` — имя сервиса, 16-байтовый `app_id`, лимиты подписчиков и истории, уровень, throttle, worker spec. Поля `max_subscribers` и `history_size` остаются в JSON для диагностики, но обязаны совпадать с общими константами формы сервиса; иное значение отвергается до старта воркера. `LogDaemonConfig` — своё.
 
 Над этим стоит `LoggerOptions` — единый агрегат, из которого настройки маппятся в конкретный конфиг:
 

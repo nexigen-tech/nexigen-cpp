@@ -511,6 +511,11 @@ sequenceDiagram
   `app.jsonl → app.1.jsonl → …` и почасовые директории.
 - `LogFrame`/`LogDaemonConfig` — фиксированный кадр и конфигурация
   центрального демона `nexigen-logd`.
+- Форма лог-сервиса: `log_service_capacity.hpp` задаёт 4 подписчика,
+  64 паблишера, 64 узла, глубину 16 384 и safe overflow, а
+  `log_service_options()` отдаёт их как `com::PublishSubscribeOptions`.
+  Первый участник фиксирует форму; демон, рекордер, вьюер и каждый
+  `Iceoryx2Logger` обязаны использовать один и тот же набор.
 - `logging_settings` — загрузка global/local JSON и `NEXIGEN_LOG_*`
   окружения с best-effort диагностикой.
 

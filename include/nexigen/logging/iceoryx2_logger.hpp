@@ -20,6 +20,7 @@
 // control-plane barrier, outside the never-block guarantee.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -34,9 +35,11 @@
 #include <nexigen/logging/detail/async_worker.hpp>
 #include <nexigen/logging/detail/format_param.hpp>
 #include <nexigen/logging/detail/iceoryx2_sink.hpp>
+#include <nexigen/logging/detail/log_service_shape.hpp>
 #include <nexigen/logging/detail/producer.hpp>
 #include <nexigen/logging/dropped_stats.hpp>
 #include <nexigen/logging/iceoryx2_logger_config.hpp>
+#include <nexigen/logging/log_service_capacity.hpp>
 
 namespace nexigen::logging {
 
@@ -81,6 +84,8 @@ class Iceoryx2Logger {
     std::optional<com::Node> node_{};
     /// @brief Background render/publish loop; sole consumer of every shard.
     detail::AsyncWorker<Producer, Sink> worker_{};
+    /// @brief Startup rejection text; empty when initialization succeeded.
+    std::array<char, 512> diagnostic_{};
 
 public:
     /// @brief Construct the logger; `initialize()` must run before logging.
@@ -149,6 +154,13 @@ public:
             return std::unexpected(core::ErrorCode::SystemError);
         }
         node_.emplace(std::move(*node));
+
+        // Reject an existing service created with a different capacity shape
+        // before the worker starts: the transport would otherwise fail the
+        // publisher creation with a generic error and no values.
+        if (!verify_existing_service_shape(cfg.service_name)) {
+            return std::unexpected(core::ErrorCode::SystemError);
+        }
 
         typename Sink::Settings settings{};
         copy_into(cfg.service_name, settings.service_name, settings.service_name_len);
@@ -315,25 +327,75 @@ public:
     /// @return Effective affinity mask (empty when affinity was inherited).
     [[nodiscard]] std::uint64_t writer_mask() const noexcept { return worker_.writer_mask(); }
 
+    /// @brief The startup diagnostic of the last rejected initialization.
+    ///
+    /// Set when `initialize()` rejects an existing log service whose capacity
+    /// shape differs from the shared contract, naming both shapes. Empty when
+    /// initialization succeeded or failed for another reason.
+    ///
+    /// @return Borrowed view of the logger-owned diagnostic buffer.
+    /// @note Cold path only; the text is stable for the logger's lifetime.
+    /// @note Spec `logging/iceoryx2-logger`, requirement "Log service capacity
+    ///       is a shared contract", scenario "Existing incompatible service is
+    ///       rejected".
+    [[nodiscard]] std::string_view startup_diagnostic() const noexcept {
+        return std::string_view(diagnostic_.data());
+    }
+
     /// @brief Render the logger's state for cold-path diagnostics.
     ///
     /// @return Threshold plus the shard-pool and writer snapshot — shard and
     ///         message capacities, shard count, aggregated pending records,
-    ///         per-cause drop totals and whether the writer started.
+    ///         per-cause drop totals, whether the writer started, and the
+    ///         startup rejection text when initialization failed on an
+    ///         incompatible live service.
     /// @note Mandate 9 (`to_string`), and spec `logging/iceoryx2-logger`,
     ///       requirement "Iceoryx2 logger diagnostics"; never call this on a hot
     ///       path.
     [[nodiscard]] std::string to_string() const {
-        return "Iceoryx2Logger(level=" + std::string(core::to_string(producer_.level())) +
-               ", shard_capacity=" + std::to_string(ShardCapacity) +
-               ", shards=" + std::to_string(MaxThreads) +
-               ", message_capacity=" + std::to_string(MessageCapacity) +
-               ", pending=" + std::to_string(producer_.ring_size()) +
-               ", dropped=" + producer_.dropped().to_string() +
-               ", writer_started=" + std::string(worker_.writer_started() ? "true" : "false") + ")";
+        std::string out =
+            "Iceoryx2Logger(level=" + std::string(core::to_string(producer_.level())) +
+            ", shard_capacity=" + std::to_string(ShardCapacity) +
+            ", shards=" + std::to_string(MaxThreads) +
+            ", message_capacity=" + std::to_string(MessageCapacity) +
+            ", pending=" + std::to_string(producer_.ring_size()) +
+            ", dropped=" + producer_.dropped().to_string() +
+            ", writer_started=" + std::string(worker_.writer_started() ? "true" : "false");
+        if (diagnostic_[0] != '\0') {
+            out += ", startup=" + std::string(diagnostic_.data());
+        }
+        out += ')';
+        return out;
     }
 
 private:
+    /// @brief Reject an existing log service created with a different shape.
+    ///
+    /// Reads the live service's static configuration through the shared
+    /// `detail::query_log_service_shape` helper before the worker starts. A
+    /// missing service, an unreadable configuration, or a matching shape all
+    /// proceed; a mismatch fills `diagnostic_` with both shapes and returns
+    /// `false`. The daemon uses the same helper, so both report one wording.
+    ///
+    /// @param service_name Configured log-service name.
+    /// @return `true` when the service is absent or compatible.
+    /// @note Cold path only; runs on the caller's thread during `initialize()`.
+    /// @note Spec `logging/iceoryx2-logger`, requirement "Log service capacity
+    ///       is a shared contract", scenario "Existing incompatible service is
+    ///       rejected".
+    [[nodiscard]] bool verify_existing_service_shape(const std::string& service_name) noexcept {
+        if (!node_.has_value()) {
+            return true; // the sink surfaces the missing node
+        }
+        const auto shape = detail::query_log_service_shape(*node_, service_name.c_str());
+        if (!shape.has_value() || shape->compatible()) {
+            return true;
+        }
+        static_cast<void>(detail::format_shape_mismatch(service_name, *shape, diagnostic_.data(),
+                                                        diagnostic_.size()));
+        return false;
+    }
+
     /// @brief Validate a required, non-empty bounded text field.
     ///
     /// @param value Candidate text (service name or application id).
@@ -357,8 +419,13 @@ private:
         const bool throttle_ok =
             !cfg.throttle.enabled ||
             (cfg.throttle.max_records_per_window != 0ULL && cfg.throttle.window_ns != 0ULL);
-        return valid_text(cfg.service_name, 511U) && !cfg.app_id.empty() &&
-               cfg.max_subscribers != 0U && cfg.history_size != 0U && throttle_ok;
+        // The service shape is a cross-process contract: an application cannot
+        // require a different subscriber count or history depth than the shared
+        // constants the daemon and the viewer use.
+        const bool capacity_ok = cfg.max_subscribers == kLogServiceMaxSubscribers &&
+                                 cfg.history_size == kLogServiceHistoryDepth;
+        return valid_text(cfg.service_name, 511U) && !cfg.app_id.empty() && capacity_ok &&
+               throttle_ok;
     }
 
     /// @brief Copy a string view into a fixed sink buffer, NUL-terminating it.

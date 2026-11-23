@@ -30,6 +30,25 @@ The `LogDaemon` SHALL open a `Subscriber<LogFrame>` on the configured iceoryx2 s
 - **WHEN** the listener wakes the wait set with no queued frame
 - **THEN** the callback drains the activation and the wait set blocks again instead of spinning
 
+### Requirement: Daemon opens the log service with the shared capacity options
+
+When the daemon is the first participant, it SHALL create the log publish-subscribe service with the shared log-service options: 4 subscribers, 64 publishers, 64 nodes, a 16 384-sample subscriber depth, history 4, and safe overflow enabled. A late publisher or subscriber SHALL observe the same shape. An existing service with incompatible options SHALL be rejected with a diagnostic.
+
+#### Scenario: Daemon installs the shared service shape
+
+- **WHEN** the daemon starts before any logging application and creates the service
+- **THEN** the service reports the shared capacities and a later publisher connects successfully
+
+#### Scenario: Late subscriber sees the same depth
+
+- **WHEN** a viewer subscribes after the daemon created the service
+- **THEN** the subscriber's maximum buffer depth is 16 384 without recreating the service
+
+#### Scenario: Incompatible live service is rejected
+
+- **WHEN** the daemon starts against a live service created with a 2-sample buffer
+- **THEN** startup fails with a diagnostic naming the required and existing depths instead of degrading silently
+
 ### Requirement: Daemon formats a final JSON line
 
 The daemon SHALL render each received `LogFrame` into a complete JSON line. The monotonic `timestamp_ns` SHALL be formatted as an ISO8601 UTC date, `app_id` as a string, `log_level` as a canonical name, and `payload` as the message text. The resulting JSON SHALL match the structure produced by the existing per-process `FileSink` so `nexigen-hub` can read daemon-written files without modification.
