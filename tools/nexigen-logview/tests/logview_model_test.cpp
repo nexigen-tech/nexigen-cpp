@@ -34,6 +34,8 @@
 #include "record_ring.hpp"
 #include "resource_guard.hpp"
 #include "time_formatter.hpp"
+#include "ui/logview_window.hpp"
+#include "cli.hpp"
 #include "ui_actions.hpp"
 #include "support/test_time_base.hpp"
 
@@ -87,6 +89,15 @@ template <class T> void check_enum(T value) {
     from_json(json, from_json_value);
     NX_CHECK(from_json_value == value);
     NX_CHECK(std::format("{}", value) == to_string(value));
+}
+
+void suite_cli_options() {
+    CliOptions options{};
+    options.ui_scale = 2.0F;
+    NX_CHECK(options.to_string().find("scale=2.00") != std::string::npos);
+    UiOptions ui{};
+    ui.ui_scale = 1.5F;
+    NX_CHECK(ui.to_string().find("scale=1.50") != std::string::npos);
 }
 
 void suite_vocabulary() {
@@ -887,6 +898,7 @@ void suite_thread_spec() {
 } // namespace
 
 int main() {
+    suite_cli_options();
     suite_vocabulary();
     suite_app_registry();
     suite_record_ring();

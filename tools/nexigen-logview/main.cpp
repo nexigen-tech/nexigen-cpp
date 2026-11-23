@@ -104,6 +104,7 @@ int main(int argc, char* argv[]) {
     ui.smoke = options.ui_smoke;
     ui.actions_test = options.ui_actions_test;
     ui.input_test = options.ui_input_test;
+    ui.ui_scale = options.ui_scale;
     ui.open_path = options.offline_file;
     const int result = logview::run_ui(*model, ui);
     logview::LogViewConfig persisted = model->config();

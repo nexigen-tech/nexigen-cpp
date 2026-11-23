@@ -14,12 +14,14 @@ struct UiOptions {
     bool smoke{false};        ///< Render two frames and exit (CI smoke).
     bool actions_test{false}; ///< Exercise copy/truncation/open actions and exit.
     bool input_test{false};   ///< Drive scripted ImGui clicks and exit.
+    float ui_scale{0.0F};     ///< Explicit UI scale; zero means auto-detect.
     std::string open_path{};  ///< File used by the actions test.
 
     /// @brief Cold-path diagnostic rendering.
-    /// @return Text with live and smoke flags.
+    /// @return Text with live, smoke, actions, input, and scale flags.
     [[nodiscard]] std::string to_string() const {
-        return std::format("UiOptions(live={}, smoke={})", live, smoke);
+        return std::format("UiOptions(live={}, smoke={}, actions={}, input={}, scale={:.2f})", live,
+                           smoke, actions_test, input_test, ui_scale);
     }
 };
 

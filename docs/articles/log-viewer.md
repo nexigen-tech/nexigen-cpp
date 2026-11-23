@@ -45,11 +45,18 @@ nexigen-logview --service Nexigen/Log/nexigen --memory-mb 384
 # файл без transport
 nexigen-logview --offline run/nexigen.jsonl
 
+# 4K/High-DPI: увеличить шрифт и размеры контролов
+nexigen-logview --ui-scale 2
+
 # headless: проверить парсер/модель без дисплея
 nexigen-logview --headless --offline run/nexigen.jsonl
 nexigen-logview --headless --mock 50000 --max-records 50000
 nexigen-logview --soak 600   # 50k msg/s model soak, headless
 ```
+
+`--ui-scale` задаёт масштаб шрифта и ImGui-контролов. Без флага viewer
+пытается взять content scale основного монитора; для 4K обычно подходит
+`--ui-scale 2` (допустимый диапазон 0.5–4.0).
 
 `--memory-mb` задаёт жёсткий бюджет модели. По умолчанию 256 MiB дают
 524 288 записей; 384 MiB — 1 048 576. Аллокация одна (`mmap`), история не

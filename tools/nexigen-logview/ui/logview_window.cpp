@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -28,6 +29,7 @@
 #include "resource_guard.hpp"
 #include "time_formatter.hpp"
 #include "theme.hpp"
+#include "ui_scale.hpp"
 
 #if __has_include("jetbrains_mono_asset.hpp")
 #include "jetbrains_mono_asset.hpp"
@@ -919,11 +921,22 @@ bool init_gui(UiState& state, const UiOptions& options, GLFWwindow*& window) {
         std::fprintf(stderr, "nexigen-logview: cannot initialise GLFW\n");
         return false;
     }
+    float scale = options.ui_scale;
+    if (scale <= 0.0F) {
+        float scale_x = 1.0F;
+        float scale_y = 1.0F;
+        if (GLFWmonitor* monitor = glfwGetPrimaryMonitor(); monitor != nullptr) {
+            glfwGetMonitorContentScale(monitor, &scale_x, &scale_y);
+        }
+        scale = clamp_auto_ui_scale(scale_x > scale_y ? scale_x : scale_y);
+    }
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_VISIBLE, options.smoke ? GLFW_FALSE : GLFW_TRUE);
-    window = glfwCreateWindow(1600, 900, "nexigen-logview", nullptr, nullptr);
+    window = glfwCreateWindow(static_cast<int>(std::lround(1600.0F * scale)),
+                              static_cast<int>(std::lround(900.0F * scale)), "nexigen-logview",
+                              nullptr, nullptr);
     if (window == nullptr) {
         glfwTerminate();
         std::fprintf(stderr, "nexigen-logview: cannot create a window\n");
@@ -939,11 +952,12 @@ bool init_gui(UiState& state, const UiOptions& options, GLFWwindow*& window) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = state.ini_path.c_str();
     apply_dark_theme();
+    ImGui::GetStyle().ScaleAllSizes(scale);
 #if NEXIGEN_LOGVIEW_HAS_FONT
     ImFontConfig font_config{};
     font_config.FontDataOwnedByAtlas = false;
     io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(assets::kJetBrainsMono.data()),
-                                   static_cast<int>(assets::kJetBrainsMono.size()), 16.0F,
+                                   static_cast<int>(assets::kJetBrainsMono.size()), 16.0F * scale,
                                    &font_config);
 #endif
     ImGui_ImplGlfw_InitForOpenGL(window, true);

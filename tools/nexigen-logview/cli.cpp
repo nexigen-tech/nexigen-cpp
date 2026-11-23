@@ -3,6 +3,8 @@
 #include <charconv>
 #include <cstring>
 
+#include "ui_scale.hpp"
+
 namespace nexigen::logview {
 
 std::string_view usage_text() noexcept {
@@ -19,6 +21,7 @@ std::string_view usage_text() noexcept {
            "  --ui-smoke            Render one frame and exit (CI)\n"
            "  --ui-actions-test     Exercise copy/truncation/open actions under Xvfb\n"
            "  --ui-input-test       Drive scripted ImGui clicks under Xvfb\n"
+           "  --ui-scale <factor>   UI/font scale (e.g. 2 for a 4K display)\n"
            "  --help                Show this help\n";
 }
 
@@ -54,6 +57,11 @@ bool take_string(int argc, char* argv[], int& index, std::string& out) {
 bool take_u64(int argc, char* argv[], int& index, std::uint64_t& out) {
     std::string_view value;
     return next_value(argc, argv, index, value) && parse_u64(value, out);
+}
+
+bool take_ui_scale(int argc, char* argv[], int& index, float& out) {
+    std::string_view value;
+    return next_value(argc, argv, index, value) && parse_ui_scale(value, out);
 }
 
 bool parse_flag(std::string_view arg, CliOptions& options) {
@@ -128,6 +136,12 @@ ParseOutcome parse_numeric_option(std::string_view arg, int argc, char* argv[], 
             return ParseOutcome::Error;
         }
         options.headless = true;
+        return ParseOutcome::Ok;
+    }
+    if (arg == "--ui-scale") {
+        if (!take_ui_scale(argc, argv, index, options.ui_scale)) {
+            return ParseOutcome::Error;
+        }
         return ParseOutcome::Ok;
     }
     if (arg == "--max-records") {

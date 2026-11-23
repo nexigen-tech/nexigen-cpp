@@ -25,6 +25,7 @@ struct CliOptions {
     bool ui_smoke{false};          ///< Open one window frame and exit (CI smoke).
     bool ui_actions_test{false};   ///< Exercise copy/truncation/open actions under Xvfb.
     bool ui_input_test{false};     ///< Drive scripted ImGui clicks under Xvfb.
+    float ui_scale{0.0F};          ///< Explicit UI scale; zero means auto-detect.
     std::uint64_t mock_records{0}; ///< Synthetic records for `--headless`.
     std::uint64_t max_records{0};  ///< Stop after this many headless records.
     std::uint64_t soak_seconds{0}; ///< Headless sustained-rate soak duration.
@@ -34,9 +35,9 @@ struct CliOptions {
     /// @return Text with the selected mode and overrides.
     [[nodiscard]] std::string to_string() const {
         return std::format("CliOptions(config={}, service={}, offline={}, memory_mb={}, "
-                           "headless={}, mock={}, soak={}, smoke={})",
+                           "headless={}, mock={}, soak={}, smoke={}, scale={:.2f})",
                            config_path, service_name, offline, memory_mb, headless, mock_records,
-                           soak_seconds, ui_smoke);
+                           soak_seconds, ui_smoke, ui_scale);
     }
 };
 

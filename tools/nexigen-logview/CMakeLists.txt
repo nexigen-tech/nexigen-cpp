@@ -48,7 +48,9 @@ target_link_libraries(nexigen_logview_com PUBLIC
     nexigen_logview_model nexigen_com nexigen_logging PRIVATE Threads::Threads)
 
 # Headless model and transport tests: no OpenGL, no window.
-add_executable(nexigen_logview_tests tests/logview_model_test.cpp)
+add_executable(nexigen_logview_tests
+    tests/logview_model_test.cpp
+    cli.cpp)
 target_link_libraries(nexigen_logview_tests PRIVATE
     nexigen_logview_com nexigen_com Threads::Threads)
 target_include_directories(nexigen_logview_tests PRIVATE
@@ -89,6 +91,12 @@ set_tests_properties(nexigen_logview_help PROPERTIES TIMEOUT 60 LABELS "tools;lo
 add_test(NAME nexigen_logview_invalid_args COMMAND nexigen-logview --no-such-option)
 set_tests_properties(nexigen_logview_invalid_args PROPERTIES
     WILL_FAIL TRUE TIMEOUT 60 LABELS "tools;logview")
+
+add_test(NAME nexigen_logview_ui_scale_cli
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_scale_cli_test.sh
+            $<TARGET_FILE:nexigen-logview>)
+set_tests_properties(nexigen_logview_ui_scale_cli PROPERTIES
+    TIMEOUT 60 LABELS "tools;logview")
 
 add_test(NAME nexigen_logview_headless_mock
     COMMAND nexigen-logview --headless --mock 50000 --max-records 50000)
@@ -184,6 +192,12 @@ if(NEXIGEN_LOGVIEW_GUI)
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui-actions.jsonl)
     set_tests_properties(nexigen_logview_ui_actions PROPERTIES
         TIMEOUT 180 LABELS "tools;logview;gui")
+
+    add_test(NAME nexigen_logview_ui_scale
+        COMMAND xvfb-run -a $<TARGET_FILE:nexigen-logview> --ui-smoke --ui-scale 2)
+    set_tests_properties(nexigen_logview_ui_scale PROPERTIES
+        TIMEOUT 120 LABELS "tools;logview;gui"
+        ENVIRONMENT "XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/ui-test-config")
 
     add_test(NAME nexigen_logview_ui_input
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_input_test.sh
