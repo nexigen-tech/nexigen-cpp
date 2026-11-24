@@ -25,6 +25,8 @@ struct CliOptions {
     bool ui_smoke{false};          ///< Open one window frame and exit (CI smoke).
     bool ui_actions_test{false};   ///< Exercise copy/truncation/open actions under Xvfb.
     bool ui_input_test{false};     ///< Drive scripted ImGui clicks under Xvfb.
+    bool ui_view_test{false};      ///< Exercise multi-view docking, clone, and limits.
+    bool ui_focus_test{false};     ///< Exercise keyboard focus routing under Xvfb.
     float ui_scale{0.0F};          ///< Explicit UI scale; zero means auto-detect.
     std::uint64_t mock_records{0}; ///< Synthetic records for `--headless`.
     std::uint64_t max_records{0};  ///< Stop after this many headless records.

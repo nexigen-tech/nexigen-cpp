@@ -24,6 +24,12 @@ namespace nexigen::logview::ui {
 [[nodiscard]] nexigen::core::Status open_file(LogViewModel& model,
                                               const std::string& path) noexcept;
 
+/// @brief Whether Log-window keyboard shortcuts may run.
+/// @param log_view_focused Whether any Log window has ImGui focus.
+/// @param want_text_input Whether an ImGui text field is consuming keys.
+/// @return `true` only when a Log window owns focus and no text field is active.
+[[nodiscard]] bool shortcuts_allowed(bool log_view_focused, bool want_text_input) noexcept;
+
 /// @brief Clipboard text for the currently selected record.
 /// @param model Source model.
 /// @return Clipboard text, or an empty string when nothing usable is selected.

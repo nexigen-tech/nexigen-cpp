@@ -10,7 +10,6 @@
 #include <nexigen/logging/log_frame.hpp>
 
 #include "app_registry.hpp"
-#include "minimap.hpp"
 #include "record_view.hpp"
 
 namespace nexigen::logview {
@@ -107,60 +106,6 @@ public:
     /// @brief Application registry.
     /// @return Const reference.
     [[nodiscard]] const AppRegistry& apps() const noexcept { return apps_; }
-    /// @brief Minimap counters.
-    /// @return Mutable reference.
-    [[nodiscard]] Minimap& minimap() noexcept { return minimap_; }
-    /// @brief Minimap counters.
-    /// @return Const reference.
-    [[nodiscard]] const Minimap& minimap() const noexcept { return minimap_; }
-
-    /// @brief Append an absolute number to the visible index.
-    /// @param seq Record number that passed the active filter.
-    void append_visible(std::uint64_t seq) noexcept;
-    /// @brief Read one visible entry by order.
-    /// @param index Order index in `0..visible_count`.
-    /// @return Absolute record number, or `0` when out of range.
-    [[nodiscard]] std::uint64_t visible_at(std::size_t index) const noexcept;
-    /// @brief Number of entries in the visible index.
-    /// @return Visible count.
-    [[nodiscard]] std::size_t visible_count() const noexcept { return visible_count_; }
-    /// @brief Clear the visible index.
-    void clear_visible() noexcept;
-    /// @brief Drop visible numbers that are no longer resident.
-    /// @return Number of stale entries removed.
-    std::size_t compact_visible() noexcept;
-    /// @brief Count visible numbers that are no longer resident.
-    /// @return Stale entry count.
-    [[nodiscard]] std::size_t stale_visible() const noexcept;
-
-    /// @brief Toggle selection of one resident record.
-    /// @param seq Absolute record number.
-    /// @return The new selection state, or `false` when not resident.
-    bool toggle_selected(std::uint64_t seq) noexcept;
-    /// @brief Set or clear selection of one resident record.
-    /// @param seq Absolute record number.
-    /// @param selected New state.
-    /// @return `true` when the record was resident and updated.
-    bool set_selected(std::uint64_t seq, bool selected) noexcept;
-    /// @brief Read selection of one resident record.
-    /// @param seq Absolute record number.
-    /// @return `true` when the record is resident and selected.
-    [[nodiscard]] bool is_selected(std::uint64_t seq) const noexcept;
-    /// @brief Clear every selection bit.
-    void clear_selection() noexcept;
-    /// @brief Number of selected resident records.
-    /// @return Selection count.
-    [[nodiscard]] std::uint64_t selected_count() const noexcept { return selected_count_; }
-
-    /// @brief Toggle the bookmark of one resident record.
-    /// @param seq Absolute record number.
-    /// @return The new bookmark state, or `false` when not resident.
-    bool toggle_bookmark(std::uint64_t seq) noexcept;
-    /// @brief Read the bookmark of one resident record.
-    /// @param seq Absolute record number.
-    /// @return `true` when the record is resident and bookmarked.
-    [[nodiscard]] bool is_bookmarked(std::uint64_t seq) const noexcept;
-
     /// @brief Drop every record and reset session counters.
     void clear() noexcept;
 
@@ -171,13 +116,10 @@ public:
 private:
     /// @brief Partition offsets inside the single mapping.
     struct Layout {
-        std::size_t slots{0};      ///< Frame array offset.
-        std::size_t kinds{0};      ///< Kind array offset.
-        std::size_t prev{0};       ///< Per-application delta array offset.
-        std::size_t visible{0};    ///< Visible index array offset.
-        std::size_t selected{0};   ///< Selection bitset offset.
-        std::size_t bookmarked{0}; ///< Bookmark bitset offset.
-        std::size_t total{0};      ///< Total mapping size.
+        std::size_t slots{0}; ///< Frame array offset.
+        std::size_t kinds{0}; ///< Kind array offset.
+        std::size_t prev{0};  ///< Per-application delta array offset.
+        std::size_t total{0}; ///< Total mapping size.
     };
 
     /// @brief Compute a layout for a capacity.
@@ -186,17 +128,12 @@ private:
     /// @brief Construct an empty, uninitialised ring.
     RecordRing() noexcept = default;
 
-    /// @brief Clear selection and bookmark state for a reused slot.
-    void clear_slot_state(std::size_t index) noexcept;
     /// @brief Evict the oldest resident record.
     void evict_one() noexcept;
     /// @brief Whether a record number is currently resident.
     [[nodiscard]] bool resident(std::uint64_t seq) const noexcept {
         return seq >= head_ && seq < tail_;
     }
-    /// @brief Bitset accessors.
-    [[nodiscard]] static bool bit(const std::uint64_t* words, std::size_t index) noexcept;
-    static void set_bit(std::uint64_t* words, std::size_t index, bool value) noexcept;
 
     void* mapping_{nullptr};                     ///< Single mmap base.
     std::size_t mapped_bytes_{0};                ///< Mapping length.
@@ -207,14 +144,7 @@ private:
     nexigen::logging::LogFrame* slots_{nullptr}; ///< Frame storage.
     std::uint8_t* kinds_{nullptr};               ///< Kind storage.
     std::int64_t* prev_{nullptr};                ///< Per-application delta or gap count.
-    std::uint64_t* visible_{nullptr};            ///< Visible index storage.
-    std::uint64_t* selected_{nullptr};           ///< Selection bitset.
-    std::uint64_t* bookmarked_{nullptr};         ///< Bookmark bitset.
-    std::size_t visible_start_{0};               ///< First live visible entry.
-    std::size_t visible_count_{0};               ///< Number of live visible entries.
-    std::uint64_t selected_count_{0};            ///< Selected resident records.
     AppRegistry apps_{};                         ///< Application table.
-    Minimap minimap_{};                          ///< Minimap counters.
 };
 
 /// @brief Free diagnostic mirror of `RecordRing::to_string`.

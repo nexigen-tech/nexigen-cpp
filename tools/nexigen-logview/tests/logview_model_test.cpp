@@ -160,18 +160,9 @@ void suite_record_ring() {
     NX_CHECK(!ring.find(0U).has_value());
     NX_CHECK(ring.find(2U).has_value());
     NX_CHECK(ring.find(9U)->prev_same_app_ns == 10);
-    NX_CHECK(!ring.is_selected(9U));
-    NX_CHECK(ring.toggle_selected(9U));
-    NX_CHECK(ring.selected_count() == 1U);
-    NX_CHECK(ring.toggle_bookmark(9U));
-    NX_CHECK(ring.is_bookmarked(9U));
     for (std::uint64_t i = 0; i < 8; ++i) {
         ring.push_frame(make_frame(2'000U + i, "A", core::LogLevel::Info, "more"));
     }
-    NX_CHECK(!ring.is_selected(9U));
-    NX_CHECK(ring.selected_count() == 0U);
-    NX_CHECK(!ring.is_bookmarked(9U));
-    NX_CHECK(ring.minimap().to_string().find("bookmarks=0") != std::string::npos);
     ring.clear();
     NX_CHECK(ring.size() == 0U);
     NX_CHECK(ring.apps().size() == 0U);
@@ -192,13 +183,15 @@ void suite_filter() {
     }
     RecordRing ring = std::move(*ring_result);
     FilterIndex filter;
+    filter.init(ring.capacity(), ring.apps());
+    const HistorySource source = HistorySource::live(ring);
     for (std::uint64_t i = 0; i < 10; ++i) {
         const auto seq = ring.push_frame(
             make_frame(i, "App", i % 2 == 0 ? core::LogLevel::Info : core::LogLevel::Error,
                        i % 2 == 0 ? "even" : "odd"));
-        filter.append_if_visible(ring, seq);
+        filter.append_if_visible(source, seq);
     }
-    NX_CHECK(ring.visible_count() == 10U);
+    NX_CHECK(filter.visible_count() == 10U);
     FilterCriteria criteria{};
     criteria.levels[static_cast<std::size_t>(core::LogLevel::Error)] = false;
     NX_CHECK(criteria.matches(make_frame(0, "App", core::LogLevel::Info, "x"), ring.apps()));
@@ -211,34 +204,34 @@ void suite_filter() {
         NX_CHECK(!criteria.matches(make_frame(0, "App", core::LogLevel::Info, "x"), ring.apps()));
     }
     filter.criteria().text = "even";
-    filter.begin_rebuild(ring);
-    filter.step_rebuild(ring, 3);
+    filter.begin_rebuild(source);
+    filter.step_rebuild(source, 3);
     NX_CHECK(filter.rebuilding());
-    filter.step_rebuild(ring, 100);
+    filter.step_rebuild(source, 100);
     NX_CHECK(!filter.rebuilding());
-    NX_CHECK(ring.visible_count() == 5U);
-    NX_CHECK(ring.visible_at(0) == 0U);
+    NX_CHECK(filter.visible_count() == 5U);
+    NX_CHECK(filter.visible_at(0) == 0U);
     const auto appended = ring.push_frame(make_frame(10, "App", core::LogLevel::Info, "even"));
-    filter.append_if_visible(ring, appended);
-    NX_CHECK(ring.visible_count() == 6U);
-    filter.clear(ring);
-    NX_CHECK(ring.visible_count() == 0U);
+    filter.append_if_visible(source, appended);
+    NX_CHECK(filter.visible_count() == 6U);
+    filter.clear();
+    NX_CHECK(filter.visible_count() == 0U);
 
     filter.criteria().text.clear();
-    filter.begin_rebuild(ring);
-    filter.step_rebuild(ring, 100);
-    NX_CHECK(ring.visible_count() == ring.size());
+    filter.begin_rebuild(source);
+    filter.step_rebuild(source, 100);
+    NX_CHECK(filter.visible_count() == ring.size());
     // Evict while a rebuild is in progress: stale numbers must be skipped.
     filter.criteria().text = "even";
-    filter.begin_rebuild(ring);
+    filter.begin_rebuild(source);
     for (std::uint64_t i = 0; i < 40; ++i) {
         static_cast<void>(ring.push_frame(
             make_frame(100 + i, "App", core::LogLevel::Info, i % 2 == 0 ? "even" : "odd")));
     }
-    filter.step_rebuild(ring, 100);
+    filter.step_rebuild(source, 100);
     NX_CHECK(!filter.rebuilding());
-    for (std::size_t i = 0; i < ring.visible_count(); ++i) {
-        NX_CHECK(ring.find(ring.visible_at(i)).has_value());
+    for (std::size_t i = 0; i < filter.visible_count(); ++i) {
+        NX_CHECK(ring.find(filter.visible_at(i)).has_value());
     }
 
     // Synthetic gap records obey the same text/level criteria as frames.
@@ -246,30 +239,30 @@ void suite_filter() {
     FilterCriteria gap_criteria{};
     gap_criteria.text = "gap";
     filter.criteria() = gap_criteria;
-    filter.begin_rebuild(ring);
-    filter.step_rebuild(ring, 10'000U);
+    filter.begin_rebuild(source);
+    filter.step_rebuild(source, 10'000U);
     bool gap_visible = false;
-    for (std::size_t i = 0; i < ring.visible_count(); ++i) {
-        gap_visible = gap_visible || ring.visible_at(i) == gap_seq;
+    for (std::size_t i = 0; i < filter.visible_count(); ++i) {
+        gap_visible = gap_visible || filter.visible_at(i) == gap_seq;
     }
     NX_CHECK(gap_visible);
     gap_criteria.text = "absent";
     filter.criteria() = gap_criteria;
-    filter.begin_rebuild(ring);
-    filter.step_rebuild(ring, 10'000U);
+    filter.begin_rebuild(source);
+    filter.step_rebuild(source, 10'000U);
     gap_visible = false;
-    for (std::size_t i = 0; i < ring.visible_count(); ++i) {
-        gap_visible = gap_visible || ring.visible_at(i) == gap_seq;
+    for (std::size_t i = 0; i < filter.visible_count(); ++i) {
+        gap_visible = gap_visible || filter.visible_at(i) == gap_seq;
     }
     NX_CHECK(!gap_visible);
     gap_criteria.text.clear();
     gap_criteria.levels[static_cast<std::size_t>(core::LogLevel::Warning)] = false;
     filter.criteria() = gap_criteria;
-    filter.begin_rebuild(ring);
-    filter.step_rebuild(ring, 10'000U);
+    filter.begin_rebuild(source);
+    filter.step_rebuild(source, 10'000U);
     gap_visible = false;
-    for (std::size_t i = 0; i < ring.visible_count(); ++i) {
-        gap_visible = gap_visible || ring.visible_at(i) == gap_seq;
+    for (std::size_t i = 0; i < filter.visible_count(); ++i) {
+        gap_visible = gap_visible || filter.visible_at(i) == gap_seq;
     }
     NX_CHECK(!gap_visible);
 }
@@ -281,18 +274,20 @@ void suite_find() {
         return;
     }
     RecordRing ring = std::move(*ring_result);
+    FilterIndex filter;
+    filter.init(ring.capacity(), ring.apps());
+    const HistorySource source = HistorySource::live(ring);
     for (std::uint64_t i = 0; i < 20; ++i) {
         const auto seq = ring.push_frame(
             make_frame(i, "App", core::LogLevel::Info, i % 5 == 0 ? "needle here" : "haystack"));
-        ring.append_visible(seq);
+        filter.append_if_visible(source, seq);
     }
     FindState find;
-    find.init(ring.capacity());
-    find.begin("needle", ring);
+    find.begin("needle", filter);
     NX_CHECK(find.active());
-    find.step(ring, 3);
+    find.step(filter, source, 3);
     NX_CHECK(find.active());
-    find.step(ring, 100);
+    find.step(filter, source, 100);
     NX_CHECK(!find.active());
     NX_CHECK(find.count() == 4U);
     NX_CHECK(find.contains(0U));
@@ -302,8 +297,8 @@ void suite_find() {
     NX_CHECK(find.previous() == 0U);
     NX_CHECK(find.previous() == 15U);
     NX_CHECK(find.to_string().find("matches=4") != std::string::npos);
-    find.begin("absent", ring);
-    find.step(ring, 100);
+    find.begin("absent", filter);
+    find.step(filter, source, 100);
     NX_CHECK(find.count() == 0U);
     NX_CHECK(!find.next().has_value());
     NX_CHECK(!find.previous().has_value());
@@ -423,7 +418,6 @@ void suite_export_import() {
     logging::LogFrame frame =
         make_frame(1'000, "App", core::LogLevel::Error, "quote=\" backslash=\\ newline=\n end");
     const std::uint64_t seq = ring.push_frame(frame);
-    ring.set_selected(seq, true);
     ExportWriter writer;
     NX_CHECK(writer.start(path, ExportFormat::Jsonl, 1, TimeContext{}).has_value());
     ExportRecord record{};
@@ -545,6 +539,29 @@ void suite_config() {
     NX_CHECK(restored.hidden_apps.size() == 1U);
     NX_CHECK(std::format("{}", restored).find("service=Nexigen/Test/Logview") != std::string::npos);
 
+    ViewConfig view{};
+    view.id = 7U;
+    view.title = "All logs";
+    view.source = "";
+    view.levels[static_cast<std::size_t>(core::LogLevel::Debug)] = false;
+    view.text = "needle";
+    view.timestamp_mode = TimestampMode::RelativeT0;
+    view.delta_mode = DeltaMode::FromAnchor;
+    view.anomaly_threshold_ns = 42'000'000U;
+    view.hidden_apps.push_back("Noisy");
+    const nlohmann::json view_json = view;
+    ViewConfig view_restored{};
+    from_json(view_json, view_restored);
+    NX_CHECK(view_restored.id == 7U);
+    NX_CHECK(view_restored.title == "All logs");
+    NX_CHECK(!view_restored.levels[static_cast<std::size_t>(core::LogLevel::Debug)]);
+    NX_CHECK(view_restored.text == "needle");
+    NX_CHECK(view_restored.timestamp_mode == TimestampMode::RelativeT0);
+    NX_CHECK(view_restored.delta_mode == DeltaMode::FromAnchor);
+    NX_CHECK(view_restored.anomaly_threshold_ns == 42'000'000U);
+    NX_CHECK(view_restored.hidden_apps.size() == 1U);
+    NX_CHECK(std::format("{}", view_restored) == view_restored.to_string());
+
     const std::string path = temp_path("config.json");
     NX_CHECK(save_config(path, config).has_value());
     LogViewConfig loaded;
@@ -616,23 +633,27 @@ void suite_model() {
     }
     model->set_paused(true);
     NX_CHECK(model->paused());
+    const std::size_t paused_display = model->display_count();
     for (std::uint64_t i = 0; i < model->ring().capacity() + 10U; ++i) {
         model->ingest_frame(make_frame(1'000 + i, "Viz", core::LogLevel::Info, "stream"), 0);
     }
     NX_CHECK(model->new_since_pause() > 0U);
     NX_CHECK(model->overwritten_while_paused() > 0U);
+    NX_CHECK(model->display_count() <= paused_display);
     model->set_paused(false);
     NX_CHECK(!model->paused());
 
     const std::uint64_t last = model->ring().tail() - 1U;
+    LogView* focused = model->focused_view();
+    NX_CHECK(focused != nullptr);
     model->select_only(last);
-    NX_CHECK(model->ring().is_selected(last));
+    NX_CHECK(focused->is_selected(last));
     NX_CHECK(model->toggle_bookmark(last));
     NX_CHECK(model->next_bookmark(std::nullopt).has_value());
     model->select_all_visible();
-    NX_CHECK(model->ring().selected_count() == model->display_count());
+    NX_CHECK(focused->selected_count() == model->display_count());
     model->clear_selection();
-    NX_CHECK(model->ring().selected_count() == 0U);
+    NX_CHECK(focused->selected_count() == 0U);
 
     const std::string export_path = temp_path("model-export.jsonl");
     model->select_only(last);
@@ -660,8 +681,8 @@ void suite_model() {
     while (model->filter().rebuilding()) {
         model->step_filter_rebuild(1'000U);
     }
-    NX_CHECK(model->ring().is_selected(warning_seq));
-    NX_CHECK(model->ring().is_bookmarked(warning_seq));
+    NX_CHECK(focused->is_selected(warning_seq));
+    NX_CHECK(focused->is_bookmarked(warning_seq));
     model->filter().criteria().text.clear();
     model->begin_filter_rebuild();
     while (model->filter().rebuilding()) {
@@ -729,6 +750,8 @@ void suite_scale() {
     }
     RecordRing ring = std::move(*ring_result);
     FilterIndex filter;
+    filter.init(ring.capacity(), ring.apps());
+    const HistorySource source = HistorySource::live(ring);
     const auto begin = std::chrono::steady_clock::now();
     constexpr std::uint64_t count = 500'000;
     for (std::uint64_t i = 0; i < count; ++i) {
@@ -736,10 +759,10 @@ void suite_scale() {
         const auto seq = ring.push_frame(make_frame(
             1'000'000 + i * 1'000U, app,
             (i % 1000U) == 0U ? core::LogLevel::Error : core::LogLevel::Info, "scale record"));
-        ring.append_visible(seq);
+        filter.append_if_visible(source, seq);
     }
     const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - begin);
-    NX_CHECK(ring.visible_count() == count);
+    NX_CHECK(filter.visible_count() == count);
     NX_CHECK(ring.size() == count);
     NX_CHECK(ring.find(count / 2U).has_value());
     NX_CHECK(elapsed.count() < 20.0);
@@ -748,7 +771,7 @@ void suite_scale() {
     constexpr std::size_t render_iterations = 200;
     for (std::size_t iteration = 0; iteration < render_iterations; ++iteration) {
         for (std::size_t row = 0; row < 60U; ++row) {
-            const auto view = ring.find(ring.visible_at((row * 7919U) % count));
+            const auto view = ring.find(filter.visible_at((row * 7919U) % count));
             NX_CHECK(view.has_value());
             if (view.has_value()) {
                 const FormattedTime stamp = TimeFormatter::format_timestamp(
@@ -769,11 +792,11 @@ void suite_scale() {
                 static_cast<unsigned long long>(count), elapsed.count(),
                 elapsed.count() * 1'000'000'000.0 / static_cast<double>(count));
     filter.criteria().text = "scale";
-    filter.begin_rebuild(ring);
+    filter.begin_rebuild(source);
     while (filter.rebuilding()) {
-        filter.step_rebuild(ring, 20'000U);
+        filter.step_rebuild(source, 20'000U);
     }
-    NX_CHECK(ring.visible_count() == count);
+    NX_CHECK(filter.visible_count() == count);
 }
 
 void suite_allocation() {
@@ -895,6 +918,552 @@ void suite_thread_spec() {
     NX_CHECK(!invalid.set_name("this-name-is-too-long").has_value());
 }
 
+void drain_view_rebuilds(LogViewModel& model) {
+    for (;;) {
+        model.step_filter_rebuilds(1'000'000U);
+        bool rebuilding = false;
+        for (std::size_t i = 0; i < model.view_count(); ++i) {
+            const LogView* view = model.view_at(i);
+            rebuilding = rebuilding || (view != nullptr && view->rebuilding());
+        }
+        if (!rebuilding) {
+            return;
+        }
+    }
+}
+
+void suite_views() {
+    LogViewConfig config;
+    config.max_memory_mb = 64;
+    auto model_result = LogViewModel::create(64ULL * 1024ULL * 1024ULL, config);
+    NX_CHECK(model_result.has_value());
+    if (!model_result.has_value()) {
+        return;
+    }
+    std::unique_ptr<LogViewModel> model = std::move(*model_result);
+    NX_CHECK(model->view_count() == 1U);
+    NX_CHECK(model->focused_view() != nullptr);
+    NX_CHECK(model->focused_view()->kind() == ViewKind::All);
+
+    for (std::uint64_t i = 0; i < 20; ++i) {
+        model->ingest_frame(make_frame(1'000U + i * 10U, i % 2 == 0U ? "Engine" : "Viz",
+                                       i % 5 == 0U ? core::LogLevel::Error : core::LogLevel::Info,
+                                       i % 5 == 0U ? "needle" : "haystack"),
+                            0U);
+    }
+    const auto engine = model->create_view(ViewKind::Source, "Engine");
+    NX_CHECK(engine.has_value());
+    const auto viz = model->create_view(ViewKind::Source, "Viz");
+    NX_CHECK(viz.has_value());
+    if (!engine.has_value() || !viz.has_value()) {
+        return;
+    }
+    drain_view_rebuilds(*model);
+    LogView* engine_view = model->view(*engine);
+    LogView* viz_view = model->view(*viz);
+    NX_CHECK(engine_view != nullptr);
+    NX_CHECK(viz_view != nullptr);
+    if (engine_view == nullptr || viz_view == nullptr) {
+        return;
+    }
+    NX_CHECK(engine_view->kind() == ViewKind::Source);
+    NX_CHECK(engine_view->source() == "Engine");
+    NX_CHECK(engine_view->display_count() > 0U);
+    bool only_engine = true;
+    for (std::size_t i = 0; i < engine_view->display_count(); ++i) {
+        const auto record = engine_view->history().find(engine_view->display_at(i));
+        if (!record.has_value() || !record->is_frame() ||
+            record->frame->app_id_text() != "Engine") {
+            only_engine = false;
+        }
+    }
+    NX_CHECK(only_engine);
+
+    const std::size_t viz_visible = viz_view->display_count();
+    engine_view->filter().criteria().levels[static_cast<std::size_t>(core::LogLevel::Error)] =
+        false;
+    model->begin_filter_rebuild(*engine_view);
+    drain_view_rebuilds(*model);
+    NX_CHECK(viz_view->display_count() == viz_visible);
+    bool no_errors = true;
+    for (std::size_t i = 0; i < engine_view->display_count(); ++i) {
+        const auto record = engine_view->history().find(engine_view->display_at(i));
+        if (record.has_value() && record->is_frame() &&
+            record->frame->log_level == core::LogLevel::Error) {
+            no_errors = false;
+        }
+    }
+    NX_CHECK(no_errors);
+
+    // The All view's source mask is local; source views keep their scope.
+    LogView* all_view = model->view_at(0);
+    NX_CHECK(all_view != nullptr);
+    NX_CHECK(all_view->kind() == ViewKind::All);
+    if (all_view != nullptr) {
+        const std::size_t engine_slot = model->ring().apps().find("Engine");
+        NX_CHECK(engine_slot < AppRegistry::capacity);
+        const std::size_t all_before = all_view->display_count();
+        const std::size_t viz_before = viz_view->display_count();
+        all_view->filter().criteria().apps[engine_slot] = false;
+        all_view->filter().criteria().app_filter_active = true;
+        model->begin_filter_rebuild(*all_view);
+        drain_view_rebuilds(*model);
+        NX_CHECK(viz_view->display_count() == viz_before);
+        NX_CHECK(all_view->display_count() < all_before);
+        bool all_engine_hidden = true;
+        for (std::size_t i = 0; i < all_view->display_count(); ++i) {
+            const auto record = all_view->history().find(all_view->display_at(i));
+            if (record.has_value() && record->is_frame() &&
+                record->frame->app_id_text() == "Engine") {
+                all_engine_hidden = false;
+            }
+        }
+        NX_CHECK(all_engine_hidden);
+        all_view->filter().criteria().apps[engine_slot] = true;
+        all_view->filter().criteria().app_filter_active = false;
+        model->begin_filter_rebuild(*all_view);
+        drain_view_rebuilds(*model);
+    }
+
+    const std::uint64_t engine_seq = engine_view->display_at(0);
+    engine_view->select_only(engine_seq);
+    NX_CHECK(engine_view->is_selected(engine_seq));
+    NX_CHECK(!viz_view->is_selected(engine_seq));
+    NX_CHECK(engine_view->toggle_bookmark(engine_seq));
+    NX_CHECK(!viz_view->is_bookmarked(engine_seq));
+    engine_view->time().set_anchor(123'456);
+    NX_CHECK(!viz_view->time().anchor_ns.has_value());
+
+    NX_CHECK(ui::shortcuts_allowed(true, false));
+    NX_CHECK(!ui::shortcuts_allowed(false, false));
+    NX_CHECK(!ui::shortcuts_allowed(true, true));
+    model->focus_view(*engine);
+    NX_CHECK(ui::copy_selected(*model).find("Engine") != std::string::npos);
+    viz_view->select_only(viz_view->display_at(0));
+    model->focus_view(*viz);
+    NX_CHECK(ui::copy_selected(*model).find("Viz") != std::string::npos);
+    NX_CHECK(engine_view->find().matches().capacity() == 0U);
+    NX_CHECK(engine_view->filter().capacity() == model->ring().capacity());
+
+    // Selection is per view, but only one export writer may run.
+    NX_CHECK(engine_view->display_count() > 0U);
+    NX_CHECK(viz_view->display_count() > 0U);
+    engine_view->select_only(engine_view->display_at(0));
+    viz_view->select_only(viz_view->display_at(0));
+    const std::string export_a = temp_path("view-a.jsonl");
+    const std::string export_b = temp_path("view-b.jsonl");
+    NX_CHECK(model->start_export(*engine, export_a, ExportFormat::Jsonl).has_value());
+    NX_CHECK(!model->start_export(*viz, export_b, ExportFormat::Jsonl).has_value());
+    while (model->exporting()) {
+        model->step_export(16U);
+    }
+    NX_CHECK(model->export_stats().written == 1U);
+    NX_CHECK(model->start_export(*viz, export_b, ExportFormat::Jsonl).has_value());
+    while (model->exporting()) {
+        model->step_export(16U);
+    }
+    NX_CHECK(model->export_stats().written == 1U);
+    static_cast<void>(std::remove(export_a.c_str()));
+    static_cast<void>(std::remove(export_b.c_str()));
+
+    const auto live_clone = model->clone_view(*engine, CloneMode::Live, CloneOptions{});
+    NX_CHECK(live_clone.has_value());
+    if (live_clone.has_value()) {
+        LogView* clone = model->view(*live_clone);
+        NX_CHECK(clone != nullptr);
+        NX_CHECK(clone->live());
+        NX_CHECK(!clone->paused());
+        if (clone != nullptr) {
+            model->ingest_frame(make_frame(99'000U, "Engine", core::LogLevel::Info, "tail"), 0U);
+            bool seen = false;
+            for (std::size_t i = 0; i < clone->display_count(); ++i) {
+                seen = seen || clone->display_at(i) == model->ring().tail() - 1U;
+            }
+            NX_CHECK(seen);
+            NX_CHECK(clone->id() != engine_view->id());
+            NX_CHECK(clone->source() == engine_view->source());
+        }
+    }
+
+    // Limits: All, source views, and the live clone fill the LIVE budget.
+    for (int i = 0; i < 4; ++i) {
+        NX_CHECK(
+            model->create_view(ViewKind::Source, std::string("S") + std::to_string(i)).has_value());
+    }
+    NX_CHECK(model->live_view_count() == 8U);
+    NX_CHECK(!model->create_view(ViewKind::Source, "Overflow").has_value());
+    const std::uint64_t first_slot = model->view_at(1)->id();
+    NX_CHECK(model->close_view(first_slot).has_value());
+    const std::size_t views_before_rejection = model->view_count();
+    const ViewId focus_before_rejection = model->focused_id();
+    model->set_view_index_budget(0U);
+    NX_CHECK(!model->create_view(ViewKind::Source, "AllocFail").has_value());
+    model->set_view_index_budget(static_cast<std::size_t>(-1));
+    NX_CHECK(model->view_count() == views_before_rejection);
+    NX_CHECK(model->focused_id() == focus_before_rejection);
+    NX_CHECK(model->create_view(ViewKind::Source, "Reuse").has_value());
+    NX_CHECK(model->live_view_count() == 8U);
+
+    const std::size_t default_capacity =
+        RecordRing::capacity_for_budget(256ULL * 1024ULL * 1024ULL);
+    const std::size_t index_total = LogViewModel::index_bytes_for(default_capacity) * 8U;
+    NX_CHECK(index_total >= 32ULL * 1024ULL * 1024ULL);
+    NX_CHECK(index_total <= 34ULL * 1024ULL * 1024ULL);
+
+    // Persisted definitions contain only LIVE views and round-trip their data.
+    const std::vector<ViewConfig> definitions = model->view_configs();
+    NX_CHECK(definitions.size() == 8U);
+    const nlohmann::json json = definitions.front();
+    ViewConfig restored{};
+    from_json(json, restored);
+    NX_CHECK(restored.id == definitions.front().id);
+    NX_CHECK(restored.title == definitions.front().title);
+    NX_CHECK(std::format("{}", restored) == restored.to_string());
+}
+
+void suite_paused_views() {
+    LogViewConfig config;
+    config.max_memory_mb = 64;
+    auto model_result = LogViewModel::create(64ULL * 1024ULL * 1024ULL, config);
+    NX_CHECK(model_result.has_value());
+    if (!model_result.has_value()) {
+        return;
+    }
+    std::unique_ptr<LogViewModel> model = std::move(*model_result);
+    const std::size_t history_records = (kMaxSnapshotRecordBytes / kSnapshotRecordBytes + 40U) * 3U;
+    for (std::uint64_t i = 0; i < history_records; ++i) {
+        model->ingest_frame(make_frame(1'000U + i, i % 3 == 0U ? "Engine" : "Viz",
+                                       i % 10 == 0U ? core::LogLevel::Error : core::LogLevel::Info,
+                                       i % 5 == 0U ? "needle here" : "haystack"),
+                            0U);
+    }
+    model->ingest_gap(RecordKind::TransportGap, 4U, 9'000U);
+    const auto engine = model->create_view(ViewKind::Source, "Engine");
+    NX_CHECK(engine.has_value());
+    if (!engine.has_value()) {
+        return;
+    }
+    LogView* source = model->view(*engine);
+    NX_CHECK(source != nullptr);
+    if (source == nullptr) {
+        return;
+    }
+    drain_view_rebuilds(*model);
+
+    const std::uint64_t old_seq = model->ring().head();
+    source->select_only(old_seq);
+    NX_CHECK(source->toggle_bookmark(old_seq));
+    source->time().set_anchor(1'000);
+    source->filter().criteria().levels[static_cast<std::size_t>(core::LogLevel::Error)] = false;
+    source->filter().criteria().text = "needle";
+    model->begin_filter_rebuild(*source);
+    drain_view_rebuilds(*model);
+    model->begin_find(*source, "needle");
+    while (source->find().active()) {
+        static_cast<void>(source->find().step(source->filter(), source->history(), 1'000U));
+    }
+    NX_CHECK(source->find().count() > 0U);
+
+    const auto paused = model->clone_view(*engine, CloneMode::Paused, CloneOptions{});
+    NX_CHECK(paused.has_value());
+    if (!paused.has_value()) {
+        return;
+    }
+    LogView* snapshot = model->view(*paused);
+    NX_CHECK(snapshot != nullptr);
+    if (snapshot == nullptr) {
+        return;
+    }
+    NX_CHECK(!snapshot->live());
+    NX_CHECK(snapshot->paused());
+    NX_CHECK(snapshot->frozen() != nullptr);
+    NX_CHECK(snapshot->history().size() <= kMaxSnapshotRecordBytes / kSnapshotRecordBytes);
+    bool gap_in_snapshot = false;
+    bool only_engine = true;
+    bool snapshot_has_error = false;
+    for (std::size_t i = 0; i < snapshot->history().size(); ++i) {
+        const auto record = snapshot->history().find(snapshot->history().seq_at(i));
+        if (record.has_value() && !record->is_frame()) {
+            gap_in_snapshot = true;
+        } else if (record.has_value() && record->frame->app_id_text() != "Engine") {
+            only_engine = false;
+        }
+        if (record.has_value() && record->is_frame() &&
+            record->frame->log_level == core::LogLevel::Error) {
+            snapshot_has_error = true;
+        }
+    }
+    NX_CHECK(gap_in_snapshot);
+    NX_CHECK(only_engine);
+    NX_CHECK(snapshot_has_error);
+    NX_CHECK(snapshot->find().count() > 0U);
+    NX_CHECK(!snapshot->is_selected(old_seq));
+    NX_CHECK(!snapshot->is_bookmarked(old_seq));
+    NX_CHECK(!snapshot->time().anchor_ns.has_value() || snapshot->contains_stamp(1'000));
+    NX_CHECK(snapshot->filter().criteria().text == "needle");
+    NX_CHECK(!model->last_clone_status().empty());
+    NX_CHECK(model->last_clone_status().find("selection") != std::string::npos);
+    NX_CHECK(model->last_clone_status().find("bookmarks") != std::string::npos);
+    NX_CHECK(model->last_clone_status().find("t0 cleared") != std::string::npos);
+
+    const auto all_paused =
+        model->clone_view(model->view_at(0)->id(), CloneMode::Paused, CloneOptions{});
+    NX_CHECK(all_paused.has_value());
+    if (all_paused.has_value()) {
+        const LogView* all_snapshot = model->view(*all_paused);
+        NX_CHECK(all_snapshot != nullptr);
+        if (all_snapshot != nullptr) {
+            bool has_engine = false;
+            bool has_viz = false;
+            for (std::size_t i = 0; i < all_snapshot->history().size(); ++i) {
+                const auto record = all_snapshot->history().find(all_snapshot->history().seq_at(i));
+                if (record.has_value() && record->is_frame()) {
+                    has_engine = has_engine || record->frame->app_id_text() == "Engine";
+                    has_viz = has_viz || record->frame->app_id_text() == "Viz";
+                }
+            }
+            NX_CHECK(has_engine);
+            NX_CHECK(has_viz);
+            NX_CHECK(all_snapshot->history().size() <=
+                     kMaxSnapshotRecordBytes / kSnapshotRecordBytes);
+        }
+    }
+
+    // A paused clone of a paused view shares the immutable snapshot.
+    const auto paused_of_paused = model->clone_view(*paused, CloneMode::Paused, CloneOptions{});
+    NX_CHECK(paused_of_paused.has_value());
+    if (paused_of_paused.has_value()) {
+        LogView* shared = model->view(*paused_of_paused);
+        NX_CHECK(shared != nullptr);
+        NX_CHECK(shared->frozen() == snapshot->frozen());
+        NX_CHECK(model->last_clone_status().empty());
+    }
+
+    // PAUSED limit is 16 independent views.
+    std::size_t paused_count = model->paused_view_count();
+    while (paused_count < kMaxPausedViews) {
+        const auto extra = model->clone_view(*engine, CloneMode::Paused, CloneOptions{});
+        NX_CHECK(extra.has_value());
+        ++paused_count;
+    }
+    NX_CHECK(model->paused_view_count() == kMaxPausedViews);
+    NX_CHECK(!model->clone_view(*engine, CloneMode::Paused, CloneOptions{}).has_value());
+    const std::size_t snapshot_limit = kMaxSnapshotRecordBytes / kSnapshotRecordBytes;
+    for (std::size_t i = 0; i < model->view_count(); ++i) {
+        const LogView* view = model->view_at(i);
+        if (view != nullptr && !view->live()) {
+            NX_CHECK(view->history().size() <= snapshot_limit);
+        }
+    }
+
+    // A PAUSED export keeps its snapshot alive after the view closes.
+    LogView* export_view = model->view(*paused);
+    if (export_view != nullptr && export_view->display_count() > 0U) {
+        export_view->select_only(export_view->display_at(0));
+        const std::string path = temp_path("paused-export.jsonl");
+        NX_CHECK(model->start_export(*paused, path, ExportFormat::Jsonl).has_value());
+        NX_CHECK(model->close_view(*paused).has_value());
+        while (model->exporting()) {
+            model->step_export(16U);
+        }
+        NX_CHECK(model->export_stats().written == 1U);
+        static_cast<void>(std::remove(path.c_str()));
+    }
+}
+
+void suite_view_config_defaults() {
+    LogViewConfig config;
+    config.views_saved = true;
+    config.views.clear();
+    auto empty_result = LogViewModel::create(64ULL * 1024ULL * 1024ULL, config);
+    NX_CHECK(empty_result.has_value());
+    if (empty_result.has_value()) {
+        NX_CHECK((*empty_result)->view_count() == 0U);
+        NX_CHECK((*empty_result)->focused_view() == nullptr);
+    }
+
+    ViewConfig definition{};
+    definition.id = 41U;
+    definition.title = "All logs";
+    definition.source = "";
+    definition.text = "needle";
+    definition.levels[static_cast<std::size_t>(core::LogLevel::Debug)] = false;
+    definition.timestamp_mode = TimestampMode::SinceBoot;
+    definition.delta_mode = DeltaMode::FromAnchor;
+    definition.anomaly_threshold_ns = 12'345'678U;
+    config.views.push_back(definition);
+    auto restored_result = LogViewModel::create(64ULL * 1024ULL * 1024ULL, config);
+    NX_CHECK(restored_result.has_value());
+    if (restored_result.has_value()) {
+        LogViewModel& restored = **restored_result;
+        NX_CHECK(restored.view_count() == 1U);
+        const LogView* view = restored.view(41U);
+        NX_CHECK(view != nullptr);
+        if (view != nullptr) {
+            NX_CHECK(view->id() == 41U);
+            NX_CHECK(view->filter().criteria().text == "needle");
+            NX_CHECK(
+                !view->filter().criteria().levels[static_cast<std::size_t>(core::LogLevel::Debug)]);
+            NX_CHECK(view->timestamp_mode() == TimestampMode::SinceBoot);
+            NX_CHECK(view->delta_mode() == DeltaMode::FromAnchor);
+            NX_CHECK(view->time().anomaly_threshold_ns == 12'345'678);
+        }
+    }
+}
+
+void suite_snapshot_budget() {
+    LogViewConfig config;
+    config.max_memory_mb = 64;
+    auto model_result = LogViewModel::create(64ULL * 1024ULL * 1024ULL, config);
+    NX_CHECK(model_result.has_value());
+    if (!model_result.has_value()) {
+        return;
+    }
+    std::unique_ptr<LogViewModel> model = std::move(*model_result);
+    const std::size_t limit = kMaxSnapshotRecordBytes / kSnapshotRecordBytes;
+    for (std::uint64_t i = 0; i < limit + 200U; ++i) {
+        model->ingest_frame(make_frame(1'000U + i, "Engine", core::LogLevel::Info, "snapshot"), 0U);
+    }
+    model->ingest_gap(RecordKind::TransportGap, 2U, 99'000U);
+    const auto engine = model->create_view(ViewKind::Source, "Engine");
+    NX_CHECK(engine.has_value());
+    if (!engine.has_value()) {
+        return;
+    }
+    const auto paused = model->clone_view(*engine, CloneMode::Paused, CloneOptions{});
+    NX_CHECK(paused.has_value());
+    if (!paused.has_value()) {
+        return;
+    }
+    const LogView* snapshot = model->view(*paused);
+    NX_CHECK(snapshot != nullptr);
+    if (snapshot == nullptr) {
+        return;
+    }
+    NX_CHECK(snapshot->history().size() <= limit);
+    NX_CHECK(snapshot->history().size() > limit - 2U);
+    NX_CHECK(snapshot->history().tail() == model->ring().tail());
+    NX_CHECK(snapshot->history().head() > model->ring().head());
+    NX_CHECK((snapshot->history().size() * kSnapshotRecordBytes) <= kMaxSnapshotRecordBytes);
+}
+
+void suite_all_reopen() {
+    LogViewConfig config;
+    config.max_memory_mb = 64;
+    auto model_result = LogViewModel::create(64ULL * 1024ULL * 1024ULL, config);
+    NX_CHECK(model_result.has_value());
+    if (!model_result.has_value()) {
+        return;
+    }
+    std::unique_ptr<LogViewModel> model = std::move(*model_result);
+    model->ingest_frame(make_frame(1'000, "Engine", core::LogLevel::Info, "first"), 0U);
+    NX_CHECK(model->view_count() == 1U);
+    LogView* all = model->view_at(0);
+    NX_CHECK(all != nullptr);
+    if (all == nullptr) {
+        return;
+    }
+    const ViewId old_id = all->id();
+    all->filter().criteria().apps.fill(false);
+    all->filter().criteria().app_filter_active = true;
+    NX_CHECK(model->close_view(old_id).has_value());
+    NX_CHECK(model->live_view_count() == 0U);
+    const auto reopened = model->create_view(ViewKind::All, {});
+    NX_CHECK(reopened.has_value());
+    if (reopened.has_value()) {
+        LogView* view = model->view(*reopened);
+        NX_CHECK(view != nullptr);
+        if (view != nullptr) {
+            NX_CHECK(view->kind() == ViewKind::All);
+            NX_CHECK(!view->filter().criteria().app_filter_active);
+            bool all_visible = true;
+            for (const bool visible : view->filter().criteria().apps) {
+                all_visible = all_visible && visible;
+            }
+            NX_CHECK(all_visible);
+        }
+    }
+}
+
+void suite_clone_options() {
+    LogViewConfig config;
+    config.max_memory_mb = 64;
+    auto model_result = LogViewModel::create(64ULL * 1024ULL * 1024ULL, config);
+    NX_CHECK(model_result.has_value());
+    if (!model_result.has_value()) {
+        return;
+    }
+    std::unique_ptr<LogViewModel> model = std::move(*model_result);
+    for (std::uint64_t i = 0; i < 30; ++i) {
+        model->ingest_frame(make_frame(1'000U + i, "Engine", core::LogLevel::Info,
+                                       i % 2 == 0U ? "needle" : "haystack"),
+                            0U);
+    }
+    const auto source_id = model->create_view(ViewKind::Source, "Engine");
+    NX_CHECK(source_id.has_value());
+    if (!source_id.has_value()) {
+        return;
+    }
+    LogView* source = model->view(*source_id);
+    NX_CHECK(source != nullptr);
+    if (source == nullptr) {
+        return;
+    }
+    drain_view_rebuilds(*model);
+    source->filter().criteria().text = "needle";
+    source->filter().criteria().levels[static_cast<std::size_t>(core::LogLevel::Error)] = false;
+    source->timestamp_mode() = TimestampMode::SinceBoot;
+    source->delta_mode() = DeltaMode::FromAnchor;
+    source->time().anomaly_threshold_ns = 123'000'000;
+    NX_CHECK(source->display_count() > 0U);
+    if (source->display_count() > 0U) {
+        source->select_only(source->display_at(0));
+    }
+    NX_CHECK(source->toggle_bookmark(model->ring().head()));
+    source->time().set_anchor(1'000);
+    model->begin_find(*source, "needle");
+    while (source->find().active()) {
+        static_cast<void>(source->find().step(source->filter(), source->history(), 1'000U));
+    }
+
+    CloneOptions none{};
+    none.levels = false;
+    none.text = false;
+    none.timestamp_mode = false;
+    none.delta_mode = false;
+    none.anomaly_threshold = false;
+    none.selection = false;
+    none.bookmarks = false;
+    none.t0 = false;
+    none.find = false;
+    const auto clone_id = model->clone_view(*source_id, CloneMode::Live, none);
+    NX_CHECK(clone_id.has_value());
+    if (!clone_id.has_value()) {
+        return;
+    }
+    const LogView* clone = model->view(*clone_id);
+    NX_CHECK(clone != nullptr);
+    if (clone == nullptr) {
+        return;
+    }
+    NX_CHECK(clone->source() == source->source());
+    NX_CHECK(clone->filter().criteria().text.empty());
+    bool levels_default = true;
+    for (const bool visible : clone->filter().criteria().levels) {
+        levels_default = levels_default && visible;
+    }
+    NX_CHECK(levels_default);
+    NX_CHECK(clone->timestamp_mode() == TimestampMode::Absolute);
+    NX_CHECK(clone->delta_mode() == DeltaMode::PreviousVisible);
+    NX_CHECK(clone->time().anomaly_threshold_ns ==
+             static_cast<std::int64_t>(config.anomaly_threshold_ns));
+    NX_CHECK(clone->selected_count() == 0U);
+    NX_CHECK(clone->bookmarked_count() == 0U);
+    NX_CHECK(!clone->time().anchor_ns.has_value());
+    NX_CHECK(clone->find().query().empty());
+    NX_CHECK(model->last_clone_status().empty());
+}
+
 } // namespace
 
 int main() {
@@ -912,6 +1481,12 @@ int main() {
     suite_config();
     suite_resource_guard();
     suite_model();
+    suite_views();
+    suite_paused_views();
+    suite_view_config_defaults();
+    suite_snapshot_budget();
+    suite_all_reopen();
+    suite_clone_options();
     suite_scale();
     suite_allocation();
     suite_memory_budget();

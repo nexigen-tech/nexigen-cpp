@@ -13,6 +13,8 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <unordered_map>
+#include <vector>
 
 #include <GL/gl.h>
 #include <GLFW/glfw3.h>
@@ -45,27 +47,59 @@ namespace {
 constexpr const char* kLevelNames[] = {"Verbose", "Debug", "Info", "Warning",
                                        "Error",   "Fatal", "Off"};
 
+struct ViewUiState {
+    char filter_buf[512]{};
+    char find_buf[128]{};
+    bool auto_scroll{true};
+    bool focus_find{false};
+    std::optional<std::uint64_t> scroll_to{};
+};
+
 struct UiState {
     CaptureThread* capture{nullptr};
     CaptureStats capture_stats{};
     std::string status{};
     std::string ini_path{};
-    char filter_buf[512]{};
-    char find_buf[128]{};
-    char open_path[512]{};
     char save_path[512]{};
-    bool auto_scroll{true};
+    char open_path[512]{};
     bool open_save{false};
     bool open_open{false};
     bool open_colors{false};
+    bool clone_open{false};
+    ViewId clone_target{0};
+    CloneMode clone_mode{CloneMode::Live};
+    CloneOptions clone_options{};
+    std::string clone_status{};
+    ViewId save_view_id{0};
     ExportFormat save_format{ExportFormat::Jsonl};
-    std::optional<std::uint64_t> scroll_to{};
+    std::unordered_map<ViewId, ViewUiState> view_ui{};
+    std::unordered_map<ViewId, ImGuiID> pending_dock{};
+    ViewId float_view{0};
     std::uint64_t last_rejected{0};
     int smoke_frames{0};
     bool first_frame{true};
     bool live{true};
-    bool focus_find{false};
     bool input_test{false};
+    bool log_view_focused{false};
+    bool auto_open_sources_popup{false};
+    bool force_eco{false};
+    bool seen_pause_badge{false};
+    bool seen_view_counters{false};
+    bool seen_eco_badge{false};
+    bool seen_floating_view{false};
+    std::size_t docked_views{0};
+    std::optional<std::uint64_t> inspected_seq{};
+    bool seen_inspector_meta{false};
+    std::optional<std::uint64_t> expected_inspected_seq{};
+    ViewId view_test_focus_id{0};
+    bool focus_test_active{false};
+    int focus_phase{0};
+    ViewId focus_view_id{0};
+    std::uint64_t focus_before{0};
+    bool focus_ok{false};
+    bool focus_unfocused_ok{false};
+    ViewId focus_next_view{0};
+    bool focus_sources_next{false};
     int input_phase{0};
     int input_phase_frames{0};
     bool capture_copy_rect{false};
@@ -133,38 +167,45 @@ std::string parent_directory(const std::string& path) {
     return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
 }
 
-void draw_toolbar_pause(LogViewModel& model, UiState& state) {
-    if (ImGui::Button(model.paused() ? "Resume" : "Pause")) {
-        model.set_paused(!model.paused());
-        state.auto_scroll = !model.paused();
-    }
-    ImGui::SameLine();
-    if (model.paused()) {
-        ImGui::TextColored(ImVec4(1.0F, 0.65F, 0.25F, 1.0F), "PAUSED (%llu new)",
-                           static_cast<unsigned long long>(model.new_since_pause()));
-        if (model.overwritten_while_paused() > 0U) {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0F, 0.40F, 0.40F, 1.0F), "(%llu overwritten)",
-                               static_cast<unsigned long long>(model.overwritten_while_paused()));
-        }
-    } else {
-        ImGui::TextColored(ImVec4(0.36F, 0.85F, 0.58F, 1.0F), "LIVE");
-    }
+std::string window_title(const LogView& view) {
+    return std::format("Log: {}###logview-{}", view.title(), view.id());
 }
 
-void draw_toolbar_actions(LogViewModel& model, UiState& state) {
+ImGuiID focused_dock_id(LogViewModel& model) {
+    const LogView* focused = model.focused_view();
+    if (focused == nullptr) {
+        return 0;
+    }
+    const ImGuiWindow* window = ImGui::FindWindowByName(window_title(*focused).c_str());
+    return window != nullptr ? window->DockId : 0;
+}
+
+ViewUiState& ui_for(UiState& state, const LogView& view) {
+    auto [it, inserted] = state.view_ui.try_emplace(view.id());
+    if (inserted) {
+        std::snprintf(it->second.filter_buf, sizeof(it->second.filter_buf), "%s",
+                      view.filter().criteria().text.c_str());
+        std::snprintf(it->second.find_buf, sizeof(it->second.find_buf), "%s",
+                      view.find().query().c_str());
+    }
+    return it->second;
+}
+
+void begin_view_rebuild(LogViewModel& model, LogView& view) {
+    model.begin_filter_rebuild(view);
+}
+
+void draw_global_toolbar(LogViewModel& model, UiState& state) {
+    if (!ImGui::Begin("Toolbar")) {
+        ImGui::End();
+        return;
+    }
+    if (ImGui::Button("Open")) {
+        state.open_open = true;
+    }
     ImGui::SameLine();
     if (ImGui::Button("Clear")) {
         model.clear_history();
-        state.auto_scroll = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Save selected")) {
-        state.open_save = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Open")) {
-        state.open_open = true;
     }
     ImGui::SameLine();
     if (ImGui::Button("Colors")) {
@@ -177,9 +218,7 @@ void draw_toolbar_actions(LogViewModel& model, UiState& state) {
     ImGui::SameLine();
     if (ImGui::Button("Reset config")) {
         model.reset_configuration();
-        state.filter_buf[0] = '\0';
-        state.find_buf[0] = '\0';
-        state.auto_scroll = true;
+        state.view_ui.clear();
         state.status = model.restart_required()
                            ? "configuration reset; restart applies service/memory/thread defaults"
                            : "configuration reset";
@@ -192,67 +231,12 @@ void draw_toolbar_actions(LogViewModel& model, UiState& state) {
                               "restart the viewer to apply them.");
         }
     }
-}
 
-void draw_toolbar_modes(LogViewModel& model, UiState& state) {
     ImGui::SameLine();
-    int timestamp_mode = static_cast<int>(model.config().timestamp_mode);
-    ImGui::SetNextItemWidth(110.0F);
-    if (ImGui::Combo("##time", &timestamp_mode, "Absolute\0Since boot\0Relative T0\0")) {
-        model.config().timestamp_mode = static_cast<TimestampMode>(timestamp_mode);
+    const bool eco = state.force_eco || model.guard().mode() == ResourceMode::Eco;
+    if (eco) {
+        state.seen_eco_badge = true;
     }
-    ImGui::SameLine();
-    int delta_mode = static_cast<int>(model.config().delta_mode);
-    ImGui::SetNextItemWidth(120.0F);
-    if (ImGui::Combo("##delta", &delta_mode, "Previous\0Per app\0From T0\0")) {
-        model.config().delta_mode = static_cast<DeltaMode>(delta_mode);
-    }
-    ImGui::SameLine();
-    if (!model.time().time_base_attached) {
-        ImGui::TextColored(ImVec4(1.0F, 0.72F, 0.25F, 1.0F), "NO TB");
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("No published time base; Absolute uses the sampled UTC offset.");
-        }
-        ImGui::SameLine();
-    }
-    if (model.time().anchor_ns.has_value()) {
-        if (ImGui::Button("Clear T0")) {
-            model.time().clear_anchor();
-        }
-        ImGui::SameLine();
-    }
-    if (ImGui::Button("Prev B")) {
-        if (const auto seq = model.previous_bookmark(model.last_selected()); seq.has_value()) {
-            model.select_only(*seq);
-            state.scroll_to = seq;
-        }
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Next B")) {
-        if (const auto seq = model.next_bookmark(model.last_selected()); seq.has_value()) {
-            model.select_only(*seq);
-            state.scroll_to = seq;
-        }
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Prev W/E")) {
-        if (const auto seq = model.previous_attention(model.last_selected()); seq.has_value()) {
-            model.select_only(*seq);
-            state.scroll_to = seq;
-        }
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Next W/E")) {
-        if (const auto seq = model.next_attention(model.last_selected()); seq.has_value()) {
-            model.select_only(*seq);
-            state.scroll_to = seq;
-        }
-    }
-}
-
-void draw_toolbar_eco(LogViewModel& model, UiState& state) {
-    ImGui::SameLine();
-    const bool eco = model.guard().mode() == ResourceMode::Eco;
     ImGui::TextColored(eco ? ImVec4(1.0F, 0.72F, 0.25F, 1.0F) : ImVec4(0.55F, 0.80F, 0.95F, 1.0F),
                        "%s", eco ? "ECO" : "NORMAL");
     if (ImGui::IsItemHovered()) {
@@ -260,63 +244,23 @@ void draw_toolbar_eco(LogViewModel& model, UiState& state) {
                           to_string(model.guard().trigger()).data(), model.guard().cpu_percent(),
                           model.guard().rate_ewma());
     }
-    ImGui::SameLine();
-    if (!state.auto_scroll && !model.paused()) {
-        if (ImGui::Button("Return to live")) {
-            state.auto_scroll = true;
-        }
-        ImGui::SameLine();
-    }
+
     const auto counters = model.counters();
-    ImGui::Text("visible=%llu total=%llu received=%llu synthetic=%llu evicted=%llu rate=%.0f/s",
-                static_cast<unsigned long long>(counters.visible),
+    ImGui::SameLine();
+    ImGui::Text("views=%zu live=%zu paused=%zu total=%llu received=%llu synthetic=%llu "
+                "evicted=%llu rate=%.0f/s",
+                model.view_count(), model.live_view_count(), model.paused_view_count(),
                 static_cast<unsigned long long>(counters.total),
                 static_cast<unsigned long long>(counters.received),
                 static_cast<unsigned long long>(counters.synthetic),
                 static_cast<unsigned long long>(counters.evicted), model.rate());
-}
 
-void draw_toolbar_find(LogViewModel& model, UiState& state) {
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(220.0F);
-    if (state.focus_find) {
-        ImGui::SetKeyboardFocusHere();
-        state.focus_find = false;
-    }
-    if (ImGui::InputTextWithHint("##find", "find (Ctrl+F)", state.find_buf, sizeof(state.find_buf),
-                                 ImGuiInputTextFlags_EnterReturnsTrue)) {
-        model.begin_find(state.find_buf);
-        if (ImGui::GetIO().KeyShift) {
-            if (const auto seq = model.find_previous(); seq.has_value()) {
-                state.scroll_to = seq;
-            }
-        } else {
-            model.step_find(1'000'000U);
-            if (const auto seq = model.find_next(); seq.has_value()) {
-                state.scroll_to = seq;
-            }
-        }
-    }
-    if (model.find().count() > 0U) {
-        ImGui::SameLine();
-        ImGui::Text("%zu matches", model.find().count());
-    } else if (!model.find().query().empty() && !model.find().active()) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.9F, 0.5F, 0.4F, 1.0F), "0 matches");
-    }
-}
-
-void draw_toolbar_progress(LogViewModel& model, UiState& state) {
     if (model.importing()) {
         char overlay[96]{};
         std::snprintf(overlay, sizeof(overlay), "import %llu malformed",
                       static_cast<unsigned long long>(model.import_stats().malformed));
         ImGui::ProgressBar(static_cast<float>(model.import_progress()), ImVec2(-1.0F, 0.0F),
                            overlay);
-    }
-    if (model.time().mixed_boot) {
-        ImGui::TextColored(ImVec4(1.0F, 0.68F, 0.30F, 1.0F),
-                           "Mixed boot sessions: cross-session deltas are not comparable.");
     }
     if (model.exporting() || model.export_stats().active) {
         const ExportStats stats = model.export_stats();
@@ -336,58 +280,34 @@ void draw_toolbar_progress(LogViewModel& model, UiState& state) {
     if (!state.status.empty()) {
         ImGui::TextUnformatted(state.status.c_str());
     }
-}
-
-void draw_toolbar(LogViewModel& model, UiState& state) {
-    if (!ImGui::Begin("Toolbar")) {
-        ImGui::End();
-        return;
-    }
-    draw_toolbar_pause(model, state);
-    draw_toolbar_actions(model, state);
-    draw_toolbar_modes(model, state);
-    draw_toolbar_eco(model, state);
-    draw_toolbar_find(model, state);
-    draw_toolbar_progress(model, state);
     ImGui::End();
 }
 
 void draw_sources(LogViewModel& model, UiState& state) {
-    if (!ImGui::Begin("Sources & levels")) {
+    if (state.focus_sources_next) {
+        ImGui::SetNextWindowFocus();
+        state.focus_sources_next = false;
+    }
+    if (!ImGui::Begin("Sources")) {
         ImGui::End();
         return;
     }
-    FilterCriteria& criteria = model.filter().criteria();
-    ImGui::TextUnformatted("Levels");
-    for (std::size_t i = 0; i < 7U; ++i) {
-        bool visible = criteria.levels[i];
-        ImGui::PushID(static_cast<int>(i));
-        if (ImGui::Checkbox(kLevelNames[i], &visible)) {
-            criteria.levels[i] = visible;
-            model.begin_filter_rebuild();
+    const bool can_open_live = model.live_view_count() < kMaxLiveViews;
+    if (ImGui::Button("All logs")) {
+        const ImGuiID target_dock = focused_dock_id(model);
+        const auto created = model.create_view(ViewKind::All, {});
+        if (created) {
+            state.pending_dock[*created] = target_dock;
+        } else {
+            state.status = "LIVE view limit reached (8 including All) or allocation failed";
         }
-        ImGui::PopID();
+    }
+    if (!can_open_live) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("LIVE limit");
     }
     ImGui::Separator();
-    ImGui::SetNextItemWidth(-1.0F);
-    if (ImGui::InputTextWithHint("##filter", "filter substring", state.filter_buf,
-                                 sizeof(state.filter_buf))) {
-        criteria.text = state.filter_buf;
-        model.begin_filter_rebuild();
-    }
-    if (ImGui::Button("Show all sources")) {
-        criteria.apps.fill(true);
-        criteria.app_filter_active = false;
-        model.begin_filter_rebuild();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Hide all")) {
-        criteria.apps.fill(false);
-        criteria.app_filter_active = true;
-        model.begin_filter_rebuild();
-    }
-    ImGui::Separator();
-    ImGui::TextUnformatted("Sources");
+    ImGui::TextUnformatted("Applications");
     const AppRegistry& apps = model.ring().apps();
     for (std::size_t slot = 0; slot < AppRegistry::capacity; ++slot) {
         const AppSlot& app = apps.at(slot);
@@ -400,44 +320,244 @@ void draw_sources(LogViewModel& model, UiState& state) {
                            ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker,
                            ImVec2(12.0F, 12.0F));
         ImGui::SameLine();
-        bool visible = criteria.apps[slot];
-        if (ImGui::Checkbox("##visible", &visible)) {
-            criteria.apps[slot] = visible;
-            bool any_hidden = false;
-            for (const bool shown : criteria.apps) {
-                any_hidden = any_hidden || !shown;
-            }
-            criteria.app_filter_active = any_hidden;
-            model.begin_filter_rebuild();
-        }
-        ImGui::SameLine();
         ImGui::Text("%.*s (%llu)", static_cast<int>(app.text().size()), app.text().data(),
                     static_cast<unsigned long long>(app.record_count));
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Open")) {
+            const ImGuiID target_dock = focused_dock_id(model);
+            const auto created = model.create_view(ViewKind::Source, std::string(app.text()));
+            if (created) {
+                state.pending_dock[*created] = target_dock;
+            } else {
+                state.status = "LIVE view limit reached (8 including All) or allocation failed";
+            }
+        }
         ImGui::PopID();
     }
     ImGui::End();
 }
 
-std::optional<std::uint64_t> previous_frame(const LogViewModel& model, std::size_t index) {
-    const RecordRing& ring = model.ring();
+void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, ViewUiState& ui) {
+    if (view.live()) {
+        if (ImGui::Button(view.paused() ? "Resume" : "Pause")) {
+            view.set_paused(!view.paused());
+            ui.auto_scroll = !view.paused();
+        }
+        ImGui::SameLine();
+        if (view.paused()) {
+            state.seen_pause_badge = true;
+            ImGui::TextColored(ImVec4(1.0F, 0.65F, 0.25F, 1.0F), "PAUSED (%llu new)",
+                               static_cast<unsigned long long>(view.new_since_pause()));
+            if (view.overwritten_while_paused() > 0U) {
+                ImGui::SameLine();
+                ImGui::TextColored(
+                    ImVec4(1.0F, 0.40F, 0.40F, 1.0F), "(%llu overwritten)",
+                    static_cast<unsigned long long>(view.overwritten_while_paused()));
+            }
+        } else {
+            ImGui::TextColored(ImVec4(0.36F, 0.85F, 0.58F, 1.0F), "LIVE");
+        }
+    } else {
+        ImGui::TextColored(ImVec4(1.0F, 0.65F, 0.25F, 1.0F), "PAUSED SNAPSHOT");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clone")) {
+        state.clone_open = true;
+        state.clone_target = view.id();
+        state.clone_mode = CloneMode::Live;
+        state.clone_options = CloneOptions{};
+        state.clone_status.clear();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Save selected")) {
+        state.open_save = true;
+        state.save_view_id = view.id();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Prev B")) {
+        if (const auto seq = view.previous_bookmark(view.last_selected()); seq.has_value()) {
+            view.select_only(*seq);
+            ui.scroll_to = seq;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Next B")) {
+        if (const auto seq = view.next_bookmark(view.last_selected()); seq.has_value()) {
+            view.select_only(*seq);
+            ui.scroll_to = seq;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Prev W/E")) {
+        if (const auto seq = view.previous_attention(view.last_selected()); seq.has_value()) {
+            view.select_only(*seq);
+            ui.scroll_to = seq;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Next W/E")) {
+        if (const auto seq = view.next_attention(view.last_selected()); seq.has_value()) {
+            view.select_only(*seq);
+            ui.scroll_to = seq;
+        }
+    }
+    if (view.time().anchor_ns.has_value()) {
+        ImGui::SameLine();
+        if (ImGui::Button("Clear T0")) {
+            view.time().clear_anchor();
+        }
+    }
+
+    ImGui::Separator();
+    for (std::size_t i = 0; i < 7U; ++i) {
+        if (i > 0U) {
+            ImGui::SameLine();
+        }
+        bool visible = view.filter().criteria().levels[i];
+        ImGui::PushID(static_cast<int>(i));
+        if (ImGui::Checkbox(kLevelNames[i], &visible)) {
+            view.filter().criteria().levels[i] = visible;
+            begin_view_rebuild(model, view);
+        }
+        ImGui::PopID();
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(220.0F);
+    if (ImGui::InputTextWithHint("##filter", "message filter", ui.filter_buf,
+                                 sizeof(ui.filter_buf))) {
+        view.filter().criteria().text = ui.filter_buf;
+        begin_view_rebuild(model, view);
+    }
+    if (view.kind() == ViewKind::All) {
+        ImGui::SameLine();
+        if (ImGui::Button("Sources...")) {
+            ImGui::OpenPopup("sources");
+        }
+        if (state.auto_open_sources_popup) {
+            ImGui::OpenPopup("sources");
+            state.auto_open_sources_popup = false;
+        }
+        if (ImGui::BeginPopup("sources")) {
+            ImGui::TextUnformatted("Visible sources");
+            bool changed = false;
+            for (std::size_t slot = 0; slot < AppRegistry::capacity; ++slot) {
+                const AppSlot& app = model.ring().apps().at(slot);
+                if (!app.used) {
+                    continue;
+                }
+                ImGui::PushID(static_cast<int>(slot));
+                bool visible = view.filter().criteria().apps[slot];
+                if (ImGui::Checkbox("##source", &visible)) {
+                    view.filter().criteria().apps[slot] = visible;
+                    bool any_hidden = false;
+                    for (const bool shown : view.filter().criteria().apps) {
+                        any_hidden = any_hidden || !shown;
+                    }
+                    view.filter().criteria().app_filter_active = any_hidden;
+                    changed = true;
+                }
+                ImGui::SameLine();
+                ImGui::Text("%.*s", static_cast<int>(app.text().size()), app.text().data());
+                ImGui::PopID();
+            }
+            if (ImGui::Button("Show all")) {
+                view.filter().criteria().apps.fill(true);
+                view.filter().criteria().app_filter_active = false;
+                changed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Hide all")) {
+                view.filter().criteria().apps.fill(false);
+                view.filter().criteria().app_filter_active = true;
+                changed = true;
+            }
+            if (changed) {
+                begin_view_rebuild(model, view);
+            }
+            ImGui::EndPopup();
+        }
+    } else {
+        ImGui::SameLine();
+        ImGui::TextDisabled("source: %s", view.source().c_str());
+    }
+
+    ImGui::SetNextItemWidth(220.0F);
+    if (ui.focus_find) {
+        ImGui::SetKeyboardFocusHere();
+        ui.focus_find = false;
+    }
+    if (ImGui::InputTextWithHint("##find", "find (Ctrl+F)", ui.find_buf, sizeof(ui.find_buf),
+                                 ImGuiInputTextFlags_EnterReturnsTrue)) {
+        model.begin_find(view, ui.find_buf);
+        while (view.find().active()) {
+            static_cast<void>(view.find().step(view.filter(), view.history(), 1'000'000U));
+        }
+        model.focus_view(view.id());
+        if (const auto seq = view.find().next(); seq.has_value()) {
+            view.select_only(*seq);
+            ui.scroll_to = seq;
+        }
+    }
+    if (view.find().count() > 0U) {
+        ImGui::SameLine();
+        ImGui::Text("%zu matches", view.find().count());
+    } else if (!view.find().query().empty() && !view.find().active()) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.9F, 0.5F, 0.4F, 1.0F), "0 matches");
+    }
+
+    ImGui::SameLine();
+    int timestamp_mode = static_cast<int>(view.timestamp_mode());
+    ImGui::SetNextItemWidth(110.0F);
+    if (ImGui::Combo("##time", &timestamp_mode, "Absolute\0Since boot\0Relative T0\0")) {
+        view.timestamp_mode() = static_cast<TimestampMode>(timestamp_mode);
+    }
+    ImGui::SameLine();
+    int delta_mode = static_cast<int>(view.delta_mode());
+    ImGui::SetNextItemWidth(120.0F);
+    if (ImGui::Combo("##delta", &delta_mode, "Previous\0Per app\0From T0\0")) {
+        view.delta_mode() = static_cast<DeltaMode>(delta_mode);
+    }
+    ImGui::SameLine();
+    int threshold_ms = static_cast<int>(view.time().anomaly_threshold_ns / 1'000'000LL);
+    ImGui::SetNextItemWidth(80.0F);
+    if (ImGui::InputInt("##anomaly", &threshold_ms) && threshold_ms >= 0) {
+        view.time().anomaly_threshold_ns = static_cast<std::int64_t>(threshold_ms) * 1'000'000LL;
+    }
+
+    if (view.filter().rebuilding()) {
+        const FilterIndex::Progress progress = view.filter().progress();
+        char overlay[96]{};
+        std::snprintf(overlay, sizeof(overlay), "filter rebuild %llu/%llu",
+                      static_cast<unsigned long long>(progress.scanned),
+                      static_cast<unsigned long long>(progress.total));
+        ImGui::ProgressBar(static_cast<float>(progress.ratio()), ImVec2(-1.0F, 0.0F), overlay);
+    }
+    ImGui::Text("visible=%zu total=%zu %s rate=%.0f/s", view.display_count(), view.history().size(),
+                view.live() ? "LIVE" : "PAUSED", model.rate());
+    state.seen_view_counters = true;
+}
+
+std::optional<std::uint64_t> previous_frame(const LogView& view, std::size_t index) {
     while (index > 0U) {
         --index;
-        const std::uint64_t seq = ring.visible_at(index);
-        if (const auto view = ring.find(seq); view.has_value() && view->is_frame()) {
-            return view->frame->timestamp_ns;
+        const std::uint64_t seq = view.display_at(index);
+        if (const auto record = view.history().find(seq);
+            record.has_value() && record->is_frame()) {
+            return record->frame->timestamp_ns;
         }
     }
     return std::nullopt;
 }
 
-void select_row(LogViewModel& model, std::uint64_t seq) {
+void select_row(LogView& view, std::uint64_t seq) {
     const ImGuiIO& io = ImGui::GetIO();
     if (io.KeyShift) {
-        model.select_to(seq);
+        view.select_to(seq);
     } else if (io.KeyCtrl) {
-        model.toggle_selection(seq);
+        view.toggle_selection(seq);
     } else {
-        model.select_only(seq);
+        view.select_only(seq);
     }
 }
 
@@ -459,34 +579,34 @@ void draw_table_header() {
     ImGui::TableHeadersRow();
 }
 
-std::int64_t row_delta(const LogViewModel& model, const RecordView& view,
+std::int64_t row_delta(const LogView& view, const RecordView& record,
                        const RowContext& context) noexcept {
-    if (!view.is_frame()) {
+    if (!record.is_frame()) {
         return 0;
     }
-    if (model.config().delta_mode == DeltaMode::PerApplication) {
-        return view.prev_same_app_ns;
+    if (view.delta_mode() == DeltaMode::PerApplication) {
+        return record.prev_same_app_ns;
     }
-    if (model.config().delta_mode == DeltaMode::FromAnchor && model.time().anchor_ns.has_value()) {
-        return static_cast<std::int64_t>(view.frame->timestamp_ns) -
-               static_cast<std::int64_t>(*model.time().anchor_ns);
+    if (view.delta_mode() == DeltaMode::FromAnchor && view.time().anchor_ns.has_value()) {
+        return static_cast<std::int64_t>(record.frame->timestamp_ns) -
+               static_cast<std::int64_t>(*view.time().anchor_ns);
     }
-    if (model.config().delta_mode == DeltaMode::PreviousVisible && context.have_previous) {
-        return static_cast<std::int64_t>(view.frame->timestamp_ns) -
+    if (view.delta_mode() == DeltaMode::PreviousVisible && context.have_previous) {
+        return static_cast<std::int64_t>(record.frame->timestamp_ns) -
                static_cast<std::int64_t>(context.previous_stamp);
     }
     return 0;
 }
 
-void draw_message_cell(const LogViewModel& model, const RecordView& view) {
-    const std::string& query = model.find().query();
-    if (!view.is_frame()) {
-        ImGui::Text("[gap] %llu lost (%s)", static_cast<unsigned long long>(view.gap_count),
-                    to_string(view.kind).data());
+void draw_message_cell(const LogView& view, const RecordView& record) {
+    const std::string& query = view.find().query();
+    if (!record.is_frame()) {
+        ImGui::Text("[gap] %llu lost (%s)", static_cast<unsigned long long>(record.gap_count),
+                    to_string(record.kind).data());
         return;
     }
-    const std::string_view message = view.frame->payload_text();
-    if (query.empty() || !model.find().contains(view.seq) || message.empty()) {
+    const std::string_view message = record.frame->payload_text();
+    if (query.empty() || !view.find().contains(record.seq) || message.empty()) {
         if (message.empty()) {
             ImGui::TextUnformatted("");
         } else {
@@ -517,30 +637,32 @@ void draw_message_cell(const LogViewModel& model, const RecordView& view) {
     }
 }
 
-void draw_row_tooltip(const RecordView& view, UiState& state) {
-    state.hovered_seq = view.seq;
+void draw_row_tooltip(const RecordView& record, UiState& state) {
+    state.hovered_seq = record.seq;
     ImGui::BeginTooltip();
-    if (view.is_frame()) {
-        const std::string_view message = view.frame->payload_text();
+    if (record.is_frame()) {
+        const std::string_view message = record.frame->payload_text();
         ImGui::TextUnformatted(message.data(), message.data() + message.size());
     } else {
-        ImGui::Text("[gap] %llu lost (%s)", static_cast<unsigned long long>(view.gap_count),
-                    to_string(view.kind).data());
+        ImGui::Text("[gap] %llu lost (%s)", static_cast<unsigned long long>(record.gap_count),
+                    to_string(record.kind).data());
     }
     ImGui::Separator();
     ImGui::TextDisabled("Ctrl+C copies this record; right-click for more");
     ImGui::EndTooltip();
 }
 
-void draw_row_context_menu(LogViewModel& model, const RecordView& view, UiState& state) {
+void draw_row_context_menu(LogViewModel& model, LogView& view, const RecordView& record,
+                           UiState& state) {
     if (state.menu_open_for_tests && state.menu_target_seq.has_value() &&
-        *state.menu_target_seq == view.seq) {
+        *state.menu_target_seq == record.seq) {
         ImGui::OpenPopup("row-menu");
         state.menu_open_for_tests = false;
         state.menu_target_seq.reset();
     }
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-        model.select_only(view.seq);
+        model.focus_view(view.id());
+        view.select_only(record.seq);
     }
     if (!ImGui::BeginPopupContextItem("row-menu")) {
         return;
@@ -552,14 +674,14 @@ void draw_row_context_menu(LogViewModel& model, const RecordView& view, UiState&
         state.menu_message_rect_valid = true;
     }
     if (copy_message) {
-        if (view.is_frame()) {
-            const std::string text(view.frame->payload_text());
+        if (record.is_frame()) {
+            const std::string text(record.frame->payload_text());
             ImGui::SetClipboardText(text.c_str());
         } else {
             char text[96]{};
             std::snprintf(text, sizeof(text), "[gap] %llu lost (%s)",
-                          static_cast<unsigned long long>(view.gap_count),
-                          to_string(view.kind).data());
+                          static_cast<unsigned long long>(record.gap_count),
+                          to_string(record.kind).data());
             ImGui::SetClipboardText(text);
         }
         state.status = "message copied";
@@ -572,7 +694,8 @@ void draw_row_context_menu(LogViewModel& model, const RecordView& view, UiState&
         state.menu_record_rect_valid = true;
     }
     if (copy_record) {
-        model.select_only(view.seq);
+        model.focus_view(view.id());
+        view.select_only(record.seq);
         const std::string text = ui::copy_selected(model);
         if (!text.empty()) {
             ImGui::SetClipboardText(text.c_str());
@@ -583,20 +706,20 @@ void draw_row_context_menu(LogViewModel& model, const RecordView& view, UiState&
     ImGui::EndPopup();
 }
 
-void capture_row_rect(const RecordView& view, UiState& state) {
+void capture_row_rect(const RecordView& record, UiState& state) {
     if (!state.input_test || !state.capture_row_rects ||
         state.row_rect_count >= state.row_rect_min.size()) {
         return;
     }
     state.row_rect_min[state.row_rect_count] = ImGui::GetItemRectMin();
     state.row_rect_max[state.row_rect_count] = ImGui::GetItemRectMax();
-    state.row_seqs[state.row_rect_count] = view.seq;
+    state.row_seqs[state.row_rect_count] = record.seq;
     ++state.row_rect_count;
 }
 
-void draw_timestamp_cell(LogViewModel& model, const RecordView& view) {
-    const FormattedTime stamp = TimeFormatter::format_timestamp(
-        view.frame->timestamp_ns, model.config().timestamp_mode, model.time());
+void draw_timestamp_cell(const LogView& view, const RecordView& record) {
+    const FormattedTime stamp = TimeFormatter::format_timestamp(record.frame->timestamp_ns,
+                                                                view.timestamp_mode(), view.time());
     if (!stamp.unknown) {
         ImGui::TextUnformatted(stamp.text.data());
         return;
@@ -606,12 +729,12 @@ void draw_timestamp_cell(LogViewModel& model, const RecordView& view) {
     ImGui::PopStyleColor();
 }
 
-void draw_app_cell(LogViewModel& model, const RecordView& view, bool critical) {
-    if (!view.is_frame()) {
+void draw_app_cell(LogViewModel& model, const RecordView& record, bool critical) {
+    if (!record.is_frame()) {
         ImGui::TextUnformatted("-");
         return;
     }
-    const std::size_t slot = model.ring().apps().find(view.frame->app_id_text());
+    const std::size_t slot = model.ring().apps().find(record.frame->app_id_text());
     if (slot >= AppRegistry::capacity) {
         ImGui::TextUnformatted("-");
         return;
@@ -628,22 +751,22 @@ void draw_app_cell(LogViewModel& model, const RecordView& view, bool critical) {
     }
 }
 
-void draw_record_row(LogViewModel& model, UiState& state, const RecordView& view, float row_height,
-                     RowContext& context) {
+void draw_record_row(LogViewModel& model, LogView& view, UiState& state, const RecordView& record,
+                     float row_height, RowContext& context) {
     char row_id[32]{};
-    std::snprintf(row_id, sizeof(row_id), "##row%llu", static_cast<unsigned long long>(view.seq));
+    std::snprintf(row_id, sizeof(row_id), "##row%llu", static_cast<unsigned long long>(record.seq));
     ImGui::PushID(row_id);
-    const bool selected = model.ring().is_selected(view.seq);
-    const bool bookmarked = model.ring().is_bookmarked(view.seq);
-    const bool is_frame = view.is_frame();
-    const nexigen::core::LogLevel level = view.frame->log_level;
+    const bool selected = view.is_selected(record.seq);
+    const bool bookmarked = view.is_bookmarked(record.seq);
+    const bool is_frame = record.is_frame();
+    const nexigen::core::LogLevel level = record.frame->log_level;
     const LevelStyle& style = model.colors().level(level);
     const bool critical =
         model.colors().mode() == ColorMode::Criticality && ColorManager::is_critical(level);
     ImVec4 text_color = to_imgui(style.text);
     const bool is_anchor =
-        model.time().anchor_ns.has_value() && is_frame &&
-        static_cast<std::int64_t>(view.frame->timestamp_ns) == *model.time().anchor_ns;
+        view.time().anchor_ns.has_value() && is_frame &&
+        static_cast<std::int64_t>(record.frame->timestamp_ns) == *view.time().anchor_ns;
     if (is_anchor) {
         text_color = ImVec4(0.45F, 0.90F, 1.0F, 1.0F);
     }
@@ -658,49 +781,50 @@ void draw_record_row(LogViewModel& model, UiState& state, const RecordView& view
         "##row", selected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
         ImVec2(0.0F, row_height));
     if (clicked) {
-        select_row(model, view.seq);
+        model.focus_view(view.id());
+        select_row(view, record.seq);
     }
-    capture_row_rect(view, state);
+    capture_row_rect(record, state);
     if (ImGui::IsItemHovered()) {
-        draw_row_tooltip(view, state);
+        draw_row_tooltip(record, state);
     }
-    draw_row_context_menu(model, view, state);
+    draw_row_context_menu(model, view, record, state);
     ImGui::SameLine();
     ImGui::TextUnformatted(bookmarked ? "B" : " ");
     ImGui::TableSetColumnIndex(1);
-    ImGui::Text("%llu", static_cast<unsigned long long>(view.seq));
+    ImGui::Text("%llu", static_cast<unsigned long long>(record.seq));
     ImGui::TableSetColumnIndex(2);
-    draw_timestamp_cell(model, view);
+    draw_timestamp_cell(view, record);
     ImGui::TableSetColumnIndex(3);
-    if (is_frame && model.time().mixed_boot) {
+    if (is_frame && view.time().mixed_boot) {
         ImGui::TextUnformatted("-");
     } else if (is_frame) {
-        const std::int64_t delta = row_delta(model, view, context);
-        if (TimeFormatter::is_anomalous(delta, model.time().anomaly_threshold_ns)) {
+        const std::int64_t delta = row_delta(view, record, context);
+        if (TimeFormatter::is_anomalous(delta, view.time().anomaly_threshold_ns)) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0F, 0.55F, 0.35F, 1.0F));
             ImGui::TextUnformatted(TimeFormatter::format_delta(delta).text.data());
             ImGui::PopStyleColor();
         } else {
             ImGui::TextUnformatted(TimeFormatter::format_delta(delta).text.data());
         }
-        context.previous_stamp = view.frame->timestamp_ns;
+        context.previous_stamp = record.frame->timestamp_ns;
         context.have_previous = true;
     } else {
         ImGui::TextUnformatted("-");
     }
     ImGui::TableSetColumnIndex(4);
-    draw_app_cell(model, view, critical);
+    draw_app_cell(model, record, critical);
     ImGui::TableSetColumnIndex(5);
     ImGui::TextUnformatted("-");
     ImGui::TableSetColumnIndex(6);
     ImGui::TextUnformatted(nexigen::core::to_string(level).data());
     ImGui::TableSetColumnIndex(7);
-    draw_message_cell(model, view);
+    draw_message_cell(view, record);
     ImGui::PopStyleColor();
     ImGui::PopID();
 }
 
-void apply_table_scroll(LogViewModel& model, UiState& state, int rows, float row_height) {
+void apply_table_scroll(LogView& view, ViewUiState& ui, int rows, float row_height) {
     const float scroll_max = ImGui::GetScrollMaxY();
     const float scroll = ImGui::GetScrollY();
     const bool at_bottom = scroll + 1.0F >= scroll_max;
@@ -709,56 +833,77 @@ void apply_table_scroll(LogViewModel& model, UiState& state, int rows, float row
         (!at_bottom && ImGui::IsWindowFocused() &&
          (ImGui::IsKeyPressed(ImGuiKey_PageUp) || ImGui::IsKeyPressed(ImGuiKey_UpArrow)));
     if (drag_or_key_scroll) {
-        state.auto_scroll = false;
+        ui.auto_scroll = false;
     }
-    if (state.scroll_to.has_value() && rows > 0) {
+    if (ui.scroll_to.has_value() && rows > 0) {
         const std::size_t display_limit = static_cast<std::size_t>(rows);
         for (std::size_t i = 0; i < display_limit; ++i) {
-            if (model.ring().visible_at(i) == *state.scroll_to) {
+            if (view.display_at(i) == *ui.scroll_to) {
                 ImGui::SetScrollY(static_cast<float>(i) * row_height);
                 break;
             }
         }
-        state.scroll_to.reset();
-    } else if (state.auto_scroll && !model.paused()) {
+        ui.scroll_to.reset();
+    } else if (ui.auto_scroll && !view.paused() && view.live()) {
         ImGui::SetScrollY(scroll_max);
     }
     if (ImGui::IsWindowHovered() && ImGui::GetIO().MouseWheel > 0.0F) {
-        state.auto_scroll = false;
+        ui.auto_scroll = false;
     }
 }
 
-void draw_table(LogViewModel& model, UiState& state) {
-    if (!ImGui::Begin("Log")) {
+/// @brief Draw one Log window.
+/// @return `true` when the window close button was pressed.
+bool draw_log_view(LogViewModel& model, LogView& view, UiState& state) {
+    ViewUiState& ui = ui_for(state, view);
+    const std::string title = window_title(view);
+    if (const auto pending = state.pending_dock.find(view.id());
+        pending != state.pending_dock.end()) {
+        if (pending->second != 0) {
+            ImGui::SetNextWindowDockID(pending->second, ImGuiCond_Always);
+        }
+        state.pending_dock.erase(pending);
+    }
+    if (state.float_view == view.id()) {
+        ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
+        state.float_view = 0;
+        state.seen_floating_view = true;
+    }
+    if (state.focus_next_view == view.id()) {
+        ImGui::SetNextWindowFocus();
+        state.focus_next_view = 0;
+    }
+    bool open = true;
+    if (!ImGui::Begin(title.c_str(), &open)) {
         ImGui::End();
-        return;
+        return !open;
     }
-    const FilterIndex::Progress progress = model.filter_progress();
-    if (progress.active) {
-        char overlay[96]{};
-        std::snprintf(overlay, sizeof(overlay), "filter rebuild %llu/%llu",
-                      static_cast<unsigned long long>(progress.scanned),
-                      static_cast<unsigned long long>(progress.total));
-        ImGui::ProgressBar(static_cast<float>(progress.ratio()), ImVec2(-1.0F, 0.0F), overlay);
+    if (ImGui::IsWindowDocked()) {
+        ++state.docked_views;
     }
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+        model.focus_view(view.id());
+        state.log_view_focused = true;
+    }
+    draw_local_controls(model, view, state, ui);
+
     constexpr ImGuiTableFlags flags = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg |
                                       ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerV |
                                       ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
     if (!ImGui::BeginTable("records", 8, flags)) {
         ImGui::End();
-        return;
+        return !open;
     }
     draw_table_header();
     state.hovered_seq.reset();
-    const std::size_t display = model.display_count();
+    const std::size_t display = view.display_count();
     const int rows = static_cast<int>(std::min<std::size_t>(display, 2'000'000'000U));
     ImGuiListClipper clipper;
     clipper.Begin(rows, ImGui::GetTextLineHeightWithSpacing());
     const float row_height = ImGui::GetTextLineHeightWithSpacing();
     RowContext context{};
-    if (rows > 0 && model.config().delta_mode == DeltaMode::PreviousVisible) {
-        if (const auto stamp =
-                previous_frame(model, static_cast<std::size_t>(clipper.DisplayStart));
+    if (rows > 0 && view.delta_mode() == DeltaMode::PreviousVisible && clipper.DisplayStart > 0) {
+        if (const auto stamp = previous_frame(view, static_cast<std::size_t>(clipper.DisplayStart));
             stamp.has_value()) {
             context.previous_stamp = *stamp;
             context.have_previous = true;
@@ -766,15 +911,41 @@ void draw_table(LogViewModel& model, UiState& state) {
     }
     while (clipper.Step()) {
         for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
-            const std::uint64_t seq = model.ring().visible_at(static_cast<std::size_t>(row));
-            if (const auto view = model.ring().find(seq); view.has_value()) {
-                draw_record_row(model, state, *view, row_height, context);
+            const std::uint64_t seq = view.display_at(static_cast<std::size_t>(row));
+            if (const auto record = view.history().find(seq); record.has_value()) {
+                draw_record_row(model, view, state, *record, row_height, context);
             }
         }
     }
-    apply_table_scroll(model, state, rows, row_height);
+    apply_table_scroll(view, ui, rows, row_height);
     ImGui::EndTable();
     ImGui::End();
+    return !open;
+}
+
+std::int64_t selected_delta(const LogView& view, const RecordView& record) {
+    if (!record.is_frame()) {
+        return 0;
+    }
+    if (view.delta_mode() == DeltaMode::PerApplication) {
+        return record.prev_same_app_ns;
+    }
+    if (view.delta_mode() == DeltaMode::FromAnchor && view.time().anchor_ns.has_value()) {
+        return static_cast<std::int64_t>(record.frame->timestamp_ns) -
+               static_cast<std::int64_t>(*view.time().anchor_ns);
+    }
+    if (view.delta_mode() == DeltaMode::PreviousVisible) {
+        for (std::size_t i = 0; i < view.display_count(); ++i) {
+            if (view.display_at(i) == record.seq) {
+                if (const auto stamp = previous_frame(view, i); stamp.has_value()) {
+                    return static_cast<std::int64_t>(record.frame->timestamp_ns) -
+                           static_cast<std::int64_t>(*stamp);
+                }
+                break;
+            }
+        }
+    }
+    return 0;
 }
 
 void draw_inspector(LogViewModel& model, UiState& state) {
@@ -789,37 +960,42 @@ void draw_inspector(LogViewModel& model, UiState& state) {
         ImGui::End();
         return;
     }
-    const auto selected = model.last_selected();
+    LogView* view = model.focused_view();
+    const auto selected = view != nullptr ? view->last_selected() : std::nullopt;
     if (!selected.has_value()) {
         ImGui::TextUnformatted("Select a record to inspect.");
         ImGui::End();
         return;
     }
-    const auto view = model.ring().find(*selected);
-    if (!view.has_value()) {
+    const auto record = view->history().find(*selected);
+    if (!record.has_value()) {
         ImGui::TextUnformatted("The selected record has been evicted.");
         ImGui::End();
         return;
     }
+    state.inspected_seq = record->seq;
     const FormattedTime stamp = TimeFormatter::format_timestamp(
-        view->frame->timestamp_ns, model.config().timestamp_mode, model.time());
-    ImGui::Text("index: %llu", static_cast<unsigned long long>(view->seq));
-    ImGui::Text("kind: %s", to_string(view->kind).data());
+        record->frame->timestamp_ns, view->timestamp_mode(), view->time());
+    const FormattedTime delta = TimeFormatter::format_delta(selected_delta(*view, *record));
+    ImGui::Text("index: %llu", static_cast<unsigned long long>(record->seq));
+    ImGui::Text("kind: %s", to_string(record->kind).data());
     ImGui::Text("timestamp: %s", stamp.text.data());
-    ImGui::Text("application: %.*s", static_cast<int>(view->frame->app_id_text().size()),
-                view->frame->app_id_text().data());
-    ImGui::Text("context: -");
-    ImGui::Text("level: %s", nexigen::core::to_string(view->frame->log_level).data());
-    ImGui::Text("thread: %u  pid: %u", view->frame->thread_id, view->frame->pid);
-    ImGui::Text("publisher drop counter: %u", view->frame->dropped_counter);
-    ImGui::Text("wire version: %u", view->frame->version);
-    if (payload_may_be_truncated(*view->frame)) {
+    ImGui::Text("delta: %s", delta.text.data());
+    ImGui::Text("application: %.*s", static_cast<int>(record->frame->app_id_text().size()),
+                record->frame->app_id_text().data());
+    ImGui::Text("context: %u", record->frame->context_id);
+    state.seen_inspector_meta = true;
+    ImGui::Text("level: %s", nexigen::core::to_string(record->frame->log_level).data());
+    ImGui::Text("thread: %u  pid: %u", record->frame->thread_id, record->frame->pid);
+    ImGui::Text("publisher drop counter: %u", record->frame->dropped_counter);
+    ImGui::Text("wire version: %u", record->frame->version);
+    if (payload_may_be_truncated(*record->frame)) {
         ImGui::TextColored(ImVec4(1.0F, 0.68F, 0.30F, 1.0F),
                            "Payload is at capacity; the producer may have truncated it.");
     }
     ImGui::Separator();
-    ImGui::TextWrapped("%.*s", static_cast<int>(view->frame->payload_text().size()),
-                       view->frame->payload_text().data());
+    ImGui::TextWrapped("%.*s", static_cast<int>(record->frame->payload_text().size()),
+                       record->frame->payload_text().data());
     if (ImGui::Button("Copy record")) {
         const std::string text = ui::copy_selected(model);
         if (!text.empty()) {
@@ -846,24 +1022,26 @@ void draw_minimap(LogViewModel& model) {
     const ImVec2 size = ImGui::GetContentRegionAvail();
     draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + size.y),
                         IM_COL32(18, 20, 24, 255));
-    const Minimap& minimap = model.ring().minimap();
-    for (std::size_t i = 0; i < Minimap::bucket_count; ++i) {
-        const MinimapBucket& bucket = minimap.at(i);
-        if (bucket.errors == 0U && bucket.fatals == 0U && bucket.bookmarks == 0U) {
-            continue;
-        }
-        const float y0 = origin.y + size.y * static_cast<float>(i) / 1024.0F;
-        const float y1 = origin.y + size.y * static_cast<float>(i + 1U) / 1024.0F;
-        if (bucket.fatals > 0U) {
-            draw->AddRectFilled(ImVec2(origin.x, y0), ImVec2(origin.x + size.x, y1),
-                                IM_COL32(220, 45, 55, 190));
-        } else if (bucket.errors > 0U) {
-            draw->AddRectFilled(ImVec2(origin.x, y0), ImVec2(origin.x + size.x, y1),
-                                IM_COL32(230, 120, 50, 170));
-        }
-        if (bucket.bookmarks > 0U) {
-            draw->AddRectFilled(ImVec2(origin.x + size.x - 6.0F, y0), ImVec2(origin.x + size.x, y1),
-                                IM_COL32(240, 210, 70, 230));
+    if (const LogView* view = model.focused_view(); view != nullptr) {
+        const Minimap& minimap = view->minimap();
+        for (std::size_t i = 0; i < Minimap::bucket_count; ++i) {
+            const MinimapBucket& bucket = minimap.at(i);
+            if (bucket.errors == 0U && bucket.fatals == 0U && bucket.bookmarks == 0U) {
+                continue;
+            }
+            const float y0 = origin.y + size.y * static_cast<float>(i) / 1024.0F;
+            const float y1 = origin.y + size.y * static_cast<float>(i + 1U) / 1024.0F;
+            if (bucket.fatals > 0U) {
+                draw->AddRectFilled(ImVec2(origin.x, y0), ImVec2(origin.x + size.x, y1),
+                                    IM_COL32(220, 45, 55, 190));
+            } else if (bucket.errors > 0U) {
+                draw->AddRectFilled(ImVec2(origin.x, y0), ImVec2(origin.x + size.x, y1),
+                                    IM_COL32(230, 120, 50, 170));
+            }
+            if (bucket.bookmarks > 0U) {
+                draw->AddRectFilled(ImVec2(origin.x + size.x - 6.0F, y0),
+                                    ImVec2(origin.x + size.x, y1), IM_COL32(240, 210, 70, 230));
+            }
         }
     }
     ImGui::Dummy(size);
@@ -878,7 +1056,8 @@ void draw_status(LogViewModel& model, UiState& state) {
     ImGui::Text("service: %s", model.runtime_service_name().c_str());
     ImGui::Text("memory budget: %u MiB", model.runtime_memory_mb());
     ImGui::Text("live: %s", state.live ? "attached" : "unavailable (offline)");
-    ImGui::Text("time base: %s", model.time().time_base_attached ? "attached" : "sampled offset");
+    ImGui::Text("time base: %s",
+                model.base_time().time_base_attached ? "attached" : "sampled offset");
     ImGui::Text("publishers: %u", state.capture_stats.publishers);
     ImGui::Text("received: %llu  lost: %llu  rejected: %llu",
                 static_cast<unsigned long long>(state.capture_stats.received),
@@ -893,7 +1072,28 @@ void draw_status(LogViewModel& model, UiState& state) {
     ImGui::Text("history: %llu / %zu  evictions: %llu",
                 static_cast<unsigned long long>(model.ring().size()), model.ring().capacity(),
                 static_cast<unsigned long long>(model.ring().evictions()));
-    ImGui::Text("selected: %llu", static_cast<unsigned long long>(model.ring().selected_count()));
+    ImGui::Text("selected: %llu",
+                static_cast<unsigned long long>(
+                    model.focused_view() != nullptr ? model.focused_view()->selected_count() : 0U));
+    ImGui::End();
+}
+
+void draw_workspace(LogViewModel& model, UiState& state) {
+    if (model.view_count() != 0U) {
+        return;
+    }
+    if (!ImGui::Begin("Workspace")) {
+        ImGui::End();
+        return;
+    }
+    ImGui::TextUnformatted("No log views are open.");
+    ImGui::TextUnformatted("Open `All logs` or an application from the Sources panel.");
+    if (ImGui::Button("Open All logs")) {
+        const auto created = model.create_view(ViewKind::All, {});
+        if (!created) {
+            state.status = "LIVE view limit reached (8 including All)";
+        }
+    }
     ImGui::End();
 }
 
@@ -913,9 +1113,94 @@ void draw_save_modal(LogViewModel& model, UiState& state) {
         state.save_format = static_cast<ExportFormat>(current);
     }
     if (ImGui::Button("Save")) {
-        const auto started = model.start_export(state.save_path, state.save_format);
-        state.status = started ? "export started" : "export failed to start (select records first)";
+        const ViewId target = state.save_view_id != 0U ? state.save_view_id : model.focused_id();
+        const auto started = model.start_export(target, state.save_path, state.save_format);
+        if (started) {
+            state.status = "export started";
+        } else if (model.exporting()) {
+            state.status = "export failed: another export is already running";
+        } else {
+            state.status = "export failed to start (select records first)";
+        }
         ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void draw_clone_modal(LogViewModel& model, UiState& state) {
+    if (state.clone_open) {
+        ImGui::OpenPopup("Clone view");
+        state.clone_open = false;
+    }
+    if (!ImGui::BeginPopupModal("Clone view", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+    const LogView* source = model.view(state.clone_target);
+    if (source == nullptr) {
+        ImGui::TextUnformatted("The source view is no longer open.");
+        if (ImGui::Button("Close")) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+        return;
+    }
+    ImGui::Text("Clone: Log: %s", source->title().c_str());
+    int mode = static_cast<int>(state.clone_mode);
+    if (ImGui::RadioButton("LIVE", &mode, static_cast<int>(CloneMode::Live))) {
+        state.clone_mode = CloneMode::Live;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("PAUSED", &mode, static_cast<int>(CloneMode::Paused))) {
+        state.clone_mode = CloneMode::Paused;
+    }
+    ImGui::Separator();
+    ImGui::TextUnformatted("Copy state");
+    ImGui::Checkbox("Levels", &state.clone_options.levels);
+    ImGui::SameLine();
+    ImGui::Checkbox("Text filter", &state.clone_options.text);
+    ImGui::Checkbox("Timestamp mode", &state.clone_options.timestamp_mode);
+    ImGui::SameLine();
+    ImGui::Checkbox("Delta mode", &state.clone_options.delta_mode);
+    ImGui::Checkbox("Anomaly threshold", &state.clone_options.anomaly_threshold);
+    ImGui::SameLine();
+    ImGui::Checkbox("Selection", &state.clone_options.selection);
+    ImGui::Checkbox("Bookmarks", &state.clone_options.bookmarks);
+    ImGui::SameLine();
+    ImGui::Checkbox("T0", &state.clone_options.t0);
+    ImGui::Checkbox("Find query", &state.clone_options.find);
+    if (state.clone_mode == CloneMode::Live) {
+        ImGui::TextDisabled("LIVE clone follows the shared tail and starts at the newest record.");
+    } else {
+        ImGui::TextDisabled("PAUSED clone copies at most 1 MiB of the newest records.");
+    }
+    if (!state.clone_status.empty()) {
+        ImGui::TextColored(ImVec4(1.0F, 0.55F, 0.35F, 1.0F), "%s", state.clone_status.c_str());
+    }
+    if (ImGui::Button("Clone")) {
+        const ImGuiID target_dock = focused_dock_id(model);
+        const auto created =
+            model.clone_view(state.clone_target, state.clone_mode, state.clone_options);
+        if (created) {
+            state.pending_dock[*created] = target_dock;
+            state.status = model.last_clone_status();
+            if (state.status.empty()) {
+                state.status = "clone created";
+            }
+            state.clone_status.clear();
+            ImGui::CloseCurrentPopup();
+        } else if (state.clone_mode == CloneMode::Live) {
+            state.clone_status = model.live_view_count() >= kMaxLiveViews
+                                     ? "LIVE view limit reached (8 including All)"
+                                     : "view allocation failed";
+        } else {
+            state.clone_status = model.paused_view_count() >= kMaxPausedViews
+                                     ? "PAUSED view limit reached (16)"
+                                     : "snapshot allocation failed";
+        }
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel")) {
@@ -980,11 +1265,12 @@ void draw_colors_modal(LogViewModel& model, UiState& state) {
         ImGui::ColorEdit4("background", &style.background.r, ImGuiColorEditFlags_AlphaBar);
         ImGui::PopID();
     }
-    int threshold_ms = static_cast<int>(model.time().anomaly_threshold_ns / 1'000'000LL);
-    if (ImGui::InputInt("anomaly threshold (ms)", &threshold_ms) && threshold_ms >= 0) {
-        model.time().anomaly_threshold_ns = static_cast<std::int64_t>(threshold_ms) * 1'000'000LL;
-        model.config().anomaly_threshold_ns =
-            static_cast<std::uint64_t>(model.time().anomaly_threshold_ns);
+    if (LogView* view = model.focused_view(); view != nullptr) {
+        int threshold_ms = static_cast<int>(view->time().anomaly_threshold_ns / 1'000'000LL);
+        if (ImGui::InputInt("anomaly threshold (ms)", &threshold_ms) && threshold_ms >= 0) {
+            view->time().anomaly_threshold_ns =
+                static_cast<std::int64_t>(threshold_ms) * 1'000'000LL;
+        }
     }
     if (ImGui::Button("Reset")) {
         model.reset_colors();
@@ -1000,6 +1286,7 @@ void draw_modals(LogViewModel& model, UiState& state) {
     draw_save_modal(model, state);
     draw_open_modal(model, state);
     draw_colors_modal(model, state);
+    draw_clone_modal(model, state);
 }
 
 } // namespace
@@ -1007,11 +1294,12 @@ void draw_modals(LogViewModel& model, UiState& state) {
 int run_ui_actions_test(LogViewModel& model, const UiOptions& options) {
     const std::size_t history = model.ring().size();
     const std::size_t visible = model.display_count();
-    if (visible == 0U) {
+    LogView* focused = model.focused_view();
+    if (visible == 0U || focused == nullptr) {
         std::fprintf(stderr, "UI_ACTIONS failed: no visible record\n");
         return 1;
     }
-    model.select_only(model.ring().visible_at(0));
+    model.select_only(focused->display_at(0));
     const bool truncated = ui::selected_payload_truncated(model);
     const std::string clipboard = ui::copy_selected(model);
     const bool confirm = ui::open_requires_confirmation(true, history);
@@ -1090,15 +1378,24 @@ void shutdown_gui(GLFWwindow* window) {
     glfwTerminate();
 }
 
-void draw_default_layout(ImGuiID dockspace) {
+void draw_default_layout(ImGuiID dockspace, const LogViewModel& model) {
+    // Rebuild from a clean node so a stale layout from an older viewer version
+    // cannot accumulate dock depth across smoke runs or upgrades.
+    ImGui::DockBuilderRemoveNode(dockspace);
+    ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->Size);
     ImGuiID main = dockspace;
     ImGuiID top = ImGui::DockBuilderSplitNode(main, ImGuiDir_Up, 0.08F, nullptr, &main);
     ImGuiID bottom = ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, 0.28F, nullptr, &main);
     ImGuiID left = ImGui::DockBuilderSplitNode(main, ImGuiDir_Left, 0.22F, nullptr, &main);
     ImGuiID right = ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, 0.12F, nullptr, &main);
     ImGui::DockBuilderDockWindow("Toolbar", top);
-    ImGui::DockBuilderDockWindow("Log", main);
-    ImGui::DockBuilderDockWindow("Sources & levels", left);
+    for (std::size_t i = 0; i < model.view_count(); ++i) {
+        if (const LogView* view = model.view_at(i); view != nullptr) {
+            ImGui::DockBuilderDockWindow(window_title(*view).c_str(), main);
+        }
+    }
+    ImGui::DockBuilderDockWindow("Sources", left);
     ImGui::DockBuilderDockWindow("Minimap", right);
     ImGui::DockBuilderDockWindow("Inspector", bottom);
     ImGui::DockBuilderDockWindow("Status", bottom);
@@ -1119,12 +1416,8 @@ void process_model_frame(LogViewModel& model, UiState& state, CaptureThread* cap
     if (!model.guard().recompute_due(now_ns)) {
         return;
     }
-    if (model.filter_progress().active) {
-        model.step_filter_rebuild(20'000U);
-    }
-    if (model.find().active()) {
-        model.step_find(20'000U);
-    }
+    model.step_filter_rebuilds(20'000U);
+    model.step_finds(20'000U);
     if (model.importing()) {
         model.step_import(2'000U);
     }
@@ -1137,11 +1430,15 @@ void handle_copy_shortcut(LogViewModel& model, UiState& state) {
     if (!ImGui::GetIO().KeyCtrl || !ImGui::IsKeyPressed(ImGuiKey_C)) {
         return;
     }
-    const auto seq = state.hovered_seq.has_value() ? state.hovered_seq : model.last_selected();
-    if (!seq.has_value()) {
+    LogView* view = model.focused_view();
+    if (view == nullptr) {
         return;
     }
-    model.select_only(*seq);
+    const auto seq = state.hovered_seq.has_value() ? state.hovered_seq : view->last_selected();
+    if (!seq.has_value() || !view->history().find(*seq).has_value()) {
+        return;
+    }
+    view->select_only(*seq);
     const std::string text = ui::copy_selected(model);
     if (!text.empty()) {
         ImGui::SetClipboardText(text.c_str());
@@ -1150,56 +1447,66 @@ void handle_copy_shortcut(LogViewModel& model, UiState& state) {
 }
 
 void handle_bookmark_shortcut(LogViewModel& model, UiState& state) {
+    LogView* view = model.focused_view();
+    if (view == nullptr) {
+        return;
+    }
     if (ImGui::IsKeyPressed(ImGuiKey_F2)) {
-        if (const auto seq = model.last_selected(); seq.has_value()) {
-            static_cast<void>(model.toggle_bookmark(*seq));
+        if (const auto seq = view->last_selected(); seq.has_value()) {
+            static_cast<void>(view->toggle_bookmark(*seq));
         }
     }
     if (ImGui::IsKeyPressed(ImGuiKey_F3)) {
-        const auto seq = ImGui::GetIO().KeyShift ? model.previous_bookmark(model.last_selected())
-                                                 : model.next_bookmark(model.last_selected());
+        const auto seq = ImGui::GetIO().KeyShift ? view->previous_bookmark(view->last_selected())
+                                                 : view->next_bookmark(view->last_selected());
         if (seq.has_value()) {
-            model.select_only(*seq);
-            state.scroll_to = seq;
+            view->select_only(*seq);
+            ui_for(state, *view).scroll_to = seq;
         }
     }
 }
 
 void handle_attention_shortcut(LogViewModel& model, UiState& state) {
-    if (!ImGui::IsKeyPressed(ImGuiKey_F4)) {
+    LogView* view = model.focused_view();
+    if (view == nullptr || !ImGui::IsKeyPressed(ImGuiKey_F4)) {
         return;
     }
-    const auto seq = ImGui::GetIO().KeyShift ? model.previous_attention(model.last_selected())
-                                             : model.next_attention(model.last_selected());
+    const auto seq = ImGui::GetIO().KeyShift ? view->previous_attention(view->last_selected())
+                                             : view->next_attention(view->last_selected());
     if (seq.has_value()) {
-        model.select_only(*seq);
-        state.scroll_to = seq;
+        view->select_only(*seq);
+        ui_for(state, *view).scroll_to = seq;
     }
 }
 
 void handle_view_shortcuts(LogViewModel& model, UiState& state) {
+    LogView* view = model.focused_view();
+    if (view == nullptr) {
+        return;
+    }
     if (ImGui::IsKeyPressed(ImGuiKey_Space)) {
-        model.set_paused(!model.paused());
-        state.auto_scroll = !model.paused();
+        view->set_paused(!view->paused());
+        ui_for(state, *view).auto_scroll = !view->paused();
     }
     if (ImGui::IsKeyPressed(ImGuiKey_T)) {
-        if (const auto seq = model.last_selected(); seq.has_value()) {
-            if (const auto view = model.ring().find(*seq); view.has_value()) {
-                model.time().set_anchor(static_cast<std::int64_t>(view->frame->timestamp_ns));
+        if (const auto seq = view->last_selected(); seq.has_value()) {
+            if (const auto record = view->history().find(*seq);
+                record.has_value() && record->is_frame()) {
+                view->time().set_anchor(static_cast<std::int64_t>(record->frame->timestamp_ns));
             }
         }
     }
     const ImGuiIO& io = ImGui::GetIO();
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A)) {
-        model.select_all_visible();
+        view->select_all_visible();
     }
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F)) {
-        state.focus_find = true;
+        ui_for(state, *view).focus_find = true;
     }
 }
 
 void handle_shortcuts(LogViewModel& model, UiState& state) {
-    if (ImGui::GetIO().WantTextInput) {
+    if (!ui::shortcuts_allowed(state.log_view_focused, ImGui::GetIO().WantTextInput)) {
         return;
     }
     handle_view_shortcuts(model, state);
@@ -1254,8 +1561,8 @@ void inject_ui_input(UiState& state) {
 bool drive_hover_phases(LogViewModel& model, UiState& state) {
     switch (state.input_phase) {
         case 0:
-            if (model.display_count() > 0U) {
-                model.select_only(model.ring().visible_at(0));
+            if (model.display_count() > 0U && model.focused_view() != nullptr) {
+                model.select_only(model.focused_view()->display_at(0));
                 state.truncated = ui::selected_payload_truncated(model);
                 state.capture_row_rects = true;
                 state.input_phase = 1;
@@ -1381,6 +1688,138 @@ bool drive_input_script(LogViewModel& model, UiState& state) {
     return drive_record_menu(state);
 }
 
+void drain_view_rebuilds(LogViewModel& model) {
+    for (;;) {
+        model.step_filter_rebuilds(1'000'000U);
+        bool rebuilding = false;
+        for (std::size_t i = 0; i < model.view_count(); ++i) {
+            const LogView* view = model.view_at(i);
+            rebuilding = rebuilding || (view != nullptr && view->rebuilding());
+        }
+        if (!rebuilding) {
+            return;
+        }
+    }
+}
+
+bool run_ui_view_test(LogViewModel& model, UiState& state) {
+    const std::size_t restored = model.view_count();
+    if (model.view_count() == 0U) {
+        static_cast<void>(model.create_view(ViewKind::All, {}));
+    }
+    if (model.live_view_count() >= kMaxLiveViews) {
+        for (std::size_t i = model.view_count(); i > 0U; --i) {
+            const LogView* candidate = model.view_at(i - 1U);
+            if (candidate != nullptr && candidate->live()) {
+                static_cast<void>(model.close_view(candidate->id()));
+                break;
+            }
+        }
+    }
+    std::string source_name;
+    for (std::size_t slot = 0; slot < AppRegistry::capacity; ++slot) {
+        const AppSlot& app = model.ring().apps().at(slot);
+        if (app.used) {
+            source_name = std::string(app.text());
+            break;
+        }
+    }
+    if (source_name.empty()) {
+        source_name = "Engine";
+    }
+    ViewId source_id = model.focused_id();
+    if (const auto created = model.create_view(ViewKind::Source, source_name); created) {
+        source_id = *created;
+    }
+    bool live_clone = false;
+    bool paused_clone = false;
+    bool live_tail = false;
+    bool levels_isolated = true;
+    bool focus_ok = false;
+    bool limit_rejected = false;
+    LogView* source = model.view(source_id);
+    LogView* all_view = nullptr;
+    for (std::size_t i = 0; i < model.view_count(); ++i) {
+        LogView* candidate = model.view_at(i);
+        if (candidate != nullptr && candidate->kind() == ViewKind::All) {
+            all_view = candidate;
+            break;
+        }
+    }
+    if (source != nullptr) {
+        if (model.live_view_count() >= kMaxLiveViews) {
+            for (std::size_t i = model.view_count(); i > 0U; --i) {
+                const LogView* candidate = model.view_at(i - 1U);
+                if (candidate != nullptr && candidate->live() && candidate->id() != source_id) {
+                    static_cast<void>(model.close_view(candidate->id()));
+                    break;
+                }
+            }
+        }
+        live_clone = model.clone_view(source_id, CloneMode::Live, CloneOptions{}).has_value();
+        if (live_clone) {
+            LogView* clone = model.view(model.focused_id());
+            live_tail = clone != nullptr && clone->live() && !clone->paused() &&
+                        ui_for(state, *clone).auto_scroll;
+        }
+        paused_clone = model.clone_view(source_id, CloneMode::Paused, CloneOptions{}).has_value();
+        if (all_view != nullptr) {
+            const auto before = all_view->filter().criteria().levels;
+            const auto error_level = static_cast<std::size_t>(nexigen::core::LogLevel::Error);
+            source->filter().criteria().levels[error_level] =
+                !source->filter().criteria().levels[error_level];
+            levels_isolated = all_view->filter().criteria().levels == before;
+        }
+        model.focus_view(source_id);
+        focus_ok = model.focused_id() == source_id && model.focused_view() == source;
+        int extra = 0;
+        while (model.live_view_count() < kMaxLiveViews) {
+            const auto created =
+                model.create_view(ViewKind::Source, std::format("UiLimit{}", extra++));
+            if (!created) {
+                break;
+            }
+        }
+        limit_rejected = !model.create_view(ViewKind::Source, "UiOverflow").has_value();
+        model.focus_view(source_id);
+    }
+    drain_view_rebuilds(model);
+    if (source != nullptr && source->display_count() > 0U) {
+        source->select_only(source->display_at(0));
+        state.expected_inspected_seq = source->last_selected();
+        source->set_paused(true);
+        state.view_test_focus_id = source_id;
+    }
+    state.clone_open = true;
+    state.clone_target = source_id;
+    state.float_view = source_id;
+    state.clone_mode = CloneMode::Paused;
+    state.auto_open_sources_popup = true;
+    state.force_eco = true;
+    std::printf("UI_VIEWS restored=%zu live=%zu paused=%zu source=%d live_clone=%d "
+                "paused_clone=%d live_tail=%d levels_isolated=%d focus=%d limit_rejected=%d\n",
+                restored, model.live_view_count(), model.paused_view_count(), source != nullptr,
+                live_clone, paused_clone, live_tail, levels_isolated, focus_ok, limit_rejected);
+    return source != nullptr && live_clone && paused_clone && live_tail && levels_isolated &&
+           focus_ok && limit_rejected;
+}
+
+bool setup_focus_test(LogViewModel& model, UiState& state) {
+    if (model.view_count() == 0U) {
+        static_cast<void>(model.create_view(ViewKind::All, {}));
+    }
+    LogView* view = model.view_at(0);
+    if (view == nullptr || view->display_count() == 0U) {
+        return false;
+    }
+    view->select_only(view->display_at(0));
+    state.focus_test_active = true;
+    state.focus_phase = 0;
+    state.focus_view_id = view->id();
+    state.focus_before = view->bookmarked_count();
+    return true;
+}
+
 int run_ui(LogViewModel& model, const UiOptions& options) {
     UiState state{};
     state.live = options.live;
@@ -1391,10 +1830,21 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
         state.layout_loaded = std::filesystem::exists(state.ini_path, error);
         std::filesystem::create_directories(parent_directory(state.ini_path), error);
     }
-    std::snprintf(state.filter_buf, sizeof(state.filter_buf), "%s",
-                  model.filter().criteria().text.c_str());
+    for (std::size_t i = 0; i < model.view_count(); ++i) {
+        if (const LogView* view = model.view_at(i); view != nullptr) {
+            static_cast<void>(ui_for(state, *view));
+        }
+    }
     std::snprintf(state.save_path, sizeof(state.save_path), "/tmp/nexigen-logview-export.jsonl");
     std::snprintf(state.open_path, sizeof(state.open_path), "%s", options.open_path.c_str());
+    if (options.view_test && !run_ui_view_test(model, state)) {
+        std::fprintf(stderr, "UI_VIEWS failed\n");
+        return 1;
+    }
+    if (options.focus_test && !setup_focus_test(model, state)) {
+        std::fprintf(stderr, "UI_FOCUS failed: no visible record\n");
+        return 1;
+    }
 
     GLFWwindow* window = nullptr;
     if (!init_gui(state, options, window)) {
@@ -1437,18 +1887,72 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         inject_ui_input(state);
+        if (options.focus_test) {
+            ImGuiIO& io = ImGui::GetIO();
+            if (state.focus_phase == 0) {
+                io.AddKeyEvent(ImGuiKey_F2, true);
+            } else if (state.focus_phase == 2) {
+                io.AddKeyEvent(ImGuiKey_F2, false);
+            } else if (state.focus_phase == 4) {
+                io.AddKeyEvent(ImGuiKey_F2, true);
+            }
+        }
         ImGui::NewFrame();
+        state.log_view_focused = false;
         const ImGuiID dockspace = ImGui::DockSpaceOverViewport();
         if (!layout_done) {
             layout_done = true;
             std::error_code layout_error;
-            if (options.smoke || !std::filesystem::exists(state.ini_path, layout_error)) {
-                draw_default_layout(dockspace);
+            if (options.smoke || options.view_test ||
+                !std::filesystem::exists(state.ini_path, layout_error)) {
+                draw_default_layout(dockspace, model);
             }
         }
-        draw_toolbar(model, state);
+        draw_global_toolbar(model, state);
         draw_sources(model, state);
-        draw_table(model, state);
+        draw_workspace(model, state);
+        std::vector<ViewId> close_views;
+        for (std::size_t i = 0; i < model.view_count(); ++i) {
+            LogView* view = model.view_at(i);
+            if (view == nullptr) {
+                break;
+            }
+            if (draw_log_view(model, *view, state)) {
+                close_views.push_back(view->id());
+            }
+        }
+        for (const ViewId id : close_views) {
+            static_cast<void>(model.close_view(id));
+            state.view_ui.erase(id);
+            state.pending_dock.erase(id);
+            state.log_view_focused = false;
+        }
+        if (options.view_test && state.view_test_focus_id != 0) {
+            model.focus_view(state.view_test_focus_id);
+        }
+        if (options.focus_test && state.focus_test_active) {
+            LogView* view = model.view(state.focus_view_id);
+            switch (state.focus_phase) {
+                case 0:
+                    state.focus_next_view = state.focus_view_id;
+                    state.focus_phase = 1;
+                    break;
+                case 1:
+                    state.focus_ok = view != nullptr && state.log_view_focused &&
+                                     view->bookmarked_count() > state.focus_before;
+                    state.focus_sources_next = true;
+                    state.focus_phase = 2;
+                    break;
+                case 2: state.focus_phase = 3; break;
+                case 3:
+                    state.focus_unfocused_ok = view != nullptr && !state.log_view_focused &&
+                                               view->bookmarked_count() == state.focus_before + 1U;
+                    state.focus_phase = 4;
+                    break;
+                case 4:  state.focus_phase = 5; break;
+                default: break;
+            }
+        }
         draw_inspector(model, state);
         draw_minimap(model);
         draw_status(model, state);
@@ -1459,16 +1963,31 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
         handle_shortcuts(model, state);
         const bool input_done = drive_input_script(model, state);
         present_frame(window);
-        if (input_done || (options.smoke && ++state.smoke_frames >= 2)) {
+        if (input_done ||
+            ((options.smoke || options.view_test || options.focus_test) &&
+             ++state.smoke_frames >= (options.focus_test ? 6 : (options.view_test ? 3 : 2)))) {
             break;
         }
     }
 
+    if (options.view_test) {
+        const bool inspector_ok = state.expected_inspected_seq.has_value() &&
+                                  state.inspected_seq == state.expected_inspected_seq;
+        std::printf("UI_VIEWS_CHECKS pause=%d counters=%d eco=%d docked=%zu floating=%d "
+                    "inspector=%d inspector_meta=%d\n",
+                    state.seen_pause_badge, state.seen_view_counters, state.seen_eco_badge,
+                    state.docked_views, state.seen_floating_view, inspector_ok,
+                    state.seen_inspector_meta);
+    }
+    const bool focus_ok = !options.focus_test || (state.focus_ok && state.focus_unfocused_ok);
+    if (options.focus_test) {
+        std::printf("UI_FOCUS focused=%d unfocused=%d\n", state.focus_ok, state.focus_unfocused_ok);
+    }
     if (capture != nullptr) {
         capture->stop();
     }
     shutdown_gui(window);
-    return 0;
+    return focus_ok ? 0 : 1;
 }
 
 } // namespace nexigen::logview

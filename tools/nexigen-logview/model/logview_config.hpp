@@ -20,6 +20,41 @@
 
 namespace nexigen::logview {
 
+/// @brief Persisted definition of one LIVE log view.
+struct ViewConfig {
+    std::uint64_t id{0};  ///< Stable view identity.
+    std::string title{};  ///< Window title without the hidden id.
+    std::string source{}; ///< Application code; empty means `All`.
+    bool live{true};      ///< Always true for persisted views.
+    std::array<bool, 7> levels{true, true, true, true, true, true, true}; ///< Level visibility.
+    std::string text{};                                                   ///< Initial text filter.
+    TimestampMode timestamp_mode{TimestampMode::Absolute};                ///< Timestamp mode.
+    DeltaMode delta_mode{DeltaMode::PreviousVisible};                     ///< Delta mode.
+    std::uint64_t anomaly_threshold_ns{50'000'000};                       ///< Anomaly threshold.
+    std::vector<std::string> hidden_apps{}; ///< Hidden sources for an `All` view.
+
+    /// @brief Cold-path diagnostic rendering.
+    /// @return Text with the view identity and source.
+    [[nodiscard]] std::string to_string() const;
+};
+
+/// @brief Free diagnostic mirror of `ViewConfig::to_string`.
+/// @param config View definition.
+/// @return The same text.
+[[nodiscard]] inline std::string to_string(const ViewConfig& config) {
+    return config.to_string();
+}
+
+/// @brief ADL JSON writer for a view definition.
+/// @param j Destination object.
+/// @param config View definition.
+void to_json(nlohmann::json& j, const ViewConfig& config);
+
+/// @brief Non-throwing ADL JSON reader for a view definition.
+/// @param j Source object.
+/// @param config Destination, untouched on invalid fields.
+void from_json(const nlohmann::json& j, ViewConfig& config) noexcept;
+
 /// @brief Every setting the viewer persists.
 struct LogViewConfig {
     /// @brief Log service to attach to.
@@ -48,6 +83,10 @@ struct LogViewConfig {
     nexigen::core::ThreadSpec capture_thread{};
     /// @brief Export thread placement requested by the configuration.
     nexigen::core::ThreadSpec export_thread{};
+    /// @brief Persisted LIVE view definitions.
+    std::vector<ViewConfig> views{};
+    /// @brief Whether the `views` key was present when loading.
+    bool views_saved{false};
 
     /// @brief Validate ranges and thread specs before startup.
     /// @return `Status{}` when usable.
@@ -111,6 +150,15 @@ struct std::formatter<nexigen::logview::LogViewConfig> : std::formatter<std::str
     /// @brief Format the diagnostic text.
     template <class Ctx>
     auto format(const nexigen::logview::LogViewConfig& config, Ctx& ctx) const {
+        const std::string text = config.to_string();
+        return std::formatter<std::string_view>::format(text, ctx);
+    }
+};
+
+/// @brief `std::formatter` for a persisted view definition.
+template <> struct std::formatter<nexigen::logview::ViewConfig> : std::formatter<std::string_view> {
+    /// @brief Format the diagnostic text.
+    template <class Ctx> auto format(const nexigen::logview::ViewConfig& config, Ctx& ctx) const {
         const std::string text = config.to_string();
         return std::formatter<std::string_view>::format(text, ctx);
     }

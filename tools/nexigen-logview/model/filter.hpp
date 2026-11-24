@@ -1,4 +1,4 @@
-// nexigen-logview — filter criteria and incremental visible index.
+// nexigen-logview — filter criteria and per-view visible index.
 #pragma once
 
 #include <array>
@@ -7,12 +7,13 @@
 #include <format>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <nexigen/core/log_level.hpp>
 #include <nexigen/logging/log_frame.hpp>
 
 #include "app_registry.hpp"
-#include "record_ring.hpp"
+#include "history_source.hpp"
 
 namespace nexigen::logview {
 
@@ -24,6 +25,8 @@ struct FilterCriteria {
     std::array<bool, AppRegistry::capacity> apps{};
     /// @brief Case-sensitive message substring; empty disables the text filter.
     std::string text{};
+    /// @brief Fixed application scope; empty means every source.
+    std::string source{};
     /// @brief Whether at least one application is hidden.
     bool app_filter_active{false};
 
@@ -37,20 +40,24 @@ struct FilterCriteria {
     [[nodiscard]] bool matches(const nexigen::logging::LogFrame& frame,
                                const AppRegistry& registry) const noexcept;
 
+    /// @brief Whether one history record passes these criteria.
+    /// @param source History containing the record.
+    /// @param registry Application table used to resolve the source slot.
+    /// @param seq Absolute record number.
+    /// @return `true` when the record is visible in this view.
+    [[nodiscard]] bool matches(const HistorySource& source, const AppRegistry& registry,
+                               std::uint64_t seq) const noexcept;
+
     /// @brief Cold-path diagnostic rendering.
     /// @return Text with the text filter and hidden-source state.
-    [[nodiscard]] std::string to_string() const {
-        return std::format("FilterCriteria(text={}, app_filter={}, levels={})", text,
-                           app_filter_active, levels.size());
-    }
+    [[nodiscard]] std::string to_string() const;
 };
 
-/// @brief Ordered absolute record numbers that pass the active filter.
+/// @brief Ordered absolute record numbers that pass one view's filter.
 ///
-/// New matching records are appended in O(1); a criterion change starts a
-/// chunked rebuild that scans at most `max_records` per frame and reports
-/// progress. Evicted numbers are skipped at render time and compacted when they
-/// become numerous.
+/// The index owns its visible storage. New matching records append in O(1); a
+/// criterion change scans a bounded chunk per frame. Evicted numbers are
+/// skipped at render time and compacted when they become numerous.
 class FilterIndex {
 public:
     /// @brief Progress of one rebuild.
@@ -64,10 +71,12 @@ public:
         [[nodiscard]] double ratio() const noexcept;
         /// @brief Cold-path diagnostic rendering.
         /// @return Text with scanned, total, and active state.
-        [[nodiscard]] std::string to_string() const {
-            return std::format("Progress(scanned={}, total={}, active={})", scanned, total, active);
-        }
+        [[nodiscard]] std::string to_string() const;
     };
+
+    /// @brief Allocate the fixed visible storage for one view.
+    /// @param capacity Maximum visible entries.
+    void init(std::size_t capacity, const AppRegistry& apps);
 
     /// @brief Mutable criteria.
     /// @return Criteria reference.
@@ -76,15 +85,15 @@ public:
     /// @return Criteria reference.
     [[nodiscard]] const FilterCriteria& criteria() const noexcept { return criteria_; }
 
-    /// @brief Start a rebuild over the current resident range.
-    /// @param ring History to scan.
-    void begin_rebuild(const RecordRing& ring) noexcept;
+    /// @brief Start a rebuild over one history source.
+    /// @param source History to scan.
+    void begin_rebuild(const HistorySource& source) noexcept;
 
     /// @brief Scan one bounded chunk of the rebuild.
-    /// @param ring History to scan.
+    /// @param source History to scan.
     /// @param max_records Maximum records examined in this call.
     /// @return Progress after the chunk.
-    Progress step_rebuild(RecordRing& ring, std::size_t max_records) noexcept;
+    Progress step_rebuild(const HistorySource& source, std::size_t max_records) noexcept;
 
     /// @brief Whether a rebuild is in progress.
     /// @return `true` until the scan reaches its target.
@@ -95,25 +104,57 @@ public:
     [[nodiscard]] Progress progress() const noexcept;
 
     /// @brief Append a new record when it matches the active filter.
-    /// @param ring History containing the record.
+    /// @param source History containing the record.
+    /// @param registry Application table used to resolve the source slot.
     /// @param seq Absolute record number.
-    void append_if_visible(RecordRing& ring, std::uint64_t seq) noexcept;
+    /// @return `true` when the record was visible and appended.
+    bool append_if_visible(const HistorySource& source, std::uint64_t seq) noexcept;
 
     /// @brief Clear the visible index without changing criteria.
-    /// @param ring History owning the index.
-    void clear(RecordRing& ring) noexcept;
+    void clear() noexcept;
+
+    /// @brief Read one visible entry by order.
+    /// @param index Order index.
+    /// @return Absolute record number, or `0` when out of range.
+    [[nodiscard]] std::uint64_t visible_at(std::size_t index) const noexcept;
+    /// @brief Number of entries in the visible index.
+    /// @return Visible count.
+    [[nodiscard]] std::size_t visible_count() const noexcept { return visible_count_; }
+    /// @brief Allocated visible capacity.
+    /// @return Maximum entries before the oldest is dropped.
+    [[nodiscard]] std::size_t capacity() const noexcept { return visible_.size(); }
+    /// @brief Drop visible numbers that are no longer resident.
+    /// @param source History to test.
+    /// @return Number of stale entries removed.
+    std::size_t compact(const HistorySource& source) noexcept;
+    /// @brief Count visible numbers that are no longer resident.
+    /// @param source History to test.
+    /// @return Stale entry count.
+    [[nodiscard]] std::size_t stale(const HistorySource& source) const noexcept;
 
     /// @brief Cold-path diagnostic rendering.
     /// @return Text with criteria and progress.
     [[nodiscard]] std::string to_string() const;
 
 private:
-    FilterCriteria criteria_{};      ///< Active criteria.
-    bool active_{false};             ///< Rebuild running.
-    std::uint64_t scan_{0};          ///< Next absolute number to scan.
-    std::uint64_t target_{0};        ///< One past the last number to scan.
-    bool ring_clear_pending_{false}; ///< Visible index still holds the previous result.
+    /// @brief Append one absolute number when there is room.
+    void append(std::uint64_t seq) noexcept;
+
+    FilterCriteria criteria_{};            ///< Active criteria.
+    const AppRegistry* apps_{nullptr};     ///< Shared application registry.
+    std::vector<std::uint64_t> visible_{}; ///< Fixed visible storage.
+    std::size_t visible_start_{0};         ///< First live visible entry.
+    std::size_t visible_count_{0};         ///< Number of live visible entries.
+    bool active_{false};                   ///< Rebuild running.
+    bool live_rebuild_{false};             ///< Rebuild scans absolute LIVE sequences.
+    std::size_t scan_{0};                  ///< Next ordinal source index to scan.
+    std::size_t target_{0};                ///< Ordinal source count targeted by the rebuild.
+    std::uint64_t scan_seq_{0};            ///< Next absolute sequence for a LIVE rebuild.
+    std::uint64_t target_seq_{0};          ///< Absolute tail captured at rebuild start.
 };
+
+/// @brief One view's filtered visible index.
+using ViewIndex = FilterIndex;
 
 /// @brief Free diagnostic mirror of `FilterIndex::to_string`.
 /// @param filter Filter to render.

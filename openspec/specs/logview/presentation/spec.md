@@ -41,17 +41,27 @@ The viewer SHALL offer a combined mode, where the application column uses the ap
 
 ### Requirement: Dockable three-zone layout
 
-The viewer SHALL present a toolbar, a left sources and levels panel, a main log table, and a collapsible bottom message inspector, each dockable, and SHALL restore the layout on restart.
+The viewer SHALL present a global toolbar, a left Sources catalogue, one or more dockable Log windows (one per view), and a collapsible bottom message inspector. Each Log window SHALL carry its own local controls for levels, text filter, pause, find, clone, and save selected. The dock layout and the order of Log windows SHALL be restored on restart.
 
 #### Scenario: Panes dock and undock
 
-- **WHEN** the user drags a pane to another dock area
-- **THEN** the layout changes and the table keeps its data and selection
+- **WHEN** the user drags a pane or a Log window to another dock area
+- **THEN** the layout changes and every Log view keeps its data and selection
+
+#### Scenario: Several Log windows share a dock node
+
+- **WHEN** the user docks two Log windows into the same node
+- **THEN** they appear as tabs and switching between them preserves each view's filters and scroll position
+
+#### Scenario: Several Log windows are visible together
+
+- **WHEN** the user undocks one Log window and keeps another docked
+- **THEN** both remain usable and each keeps independent state
 
 #### Scenario: Layout is restored
 
-- **WHEN** the viewer restarts
-- **THEN** the previous dock layout is restored
+- **WHEN** the viewer restarts with persisted LIVE view definitions
+- **THEN** the previous dock layout and Log-window order are restored
 
 ### Requirement: The table is virtualized
 
@@ -69,17 +79,22 @@ The table SHALL render only visible rows and SHALL stay responsive with the full
 
 ### Requirement: Inspector shows one record
 
-The inspector SHALL show the selected record's full payload, its metadata (index, timestamp, delta, application, context, level, thread, pid, drop counter, wire version), and a copy action. It SHALL indicate when the payload may have been truncated at the producer.
+The inspector SHALL show the selected record of the focused Log view, its complete payload, its metadata (index, timestamp, delta, application, context, level, thread, pid, drop counter, wire version), and a copy action. It SHALL indicate when the payload may have been truncated at the producer.
 
 #### Scenario: Select a record
 
-- **WHEN** the user selects a row
-- **THEN** the inspector shows its complete payload and metadata
+- **WHEN** the user selects a row in a Log view and that view has focus
+- **THEN** the inspector shows that record's complete payload and metadata
+
+#### Scenario: Focus changes the inspector
+
+- **WHEN** the user focuses a different Log view with a selected row
+- **THEN** the inspector shows the newly focused view's selected record
 
 #### Scenario: Copy
 
-- **WHEN** the user presses Copy
-- **THEN** the payload and metadata are placed on the clipboard in a readable form
+- **WHEN** the user presses Copy in the inspector
+- **THEN** the focused view's selected payload and metadata are placed on the clipboard in a readable form
 
 #### Scenario: Possible truncation
 
@@ -88,22 +103,22 @@ The inspector SHALL show the selected record's full payload, its metadata (index
 
 ### Requirement: Toolbar reports state
 
-The toolbar SHALL show pause/resume (Space), a LIVE or PAUSED badge with the count of new records, clear, save selected, open, reset colors, the resource mode (NORMAL or ECO with the reason), visible and total counts, and the current message rate.
+The global toolbar SHALL show Open, Clear history, Colors, the resource mode (NORMAL or ECO with the reason), and global capture counters. Each Log window SHALL show its local pause/resume state, the count of new records while paused, its visible/total counts, its current rate, and its local Save selected action.
 
 #### Scenario: Pause badge
 
-- **WHEN** the user pauses
-- **THEN** the badge reads PAUSED with the number of records received since the pause
+- **WHEN** the user pauses one Log view
+- **THEN** that window's badge reads PAUSED with its own count of new records
 
 #### Scenario: ECO badge
 
 - **WHEN** the viewer enters ECO mode
-- **THEN** the badge reads ECO and its tooltip names the trigger
+- **THEN** the global toolbar badge reads ECO and its tooltip names the trigger
 
 #### Scenario: Counters
 
 - **WHEN** records are ingested and filtered
-- **THEN** the toolbar reports visible and total counts and the current rate
+- **THEN** each Log window reports its own visible count and rate while the global toolbar reports capture totals
 
 ### Requirement: Minimap marks severity and bookmarks
 

@@ -16,11 +16,13 @@ set(NEXIGEN_LOGVIEW_MODEL_SOURCES
     model/export_writer.cpp
     model/filter.cpp
     model/find_state.cpp
+    model/history_source.cpp
     model/importer.cpp
     model/ingress_record.cpp
     model/inspector_text.cpp
     model/json_escape.cpp
     model/level_style.cpp
+    model/log_view.cpp
     model/log_view_model.cpp
     model/logview_config.cpp
     model/minimap.cpp
@@ -204,6 +206,20 @@ if(NEXIGEN_LOGVIEW_GUI)
                 $<TARGET_FILE:nexigen-logview>
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui-actions.jsonl)
     set_tests_properties(nexigen_logview_ui_input PROPERTIES
+        TIMEOUT 180 LABELS "tools;logview;gui")
+
+    add_test(NAME nexigen_logview_ui_views
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_view_test.sh
+                $<TARGET_FILE:nexigen-logview>
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui-actions.jsonl)
+    set_tests_properties(nexigen_logview_ui_views PROPERTIES
+        TIMEOUT 180 LABELS "tools;logview;gui")
+
+    add_test(NAME nexigen_logview_ui_focus
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_focus_test.sh
+                $<TARGET_FILE:nexigen-logview>
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui-actions.jsonl)
+    set_tests_properties(nexigen_logview_ui_focus PROPERTIES
         TIMEOUT 180 LABELS "tools;logview;gui")
 endif()
 

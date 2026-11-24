@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <array>
 #include <system_error>
 
 #include <fcntl.h>
@@ -13,6 +14,74 @@
 #include <unistd.h>
 
 namespace nexigen::logview {
+
+namespace {
+
+void read_text_field(const nlohmann::json& j, const char* key, std::string& out);
+
+} // namespace
+
+std::string ViewConfig::to_string() const {
+    return std::format("ViewConfig(id={}, title={}, source={}, live={}, levels={}, text={})", id,
+                       title, source, live, levels.size(), text);
+}
+
+void to_json(nlohmann::json& j, const ViewConfig& config) {
+    nlohmann::json levels = nlohmann::json::array();
+    for (const bool visible : config.levels) {
+        levels.push_back(visible);
+    }
+    j = nlohmann::json{{"id", config.id},
+                       {"title", config.title},
+                       {"source", config.source},
+                       {"live", config.live},
+                       {"levels", levels},
+                       {"text", config.text},
+                       {"timestamp_mode", config.timestamp_mode},
+                       {"delta_mode", config.delta_mode},
+                       {"anomaly_threshold_ns", config.anomaly_threshold_ns},
+                       {"hidden_apps", config.hidden_apps}};
+}
+
+void from_json(const nlohmann::json& j, ViewConfig& config) noexcept {
+    if (!j.is_object()) {
+        return;
+    }
+    if (const auto it = j.find("id"); it != j.end() && it->is_number_unsigned()) {
+        config.id = it->get<std::uint64_t>();
+    }
+    read_text_field(j, "title", config.title);
+    read_text_field(j, "source", config.source);
+    if (const auto it = j.find("live"); it != j.end() && it->is_boolean()) {
+        config.live = it->get<bool>();
+    }
+    if (const auto it = j.find("levels"); it != j.end() && it->is_array()) {
+        const std::size_t n = it->size() < config.levels.size() ? it->size() : config.levels.size();
+        for (std::size_t i = 0; i < n; ++i) {
+            if ((*it)[i].is_boolean()) {
+                config.levels[i] = (*it)[i].get<bool>();
+            }
+        }
+    }
+    read_text_field(j, "text", config.text);
+    if (const auto it = j.find("timestamp_mode"); it != j.end()) {
+        from_json(*it, config.timestamp_mode);
+    }
+    if (const auto it = j.find("delta_mode"); it != j.end()) {
+        from_json(*it, config.delta_mode);
+    }
+    if (const auto it = j.find("anomaly_threshold_ns"); it != j.end() && it->is_number_unsigned()) {
+        config.anomaly_threshold_ns = it->get<std::uint64_t>();
+    }
+    if (const auto it = j.find("hidden_apps"); it != j.end() && it->is_array()) {
+        config.hidden_apps.clear();
+        for (const auto& item : *it) {
+            if (item.is_string()) {
+                config.hidden_apps.push_back(item.get<std::string>());
+            }
+        }
+    }
+}
 
 nexigen::core::Status LogViewConfig::validate() const noexcept {
     if (service_name.empty() || service_name.size() > 511U) {
@@ -60,7 +129,9 @@ void to_json(nlohmann::json& j, const LogViewConfig& config) {
                        {"hidden_apps", config.hidden_apps},
                        {"colors", config.colors},
                        {"capture_thread", config.capture_thread},
-                       {"export_thread", config.export_thread}};
+                       {"export_thread", config.export_thread},
+                       {"views", config.views},
+                       {"views_saved", config.views_saved}};
 }
 
 namespace {
@@ -137,6 +208,15 @@ void from_json(const nlohmann::json& j, LogViewConfig& config) noexcept {
     read_nested(j, "colors", config.colors);
     read_nested(j, "capture_thread", config.capture_thread);
     read_nested(j, "export_thread", config.export_thread);
+    if (const auto it = j.find("views"); it != j.end() && it->is_array()) {
+        config.views.clear();
+        config.views_saved = true;
+        for (const auto& item : *it) {
+            ViewConfig view{};
+            from_json(item, view);
+            config.views.push_back(std::move(view));
+        }
+    }
 }
 
 std::string default_config_path() {

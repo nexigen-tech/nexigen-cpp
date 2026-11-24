@@ -79,8 +79,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     std::unique_ptr<logview::LogViewModel> model = std::move(*model_result);
-    model->time().utc_offset_ns = utc_offset_ns;
-    model->time().time_base_attached = chrono::TimeBaseClock::attached();
+    model->base_time().utc_offset_ns = utc_offset_ns;
+    model->base_time().time_base_attached = chrono::TimeBaseClock::attached();
 
     if (options.headless) {
         return logview::run_headless(*model, options);
@@ -93,8 +93,16 @@ int main(int argc, char* argv[]) {
             std::fprintf(stderr, "nexigen-logview: cannot open %s\n", options.offline_file.c_str());
             return 1;
         }
-        while (model->filter().rebuilding()) {
-            model->step_filter_rebuild(20'000U);
+        for (;;) {
+            model->step_filter_rebuilds(20'000U);
+            bool rebuilding = false;
+            for (std::size_t i = 0; i < model->view_count(); ++i) {
+                const logview::LogView* view = model->view_at(i);
+                rebuilding = rebuilding || (view != nullptr && view->rebuilding());
+            }
+            if (!rebuilding) {
+                break;
+            }
         }
     }
 
@@ -104,6 +112,8 @@ int main(int argc, char* argv[]) {
     ui.smoke = options.ui_smoke;
     ui.actions_test = options.ui_actions_test;
     ui.input_test = options.ui_input_test;
+    ui.view_test = options.ui_view_test;
+    ui.focus_test = options.ui_focus_test;
     ui.ui_scale = options.ui_scale;
     ui.open_path = options.offline_file;
     const int result = logview::run_ui(*model, ui);
@@ -112,6 +122,8 @@ int main(int argc, char* argv[]) {
     persisted.level_visible = model->filter().criteria().levels;
     persisted.text_filter = model->filter().criteria().text;
     persisted.anomaly_threshold_ns = static_cast<std::uint64_t>(model->time().anomaly_threshold_ns);
+    persisted.views = model->view_configs();
+    persisted.views_saved = true;
     persisted.hidden_apps.clear();
     for (std::size_t slot = 0; slot < logview::AppRegistry::capacity; ++slot) {
         const logview::AppSlot& app = model->ring().apps().at(slot);

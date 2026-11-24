@@ -5,31 +5,28 @@
 
 namespace nexigen::logview {
 
-void FindState::init(std::size_t capacity) {
-    matches_.reserve(capacity);
-}
-
-void FindState::begin(std::string_view query, const RecordRing& ring) {
+void FindState::begin(std::string_view query, const FilterIndex& filter) {
     query_.assign(query);
     matches_.clear();
     scan_ = 0;
-    target_ = ring.visible_count();
+    target_ = filter.visible_count();
     current_ = 0;
     have_current_ = false;
     active_ = !query_.empty() && target_ > 0U;
 }
 
-bool FindState::step(const RecordRing& ring, std::size_t max_records) {
+bool FindState::step(const FilterIndex& filter, const HistorySource& source,
+                     std::size_t max_records) {
     if (!active_) {
         return true;
     }
     const std::size_t chunk = max_records == 0U ? 1U : max_records;
     std::size_t examined = 0;
     while (scan_ < target_ && examined < chunk) {
-        const std::uint64_t seq = ring.visible_at(scan_);
+        const std::uint64_t seq = filter.visible_at(scan_);
         ++scan_;
         ++examined;
-        if (const auto view = ring.find(seq);
+        if (const auto view = source.find(seq);
             view.has_value() && view->is_frame() &&
             view->frame->payload_text().find(query_) != std::string_view::npos) {
             matches_.push_back(seq);

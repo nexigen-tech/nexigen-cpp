@@ -988,23 +988,35 @@ flowchart LR
     S --> RX["capture thread<br/>SCHED_OTHER, nice 10"]
     RX -->|"IngressRecord (320 B)"| Q["SpscRingBuffer<br/>65 536 slots = 20 MiB"]
     Q --> UI["UI thread<br/>ingest"]
-    UI --> R["RecordRing<br/>one mmap, absolute seq"]
-    R --> F["visible index<br/>chunked 20k/frame"]
-    R --> MM["minimap 1024 buckets"]
-    R --> E["ExportWriter<br/>4096-slot SPSC, nice 19"]
-    F --> IM["ImGui table<br/>ImGuiListClipper"]
-    IM --> V["screen"]
+    UI --> R["shared RecordRing<br/>one mmap, absolute seq"]
+    UI --> V1["LogView: All logs<br/>FilterIndex · find · selection<br/>bookmarks · minimap · pause · T0"]
+    UI --> V2["LogView: source<br/>FilterIndex · find · selection<br/>bookmarks · minimap · pause · T0"]
+    R --> V1
+    R --> V2
+    V1 --> IM["ImGui dock windows<br/>ImGuiListClipper"]
+    V2 --> IM
+    V1 --> E["one ExportWriter<br/>4096-slot SPSC, nice 19"]
+    R --> SNAP["FrozenHistory<br/>PAUSED clone ≤1 MiB"]
+    SNAP --> V3["PAUSED LogView"]
     E --> FILE["JSONL / CSV / TXT"]
     FILE --> IMP["ImportSession<br/>bounded lines"]
     IMP --> R
+    IM --> SCREEN["screen"]
 ```
 
 The receive thread is the only producer and the UI thread the only consumer of
 the ingress queue; the history ring has a single owner (the UI thread), so the
-viewer needs no seqlock or torn-read protocol. Pause freezes the displayed
-range while ingest continues, and the banner reports how many displayed records
-were overwritten. `nexigen-logview` is read-only for the platform: stopping it
-changes no service or on-disk state.
+viewer needs no seqlock or torn-read protocol. Capture, the ring, the
+application registry, colors, time base, ECO, and the export writer are shared.
+Each `LogView` owns its visible index, find matches, selection/bookmarks
+bitsets, minimap, pause position, T0, and time/delta modes, so eight LIVE views
+can present different filters over the same records without duplicating the
+capture path. A PAUSED view stores an immutable `FrozenHistory` (newest 1 MiB of
+its source scope plus in-range gaps); paused-of-paused clones share that
+snapshot by `shared_ptr`. Pause freezes the displayed range while ingest
+continues, and the banner reports how many displayed records were overwritten.
+`nexigen-logview` is read-only for the platform: stopping it changes no service
+or on-disk state.
 
 ### 5.2 Телеметрический конвейер
 
@@ -1199,7 +1211,7 @@ flowchart LR
 | `nexigen-logd` | COM | приём `LogFrame`, форматирование и почасовая JSONL-запись |
 | `nexigen-metricsd` | COM | агрегация метрик, Prometheus HTTP, квотируемая JSONL-история |
 | `nexigen-traced` | COM | RAM-ring спанов и аварийный снимок по событию PHM |
-| `nexigen-logview` | COM + `NEXIGEN_BUILD_LOGVIEW` | интерактивный просмотр живого `LogFrame`-потока: ImGui/GLFW, ограниченная история, фильтры, find, bookmarks, time/delta modes, экспорт/импорт, ECO |
+| `nexigen-logview` | COM + `NEXIGEN_BUILD_LOGVIEW` | интерактивный просмотр живого `LogFrame`-потока: ImGui/GLFW, независимые dock-вкладки `All`/source, LIVE/PAUSED clone, ограниченная история, фильтры, find, bookmarks, time/delta modes, экспорт/импорт, ECO |
 
 Инструменты при `NEXIGEN_BUILD_TOOLS=ON` собираются вместе с библиотекой;
 COM-зависимые инструменты появляются только при включённом gate.

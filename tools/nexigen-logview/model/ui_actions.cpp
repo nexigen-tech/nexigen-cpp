@@ -9,6 +9,10 @@ bool open_requires_confirmation(bool live, std::size_t retained) noexcept {
     return live && retained > 0U;
 }
 
+bool shortcuts_allowed(bool log_view_focused, bool want_text_input) noexcept {
+    return log_view_focused && !want_text_input;
+}
+
 nexigen::core::Status open_file(LogViewModel& model, const std::string& path) noexcept {
     ImportStats stats{};
     model.clear_history();

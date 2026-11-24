@@ -1,4 +1,4 @@
-// nexigen-logview — chunked, non-filtering find.
+// nexigen-logview — chunked, non-filtering find over one view.
 #pragma once
 
 #include <cstddef>
@@ -8,30 +8,28 @@
 #include <string_view>
 #include <vector>
 
-#include "record_ring.hpp"
+#include "filter.hpp"
+#include "history_source.hpp"
 
 namespace nexigen::logview {
 
-/// @brief Chunked search over the visible index.
+/// @brief Chunked search over one view's visible order.
 ///
-/// Find never changes the filter or the history: it scans the visible order in
-/// bounded chunks and stores matching absolute numbers in a pre-sized array.
+/// Matches are allocated lazily when a query starts, so an idle view does not
+/// reserve a full-history match array.
 class FindState {
 public:
-    /// @brief Reserve the match array for a full history.
-    /// @param capacity Maximum number of matches to reserve.
-    void init(std::size_t capacity);
-
     /// @brief Start a new search over the current visible order.
     /// @param query Case-sensitive substring; empty clears the search.
-    /// @param ring History holding the visible index.
-    void begin(std::string_view query, const RecordRing& ring);
+    /// @param filter Visible index to scan.
+    void begin(std::string_view query, const FilterIndex& filter);
 
     /// @brief Scan one bounded chunk.
-    /// @param ring History holding the visible index.
+    /// @param filter Visible index to scan.
+    /// @param source History containing the records.
     /// @param max_records Maximum visible entries examined in this call.
     /// @return `true` when the scan has completed.
-    bool step(const RecordRing& ring, std::size_t max_records);
+    bool step(const FilterIndex& filter, const HistorySource& source, std::size_t max_records);
 
     /// @brief Whether a scan is still running.
     /// @return `true` until the fixed target is reached.
@@ -69,7 +67,7 @@ public:
 
 private:
     std::string query_{};                  ///< Search text.
-    std::vector<std::uint64_t> matches_{}; ///< Pre-sized match array.
+    std::vector<std::uint64_t> matches_{}; ///< Lazy match array.
     std::size_t scan_{0};                  ///< Next visible order index.
     std::size_t target_{0};                ///< Fixed visible count for this scan.
     std::size_t current_{0};               ///< Current match index.
