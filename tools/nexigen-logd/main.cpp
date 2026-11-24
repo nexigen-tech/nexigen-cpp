@@ -268,70 +268,175 @@ void flush_and_close(Sink& sink) {
     return true;
 }
 
-int run_session(const logging::LogDaemonConfig& cfg) {
-    if (!apply_main_thread_spec(cfg)) {
-        return 1;
-    }
-
+/// @brief Create the daemon transport node.
+///
+/// @return The node, or `std::nullopt` after reporting the failure.
+std::optional<com::Node> create_daemon_node() {
     auto node = com::Node::create();
     if (!node) {
         std::fprintf(stderr, "nexigen-logd: failed to create iceoryx2 node\n");
-        return 1;
+        return std::nullopt;
     }
+    return std::make_optional<com::Node>(std::move(*node));
+}
 
+/// @brief Sample the wall-clock offset and attach the published base when present.
+///
+/// @return The sampled offset, or `std::nullopt` after reporting the failure.
+std::optional<std::int64_t> resolve_utc_offset() {
     std::int64_t utc_offset_ns = 0;
     if (!chrono::sample_utc_offset(utc_offset_ns)) {
         std::fprintf(stderr, "nexigen-logd: failed to sample UTC offset\n");
-        return 1;
+        return std::nullopt;
     }
     // Best effort: when the suite publishes a time base under the default name,
     // rendered UTC comes from it; otherwise the sampled offset is used.
     static_cast<void>(chrono::TimeBaseClock::attach("/nexigen-timebase"));
+    return utc_offset_ns;
+}
 
-    const auto svc = com::ServiceName::create(cfg.service_name.c_str());
+/// @brief Resolve the configured log service name.
+///
+/// @param name Configured service name.
+/// @return The validated name, or `std::nullopt` after reporting the failure.
+std::optional<com::ServiceName> resolve_log_service(const std::string& name) {
+    const auto svc = com::ServiceName::create(name.c_str());
     if (!svc) {
-        std::fprintf(stderr, "nexigen-logd: invalid service name '%s'\n", cfg.service_name.c_str());
-        return 1;
+        std::fprintf(stderr, "nexigen-logd: invalid service name '%s'\n", name.c_str());
+        return std::nullopt;
     }
-    // The daemon normally starts first and therefore fixes the service shape:
-    // every later publisher and subscriber must see the same capacities. If a
-    // live service was created with the old shape, name both shapes instead of
-    // letting the subscriber creation fail with a generic error.
-    if (const auto shape =
-            logging::detail::query_log_service_shape(*node, cfg.service_name.c_str());
-        shape.has_value() && !shape->compatible()) {
-        char diagnostic[512];
-        static_cast<void>(logging::detail::format_shape_mismatch(cfg.service_name, *shape,
-                                                                 diagnostic, sizeof(diagnostic)));
-        std::fprintf(stderr, "nexigen-logd: %s\n", diagnostic);
-        return 1;
-    }
+    return *svc;
+}
 
+/// @brief Reject a live service whose capacities differ from this build's shape.
+///
+/// The daemon normally starts first and therefore fixes the service shape: every
+/// later publisher and subscriber must see the same capacities. If a live
+/// service was created with the old shape, name both shapes instead of letting
+/// the subscriber creation fail with a generic error.
+///
+/// @param node Transport node.
+/// @param cfg Daemon configuration.
+/// @return `false` when the live shape is incompatible.
+bool check_log_service_shape(com::Node& node, const logging::LogDaemonConfig& cfg) {
+    const auto shape = logging::detail::query_log_service_shape(node, cfg.service_name.c_str());
+    if (!shape.has_value() || shape->compatible()) {
+        return true;
+    }
+    char diagnostic[512];
+    static_cast<void>(logging::detail::format_shape_mismatch(cfg.service_name, *shape, diagnostic,
+                                                             sizeof(diagnostic)));
+    std::fprintf(stderr, "nexigen-logd: %s\n", diagnostic);
+    return false;
+}
+
+/// @brief Create the log-frame subscriber.
+///
+/// @param node Transport node.
+/// @param svc Log service name.
+/// @return The subscriber, or `std::nullopt` after reporting the failure.
+std::optional<com::Subscriber<logging::LogFrame, com::TransportHeader>>
+create_log_subscriber(com::Node& node, const com::ServiceName& svc) {
     auto sub = com::Subscriber<logging::LogFrame, com::TransportHeader>::create(
-        *node, *svc, logging::log_service_options());
+        node, svc, logging::log_service_options());
     if (!sub) {
         std::fprintf(stderr, "nexigen-logd: failed to create subscriber\n");
-        return 1;
+        return std::nullopt;
     }
+    return std::make_optional<com::Subscriber<logging::LogFrame, com::TransportHeader>>(
+        std::move(*sub));
+}
 
+/// @brief Create the wake-up event listener for the log service.
+///
+/// @param node Transport node.
+/// @param cfg Daemon configuration.
+/// @return The listener, or `std::nullopt` after reporting the failure.
+std::optional<com::EventListener> create_log_listener(com::Node& node,
+                                                      const logging::LogDaemonConfig& cfg) {
     const std::string ev_svc = cfg.service_name + "Event";
     const auto ev_nm = com::ServiceName::create(ev_svc.c_str());
     if (!ev_nm) {
         std::fprintf(stderr, "nexigen-logd: invalid event service name\n");
-        return 1;
+        return std::nullopt;
     }
-    auto listener = com::EventListener::create(*node, *ev_nm);
+    auto listener = com::EventListener::create(node, *ev_nm);
     if (!listener) {
         std::fprintf(stderr, "nexigen-logd: failed to create event listener\n");
+        return std::nullopt;
+    }
+    return std::make_optional<com::EventListener>(std::move(*listener));
+}
+
+/// @brief Create the WaitSet the daemon multiplexes on.
+///
+/// @return The WaitSet, or `std::nullopt` after reporting the failure.
+std::optional<com::WaitSet> create_daemon_waitset() {
+    auto ws = com::WaitSet::create_without_signal_handling();
+    if (!ws) {
+        std::fprintf(stderr, "nexigen-logd: failed to create WaitSet\n");
+        return std::nullopt;
+    }
+    return std::make_optional<com::WaitSet>(std::move(*ws));
+}
+
+/// @brief Drain frames until the stop flag is raised or the WaitSet fails.
+///
+/// @param ws WaitSet with the event listener and flush timer attached.
+/// @param sub Log-frame subscriber.
+/// @param listener Wake-up event listener.
+/// @param cfg Daemon configuration.
+/// @param utc_offset_ns Sampled wall-clock offset.
+/// @param sink Rotating JSON-lines sink.
+void run_dispatch_loop(com::WaitSet& ws,
+                       com::Subscriber<logging::LogFrame, com::TransportHeader>& sub,
+                       com::EventListener& listener, const logging::LogDaemonConfig& cfg,
+                       std::int64_t utc_offset_ns, Sink& sink) {
+    while (!g_stop.load(std::memory_order_relaxed)) {
+        const auto status = ws.wait_and_process([&](com::WaitSetAttachmentId) {
+            static_cast<void>(listener.try_wait([](com::EventId) noexcept {}));
+            drain_subscriber(sub, cfg, utc_offset_ns, sink);
+            return com::CallbackProgression::Continue;
+        });
+        if (!status) {
+            break;
+        }
+    }
+}
+
+int run_session(const logging::LogDaemonConfig& cfg) {
+    if (!apply_main_thread_spec(cfg)) {
+        return 1;
+    }
+    auto node = create_daemon_node();
+    if (!node) {
+        return 1;
+    }
+    const auto utc_offset_ns = resolve_utc_offset();
+    if (!utc_offset_ns) {
+        return 1;
+    }
+    const auto svc = resolve_log_service(cfg.service_name);
+    if (!svc) {
+        return 1;
+    }
+    if (!check_log_service_shape(*node, cfg)) {
+        return 1;
+    }
+    auto sub = create_log_subscriber(*node, *svc);
+    if (!sub) {
+        return 1;
+    }
+    auto listener = create_log_listener(*node, cfg);
+    if (!listener) {
         return 1;
     }
 
     Sink sink{};
-    sink.fd = open_log_file(cfg.log_directory, utc_offset_ns);
+    sink.fd = open_log_file(cfg.log_directory, *utc_offset_ns);
 
-    auto ws = com::WaitSet::create_without_signal_handling();
+    auto ws = create_daemon_waitset();
     if (!ws) {
-        std::fprintf(stderr, "nexigen-logd: failed to create WaitSet\n");
         return 1;
     }
     auto guard_ev = ws->attach_notification(*listener);
@@ -350,16 +455,7 @@ int run_session(const logging::LogDaemonConfig& cfg) {
     std::printf("nexigen-logd: listening on %s, writing to %s\n", cfg.service_name.c_str(),
                 cfg.log_directory.c_str());
 
-    while (!g_stop.load(std::memory_order_relaxed)) {
-        const auto status = ws->wait_and_process([&](com::WaitSetAttachmentId) {
-            static_cast<void>(listener->try_wait([](com::EventId) noexcept {}));
-            drain_subscriber(*sub, cfg, utc_offset_ns, sink);
-            return com::CallbackProgression::Continue;
-        });
-        if (!status) {
-            break;
-        }
-    }
+    run_dispatch_loop(*ws, *sub, *listener, cfg, *utc_offset_ns, sink);
 
     flush_and_close(sink);
     std::printf("nexigen-logd: stopped\n");

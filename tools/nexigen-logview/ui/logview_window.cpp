@@ -221,11 +221,11 @@ void begin_view_rebuild(LogViewModel& model, LogView& view) {
     model.begin_filter_rebuild(view);
 }
 
-void draw_global_toolbar(LogViewModel& model, UiState& state) {
-    if (!ImGui::Begin("Toolbar")) {
-        ImGui::End();
-        return;
-    }
+/// @brief Draw the toolbar's action buttons and the restart badge.
+///
+/// @param model View model owning the reset operations.
+/// @param state UI state receiving the dialog flags and status text.
+void draw_toolbar_actions(LogViewModel& model, UiState& state) {
     if (ImGui::Button("Open")) {
         state.open_open = true;
     }
@@ -257,7 +257,13 @@ void draw_global_toolbar(LogViewModel& model, UiState& state) {
                               "restart the viewer to apply them.");
         }
     }
+}
 
+/// @brief Draw the ECO/NORMAL mode badge with its hover tooltip.
+///
+/// @param model View model supplying the resource guard state.
+/// @param state UI state receiving the seen-ECO flag.
+void draw_toolbar_mode(LogViewModel& model, UiState& state) {
     ImGui::SameLine();
     const bool eco = state.force_eco || model.guard().mode() == ResourceMode::Eco;
     if (eco) {
@@ -270,7 +276,12 @@ void draw_global_toolbar(LogViewModel& model, UiState& state) {
                           to_string(model.guard().trigger()).data(), model.guard().cpu_percent(),
                           model.guard().rate_ewma());
     }
+}
 
+/// @brief Draw the view and record counters line.
+///
+/// @param model View model supplying the counters and rate.
+void draw_toolbar_counters(const LogViewModel& model) {
     const auto counters = model.counters();
     ImGui::SameLine();
     ImGui::Text("views=%zu live=%zu paused=%zu total=%llu received=%llu synthetic=%llu "
@@ -280,7 +291,12 @@ void draw_global_toolbar(LogViewModel& model, UiState& state) {
                 static_cast<unsigned long long>(counters.received),
                 static_cast<unsigned long long>(counters.synthetic),
                 static_cast<unsigned long long>(counters.evicted), model.rate());
+}
 
+/// @brief Draw the import and export progress bars with their cancel action.
+///
+/// @param model View model owning import/export progress.
+void draw_toolbar_progress(LogViewModel& model) {
     if (model.importing()) {
         char overlay[96]{};
         std::snprintf(overlay, sizeof(overlay), "import %llu malformed",
@@ -303,6 +319,17 @@ void draw_global_toolbar(LogViewModel& model, UiState& state) {
             model.cancel_export();
         }
     }
+}
+
+void draw_global_toolbar(LogViewModel& model, UiState& state) {
+    if (!ImGui::Begin("Toolbar")) {
+        ImGui::End();
+        return;
+    }
+    draw_toolbar_actions(model, state);
+    draw_toolbar_mode(model, state);
+    draw_toolbar_counters(model);
+    draw_toolbar_progress(model);
     if (!state.status.empty()) {
         ImGui::TextUnformatted(state.status.c_str());
     }
@@ -444,7 +471,11 @@ void draw_navigation_controls(LogView& view, UiState& state, ViewUiState& ui) {
     }
 }
 
-void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, ViewUiState& ui) {
+/// @brief Draw the live/paused state badge and the pause action.
+///
+/// @param view View whose state is shown.
+/// @param state UI state receiving the pause-badge observation.
+void draw_view_state_badge(LogView& view, UiState& state) {
     if (view.live()) {
         if (ImGui::Button(view.paused() ? "Resume" : "Pause")) {
             view.set_paused(!view.paused());
@@ -466,6 +497,14 @@ void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, Vie
     } else {
         ImGui::TextColored(ImVec4(1.0F, 0.65F, 0.25F, 1.0F), "PAUSED SNAPSHOT");
     }
+}
+
+/// @brief Draw the navigation controls, clone/save and bookmark actions.
+///
+/// @param view View acted on.
+/// @param state UI state receiving the dialog flags.
+/// @param ui Per-view UI state receiving the scroll request.
+void draw_view_actions(LogView& view, UiState& state, ViewUiState& ui) {
     ImGui::SameLine();
     draw_navigation_controls(view, state, ui);
     ImGui::SameLine();
@@ -515,7 +554,13 @@ void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, Vie
             view.time().clear_anchor();
         }
     }
+}
 
+/// @brief Draw the level visibility checkboxes.
+///
+/// @param model View model owning the rebuild scheduling.
+/// @param view View whose filter is edited.
+void draw_level_filters(LogViewModel& model, LogView& view) {
     ImGui::Separator();
     for (std::size_t i = 0; i < 7U; ++i) {
         if (i > 0U) {
@@ -529,6 +574,14 @@ void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, Vie
         }
         ImGui::PopID();
     }
+}
+
+/// @brief Draw the message text filter input.
+///
+/// @param model View model owning the rebuild scheduling.
+/// @param view View whose filter is edited.
+/// @param ui Per-view UI state holding the filter buffer.
+void draw_text_filter(LogViewModel& model, LogView& view, ViewUiState& ui) {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(220.0F);
     if (ImGui::InputTextWithHint("##filter", "message filter", ui.filter_buf,
@@ -536,6 +589,14 @@ void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, Vie
         view.filter().criteria().text = ui.filter_buf;
         begin_view_rebuild(model, view);
     }
+}
+
+/// @brief Draw the source filter button and its popup.
+///
+/// @param model View model supplying the application registry.
+/// @param view View whose source mask is edited.
+/// @param state UI state handling the auto-open request.
+void draw_source_filter(LogViewModel& model, LogView& view, UiState& state) {
     if (view.kind() == ViewKind::All) {
         ImGui::SameLine();
         if (ImGui::Button("Sources...")) {
@@ -588,7 +649,14 @@ void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, Vie
         ImGui::SameLine();
         ImGui::TextDisabled("source: %s", view.source().c_str());
     }
+}
 
+/// @brief Draw the find input and its match counter.
+///
+/// @param model View model owning the find operation.
+/// @param view View whose find state is driven.
+/// @param ui Per-view UI state holding the find buffer.
+void draw_find_controls(LogViewModel& model, LogView& view, ViewUiState& ui) {
     ImGui::SetNextItemWidth(220.0F);
     if (ui.focus_find) {
         ImGui::SetKeyboardFocusHere();
@@ -613,7 +681,12 @@ void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, Vie
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.9F, 0.5F, 0.4F, 1.0F), "0 matches");
     }
+}
 
+/// @brief Draw the timestamp, delta and anomaly threshold controls.
+///
+/// @param view View whose display modes are edited.
+void draw_time_controls(LogView& view) {
     ImGui::SameLine();
     int timestamp_mode = static_cast<int>(view.timestamp_mode());
     ImGui::SetNextItemWidth(110.0F);
@@ -632,7 +705,12 @@ void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, Vie
     if (ImGui::InputInt("##anomaly", &threshold_ms) && threshold_ms >= 0) {
         view.time().anomaly_threshold_ns = static_cast<std::int64_t>(threshold_ms) * 1'000'000LL;
     }
+}
 
+/// @brief Draw the filter rebuild progress bar.
+///
+/// @param view View whose rebuild is reported.
+void draw_rebuild_progress(LogView& view) {
     if (view.filter().rebuilding()) {
         const FilterIndex::Progress progress = view.filter().progress();
         char overlay[96]{};
@@ -641,9 +719,29 @@ void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, Vie
                       static_cast<unsigned long long>(progress.total));
         ImGui::ProgressBar(static_cast<float>(progress.ratio()), ImVec2(-1.0F, 0.0F), overlay);
     }
+}
+
+/// @brief Draw the visible/total record counters line.
+///
+/// @param model View model supplying the rate.
+/// @param view View whose counters are shown.
+/// @param state UI state receiving the counters-seen observation.
+void draw_view_counters(const LogViewModel& model, const LogView& view, UiState& state) {
     ImGui::Text("visible=%zu total=%zu %s rate=%.0f/s", view.display_count(), view.history().size(),
                 view.live() ? "LIVE" : "PAUSED", model.rate());
     state.seen_view_counters = true;
+}
+
+void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, ViewUiState& ui) {
+    draw_view_state_badge(view, state);
+    draw_view_actions(view, state, ui);
+    draw_level_filters(model, view);
+    draw_text_filter(model, view, ui);
+    draw_source_filter(model, view, state);
+    draw_find_controls(model, view, ui);
+    draw_time_controls(view);
+    draw_rebuild_progress(view);
+    draw_view_counters(model, view, state);
 }
 
 std::optional<std::uint64_t> previous_frame(const LogView& view, std::size_t index) {
@@ -961,9 +1059,11 @@ void apply_table_scroll(LogView& view, ViewUiState& ui, int rows, float row_heig
 
 /// @brief Draw one Log window.
 /// @return `true` when the window close button was pressed.
-bool draw_log_view(LogViewModel& model, LogView& view, UiState& state) {
-    ViewUiState& ui = ui_for(state, view);
-    const std::string title = window_title(view);
+/// @brief Apply pending dock, float and focus requests to the next window.
+///
+/// @param view View whose window is about to be created.
+/// @param state UI state carrying the pending requests.
+void apply_pending_window_state(const LogView& view, UiState& state) {
     if (const auto pending = state.pending_dock.find(view.id());
         pending != state.pending_dock.end()) {
         if (pending->second != 0) {
@@ -980,11 +1080,14 @@ bool draw_log_view(LogViewModel& model, LogView& view, UiState& state) {
         ImGui::SetNextWindowFocus();
         state.focus_next_view = 0;
     }
-    bool open = true;
-    if (!ImGui::Begin(title.c_str(), &open)) {
-        ImGui::End();
-        return !open;
-    }
+}
+
+/// @brief Update docked/focused bookkeeping for the current log window.
+///
+/// @param model View model receiving the focus request.
+/// @param view View owning the window.
+/// @param state UI state receiving the dock/focus observations.
+void update_log_window_focus(LogViewModel& model, LogView& view, UiState& state) {
     if (ImGui::IsWindowDocked()) {
         ++state.docked_views;
     }
@@ -992,14 +1095,20 @@ bool draw_log_view(LogViewModel& model, LogView& view, UiState& state) {
         model.focus_view(view.id());
         state.log_view_focused = true;
     }
-    draw_local_controls(model, view, state, ui);
+}
 
+/// @brief Draw the clipped records table of one view.
+///
+/// @param model View model supplying the row renderer.
+/// @param view View whose history is displayed.
+/// @param state UI state receiving hover and row-rect observations.
+/// @param ui Per-view UI state carrying the scroll request.
+void draw_records_table(LogViewModel& model, LogView& view, UiState& state, ViewUiState& ui) {
     constexpr ImGuiTableFlags flags = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg |
                                       ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerV |
                                       ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
     if (!ImGui::BeginTable("records", 8, flags)) {
-        ImGui::End();
-        return !open;
+        return;
     }
     draw_table_header();
     state.hovered_seq.reset();
@@ -1026,6 +1135,20 @@ bool draw_log_view(LogViewModel& model, LogView& view, UiState& state) {
     }
     apply_table_scroll(view, ui, rows, row_height);
     ImGui::EndTable();
+}
+
+bool draw_log_view(LogViewModel& model, LogView& view, UiState& state) {
+    ViewUiState& ui = ui_for(state, view);
+    const std::string title = window_title(view);
+    apply_pending_window_state(view, state);
+    bool open = true;
+    if (!ImGui::Begin(title.c_str(), &open)) {
+        ImGui::End();
+        return !open;
+    }
+    update_log_window_focus(model, view, state);
+    draw_local_controls(model, view, state, ui);
+    draw_records_table(model, view, state, ui);
     ImGui::End();
     return !open;
 }
@@ -1238,24 +1361,12 @@ void draw_save_modal(LogViewModel& model, UiState& state) {
     ImGui::EndPopup();
 }
 
-void draw_clone_modal(LogViewModel& model, UiState& state) {
-    if (state.clone_open) {
-        ImGui::OpenPopup("Clone view");
-        state.clone_open = false;
-    }
-    if (!ImGui::BeginPopupModal("Clone view", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        return;
-    }
-    const LogView* source = model.view(state.clone_target);
-    if (source == nullptr) {
-        ImGui::TextUnformatted("The source view is no longer open.");
-        if (ImGui::Button("Close")) {
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-        return;
-    }
-    ImGui::Text("Clone: Log: %s", source->title().c_str());
+/// @brief Draw the clone dialog header, mode radios and the copy-state label.
+///
+/// @param source View being cloned.
+/// @param state UI state holding the selected clone mode.
+void draw_clone_header(const LogView& source, UiState& state) {
+    ImGui::Text("Clone: Log: %s", source.title().c_str());
     int mode = static_cast<int>(state.clone_mode);
     if (ImGui::RadioButton("LIVE", &mode, static_cast<int>(CloneMode::Live))) {
         state.clone_mode = CloneMode::Live;
@@ -1266,6 +1377,12 @@ void draw_clone_modal(LogViewModel& model, UiState& state) {
     }
     ImGui::Separator();
     ImGui::TextUnformatted("Copy state");
+}
+
+/// @brief Draw the clone dialog's copy-state checkboxes.
+///
+/// @param state UI state holding the clone options.
+void draw_clone_options(UiState& state) {
     ImGui::Checkbox("Levels", &state.clone_options.levels);
     ImGui::SameLine();
     ImGui::Checkbox("Text filter", &state.clone_options.text);
@@ -1279,6 +1396,12 @@ void draw_clone_modal(LogViewModel& model, UiState& state) {
     ImGui::SameLine();
     ImGui::Checkbox("T0", &state.clone_options.t0);
     ImGui::Checkbox("Find query", &state.clone_options.find);
+}
+
+/// @brief Draw the mode hint and the last clone status line.
+///
+/// @param state UI state holding the mode and status text.
+void draw_clone_hint(const UiState& state) {
     if (state.clone_mode == CloneMode::Live) {
         ImGui::TextDisabled("LIVE clone follows the shared tail and starts at the newest record.");
     } else {
@@ -1287,6 +1410,13 @@ void draw_clone_modal(LogViewModel& model, UiState& state) {
     if (!state.clone_status.empty()) {
         ImGui::TextColored(ImVec4(1.0F, 0.55F, 0.35F, 1.0F), "%s", state.clone_status.c_str());
     }
+}
+
+/// @brief Draw the clone/cancel buttons and apply the clone request.
+///
+/// @param model View model owning the clone operation.
+/// @param state UI state carrying the request and receiving the outcome.
+void draw_clone_actions(LogViewModel& model, UiState& state) {
     if (ImGui::Button("Clone")) {
         const ImGuiID target_dock = focused_dock_id(model);
         const auto created =
@@ -1313,6 +1443,29 @@ void draw_clone_modal(LogViewModel& model, UiState& state) {
     if (ImGui::Button("Cancel")) {
         ImGui::CloseCurrentPopup();
     }
+}
+
+void draw_clone_modal(LogViewModel& model, UiState& state) {
+    if (state.clone_open) {
+        ImGui::OpenPopup("Clone view");
+        state.clone_open = false;
+    }
+    if (!ImGui::BeginPopupModal("Clone view", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+    const LogView* source = model.view(state.clone_target);
+    if (source == nullptr) {
+        ImGui::TextUnformatted("The source view is no longer open.");
+        if (ImGui::Button("Close")) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+        return;
+    }
+    draw_clone_header(*source, state);
+    draw_clone_options(state);
+    draw_clone_hint(state);
+    draw_clone_actions(model, state);
     ImGui::EndPopup();
 }
 
@@ -1902,7 +2055,23 @@ void drain_view_rebuilds(LogViewModel& model) {
     }
 }
 
-bool run_ui_view_test(LogViewModel& model, UiState& state) {
+/// @brief Aggregate of the scripted view-test observations.
+struct ViewTestChecks {
+    bool live_clone{false};
+    bool paused_clone{false};
+    bool live_tail{false};
+    bool nav_default_on{false};
+    bool nav_pause_preserved{false};
+    bool levels_isolated{true};
+    bool focus_ok{false};
+    bool limit_rejected{false};
+};
+
+/// @brief Ensure the model has an All view and a free live slot.
+///
+/// @param model View model to prepare.
+/// @return The view count observed before preparing.
+std::size_t restore_view_test_layout(LogViewModel& model) {
     const std::size_t restored = model.view_count();
     if (model.view_count() == 0U) {
         static_cast<void>(model.create_view(ViewKind::All, {}));
@@ -1916,6 +2085,14 @@ bool run_ui_view_test(LogViewModel& model, UiState& state) {
             }
         }
     }
+    return restored;
+}
+
+/// @brief Pick the source name used by the scripted view test.
+///
+/// @param model View model supplying the application registry.
+/// @return The first used application, or `Engine` when none exists.
+std::string view_test_source_name(LogViewModel& model) {
     std::string source_name;
     for (std::size_t slot = 0; slot < AppRegistry::capacity; ++slot) {
         const AppSlot& app = model.ring().apps().at(slot);
@@ -1927,79 +2104,156 @@ bool run_ui_view_test(LogViewModel& model, UiState& state) {
     if (source_name.empty()) {
         source_name = "Engine";
     }
+    return source_name;
+}
+
+/// @brief Create the scripted test's source view.
+///
+/// @param model View model receiving the view.
+/// @param source_name Source application name.
+/// @return The created view id, or the focused id when creation failed.
+ViewId create_view_test_source(LogViewModel& model, const std::string& source_name) {
     ViewId source_id = model.focused_id();
     if (const auto created = model.create_view(ViewKind::Source, source_name); created) {
         source_id = *created;
     }
-    bool live_clone = false;
-    bool paused_clone = false;
-    bool live_tail = false;
-    bool nav_default_on = false;
-    bool nav_pause_preserved = false;
-    bool levels_isolated = true;
-    bool focus_ok = false;
-    bool limit_rejected = false;
-    LogView* source = model.view(source_id);
-    LogView* all_view = nullptr;
+    return source_id;
+}
+
+/// @brief Find the model's All view.
+///
+/// @param model View model to scan.
+/// @return The All view, or `nullptr` when none is open.
+LogView* find_all_view(LogViewModel& model) {
     for (std::size_t i = 0; i < model.view_count(); ++i) {
         LogView* candidate = model.view_at(i);
         if (candidate != nullptr && candidate->kind() == ViewKind::All) {
-            all_view = candidate;
+            return candidate;
+        }
+    }
+    return nullptr;
+}
+
+/// @brief Free one live slot so the clone checks can create a clone.
+///
+/// @param model View model to adjust.
+/// @param source_id Source view that must stay open.
+void free_live_slot_for_clone(LogViewModel& model, ViewId source_id) {
+    if (model.live_view_count() < kMaxLiveViews) {
+        return;
+    }
+    for (std::size_t i = model.view_count(); i > 0U; --i) {
+        const LogView* candidate = model.view_at(i - 1U);
+        if (candidate != nullptr && candidate->live() && candidate->id() != source_id) {
+            static_cast<void>(model.close_view(candidate->id()));
             break;
         }
     }
+}
+
+/// @brief Run the clone, isolation, focus and live-limit observations.
+///
+/// @param model View model under test.
+/// @param state UI state observed through the per-view UI.
+/// @param source_id Source view id.
+/// @param source Source view pointer.
+/// @param all_view All view used for the level-isolation check.
+/// @param checks Receives the observations.
+void run_view_test_clones(LogViewModel& model, UiState& state, ViewId source_id, LogView* source,
+                          LogView* all_view, ViewTestChecks& checks) {
+    free_live_slot_for_clone(model, source_id);
+    checks.live_clone = model.clone_view(source_id, CloneMode::Live, CloneOptions{}).has_value();
+    if (checks.live_clone) {
+        LogView* clone = model.view(model.focused_id());
+        checks.live_tail = clone != nullptr && clone->live() && !clone->paused() &&
+                           ui_for(state, *clone).auto_scroll;
+    }
+    checks.paused_clone =
+        model.clone_view(source_id, CloneMode::Paused, CloneOptions{}).has_value();
+    if (all_view != nullptr) {
+        const auto before = all_view->filter().criteria().levels;
+        const auto error_level = static_cast<std::size_t>(nexigen::core::LogLevel::Error);
+        source->filter().criteria().levels[error_level] =
+            !source->filter().criteria().levels[error_level];
+        checks.levels_isolated = all_view->filter().criteria().levels == before;
+    }
+    model.focus_view(source_id);
+    checks.focus_ok = model.focused_id() == source_id && model.focused_view() == source;
+    int extra = 0;
+    while (model.live_view_count() < kMaxLiveViews) {
+        const auto created = model.create_view(ViewKind::Source, std::format("UiLimit{}", extra++));
+        if (!created) {
+            break;
+        }
+    }
+    checks.limit_rejected = !model.create_view(ViewKind::Source, "UiOverflow").has_value();
+    model.focus_view(source_id);
+}
+
+/// @brief Run the auto-scroll default and pause-preservation observations.
+///
+/// @param state UI state holding the per-view UI.
+/// @param source Source view under test.
+/// @param checks Receives the observations.
+void run_view_test_navigation(UiState& state, LogView& source, ViewTestChecks& checks) {
+    ViewUiState& nav_ui = ui_for(state, source);
+    checks.nav_default_on = nav_ui.auto_scroll;
+    nav_ui.auto_scroll = false;
+    source.set_paused(true);
+    source.set_paused(false);
+    checks.nav_pause_preserved = !nav_ui.auto_scroll;
+    nav_ui.auto_scroll = true;
+}
+
+/// @brief Prepare the selection, pause and focus state used by the scripted run.
+///
+/// @param state UI state receiving the expected selection and focus id.
+/// @param source Source view to pause and select in.
+/// @param source_id Source view id.
+void prepare_view_test_state(UiState& state, LogView& source, ViewId source_id) {
+    source.select_only(source.display_at(0));
+    state.expected_inspected_seq = source.last_selected();
+    source.set_paused(true);
+    state.view_test_focus_id = source_id;
+}
+
+/// @brief Print the view-test observation line and compute the verdict.
+///
+/// @param model View model supplying the view counts.
+/// @param restored View count observed before preparation.
+/// @param source_ok Whether the source view exists.
+/// @param checks Collected observations.
+/// @return `true` when every observation matched.
+bool report_view_test(const LogViewModel& model, std::size_t restored, bool source_ok,
+                      const ViewTestChecks& checks) {
+    std::printf("UI_VIEWS restored=%zu live=%zu paused=%zu source=%d live_clone=%d "
+                "paused_clone=%d live_tail=%d nav_default=%d nav_pause=%d levels_isolated=%d "
+                "focus=%d limit_rejected=%d\n",
+                restored, model.live_view_count(), model.paused_view_count(), source_ok,
+                checks.live_clone, checks.paused_clone, checks.live_tail, checks.nav_default_on,
+                checks.nav_pause_preserved, checks.levels_isolated, checks.focus_ok,
+                checks.limit_rejected);
+    return source_ok && checks.live_clone && checks.paused_clone && checks.live_tail &&
+           checks.nav_default_on && checks.nav_pause_preserved && checks.levels_isolated &&
+           checks.focus_ok && checks.limit_rejected;
+}
+
+bool run_ui_view_test(LogViewModel& model, UiState& state) {
+    const std::size_t restored = restore_view_test_layout(model);
+    const std::string source_name = view_test_source_name(model);
+    const ViewId source_id = create_view_test_source(model, source_name);
+    LogView* source = model.view(source_id);
+    LogView* all_view = find_all_view(model);
+    ViewTestChecks checks{};
     if (source != nullptr) {
-        if (model.live_view_count() >= kMaxLiveViews) {
-            for (std::size_t i = model.view_count(); i > 0U; --i) {
-                const LogView* candidate = model.view_at(i - 1U);
-                if (candidate != nullptr && candidate->live() && candidate->id() != source_id) {
-                    static_cast<void>(model.close_view(candidate->id()));
-                    break;
-                }
-            }
-        }
-        live_clone = model.clone_view(source_id, CloneMode::Live, CloneOptions{}).has_value();
-        if (live_clone) {
-            LogView* clone = model.view(model.focused_id());
-            live_tail = clone != nullptr && clone->live() && !clone->paused() &&
-                        ui_for(state, *clone).auto_scroll;
-        }
-        paused_clone = model.clone_view(source_id, CloneMode::Paused, CloneOptions{}).has_value();
-        if (all_view != nullptr) {
-            const auto before = all_view->filter().criteria().levels;
-            const auto error_level = static_cast<std::size_t>(nexigen::core::LogLevel::Error);
-            source->filter().criteria().levels[error_level] =
-                !source->filter().criteria().levels[error_level];
-            levels_isolated = all_view->filter().criteria().levels == before;
-        }
-        model.focus_view(source_id);
-        focus_ok = model.focused_id() == source_id && model.focused_view() == source;
-        int extra = 0;
-        while (model.live_view_count() < kMaxLiveViews) {
-            const auto created =
-                model.create_view(ViewKind::Source, std::format("UiLimit{}", extra++));
-            if (!created) {
-                break;
-            }
-        }
-        limit_rejected = !model.create_view(ViewKind::Source, "UiOverflow").has_value();
-        model.focus_view(source_id);
+        run_view_test_clones(model, state, source_id, source, all_view, checks);
     }
     drain_view_rebuilds(model);
     if (source != nullptr) {
-        ViewUiState& nav_ui = ui_for(state, *source);
-        nav_default_on = nav_ui.auto_scroll;
-        nav_ui.auto_scroll = false;
-        source->set_paused(true);
-        source->set_paused(false);
-        nav_pause_preserved = !nav_ui.auto_scroll;
-        nav_ui.auto_scroll = true;
+        run_view_test_navigation(state, *source, checks);
     }
     if (source != nullptr && source->display_count() > 0U) {
-        source->select_only(source->display_at(0));
-        state.expected_inspected_seq = source->last_selected();
-        source->set_paused(true);
-        state.view_test_focus_id = source_id;
+        prepare_view_test_state(state, *source, source_id);
     }
     state.clone_open = true;
     state.clone_target = source_id;
@@ -2007,88 +2261,97 @@ bool run_ui_view_test(LogViewModel& model, UiState& state) {
     state.clone_mode = CloneMode::Paused;
     state.auto_open_sources_popup = true;
     state.force_eco = true;
-    std::printf("UI_VIEWS restored=%zu live=%zu paused=%zu source=%d live_clone=%d "
-                "paused_clone=%d live_tail=%d nav_default=%d nav_pause=%d levels_isolated=%d "
-                "focus=%d limit_rejected=%d\n",
-                restored, model.live_view_count(), model.paused_view_count(), source != nullptr,
-                live_clone, paused_clone, live_tail, nav_default_on, nav_pause_preserved,
-                levels_isolated, focus_ok, limit_rejected);
-    return source != nullptr && live_clone && paused_clone && live_tail && nav_default_on &&
-           nav_pause_preserved && levels_isolated && focus_ok && limit_rejected;
+    return report_view_test(model, restored, source != nullptr, checks);
 }
 
 // Drive the `--ui-view-test` navigation phases: click the auto-scroll toggle off
 // and on, then wheel the table up and confirm auto-scroll turns off again.
+/// @brief Close any popup that could cover the navigation controls.
+void close_covering_popup() {
+    if (ImGui::GetCurrentContext()->OpenPopupStack.Size > 0) {
+        ImGui::ClosePopupToLevel(0, false);
+    }
+}
+
+/// @brief Inject a mouse press onto the third navigation control.
+///
+/// @param state UI state receiving the injected press.
+void press_navigation_control(UiState& state) {
+    state.inject_pos = rect_center(state.nav_rect_min[2], state.nav_rect_max[2]);
+    state.inject_mouse_pos = true;
+    state.inject_mouse_down = true;
+}
+
+/// @brief Advance predicate that never waits for an observation.
+///
+/// @return Always `true`.
+[[nodiscard]] bool always_advance(const UiState&) noexcept {
+    return true;
+}
+
+/// @brief One phase of the scripted view test.
+struct ViewTestStep {
+    /// @brief Inject the phase's input.
+    void (*drive)(UiState&, ViewUiState*) noexcept;
+    /// @brief Whether the phase may advance to the next step.
+    bool (*advance)(const UiState&) noexcept;
+};
+
+/// @brief The scripted `--ui-view-test` phases, indexed by `view_test_phase`.
+constexpr ViewTestStep kViewTestSteps[] = {
+    {[](UiState&, ViewUiState*) noexcept { close_covering_popup(); },
+     [](const UiState& state) noexcept { return state.nav_rects_valid; }},
+    {[](UiState&, ViewUiState*) noexcept { close_covering_popup(); }, always_advance},
+    {[](UiState& state, ViewUiState*) noexcept { press_navigation_control(state); },
+     always_advance},
+    {[](UiState& state, ViewUiState*) noexcept { state.inject_mouse_up = true; }, always_advance},
+    {[](UiState& state, ViewUiState* nav) noexcept {
+         state.view_test_toggle_off = nav != nullptr && !nav->auto_scroll;
+         press_navigation_control(state);
+     },
+     always_advance},
+    {[](UiState& state, ViewUiState*) noexcept { state.inject_mouse_up = true; }, always_advance},
+    {[](UiState& state, ViewUiState* nav) noexcept {
+         state.view_test_toggle_on = nav != nullptr && nav->auto_scroll;
+         state.row_rect_count = 0;
+         state.capture_row_rects = true;
+     },
+     always_advance},
+    {[](UiState& state, ViewUiState*) noexcept {
+         if (state.row_rect_count > 0) {
+             state.inject_pos = rect_center(state.row_rect_min[0], state.row_rect_max[0]);
+             state.inject_mouse_pos = true;
+         }
+     },
+     [](const UiState& state) noexcept { return state.row_rect_count > 0; }},
+    {[](UiState& state, ViewUiState*) noexcept {
+         // Inject the wheel on its own frame: ImGui trickles a wheel event queued
+         // right after a mouse-move event to the following frame.
+         state.inject_wheel = true;
+         state.inject_wheel_y = 1.0F;
+     },
+     always_advance},
+    {[](UiState& state, ViewUiState* nav) noexcept {
+         state.view_test_wheel_off = nav != nullptr && !nav->auto_scroll;
+         state.capture_row_rects = false;
+     },
+     always_advance},
+};
+
 void drive_view_test(LogViewModel& model, UiState& state) {
     if (!state.view_test) {
         return;
     }
     LogView* view = model.view(state.view_test_focus_id);
     ViewUiState* nav = view != nullptr ? &ui_for(state, *view) : nullptr;
-    switch (state.view_test_phase) {
-        case 0:
-            // The view-test fixture auto-opens the Sources popup a frame or two
-            // into the run; close it so it cannot cover the navigation controls.
-            if (ImGui::GetCurrentContext()->OpenPopupStack.Size > 0) {
-                ImGui::ClosePopupToLevel(0, false);
-            }
-            if (state.nav_rects_valid) {
-                state.view_test_phase = 1;
-            }
-            break;
-        case 1:
-            if (ImGui::GetCurrentContext()->OpenPopupStack.Size > 0) {
-                ImGui::ClosePopupToLevel(0, false);
-            }
-            state.view_test_phase = 2;
-            break;
-        case 2:
-            state.inject_pos = rect_center(state.nav_rect_min[2], state.nav_rect_max[2]);
-            state.inject_mouse_pos = true;
-            state.inject_mouse_down = true;
-            state.view_test_phase = 3;
-            break;
-        case 3:
-            state.inject_mouse_up = true;
-            state.view_test_phase = 4;
-            break;
-        case 4:
-            state.view_test_toggle_off = nav != nullptr && !nav->auto_scroll;
-            state.inject_pos = rect_center(state.nav_rect_min[2], state.nav_rect_max[2]);
-            state.inject_mouse_pos = true;
-            state.inject_mouse_down = true;
-            state.view_test_phase = 5;
-            break;
-        case 5:
-            state.inject_mouse_up = true;
-            state.view_test_phase = 6;
-            break;
-        case 6:
-            state.view_test_toggle_on = nav != nullptr && nav->auto_scroll;
-            state.row_rect_count = 0;
-            state.capture_row_rects = true;
-            state.view_test_phase = 7;
-            break;
-        case 7:
-            if (state.row_rect_count > 0) {
-                state.inject_pos = rect_center(state.row_rect_min[0], state.row_rect_max[0]);
-                state.inject_mouse_pos = true;
-                state.view_test_phase = 8;
-            }
-            break;
-        case 8:
-            // Inject the wheel on its own frame: ImGui trickles a wheel event
-            // queued right after a mouse-move event to the following frame.
-            state.inject_wheel = true;
-            state.inject_wheel_y = 1.0F;
-            state.view_test_phase = 9;
-            break;
-        case 9:
-            state.view_test_wheel_off = nav != nullptr && !nav->auto_scroll;
-            state.capture_row_rects = false;
-            state.view_test_phase = 10;
-            break;
-        default: break;
+    constexpr std::size_t phases = sizeof(kViewTestSteps) / sizeof(kViewTestSteps[0]);
+    if (static_cast<std::size_t>(state.view_test_phase) >= phases) {
+        return;
+    }
+    const ViewTestStep& step = kViewTestSteps[state.view_test_phase];
+    step.drive(state, nav);
+    if (step.advance(state)) {
+        ++state.view_test_phase;
     }
 }
 
@@ -2108,8 +2371,12 @@ bool setup_focus_test(LogViewModel& model, UiState& state) {
     return true;
 }
 
-int run_ui(LogViewModel& model, const UiOptions& options) {
-    UiState state{};
+/// @brief Prepare the UI state for one run.
+///
+/// @param state UI state to initialize.
+/// @param model View model supplying the open views.
+/// @param options Parsed command line.
+void initialize_ui_state(UiState& state, LogViewModel& model, const UiOptions& options) {
     state.live = options.live;
     state.input_test = options.input_test;
     state.view_test = options.view_test;
@@ -2130,64 +2397,124 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
     }
     std::snprintf(state.save_path, sizeof(state.save_path), "/tmp/nexigen-logview-export.jsonl");
     std::snprintf(state.open_path, sizeof(state.open_path), "%s", options.open_path.c_str());
+}
+
+/// @brief Run the view and focus scripted tests before opening the window.
+///
+/// @param model View model under test.
+/// @param state UI state used by the scripts.
+/// @param options Parsed command line.
+/// @return `false` when a scripted test failed.
+bool run_pre_gui_tests(LogViewModel& model, UiState& state, const UiOptions& options) {
     if (options.view_test && !run_ui_view_test(model, state)) {
         std::fprintf(stderr, "UI_VIEWS failed\n");
-        return 1;
+        return false;
     }
     if (options.focus_test && !setup_focus_test(model, state)) {
         std::fprintf(stderr, "UI_FOCUS failed: no visible record\n");
-        return 1;
+        return false;
     }
+    return true;
+}
 
-    GLFWwindow* window = nullptr;
-    if (!init_gui(state, options, window)) {
-        return 1;
+/// @brief Start the capture thread when the run is live.
+///
+/// @param model View model supplying the service configuration.
+/// @param state UI state receiving a capture failure status.
+/// @param options Parsed command line.
+/// @return The capture thread, or `nullptr` when not live or unavailable.
+std::unique_ptr<CaptureThread> start_capture(LogViewModel& model, UiState& state,
+                                             const UiOptions& options) {
+    if (!options.live) {
+        return nullptr;
     }
-    std::unique_ptr<CaptureThread> capture;
-    if (options.live) {
-        capture = std::make_unique<CaptureThread>(model.config().service_name,
-                                                  model.config().capture_thread);
-        const auto started = capture->start();
-        if (!started) {
-            state.status =
-                "capture unavailable: " + std::string(nexigen::core::to_string(started.error()));
-            capture.reset();
-        }
+    auto capture =
+        std::make_unique<CaptureThread>(model.config().service_name, model.config().capture_thread);
+    const auto started = capture->start();
+    if (!started) {
+        state.status =
+            "capture unavailable: " + std::string(nexigen::core::to_string(started.error()));
+        return nullptr;
     }
-    state.capture = capture.get();
-    const bool skip_splash = options.smoke || options.actions_test || options.input_test ||
-                             options.view_test || options.focus_test;
-    std::optional<SplashImage> splash;
-    if (options.splash_test || !skip_splash) {
-        auto loaded = SplashImage::load_embedded();
-        if (options.splash_test && std::getenv("NEXIGEN_LOGVIEW_SPLASH_TEST_FAIL") != nullptr) {
-            loaded = std::unexpected(nexigen::core::ErrorCode::CorruptData);
-        }
-        if (loaded) {
-            splash.emplace(std::move(*loaded));
-        } else {
-            std::fprintf(stderr, "nexigen-logview: splash unavailable: %s\n",
-                         std::string(nexigen::core::to_string(loaded.error())).c_str());
-            if (options.splash_test) {
-                std::printf("UI_SPLASH fallback=1\n");
-                if (capture != nullptr) {
-                    capture->stop();
-                }
-                shutdown_gui(window);
-                return 0;
-            }
-        }
+    return capture;
+}
+
+/// @brief Whether the run starts without showing the splash screen.
+///
+/// @param options Parsed command line.
+/// @return `true` for smoke and scripted runs.
+bool splash_skipped(const UiOptions& options) {
+    return options.smoke || options.actions_test || options.input_test || options.view_test ||
+           options.focus_test;
+}
+
+/// @brief Result of loading the splash asset.
+struct SplashLoad {
+    std::optional<SplashImage> image{}; ///< Loaded image, when available.
+    bool exit{false};                   ///< Whether the process must exit now.
+    int exit_code{0};                   ///< Exit code for the early exit.
+};
+
+/// @brief Load the splash image when the run asks for one.
+///
+/// @param options Parsed command line.
+/// @param window GUI window to shut down on an early exit.
+/// @param capture Capture thread to stop on an early exit; may be `nullptr`.
+/// @param skip_splash Whether this run skips the splash.
+/// @return The loaded image or an early-exit request.
+SplashLoad load_splash(const UiOptions& options, GLFWwindow* window, CaptureThread* capture,
+                       bool skip_splash) {
+    SplashLoad result{};
+    if (!options.splash_test && skip_splash) {
+        return result;
     }
+    auto loaded = SplashImage::load_embedded();
+    if (options.splash_test && std::getenv("NEXIGEN_LOGVIEW_SPLASH_TEST_FAIL") != nullptr) {
+        loaded = std::unexpected(nexigen::core::ErrorCode::CorruptData);
+    }
+    if (loaded) {
+        result.image.emplace(std::move(*loaded));
+        return result;
+    }
+    std::fprintf(stderr, "nexigen-logview: splash unavailable: %s\n",
+                 std::string(nexigen::core::to_string(loaded.error())).c_str());
+    if (!options.splash_test) {
+        return result;
+    }
+    std::printf("UI_SPLASH fallback=1\n");
+    if (capture != nullptr) {
+        capture->stop();
+    }
+    shutdown_gui(window);
+    result.exit = true;
+    return result;
+}
+
+/// @brief Show the splash screen (or run its test) before the workspace.
+///
+/// @param model View model supplying the records shown during the splash.
+/// @param state UI state carrying the splash counters.
+/// @param options Parsed command line.
+/// @param window GUI window.
+/// @param capture Capture thread; may be `nullptr`.
+/// @param skip_splash Whether this run skips the splash.
+/// @param splash Loaded splash image; released after the phase.
+/// @param exit_code Receives the early exit code.
+/// @return `false` when the process must exit, with `exit_code` set.
+bool run_splash_phase(LogViewModel& model, UiState& state, const UiOptions& options,
+                      GLFWwindow* window, CaptureThread* capture, bool skip_splash,
+                      std::optional<SplashImage>& splash, int& exit_code) {
     if (options.splash_test) {
-        if (!splash) {
+        if (!splash.has_value()) {
             if (capture != nullptr) {
                 capture->stop();
             }
             shutdown_gui(window);
-            return 1;
+            exit_code = 1;
+            return false;
         }
         state.splash_expected_views = model.view_count();
-        const bool completed = run_splash(window, model, state, capture.get(), *splash, 1.0);
+        const bool completed = run_splash(window, model, state, capture, *splash, 1.0);
         std::printf("UI_SPLASH width=%d height=%d texture=%d frames=%zu elapsed_ms=%.1f "
                     "aspect_fit=%d records=%zu ingested=%zu input_ignored=%d\n",
                     splash->width(), splash->height(), splash->valid() ? 1 : 0, state.splash_frames,
@@ -2195,177 +2522,435 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
                     model.display_count(), state.splash_ingested,
                     state.splash_input_ignored ? 1 : 0);
         splash.reset();
-        if (!completed) {
-            if (capture != nullptr) {
-                capture->stop();
-            }
-            shutdown_gui(window);
-            return 0;
+        if (completed) {
+            // Fall through to a short workspace session so the test can confirm the
+            // workspace appears and the records ingested during the splash are present.
+            return true;
         }
-        // Fall through to a short workspace session so the test can confirm the
-        // workspace appears and the records ingested during the splash are present.
-    } else if (!skip_splash && splash) {
-        if (!run_splash(window, model, state, capture.get(), *splash, 1.0)) {
-            splash.reset();
-            if (capture != nullptr) {
-                capture->stop();
-            }
-            shutdown_gui(window);
-            return 0;
-        }
-        splash.reset();
-    }
-
-    if (options.actions_test) {
-        const int actions_result = run_ui_actions_test(model, options);
         if (capture != nullptr) {
             capture->stop();
         }
         shutdown_gui(window);
-        return actions_result;
+        exit_code = 0;
+        return false;
     }
+    if (skip_splash || !splash.has_value()) {
+        return true;
+    }
+    const bool completed = run_splash(window, model, state, capture, *splash, 1.0);
+    splash.reset();
+    if (completed) {
+        return true;
+    }
+    if (capture != nullptr) {
+        capture->stop();
+    }
+    shutdown_gui(window);
+    exit_code = 0;
+    return false;
+}
 
+/// @brief Run the scripted `--actions-test` round and shut the GUI down.
+///
+/// @param model View model under test.
+/// @param options Parsed command line.
+/// @param window GUI window.
+/// @param capture Capture thread; may be `nullptr`.
+/// @return The actions-test verdict.
+int run_actions_test(LogViewModel& model, const UiOptions& options, GLFWwindow* window,
+                     CaptureThread* capture) {
+    const int actions_result = run_ui_actions_test(model, options);
+    if (capture != nullptr) {
+        capture->stop();
+    }
+    shutdown_gui(window);
+    return actions_result;
+}
+
+/// @brief Inject the focus script's key events for the current phase.
+///
+/// @param model View model supplying the focused view.
+/// @param state UI state carrying the focus-script phase.
+/// @brief Focus-script input for phase 0: press F2.
+void focus_input_press_f2(LogViewModel&, UiState&) {
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_F2, true);
+}
+
+/// @brief Focus-script input for phase 2: release F2.
+void focus_input_release_f2(LogViewModel&, UiState&) {
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_F2, false);
+}
+
+/// @brief Focus-script input for phase 4: bookmark with Ctrl+F2 and scroll to the end.
+void focus_input_bookmark_end(LogViewModel&, UiState&) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiKey_F2, true);
+    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    io.AddKeyEvent(ImGuiKey_End, true);
+}
+
+/// @brief Focus-script input for phase 5: release the bookmark chord.
+void focus_input_release_bookmark(LogViewModel&, UiState&) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiKey_F2, false);
+    io.AddKeyEvent(ImGuiKey_End, false);
+    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+}
+
+/// @brief Focus-script input for phase 7: press Ctrl+End.
+void focus_input_press_ctrl_end(LogViewModel&, UiState&) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    io.AddKeyEvent(ImGuiKey_End, true);
+}
+
+/// @brief Focus-script input for phase 8: release Ctrl+End and record navigation.
+///
+/// @param model View model supplying the focused view.
+/// @param state UI state receiving the observation.
+void focus_input_check_end(LogViewModel& model, UiState& state) {
+    LogView* view = model.view(state.focus_view_id);
+    ViewUiState* nav = view != nullptr ? &ui_for(state, *view) : nullptr;
+    state.focus_nav_last_ok = view != nullptr && nav != nullptr && state.log_view_focused &&
+                              nav->scroll_to == ui::last_visible_sequence(*view) &&
+                              !nav->auto_scroll;
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiKey_End, false);
+    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+}
+
+/// @brief Focus-script input for phase 9: press Ctrl+Home.
+void focus_input_press_ctrl_home(LogViewModel&, UiState&) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    io.AddKeyEvent(ImGuiKey_Home, true);
+}
+
+/// @brief Focus-script input for phase 10: release Ctrl+Home and record navigation.
+///
+/// @param model View model supplying the focused view.
+/// @param state UI state receiving the observation.
+void focus_input_check_home(LogViewModel& model, UiState& state) {
+    LogView* view = model.view(state.focus_view_id);
+    ViewUiState* nav = view != nullptr ? &ui_for(state, *view) : nullptr;
+    state.focus_nav_first_ok = view != nullptr && nav != nullptr && state.log_view_focused &&
+                               nav->scroll_to == ui::first_visible_sequence(*view) &&
+                               !nav->auto_scroll;
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiKey_Home, false);
+    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+}
+
+/// @brief Focus-script input per phase; `nullptr` means "no input this frame".
+using FocusInputFn = void (*)(LogViewModel&, UiState&);
+
+/// @brief Indexed by `focus_phase`.
+constexpr FocusInputFn kFocusInput[] = {
+    focus_input_press_f2,
+    focus_input_release_f2,
+    nullptr,
+    nullptr,
+    focus_input_bookmark_end,
+    focus_input_release_bookmark,
+    nullptr,
+    focus_input_press_ctrl_end,
+    focus_input_check_end,
+    focus_input_press_ctrl_home,
+    focus_input_check_home,
+};
+
+/// @brief Inject the focus script's key events for the current phase.
+///
+/// @param model View model supplying the focused view.
+/// @param state UI state carrying the focus-script phase.
+void update_focus_script_input(LogViewModel& model, UiState& state) {
+    constexpr std::size_t phases = sizeof(kFocusInput) / sizeof(kFocusInput[0]);
+    if (static_cast<std::size_t>(state.focus_phase) >= phases) {
+        return;
+    }
+    const FocusInputFn input = kFocusInput[state.focus_phase];
+    if (input != nullptr) {
+        input(model, state);
+    }
+}
+
+/// @brief Focus-script state for phase 0: request focus on the view.
+void focus_phase_request(LogViewModel&, UiState& state, LogView*, ViewUiState*) {
+    state.focus_next_view = state.focus_view_id;
+    state.focus_phase = 1;
+}
+
+/// @brief Focus-script state for phase 1: verify the bookmark and request focus.
+void focus_phase_bookmark(LogViewModel&, UiState& state, LogView* view, ViewUiState*) {
+    state.focus_ok =
+        view != nullptr && state.log_view_focused && view->bookmarked_count() > state.focus_before;
+    state.focus_sources_next = true;
+    state.focus_phase = 2;
+}
+
+/// @brief Focus-script state for phase 2: advance.
+void focus_phase_advance(LogViewModel&, UiState& state, LogView*, ViewUiState*) {
+    state.focus_phase = 3;
+}
+
+/// @brief Focus-script state for phase 3: verify the unfocused bookmark.
+void focus_phase_unfocused(LogViewModel&, UiState& state, LogView* view, ViewUiState* nav_ui) {
+    state.focus_unfocused_ok = view != nullptr && !state.log_view_focused &&
+                               view->bookmarked_count() == state.focus_before + 1U;
+    if (nav_ui != nullptr) {
+        nav_ui->scroll_to.reset();
+    }
+    state.focus_phase = 4;
+}
+
+/// @brief Focus-script state for phase 4: verify scroll state while unfocused.
+void focus_phase_nav_unfocused(LogViewModel&, UiState& state, LogView* view, ViewUiState* nav_ui) {
+    state.focus_nav_unfocused_ok = view != nullptr && nav_ui != nullptr &&
+                                   !state.log_view_focused && !nav_ui->scroll_to.has_value() &&
+                                   nav_ui->auto_scroll;
+    state.focus_phase = 5;
+}
+
+/// @brief Focus-script state for phase 5: switch auto-scroll off and refocus.
+void focus_phase_auto_scroll_off(LogViewModel&, UiState& state, LogView*, ViewUiState* nav_ui) {
+    if (nav_ui != nullptr) {
+        nav_ui->auto_scroll = false;
+        nav_ui->scroll_to.reset();
+    }
+    state.focus_next_view = state.focus_view_id;
+    state.focus_phase = 6;
+}
+
+/// @brief Focus-script state for a pass-through phase.
+void focus_phase_passthrough(LogViewModel&, UiState& state, LogView*, ViewUiState*) {
+    ++state.focus_phase;
+}
+
+/// @brief Focus-script state handler.
+using FocusStepFn = void (*)(LogViewModel&, UiState&, LogView*, ViewUiState*);
+
+/// @brief Indexed by `focus_phase`; phases 6 to 10 advance one step each.
+constexpr FocusStepFn kFocusSteps[] = {
+    focus_phase_request,     focus_phase_bookmark,      focus_phase_advance,
+    focus_phase_unfocused,   focus_phase_nav_unfocused, focus_phase_auto_scroll_off,
+    focus_phase_passthrough, focus_phase_passthrough,   focus_phase_passthrough,
+    focus_phase_passthrough, focus_phase_passthrough,
+};
+
+/// @brief Advance the focus script's state machine for the current frame.
+///
+/// @param model View model supplying the focused view.
+/// @param state UI state carrying the focus-script phase and observations.
+void update_focus_test_state(LogViewModel& model, UiState& state) {
+    LogView* view = model.view(state.focus_view_id);
+    ViewUiState* nav_ui = view != nullptr ? &ui_for(state, *view) : nullptr;
+    constexpr std::size_t phases = sizeof(kFocusSteps) / sizeof(kFocusSteps[0]);
+    if (static_cast<std::size_t>(state.focus_phase) >= phases) {
+        return;
+    }
+    kFocusSteps[state.focus_phase](model, state, view, nav_ui);
+}
+
+/// @brief Print the view-test observation line.
+///
+/// @param state UI state holding the observations.
+void print_view_test_checks(const UiState& state) {
+    const bool inspector_ok = state.expected_inspected_seq.has_value() &&
+                              state.inspected_seq == state.expected_inspected_seq;
+    std::printf("UI_VIEWS_CHECKS pause=%d counters=%d eco=%d docked=%zu floating=%d "
+                "inspector=%d inspector_meta=%d nav=%d nav_hit_areas=%zu auto_active=%d "
+                "toggle_off=%d toggle_on=%d wheel_off=%d\n",
+                state.seen_pause_badge, state.seen_view_counters, state.seen_eco_badge,
+                state.docked_views, state.seen_floating_view, inspector_ok,
+                state.seen_inspector_meta, state.seen_navigation_controls,
+                state.navigation_hit_areas, state.seen_auto_scroll_active,
+                state.view_test_toggle_off, state.view_test_toggle_on, state.view_test_wheel_off);
+}
+
+/// @brief Print the splash-workspace observation line.
+///
+/// @param model View model supplying the final counts.
+/// @param state UI state holding the splash counters.
+void print_splash_workspace(const LogViewModel& model, const UiState& state) {
+    const bool stable = state.splash_expected_views == model.view_count();
+    std::printf("UI_SPLASH_WORKSPACE frames=%d records=%zu views=%zu stable=%d\n",
+                state.splash_workspace_frames, model.display_count(), model.view_count(),
+                stable ? 1 : 0);
+}
+
+/// @brief Whether the focus script passed.
+///
+/// @param options Parsed command line.
+/// @param state UI state holding the focus observations.
+/// @return `true` when the focus script is not requested or passed.
+bool focus_result_ok(const UiOptions& options, const UiState& state) {
+    if (!options.focus_test) {
+        return true;
+    }
+    return state.focus_ok && state.focus_unfocused_ok && state.focus_nav_unfocused_ok &&
+           state.focus_nav_last_ok && state.focus_nav_first_ok;
+}
+
+/// @brief Whether the view script passed.
+///
+/// @param options Parsed command line.
+/// @param state UI state holding the view observations.
+/// @return `true` when the view script is not requested or passed.
+bool view_result_ok(const UiOptions& options, const UiState& state) {
+    if (!options.view_test) {
+        return true;
+    }
+    return state.view_test_toggle_off && state.view_test_toggle_on && state.view_test_wheel_off;
+}
+
+/// @brief Print the focus observation line when the focus script ran.
+///
+/// @param options Parsed command line.
+/// @param state UI state holding the focus observations.
+void print_focus_result(const UiOptions& options, const UiState& state) {
+    if (!options.focus_test) {
+        return;
+    }
+    std::printf("UI_FOCUS focused=%d unfocused=%d nav_unfocused=%d nav_last=%d nav_first=%d\n",
+                state.focus_ok, state.focus_unfocused_ok, state.focus_nav_unfocused_ok,
+                state.focus_nav_last_ok, state.focus_nav_first_ok);
+}
+
+/// @brief Print the scripted-run observations, shut down and compute the exit code.
+///
+/// @param model View model supplying the final counts.
+/// @param state UI state holding the observations.
+/// @param options Parsed command line.
+/// @param window GUI window to shut down.
+/// @param capture Capture thread to stop; may be `nullptr`.
+/// @return Process exit code.
+int report_ui_result(LogViewModel& model, UiState& state, const UiOptions& options,
+                     GLFWwindow* window, CaptureThread* capture) {
+    if (options.view_test) {
+        print_view_test_checks(state);
+    }
+    if (options.splash_test) {
+        print_splash_workspace(model, state);
+    }
+    const bool focus_ok = focus_result_ok(options, state);
+    const bool view_ok = view_result_ok(options, state);
+    print_focus_result(options, state);
+    if (capture != nullptr) {
+        capture->stop();
+    }
+    shutdown_gui(window);
+    return (focus_ok && view_ok) ? 0 : 1;
+}
+
+/// @brief Draw one workspace frame: dockspace, windows and per-view tables.
+///
+/// @param model View model supplying the views.
+/// @param state UI state carrying the layout and script flags.
+/// @param options Parsed command line.
+/// @param layout_done Whether the default layout was already applied.
+void draw_workspace_frame(LogViewModel& model, UiState& state, const UiOptions& options,
+                          bool& layout_done) {
+    const ImGuiID dockspace = ImGui::DockSpaceOverViewport();
+    if (!layout_done) {
+        layout_done = true;
+        std::error_code layout_error;
+        if (options.smoke || options.view_test ||
+            !std::filesystem::exists(state.ini_path, layout_error)) {
+            draw_default_layout(dockspace, model);
+        }
+    }
+    draw_global_toolbar(model, state);
+    draw_sources(model, state);
+    draw_workspace(model, state);
+    std::vector<ViewId> close_views;
+    for (std::size_t i = 0; i < model.view_count(); ++i) {
+        LogView* view = model.view_at(i);
+        if (view == nullptr) {
+            break;
+        }
+        if (draw_log_view(model, *view, state)) {
+            close_views.push_back(view->id());
+        }
+    }
+    for (const ViewId id : close_views) {
+        static_cast<void>(model.close_view(id));
+        state.view_ui.erase(id);
+        state.pending_dock.erase(id);
+        state.log_view_focused = false;
+    }
+    if (options.view_test && state.view_test_focus_id != 0) {
+        model.focus_view(state.view_test_focus_id);
+    }
+    if (options.view_test) {
+        drive_view_test(model, state);
+    }
+}
+
+/// @brief Advance the focus script's state machine for the current frame.
+///
+/// @param model View model supplying the focused view.
+/// @param state UI state carrying the focus-script phase and observations.
+// update_focus_test_state and its tables are defined above.
+
+/// @brief Whether the current frame finishes a scripted run.
+///
+/// @param options Parsed command line.
+/// @param state UI state carrying the scripted-run counters.
+/// @return `true` when the smoke/view/focus/splash run is complete.
+bool frame_test_done(const UiOptions& options, UiState& state) {
+    if (options.smoke) {
+        return ++state.smoke_frames >= 2;
+    }
+    if (options.view_test) {
+        return state.view_test_phase >= 10;
+    }
+    if (options.focus_test) {
+        return ++state.smoke_frames >= 12;
+    }
+    if (options.splash_test) {
+        return state.splash_workspace_frames >= 6;
+    }
+    return false;
+}
+
+/// @brief Pump window events at the rate the resource guard allows.
+///
+/// @param model View model supplying the guard mode.
+void pump_window_events(LogViewModel& model) {
+    if (model.guard().mode() == ResourceMode::Eco) {
+        glfwWaitEventsTimeout(1.0 / 15.0);
+    } else {
+        glfwPollEvents();
+    }
+}
+
+/// @brief Run the interactive frame loop until the window closes or a test ends.
+///
+/// @param model View model under test.
+/// @param state UI state mutated across frames.
+/// @param options Parsed command line.
+/// @param window GUI window.
+/// @param capture Capture thread; may be `nullptr`.
+void run_frame_loop(LogViewModel& model, UiState& state, const UiOptions& options,
+                    GLFWwindow* window, CaptureThread* capture) {
     bool layout_done = false;
     while (glfwWindowShouldClose(window) == GLFW_FALSE) {
-        const bool eco = model.guard().mode() == ResourceMode::Eco;
-        if (eco) {
-            glfwWaitEventsTimeout(1.0 / 15.0);
-        } else {
-            glfwPollEvents();
-        }
+        pump_window_events(model);
         if (glfwWindowShouldClose(window) != GLFW_FALSE) {
             break;
         }
-        process_model_frame(model, state, capture.get());
+        process_model_frame(model, state, capture);
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         inject_ui_input(state);
         if (options.focus_test) {
-            ImGuiIO& io = ImGui::GetIO();
-            switch (state.focus_phase) {
-                case 0: io.AddKeyEvent(ImGuiKey_F2, true); break;
-                case 2: io.AddKeyEvent(ImGuiKey_F2, false); break;
-                case 4:
-                    io.AddKeyEvent(ImGuiKey_F2, true);
-                    io.AddKeyEvent(ImGuiMod_Ctrl, true);
-                    io.AddKeyEvent(ImGuiKey_End, true);
-                    break;
-                case 5:
-                    io.AddKeyEvent(ImGuiKey_F2, false);
-                    io.AddKeyEvent(ImGuiKey_End, false);
-                    io.AddKeyEvent(ImGuiMod_Ctrl, false);
-                    break;
-                case 7:
-                    io.AddKeyEvent(ImGuiMod_Ctrl, true);
-                    io.AddKeyEvent(ImGuiKey_End, true);
-                    break;
-                case 8: {
-                    LogView* view = model.view(state.focus_view_id);
-                    ViewUiState* nav = view != nullptr ? &ui_for(state, *view) : nullptr;
-                    state.focus_nav_last_ok =
-                        view != nullptr && nav != nullptr && state.log_view_focused &&
-                        nav->scroll_to == ui::last_visible_sequence(*view) && !nav->auto_scroll;
-                    io.AddKeyEvent(ImGuiKey_End, false);
-                    io.AddKeyEvent(ImGuiMod_Ctrl, false);
-                    break;
-                }
-                case 9:
-                    io.AddKeyEvent(ImGuiMod_Ctrl, true);
-                    io.AddKeyEvent(ImGuiKey_Home, true);
-                    break;
-                case 10: {
-                    LogView* view = model.view(state.focus_view_id);
-                    ViewUiState* nav = view != nullptr ? &ui_for(state, *view) : nullptr;
-                    state.focus_nav_first_ok =
-                        view != nullptr && nav != nullptr && state.log_view_focused &&
-                        nav->scroll_to == ui::first_visible_sequence(*view) && !nav->auto_scroll;
-                    io.AddKeyEvent(ImGuiKey_Home, false);
-                    io.AddKeyEvent(ImGuiMod_Ctrl, false);
-                    break;
-                }
-                default: break;
-            }
+            update_focus_script_input(model, state);
         }
         ImGui::NewFrame();
         state.log_view_focused = false;
-        const ImGuiID dockspace = ImGui::DockSpaceOverViewport();
-        if (!layout_done) {
-            layout_done = true;
-            std::error_code layout_error;
-            if (options.smoke || options.view_test ||
-                !std::filesystem::exists(state.ini_path, layout_error)) {
-                draw_default_layout(dockspace, model);
-            }
-        }
-        draw_global_toolbar(model, state);
-        draw_sources(model, state);
-        draw_workspace(model, state);
-        std::vector<ViewId> close_views;
-        for (std::size_t i = 0; i < model.view_count(); ++i) {
-            LogView* view = model.view_at(i);
-            if (view == nullptr) {
-                break;
-            }
-            if (draw_log_view(model, *view, state)) {
-                close_views.push_back(view->id());
-            }
-        }
-        for (const ViewId id : close_views) {
-            static_cast<void>(model.close_view(id));
-            state.view_ui.erase(id);
-            state.pending_dock.erase(id);
-            state.log_view_focused = false;
-        }
-        if (options.view_test && state.view_test_focus_id != 0) {
-            model.focus_view(state.view_test_focus_id);
-        }
-        if (options.view_test) {
-            drive_view_test(model, state);
-        }
+        draw_workspace_frame(model, state, options, layout_done);
         if (options.focus_test && state.focus_test_active) {
-            LogView* view = model.view(state.focus_view_id);
-            ViewUiState* nav_ui = view != nullptr ? &ui_for(state, *view) : nullptr;
-            switch (state.focus_phase) {
-                case 0:
-                    state.focus_next_view = state.focus_view_id;
-                    state.focus_phase = 1;
-                    break;
-                case 1:
-                    state.focus_ok = view != nullptr && state.log_view_focused &&
-                                     view->bookmarked_count() > state.focus_before;
-                    state.focus_sources_next = true;
-                    state.focus_phase = 2;
-                    break;
-                case 2: state.focus_phase = 3; break;
-                case 3:
-                    state.focus_unfocused_ok = view != nullptr && !state.log_view_focused &&
-                                               view->bookmarked_count() == state.focus_before + 1U;
-                    if (nav_ui != nullptr) {
-                        nav_ui->scroll_to.reset();
-                    }
-                    state.focus_phase = 4;
-                    break;
-                case 4:
-                    state.focus_nav_unfocused_ok =
-                        view != nullptr && nav_ui != nullptr && !state.log_view_focused &&
-                        !nav_ui->scroll_to.has_value() && nav_ui->auto_scroll;
-                    state.focus_phase = 5;
-                    break;
-                case 5:
-                    if (nav_ui != nullptr) {
-                        nav_ui->auto_scroll = false;
-                        nav_ui->scroll_to.reset();
-                    }
-                    state.focus_next_view = state.focus_view_id;
-                    state.focus_phase = 6;
-                    break;
-                case 6:  state.focus_phase = 7; break;
-                case 7:  state.focus_phase = 8; break;
-                case 8:  state.focus_phase = 9; break;
-                case 9:  state.focus_phase = 10; break;
-                case 10: state.focus_phase = 11; break;
-                default: break;
-            }
+            update_focus_test_state(model, state);
         }
         draw_inspector(model, state);
         draw_minimap(model);
@@ -2380,57 +2965,50 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
         if (options.splash_test) {
             ++state.splash_workspace_frames;
         }
-        bool test_done = false;
-        if (options.smoke) {
-            test_done = ++state.smoke_frames >= 2;
-        } else if (options.view_test) {
-            test_done = state.view_test_phase >= 10;
-        } else if (options.focus_test) {
-            test_done = ++state.smoke_frames >= 12;
-        } else if (options.splash_test) {
-            test_done = state.splash_workspace_frames >= 6;
-        }
+        const bool test_done = frame_test_done(options, state);
         if (input_done || test_done) {
             break;
         }
     }
+}
 
-    if (options.view_test) {
-        const bool inspector_ok = state.expected_inspected_seq.has_value() &&
-                                  state.inspected_seq == state.expected_inspected_seq;
-        std::printf("UI_VIEWS_CHECKS pause=%d counters=%d eco=%d docked=%zu floating=%d "
-                    "inspector=%d inspector_meta=%d nav=%d nav_hit_areas=%zu auto_active=%d "
-                    "toggle_off=%d toggle_on=%d wheel_off=%d\n",
-                    state.seen_pause_badge, state.seen_view_counters, state.seen_eco_badge,
-                    state.docked_views, state.seen_floating_view, inspector_ok,
-                    state.seen_inspector_meta, state.seen_navigation_controls,
-                    state.navigation_hit_areas, state.seen_auto_scroll_active,
-                    state.view_test_toggle_off, state.view_test_toggle_on,
-                    state.view_test_wheel_off);
+/// @brief Print the scripted-run observations, shut down and compute the exit code.
+///
+/// @param model View model supplying the final counts.
+/// @param state UI state holding the observations.
+/// @param options Parsed command line.
+/// @param window GUI window to shut down.
+/// @param capture Capture thread to stop; may be `nullptr`.
+/// @return Process exit code.
+// report_ui_result and its helpers are defined above.
+
+int run_ui(LogViewModel& model, const UiOptions& options) {
+    UiState state{};
+    initialize_ui_state(state, model, options);
+    if (!run_pre_gui_tests(model, state, options)) {
+        return 1;
     }
-    if (options.splash_test) {
-        const bool stable = state.splash_expected_views == model.view_count();
-        std::printf("UI_SPLASH_WORKSPACE frames=%d records=%zu views=%zu stable=%d\n",
-                    state.splash_workspace_frames, model.display_count(), model.view_count(),
-                    stable ? 1 : 0);
+    GLFWwindow* window = nullptr;
+    if (!init_gui(state, options, window)) {
+        return 1;
     }
-    const bool focus_ok =
-        !options.focus_test ||
-        (state.focus_ok && state.focus_unfocused_ok && state.focus_nav_unfocused_ok &&
-         state.focus_nav_last_ok && state.focus_nav_first_ok);
-    const bool view_ok =
-        !options.view_test ||
-        (state.view_test_toggle_off && state.view_test_toggle_on && state.view_test_wheel_off);
-    if (options.focus_test) {
-        std::printf("UI_FOCUS focused=%d unfocused=%d nav_unfocused=%d nav_last=%d nav_first=%d\n",
-                    state.focus_ok, state.focus_unfocused_ok, state.focus_nav_unfocused_ok,
-                    state.focus_nav_last_ok, state.focus_nav_first_ok);
+    std::unique_ptr<CaptureThread> capture = start_capture(model, state, options);
+    state.capture = capture.get();
+    const bool skip_splash = splash_skipped(options);
+    SplashLoad splash = load_splash(options, window, capture.get(), skip_splash);
+    if (splash.exit) {
+        return splash.exit_code;
     }
-    if (capture != nullptr) {
-        capture->stop();
+    int exit_code = 0;
+    if (!run_splash_phase(model, state, options, window, capture.get(), skip_splash, splash.image,
+                          exit_code)) {
+        return exit_code;
     }
-    shutdown_gui(window);
-    return (focus_ok && view_ok) ? 0 : 1;
+    if (options.actions_test) {
+        return run_actions_test(model, options, window, capture.get());
+    }
+    run_frame_loop(model, state, options, window, capture.get());
+    return report_ui_result(model, state, options, window, capture.get());
 }
 
 } // namespace nexigen::logview

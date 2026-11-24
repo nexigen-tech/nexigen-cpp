@@ -43,10 +43,13 @@ void to_json(nlohmann::json& j, const ViewConfig& config) {
                        {"hidden_apps", config.hidden_apps}};
 }
 
-void from_json(const nlohmann::json& j, ViewConfig& config) noexcept {
-    if (!j.is_object()) {
-        return;
-    }
+namespace {
+
+/// @brief Read the view identity fields (`id`, `title`, `source`, `live`).
+///
+/// @param j Source object.
+/// @param config Destination view configuration.
+void read_view_identity(const nlohmann::json& j, ViewConfig& config) {
     if (const auto it = j.find("id"); it != j.end() && it->is_number_unsigned()) {
         config.id = it->get<std::uint64_t>();
     }
@@ -55,15 +58,30 @@ void from_json(const nlohmann::json& j, ViewConfig& config) noexcept {
     if (const auto it = j.find("live"); it != j.end() && it->is_boolean()) {
         config.live = it->get<bool>();
     }
-    if (const auto it = j.find("levels"); it != j.end() && it->is_array()) {
-        const std::size_t n = it->size() < config.levels.size() ? it->size() : config.levels.size();
-        for (std::size_t i = 0; i < n; ++i) {
-            if ((*it)[i].is_boolean()) {
-                config.levels[i] = (*it)[i].get<bool>();
-            }
+}
+
+/// @brief Read the per-level visibility array.
+///
+/// @param j Source object.
+/// @param config Destination view configuration.
+void read_view_levels(const nlohmann::json& j, ViewConfig& config) {
+    const auto it = j.find("levels");
+    if (it == j.end() || !it->is_array()) {
+        return;
+    }
+    const std::size_t n = it->size() < config.levels.size() ? it->size() : config.levels.size();
+    for (std::size_t i = 0; i < n; ++i) {
+        if ((*it)[i].is_boolean()) {
+            config.levels[i] = (*it)[i].get<bool>();
         }
     }
-    read_text_field(j, "text", config.text);
+}
+
+/// @brief Read the timestamp, delta and anomaly threshold fields.
+///
+/// @param j Source object.
+/// @param config Destination view configuration.
+void read_view_modes(const nlohmann::json& j, ViewConfig& config) {
     if (const auto it = j.find("timestamp_mode"); it != j.end()) {
         from_json(*it, config.timestamp_mode);
     }
@@ -73,14 +91,36 @@ void from_json(const nlohmann::json& j, ViewConfig& config) noexcept {
     if (const auto it = j.find("anomaly_threshold_ns"); it != j.end() && it->is_number_unsigned()) {
         config.anomaly_threshold_ns = it->get<std::uint64_t>();
     }
-    if (const auto it = j.find("hidden_apps"); it != j.end() && it->is_array()) {
-        config.hidden_apps.clear();
-        for (const auto& item : *it) {
-            if (item.is_string()) {
-                config.hidden_apps.push_back(item.get<std::string>());
-            }
+}
+
+/// @brief Read the hidden-application list.
+///
+/// @param j Source object.
+/// @param config Destination view configuration.
+void read_view_hidden_apps(const nlohmann::json& j, ViewConfig& config) {
+    const auto it = j.find("hidden_apps");
+    if (it == j.end() || !it->is_array()) {
+        return;
+    }
+    config.hidden_apps.clear();
+    for (const auto& item : *it) {
+        if (item.is_string()) {
+            config.hidden_apps.push_back(item.get<std::string>());
         }
     }
+}
+
+} // namespace
+
+void from_json(const nlohmann::json& j, ViewConfig& config) noexcept {
+    if (!j.is_object()) {
+        return;
+    }
+    read_view_identity(j, config);
+    read_view_levels(j, config);
+    read_text_field(j, "text", config.text);
+    read_view_modes(j, config);
+    read_view_hidden_apps(j, config);
 }
 
 nexigen::core::Status LogViewConfig::validate() const noexcept {

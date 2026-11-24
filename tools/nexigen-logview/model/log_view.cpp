@@ -413,13 +413,7 @@ LogView::previous_attention(std::optional<std::uint64_t> seq) const noexcept {
     return std::nullopt;
 }
 
-CloneAdjustments LogView::copy_state_from(const LogView& other,
-                                          const CloneOptions& options) noexcept {
-    CloneAdjustments adjustments{};
-    const std::uint64_t selection_before = other.selected_count();
-    const std::uint64_t bookmarks_before = other.bookmarked_count();
-    std::uint64_t selection_copied = 0;
-    std::uint64_t bookmarks_copied = 0;
+void LogView::copy_filter_criteria(const LogView& other, const CloneOptions& options) noexcept {
     if (options.levels) {
         filter_.criteria().levels = other.filter_.criteria().levels;
     }
@@ -430,6 +424,9 @@ CloneAdjustments LogView::copy_state_from(const LogView& other,
         filter_.criteria().apps = other.filter_.criteria().apps;
         filter_.criteria().app_filter_active = other.filter_.criteria().app_filter_active;
     }
+}
+
+bool LogView::copy_time_settings(const LogView& other, const CloneOptions& options) noexcept {
     if (options.timestamp_mode) {
         timestamp_mode_ = other.timestamp_mode_;
     }
@@ -439,18 +436,20 @@ CloneAdjustments LogView::copy_state_from(const LogView& other,
     if (options.anomaly_threshold) {
         time_.anomaly_threshold_ns = other.time_.anomaly_threshold_ns;
     }
-    if (options.t0 && other.time_.anchor_ns.has_value()) {
-        if (contains_stamp(static_cast<std::uint64_t>(*other.time_.anchor_ns))) {
-            time_.anchor_ns = other.time_.anchor_ns;
-        } else {
-            adjustments.t0_cleared = true;
-        }
-    } else {
+    if (!options.t0 || !other.time_.anchor_ns.has_value()) {
         time_.anchor_ns.reset();
+        return false;
     }
+    if (!contains_stamp(static_cast<std::uint64_t>(*other.time_.anchor_ns))) {
+        return true;
+    }
+    time_.anchor_ns = other.time_.anchor_ns;
+    return false;
+}
 
-    begin_rebuild();
-    rebuild_now();
+void LogView::replay_view_state(const LogView& other, const CloneOptions& options,
+                                std::uint64_t& selection_copied,
+                                std::uint64_t& bookmarks_copied) noexcept {
     selection_.clear();
     bookmarks_.clear();
     minimap_.clear();
@@ -476,15 +475,34 @@ CloneAdjustments LogView::copy_state_from(const LogView& other,
             minimap_.on_ingest(seq, record->frame->log_level);
         }
     }
+}
 
-    if (options.find && !other.find_.query().empty()) {
-        find_.begin(other.find_.query(), filter_);
-        while (find_.active()) {
-            static_cast<void>(find_.step(filter_, history_, 20'000U));
-        }
-    } else {
+void LogView::rebuild_find(const LogView& other, const CloneOptions& options) noexcept {
+    if (!options.find || other.find_.query().empty()) {
         find_.clear();
+        return;
     }
+    find_.begin(other.find_.query(), filter_);
+    while (find_.active()) {
+        static_cast<void>(find_.step(filter_, history_, 20'000U));
+    }
+}
+
+CloneAdjustments LogView::copy_state_from(const LogView& other,
+                                          const CloneOptions& options) noexcept {
+    CloneAdjustments adjustments{};
+    const std::uint64_t selection_before = other.selected_count();
+    const std::uint64_t bookmarks_before = other.bookmarked_count();
+    std::uint64_t selection_copied = 0;
+    std::uint64_t bookmarks_copied = 0;
+    copy_filter_criteria(other, options);
+    adjustments.t0_cleared = copy_time_settings(other, options);
+
+    begin_rebuild();
+    rebuild_now();
+    replay_view_state(other, options, selection_copied, bookmarks_copied);
+    rebuild_find(other, options);
+
     if (options.selection && selection_before > selection_copied) {
         adjustments.selection_dropped = selection_before - selection_copied;
     }

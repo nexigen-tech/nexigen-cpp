@@ -82,72 +82,104 @@ std::uint64_t dump_records(LogViewModel& model, std::uint64_t limit) {
     return printed;
 }
 
-int run_headless(LogViewModel& model, const CliOptions& options) {
-    if (options.offline) {
-        ImportStats stats{};
-        const auto imported = model.import_now(options.offline_file, stats);
-        if (!imported) {
-            std::fprintf(stderr, "nexigen-logview: cannot open %s\n", options.offline_file.c_str());
-            return 1;
-        }
-        while (model.filter().rebuilding()) {
-            model.step_filter_rebuild(20'000U);
-        }
-        const std::uint64_t limit = options.max_records != 0U ? options.max_records : 0U;
-        static_cast<void>(dump_records(model, limit));
-        std::fprintf(stderr, "nexigen-logview: %s\n", stats.to_string().c_str());
-        return 0;
+/// @brief Import an offline file and dump the requested records.
+///
+/// @param model View model receiving the import.
+/// @param options Parsed command line.
+/// @return Process exit code.
+int run_offline(LogViewModel& model, const CliOptions& options) {
+    ImportStats stats{};
+    const auto imported = model.import_now(options.offline_file, stats);
+    if (!imported) {
+        std::fprintf(stderr, "nexigen-logview: cannot open %s\n", options.offline_file.c_str());
+        return 1;
     }
-    if (options.soak_seconds > 0U) {
-        const auto begin = std::chrono::steady_clock::now();
-        const auto duration = std::chrono::seconds(options.soak_seconds);
-        const auto start_ns =
-            std::chrono::duration_cast<std::chrono::nanoseconds>(begin.time_since_epoch()).count();
-        std::uint64_t produced = 0;
-        std::uint64_t next_report = 60U;
-        while (std::chrono::steady_clock::now() - begin < duration) {
-            for (std::uint64_t i = 0; i < 500U; ++i) {
-                model.ingest_frame(make_mock(produced), 0U);
-                ++produced;
-            }
-            const auto now = std::chrono::steady_clock::now();
-            const auto now_ns =
-                std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch())
-                    .count();
-            timespec cpu_ts{};
-            std::uint64_t cpu_ns = 0;
-            if (::clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu_ts) == 0) {
-                cpu_ns = static_cast<std::uint64_t>(cpu_ts.tv_sec) * 1'000'000'000ULL +
-                         static_cast<std::uint64_t>(cpu_ts.tv_nsec);
-            }
-            static_cast<void>(model.tick(static_cast<std::uint64_t>(now_ns - start_ns), cpu_ns));
-            const auto elapsed =
-                std::chrono::duration_cast<std::chrono::seconds>(now - begin).count();
-            if (static_cast<std::uint64_t>(elapsed) >= next_report) {
-                std::fprintf(stderr, "soak: %llu records, rate=%.0f/s, mode=%s, visible=%llu\n",
-                             static_cast<unsigned long long>(produced), model.rate(),
-                             to_string(model.guard().mode()).data(),
-                             static_cast<unsigned long long>(model.display_count()));
-                next_report += 60U;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-        std::fprintf(stderr, "soak done: %llu records in %llu s, mode=%s\n",
-                     static_cast<unsigned long long>(produced),
-                     static_cast<unsigned long long>(options.soak_seconds),
-                     to_string(model.guard().mode()).data());
-        return 0;
+    while (model.filter().rebuilding()) {
+        model.step_filter_rebuild(20'000U);
     }
-    if (options.mock_records > 0U) {
-        for (std::uint64_t i = 0; i < options.mock_records; ++i) {
-            model.ingest_frame(make_mock(i), 0U);
-        }
-        const std::uint64_t limit =
-            options.max_records != 0U ? options.max_records : options.mock_records;
-        static_cast<void>(dump_records(model, limit));
-        return 0;
-    }
+    const std::uint64_t limit = options.max_records != 0U ? options.max_records : 0U;
+    static_cast<void>(dump_records(model, limit));
+    std::fprintf(stderr, "nexigen-logview: %s\n", stats.to_string().c_str());
+    return 0;
+}
 
+/// @brief Emit one soak progress line when a whole minute has elapsed.
+///
+/// @param model View model supplying the rate, mode and visibility.
+/// @param produced Frames produced so far.
+/// @param next_report Next report threshold in seconds.
+/// @param elapsed Elapsed whole seconds.
+void report_soak(const LogViewModel& model, std::uint64_t produced, std::uint64_t& next_report,
+                 std::int64_t elapsed) {
+    if (static_cast<std::uint64_t>(elapsed) < next_report) {
+        return;
+    }
+    std::fprintf(stderr, "soak: %llu records, rate=%.0f/s, mode=%s, visible=%llu\n",
+                 static_cast<unsigned long long>(produced), model.rate(),
+                 to_string(model.guard().mode()).data(),
+                 static_cast<unsigned long long>(model.display_count()));
+    next_report += 60U;
+}
+
+/// @brief Run the synthetic soak workload for the configured duration.
+///
+/// @param model View model receiving the synthetic frames.
+/// @param options Parsed command line.
+/// @return Process exit code.
+int run_soak(LogViewModel& model, const CliOptions& options) {
+    const auto begin = std::chrono::steady_clock::now();
+    const auto duration = std::chrono::seconds(options.soak_seconds);
+    const auto start_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(begin.time_since_epoch()).count();
+    std::uint64_t produced = 0;
+    std::uint64_t next_report = 60U;
+    while (std::chrono::steady_clock::now() - begin < duration) {
+        for (std::uint64_t i = 0; i < 500U; ++i) {
+            model.ingest_frame(make_mock(produced), 0U);
+            ++produced;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        const auto now_ns =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+        timespec cpu_ts{};
+        std::uint64_t cpu_ns = 0;
+        if (::clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu_ts) == 0) {
+            cpu_ns = static_cast<std::uint64_t>(cpu_ts.tv_sec) * 1'000'000'000ULL +
+                     static_cast<std::uint64_t>(cpu_ts.tv_nsec);
+        }
+        static_cast<void>(model.tick(static_cast<std::uint64_t>(now_ns - start_ns), cpu_ns));
+        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - begin).count();
+        report_soak(model, produced, next_report, elapsed);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    std::fprintf(stderr, "soak done: %llu records in %llu s, mode=%s\n",
+                 static_cast<unsigned long long>(produced),
+                 static_cast<unsigned long long>(options.soak_seconds),
+                 to_string(model.guard().mode()).data());
+    return 0;
+}
+
+/// @brief Ingest a fixed number of synthetic frames and dump them.
+///
+/// @param model View model receiving the synthetic frames.
+/// @param options Parsed command line.
+/// @return Process exit code.
+int run_mock(LogViewModel& model, const CliOptions& options) {
+    for (std::uint64_t i = 0; i < options.mock_records; ++i) {
+        model.ingest_frame(make_mock(i), 0U);
+    }
+    const std::uint64_t limit =
+        options.max_records != 0U ? options.max_records : options.mock_records;
+    static_cast<void>(dump_records(model, limit));
+    return 0;
+}
+
+/// @brief Drain the capture thread until stop or the record limit.
+///
+/// @param model View model receiving the drained frames.
+/// @param options Parsed command line.
+/// @return Process exit code.
+int run_live(LogViewModel& model, const CliOptions& options) {
     std::signal(SIGTERM, on_signal);
     std::signal(SIGINT, on_signal);
     auto capture =
@@ -172,6 +204,19 @@ int run_headless(LogViewModel& model, const CliOptions& options) {
     capture->stop();
     static_cast<void>(dump_records(model, options.max_records));
     return 0;
+}
+
+int run_headless(LogViewModel& model, const CliOptions& options) {
+    if (options.offline) {
+        return run_offline(model, options);
+    }
+    if (options.soak_seconds > 0U) {
+        return run_soak(model, options);
+    }
+    if (options.mock_records > 0U) {
+        return run_mock(model, options);
+    }
+    return run_live(model, options);
 }
 
 } // namespace nexigen::logview

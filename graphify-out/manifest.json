@@ -3174,9 +3174,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logd/main.cpp": {
-    "mtime": 1795466446.6992452,
-    "seen": 1795466536.9219353,
-    "ast_hash": "0fd6bfc1303355274816dc3ef398a1e3",
+    "mtime": 1795489460.105793,
+    "seen": 1795490719.1521268,
+    "ast_hash": "9f7ca92d9d2f1cc93d4638d1ff3ba82f",
     "semantic_hash": ""
   },
   "tools/nexigen-phmd/main.cpp": {
@@ -10368,9 +10368,9 @@
     "semantic_hash": ""
   },
   "benchmarks/recorder/bench_types.cpp": {
-    "mtime": 1794863346.13139,
-    "seen": 1794869257.9156828,
-    "ast_hash": "1c8d16b00cc82f4182623a0ab52647f7",
+    "mtime": 1795489467.849794,
+    "seen": 1795490719.1345747,
+    "ast_hash": "8e02fc157acf5f7c64430ab48aca7716",
     "semantic_hash": ""
   },
   "benchmarks/recorder/bench_types.hpp": {
@@ -13722,9 +13722,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/headless.cpp": {
-    "mtime": 1795469131.8356845,
-    "seen": 1795469332.828819,
-    "ast_hash": "827e7a996f6a5ef9540a36a5d3a17238",
+    "mtime": 1795489460.1019106,
+    "seen": 1795490719.1522224,
+    "ast_hash": "264c1a60f1053885466520a63bde4f6a",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/headless.hpp": {
@@ -13734,9 +13734,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/main.cpp": {
-    "mtime": 1795485082.1286185,
-    "seen": 1795485436.4673903,
-    "ast_hash": "d5827398368b2226ed8a57988f411753",
+    "mtime": 1795489301.6353796,
+    "seen": 1795490719.1522388,
+    "ast_hash": "b9a34eeae54ddfd6832edc96b8052e45",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/model/app_registry.cpp": {
@@ -13836,9 +13836,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/model/importer.cpp": {
-    "mtime": 1795469353.8853388,
-    "seen": 1795469612.030116,
-    "ast_hash": "ce93f3c914fb230fd52f2abbe297cfc1",
+    "mtime": 1795489460.075091,
+    "seen": 1795490719.1525269,
+    "ast_hash": "7145e178472d8af116fa2659a7828378",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/model/importer.hpp": {
@@ -13860,9 +13860,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/model/json_escape.cpp": {
-    "mtime": 1795467673.7321143,
-    "seen": 1795469332.8288422,
-    "ast_hash": "51d4957e6fc231bd8f59beeb260abf52",
+    "mtime": 1795488896.1643,
+    "seen": 1795490719.1526062,
+    "ast_hash": "422bd14ab7f2d33cee51785c71eab644",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/model/json_escape.hpp": {
@@ -13896,9 +13896,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/model/logview_config.cpp": {
-    "mtime": 1795480142.4728868,
-    "seen": 1795481277.1168003,
-    "ast_hash": "db392e25eb84f75093b6043f7d448a37",
+    "mtime": 1795488890.358313,
+    "seen": 1795490719.152693,
+    "ast_hash": "a65e48d1b20318eb3cbaafbfeb850d68",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/model/logview_config.hpp": {
@@ -14004,21 +14004,21 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/tests/logview_model_test.cpp": {
-    "mtime": 1795487223.752132,
-    "seen": 1795487757.4715927,
-    "ast_hash": "46b410ee8dfb5dc75059cda881dcbe88",
+    "mtime": 1795489460.0940256,
+    "seen": 1795490719.153016,
+    "ast_hash": "e26cc2b5b606d6cf03587d1504bf7b12",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/tests/logview_transport_test.cpp": {
-    "mtime": 1795472327.7599013,
-    "seen": 1795472465.3404648,
-    "ast_hash": "d737157ed20b28bcab8f21a32d703ebe",
+    "mtime": 1795489460.0973866,
+    "seen": 1795490719.1530173,
+    "ast_hash": "b34f7f8a3c9ac119304b6e5f23a1f79c",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/ui/logview_window.cpp": {
-    "mtime": 1795487771.3568714,
-    "seen": 1795487818.0738149,
-    "ast_hash": "79f821253fbb984f096d915608af3db1",
+    "mtime": 1795489460.0648572,
+    "seen": 1795490719.1531196,
+    "ast_hash": "20c0255319d351e901b0f5f1b95489f5",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/ui/logview_window.hpp": {
@@ -14214,9 +14214,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/logview/presentation/spec.md": {
-    "mtime": 1795483331.795353,
-    "seen": 1795485436.4909503,
-    "ast_hash": "9380958b24c21b65ea43c370f1d61fcc",
+    "mtime": 1795487951.274457,
+    "seen": 1795490719.1766167,
+    "ast_hash": "1a49749191feb232427680bd01a76f32",
     "semantic_hash": ""
   },
   "openspec/specs/logview/resources/spec.md": {
@@ -14316,15 +14316,15 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/model/log_view.cpp": {
-    "mtime": 1795482549.467823,
-    "seen": 1795482786.007463,
-    "ast_hash": "452d0fa8a29110b8bbbb44e761e2bdc0",
+    "mtime": 1795489460.0693653,
+    "seen": 1795490719.1526546,
+    "ast_hash": "b3bb8cca1e65c9390e441509c53d4861",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/model/log_view.hpp": {
-    "mtime": 1795482540.9860265,
-    "seen": 1795482786.0074651,
-    "ast_hash": "6e891c4a0fb8e0197585ae66f5ebc012",
+    "mtime": 1795488804.9385076,
+    "seen": 1795490719.1526551,
+    "ast_hash": "4abd127bb56c3834c0d5231dd6bd249f",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/tests/ui_view_test.sh": {
@@ -14343,12 +14343,6 @@
     "mtime": 1795485765.6439948,
     "seen": 1795486270.3606765,
     "ast_hash": "340f0a70e95804f091a9e92ea224140a",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-logview-latest-and-splash/.openspec.yaml": {
-    "mtime": 1795484279.0359187,
-    "seen": 1795485436.4593718,
-    "ast_hash": "971ff8ab7957ea0fbaed078220732475",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-24-add-logview-multi-view-tabs/.openspec.yaml": {
@@ -14373,30 +14367,6 @@
     "mtime": 1795485052.1864908,
     "seen": 1795485436.4682858,
     "ast_hash": "bb7d9a4dfc09b713690127c1b5d0b526",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-logview-latest-and-splash/design.md": {
-    "mtime": 1795487727.609972,
-    "seen": 1795487757.4736512,
-    "ast_hash": "b831af4665705496046effbc369a80dd",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-logview-latest-and-splash/proposal.md": {
-    "mtime": 1795484916.1474345,
-    "seen": 1795485436.4701977,
-    "ast_hash": "fc300a6a3491a30df9e3287e40273dce",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-logview-latest-and-splash/specs/logview/presentation/spec.md": {
-    "mtime": 1795484906.1328473,
-    "seen": 1795485436.4701986,
-    "ast_hash": "ad4c1393bd139a56f7aac49254870eea",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-logview-latest-and-splash/tasks.md": {
-    "mtime": 1795486293.80017,
-    "seen": 1795486384.3052588,
-    "ast_hash": "df2533caeb12bd74bf221bccc029b006",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-24-add-logview-multi-view-tabs/design.md": {
@@ -14445,6 +14415,66 @@
     "mtime": 1795485043.6854296,
     "seen": 1795485436.4920497,
     "ast_hash": "f9f0b4dff0d6a5b59f8cb4b98195304a",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-24-add-logview-latest-and-splash/.openspec.yaml": {
+    "mtime": 1795484279.0359187,
+    "seen": 1795490719.1473548,
+    "ast_hash": "971ff8ab7957ea0fbaed078220732475",
+    "semantic_hash": ""
+  },
+  "openspec/changes/split-complexity-hotspots/.openspec.yaml": {
+    "mtime": 1795488651.9678469,
+    "seen": 1795490719.1474514,
+    "ast_hash": "a50a06b8454b88d4bdcbf090faad3904",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-24-add-logview-latest-and-splash/design.md": {
+    "mtime": 1795487727.609972,
+    "seen": 1795490719.17419,
+    "ast_hash": "b831af4665705496046effbc369a80dd",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-24-add-logview-latest-and-splash/proposal.md": {
+    "mtime": 1795484916.1474345,
+    "seen": 1795490719.1741915,
+    "ast_hash": "fc300a6a3491a30df9e3287e40273dce",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-24-add-logview-latest-and-splash/specs/logview/presentation/spec.md": {
+    "mtime": 1795484906.1328473,
+    "seen": 1795490719.1741924,
+    "ast_hash": "ad4c1393bd139a56f7aac49254870eea",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-24-add-logview-latest-and-splash/tasks.md": {
+    "mtime": 1795486293.80017,
+    "seen": 1795490719.1741934,
+    "ast_hash": "df2533caeb12bd74bf221bccc029b006",
+    "semantic_hash": ""
+  },
+  "openspec/changes/split-complexity-hotspots/README.md": {
+    "mtime": 1795488646.673554,
+    "seen": 1795490719.1747725,
+    "ast_hash": "18849c6b3d3205f9995172cc1fca0297",
+    "semantic_hash": ""
+  },
+  "openspec/changes/split-complexity-hotspots/design.md": {
+    "mtime": 1795490690.5184338,
+    "seen": 1795490719.1747732,
+    "ast_hash": "c50abcc8a0e1f6b51af5691c18d7341e",
+    "semantic_hash": ""
+  },
+  "openspec/changes/split-complexity-hotspots/proposal.md": {
+    "mtime": 1795488696.0497553,
+    "seen": 1795490719.1747742,
+    "ast_hash": "907e55503de6c8ed5822ca61e54ab76f",
+    "semantic_hash": ""
+  },
+  "openspec/changes/split-complexity-hotspots/tasks.md": {
+    "mtime": 1795490685.4331825,
+    "seen": 1795490719.1747754,
+    "ast_hash": "e7377730e0eb7f6d03df0b12850ef3c1",
     "semantic_hash": ""
   }
 }

@@ -105,99 +105,181 @@ std::optional<Mode> parse_mode(std::string_view text) noexcept {
     return std::nullopt;
 }
 
+namespace {
+
+/// @brief Whether one option consumes the following argument.
+enum class ArgKind : std::uint8_t {
+    Flag,  ///< Boolean switch without a value.
+    Value, ///< Option that consumes the next argument.
+};
+
+/// @brief Apply one parsed option to the option set.
+using ApplyFn = bool (*)(Options&, std::string_view) noexcept;
+
+/// @brief One accepted command-line option.
+struct OptionSpec {
+    std::string_view name; ///< Exact spelling, including leading dashes.
+    ArgKind kind;          ///< Whether the option takes a value.
+    ApplyFn apply;         ///< Applies the option; `false` rejects the value.
+};
+
+/// @brief Set the help flag.
+bool apply_help(Options& options, std::string_view) noexcept {
+    options.help = true;
+    return true;
+}
+
+/// @brief Set the verify flag.
+bool apply_verify(Options& options, std::string_view) noexcept {
+    options.verify = true;
+    return true;
+}
+
+/// @brief Set the keep-files flag.
+bool apply_keep(Options& options, std::string_view) noexcept {
+    options.keep_files = true;
+    return true;
+}
+
+/// @brief Set the per-frame video CRC flag.
+bool apply_video_crc(Options& options, std::string_view) noexcept {
+    options.video_crc = true;
+    return true;
+}
+
+/// @brief Clear the MCAP chunk CRC flag.
+bool apply_no_chunk_crc(Options& options, std::string_view) noexcept {
+    options.no_chunk_crc = true;
+    return true;
+}
+
+/// @brief Parse and store the workload name.
+bool apply_workload(Options& options, std::string_view value) noexcept {
+    const auto parsed = parse_workload(value);
+    if (!parsed.has_value()) {
+        return false;
+    }
+    options.workload = *parsed;
+    return true;
+}
+
+/// @brief Parse and store the mode name.
+bool apply_mode(Options& options, std::string_view value) noexcept {
+    const auto parsed = parse_mode(value);
+    if (!parsed.has_value()) {
+        return false;
+    }
+    options.mode = *parsed;
+    return true;
+}
+
+/// @brief Parse and store the iteration count.
+bool apply_iterations(Options& options, std::string_view value) noexcept {
+    if (!parse_number(value, options.iterations) || options.iterations == 0U) {
+        return false;
+    }
+    return true;
+}
+
+/// @brief Parse and store the measured seconds per iteration.
+bool apply_seconds(Options& options, std::string_view value) noexcept {
+    if (!parse_number(value, options.seconds) || !std::isfinite(options.seconds) ||
+        options.seconds <= 0.0) {
+        return false;
+    }
+    return true;
+}
+
+/// @brief Store the output directory.
+bool apply_out(Options& options, std::string_view value) noexcept {
+    if (value.empty()) {
+        return false;
+    }
+    options.out_directory = std::string(value);
+    return true;
+}
+
+/// @brief Parse and store the sink kind.
+bool apply_sink(Options& options, std::string_view value) noexcept {
+    if (value == "file") {
+        options.sink = SinkKind::File;
+    } else if (value == "counting") {
+        options.sink = SinkKind::Counting;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+/// @brief The accepted command-line options, in help order.
+constexpr OptionSpec kOptions[] = {
+    {"--help", ArgKind::Flag, apply_help},
+    {"-h", ArgKind::Flag, apply_help},
+    {"--verify", ArgKind::Flag, apply_verify},
+    {"--keep", ArgKind::Flag, apply_keep},
+    {"--video-crc", ArgKind::Flag, apply_video_crc},
+    {"--no-chunk-crc", ArgKind::Flag, apply_no_chunk_crc},
+    {"--workload", ArgKind::Value, apply_workload},
+    {"--mode", ArgKind::Value, apply_mode},
+    {"--iterations", ArgKind::Value, apply_iterations},
+    {"--seconds", ArgKind::Value, apply_seconds},
+    {"--out", ArgKind::Value, apply_out},
+    {"--sink", ArgKind::Value, apply_sink},
+};
+
+/// @brief Find the spec for one argument spelling.
+///
+/// @param name Argument text.
+/// @return The spec, or `nullptr` when the argument is unknown.
+const OptionSpec* find_option(std::string_view name) noexcept {
+    for (const OptionSpec& spec : kOptions) {
+        if (spec.name == name) {
+            return &spec;
+        }
+    }
+    return nullptr;
+}
+
+/// @brief Check that the workload/mode combination is supported.
+///
+/// @param options Parsed options.
+/// @return `true` when the combination matches the table.
+bool combination_valid(const Options& options) noexcept {
+    if (options.help) {
+        return true;
+    }
+    const bool video_workload = is_video(options.workload);
+    if (video_mode(options.mode) != video_workload && !publish_mode(options.mode)) {
+        return false;
+    }
+    if (publish_mode(options.mode) && is_video(options.workload)) {
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
 core::Result<Options> parse_options(int argc, char** argv) noexcept {
     Options options{};
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
-        const auto next = [&]() -> std::string_view {
+        const OptionSpec* const spec = find_option(arg);
+        if (spec == nullptr) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        std::string_view value{};
+        if (spec->kind == ArgKind::Value) {
             if (i + 1 >= argc) {
-                return {};
-            }
-            return std::string_view(argv[++i]);
-        };
-        if (arg == "--help" || arg == "-h") {
-            options.help = true;
-            continue;
-        }
-        if (arg == "--verify") {
-            options.verify = true;
-            continue;
-        }
-        if (arg == "--keep") {
-            options.keep_files = true;
-            continue;
-        }
-        if (arg == "--video-crc") {
-            options.video_crc = true;
-            continue;
-        }
-        if (arg == "--no-chunk-crc") {
-            options.no_chunk_crc = true;
-            continue;
-        }
-        if (arg == "--workload") {
-            const std::string_view value = next();
-            const auto parsed = parse_workload(value);
-            if (!parsed.has_value()) {
                 return std::unexpected(core::ErrorCode::InvalidArgument);
             }
-            options.workload = *parsed;
-            continue;
+            value = std::string_view(argv[++i]);
         }
-        if (arg == "--mode") {
-            const std::string_view value = next();
-            const auto parsed = parse_mode(value);
-            if (!parsed.has_value()) {
-                return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
-            options.mode = *parsed;
-            continue;
+        if (!spec->apply(options, value)) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        if (arg == "--iterations") {
-            const std::string_view value = next();
-            if (!parse_number(value, options.iterations) || options.iterations == 0U) {
-                return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
-            continue;
-        }
-        if (arg == "--seconds") {
-            const std::string_view value = next();
-            if (!parse_number(value, options.seconds) || !std::isfinite(options.seconds) ||
-                options.seconds <= 0.0) {
-                return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
-            continue;
-        }
-        if (arg == "--out") {
-            const std::string_view value = next();
-            if (value.empty()) {
-                return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
-            options.out_directory = std::string(value);
-            continue;
-        }
-        if (arg == "--sink") {
-            const std::string_view value = next();
-            if (value == "file") {
-                options.sink = SinkKind::File;
-            } else if (value == "counting") {
-                options.sink = SinkKind::Counting;
-            } else {
-                return std::unexpected(core::ErrorCode::InvalidArgument);
-            }
-            continue;
-        }
-        return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-
-    if (options.help) {
-        return options;
-    }
-    const bool video_workload = is_video(options.workload);
-    if (video_mode(options.mode) != video_workload && !publish_mode(options.mode)) {
-        return std::unexpected(core::ErrorCode::InvalidArgument);
-    }
-    if (publish_mode(options.mode) && is_video(options.workload)) {
+    if (!combination_valid(options)) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
     return options;

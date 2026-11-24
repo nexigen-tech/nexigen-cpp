@@ -356,6 +356,34 @@ private:
     /// @brief End of the displayed order window.
     [[nodiscard]] std::size_t display_end() const noexcept;
 
+    /// @brief Copy the clone-selected filter criteria from another view.
+    ///
+    /// @param other Source view.
+    /// @param options Clone selection flags.
+    void copy_filter_criteria(const LogView& other, const CloneOptions& options) noexcept;
+    /// @brief Copy the clone-selected time settings, validating the T0 anchor.
+    ///
+    /// @param other Source view.
+    /// @param options Clone selection flags.
+    /// @return `true` when the T0 anchor was dropped because the new history
+    ///         does not contain it.
+    [[nodiscard]] bool copy_time_settings(const LogView& other,
+                                          const CloneOptions& options) noexcept;
+    /// @brief Replay the source view's selection and bookmark flags.
+    ///
+    /// @param other Source view.
+    /// @param options Clone selection flags.
+    /// @param selection_copied Receives the number of copied selections.
+    /// @param bookmarks_copied Receives the number of copied bookmarks.
+    void replay_view_state(const LogView& other, const CloneOptions& options,
+                           std::uint64_t& selection_copied,
+                           std::uint64_t& bookmarks_copied) noexcept;
+    /// @brief Re-run the source view's find query against the new history.
+    ///
+    /// @param other Source view.
+    /// @param options Clone selection flags.
+    void rebuild_find(const LogView& other, const CloneOptions& options) noexcept;
+
     ViewId id_{0};                                          ///< Stable identity.
     ViewKind kind_{ViewKind::All};                          ///< Scope kind.
     bool live_{true};                                       ///< Whether the view follows the ring.

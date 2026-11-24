@@ -932,13 +932,19 @@ void drain_view_rebuilds(LogViewModel& model) {
     }
 }
 
-void suite_views() {
+struct SourceScenario {
+    std::unique_ptr<LogViewModel> model{};
+    ViewId engine{0};
+    ViewId viz{0};
+};
+
+std::optional<SourceScenario> make_source_scenario() {
     LogViewConfig config;
     config.max_memory_mb = 64;
     auto model_result = LogViewModel::create(64ULL * 1024ULL * 1024ULL, config);
     NX_CHECK(model_result.has_value());
     if (!model_result.has_value()) {
-        return;
+        return std::nullopt;
     }
     std::unique_ptr<LogViewModel> model = std::move(*model_result);
     NX_CHECK(model->view_count() == 1U);
@@ -956,16 +962,13 @@ void suite_views() {
     const auto viz = model->create_view(ViewKind::Source, "Viz");
     NX_CHECK(viz.has_value());
     if (!engine.has_value() || !viz.has_value()) {
-        return;
+        return std::nullopt;
     }
     drain_view_rebuilds(*model);
-    LogView* engine_view = model->view(*engine);
-    LogView* viz_view = model->view(*viz);
-    NX_CHECK(engine_view != nullptr);
-    NX_CHECK(viz_view != nullptr);
-    if (engine_view == nullptr || viz_view == nullptr) {
-        return;
-    }
+    return SourceScenario{std::move(model), *engine, *viz};
+}
+
+void assert_source_scope(LogView* engine_view) {
     NX_CHECK(engine_view->kind() == ViewKind::Source);
     NX_CHECK(engine_view->source() == "Engine");
     NX_CHECK(engine_view->display_count() > 0U);
@@ -978,7 +981,9 @@ void suite_views() {
         }
     }
     NX_CHECK(only_engine);
+}
 
+void assert_level_filter(LogViewModel* model, LogView* engine_view, LogView* viz_view) {
     const std::size_t viz_visible = viz_view->display_count();
     engine_view->filter().criteria().levels[static_cast<std::size_t>(core::LogLevel::Error)] =
         false;
@@ -994,7 +999,9 @@ void suite_views() {
         }
     }
     NX_CHECK(no_errors);
+}
 
+void assert_source_mask(LogViewModel* model, LogView* viz_view) {
     // The All view's source mask is local; source views keep their scope.
     LogView* all_view = model->view_at(0);
     NX_CHECK(all_view != nullptr);
@@ -1024,7 +1031,10 @@ void suite_views() {
         model->begin_filter_rebuild(*all_view);
         drain_view_rebuilds(*model);
     }
+}
 
+void assert_view_local_state(LogViewModel* model, ViewId engine, ViewId viz, LogView* engine_view,
+                             LogView* viz_view) {
     const std::uint64_t engine_seq = engine_view->display_at(0);
     engine_view->select_only(engine_seq);
     NX_CHECK(engine_view->is_selected(engine_seq));
@@ -1037,14 +1047,17 @@ void suite_views() {
     NX_CHECK(ui::shortcuts_allowed(true, false));
     NX_CHECK(!ui::shortcuts_allowed(false, false));
     NX_CHECK(!ui::shortcuts_allowed(true, true));
-    model->focus_view(*engine);
+    model->focus_view(engine);
     NX_CHECK(ui::copy_selected(*model).find("Engine") != std::string::npos);
     viz_view->select_only(viz_view->display_at(0));
-    model->focus_view(*viz);
+    model->focus_view(viz);
     NX_CHECK(ui::copy_selected(*model).find("Viz") != std::string::npos);
     NX_CHECK(engine_view->find().matches().capacity() == 0U);
     NX_CHECK(engine_view->filter().capacity() == model->ring().capacity());
+}
 
+void assert_export_lock(LogViewModel* model, ViewId engine, ViewId viz, LogView* engine_view,
+                        LogView* viz_view) {
     // Selection is per view, but only one export writer may run.
     NX_CHECK(engine_view->display_count() > 0U);
     NX_CHECK(viz_view->display_count() > 0U);
@@ -1052,21 +1065,23 @@ void suite_views() {
     viz_view->select_only(viz_view->display_at(0));
     const std::string export_a = temp_path("view-a.jsonl");
     const std::string export_b = temp_path("view-b.jsonl");
-    NX_CHECK(model->start_export(*engine, export_a, ExportFormat::Jsonl).has_value());
-    NX_CHECK(!model->start_export(*viz, export_b, ExportFormat::Jsonl).has_value());
+    NX_CHECK(model->start_export(engine, export_a, ExportFormat::Jsonl).has_value());
+    NX_CHECK(!model->start_export(viz, export_b, ExportFormat::Jsonl).has_value());
     while (model->exporting()) {
         model->step_export(16U);
     }
     NX_CHECK(model->export_stats().written == 1U);
-    NX_CHECK(model->start_export(*viz, export_b, ExportFormat::Jsonl).has_value());
+    NX_CHECK(model->start_export(viz, export_b, ExportFormat::Jsonl).has_value());
     while (model->exporting()) {
         model->step_export(16U);
     }
     NX_CHECK(model->export_stats().written == 1U);
     static_cast<void>(std::remove(export_a.c_str()));
     static_cast<void>(std::remove(export_b.c_str()));
+}
 
-    const auto live_clone = model->clone_view(*engine, CloneMode::Live, CloneOptions{});
+void assert_live_clone(LogViewModel* model, ViewId engine, LogView* engine_view) {
+    const auto live_clone = model->clone_view(engine, CloneMode::Live, CloneOptions{});
     NX_CHECK(live_clone.has_value());
     if (live_clone.has_value()) {
         LogView* clone = model->view(*live_clone);
@@ -1084,7 +1099,9 @@ void suite_views() {
             NX_CHECK(clone->source() == engine_view->source());
         }
     }
+}
 
+void assert_view_limits(LogViewModel* model) {
     // Limits: All, source views, and the live clone fill the LIVE budget.
     for (int i = 0; i < 4; ++i) {
         NX_CHECK(
@@ -1103,7 +1120,9 @@ void suite_views() {
     NX_CHECK(model->focused_id() == focus_before_rejection);
     NX_CHECK(model->create_view(ViewKind::Source, "Reuse").has_value());
     NX_CHECK(model->live_view_count() == 8U);
+}
 
+void assert_view_persistence(LogViewModel* model) {
     const std::size_t default_capacity =
         RecordRing::capacity_for_budget(256ULL * 1024ULL * 1024ULL);
     const std::size_t index_total = LogViewModel::index_bytes_for(default_capacity) * 8U;
@@ -1121,13 +1140,43 @@ void suite_views() {
     NX_CHECK(std::format("{}", restored) == restored.to_string());
 }
 
-void suite_paused_views() {
+void suite_views() {
+    auto scenario = make_source_scenario();
+    if (!scenario.has_value()) {
+        return;
+    }
+    LogViewModel* model = scenario->model.get();
+    const ViewId engine = scenario->engine;
+    const ViewId viz = scenario->viz;
+    LogView* engine_view = model->view(engine);
+    LogView* viz_view = model->view(viz);
+    NX_CHECK(engine_view != nullptr);
+    NX_CHECK(viz_view != nullptr);
+    if (engine_view == nullptr || viz_view == nullptr) {
+        return;
+    }
+    assert_source_scope(engine_view);
+    assert_level_filter(model, engine_view, viz_view);
+    assert_source_mask(model, viz_view);
+    assert_view_local_state(model, engine, viz, engine_view, viz_view);
+    assert_export_lock(model, engine, viz, engine_view, viz_view);
+    assert_live_clone(model, engine, engine_view);
+    assert_view_limits(model);
+    assert_view_persistence(model);
+}
+
+struct PausedScenario {
+    std::unique_ptr<LogViewModel> model{};
+    ViewId engine{0};
+};
+
+std::optional<PausedScenario> make_paused_scenario() {
     LogViewConfig config;
     config.max_memory_mb = 64;
     auto model_result = LogViewModel::create(64ULL * 1024ULL * 1024ULL, config);
     NX_CHECK(model_result.has_value());
     if (!model_result.has_value()) {
-        return;
+        return std::nullopt;
     }
     std::unique_ptr<LogViewModel> model = std::move(*model_result);
     const std::size_t history_records = (kMaxSnapshotRecordBytes / kSnapshotRecordBytes + 40U) * 3U;
@@ -1141,15 +1190,13 @@ void suite_paused_views() {
     const auto engine = model->create_view(ViewKind::Source, "Engine");
     NX_CHECK(engine.has_value());
     if (!engine.has_value()) {
-        return;
-    }
-    LogView* source = model->view(*engine);
-    NX_CHECK(source != nullptr);
-    if (source == nullptr) {
-        return;
+        return std::nullopt;
     }
     drain_view_rebuilds(*model);
+    return PausedScenario{std::move(model), *engine};
+}
 
+std::uint64_t prepare_paused_source(LogViewModel* model, LogView* source) {
     const std::uint64_t old_seq = model->ring().head();
     source->select_only(old_seq);
     NX_CHECK(source->toggle_bookmark(old_seq));
@@ -1163,16 +1210,20 @@ void suite_paused_views() {
         static_cast<void>(source->find().step(source->filter(), source->history(), 1'000U));
     }
     NX_CHECK(source->find().count() > 0U);
+    return old_seq;
+}
 
-    const auto paused = model->clone_view(*engine, CloneMode::Paused, CloneOptions{});
+std::optional<ViewId> assert_paused_clone(LogViewModel* model, ViewId engine,
+                                          std::uint64_t old_seq) {
+    const auto paused = model->clone_view(engine, CloneMode::Paused, CloneOptions{});
     NX_CHECK(paused.has_value());
     if (!paused.has_value()) {
-        return;
+        return std::nullopt;
     }
     LogView* snapshot = model->view(*paused);
     NX_CHECK(snapshot != nullptr);
     if (snapshot == nullptr) {
-        return;
+        return std::nullopt;
     }
     NX_CHECK(!snapshot->live());
     NX_CHECK(snapshot->paused());
@@ -1205,7 +1256,10 @@ void suite_paused_views() {
     NX_CHECK(model->last_clone_status().find("selection") != std::string::npos);
     NX_CHECK(model->last_clone_status().find("bookmarks") != std::string::npos);
     NX_CHECK(model->last_clone_status().find("t0 cleared") != std::string::npos);
+    return *paused;
+}
 
+void assert_all_paused(LogViewModel* model) {
     const auto all_paused =
         model->clone_view(model->view_at(0)->id(), CloneMode::Paused, CloneOptions{});
     NX_CHECK(all_paused.has_value());
@@ -1228,9 +1282,15 @@ void suite_paused_views() {
                      kMaxSnapshotRecordBytes / kSnapshotRecordBytes);
         }
     }
+}
 
+void assert_shared_snapshot(LogViewModel* model, ViewId paused) {
+    LogView* snapshot = model->view(paused);
+    if (snapshot == nullptr) {
+        return;
+    }
     // A paused clone of a paused view shares the immutable snapshot.
-    const auto paused_of_paused = model->clone_view(*paused, CloneMode::Paused, CloneOptions{});
+    const auto paused_of_paused = model->clone_view(paused, CloneMode::Paused, CloneOptions{});
     NX_CHECK(paused_of_paused.has_value());
     if (paused_of_paused.has_value()) {
         LogView* shared = model->view(*paused_of_paused);
@@ -1238,16 +1298,18 @@ void suite_paused_views() {
         NX_CHECK(shared->frozen() == snapshot->frozen());
         NX_CHECK(model->last_clone_status().empty());
     }
+}
 
+void assert_paused_limits(LogViewModel* model, ViewId engine) {
     // PAUSED limit is 16 independent views.
     std::size_t paused_count = model->paused_view_count();
     while (paused_count < kMaxPausedViews) {
-        const auto extra = model->clone_view(*engine, CloneMode::Paused, CloneOptions{});
+        const auto extra = model->clone_view(engine, CloneMode::Paused, CloneOptions{});
         NX_CHECK(extra.has_value());
         ++paused_count;
     }
     NX_CHECK(model->paused_view_count() == kMaxPausedViews);
-    NX_CHECK(!model->clone_view(*engine, CloneMode::Paused, CloneOptions{}).has_value());
+    NX_CHECK(!model->clone_view(engine, CloneMode::Paused, CloneOptions{}).has_value());
     const std::size_t snapshot_limit = kMaxSnapshotRecordBytes / kSnapshotRecordBytes;
     for (std::size_t i = 0; i < model->view_count(); ++i) {
         const LogView* view = model->view_at(i);
@@ -1255,20 +1317,45 @@ void suite_paused_views() {
             NX_CHECK(view->history().size() <= snapshot_limit);
         }
     }
+}
 
+void assert_paused_export(LogViewModel* model, ViewId paused) {
     // A PAUSED export keeps its snapshot alive after the view closes.
-    LogView* export_view = model->view(*paused);
+    LogView* export_view = model->view(paused);
     if (export_view != nullptr && export_view->display_count() > 0U) {
         export_view->select_only(export_view->display_at(0));
         const std::string path = temp_path("paused-export.jsonl");
-        NX_CHECK(model->start_export(*paused, path, ExportFormat::Jsonl).has_value());
-        NX_CHECK(model->close_view(*paused).has_value());
+        NX_CHECK(model->start_export(paused, path, ExportFormat::Jsonl).has_value());
+        NX_CHECK(model->close_view(paused).has_value());
         while (model->exporting()) {
             model->step_export(16U);
         }
         NX_CHECK(model->export_stats().written == 1U);
         static_cast<void>(std::remove(path.c_str()));
     }
+}
+
+void suite_paused_views() {
+    auto scenario = make_paused_scenario();
+    if (!scenario.has_value()) {
+        return;
+    }
+    LogViewModel* model = scenario->model.get();
+    const ViewId engine = scenario->engine;
+    LogView* source = model->view(engine);
+    NX_CHECK(source != nullptr);
+    if (source == nullptr) {
+        return;
+    }
+    const std::uint64_t old_seq = prepare_paused_source(model, source);
+    const auto paused = assert_paused_clone(model, engine, old_seq);
+    if (!paused.has_value()) {
+        return;
+    }
+    assert_all_paused(model);
+    assert_shared_snapshot(model, *paused);
+    assert_paused_limits(model, engine);
+    assert_paused_export(model, *paused);
 }
 
 void suite_view_config_defaults() {

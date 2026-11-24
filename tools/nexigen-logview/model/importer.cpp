@@ -127,108 +127,203 @@ bool parse_digits(std::string_view text, std::size_t offset, std::size_t width,
 
 } // namespace
 
-bool parse_iso8601_ns(std::string_view text, std::int64_t& out) noexcept {
-    // Fixed shape from chrono::format_utc_iso8601_ns: YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ
-    if (text.size() != 30U || text[4] != '-' || text[7] != '-' || text[10] != 'T' ||
-        text[13] != ':' || text[16] != ':' || text[19] != '.' || text[29] != 'Z') {
-        return false;
-    }
-    std::int64_t year = 0;
-    std::int64_t month = 0;
-    std::int64_t day = 0;
-    std::int64_t hour = 0;
-    std::int64_t minute = 0;
-    std::int64_t second = 0;
-    std::int64_t nanos = 0;
-    if (!parse_digits(text, 0, 4, year) || !parse_digits(text, 5, 2, month) ||
-        !parse_digits(text, 8, 2, day) || !parse_digits(text, 11, 2, hour) ||
-        !parse_digits(text, 14, 2, minute) || !parse_digits(text, 17, 2, second) ||
-        !parse_digits(text, 20, 9, nanos)) {
-        return false;
-    }
-    // Howard Hinnant's days_from_civil.
-    const std::int64_t y = year - (month <= 2 ? 1 : 0);
+namespace {
+
+/// @brief The seven numeric fields of a fixed-shape ISO-8601 UTC stamp.
+struct IsoFields {
+    std::int64_t year{0};
+    std::int64_t month{0};
+    std::int64_t day{0};
+    std::int64_t hour{0};
+    std::int64_t minute{0};
+    std::int64_t second{0};
+    std::int64_t nanos{0};
+};
+
+/// @brief Whether `text` has the exact `YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ` shape.
+///
+/// @param text Candidate stamp.
+/// @return `true` when every separator sits at its fixed offset.
+[[nodiscard]] bool match_iso8601_shape(std::string_view text) noexcept {
+    return text.size() == 30U && text[4] == '-' && text[7] == '-' && text[10] == 'T' &&
+           text[13] == ':' && text[16] == ':' && text[19] == '.' && text[29] == 'Z';
+}
+
+/// @brief Read the seven numeric fields of a shaped ISO-8601 stamp.
+///
+/// @param text Stamp that already passed `match_iso8601_shape`.
+/// @param fields Receives the parsed fields.
+/// @return `true` when every field is all digits.
+[[nodiscard]] bool extract_iso8601_fields(std::string_view text, IsoFields& fields) noexcept {
+    return parse_digits(text, 0, 4, fields.year) && parse_digits(text, 5, 2, fields.month) &&
+           parse_digits(text, 8, 2, fields.day) && parse_digits(text, 11, 2, fields.hour) &&
+           parse_digits(text, 14, 2, fields.minute) && parse_digits(text, 17, 2, fields.second) &&
+           parse_digits(text, 20, 9, fields.nanos);
+}
+
+/// @brief Convert civil UTC fields to a Unix-epoch nanosecond count.
+///
+/// Uses Howard Hinnant's `days_from_civil` algorithm.
+///
+/// @param fields Parsed stamp fields.
+/// @return Nanoseconds since the Unix epoch.
+[[nodiscard]] std::int64_t civil_to_epoch_ns(const IsoFields& fields) noexcept {
+    const std::int64_t y = fields.year - (fields.month <= 2 ? 1 : 0);
     const std::int64_t era = (y >= 0 ? y : y - 399) / 400;
     const std::int64_t yoe = y - era * 400;
-    const std::int64_t doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    const std::int64_t doy =
+        (153 * (fields.month + (fields.month > 2 ? -3 : 9)) + 2) / 5 + fields.day - 1;
     const std::int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     const std::int64_t days = era * 146097 + doe - 719468;
-    out = (((days * 24 + hour) * 60 + minute) * 60 + second) * 1'000'000'000 + nanos;
+    return (((days * 24 + fields.hour) * 60 + fields.minute) * 60 + fields.second) * 1'000'000'000 +
+           fields.nanos;
+}
+
+/// @brief One record recovered from a JSON-lines or text line.
+struct JsonRecord {
+    std::string app{};
+    std::string message{};
+    std::uint64_t mono_ns{0};
+    std::uint64_t thread_id{0};
+    std::uint64_t pid{0};
+    nexigen::core::LogLevel level{nexigen::core::LogLevel::Info};
+    bool have_message{false};
+};
+
+} // namespace
+
+bool parse_iso8601_ns(std::string_view text, std::int64_t& out) noexcept {
+    // Fixed shape from chrono::format_utc_iso8601_ns: YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ
+    IsoFields fields{};
+    if (!match_iso8601_shape(text) || !extract_iso8601_fields(text, fields)) {
+        return false;
+    }
+    out = civil_to_epoch_ns(fields);
     return true;
 }
+
+namespace {
+
+/// @brief Fill one record from a parsed JSON object and update the UTC offset.
+///
+/// @param json Parsed object.
+/// @param record Receives the fields.
+/// @param stats Import statistics; first-seen UTC offset is recorded.
+void fill_json_record(const nlohmann::json& json, JsonRecord& record, ImportStats& stats) noexcept {
+    static_cast<void>(parse_int(json, "mono_ns", record.mono_ns));
+    static_cast<void>(parse_int(json, "thread_id", record.thread_id));
+    static_cast<void>(parse_int(json, "pid", record.pid));
+    record.app = read_string(json, "app");
+    record.message = read_string(json, "message");
+    record.have_message = true;
+    if (const std::string level_text = read_string(json, "level"); !level_text.empty()) {
+        static_cast<void>(nexigen::core::from_string(level_text, record.level));
+    }
+    // The exported timestamp is UTC; mono_ns is authoritative for deltas.
+    const std::string timestamp = read_string(json, "timestamp");
+    std::int64_t parsed_utc = 0;
+    const bool have_utc = parse_iso8601_ns(timestamp, parsed_utc);
+    if (record.mono_ns == 0U && have_utc) {
+        record.mono_ns = static_cast<std::uint64_t>(parsed_utc);
+    }
+    if (have_utc && record.mono_ns != 0U && !stats.utc_offset_ns.has_value()) {
+        stats.utc_offset_ns = parsed_utc - static_cast<std::int64_t>(record.mono_ns);
+    }
+}
+
+/// @brief Recover the fields of a JSON line that no longer parses.
+///
+/// The daemon writes the message with `%.*s`, so a quote or newline can break
+/// the JSON. Only the message is mandatory; app and level are best-effort.
+///
+/// @param line Raw line.
+/// @param record Receives the recovered fields.
+/// @param stats Import statistics; a missing message counts as malformed.
+/// @return `true` when the message field was recovered.
+[[nodiscard]] bool recover_loose_record(std::string_view line, JsonRecord& record,
+                                        ImportStats& stats) noexcept {
+    const auto loose_message = loose_field(line, "message");
+    if (!loose_message.has_value()) {
+        ++stats.malformed;
+        return false;
+    }
+    record.message = *loose_message;
+    record.app = loose_field(line, "app").value_or("");
+    if (const auto loose_level = loose_field(line, "level"); loose_level.has_value()) {
+        static_cast<void>(nexigen::core::from_string(*loose_level, record.level));
+    }
+    record.have_message = true;
+    return true;
+}
+
+/// @brief Track the first boot identifier and detect a mixed-boot file.
+///
+/// @param boot Boot identifier from the record, empty when absent.
+/// @param stats Import statistics.
+void note_boot(std::string_view boot, ImportStats& stats) noexcept {
+    if (boot.empty()) {
+        return;
+    }
+    if (stats.first_boot.empty()) {
+        stats.first_boot = boot;
+        return;
+    }
+    if (stats.first_boot != boot) {
+        stats.mixed_boot = true;
+    }
+}
+
+/// @brief Import one JSON-lines record.
+///
+/// @param line Raw line starting with `{`.
+/// @param ring Destination ring.
+/// @param stats Import statistics.
+/// @return `true` when a record was appended.
+[[nodiscard]] bool import_json_line(std::string_view line, RecordRing& ring,
+                                    ImportStats& stats) noexcept {
+    const nlohmann::json json = nlohmann::json::parse(line, nullptr, false);
+    JsonRecord record{};
+    if (!json.is_discarded() && json.is_object()) {
+        fill_json_record(json, record, stats);
+        note_boot(read_string(json, "boot"), stats);
+    } else if (!recover_loose_record(line, record, stats)) {
+        return false;
+    }
+    if (!record.have_message) {
+        ++stats.malformed;
+        return false;
+    }
+    ring.push_frame(make_frame(record.mono_ns, record.app, record.level,
+                               static_cast<std::uint32_t>(record.thread_id),
+                               static_cast<std::uint32_t>(record.pid), record.message));
+    ++stats.imported;
+    return true;
+}
+
+/// @brief Import one plain-text line with an inferred level.
+///
+/// @param line Raw line.
+/// @param ring Destination ring.
+/// @param stats Import statistics.
+/// @return Always `true`.
+[[nodiscard]] bool import_text_line(std::string_view line, RecordRing& ring,
+                                    ImportStats& stats) noexcept {
+    ++stats.plain;
+    ring.push_frame(make_frame(0, "", infer_level(line), 0, 0, line));
+    ++stats.imported;
+    return true;
+}
+
+} // namespace
 
 bool import_line(std::string_view line, RecordRing& ring, ImportStats& stats) noexcept {
     if (line.empty()) {
         return false;
     }
     if (line.front() == '{') {
-        nlohmann::json json = nlohmann::json::parse(line, nullptr, false);
-        std::string app;
-        std::string message;
-        std::uint64_t mono_ns = 0;
-        std::uint64_t thread_id = 0;
-        std::uint64_t pid = 0;
-        nexigen::core::LogLevel level = nexigen::core::LogLevel::Info;
-        bool have_message = false;
-        if (!json.is_discarded() && json.is_object()) {
-            static_cast<void>(parse_int(json, "mono_ns", mono_ns));
-            static_cast<void>(parse_int(json, "thread_id", thread_id));
-            static_cast<void>(parse_int(json, "pid", pid));
-            app = read_string(json, "app");
-            message = read_string(json, "message");
-            have_message = true;
-            if (const std::string level_text = read_string(json, "level"); !level_text.empty()) {
-                static_cast<void>(nexigen::core::from_string(level_text, level));
-            }
-            if (const auto it = json.find("timestamp"); it != json.end() && it->is_string()) {
-                // The exported timestamp is UTC; mono_ns is authoritative for deltas.
-                static_cast<void>(it);
-            }
-            const std::string timestamp = read_string(json, "timestamp");
-            std::int64_t parsed_utc = 0;
-            const bool have_utc = parse_iso8601_ns(timestamp, parsed_utc);
-            if (mono_ns == 0U && have_utc) {
-                mono_ns = static_cast<std::uint64_t>(parsed_utc);
-            }
-            if (have_utc && mono_ns != 0U && !stats.utc_offset_ns.has_value()) {
-                stats.utc_offset_ns = parsed_utc - static_cast<std::int64_t>(mono_ns);
-            }
-        } else {
-            // The daemon writes the message with %.*s, so a quote or newline can
-            // break the JSON. Recover the fields when possible.
-            const auto loose_message = loose_field(line, "message");
-            if (!loose_message.has_value()) {
-                ++stats.malformed;
-                return false;
-            }
-            message = *loose_message;
-            app = loose_field(line, "app").value_or("");
-            if (const auto loose_level = loose_field(line, "level"); loose_level.has_value()) {
-                static_cast<void>(nexigen::core::from_string(*loose_level, level));
-            }
-            have_message = true;
-        }
-        if (!have_message) {
-            ++stats.malformed;
-            return false;
-        }
-        const std::string boot = json.is_discarded() ? std::string{} : read_string(json, "boot");
-        if (!boot.empty()) {
-            if (stats.first_boot.empty()) {
-                stats.first_boot = boot;
-            } else if (stats.first_boot != boot) {
-                stats.mixed_boot = true;
-            }
-        }
-        ring.push_frame(make_frame(mono_ns, app, level, static_cast<std::uint32_t>(thread_id),
-                                   static_cast<std::uint32_t>(pid), message));
-        ++stats.imported;
-        return true;
+        return import_json_line(line, ring, stats);
     }
-    ++stats.plain;
-    ring.push_frame(make_frame(0, "", infer_level(line), 0, 0, line));
-    ++stats.imported;
-    return true;
+    return import_text_line(line, ring, stats);
 }
 
 nexigen::core::Result<std::unique_ptr<ImportSession>> ImportSession::open(const std::string& path) {
