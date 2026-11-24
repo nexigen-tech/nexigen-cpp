@@ -1464,6 +1464,182 @@ void suite_clone_options() {
     NX_CHECK(model->last_clone_status().empty());
 }
 
+void suite_navigation_queries() {
+    LogViewConfig config;
+    config.max_memory_mb = 64;
+    auto model_result = LogViewModel::create(64ULL * 1024ULL * 1024ULL, config);
+    NX_CHECK(model_result.has_value());
+    if (!model_result.has_value()) {
+        return;
+    }
+    std::unique_ptr<LogViewModel> model = std::move(*model_result);
+    for (std::uint64_t i = 0; i < 12; ++i) {
+        model->ingest_frame(make_frame(1'000U + i, i % 2 == 0U ? "Engine" : "Viz",
+                                       core::LogLevel::Info, i % 3 == 0U ? "needle" : "haystack"),
+                            0U);
+    }
+    const auto source_id = model->create_view(ViewKind::Source, "Engine");
+    NX_CHECK(source_id.has_value());
+    if (!source_id.has_value()) {
+        return;
+    }
+    drain_view_rebuilds(*model);
+    LogView* source = model->view(*source_id);
+    NX_CHECK(source != nullptr);
+    if (source == nullptr) {
+        return;
+    }
+    NX_CHECK(ui::first_visible_sequence(*source) == source->display_at(0));
+    NX_CHECK(ui::last_visible_sequence(*source) ==
+             source->display_at(source->display_count() - 1U));
+    NX_CHECK(!ui::first_visible_sequence(*source).has_value() == (source->display_count() == 0U));
+    NX_CHECK(ui::auto_scroll_active(true, true, false));
+    NX_CHECK(!ui::auto_scroll_active(false, true, false));
+    NX_CHECK(!ui::auto_scroll_active(true, true, true));
+    NX_CHECK(!ui::auto_scroll_active(true, false, false));
+    NX_CHECK(ui::manual_scroll_disables_auto_scroll(true, true));
+    NX_CHECK(!ui::manual_scroll_disables_auto_scroll(true, false));
+    NX_CHECK(!ui::manual_scroll_disables_auto_scroll(false, true));
+    NX_CHECK(ui::shortcuts_allowed(true, false));
+    NX_CHECK(!ui::shortcuts_allowed(true, true));
+    NX_CHECK(!ui::shortcuts_allowed(false, false));
+
+    source->set_paused(true);
+    NX_CHECK(ui::first_visible_sequence(*source) == source->display_at(0));
+    NX_CHECK(ui::last_visible_sequence(*source) ==
+             source->display_at(source->display_count() - 1U));
+    source->set_paused(false);
+
+    source->filter().criteria().text = "needle";
+    model->begin_filter_rebuild(*source);
+    drain_view_rebuilds(*model);
+    if (source->display_count() > 0U) {
+        NX_CHECK(ui::first_visible_sequence(*source) == source->display_at(0));
+        NX_CHECK(ui::last_visible_sequence(*source) ==
+                 source->display_at(source->display_count() - 1U));
+    }
+    source->filter().criteria().text = "absent";
+    model->begin_filter_rebuild(*source);
+    drain_view_rebuilds(*model);
+    NX_CHECK(!ui::first_visible_sequence(*source).has_value());
+    NX_CHECK(!ui::last_visible_sequence(*source).has_value());
+
+    const auto snapshot_id = model->clone_view(*source_id, CloneMode::Paused, CloneOptions{});
+    NX_CHECK(snapshot_id.has_value());
+    if (snapshot_id.has_value()) {
+        LogView* snapshot = model->view(*snapshot_id);
+        NX_CHECK(snapshot != nullptr);
+        if (snapshot != nullptr) {
+            if (snapshot->display_count() == 0U) {
+                snapshot->filter().criteria().text.clear();
+                snapshot->begin_rebuild();
+                drain_view_rebuilds(*model);
+            }
+            if (snapshot->display_count() > 0U) {
+                NX_CHECK(ui::first_visible_sequence(*snapshot) == snapshot->display_at(0));
+                NX_CHECK(ui::last_visible_sequence(*snapshot) ==
+                         snapshot->display_at(snapshot->display_count() - 1U));
+            }
+        }
+    }
+}
+
+void suite_navigation_actions() {
+    LogViewConfig config;
+    config.max_memory_mb = 64;
+    auto model_result = LogViewModel::create(64ULL * 1024ULL * 1024ULL, config);
+    NX_CHECK(model_result.has_value());
+    if (!model_result.has_value()) {
+        return;
+    }
+    std::unique_ptr<LogViewModel> model = std::move(*model_result);
+    for (std::uint64_t i = 0; i < 12; ++i) {
+        model->ingest_frame(make_frame(2'000U + i, i % 2 == 0U ? "Engine" : "Viz",
+                                       core::LogLevel::Info, i % 3 == 0U ? "needle" : "haystack"),
+                            0U);
+    }
+    NX_CHECK(model->view_count() > 0U);
+    if (model->view_count() == 0U) {
+        return;
+    }
+    drain_view_rebuilds(*model);
+    LogView* view = model->view_at(0);
+    NX_CHECK(view != nullptr);
+    if (view == nullptr) {
+        return;
+    }
+    NX_CHECK(view->display_count() > 1U);
+
+    ui::ViewScrollState nav{};
+    NX_CHECK(nav.auto_scroll);
+    NX_CHECK(!nav.scroll_to.has_value());
+
+    const std::uint64_t selected = view->display_at(1);
+    view->select_only(selected);
+    NX_CHECK(view->toggle_bookmark(selected));
+    const auto record = view->history().find(selected);
+    NX_CHECK(record.has_value());
+    if (record.has_value()) {
+        view->time().set_anchor(static_cast<std::int64_t>(record->frame->timestamp_ns));
+    }
+    const std::uint64_t bookmarks_before = view->bookmarked_count();
+    const auto selected_before = view->last_selected();
+    const auto anchor_before = view->time().anchor_ns;
+    const auto levels_before = view->filter().criteria().levels;
+    view->set_paused(true);
+
+    ui::navigate_first(*view, nav);
+    NX_CHECK(nav.scroll_to == ui::first_visible_sequence(*view));
+    NX_CHECK(!nav.auto_scroll);
+    NX_CHECK(view->last_selected() == selected_before);
+    NX_CHECK(view->bookmarked_count() == bookmarks_before);
+    NX_CHECK(view->time().anchor_ns == anchor_before);
+    NX_CHECK(view->paused());
+    NX_CHECK(view->filter().criteria().levels == levels_before);
+
+    nav.scroll_to.reset();
+    ui::navigate_last(*view, nav);
+    NX_CHECK(nav.scroll_to == ui::last_visible_sequence(*view));
+    NX_CHECK(!nav.auto_scroll);
+
+    nav.auto_scroll = true;
+    nav.scroll_to.reset();
+    ui::navigate_last(*view, nav);
+    NX_CHECK(nav.scroll_to == ui::last_visible_sequence(*view));
+    NX_CHECK(nav.auto_scroll);
+
+    view->set_paused(false);
+
+    ui::toggle_auto_scroll(*view, nav);
+    NX_CHECK(!nav.auto_scroll);
+    ui::toggle_auto_scroll(*view, nav);
+    NX_CHECK(nav.auto_scroll);
+    NX_CHECK(nav.scroll_to == ui::last_visible_sequence(*view));
+
+    view->filter().criteria().text = "needle";
+    model->begin_filter_rebuild(*view);
+    drain_view_rebuilds(*model);
+    NX_CHECK(view->display_count() > 0U);
+    NX_CHECK(view->display_count() < 12U);
+    nav.scroll_to.reset();
+    ui::navigate_first(*view, nav);
+    NX_CHECK(nav.scroll_to == ui::first_visible_sequence(*view));
+    NX_CHECK(nav.scroll_to == view->display_at(0));
+
+    view->filter().criteria().text = "absent";
+    model->begin_filter_rebuild(*view);
+    drain_view_rebuilds(*model);
+    NX_CHECK(view->display_count() == 0U);
+    ui::ViewScrollState empty{};
+    empty.auto_scroll = false;
+    ui::navigate_first(*view, empty);
+    NX_CHECK(!empty.scroll_to.has_value());
+    NX_CHECK(!empty.auto_scroll);
+    ui::navigate_last(*view, empty);
+    NX_CHECK(!empty.scroll_to.has_value());
+    NX_CHECK(!empty.auto_scroll);
+}
+
 } // namespace
 
 int main() {
@@ -1487,6 +1663,8 @@ int main() {
     suite_snapshot_budget();
     suite_all_reopen();
     suite_clone_options();
+    suite_navigation_queries();
+    suite_navigation_actions();
     suite_scale();
     suite_allocation();
     suite_memory_budget();

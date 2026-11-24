@@ -3366,9 +3366,9 @@
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1795480943.398115,
-    "seen": 1795481277.1180763,
-    "ast_hash": "64f1deafd8c854fca6db61bac79c74ec",
+    "mtime": 1795485213.5320191,
+    "seen": 1795485436.4692037,
+    "ast_hash": "db89ecf5cc197801a75c70fded8cad15",
     "semantic_hash": ""
   },
   "docs/code-analysis-2026-11-03.md": {
@@ -8220,9 +8220,9 @@
     "semantic_hash": ""
   },
   "examples/integration/suite_2_apps/ex_generator.cpp": {
-    "mtime": 1795366983.1676502,
-    "seen": 1795378087.7220778,
-    "ast_hash": "c78fa6563dd1ff519011c9ecc7822f84",
+    "mtime": 1795483981.5269263,
+    "seen": 1795485436.4507456,
+    "ast_hash": "5f7398f96f6c8ebdc354cfad045fc022",
     "semantic_hash": ""
   },
   "examples/integration/suite_2_apps/ex_receiver.cpp": {
@@ -13710,15 +13710,15 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/cli.cpp": {
-    "mtime": 1795482934.783718,
-    "seen": 1795483108.3416314,
-    "ast_hash": "283ab9c0900242dd9724b6d40c5c584d",
+    "mtime": 1795485082.128569,
+    "seen": 1795485436.4673567,
+    "ast_hash": "24186d6e112d0613bcc6b4ad6828e295",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/cli.hpp": {
-    "mtime": 1795482934.7836118,
-    "seen": 1795483108.3416338,
-    "ast_hash": "6cb10c9fec86b25715b387a543831343",
+    "mtime": 1795485082.1284647,
+    "seen": 1795485436.4673584,
+    "ast_hash": "2f713db83fec5b5add3bc803117dcd9f",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/headless.cpp": {
@@ -13734,9 +13734,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/main.cpp": {
-    "mtime": 1795482934.7837698,
-    "seen": 1795483108.341666,
-    "ast_hash": "e38cd2521d5327b7af5c2cd63ac52467",
+    "mtime": 1795485082.1286185,
+    "seen": 1795485436.4673903,
+    "ast_hash": "d5827398368b2226ed8a57988f411753",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/model/app_registry.cpp": {
@@ -14004,9 +14004,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/tests/logview_model_test.cpp": {
-    "mtime": 1795482673.8392365,
-    "seen": 1795482786.0078754,
-    "ast_hash": "6527cca84efab55f5da7b0491b31fdcd",
+    "mtime": 1795487223.752132,
+    "seen": 1795487757.4715927,
+    "ast_hash": "46b410ee8dfb5dc75059cda881dcbe88",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/tests/logview_transport_test.cpp": {
@@ -14016,15 +14016,15 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/ui/logview_window.cpp": {
-    "mtime": 1795483028.8789306,
-    "seen": 1795483108.3426192,
-    "ast_hash": "e6224501df4db479d5f9e0180d3a0e23",
+    "mtime": 1795487771.3568714,
+    "seen": 1795487818.0738149,
+    "ast_hash": "79f821253fbb984f096d915608af3db1",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/ui/logview_window.hpp": {
-    "mtime": 1795482934.7838078,
-    "seen": 1795483108.3426201,
-    "ast_hash": "1f525840efa70274a9f39a9a0175cc1d",
+    "mtime": 1795485082.128656,
+    "seen": 1795485436.468283,
+    "ast_hash": "c2ce0cd3315f665ce8a22224b5f9d85b",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/ui/theme.cpp": {
@@ -14040,9 +14040,9 @@
     "semantic_hash": ""
   },
   "docs/articles/log-viewer.md": {
-    "mtime": 1795482722.0193172,
-    "seen": 1795482786.0090363,
-    "ast_hash": "2d041f6ac0f903675dc7a9aeef4db86f",
+    "mtime": 1795485208.7059295,
+    "seen": 1795485436.4693246,
+    "ast_hash": "6dceb5bc17cc15b6f88a416cf73864dc",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-23-fix-log-subscriber-capacity/design.md": {
@@ -14076,9 +14076,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/CMakeLists.txt": {
-    "mtime": 1795483037.5473778,
-    "seen": 1795483108.3675418,
-    "ast_hash": "3f94254f2d1e75cba907479ab12efc88",
+    "mtime": 1795485178.5633795,
+    "seen": 1795485436.4920158,
+    "ast_hash": "57c8238d6306297c183c92e2fff9930a",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/assets/OFL.txt": {
@@ -14100,15 +14100,15 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/model/ui_actions.cpp": {
-    "mtime": 1795482567.0344608,
-    "seen": 1795482786.0078726,
-    "ast_hash": "6f06bcf7eb36902da00932796e894a93",
+    "mtime": 1795487081.1684425,
+    "seen": 1795487757.4715896,
+    "ast_hash": "b1cfedf59c93c983661b16d367c95bb8",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/model/ui_actions.hpp": {
-    "mtime": 1795482567.0343597,
-    "seen": 1795482786.007874,
-    "ast_hash": "31e0b606833e1a4b4a719c52fe1aed3a",
+    "mtime": 1795487078.3924484,
+    "seen": 1795487757.4715915,
+    "ast_hash": "8f20ca116041313b48579b863b751daa",
     "semantic_hash": ""
   },
   "tools/nexigen-logview/tests/ui_actions_test.sh": {
@@ -14214,15 +14214,15 @@
     "semantic_hash": ""
   },
   "openspec/specs/logview/presentation/spec.md": {
-    "mtime": 1795476376.9793286,
-    "seen": 1795476403.6067083,
-    "ast_hash": "1ccf6223612d60c1f245159c116f4bc7",
+    "mtime": 1795483331.795353,
+    "seen": 1795485436.4909503,
+    "ast_hash": "9380958b24c21b65ea43c370f1d61fcc",
     "semantic_hash": ""
   },
   "openspec/specs/logview/resources/spec.md": {
-    "mtime": 1795472790.9798665,
-    "seen": 1795472848.2013366,
-    "ast_hash": "4683f5f9c33eb49f35fe9acedf53d809",
+    "mtime": 1795483320.953568,
+    "seen": 1795485436.4909518,
+    "ast_hash": "4c34fbca37c9f2a925c488fcb9dea455",
     "semantic_hash": ""
   },
   "openspec/specs/logview/time/spec.md": {
@@ -14303,48 +14303,6 @@
     "ast_hash": "46059e592b0efb9c30bb7d42565b8fef",
     "semantic_hash": ""
   },
-  "openspec/changes/add-logview-multi-view-tabs/.openspec.yaml": {
-    "mtime": 1795479615.9511247,
-    "seen": 1795479756.7279468,
-    "ast_hash": "971ff8ab7957ea0fbaed078220732475",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-logview-multi-view-tabs/design.md": {
-    "mtime": 1795481193.3085792,
-    "seen": 1795481277.1191075,
-    "ast_hash": "168dd43f25259b63e6a847d9b74c703b",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-logview-multi-view-tabs/proposal.md": {
-    "mtime": 1795479652.8580396,
-    "seen": 1795479756.7388387,
-    "ast_hash": "4aedfcbe3e7ba1ee509a4c5a073b0f6d",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-logview-multi-view-tabs/specs/logview/presentation/spec.md": {
-    "mtime": 1795479731.6812215,
-    "seen": 1795479756.7388396,
-    "ast_hash": "edb6287f220d397d860616c9f4c96bac",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-logview-multi-view-tabs/specs/logview/resources/spec.md": {
-    "mtime": 1795479731.6813166,
-    "seen": 1795479756.7388408,
-    "ast_hash": "090911f17c4fb3ac434088924251af9b",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-logview-multi-view-tabs/specs/logview/views/spec.md": {
-    "mtime": 1795479731.6813607,
-    "seen": 1795479756.7388418,
-    "ast_hash": "a3581b2f4ee0aead43a4a06d8c4afaf6",
-    "semantic_hash": ""
-  },
-  "openspec/changes/add-logview-multi-view-tabs/tasks.md": {
-    "mtime": 1795481280.8412595,
-    "seen": 1795481463.622273,
-    "ast_hash": "cbe714c8e7e60a3519408696a219703c",
-    "semantic_hash": ""
-  },
   "tools/nexigen-logview/model/history_source.cpp": {
     "mtime": 1795481474.4862278,
     "seen": 1795481530.7864301,
@@ -14370,9 +14328,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/tests/ui_view_test.sh": {
-    "mtime": 1795483115.8420432,
-    "seen": 1795483187.4707704,
-    "ast_hash": "c0d408813eb6eb5a91848e0e424c9d25",
+    "mtime": 1795487186.005219,
+    "seen": 1795487757.4716828,
+    "ast_hash": "f771d9affee9761d8ef596a35b5910c3",
     "semantic_hash": ""
   },
   "images/nexigen_1360x768.png": {
@@ -14382,9 +14340,111 @@
     "semantic_hash": ""
   },
   "tools/nexigen-logview/tests/ui_focus_test.sh": {
-    "mtime": 1795483115.8421338,
-    "seen": 1795483187.4707348,
-    "ast_hash": "9405f8741757b049aaec9e0acea21722",
+    "mtime": 1795485765.6439948,
+    "seen": 1795486270.3606765,
+    "ast_hash": "340f0a70e95804f091a9e92ea224140a",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-logview-latest-and-splash/.openspec.yaml": {
+    "mtime": 1795484279.0359187,
+    "seen": 1795485436.4593718,
+    "ast_hash": "971ff8ab7957ea0fbaed078220732475",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-24-add-logview-multi-view-tabs/.openspec.yaml": {
+    "mtime": 1795479615.9511247,
+    "seen": 1795485436.4623964,
+    "ast_hash": "971ff8ab7957ea0fbaed078220732475",
+    "semantic_hash": ""
+  },
+  "tools/nexigen-logview/tests/ui_splash_test.sh": {
+    "mtime": 1795487189.6972103,
+    "seen": 1795487757.4716816,
+    "ast_hash": "c7e0f0c6edbb6f1e49c7eaaaa5adfe81",
+    "semantic_hash": ""
+  },
+  "tools/nexigen-logview/ui/splash_image.cpp": {
+    "mtime": 1795486305.2938344,
+    "seen": 1795486384.30326,
+    "ast_hash": "5f3646bda612c7abe804c84ca0ecccaf",
+    "semantic_hash": ""
+  },
+  "tools/nexigen-logview/ui/splash_image.hpp": {
+    "mtime": 1795485052.1864908,
+    "seen": 1795485436.4682858,
+    "ast_hash": "bb7d9a4dfc09b713690127c1b5d0b526",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-logview-latest-and-splash/design.md": {
+    "mtime": 1795487727.609972,
+    "seen": 1795487757.4736512,
+    "ast_hash": "b831af4665705496046effbc369a80dd",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-logview-latest-and-splash/proposal.md": {
+    "mtime": 1795484916.1474345,
+    "seen": 1795485436.4701977,
+    "ast_hash": "fc300a6a3491a30df9e3287e40273dce",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-logview-latest-and-splash/specs/logview/presentation/spec.md": {
+    "mtime": 1795484906.1328473,
+    "seen": 1795485436.4701986,
+    "ast_hash": "ad4c1393bd139a56f7aac49254870eea",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-logview-latest-and-splash/tasks.md": {
+    "mtime": 1795486293.80017,
+    "seen": 1795486384.3052588,
+    "ast_hash": "df2533caeb12bd74bf221bccc029b006",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-24-add-logview-multi-view-tabs/design.md": {
+    "mtime": 1795481193.3085792,
+    "seen": 1795485436.4887545,
+    "ast_hash": "168dd43f25259b63e6a847d9b74c703b",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-24-add-logview-multi-view-tabs/proposal.md": {
+    "mtime": 1795479652.8580396,
+    "seen": 1795485436.488756,
+    "ast_hash": "4aedfcbe3e7ba1ee509a4c5a073b0f6d",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-24-add-logview-multi-view-tabs/specs/logview/presentation/spec.md": {
+    "mtime": 1795479731.6812215,
+    "seen": 1795485436.4887567,
+    "ast_hash": "edb6287f220d397d860616c9f4c96bac",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-24-add-logview-multi-view-tabs/specs/logview/resources/spec.md": {
+    "mtime": 1795479731.6813166,
+    "seen": 1795485436.4887576,
+    "ast_hash": "090911f17c4fb3ac434088924251af9b",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-24-add-logview-multi-view-tabs/specs/logview/views/spec.md": {
+    "mtime": 1795479731.6813607,
+    "seen": 1795485436.4887586,
+    "ast_hash": "a3581b2f4ee0aead43a4a06d8c4afaf6",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-24-add-logview-multi-view-tabs/tasks.md": {
+    "mtime": 1795481280.8412595,
+    "seen": 1795485436.4887593,
+    "ast_hash": "cbe714c8e7e60a3519408696a219703c",
+    "semantic_hash": ""
+  },
+  "openspec/specs/logview/views/spec.md": {
+    "mtime": 1795483320.9536657,
+    "seen": 1795485436.4909716,
+    "ast_hash": "16baaa91002fac619f638c856fb01d7a",
+    "semantic_hash": ""
+  },
+  "tools/nexigen-logview/assets/nexigen_splash.png": {
+    "mtime": 1795485043.6854296,
+    "seen": 1795485436.4920497,
+    "ast_hash": "f9f0b4dff0d6a5b59f8cb4b98195304a",
     "semantic_hash": ""
   }
 }

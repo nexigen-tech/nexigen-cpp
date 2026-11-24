@@ -5,11 +5,13 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <format>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -29,6 +31,7 @@
 #include "logview_config.hpp"
 #include "ui_actions.hpp"
 #include "resource_guard.hpp"
+#include "splash_image.hpp"
 #include "time_formatter.hpp"
 #include "theme.hpp"
 #include "ui_scale.hpp"
@@ -47,12 +50,10 @@ namespace {
 constexpr const char* kLevelNames[] = {"Verbose", "Debug", "Info", "Warning",
                                        "Error",   "Fatal", "Off"};
 
-struct ViewUiState {
+struct ViewUiState : ui::ViewScrollState {
     char filter_buf[512]{};
     char find_buf[128]{};
-    bool auto_scroll{true};
     bool focus_find{false};
-    std::optional<std::uint64_t> scroll_to{};
 };
 
 struct UiState {
@@ -90,14 +91,39 @@ struct UiState {
     std::size_t docked_views{0};
     std::optional<std::uint64_t> inspected_seq{};
     bool seen_inspector_meta{false};
+    bool seen_navigation_controls{false};
+    bool seen_auto_scroll_active{false};
+    std::size_t navigation_hit_areas{0};
+    std::size_t splash_frames{0};
+    double splash_elapsed_seconds{0.0};
+    bool splash_aspect_fit{false};
+    std::size_t splash_ingested{0};
+    bool splash_input_ignored{true};
+    bool splash_input_test{false};
+    bool splash_ingest_test{false};
+    std::size_t splash_expected_views{0};
+    int splash_workspace_frames{0};
     std::optional<std::uint64_t> expected_inspected_seq{};
     ViewId view_test_focus_id{0};
+    bool view_test{false};
+    int view_test_phase{0};
+    std::array<ImVec2, 3> nav_rect_min{};
+    std::array<ImVec2, 3> nav_rect_max{};
+    bool nav_rects_valid{false};
+    bool view_test_toggle_off{false};
+    bool view_test_toggle_on{false};
+    bool view_test_wheel_off{false};
+    bool inject_wheel{false};
+    float inject_wheel_y{0.0F};
     bool focus_test_active{false};
     int focus_phase{0};
     ViewId focus_view_id{0};
     std::uint64_t focus_before{0};
     bool focus_ok{false};
     bool focus_unfocused_ok{false};
+    bool focus_nav_unfocused_ok{false};
+    bool focus_nav_last_ok{false};
+    bool focus_nav_first_ok{false};
     ViewId focus_next_view{0};
     bool focus_sources_next{false};
     int input_phase{0};
@@ -337,11 +363,91 @@ void draw_sources(LogViewModel& model, UiState& state) {
     ImGui::End();
 }
 
+enum class NavIcon : std::uint8_t { First, Last, AutoScroll };
+
+bool draw_nav_icon_button(const char* id, NavIcon icon, bool active, const char* tooltip,
+                          UiState& state, std::size_t index) {
+    ImGui::PushID(id);
+    const float side = ImGui::GetFrameHeight();
+    const bool pressed = ImGui::InvisibleButton("##nav", ImVec2(side, side));
+    const bool hovered = ImGui::IsItemHovered();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    if (index < 3U) {
+        state.navigation_hit_areas = std::max(state.navigation_hit_areas, index + 1U);
+    }
+    if (hovered) {
+        draw->AddRectFilled(min, max, ImGui::GetColorU32(ImGuiCol_ButtonHovered), 2.0F);
+    }
+    const ImU32 color = ImGui::GetColorU32(active ? ImGuiCol_ButtonActive : ImGuiCol_Text);
+    const float cx = (min.x + max.x) * 0.5F;
+    const float cy = (min.y + max.y) * 0.5F;
+    const float unit = side * 0.22F;
+    if (icon == NavIcon::First) {
+        draw->AddLine(ImVec2(cx - unit * 1.5F, cy - unit), ImVec2(cx - unit * 1.5F, cy + unit),
+                      color, 2.0F);
+        draw->AddTriangleFilled(ImVec2(cx - unit * 0.4F, cy - unit),
+                                ImVec2(cx - unit * 0.4F, cy + unit), ImVec2(cx + unit, cy), color);
+    } else if (icon == NavIcon::Last) {
+        draw->AddTriangleFilled(ImVec2(cx - unit, cy - unit), ImVec2(cx - unit, cy + unit),
+                                ImVec2(cx - unit * 0.4F, cy), color);
+        draw->AddLine(ImVec2(cx + unit * 1.5F, cy - unit), ImVec2(cx + unit * 1.5F, cy + unit),
+                      color, 2.0F);
+    } else {
+        draw->AddLine(ImVec2(cx, cy - unit * 1.4F), ImVec2(cx, cy + unit * 0.5F), color, 2.0F);
+        draw->AddTriangleFilled(ImVec2(cx - unit * 0.7F, cy + unit * 0.2F),
+                                ImVec2(cx + unit * 0.7F, cy + unit * 0.2F),
+                                ImVec2(cx, cy + unit * 1.2F), color);
+        draw->AddLine(ImVec2(cx - unit * 1.2F, cy + unit * 1.5F),
+                      ImVec2(cx + unit * 1.2F, cy + unit * 1.5F), color, 2.0F);
+    }
+    if (hovered) {
+        ImGui::SetTooltip("%s", tooltip);
+    }
+    ImGui::PopID();
+    return pressed;
+}
+
+void draw_navigation_controls(LogView& view, UiState& state, ViewUiState& ui) {
+    const bool capture_rects = state.view_test && view.id() == state.view_test_focus_id;
+    if (draw_nav_icon_button("first", NavIcon::First, false, "First message (Ctrl+Home)", state,
+                             0)) {
+        ui::navigate_first(view, ui);
+    }
+    if (capture_rects) {
+        state.nav_rect_min[0] = ImGui::GetItemRectMin();
+        state.nav_rect_max[0] = ImGui::GetItemRectMax();
+    }
+    ImGui::SameLine();
+    if (draw_nav_icon_button("last", NavIcon::Last, false, "Last message (Ctrl+End)", state, 1)) {
+        ui::navigate_last(view, ui);
+    }
+    if (capture_rects) {
+        state.nav_rect_min[1] = ImGui::GetItemRectMin();
+        state.nav_rect_max[1] = ImGui::GetItemRectMax();
+    }
+    ImGui::SameLine();
+    const char* tooltip = ui.auto_scroll ? "Auto-scroll: on (click to stop following)"
+                                         : "Auto-scroll: off (click to follow latest)";
+    if (draw_nav_icon_button("auto", NavIcon::AutoScroll, ui.auto_scroll, tooltip, state, 2)) {
+        ui::toggle_auto_scroll(view, ui);
+    }
+    if (capture_rects) {
+        state.nav_rect_min[2] = ImGui::GetItemRectMin();
+        state.nav_rect_max[2] = ImGui::GetItemRectMax();
+        state.nav_rects_valid = true;
+    }
+    state.seen_navigation_controls = true;
+    if (ui.auto_scroll) {
+        state.seen_auto_scroll_active = true;
+    }
+}
+
 void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, ViewUiState& ui) {
     if (view.live()) {
         if (ImGui::Button(view.paused() ? "Resume" : "Pause")) {
             view.set_paused(!view.paused());
-            ui.auto_scroll = !view.paused();
         }
         ImGui::SameLine();
         if (view.paused()) {
@@ -360,6 +466,8 @@ void draw_local_controls(LogViewModel& model, LogView& view, UiState& state, Vie
     } else {
         ImGui::TextColored(ImVec4(1.0F, 0.65F, 0.25F, 1.0F), "PAUSED SNAPSHOT");
     }
+    ImGui::SameLine();
+    draw_navigation_controls(view, state, ui);
     ImGui::SameLine();
     if (ImGui::Button("Clone")) {
         state.clone_open = true;
@@ -706,9 +814,10 @@ void draw_row_context_menu(LogViewModel& model, LogView& view, const RecordView&
     ImGui::EndPopup();
 }
 
-void capture_row_rect(const RecordView& record, UiState& state) {
-    if (!state.input_test || !state.capture_row_rects ||
-        state.row_rect_count >= state.row_rect_min.size()) {
+void capture_row_rect(const LogView& view, const RecordView& record, UiState& state) {
+    const bool active =
+        state.input_test || (state.view_test && view.id() == state.view_test_focus_id);
+    if (!active || !state.capture_row_rects || state.row_rect_count >= state.row_rect_min.size()) {
         return;
     }
     state.row_rect_min[state.row_rect_count] = ImGui::GetItemRectMin();
@@ -784,7 +893,7 @@ void draw_record_row(LogViewModel& model, LogView& view, UiState& state, const R
         model.focus_view(view.id());
         select_row(view, record.seq);
     }
-    capture_row_rect(record, state);
+    capture_row_rect(view, record, state);
     if (ImGui::IsItemHovered()) {
         draw_row_tooltip(record, state);
     }
@@ -832,7 +941,8 @@ void apply_table_scroll(LogView& view, ViewUiState& ui, int rows, float row_heig
         (!at_bottom && ImGui::IsWindowHovered() && ImGui::IsAnyMouseDown()) ||
         (!at_bottom && ImGui::IsWindowFocused() &&
          (ImGui::IsKeyPressed(ImGuiKey_PageUp) || ImGui::IsKeyPressed(ImGuiKey_UpArrow)));
-    if (drag_or_key_scroll) {
+    const bool wheel_away = ImGui::IsWindowHovered() && ImGui::GetIO().MouseWheel > 0.0F;
+    if (ui::manual_scroll_disables_auto_scroll(ui.auto_scroll, drag_or_key_scroll || wheel_away)) {
         ui.auto_scroll = false;
     }
     if (ui.scroll_to.has_value() && rows > 0) {
@@ -844,11 +954,8 @@ void apply_table_scroll(LogView& view, ViewUiState& ui, int rows, float row_heig
             }
         }
         ui.scroll_to.reset();
-    } else if (ui.auto_scroll && !view.paused() && view.live()) {
+    } else if (ui::auto_scroll_active(ui.auto_scroll, view.live(), view.paused())) {
         ImGui::SetScrollY(scroll_max);
-    }
-    if (ImGui::IsWindowHovered() && ImGui::GetIO().MouseWheel > 0.0F) {
-        ui.auto_scroll = false;
     }
 }
 
@@ -1486,7 +1593,6 @@ void handle_view_shortcuts(LogViewModel& model, UiState& state) {
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Space)) {
         view->set_paused(!view->paused());
-        ui_for(state, *view).auto_scroll = !view->paused();
     }
     if (ImGui::IsKeyPressed(ImGuiKey_T)) {
         if (const auto seq = view->last_selected(); seq.has_value()) {
@@ -1497,6 +1603,12 @@ void handle_view_shortcuts(LogViewModel& model, UiState& state) {
         }
     }
     const ImGuiIO& io = ImGui::GetIO();
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Home)) {
+        ui::navigate_first(*view, ui_for(state, *view));
+    }
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_End)) {
+        ui::navigate_last(*view, ui_for(state, *view));
+    }
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A)) {
         view->select_all_visible();
     }
@@ -1527,12 +1639,96 @@ void present_frame(GLFWwindow* window) {
     glfwSwapBuffers(window);
 }
 
+void draw_splash(const SplashImage& image, UiState& state) {
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->Pos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(viewport->Size, ImGuiCond_Always);
+    constexpr ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0F, 0.0F));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.06F, 0.07F, 0.08F, 1.0F));
+    if (ImGui::Begin("##splash", nullptr, flags)) {
+        const ImVec2 available = ImGui::GetContentRegionAvail();
+        const float scale = std::min(available.x / static_cast<float>(image.width()),
+                                     available.y / static_cast<float>(image.height()));
+        if (scale > 0.0F) {
+            const ImVec2 size(static_cast<float>(image.width()) * scale,
+                              static_cast<float>(image.height()) * scale);
+            ImGui::SetCursorPos(
+                ImVec2((available.x - size.x) * 0.5F, (available.y - size.y) * 0.5F));
+            ImGui::Image(static_cast<ImTextureID>(image.texture()), size);
+            state.splash_aspect_fit = true;
+        }
+    }
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+}
+
+nexigen::logging::LogFrame splash_test_frame(std::size_t index) {
+    nexigen::logging::LogFrame frame{};
+    frame.timestamp_ns = 2'000'000'000ULL + index * 1'000'000ULL;
+    constexpr std::string_view app = "Splash";
+    for (std::size_t i = 0; i < app.size() && i < sizeof(frame.app_id); ++i) {
+        frame.app_id[i] = app[i];
+    }
+    frame.log_level = nexigen::core::LogLevel::Info;
+    frame.thread_id = 7U;
+    frame.pid = 7000U;
+    const int written = std::snprintf(reinterpret_cast<char*>(frame.payload), sizeof(frame.payload),
+                                      "splash record %zu", index);
+    frame.payload_size = written > 0 ? static_cast<std::uint16_t>(written) : 0U;
+    return frame;
+}
+
+bool run_splash(GLFWwindow* window, LogViewModel& model, UiState& state, CaptureThread* capture,
+                const SplashImage& image, double seconds) {
+    const auto start = std::chrono::steady_clock::now();
+    const auto deadline = start + std::chrono::duration<double>(seconds);
+    while (!glfwWindowShouldClose(window) && std::chrono::steady_clock::now() < deadline) {
+        glfwPollEvents();
+        if (glfwWindowShouldClose(window)) {
+            break;
+        }
+        process_model_frame(model, state, capture);
+        if (state.splash_ingest_test && state.splash_ingested < 50U) {
+            model.ingest_frame(splash_test_frame(state.splash_ingested), 0U);
+            ++state.splash_ingested;
+        }
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        if (state.splash_input_test) {
+            ImGuiIO& io = ImGui::GetIO();
+            if (state.splash_frames == 0U) {
+                io.AddMousePosEvent(io.DisplaySize.x * 0.5F, io.DisplaySize.y * 0.5F);
+                io.AddMouseButtonEvent(0, true);
+                io.AddKeyEvent(ImGuiKey_Space, true);
+            } else if (state.splash_frames == 1U) {
+                io.AddMouseButtonEvent(0, false);
+                io.AddKeyEvent(ImGuiKey_Space, false);
+            }
+        }
+        ImGui::NewFrame();
+        draw_splash(image, state);
+        if (state.splash_input_test && (ImGui::IsAnyItemHovered() || ImGui::IsAnyItemActive())) {
+            state.splash_input_ignored = false;
+        }
+        present_frame(window);
+        ++state.splash_frames;
+        state.splash_elapsed_seconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    }
+    return !glfwWindowShouldClose(window);
+}
+
 ImVec2 rect_center(ImVec2 min, ImVec2 max) {
     return ImVec2((min.x + max.x) * 0.5F, (min.y + max.y) * 0.5F);
 }
 
 void inject_ui_input(UiState& state) {
-    if (!state.input_test) {
+    if (!state.input_test && !state.view_test) {
         return;
     }
     ImGuiIO& io = ImGui::GetIO();
@@ -1555,6 +1751,10 @@ void inject_ui_input(UiState& state) {
     if (state.inject_right_up) {
         io.AddMouseButtonEvent(1, false);
         state.inject_right_up = false;
+    }
+    if (state.inject_wheel) {
+        io.AddMouseWheelEvent(0.0F, state.inject_wheel_y);
+        state.inject_wheel = false;
     }
 }
 
@@ -1734,6 +1934,8 @@ bool run_ui_view_test(LogViewModel& model, UiState& state) {
     bool live_clone = false;
     bool paused_clone = false;
     bool live_tail = false;
+    bool nav_default_on = false;
+    bool nav_pause_preserved = false;
     bool levels_isolated = true;
     bool focus_ok = false;
     bool limit_rejected = false;
@@ -1784,6 +1986,15 @@ bool run_ui_view_test(LogViewModel& model, UiState& state) {
         model.focus_view(source_id);
     }
     drain_view_rebuilds(model);
+    if (source != nullptr) {
+        ViewUiState& nav_ui = ui_for(state, *source);
+        nav_default_on = nav_ui.auto_scroll;
+        nav_ui.auto_scroll = false;
+        source->set_paused(true);
+        source->set_paused(false);
+        nav_pause_preserved = !nav_ui.auto_scroll;
+        nav_ui.auto_scroll = true;
+    }
     if (source != nullptr && source->display_count() > 0U) {
         source->select_only(source->display_at(0));
         state.expected_inspected_seq = source->last_selected();
@@ -1797,11 +2008,88 @@ bool run_ui_view_test(LogViewModel& model, UiState& state) {
     state.auto_open_sources_popup = true;
     state.force_eco = true;
     std::printf("UI_VIEWS restored=%zu live=%zu paused=%zu source=%d live_clone=%d "
-                "paused_clone=%d live_tail=%d levels_isolated=%d focus=%d limit_rejected=%d\n",
+                "paused_clone=%d live_tail=%d nav_default=%d nav_pause=%d levels_isolated=%d "
+                "focus=%d limit_rejected=%d\n",
                 restored, model.live_view_count(), model.paused_view_count(), source != nullptr,
-                live_clone, paused_clone, live_tail, levels_isolated, focus_ok, limit_rejected);
-    return source != nullptr && live_clone && paused_clone && live_tail && levels_isolated &&
-           focus_ok && limit_rejected;
+                live_clone, paused_clone, live_tail, nav_default_on, nav_pause_preserved,
+                levels_isolated, focus_ok, limit_rejected);
+    return source != nullptr && live_clone && paused_clone && live_tail && nav_default_on &&
+           nav_pause_preserved && levels_isolated && focus_ok && limit_rejected;
+}
+
+// Drive the `--ui-view-test` navigation phases: click the auto-scroll toggle off
+// and on, then wheel the table up and confirm auto-scroll turns off again.
+void drive_view_test(LogViewModel& model, UiState& state) {
+    if (!state.view_test) {
+        return;
+    }
+    LogView* view = model.view(state.view_test_focus_id);
+    ViewUiState* nav = view != nullptr ? &ui_for(state, *view) : nullptr;
+    switch (state.view_test_phase) {
+        case 0:
+            // The view-test fixture auto-opens the Sources popup a frame or two
+            // into the run; close it so it cannot cover the navigation controls.
+            if (ImGui::GetCurrentContext()->OpenPopupStack.Size > 0) {
+                ImGui::ClosePopupToLevel(0, false);
+            }
+            if (state.nav_rects_valid) {
+                state.view_test_phase = 1;
+            }
+            break;
+        case 1:
+            if (ImGui::GetCurrentContext()->OpenPopupStack.Size > 0) {
+                ImGui::ClosePopupToLevel(0, false);
+            }
+            state.view_test_phase = 2;
+            break;
+        case 2:
+            state.inject_pos = rect_center(state.nav_rect_min[2], state.nav_rect_max[2]);
+            state.inject_mouse_pos = true;
+            state.inject_mouse_down = true;
+            state.view_test_phase = 3;
+            break;
+        case 3:
+            state.inject_mouse_up = true;
+            state.view_test_phase = 4;
+            break;
+        case 4:
+            state.view_test_toggle_off = nav != nullptr && !nav->auto_scroll;
+            state.inject_pos = rect_center(state.nav_rect_min[2], state.nav_rect_max[2]);
+            state.inject_mouse_pos = true;
+            state.inject_mouse_down = true;
+            state.view_test_phase = 5;
+            break;
+        case 5:
+            state.inject_mouse_up = true;
+            state.view_test_phase = 6;
+            break;
+        case 6:
+            state.view_test_toggle_on = nav != nullptr && nav->auto_scroll;
+            state.row_rect_count = 0;
+            state.capture_row_rects = true;
+            state.view_test_phase = 7;
+            break;
+        case 7:
+            if (state.row_rect_count > 0) {
+                state.inject_pos = rect_center(state.row_rect_min[0], state.row_rect_max[0]);
+                state.inject_mouse_pos = true;
+                state.view_test_phase = 8;
+            }
+            break;
+        case 8:
+            // Inject the wheel on its own frame: ImGui trickles a wheel event
+            // queued right after a mouse-move event to the following frame.
+            state.inject_wheel = true;
+            state.inject_wheel_y = 1.0F;
+            state.view_test_phase = 9;
+            break;
+        case 9:
+            state.view_test_wheel_off = nav != nullptr && !nav->auto_scroll;
+            state.capture_row_rects = false;
+            state.view_test_phase = 10;
+            break;
+        default: break;
+    }
 }
 
 bool setup_focus_test(LogViewModel& model, UiState& state) {
@@ -1824,6 +2112,11 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
     UiState state{};
     state.live = options.live;
     state.input_test = options.input_test;
+    state.view_test = options.view_test;
+    state.splash_input_test =
+        options.splash_test && std::getenv("NEXIGEN_LOGVIEW_SPLASH_TEST_INPUT") != nullptr;
+    state.splash_ingest_test =
+        options.splash_test && std::getenv("NEXIGEN_LOGVIEW_SPLASH_TEST_INGEST") != nullptr;
     state.ini_path = parent_directory(default_config_path()) + "/logview-layout.ini";
     {
         std::error_code error;
@@ -1862,6 +2155,66 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
         }
     }
     state.capture = capture.get();
+    const bool skip_splash = options.smoke || options.actions_test || options.input_test ||
+                             options.view_test || options.focus_test;
+    std::optional<SplashImage> splash;
+    if (options.splash_test || !skip_splash) {
+        auto loaded = SplashImage::load_embedded();
+        if (options.splash_test && std::getenv("NEXIGEN_LOGVIEW_SPLASH_TEST_FAIL") != nullptr) {
+            loaded = std::unexpected(nexigen::core::ErrorCode::CorruptData);
+        }
+        if (loaded) {
+            splash.emplace(std::move(*loaded));
+        } else {
+            std::fprintf(stderr, "nexigen-logview: splash unavailable: %s\n",
+                         std::string(nexigen::core::to_string(loaded.error())).c_str());
+            if (options.splash_test) {
+                std::printf("UI_SPLASH fallback=1\n");
+                if (capture != nullptr) {
+                    capture->stop();
+                }
+                shutdown_gui(window);
+                return 0;
+            }
+        }
+    }
+    if (options.splash_test) {
+        if (!splash) {
+            if (capture != nullptr) {
+                capture->stop();
+            }
+            shutdown_gui(window);
+            return 1;
+        }
+        state.splash_expected_views = model.view_count();
+        const bool completed = run_splash(window, model, state, capture.get(), *splash, 1.0);
+        std::printf("UI_SPLASH width=%d height=%d texture=%d frames=%zu elapsed_ms=%.1f "
+                    "aspect_fit=%d records=%zu ingested=%zu input_ignored=%d\n",
+                    splash->width(), splash->height(), splash->valid() ? 1 : 0, state.splash_frames,
+                    state.splash_elapsed_seconds * 1000.0, state.splash_aspect_fit,
+                    model.display_count(), state.splash_ingested,
+                    state.splash_input_ignored ? 1 : 0);
+        splash.reset();
+        if (!completed) {
+            if (capture != nullptr) {
+                capture->stop();
+            }
+            shutdown_gui(window);
+            return 0;
+        }
+        // Fall through to a short workspace session so the test can confirm the
+        // workspace appears and the records ingested during the splash are present.
+    } else if (!skip_splash && splash) {
+        if (!run_splash(window, model, state, capture.get(), *splash, 1.0)) {
+            splash.reset();
+            if (capture != nullptr) {
+                capture->stop();
+            }
+            shutdown_gui(window);
+            return 0;
+        }
+        splash.reset();
+    }
 
     if (options.actions_test) {
         const int actions_result = run_ui_actions_test(model, options);
@@ -1889,12 +2242,48 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
         inject_ui_input(state);
         if (options.focus_test) {
             ImGuiIO& io = ImGui::GetIO();
-            if (state.focus_phase == 0) {
-                io.AddKeyEvent(ImGuiKey_F2, true);
-            } else if (state.focus_phase == 2) {
-                io.AddKeyEvent(ImGuiKey_F2, false);
-            } else if (state.focus_phase == 4) {
-                io.AddKeyEvent(ImGuiKey_F2, true);
+            switch (state.focus_phase) {
+                case 0: io.AddKeyEvent(ImGuiKey_F2, true); break;
+                case 2: io.AddKeyEvent(ImGuiKey_F2, false); break;
+                case 4:
+                    io.AddKeyEvent(ImGuiKey_F2, true);
+                    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+                    io.AddKeyEvent(ImGuiKey_End, true);
+                    break;
+                case 5:
+                    io.AddKeyEvent(ImGuiKey_F2, false);
+                    io.AddKeyEvent(ImGuiKey_End, false);
+                    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+                    break;
+                case 7:
+                    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+                    io.AddKeyEvent(ImGuiKey_End, true);
+                    break;
+                case 8: {
+                    LogView* view = model.view(state.focus_view_id);
+                    ViewUiState* nav = view != nullptr ? &ui_for(state, *view) : nullptr;
+                    state.focus_nav_last_ok =
+                        view != nullptr && nav != nullptr && state.log_view_focused &&
+                        nav->scroll_to == ui::last_visible_sequence(*view) && !nav->auto_scroll;
+                    io.AddKeyEvent(ImGuiKey_End, false);
+                    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+                    break;
+                }
+                case 9:
+                    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+                    io.AddKeyEvent(ImGuiKey_Home, true);
+                    break;
+                case 10: {
+                    LogView* view = model.view(state.focus_view_id);
+                    ViewUiState* nav = view != nullptr ? &ui_for(state, *view) : nullptr;
+                    state.focus_nav_first_ok =
+                        view != nullptr && nav != nullptr && state.log_view_focused &&
+                        nav->scroll_to == ui::first_visible_sequence(*view) && !nav->auto_scroll;
+                    io.AddKeyEvent(ImGuiKey_Home, false);
+                    io.AddKeyEvent(ImGuiMod_Ctrl, false);
+                    break;
+                }
+                default: break;
             }
         }
         ImGui::NewFrame();
@@ -1930,8 +2319,12 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
         if (options.view_test && state.view_test_focus_id != 0) {
             model.focus_view(state.view_test_focus_id);
         }
+        if (options.view_test) {
+            drive_view_test(model, state);
+        }
         if (options.focus_test && state.focus_test_active) {
             LogView* view = model.view(state.focus_view_id);
+            ViewUiState* nav_ui = view != nullptr ? &ui_for(state, *view) : nullptr;
             switch (state.focus_phase) {
                 case 0:
                     state.focus_next_view = state.focus_view_id;
@@ -1947,9 +2340,30 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
                 case 3:
                     state.focus_unfocused_ok = view != nullptr && !state.log_view_focused &&
                                                view->bookmarked_count() == state.focus_before + 1U;
+                    if (nav_ui != nullptr) {
+                        nav_ui->scroll_to.reset();
+                    }
                     state.focus_phase = 4;
                     break;
-                case 4:  state.focus_phase = 5; break;
+                case 4:
+                    state.focus_nav_unfocused_ok =
+                        view != nullptr && nav_ui != nullptr && !state.log_view_focused &&
+                        !nav_ui->scroll_to.has_value() && nav_ui->auto_scroll;
+                    state.focus_phase = 5;
+                    break;
+                case 5:
+                    if (nav_ui != nullptr) {
+                        nav_ui->auto_scroll = false;
+                        nav_ui->scroll_to.reset();
+                    }
+                    state.focus_next_view = state.focus_view_id;
+                    state.focus_phase = 6;
+                    break;
+                case 6:  state.focus_phase = 7; break;
+                case 7:  state.focus_phase = 8; break;
+                case 8:  state.focus_phase = 9; break;
+                case 9:  state.focus_phase = 10; break;
+                case 10: state.focus_phase = 11; break;
                 default: break;
             }
         }
@@ -1963,9 +2377,20 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
         handle_shortcuts(model, state);
         const bool input_done = drive_input_script(model, state);
         present_frame(window);
-        if (input_done ||
-            ((options.smoke || options.view_test || options.focus_test) &&
-             ++state.smoke_frames >= (options.focus_test ? 6 : (options.view_test ? 3 : 2)))) {
+        if (options.splash_test) {
+            ++state.splash_workspace_frames;
+        }
+        bool test_done = false;
+        if (options.smoke) {
+            test_done = ++state.smoke_frames >= 2;
+        } else if (options.view_test) {
+            test_done = state.view_test_phase >= 10;
+        } else if (options.focus_test) {
+            test_done = ++state.smoke_frames >= 12;
+        } else if (options.splash_test) {
+            test_done = state.splash_workspace_frames >= 6;
+        }
+        if (input_done || test_done) {
             break;
         }
     }
@@ -1974,20 +2399,38 @@ int run_ui(LogViewModel& model, const UiOptions& options) {
         const bool inspector_ok = state.expected_inspected_seq.has_value() &&
                                   state.inspected_seq == state.expected_inspected_seq;
         std::printf("UI_VIEWS_CHECKS pause=%d counters=%d eco=%d docked=%zu floating=%d "
-                    "inspector=%d inspector_meta=%d\n",
+                    "inspector=%d inspector_meta=%d nav=%d nav_hit_areas=%zu auto_active=%d "
+                    "toggle_off=%d toggle_on=%d wheel_off=%d\n",
                     state.seen_pause_badge, state.seen_view_counters, state.seen_eco_badge,
                     state.docked_views, state.seen_floating_view, inspector_ok,
-                    state.seen_inspector_meta);
+                    state.seen_inspector_meta, state.seen_navigation_controls,
+                    state.navigation_hit_areas, state.seen_auto_scroll_active,
+                    state.view_test_toggle_off, state.view_test_toggle_on,
+                    state.view_test_wheel_off);
     }
-    const bool focus_ok = !options.focus_test || (state.focus_ok && state.focus_unfocused_ok);
+    if (options.splash_test) {
+        const bool stable = state.splash_expected_views == model.view_count();
+        std::printf("UI_SPLASH_WORKSPACE frames=%d records=%zu views=%zu stable=%d\n",
+                    state.splash_workspace_frames, model.display_count(), model.view_count(),
+                    stable ? 1 : 0);
+    }
+    const bool focus_ok =
+        !options.focus_test ||
+        (state.focus_ok && state.focus_unfocused_ok && state.focus_nav_unfocused_ok &&
+         state.focus_nav_last_ok && state.focus_nav_first_ok);
+    const bool view_ok =
+        !options.view_test ||
+        (state.view_test_toggle_off && state.view_test_toggle_on && state.view_test_wheel_off);
     if (options.focus_test) {
-        std::printf("UI_FOCUS focused=%d unfocused=%d\n", state.focus_ok, state.focus_unfocused_ok);
+        std::printf("UI_FOCUS focused=%d unfocused=%d nav_unfocused=%d nav_last=%d nav_first=%d\n",
+                    state.focus_ok, state.focus_unfocused_ok, state.focus_nav_unfocused_ok,
+                    state.focus_nav_last_ok, state.focus_nav_first_ok);
     }
     if (capture != nullptr) {
         capture->stop();
     }
     shutdown_gui(window);
-    return focus_ok ? 0 : 1;
+    return (focus_ok && view_ok) ? 0 : 1;
 }
 
 } // namespace nexigen::logview

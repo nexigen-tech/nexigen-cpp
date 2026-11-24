@@ -23,6 +23,7 @@ std::string_view usage_text() noexcept {
            "  --ui-input-test       Drive scripted ImGui clicks under Xvfb\n"
            "  --ui-view-test        Exercise multi-view docking, clone, and limits\n"
            "  --ui-focus-test       Exercise keyboard focus routing under Xvfb\n"
+           "  --ui-splash-test      Render the startup splash and exit\n"
            "  --ui-scale <factor>   UI/font scale (e.g. 2 for a 4K display)\n"
            "  --help                Show this help\n";
 }
@@ -93,6 +94,10 @@ bool parse_flag(std::string_view arg, CliOptions& options) {
     }
     if (arg == "--ui-focus-test") {
         options.ui_focus_test = true;
+        return true;
+    }
+    if (arg == "--ui-splash-test") {
+        options.ui_splash_test = true;
         return true;
     }
     return false;

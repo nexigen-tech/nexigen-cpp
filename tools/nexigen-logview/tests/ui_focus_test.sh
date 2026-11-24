@@ -9,4 +9,4 @@ export XDG_CONFIG_HOME="${work}/config"
 mkdir -p "${XDG_CONFIG_HOME}"
 
 xvfb-run -a "${binary}" --offline "${fixture}" --ui-focus-test | tee "${work}/focus.log"
-grep -q 'UI_FOCUS focused=1 unfocused=1' "${work}/focus.log"
+grep -q 'UI_FOCUS focused=1 unfocused=1 nav_unfocused=1 nav_last=1 nav_first=1' "${work}/focus.log"

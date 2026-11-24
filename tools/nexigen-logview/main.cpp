@@ -114,6 +114,7 @@ int main(int argc, char* argv[]) {
     ui.input_test = options.ui_input_test;
     ui.view_test = options.ui_view_test;
     ui.focus_test = options.ui_focus_test;
+    ui.splash_test = options.ui_splash_test;
     ui.ui_scale = options.ui_scale;
     ui.open_path = options.offline_file;
     const int result = logview::run_ui(*model, ui);

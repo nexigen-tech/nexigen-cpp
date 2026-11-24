@@ -76,6 +76,7 @@ set(NEXIGEN_LOGVIEW_APP_SOURCES
 if(NEXIGEN_LOGVIEW_GUI)
     list(APPEND NEXIGEN_LOGVIEW_APP_SOURCES
         ui/logview_window.cpp
+        ui/splash_image.cpp
         ui/theme.cpp)
 endif()
 
@@ -151,8 +152,9 @@ if(NEXIGEN_LOGVIEW_GUI)
     FetchContent_MakeAvailable(nx_glfw)
 
     find_package(OpenGL REQUIRED)
+    find_package(PNG 1.6 REQUIRED)
     target_link_libraries(nexigen_imgui PUBLIC glfw OpenGL::GL)
-    target_link_libraries(nexigen-logview PRIVATE nexigen_imgui)
+    target_link_libraries(nexigen-logview PRIVATE nexigen_imgui PNG::PNG)
     target_compile_definitions(nexigen-logview PRIVATE NEXIGEN_LOGVIEW_GUI=1)
 
     # Embed the OFL-licensed JetBrains Mono TTF at configure time so the binary
@@ -174,6 +176,22 @@ if(NEXIGEN_LOGVIEW_GUI)
 "}\n")
     target_include_directories(nexigen-logview PRIVATE
         "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+    # Embed the startup splash PNG so the executable is self-contained.
+    set(NEXIGEN_LOGVIEW_SPLASH_HEADER
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/nexigen_splash_asset.hpp")
+    file(READ "${NEXIGEN_LOGVIEW_DIR}/assets/nexigen_splash.png" NX_SPLASH_HEX HEX)
+    string(LENGTH "${NX_SPLASH_HEX}" NX_SPLASH_HEX_LENGTH)
+    math(EXPR NX_SPLASH_SIZE "${NX_SPLASH_HEX_LENGTH} / 2")
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," NX_SPLASH_BYTES "${NX_SPLASH_HEX}")
+    file(WRITE "${NEXIGEN_LOGVIEW_SPLASH_HEADER}"
+"// Generated from assets/nexigen_splash.png.\n"
+"#pragma once\n"
+"#include <array>\n"
+"#include <cstddef>\n"
+"namespace nexigen::logview::assets {\n"
+"inline constexpr std::array<unsigned char, ${NX_SPLASH_SIZE}> kNexigenSplashPng{${NX_SPLASH_BYTES}};\n"
+"}\n")
 
     add_test(NAME nexigen_logview_ui_smoke
         COMMAND xvfb-run -a $<TARGET_FILE:nexigen-logview> --ui-smoke)
@@ -220,6 +238,13 @@ if(NEXIGEN_LOGVIEW_GUI)
                 $<TARGET_FILE:nexigen-logview>
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui-actions.jsonl)
     set_tests_properties(nexigen_logview_ui_focus PROPERTIES
+        TIMEOUT 180 LABELS "tools;logview;gui")
+
+    add_test(NAME nexigen_logview_ui_splash
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_splash_test.sh
+                $<TARGET_FILE:nexigen-logview>
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ui-actions.jsonl)
+    set_tests_properties(nexigen_logview_ui_splash PROPERTIES
         TIMEOUT 180 LABELS "tools;logview;gui")
 endif()
 

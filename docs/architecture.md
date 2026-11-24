@@ -988,12 +988,13 @@ flowchart LR
     S --> RX["capture thread<br/>SCHED_OTHER, nice 10"]
     RX -->|"IngressRecord (320 B)"| Q["SpscRingBuffer<br/>65 536 slots = 20 MiB"]
     Q --> UI["UI thread<br/>ingest"]
+    START["startup splash<br/>1 s · embedded PNG"] --> IM
     UI --> R["shared RecordRing<br/>one mmap, absolute seq"]
     UI --> V1["LogView: All logs<br/>FilterIndex · find · selection<br/>bookmarks · minimap · pause · T0"]
     UI --> V2["LogView: source<br/>FilterIndex · find · selection<br/>bookmarks · minimap · pause · T0"]
     R --> V1
     R --> V2
-    V1 --> IM["ImGui dock windows<br/>ImGuiListClipper"]
+    V1 --> IM["ImGui dock windows<br/>First/Last · auto-scroll<br/>ImGuiListClipper"]
     V2 --> IM
     V1 --> E["one ExportWriter<br/>4096-slot SPSC, nice 19"]
     R --> SNAP["FrozenHistory<br/>PAUSED clone ≤1 MiB"]
@@ -1015,8 +1016,10 @@ capture path. A PAUSED view stores an immutable `FrozenHistory` (newest 1 MiB of
 its source scope plus in-range gaps); paused-of-paused clones share that
 snapshot by `shared_ptr`. Pause freezes the displayed range while ingest
 continues, and the banner reports how many displayed records were overwritten.
-`nexigen-logview` is read-only for the platform: stopping it changes no service
-or on-disk state.
+Each view has First/Last navigation and a default-on auto-scroll toggle; the
+startup splash is rendered for one second while capture and UI ingestion already
+run, so it adds no lost-record window. `nexigen-logview` is read-only for the
+platform: stopping it changes no service or on-disk state.
 
 ### 5.2 Телеметрический конвейер
 
