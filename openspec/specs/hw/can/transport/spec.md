@@ -8,7 +8,7 @@ Defines how CAN channels, messages and status cross iceoryx2: the per-channel se
 
 ### Requirement: Every channel has three data-plane services
 
-Each configured CAN channel SHALL have `nexigen/hw/can/<channel>/rx`, `nexigen/hw/can/<channel>/tx` and `nexigen/hw/can/<channel>/status` services. `<channel>` SHALL be the validated channel name. `rx` SHALL carry the full driver stream, `tx` SHALL carry transmission requests and `status` SHALL carry `CanChannelStatus` values.
+Each configured CAN channel SHALL have `nexigen/hw/can/<channel>/rx`, `nexigen/hw/can/<channel>/tx` and `nexigen/hw/can/<channel>/status` services. `<channel>` SHALL be the validated channel name. `rx` and `tx` SHALL carry bounded `CanMessageBatch` packets (1..100 messages); `status` SHALL carry `CanChannelStatus` values.
 
 #### Scenario: Services are derived from the channel name
 - **WHEN** a channel named `powertrain` is configured
@@ -24,11 +24,11 @@ Each configured CAN channel SHALL have `nexigen/hw/can/<channel>/rx`, `nexigen/h
 
 ### Requirement: The receive stream carries all driver event kinds
 
-The `rx` service SHALL publish every `CanMessage` kind delivered by the driver: classic and FD data, remote, error, overload and bus-idle heartbeat. It SHALL NOT silently drop error or heartbeat messages, and consumers SHALL filter by message kind when they need only data frames.
+The `rx` service SHALL publish bounded `CanMessageBatch` packets whose contained messages cover every `CanMessage` kind delivered by the driver: classic and FD data, remote, error, overload and bus-idle heartbeat. It SHALL NOT silently drop error or heartbeat messages, and consumers SHALL filter by the kind of each contained message when they need only data frames.
 
 #### Scenario: Data and error messages share the stream
 - **WHEN** the driver delivers a data frame followed by an error frame on the same channel
-- **THEN** both are published on `rx` in driver order with their kinds intact
+- **THEN** both are published on `rx` in driver order, either in one packet or consecutive packets, with their kinds intact
 
 #### Scenario: Heartbeats share the stream
 - **WHEN** the driver delivers a bus-idle heartbeat
@@ -40,19 +40,19 @@ The `rx` service SHALL publish every `CanMessage` kind delivered by the driver: 
 
 ### Requirement: The transmit stream accepts only transmittable messages
 
-The `tx` service SHALL accept `ClassicData`, `FdData` and `Remote` messages. It SHALL reject `Error`, `Overload` and `BusIdle` messages with `InvalidArgument`, and it SHALL reject an FD message when the target channel is not configured for CAN FD.
+The `tx` service SHALL accept `CanMessageBatch` packets whose contained messages are `ClassicData`, `FdData` or `Remote`. It SHALL reject a packet containing an `Error`, `Overload` or `BusIdle` message with `InvalidArgument`, and it SHALL reject an FD message when the target channel is not configured for CAN FD.
 
 #### Scenario: Valid transmit message is accepted
-- **WHEN** a caller publishes a classic data frame on `tx`
-- **THEN** the sender app receives the message and may submit it to the driver
+- **WHEN** a caller publishes a packet of classic data frames on `tx`
+- **THEN** the sender app receives every contained message and may submit them to the driver
 
 #### Scenario: Error frame cannot be transmitted
-- **WHEN** a caller publishes a message with kind `Error` on `tx`
-- **THEN** the sender app rejects it and records a diagnostic or metric
+- **WHEN** a packet contains a message with kind `Error`
+- **THEN** the sender app rejects the packet and records a diagnostic or metric
 
 #### Scenario: FD is rejected on a classic channel
-- **WHEN** a caller publishes `FdData` to a channel configured as classic-only
-- **THEN** the sender app rejects it with `UnsupportedFormat`
+- **WHEN** a packet contains `FdData` for a channel configured as classic-only
+- **THEN** the sender app rejects the packet with `UnsupportedFormat`
 
 ### Requirement: The event header preserves CAN provenance
 
@@ -72,15 +72,15 @@ Every published CAN message SHALL use the event header to carry the application 
 
 ### Requirement: Channel binding is validated on both sides
 
-Every message SHALL be bound to its channel by the service name and by the numeric channel id inside `CanMessage`. A consumer SHALL reject a message whose channel id does not match the subscribed channel's configured id, and a publisher SHALL reject a message bound to a different channel.
+Every packet SHALL be bound to its channel by the service name and by the numeric `channel_id` shared by the packet and its contained messages. A consumer SHALL reject a packet whose channel id or any contained message id does not match the subscribed channel, and a publisher SHALL reject a packet bound to a different channel.
 
 #### Scenario: Matching channel is accepted
-- **WHEN** a message with the configured channel id arrives on that channel's `rx` service
-- **THEN** the consumer delivers it to the application
+- **WHEN** a packet with the configured channel id arrives on that channel's `rx` service
+- **THEN** the consumer delivers every contained message to the application
 
 #### Scenario: Mismatched channel is rejected
-- **WHEN** a message with channel id 3 arrives on the service for channel id 1
-- **THEN** the consumer drops it and records a diagnostic or counter
+- **WHEN** a packet or a contained message has channel id 3 on the service for channel id 1
+- **THEN** the consumer drops the packet and records a diagnostic or counter
 
 #### Scenario: Unknown channel is rejected
 - **WHEN** an application publishes to a channel name it did not configure
@@ -129,3 +129,23 @@ The `status` service SHALL publish `CanChannelStatus` when the channel state cha
 #### Scenario: Status is bound to the channel
 - **WHEN** a status message with a mismatched channel id arrives
 - **THEN** the consumer rejects it and records a diagnostic or counter
+
+### Requirement: Packet boundaries and ordering are explicit
+
+The `rx` and `tx` services SHALL preserve the order of messages inside a packet and SHALL preserve packet order per channel. A packet SHALL carry its logical `first_sequence`; a consumer SHALL derive the number of missing CAN messages from the gap between consecutive packet sequences.
+
+#### Scenario: Packet order is preserved
+- **WHEN** two packets arrive on one channel
+- **THEN** every message of the first packet is delivered before every message of the second packet
+
+#### Scenario: Message order inside a packet is preserved
+- **WHEN** a packet contains several messages with distinct identifiers
+- **THEN** the consumer delivers them in array order
+
+#### Scenario: Lost packet reports message count
+- **WHEN** a packet's first sequence skips after the previous packet
+- **THEN** the consumer reports the skipped range as lost CAN messages, not one lost transport sample
+
+#### Scenario: Empty and oversized packets are rejected
+- **WHEN** a caller publishes a packet with count 0 or above 100
+- **THEN** publication is rejected with `InvalidArgument` and no message enters the service

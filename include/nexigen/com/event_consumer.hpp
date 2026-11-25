@@ -98,6 +98,16 @@ public:
         }
     }
 
+    /// @brief Consume pending listener activations without blocking.
+    /// @return Empty status, or the mapped listener error.
+    [[nodiscard]] Status consume_activation() noexcept override {
+        auto consumed = listener_.try_wait([](EventId) {});
+        if (!consumed.has_value()) {
+            return std::unexpected(consumed.error());
+        }
+        return {};
+    }
+
     /// @brief Block until one notification batch arrives, then drain.
     ///
     /// There is no timeout and no programmatic wake; use `EventConsumerSet`

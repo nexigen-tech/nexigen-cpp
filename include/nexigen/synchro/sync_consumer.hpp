@@ -159,6 +159,15 @@ public:
         return endpoint_->drain();
     }
 
+    /// @brief Consume pending listener activations without blocking.
+    /// @return Empty status, or the mapped listener error.
+    [[nodiscard]] com::Status consume_activation() noexcept override {
+        if (!endpoint_.has_value()) {
+            return std::unexpected(com::Error::InvalidState);
+        }
+        return endpoint_->consume_activation();
+    }
+
 #if defined(NEXIGEN_SYNCHRO_TESTING)
     /// @brief Feed one transport loss observation to the normal loss path.
     ///

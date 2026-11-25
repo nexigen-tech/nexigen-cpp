@@ -48,6 +48,36 @@ public:
     [[nodiscard]] core::Status enqueue(std::string_view channel,
                                        const CanMessage& message) noexcept;
 
+    /// @brief Enqueue one complete transmission packet.
+    ///
+    /// Admission is all-or-nothing: every contained message is validated and
+    /// normalized, or the whole packet is rejected. A dropped packet counts as
+    /// `batch.count` dropped messages.
+    ///
+    /// @param channel Channel name.
+    /// @param batch Packet to submit.
+    /// @return OK, `NotFound`, `BufferFull`, `InvalidArgument` or `UnsupportedFormat`.
+    [[nodiscard]] core::Status enqueue_batch(std::string_view channel,
+                                             const CanMessageBatch& batch) noexcept;
+
+    /// @brief Total messages accepted by the driver.
+    /// @return Submitted message count across all channels.
+    [[nodiscard]] std::uint64_t submitted() const noexcept {
+        return submitted_.load(std::memory_order_relaxed);
+    }
+
+    /// @brief Total messages dropped because a channel queue was full.
+    /// @return Dropped message count across all channels.
+    [[nodiscard]] std::uint64_t dropped() const noexcept;
+
+    /// @brief Total messages rejected by validation.
+    /// @return Rejected message count across all channels.
+    [[nodiscard]] std::uint64_t rejected() const noexcept;
+
+    /// @brief Total messages the driver failed to submit.
+    /// @return Failed message count across all channels.
+    [[nodiscard]] std::uint64_t failed() const noexcept;
+
     /// @brief Render the transmitter for cold-path diagnostics.
     /// @return Human-readable summary.
     [[nodiscard]] std::string to_string() const {
@@ -58,13 +88,13 @@ public:
 private:
     struct Channel {
         CanChannelConfig config{};
-        detail::CanMessageRing<1024> ring{};
+        detail::CanBatchRing<16> ring{};
         com::EventProducer<CanChannelStatus>* status_producer{nullptr};
         CanChannelTracker tracker{};
         std::uint64_t last_status_ns{0};
         std::atomic<std::uint64_t> dropped{0};
+        std::atomic<std::uint64_t> rejected{0};
         std::atomic<std::uint64_t> failed{0};
-        std::uint64_t next_sequence{0};
         bool opened{false};
     };
 
@@ -81,8 +111,10 @@ private:
     void publish_status(Channel& channel) noexcept;
     [[nodiscard]] Channel* find(std::string_view channel) noexcept;
 
+    [[nodiscard]] core::Status validate_message(Channel& channel, CanMessage& message,
+                                                std::uint64_t& fallback_ns) noexcept;
     void submit_loop(Channel& channel, std::stop_token token) noexcept;
-    void flush_batch(Channel& channel, CanMessageBatch& batch) noexcept;
+    void submit_packet(Channel& channel, CanMessageBatch& packet) noexcept;
 
     CanDriver* driver_{nullptr};
     TrackingSink tracking_sink_{*this};

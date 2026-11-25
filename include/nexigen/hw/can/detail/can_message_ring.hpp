@@ -5,6 +5,7 @@
 #include <cstddef>
 
 #include <nexigen/hw/can/can_message.hpp>
+#include <nexigen/hw/can/can_message_batch.hpp>
 
 namespace nexigen::hw::can::detail {
 
@@ -63,5 +64,9 @@ private:
 /// @brief SPSC ring specialized for CAN messages.
 /// @tparam Capacity Number of message slots.
 template <std::size_t Capacity> using CanMessageRing = SpscRing<CanMessage, Capacity>;
+
+/// @brief SPSC ring specialized for CAN message batches.
+/// @tparam Capacity Number of packet slots.
+template <std::size_t Capacity> using CanBatchRing = SpscRing<CanMessageBatch, Capacity>;
 
 } // namespace nexigen::hw::can::detail

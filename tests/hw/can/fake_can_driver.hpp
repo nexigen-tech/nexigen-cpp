@@ -17,6 +17,7 @@ public:
     core::Status submit_status{};
     int fail_submits{0};
     std::vector<CanMessage> submitted{};
+    std::vector<CanMessageBatch> batches{};
     std::vector<CanChannelConfig> opened{};
     ICanMessageSink* sink{nullptr};
 
@@ -60,6 +61,32 @@ public:
             return submit_status;
         }
         submitted.push_back(message);
+        return {};
+    }
+
+    [[nodiscard]] core::Status submit_batch(std::string_view channel,
+                                            const CanMessageBatch& batch) noexcept override {
+        bool known = false;
+        for (const auto& config : opened) {
+            if (config.name == channel) {
+                known = true;
+                break;
+            }
+        }
+        if (!known) {
+            return std::unexpected(core::ErrorCode::NotFound);
+        }
+        if (fail_submits > 0) {
+            --fail_submits;
+            return std::unexpected(core::ErrorCode::BufferFull);
+        }
+        if (!submit_status.has_value()) {
+            return submit_status;
+        }
+        batches.push_back(batch);
+        for (std::size_t index = 0; index < batch.count; ++index) {
+            submitted.push_back(batch.messages[index]);
+        }
         return {};
     }
 

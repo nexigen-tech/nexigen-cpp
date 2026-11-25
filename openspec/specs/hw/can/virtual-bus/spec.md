@@ -149,19 +149,3 @@ The virtual bus SHALL apply loopback, ordering, timestamp preservation, heartbea
 #### Scenario: Clock and sequencing stay per message
 - **WHEN** a batch is looped back
 - **THEN** per-message hardware timestamps and hardware sequences are preserved and the batch envelope does not substitute a single shared timestamp
-
-### Requirement: Batch is internal to virtual driver links
-
-The batch payload SHALL NOT change the standard `rx`, `tx` or `status` services. `nexigen-canrx` SHALL expand batches into individual `CanMessage` values before publishing standard `rx`, so `CanClient`, `nexigen-canmon`, `nexigen-canview` and existing examples require no payload migration.
-
-#### Scenario: Standard rx remains a message stream
-- **WHEN** `nexigen-canrx` receives a batch from the virtual driver
-- **THEN** every contained message is published individually on the standard `rx` service in original order
-
-#### Scenario: Standard tx remains a message stream
-- **WHEN** an application publishes an ordinary `CanMessage` on `tx`
-- **THEN** `nexigen-cantx` accepts it and may combine it with other requests into a batch only on the internal virtual-driver link
-
-#### Scenario: Existing consumers compile unchanged
-- **WHEN** `CanClient`, `nexigen-canmon` or `nexigen-canview` is built against the changed library
-- **THEN** no source change is required for their standard `rx`/`tx` payloads

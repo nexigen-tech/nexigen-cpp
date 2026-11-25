@@ -3366,9 +3366,9 @@
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1795633133.5434132,
-    "seen": 1795633478.5552044,
-    "ast_hash": "b1e3e71f78bec154196575e531d2792c",
+    "mtime": 1795636310.83046,
+    "seen": 1795636356.2422037,
+    "ast_hash": "154edfdd70414cbe2676cdbd57e697c6",
     "semantic_hash": ""
   },
   "docs/code-analysis-2026-11-03.md": {
@@ -10872,15 +10872,15 @@
     "semantic_hash": ""
   },
   "include/nexigen/com/event_consumer.hpp": {
-    "mtime": 1795301621.5634773,
-    "seen": 1795301740.4213455,
-    "ast_hash": "94bf36d9f4f267da1cc5c6e2e83eaec0",
+    "mtime": 1795635357.1200836,
+    "seen": 1795636356.2251868,
+    "ast_hash": "e4d25916ee730f87be157f1165f4e5c0",
     "semantic_hash": ""
   },
   "include/nexigen/com/event_consumer_set.hpp": {
-    "mtime": 1795378671.76327,
-    "seen": 1795382480.292018,
-    "ast_hash": "3e224a788f17a748eefdd5e00a864bbe",
+    "mtime": 1795636366.8553343,
+    "seen": 1795636637.3331583,
+    "ast_hash": "c36fbc93a49876bd146f3e87b1efa842",
     "semantic_hash": ""
   },
   "include/nexigen/com/event_consumer_stats.hpp": {
@@ -10932,9 +10932,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/com/i_event_consumer.hpp": {
-    "mtime": 1794949671.5198045,
-    "seen": 1794950083.7597022,
-    "ast_hash": "a3b334a85570ca37f6053704a76a50f8",
+    "mtime": 1795635357.1190836,
+    "seen": 1795636356.2253308,
+    "ast_hash": "9fc1f8772207a00f79a24a2dd146d16f",
     "semantic_hash": ""
   },
   "include/nexigen/com/loss_info.hpp": {
@@ -10980,9 +10980,9 @@
     "semantic_hash": ""
   },
   "tests/com/event_system_test.cpp": {
-    "mtime": 1795412865.830418,
-    "seen": 1795465267.335006,
-    "ast_hash": "98bf86d00116300a48180687be62df42",
+    "mtime": 1795637062.566773,
+    "seen": 1795637313.2150078,
+    "ast_hash": "38a07bb61d76b8f8d95316c85b52d2aa",
     "semantic_hash": ""
   },
   "docs/com-event-system.md": {
@@ -11088,9 +11088,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/synchro/sync_consumer.hpp": {
-    "mtime": 1795033689.8383315,
-    "seen": 1795033743.8014367,
-    "ast_hash": "c59d38983b67f42619b9345017597748",
+    "mtime": 1795635359.5190766,
+    "seen": 1795636356.2300472,
+    "ast_hash": "94d8bedd6a76bd0393d85e0586a66b31",
     "semantic_hash": ""
   },
   "include/nexigen/synchro/sync_consumer_config.hpp": {
@@ -13302,9 +13302,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/hw/can/com/can_transmitter.hpp": {
-    "mtime": 1795631884.3357458,
-    "seen": 1795632127.122488,
-    "ast_hash": "573d0d90cc690b087cc42b04a2416e80",
+    "mtime": 1795634382.1595871,
+    "seen": 1795635145.126671,
+    "ast_hash": "c4a4bc153b81996c3ecda64f186a8fa0",
     "semantic_hash": ""
   },
   "include/nexigen/hw/can/com/can_transport.hpp": {
@@ -13320,9 +13320,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/hw/can/detail/can_message_ring.hpp": {
-    "mtime": 1795378192.1082919,
-    "seen": 1795382480.294762,
-    "ast_hash": "e226cbc2c8cce7c4c1b45fa3c4308f47",
+    "mtime": 1795634370.108599,
+    "seen": 1795635145.1267228,
+    "ast_hash": "6f1966fd84a548b06af3b10645e7d90f",
     "semantic_hash": ""
   },
   "include/nexigen/hw/can/i_can_message_sink.hpp": {
@@ -13404,9 +13404,9 @@
     "semantic_hash": ""
   },
   "src/hw/can/com/can_transmitter.cpp": {
-    "mtime": 1795631057.5639136,
-    "seen": 1795631704.5336874,
-    "ast_hash": "0f38611cd4ad2e7c9eb33bbae04e9548",
+    "mtime": 1795634577.631335,
+    "seen": 1795635145.1341226,
+    "ast_hash": "d2df8cdce1bf73c52fa539662f77ca62",
     "semantic_hash": ""
   },
   "src/hw/can/com/virtual_can_driver.cpp": {
@@ -13434,15 +13434,15 @@
     "semantic_hash": ""
   },
   "tests/hw/can/can_vocabulary_test.cpp": {
-    "mtime": 1795631327.1875844,
-    "seen": 1795631704.5350807,
-    "ast_hash": "a4a0f053c061217bd88df203932a4dfe",
+    "mtime": 1795634496.9724765,
+    "seen": 1795635145.135543,
+    "ast_hash": "c3b2a4faf0532bc27bde1cfd72cbb292",
     "semantic_hash": ""
   },
   "tests/hw/can/fake_can_driver.hpp": {
-    "mtime": 1795394729.1251838,
-    "seen": 1795465267.3354821,
-    "ast_hash": "89c6ffc71f32e681d7fb084a197c58c1",
+    "mtime": 1795634425.6525452,
+    "seen": 1795635145.135544,
+    "ast_hash": "a830b3cc0c32967af2bb2ff1d3bac96f",
     "semantic_hash": ""
   },
   "tools/nexigen-canmon/main.cpp": {
@@ -13458,9 +13458,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-cantx/main.cpp": {
-    "mtime": 1795632927.1200428,
-    "seen": 1795633478.5512278,
-    "ast_hash": "eb64522d3a2dccaacf7edb6147f28b47",
+    "mtime": 1795634474.533498,
+    "seen": 1795635145.1368,
+    "ast_hash": "7aa4790c84fa307b6ce5667573c5a6e4",
     "semantic_hash": ""
   },
   "tools/nexigen-canvbus/main.cpp": {
@@ -13476,9 +13476,9 @@
     "semantic_hash": ""
   },
   "tests/hw/can/can_client_test.cpp": {
-    "mtime": 1795632820.5342796,
-    "seen": 1795633478.5498073,
-    "ast_hash": "8122d0f0e33a9e8cd209ef42671ff135",
+    "mtime": 1795636064.6551416,
+    "seen": 1795636356.2362187,
+    "ast_hash": "08e8480a09edccd913974c1d17e9fab6",
     "semantic_hash": ""
   },
   "tests/hw/can/can_heartbeat_smoke.sh": {
@@ -13488,9 +13488,9 @@
     "semantic_hash": ""
   },
   "docs/articles/hw/can.md": {
-    "mtime": 1795633133.5441852,
-    "seen": 1795633478.5552983,
-    "ast_hash": "430583b27a835b070c4168210e2df544",
+    "mtime": 1795635506.3156528,
+    "seen": 1795636356.242337,
+    "ast_hash": "a37948784452252dc40f1370bdc69a6c",
     "semantic_hash": ""
   },
   "tests/hw/can/can_vcan_smoke.sh": {
@@ -13506,9 +13506,9 @@
     "semantic_hash": ""
   },
   "tests/hw/can/can_bridge_test.cpp": {
-    "mtime": 1795632689.8552964,
-    "seen": 1795633478.5498059,
-    "ast_hash": "1092d06cbf6e09273758889324701a16",
+    "mtime": 1795637066.2617025,
+    "seen": 1795637313.215368,
+    "ast_hash": "32b6bf40b1c9ed0807698c3086f8fe45",
     "semantic_hash": ""
   },
   "tests/hw/can/can_fault_seed_smoke.sh": {
@@ -13560,9 +13560,9 @@
     "semantic_hash": ""
   },
   "tools/detail/can_tool_common.hpp": {
-    "mtime": 1795633444.3759818,
-    "seen": 1795633478.5511556,
-    "ast_hash": "c0d3208a5e7d83c2c09b6fe9798b55d7",
+    "mtime": 1795634474.533498,
+    "seen": 1795635145.1367214,
+    "ast_hash": "4952d26db15633c19e802b2e51cbc3d9",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-23-add-can-bus-integration/design.md": {
@@ -13668,15 +13668,15 @@
     "semantic_hash": ""
   },
   "openspec/specs/hw/can/transport/spec.md": {
-    "mtime": 1795415671.3793638,
-    "seen": 1795465267.3587916,
-    "ast_hash": "ecdc40ea4d632fba5bf0556931ff3c8d",
+    "mtime": 1795637085.3807218,
+    "seen": 1795637313.2403777,
+    "ast_hash": "359b0d4fe4bee299c30ee64c990b47f6",
     "semantic_hash": ""
   },
   "openspec/specs/hw/can/virtual-bus/spec.md": {
-    "mtime": 1795632516.5917928,
-    "seen": 1795633478.5747366,
-    "ast_hash": "2e5da758e0f6ec742b066d4aacdf2e9b",
+    "mtime": 1795637085.3817217,
+    "seen": 1795637313.2404137,
+    "ast_hash": "ac3de77ace0f62ec6b081f5b2105ab2a",
     "semantic_hash": ""
   },
   "include/nexigen/logging/detail/log_service_shape.hpp": {
@@ -15407,12 +15407,6 @@
     "ast_hash": "a986d762d4b8033e819b2ae8fa5393ff",
     "semantic_hash": ""
   },
-  "openspec/changes/replace-can-service-packet/.openspec.yaml": {
-    "mtime": 1795632539.8927174,
-    "seen": 1795633478.5471933,
-    "ast_hash": "a986d762d4b8033e819b2ae8fa5393ff",
-    "semantic_hash": ""
-  },
   "openspec/changes/archive/2026-11-25-add-can-batch-protocol/design.md": {
     "mtime": 1795630413.499575,
     "seen": 1795633478.5731995,
@@ -15443,33 +15437,75 @@
     "ast_hash": "d46af96742085d29fb4427495598b344",
     "semantic_hash": ""
   },
-  "openspec/changes/replace-can-service-packet/design.md": {
+  "openspec/changes/add-can-transmitter-batch-enqueue/.openspec.yaml": {
+    "mtime": 1795634011.3839936,
+    "seen": 1795635145.1301265,
+    "ast_hash": "a986d762d4b8033e819b2ae8fa5393ff",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-can-transmitter-batch-enqueue/design.md": {
+    "mtime": 1795637025.3918564,
+    "seen": 1795637313.221777,
+    "ast_hash": "71510469b421f954418dfa7b6bb3e484",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-can-transmitter-batch-enqueue/proposal.md": {
+    "mtime": 1795637022.6888623,
+    "seen": 1795637313.2217786,
+    "ast_hash": "e36db51dd94ce636cdece9f48ae41b1e",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-can-transmitter-batch-enqueue/specs/hw/can/sender-app/spec.md": {
+    "mtime": 1795634098.6998608,
+    "seen": 1795635145.1414833,
+    "ast_hash": "f92bc7e001ec68797e2854929edfe0bc",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-can-transmitter-batch-enqueue/tasks.md": {
+    "mtime": 1795636322.4614332,
+    "seen": 1795636356.2436333,
+    "ast_hash": "5841e193c1faccb1c4b61f7567221817",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-can-transmitter-batch-enqueue/specs/com/event-system/spec.md": {
+    "mtime": 1795635485.2907135,
+    "seen": 1795636356.2436004,
+    "ast_hash": "c29c89166a966b5a60bc800c74d40800",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-25-replace-can-service-packet/.openspec.yaml": {
+    "mtime": 1795632539.8927174,
+    "seen": 1795637313.2126825,
+    "ast_hash": "a986d762d4b8033e819b2ae8fa5393ff",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-25-replace-can-service-packet/design.md": {
     "mtime": 1795633109.5244794,
-    "seen": 1795633478.5733752,
+    "seen": 1795637313.2390049,
     "ast_hash": "22da27b42996c9060f1b5867263f986f",
     "semantic_hash": ""
   },
-  "openspec/changes/replace-can-service-packet/proposal.md": {
+  "openspec/changes/archive/2026-11-25-replace-can-service-packet/proposal.md": {
     "mtime": 1795633080.831097,
-    "seen": 1795633478.5733764,
+    "seen": 1795637313.239006,
     "ast_hash": "a0f5caf5fa057c3514e233556b7da498",
     "semantic_hash": ""
   },
-  "openspec/changes/replace-can-service-packet/specs/hw/can/transport/spec.md": {
+  "openspec/changes/archive/2026-11-25-replace-can-service-packet/specs/hw/can/transport/spec.md": {
     "mtime": 1795633491.6078608,
-    "seen": 1795633563.5167665,
+    "seen": 1795637313.2390072,
     "ast_hash": "dd61261694b62432f9f83f0252b18b50",
     "semantic_hash": ""
   },
-  "openspec/changes/replace-can-service-packet/specs/hw/can/virtual-bus/spec.md": {
+  "openspec/changes/archive/2026-11-25-replace-can-service-packet/specs/hw/can/virtual-bus/spec.md": {
     "mtime": 1795633099.525507,
-    "seen": 1795633478.5733783,
+    "seen": 1795637313.2390082,
     "ast_hash": "b2624a7d160e51f535713e71629e91ec",
     "semantic_hash": ""
   },
-  "openspec/changes/replace-can-service-packet/tasks.md": {
+  "openspec/changes/archive/2026-11-25-replace-can-service-packet/tasks.md": {
     "mtime": 1795633484.28877,
-    "seen": 1795633563.5167935,
+    "seen": 1795637313.2390094,
     "ast_hash": "434d533749765e6f471dabd2bc8f782c",
     "semantic_hash": ""
   }

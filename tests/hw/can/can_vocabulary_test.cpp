@@ -246,6 +246,26 @@ void test_ring() {
     check(!ring.try_push(message), "ring full");
 }
 
+void test_batch_ring() {
+    nexigen::hw::can::detail::CanBatchRing<4> ring{};
+    can::CanMessageBatch packet{};
+    packet.channel_id = 1U;
+    packet.count = 1U;
+    packet.messages[0].channel_id = 1U;
+    packet.messages[0].can_id = 1U;
+    check(ring.try_push(packet), "batch ring push");
+    packet.messages[0].can_id = 2U;
+    check(ring.try_push(packet), "batch ring push 2");
+    can::CanMessageBatch out{};
+    check(ring.try_pop(out) && out.messages[0].can_id == 1U, "batch ring pop fifo");
+    check(ring.try_pop(out) && out.messages[0].can_id == 2U, "batch ring pop 2");
+    check(!ring.try_pop(out), "batch ring empty");
+    for (int i = 0; i < 3; ++i) {
+        check(ring.try_push(packet), "batch ring fill");
+    }
+    check(!ring.try_push(packet), "batch ring full");
+}
+
 void test_batch() {
     can::CanMessageBatch batch{};
     batch.channel_id = 1U;
@@ -379,6 +399,7 @@ int main() {
     test_status();
     test_monitor_filter();
     test_ring();
+    test_batch_ring();
     test_batch();
     test_driver_contract();
     std::printf("hw can core: %d checks, %d failures\n", checks, failures);

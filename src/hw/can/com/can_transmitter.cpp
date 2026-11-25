@@ -98,99 +98,139 @@ void CanTransmitter::publish_status(Channel& channel) noexcept {
 }
 
 core::Status CanTransmitter::enqueue(std::string_view channel, const CanMessage& message) noexcept {
+    CanMessageBatch packet{};
+    packet.channel_id = message.channel_id;
+    packet.count = 1U;
+    packet.messages[0] = message;
+    return enqueue_batch(channel, packet);
+}
+
+core::Status CanTransmitter::validate_message(Channel& channel, CanMessage& message,
+                                              std::uint64_t& fallback_ns) noexcept {
+    if (const core::Status valid = message.validate(); !valid) {
+        return valid;
+    }
+    if (message.kind == CanMessageKind::Error || message.kind == CanMessageKind::Overload ||
+        message.kind == CanMessageKind::BusIdle) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (message.channel_id != channel.config.channel_id) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
+    if (message.kind == CanMessageKind::FdData && !channel.config.fd_enabled) {
+        return std::unexpected(core::ErrorCode::UnsupportedFormat);
+    }
+    if (message.hardware_timestamp_ns == 0U) {
+        if (fallback_ns == 0U) {
+            const auto now = nexigen::chrono::Timestamp::now();
+            if (!now) {
+                return std::unexpected(core::ErrorCode::SystemError);
+            }
+            fallback_ns = now->nanoseconds();
+        }
+        message.hardware_timestamp_ns = fallback_ns;
+        message.timestamp_source = CanTimestampSource::Simulated;
+    }
+    if (message.origin == CanMessageOrigin::Unknown) {
+        message.origin = CanMessageOrigin::LocalTransmit;
+    }
+    return {};
+}
+
+core::Status CanTransmitter::enqueue_batch(std::string_view channel,
+                                           const CanMessageBatch& batch) noexcept {
     Channel* target = find(channel);
     if (target == nullptr) {
         return std::unexpected(core::ErrorCode::NotFound);
     }
-    CanMessage normalized = message;
-    if (core::Status valid = normalized.validate(); !valid) {
-        return valid;
-    }
-    if (normalized.kind == CanMessageKind::Error || normalized.kind == CanMessageKind::Overload ||
-        normalized.kind == CanMessageKind::BusIdle) {
+    if (batch.count == 0U || batch.count > CanMessageBatch::max_messages || batch.reserved != 0U ||
+        batch.first_sequence > UINT64_MAX - batch.count) {
+        target->rejected.fetch_add(batch.count, std::memory_order_relaxed);
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    if (normalized.channel_id != target->config.channel_id) {
+    if (batch.channel_id != target->config.channel_id) {
+        target->rejected.fetch_add(batch.count, std::memory_order_relaxed);
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    if (normalized.kind == CanMessageKind::FdData && !target->config.fd_enabled) {
-        return std::unexpected(core::ErrorCode::UnsupportedFormat);
-    }
-    if (normalized.hardware_timestamp_ns == 0U) {
-        const auto now = nexigen::chrono::Timestamp::now();
-        if (!now) {
-            return std::unexpected(core::ErrorCode::SystemError);
+    CanMessageBatch pending = batch;
+    std::uint64_t fallback_ns = 0U;
+    for (std::size_t index = 0; index < pending.count; ++index) {
+        if (const core::Status valid =
+                validate_message(*target, pending.messages[index], fallback_ns);
+            !valid) {
+            target->rejected.fetch_add(batch.count, std::memory_order_relaxed);
+            return valid;
         }
-        normalized.hardware_timestamp_ns = now->nanoseconds();
-        normalized.timestamp_source = CanTimestampSource::Simulated;
     }
-    if (normalized.origin == CanMessageOrigin::Unknown) {
-        normalized.origin = CanMessageOrigin::LocalTransmit;
-    }
-    if (!target->ring.try_push(normalized)) {
-        target->dropped.fetch_add(1U, std::memory_order_relaxed);
+    if (!target->ring.try_push(pending)) {
+        target->dropped.fetch_add(batch.count, std::memory_order_relaxed);
         return std::unexpected(core::ErrorCode::BufferFull);
     }
     return {};
 }
 
-void CanTransmitter::flush_batch(Channel& channel, CanMessageBatch& batch) noexcept {
-    if (batch.count == 0U) {
+std::uint64_t CanTransmitter::dropped() const noexcept {
+    std::uint64_t total = 0U;
+    for (const auto& channel : channels_) {
+        total += channel->dropped.load(std::memory_order_relaxed);
+    }
+    return total;
+}
+
+std::uint64_t CanTransmitter::rejected() const noexcept {
+    std::uint64_t total = 0U;
+    for (const auto& channel : channels_) {
+        total += channel->rejected.load(std::memory_order_relaxed);
+    }
+    return total;
+}
+
+std::uint64_t CanTransmitter::failed() const noexcept {
+    std::uint64_t total = 0U;
+    for (const auto& channel : channels_) {
+        total += channel->failed.load(std::memory_order_relaxed);
+    }
+    return total;
+}
+
+void CanTransmitter::submit_packet(Channel& channel, CanMessageBatch& packet) noexcept {
+    if (packet.count == 0U) {
         return;
     }
     core::Status status = core::Status{};
-    if (batch.count == 1U) {
-        status = driver_->submit(channel.config.name, batch.messages[0]);
+    if (packet.count == 1U) {
+        status = driver_->submit(channel.config.name, packet.messages[0]);
         for (int attempt = 0; !status.has_value() &&
                               (status.error() == core::ErrorCode::BufferFull ||
                                status.error() == core::ErrorCode::SystemError) &&
                               attempt < 8;
              ++attempt) {
             std::this_thread::yield();
-            status = driver_->submit(channel.config.name, batch.messages[0]);
+            status = driver_->submit(channel.config.name, packet.messages[0]);
         }
     } else {
-        status = driver_->submit_batch(channel.config.name, batch);
+        status = driver_->submit_batch(channel.config.name, packet);
     }
     if (status.has_value()) {
-        submitted_.fetch_add(batch.count, std::memory_order_relaxed);
+        submitted_.fetch_add(packet.count, std::memory_order_relaxed);
     } else {
-        channel.failed.fetch_add(batch.count, std::memory_order_relaxed);
+        channel.failed.fetch_add(packet.count, std::memory_order_relaxed);
         if (status.error() == core::ErrorCode::SystemError) {
             channel.tracker.set_state(CanChannelState::Warning);
             publish_status(channel);
         }
     }
-    batch.clear();
-    batch.channel_id = channel.config.channel_id;
 }
 
 void CanTransmitter::submit_loop(Channel& channel, std::stop_token token) noexcept {
-    CanMessage message{};
-    CanMessageBatch batch{};
-    batch.channel_id = channel.config.channel_id;
-    auto batch_started = std::chrono::steady_clock::now();
-    constexpr auto flush_interval = std::chrono::milliseconds{10};
+    CanMessageBatch packet{};
     while (!token.stop_requested()) {
-        if (!channel.ring.try_pop(message)) {
-            if (batch.count > 0U &&
-                std::chrono::steady_clock::now() - batch_started >= flush_interval) {
-                flush_batch(channel, batch);
-            }
+        if (!channel.ring.try_pop(packet)) {
             std::this_thread::sleep_for(std::chrono::microseconds{100});
             continue;
         }
-        if (batch.count == 0U) {
-            batch_started = std::chrono::steady_clock::now();
-            batch.first_sequence = channel.next_sequence;
-        }
-        batch.messages[batch.count++] = message;
-        ++channel.next_sequence;
-        if (batch.count == CanMessageBatch::max_messages) {
-            flush_batch(channel, batch);
-        }
+        submit_packet(channel, packet);
     }
-    flush_batch(channel, batch);
 }
 
 void CanTransmitter::TrackingSink::on_message(const CanMessage& message) noexcept {

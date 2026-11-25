@@ -975,23 +975,35 @@ flowchart LR
     RX["nexigen-canrx<br/>driver -> iceoryx2"]
     TX["nexigen-cantx<br/>iceoryx2 -> driver"]
     VBUS -->|"vbus/rx<br/>CanMessageBatch"| RX
-    TX -->|"vbus/tx<br/>CanMessageBatch"| VBUS
     RX -->|"nexigen/hw/can/<ch>/rx<br/>CanMessageBatch"| BUS(("iceoryx2"))
     BUS -->|"nexigen/hw/can/<ch>/tx<br/>CanMessageBatch"| TX
+    TX -->|"enqueue_batch<br/>one slot per packet"| RING["CanTransmitter packet ring<br/>16 x 11 216 B"]
+    RING -->|"submit_batch<br/>one driver call per packet"| VBUS
     BUS --> MON["nexigen-canmon"]
     BUS --> APPS["CanClient / user apps"]
     RX -->|"status"| BUS
 ```
 
 Публичные `rx` и `tx` используют тот же bounded `CanMessageBatch` (до 100
-сообщений, 11 216 B), что и `vbus/*`. `canrx` публикует пакеты, `cantx`
-разворачивает пакеты в per-message очередь, а `CanClient`/`CanPublisher`
-сохраняют per-message C++ API. `canmon` и `canview` получают пакеты через
-`CanClient`/capture и разворачивают их в отдельные записи. Timestamp,
-sequence, kind и payload каждого кадра сохраняются; `first_sequence`
-позволяет отличить потерю пакета от потери одного кадра. Это ломает
-совместимость старых бинарников на `rx`/`tx`, но убирает per-message
-transport work из `canrx` и `cantx`.
+сообщений, 11 216 B), что и `vbus/*`. `canrx` публикует пакеты. `cantx`
+кладёт пакет целиком в bounded SPSC-кольцо канала (16 слотов) и отдаёт
+драйверу одним `submit_batch`, без per-message pop/copy/re-batching.
+`CanClient`/`CanPublisher` сохраняют per-message C++ API. `canmon` и
+`canview` получают пакеты через `CanClient`/capture и разворачивают их в
+отдельные записи. Timestamp, sequence, kind и payload каждого кадра
+сохраняются; `first_sequence` позволяет отличить потерю пакета от потери
+одного кадра. Это ломает совместимость старых бинарников на `rx`/`tx`, но
+убирает per-message transport work из `canrx` и `cantx`.
+
+Отдельный источник CPU — ожидание iceoryx2: waitset сообщает о сработавшем
+listener через level-triggered `epoll`, и если не вызвать `try_wait()` для
+этого listener, готовность остаётся выставленной, а `wait_for()` крутится без
+сна. `EventConsumerSet` теперь потребляет активацию сработавшего consumer и
+wake-listener до `drain()`, а `Events`/`WokenUp` отдаёт только при реальном
+событии или выставленном wake-флаге. На демо 10 000 кадров/с (`20 000` кадров
+за 2 с) это снизило `nexigen-cantx` с ~201 % до **2.5 %**, `nexigen-canrx` с
+~101 % до **2.0 %**, `nexigen-canvbus` с ~100 % до **1.2 %**; `canview`
+остаётся ~5.5 %. Пакетный submit-поток `cantx` занимает ~1 %.
 
 ### 5.1b Log viewer data path
 

@@ -113,9 +113,11 @@ simulated timestamp/sequence и публикует `BusIdle`, когда тра�
 Публичные `rx`/`tx` и внутренние `vbus/tx`/`vbus/rx` передают bounded
 `CanMessageBatch` (до 100 сообщений). `CanClient` и `CanPublisher`
 сохраняют per-message C++ API, а `canrx`/`cantx` работают с пакетами на
-транспортной границе. Это несовместимо со старыми бинарниками `rx`/`tx`:
-`canrx`, `cantx`, `canmon`, `canview` и приложения должны быть обновлены
-вместе.
+транспортной границе. `canrx` публикует пакет, `cantx` кладёт его целиком
+в SPSC-кольцо канала и отдаёт драйверу одним `submit_batch`; per-message
+очередь и повторная сборка пакета в передающем тракте отсутствуют. Это
+несовместимо со старыми бинарниками `rx`/`tx`: `canrx`, `cantx`, `canmon`,
+`canview` и приложения должны быть обновлены вместе.
 
 Отладочные режимы:
 
@@ -166,3 +168,9 @@ nexigen-cantx-hw --app-id CANTX --channel can0=can0
 - `CanMessage` — 112 байт, trivially copyable, без динамической памяти.
 - Приёмный путь: driver callback -> bounded SPSC ring -> `EventProducer`.
   Аллокаций, блокировок и форматирования в hot path нет.
+- Передающий путь: `tx` packet -> bounded SPSC ring of `CanMessageBatch`
+  (16 слотов, один пакет = один слот) -> `submit_batch`. Пакет не
+  разбирается на сообщения между `tx`-колбэком и драйвером.
+- Ожидание событий: waitset-driven consumer вызывает `try_wait()` для
+  сработавшего listener до `drain()`. Без этого level-triggered `epoll`
+  остаётся готовым и поток ожидания крутится на 100 % CPU.

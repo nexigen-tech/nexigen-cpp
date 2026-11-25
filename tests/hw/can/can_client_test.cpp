@@ -5,7 +5,9 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <optional>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <nexigen/app/policies/console_policy.hpp>
@@ -74,21 +76,59 @@ bool send_status(const can::CanChannelConfig& config) {
         .has_value();
 }
 
-bool send_rx(const can::CanChannelConfig& config) {
-    auto node = com::Node::create();
+using RxProducer = com::EventProducer<can::CanMessageBatch>;
+
+struct RawRxEndpoints {
+    com::Node node;
+    std::array<std::optional<com::EventChannel<can::CanMessageBatch>>, 2> channels{};
+    std::array<std::optional<RxProducer>, 2> producers{};
+
+    [[nodiscard]] std::array<RxProducer*, 2> producer_pointers() noexcept {
+        return {&*producers[0], &*producers[1]};
+    }
+};
+
+[[nodiscard]] std::optional<RawRxEndpoints>
+make_raw_rx(const std::vector<can::CanChannelConfig>& configs);
+
+bool make_rx_producer(com::Node& node, const can::CanChannelConfig& config,
+                      std::optional<com::EventChannel<can::CanMessageBatch>>& channel,
+                      std::optional<RxProducer>& producer) {
     auto name = com::ServiceName::create(can::rx_service(config.name)->c_str());
-    if (!node || !name) {
+    if (!name) {
         return false;
     }
-    com::ChannelConfig channel_config = can::batch_channel_config();
-    auto channel = com::EventChannel<can::CanMessageBatch>::create(*node, *name, channel_config);
-    if (!channel) {
+    auto created =
+        com::EventChannel<can::CanMessageBatch>::create(node, *name, can::batch_channel_config());
+    if (!created) {
         return false;
     }
-    auto producer = channel->producer("RAW");
-    if (!producer) {
+    channel.emplace(std::move(*created));
+    auto endpoint = channel->producer("RAW");
+    if (!endpoint) {
         return false;
     }
+    producer.emplace(std::move(*endpoint));
+    return true;
+}
+
+[[nodiscard]] std::optional<RawRxEndpoints>
+make_raw_rx(const std::vector<can::CanChannelConfig>& configs) {
+    auto node = com::Node::create();
+    if (!node) {
+        return std::nullopt;
+    }
+    RawRxEndpoints endpoints{std::move(*node), {}, {}};
+    for (std::size_t index = 0; index < endpoints.producers.size(); ++index) {
+        if (!make_rx_producer(endpoints.node, configs[index], endpoints.channels[index],
+                              endpoints.producers[index])) {
+            return std::nullopt;
+        }
+    }
+    return endpoints;
+}
+
+bool send_rx(RxProducer& producer, const can::CanChannelConfig& config) {
     can::CanMessageBatch packet{};
     packet.channel_id = config.channel_id;
     packet.count = 1U;
@@ -102,11 +142,11 @@ bool send_rx(const can::CanChannelConfig& config) {
     packet.messages[0].hardware_timestamp_ns = now ? now->nanoseconds() : 0U;
     const can::CanMessage& first = packet.messages[0];
     return producer
-        ->publish(packet, can::event_rx, can::event_time(first), can::hardware_metadata(first))
+        .publish(packet, can::event_rx, can::event_time(first), can::hardware_metadata(first))
         .has_value();
 }
 
-void feed_tx(std::span<can::CanPublisher*> publishers,
+void feed_tx(std::span<can::CanPublisher*> publishers, std::span<RxProducer*> rx_producers,
              const std::vector<can::CanChannelConfig>& configs) {
     std::this_thread::sleep_for(std::chrono::milliseconds{1000});
     for (std::size_t index = 0; index < configs.size(); ++index) {
@@ -118,9 +158,9 @@ void feed_tx(std::span<can::CanPublisher*> publishers,
         message.dlc = 1;
         message.data[0] = 0x11;
         check(publishers[index]->send(message).has_value(), "send tx");
-        check(send_rx(config), "raw rx publish");
+        check(send_rx(*rx_producers[index], config), "raw rx publish");
         std::this_thread::sleep_for(std::chrono::milliseconds{150});
-        check(send_rx(config), "raw rx publish 2");
+        check(send_rx(*rx_producers[index], config), "raw rx publish 2");
         check(send_status(config), "raw status publish");
         std::this_thread::sleep_for(std::chrono::milliseconds{150});
     }
@@ -222,6 +262,32 @@ bool setup_client(can::CanClient<app::policies::ConsolePolicy>& client, std::ato
     return true;
 }
 
+void receive_tx(std::atomic<int>& tx_count, std::stop_token token) {
+    auto node = com::Node::create();
+    auto name0 = com::ServiceName::create(can::tx_service("can0")->c_str());
+    auto name1 = com::ServiceName::create(can::tx_service("can1")->c_str());
+    if (!node || !name0 || !name1) {
+        return;
+    }
+    com::ChannelConfig config = can::batch_channel_config();
+    auto sub0 = com::Subscriber<can::CanMessageBatch, com::EventHeader>::create(
+        *node, *name0, config.publish_subscribe_options());
+    auto sub1 = com::Subscriber<can::CanMessageBatch, com::EventHeader>::create(
+        *node, *name1, config.publish_subscribe_options());
+    if (!sub0 || !sub1) {
+        return;
+    }
+    while (!token.stop_requested() && tx_count.load() < 2) {
+        for (auto* subscriber : {&*sub0, &*sub1}) {
+            auto received = subscriber->receive();
+            if (received && received->has_value()) {
+                tx_count.fetch_add(1);
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{5});
+    }
+}
+
 void run_client_test() {
     const std::vector<can::CanChannelConfig> configs{channel("can0", 1), channel("can1", 2)};
     auto created = can::CanClient<app::policies::ConsolePolicy>::create(
@@ -243,33 +309,16 @@ void run_client_test() {
     }
     std::array<can::CanPublisher*, 2> publishers{publisher0, publisher1};
 
+    auto raw_rx = make_raw_rx(configs);
+    check(raw_rx.has_value(), "raw rx producers created");
+    if (!raw_rx) {
+        return;
+    }
+    std::array<RxProducer*, 2> rx_producers = raw_rx->producer_pointers();
+
     std::atomic<int> tx_count{0};
-    std::jthread raw_receiver{[&](std::stop_token token) {
-        auto node = com::Node::create();
-        auto name0 = com::ServiceName::create(can::tx_service("can0")->c_str());
-        auto name1 = com::ServiceName::create(can::tx_service("can1")->c_str());
-        if (!node || !name0 || !name1) {
-            return;
-        }
-        com::ChannelConfig config = can::batch_channel_config();
-        auto sub0 = com::Subscriber<can::CanMessageBatch, com::EventHeader>::create(
-            *node, *name0, config.publish_subscribe_options());
-        auto sub1 = com::Subscriber<can::CanMessageBatch, com::EventHeader>::create(
-            *node, *name1, config.publish_subscribe_options());
-        if (!sub0 || !sub1) {
-            return;
-        }
-        while (!token.stop_requested() && tx_count.load() < 2) {
-            for (auto* subscriber : {&*sub0, &*sub1}) {
-                auto received = subscriber->receive();
-                if (received && received->has_value()) {
-                    tx_count.fetch_add(1);
-                }
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds{5});
-        }
-    }};
-    std::jthread feeder{[&] { feed_tx(publishers, configs); }};
+    std::jthread raw_receiver{[&](std::stop_token token) { receive_tx(tx_count, token); }};
+    std::jthread feeder{[&] { feed_tx(publishers, rx_producers, configs); }};
     std::jthread stopper{[] {
         std::this_thread::sleep_for(std::chrono::milliseconds{2000});
         static_cast<void>(::kill(::getpid(), SIGTERM));

@@ -24,6 +24,15 @@ public:
     /// @return Empty status, or the first receive/callback failure.
     [[nodiscard]] virtual Status drain() noexcept = 0;
 
+    /// @brief Consume pending listener activations without blocking.
+    ///
+    /// A wait set reports that an attachment fired; the consumer must clear
+    /// that listener activation before draining its sample queue. Otherwise
+    /// the transport readiness stays set and the wait loop spins.
+    ///
+    /// @return Empty status, or the mapped listener error.
+    [[nodiscard]] virtual Status consume_activation() noexcept = 0;
+
     /// @brief The listener attached to a wait set.
     /// @return Borrowed listener; it must outlive the attachment.
     [[nodiscard]] virtual const EventListener& listener() const noexcept = 0;

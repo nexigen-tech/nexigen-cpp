@@ -139,22 +139,34 @@ public:
     /// @brief Block until an event or wake-up.
     /// @return `Events` or `WokenUp`, or a wait/drain error.
     [[nodiscard]] Result<WaitOutcome> wait() noexcept {
-        auto early = prepare_wait();
-        if (!early.has_value()) {
-            return std::unexpected(early.error());
+        while (true) {
+            auto early = prepare_wait();
+            if (!early.has_value()) {
+                return std::unexpected(early.error());
+            }
+            if (early->has_value()) {
+                return **early;
+            }
+            WaitState state{};
+            auto callback = [this, &state](WaitSetAttachmentId id) {
+                return process_attachment(std::move(id), state);
+            };
+            const auto waited = waitset_->wait_and_process_once(callback);
+            if (!waited.has_value()) {
+                return std::unexpected(waited.error());
+            }
+            if (!state.drain_status.has_value()) {
+                return std::unexpected(state.drain_status.error());
+            }
+            if (state.woken) {
+                return WaitOutcome::WokenUp;
+            }
+            if (state.events) {
+                return WaitOutcome::Events;
+            }
+            // A stale activation was consumed without a wake-up or new samples;
+            // wait again instead of reporting a synthetic outcome.
         }
-        if (early->has_value()) {
-            return **early;
-        }
-        WaitState state{};
-        auto callback = [this, &state](WaitSetAttachmentId id) {
-            return process_attachment(std::move(id), state);
-        };
-        const auto waited = waitset_->wait_and_process_once(callback);
-        if (!waited.has_value()) {
-            return std::unexpected(waited.error());
-        }
-        return finish_wait(state, WaitOutcome::WokenUp);
     }
 
     /// @brief Block until an event, wake-up, or timeout.
@@ -240,19 +252,35 @@ private:
     [[nodiscard]] CallbackProgression process_attachment(WaitSetAttachmentId id,
                                                          WaitState& state) noexcept {
         if (wake_guard_.has_value() && id.has_event_from(*wake_guard_)) {
-            wake_requested_.store(false, std::memory_order_release);
-            state.woken = true;
+            if (wake_listener_.has_value()) {
+                const auto consumed = wake_listener_->try_wait([](EventId) {});
+                if (!consumed.has_value()) {
+                    state.drain_status = std::unexpected(consumed.error());
+                    return CallbackProgression::Stop;
+                }
+            }
+            if (wake_requested_.exchange(false, std::memory_order_acq_rel)) {
+                state.woken = true;
+            }
             return CallbackProgression::Stop;
         }
         for (auto& slot : slots_) {
             if (slot.consumer != nullptr && slot.guard.has_value() &&
                 id.has_event_from(*slot.guard)) {
+                const auto consumed = slot.consumer->consume_activation();
+                if (!consumed.has_value()) {
+                    state.drain_status = consumed;
+                    return CallbackProgression::Stop;
+                }
+                const std::uint64_t before = slot.consumer->received();
                 const auto drained = slot.consumer->drain();
                 if (!drained.has_value()) {
                     state.drain_status = drained;
                     return CallbackProgression::Stop;
                 }
-                state.events = true;
+                if (slot.consumer->received() != before) {
+                    state.events = true;
+                }
                 return CallbackProgression::Stop;
             }
         }

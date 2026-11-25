@@ -26,6 +26,7 @@
 #include <nexigen/com/concepts/event_payload_concept.hpp>
 #include <nexigen/com/detail/event_sequence_tracker.hpp>
 #include <nexigen/com/empty_payload.hpp>
+#include <nexigen/com/event.hpp>
 #include <nexigen/com/event_channel.hpp>
 #include <nexigen/com/event_consumer.hpp>
 #include <nexigen/com/event_consumer_set.hpp>
@@ -35,6 +36,7 @@
 #include <nexigen/com/event_time.hpp>
 #include <nexigen/com/hardware_metadata.hpp>
 #include <nexigen/com/hardware_event.hpp>
+#include <nexigen/com/i_event_consumer.hpp>
 #include <nexigen/com/loss_info.hpp>
 #include <nexigen/com/loss_reason.hpp>
 #include <nexigen/com/node.hpp>
@@ -109,6 +111,32 @@ int g_failures = 0;
     return static_cast<std::uint64_t>(ts.tv_sec) * 1'000'000'000ULL +
            static_cast<std::uint64_t>(ts.tv_nsec);
 }
+
+class FailingActivationConsumer final : public com::IEventConsumer {
+public:
+    explicit FailingActivationConsumer(com::EventListener listener) noexcept
+        : listener_(std::move(listener)) {}
+
+    [[nodiscard]] com::Status drain() noexcept override { return {}; }
+
+    [[nodiscard]] com::Status consume_activation() noexcept override {
+        return std::unexpected(com::Error::ConnectionFailure);
+    }
+
+    [[nodiscard]] const com::EventListener& listener() const noexcept override { return listener_; }
+
+    [[nodiscard]] bool attached_to_set() const noexcept override { return attached_; }
+
+    void set_attached_to_set(bool attached) noexcept override { attached_ = attached; }
+
+    [[nodiscard]] std::uint64_t received() const noexcept override { return 0U; }
+
+    [[nodiscard]] std::string to_string() const override { return "FailingActivationConsumer()"; }
+
+private:
+    com::EventListener listener_;
+    bool attached_{false};
+};
 
 struct Pod {
     std::uint64_t value{0};
@@ -1259,6 +1287,84 @@ void test_idle_wait_no_spin() {
     }
 }
 
+void test_fired_consumer_wait_no_spin() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    if (!node.has_value()) {
+        return;
+    }
+    auto channels = make_channel_pair(*node);
+    NX_CHECK(channels.has_value());
+    if (!channels.has_value()) {
+        return;
+    }
+    auto& channel = channels->data;
+    std::size_t received = 0;
+    auto consumer =
+        channel.consumer([&received](const com::EventHeader&, const Pod&) { ++received; },
+                         [](const com::LossInfo&) {});
+    auto producer = channel.producer();
+    NX_CHECK(consumer.has_value() && producer.has_value());
+    if (!consumer.has_value() || !producer.has_value()) {
+        return;
+    }
+    com::EventConsumerSet<1> set{*node};
+    NX_CHECK(static_cast<bool>(set));
+    NX_CHECK(set.attach(*consumer).has_value());
+    NX_CHECK(producer->publish_now(Pod{7U, 0U}, 7U).has_value());
+    const auto fired = set.wait_for(std::chrono::milliseconds{100});
+    NX_CHECK(fired.has_value() && *fired == com::WaitOutcome::Events);
+    NX_CHECK(received == 1U);
+
+    const std::uint64_t cpu_before = thread_cpu_time_ns();
+    const auto idle = set.wait_for(std::chrono::milliseconds{100});
+    const std::uint64_t cpu_after = thread_cpu_time_ns();
+    NX_CHECK(idle.has_value() && *idle == com::WaitOutcome::Timeout);
+    NX_CHECK(cpu_after >= cpu_before);
+    if (cpu_after >= cpu_before) {
+        NX_CHECK(cpu_after - cpu_before < 50'000'000ULL);
+    }
+
+    set.wake_up();
+    const auto woken = set.wait_for(std::chrono::milliseconds{100});
+    NX_CHECK(woken.has_value() && *woken == com::WaitOutcome::WokenUp);
+    const std::uint64_t wake_cpu_before = thread_cpu_time_ns();
+    const auto wake_idle = set.wait_for(std::chrono::milliseconds{100});
+    const std::uint64_t wake_cpu_after = thread_cpu_time_ns();
+    NX_CHECK(wake_idle.has_value() && *wake_idle == com::WaitOutcome::Timeout);
+    NX_CHECK(wake_cpu_after >= wake_cpu_before);
+    if (wake_cpu_after >= wake_cpu_before) {
+        NX_CHECK(wake_cpu_after - wake_cpu_before < 50'000'000ULL);
+    }
+}
+
+void test_activation_failure_surfaced() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    if (!node.has_value()) {
+        return;
+    }
+    auto name = make_name("set-activation-failure");
+    NX_CHECK(name.has_value());
+    if (!name.has_value()) {
+        return;
+    }
+    const com::EventOptions options{1U, 1U, 1U};
+    auto listener = com::EventListener::create(*node, *name, options);
+    auto notifier = com::EventNotifier::create(*node, *name, options);
+    NX_CHECK(listener.has_value() && notifier.has_value());
+    if (!listener.has_value() || !notifier.has_value()) {
+        return;
+    }
+    FailingActivationConsumer consumer{std::move(*listener)};
+    com::EventConsumerSet<1> set{*node};
+    NX_CHECK(static_cast<bool>(set));
+    NX_CHECK(set.attach(consumer).has_value());
+    NX_CHECK(notifier->notify().has_value());
+    const auto outcome = set.wait_for(std::chrono::milliseconds{100});
+    NX_CHECK(!outcome.has_value() && outcome.error() == com::Error::ConnectionFailure);
+}
+
 void test_consumer_set_sixteen_full_capacity() {
     using Consumer =
         com::EventConsumer<Pod, std::function<void(const com::EventHeader&, const Pod&)>,
@@ -1755,6 +1861,8 @@ int main() {
     test_allocation_free_hot_paths();
     test_wake_from_thread();
     test_idle_wait_no_spin();
+    test_fired_consumer_wait_no_spin();
+    test_activation_failure_surfaced();
     test_endpoint_limits();
     test_failed_send_preserves_sequence();
     test_notify_failure_and_retry();
