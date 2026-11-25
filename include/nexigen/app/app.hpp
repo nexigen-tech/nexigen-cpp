@@ -489,6 +489,122 @@ public:
         return true;
     }
 
+    /// @brief Subscribe to one input event service with explicit channel limits.
+    ///
+    /// @tparam T Trivially copyable event payload.
+    /// @tparam Callback Callable invocable with `(const T&)` or
+    ///         `(const com::EventHeader&, const T&)`.
+    /// @param service Event service name.
+    /// @param callback Callback invoked on the `run()` thread.
+    /// @param config Channel limits for the created service.
+    /// @return `true` when the subscription is registered and attached.
+    template <class T, class Callback>
+        requires com::concepts::EventPayload<T>
+    bool subscribe_with_config(std::string_view service, Callback&& callback,
+                               const com::ChannelConfig& config) noexcept {
+        if (subscriptions_.size() >= max_subscriptions) {
+            record_failure(service, "subscription limit of 16 reached");
+            return false;
+        }
+        auto name = com::ServiceName::create(std::string(service).c_str());
+        if (!name) {
+            record_failure(service, "invalid service name");
+            return false;
+        }
+        auto channel = com::EventChannel<T>::create(*node_, *name, config);
+        if (!channel) {
+            record_failure(service, "event channel could not be created");
+            return false;
+        }
+        using EventCb = std::function<void(const com::EventHeader&, const T&)>;
+        using LossCb = std::function<void(const com::LossInfo&)>;
+        EventCb on_event = [cb = std::forward<Callback>(callback)](const com::EventHeader& header,
+                                                                   const T& payload) mutable {
+            if constexpr (std::is_invocable_v<Callback&, const com::EventHeader&, const T&>) {
+                cb(header, payload);
+            } else {
+                cb(payload);
+            }
+        };
+        LossCb on_loss = [this](const com::LossInfo& loss) {
+            if (infra_) {
+                if (auto logger = infra_->logger(); logger) {
+                    (*logger)->warning("input loss count={}", loss.lost_count);
+                }
+            }
+        };
+        auto consumer = channel->consumer(std::move(on_event), std::move(on_loss));
+        if (!consumer) {
+            record_failure(service, "event consumer could not be created");
+            return false;
+        }
+        auto subscription = std::make_unique<Subscription<T, EventCb, LossCb>>(
+            std::move(*channel), std::move(*consumer));
+        if (auto attached = consumer_set_->attach(subscription->consumer()); !attached) {
+            record_failure(service, "event consumer could not be attached");
+            return false;
+        }
+        subscriptions_.push_back(std::move(subscription));
+        return true;
+    }
+
+    /// @brief Subscribe with explicit channel limits and a loss callback.
+    ///
+    /// @tparam T Trivially copyable event payload.
+    /// @tparam Callback Callable with `(const T&)` or
+    ///         `(const com::EventHeader&, const T&)`.
+    /// @tparam OnLoss Callable with `(const com::LossInfo&)`.
+    /// @param service Event service name.
+    /// @param callback Event callback.
+    /// @param on_loss Transport-loss callback.
+    /// @param config Channel limits for the created service.
+    /// @return `true` when the subscription is registered and attached.
+    template <class T, class Callback, class OnLoss>
+        requires com::concepts::EventPayload<T>
+    bool subscribe_with_config(std::string_view service, Callback&& callback, OnLoss&& on_loss,
+                               const com::ChannelConfig& config) noexcept {
+        if (subscriptions_.size() >= max_subscriptions) {
+            record_failure(service, "subscription limit of 16 reached");
+            return false;
+        }
+        auto name = com::ServiceName::create(std::string(service).c_str());
+        if (!name) {
+            record_failure(service, "invalid service name");
+            return false;
+        }
+        auto channel = com::EventChannel<T>::create(*node_, *name, config);
+        if (!channel) {
+            record_failure(service, "event channel could not be created");
+            return false;
+        }
+        using EventCb = std::function<void(const com::EventHeader&, const T&)>;
+        using LossCb = std::function<void(const com::LossInfo&)>;
+        EventCb on_event = [cb = std::forward<Callback>(callback)](const com::EventHeader& header,
+                                                                   const T& payload) mutable {
+            if constexpr (std::is_invocable_v<Callback&, const com::EventHeader&, const T&>) {
+                cb(header, payload);
+            } else {
+                cb(payload);
+            }
+        };
+        LossCb loss = [cb = std::forward<OnLoss>(on_loss)](const com::LossInfo& info) mutable {
+            cb(info);
+        };
+        auto consumer = channel->consumer(std::move(on_event), std::move(loss));
+        if (!consumer) {
+            record_failure(service, "event consumer could not be created");
+            return false;
+        }
+        auto subscription = std::make_unique<Subscription<T, EventCb, LossCb>>(
+            std::move(*channel), std::move(*consumer));
+        if (auto attached = consumer_set_->attach(subscription->consumer()); !attached) {
+            record_failure(service, "event consumer could not be attached");
+            return false;
+        }
+        subscriptions_.push_back(std::move(subscription));
+        return true;
+    }
+
     /// @brief Subscribe with an explicit transport-loss callback.
     ///
     /// Same as the two-argument overload, but replaces the default logger

@@ -6,6 +6,7 @@
 #include <nexigen/hw/can/can_channel_config.hpp>
 #include <nexigen/hw/can/can_driver_capabilities.hpp>
 #include <nexigen/hw/can/can_message.hpp>
+#include <nexigen/hw/can/can_message_batch.hpp>
 #include <nexigen/hw/can/i_can_message_sink.hpp>
 
 namespace nexigen::hw::can {
@@ -36,6 +37,28 @@ public:
     /// @return OK, `BufferFull`, `UnsupportedFormat`, or a driver error.
     [[nodiscard]] virtual core::Status submit(std::string_view channel,
                                               const CanMessage& message) noexcept = 0;
+
+    /// @brief Submit a bounded batch of messages.
+    ///
+    /// The default implementation validates the batch and submits every
+    /// contained message individually. A driver that supports batch transport
+    /// overrides this method and reports `batch_submission` in its capabilities.
+    ///
+    /// @param channel Logical channel name.
+    /// @param batch Validated batch envelope.
+    /// @return OK, or the first per-message failure.
+    [[nodiscard]] virtual core::Status submit_batch(std::string_view channel,
+                                                    const CanMessageBatch& batch) noexcept {
+        if (const core::Status valid = batch.validate(); !valid) {
+            return valid;
+        }
+        for (std::size_t index = 0; index < batch.count; ++index) {
+            if (const core::Status submitted = submit(channel, batch.messages[index]); !submitted) {
+                return submitted;
+            }
+        }
+        return {};
+    }
 
     /// @brief Close one channel and release its sink binding.
     /// @param channel Logical channel name.

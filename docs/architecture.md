@@ -971,14 +971,27 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    HW["CAN hardware /<br/>nexigen-canvbus"] --> RX["nexigen-canrx<br/>driver -> iceoryx2"]
-    TX["nexigen-cantx<br/>iceoryx2 -> driver"] --> HW
-    RX -->|"nexigen/hw/can/<ch>/rx"| BUS(("iceoryx2"))
-    BUS -->|"nexigen/hw/can/<ch>/tx"| TX
+    VBUS["nexigen-canvbus"]
+    RX["nexigen-canrx<br/>driver -> iceoryx2"]
+    TX["nexigen-cantx<br/>iceoryx2 -> driver"]
+    VBUS -->|"vbus/rx<br/>CanMessageBatch"| RX
+    TX -->|"vbus/tx<br/>CanMessageBatch"| VBUS
+    RX -->|"nexigen/hw/can/<ch>/rx<br/>CanMessageBatch"| BUS(("iceoryx2"))
+    BUS -->|"nexigen/hw/can/<ch>/tx<br/>CanMessageBatch"| TX
     BUS --> MON["nexigen-canmon"]
     BUS --> APPS["CanClient / user apps"]
     RX -->|"status"| BUS
 ```
+
+Публичные `rx` и `tx` используют тот же bounded `CanMessageBatch` (до 100
+сообщений, 11 216 B), что и `vbus/*`. `canrx` публикует пакеты, `cantx`
+разворачивает пакеты в per-message очередь, а `CanClient`/`CanPublisher`
+сохраняют per-message C++ API. `canmon` и `canview` получают пакеты через
+`CanClient`/capture и разворачивают их в отдельные записи. Timestamp,
+sequence, kind и payload каждого кадра сохраняются; `first_sequence`
+позволяет отличить потерю пакета от потери одного кадра. Это ломает
+совместимость старых бинарников на `rx`/`tx`, но убирает per-message
+transport work из `canrx` и `cantx`.
 
 ### 5.1b Log viewer data path
 

@@ -10,6 +10,7 @@
 #include <nexigen/com/service_name.hpp>
 #include <nexigen/hw/can/can_service_names.hpp>
 #include <nexigen/hw/can/can_channel_name.hpp>
+#include <nexigen/hw/can/com/can_transport.hpp>
 
 #include "model/record_meta.hpp"
 
@@ -115,12 +116,14 @@ bool CaptureThread::start_channel(std::size_t index) noexcept {
             std::format("channel '{}': rx service name is rejected", state.profile.name);
         return false;
     }
-    const nexigen::com::ChannelConfig config{};
+    const nexigen::com::ChannelConfig config = hwcan::batch_channel_config();
     auto message_consumer = MessageConsumer::create(
         *node_, std::move(*rx_name), config,
         [this, index](const nexigen::com::EventHeader& header,
-                      const nexigen::hw::can::CanMessage& message) {
-            on_message(index, header, message);
+                      const nexigen::hw::can::CanMessageBatch& batch) {
+            for (std::size_t message_index = 0; message_index < batch.count; ++message_index) {
+                on_message(index, header, batch.messages[message_index]);
+            }
         },
         [this, index](const nexigen::com::LossInfo& info) { on_loss(index, info); });
     if (!message_consumer) {

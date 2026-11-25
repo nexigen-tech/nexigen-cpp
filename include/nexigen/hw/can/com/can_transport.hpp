@@ -2,13 +2,24 @@
 
 #include <cstdint>
 
+#include <nexigen/com/channel_config.hpp>
 #include <nexigen/com/event_header.hpp>
 #include <nexigen/com/event_time.hpp>
 #include <nexigen/com/hardware_metadata.hpp>
 #include <nexigen/hw/can/can_event_code.hpp>
 #include <nexigen/hw/can/can_message.hpp>
+#include <nexigen/hw/can/can_message_batch.hpp>
 
 namespace nexigen::hw::can {
+
+/// @brief Bounded transport settings for batch-capable virtual services.
+/// @return Channel settings sized for ~11 KiB batch payloads.
+[[nodiscard]] inline com::ChannelConfig batch_channel_config() noexcept {
+    com::ChannelConfig config{};
+    config.queue_size = 32U;
+    config.history_size = 8U;
+    return config;
+}
 
 /// @brief Event code for one CAN message kind.
 /// @param kind Message kind.

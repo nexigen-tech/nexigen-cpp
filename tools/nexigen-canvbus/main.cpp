@@ -16,6 +16,7 @@
 #include <nexigen/app/policies/console_policy.hpp>
 #include <nexigen/chrono/timestamp.hpp>
 #include <nexigen/hw/can/can_message.hpp>
+#include <nexigen/hw/can/can_message_batch.hpp>
 #include <nexigen/hw/can/can_service_names.hpp>
 #include <nexigen/hw/can/can_tool_options.hpp>
 #include <nexigen/hw/can/com/can_transport.hpp>
@@ -32,8 +33,9 @@ struct VirtualChannel {
     std::string name;
     std::uint16_t channel_id{0};
     std::uint64_t heartbeat_interval_ns{1'000'000'000ULL};
-    nexigen::com::EventProducer<can::CanMessage>* rx{nullptr};
+    nexigen::com::EventProducer<can::CanMessageBatch>* rx{nullptr};
     std::atomic<std::uint64_t> sequence{0};
+    std::atomic<std::uint64_t> batch_sequence{0};
     std::atomic<std::uint64_t> last_activity_ns{0};
     std::uint64_t last_heartbeat_ns{0};
     std::optional<can::CanMessage> reorder_pending{};
@@ -46,30 +48,56 @@ std::uint64_t now_ns() {
     return now ? now->nanoseconds() : 0U;
 }
 
-void publish(VirtualChannel& channel, can::CanMessage message) {
-    message.channel_id = channel.channel_id;
-    message.timestamp_source = can::CanTimestampSource::Simulated;
-    if (message.hardware_timestamp_ns == 0U) {
-        message.hardware_timestamp_ns = now_ns();
+void publish_batch(VirtualChannel& channel, can::CanMessageBatch batch) {
+    if (batch.count == 0U) {
+        return;
     }
-    message.hardware_sequence = channel.sequence.fetch_add(1U) + 1U;
-    message.frame_flags.bits |=
-        can::CanFrameFlags::has_hardware_timestamp | can::CanFrameFlags::has_hardware_sequence;
-    if (message.kind != can::CanMessageKind::BusIdle) {
-        channel.last_activity_ns.store(message.hardware_timestamp_ns);
+    batch.channel_id = channel.channel_id;
+    batch.first_sequence = channel.batch_sequence.fetch_add(batch.count);
+    for (std::size_t index = 0; index < batch.count; ++index) {
+        can::CanMessage& message = batch.messages[index];
+        message.channel_id = channel.channel_id;
+        message.timestamp_source = can::CanTimestampSource::Simulated;
+        if (message.hardware_timestamp_ns == 0U) {
+            message.hardware_timestamp_ns = now_ns();
+        }
+        message.hardware_sequence = channel.sequence.fetch_add(1U) + 1U;
+        message.frame_flags.bits |=
+            can::CanFrameFlags::has_hardware_timestamp | can::CanFrameFlags::has_hardware_sequence;
+        if (message.kind != can::CanMessageKind::BusIdle) {
+            channel.last_activity_ns.store(message.hardware_timestamp_ns);
+        }
     }
-    static_cast<void>(channel.rx->publish(message, can::event_code_for(message.kind),
-                                          can::event_time(message),
-                                          can::hardware_metadata(message)));
+    const can::CanMessage& first = batch.messages[0];
+    static_cast<void>(channel.rx->publish(batch, can::event_rx, can::event_time(first),
+                                          can::hardware_metadata(first)));
 }
 
-void publish_faults(VirtualChannel& channel, const can::CanToolOptions& options) {
+void publish(VirtualChannel& channel, can::CanMessage message) {
+    can::CanMessageBatch batch{};
+    batch.channel_id = channel.channel_id;
+    batch.count = 1U;
+    batch.messages[0] = message;
+    publish_batch(channel, batch);
+}
+
+void append_message(VirtualChannel& channel, can::CanMessageBatch& batch, can::CanMessage message) {
+    if (batch.count == can::CanMessageBatch::max_messages) {
+        publish_batch(channel, batch);
+        batch.clear();
+        batch.channel_id = channel.channel_id;
+    }
+    batch.messages[batch.count++] = message;
+}
+
+void publish_faults(VirtualChannel& channel, const can::CanToolOptions& options,
+                    can::CanMessageBatch& batch) {
     const auto add = [&](std::uint32_t flags) {
         can::CanMessage error{};
         error.kind = can::CanMessageKind::Error;
         error.error_flags.bits = flags;
         error.origin = can::CanMessageOrigin::LocalTransmit;
-        publish(channel, error);
+        append_message(channel, batch, error);
     };
     if (options.inject_errors) {
         add(can::CanErrorFlags::bit_error);
@@ -78,7 +106,7 @@ void publish_faults(VirtualChannel& channel, const can::CanToolOptions& options)
         can::CanMessage overload{};
         overload.kind = can::CanMessageKind::Overload;
         overload.origin = can::CanMessageOrigin::LocalTransmit;
-        publish(channel, overload);
+        append_message(channel, batch, overload);
     }
     if (options.inject_bus_off) {
         add(can::CanErrorFlags::bus_off);
@@ -92,37 +120,45 @@ void publish_faults(VirtualChannel& channel, const can::CanToolOptions& options)
 }
 
 void loopback(VirtualChannel& channel, const can::CanToolOptions& options, std::mt19937_64& rng,
-              const can::CanMessage& message) {
+              const can::CanMessageBatch& input) {
+    if (input.count == 0U) {
+        return;
+    }
     if (options.latency_ns != 0U || options.jitter_ns != 0U) {
         const std::uint64_t jitter = options.jitter_ns == 0U ? 0U : rng() % options.jitter_ns;
         std::this_thread::sleep_for(std::chrono::nanoseconds{options.latency_ns + jitter});
     }
-    if (options.inject_drop && (rng() % 10U) == 0U) {
-        return;
-    }
-    publish_faults(channel, options);
-    can::CanMessage echo = message;
-    echo.origin = can::CanMessageOrigin::LocalTransmit;
-    if (options.inject_reorder) {
-        if (!channel.reorder_pending.has_value()) {
-            channel.reorder_pending = echo;
-            return;
+    can::CanMessageBatch output{};
+    output.channel_id = channel.channel_id;
+    for (std::size_t index = 0; index < input.count; ++index) {
+        if (options.inject_drop && (rng() % 10U) == 0U) {
+            continue;
         }
-        publish(channel, echo);
-        publish(channel, *channel.reorder_pending);
-        channel.reorder_pending.reset();
-        return;
+        publish_faults(channel, options, output);
+        can::CanMessage echo = input.messages[index];
+        echo.origin = can::CanMessageOrigin::LocalTransmit;
+        if (options.inject_reorder) {
+            if (!channel.reorder_pending.has_value()) {
+                channel.reorder_pending = echo;
+                continue;
+            }
+            append_message(channel, output, echo);
+            append_message(channel, output, *channel.reorder_pending);
+            channel.reorder_pending.reset();
+            continue;
+        }
+        if (options.inject_burst) {
+            append_message(channel, output, echo);
+            append_message(channel, output, echo);
+            append_message(channel, output, echo);
+            continue;
+        }
+        append_message(channel, output, echo);
+        if (options.inject_duplicate && (rng() % 10U) == 0U) {
+            append_message(channel, output, echo);
+        }
     }
-    if (options.inject_burst) {
-        publish(channel, echo);
-        publish(channel, echo);
-        publish(channel, echo);
-        return;
-    }
-    publish(channel, echo);
-    if (options.inject_duplicate && (rng() % 10U) == 0U) {
-        publish(channel, echo);
-    }
+    publish_batch(channel, output);
 }
 
 bool setup_channels(Runtime& runtime, const can::CanToolOptions& options, ChannelList& channels,
@@ -138,15 +174,19 @@ bool setup_channels(Runtime& runtime, const can::CanToolOptions& options, Channe
         channel->channel_id = config.channel_id;
         channel->heartbeat_interval_ns = config.heartbeat_interval_ns;
         channel->last_activity_ns.store(now_ns());
-        channel->rx = runtime.publish<can::CanMessage>(*vbus_rx);
+        const auto batch_config = can::batch_channel_config();
+        auto* rx = runtime.publish<can::CanMessageBatch>(*vbus_rx, batch_config);
+        channel->rx = rx;
         if (channel->rx == nullptr) {
             return false;
         }
         auto* raw = channel.get();
-        const bool attached = runtime.subscribe<can::CanMessage>(
-            *vbus_tx, [raw, &options, &rng](const can::CanMessage& message) {
-                loopback(*raw, options, rng, message);
-            });
+        const bool attached = runtime.subscribe_with_config<can::CanMessageBatch>(
+            *vbus_tx,
+            [raw, &options, &rng](const can::CanMessageBatch& batch) {
+                loopback(*raw, options, rng, batch);
+            },
+            batch_config);
         if (!attached) {
             return false;
         }

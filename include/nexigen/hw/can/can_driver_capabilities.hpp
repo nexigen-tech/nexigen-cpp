@@ -18,6 +18,7 @@ struct CanDriverCapabilities {
     bool error_frames{false};        ///< Delivers error frames.
     bool overload_frames{false};     ///< Delivers overload frames.
     bool heartbeats{false};          ///< Delivers bus-idle heartbeats.
+    bool batch_submission{false};    ///< Accepts multi-message batch submissions.
     std::uint16_t max_channels{1};   ///< Maximum simultaneous channels.
 
     /// @brief Render the capabilities for cold-path diagnostics.

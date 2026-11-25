@@ -11,6 +11,7 @@
 #include <nexigen/hw/can/can_error_flags.hpp>
 #include <nexigen/hw/can/can_frame_flags.hpp>
 #include <nexigen/hw/can/can_message.hpp>
+#include <nexigen/hw/can/can_message_batch.hpp>
 #include <nexigen/hw/can/can_monitor_filter.hpp>
 #include <nexigen/hw/can/can_channel_set.hpp>
 #include <nexigen/hw/can/can_channel_tracker.hpp>
@@ -245,6 +246,70 @@ void test_ring() {
     check(!ring.try_push(message), "ring full");
 }
 
+void test_batch() {
+    can::CanMessageBatch batch{};
+    batch.channel_id = 1U;
+    batch.first_sequence = 100U;
+    batch.count = 2U;
+    batch.messages[0].kind = can::CanMessageKind::ClassicData;
+    batch.messages[0].channel_id = 1U;
+    batch.messages[0].dlc = 2U;
+    batch.messages[0].hardware_timestamp_ns = 1000U;
+    batch.messages[1].kind = can::CanMessageKind::Remote;
+    batch.messages[1].channel_id = 1U;
+    batch.messages[1].dlc = 0U;
+    batch.messages[1].hardware_timestamp_ns = 2000U;
+    check(batch.validate().has_value(), "batch validates");
+    check(std::format("{}", batch).find("count=2") != std::string::npos, "batch formats");
+
+    nlohmann::json json = batch;
+    can::CanMessageBatch parsed{};
+    can::from_json(json, parsed);
+    check(parsed.count == 2U && parsed.first_sequence == 100U, "batch json header");
+    check(parsed.messages[0].hardware_timestamp_ns == 1000U, "batch json timestamp");
+    check(parsed.messages[1].kind == can::CanMessageKind::Remote, "batch json kind");
+
+    can::CanDriverCapabilities caps{};
+    caps.batch_submission = true;
+    nlohmann::json caps_json = caps;
+    can::CanDriverCapabilities caps_parsed{};
+    can::from_json(caps_json, caps_parsed);
+    check(caps_parsed.batch_submission, "batch capability json");
+    check(std::format("{}", caps).find("batch=true") != std::string::npos,
+          "batch capability format");
+
+    can::CanMessageBatch invalid{};
+    check(!invalid.validate().has_value(), "empty batch rejected");
+    invalid.count = can::CanMessageBatch::max_messages + 1U;
+    check(!invalid.validate().has_value(), "oversized batch rejected");
+    invalid.count = 1U;
+    invalid.channel_id = 2U;
+    invalid.messages[0].channel_id = 1U;
+    check(!invalid.validate().has_value(), "batch channel mismatch rejected");
+    invalid.channel_id = 1U;
+    invalid.messages[0].channel_id = 1U;
+    invalid.first_sequence = UINT64_MAX;
+    check(!invalid.validate().has_value(), "batch sequence overflow rejected");
+    nlohmann::json oversized_json = json;
+    oversized_json["count"] = 101U;
+    can::CanMessageBatch unchanged = batch;
+    can::from_json(oversized_json, unchanged);
+    check(unchanged.count == batch.count, "oversized batch json rejected");
+
+    can::test::FakeCanDriver driver{};
+    driver.caps.supports_remote = true;
+    can::CanChannelConfig config{};
+    config.name = "can0";
+    config.channel_id = 1U;
+    config.driver_channel = "can0";
+    config.bit_rate = 500'000U;
+    RecordingSink sink{};
+    check(driver.open_channel(config, sink).has_value(), "batch driver open");
+    check(driver.submit_batch("can0", batch).has_value(), "batch fallback submits");
+    check(driver.submitted.size() == 2U, "batch fallback count");
+    check(driver.submitted[0].hardware_timestamp_ns == 1000U, "batch fallback timestamp");
+}
+
 void test_driver_contract() {
     can::test::FakeCanDriver driver{};
     driver.caps.supports_fd = false;
@@ -314,6 +379,7 @@ int main() {
     test_status();
     test_monitor_filter();
     test_ring();
+    test_batch();
     test_driver_contract();
     std::printf("hw can core: %d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

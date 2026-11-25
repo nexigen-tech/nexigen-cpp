@@ -110,6 +110,12 @@ nexigen-canmon --app-id CANMON --channel can0=can0 --embedded --json
 
 Виртуальная шина замыкает `tx` на `rx` с origin `LocalTransmit`, присваивает
 simulated timestamp/sequence и публикует `BusIdle`, когда трафик стихает.
+Публичные `rx`/`tx` и внутренние `vbus/tx`/`vbus/rx` передают bounded
+`CanMessageBatch` (до 100 сообщений). `CanClient` и `CanPublisher`
+сохраняют per-message C++ API, а `canrx`/`cantx` работают с пакетами на
+транспортной границе. Это несовместимо со старыми бинарниками `rx`/`tx`:
+`canrx`, `cantx`, `canmon`, `canview` и приложения должны быть обновлены
+вместе.
 
 Отладочные режимы:
 

@@ -110,6 +110,9 @@ core::Status CanTransmitter::enqueue(std::string_view channel, const CanMessage&
         normalized.kind == CanMessageKind::BusIdle) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
+    if (normalized.channel_id != target->config.channel_id) {
+        return std::unexpected(core::ErrorCode::InvalidArgument);
+    }
     if (normalized.kind == CanMessageKind::FdData && !target->config.fd_enabled) {
         return std::unexpected(core::ErrorCode::UnsupportedFormat);
     }
@@ -131,32 +134,63 @@ core::Status CanTransmitter::enqueue(std::string_view channel, const CanMessage&
     return {};
 }
 
-void CanTransmitter::submit_loop(Channel& channel, std::stop_token token) noexcept {
-    CanMessage message{};
-    while (!token.stop_requested()) {
-        if (!channel.ring.try_pop(message)) {
-            std::this_thread::sleep_for(std::chrono::microseconds{100});
-            continue;
-        }
-        core::Status status = driver_->submit(channel.config.name, message);
+void CanTransmitter::flush_batch(Channel& channel, CanMessageBatch& batch) noexcept {
+    if (batch.count == 0U) {
+        return;
+    }
+    core::Status status = core::Status{};
+    if (batch.count == 1U) {
+        status = driver_->submit(channel.config.name, batch.messages[0]);
         for (int attempt = 0; !status.has_value() &&
                               (status.error() == core::ErrorCode::BufferFull ||
                                status.error() == core::ErrorCode::SystemError) &&
                               attempt < 8;
              ++attempt) {
             std::this_thread::yield();
-            status = driver_->submit(channel.config.name, message);
+            status = driver_->submit(channel.config.name, batch.messages[0]);
         }
-        if (status.has_value()) {
-            submitted_.fetch_add(1U, std::memory_order_relaxed);
-        } else {
-            channel.failed.fetch_add(1U, std::memory_order_relaxed);
-            if (status.error() == core::ErrorCode::SystemError) {
-                channel.tracker.set_state(CanChannelState::Warning);
-                publish_status(channel);
-            }
+    } else {
+        status = driver_->submit_batch(channel.config.name, batch);
+    }
+    if (status.has_value()) {
+        submitted_.fetch_add(batch.count, std::memory_order_relaxed);
+    } else {
+        channel.failed.fetch_add(batch.count, std::memory_order_relaxed);
+        if (status.error() == core::ErrorCode::SystemError) {
+            channel.tracker.set_state(CanChannelState::Warning);
+            publish_status(channel);
         }
     }
+    batch.clear();
+    batch.channel_id = channel.config.channel_id;
+}
+
+void CanTransmitter::submit_loop(Channel& channel, std::stop_token token) noexcept {
+    CanMessage message{};
+    CanMessageBatch batch{};
+    batch.channel_id = channel.config.channel_id;
+    auto batch_started = std::chrono::steady_clock::now();
+    constexpr auto flush_interval = std::chrono::milliseconds{10};
+    while (!token.stop_requested()) {
+        if (!channel.ring.try_pop(message)) {
+            if (batch.count > 0U &&
+                std::chrono::steady_clock::now() - batch_started >= flush_interval) {
+                flush_batch(channel, batch);
+            }
+            std::this_thread::sleep_for(std::chrono::microseconds{100});
+            continue;
+        }
+        if (batch.count == 0U) {
+            batch_started = std::chrono::steady_clock::now();
+            batch.first_sequence = channel.next_sequence;
+        }
+        batch.messages[batch.count++] = message;
+        ++channel.next_sequence;
+        if (batch.count == CanMessageBatch::max_messages) {
+            flush_batch(channel, batch);
+        }
+    }
+    flush_batch(channel, batch);
 }
 
 void CanTransmitter::TrackingSink::on_message(const CanMessage& message) noexcept {

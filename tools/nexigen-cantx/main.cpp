@@ -45,10 +45,14 @@ bool subscribe_tx(Runtime& runtime, std::span<const can::CanChannelConfig> chann
         if (!service) {
             return false;
         }
-        const bool attached = runtime.subscribe<can::CanMessage>(
-            *service, [&transmitter, name = channel.name](const can::CanMessage& message) {
-                static_cast<void>(transmitter.enqueue(name, message));
-            });
+        const bool attached = runtime.subscribe_with_config<can::CanMessageBatch>(
+            *service,
+            [&transmitter, name = channel.name](const can::CanMessageBatch& batch) {
+                for (std::size_t index = 0; index < batch.count; ++index) {
+                    static_cast<void>(transmitter.enqueue(name, batch.messages[index]));
+                }
+            },
+            can::batch_channel_config());
         if (!attached) {
             return false;
         }

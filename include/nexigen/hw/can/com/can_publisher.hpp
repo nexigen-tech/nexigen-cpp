@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <thread>
+#include <chrono>
 #include <cstdint>
 #include <format>
 #include <string>
@@ -12,6 +13,7 @@
 #include <nexigen/com/publish_outcome.hpp>
 #include <nexigen/core/result.hpp>
 #include <nexigen/hw/can/can_message.hpp>
+#include <nexigen/hw/can/can_message_batch.hpp>
 #include <nexigen/hw/can/com/can_transport.hpp>
 #include <nexigen/hw/can/detail/can_message_ring.hpp>
 
@@ -29,7 +31,7 @@ public:
     /// @brief Bind a borrowed producer and channel id.
     /// @param producer App-owned producer for the channel tx service.
     /// @param channel_id Numeric channel binding.
-    CanPublisher(com::EventProducer<CanMessage>* producer, std::uint16_t channel_id) noexcept
+    CanPublisher(com::EventProducer<CanMessageBatch>* producer, std::uint16_t channel_id) noexcept
         : producer_(producer), channel_id_(channel_id) {
         worker_ = std::jthread([this](std::stop_token token) { publish_loop(token); });
     }
@@ -92,21 +94,34 @@ public:
         return com::PublishOutcome::Notified;
     }
 
+    /// @brief Pop messages from the ring and publish bounded packets.
+    /// @param token Stop token for graceful shutdown.
     void publish_loop(std::stop_token token) noexcept {
         CanMessage message{};
+        CanMessageBatch batch{};
+        batch.channel_id = channel_id_;
+        auto batch_started = std::chrono::steady_clock::now();
+        constexpr auto flush_interval = std::chrono::milliseconds{10};
         while (!token.stop_requested()) {
             if (!ring_.try_pop(message)) {
-                std::this_thread::yield();
+                if (batch.count > 0U &&
+                    std::chrono::steady_clock::now() - batch_started >= flush_interval) {
+                    flush_batch(batch);
+                }
+                std::this_thread::sleep_for(std::chrono::microseconds{100});
                 continue;
             }
-            const auto outcome = producer_->publish(message, event_tx, event_time(message),
-                                                    hardware_metadata(message));
-            if (outcome.has_value()) {
-                sent_.fetch_add(1U, std::memory_order_relaxed);
-            } else {
-                failed_.fetch_add(1U, std::memory_order_relaxed);
+            if (batch.count == 0U) {
+                batch_started = std::chrono::steady_clock::now();
+                batch.first_sequence = next_sequence_;
+            }
+            batch.messages[batch.count++] = message;
+            ++next_sequence_;
+            if (batch.count == CanMessageBatch::max_messages) {
+                flush_batch(batch);
             }
         }
+        flush_batch(batch);
     }
 
     /// @brief Publication counters.
@@ -123,11 +138,28 @@ public:
     }
 
 private:
-    com::EventProducer<CanMessage>* producer_{nullptr};
+    void flush_batch(CanMessageBatch& batch) noexcept {
+        if (batch.count == 0U || producer_ == nullptr) {
+            return;
+        }
+        const CanMessage& first = batch.messages[0];
+        const auto outcome =
+            producer_->publish(batch, event_tx, event_time(first), hardware_metadata(first));
+        if (outcome.has_value()) {
+            sent_.fetch_add(batch.count, std::memory_order_relaxed);
+        } else {
+            failed_.fetch_add(batch.count, std::memory_order_relaxed);
+        }
+        batch.clear();
+        batch.channel_id = channel_id_;
+    }
+
+    com::EventProducer<CanMessageBatch>* producer_{nullptr};
     std::uint16_t channel_id_{0};
     detail::SpscRing<CanMessage, 1024> ring_{};
     std::atomic<std::uint64_t> sent_{0};
     std::atomic<std::uint64_t> failed_{0};
+    std::uint64_t next_sequence_{0};
     std::jthread worker_{};
 };
 

@@ -19,6 +19,7 @@
 #include <nexigen/hw/can/can_channel_config.hpp>
 #include <nexigen/hw/can/can_driver.hpp>
 #include <nexigen/hw/can/can_message.hpp>
+#include <nexigen/hw/can/can_message_batch.hpp>
 #include <nexigen/hw/can/detail/can_message_ring.hpp>
 
 namespace nexigen::hw::can {
@@ -29,6 +30,7 @@ public:
     /// @brief Bind a driver and channel configurations.
     /// @param driver Driver that must outlive the transmitter.
     /// @param configs Channel configurations.
+    /// @param status_producers Optional status producers aligned with `configs`.
     CanTransmitter(CanDriver& driver, std::span<const CanChannelConfig> configs,
                    std::span<com::EventProducer<CanChannelStatus>*> status_producers = {}) noexcept;
 
@@ -62,6 +64,7 @@ private:
         std::uint64_t last_status_ns{0};
         std::atomic<std::uint64_t> dropped{0};
         std::atomic<std::uint64_t> failed{0};
+        std::uint64_t next_sequence{0};
         bool opened{false};
     };
 
@@ -79,6 +82,7 @@ private:
     [[nodiscard]] Channel* find(std::string_view channel) noexcept;
 
     void submit_loop(Channel& channel, std::stop_token token) noexcept;
+    void flush_batch(Channel& channel, CanMessageBatch& batch) noexcept;
 
     CanDriver* driver_{nullptr};
     TrackingSink tracking_sink_{*this};

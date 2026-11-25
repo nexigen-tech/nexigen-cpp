@@ -47,7 +47,7 @@ bool send_channel(Runtime& runtime, const can::CanChannelConfig& channel, std::u
     if (!service) {
         return false;
     }
-    auto* producer = runtime.publish<can::CanMessage>(*service);
+    auto* producer = runtime.publish<can::CanMessageBatch>(*service, can::batch_channel_config());
     if (producer == nullptr) {
         return false;
     }
@@ -57,13 +57,18 @@ bool send_channel(Runtime& runtime, const can::CanChannelConfig& channel, std::u
         const std::uint64_t current = count == 0U ? batch : std::min(batch, count - index);
         const auto now = nexigen::chrono::Timestamp::now();
         const std::uint64_t base_ns = now ? now->nanoseconds() : 0U;
+        can::CanMessageBatch packet{};
+        packet.channel_id = channel.channel_id;
+        packet.first_sequence = index;
+        packet.count = static_cast<std::uint16_t>(current);
         for (std::uint64_t offset = 0U; offset < current; ++offset) {
             const std::uint64_t timestamp_ns = base_ns + offset * period_us * 1'000ULL;
-            const can::CanMessage message =
+            packet.messages[offset] =
                 make_message(channel.channel_id, index + offset, timestamp_ns);
-            static_cast<void>(producer->publish(message, can::event_tx, can::event_time(message),
-                                                can::hardware_metadata(message)));
         }
+        const can::CanMessage& first = packet.messages[0];
+        static_cast<void>(producer->publish(packet, can::event_tx, can::event_time(first),
+                                            can::hardware_metadata(first)));
         index += current;
         if (period_us != 0U) {
             next += std::chrono::microseconds{period_us * current};

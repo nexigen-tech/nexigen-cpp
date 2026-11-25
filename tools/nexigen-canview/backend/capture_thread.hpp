@@ -21,6 +21,7 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/core/thread_management.hpp>
 #include <nexigen/hw/can/can_channel_status.hpp>
+#include <nexigen/hw/can/can_message_batch.hpp>
 #include <nexigen/hw/can/can_message.hpp>
 
 #include "anchor_estimator.hpp"
@@ -117,10 +118,11 @@ public:
     [[nodiscard]] std::string to_string() const { return stats().to_string(); }
 
 private:
-    using MessageConsumer = nexigen::com::EventConsumer<
-        nexigen::hw::can::CanMessage,
-        std::function<void(const nexigen::com::EventHeader&, const nexigen::hw::can::CanMessage&)>,
-        std::function<void(const nexigen::com::LossInfo&)>>;
+    using MessageConsumer =
+        nexigen::com::EventConsumer<nexigen::hw::can::CanMessageBatch,
+                                    std::function<void(const nexigen::com::EventHeader&,
+                                                       const nexigen::hw::can::CanMessageBatch&)>,
+                                    std::function<void(const nexigen::com::LossInfo&)>>;
     using StatusConsumer =
         nexigen::com::EventConsumer<nexigen::hw::can::CanChannelStatus,
                                     std::function<void(const nexigen::com::EventHeader&,

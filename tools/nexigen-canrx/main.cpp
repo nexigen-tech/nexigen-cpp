@@ -20,16 +20,17 @@ namespace {
 using Policy = app::policies::ConsolePolicy;
 using Runtime = app::App<Policy>;
 
-nexigen::core::Result<std::vector<nexigen::com::EventProducer<can::CanMessage>*>>
+nexigen::core::Result<std::vector<nexigen::com::EventProducer<can::CanMessageBatch>*>>
 make_producers(Runtime& runtime, std::span<const can::CanChannelConfig> channels) {
-    std::vector<nexigen::com::EventProducer<can::CanMessage>*> producers;
+    std::vector<nexigen::com::EventProducer<can::CanMessageBatch>*> producers;
     producers.reserve(channels.size());
     for (const auto& channel : channels) {
         auto service = can::rx_service(channel.name);
         if (!service) {
             return std::unexpected(nexigen::core::ErrorCode::InvalidArgument);
         }
-        auto* producer = runtime.publish<can::CanMessage>(*service);
+        auto* producer =
+            runtime.publish<can::CanMessageBatch>(*service, can::batch_channel_config());
         if (producer == nullptr) {
             return std::unexpected(nexigen::core::ErrorCode::SystemError);
         }

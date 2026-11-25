@@ -17,6 +17,7 @@
 #include <nexigen/core/result.hpp>
 #include <nexigen/hw/can/can_channel_config.hpp>
 #include <nexigen/hw/can/can_driver.hpp>
+#include <nexigen/hw/can/can_message_batch.hpp>
 #include <nexigen/hw/can/can_service_names.hpp>
 #include <nexigen/hw/can/com/can_transport.hpp>
 
@@ -59,6 +60,13 @@ public:
     [[nodiscard]] core::Status submit(std::string_view channel,
                                       const CanMessage& message) noexcept override;
 
+    /// @brief Publish a bounded batch on `vbus/tx`.
+    /// @param channel Logical channel name.
+    /// @param batch Validated batch envelope.
+    /// @return Publish outcome or a mapping error.
+    [[nodiscard]] core::Status submit_batch(std::string_view channel,
+                                            const CanMessageBatch& batch) noexcept override;
+
     /// @brief Close one virtual channel endpoint.
     /// @param channel Channel name.
     /// @return OK or `NotFound`.
@@ -73,26 +81,26 @@ private:
     public:
         virtual ~EndpointBase() = default;
         [[nodiscard]] virtual com::IEventConsumer& consumer() noexcept = 0;
-        [[nodiscard]] virtual com::EventProducer<CanMessage>* ensure_producer() noexcept = 0;
+        [[nodiscard]] virtual com::EventProducer<CanMessageBatch>* ensure_producer() noexcept = 0;
     };
 
     template <class OnEvent, class OnLoss> class Endpoint final : public EndpointBase {
     public:
         Endpoint(com::Node& node, com::ServiceName tx_name, com::ChannelConfig config,
-                 std::string app_id, com::EventChannel<CanMessage> rx_channel,
-                 com::EventConsumer<CanMessage, OnEvent, OnLoss> consumer)
+                 std::string app_id, com::EventChannel<CanMessageBatch> rx_channel,
+                 com::EventConsumer<CanMessageBatch, OnEvent, OnLoss> consumer)
             : node_(&node), tx_name_(std::move(tx_name)), config_(config),
               app_id_(std::move(app_id)), rx_channel_(std::move(rx_channel)),
               consumer_(std::move(consumer)) {}
 
         [[nodiscard]] com::IEventConsumer& consumer() noexcept override { return consumer_; }
 
-        [[nodiscard]] com::EventProducer<CanMessage>* ensure_producer() noexcept override {
+        [[nodiscard]] com::EventProducer<CanMessageBatch>* ensure_producer() noexcept override {
             if (producer_.has_value()) {
                 return &*producer_;
             }
             auto created =
-                com::EventProducer<CanMessage>::create(*node_, tx_name_, config_, app_id_);
+                com::EventProducer<CanMessageBatch>::create(*node_, tx_name_, config_, app_id_);
             if (!created.has_value()) {
                 return nullptr;
             }
@@ -105,18 +113,25 @@ private:
         com::ServiceName tx_name_;
         com::ChannelConfig config_{};
         std::string app_id_{};
-        com::EventChannel<CanMessage> rx_channel_;
-        com::EventConsumer<CanMessage, OnEvent, OnLoss> consumer_;
-        std::optional<com::EventProducer<CanMessage>> producer_{};
+        com::EventChannel<CanMessageBatch> rx_channel_;
+        com::EventConsumer<CanMessageBatch, OnEvent, OnLoss> consumer_;
+        std::optional<com::EventProducer<CanMessageBatch>> producer_{};
     };
 
     void wait_loop(std::stop_token token) noexcept;
     [[nodiscard]] EndpointBase* find(std::string_view channel) noexcept;
 
+    /// @brief Message-level losses derived from batch first sequences.
+    /// @return Lost message count.
+    [[nodiscard]] std::uint64_t lost_messages() const noexcept {
+        return lost_messages_.load(std::memory_order_relaxed);
+    }
+
     std::string app_id_{};
     std::unique_ptr<com::Node> node_{};
     std::optional<com::EventConsumerSet<16>> set_{};
     std::vector<std::pair<std::string, std::unique_ptr<EndpointBase>>> channels_{};
+    std::atomic<std::uint64_t> lost_messages_{0};
     std::jthread worker_{};
 };
 

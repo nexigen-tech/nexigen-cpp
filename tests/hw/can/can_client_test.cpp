@@ -13,6 +13,7 @@
 #include <nexigen/com/node.hpp>
 #include <nexigen/com/subscriber.hpp>
 #include <nexigen/hw/can/can_channel_status.hpp>
+#include <nexigen/hw/can/can_message_batch.hpp>
 #include <nexigen/hw/can/can_service_names.hpp>
 #include <nexigen/hw/can/com/can_client.hpp>
 #include <nexigen/hw/can/com/can_transport.hpp>
@@ -79,8 +80,8 @@ bool send_rx(const can::CanChannelConfig& config) {
     if (!node || !name) {
         return false;
     }
-    com::ChannelConfig channel_config{};
-    auto channel = com::EventChannel<can::CanMessage>::create(*node, *name, channel_config);
+    com::ChannelConfig channel_config = can::batch_channel_config();
+    auto channel = com::EventChannel<can::CanMessageBatch>::create(*node, *name, channel_config);
     if (!channel) {
         return false;
     }
@@ -88,17 +89,20 @@ bool send_rx(const can::CanChannelConfig& config) {
     if (!producer) {
         return false;
     }
-    can::CanMessage message{};
-    message.kind = can::CanMessageKind::ClassicData;
-    message.channel_id = config.channel_id;
-    message.can_id = 0x100U + config.channel_id;
-    message.dlc = 1;
-    message.data[0] = 0x5A;
-    message.timestamp_source = can::CanTimestampSource::Simulated;
+    can::CanMessageBatch packet{};
+    packet.channel_id = config.channel_id;
+    packet.count = 1U;
+    packet.messages[0].kind = can::CanMessageKind::ClassicData;
+    packet.messages[0].channel_id = config.channel_id;
+    packet.messages[0].can_id = 0x100U + config.channel_id;
+    packet.messages[0].dlc = 1;
+    packet.messages[0].data[0] = 0x5A;
+    packet.messages[0].timestamp_source = can::CanTimestampSource::Simulated;
     const auto now = nexigen::chrono::Timestamp::now();
-    message.hardware_timestamp_ns = now ? now->nanoseconds() : 0U;
+    packet.messages[0].hardware_timestamp_ns = now ? now->nanoseconds() : 0U;
+    const can::CanMessage& first = packet.messages[0];
     return producer
-        ->publish(message, can::event_rx, can::event_time(message), can::hardware_metadata(message))
+        ->publish(packet, can::event_rx, can::event_time(first), can::hardware_metadata(first))
         .has_value();
 }
 
@@ -247,10 +251,10 @@ void run_client_test() {
         if (!node || !name0 || !name1) {
             return;
         }
-        com::ChannelConfig config{};
-        auto sub0 = com::Subscriber<can::CanMessage, com::EventHeader>::create(
+        com::ChannelConfig config = can::batch_channel_config();
+        auto sub0 = com::Subscriber<can::CanMessageBatch, com::EventHeader>::create(
             *node, *name0, config.publish_subscribe_options());
-        auto sub1 = com::Subscriber<can::CanMessage, com::EventHeader>::create(
+        auto sub1 = com::Subscriber<can::CanMessageBatch, com::EventHeader>::create(
             *node, *name1, config.publish_subscribe_options());
         if (!sub0 || !sub1) {
             return;

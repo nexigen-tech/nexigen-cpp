@@ -5,7 +5,7 @@
 namespace nexigen::hw::can {
 
 CanReceiver::CanReceiver(CanDriver& driver, std::span<const CanChannelConfig> configs,
-                         std::span<com::EventProducer<CanMessage>*> producers,
+                         std::span<com::EventProducer<CanMessageBatch>*> producers,
                          std::span<com::EventProducer<CanChannelStatus>*> status_producers) noexcept
     : driver_(&driver) {
     const std::size_t count = configs.size() < producers.size() ? configs.size() : producers.size();
@@ -76,38 +76,61 @@ void CanReceiver::on_message(const CanMessage& message) noexcept {
     }
 }
 
+void CanReceiver::flush_batch(Channel& channel, CanMessageBatch& batch) noexcept {
+    if (batch.count == 0U || channel.producer == nullptr) {
+        return;
+    }
+    const CanMessage& first = batch.messages[0];
+    const auto outcome = channel.producer->publish(batch, event_rx, event_time(first),
+                                                   hardware_metadata(first));
+    if (outcome.has_value()) {
+        published_.fetch_add(batch.count, std::memory_order_relaxed);
+    } else {
+        channel.failed.fetch_add(batch.count, std::memory_order_relaxed);
+    }
+    batch.clear();
+    batch.channel_id = channel.config.channel_id;
+}
+
 void CanReceiver::publish_loop(Channel& channel, std::stop_token token) noexcept {
     CanMessage message{};
+    CanMessageBatch batch{};
+    batch.channel_id = channel.config.channel_id;
+    auto batch_started = std::chrono::steady_clock::now();
+    constexpr auto flush_interval = std::chrono::milliseconds{10};
     while (!token.stop_requested()) {
         if (!channel.ring.try_pop(message)) {
-            std::this_thread::yield();
+            if (batch.count > 0U &&
+                std::chrono::steady_clock::now() - batch_started >= flush_interval) {
+                flush_batch(channel, batch);
+            }
+            std::this_thread::sleep_for(std::chrono::microseconds{100});
             continue;
-        }
-        if (channel.producer == nullptr) {
-            channel.failed.fetch_add(1U, std::memory_order_relaxed);
-            continue;
-        }
-        const auto outcome = channel.producer->publish(
-            message, event_code_for(message.kind), event_time(message), hardware_metadata(message));
-        if (outcome.has_value()) {
-            published_.fetch_add(1U, std::memory_order_relaxed);
-        } else {
-            channel.failed.fetch_add(1U, std::memory_order_relaxed);
         }
         channel.tracker.observe(message);
-        if (channel.status_producer == nullptr) {
-            continue;
+        if (channel.status_producer != nullptr) {
+            const bool state_changed = channel.tracker.consume_state_changed();
+            const std::uint64_t now = message.hardware_timestamp_ns;
+            const std::uint64_t interval = channel.config.status_interval_ns;
+            if (state_changed || interval == 0U || now - channel.last_status_ns >= interval) {
+                channel.last_status_ns = now;
+                static_cast<void>(channel.status_producer->publish(
+                    channel.tracker.status(), event_status,
+                    com::EventTime{now, com::TimestampDomain::Hardware},
+                    com::HardwareMetadata{}));
+            }
         }
-        const bool state_changed = channel.tracker.consume_state_changed();
-        const std::uint64_t now = message.hardware_timestamp_ns;
-        const std::uint64_t interval = channel.config.status_interval_ns;
-        if (state_changed || interval == 0U || now - channel.last_status_ns >= interval) {
-            channel.last_status_ns = now;
-            static_cast<void>(channel.status_producer->publish(
-                channel.tracker.status(), event_status,
-                com::EventTime{now, com::TimestampDomain::Hardware}, com::HardwareMetadata{}));
+        if (batch.count == 0U) {
+            batch_started = std::chrono::steady_clock::now();
+            batch.first_sequence = channel.next_sequence;
+        }
+        batch.messages[batch.count++] = message;
+        ++channel.next_sequence;
+        if (batch.count == CanMessageBatch::max_messages) {
+            flush_batch(channel, batch);
         }
     }
+    flush_batch(channel, batch);
 }
 
 } // namespace nexigen::hw::can

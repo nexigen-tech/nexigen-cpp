@@ -17,6 +17,7 @@
 #include <nexigen/hw/can/can_channel_status.hpp>
 #include <nexigen/hw/can/can_channel_tracker.hpp>
 #include <nexigen/hw/can/can_message.hpp>
+#include <nexigen/hw/can/can_message_batch.hpp>
 #include <nexigen/hw/can/com/can_transport.hpp>
 #include <nexigen/hw/can/detail/can_message_ring.hpp>
 
@@ -34,7 +35,7 @@ public:
     /// @param producers One message producer per configuration, in the same order.
     /// @param status_producers Optional status producers in the same order.
     CanReceiver(CanDriver& driver, std::span<const CanChannelConfig> configs,
-                std::span<com::EventProducer<CanMessage>*> producers,
+                std::span<com::EventProducer<CanMessageBatch>*> producers,
                 std::span<com::EventProducer<CanChannelStatus>*> status_producers = {}) noexcept;
 
     /// @brief Open every channel and start one publish worker per channel.
@@ -58,17 +59,19 @@ public:
 private:
     struct Channel {
         CanChannelConfig config{};
-        com::EventProducer<CanMessage>* producer{nullptr};
+        com::EventProducer<CanMessageBatch>* producer{nullptr};
         com::EventProducer<CanChannelStatus>* status_producer{nullptr};
         detail::CanMessageRing<4096> ring{};
         CanChannelTracker tracker{};
         std::uint64_t last_status_ns{0};
         std::atomic<std::uint64_t> dropped{0};
         std::atomic<std::uint64_t> failed{0};
+        std::uint64_t next_sequence{0};
         bool opened{false};
     };
 
     void publish_loop(Channel& channel, std::stop_token token) noexcept;
+    void flush_batch(Channel& channel, CanMessageBatch& batch) noexcept;
 
     CanDriver* driver_{nullptr};
     std::vector<std::unique_ptr<Channel>> channels_{};

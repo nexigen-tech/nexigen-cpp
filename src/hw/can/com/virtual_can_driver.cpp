@@ -2,8 +2,34 @@
 
 #include <cstdio>
 #include <functional>
+#include <memory>
+#include <optional>
 
 namespace nexigen::hw::can {
+
+namespace {
+
+using BatchEventCb = std::function<void(const com::EventHeader&, const CanMessageBatch&)>;
+
+BatchEventCb make_batch_callback(ICanMessageSink& sink, std::atomic<std::uint64_t>& lost_messages,
+                                 std::uint16_t channel_id) {
+    auto expected = std::make_shared<std::optional<std::uint64_t>>();
+    return [&sink, &lost_messages, expected, channel_id](const com::EventHeader&,
+                                                         const CanMessageBatch& batch) {
+        if (batch.channel_id != channel_id || batch.count == 0U) {
+            return;
+        }
+        if (expected->has_value() && batch.first_sequence > **expected) {
+            lost_messages.fetch_add(batch.first_sequence - **expected, std::memory_order_relaxed);
+        }
+        for (std::size_t index = 0; index < batch.count; ++index) {
+            sink.on_message(batch.messages[index]);
+        }
+        *expected = batch.first_sequence + batch.count;
+    };
+}
+
+} // namespace
 
 VirtualCanDriver::VirtualCanDriver(std::string_view app_id) noexcept : app_id_(app_id) {
     auto node = com::Node::create();
@@ -42,6 +68,7 @@ core::Result<CanDriverCapabilities> VirtualCanDriver::capabilities() noexcept {
     caps.error_frames = true;
     caps.overload_frames = true;
     caps.heartbeats = true;
+    caps.batch_submission = true;
     caps.max_channels = 16;
     return caps;
 }
@@ -67,16 +94,15 @@ core::Status VirtualCanDriver::open_channel(const CanChannelConfig& config,
     if (!rx_service || !tx_service) {
         return std::unexpected(core::ErrorCode::InvalidArgument);
     }
-    com::ChannelConfig channel_config{};
-    auto rx_channel = com::EventChannel<CanMessage>::create(*node_, *rx_service, channel_config);
+    const com::ChannelConfig channel_config = batch_channel_config();
+    auto rx_channel =
+        com::EventChannel<CanMessageBatch>::create(*node_, *rx_service, channel_config);
     if (!rx_channel) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
-    using EventCb = std::function<void(const com::EventHeader&, const CanMessage&)>;
+    using EventCb = BatchEventCb;
     using LossCb = std::function<void(const com::LossInfo&)>;
-    EventCb on_event = [&sink](const com::EventHeader&, const CanMessage& message) {
-        sink.on_message(message);
-    };
+    EventCb on_event = make_batch_callback(sink, lost_messages_, config.channel_id);
     LossCb on_loss = [](const com::LossInfo&) {};
     auto consumer = rx_channel->consumer(std::move(on_event), std::move(on_loss));
     if (!consumer) {
@@ -94,18 +120,28 @@ core::Status VirtualCanDriver::open_channel(const CanChannelConfig& config,
 
 core::Status VirtualCanDriver::submit(std::string_view channel,
                                       const CanMessage& message) noexcept {
+    CanMessageBatch batch{};
+    batch.channel_id = message.channel_id;
+    batch.count = 1U;
+    batch.messages[0] = message;
+    return submit_batch(channel, batch);
+}
+
+core::Status VirtualCanDriver::submit_batch(std::string_view channel,
+                                            const CanMessageBatch& batch) noexcept {
     EndpointBase* endpoint = find(channel);
     if (endpoint == nullptr) {
         return std::unexpected(core::ErrorCode::NotFound);
     }
-    if (core::Status valid = message.validate(); !valid) {
+    if (core::Status valid = batch.validate(); !valid) {
         return valid;
     }
     auto* producer = endpoint->ensure_producer();
     if (producer == nullptr) {
         return std::unexpected(core::ErrorCode::SystemError);
     }
-    if (!producer->publish(message, event_tx, event_time(message), hardware_metadata(message))
+    const CanMessage& first = batch.messages[0];
+    if (!producer->publish(batch, event_tx, event_time(first), hardware_metadata(first))
              .has_value()) {
         return std::unexpected(core::ErrorCode::SystemError);
     }

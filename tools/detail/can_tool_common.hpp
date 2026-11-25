@@ -9,21 +9,23 @@
 #include <nexigen/hw/can/can_channel_status.hpp>
 #include <nexigen/hw/can/can_service_names.hpp>
 #include <nexigen/hw/can/com/can_transmitter.hpp>
+#include <nexigen/hw/can/com/can_transport.hpp>
 
 namespace nexigen::tools::can {
 
 /// @brief Create one rx producer per channel for a receiver tool.
 template <class Runtime>
-[[nodiscard]] core::Result<std::vector<com::EventProducer<hw::can::CanMessage>*>>
+[[nodiscard]] core::Result<std::vector<com::EventProducer<hw::can::CanMessageBatch>*>>
 make_rx_producers(Runtime& runtime, std::span<const hw::can::CanChannelConfig> channels) {
-    std::vector<com::EventProducer<hw::can::CanMessage>*> producers;
+    std::vector<com::EventProducer<hw::can::CanMessageBatch>*> producers;
     producers.reserve(channels.size());
     for (const auto& channel : channels) {
         auto service = hw::can::rx_service(channel.name);
         if (!service) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        auto* producer = runtime.template publish<hw::can::CanMessage>(*service);
+        auto* producer = runtime.template publish<hw::can::CanMessageBatch>(
+            *service, hw::can::batch_channel_config());
         if (producer == nullptr) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
@@ -63,10 +65,14 @@ bool subscribe_tx(Runtime& runtime, std::span<const hw::can::CanChannelConfig> c
         if (!service) {
             return false;
         }
-        const bool attached = runtime.template subscribe<hw::can::CanMessage>(
-            *service, [&transmitter, name = channel.name](const hw::can::CanMessage& message) {
-                static_cast<void>(transmitter.enqueue(name, message));
-            });
+        const bool attached = runtime.template subscribe_with_config<hw::can::CanMessageBatch>(
+            *service,
+            [&transmitter, name = channel.name](const hw::can::CanMessageBatch& batch) {
+                for (std::size_t index = 0; index < batch.count; ++index) {
+                    static_cast<void>(transmitter.enqueue(name, batch.messages[index]));
+                }
+            },
+            hw::can::batch_channel_config());
         if (!attached) {
             return false;
         }

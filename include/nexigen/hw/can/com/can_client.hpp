@@ -17,6 +17,8 @@
 #include <nexigen/hw/can/can_channel_set.hpp>
 #include <nexigen/hw/can/can_channel_status.hpp>
 #include <nexigen/hw/can/can_message.hpp>
+#include <nexigen/hw/can/can_message_batch.hpp>
+#include <nexigen/hw/can/com/can_transport.hpp>
 #include <nexigen/hw/can/can_service_names.hpp>
 #include <nexigen/hw/can/com/can_publisher.hpp>
 
@@ -108,21 +110,26 @@ public:
             return false;
         }
         auto* counter = counter_for(channel);
-        return app_->template subscribe<CanMessage>(
-            *service, [counter, id = config->channel_id, cb = std::forward<Callback>(callback)](
-                          const com::EventHeader& header, const CanMessage& message) mutable {
-                if (message.channel_id != id) {
-                    counter->dropped.fetch_add(1U, std::memory_order_relaxed);
-                    return;
+        return app_->template subscribe_with_config<CanMessageBatch>(
+            *service,
+            [counter, id = config->channel_id, cb = std::forward<Callback>(callback)](
+                const com::EventHeader& header, const CanMessageBatch& batch) mutable {
+                for (std::size_t index = 0; index < batch.count; ++index) {
+                    const CanMessage& message = batch.messages[index];
+                    if (message.channel_id != id) {
+                        counter->dropped.fetch_add(1U, std::memory_order_relaxed);
+                        continue;
+                    }
+                    counter->received.fetch_add(1U, std::memory_order_relaxed);
+                    if constexpr (std::is_invocable_v<Callback&, const com::EventHeader&,
+                                                      const CanMessage&>) {
+                        cb(header, message);
+                    } else {
+                        cb(message);
+                    }
                 }
-                counter->received.fetch_add(1U, std::memory_order_relaxed);
-                if constexpr (std::is_invocable_v<Callback&, const com::EventHeader&,
-                                                  const CanMessage&>) {
-                    cb(header, message);
-                } else {
-                    cb(message);
-                }
-            });
+            },
+            batch_channel_config());
     }
 
     /// @brief Subscribe to one channel's `rx` stream with a loss callback.
@@ -148,26 +155,30 @@ public:
             return false;
         }
         auto* counter = counter_for(channel);
-        return app_->template subscribe<CanMessage>(
+        return app_->template subscribe_with_config<CanMessageBatch>(
             *service,
             [counter, id = config->channel_id, cb = std::forward<Callback>(callback)](
-                const com::EventHeader& header, const CanMessage& message) mutable {
-                if (message.channel_id != id) {
-                    counter->dropped.fetch_add(1U, std::memory_order_relaxed);
-                    return;
-                }
-                counter->received.fetch_add(1U, std::memory_order_relaxed);
-                if constexpr (std::is_invocable_v<Callback&, const com::EventHeader&,
-                                                  const CanMessage&>) {
-                    cb(header, message);
-                } else {
-                    cb(message);
+                const com::EventHeader& header, const CanMessageBatch& batch) mutable {
+                for (std::size_t index = 0; index < batch.count; ++index) {
+                    const CanMessage& message = batch.messages[index];
+                    if (message.channel_id != id) {
+                        counter->dropped.fetch_add(1U, std::memory_order_relaxed);
+                        continue;
+                    }
+                    counter->received.fetch_add(1U, std::memory_order_relaxed);
+                    if constexpr (std::is_invocable_v<Callback&, const com::EventHeader&,
+                                                      const CanMessage&>) {
+                        cb(header, message);
+                    } else {
+                        cb(message);
+                    }
                 }
             },
             [counter, cb = std::forward<OnLoss>(on_loss)](const com::LossInfo& info) mutable {
                 counter->losses.fetch_add(1U, std::memory_order_relaxed);
                 cb(info);
-            });
+            },
+            batch_channel_config());
     }
 
     /// @brief Subscribe to one channel's `status` stream.
@@ -189,7 +200,9 @@ public:
             return false;
         }
         auto* counter = counter_for(channel);
-        return app_->template subscribe<CanChannelStatus>(
+        com::ChannelConfig status_config{};
+        status_config.max_publishers = 2U;
+        return app_->template subscribe_with_config<CanChannelStatus>(
             *service,
             [counter,
              cb = std::forward<Callback>(callback)](const CanChannelStatus& status) mutable {
@@ -198,7 +211,8 @@ public:
             },
             [counter](const com::LossInfo&) {
                 counter->losses.fetch_add(1U, std::memory_order_relaxed);
-            });
+            },
+            status_config);
     }
 
     /// @brief Create or fetch the publisher for one channel's `tx` stream.
@@ -221,7 +235,7 @@ public:
         if (!service) {
             return std::unexpected(service.error());
         }
-        auto* producer = app_->template publish<CanMessage>(*service);
+        auto* producer = app_->template publish<CanMessageBatch>(*service, batch_channel_config());
         if (producer == nullptr) {
             return std::unexpected(core::ErrorCode::SystemError);
         }

@@ -37,4 +37,10 @@ if ! grep -q '"kind":"BusIdle"' "$root/mon.out"; then
     cat "$root/mon.out" >&2
     exit 1
 fi
-echo "can e2e: virtual data frame and heartbeat reached the monitor"
+data_count=$(grep -c '"kind":"ClassicData"' "$root/mon.out" || true)
+if [[ "$data_count" -lt 10 ]]; then
+    echo "can e2e: expected a full batch, got $data_count data frames" >&2
+    cat "$root/mon.out" >&2
+    exit 1
+fi
+echo "can e2e: virtual batch ($data_count data frames) and heartbeat reached the monitor"
