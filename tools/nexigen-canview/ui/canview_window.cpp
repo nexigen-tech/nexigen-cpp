@@ -158,6 +158,7 @@ struct UiState {
     char eds_node[16]{};
     char eds_path[256]{};
     bool focus_find{false};
+    std::optional<std::uint64_t> hovered_seq{};
     std::unique_ptr<OfflineCanopen> offline{};
     std::optional<ImportResult> import_result{};
     std::unordered_map<std::uint64_t, std::size_t> offline_index{};
@@ -421,6 +422,9 @@ void restore_views(UiState& state, const CanViewConfig& config) {
         config.views["views"].is_array() && !config.views["views"].empty()) {
         static_cast<void>(state.model->load_json(config.views, config.defaults));
         state.model->rebuild_all();
+        if (state.model->focused() == nullptr && !state.model->views().empty()) {
+            state.model->focus(state.model->views().front()->id());
+        }
     } else {
         initialize_views(state, config);
     }
@@ -664,6 +668,35 @@ int run_model_script(const CliOptions& options, UiState& state) {
 
 void draw_import_panel(UiState& state);
 
+void draw_toolbar_actions(UiState& state) {
+    CanView* focused = state.model->focused();
+    if (focused == nullptr && !state.model->views().empty()) {
+        focused = state.model->views().front().get();
+        state.model->focus(focused->id());
+    }
+    const bool paused = focused != nullptr && focused->paused();
+    if (ImGui::Button(paused ? "Resume" : "Pause") && focused != nullptr) {
+        focused->set_paused(!focused->paused());
+        state.status = focused->paused() ? "view paused" : "view resumed";
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", paused ? "PAUSED" : "LIVE");
+    ImGui::SameLine();
+    if (ImGui::Button("Clone LIVE") && focused != nullptr) {
+        state.clone_paused = false;
+        state.clone_modal = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clone PAUSED") && focused != nullptr) {
+        state.clone_paused = true;
+        state.clone_modal = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Import session")) {
+        state.show_import = true;
+    }
+}
+
 void draw_toolbar(UiState& state, const CanViewConfig& /*config*/, const CliOptions& options) {
     if (!ImGui::Begin("Toolbar")) {
         ImGui::End();
@@ -673,23 +706,7 @@ void draw_toolbar(UiState& state, const CanViewConfig& /*config*/, const CliOpti
     ImGui::SameLine();
     ImGui::TextDisabled("%s", state.status.c_str());
     ImGui::SameLine();
-    if (ImGui::Button("Pause") && state.model->focused() != nullptr) {
-        state.model->focused()->set_paused(!state.model->focused()->paused());
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Clone LIVE") && state.model->focused() != nullptr) {
-        state.clone_paused = false;
-        state.clone_modal = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Clone PAUSED") && state.model->focused() != nullptr) {
-        state.clone_paused = true;
-        state.clone_modal = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Import session")) {
-        state.show_import = true;
-    }
+    draw_toolbar_actions(state);
     ImGui::SameLine();
     ImGui::Text("channels=%zu views=%zu", state.channels.size(), state.model->views().size());
     if (state.shared_time_warning) {
@@ -1410,9 +1427,6 @@ void draw_trace_data_cell(UiState& state, const CanRecordView& record, int colum
                            static_cast<unsigned long long>(record.gap_count()),
                            meta_count_exact(record.meta) ? "yes" : "at least");
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", channel_name(state.channels, message.channel_id));
-    }
 }
 
 void select_trace_range(CanView& view, std::uint64_t first, std::uint64_t last) {
@@ -1456,10 +1470,64 @@ void handle_trace_click(CanView& view, std::uint64_t seq) {
     view.select_only(seq);
 }
 
+std::string trace_record_text(const UiState& state, const CanRecordView& record) {
+    const auto& message = *record.message;
+    std::string text = std::format(
+        "seq={} kind={} ch={}({}) id=0x{:x} dlc={} hw_ts={}", record.seq, to_string(record.kind()),
+        message.channel_id, channel_name(state.channels, message.channel_id), message.can_id,
+        static_cast<unsigned>(message.dlc), message.hardware_timestamp_ns);
+    if (!record.is_frame()) {
+        text += std::format(" reason={} count={} exact={}", to_string(meta_gap_reason(record.meta)),
+                            record.gap_count(), meta_count_exact(record.meta) ? "yes" : "at least");
+    } else {
+        text += " data=" + payload_to_hex(message);
+    }
+    return text;
+}
+
+void draw_trace_tooltip(UiState& state, const CanRecordView& record) {
+    state.hovered_seq = record.seq;
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 48.0F);
+    const std::string text = trace_record_text(state, record);
+    ImGui::TextUnformatted(text.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::Separator();
+    ImGui::TextDisabled("Ctrl+C copies this record; right-click for more");
+    ImGui::EndTooltip();
+}
+
+void draw_trace_context_menu(UiState& state, CanView& view, const CanRecordView& record) {
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        view.select_only(record.seq);
+    }
+    if (!ImGui::BeginPopupContextItem("trace-row-menu")) {
+        return;
+    }
+    if (ImGui::MenuItem("Copy message")) {
+        if (record.is_frame()) {
+            const std::string payload = payload_to_hex(*record.message);
+            ImGui::SetClipboardText(payload.c_str());
+            state.status = "message copied";
+        } else {
+            const std::string text = trace_record_text(state, record);
+            ImGui::SetClipboardText(text.c_str());
+            state.status = "gap copied";
+        }
+    }
+    if (ImGui::MenuItem("Copy full record")) {
+        const std::string text = trace_record_text(state, record);
+        ImGui::SetClipboardText(text.c_str());
+        state.status = "record copied";
+    }
+    ImGui::EndPopup();
+}
+
 void draw_trace_row(UiState& state, CanView& view, const CanViewConfig& /*config*/,
                     const CanRecordView& record, const CanRecordView* previous, bool show_hw,
                     bool show_utc) {
     const auto& message = *record.message;
+    ImGui::PushID(static_cast<int>(record.seq));
     if (view.find().contains(record.seq)) {
         ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(90, 80, 20, 180));
     }
@@ -1470,6 +1538,8 @@ void draw_trace_row(UiState& state, CanView& view, const CanViewConfig& /*config
                           ImGuiSelectableFlags_SpanAllColumns)) {
         handle_trace_click(view, record.seq);
     }
+    const bool row_hovered = ImGui::IsItemHovered();
+    draw_trace_context_menu(state, view, record);
     ImGui::TableSetColumnIndex(1);
     ImGui::Text("%llu", static_cast<unsigned long long>(record.seq));
     int column = 2;
@@ -1493,11 +1563,22 @@ void draw_trace_row(UiState& state, CanView& view, const CanViewConfig& /*config
     ImGui::TableSetColumnIndex(column++);
     ImGui::Text("%u", static_cast<unsigned>(message.dlc));
     draw_trace_data_cell(state, record, column);
+    if (row_hovered) {
+        draw_trace_tooltip(state, record);
+    }
+    ImGui::PopID();
 }
 
 void export_trace_selection(UiState& state, const CanView& view);
 
 bool draw_trace_controls(UiState& state, CanView& view) {
+    if (ImGui::Button(view.paused() ? "Resume" : "Pause")) {
+        view.set_paused(!view.paused());
+        state.status = view.paused() ? "view paused" : "view resumed";
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", view.paused() ? "PAUSED" : "LIVE");
+    ImGui::SameLine();
     if (ImGui::Button("Trace")) {
         view.set_table_mode(TableMode::Trace);
     }
@@ -1548,7 +1629,10 @@ void draw_trace(UiState& state, CanView& view, const CanViewConfig& config) {
                                       ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable |
                                       ImGuiTableFlags_SizingFixedFit;
     const int column_count = 10 + (show_hw ? 1 : 0) + (show_utc ? 1 : 0);
+    ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, ImVec4(0.24F, 0.27F, 0.32F, 1.0F));
+    ImGui::PushStyleColor(ImGuiCol_TableBorderLight, ImVec4(0.16F, 0.18F, 0.22F, 1.0F));
     if (!ImGui::BeginTable("trace", column_count, flags)) {
+        ImGui::PopStyleColor(2);
         return;
     }
     setup_trace_columns(show_hw, show_utc);
@@ -1574,6 +1658,7 @@ void draw_trace(UiState& state, CanView& view, const CanViewConfig& config) {
         ImGui::SetScrollY(ImGui::GetScrollMaxY());
     }
     ImGui::EndTable();
+    ImGui::PopStyleColor(2);
 }
 
 std::uint64_t system_time_ns() {
@@ -2490,10 +2575,12 @@ void handle_nav_hotkeys(CanView& view) {
 void handle_clipboard_hotkeys(UiState& state, CanView& view) {
     const ImGuiIO& io = ImGui::GetIO();
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C)) {
-        if (const auto seq = view.last_selected(); seq.has_value()) {
+        const auto seq = state.hovered_seq.has_value() ? state.hovered_seq : view.last_selected();
+        if (seq.has_value()) {
             if (const auto record = view.source().find(*seq);
                 record.has_value() && record->message != nullptr) {
-                ImGui::SetClipboardText(payload_to_hex(*record->message).c_str());
+                const std::string text = trace_record_text(state, *record);
+                ImGui::SetClipboardText(text.c_str());
                 state.status = "record copied";
             }
         }
@@ -2736,6 +2823,7 @@ std::size_t workspace_loop(UiState& state, const CliOptions& options, const CanV
         observe_resources(state, now);
         ingest_ingress(state, now);
         step_background(state);
+        state.hovered_seq.reset();
         begin_frame();
         const ImGuiID dockspace_id = ImGui::DockSpaceOverViewport(
             0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
@@ -2763,9 +2851,7 @@ std::size_t workspace_loop(UiState& state, const CliOptions& options, const CanV
         }
         draw_inspector(state);
         draw_status(state, config);
-        if (recompute) {
-            draw_heatmap(state, config);
-        }
+        draw_heatmap(state, config);
         end_frame(window);
         ++frames;
         if (state.guard.mode() == ResourceMode::Eco) {
