@@ -2917,8 +2917,13 @@ std::size_t workspace_loop(UiState& state, const CliOptions& options, const CanV
         draw_heatmap(state, config);
         end_frame(window);
         ++frames;
-        if (state.guard.mode() == ResourceMode::Eco) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        const std::uint64_t target_fps = state.guard.mode() == ResourceMode::Eco
+                                             ? std::max(5U, std::min(10U, options.ui_fps / 2U))
+                                             : options.ui_fps;
+        const std::uint64_t target_ns = 1'000'000'000ULL / target_fps;
+        const std::uint64_t elapsed_ns = monotonic_ns() - now;
+        if (elapsed_ns < target_ns) {
+            std::this_thread::sleep_for(std::chrono::nanoseconds(target_ns - elapsed_ns));
         }
         if (options.ui_smoke && frames >= 2U) {
             break;

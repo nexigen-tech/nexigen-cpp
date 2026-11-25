@@ -282,6 +282,13 @@ ParseOutcome parse_limit_option(std::string_view arg, int argc, char* argv[], in
         options.memory_given = true;
         return ParseOutcome::Ok;
     }
+    if (arg == "--ui-fps") {
+        if (!take_u64(argc, argv, index, value) || value < 5U || value > 120U) {
+            return ParseOutcome::Error;
+        }
+        options.ui_fps = static_cast<std::uint32_t>(value);
+        return ParseOutcome::Ok;
+    }
     return ParseOutcome::NotHandled;
 }
 
@@ -420,6 +427,7 @@ std::string_view usage_text() noexcept {
            "UI:\n"
            "  --ui-smoke --ui-actions-test --ui-input-test --ui-view-test\n"
            "  --ui-focus-test --ui-splash-test --ui-scale <0.5..4.0>\n"
+           "  --ui-fps <5..120>        Render cap (default 20; ECO halves it)\n"
            "  --help                   Print this usage and exit.\n"
            "  --version                Print the version and exit.\n";
 }

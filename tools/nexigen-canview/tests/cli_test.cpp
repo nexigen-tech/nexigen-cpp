@@ -37,6 +37,17 @@ void test_cli() {
     NX_CHECK(bad.error() == nexigen::core::ErrorCode::InvalidArgument);
 
     NX_CHECK(!canview::usage_text().empty());
+
+    char arg_fps[] = "--ui-fps";
+    char value_fps[] = "5";
+    char* fps_argv[] = {arg0, arg_fps, value_fps};
+    const auto fps = canview::parse_cli(3, fps_argv);
+    NX_CHECK(fps.has_value());
+    NX_CHECK(fps->ui_fps == 5U);
+
+    char value_bad_fps[] = "4";
+    char* bad_fps_argv[] = {arg0, arg_fps, value_bad_fps};
+    NX_CHECK(!canview::parse_cli(3, bad_fps_argv).has_value());
 }
 
 } // namespace

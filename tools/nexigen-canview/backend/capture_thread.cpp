@@ -267,10 +267,17 @@ void CaptureThread::run(std::stop_token token) noexcept {
         if (!drained) {
             last_error_.store(static_cast<int>(drained.error()));
         }
+        const auto wait_started = std::chrono::steady_clock::now();
         const auto outcome = set_->wait_for(std::chrono::milliseconds(50));
+        const auto waited = std::chrono::steady_clock::now() - wait_started;
         if (!outcome) {
             last_error_.store(static_cast<int>(outcome.error()));
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        } else if (waited < std::chrono::milliseconds(5)) {
+            // Some transports return from wait_for immediately when data is
+            // available. Batch those wake-ups so the receiver does not spin a
+            // full CPU core while the ingress queue easily absorbs the burst.
+            std::this_thread::sleep_for(std::chrono::milliseconds(5) - waited);
         }
     }
     if (set_.has_value()) {
