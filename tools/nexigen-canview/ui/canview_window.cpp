@@ -2909,9 +2909,7 @@ std::size_t workspace_loop(UiState& state, const CliOptions& options, const CanV
         draw_channels(state, config);
         draw_clone_modal(state);
         for (const auto& entry : state.model->views()) {
-            if (entry->live()) {
-                draw_view(state, *entry, config);
-            }
+            draw_view(state, *entry, config);
         }
         if (state.close_view.has_value()) {
             static_cast<void>(state.model->remove_view(*state.close_view));
