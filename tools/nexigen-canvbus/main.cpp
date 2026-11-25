@@ -49,7 +49,9 @@ std::uint64_t now_ns() {
 void publish(VirtualChannel& channel, can::CanMessage message) {
     message.channel_id = channel.channel_id;
     message.timestamp_source = can::CanTimestampSource::Simulated;
-    message.hardware_timestamp_ns = now_ns();
+    if (message.hardware_timestamp_ns == 0U) {
+        message.hardware_timestamp_ns = now_ns();
+    }
     message.hardware_sequence = channel.sequence.fetch_add(1U) + 1U;
     message.frame_flags.bits |=
         can::CanFrameFlags::has_hardware_timestamp | can::CanFrameFlags::has_hardware_sequence;

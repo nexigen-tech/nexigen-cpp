@@ -135,7 +135,7 @@ void CanTransmitter::submit_loop(Channel& channel, std::stop_token token) noexce
     CanMessage message{};
     while (!token.stop_requested()) {
         if (!channel.ring.try_pop(message)) {
-            std::this_thread::yield();
+            std::this_thread::sleep_for(std::chrono::microseconds{100});
             continue;
         }
         core::Status status = driver_->submit(channel.config.name, message);

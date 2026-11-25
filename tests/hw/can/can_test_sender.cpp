@@ -24,7 +24,8 @@ std::uint64_t env_u64(const char* name, std::uint64_t fallback) {
     return value != nullptr ? std::strtoull(value, nullptr, 0) : fallback;
 }
 
-can::CanMessage make_message(std::uint16_t channel_id, std::uint64_t index) {
+can::CanMessage make_message(std::uint16_t channel_id, std::uint64_t index,
+                             std::uint64_t hardware_timestamp_ns) {
     can::CanMessage message{};
     message.kind = can::CanMessageKind::ClassicData;
     message.channel_id = channel_id;
@@ -35,14 +36,13 @@ can::CanMessage make_message(std::uint16_t channel_id, std::uint64_t index) {
             static_cast<std::uint8_t>((byte == 0U ? 0xAAU : byte) + (index & 0xFFU));
     }
     message.timestamp_source = can::CanTimestampSource::Simulated;
-    const auto now = nexigen::chrono::Timestamp::now();
-    message.hardware_timestamp_ns = now ? now->nanoseconds() : 0U;
+    message.hardware_timestamp_ns = hardware_timestamp_ns;
     message.frame_flags.bits = can::CanFrameFlags::has_hardware_timestamp;
     return message;
 }
 
 bool send_channel(Runtime& runtime, const can::CanChannelConfig& channel, std::uint64_t count,
-                  std::uint64_t period_us) {
+                  std::uint64_t period_us, std::uint64_t batch) {
     auto service = can::tx_service(channel.name);
     if (!service) {
         return false;
@@ -52,12 +52,21 @@ bool send_channel(Runtime& runtime, const can::CanChannelConfig& channel, std::u
         return false;
     }
     auto next = std::chrono::steady_clock::now();
-    for (std::uint64_t index = 0; count == 0U || index < count; ++index) {
-        const can::CanMessage message = make_message(channel.channel_id, index);
-        static_cast<void>(producer->publish(message, can::event_tx, can::event_time(message),
-                                            can::hardware_metadata(message)));
+    std::uint64_t index = 0U;
+    while (count == 0U || index < count) {
+        const std::uint64_t current = count == 0U ? batch : std::min(batch, count - index);
+        const auto now = nexigen::chrono::Timestamp::now();
+        const std::uint64_t base_ns = now ? now->nanoseconds() : 0U;
+        for (std::uint64_t offset = 0U; offset < current; ++offset) {
+            const std::uint64_t timestamp_ns = base_ns + offset * period_us * 1'000ULL;
+            const can::CanMessage message =
+                make_message(channel.channel_id, index + offset, timestamp_ns);
+            static_cast<void>(producer->publish(message, can::event_tx, can::event_time(message),
+                                                can::hardware_metadata(message)));
+        }
+        index += current;
         if (period_us != 0U) {
-            next += std::chrono::microseconds{period_us};
+            next += std::chrono::microseconds{period_us * current};
             std::this_thread::sleep_until(next);
         }
     }
@@ -81,8 +90,9 @@ int main(int argc, char** argv) {
     auto runtime = std::move(*created);
     const std::uint64_t count = env_u64("NEXIGEN_CAN_TEST_COUNT", 10U);
     const std::uint64_t period_us = env_u64("NEXIGEN_CAN_TEST_PERIOD_US", 100'000U);
+    const std::uint64_t batch = std::max<std::uint64_t>(1U, env_u64("NEXIGEN_CAN_TEST_BATCH", 1U));
     for (const auto& channel : parsed->channels) {
-        if (!send_channel(*runtime, channel, count, period_us)) {
+        if (!send_channel(*runtime, channel, count, period_us, batch)) {
             return 1;
         }
     }
