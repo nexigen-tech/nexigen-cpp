@@ -10,6 +10,7 @@
 #include <cstring>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <future>
 #include <limits>
 #include <memory>
@@ -109,6 +110,7 @@ struct UiState {
     std::uint64_t last_heatmap_ns{0};
     std::uint16_t heatmap_channel{1};
     bool dock_built{false};
+    bool layout_needs_build{false};
     bool splash_done{false};
     bool clone_modal{false};
     bool clone_paused{false};
@@ -2681,6 +2683,50 @@ void step_background(UiState& state) {
     }
 }
 
+bool layout_has_docking(const std::string& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return false;
+    }
+    const std::string content((std::istreambuf_iterator<char>(file)),
+                              std::istreambuf_iterator<char>());
+    return content.find("DockId=") != std::string::npos;
+}
+
+void build_dock_layout(ImGuiID dockspace_id, UiState& state) {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::DockBuilderRemoveNode(dockspace_id);
+    ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->Size);
+
+    ImGuiID main_id = dockspace_id;
+    const ImGuiID toolbar_id =
+        ImGui::DockBuilderSplitNode(main_id, ImGuiDir_Up, 0.075F, nullptr, &main_id);
+    const ImGuiID left_id =
+        ImGui::DockBuilderSplitNode(main_id, ImGuiDir_Left, 0.28F, nullptr, &main_id);
+    const ImGuiID bottom_id =
+        ImGui::DockBuilderSplitNode(main_id, ImGuiDir_Down, 0.28F, nullptr, &main_id);
+    ImGuiID inspector_id = bottom_id;
+    const ImGuiID heatmap_id =
+        ImGui::DockBuilderSplitNode(inspector_id, ImGuiDir_Right, 0.5F, nullptr, &inspector_id);
+    ImGuiID channels_id = left_id;
+    const ImGuiID status_id =
+        ImGui::DockBuilderSplitNode(channels_id, ImGuiDir_Down, 0.42F, nullptr, &channels_id);
+
+    ImGui::DockBuilderDockWindow("Toolbar", toolbar_id);
+    ImGui::DockBuilderDockWindow("Channels & CANopen", channels_id);
+    ImGui::DockBuilderDockWindow("Status", status_id);
+    ImGui::DockBuilderDockWindow("Inspector", inspector_id);
+    ImGui::DockBuilderDockWindow("Heatmap", heatmap_id);
+    for (const auto& entry : state.model->views()) {
+        if (entry->live()) {
+            const std::string title = "Can: " + entry->title();
+            ImGui::DockBuilderDockWindow(title.c_str(), main_id);
+        }
+    }
+    ImGui::DockBuilderFinish(dockspace_id);
+}
+
 std::size_t workspace_loop(UiState& state, const CliOptions& options, const CanViewConfig& config,
                            GLFWwindow* window) {
     std::size_t frames = 0U;
@@ -2691,8 +2737,14 @@ std::size_t workspace_loop(UiState& state, const CliOptions& options, const CanV
         ingest_ingress(state, now);
         step_background(state);
         begin_frame();
-        ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
-                                     ImGuiDockNodeFlags_PassthruCentralNode);
+        const ImGuiID dockspace_id = ImGui::DockSpaceOverViewport(
+            0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+        if (!state.dock_built) {
+            if (state.layout_needs_build) {
+                build_dock_layout(dockspace_id, state);
+            }
+            state.dock_built = true;
+        }
         if (ImGui::IsAnyItemActive() || ImGui::GetIO().WantTextInput) {
             state.guard.note_input();
         }
@@ -2758,6 +2810,7 @@ int run_gui(const CliOptions& options, CanViewConfig& config) {
     }
     const float scale = resolve_scale(options);
     const std::string layout_path = layout_ini_path();
+    state.layout_needs_build = !layout_has_docking(layout_path);
     GLFWwindow* window = nullptr;
     if (!init_window(window, scale, options.ui_smoke || options.ui_splash_test, layout_path)) {
         return 1;
