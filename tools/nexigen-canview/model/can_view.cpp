@@ -174,7 +174,7 @@ CloneAdjustments CanView::copy_state_from(const CanView& other,
 }
 
 std::size_t CanView::display_count() const noexcept {
-    if (!paused_) {
+    if (!live_ || !paused_) {
         return index_.visible_count();
     }
     const std::uint64_t end = pause_tail_;
@@ -203,7 +203,7 @@ std::uint64_t CanView::display_floor() const noexcept {
 }
 
 std::uint64_t CanView::display_end() const noexcept {
-    return paused_ ? pause_tail_ : source_->tail();
+    return live_ && paused_ ? pause_tail_ : source_->tail();
 }
 
 bool CanView::focus_record(std::uint64_t seq) noexcept {

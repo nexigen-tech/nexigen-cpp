@@ -515,6 +515,8 @@ void test_clone_clipping_and_immutability() {
     }
     NX_CHECK(!paused_view->live());
     NX_CHECK(paused_view->source().size() <= canview::CanViewModel::snapshot_bytes / 128U);
+    NX_CHECK(paused_view->display_count() > 0U);
+    NX_CHECK(paused_view->display_count() <= canview::CanViewModel::snapshot_bytes / 128U);
     NX_CHECK(paused_view->is_selected(total - 1U));
     NX_CHECK(!paused_view->is_selected(0U));
     NX_CHECK(!paused_view->is_bookmarked(0U));
