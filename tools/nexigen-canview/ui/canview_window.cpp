@@ -159,6 +159,8 @@ struct UiState {
     char eds_path[256]{};
     bool focus_find{false};
     std::optional<std::uint64_t> hovered_seq{};
+    std::optional<std::size_t> scroll_request{};
+    std::optional<std::uint32_t> close_view{};
     std::unique_ptr<OfflineCanopen> offline{};
     std::optional<ImportResult> import_result{};
     std::unordered_map<std::uint64_t, std::size_t> offline_index{};
@@ -936,7 +938,7 @@ void draw_bind_form(UiState& state) {
     draw_bind_confirm(state);
 }
 
-void draw_minimap(CanView& view) {
+void draw_minimap(UiState& state, CanView& view) {
     view.rebuild_minimap();
     const Minimap& map = view.minimap();
     if (map.visible == 0U) {
@@ -977,9 +979,11 @@ void draw_minimap(CanView& view) {
     ImGui::InvisibleButton("##minimap", ImVec2(width, height));
     if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
         const float ratio = std::clamp((ImGui::GetIO().MousePos.x - origin.x) / width, 0.0F, 1.0F);
-        view.set_scroll(static_cast<std::size_t>(
-            ratio * static_cast<float>(map.visible > 0U ? map.visible - 1U : 0U)));
+        const std::size_t order = static_cast<std::size_t>(
+            ratio * static_cast<float>(map.visible > 0U ? map.visible - 1U : 0U));
+        view.set_scroll(order);
         view.set_auto_scroll(false);
+        state.scroll_request = order;
     }
 }
 
@@ -1007,7 +1011,7 @@ void draw_eds_and_minimap(UiState& state, const CanViewConfig& /*config*/) {
     }
     ImGui::SeparatorText("Minimap");
     if (CanView* view = state.model->focused(); view != nullptr) {
-        draw_minimap(*view);
+        draw_minimap(state, *view);
     }
 }
 
@@ -1571,6 +1575,36 @@ void draw_trace_row(UiState& state, CanView& view, const CanViewConfig& /*config
 
 void export_trace_selection(UiState& state, const CanView& view);
 
+void request_scroll(UiState& state, CanView& view, std::size_t order) {
+    const std::size_t count = view.display_count();
+    const std::size_t clamped = count == 0U ? 0U : std::min(order, count - 1U);
+    view.set_scroll(clamped);
+    view.set_auto_scroll(false);
+    state.scroll_request = clamped;
+}
+
+void draw_scroll_controls(UiState& state, CanView& view) {
+    const std::size_t count = view.display_count();
+    if (ImGui::Button("First")) {
+        request_scroll(state, view, 0U);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("PgUp")) {
+        const std::size_t step = count > 10U ? count / 10U : 1U;
+        request_scroll(state, view, view.scroll() > step ? view.scroll() - step : 0U);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("PgDn")) {
+        const std::size_t step = count > 10U ? count / 10U : 1U;
+        request_scroll(state, view, view.scroll() + step);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Last")) {
+        request_scroll(state, view, count == 0U ? 0U : count - 1U);
+        view.set_auto_scroll(true);
+    }
+}
+
 bool draw_trace_controls(UiState& state, CanView& view) {
     if (ImGui::Button(view.paused() ? "Resume" : "Pause")) {
         view.set_paused(!view.paused());
@@ -1578,6 +1612,8 @@ bool draw_trace_controls(UiState& state, CanView& view) {
     }
     ImGui::SameLine();
     ImGui::TextDisabled("%s", view.paused() ? "PAUSED" : "LIVE");
+    ImGui::SameLine();
+    draw_scroll_controls(state, view);
     ImGui::SameLine();
     if (ImGui::Button("Trace")) {
         view.set_table_mode(TableMode::Trace);
@@ -1638,6 +1674,11 @@ void draw_trace(UiState& state, CanView& view, const CanViewConfig& config) {
     ImGui::TableSetupScrollFreeze(0, 1);
     setup_trace_columns(show_hw, show_utc);
     ImGui::TableHeadersRow();
+    if (state.scroll_request.has_value()) {
+        const float row_height = ImGui::GetTextLineHeightWithSpacing();
+        ImGui::SetScrollY(static_cast<float>(*state.scroll_request) * row_height);
+        state.scroll_request.reset();
+    }
     std::optional<CanRecordView> previous{};
     ImGuiListClipper clipper;
     clipper.Begin(static_cast<int>(view.display_count()));
@@ -2027,8 +2068,16 @@ void draw_overwrite(UiState& state, CanView& view) {
 
 void draw_view(UiState& state, CanView& view, const CanViewConfig& config) {
     const std::string title = "Can: " + view.title();
-    if (!ImGui::Begin(title.c_str(), nullptr, ImGuiWindowFlags_NoCollapse)) {
+    bool open = true;
+    if (!ImGui::Begin(title.c_str(), &open, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
+        if (!open) {
+            if (state.model->views().size() > 1U) {
+                state.close_view = view.id();
+            } else {
+                state.status = "at least one view must remain open";
+            }
+        }
         return;
     }
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
@@ -2042,6 +2091,13 @@ void draw_view(UiState& state, CanView& view, const CanViewConfig& config) {
         draw_overwrite(state, view);
     }
     ImGui::End();
+    if (!open) {
+        if (state.model->views().size() > 1U) {
+            state.close_view = view.id();
+        } else {
+            state.status = "at least one view must remain open";
+        }
+    }
 }
 
 void draw_frame_tab(UiState& state, const std::optional<CanRecordView>& record,
@@ -2553,7 +2609,7 @@ void jump_to_nav_match(CanView& view, bool want_error, bool backward) {
     }
 }
 
-void handle_nav_hotkeys(CanView& view) {
+void handle_nav_hotkeys(UiState& state, CanView& view) {
     const std::size_t count = view.display_count();
     if (count == 0U) {
         return;
@@ -2567,10 +2623,11 @@ void handle_nav_hotkeys(CanView& view) {
     }
     const ImGuiIO& io = ImGui::GetIO();
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Home)) {
-        view.set_scroll(0U);
+        request_scroll(state, view, 0U);
     }
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_End)) {
-        view.set_scroll(count - 1U);
+        request_scroll(state, view, count - 1U);
+        view.set_auto_scroll(true);
     }
 }
 
@@ -2610,7 +2667,7 @@ void handle_hotkeys(UiState& state) {
         return;
     }
     handle_view_hotkeys(*view, state);
-    handle_nav_hotkeys(*view);
+    handle_nav_hotkeys(state, *view);
     handle_clipboard_hotkeys(state, *view);
 }
 
@@ -2850,6 +2907,10 @@ std::size_t workspace_loop(UiState& state, const CliOptions& options, const CanV
             if (entry->live()) {
                 draw_view(state, *entry, config);
             }
+        }
+        if (state.close_view.has_value()) {
+            static_cast<void>(state.model->remove_view(*state.close_view));
+            state.close_view.reset();
         }
         draw_inspector(state);
         draw_status(state, config);
