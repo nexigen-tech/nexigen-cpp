@@ -2,6 +2,10 @@ if(NEXIGEN_BUILD_LOGVIEW)
     add_subdirectory(nexigen-logview)
 endif()
 
+if(NEXIGEN_BUILD_CANVIEW)
+    add_subdirectory(nexigen-canview)
+endif()
+
 # nexigen-exec binary — links nexigen_exec + nexigen_app + nexigen_core.
 add_executable(nexigen-exec nexigen-exec/main.cpp)
 target_link_libraries(nexigen-exec PRIVATE nexigen_exec nexigen_app Threads::Threads)

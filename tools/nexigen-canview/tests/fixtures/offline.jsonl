@@ -1,0 +1,3 @@
+{"type":"session","format":"nexigen.canview.session","version":1,"boot_token":1,"timebase":"test","channels":[{"name":"demo","channel_id":1,"nominal_bitrate":500000,"data_bitrate":0,"fd":false,"enabled":true}],"eds":[],"counters":{"frames":1,"gaps":1}}
+{"type":"frame","seq":1,"hw_ts_ns":1000,"channel":1,"channel_name":"demo","can_id":256,"extended":false,"kind":"ClassicData","origin":"ExternalDevice","ts_source":"Hardware","hw_seq":1,"dlc":2,"data":"0102","delta_ns":0,"delta_id_ns":0,"co_decoded":""}
+{"type":"gap","seq":2,"kind":"TransportGap","reason":"HardwareSequence","lost":3,"count_exact":true,"hw_ts_ns":2000,"channel":1,"channel_name":"demo","time_epoch":0}

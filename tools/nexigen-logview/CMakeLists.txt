@@ -5,9 +5,8 @@
 # display. The GUI target is the only consumer of the pinned ImGui/GLFW block.
 
 set(NEXIGEN_LOGVIEW_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-option(NEXIGEN_LOGVIEW_GUI
-    "Build the nexigen-logview GLFW/ImGui window (needs X11/OpenGL development packages)"
-    ON)
+# NEXIGEN_LOGVIEW_GUI is declared at the top level together with the shared
+# ImGui/GLFW targets (change add-can-monitor-view).
 
 set(NEXIGEN_LOGVIEW_MODEL_SOURCES
     model/app_registry.cpp
@@ -114,46 +113,6 @@ set_tests_properties(nexigen_logview_headless_offline PROPERTIES
     TIMEOUT 60 LABELS "tools;logview")
 
 if(NEXIGEN_LOGVIEW_GUI)
-    include(FetchContent)
-
-    # Dear ImGui docking branch, pinned commit (2026-11-23). The bundled GL
-    # loader is used; no glad dependency.
-    FetchContent_Declare(nx_imgui
-        SYSTEM
-        GIT_REPOSITORY https://github.com/ocornut/imgui.git
-        GIT_TAG b1c1666c858cf3decb5b8de75255a927a7ec5361
-        GIT_SHALLOW TRUE)
-    FetchContent_MakeAvailable(nx_imgui)
-
-    add_library(nexigen_imgui STATIC
-        ${nx_imgui_SOURCE_DIR}/imgui.cpp
-        ${nx_imgui_SOURCE_DIR}/imgui_draw.cpp
-        ${nx_imgui_SOURCE_DIR}/imgui_tables.cpp
-        ${nx_imgui_SOURCE_DIR}/imgui_widgets.cpp
-        ${nx_imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-        ${nx_imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp)
-    target_include_directories(nexigen_imgui SYSTEM PUBLIC
-        ${nx_imgui_SOURCE_DIR}
-        ${nx_imgui_SOURCE_DIR}/backends)
-
-    # GLFW 3.4, pinned archive. Only the windowing/X11 backend is needed; the
-    # examples, tests, docs, and install rules stay off.
-    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_X11 ON CACHE BOOL "" FORCE)
-    FetchContent_Declare(nx_glfw
-        SYSTEM
-        URL https://github.com/glfw/glfw/archive/refs/tags/3.4.zip
-        URL_HASH SHA256=a133ddc3d3c66143eba9035621db8e0bcf34dba1ee9514a9e23e96afd39fd57a
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-    FetchContent_MakeAvailable(nx_glfw)
-
-    find_package(OpenGL REQUIRED)
-    find_package(PNG 1.6 REQUIRED)
-    target_link_libraries(nexigen_imgui PUBLIC glfw OpenGL::GL)
     target_link_libraries(nexigen-logview PRIVATE nexigen_imgui PNG::PNG)
     target_compile_definitions(nexigen-logview PRIVATE NEXIGEN_LOGVIEW_GUI=1)
 

@@ -623,17 +623,43 @@ option(NEXIGEN_BUILD_TOOLS "Build nexigen command-line tools" ON)
 # over the live LogFrame service. Requires NEXIGEN_ENABLE_COM because the
 # capture backend is a com::Subscriber.
 option(NEXIGEN_BUILD_LOGVIEW "Build the nexigen-logview realtime log viewer" OFF)
+option(NEXIGEN_LOGVIEW_GUI
+    "Build the nexigen-logview GLFW/ImGui window (needs X11/OpenGL development packages)"
+    ON)
 if(NEXIGEN_BUILD_LOGVIEW AND NOT NEXIGEN_ENABLE_COM)
     message(FATAL_ERROR "❌ NEXIGEN_BUILD_LOGVIEW requires NEXIGEN_ENABLE_COM=ON.")
 endif()
 if(NEXIGEN_BUILD_LOGVIEW AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "❌ NEXIGEN_BUILD_LOGVIEW is supported on Linux only.")
 endif()
+
+# Realtime CAN/CAN-FD viewer (change add-can-monitor-view): Linux-only GUI tool
+# over the existing nexigen/hw/can services. Read-only; the capture backend is a
+# com::EventConsumerSet, so NEXIGEN_ENABLE_COM=ON is required.
+option(NEXIGEN_BUILD_CANVIEW "Build the nexigen-canview realtime CAN monitor" OFF)
+option(NEXIGEN_CANVIEW_GUI
+    "Build the nexigen-canview GLFW/ImGui window (needs X11/OpenGL development packages)"
+    ON)
+if(NEXIGEN_BUILD_CANVIEW AND NOT NEXIGEN_ENABLE_COM)
+    message(FATAL_ERROR "❌ NEXIGEN_BUILD_CANVIEW requires NEXIGEN_ENABLE_COM=ON.")
+endif()
+if(NEXIGEN_BUILD_CANVIEW AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "❌ NEXIGEN_BUILD_CANVIEW is supported on Linux only.")
+endif()
+
+# Shared ImGui/GLFW/ImPlot targets: fetched once for every GUI tool that is
+# enabled. Headless builds never reach this block.
+if((NEXIGEN_BUILD_LOGVIEW AND NEXIGEN_LOGVIEW_GUI)
+   OR (NEXIGEN_BUILD_CANVIEW AND NEXIGEN_CANVIEW_GUI))
+    include(GuiDependencies)
+endif()
+
 option(NEXIGEN_ENABLE_MCAP "Build MCAP output support for nexigen-export" OFF)
 option(NEXIGEN_BUILD_STORAGE_BENCHMARKS
     "Build the opt-in recorder storage-format benchmarks (MCAP vs .nxrec)" OFF)
 
-if(NEXIGEN_BUILD_TESTS OR NEXIGEN_BUILD_EXAMPLES OR NEXIGEN_BUILD_LOGVIEW)
+if(NEXIGEN_BUILD_TESTS OR NEXIGEN_BUILD_EXAMPLES OR NEXIGEN_BUILD_LOGVIEW
+   OR NEXIGEN_BUILD_CANVIEW)
     enable_testing()
 endif()
 

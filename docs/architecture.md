@@ -1021,6 +1021,41 @@ startup splash is rendered for one second while capture and UI ingestion already
 run, so it adds no lost-record window. `nexigen-logview` is read-only for the
 platform: stopping it changes no service or on-disk state.
 
+### 5.1c Просмотр CAN/CAN-FD (`nexigen-canview`)
+
+`nexigen-canview` — read-only монитор шины: он подписывается на
+`nexigen/hw/can/<channel>/rx` и `.../status`, не создаёт `tx`-сервисов и не
+меняет состояние каналов. Один поток `canview-rx` владеет `com::Node` и
+`EventConsumerSet<16>` (до 8 каналов × 2 потока событий), проверяет
+`channel_id`, ведёт sequence/UTC-anchor состояние и складывает записи в
+фиксированные SPSC-очереди. История — единый `mmap`-ring по 126 байт на слот с
+абсолютным `seq`; UI — единственный писатель и читатель истории.
+
+```mermaid
+flowchart LR
+    RX["nexigen/hw/can/&lt;ch&gt;/rx"] --> CAP["canview-rx<br/>EventConsumerSet&lt;16&gt;"]
+    ST["nexigen/hw/can/&lt;ch&gt;/status"] --> CAP
+    CAP --> Q["Ingress SPSC<br/>65 536 × 128 B"]
+    Q --> HIST["CanRecordRing<br/>126 B/slot · absolute seq"]
+    EDS["EDS library<br/>32 files · 32 MiB"] --> DEC["CANopen decoder<br/>NMT · EMCY · SDO · PDO"]
+    HIST --> VIEWS["CanView<br/>All / Channel / Node"]
+    HIST --> HEAT["Heatmap 2 048 columns<br/>Bit activity 4 096 frames"]
+    DEC --> VIEWS
+    VIEWS --> TRACE["Trace / Overwrite"]
+    HIST --> SESSION["JSONL v1 session"]
+    SESSION --> IMP["Import / offline replay"]
+    IMP --> HIST
+    TRACE --> SCREEN["ImGui docking workspace"]
+    HEAT --> SCREEN
+```
+
+Пределы заданы заранее: 8 LIVE каналов, 32 профиля/offline-сессии, 8 LIVE и
+16 PAUSED вью, 2 048 колонок heatmap, 4 096 кадров bit-activity, 4 096 слотов
+async export. PAUSED-клон владеет неизменяемым снимком ≤1 MiB; динамический
+CANopen remapping применяется только после успешного SDO-ответа и сохраняет
+16 эпох маппинга. `ResourceGuard` переводит отрисовку в ECO (15 FPS, derived
+recompute не чаще 250 мс), а ввод пользователя немедленно её будит.
+
 ### 5.2 Телеметрический конвейер
 
 ```mermaid
@@ -1215,6 +1250,7 @@ flowchart LR
 | `nexigen-metricsd` | COM | агрегация метрик, Prometheus HTTP, квотируемая JSONL-история |
 | `nexigen-traced` | COM | RAM-ring спанов и аварийный снимок по событию PHM |
 | `nexigen-logview` | COM + `NEXIGEN_BUILD_LOGVIEW` | интерактивный просмотр живого `LogFrame`-потока: ImGui/GLFW, независимые dock-вкладки `All`/source, LIVE/PAUSED clone, ограниченная история, фильтры, find, bookmarks, time/delta modes, экспорт/импорт, ECO |
+| `nexigen-canview` | COM + `NEXIGEN_BUILD_CANVIEW` | read-only CAN/CAN-FD монитор: до 8 каналов, ring 126 B/slot, Trace/Overwrite, CANopen EDS/SDO/PDO, heatmap ImPlot, bit activity, JSONL v1, offline replay, ECO |
 
 Инструменты при `NEXIGEN_BUILD_TOOLS=ON` собираются вместе с библиотекой;
 COM-зависимые инструменты появляются только при включённом gate.
@@ -1349,6 +1385,11 @@ ctest --test-dir build/debug --output-on-failure
   (ImGui/GLFW/OpenGL3) и headless-модель с тестами;
 - `NEXIGEN_LOGVIEW_GUI` — по умолчанию `ON`; `OFF` оставляет headless
   CLI и тесты без X11/OpenGL-зависимостей;
+- `NEXIGEN_BUILD_CANVIEW` — по умолчанию `OFF`, требует
+  `NEXIGEN_ENABLE_COM=ON`; собирает Linux-only GUI `nexigen-canview`
+  (ImGui/ImPlot/GLFW/OpenGL3) и headless-модель с тестами;
+- `NEXIGEN_CANVIEW_GUI` — по умолчанию `ON`; `OFF` оставляет headless CLI,
+  модель и тесты без X11/OpenGL-зависимостей;
 - `NEXIGEN_ENABLE_MCAP` — по умолчанию `OFF`; добавляет MCAP-выход только
   в `nexigen-export` и не попадает в `nexigen_recorder`;
 - `NEXIGEN_BUILD_STORAGE_BENCHMARKS` — по умолчанию `OFF`; собирает

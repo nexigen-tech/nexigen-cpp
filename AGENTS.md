@@ -28,3 +28,10 @@ Issues and specs live as markdown files under `.scratch/<feature-slug>/`. See `d
 ### Domain docs
 
 Single-context: `GLOSSARY.md` at the repo root plus ADRs in `docs/adr/`. See `docs/agents/domain.md`.
+
+### Monitor tools
+
+A new realtime monitor/viewer tool (another bus or channel) must follow
+`docs/agents/monitor-tool-recipe.md`: shared frame loop, pane/step tables,
+CCN budget 12 (hard 15), skeleton committed first, tests in CTest and coverage
+from day one. After delivery, update the recipe's refinement log.

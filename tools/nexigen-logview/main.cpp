@@ -132,6 +132,7 @@ bool import_offline(logview::LogViewModel& model, const logview::CliOptions& opt
     return true;
 }
 
+#if defined(NEXIGEN_LOGVIEW_GUI)
 /// @brief Build the UI options from the parsed command line.
 ///
 /// @param options Parsed command line.
@@ -171,6 +172,7 @@ void persist_config(logview::LogViewModel& model, const std::string& config_path
     }
     static_cast<void>(logview::save_config(config_path, persisted));
 }
+#endif
 
 /// @brief Run the GUI session and persist the resulting state.
 ///

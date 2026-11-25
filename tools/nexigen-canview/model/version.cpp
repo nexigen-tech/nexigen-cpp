@@ -1,0 +1,9 @@
+#include "version.hpp"
+
+namespace nexigen::canview {
+
+std::string_view version() noexcept {
+    return "0.1.0";
+}
+
+} // namespace nexigen::canview
