@@ -26,6 +26,23 @@ proposed by this recipe, not yet implemented.
 | Tool tests are registered in CTest **and** coverage from the first commit | coverage gate scores `tools/`, not only `src/` |
 | Every commit keeps `check_complexity.py` green | a red gate for one day costs a whole refactor wave |
 
+### Shared code vs shared discipline
+
+Two different things must not be conflated:
+
+- **Shared code** (frame loop, panes, models, widgets) — deferring it is a
+  legitimate strategy while both monitors are being shaped. Deliberate
+  duplication avoids locking in an abstraction before the second shape is
+  known; logview and canview were intentionally kept independent for exactly
+  this reason (first make each correct and pleasant, then decide what to unify).
+- **Shared discipline** (one pane = one function, phase entry, step tables,
+  CCN budget, tests registered from day one) — this is not coupling and cannot
+  be deferred. Duplicated code written as a monolith still fails the gate and
+  still costs a refactor wave.
+
+So: **copying is optional; decomposing is not.** A tool that borrows nothing
+from its sibling must still be written in the shapes below.
+
 Existing enforcement **[now]**:
 
 ```bash
@@ -230,7 +247,7 @@ Before merging the tool:
 | Monolithic `run_gui`/`run_ui` | logview 118 CCN / 318 NLOC; canview 33 / 112 NLOC |
 | One strip function with every control | logview `draw_local_controls` 47 |
 | `switch` over scripted test phases | logview `drive_view_test` 20, `run_ui_view_test` 38 |
-| Copying a concept but not its decomposition | `copy_state_from` 27 in logview, then 14 in canview |
+| Duplicating a concept without duplicating its decomposition | `copy_state_from` 27 in logview, then 14 in canview (duplication itself was intentional) |
 | WIP kept untracked | 15.8k lines outside git/CI for a day |
 | Merging while the gate is red | one full refactor wave (~+600 to +1600 lines) |
 
@@ -246,6 +263,44 @@ Before merging the tool:
 - Shared kit **[planned]**: `tools/support/ui/` — frame loop, `PaneSpec`,
   panel builders, step tables, `view_model_base` (ring/filter/time/clone).
   Until it exists, copy from logview and keep the three recipes above.
+- Deliberate duplication is allowed and expected before the unification
+  checkpoint (section 11). A sibling tool is not a required source of code,
+  but its decomposition discipline still applies.
+
+---
+
+## 11. Unification checkpoint (after both monitors are stable)
+
+Unification is a **separate, explicit decision**, not a side effect of writing
+the second tool. Trigger it only when:
+
+- both monitors are shipped and used;
+- the UX of each is stable (no open redesign);
+- no open complexity-split wave remains in either;
+- both have golden-output tests, so a shared regression cannot hide in both.
+
+Then run a comparison inventory and decide item by item:
+
+| Concept | Where it appears | Decision (unify / keep duplicated / later) | Reason |
+|---|---|---|---|
+| frame loop, `PaneSpec`, step tables | both `ui/` | usually **unify** | pure mechanism, no domain knowledge |
+| panel builders (toolbar, table painter) | both `ui/` | usually **unify** | same ImGui idioms, same ordering rules |
+| ring/history buffer | `model/` both | **unify if semantics match** | share tests first |
+| filter criteria, time presenter | `model/` both | **later** if shapes differ | domain semantics may diverge |
+| clone state (`copy_state_from`) | `model/` both | **unify after split** | same concept; share the decomposed form, not the monolith |
+| record/sample types | CAN vs log | **keep separate** | different domains; do not build a god-model |
+| JSON config / session format | both | **later** | formats may evolve independently |
+| GUI dependency pins | `cmake/GuiDependencies.cmake` | **already shared** | one ImGui/GLFW pin for all GUI tools |
+
+Rules:
+
+1. Prefer extracting **mechanism** (loop, tables, builders, test harness) over
+   **domain models**.
+2. A shared component must have its own tests; a behavior covered only through
+   two tools' tests is not covered.
+3. Record the unification decision in an ADR — merging two implementations is
+   hard to reverse.
+4. If in doubt, keep duplicated: the budgets above already keep both healthy.
 
 ---
 
@@ -257,7 +312,7 @@ this recipe. Suggested columns:
 | Date | Monitor | First-commit size | First GUI commit max CCN | Splits after first commit | Final mean | Headroom 12–15 | Time to green CI | Recipe change |
 |---|---|---|---|---|---|---|---|---|
 | 2026-11-24 | logview | ~5.4k lines | 118 | 2 waves | ~2.9 | — | 1 day (red) | initial recipe |
-| 2026-11-25 | canview (delivered) | 15.8k lines (untracked) | 33 | 1 wave | 3.29 | 16 | 1 day (red) | shared kit proposed; gate, CTest and format green at archive |
+| 2026-11-25 | canview (delivered) | 15.8k lines (untracked) | 33 | 1 wave | 3.29 | 16 | 1 day (red) | duplication intentional, unification deferred; gate, CTest and format green at archive |
 
 Questions to answer next time:
 
