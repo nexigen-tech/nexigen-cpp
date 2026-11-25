@@ -1,7 +1,7 @@
 // nexigen::integration — generator application (change add-suite-2-apps;
 // spec examples/suite-2-apps).
 //
-// Produces one DataSample per second and publishes it over nexigen::com with a
+// Produces one DataSample per configured period and publishes it over nexigen::com with a
 // tracing::TraceHeader carrying the per-sample trace, so the receiver can link
 // its spans to the generator's. Telemetry (logs, metrics, spans) is published
 // to the three daemons through the iceoryx2 sinks; spans additionally land in a
@@ -67,6 +67,7 @@ constexpr std::string_view kMessage = "hello-from-generator";
 constexpr std::string_view kStandaloneSettingsDir = "./nexigen-suite-2-apps-settings";
 constexpr std::string_view kStandaloneOutputDir = "./nexigen-suite-2-apps-output";
 constexpr std::uint64_t kDefaultWorkerSeconds = 2;
+constexpr std::uint64_t kDefaultPeriodMs = 1000;
 
 // Shared telemetry node: the iceoryx2 metric/trace sinks borrow a com::Node that
 // must outlive them. A function-local static lives for the process lifetime,
@@ -336,6 +337,7 @@ core::Status initialize_infrastructure(Infrastructure& infra,
 int main(int argc, char* argv[]) {
     const bool run_forever = env("NEXIGEN_RUN_FOREVER").value_or("") == "1";
     const std::uint64_t worker_seconds = env_u64("NEXIGEN_WORKER_SECONDS", kDefaultWorkerSeconds);
+    const std::uint64_t period_ms = env_u64("NEXIGEN_GENERATOR_PERIOD_MS", kDefaultPeriodMs);
 
     std::vector<std::string_view> args;
     app::CommandLineOptions options;
@@ -356,7 +358,7 @@ int main(int argc, char* argv[]) {
         return fail_status("Infrastructure::initialize", initialized);
     }
 
-    (*infra->logger())->info("generator ready");
+    (*infra->logger())->info("generator ready (period_ms={})", period_ms);
 
     const auto meter = infra->meter("generator", "1.0");
     if (!meter.has_value()) {
@@ -402,6 +404,7 @@ int main(int argc, char* argv[]) {
                     : start + std::chrono::seconds{worker_seconds};
     std::uint64_t seq = 0;
     std::uint32_t publish_seq = 0;
+    const auto period = std::chrono::milliseconds(period_ms > 0U ? period_ms : 1U);
     auto next_sample = start;
 
     const app::InfrastructureStopReason reason = infra->run([&]() -> bool {
@@ -413,7 +416,7 @@ int main(int argc, char* argv[]) {
             std::this_thread::sleep_until(next_sample);
             return true;
         }
-        next_sample += std::chrono::seconds{1};
+        next_sample += period;
 
         NEXIGEN_TRACE_NEW_ROOT("DataGenerator");
         auto span = (*tracer)->start_span("generate-sample", tracing::SpanKind::Producer);
