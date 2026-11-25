@@ -1635,6 +1635,7 @@ void draw_trace(UiState& state, CanView& view, const CanViewConfig& config) {
         ImGui::PopStyleColor(2);
         return;
     }
+    ImGui::TableSetupScrollFreeze(0, 1);
     setup_trace_columns(show_hw, show_utc);
     ImGui::TableHeadersRow();
     std::optional<CanRecordView> previous{};
@@ -1978,6 +1979,7 @@ void draw_overwrite(UiState& state, CanView& view) {
     ImGui::TableSetupColumn("dt avg");
     ImGui::TableSetupColumn("Jitter");
     ImGui::TableSetupColumn("Data");
+    ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableHeadersRow();
     for (const OverwriteRow* entry : visible) {
         const OverwriteRow& row = *entry;
