@@ -1681,7 +1681,7 @@ void draw_trace(UiState& state, CanView& view, const CanViewConfig& config) {
     }
     std::optional<CanRecordView> previous{};
     ImGuiListClipper clipper;
-    clipper.Begin(static_cast<int>(view.display_count()));
+    clipper.Begin(static_cast<int>(view.display_count()), ImGui::GetTextLineHeightWithSpacing());
     while (clipper.Step()) {
         for (int row_index = clipper.DisplayStart; row_index < clipper.DisplayEnd; ++row_index) {
             const std::uint64_t seq = view.display_at(static_cast<std::size_t>(row_index));

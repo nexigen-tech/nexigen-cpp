@@ -174,32 +174,28 @@ CloneAdjustments CanView::copy_state_from(const CanView& other,
 }
 
 std::size_t CanView::display_count() const noexcept {
-    const std::uint64_t end = display_end();
-    std::size_t count = 0;
-    for (std::size_t order = 0; order < index_.visible_count(); ++order) {
-        if (index_.visible_seq_at(order, *source_) < end) {
-            ++count;
+    if (!paused_) {
+        return index_.visible_count();
+    }
+    const std::uint64_t end = pause_tail_;
+    std::size_t low = 0U;
+    std::size_t high = index_.visible_count();
+    while (low < high) {
+        const std::size_t middle = low + (high - low) / 2U;
+        if (index_.visible_seq_at(middle, *source_) < end) {
+            low = middle + 1U;
         } else {
-            break;
+            high = middle;
         }
     }
-    return count;
+    return low;
 }
 
 std::uint64_t CanView::display_at(std::size_t order) const noexcept {
-    const std::uint64_t end = display_end();
-    std::size_t seen = 0;
-    for (std::size_t index_order = 0; index_order < index_.visible_count(); ++index_order) {
-        const std::uint64_t seq = index_.visible_seq_at(index_order, *source_);
-        if (seq >= end) {
-            return 0U;
-        }
-        if (seen == order) {
-            return seq;
-        }
-        ++seen;
+    if (order >= display_count()) {
+        return 0U;
     }
-    return 0U;
+    return index_.visible_seq_at(order, *source_);
 }
 
 std::uint64_t CanView::display_floor() const noexcept {

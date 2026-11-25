@@ -15,6 +15,57 @@
 namespace app = nexigen::app;
 namespace can = nexigen::hw::can;
 
+namespace {
+
+using Runtime = app::App<app::policies::ConsolePolicy>;
+
+std::uint64_t env_u64(const char* name, std::uint64_t fallback) {
+    const char* value = std::getenv(name);
+    return value != nullptr ? std::strtoull(value, nullptr, 0) : fallback;
+}
+
+can::CanMessage make_message(std::uint16_t channel_id, std::uint64_t index) {
+    can::CanMessage message{};
+    message.kind = can::CanMessageKind::ClassicData;
+    message.channel_id = channel_id;
+    message.can_id = 0x123U;
+    message.dlc = 8;
+    for (std::size_t byte = 0; byte < message.data.size(); ++byte) {
+        message.data[byte] =
+            static_cast<std::uint8_t>((byte == 0U ? 0xAAU : byte) + (index & 0xFFU));
+    }
+    message.timestamp_source = can::CanTimestampSource::Simulated;
+    const auto now = nexigen::chrono::Timestamp::now();
+    message.hardware_timestamp_ns = now ? now->nanoseconds() : 0U;
+    message.frame_flags.bits = can::CanFrameFlags::has_hardware_timestamp;
+    return message;
+}
+
+bool send_channel(Runtime& runtime, const can::CanChannelConfig& channel, std::uint64_t count,
+                  std::uint64_t period_us) {
+    auto service = can::tx_service(channel.name);
+    if (!service) {
+        return false;
+    }
+    auto* producer = runtime.publish<can::CanMessage>(*service);
+    if (producer == nullptr) {
+        return false;
+    }
+    auto next = std::chrono::steady_clock::now();
+    for (std::uint64_t index = 0; count == 0U || index < count; ++index) {
+        const can::CanMessage message = make_message(channel.channel_id, index);
+        static_cast<void>(producer->publish(message, can::event_tx, can::event_time(message),
+                                            can::hardware_metadata(message)));
+        if (period_us != 0U) {
+            next += std::chrono::microseconds{period_us};
+            std::this_thread::sleep_until(next);
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 int main(int argc, char** argv) {
     auto parsed = can::parse_tool_options(argc, argv);
     if (!parsed || parsed->help) {
@@ -28,44 +79,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     auto runtime = std::move(*created);
-    std::uint64_t count = 10U;
-    if (const char* value = std::getenv("NEXIGEN_CAN_TEST_COUNT"); value != nullptr) {
-        count = std::strtoull(value, nullptr, 0);
-    }
-    std::uint64_t period_us = 100'000U;
-    if (const char* value = std::getenv("NEXIGEN_CAN_TEST_PERIOD_US"); value != nullptr) {
-        period_us = std::strtoull(value, nullptr, 0);
-    }
+    const std::uint64_t count = env_u64("NEXIGEN_CAN_TEST_COUNT", 10U);
+    const std::uint64_t period_us = env_u64("NEXIGEN_CAN_TEST_PERIOD_US", 100'000U);
     for (const auto& channel : parsed->channels) {
-        auto service = can::tx_service(channel.name);
-        if (!service) {
+        if (!send_channel(*runtime, channel, count, period_us)) {
             return 1;
-        }
-        auto* producer = runtime->publish<can::CanMessage>(*service);
-        if (producer == nullptr) {
-            return 1;
-        }
-        auto next = std::chrono::steady_clock::now();
-        for (std::uint64_t i = 0; count == 0U || i < count; ++i) {
-            can::CanMessage message{};
-            message.kind = can::CanMessageKind::ClassicData;
-            message.channel_id = channel.channel_id;
-            message.can_id = 0x123U;
-            message.dlc = 8;
-            for (std::size_t byte = 0; byte < message.data.size(); ++byte) {
-                message.data[byte] =
-                    static_cast<std::uint8_t>((byte == 0U ? 0xAAU : byte) + (i & 0xFFU));
-            }
-            message.timestamp_source = can::CanTimestampSource::Simulated;
-            auto now = nexigen::chrono::Timestamp::now();
-            message.hardware_timestamp_ns = now ? now->nanoseconds() : 0U;
-            message.frame_flags.bits = can::CanFrameFlags::has_hardware_timestamp;
-            static_cast<void>(producer->publish(message, can::event_tx, can::event_time(message),
-                                                can::hardware_metadata(message)));
-            if (period_us != 0U) {
-                next += std::chrono::microseconds{period_us};
-                std::this_thread::sleep_until(next);
-            }
         }
     }
     if (count != 0U) {
