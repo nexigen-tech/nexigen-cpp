@@ -1687,6 +1687,11 @@ void draw_trace(UiState& state, CanView& view, const CanViewConfig& config) {
             const std::uint64_t seq = view.display_at(static_cast<std::size_t>(row_index));
             const auto record = view.source().find(seq);
             if (!record.has_value() || record->message == nullptr) {
+                // Keep the clipper's row count aligned: every clipped index
+                // must submit exactly one TableNextRow().
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextDisabled("evicted %llu", static_cast<unsigned long long>(seq));
                 continue;
             }
             draw_trace_row(state, view, config, *record,
