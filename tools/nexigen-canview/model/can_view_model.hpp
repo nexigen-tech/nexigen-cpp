@@ -73,6 +73,12 @@ public:
     /// @return `true` when removed.
     bool remove_view(std::uint32_t id);
 
+    /// @brief Rename one view.
+    /// @param id View identity.
+    /// @param title New display title; surrounding whitespace is trimmed.
+    /// @return Empty status, or `NotFound`/`InvalidArgument`.
+    [[nodiscard]] nexigen::core::Status rename_view(std::uint32_t id, std::string title);
+
     /// @brief Drop every view.
     void clear_views();
 

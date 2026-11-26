@@ -114,6 +114,9 @@ struct UiState {
     bool splash_done{false};
     bool clone_modal{false};
     bool clone_paused{false};
+    char clone_title[96]{};
+    bool rename_modal{false};
+    char rename_title[96]{};
     CloneOptions clone_options{};
     std::optional<std::uint32_t> focus_request{};
     bool show_configure{false};
@@ -671,6 +674,26 @@ int run_model_script(const CliOptions& options, UiState& state) {
 
 void draw_import_panel(UiState& state);
 
+std::string view_window_label(const CanView& view) {
+    std::string label = "Can: ";
+    label += view.title();
+    label += "###canview-view-";
+    label += std::to_string(view.id());
+    return label;
+}
+
+void open_clone_modal(UiState& state, const CanView& view, bool paused) {
+    state.clone_paused = paused;
+    std::snprintf(state.clone_title, sizeof(state.clone_title), "%s (%s)", view.title().c_str(),
+                  paused ? "paused" : "live");
+    state.clone_modal = true;
+}
+
+void open_rename_modal(UiState& state, const CanView& view) {
+    std::snprintf(state.rename_title, sizeof(state.rename_title), "%s", view.title().c_str());
+    state.rename_modal = true;
+}
+
 void draw_toolbar_actions(UiState& state) {
     CanView* focused = state.model->focused();
     if (focused == nullptr && !state.model->views().empty()) {
@@ -686,13 +709,15 @@ void draw_toolbar_actions(UiState& state) {
     ImGui::TextDisabled("%s", paused ? "PAUSED" : "LIVE");
     ImGui::SameLine();
     if (ImGui::Button("Clone LIVE") && focused != nullptr) {
-        state.clone_paused = false;
-        state.clone_modal = true;
+        open_clone_modal(state, *focused, false);
     }
     ImGui::SameLine();
     if (ImGui::Button("Clone PAUSED") && focused != nullptr) {
-        state.clone_paused = true;
-        state.clone_modal = true;
+        open_clone_modal(state, *focused, true);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Rename") && focused != nullptr) {
+        open_rename_modal(state, *focused);
     }
     ImGui::SameLine();
     if (ImGui::Button("Import session")) {
@@ -2125,7 +2150,7 @@ void draw_overwrite(UiState& state, CanView& view) {
 }
 
 void draw_view(UiState& state, CanView& view, const CanViewConfig& config) {
-    const std::string title = "Can: " + view.title();
+    const std::string title = view_window_label(view);
     bool open = true;
     if (state.focus_request == view.id()) {
         ImGui::SetNextWindowFocus();
@@ -2144,6 +2169,18 @@ void draw_view(UiState& state, CanView& view, const CanViewConfig& config) {
     }
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
         state.model->focus(view.id());
+    }
+    if (ImGui::BeginPopupContextWindow("view-context")) {
+        if (ImGui::MenuItem("Rename...")) {
+            open_rename_modal(state, view);
+        }
+        if (ImGui::MenuItem("Clone LIVE")) {
+            open_clone_modal(state, view, false);
+        }
+        if (ImGui::MenuItem("Clone PAUSED")) {
+            open_clone_modal(state, view, true);
+        }
+        ImGui::EndPopup();
     }
     if (view.orphaned()) {
         ImGui::TextColored(ImVec4(1.0F, 0.55F, 0.2F, 1.0F), "binding missing; view orphaned");
@@ -2586,6 +2623,11 @@ void draw_clone_modal(UiState& state) {
     }
     ImGui::OpenPopup("Clone view");
     if (ImGui::BeginPopupModal("Clone view", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+        }
+        ImGui::SetNextItemWidth(320.0F);
+        ImGui::InputText("Tab title", state.clone_title, sizeof(state.clone_title));
         ImGui::Checkbox("Selection", &state.clone_options.selection);
         ImGui::Checkbox("Bookmarks", &state.clone_options.bookmarks);
         ImGui::Checkbox("T0", &state.clone_options.t0);
@@ -2593,10 +2635,13 @@ void draw_clone_modal(UiState& state) {
         ImGui::Checkbox("Table/time", &state.clone_options.table_time);
         if (ImGui::Button("Create")) {
             if (CanView* focused = state.model->focused(); focused != nullptr) {
+                std::string title = state.clone_title;
+                if (title.empty()) {
+                    title = state.clone_paused ? "PAUSED clone" : "LIVE clone";
+                }
                 CloneAdjustments adjustments{};
                 const auto clone =
-                    state.model->clone_view(focused->id(), state.clone_paused,
-                                            state.clone_paused ? "PAUSED clone" : "LIVE clone",
+                    state.model->clone_view(focused->id(), state.clone_paused, std::move(title),
                                             state.clone_options, ViewDefaults{}, &adjustments);
                 state.status = clone.has_value() ? "clone created" : "clone limit reached";
                 if (clone.has_value()) {
@@ -2616,6 +2661,50 @@ void draw_clone_modal(UiState& state) {
         ImGui::SameLine();
         if (ImGui::Button("Cancel")) {
             state.clone_modal = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+void draw_rename_modal(UiState& state) {
+    if (!state.rename_modal) {
+        return;
+    }
+    ImGui::OpenPopup("Rename view");
+    if (ImGui::BeginPopupModal("Rename view", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+        }
+        ImGui::SetNextItemWidth(320.0F);
+        const bool submitted =
+            ImGui::InputText("Tab title", state.rename_title, sizeof(state.rename_title),
+                             ImGuiInputTextFlags_EnterReturnsTrue);
+        const bool valid = state.rename_title[0] != '\0';
+        if (!valid) {
+            ImGui::BeginDisabled();
+        }
+        if ((ImGui::Button("Apply") || (submitted && valid)) && valid) {
+            CanView* focused = state.model->focused();
+            if (focused == nullptr) {
+                state.status = "rename failed: no focused view";
+            } else {
+                const auto renamed = state.model->rename_view(focused->id(), state.rename_title);
+                if (renamed) {
+                    state.status = "view renamed";
+                    state.rename_modal = false;
+                    ImGui::CloseCurrentPopup();
+                } else {
+                    state.status = "rename failed: empty title";
+                }
+            }
+        }
+        if (!valid) {
+            ImGui::EndDisabled();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) {
+            state.rename_modal = false;
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -2904,7 +2993,8 @@ bool layout_has_docking(const std::string& path) {
     }
     const std::string content((std::istreambuf_iterator<char>(file)),
                               std::istreambuf_iterator<char>());
-    return content.find("DockId=") != std::string::npos;
+    return content.find("DockId=") != std::string::npos &&
+           content.find("canview-view-") != std::string::npos;
 }
 
 void build_dock_layout(ImGuiID dockspace_id, UiState& state) {
@@ -2934,7 +3024,7 @@ void build_dock_layout(ImGuiID dockspace_id, UiState& state) {
     ImGui::DockBuilderDockWindow("Heatmap", heatmap_id);
     for (const auto& entry : state.model->views()) {
         if (entry->live()) {
-            const std::string title = "Can: " + entry->title();
+            const std::string title = view_window_label(*entry);
             ImGui::DockBuilderDockWindow(title.c_str(), main_id);
         }
     }
@@ -2971,6 +3061,7 @@ std::size_t workspace_loop(UiState& state, const CliOptions& options, const CanV
         draw_toolbar(state, config, options);
         draw_channels(state, config);
         draw_clone_modal(state);
+        draw_rename_modal(state);
         for (const auto& entry : state.model->views()) {
             draw_view(state, *entry, config);
         }

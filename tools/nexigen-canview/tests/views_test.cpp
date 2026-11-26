@@ -586,6 +586,47 @@ void test_clone_clipping_and_immutability() {
     NX_CHECK(too_many.error() == nexigen::core::ErrorCode::Conflict);
 }
 
+void test_rename_view() {
+    auto ring = canview::CanRecordRing::create(1024U);
+    NX_CHECK(ring.has_value());
+    if (!ring) {
+        return;
+    }
+    FrameSpec frame{};
+    frame.channel = 1U;
+    push_frame(*ring, frame);
+
+    canview::CanViewModel model{*ring};
+    canview::ViewDefaults defaults{};
+    const auto first = model.create_view(canview::ViewKind::All, 0U, 0U, "Original", defaults);
+    const auto second = model.create_view(canview::ViewKind::All, 0U, 0U, "Other", defaults);
+    NX_CHECK(first.has_value());
+    NX_CHECK(second.has_value());
+    if (!first || !second) {
+        return;
+    }
+    NX_CHECK(model.rename_view(*first, "  renamed tab  ").has_value());
+    const canview::CanView* renamed = model.view(*first);
+    NX_CHECK(renamed != nullptr);
+    if (renamed != nullptr) {
+        NX_CHECK(renamed->title() == "renamed tab");
+    }
+    NX_CHECK(model.rename_view(*first, "   ").error() == nexigen::core::ErrorCode::InvalidArgument);
+    NX_CHECK(model.rename_view(9999U, "missing").error() == nexigen::core::ErrorCode::NotFound);
+
+    const nlohmann::json persisted = model.to_json();
+    NX_CHECK(persisted["views"].size() == 2U);
+    NX_CHECK(persisted["views"][0]["title"] == "renamed tab");
+    canview::CanViewModel restored{*ring};
+    const auto report = restored.load_json(persisted, defaults);
+    NX_CHECK(report.loaded == 2U);
+    const canview::CanView* restored_first = restored.view(*first);
+    NX_CHECK(restored_first != nullptr);
+    if (restored_first != nullptr) {
+        NX_CHECK(restored_first->title() == "renamed tab");
+    }
+}
+
 void test_focus_and_persistence() {
     auto ring = canview::CanRecordRing::create(1024U);
     NX_CHECK(ring.has_value());
@@ -685,6 +726,7 @@ void run_views_tests() {
     test_view_limits_and_scopes();
     test_node_orphan_recovery();
     test_clone_clipping_and_immutability();
+    test_rename_view();
     test_focus_and_persistence();
 }
 

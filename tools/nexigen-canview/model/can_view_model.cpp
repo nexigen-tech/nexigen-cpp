@@ -161,6 +161,20 @@ bool CanViewModel::remove_view(std::uint32_t id) {
     return false;
 }
 
+nexigen::core::Status CanViewModel::rename_view(std::uint32_t id, std::string title) {
+    CanView* target = view(id);
+    if (target == nullptr) {
+        return std::unexpected(nexigen::core::ErrorCode::NotFound);
+    }
+    const auto first = title.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) {
+        return std::unexpected(nexigen::core::ErrorCode::InvalidArgument);
+    }
+    const auto last = title.find_last_not_of(" \t\r\n");
+    target->set_title(title.substr(first, last - first + 1U));
+    return {};
+}
+
 void CanViewModel::clear_views() {
     views_.clear();
     focus_id_.reset();

@@ -9,6 +9,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <nlohmann/json.hpp>
 
@@ -187,6 +188,9 @@ public:
     [[nodiscard]] std::optional<std::uint16_t> node_slot() const noexcept { return node_slot_; }
     /// @brief Display title.
     [[nodiscard]] const std::string& title() const noexcept { return title_; }
+    /// @brief Replace the display title.
+    /// @param title New title; the caller keeps it non-empty.
+    void set_title(std::string title) noexcept { title_ = std::move(title); }
     /// @brief Whether the view follows live history.
     [[nodiscard]] bool live() const noexcept { return live_; }
     /// @brief Whether a node view lost its binding.
