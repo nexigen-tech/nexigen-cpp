@@ -119,6 +119,11 @@ void test_session_record_roundtrip() {
 
     auto message = frame.message;
     NX_CHECK(canview::payload_to_hex(message) == "0102ab");
+    message.dlc = 8U;
+    for (std::size_t index = 0; index < message.dlc; ++index) {
+        message.data[index] = static_cast<std::uint8_t>(index);
+    }
+    NX_CHECK(canview::payload_to_grouped_hex(message) == "00 01 02 03  04 05 06 07");
     hwcan::CanMessage decoded{};
     NX_CHECK(canview::payload_from_hex("01 02 AB", decoded));
     NX_CHECK(decoded.dlc == 3U);

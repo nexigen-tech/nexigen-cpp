@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -262,6 +263,44 @@ public:
     /// @param mode New mode.
     void set_table_mode(TableMode mode) noexcept { table_mode_ = mode; }
 
+    /// @brief Maximum stored column widths per table mode.
+    static constexpr std::size_t max_table_columns{16U};
+
+    /// @brief Stored column widths for one table mode.
+    /// @param mode Table mode.
+    /// @return Borrowed width span; empty when no layout was captured yet.
+    [[nodiscard]] std::span<const float> table_widths(TableMode mode) const noexcept {
+        return mode == TableMode::Trace
+                   ? std::span<const float>{trace_widths_.data(), trace_width_count_}
+                   : std::span<const float>{overwrite_widths_.data(), overwrite_width_count_};
+    }
+
+    /// @brief Store the current column widths for one table mode.
+    /// @param mode Table mode.
+    /// @param widths Widths in visual column order.
+    void set_table_widths(TableMode mode, std::span<const float> widths) noexcept {
+        std::array<float, max_table_columns>& target =
+            mode == TableMode::Trace ? trace_widths_ : overwrite_widths_;
+        std::size_t& count = mode == TableMode::Trace ? trace_width_count_ : overwrite_width_count_;
+        count = widths.size() < target.size() ? widths.size() : target.size();
+        for (std::size_t index = 0; index < count; ++index) {
+            target[index] = widths[index];
+        }
+    }
+
+    /// @brief Ask the next table draw to apply the stored column widths.
+    void request_table_layout() noexcept { table_layout_pending_ = true; }
+    /// @brief Consume a pending layout application request.
+    /// @return `true` once, after a clone copied a table layout.
+    [[nodiscard]] bool consume_table_layout_request() noexcept {
+        const bool pending = table_layout_pending_;
+        table_layout_pending_ = false;
+        return pending;
+    }
+    /// @brief Whether this view copied a table layout from a clone source.
+    /// @return `true` when ImGui saved table settings must not override the copy.
+    [[nodiscard]] bool table_layout_copied() const noexcept { return table_layout_copied_; }
+
     /// @brief Primary time mode.
     [[nodiscard]] TimestampMode timestamp_mode() const noexcept { return timestamp_mode_; }
     /// @brief Change the primary time mode.
@@ -391,13 +430,19 @@ private:
     Minimap minimap_{};                          ///< Bounded view overview.
     std::size_t slot_mask_{0};                   ///< Power-of-two slot mask.
 
-    TableMode table_mode_{TableMode::Trace};              ///< Table presentation.
-    TimestampMode timestamp_mode_{TimestampMode::Driver}; ///< Primary time.
-    DeltaMode delta_mode_{DeltaMode::PreviousVisible};    ///< Delta basis.
-    TimeColumnMode time_columns_{TimeColumnMode::HwOnly}; ///< Time columns.
-    std::int64_t anomaly_threshold_ns_{0};                ///< Outlier threshold.
-    bool auto_scroll_{true};                              ///< Follow new records.
-    std::size_t scroll_{0};                               ///< Displayed-order scroll.
+    TableMode table_mode_{TableMode::Trace};                  ///< Table presentation.
+    TimestampMode timestamp_mode_{TimestampMode::Driver};     ///< Primary time.
+    DeltaMode delta_mode_{DeltaMode::PreviousVisible};        ///< Delta basis.
+    TimeColumnMode time_columns_{TimeColumnMode::HwOnly};     ///< Time columns.
+    std::int64_t anomaly_threshold_ns_{0};                    ///< Outlier threshold.
+    bool auto_scroll_{true};                                  ///< Follow new records.
+    std::size_t scroll_{0};                                   ///< Displayed-order scroll.
+    std::array<float, max_table_columns> trace_widths_{};     ///< Trace column widths.
+    std::size_t trace_width_count_{0};                        ///< Valid trace widths.
+    std::array<float, max_table_columns> overwrite_widths_{}; ///< Overwrite column widths.
+    std::size_t overwrite_width_count_{0};                    ///< Valid overwrite widths.
+    bool table_layout_pending_{false};                        ///< Apply copied widths on next draw.
+    bool table_layout_copied_{false}; ///< Clone owns copied layout, not ImGui ini.
 
     std::optional<std::uint64_t> last_selected_{}; ///< Last clicked record.
     std::optional<std::uint64_t> t0_seq_{};        ///< T0 record.

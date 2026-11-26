@@ -27,6 +27,24 @@ std::string payload_to_hex(const nexigen::hw::can::CanMessage& message) {
     return out;
 }
 
+std::string payload_to_grouped_hex(const nexigen::hw::can::CanMessage& message) {
+    static constexpr char digits[] = "0123456789abcdef";
+    const std::size_t bytes = message.dlc < message.data.size() ? message.dlc : message.data.size();
+    std::string out;
+    out.reserve(bytes * 3U + bytes / 4U);
+    for (std::size_t index = 0; index < bytes; ++index) {
+        if (index > 0U) {
+            out.push_back(' ');
+            if (index % 4U == 0U) {
+                out.push_back(' ');
+            }
+        }
+        out.push_back(digits[(message.data[index] >> 4U) & 0x0FU]);
+        out.push_back(digits[message.data[index] & 0x0FU]);
+    }
+    return out;
+}
+
 bool payload_from_hex(std::string_view text, nexigen::hw::can::CanMessage& message) noexcept {
     std::size_t count = 0U;
     int high = -1;

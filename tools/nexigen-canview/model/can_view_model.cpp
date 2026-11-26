@@ -101,6 +101,9 @@ CanViewModel::add_paused(const CanView& source_view, std::string title, const Cl
                       source_view.node_slot(), std::move(title), std::move(snapshot),
                       ring_.capacity(), defaults);
     const CloneAdjustments applied = view->copy_state_from(source_view, options);
+    // A paused snapshot always opens in the row-oriented Trace view; Overwrite
+    // is a live-aggregation mode and is intentionally not carried into a clone.
+    view->set_table_mode(TableMode::Trace);
     if (adjustments != nullptr) {
         *adjustments = applied;
     }

@@ -115,6 +115,7 @@ struct UiState {
     bool clone_modal{false};
     bool clone_paused{false};
     CloneOptions clone_options{};
+    std::optional<std::uint32_t> focus_request{};
     bool show_configure{false};
     ResourceGuard guard{};
     std::uint64_t last_cpu_ns{0};
@@ -1321,23 +1322,70 @@ std::uint32_t row_colour(UiState& state, const nexigen::hw::can::CanMessage& mes
     return binding != nullptr ? binding->colour : 0xFFFFFFFFU;
 }
 
-void setup_trace_columns(bool show_hw, bool show_utc) {
-    ImGui::TableSetupColumn(" ");
-    ImGui::TableSetupColumn("#");
+// Pass a copied width only together with an explicit column sizing policy.
+// ImGui asserts when a table keeps its default sizing policy and a width is
+// supplied, which is exactly what the Overwrite table used to do.
+void setup_table_column(const char* label, float width) {
+    const ImGuiTableColumnFlags flags =
+        width > 0.0F ? ImGuiTableColumnFlags_WidthFixed : ImGuiTableColumnFlags_None;
+    ImGui::TableSetupColumn(label, flags, width);
+}
+
+void setup_trace_columns(bool show_hw, bool show_utc, std::span<const float> widths) {
+    std::size_t index = 0U;
+    const auto add = [&](const char* label) {
+        const float width = index < widths.size() ? widths[index] : 0.0F;
+        setup_table_column(label, width);
+        ++index;
+    };
+    add(" ");
+    add("#");
     if (show_hw) {
-        ImGui::TableSetupColumn("HW time");
+        add("HW time");
     }
     if (show_utc) {
-        ImGui::TableSetupColumn("UTC (est.)");
+        add("UTC (est.)");
     }
-    ImGui::TableSetupColumn("Delta");
-    ImGui::TableSetupColumn("Ch");
-    ImGui::TableSetupColumn("Node/Service");
-    ImGui::TableSetupColumn("ID");
-    ImGui::TableSetupColumn("Kind");
-    ImGui::TableSetupColumn("Flags");
-    ImGui::TableSetupColumn("Len");
-    ImGui::TableSetupColumn("Data");
+    add("Delta");
+    add("Ch");
+    add("Node/Service");
+    add("ID");
+    add("Kind");
+    add("Flags");
+    add("Len");
+    add("Data");
+}
+
+void setup_overwrite_columns(std::span<const float> widths) {
+    static constexpr std::array<const char*, 10> labels{
+        "Ch", "ID", "Count", "Msg/s", "dt cur", "dt min", "dt max", "dt avg", "Jitter", "Data"};
+    for (std::size_t index = 0; index < labels.size(); ++index) {
+        const float width = index < widths.size() ? widths[index] : 0.0F;
+        setup_table_column(labels[index], width);
+    }
+}
+
+[[nodiscard]] std::span<const float> take_table_layout(CanView& view, TableMode mode) {
+    return view.consume_table_layout_request() ? view.table_widths(mode) : std::span<const float>{};
+}
+
+[[nodiscard]] ImGuiTableFlags table_flags(const CanView& view, ImGuiTableFlags base) {
+    return view.table_layout_copied() ? (base | ImGuiTableFlags_NoSavedSettings) : base;
+}
+
+void capture_table_widths(CanView& view, TableMode mode) {
+    ImGuiTable* table = ImGui::GetCurrentTable();
+    if (table == nullptr || table->ColumnsCount <= 0) {
+        return;
+    }
+    std::array<float, CanView::max_table_columns> widths{};
+    const std::size_t count =
+        std::min<std::size_t>(static_cast<std::size_t>(table->ColumnsCount), widths.size());
+    for (std::size_t index = 0; index < count; ++index) {
+        const float width = table->Columns[static_cast<int>(index)].WidthGiven;
+        widths[index] = width > 0.0F ? width : 0.0F;
+    }
+    view.set_table_widths(mode, std::span<const float>{widths.data(), count});
 }
 
 void check_shared_timebase(UiState& state) {
@@ -1424,7 +1472,7 @@ void draw_trace_data_cell(UiState& state, const CanRecordView& record, int colum
     const auto& message = *record.message;
     const ImU32 colour = row_colour(state, message);
     if (record.is_frame()) {
-        ImGui::TextColored(ImColor(colour).Value, "%s", payload_to_hex(message).c_str());
+        ImGui::TextColored(ImColor(colour).Value, "%s", payload_to_grouped_hex(message).c_str());
     } else {
         ImGui::TextColored(ImColor(colour).Value, "reason=%s count=%llu exact=%s",
                            to_string(meta_gap_reason(record.meta)).data(),
@@ -1661,9 +1709,9 @@ void draw_trace(UiState& state, CanView& view, const CanViewConfig& config) {
     }
     const bool show_hw = view.time_columns() != TimeColumnMode::UtcOnly;
     const bool show_utc = view.time_columns() != TimeColumnMode::HwOnly;
-    constexpr ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                                      ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable |
-                                      ImGuiTableFlags_SizingFixedFit;
+    ImGuiTableFlags flags = table_flags(
+        view, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                  ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit);
     const int column_count = 10 + (show_hw ? 1 : 0) + (show_utc ? 1 : 0);
     ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, ImVec4(0.24F, 0.27F, 0.32F, 1.0F));
     ImGui::PushStyleColor(ImGuiCol_TableBorderLight, ImVec4(0.16F, 0.18F, 0.22F, 1.0F));
@@ -1672,7 +1720,8 @@ void draw_trace(UiState& state, CanView& view, const CanViewConfig& config) {
         return;
     }
     ImGui::TableSetupScrollFreeze(0, 1);
-    setup_trace_columns(show_hw, show_utc);
+    const std::span<const float> widths = take_table_layout(view, TableMode::Trace);
+    setup_trace_columns(show_hw, show_utc, widths);
     ImGui::TableHeadersRow();
     if (state.scroll_request.has_value()) {
         const float row_height = ImGui::GetTextLineHeightWithSpacing();
@@ -1704,6 +1753,7 @@ void draw_trace(UiState& state, CanView& view, const CanViewConfig& config) {
     if (view.auto_scroll()) {
         ImGui::SetScrollY(ImGui::GetScrollMaxY());
     }
+    capture_table_widths(view, TableMode::Trace);
     ImGui::EndTable();
     ImGui::PopStyleColor(2);
 }
@@ -1978,7 +2028,8 @@ void select_overwrite_range(UiState& state, const std::vector<const OverwriteRow
 void draw_overwrite_payload(const OverwriteRow& row, std::uint64_t now_ns) {
     for (std::size_t byte = 0U; byte < row.latest.dlc && byte < 64U; ++byte) {
         if (byte > 0U) {
-            ImGui::SameLine(0.0F, 0.0F);
+            const float gap = ImGui::GetFontSize() * ((byte % 4U == 0U) ? 0.55F : 0.28F);
+            ImGui::SameLine(0.0F, gap);
         }
         const bool fading = row.byte_fading(byte, now_ns, 1'500'000'000ULL);
         ImGui::TextColored(fading ? ImVec4(0.4F, 1.0F, 0.6F, 1.0F)
@@ -2010,25 +2061,22 @@ void draw_overwrite(UiState& state, CanView& view) {
         }
     }
     const std::uint64_t now_ns = monotonic_ns();
-    constexpr ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                                      ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable;
+    ImGuiTableFlags flags =
+        table_flags(view, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable);
     if (!ImGui::BeginTable("overwrite", 10, flags)) {
         return;
     }
-    ImGui::TableSetupColumn("Ch");
-    ImGui::TableSetupColumn("ID");
-    ImGui::TableSetupColumn("Count");
-    ImGui::TableSetupColumn("Msg/s");
-    ImGui::TableSetupColumn("dt cur");
-    ImGui::TableSetupColumn("dt min");
-    ImGui::TableSetupColumn("dt max");
-    ImGui::TableSetupColumn("dt avg");
-    ImGui::TableSetupColumn("Jitter");
-    ImGui::TableSetupColumn("Data");
+    const std::span<const float> widths = take_table_layout(view, TableMode::Overwrite);
+    setup_overwrite_columns(widths);
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableHeadersRow();
     for (const OverwriteRow* entry : visible) {
         const OverwriteRow& row = *entry;
+        ImGui::PushID(static_cast<int>(row.key.channel_id));
+        ImGui::PushID(static_cast<int>(row.key.can_id));
+        ImGui::PushID(row.key.extended ? 1 : 0);
+        ImGui::PushID(static_cast<int>(row.key.kind));
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         const bool selected = state.overwrite.is_key_selected(row.key);
@@ -2067,13 +2115,22 @@ void draw_overwrite(UiState& state, CanView& view) {
         ImGui::Text("%lld", static_cast<long long>(stats.jitter));
         ImGui::TableSetColumnIndex(9);
         draw_overwrite_payload(row, now_ns);
+        ImGui::PopID();
+        ImGui::PopID();
+        ImGui::PopID();
+        ImGui::PopID();
     }
+    capture_table_widths(view, TableMode::Overwrite);
     ImGui::EndTable();
 }
 
 void draw_view(UiState& state, CanView& view, const CanViewConfig& config) {
     const std::string title = "Can: " + view.title();
     bool open = true;
+    if (state.focus_request == view.id()) {
+        ImGui::SetNextWindowFocus();
+        state.focus_request.reset();
+    }
     if (!ImGui::Begin(title.c_str(), &open, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         if (!open) {
@@ -2542,6 +2599,12 @@ void draw_clone_modal(UiState& state) {
                                             state.clone_paused ? "PAUSED clone" : "LIVE clone",
                                             state.clone_options, ViewDefaults{}, &adjustments);
                 state.status = clone.has_value() ? "clone created" : "clone limit reached";
+                if (clone.has_value()) {
+                    state.model->focus(*clone);
+                    state.focus_request = *clone;
+                    state.status =
+                        state.clone_paused ? "paused clone created" : "live clone created";
+                }
                 state.clone_summary = adjustments.any() ? adjustments.to_string() : "";
                 if (!state.clone_summary.empty()) {
                     state.status += ": " + state.clone_summary;

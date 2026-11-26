@@ -499,6 +499,9 @@ void test_clone_clipping_and_immutability() {
     }
 
     canview::CloneAdjustments adjustments{};
+    live_view->set_table_mode(canview::TableMode::Overwrite);
+    const std::array<float, 3> source_widths{80.0F, 160.0F, 240.0F};
+    live_view->set_table_widths(canview::TableMode::Trace, source_widths);
     const auto paused = model.clone_view(*live, true, "Paused", canview::CloneOptions{},
                                          canview::ViewDefaults{}, &adjustments);
     NX_CHECK(paused.has_value());
@@ -514,6 +517,17 @@ void test_clone_clipping_and_immutability() {
         return;
     }
     NX_CHECK(!paused_view->live());
+    NX_CHECK(paused_view->paused());
+    NX_CHECK(paused_view->table_mode() == canview::TableMode::Trace);
+    const std::span<const float> copied_widths =
+        paused_view->table_widths(canview::TableMode::Trace);
+    NX_CHECK(copied_widths.size() == source_widths.size());
+    if (copied_widths.size() == source_widths.size()) {
+        for (std::size_t index = 0; index < source_widths.size(); ++index) {
+            NX_CHECK(copied_widths[index] == source_widths[index]);
+        }
+    }
+    NX_CHECK(paused_view->consume_table_layout_request());
     NX_CHECK(paused_view->source().size() <= canview::CanViewModel::snapshot_bytes / 128U);
     NX_CHECK(paused_view->display_count() > 0U);
     NX_CHECK(paused_view->display_count() <= canview::CanViewModel::snapshot_bytes / 128U);

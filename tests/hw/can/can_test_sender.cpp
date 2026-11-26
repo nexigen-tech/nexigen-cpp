@@ -29,7 +29,7 @@ can::CanMessage make_message(std::uint16_t channel_id, std::uint64_t index,
     can::CanMessage message{};
     message.kind = can::CanMessageKind::ClassicData;
     message.channel_id = channel_id;
-    message.can_id = 0x123U;
+    message.can_id = 0x100U + static_cast<std::uint32_t>(index % 8U);
     message.dlc = 8;
     for (std::size_t byte = 0; byte < message.data.size(); ++byte) {
         message.data[byte] =

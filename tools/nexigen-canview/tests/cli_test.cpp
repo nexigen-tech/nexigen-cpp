@@ -38,6 +38,11 @@ void test_cli() {
 
     NX_CHECK(!canview::usage_text().empty());
 
+    char* default_argv[] = {arg0};
+    const auto defaults = canview::parse_cli(1, default_argv);
+    NX_CHECK(defaults.has_value());
+    NX_CHECK(defaults->ui_fps == 5U);
+
     char arg_fps[] = "--ui-fps";
     char value_fps[] = "5";
     char* fps_argv[] = {arg0, arg_fps, value_fps};

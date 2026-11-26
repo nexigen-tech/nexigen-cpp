@@ -107,6 +107,15 @@ struct SessionRecord {
 /// @return Hex string of `dlc` bytes.
 [[nodiscard]] std::string payload_to_hex(const nexigen::hw::can::CanMessage& message);
 
+/// @brief Encode a payload for the message table.
+///
+/// Bytes are separated by one space, with an extra space after every fourth
+/// byte so groups of four stay readable.
+///
+/// @param message Source message.
+/// @return Grouped lowercase hex string of `dlc` bytes.
+[[nodiscard]] std::string payload_to_grouped_hex(const nexigen::hw::can::CanMessage& message);
+
 /// @brief Decode a hex payload into a message.
 /// @param text Hex text, optionally separated by spaces.
 /// @param message Destination; payload bytes and `dlc` are updated.

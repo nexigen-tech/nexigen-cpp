@@ -131,6 +131,12 @@ CloneAdjustments CanView::copy_state_from(const CanView& other,
         time_columns_ = other.time_columns_;
         anomaly_threshold_ns_ = other.anomaly_threshold_ns_;
         auto_scroll_ = other.auto_scroll_;
+        trace_widths_ = other.trace_widths_;
+        trace_width_count_ = other.trace_width_count_;
+        overwrite_widths_ = other.overwrite_widths_;
+        overwrite_width_count_ = other.overwrite_width_count_;
+        table_layout_pending_ = trace_width_count_ > 0U || overwrite_width_count_ > 0U;
+        table_layout_copied_ = true;
     }
 
     if (options.selection) {

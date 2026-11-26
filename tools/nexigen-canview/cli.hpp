@@ -55,7 +55,7 @@ struct CliOptions {
     bool ui_focus_test{false};                           ///< `--ui-focus-test`.
     bool ui_splash_test{false};                          ///< `--ui-splash-test`.
     float ui_scale{0.0F};                                ///< `--ui-scale`; zero means auto.
-    std::uint32_t ui_fps{20U};                           ///< `--ui-fps`; normal render cap.
+    std::uint32_t ui_fps{5U};                            ///< `--ui-fps`; normal render cap.
     bool help{false};                                    ///< `--help`.
     bool version{false};                                 ///< `--version`.
 

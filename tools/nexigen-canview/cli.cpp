@@ -427,7 +427,7 @@ std::string_view usage_text() noexcept {
            "UI:\n"
            "  --ui-smoke --ui-actions-test --ui-input-test --ui-view-test\n"
            "  --ui-focus-test --ui-splash-test --ui-scale <0.5..4.0>\n"
-           "  --ui-fps <5..120>        Render cap (default 20; ECO halves it)\n"
+           "  --ui-fps <5..120>        Render cap (default 5; ECO caps at half)\n"
            "  --help                   Print this usage and exit.\n"
            "  --version                Print the version and exit.\n";
 }
