@@ -10,6 +10,7 @@
 #include <nexigen/hw/can/can_service_names.hpp>
 #include <nexigen/hw/can/can_tool_options.hpp>
 #include <nexigen/hw/can/com/can_receiver.hpp>
+#include <nexigen/hw/can/com/can_transport.hpp>
 #include <nexigen/hw/can/com/virtual_can_driver.hpp>
 
 namespace app = nexigen::app;
@@ -48,9 +49,8 @@ make_status_producers(Runtime& runtime, std::span<const can::CanChannelConfig> c
         if (!service) {
             return std::unexpected(nexigen::core::ErrorCode::InvalidArgument);
         }
-        nexigen::com::ChannelConfig status_config{};
-        status_config.max_publishers = 2U;
-        auto* producer = runtime.publish<can::CanChannelStatus>(*service, status_config);
+        auto* producer =
+            runtime.publish<can::CanChannelStatus>(*service, can::status_channel_config());
         if (producer == nullptr) {
             return std::unexpected(nexigen::core::ErrorCode::SystemError);
         }

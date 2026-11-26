@@ -29,7 +29,9 @@ namespace nexigen::com {
 /// Tracks the transport sequence, invokes the event callback for delivered
 /// samples, and invokes the loss callback for gaps, duplicates, unexpected
 /// resets, and producer restarts. The payload reference is valid only during
-/// the callback.
+/// the callback. On channels created with `max_publishers` greater than one,
+/// sequence and epoch are tracked per application code so interleaved
+/// publishers are not reported as restarts.
 ///
 /// @tparam T Event payload; constrained by `concepts::EventPayload`.
 /// @tparam OnEvent Callable invoked as `(const EventHeader&, const T&)`.
@@ -67,8 +69,8 @@ public:
         if (!listener.has_value()) {
             return std::unexpected(listener.error());
         }
-        EventConsumer result{std::move(name), std::move(*subscriber), std::move(*listener),
-                             std::move(on_event), std::move(on_loss)};
+        EventConsumer result{std::move(name),     std::move(*subscriber), std::move(*listener),
+                             std::move(on_event), std::move(on_loss),     config.max_publishers};
         result.bind_counters(meter);
         return result;
     }
@@ -172,10 +174,10 @@ public:
 
 private:
     EventConsumer(ServiceName name, Subscriber<T, EventHeader> subscriber, EventListener listener,
-                  OnEvent on_event, OnLoss on_loss) noexcept
+                  OnEvent on_event, OnLoss on_loss, std::uint64_t max_publishers) noexcept
         : service_name_(std::move(name)), subscriber_(std::move(subscriber)),
           listener_(std::move(listener)), on_event_(std::move(on_event)),
-          on_loss_(std::move(on_loss)) {}
+          on_loss_(std::move(on_loss)), tracker_(max_publishers) {}
 
     void handle(const EventHeader& header, const T& payload) {
         const auto observation = tracker_.observe(header);

@@ -200,8 +200,7 @@ public:
             return false;
         }
         auto* counter = counter_for(channel);
-        com::ChannelConfig status_config{};
-        status_config.max_publishers = 2U;
+        const com::ChannelConfig status_config = status_channel_config();
         return app_->template subscribe_with_config<CanChannelStatus>(
             *service,
             [counter,

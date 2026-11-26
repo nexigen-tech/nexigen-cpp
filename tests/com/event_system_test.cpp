@@ -441,6 +441,46 @@ void test_sequence_tracker() {
     NX_CHECK(reset_tracker.stats().unexpected_resets == 1U);
 }
 
+void test_multi_publisher_sequence_tracker() {
+    com::detail::EventSequenceTracker tracker{2U};
+    com::EventHeader rx{};
+    rx.producer_epoch = 11U;
+    std::memcpy(rx.app_id, "CANRX", 5U);
+    com::EventHeader tx{};
+    tx.producer_epoch = 22U;
+    std::memcpy(tx.app_id, "CANTX", 5U);
+
+    auto observation = tracker.observe(rx);
+    NX_CHECK(!observation.has_loss);
+    observation = tracker.observe(tx);
+    NX_CHECK(!observation.has_loss);
+    rx.sequence_id = 1U;
+    observation = tracker.observe(rx);
+    NX_CHECK(!observation.has_loss);
+    tx.sequence_id = 1U;
+    observation = tracker.observe(tx);
+    NX_CHECK(!observation.has_loss);
+    NX_CHECK(tracker.stats().restarts == 0U);
+    NX_CHECK(tracker.stats().received == 4U);
+
+    rx.sequence_id = 3U;
+    observation = tracker.observe(rx);
+    NX_CHECK(observation.has_loss);
+    NX_CHECK(observation.reason == com::LossReason::TransportGap);
+    NX_CHECK(observation.lost_count == 1U);
+    NX_CHECK(observation.expected_sequence == 2U);
+    NX_CHECK(tracker.stats().transport_lost == 1U);
+
+    tx.producer_epoch = 23U;
+    tx.sequence_id = 0U;
+    observation = tracker.observe(tx);
+    NX_CHECK(observation.has_loss);
+    NX_CHECK(observation.reason == com::LossReason::ProducerRestart);
+    NX_CHECK(observation.old_epoch == 22U);
+    NX_CHECK(observation.new_epoch == 23U);
+    NX_CHECK(tracker.stats().restarts == 1U);
+}
+
 void test_channel_roundtrip() {
     auto node = com::Node::create();
     NX_CHECK(node.has_value());
@@ -525,6 +565,66 @@ void test_channel_roundtrip() {
     NX_CHECK(std::format("{}", channel) == channel.to_string());
     NX_CHECK(std::format("{}", *producer) == producer->to_string());
     NX_CHECK(std::format("{}", *consumer) == consumer->to_string());
+}
+
+void test_multi_publisher_channel() {
+    auto node = com::Node::create();
+    NX_CHECK(node.has_value());
+    if (!node.has_value()) {
+        return;
+    }
+    auto name = make_name("multi-publisher");
+    NX_CHECK(name.has_value());
+    if (!name.has_value()) {
+        return;
+    }
+    com::ChannelConfig config{};
+    config.max_publishers = 2U;
+    config.max_consumers = 1U;
+    config.queue_size = 8U;
+    config.history_size = 0U;
+    auto channel_result = com::EventChannel<Pod>::create(*node, *name, config);
+    NX_CHECK(channel_result.has_value());
+    if (!channel_result.has_value()) {
+        return;
+    }
+    auto& channel = *channel_result;
+    std::vector<std::uint64_t> sequences;
+    std::vector<com::LossInfo> losses;
+    auto consumer =
+        channel.consumer([&sequences](const com::EventHeader& header,
+                                      const Pod&) { sequences.push_back(header.sequence_id); },
+                         [&losses](const com::LossInfo& info) { losses.push_back(info); });
+    NX_CHECK(consumer.has_value());
+    if (!consumer.has_value()) {
+        return;
+    }
+    auto rx = channel.producer(std::string_view{"CANRX"});
+    auto tx = channel.producer(std::string_view{"CANTX"});
+    NX_CHECK(rx.has_value());
+    NX_CHECK(tx.has_value());
+    if (!rx.has_value() || !tx.has_value()) {
+        return;
+    }
+    const Pod payload{1U, 1U};
+    NX_CHECK(rx->publish_now(payload, 0x100U).has_value());
+    NX_CHECK(tx->publish_now(payload, 0x101U).has_value());
+    NX_CHECK(rx->publish_now(payload, 0x102U).has_value());
+    NX_CHECK(tx->publish_now(payload, 0x103U).has_value());
+    NX_CHECK(consumer->wait().has_value());
+    NX_CHECK(sequences.size() == 4U);
+    NX_CHECK(losses.empty());
+    NX_CHECK(consumer->stats().received == 4U);
+    NX_CHECK(consumer->stats().restarts == 0U);
+
+    rx->on_source_reset();
+    NX_CHECK(rx->publish_now(payload, 0x104U).has_value());
+    NX_CHECK(consumer->wait().has_value());
+    NX_CHECK(losses.size() == 1U);
+    if (losses.size() == 1U) {
+        NX_CHECK(losses[0].reason == com::LossReason::ProducerRestart);
+        NX_CHECK(losses[0].new_epoch != losses[0].old_epoch);
+    }
 }
 
 void test_empty_payload_and_hardware() {
@@ -1839,7 +1939,9 @@ int main() {
     test_value_serialization();
     test_enum_roundtrip_table();
     test_sequence_tracker();
+    test_multi_publisher_sequence_tracker();
     test_channel_roundtrip();
+    test_multi_publisher_channel();
     test_empty_payload_and_hardware();
     test_partial_hardware_flags();
     test_gap_from_slow_consumer();

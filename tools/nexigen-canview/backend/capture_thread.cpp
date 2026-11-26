@@ -154,8 +154,11 @@ bool CaptureThread::start_channel(std::size_t index) noexcept {
             std::format("channel '{}': status service name is rejected", state.profile.name);
         return false;
     }
+    // The receiver and the transmitter both publish status, so the consumer
+    // tracks one sequence/epoch state per application code.
+    const nexigen::com::ChannelConfig status_config = hwcan::status_channel_config();
     auto status_consumer = StatusConsumer::create(
-        *node_, std::move(*status_name), config,
+        *node_, std::move(*status_name), status_config,
         [this, index](const nexigen::com::EventHeader& header,
                       const nexigen::hw::can::CanChannelStatus& status) {
             on_status(index, header, status);

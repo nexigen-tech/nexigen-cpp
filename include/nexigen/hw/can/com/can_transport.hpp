@@ -21,6 +21,17 @@ namespace nexigen::hw::can {
     return config;
 }
 
+/// @brief Channel configuration for one channel's shared `status` stream.
+///
+/// The receiver and the transmitter both publish status, so the service allows
+/// two publishers and consumers track each application's sequence separately.
+/// @return Status-channel configuration.
+[[nodiscard]] inline com::ChannelConfig status_channel_config() noexcept {
+    com::ChannelConfig config{};
+    config.max_publishers = 2U;
+    return config;
+}
+
 /// @brief Event code for one CAN message kind.
 /// @param kind Message kind.
 /// @return The transport event code.

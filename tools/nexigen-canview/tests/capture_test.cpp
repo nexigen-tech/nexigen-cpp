@@ -242,7 +242,8 @@ void test_all_channels_fail() {
 
 template <class T>
 std::optional<com::EventProducer<T>> make_producer(com::Node& node, const std::string& channel,
-                                                   bool status) {
+                                                   bool status,
+                                                   std::string_view app_id = "canviewt") {
     auto name = status ? hwcan::status_service(channel) : hwcan::rx_service(channel);
     if (!name) {
         return std::nullopt;
@@ -251,8 +252,9 @@ std::optional<com::EventProducer<T>> make_producer(com::Node& node, const std::s
     if (!service) {
         return std::nullopt;
     }
-    auto producer =
-        com::EventProducer<T>::create(node, std::move(*service), com::ChannelConfig{}, "canviewt");
+    const com::ChannelConfig config =
+        status ? hwcan::status_channel_config() : com::ChannelConfig{};
+    auto producer = com::EventProducer<T>::create(node, std::move(*service), config, app_id);
     if (!producer) {
         return std::nullopt;
     }
@@ -382,6 +384,70 @@ void test_virtual_bus_capture() {
     NX_CHECK(!capture.running());
 }
 
+void test_multi_publisher_status_no_restart() {
+    const std::string channel{"canview-status-multi"};
+    canview::CaptureThread capture{{make_channel(channel, 41U)}};
+    if (!start_or_skip(capture)) {
+        return;
+    }
+    auto node = com::Node::create();
+    if (!node) {
+        capture.stop();
+        return;
+    }
+    auto rx = make_producer<hwcan::CanChannelStatus>(*node, channel, true, "CANRX");
+    auto tx = make_producer<hwcan::CanChannelStatus>(*node, channel, true, "CANTX");
+    if (!rx || !tx) {
+        capture.stop();
+        return;
+    }
+    const auto publish = [](com::EventProducer<hwcan::CanChannelStatus>& producer,
+                            std::uint64_t count) {
+        hwcan::CanChannelStatus status{};
+        status.state = hwcan::CanChannelState::Active;
+        status.rx_count = count;
+        static_cast<void>(producer.publish_now(status, hwcan::event_status));
+    };
+    publish(*rx, 1U);
+    publish(*tx, 1U);
+    publish(*rx, 2U);
+    publish(*tx, 2U);
+
+    std::uint64_t statuses = 0U;
+    std::uint64_t gaps = 0U;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+    while (std::chrono::steady_clock::now() < deadline && statuses < 4U) {
+        canview::StatusEvent event{};
+        while (capture.statuses().try_pop(event)) {
+            ++statuses;
+        }
+        canview::CanIngressRecord record{};
+        while (capture.ingress().try_pop(record)) {
+            ++gaps;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+    }
+    NX_CHECK(statuses == 4U);
+    NX_CHECK(gaps == 0U);
+
+    rx->on_source_reset();
+    publish(*rx, 3U);
+    bool restart_seen = false;
+    const auto restart_deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+    while (std::chrono::steady_clock::now() < restart_deadline && !restart_seen) {
+        canview::CanIngressRecord record{};
+        while (capture.ingress().try_pop(record)) {
+            if (record.kind == canview::CanRecordKind::TransportGap &&
+                record.gap_reason() == canview::GapReason::TransportRestart) {
+                restart_seen = true;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+    }
+    NX_CHECK(restart_seen);
+    capture.stop();
+}
+
 void test_loss_mapping() {
     canview::CaptureThread capture{{make_channel("canview-loss", 0U)}};
     const struct {
@@ -444,6 +510,7 @@ void run_capture_tests() {
     test_all_channels_fail();
     test_invalid_affinity();
     test_virtual_bus_capture();
+    test_multi_publisher_status_no_restart();
     test_loss_mapping();
     test_hot_path_allocation_guard();
 }

@@ -45,9 +45,8 @@ make_status_producers(Runtime& runtime, std::span<const hw::can::CanChannelConfi
         if (!service) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
         }
-        com::ChannelConfig config{};
-        config.max_publishers = 2U;
-        auto* producer = runtime.template publish<hw::can::CanChannelStatus>(*service, config);
+        auto* producer = runtime.template publish<hw::can::CanChannelStatus>(
+            *service, hw::can::status_channel_config());
         if (producer == nullptr) {
             return std::unexpected(core::ErrorCode::SystemError);
         }
