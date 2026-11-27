@@ -11,13 +11,10 @@ set(NEXIGEN_CANVIEW_MODEL_SOURCES
     canopen/canopen_decoder.cpp
     canopen/canopen_reindex.cpp
     canopen/canopen_registry.cpp
-    canopen/canopen_types.cpp
     canopen/co_decoded.cpp
     canopen/co_runtime.cpp
     canopen/cob_id_router.cpp
-    canopen/eds_dictionary.cpp
     canopen/eds_library.cpp
-    canopen/eds_parser.cpp
     canopen/emcy_decoder.cpp
     canopen/nmt_decoder.cpp
     canopen/pdo_decoder.cpp
@@ -67,7 +64,7 @@ target_compile_definitions(nexigen_canview_model PUBLIC
 target_compile_options(nexigen_canview_model PRIVATE -frtti)
 set_source_files_properties(model/rtti_anchor.cpp model/snapshot_source.cpp PROPERTIES COMPILE_OPTIONS "-frtti")
 target_link_libraries(nexigen_canview_model PUBLIC
-    nexigen_core nexigen_chrono nexigen_hw_can PRIVATE Threads::Threads)
+    nexigen_core nexigen_chrono nexigen_hw_can nexigen_canopen PRIVATE Threads::Threads)
 
 # --- com: capture thread and bounded queues --------------------------------
 set(NEXIGEN_CANVIEW_COM_SOURCES
@@ -218,7 +215,7 @@ if(NEXIGEN_CANVIEW_GUI)
                 $<TARGET_FILE:nexigen-canview> ${NEXIGEN_CANVIEW_UI_CONFIG}
                 ${NEXIGEN_CANVIEW_UI_FIXTURE})
     set_tests_properties(nexigen_canview_graceful_shutdown PROPERTIES
-        TIMEOUT 120 LABELS "tools;canview;gui")
+        TIMEOUT 120 LABELS "tools;canview;gui" RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
     add_test(NAME nexigen_canview_ui_input
         COMMAND xvfb-run -a $<TARGET_FILE:nexigen-canview>

@@ -1,9 +1,9 @@
-#include "eds_dictionary.hpp"
+#include <nexigen/canopen/eds_dictionary.hpp>
 
 #include <algorithm>
 #include <format>
 
-namespace nexigen::canview {
+namespace nexigen::canopen {
 
 namespace {
 
@@ -122,4 +122,4 @@ std::string EdsDictionary::to_string() const {
                        content_hash_);
 }
 
-} // namespace nexigen::canview
+} // namespace nexigen::canopen

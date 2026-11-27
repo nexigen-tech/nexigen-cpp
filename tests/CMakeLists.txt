@@ -248,6 +248,13 @@ endif()
 add_test(NAME nexigen_hw_can_tests COMMAND nexigen_hw_can_tests)
 set_tests_properties(nexigen_hw_can_tests PROPERTIES TIMEOUT 120 LABELS "hw;can")
 
+# Transport-independent CANopen core: EDS, PDO, SDO, routing and vocabulary.
+add_executable(nexigen_canopen_tests canopen/canopen_core_test.cpp)
+target_link_libraries(nexigen_canopen_tests PRIVATE nexigen_canopen)
+
+add_test(NAME nexigen_canopen_tests COMMAND nexigen_canopen_tests)
+set_tests_properties(nexigen_canopen_tests PROPERTIES TIMEOUT 120 LABELS "canopen")
+
 if(NEXIGEN_ENABLE_COM)
     # COM-gated App<Policy> runtime tests: embedded time base, ports, signals.
     add_executable(nexigen_app_runtime_com_tests app/app_runtime_test.cpp)

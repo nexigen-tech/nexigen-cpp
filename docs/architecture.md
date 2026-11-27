@@ -1062,7 +1062,10 @@ flowchart LR
     ST["nexigen/hw/can/&lt;ch&gt;/status"] --> CAP
     CAP --> Q["Ingress SPSC<br/>65 536 × 128 B"]
     Q --> HIST["CanRecordRing<br/>126 B/slot · absolute seq"]
-    EDS["EDS library<br/>32 files · 32 MiB"] --> DEC["CANopen decoder<br/>NMT · EMCY · SDO · PDO"]
+    EDS["EDS library<br/>32 files · 32 MiB"] --> CORE["nexigen_canopen<br/>EDS/DCF · PDO unpack<br/>SDO codec/assembly<br/>COB-ID routing"]
+    CORE --> DEC["CanOpenDecoder<br/>NMT · EMCY · PDO/SDO presentation"]
+    CORE --> ROUTE["CobIdRouter<br/>32 × 2 048 routes"]
+    ROUTE --> DEC
     HIST --> VIEWS["CanView<br/>All / Channel / Node"]
     HIST --> HEAT["Heatmap 2 048 columns<br/>Bit activity 4 096 frames"]
     DEC --> VIEWS
@@ -1080,6 +1083,12 @@ async export. PAUSED-клон владеет неизменяемым снимк
 CANopen remapping применяется только после успешного SDO-ответа и сохраняет
 16 эпох маппинга. `ResourceGuard` переводит отрисовку в ECO (15 FPS, derived
 recompute не чаще 250 мс), а ввод пользователя немедленно её будит.
+
+CANopen-примитивы (`EDS/DCF`, распаковка PDO, SDO-кодек и сборка сегментов,
+COB-ID routing) вынесены в transport-independent `nexigen_canopen`. Viewer
+остаётся владельцем `EdsLibrary`, `CanOpenRegistry`, NMT/EMCY-презентации и
+динамических эпох маппинга; он вызывает общий core и не дублирует разбор
+протокола. Тот же core будет использовать будущий `nexigen-canopend`.
 
 ### 5.2 Телеметрический конвейер
 

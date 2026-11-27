@@ -397,6 +397,24 @@ target_include_directories(nexigen_hw_can PUBLIC
 target_link_libraries(nexigen_hw_can PUBLIC nexigen_core)
 
 # =============================================================================
+# nexigen::canopen — transport-independent CANopen data-plane primitives:
+# CiA 306 EDS/DCF dictionaries, PDO unpacking, SDO frame assembly and COB-ID
+# routing. COM-free and GUI-free; shared by the viewer and the future node
+# stack.
+# =============================================================================
+file(GLOB NEXIGEN_CANOPEN_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/*.cpp")
+
+add_library(nexigen_canopen STATIC ${NEXIGEN_CANOPEN_SOURCES})
+add_library(nexigen::canopen ALIAS nexigen_canopen)
+
+target_include_directories(nexigen_canopen PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(nexigen_canopen PUBLIC nexigen_core nexigen_chrono nexigen_hw_can)
+
+# =============================================================================
 # nexigen::exec — instance lifecycle library.
 # =============================================================================
 file(GLOB NEXIGEN_EXEC_SOURCES CONFIGURE_DEPENDS
@@ -790,7 +808,8 @@ set(NEXIGEN_EXPORT_TARGETS
     nexigen_exec
     nexigen_hub
     nexigen_recorder
-    nexigen_hw_can)
+    nexigen_hw_can
+    nexigen_canopen)
 if(NEXIGEN_ENABLE_COM)
     list(APPEND NEXIGEN_EXPORT_TARGETS nexigen_com nexigen_phm nexigen_sm nexigen_synchro
          nexigen_hw_can_com)
@@ -807,6 +826,7 @@ set_target_properties(nexigen_exec      PROPERTIES EXPORT_NAME exec)
 set_target_properties(nexigen_hub         PROPERTIES EXPORT_NAME hub)
 set_target_properties(nexigen_recorder    PROPERTIES EXPORT_NAME recorder)
 set_target_properties(nexigen_hw_can      PROPERTIES EXPORT_NAME hw_can)
+set_target_properties(nexigen_canopen     PROPERTIES EXPORT_NAME canopen)
 if(NEXIGEN_ENABLE_COM)
     set_target_properties(nexigen_com     PROPERTIES EXPORT_NAME com)
     set_target_properties(nexigen_phm     PROPERTIES EXPORT_NAME phm)

@@ -1,27 +1,10 @@
 #include "sdo_decoder.hpp"
 
-#include "eds_dictionary.hpp"
-
 #include <cstdio>
-#include <cstring>
 
 namespace nexigen::canview {
 
 namespace {
-
-std::uint32_t read_le32(const std::uint8_t* data) noexcept {
-    return static_cast<std::uint32_t>(data[0]) | (static_cast<std::uint32_t>(data[1]) << 8U) |
-           (static_cast<std::uint32_t>(data[2]) << 16U) |
-           (static_cast<std::uint32_t>(data[3]) << 24U);
-}
-
-std::uint32_t read_value(const nexigen::hw::can::CanMessage& message, std::size_t bytes) noexcept {
-    std::uint32_t value = 0;
-    for (std::size_t index = 0; index < bytes && 4U + index < message.dlc; ++index) {
-        value |= static_cast<std::uint32_t>(message.data[4U + index]) << (8U * index);
-    }
-    return value;
-}
 
 const char* abort_name(std::uint32_t code) noexcept {
     switch (code) {
@@ -39,301 +22,115 @@ const char* abort_name(std::uint32_t code) noexcept {
     }
 }
 
-} // namespace
-
-std::size_t SdoDecoder::node_index(const nexigen::hw::can::CanMessage& message) noexcept {
-    if (message.can_id >= 0x580U && message.can_id <= 0x5FFU) {
-        return static_cast<std::size_t>(message.can_id - 0x580U);
-    }
-    if (message.can_id >= 0x600U && message.can_id <= 0x67FU) {
-        return static_cast<std::size_t>(message.can_id - 0x600U);
-    }
-    return 0U;
-}
-
-bool SdoDecoder::append_segment(Assembly& assembly,
-                                const nexigen::hw::can::CanMessage& message) noexcept {
-    if (!assembly.active) {
-        return false;
-    }
-    for (std::size_t index = 1U; index < message.dlc && index <= 7U; ++index) {
-        if (assembly.length >= max_transfer_bytes) {
-            return false;
-        }
-        assembly.data[assembly.length] = message.data[index];
-        ++assembly.length;
-        if (assembly.expected != 0U && assembly.length >= assembly.expected) {
-            break;
-        }
-    }
-    return true;
-}
-
-void SdoDecoder::maybe_complete(std::size_t node, CoDecoded* out) {
-    PendingWrite& pending = pending_[node];
-    if (!pending.active || !pending.complete || !pending.response_ok) {
-        return;
-    }
-    SdoCompletedWrite write{};
-    write.index = pending.index;
-    write.subindex = pending.subindex;
-    write.size = pending.length;
-    std::memcpy(write.data.data(), pending.data.data(), pending.length);
-    completed_.push_back(write);
-    if (out != nullptr) {
-        out->index = pending.index;
-        out->subindex = pending.subindex;
-        out->status = CoDecodeStatus::Ok;
-        char text[96]{};
-        std::snprintf(text, sizeof(text), "SDO write 0x%04x:%u (%zu bytes)", pending.index,
-                      pending.subindex, pending.length);
-        out->set_text(text);
-    }
-    pending = PendingWrite{};
-}
-
-void SdoDecoder::handle_request(std::size_t node, const nexigen::hw::can::CanMessage& message,
-                                std::uint8_t command, CoDecoded& out, std::uint64_t now_ns) {
-    out.index = static_cast<std::uint16_t>(message.data[1]) |
-                static_cast<std::uint16_t>(static_cast<std::uint16_t>(message.data[2]) << 8U);
-    out.subindex = message.data[3];
-    const std::uint8_t ccs = static_cast<std::uint8_t>(command & 0xE0U);
-    if (command == 0x40U) {
-        out.status = CoDecodeStatus::Ok;
-        out.set_text("SDO upload request");
-        return;
-    }
-    if (ccs != 0x20U || (command & 0x01U) == 0U) {
-        return;
-    }
-    if ((command & 0x02U) != 0U) {
-        // Expedited download request: value bytes are 4 - n.
-        const std::size_t bytes = 4U - ((command >> 2U) & 0x03U);
-        PendingWrite& pending = pending_[node];
-        pending = PendingWrite{};
-        pending.active = true;
-        pending.index = out.index;
-        pending.subindex = out.subindex;
-        pending.complete = true;
-        pending.length = bytes;
-        for (std::size_t index = 0; index < bytes && 4U + index < message.dlc; ++index) {
-            pending.data[index] = message.data[4U + index];
-        }
-        out.status = CoDecodeStatus::Ok;
-        out.set_text("SDO expedited write request");
-        return;
-    }
-    // Segmented download initiate (0x21).
-    const std::size_t size = message.dlc >= 8U ? read_le32(&message.data[4]) : 0U;
-    out.status = CoDecodeStatus::Ok;
-    out.set_text("SDO segmented download request");
-    if (size > max_transfer_bytes) {
-        out.status = CoDecodeStatus::TooLarge;
-        out.set_text("SDO segmented transfer exceeds 4096 bytes");
-        return;
-    }
-    PendingWrite& pending = pending_[node];
-    pending = PendingWrite{};
-    pending.active = true;
-    pending.index = out.index;
-    pending.subindex = out.subindex;
-    pending.complete = false;
-    Assembly& assembly = assemblies_[node];
-    assembly = Assembly{};
-    assembly.active = true;
-    assembly.request = true;
-    assembly.index = out.index;
-    assembly.subindex = out.subindex;
-    assembly.expected = size;
-    assembly.started = now_ns;
-}
-
-void SdoDecoder::handle_response(std::size_t node, const nexigen::hw::can::CanMessage& message,
-                                 std::uint8_t command, CoDecoded& out, std::uint64_t now_ns,
-                                 const EdsDictionary* dictionary) {
-    out.index = static_cast<std::uint16_t>(message.data[1]) |
-                static_cast<std::uint16_t>(static_cast<std::uint16_t>(message.data[2]) << 8U);
-    out.subindex = message.data[3];
-    if (command == 0x60U) {
-        pending_[node].response_ok = true;
-        maybe_complete(node, &out);
-        return;
-    }
-    const std::uint8_t scs = static_cast<std::uint8_t>(command & 0xE0U);
-    if (scs != 0x40U || (command & 0x01U) == 0U) {
-        return;
-    }
-    if ((command & 0x02U) == 0U) {
-        // Segmented upload initiate (0x41).
-        const std::size_t size = message.dlc >= 8U ? read_le32(&message.data[4]) : 0U;
-        if (size > max_transfer_bytes) {
-            out.status = CoDecodeStatus::TooLarge;
-            out.set_text("SDO segmented transfer exceeds 4096 bytes");
-            return;
-        }
-        Assembly& assembly = assemblies_[node];
-        assembly = Assembly{};
-        assembly.active = true;
-        assembly.request = false;
-        assembly.index = out.index;
-        assembly.subindex = out.subindex;
-        assembly.expected = size;
-        assembly.started = now_ns;
+void render_upload_response(const canopen::SdoEvent& event, const EdsDictionary* dictionary,
+                            CoDecoded& out) {
+    if (event.segmented) {
         out.status = CoDecodeStatus::Ok;
         out.set_text("SDO segmented upload response");
         return;
     }
-    const std::size_t bytes = 4U - ((command >> 2U) & 0x03U);
-    const std::uint32_t value = read_value(message, bytes);
-    out.status = CoDecodeStatus::Ok;
     const EdsObject* object =
-        dictionary != nullptr ? dictionary->find(out.index, out.subindex) : nullptr;
+        dictionary != nullptr ? dictionary->find(event.index, event.subindex) : nullptr;
     CoSignal signal{};
     signal.name = object != nullptr ? object->name.c_str() : "value";
     signal.kind = EdsDataKind::Unsigned;
-    signal.bits = static_cast<std::uint8_t>(bytes * 8U);
+    signal.bits = static_cast<std::uint8_t>(event.value_bytes * 8U);
     signal.valid = true;
-    signal.raw = value;
-    std::snprintf(signal.text.data(), signal.text.size(), "0x%x", value);
+    signal.raw = event.value;
+    std::snprintf(signal.text.data(), signal.text.size(), "0x%x", event.value);
     static_cast<void>(out.add_signal(signal));
     char text[96]{};
     std::snprintf(text, sizeof(text), "SDO read %s0x%04x:%u = 0x%x",
-                  object != nullptr ? (object->name + " ").c_str() : "", out.index, out.subindex,
-                  value);
+                  object != nullptr ? (object->name + " ").c_str() : "", event.index,
+                  event.subindex, event.value);
+    out.status = CoDecodeStatus::Ok;
     out.set_text(text);
 }
 
-void SdoDecoder::handle_abort(std::size_t node, const nexigen::hw::can::CanMessage& message,
-                              CoDecoded& out) noexcept {
+void render_abort(const canopen::SdoEvent& event, CoDecoded& out) {
     out.status = CoDecodeStatus::Aborted;
     out.error = true;
-    out.index = static_cast<std::uint16_t>(message.data[1]) |
-                static_cast<std::uint16_t>(static_cast<std::uint16_t>(message.data[2]) << 8U);
-    out.subindex = message.data[3];
-    out.abort_code = message.dlc >= 8U ? read_le32(&message.data[4]) : 0U;
-    assemblies_[node] = Assembly{};
-    pending_[node] = PendingWrite{};
+    out.abort_code = event.abort_code;
     char text[128]{};
-    std::snprintf(text, sizeof(text), "SDO abort 0x%08x: %s", out.abort_code,
-                  abort_name(out.abort_code));
+    std::snprintf(text, sizeof(text), "SDO abort 0x%08x: %s", event.abort_code,
+                  abort_name(event.abort_code));
     out.set_text(text);
 }
 
-bool SdoDecoder::handle_download_segment(std::size_t node,
-                                         const nexigen::hw::can::CanMessage& message,
-                                         CoDecoded& out) {
-    Assembly& assembly = assemblies_[node];
-    if (!assembly.active || !assembly.request) {
-        return false;
-    }
-    if (!append_segment(assembly, message)) {
-        out.status = CoDecodeStatus::TooLarge;
-        out.set_text("SDO segmented transfer exceeds 4096 bytes");
-        assembly = Assembly{};
-        return true;
-    }
+void render_completed_write(const canopen::SdoEvent& event, CoDecoded& out) {
     out.status = CoDecodeStatus::Ok;
-    out.index = assembly.index;
-    out.subindex = assembly.subindex;
-    out.set_text("SDO segmented download segment");
-    if ((message.data[0] & 0x02U) == 0U) {
-        PendingWrite& pending = pending_[node];
-        pending.active = true;
-        pending.index = assembly.index;
-        pending.subindex = assembly.subindex;
-        pending.length = assembly.length;
-        std::memcpy(pending.data.data(), assembly.data.data(), assembly.length);
-        pending.complete = true;
-        assembly = Assembly{};
-        maybe_complete(node, &out);
-    }
-    return true;
+    char text[96]{};
+    std::snprintf(text, sizeof(text), "SDO write 0x%04x:%u (%zu bytes)", event.index,
+                  event.subindex, event.size);
+    out.set_text(text);
 }
 
-bool SdoDecoder::handle_upload_segment(std::size_t node,
-                                       const nexigen::hw::can::CanMessage& message,
-                                       CoDecoded& out) {
-    Assembly& assembly = assemblies_[node];
-    if (!assembly.active || assembly.request) {
-        return false;
+void apply_event(const canopen::SdoEvent& event, const EdsDictionary* dictionary, CoDecoded& out) {
+    out.index = event.index;
+    out.subindex = event.subindex;
+    switch (event.kind) {
+        case canopen::SdoEventKind::UploadRequest:
+            out.status = CoDecodeStatus::Ok;
+            out.set_text("SDO upload request");
+            return;
+        case canopen::SdoEventKind::ExpeditedWriteRequest:
+            out.status = CoDecodeStatus::Ok;
+            out.set_text("SDO expedited write request");
+            return;
+        case canopen::SdoEventKind::SegmentedDownloadRequest:
+            out.status = CoDecodeStatus::Ok;
+            out.set_text("SDO segmented download request");
+            return;
+        case canopen::SdoEventKind::UploadResponse:
+            render_upload_response(event, dictionary, out);
+            return;
+        case canopen::SdoEventKind::DownloadResponse: return;
+        case canopen::SdoEventKind::DownloadSegment:
+            out.status = CoDecodeStatus::Ok;
+            out.set_text("SDO segmented download segment");
+            return;
+        case canopen::SdoEventKind::UploadSegment:
+            out.status = CoDecodeStatus::Ok;
+            out.set_text(event.last ? "SDO segmented upload complete"
+                                    : "SDO segmented upload segment");
+            return;
+        case canopen::SdoEventKind::CompletedWrite: render_completed_write(event, out); return;
+        case canopen::SdoEventKind::Abort:          render_abort(event, out); return;
+        case canopen::SdoEventKind::TooLarge:
+            out.status = CoDecodeStatus::TooLarge;
+            out.set_text("SDO segmented transfer exceeds 4096 bytes");
+            return;
+        case canopen::SdoEventKind::None:
+        default:                          return;
     }
-    if (!append_segment(assembly, message)) {
-        out.status = CoDecodeStatus::TooLarge;
-        out.set_text("SDO segmented transfer exceeds 4096 bytes");
-        assembly = Assembly{};
-        return true;
-    }
-    out.status = CoDecodeStatus::Ok;
-    out.index = assembly.index;
-    out.subindex = assembly.subindex;
-    out.set_text("SDO segmented upload segment");
-    if ((message.data[0] & 0x02U) == 0U) {
-        assembly = Assembly{};
-        out.set_text("SDO segmented upload complete");
-    }
-    return true;
 }
+
+} // namespace
 
 bool SdoDecoder::feed(const nexigen::hw::can::CanMessage& message, bool response, CoDecoded& out,
                       std::uint64_t now_ns, const EdsDictionary* dictionary) {
-    if (message.dlc < 4U) {
+    canopen::SdoEvent event{};
+    if (!assembler_.feed(message, response, now_ns, event)) {
         return false;
     }
-    const std::uint8_t command = message.data[0];
-    const std::size_t node = node_index(message);
-    if (command == 0x80U) {
-        handle_abort(node, message, out);
-        return true;
-    }
-    if (response && (command & 0xE0U) == 0x00U) {
-        return handle_upload_segment(node, message, out);
-    }
-    if (response) {
-        handle_response(node, message, command, out, now_ns, dictionary);
-        return true;
-    }
-    if ((command & 0xE0U) == 0x00U) {
-        return handle_download_segment(node, message, out);
-    }
-    if ((command & 0xE0U) == 0x20U || command == 0x40U) {
-        handle_request(node, message, command, out, now_ns);
-        return true;
-    }
-    return false;
+    apply_event(event, dictionary, out);
+    return true;
 }
 
 std::optional<SdoCompletedWrite> SdoDecoder::take_completed() {
-    if (completed_.empty()) {
-        return std::nullopt;
-    }
-    SdoCompletedWrite write = completed_.front();
-    completed_.erase(completed_.begin());
-    return write;
+    return assembler_.take_completed();
 }
 
 void SdoDecoder::expire(std::uint64_t now_ns) noexcept {
-    for (auto& assembly : assemblies_) {
-        if (assembly.active && now_ns > assembly.started &&
-            now_ns - assembly.started > timeout_ns) {
-            assembly = Assembly{};
-        }
-    }
+    assembler_.expire(now_ns);
 }
 
 void SdoDecoder::reset() noexcept {
-    assemblies_ = {};
-    pending_ = {};
-    completed_.clear();
+    assembler_.reset();
 }
 
 std::size_t SdoDecoder::active_assemblies() const noexcept {
-    std::size_t count = 0U;
-    for (const auto& assembly : assemblies_) {
-        if (assembly.active) {
-            ++count;
-        }
-    }
-    return count;
+    return assembler_.active_assemblies();
 }
 
 } // namespace nexigen::canview

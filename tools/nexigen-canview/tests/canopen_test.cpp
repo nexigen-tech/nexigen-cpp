@@ -1,4 +1,6 @@
 // EDS parsing, cache, registry, routing and reindex tests.
+// Primitive parser/router coverage also lives in nexigen_canopen_tests; the
+// duplicated cases here are retained as viewer compatibility coverage.
 #include <cstdint>
 #include <fstream>
 #include <memory>

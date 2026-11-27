@@ -1,4 +1,6 @@
 // NMT, EMCY, SDO, PDO, remap and presentation tests.
+// Core primitive coverage also lives in nexigen_canopen_tests; these cases
+// remain as viewer presentation/compatibility coverage.
 #include <array>
 #include <cstdint>
 #include <initializer_list>

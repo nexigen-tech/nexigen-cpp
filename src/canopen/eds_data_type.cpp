@@ -1,8 +1,9 @@
-#include "canopen_types.hpp"
+#include <nexigen/canopen/eds_data_type_info.hpp>
 
 #include <algorithm>
+#include <array>
 
-namespace nexigen::canview {
+namespace nexigen::canopen {
 
 namespace {
 
@@ -44,26 +45,4 @@ const EdsDataTypeInfo& eds_data_type(std::uint16_t code) noexcept {
     return it == kDataTypes.end() ? kDataTypes.back() : *it;
 }
 
-EdsAccess parse_eds_access(std::string_view text) noexcept {
-    if (text == "ro" || text == "RO") {
-        return EdsAccess::ReadOnly;
-    }
-    if (text == "wo" || text == "WO") {
-        return EdsAccess::WriteOnly;
-    }
-    if (text == "rw" || text == "RW") {
-        return EdsAccess::ReadWrite;
-    }
-    if (text == "rwr" || text == "RWR") {
-        return EdsAccess::ReadWriteInput;
-    }
-    if (text == "rww" || text == "RWW") {
-        return EdsAccess::ReadWriteOutput;
-    }
-    if (text == "const" || text == "CONST") {
-        return EdsAccess::Constant;
-    }
-    return EdsAccess::Unknown;
-}
-
-} // namespace nexigen::canview
+} // namespace nexigen::canopen

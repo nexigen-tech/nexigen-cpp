@@ -1,4 +1,4 @@
-#include "eds_parser.hpp"
+#include <nexigen/canopen/eds_parser.hpp>
 
 #include <algorithm>
 #include <charconv>
@@ -7,7 +7,7 @@
 #include <map>
 #include <string>
 
-namespace nexigen::canview {
+namespace nexigen::canopen {
 
 namespace {
 
@@ -410,4 +410,4 @@ EdsParseResult EdsParser::load(const std::string& path, const EdsLimits& limits)
     return parse(content, path, limits);
 }
 
-} // namespace nexigen::canview
+} // namespace nexigen::canopen
