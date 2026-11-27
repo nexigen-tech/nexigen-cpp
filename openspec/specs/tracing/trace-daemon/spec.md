@@ -117,11 +117,11 @@ The daemon SHALL report `Running` through the application state reporter after i
 
 ### Requirement: Trace daemon configuration
 
-`TraceDaemonConfig` SHALL carry the span and recovery service names, the recovery event name, the subscriber depth, the drain interval, the ring capacity in records, the dump directory, the maximum dump count, the recovery-trigger flag, the application name, and the background thread specification. It SHALL reject empty names, an out-of-range interval, non-positive ring capacity, a relative dump directory, and a zero dump limit.
+`TraceDaemonConfig` SHALL carry the span and recovery service names, recovery event name, subscriber depth, drain interval, ring capacity in records, dump directory, maximum dump count, recovery-trigger flag, application name, published time-base segment name, and background thread specification. It SHALL reject empty names, an out-of-range interval, non-positive ring capacity, a relative dump directory, a zero dump limit, or an empty, relative, or over-511-byte time-base segment name.
 
 #### Scenario: Invalid configuration is rejected before startup
 
-- **WHEN** any required name is empty, the interval is out of range, the ring capacity is zero, the directory is relative, or the dump limit is zero
+- **WHEN** any required name is empty, the interval is out of range, the ring capacity is zero, the directory is relative, the dump limit is zero, or the time-base segment name is empty or relative
 - **THEN** validation fails before any port, thread, or directory is created
 
 #### Scenario: Valid configuration passes validation

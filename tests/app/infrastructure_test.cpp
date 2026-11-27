@@ -22,8 +22,8 @@ void test_infrastructure_lifecycle() {
     NX_CHECK(!app->tracer().has_value());
     NX_CHECK(app->tracer().error() == core::ErrorCode::NotInitialized);
 
-    NX_CHECK(app->initialize(app::Settings{}).has_value());
-    NX_CHECK(app->initialize(app::Settings{}).has_value()); // idempotent
+    NX_CHECK(app->initialize(test_settings()).has_value());
+    NX_CHECK(app->initialize(test_settings()).has_value()); // idempotent
 
     g_log_lines.clear();
     (*app->logger())->info("lifecycle record");
@@ -84,7 +84,7 @@ void test_infrastructure_failures() {
     auto bool_app = make_test_infra<TestPolicy>();
     NX_CHECK(bool_app != nullptr);
     if (bool_app) {
-        NX_CHECK(bool_app->initialize(app::Settings{}).has_value());
+        NX_CHECK(bool_app->initialize(test_settings()).has_value());
         NX_CHECK(bool_app->run([] { return false; }) == app::InfrastructureStopReason::Requested);
         NX_CHECK(bool_app->shutdown().has_value());
     }
@@ -92,19 +92,19 @@ void test_infrastructure_failures() {
     auto fail_logger = make_test_infra<FailLoggerPolicy>();
     NX_CHECK(fail_logger != nullptr);
     if (fail_logger) {
-        NX_CHECK(!fail_logger->initialize(app::Settings{}).has_value());
+        NX_CHECK(!fail_logger->initialize(test_settings()).has_value());
         NX_CHECK(fail_logger->shutdown().has_value());
     }
     auto fail_metrics = make_test_infra<FailMetricsPolicy>();
     NX_CHECK(fail_metrics != nullptr);
     if (fail_metrics) {
-        NX_CHECK(!fail_metrics->initialize(app::Settings{}).has_value());
+        NX_CHECK(!fail_metrics->initialize(test_settings()).has_value());
         NX_CHECK(fail_metrics->shutdown().has_value());
     }
     auto fail_trace = make_test_infra<FailTracePolicy>();
     NX_CHECK(fail_trace != nullptr);
     if (fail_trace) {
-        NX_CHECK(!fail_trace->initialize(app::Settings{}).has_value());
+        NX_CHECK(!fail_trace->initialize(test_settings()).has_value());
         NX_CHECK(fail_trace->shutdown().has_value());
     }
     auto missing_base = make_test_infra<TestPolicy>();
@@ -118,7 +118,7 @@ void test_infrastructure_failures() {
     auto flush_fail = make_test_infra<FlushFailPolicy>();
     NX_CHECK(flush_fail != nullptr);
     if (flush_fail) {
-        NX_CHECK(flush_fail->initialize(app::Settings{}).has_value());
+        NX_CHECK(flush_fail->initialize(test_settings()).has_value());
         const core::Status status = flush_fail->shutdown();
         NX_CHECK(!status.has_value());
         NX_CHECK(status.error() == core::ErrorCode::SystemError);
@@ -139,7 +139,7 @@ void test_infrastructure_required_thread_rollback() {
     NX_CHECK(first_cpu >= 0);
 
     auto settings_for = [&](int failed_worker) {
-        app::Settings settings{};
+        app::Settings settings = test_settings();
         settings.app_name = "rt-test";
         settings.logging.options.log_root_directory = "/tmp/opencode/app-rt-logs";
         auto configure = [&](core::ThreadSpec& spec) {
@@ -187,7 +187,7 @@ void test_infrastructure_required_thread_rollback() {
         auto infra = make_test_infra<RtPolicy>();
         NX_CHECK(infra != nullptr);
         if (infra) {
-            app::Settings settings{};
+            app::Settings settings = test_settings();
             settings.app_name = "best-effort-test";
             settings.logging.options.log_root_directory = "/tmp/opencode/app-rt-logs";
             settings.logging.options.worker_thread.set_cpus(
@@ -212,7 +212,7 @@ void test_infrastructure_signals() {
     if (!int_app) {
         return;
     }
-    NX_CHECK(int_app->initialize(app::Settings{}).has_value());
+    NX_CHECK(int_app->initialize(test_settings()).has_value());
     g_log_lines.clear();
     std::atomic<bool> running{false};
     std::jthread raiser{[&running] {
@@ -241,7 +241,7 @@ void test_infrastructure_signals() {
     if (!term_app) {
         return;
     }
-    NX_CHECK(term_app->initialize(app::Settings{}).has_value());
+    NX_CHECK(term_app->initialize(test_settings()).has_value());
     std::atomic<bool> term_running{false};
     std::jthread term_raiser{[&term_running] {
         while (!term_running.load(std::memory_order_acquire)) {
@@ -262,7 +262,7 @@ void test_infrastructure_signals() {
     if (!hup_app) {
         return;
     }
-    NX_CHECK(hup_app->initialize(app::Settings{}).has_value());
+    NX_CHECK(hup_app->initialize(test_settings()).has_value());
     g_log_lines.clear();
     std::atomic<bool> hup_running{false};
     std::jthread hup_raiser{[&hup_running] {
@@ -293,7 +293,7 @@ void test_infrastructure_tick_allocation() {
     if (!infra) {
         return;
     }
-    NX_CHECK(infra->initialize(app::Settings{}).has_value());
+    NX_CHECK(infra->initialize(test_settings()).has_value());
     int ticks = 0;
     [[maybe_unused]] const std::size_t before = ::mallinfo2().uordblks;
     const app::InfrastructureStopReason reason = infra->run([&] {
@@ -430,23 +430,23 @@ void test_infrastructure_conflict() {
     if (!first || !second) {
         return;
     }
-    NX_CHECK(first->initialize(app::Settings{}).has_value());
-    const core::Status conflict = second->initialize(app::Settings{});
+    NX_CHECK(first->initialize(test_settings()).has_value());
+    const core::Status conflict = second->initialize(test_settings());
     NX_CHECK(!conflict.has_value());
     NX_CHECK(conflict.error() == core::ErrorCode::Conflict);
     NX_CHECK(first->shutdown().has_value());
-    NX_CHECK(second->initialize(app::Settings{}).has_value());
+    NX_CHECK(second->initialize(test_settings()).has_value());
     NX_CHECK(second->shutdown().has_value());
 
     // A failed initialization releases ownership for the next infrastructure.
     auto failing = make_test_infra<FailLoggerPolicy>();
     NX_CHECK(failing != nullptr);
     if (failing) {
-        NX_CHECK(!failing->initialize(app::Settings{}).has_value());
+        NX_CHECK(!failing->initialize(test_settings()).has_value());
         auto after_failure = make_test_infra<TestPolicy>();
         NX_CHECK(after_failure != nullptr);
         if (after_failure) {
-            NX_CHECK(after_failure->initialize(app::Settings{}).has_value());
+            NX_CHECK(after_failure->initialize(test_settings()).has_value());
             NX_CHECK(after_failure->shutdown().has_value());
         }
     }
@@ -456,8 +456,8 @@ void test_infrastructure_conflict() {
     auto trace_second = make_test_infra<FailTracePolicy>();
     NX_CHECK(trace_first != nullptr && trace_second != nullptr);
     if (trace_first && trace_second) {
-        NX_CHECK(trace_first->initialize(app::Settings{}).has_value());
-        const core::Status policy_conflict = trace_second->initialize(app::Settings{});
+        NX_CHECK(trace_first->initialize(test_settings()).has_value());
+        const core::Status policy_conflict = trace_second->initialize(test_settings());
         NX_CHECK(!policy_conflict.has_value());
         NX_CHECK(policy_conflict.error() == core::ErrorCode::Conflict);
         NX_CHECK(trace_first->shutdown().has_value());
@@ -470,7 +470,7 @@ void test_infrastructure_stop_and_mask() {
         auto first = make_test_infra<TestPolicy>();
         NX_CHECK(first != nullptr);
         if (first) {
-            NX_CHECK(first->initialize(app::Settings{}).has_value());
+            NX_CHECK(first->initialize(test_settings()).has_value());
             first->request_stop(app::InfrastructureStopReason::None);
             NX_CHECK(!first->stop_requested());
             first->request_stop(app::InfrastructureStopReason::Requested);
@@ -483,7 +483,7 @@ void test_infrastructure_stop_and_mask() {
         auto second = make_test_infra<TestPolicy>();
         NX_CHECK(second != nullptr);
         if (second) {
-            NX_CHECK(second->initialize(app::Settings{}).has_value());
+            NX_CHECK(second->initialize(test_settings()).has_value());
             second->request_stop(app::InfrastructureStopReason::Sigint);
             second->request_stop(app::InfrastructureStopReason::Requested);
             NX_CHECK(second->stop_reason() == app::InfrastructureStopReason::Sigint);
@@ -496,7 +496,7 @@ void test_infrastructure_stop_and_mask() {
     if (!masked) {
         return;
     }
-    NX_CHECK(masked->initialize(app::Settings{}).has_value());
+    NX_CHECK(masked->initialize(test_settings()).has_value());
     std::atomic<bool> both_blocked{false};
     std::jthread probe{[&] {
         sigset_t current;
@@ -571,7 +571,7 @@ void test_infrastructure_handles_survive_shutdown() {
     if (!app) {
         return;
     }
-    NX_CHECK(app->initialize(app::Settings{}).has_value());
+    NX_CHECK(app->initialize(test_settings()).has_value());
 
     const auto meter = app->meter("survive", "1.0");
     NX_CHECK(meter.has_value());
@@ -606,7 +606,7 @@ void test_infrastructure_handles_survive_shutdown() {
     (*logger_handle)->info("after shutdown");
 
     // Re-initialization is rejected and the invariant holds for the object.
-    const auto reinit = app->initialize(app::Settings{});
+    const auto reinit = app->initialize(test_settings());
     NX_CHECK(!reinit.has_value() && reinit.error() == core::ErrorCode::NotInitialized);
 
     // Destruction does not drain again: the metric batch count is stable.
@@ -622,7 +622,7 @@ void test_infrastructure_logs_quiesce_failures() {
     if (!app) {
         return;
     }
-    NX_CHECK(app->initialize(app::Settings{}).has_value());
+    NX_CHECK(app->initialize(test_settings()).has_value());
 
     const core::Status status = app->shutdown();
     NX_CHECK(!status.has_value());
@@ -644,7 +644,7 @@ void test_infrastructure_logger_quiesced_last() {
     if (!app) {
         return;
     }
-    NX_CHECK(app->initialize(app::Settings{}).has_value());
+    NX_CHECK(app->initialize(test_settings()).has_value());
 
     const core::Status status = app->shutdown();
     NX_CHECK(!status.has_value());
@@ -704,7 +704,7 @@ void test_infrastructure_logs_startup_failures() {
     if (!app) {
         return;
     }
-    const core::Status status = app->initialize(app::Settings{});
+    const core::Status status = app->initialize(test_settings());
     NX_CHECK(!status.has_value());
     NX_CHECK(status.error() == core::ErrorCode::InvalidArgument);
 

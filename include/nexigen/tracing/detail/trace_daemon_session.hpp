@@ -142,7 +142,8 @@ public:
         // A published base is a hard startup dependency: snapshots must name
         // their UTC from the base, never from a private wall-clock sample.
         if (!chrono::TimeBaseClock::attached()) {
-            const core::Status attached = chrono::TimeBaseClock::attach("/nexigen-timebase");
+            const core::Status attached =
+                chrono::TimeBaseClock::attach(config_.time_base_segment_name);
             if (!attached) {
                 return attached;
             }

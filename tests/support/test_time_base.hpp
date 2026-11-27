@@ -100,28 +100,26 @@ inline void install_test_time_base(std::string_view suffix = "module") {
     static_cast<void>(nexigen::chrono::TimeBaseClock::attach(name));
 }
 
-/// @brief Publish a custom Ready block and bind it to `TimeBaseClock`.
+/// @brief Create and publish a Ready block without binding `TimeBaseClock`.
 ///
-/// Destroys the local owner after binding: the clock keeps its own mapping, so
-/// the block stays readable even though the shared-memory name is unlinked.
+/// The caller owns the returned segment; the block stays published until the
+/// optional is reset or destroyed. Use this when the component under test must
+/// attach by name itself.
 ///
-/// @param suffix Distinguishes the segment.
+/// @param name POSIX shared-memory name of the segment to create.
 /// @param utc_offset Signed canonical-to-UTC offset published in the block.
 /// @param calibrated When `false`, no Realtime row is published.
-/// @return The segment name that was bound.
-inline std::string publish_test_time_base(std::string_view suffix, std::int64_t utc_offset,
-                                          bool calibrated) {
-    const std::string name = "/nexigen-test-tb-custom-" +
-                             std::to_string(static_cast<long>(::getpid())) + "-" +
-                             std::string(suffix);
-    auto created = nexigen::chrono::detail::TimeBaseSegment::create(name, 0x7465U);
+/// @return The published segment, or `std::nullopt` when creation fails.
+[[nodiscard]] inline std::optional<nexigen::chrono::detail::TimeBaseSegment>
+create_test_time_base(std::string_view name, std::int64_t utc_offset = 0,
+                      bool calibrated = true) {
+    auto created = nexigen::chrono::detail::TimeBaseSegment::create(std::string(name), 0x7465U);
     if (!created) {
-        return {};
+        return std::nullopt;
     }
-    nexigen::chrono::detail::TimeBaseSegment segment = std::move(*created);
     const auto now = nexigen::chrono::Timestamp::now();
     if (!now) {
-        return {};
+        return std::nullopt;
     }
     const std::uint64_t mono = now->nanoseconds();
     nexigen::chrono::TimeBaseBlock block{};
@@ -160,8 +158,29 @@ inline std::string publish_test_time_base(std::string_view suffix, std::int64_t 
         block.rows[1].valid_from_canonical = 0;
         block.rows[1].valid_to_canonical = mono + 604'800'000'000'000ULL;
     }
-    nexigen::chrono::detail::TimeBaseWriter{*segment.block()}.publish(
+    nexigen::chrono::detail::TimeBaseWriter{*created->block()}.publish(
         block, mono + 604'800'000'000'000ULL);
+    return std::optional<nexigen::chrono::detail::TimeBaseSegment>{std::move(*created)};
+}
+
+/// @brief Publish a custom Ready block and bind it to `TimeBaseClock`.
+///
+/// Destroys the local owner after binding: the clock keeps its own mapping, so
+/// the block stays readable even though the shared-memory name is unlinked.
+///
+/// @param suffix Distinguishes the segment.
+/// @param utc_offset Signed canonical-to-UTC offset published in the block.
+/// @param calibrated When `false`, no Realtime row is published.
+/// @return The segment name that was bound.
+inline std::string publish_test_time_base(std::string_view suffix, std::int64_t utc_offset,
+                                          bool calibrated) {
+    const std::string name = "/nexigen-test-tb-custom-" +
+                             std::to_string(static_cast<long>(::getpid())) + "-" +
+                             std::string(suffix);
+    auto segment = create_test_time_base(name, utc_offset, calibrated);
+    if (!segment) {
+        return {};
+    }
     if (!nexigen::chrono::TimeBaseClock::attach(name).has_value()) {
         return {};
     }

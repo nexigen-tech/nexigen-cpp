@@ -36,8 +36,31 @@ struct TraceDaemonConfig {
     std::uint32_t max_dump_files{8};                             ///< retained snapshots, > 0
     bool trigger_on_recovery{true};                              ///< dump on PHM notification
     std::string app_name{"TRCD"};                                ///< readiness channel (≤ 63 B)
+    std::string time_base_segment_name{"/nexigen-timebase"};     ///< published time-base segment
     core::ThreadSpec bg_cpu_affinity{};                          ///< empty = inherited placement
 
+private:
+    [[nodiscard]] core::Status validate_names() const noexcept {
+        if (service_name.empty() || service_name.size() > 511U) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        if (recovery_service_name.empty() || recovery_service_name.size() > 511U) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        if (recovery_event_name.empty() || recovery_event_name.size() > 511U) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        if (app_name.empty() || app_name.size() > 63U) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        if (time_base_segment_name.empty() || time_base_segment_name.front() != '/' ||
+            time_base_segment_name.size() > 511U) {
+            return std::unexpected(core::ErrorCode::InvalidArgument);
+        }
+        return {};
+    }
+
+public:
     /// @brief Validate every field before the daemon creates any resource.
     ///
     /// Rejects an empty or oversized service/recovery/event name (`> 511`
@@ -50,17 +73,8 @@ struct TraceDaemonConfig {
     /// @note Spec `tracing/trace-daemon`, requirement "Trace daemon
     ///       configuration"; validation runs before any port exists.
     [[nodiscard]] core::Status validate() const noexcept {
-        if (service_name.empty() || service_name.size() > 511U) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        if (recovery_service_name.empty() || recovery_service_name.size() > 511U) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        if (recovery_event_name.empty() || recovery_event_name.size() > 511U) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
-        }
-        if (app_name.empty() || app_name.size() > 63U) {
-            return std::unexpected(core::ErrorCode::InvalidArgument);
+        if (const core::Status names = validate_names(); !names) {
+            return names;
         }
         if (drain_interval_ms < 5U || drain_interval_ms > 1000U) {
             return std::unexpected(core::ErrorCode::InvalidArgument);
@@ -94,6 +108,7 @@ struct TraceDaemonConfig {
         out += ", max_dumps=" + std::to_string(max_dump_files);
         out += ", trigger=" + std::string(trigger_on_recovery ? "true" : "false");
         out += ", app=" + app_name;
+        out += ", time_base=" + time_base_segment_name;
         out += ", bg=" + bg_cpu_affinity.to_string() + ")";
         return out;
     }

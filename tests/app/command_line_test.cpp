@@ -566,6 +566,9 @@ void test_command_line_infrastructure() {
     const std::string dir = unique_path("app_cli_infra");
     make_dir(dir);
     write_text(dir + "/logging.json", R"({"initial_log_level":"debug"})");
+    write_text(dir + "/chrono.json",
+               std::string(R"({"segment_name":")") +
+                   std::string(DefaultTimeBaseFixture::name()) + R"("})");
 
     app::CommandLineOptions options{};
     options.global_settings_dir = dir;
@@ -598,6 +601,7 @@ void test_command_line_infrastructure() {
         NX_CHECK(!failing->meter("x", "1").has_value());
         NX_CHECK(!failed.logging.diagnostics.empty());
         NX_CHECK(failed.logging.options.initial_log_level == core::LogLevel::Warning);
+        failed.chrono.segment_name = std::string(DefaultTimeBaseFixture::name());
         NX_CHECK(failing->initialize(failed).has_value());
         NX_CHECK(failing->meter("x", "1").has_value());
         NX_CHECK(failing->shutdown().has_value());
@@ -638,11 +642,12 @@ void test_command_line_infrastructure() {
     auto direct = make_test_infra<TestPolicy>();
     NX_CHECK(direct != nullptr);
     if (direct) {
-        NX_CHECK(direct->initialize(app::Settings{}).has_value());
+        NX_CHECK(direct->initialize(test_settings()).has_value());
         NX_CHECK(direct->shutdown().has_value());
     }
 
     static_cast<void>(std::remove((dir + "/logging.json").c_str()));
+    static_cast<void>(std::remove((dir + "/chrono.json").c_str()));
     static_cast<void>(::rmdir(dir.c_str()));
 }
 

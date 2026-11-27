@@ -184,6 +184,7 @@ void test_config() {
     TraceDaemonConfig config{};
     NX_CHECK(config.validate().has_value());
     NX_CHECK(config.to_string().find("Nexigen/SM/Recovery") != std::string::npos);
+    NX_CHECK(config.to_string().find(config.time_base_segment_name) != std::string::npos);
     NX_CHECK(std::format("{}", config) == config.to_string());
     NX_CHECK(tracing::to_string(config) == config.to_string());
 
@@ -211,6 +212,12 @@ void test_config() {
     invalid = config;
     invalid.max_dump_files = 0U;
     NX_CHECK(!invalid.validate().has_value());
+    invalid = config;
+    invalid.time_base_segment_name.clear();
+    NX_CHECK(!invalid.validate().has_value());
+    invalid = config;
+    invalid.time_base_segment_name = "relative-timebase";
+    NX_CHECK(!invalid.validate().has_value());
 
     nlohmann::json json{};
     tracing::to_json(json, config);
@@ -226,6 +233,7 @@ void test_config() {
     NX_CHECK(parsed.max_dump_files == config.max_dump_files);
     NX_CHECK(parsed.trigger_on_recovery == config.trigger_on_recovery);
     NX_CHECK(parsed.app_name == config.app_name);
+    NX_CHECK(parsed.time_base_segment_name == config.time_base_segment_name);
 
     TraceDaemonConfig untouched{};
     const std::string before = untouched.dump_directory;
@@ -629,9 +637,32 @@ void test_mlock_best_effort() {
 
 } // namespace
 
+void test_session_uses_configured_time_base_name() {
+    const std::string name = "/nexigen-timebase-configured-" +
+                             std::to_string(static_cast<long>(::getpid())) + "-session";
+    auto segment = nexigen::tests::create_test_time_base(name);
+    NX_CHECK(segment.has_value());
+    if (!segment.has_value()) {
+        return;
+    }
+    nexigen::chrono::TimeBaseClock::detach();
+    E2eContext context = make_e2e_context("configured-base", true);
+    context.config.time_base_segment_name = name;
+    tdetail::TraceDaemonSession session{context.config};
+    const core::Status started = session.start();
+    NX_CHECK(started.has_value());
+    NX_CHECK(session.started());
+    session.stop();
+    nexigen::chrono::TimeBaseClock::detach();
+    nexigen::tests::install_test_time_base("trace-daemon");
+}
+
 void test_session_requires_time_base() {
     nexigen::chrono::TimeBaseClock::detach();
     E2eContext context = make_e2e_context("requires-base", true);
+    context.config.time_base_segment_name = "/nexigen-missing-timebase-" +
+                                            std::to_string(static_cast<long>(::getpid())) +
+                                            "-requires-base";
     tdetail::TraceDaemonSession session{context.config};
     g_realtime_reads.store(0, std::memory_order_relaxed);
     const core::Status started = session.start();
@@ -718,6 +749,7 @@ int main() {
     run_suite("session_e2e", test_session_e2e);
     run_suite("trigger_disabled", test_trigger_disabled);
     run_suite("mlock_best_effort", test_mlock_best_effort);
+    run_suite("configured_time_base", test_session_uses_configured_time_base_name);
     run_suite("requires_time_base", test_session_requires_time_base);
     run_suite("trigger_requires_base", test_trigger_requires_base);
     run_suite("snapshot_utc", test_snapshot_utc_resolution);

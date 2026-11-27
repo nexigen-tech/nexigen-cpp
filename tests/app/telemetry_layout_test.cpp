@@ -190,6 +190,7 @@ void test_telemetry_layout_infrastructure() {
 
     app::Settings settings{};
     NX_CHECK(app::load_app_settings(app::AppSettingsPaths{}, settings).has_value());
+    settings.chrono.segment_name = std::string(DefaultTimeBaseFixture::name());
     settings.logging.options.log_root_directory = instance_dir;
     settings.app_name = "layout-app";
 

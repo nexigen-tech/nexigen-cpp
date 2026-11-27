@@ -524,33 +524,37 @@ template <class Policy> [[nodiscard]] std::unique_ptr<TestInfra<Policy>> make_te
 }
 
 // --- default time-base fixture ---------------------------------------------
-// Every application test initializes an Infrastructure, which now requires a
-// published time base. This fixture owns the production default segment name
-// for the test process: the first test binary creates it, and concurrent
-// binaries attach to the same published block. The heartbeat is published far
-// in the future so the client never enters holdover during an unrelated test;
-// the dedicated time-base suites exercise the real windows with their own
-// segments.
+// Every application test initializes an Infrastructure, which requires a
+// published time base. This fixture publishes a pid-unique segment per test
+// process, so concurrent binaries never share a block; tests that initialize
+// Infrastructure take the name from `test_settings()`. The heartbeat is
+// published far in the future so the client never enters holdover during an
+// unrelated test; the dedicated time-base suites exercise the real windows
+// with their own segments.
 
 class DefaultTimeBaseFixture {
 public:
     DefaultTimeBaseFixture() {
-        auto created = chrono::detail::TimeBaseSegment::create(std::string(k_name), 0x7465U);
+        auto created = chrono::detail::TimeBaseSegment::create(std::string(name()), 0x7465U);
         if (created) {
             segment_.emplace(std::move(*created));
             publish();
             return;
         }
         if (created.error() == core::ErrorCode::Conflict) {
-            auto attached = chrono::detail::TimeBaseSegment::attach(std::string(k_name));
+            auto attached = chrono::detail::TimeBaseSegment::attach(std::string(name()));
             if (attached) {
                 segment_.emplace(std::move(*attached));
             }
         }
     }
 
-    /// @brief The segment name the fixture publishes under.
-    [[nodiscard]] static constexpr std::string_view name() noexcept { return k_name; }
+    /// @brief The pid-unique segment name the fixture publishes under.
+    [[nodiscard]] static std::string_view name() noexcept {
+        static const std::string segment_name =
+            "/nexigen-timebase-" + std::to_string(static_cast<long>(::getpid()));
+        return segment_name;
+    }
 
 private:
     void publish() {
@@ -607,11 +611,17 @@ private:
         writer.publish(block, mono + 3'600'000'000'000ULL);
     }
 
-    static constexpr std::string_view k_name = "/nexigen-timebase";
     std::optional<chrono::detail::TimeBaseSegment> segment_{};
 };
 
 inline DefaultTimeBaseFixture g_default_time_base{};
+
+/// @brief Settings bound to the process-local default time-base fixture.
+[[nodiscard]] inline app::Settings test_settings() {
+    app::Settings settings{};
+    settings.chrono.segment_name = std::string(DefaultTimeBaseFixture::name());
+    return settings;
+}
 
 template <class T, class = void> struct has_from_json : std::false_type {};
 template <class T>

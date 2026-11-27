@@ -33,6 +33,7 @@ void to_json(nlohmann::json& j, const TraceDaemonConfig& config) {
         {"max_dump_files", config.max_dump_files},
         {"trigger_on_recovery", config.trigger_on_recovery},
         {"app_name", config.app_name},
+        {"time_base_segment_name", config.time_base_segment_name},
         {"bg_cpu_affinity", config.bg_cpu_affinity},
     };
 }
@@ -53,6 +54,7 @@ void from_json(const nlohmann::json& j, TraceDaemonConfig& out) noexcept {
     core::detail::read_unsigned(j, "max_dump_files", parsed.max_dump_files);
     core::detail::read_bool(j, "trigger_on_recovery", parsed.trigger_on_recovery);
     core::detail::read_string(j, "app_name", parsed.app_name);
+    core::detail::read_string(j, "time_base_segment_name", parsed.time_base_segment_name);
     core::detail::read_object(j, "bg_cpu_affinity",
                               [&parsed](const nlohmann::json& affinity) noexcept {
                                   from_json(affinity, parsed.bg_cpu_affinity);

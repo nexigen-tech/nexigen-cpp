@@ -32,6 +32,7 @@ ports are open.
   "max_dump_files": 8,
   "trigger_on_recovery": true,
   "app_name": "TRCD",
+  "time_base_segment_name": "/nexigen-timebase",
   "bg_cpu_affinity": { "cpus": [0], "mode": "best_effort" }
 }
 ```
@@ -42,6 +43,8 @@ ports are open.
 - `dump_directory` — absolute snapshot root, created at startup.
 - `max_dump_files` — retained snapshots; the oldest is deleted first.
 - `trigger_on_recovery` — when false the daemon records but never dumps.
+- `time_base_segment_name` — published time-base segment; defaults to
+  `/nexigen-timebase`. It must be an absolute name of at most 511 bytes.
 - `bg_cpu_affinity` — `core::ThreadSpec`; empty inherits OS placement.
 
 `mlockall(MCL_CURRENT | MCL_FUTURE)` is attempted best-effort; a denial is
