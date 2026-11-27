@@ -128,6 +128,9 @@ public:
     /// @brief Focused view.
     /// @return Borrowed view, or `nullptr`.
     [[nodiscard]] CanView* focused() noexcept;
+    /// @brief Focus the first view when no view is focused.
+    /// @return Focused view, or `nullptr` when the model has no views.
+    [[nodiscard]] CanView* ensure_focused() noexcept;
 
     /// @brief Left-panel shortcut: show/hide one channel in the focused view.
     /// @param channel_id Channel identity.

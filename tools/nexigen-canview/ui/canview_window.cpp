@@ -428,9 +428,7 @@ void restore_views(UiState& state, const CanViewConfig& config) {
         config.views["views"].is_array() && !config.views["views"].empty()) {
         static_cast<void>(state.model->load_json(config.views, config.defaults));
         state.model->rebuild_all();
-        if (state.model->focused() == nullptr && !state.model->views().empty()) {
-            state.model->focus(state.model->views().front()->id());
-        }
+        static_cast<void>(state.model->ensure_focused());
     } else {
         initialize_views(state, config);
     }
@@ -593,14 +591,7 @@ bool initialize(UiState& state, const CliOptions& options, const CanViewConfig& 
     return true;
 }
 
-CanView* ensure_focused(UiState& state) {
-    CanView* view = state.model->focused();
-    if (view == nullptr && !state.model->views().empty()) {
-        view = state.model->views().front().get();
-        state.model->focus(view->id());
-    }
-    return view;
-}
+
 
 int script_actions(UiState& state, CanView& view) {
     const std::uint64_t seq =
@@ -653,7 +644,7 @@ int run_model_script(const CliOptions& options, UiState& state) {
         std::printf("UI_SCRIPT nodata=1\n");
         return 1;
     }
-    CanView* view = ensure_focused(state);
+    CanView* view = state.model->ensure_focused();
     if (view == nullptr) {
         return 1;
     }
@@ -695,28 +686,30 @@ void open_rename_modal(UiState& state, const CanView& view) {
 }
 
 void draw_toolbar_actions(UiState& state) {
-    CanView* focused = state.model->focused();
-    if (focused == nullptr && !state.model->views().empty()) {
-        focused = state.model->views().front().get();
-        state.model->focus(focused->id());
+    CanView* focused = state.model->ensure_focused();
+    if (focused == nullptr) {
+        if (ImGui::Button("Import session")) {
+            state.show_import = true;
+        }
+        return;
     }
-    const bool paused = focused != nullptr && focused->paused();
-    if (ImGui::Button(paused ? "Resume" : "Pause") && focused != nullptr) {
+    const bool paused = focused->paused();
+    if (ImGui::Button(paused ? "Resume" : "Pause")) {
         focused->set_paused(!focused->paused());
         state.status = focused->paused() ? "view paused" : "view resumed";
     }
     ImGui::SameLine();
     ImGui::TextDisabled("%s", paused ? "PAUSED" : "LIVE");
     ImGui::SameLine();
-    if (ImGui::Button("Clone LIVE") && focused != nullptr) {
+    if (ImGui::Button("Clone LIVE")) {
         open_clone_modal(state, *focused, false);
     }
     ImGui::SameLine();
-    if (ImGui::Button("Clone PAUSED") && focused != nullptr) {
+    if (ImGui::Button("Clone PAUSED")) {
         open_clone_modal(state, *focused, true);
     }
     ImGui::SameLine();
-    if (ImGui::Button("Rename") && focused != nullptr) {
+    if (ImGui::Button("Rename")) {
         open_rename_modal(state, *focused);
     }
     ImGui::SameLine();

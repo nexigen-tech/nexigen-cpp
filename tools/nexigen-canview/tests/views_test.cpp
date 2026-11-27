@@ -715,6 +715,48 @@ void test_focus_and_persistence() {
     }
 }
 
+void test_ensure_focused_state() {
+    auto ring = canview::CanRecordRing::create(256U);
+    NX_CHECK(ring.has_value());
+    if (!ring) {
+        return;
+    }
+    canview::CanViewModel model{*ring};
+    canview::ViewDefaults defaults{};
+
+    // Empty model: the toolbar must fall back to the import-only branch.
+    NX_CHECK(model.ensure_focused() == nullptr);
+    NX_CHECK(model.focused() == nullptr);
+
+    const auto first = model.create_view(canview::ViewKind::All, 0U, 0U, "A", defaults);
+    const auto second = model.create_view(canview::ViewKind::All, 0U, 0U, "B", defaults);
+    NX_CHECK(first.has_value());
+    NX_CHECK(second.has_value());
+    if (!first || !second) {
+        return;
+    }
+
+    // No focus: the first view is selected and becomes focused.
+    model.focus(std::nullopt);
+    canview::CanView* focused = model.ensure_focused();
+    NX_CHECK(focused != nullptr);
+    if (focused != nullptr) {
+        NX_CHECK(focused->id() == *first);
+        NX_CHECK(model.focused_id() == *first);
+    }
+
+    // An existing focus is preserved.
+    model.focus(*second);
+    NX_CHECK(model.ensure_focused() == model.view(*second));
+
+    // Removing the last view returns the toolbar to the import-only branch.
+    NX_CHECK(model.remove_view(*first));
+    NX_CHECK(model.remove_view(*second));
+    NX_CHECK(model.views().empty());
+    NX_CHECK(model.ensure_focused() == nullptr);
+    NX_CHECK(model.focused() == nullptr);
+}
+
 } // namespace
 
 namespace canview_test {
@@ -728,6 +770,7 @@ void run_views_tests() {
     test_clone_clipping_and_immutability();
     test_rename_view();
     test_focus_and_persistence();
+    test_ensure_focused_state();
 }
 
 } // namespace canview_test

@@ -267,6 +267,18 @@ CanView* CanViewModel::focused() noexcept {
     return focus_id_.has_value() ? view(*focus_id_) : nullptr;
 }
 
+CanView* CanViewModel::ensure_focused() noexcept {
+    if (CanView* view = focused(); view != nullptr) {
+        return view;
+    }
+    if (views_.empty()) {
+        return nullptr;
+    }
+    CanView* view = views_.front().get();
+    focus(view->id());
+    return view;
+}
+
 bool CanViewModel::set_focused_channel_visible(std::uint16_t channel_id, bool visible) noexcept {
     CanView* target = focused();
     if (target == nullptr) {
