@@ -20,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+#include <unistd.h>
+
 #include <nexigen/app/infrastructure.hpp>
 #include <nexigen/chrono/json_file_sink.hpp>
 #include <nexigen/core/result.hpp>
@@ -163,15 +165,28 @@ template <class Result> int fail_status(std::string_view action, const Result& s
 }
 
 bool write_settings_file(std::string_view path, std::string_view contents) {
-    std::ofstream file{std::string(path), std::ios::out | std::ios::trunc};
-    if (!file) {
-        print_error("cannot open settings file: " + std::string(path));
-        return false;
+    const std::string target(path);
+    const std::string temp = target + ".tmp." + std::to_string(static_cast<long>(::getpid()));
+    {
+        std::ofstream file{temp, std::ios::out | std::ios::trunc};
+        if (!file) {
+            print_error("cannot open settings file: " + temp);
+            return false;
+        }
+        file << contents;
+        file.close();
+        if (!file) {
+            print_error("cannot write settings file: " + temp);
+            std::error_code ignored;
+            std::filesystem::remove(temp, ignored);
+            return false;
+        }
     }
-    file << contents;
-    file.close();
-    if (!file) {
-        print_error("cannot write settings file: " + std::string(path));
+    std::error_code error;
+    std::filesystem::rename(temp, target, error);
+    if (error) {
+        std::filesystem::remove(temp, error);
+        print_error("cannot replace settings file: " + target);
         return false;
     }
     return true;

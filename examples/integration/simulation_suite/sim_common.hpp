@@ -23,6 +23,8 @@
 #include <utility>
 #include <vector>
 
+#include <unistd.h>
+
 #include <nexigen/app/infrastructure.hpp>
 #include "../../app/time_base_fixture.hpp"
 #include <nexigen/chrono/null_sink.hpp>
@@ -249,14 +251,31 @@ inline int fail_status(std::string_view tag, std::string_view action, const Resu
 /// @return `true` when the file was written completely.
 [[nodiscard]] inline bool write_settings_file(std::string_view tag, std::string_view path,
                                               std::string_view contents) {
-    std::ofstream file{std::string(path), std::ios::out | std::ios::trunc};
-    if (!file) {
-        print_error(tag, "cannot open settings file: " + std::string(path));
+    const std::string target(path);
+    const std::string temp = target + ".tmp." + std::to_string(static_cast<long>(::getpid()));
+    {
+        std::ofstream file{temp, std::ios::out | std::ios::trunc};
+        if (!file) {
+            print_error(tag, "cannot open settings file: " + temp);
+            return false;
+        }
+        file << contents;
+        file.close();
+        if (!file) {
+            print_error(tag, "cannot write settings file: " + temp);
+            std::error_code ignored;
+            std::filesystem::remove(temp, ignored);
+            return false;
+        }
+    }
+    std::error_code error;
+    std::filesystem::rename(temp, target, error);
+    if (error) {
+        std::filesystem::remove(temp, error);
+        print_error(tag, "cannot replace settings file: " + target);
         return false;
     }
-    file << contents;
-    file.close();
-    return !file.fail();
+    return true;
 }
 
 /// @brief Prepare the standalone settings and output directories.
