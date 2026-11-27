@@ -1,6 +1,6 @@
 # Проработать логирование и сбор метрик в компонентах CANopen
 
-Status: open
+Status: resolved
 Type: task
 
 ## Контекст
@@ -43,20 +43,42 @@ Type: task
 
 ## Критерии готовности проработки
 
-- [ ] Зафиксирован слой-владелец логирования/метрик/tracing.
-- [ ] Согласован список метрик с именами, единицами и labels.
-- [ ] Определены правила логирования и anti-storm политика.
-- [ ] Определены spans и точки корреляции.
-- [ ] Зафиксированы требования к overhead и способ их проверки.
-- [ ] Подготовлен OpenSpec change (spec/design/tasks) на реализацию.
+- [x] Зафиксирован слой-владелец логирования/метрик/tracing: runtime-слой; core остаётся
+  telemetry-free.
+- [x] Согласован список метрик с именами, единицами и labels: Tier 1 на шину, per-bus meter
+  `canopen.<bus>`, без per-node/per-PDO labels.
+- [x] Определены правила логирования и anti-storm политика: policy A, edge-gate, repeat/recovery,
+  global budget, `OBS-SUM`.
+- [x] Определены spans и точки корреляции (реализация отложена до runtime-change; зафиксированы
+  в `design.md`).
+- [x] Зафиксированы требования к overhead и способ их проверки: бюджет hot path, zero allocation,
+  benchmark + latency/TSan/ASan-гейты.
+- [x] Подготовлен OpenSpec change (spec/design/tasks) на реализацию.
 
 ## Открытые вопросы
 
 - Давать ли core внедряемый `CanOpenTelemetry` интерфейс или считать метрики только
-  в runtime-адаптере?
-- Нужны ли per-node/per-PDO labels или достаточно агрегатов по bus/node?
-- Какие события должны немедленно менять `HealthState`/инициировать SM-переход?
+  в runtime-адаптере? — Решено: только runtime-адаптер, core остаётся чистым.
+- Нужны ли per-node/per-PDO labels или достаточно агрегатов по bus/node? — Решено: labels нет;
+  один meter на шину, per-node детали в логах и `OBS-SNAP`.
+- Какие события должны немедленно менять `HealthState`/инициировать SM-переход? — Отложено до
+  runtime-change: bus-off, heartbeat timeout, critical EMCY, cycle deadline miss.
 - Нужна ли отдельная метрика для каждого сигнала из `*.nxmap.json`, или только
-  агрегированные quality/staleness counters?
+  агрегированные quality/staleness counters? — Решено: агрегированные
+  `signal_updates/stale/out_of_range`, без per-signal метрик.
+
+## Resolution
+
+Проработка завершена в OpenSpec change
+[`add-canopen-observability`](../../../openspec/changes/add-canopen-observability/proposal.md):
+
+- `proposal.md` — runtime-owned observability и границы изменения.
+- `design.md` — Tier 1/Tier 2 каталог, meter на шину, error gate, suppression ladder,
+  capacity formula, отложенные spans и PHM/SM-корреляция.
+- `specs/canopen/observability/spec.md` — нормативный контракт.
+- `tasks.md` — план реализации и проверок.
+
+Tier 2 сохранён в `design.md` как deferred; реализация runtime и tracing/PHM — отдельные
+follow-up changes.
 
 ## Comments
