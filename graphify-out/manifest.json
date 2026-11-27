@@ -42,9 +42,9 @@
     "semantic_hash": ""
   },
   "examples/app/ex_app_cli_settings.cpp": {
-    "mtime": 1795366983.1463277,
-    "seen": 1795378087.721449,
-    "ast_hash": "2ebcf3b53f1ce6679152f14ec2fe7867",
+    "mtime": 1795802806.7566981,
+    "seen": 1795804134.500495,
+    "ast_hash": "af87869f7150dc3c3cfc112d99fadc7b",
     "semantic_hash": ""
   },
   "examples/app/ex_app_lifecycle.cpp": {
@@ -156,9 +156,9 @@
     "semantic_hash": ""
   },
   "examples/suite/ex_suite_app.cpp": {
-    "mtime": 1795366983.176117,
-    "seen": 1795378087.7223792,
-    "ast_hash": "71e07546afd1480243628b0e0a15289c",
+    "mtime": 1795730244.3386028,
+    "seen": 1795733406.4319582,
+    "ast_hash": "6d8dfdf79070023d666d3bd578a3c0e4",
     "semantic_hash": ""
   },
   "examples/suite/run_suite_demo.sh": {
@@ -2628,21 +2628,21 @@
     "semantic_hash": ""
   },
   "tests/app/app_test_support.hpp": {
-    "mtime": 1795366983.226812,
-    "seen": 1795378087.7345085,
-    "ast_hash": "3526e905e056fb718bfb73cc9907391d",
+    "mtime": 1795808067.9024897,
+    "seen": 1795808125.7410169,
+    "ast_hash": "cb8565748ba2ed8609dddee6dc650eda",
     "semantic_hash": ""
   },
   "tests/app/command_line_test.cpp": {
-    "mtime": 1795351659.1612911,
-    "seen": 1795352857.8288224,
-    "ast_hash": "7334db7b885673d8d101d97c5f90ee80",
+    "mtime": 1795804443.9545228,
+    "seen": 1795806986.5155392,
+    "ast_hash": "10140db6ea0e9c3ad345c1128c2ecf7f",
     "semantic_hash": ""
   },
   "tests/app/infrastructure_test.cpp": {
-    "mtime": 1795360518.9240882,
-    "seen": 1795363051.2483275,
-    "ast_hash": "759380ee987028411a615046ccf6ecd7",
+    "mtime": 1795804437.4415343,
+    "seen": 1795806986.5155404,
+    "ast_hash": "914a1bae7626cd490339a412c188d323",
     "semantic_hash": ""
   },
   "tests/app/main.cpp": {
@@ -2658,9 +2658,9 @@
     "semantic_hash": ""
   },
   "tests/app/telemetry_layout_test.cpp": {
-    "mtime": 1795298702.224224,
-    "seen": 1795301291.8293412,
-    "ast_hash": "060056a09de9f3471ea282f2db4d75e1",
+    "mtime": 1795804446.3105187,
+    "seen": 1795806986.5156472,
+    "ast_hash": "8151b76224c999f3e755db6e6d48c699",
     "semantic_hash": ""
   },
   "tests/chrono/chrono_test.cpp": {
@@ -2706,9 +2706,9 @@
     "semantic_hash": ""
   },
   "tests/diagnostics/diagnostics_test.cpp": {
-    "mtime": 1794188561.539683,
-    "seen": 1794351957.9655337,
-    "ast_hash": "958ef8ffe1f89f82ada04499f7605d73",
+    "mtime": 1795805735.0186515,
+    "seen": 1795806986.5158443,
+    "ast_hash": "ced91c297d21e3cb131698fb377f5bfe",
     "semantic_hash": ""
   },
   "tests/exec/app_suite_test.cpp": {
@@ -2772,9 +2772,9 @@
     "semantic_hash": ""
   },
   "tests/hub/hub_cli_test.sh": {
-    "mtime": 1793731030.5204055,
-    "seen": 1794351957.9655397,
-    "ast_hash": "c41b6e5c729c63049c00a5196245ee30",
+    "mtime": 1795802820.6966445,
+    "seen": 1795804134.5152016,
+    "ast_hash": "48c642b73fcb73e79fbf228797b5e479",
     "semantic_hash": ""
   },
   "tests/hub/hub_test_support.hpp": {
@@ -3348,9 +3348,9 @@
     "semantic_hash": ""
   },
   "CMakeLists.txt": {
-    "mtime": 1795547259.5488346,
-    "seen": 1795548451.8973517,
-    "ast_hash": "934b0887cbd30cbab11ef023fdad5c4d",
+    "mtime": 1795739476.8109186,
+    "seen": 1795739857.5911143,
+    "ast_hash": "d4cf47dfae8d83d2330a9f6f8c2913e6",
     "semantic_hash": ""
   },
   "README.md": {
@@ -3360,15 +3360,15 @@
     "semantic_hash": ""
   },
   "TODO.md": {
-    "mtime": 1795306563.5812817,
-    "seen": 1795306608.6725156,
-    "ast_hash": "0da4860761153b0a1decdf606fae6d20",
+    "mtime": 1795806953.8060691,
+    "seen": 1795806986.5212607,
+    "ast_hash": "7e4c24e9bfd32c765388468b98dd26fb",
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1795636310.83046,
-    "seen": 1795636356.2422037,
-    "ast_hash": "154edfdd70414cbe2676cdbd57e697c6",
+    "mtime": 1795739460.894953,
+    "seen": 1795739857.5913122,
+    "ast_hash": "1dbfebeb615b10a4276515e8e6ccb3c8",
     "semantic_hash": ""
   },
   "docs/code-analysis-2026-11-03.md": {
@@ -3414,9 +3414,9 @@
     "semantic_hash": ""
   },
   "examples/CMakeLists.txt": {
-    "mtime": 1795360858.5930336,
-    "seen": 1795363051.251264,
-    "ast_hash": "aee8fbe657c7bd5e72db8f9f31e80bfe",
+    "mtime": 1795732297.2500129,
+    "seen": 1795733406.4523184,
+    "ast_hash": "ee6a80491791e55a9aa30d1964c32990",
     "semantic_hash": ""
   },
   "examples/app/CMakeLists.txt": {
@@ -7074,9 +7074,9 @@
     "semantic_hash": ""
   },
   "tests/CMakeLists.txt": {
-    "mtime": 1795466387.0709178,
-    "seen": 1795466536.9457984,
-    "ast_hash": "8e400ebfc81810d617af8c8e75879593",
+    "mtime": 1795802813.0696738,
+    "seen": 1795804134.543727,
+    "ast_hash": "f6d4d6065be763b50d2d0846b1266a0a",
     "semantic_hash": ""
   },
   "tests/packaging/consumer/CMakeLists.txt": {
@@ -7086,9 +7086,9 @@
     "semantic_hash": ""
   },
   "tools/CMakeLists.txt": {
-    "mtime": 1795547302.114947,
-    "seen": 1795548451.9178243,
-    "ast_hash": "fe564ff2f9216cf3226086bf5000e70a",
+    "mtime": 1795732297.2459517,
+    "seen": 1795733406.4748893,
+    "ast_hash": "f4a4db44871076e8c4d9558e002aa971",
     "semantic_hash": ""
   },
   "tests/logging/log_daemon_test.cpp": {
@@ -7824,9 +7824,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/tracing/detail/trace_daemon_session.hpp": {
-    "mtime": 1795345926.9902375,
-    "seen": 1795347732.977582,
-    "ast_hash": "e82362e93a11e7ea865ecaa98833bbcc",
+    "mtime": 1795730174.9527636,
+    "seen": 1795733406.439609,
+    "ast_hash": "d50854da3fe3d45f00e6b9c7aae40f79",
     "semantic_hash": ""
   },
   "include/nexigen/tracing/detail/trace_dump.hpp": {
@@ -7836,9 +7836,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/tracing/trace_daemon_config.hpp": {
-    "mtime": 1794516210.8777294,
-    "seen": 1794516334.665891,
-    "ast_hash": "f153dd0a0d945c4c9a6a716ac2c692d4",
+    "mtime": 1795730286.9509537,
+    "seen": 1795733406.4398615,
+    "ast_hash": "25e6911113fff02495bdf0e1c63f322c",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-12-add-iceoryx2-trace-sink/.openspec.yaml": {
@@ -7848,15 +7848,15 @@
     "semantic_hash": ""
   },
   "src/tracing/trace_daemon_config.cpp": {
-    "mtime": 1794442820.6392438,
-    "seen": 1794445570.4461458,
-    "ast_hash": "767cc93c74bf3f0103ce36b0cb2beaf0",
+    "mtime": 1795730174.9567635,
+    "seen": 1795733406.4452827,
+    "ast_hash": "3503e44652a46ba8d833d82b50ce0526",
     "semantic_hash": ""
   },
   "tests/tracing/trace_daemon_test.cpp": {
-    "mtime": 1795366983.2797105,
-    "seen": 1795378087.7362654,
-    "ast_hash": "5e7d88556fe052ec1fbebaa3375e51e9",
+    "mtime": 1795804473.227471,
+    "seen": 1795806986.5173097,
+    "ast_hash": "97219f3d217c09667fd69af2b0e859a5",
     "semantic_hash": ""
   },
   "tools/nexigen-traced/main.cpp": {
@@ -7872,9 +7872,9 @@
     "semantic_hash": ""
   },
   "docs/trace-daemon.md": {
-    "mtime": 1795298858.2093625,
-    "seen": 1795301291.8330386,
-    "ast_hash": "01447a7d44c41371a9fd1b0be419c30a",
+    "mtime": 1795802813.0696738,
+    "seen": 1795804134.521238,
+    "ast_hash": "bd2ca8d641a52c8345ccce067be0edd5",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-12-add-iceoryx2-trace-sink/design.md": {
@@ -7950,9 +7950,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/tracing/trace-daemon/spec.md": {
-    "mtime": 1795301236.0613887,
-    "seen": 1795301291.8542507,
-    "ast_hash": "e7964e767f29c9a07dc0eb6498a07933",
+    "mtime": 1795804096.974159,
+    "seen": 1795804134.5436363,
+    "ast_hash": "1591756c7271e72071259256332b0f0c",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-12-add-worker-thread/.openspec.yaml": {
@@ -8220,15 +8220,15 @@
     "semantic_hash": ""
   },
   "examples/integration/suite_2_apps/ex_generator.cpp": {
-    "mtime": 1795483981.5269263,
-    "seen": 1795485436.4507456,
-    "ast_hash": "5f7398f96f6c8ebdc354cfad045fc022",
+    "mtime": 1795730244.3386028,
+    "seen": 1795733406.4316635,
+    "ast_hash": "e318b987b6a185e5eadb7f5a9aa3c52a",
     "semantic_hash": ""
   },
   "examples/integration/suite_2_apps/ex_receiver.cpp": {
-    "mtime": 1795366983.1716018,
-    "seen": 1795378087.722079,
-    "ast_hash": "e2d9c43b70ee7ddf5f93f2d44b78dca1",
+    "mtime": 1795730244.3386028,
+    "seen": 1795733406.431665,
+    "ast_hash": "ead404117d02d2b3b3a420df494adc28",
     "semantic_hash": ""
   },
   "examples/integration/suite_2_apps/run_suite_2_apps.sh": {
@@ -10278,9 +10278,9 @@
     "semantic_hash": ""
   },
   "examples/integration/simulation_suite/sim_common.hpp": {
-    "mtime": 1795366983.1633964,
-    "seen": 1795378087.7219124,
-    "ast_hash": "cd122733528355be158069091496bd01",
+    "mtime": 1795802806.7486982,
+    "seen": 1795804134.5010185,
+    "ast_hash": "094bf38a91e04717b9b456c59b26282d",
     "semantic_hash": ""
   },
   "examples/integration/simulation_suite/vector_sample.hpp": {
@@ -10692,9 +10692,9 @@
     "semantic_hash": ""
   },
   "docs/project-brief.md": {
-    "mtime": 1794783816.112537,
-    "seen": 1794869257.9280028,
-    "ast_hash": "30f2ffdb2cc0680e4d2b7499f62c7970",
+    "mtime": 1795808442.9944336,
+    "seen": 1795808974.269493,
+    "ast_hash": "d077d200d857b73225f07085ab984bd0",
     "semantic_hash": ""
   },
   "docs/recorder.md": {
@@ -11034,9 +11034,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/com/event-system/spec.md": {
-    "mtime": 1795711446.7581055,
-    "seen": 1795711875.1745787,
-    "ast_hash": "2265d398303f64773d37351ef08c59bd",
+    "mtime": 1795728792.0980065,
+    "seen": 1795733406.472442,
+    "ast_hash": "e13e6031a3e0a52c63c5858d3d7f2b9e",
     "semantic_hash": ""
   },
   "include/nexigen/synchro/detail/sync_clock.hpp": {
@@ -11628,9 +11628,9 @@
     "semantic_hash": ""
   },
   "tests/support/test_time_base.hpp": {
-    "mtime": 1795286157.590403,
-    "seen": 1795288681.3372583,
-    "ast_hash": "55773b0f5e3add70496e4495565c0c27",
+    "mtime": 1795806994.861157,
+    "seen": 1795807081.0314443,
+    "ast_hash": "970aaad43e57ff71df54429446ece588",
     "semantic_hash": ""
   },
   "tools/nexigen-chronod/live_probe.cpp": {
@@ -14706,9 +14706,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-canview/CMakeLists.txt": {
-    "mtime": 1795555833.7730982,
-    "seen": 1795555963.8097956,
-    "ast_hash": "e46afab9e2c13496400f747771e4eee8",
+    "mtime": 1795739041.2918112,
+    "seen": 1795739857.6148057,
+    "ast_hash": "1951f4fc1c02580864a0489eee03e9b4",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/canopen/README.md": {
@@ -14748,15 +14748,15 @@
     "semantic_hash": ""
   },
   "tools/nexigen-canview/model/can_view_model.cpp": {
-    "mtime": 1795716492.6530554,
-    "seen": 1795716664.451548,
-    "ast_hash": "5ab16697c29e5595a525b8429b11d610",
+    "mtime": 1795808287.6528525,
+    "seen": 1795808974.2653844,
+    "ast_hash": "1eed84cdc1f14bbcfc7a0208d8aa742f",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/model/can_view_model.hpp": {
-    "mtime": 1795716487.2500694,
-    "seen": 1795716664.4515493,
-    "ast_hash": "7ef2def3594ae8ccfe5355bc166126b6",
+    "mtime": 1795808287.6528525,
+    "seen": 1795808974.2653866,
+    "ast_hash": "41150a1d887e25f8331d051c3fa9a4c9",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/model/filter_criteria.cpp": {
@@ -14856,9 +14856,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-canview/tests/views_test.cpp": {
-    "mtime": 1795716563.7118711,
-    "seen": 1795716664.4526699,
-    "ast_hash": "b86974e39c8605dbf7aef2f829945a2b",
+    "mtime": 1795808295.8168304,
+    "seen": 1795808974.266436,
+    "ast_hash": "c7740f835dbe7f317e69def9527c9dc1",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/canopen/canopen_registry.cpp": {
@@ -14885,40 +14885,28 @@
     "ast_hash": "9d4ba8ef57bd24f6d3293adb129ccf09",
     "semantic_hash": ""
   },
-  "tools/nexigen-canview/canopen/canopen_types.cpp": {
-    "mtime": 1795549569.525581,
-    "seen": 1795549604.177902,
-    "ast_hash": "feef4fab0740f3c17b3c9f5030d9762e",
-    "semantic_hash": ""
-  },
   "tools/nexigen-canview/canopen/canopen_types.hpp": {
-    "mtime": 1795559794.2076247,
-    "seen": 1795560111.038631,
-    "ast_hash": "04cf6fa2467258b83691fd51790b90ea",
+    "mtime": 1795738989.7989058,
+    "seen": 1795739857.5872777,
+    "ast_hash": "c35215bd4d2fbc26bbf296e9ba6159aa",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/canopen/cob_id_router.cpp": {
-    "mtime": 1795549717.685148,
-    "seen": 1795555184.579797,
-    "ast_hash": "477caeab6c3018d3b407425d63059bf9",
+    "mtime": 1795738993.2258997,
+    "seen": 1795739857.5873413,
+    "ast_hash": "d7c9fa5721f47d5cc7428084b8c16bb3",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/canopen/cob_id_router.hpp": {
-    "mtime": 1795555801.4425855,
-    "seen": 1795555963.7844248,
-    "ast_hash": "6d5132d5a917840f84cdceb195e65849",
-    "semantic_hash": ""
-  },
-  "tools/nexigen-canview/canopen/eds_dictionary.cpp": {
-    "mtime": 1795549569.5417926,
-    "seen": 1795549604.1779063,
-    "ast_hash": "18195677a2d1dc641a3994b9e1b41d64",
+    "mtime": 1795739065.4967668,
+    "seen": 1795739857.5873425,
+    "ast_hash": "e42fc95dad7c934d386d5bf89a086e0d",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/canopen/eds_dictionary.hpp": {
-    "mtime": 1795555801.4425528,
-    "seen": 1795555963.784441,
-    "ast_hash": "cb938c20f91e5e401f19ad6a38ca2526",
+    "mtime": 1795738989.7989058,
+    "seen": 1795739857.587344,
+    "ast_hash": "ab630be6b1766d2715729ce088da0776",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/canopen/eds_library.cpp": {
@@ -14933,22 +14921,16 @@
     "ast_hash": "adbdf35c889a59f245e29e38fda3d05b",
     "semantic_hash": ""
   },
-  "tools/nexigen-canview/canopen/eds_parser.cpp": {
-    "mtime": 1795549569.5314841,
-    "seen": 1795549604.1779106,
-    "ast_hash": "24e90907593de562a4408083bc65afe4",
-    "semantic_hash": ""
-  },
   "tools/nexigen-canview/canopen/eds_parser.hpp": {
-    "mtime": 1795549569.5380173,
-    "seen": 1795549604.1779118,
-    "ast_hash": "4611261def02f50dfef82ca085dbdd18",
+    "mtime": 1795739055.0197861,
+    "seen": 1795739857.5873773,
+    "ast_hash": "a335d138b0b8987d706928bcd43d873e",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/tests/canopen_test.cpp": {
-    "mtime": 1795549569.5645316,
-    "seen": 1795549604.178705,
-    "ast_hash": "9330bc2763a14c4b9c5be2bbf420d6bd",
+    "mtime": 1795758507.6676226,
+    "seen": 1795758842.3134263,
+    "ast_hash": "7b060f1d80a3572c398664d8ec180be9",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/canopen/canopen_decoder.cpp": {
@@ -15012,9 +14994,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-canview/canopen/pdo_decoder.cpp": {
-    "mtime": 1795555603.4147751,
-    "seen": 1795555963.7845483,
-    "ast_hash": "afc1a036c37da699a9710ea3ed781b1c",
+    "mtime": 1795739480.801702,
+    "seen": 1795739857.5874414,
+    "ast_hash": "1ea77690acd098c7b6f5a3c7c1d2306c",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/canopen/pdo_decoder.hpp": {
@@ -15024,15 +15006,15 @@
     "semantic_hash": ""
   },
   "tools/nexigen-canview/canopen/sdo_decoder.cpp": {
-    "mtime": 1795583943.863476,
-    "seen": 1795584622.6769247,
-    "ast_hash": "1f8ec742c6082cda22f9d23e749a7aa0",
+    "mtime": 1795739480.8034344,
+    "seen": 1795739857.5874584,
+    "ast_hash": "f97536f3d52dd365b886ea1cdc64ec48",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/canopen/sdo_decoder.hpp": {
-    "mtime": 1795583943.8634248,
-    "seen": 1795584622.6769261,
-    "ast_hash": "8881d97449c908863ecd8b6ab587327f",
+    "mtime": 1795739023.5868437,
+    "seen": 1795739857.5874593,
+    "ast_hash": "a436e460f27262657ce99603d3d1ab51",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/headless.cpp": {
@@ -15168,9 +15150,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-canview/tests/canopen_decode_test.cpp": {
-    "mtime": 1795584273.2573214,
-    "seen": 1795584622.6781492,
-    "ast_hash": "6104205868675f01ab6a56ef7049ab2f",
+    "mtime": 1795758507.667738,
+    "seen": 1795758842.313425,
+    "ast_hash": "84546105cdec0030e461744b891e9f78",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/tests/config_test.cpp": {
@@ -15198,9 +15180,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-canview/ui/canview_window.cpp": {
-    "mtime": 1795716567.856018,
-    "seen": 1795716664.4526713,
-    "ast_hash": "cdb1151c8cc629c692b99fec90412f6a",
+    "mtime": 1795808292.0548406,
+    "seen": 1795808974.2664373,
+    "ast_hash": "37cd243506c0fb955879e383d1725547",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/ui/canview_window.hpp": {
@@ -15366,9 +15348,9 @@
     "semantic_hash": ""
   },
   "openspec/specs/hw/can/viewer/spec.md": {
-    "mtime": 1795716600.8087752,
-    "seen": 1795716664.4769971,
-    "ast_hash": "33a8b779b631e041d4ba821cef8265eb",
+    "mtime": 1795728791.455008,
+    "seen": 1795733406.473501,
+    "ast_hash": "8921e5928a9dc36d4aca331ce8ed817d",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-25-add-can-batch-protocol/.openspec.yaml": {
@@ -15507,6 +15489,402 @@
     "mtime": 1795490685.4331825,
     "seen": 1795711875.1741881,
     "ast_hash": "e7377730e0eb7f6d03df0b12850ef3c1",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-add-canview-view-titles/.openspec.yaml": {
+    "mtime": 1795717381.8247516,
+    "seen": 1795733406.443155,
+    "ast_hash": "69cde945727725105424c51b3d9f85c9",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-fix-com-multi-publisher-sequence/.openspec.yaml": {
+    "mtime": 1795717386.5307393,
+    "seen": 1795733406.4431558,
+    "ast_hash": "69cde945727725105424c51b3d9f85c9",
+    "semantic_hash": ""
+  },
+  "docs/project-overview.md": {
+    "mtime": 1795729065.9203594,
+    "seen": 1795733406.4522622,
+    "ast_hash": "b3be76ff14d6cc20e866d6f1913f4b43",
+    "semantic_hash": ""
+  },
+  "initial_spec/can_open/nexigen_canopen_tz.md": {
+    "mtime": 1795727994.8099787,
+    "seen": 1795733406.4525123,
+    "ast_hash": "64dd7ecfbb95d95480cf65a9e9bb5923",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-add-canview-view-titles/README.md": {
+    "mtime": 1795717381.826006,
+    "seen": 1795733406.4720638,
+    "ast_hash": "03b5105c682aba6a01b0beecfeb7627b",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-add-canview-view-titles/design.md": {
+    "mtime": 1795717460.1395488,
+    "seen": 1795733406.4720647,
+    "ast_hash": "150557b4b40af8f425a1fbf801d70605",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-add-canview-view-titles/proposal.md": {
+    "mtime": 1795717449.2225769,
+    "seen": 1795733406.4720654,
+    "ast_hash": "fbb6e732256689f3f83ad0ffd60c5f73",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-add-canview-view-titles/specs/hw/can/viewer/spec.md": {
+    "mtime": 1795717453.444566,
+    "seen": 1795733406.4720662,
+    "ast_hash": "67097277da30dea70dff15a8feeafe1d",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-add-canview-view-titles/tasks.md": {
+    "mtime": 1795717654.838707,
+    "seen": 1795733406.472067,
+    "ast_hash": "7c9ddcc34e311d72bbc29f02c6c87e16",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-fix-com-multi-publisher-sequence/README.md": {
+    "mtime": 1795717386.5325437,
+    "seen": 1795733406.4720678,
+    "ast_hash": "9728b76eaf469fc496eb4cc8e9ea9358",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-fix-com-multi-publisher-sequence/design.md": {
+    "mtime": 1795717490.46647,
+    "seen": 1795733406.4720685,
+    "ast_hash": "65af6d4dc92fc25635c2de74637982d5",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-fix-com-multi-publisher-sequence/proposal.md": {
+    "mtime": 1795717474.3895118,
+    "seen": 1795733406.4720693,
+    "ast_hash": "c8b0eb6a98bf5257cf4ae7d42030b2ac",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-fix-com-multi-publisher-sequence/specs/com/event-system/spec.md": {
+    "mtime": 1795717515.2444022,
+    "seen": 1795733406.47207,
+    "ast_hash": "3f884476aa6aca6a495933d500a0b431",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-fix-com-multi-publisher-sequence/tasks.md": {
+    "mtime": 1795717654.8387983,
+    "seen": 1795733406.4720707,
+    "ast_hash": "228a55b112428c71b69096a3f11e2b9e",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/co_service.hpp": {
+    "mtime": 1795738883.3061018,
+    "seen": 1795739857.5717301,
+    "ast_hash": "186d2e05f5107e5e2fe08f5f67fbf416",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/cob_id_binding.hpp": {
+    "mtime": 1795758472.5656204,
+    "seen": 1795758842.295488,
+    "ast_hash": "90f6ee6b65a361a702ccc2b85729d1d5",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/cob_id_conflict.hpp": {
+    "mtime": 1795739962.051868,
+    "seen": 1795740824.92133,
+    "ast_hash": "0178d01c38a5368a37a6cd18a0c4d63e",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/cob_id_route.hpp": {
+    "mtime": 1795739962.051868,
+    "seen": 1795740824.9213321,
+    "ast_hash": "85279c67f2526415366fa8612d4c8a7f",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/cob_id_router.hpp": {
+    "mtime": 1795738972.261938,
+    "seen": 1795739857.5717356,
+    "ast_hash": "df432bf8eb81346c81fa5b604c16cbe8",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_access.hpp": {
+    "mtime": 1795738883.3081017,
+    "seen": 1795739857.5717366,
+    "ast_hash": "e0c9dd00c8b36ae768082146e8b9b0ef",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_cob_id_entry.hpp": {
+    "mtime": 1795758461.5936458,
+    "seen": 1795758842.2955601,
+    "ast_hash": "7f136a643d535687008c92ad6a93b413",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_data_kind.hpp": {
+    "mtime": 1795738883.3081017,
+    "seen": 1795739857.571738,
+    "ast_hash": "7c8e2826465a54536ac1a23782919c10",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_data_type_info.hpp": {
+    "mtime": 1795758861.12469,
+    "seen": 1795759130.739365,
+    "ast_hash": "1e69cc1abd50ea34b6b5baf471fd5d31",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_diagnostic.hpp": {
+    "mtime": 1795738902.0650673,
+    "seen": 1795739857.5717397,
+    "ast_hash": "cf20940aa78d232e1564263437b33b42",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_dictionary.hpp": {
+    "mtime": 1795738904.6010625,
+    "seen": 1795739857.5717404,
+    "ast_hash": "d70e2a64879be9bae3058defd363853a",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_limits.hpp": {
+    "mtime": 1795758472.5656204,
+    "seen": 1795758842.295629,
+    "ast_hash": "4bc337aef625a45aa17c9d004b6174ac",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_mapping_entry.hpp": {
+    "mtime": 1795758466.5406344,
+    "seen": 1795758842.2956305,
+    "ast_hash": "b3692d362618ad0b63dadb743c08e81f",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_numeric.hpp": {
+    "mtime": 1795758449.521674,
+    "seen": 1795758842.2956316,
+    "ast_hash": "fc1d0bb60315235434fe0b58eb85a701",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_object.hpp": {
+    "mtime": 1795758490.3311114,
+    "seen": 1795758842.2956326,
+    "ast_hash": "a1e4b4353c8fbed821b8045d5be16afb",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_object_type.hpp": {
+    "mtime": 1795739883.3240385,
+    "seen": 1795740824.9215138,
+    "ast_hash": "e9402ab85db39ae8d9829da0ec20073d",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_parse_result.hpp": {
+    "mtime": 1795758472.5656204,
+    "seen": 1795758842.2956505,
+    "ast_hash": "c86f1da7410548b4c97fd3c5c430c712",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_parser.hpp": {
+    "mtime": 1795758477.502609,
+    "seen": 1795758842.2956514,
+    "ast_hash": "a9393b4c5ea06458ee63607ee7aeeedf",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/eds_pdo_mapping.hpp": {
+    "mtime": 1795758461.5936458,
+    "seen": 1795758842.2956524,
+    "ast_hash": "08d85e218ce538498627b238802d8f26",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/nmt_state.hpp": {
+    "mtime": 1795738887.572094,
+    "seen": 1795739857.571747,
+    "ast_hash": "a5863c638bb2fa84378ed7f345242899",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/pdo_decode.hpp": {
+    "mtime": 1795738927.226021,
+    "seen": 1795739857.5717478,
+    "ast_hash": "4c15b025754536c3619fd609845bc967",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/pdo_decode_result.hpp": {
+    "mtime": 1795739998.9015841,
+    "seen": 1795740824.9215956,
+    "ast_hash": "d9f7a43e5aa6ca5561e6d0e2873e111f",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/pdo_signal.hpp": {
+    "mtime": 1795739982.4801564,
+    "seen": 1795740824.921597,
+    "ast_hash": "03f60885304e1fcab890e24200fea5cb",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/sdo_assembler.hpp": {
+    "mtime": 1795758477.5256088,
+    "seen": 1795758842.2957187,
+    "ast_hash": "63ca79ab046086b81e0b6b2b5db97cc6",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/sdo_completed_write.hpp": {
+    "mtime": 1795739949.4488952,
+    "seen": 1795740824.9216151,
+    "ast_hash": "5cf58ae52adac61307590bb9a105cd63",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/sdo_event.hpp": {
+    "mtime": 1795739943.2129087,
+    "seen": 1795740824.921616,
+    "ast_hash": "618335cbfcf38ac2dedd601ab012fe9c",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/sdo_event_kind.hpp": {
+    "mtime": 1795739480.783819,
+    "seen": 1795739857.5717525,
+    "ast_hash": "593993c6411e057bcb1f13fafb5ed527",
+    "semantic_hash": ""
+  },
+  "src/canopen/cob_id_router.cpp": {
+    "mtime": 1795738978.5029268,
+    "seen": 1795739857.5827138,
+    "ast_hash": "f57a5c71a55fcadbd849ae064b148b01",
+    "semantic_hash": ""
+  },
+  "src/canopen/eds_access.cpp": {
+    "mtime": 1795738918.2956479,
+    "seen": 1795739857.5827146,
+    "ast_hash": "d99b1eee058173a6f77ef18c5e6f705e",
+    "semantic_hash": ""
+  },
+  "src/canopen/eds_data_type.cpp": {
+    "mtime": 1795738918.2950375,
+    "seen": 1795739857.582715,
+    "ast_hash": "9ae76a9d4e2e805b39f04846e9598786",
+    "semantic_hash": ""
+  },
+  "src/canopen/eds_dictionary.cpp": {
+    "mtime": 1795738913.4089692,
+    "seen": 1795739857.582716,
+    "ast_hash": "97ea44235643b80dadb44666db65934d",
+    "semantic_hash": ""
+  },
+  "src/canopen/eds_parser.cpp": {
+    "mtime": 1795738913.409155,
+    "seen": 1795739857.5827167,
+    "ast_hash": "b476d5ba40dc047b955912bb40a52553",
+    "semantic_hash": ""
+  },
+  "src/canopen/pdo_decode.cpp": {
+    "mtime": 1795739480.796419,
+    "seen": 1795739857.5827174,
+    "ast_hash": "f9adfd846ab61f4c9a124e35f48e6838",
+    "semantic_hash": ""
+  },
+  "src/canopen/sdo_assembler.cpp": {
+    "mtime": 1795739480.798981,
+    "seen": 1795739857.582718,
+    "ast_hash": "ffb7b4bf24568d3e83f88c37da1bb816",
+    "semantic_hash": ""
+  },
+  "tests/canopen/canopen_core_test.cpp": {
+    "mtime": 1795758490.3226793,
+    "seen": 1795758842.3095224,
+    "ast_hash": "958594203a320a4799df63aa9ff6ed14",
+    "semantic_hash": ""
+  },
+  "src/canopen/cob_id_conflict.cpp": {
+    "mtime": 1795739998.8785062,
+    "seen": 1795740824.932708,
+    "ast_hash": "3adb622d80c613f8d8bc8d606122db09",
+    "semantic_hash": ""
+  },
+  "src/canopen/cob_id_route.cpp": {
+    "mtime": 1795739998.8786077,
+    "seen": 1795740824.9327092,
+    "ast_hash": "aedaa0d3d465c402591f7df0e02dfc36",
+    "semantic_hash": ""
+  },
+  "src/canopen/pdo_decode_result.cpp": {
+    "mtime": 1795739998.8786492,
+    "seen": 1795740824.9327996,
+    "ast_hash": "b59a5c955f16f23aa1755b644089cf34",
+    "semantic_hash": ""
+  },
+  "src/canopen/pdo_signal.cpp": {
+    "mtime": 1795739998.8786807,
+    "seen": 1795740824.9328005,
+    "ast_hash": "20517c7a766a485c08b13b2d3aa1c097",
+    "semantic_hash": ""
+  },
+  "src/canopen/sdo_completed_write.cpp": {
+    "mtime": 1795739954.9218833,
+    "seen": 1795740824.9328167,
+    "ast_hash": "ef53c72f43a462602582ecdaf4ceca60",
+    "semantic_hash": ""
+  },
+  "src/canopen/sdo_event.cpp": {
+    "mtime": 1795739998.8787098,
+    "seen": 1795740824.9328177,
+    "ast_hash": "4c3914933395ecd290d6e6b8ed87e8fe",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-extract-canopen-core/.openspec.yaml": {
+    "mtime": 1795738605.793612,
+    "seen": 1795759130.7506363,
+    "ast_hash": "b39aac0fe25d150d0b35d6444787ec84",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-extract-canopen-core/README.md": {
+    "mtime": 1795738605.7955146,
+    "seen": 1795759130.7807343,
+    "ast_hash": "300d3a29075aca8079229b01b55726b7",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-extract-canopen-core/design.md": {
+    "mtime": 1795758507.6678073,
+    "seen": 1795759130.7807355,
+    "ast_hash": "eda3040a7e00e62203b1197445b56335",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-extract-canopen-core/proposal.md": {
+    "mtime": 1795738642.8035438,
+    "seen": 1795759130.7807364,
+    "ast_hash": "880aa0e6902a0d1d478f644222f1e22d",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-extract-canopen-core/specs/canopen/core/spec.md": {
+    "mtime": 1795739971.3948476,
+    "seen": 1795759130.7807376,
+    "ast_hash": "2ed991ccb2cc84d8f16d45b8d1a5bb59",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-27-extract-canopen-core/tasks.md": {
+    "mtime": 1795758847.712046,
+    "seen": 1795759130.7807386,
+    "ast_hash": "475e8c0bcf31369b839261e6b63115e1",
+    "semantic_hash": ""
+  },
+  "openspec/specs/canopen/core/spec.md": {
+    "mtime": 1795758847.953725,
+    "seen": 1795759130.7810009,
+    "ast_hash": "9f837ded6b6135d43fa342badfe75fd5",
+    "semantic_hash": ""
+  },
+  ".scratch/canopen-observability/issues/01-logging-and-metrics.md": {
+    "mtime": 1795759770.4812732,
+    "seen": 1795800902.8024201,
+    "ast_hash": "83296f0b72d0bc728fece987ca36e242",
+    "semantic_hash": ""
+  },
+  ".scratch/canview-heatmap/issues/01-heatmap-review-or-disable.md": {
+    "mtime": 1795759956.8437617,
+    "seen": 1795800902.802422,
+    "ast_hash": "8bc163ba536f26e7a8846d9ff22b2e47",
+    "semantic_hash": ""
+  },
+  ".scratch/viewer-observability/issues/01-local-logging-metrics.md": {
+    "mtime": 1795759857.8130367,
+    "seen": 1795800902.8024406,
+    "ast_hash": "07d81b4b89ab424747daa8dcb671c1a5",
+    "semantic_hash": ""
+  },
+  ".scratch/canview-empty-view/issues/01-empty-view-toolbar.md": {
+    "mtime": 1795808300.1508188,
+    "seen": 1795808974.2688673,
+    "ast_hash": "ba267090400503fa0833808eb0ba968a",
     "semantic_hash": ""
   }
 }
