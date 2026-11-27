@@ -197,13 +197,13 @@ cmake -B build/logview -G Ninja -DNEXIGEN_ENABLE_COM=ON -DNEXIGEN_BUILD_LOGVIEW=
 ## 7. Отложено / беклог (кратко)
 
 - **`TODO.md`**: дашборд метрик в web UI `nexigen-hub`; P3-30 — разрезка
-  `HttpServer::Impl` (801 строка); P3-31 — декомпозиция `run_instance_supervisor`
-  (206) и `run_suite_supervisor` (137).
+  `HttpServer::Impl` (854 строки; транспорт и SSE уже вынесены, остался роутинг).
 - **`.scratch/` (Status: open)**: `canopen-observability` (где включать
   логи/метрики/трейсинг CANopen; предусловие для multi-node runtime и
   `nexigen-canopend`), `viewer-observability` (локальная наблюдаемость
   canview/logview без демонов), `canview-heatmap` (доводить или выключить opt-in).
-- **`docs/em-deferred.md`**: REQ_EM_010 authentic execution (подпись/security-лог),
+- **`docs/em-deferred.md`**: REQ_EM_010 authentic execution (SHA-256 для
+  executable/manifest/settings уже есть; остались подпись и security-лог),
   полная capability-политика `CAP_SYS_NICE`, REQ_SM_008 OTA/UCM, YAML-манифесты
   (конфликт с mandate 12), переименование `logging→log`/`tracing→trace`
   (BREAKING), event-нотификация `StatePublication` (сейчас polling).
@@ -211,7 +211,7 @@ cmake -B build/logview -G Ninja -DNEXIGEN_ENABLE_COM=ON -DNEXIGEN_BUILD_LOGVIEW=
   kernel ftrace (`add-ftrace-capture`), Perfetto `.pftrace`
   (`add-perfetto-export`); MP4/MKV remux — до `nexigen_media`;
   `OverflowPolicy::OverwriteOldest` не реализован в hot path; `context_id` в
-  `LogFrame` зарезервирован; `BootstrapDiagnostics` — follow-up к ADR 0002.
+  `LogFrame` зарезервирован.
 
 ## 8. Правила для новой функциональности
 

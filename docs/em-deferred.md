@@ -15,9 +15,12 @@
   bounding set перед `exec`; `allow_rt_priority: true` оставляет её. Осталось:
   полноценная политика permitted/effective/ambient (нужен `libcap` или
   `capget/capset`) — отдельная задача.
-- [ ] **REQ_EM_010 — Authentic Execution.** Верификация исполняемых файлов и
-  манифестов перед запуском (SHA-256 / криптоподпись); блокировка запуска при
-  несовпадении + критическое событие в security-лог. Сейчас проверок целостности нет.
+- [ ] **REQ_EM_010 — Authentic Execution.** Частично: SHA-256-верификация
+  исполняемого файла (`StartOptions::expected_executable_digest`), suite-манифеста
+  (`expected_sha256_hex`) и settings-файлов (`settings_digests`) блокирует запуск
+  с `SecurityError` при несовпадении. Проверки включаются только при заданных
+  дайджестах. Осталось: криптографическая подпись/корень доверия и критическое
+  событие в security-логе (сейчас ошибка уходит в `stderr`/`StartReport`).
 
 ## SM — интеграция с UCM (отложено до появления Update Manager)
 
@@ -53,8 +56,8 @@
 
 Полный статус REQ_EM_* — в TODO.md не дублируется; на 2026-11-15: реализованы
 001 (dependencies), 003, 004, 005 (Function Groups config) и 005X-logging/metrics;
-частично — 002, 006, 007, 008, 010 (SHA-256 без подписи/security-лога), 011, 012,
-014; 009 закрыт для setuid/setgid и bounding-set для `CAP_SYS_NICE`; осталась полная
-capability-политика.
+частично — 002, 006, 007, 008, 010 (SHA-256 для executable/manifest/settings;
+нет подписи и security-лога), 011, 012, 014; 009 закрыт для setuid/setgid и
+bounding-set для `CAP_SYS_NICE`; осталась полная capability-политика.
 Ближайшая волна по недостающему — safety-приоритеты (007/014) и оркестрация
 (011/012) — отдельными change'ами.
