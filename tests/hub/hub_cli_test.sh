@@ -22,7 +22,8 @@ fi
 "$BIN" --run-dir "$ROOT" --listen 0.0.0.0:0 --ring-records 16 \
     >"$OUT" 2>&1 &
 HUB_PID=$!
-for _ in {1..50}; do
+# Process startup under a loaded `ctest -j64` can exceed 5 s; allow 15 s.
+for _ in {1..150}; do
     grep -q "listening on" "$OUT" && break
     sleep 0.1
 done
@@ -38,7 +39,7 @@ HUB_PID=""
 "$BIN" --run-dir "$ROOT" --listen "[::1]:0" --ring-records 16 \
     >"$OUT" 2>&1 &
 HUB_PID=$!
-for _ in {1..50}; do
+for _ in {1..150}; do
     grep -q "listening on" "$OUT" && break
     sleep 0.1
 done
@@ -54,7 +55,7 @@ HUB_PID=""
 "$BIN" --run-dir "$ROOT" --listen "[::]:0" --ring-records 16 \
     >"$OUT" 2>&1 &
 HUB_PID=$!
-for _ in {1..50}; do
+for _ in {1..150}; do
     grep -q "listening on" "$OUT" && break
     sleep 0.1
 done

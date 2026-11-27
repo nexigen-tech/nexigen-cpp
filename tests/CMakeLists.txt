@@ -95,7 +95,9 @@ if(NEXIGEN_STRICT_LATENCY_TESTS)
 endif()
 
 add_test(NAME nexigen_logging_tests COMMAND nexigen_logging_tests)
-set_tests_properties(nexigen_logging_tests PROPERTIES TIMEOUT 600)
+# Strict latency gates measure wall time: run alone under `ctest -j` so
+# parallel tests cannot inflate the measured nanoseconds (P2-26).
+set_tests_properties(nexigen_logging_tests PROPERTIES TIMEOUT 600 RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
 # Общие константы ёмкости лог-сервиса (change fix-log-subscriber-capacity).
 # Отдельный исполняемый файл: заголовок COM-free и обязан собираться в
@@ -146,7 +148,7 @@ if(NEXIGEN_STRICT_LATENCY_TESTS)
 endif()
 
 add_test(NAME nexigen_metrics_tests COMMAND nexigen_metrics_tests)
-set_tests_properties(nexigen_metrics_tests PROPERTIES TIMEOUT 600)
+set_tests_properties(nexigen_metrics_tests PROPERTIES TIMEOUT 600 RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
 # Юнит-тесты nexigen::tracing: один TU на сущность (design D14), потоки и
 # аффинность требуют полного времени; тот же увеличенный таймаут под TSan.
@@ -177,7 +179,7 @@ if(NEXIGEN_STRICT_LATENCY_TESTS)
 endif()
 
 add_test(NAME nexigen_tracing_tests COMMAND nexigen_tracing_tests)
-set_tests_properties(nexigen_tracing_tests PROPERTIES TIMEOUT 600)
+set_tests_properties(nexigen_tracing_tests PROPERTIES TIMEOUT 600 RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
 # Юнит-тесты nexigen::diagnostics: один TU (тот же харнес D4): enum-контракт
 # сериализации, Stopwatch, ScopedStopwatch.
@@ -192,7 +194,7 @@ if(NEXIGEN_STRICT_LATENCY_TESTS)
 endif()
 
 add_test(NAME nexigen_diagnostics_tests COMMAND nexigen_diagnostics_tests)
-set_tests_properties(nexigen_diagnostics_tests PROPERTIES TIMEOUT 600)
+set_tests_properties(nexigen_diagnostics_tests PROPERTIES TIMEOUT 600 RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
 # Юнит-тесты nexigen::app: settings loaders, lifecycle, signalfd watcher.
 # Потоки и реальные сигналы требуют полного времени. Один TU на сущность:
@@ -210,7 +212,7 @@ add_executable(nexigen_app_tests
 target_link_libraries(nexigen_app_tests PRIVATE nexigen_app nexigen_recorder Threads::Threads)
 
 add_test(NAME nexigen_app_tests COMMAND nexigen_app_tests)
-set_tests_properties(nexigen_app_tests PROPERTIES TIMEOUT 600)
+set_tests_properties(nexigen_app_tests PROPERTIES TIMEOUT 600 RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
 # Negative-compile probe: a policy missing a component/hook must not satisfy
 # InfrastructurePolicy (spec app/policies "Invalid policy is rejected at
@@ -274,7 +276,7 @@ if(NEXIGEN_ENABLE_COM)
                 $<TARGET_FILE:nexigen-cantx>
                 $<TARGET_FILE:nexigen-canmon>
                 $<TARGET_FILE:nexigen_can_test_sender>)
-        set_tests_properties(can_virtual_e2e PROPERTIES TIMEOUT 60 LABELS "hw;can;e2e")
+        set_tests_properties(can_virtual_e2e PROPERTIES TIMEOUT 60 LABELS "hw;can;e2e" RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
         add_test(NAME can_fault_seed_smoke
             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hw/can/can_fault_seed_smoke.sh
@@ -283,14 +285,14 @@ if(NEXIGEN_ENABLE_COM)
                 $<TARGET_FILE:nexigen-cantx>
                 $<TARGET_FILE:nexigen-canmon>
                 $<TARGET_FILE:nexigen_can_test_sender>)
-        set_tests_properties(can_fault_seed_smoke PROPERTIES TIMEOUT 60 LABELS "hw;can;e2e")
+        set_tests_properties(can_fault_seed_smoke PROPERTIES TIMEOUT 60 LABELS "hw;can;e2e" RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
         add_test(NAME can_heartbeat_smoke
             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hw/can/can_heartbeat_smoke.sh
                 $<TARGET_FILE:nexigen-canvbus>
                 $<TARGET_FILE:nexigen-canrx>
                 $<TARGET_FILE:nexigen-canmon>)
-        set_tests_properties(can_heartbeat_smoke PROPERTIES TIMEOUT 30 LABELS "hw;can;e2e")
+        set_tests_properties(can_heartbeat_smoke PROPERTIES TIMEOUT 30 LABELS "hw;can;e2e" RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
     endif()
 
     add_executable(nexigen_hw_can_bridge_tests hw/can/can_bridge_test.cpp)
@@ -301,7 +303,7 @@ if(NEXIGEN_ENABLE_COM)
     add_executable(nexigen_hw_can_client_tests hw/can/can_client_test.cpp)
     target_link_libraries(nexigen_hw_can_client_tests PRIVATE nexigen_hw_can_com Threads::Threads)
     add_test(NAME nexigen_hw_can_client_tests COMMAND nexigen_hw_can_client_tests)
-    set_tests_properties(nexigen_hw_can_client_tests PROPERTIES TIMEOUT 60 LABELS "hw;can")
+    set_tests_properties(nexigen_hw_can_client_tests PROPERTIES TIMEOUT 60 LABELS "hw;can" RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
     add_executable(nexigen_hw_can_transport_tests hw/can/can_transport_test.cpp)
     target_link_libraries(nexigen_hw_can_transport_tests PRIVATE nexigen_hw_can_com)
@@ -323,7 +325,7 @@ if(NEXIGEN_ENABLE_COM)
         add_test(NAME ex_app_quickstart_smoke
             COMMAND bash -c
                 "$<TARGET_FILE:ex_app_quickstart> --app-id QSTRT & pid=$!; sleep 2; kill -TERM $pid; wait $pid")
-        set_tests_properties(ex_app_quickstart_smoke PROPERTIES TIMEOUT 30 LABELS examples)
+        set_tests_properties(ex_app_quickstart_smoke PROPERTIES TIMEOUT 30 LABELS examples RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
         # The recorder round-trip needs the example plus the recorder tools;
         # sanitizer trees build with NEXIGEN_BUILD_TOOLS=OFF.
@@ -335,7 +337,7 @@ if(NEXIGEN_ENABLE_COM)
                     $<TARGET_FILE:nexigen-recd>
                     $<TARGET_FILE:nexigen-export>)
             set_tests_properties(quickstart_recorder_smoke PROPERTIES
-                TIMEOUT 60 LABELS "examples;recorder")
+                TIMEOUT 60 LABELS "examples;recorder" RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
         endif()
     endif()
 
@@ -345,7 +347,7 @@ if(NEXIGEN_ENABLE_COM)
         nexigen_app nexigen_logging_com nexigen_metrics_com nexigen_tracing_com nexigen_com
         Threads::Threads)
     add_test(NAME nexigen_app_policies_com_tests COMMAND nexigen_app_policies_com_tests)
-    set_tests_properties(nexigen_app_policies_com_tests PROPERTIES TIMEOUT 600)
+    set_tests_properties(nexigen_app_policies_com_tests PROPERTIES TIMEOUT 600 RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 endif()
 
 # Юнит-тесты nexigen::exec: создание каталогов, metadata, генерация настроек.
@@ -402,7 +404,7 @@ if(NEXIGEN_ENABLE_COM)
     endif()
 
     add_test(NAME nexigen_com_latency_tests COMMAND nexigen_com_latency_tests)
-    set_tests_properties(nexigen_com_latency_tests PROPERTIES TIMEOUT 600)
+    set_tests_properties(nexigen_com_latency_tests PROPERTIES TIMEOUT 600 RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
     # Юнит-тесты nexigen::phm — health channel, supervision, recovery, manifest.
     add_executable(nexigen_phm_tests phm/phm_test.cpp)
@@ -416,7 +418,7 @@ if(NEXIGEN_ENABLE_COM)
     target_link_libraries(nexigen_sm_tests PRIVATE nexigen_sm nexigen_phm Threads::Threads)
 
     add_test(NAME nexigen_sm_tests COMMAND nexigen_sm_tests)
-    set_tests_properties(nexigen_sm_tests PROPERTIES TIMEOUT 600)
+    set_tests_properties(nexigen_sm_tests PROPERTIES TIMEOUT 600 RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
     # Юнит-тесты nexigen::exec::StateClient (change add-sm).
     add_executable(nexigen_state_client_tests exec/state_client_test.cpp)
@@ -441,7 +443,7 @@ if(NEXIGEN_ENABLE_COM)
         nexigen_exec_control nexigen_com Threads::Threads)
 
     add_test(NAME nexigen_suite_control_tests COMMAND nexigen_suite_control_tests)
-    set_tests_properties(nexigen_suite_control_tests PROPERTIES TIMEOUT 600)
+    set_tests_properties(nexigen_suite_control_tests PROPERTIES TIMEOUT 600 RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
     # End-to-end trace propagation: com custom header + tracing context
     # (change add-trace-propagation).
@@ -466,7 +468,7 @@ if(NEXIGEN_ENABLE_COM)
     endif()
 
     add_test(NAME nexigen_tracing_com_tests COMMAND nexigen_tracing_com_tests)
-    set_tests_properties(nexigen_tracing_com_tests PROPERTIES TIMEOUT 600)
+    set_tests_properties(nexigen_tracing_com_tests PROPERTIES TIMEOUT 600 RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
     # Юнит- и e2e-тесты TraceDaemon (change add-trace-daemon): ring, snapshot
     # format, retention, session drain/trigger/coalescing, readiness, mlock.
@@ -563,7 +565,7 @@ if(NEXIGEN_ENABLE_COM)
     target_compile_definitions(nexigen_synchro_tests PRIVATE NEXIGEN_SYNCHRO_TESTING)
 
     add_test(NAME nexigen_synchro_tests COMMAND nexigen_synchro_tests)
-    set_tests_properties(nexigen_synchro_tests PROPERTIES TIMEOUT 900)
+    set_tests_properties(nexigen_synchro_tests PROPERTIES TIMEOUT 900 RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
     # Negative-compile probe: non-trivially-copyable payloads (owning string,
     # virtuals, containers) must be rejected by concepts::Message at compile
@@ -613,7 +615,7 @@ if(NEXIGEN_BUILD_TOOLS)
     add_test(NAME nexigen_hub_cli_tests
              COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/hub/hub_cli_test.sh
                      $<TARGET_FILE:nexigen-hub>)
-    set_tests_properties(nexigen_hub_cli_tests PROPERTIES TIMEOUT 120)
+    set_tests_properties(nexigen_hub_cli_tests PROPERTIES TIMEOUT 120 RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 endif()
 
 # =============================================================================

@@ -342,8 +342,12 @@ void test_stopwatch_laps() {
     NX_CHECK(sw.min_lap_ns() == first);
     NX_CHECK(sw.max_lap_ns() == first);
 
-    // Consecutive laps measure only their own segment; second is longer.
-    static_cast<void>(spin_us(50));
+    // Consecutive laps measure only their own segment; make the second
+    // segment provably longer than the first even when a loaded scheduler
+    // stretches the first spin loop.
+    for (int i = 0; i < 1000 && sw.elapsed_ns() <= first * 2U; ++i) {
+        static_cast<void>(spin_us(50));
+    }
     const std::uint64_t second = sw.lap();
     NX_CHECK(second > first);       // segment lengths grew
     NX_CHECK(sw.lap_count() == 2U); // count grew by one

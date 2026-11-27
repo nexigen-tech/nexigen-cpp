@@ -109,19 +109,19 @@ if(NEXIGEN_ENABLE_COM)
 
     add_test(NAME nexigen_em_smoke
         COMMAND nexigen_em_smoke_tests $<TARGET_FILE:nexigen-em>)
-    set_tests_properties(nexigen_em_smoke PROPERTIES TIMEOUT 60 LABELS "tools")
+    set_tests_properties(nexigen_em_smoke PROPERTIES TIMEOUT 60 LABELS "tools" RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
     add_test(NAME nexigen_phmd_required_spec
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-phmd/required_spec_test.sh
                 $<TARGET_FILE:nexigen-phmd>)
     set_tests_properties(nexigen_phmd_required_spec PROPERTIES
-        TIMEOUT 60 LABELS "tools")
+        TIMEOUT 60 LABELS "tools" RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
     add_test(NAME nexigen_phmd_safety_sections
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-phmd/safety_sections_test.sh
                 $<TARGET_FILE:nexigen-phmd> ${CMAKE_SOURCE_DIR})
     set_tests_properties(nexigen_phmd_safety_sections PROPERTIES
-        TIMEOUT 60 LABELS "tools")
+        TIMEOUT 60 LABELS "tools" RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
     # Identity e2e (change checkpoint-identity): gating, security events, and
     # the per-incarnation reset. The helper claims its own pid/uid; the script
@@ -134,7 +134,7 @@ if(NEXIGEN_ENABLE_COM)
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-phmd/identity_test.sh
                 $<TARGET_FILE:nexigen-phmd> $<TARGET_FILE:nexigen-phmd-identity-helper>)
     set_tests_properties(nexigen_phmd_identity PROPERTIES
-        TIMEOUT 120 LABELS "tools")
+        TIMEOUT 120 LABELS "tools" RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
     # Safety-loop e2e (change complete-phm-safety-loop): the helper plays the
     # application, the Execution Manager, and the State Manager so the full
@@ -150,7 +150,7 @@ if(NEXIGEN_ENABLE_COM)
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-phmd/safety_loop_test.sh
                 $<TARGET_FILE:nexigen-phmd> $<TARGET_FILE:nexigen-phmd-safety-loop-helper>)
     set_tests_properties(nexigen_phmd_safety_loop PROPERTIES
-        TIMEOUT 180 LABELS "tools")
+        TIMEOUT 180 LABELS "tools" RESOURCE_LOCK "nexigen-heavy-com" RUN_SERIAL TRUE)
 
     add_test(NAME nexigen_sm_required_spec
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/nexigen-sm/required_spec_test.sh
