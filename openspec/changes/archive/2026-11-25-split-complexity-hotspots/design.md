@@ -35,17 +35,22 @@ No concurrent or atomic component is touched: the log-viewer capture thread, the
 
 ## Decisions
 
+> **Post-verification alignment (2026-11-28).** The verification report flagged
+> design drift in D4, D8 and in the names used by D1/D5/D6/D7/D9. The decisions
+> below were rewritten to match the shipped implementation; no code changed.
+
 ### D1 — `run_ui` becomes phase functions plus a frame-loop orchestrator
 
 Extract, in call order:
 
-1. `initialize_ui_state(model, options)` — the current field assignments, ini path creation, and per-view `ui_for` priming.
-2. `start_capture(options, state, capture)` — capture thread creation and its failure status.
-3. `load_splash(options)` — returns `std::optional<SplashImage>` and applies the test-failure injection.
-4. `run_splash_phase(...)` — the splash-test and short-splash branches, including the fall-through rule.
-5. `run_actions_test(...)` — the `options.actions_test` short-circuit.
-6. `run_frame_loop(...)` — the `while` loop, whose body calls `update_focus_script_input`, `draw_workspace_frame`, `collect_closed_views`, `update_focus_test_state`, `draw_and_present_frame`, `frame_test_done`.
-7. `report_ui_result(options, model, state, focus_ok, view_ok)` — the existing `printf` blocks and the final return value.
+1. `initialize_ui_state(state, model, options)` — the current field assignments, ini path creation, and per-view `ui_for` priming.
+2. `run_pre_gui_tests(model, state, options)` — the view and focus scripted tests; `false` fails the run before the window exists.
+3. `start_capture(model, state, options)` — returns the capture thread (or `nullptr` when not live or unavailable) and records the failure status.
+4. `load_splash(options, window, capture, skip_splash)` — returns a `SplashLoad` (image plus an early-exit flag/code) and applies the test-failure injection.
+5. `run_splash_phase(model, state, options, window, capture, skip_splash, splash, exit_code)` — the splash-test and short-splash branches, including the fall-through rule.
+6. `run_actions_test(model, options, window, capture)` — the `options.actions_test` short-circuit.
+7. `run_frame_loop(model, state, options, window, capture)` — the `while` loop, whose body calls `pump_window_events`, `update_focus_script_input`, `draw_workspace_frame` (toolbar, sources, workspace, the per-view loop and close handling), `update_focus_test_state` and `frame_test_done`.
+8. `report_ui_result(model, state, options, window, capture)` — prints the observation lines, computes the focus/view verdict itself, stops capture, shuts the GUI down and returns the exit code.
 
 `run_ui` then reads as: init → view/focus test → GUI init → capture → splash → actions → frame loop → report. Each phase is ≤ 14 branches.
 
@@ -61,38 +66,83 @@ One function per group, called in the current order: `draw_view_state_badge`, `d
 
 *Alternative:* group by "left/right half". Rejected: it would still yield 20+ decisions per half and split related state (`time_` controls) across functions.
 
-### D4 — Scripted UI tests become step tables
+### D4 — Scripted UI drivers are split by responsibility, not one shared table
 
-Define `struct UiStep { void (*send)(UiState&, ImGuiIO*); bool (*expect)(const LogViewModel&, const UiState&); }` (file-local) and drive both `run_ui_view_test` and `drive_view_test` with a loop over a static array. `state.view_test_phase` remains the cursor so the existing debug output and timing stay identical.
+The scripted flows have different shapes, so each got the decomposition that fits:
 
-### D5 — `LogView::copy_state_from` is three copies plus replay
+- `drive_view_test` (per-frame navigation) became a static `ViewTestStep`
+  table: `{ void (*drive)(UiState&, ViewUiState*) noexcept; bool (*advance)(const UiState&) noexcept; }`,
+  indexed by `state.view_test_phase` so the cursor and debug output are unchanged.
+- `run_ui_view_test` (model-side setup) became stage helpers plus a
+  `ViewTestChecks` aggregate: `restore_view_test_layout`, `view_test_source_name`,
+  `create_view_test_source`, `find_all_view`, `run_view_test_clones`,
+  `run_view_test_navigation`, `prepare_view_test_state`, `report_view_test`.
+- The focus script became two tables: `kFocusInput` (key injection per phase) and
+  `kFocusSteps` (state machine per phase), indexed by `state.focus_phase`.
 
-`copy_filter_criteria(other, options)`, `copy_time_settings(other, options, adjustments)` and `replay_selection_and_bookmarks(other, options, counters)`; the main body calls them in the existing order, keeping the early `begin_rebuild()/rebuild_now()` boundary exactly where it is.
+*Alternative:* one `UiStep` table for all three. Rejected: their actions and
+expectations differ (layout setup vs per-frame input vs key injection), and a
+shared table would need variant payloads without removing any branching.
 
-### D6 — Test suites share a scenario builder
+### D5 — `LogView::copy_state_from` is decomposed into copy helpers
 
-`struct ViewScenario { std::unique_ptr<LogViewModel> model; ViewId engine, viz; };` built by `make_source_scenario()` (create model, ingest the same 20 frames, create two source views, drain rebuilds). `suite_views` and `suite_paused_views` keep their own assertions and check counts; only setup moves.
+`copy_filter_criteria(other, options)`, `copy_time_settings(other, options)`
+(returns whether the T0 anchor was dropped), `replay_view_state(other, options,
+selection_copied, bookmarks_copied)` and `rebuild_find(other, options)`; the main
+body calls them in the existing order, keeping the early
+`begin_rebuild()/rebuild_now()` boundary exactly where it is.
+
+### D6 — Test suites share scenario builders
+
+Two builders because the two suites need different fixtures:
+
+- `make_source_scenario()` returns `SourceScenario { model, engine, viz }`:
+  create the model, ingest 20 frames, create the two source views, drain rebuilds.
+- `make_paused_scenario()` returns `PausedScenario { model, engine }`: the larger
+  history, the transport gap and the single source view used by the paused-clone
+  suite; `prepare_paused_source(model, source)` seeds selection, bookmark, T0,
+  filter and find and returns `old_seq`.
+
+`suite_views` and `suite_paused_views` keep their own assertions (split into
+`assert_*` helpers) and check counts; only setup moves.
 
 ### D7 — Parsers get a dispatcher and per-shape helpers
 
 - `importer.cpp`: `import_json_line(...)` and `import_text_line(...)` behind `import_line`, with `parse_iso8601_ns` split into `match_iso8601_shape`, `extract_iso8601_fields` and `civil_to_epoch_ns`.
-- `logview_config.cpp`: `from_json` delegates to `read_paths`, `read_capture`, `read_limits` (each ≤ 10).
-- `json_escape.cpp`: `escape_character(...)` per class plus the driver that appends it; the destination buffer contract is unchanged.
+- `logview_config.cpp`: the 19-CCN `from_json` was `ViewConfig::from_json`, not the
+  `LogViewConfig` one (which already used `read_nested`/`read_levels`). It now
+  delegates to `read_view_identity`, `read_view_levels`, `read_view_modes` and
+  `read_view_hidden_apps` (each ≤ 10).
+- `json_escape.cpp`: `append_byte`, `append_unicode_escape` and `append_escaped`
+  per class plus the driver that appends them; the destination buffer contract is
+  unchanged.
 
 ### D8 — `run_session` splits setup from the loop
 
-`LogdSession` (node, subscriber, sink, stream state) built by `open_session(cfg)`; `run_session` becomes `open_session` + `run_dispatch_loop(session)` + `close_session`. Signal handling stays where it is.
+No `LogdSession` aggregate is introduced (the handles are move-only and their
+lifetimes are tied to the guard objects in `run_session`). Setup is a sequence of
+step helpers — `create_daemon_node`, `resolve_utc_offset`, `resolve_log_service`,
+`check_log_service_shape`, `create_log_subscriber`, `create_log_listener`,
+`create_daemon_waitset` — each returning `std::optional`/`bool` and reporting its
+own error. The loop is `run_dispatch_loop(ws, sub, listener, cfg, utc_offset,
+sink)`, and `flush_and_close(sink)` runs inline after it. Signal handling stays in
+`run_daemon`.
 
 ### D9 — `bench::parse_options` uses an option table
 
-`struct FlagOption { std::string_view name; bool Options::*field; }` for booleans and `struct ValueOption { std::string_view name; bool (*apply)(Options&, std::string_view); }` for values, with one `parse_workload_option`, `parse_mode_option`, `parse_size_option` per group. Unknown-flag diagnostics and `--help` output stay byte-identical.
+One `OptionSpec { std::string_view name; ArgKind kind; ApplyFn apply; }` table
+(`kOptions`) with `ArgKind::Flag`/`ArgKind::Value` and one `apply_*` function per
+option (`apply_workload`, `apply_mode`, `apply_iterations`, `apply_seconds`,
+`apply_out`, `apply_sink`, and the flag setters). `find_option` and
+`combination_valid` keep the unknown-flag diagnostics and `--help` output
+byte-identical.
 
 ### D10 — Behavior-preservation protocol
 
 Every decomposition is verified in this order:
 
 1. `python3 cmake/check_complexity.py` reports 0 violations (>15) and no touched function above 15.
-2. The existing test binaries pass **unchanged**: `nexigen_logview_tests`, `nexigen_logview_transport_tests`, `nexigen_logd_smoke`, and the recorder benchmark build. Test names and `NX_CHECK` counts are compared before/after.
+2. The existing test binaries pass **unchanged**: `nexigen_logview_tests`, `nexigen_logview_transport_tests`, `nexigen_logging_com_daemon_tests` (the log-daemon e2e test) and the recorder benchmark build. Test names and `NX_CHECK` counts are compared before/after.
 3. The UI test modes print the same lines: `UI_VIEWS_CHECKS`, `UI_FOCUS`, `UI_SPLASH`, `UI_SPLASH_WORKSPACE`, `UI_ACTIONS`.
 4. CLI contracts: `--help`, `--config`, no arguments and an unknown flag produce the same stdout/stderr/exit code for `nexigen-logd`; the benchmark keeps every flag.
 5. `clang-format --dry-run --Werror` on touched files; `scripts/build.sh build` and the logview targets are green.

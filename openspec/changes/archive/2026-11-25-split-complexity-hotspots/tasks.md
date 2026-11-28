@@ -28,7 +28,7 @@
 
 ## 4. Log daemon
 
-- [x] 4.1 Split `run_session` in `tools/nexigen-logd/main.cpp` (16) into `open_session` (node/subscriber/sink), `run_dispatch_loop` and `close_session`, leaving signal handling in place
+- [x] 4.1 Split `run_session` in `tools/nexigen-logd/main.cpp` (16) into the setup step helpers (`create_daemon_node`, `resolve_utc_offset`, `resolve_log_service`, `check_log_service_shape`, `create_log_subscriber`, `create_log_listener`, `create_daemon_waitset`) plus `run_dispatch_loop`, with `flush_and_close` inline; signal handling stays in `run_daemon`
 
 ## 5. Recorder benchmark
 
