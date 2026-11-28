@@ -66,6 +66,7 @@ nav:
       - recorder: articles/recorder.md
   - Руководства:
       - Минимальные задержки: low-latency-guide.md
+      - Встраивание наблюдаемости: observability-embedding.md
   - Безопасность:
       - Трассировка требований: safety/traceability.md
   - Спецификации (OpenSpec):

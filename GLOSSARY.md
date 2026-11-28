@@ -660,6 +660,56 @@ _Avoid_: error, skip
 The current read model of everything Discovery sees, rebuilt on every reconciliation and served as one API response.
 _Avoid_: index
 
+### Observability embedding
+
+**Observability embedding**:
+The pattern by which a runtime/service layer owns the logger and meter while data-plane modules stay telemetry-free and return structured results.
+_Avoid_: instrumentation, telemetry layer
+
+**Observability scenario (`OBS-*`)**:
+A named, reusable telemetry embedding pattern defined in `docs/observability-embedding.md`; reviews cite the name instead of restating the pattern.
+_Avoid_: recipe, profile
+
+**Error episode**:
+The open interval for one `(domain, node, code)` error key: from the first occurrence until `recovery_hold_ms` of quiet, with one first-error record, bounded repeats, and one recovery record reporting the suppressed count.
+_Avoid_: error storm, error window
+
+**Windowed summary**:
+The periodic per-domain cold-path record that aggregates errors, suppressed occurrences, and recoveries since the previous summary; it is emitted only after activity and then resets the window.
+_Avoid_: error rollup, periodic log
+
+**`OBS-BOOT`**:
+Pre-logger bootstrap diagnostics: bounded `stderr` lines plus a structured error before a logger exists.
+_Avoid_: early logging
+
+**`OBS-COLD`**:
+Detailed lifecycle, configuration, and EDS/DCF loading journal, with parser diagnostics capped by `max_cold_diagnostics` and an omitted-count trailer.
+_Avoid_: verbose logging
+
+**`OBS-EDGE`**:
+One record per meaningful edge: a state transition, the first error of an episode, an error-code change, or a recovery. Never one record per observation.
+_Avoid_: event logging
+
+**`OBS-HOT-ERR`**:
+Bounded hot-path error event: the metric is recorded first, then the logger threshold and the fixed-size error gate decide whether a record is emitted.
+_Avoid_: error log, hot logging
+
+**`OBS-HOT-MET`**:
+Metrics-first hot path: cached `MultiThreaded` instrument pointers updated per frame with no name lookup, allocation, formatting, or locking.
+_Avoid_: counters, stats
+
+**`OBS-SUM`**:
+Windowed cold-path summary: one periodic record per active domain/scope that aggregates what the hot path suppressed.
+_Avoid_: rollup, report
+
+**`OBS-SNAP`**:
+Pull-based diagnostic snapshot: an on-demand cold-path value or harvest call that captures current state for a diagnostic endpoint or test.
+_Avoid_: dump, probe
+
+**`OBS-SPAN`**:
+Low-frequency transaction span: one `ScopedSpan` around a transaction (EDS load, SDO transaction, sampled PDO cycle), never one per frame.
+_Avoid_: per-frame trace
+
 ### Diagnostics
 
 **Stopwatch**:

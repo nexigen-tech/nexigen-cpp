@@ -257,6 +257,33 @@ target_link_libraries(nexigen_canopen_tests PRIVATE nexigen_canopen)
 add_test(NAME nexigen_canopen_tests COMMAND nexigen_canopen_tests)
 set_tests_properties(nexigen_canopen_tests PROPERTIES TIMEOUT 120 LABELS "canopen")
 
+# Runtime-owned CANopen observability (change add-canopen-observability):
+# vocabulary, Tier 1 registration, error gate, cold-path helpers, and the
+# hot-path benchmark. The source root is passed in for the core-purity scan.
+add_executable(nexigen_canopen_observability_tests
+    canopen/observability/main.cpp
+    canopen/observability/observability_test_support.cpp
+    canopen/observability/vocabulary_test.cpp
+    canopen/observability/runtime_metrics_test.cpp
+    canopen/observability/error_gate_test.cpp
+    canopen/observability/allocation_test.cpp
+    canopen/observability/cold_path_test.cpp
+    canopen/observability/metric_mapping_test.cpp
+    canopen/observability/benchmark_test.cpp)
+target_link_libraries(nexigen_canopen_observability_tests PRIVATE
+    nexigen_canopen_observability Threads::Threads)
+target_compile_definitions(nexigen_canopen_observability_tests PRIVATE
+    NEXIGEN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(NEXIGEN_STRICT_LATENCY_TESTS)
+    target_compile_definitions(nexigen_canopen_observability_tests PRIVATE
+        $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:NEXIGEN_CANOPEN_OBSERVABILITY_STRICT_LATENCY>)
+endif()
+
+add_test(NAME nexigen_canopen_observability_tests
+         COMMAND nexigen_canopen_observability_tests)
+set_tests_properties(nexigen_canopen_observability_tests PROPERTIES
+    TIMEOUT 300 LABELS "canopen")
+
 if(NEXIGEN_ENABLE_COM)
     # COM-gated App<Policy> runtime tests: embedded time base, ports, signals.
     add_executable(nexigen_app_runtime_com_tests app/app_runtime_test.cpp)
@@ -648,7 +675,8 @@ foreach(_nexigen_test
         nexigen_logging_com_tests
         nexigen_logging_com_daemon_tests
         nexigen_synchro_tests
-        nexigen_hub_tests)
+        nexigen_hub_tests
+        nexigen_canopen_observability_tests)
     if(TARGET ${_nexigen_test})
         nexigen_precompile(${_nexigen_test})
     endif()

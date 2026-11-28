@@ -111,8 +111,7 @@ inline void install_test_time_base(std::string_view suffix = "module") {
 /// @param calibrated When `false`, no Realtime row is published.
 /// @return The published segment, or `std::nullopt` when creation fails.
 [[nodiscard]] inline std::optional<nexigen::chrono::detail::TimeBaseSegment>
-create_test_time_base(std::string_view name, std::int64_t utc_offset = 0,
-                      bool calibrated = true) {
+create_test_time_base(std::string_view name, std::int64_t utc_offset = 0, bool calibrated = true) {
     auto created = nexigen::chrono::detail::TimeBaseSegment::create(std::string(name), 0x7465U);
     if (!created) {
         return std::nullopt;

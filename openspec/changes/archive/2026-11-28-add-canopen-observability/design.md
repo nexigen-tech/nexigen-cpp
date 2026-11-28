@@ -46,7 +46,9 @@ check.
 
 The runtime layer owns the logger and meter. Core functions return structured outcomes:
 `PdoDecodeResult`, `SdoEvent`, `EdsParseResult`, `Status`, and `Result`. The runtime maps those
-outcomes to Tier 1 metrics and to the log gate.
+outcomes to Tier 1 metrics and to the log gate. `detail::metric_mapping` carries that mapping as
+one-line helpers, so every call site records the same instrument and the drop-total, decode/mapping,
+and metric-first rules cannot drift between call sites.
 
 Alternative rejected: templating core classes on logger/meter. It would pull `nexigen_logging` and
 `nexigen_metrics` into `nexigen_canopen`, turn pure decoders into stateful templates, and require a
@@ -190,9 +192,10 @@ run does not log per transaction.
 ### D8: Startup registration is fail-fast
 
 The runtime computes the required instruments from the Tier 1 catalogue and creates them before
-opening the transport. On failure it logs the failing instrument name and error and returns
-`ResourceExhausted` or `InvalidArgument`. It does not open the transport and does not run a
-partially instrumented bus.
+opening the transport. On failure `RuntimeMetrics::register_metrics()` returns a `RegistrationFailure`
+carrying the failing instrument name and the mapped error (`ResourceExhausted` for an exhausted pool,
+`InvalidArgument` for an invalid or duplicate name); the runtime logs that diagnostic and does not
+open the transport. It does not run a partially instrumented bus.
 
 Capacity guidance for deployment:
 
@@ -220,6 +223,8 @@ Public types:
 
 `detail::RuntimeMetrics` holds the instrument pointers and a `register_metrics(Meter&)` factory.
 `detail::ErrorGate` owns the fixed episode array, the global budget, and the summary counters.
+`detail::metric_mapping` provides the runtime-facing `record_*`/`set_*` helpers and the
+`record_hot_error()` composition that increments the metric before calling the gate.
 
 ### D10: Document the project-wide embedding scenarios
 

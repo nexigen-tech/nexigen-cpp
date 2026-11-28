@@ -1090,6 +1090,27 @@ COB-ID routing) вынесены в transport-independent `nexigen_canopen`. Vie
 динамических эпох маппинга; он вызывает общий core и не дублирует разбор
 протокола. Тот же core будет использовать будущий `nexigen-canopend`.
 
+Будущий CANopen bus runtime добавляет наблюдаемость поверх core, не внутрь
+него: core возвращает `Status`/`Result`/структурированные события, а runtime
+переводит их в метрики Tier 1 и в error gate. Каждая ошибка сначала
+увеличивает счётчик, затем фиксированный gate решает, писать ли запись
+(first error, смена кода, recovery, ограниченный повтор). Паттерны описаны в
+[observability-embedding.md](observability-embedding.md) и
+[ADR 0005](adr/0005-observability-embedding.md).
+
+```mermaid
+flowchart LR
+    FRAME["CAN frames<br/>hw::can transport"] --> CORE["nexigen_canopen<br/>EDS/DCF · PDO · SDO · routing<br/>structured results only"]
+    CORE -->|"Status · Result · events"| RT["CANopen bus runtime<br/>будущий nexigen-canopend"]
+    RT --> MET["nexigen_metrics<br/>meter canopen.&lt;bus&gt;<br/>25 counters · 4 gauges<br/>state · latency"]
+    RT --> GATE["ErrorGate<br/>128 × 9 fixed episodes"]
+    GATE --> LOG["nexigen_logging<br/>first · code change<br/>recovery · summary"]
+    LOG --> RING["async log ring"]
+    MET --> HARV["metric harvester"]
+    RT -.->|"deferred OBS-SPAN"| TRACE["nexigen_tracing<br/>eds.load · sdo.transaction"]
+    RT -.->|"deferred"| PHM["nexigen_phm<br/>bus-off · heartbeat · EMCY"]
+```
+
 ### 5.2 Телеметрический конвейер
 
 ```mermaid

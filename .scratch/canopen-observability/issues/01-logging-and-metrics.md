@@ -70,12 +70,13 @@ Type: task
 ## Resolution
 
 Проработка завершена в OpenSpec change
-[`add-canopen-observability`](../../../openspec/changes/add-canopen-observability/proposal.md):
+[`add-canopen-observability`](../../../openspec/changes/archive/2026-11-28-add-canopen-observability/proposal.md):
 
 - `proposal.md` — runtime-owned observability и границы изменения.
 - `design.md` — Tier 1/Tier 2 каталог, meter на шину, error gate, suppression ladder,
   capacity formula, отложенные spans и PHM/SM-корреляция.
-- `specs/canopen/observability/spec.md` — нормативный контракт.
+- `openspec/specs/canopen/observability/spec.md` — нормативный контракт (main spec);
+  delta сохранена в архиве change.
 - `tasks.md` — план реализации и проверок.
 
 Tier 2 сохранён в `design.md` как deferred; реализация runtime и tracing/PHM — отдельные

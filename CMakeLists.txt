@@ -415,6 +415,26 @@ target_include_directories(nexigen_canopen PUBLIC
 target_link_libraries(nexigen_canopen PUBLIC nexigen_core nexigen_chrono nexigen_hw_can)
 
 # =============================================================================
+# nexigen::canopen::observability — runtime-owned telemetry for the CANopen
+# node stack (change add-canopen-observability). This is the runtime layer:
+# the core nexigen_canopen target above stays COM-, GUI-, logger- and
+# metric-free, and never links this target.
+# =============================================================================
+file(GLOB NEXIGEN_CANOPEN_OBSERVABILITY_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/observability/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/observability/detail/*.cpp")
+
+add_library(nexigen_canopen_observability STATIC ${NEXIGEN_CANOPEN_OBSERVABILITY_SOURCES})
+add_library(nexigen::canopen::observability ALIAS nexigen_canopen_observability)
+
+target_include_directories(nexigen_canopen_observability PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(nexigen_canopen_observability PUBLIC
+    nexigen_canopen nexigen_logging nexigen_metrics)
+
+# =============================================================================
 # nexigen::exec — instance lifecycle library.
 # =============================================================================
 file(GLOB NEXIGEN_EXEC_SOURCES CONFIGURE_DEPENDS
@@ -621,6 +641,7 @@ nexigen_precompile(nexigen_diagnostics)
 nexigen_precompile(nexigen_app)
 nexigen_precompile(nexigen_exec)
 nexigen_precompile(nexigen_hub)
+nexigen_precompile(nexigen_canopen_observability)
 if(NEXIGEN_ENABLE_COM)
     nexigen_precompile(nexigen_com)
     nexigen_precompile(nexigen_phm)
@@ -809,7 +830,8 @@ set(NEXIGEN_EXPORT_TARGETS
     nexigen_hub
     nexigen_recorder
     nexigen_hw_can
-    nexigen_canopen)
+    nexigen_canopen
+    nexigen_canopen_observability)
 if(NEXIGEN_ENABLE_COM)
     list(APPEND NEXIGEN_EXPORT_TARGETS nexigen_com nexigen_phm nexigen_sm nexigen_synchro
          nexigen_hw_can_com)
@@ -827,6 +849,8 @@ set_target_properties(nexigen_hub         PROPERTIES EXPORT_NAME hub)
 set_target_properties(nexigen_recorder    PROPERTIES EXPORT_NAME recorder)
 set_target_properties(nexigen_hw_can      PROPERTIES EXPORT_NAME hw_can)
 set_target_properties(nexigen_canopen     PROPERTIES EXPORT_NAME canopen)
+set_target_properties(nexigen_canopen_observability
+    PROPERTIES EXPORT_NAME canopen_observability)
 if(NEXIGEN_ENABLE_COM)
     set_target_properties(nexigen_com     PROPERTIES EXPORT_NAME com)
     set_target_properties(nexigen_phm     PROPERTIES EXPORT_NAME phm)

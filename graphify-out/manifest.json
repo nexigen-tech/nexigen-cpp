@@ -2634,9 +2634,9 @@
     "semantic_hash": ""
   },
   "tests/app/command_line_test.cpp": {
-    "mtime": 1795804443.9545228,
-    "seen": 1795806986.5155392,
-    "ast_hash": "10140db6ea0e9c3ad345c1128c2ecf7f",
+    "mtime": 1795819451.5290082,
+    "seen": 1795819668.404658,
+    "ast_hash": "5481a5a3f3ab293201f9859da9e45c53",
     "semantic_hash": ""
   },
   "tests/app/infrastructure_test.cpp": {
@@ -3348,9 +3348,9 @@
     "semantic_hash": ""
   },
   "CMakeLists.txt": {
-    "mtime": 1795739476.8109186,
-    "seen": 1795739857.5911143,
-    "ast_hash": "d4cf47dfae8d83d2330a9f6f8c2913e6",
+    "mtime": 1795818303.2560976,
+    "seen": 1795819668.4103765,
+    "ast_hash": "033093382c1f9f41249104cbe0e5b6e7",
     "semantic_hash": ""
   },
   "README.md": {
@@ -3360,15 +3360,15 @@
     "semantic_hash": ""
   },
   "TODO.md": {
-    "mtime": 1795806953.8060691,
-    "seen": 1795806986.5212607,
-    "ast_hash": "7e4c24e9bfd32c765388468b98dd26fb",
+    "mtime": 1795810225.3518398,
+    "seen": 1795819668.4103925,
+    "ast_hash": "183cfbe83bc5ed861bd82be35c005d8c",
     "semantic_hash": ""
   },
   "docs/architecture.md": {
-    "mtime": 1795739460.894953,
-    "seen": 1795739857.5913122,
-    "ast_hash": "1dbfebeb615b10a4276515e8e6ccb3c8",
+    "mtime": 1795818608.0873375,
+    "seen": 1795819668.4105327,
+    "ast_hash": "3ba0973ce424793496da64ffb91cd5e3",
     "semantic_hash": ""
   },
   "docs/code-analysis-2026-11-03.md": {
@@ -3378,9 +3378,9 @@
     "semantic_hash": ""
   },
   "docs/em-deferred.md": {
-    "mtime": 1794758726.4478831,
-    "seen": 1794762861.3237567,
-    "ast_hash": "4c3a4bed29a9f3dd27bd9f2582d26a7b",
+    "mtime": 1795810237.9768085,
+    "seen": 1795819668.4107828,
+    "ast_hash": "034ca7fc9288dbb7ebeb27fd0c194556",
     "semantic_hash": ""
   },
   "docs/metrics-guide.md": {
@@ -7074,9 +7074,9 @@
     "semantic_hash": ""
   },
   "tests/CMakeLists.txt": {
-    "mtime": 1795802813.0696738,
-    "seen": 1795804134.543727,
-    "ast_hash": "f6d4d6065be763b50d2d0846b1266a0a",
+    "mtime": 1795820448.9319491,
+    "seen": 1795821035.1515245,
+    "ast_hash": "9a961bdd4fab3276cebd4003bc9d9a6a",
     "semantic_hash": ""
   },
   "tests/packaging/consumer/CMakeLists.txt": {
@@ -10692,9 +10692,9 @@
     "semantic_hash": ""
   },
   "docs/project-brief.md": {
-    "mtime": 1795808442.9944336,
-    "seen": 1795808974.269493,
-    "ast_hash": "d077d200d857b73225f07085ab984bd0",
+    "mtime": 1795810232.6438217,
+    "seen": 1795819668.4108572,
+    "ast_hash": "0b0da1d4cc7b0c278a15368b89b211c7",
     "semantic_hash": ""
   },
   "docs/recorder.md": {
@@ -11628,9 +11628,9 @@
     "semantic_hash": ""
   },
   "tests/support/test_time_base.hpp": {
-    "mtime": 1795806994.861157,
-    "seen": 1795807081.0314443,
-    "ast_hash": "970aaad43e57ff71df54429446ece588",
+    "mtime": 1795819453.3340883,
+    "seen": 1795819668.4061503,
+    "ast_hash": "788a8ce127bb324914ce9f0c0013d96d",
     "semantic_hash": ""
   },
   "tools/nexigen-chronod/live_probe.cpp": {
@@ -11898,9 +11898,9 @@
     "semantic_hash": ""
   },
   "GLOSSARY.md": {
-    "mtime": 1795361083.3671472,
-    "seen": 1795363051.2507713,
-    "ast_hash": "1c9f9a672ba83bfc623319715cb7f49e",
+    "mtime": 1795818598.2103622,
+    "seen": 1795819668.4103775,
+    "ast_hash": "bb2792edd7f0b30a73f9095152ebca14",
     "semantic_hash": ""
   },
   "docs/agents/domain.md": {
@@ -12798,9 +12798,9 @@
     "semantic_hash": ""
   },
   "GLOSSARY_RUS.md": {
-    "mtime": 1795361083.3674326,
-    "seen": 1795363051.250773,
-    "ast_hash": "cbe4bc953f2ba91ba6bb65be894f9f85",
+    "mtime": 1795818602.8883505,
+    "seen": 1795819668.41038,
+    "ast_hash": "95048bd553aefa46f0d1b08456052760",
     "semantic_hash": ""
   },
   "docs/adr/0004-app-id-identity.md": {
@@ -13398,9 +13398,9 @@
     "semantic_hash": ""
   },
   "src/hw/can/com/can_receiver.cpp": {
-    "mtime": 1795632620.5357423,
-    "seen": 1795633478.5484357,
-    "ast_hash": "caf9080ba2261775a92af59e45ca5cc7",
+    "mtime": 1795819450.7076366,
+    "seen": 1795819668.403879,
+    "ast_hash": "db5b1c475b3262731028106da0a6cbc5",
     "semantic_hash": ""
   },
   "src/hw/can/com/can_transmitter.cpp": {
@@ -15180,9 +15180,9 @@
     "semantic_hash": ""
   },
   "tools/nexigen-canview/ui/canview_window.cpp": {
-    "mtime": 1795808292.0548406,
-    "seen": 1795808974.2664373,
-    "ast_hash": "37cd243506c0fb955879e383d1725547",
+    "mtime": 1795819455.3869355,
+    "seen": 1795819668.4084508,
+    "ast_hash": "eef9a07cfff8698b92afa9f8eba0907c",
     "semantic_hash": ""
   },
   "tools/nexigen-canview/ui/canview_window.hpp": {
@@ -15474,9 +15474,9 @@
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-25-split-complexity-hotspots/design.md": {
-    "mtime": 1795490690.5184338,
-    "seen": 1795711875.1741862,
-    "ast_hash": "c50abcc8a0e1f6b51af5691c18d7341e",
+    "mtime": 1795820753.479621,
+    "seen": 1795821035.148642,
+    "ast_hash": "1e0d4be18d0c88b09ccfd5bec21c677b",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-25-split-complexity-hotspots/proposal.md": {
@@ -15486,9 +15486,9 @@
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-25-split-complexity-hotspots/tasks.md": {
-    "mtime": 1795490685.4331825,
-    "seen": 1795711875.1741881,
-    "ast_hash": "e7377730e0eb7f6d03df0b12850ef3c1",
+    "mtime": 1795820760.0157495,
+    "seen": 1795821035.1486604,
+    "ast_hash": "9b8289f3972dc19c585c61470ba60c17",
     "semantic_hash": ""
   },
   "openspec/changes/archive/2026-11-27-add-canview-view-titles/.openspec.yaml": {
@@ -15702,9 +15702,9 @@
     "semantic_hash": ""
   },
   "include/nexigen/canopen/pdo_decode_result.hpp": {
-    "mtime": 1795739998.9015841,
-    "seen": 1795740824.9215956,
-    "ast_hash": "d9f7a43e5aa6ca5561e6d0e2873e111f",
+    "mtime": 1795821054.6185167,
+    "seen": 1795821600.4299834,
+    "ast_hash": "29d3f6551a95b14212eaeecd8fb5980a",
     "semantic_hash": ""
   },
   "include/nexigen/canopen/pdo_signal.hpp": {
@@ -15864,9 +15864,9 @@
     "semantic_hash": ""
   },
   ".scratch/canopen-observability/issues/01-logging-and-metrics.md": {
-    "mtime": 1795759770.4812732,
-    "seen": 1795800902.8024201,
-    "ast_hash": "83296f0b72d0bc728fece987ca36e242",
+    "mtime": 1795841468.0458186,
+    "seen": 1795841503.8528259,
+    "ast_hash": "360dbabb051e9ae48cef6456af04aa8b",
     "semantic_hash": ""
   },
   ".scratch/canview-heatmap/issues/01-heatmap-review-or-disable.md": {
@@ -15885,6 +15885,198 @@
     "mtime": 1795808300.1508188,
     "seen": 1795808974.2688673,
     "ast_hash": "ba267090400503fa0833808eb0ba968a",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/observability/can_open_error_domain.hpp": {
+    "mtime": 1795818209.6465046,
+    "seen": 1795819668.392592,
+    "ast_hash": "abe9b295a9d8d5ea31fa8eaefee23552",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/observability/can_open_log_policy.hpp": {
+    "mtime": 1795818216.0753148,
+    "seen": 1795819668.3925936,
+    "ast_hash": "7d053ae6a0185e45b83d1b14339a4e23",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/observability/can_open_runtime_state.hpp": {
+    "mtime": 1795818209.6465046,
+    "seen": 1795819668.3925943,
+    "ast_hash": "3c0448490dc75ebe7285dd643ef322e4",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/observability/cold_path_logging.hpp": {
+    "mtime": 1795818653.185702,
+    "seen": 1795819668.3925953,
+    "ast_hash": "440fac4648f1f91b726138a595411239",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/observability/detail/bus_meter_identity.hpp": {
+    "mtime": 1795818232.2040055,
+    "seen": 1795819668.3925967,
+    "ast_hash": "a3a51755a60e2a6910ab538f5e99ad61",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/observability/detail/bus_meter_registry.hpp": {
+    "mtime": 1795818232.2040055,
+    "seen": 1795819668.3925977,
+    "ast_hash": "91aaa13ed94ee3a9ab555a2d1903084b",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/observability/detail/episode_gate.hpp": {
+    "mtime": 1795818272.6731737,
+    "seen": 1795819668.3925989,
+    "ast_hash": "a83ed36939b36a7e7ca10872d2f10167",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/observability/detail/error_gate.hpp": {
+    "mtime": 1795819675.9468403,
+    "seen": 1795820138.5461397,
+    "ast_hash": "aeb22d46f26b617fc86d70aa90c431db",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/observability/detail/runtime_metrics.hpp": {
+    "mtime": 1795818653.1906168,
+    "seen": 1795819668.392601,
+    "ast_hash": "3c672a615c6e7571a844c4c3309d8636",
+    "semantic_hash": ""
+  },
+  "src/canopen/observability/can_open_log_policy.cpp": {
+    "mtime": 1795818653.1919444,
+    "seen": 1795819668.402677,
+    "ast_hash": "184593dc6b53de81c411f2f3466a9607",
+    "semantic_hash": ""
+  },
+  "src/canopen/observability/detail/bus_meter_identity.cpp": {
+    "mtime": 1795818237.3461702,
+    "seen": 1795819668.4026785,
+    "ast_hash": "2f077bb591e66f30d96b0652b84841d2",
+    "semantic_hash": ""
+  },
+  "src/canopen/observability/detail/bus_meter_registry.cpp": {
+    "mtime": 1795818241.3462517,
+    "seen": 1795819668.4026794,
+    "ast_hash": "39b616715303c5ac7ff754aa5dd7fa47",
+    "semantic_hash": ""
+  },
+  "src/canopen/observability/detail/runtime_metrics.cpp": {
+    "mtime": 1795818653.1950982,
+    "seen": 1795819668.402681,
+    "ast_hash": "1fd0e85b9e40242b428c3416d2e049ea",
+    "semantic_hash": ""
+  },
+  "tests/canopen/observability/allocation_test.cpp": {
+    "mtime": 1795818653.1961403,
+    "seen": 1795819668.4048219,
+    "ast_hash": "899e6844ebe7edd42a5a7de6148f7905",
+    "semantic_hash": ""
+  },
+  "tests/canopen/observability/benchmark_test.cpp": {
+    "mtime": 1795818675.4371774,
+    "seen": 1795819668.404823,
+    "ast_hash": "6bd2189b41fe7e670bccadbc478880b6",
+    "semantic_hash": ""
+  },
+  "tests/canopen/observability/cold_path_test.cpp": {
+    "mtime": 1795818653.1989112,
+    "seen": 1795819668.4048243,
+    "ast_hash": "aeffc08f51b3aecbbc31b2c642314352",
+    "semantic_hash": ""
+  },
+  "tests/canopen/observability/error_gate_test.cpp": {
+    "mtime": 1795820468.262761,
+    "seen": 1795821035.124323,
+    "ast_hash": "5e8cde4327e0075ccd30ccbc9ce6989d",
+    "semantic_hash": ""
+  },
+  "tests/canopen/observability/main.cpp": {
+    "mtime": 1795820448.9319491,
+    "seen": 1795821035.1243243,
+    "ast_hash": "4550b99cf442364beef6afc51231cafa",
+    "semantic_hash": ""
+  },
+  "tests/canopen/observability/observability_test_support.cpp": {
+    "mtime": 1795818322.9430485,
+    "seen": 1795819668.4048276,
+    "ast_hash": "f90010dc30db3f555721993587c32017",
+    "semantic_hash": ""
+  },
+  "tests/canopen/observability/observability_test_support.hpp": {
+    "mtime": 1795818359.1459582,
+    "seen": 1795819668.4048283,
+    "ast_hash": "f803f0758f2a6a640777668959184b4a",
+    "semantic_hash": ""
+  },
+  "tests/canopen/observability/runtime_metrics_test.cpp": {
+    "mtime": 1795818653.205869,
+    "seen": 1795819668.4048295,
+    "ast_hash": "88df2434b897abcb9d4346d75f994b57",
+    "semantic_hash": ""
+  },
+  "tests/canopen/observability/vocabulary_test.cpp": {
+    "mtime": 1795818653.2077305,
+    "seen": 1795819668.4048305,
+    "ast_hash": "1f4d49b1b543966427c256d13dc7a96b",
+    "semantic_hash": ""
+  },
+  "docs/adr/0005-observability-embedding.md": {
+    "mtime": 1795820460.6649203,
+    "seen": 1795821035.130139,
+    "ast_hash": "940db0969768f75490ef92c8ce4ef82f",
+    "semantic_hash": ""
+  },
+  "docs/observability-embedding.md": {
+    "mtime": 1795820460.6679204,
+    "seen": 1795821035.1305277,
+    "ast_hash": "cf7943bc339a39ffd81f34e2c6d441ff",
+    "semantic_hash": ""
+  },
+  "include/nexigen/canopen/observability/detail/metric_mapping.hpp": {
+    "mtime": 1795820468.2559018,
+    "seen": 1795821035.1122031,
+    "ast_hash": "7be32a112b9567c48f7a3942f748302d",
+    "semantic_hash": ""
+  },
+  "tests/canopen/observability/metric_mapping_test.cpp": {
+    "mtime": 1795820486.6648567,
+    "seen": 1795821035.124326,
+    "ast_hash": "083b0ab4c8a84fc540ddded8b6c666a5",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-28-add-canopen-observability/.openspec.yaml": {
+    "mtime": 1795817730.2655258,
+    "seen": 1795841503.843268,
+    "ast_hash": "6ec1291f6b98b65102cee8c573129ab4",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-28-add-canopen-observability/design.md": {
+    "mtime": 1795820455.106934,
+    "seen": 1795841503.874481,
+    "ast_hash": "355c411e7260b510a4723f9d591bd8d9",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-28-add-canopen-observability/proposal.md": {
+    "mtime": 1795817874.9651651,
+    "seen": 1795841503.8744824,
+    "ast_hash": "5685c8df3a49c66cc6f1e65e93d7ece9",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-28-add-canopen-observability/specs/canopen/observability/spec.md": {
+    "mtime": 1795817790.1193767,
+    "seen": 1795841503.8744833,
+    "ast_hash": "79fa6d9e90e1e2fbbb74920e53aada03",
+    "semantic_hash": ""
+  },
+  "openspec/changes/archive/2026-11-28-add-canopen-observability/tasks.md": {
+    "mtime": 1795819630.959206,
+    "seen": 1795841503.8744845,
+    "ast_hash": "219e4cd1674237f9308530b640841b10",
+    "semantic_hash": ""
+  },
+  "openspec/specs/canopen/observability/spec.md": {
+    "mtime": 1795841439.9467852,
+    "seen": 1795841503.8746755,
+    "ast_hash": "bdcb3c56a4b89d3241924d9fa7ac98a1",
     "semantic_hash": ""
   }
 }

@@ -24,6 +24,30 @@ enum class PdoDecodeStatus : std::uint8_t {
     UnknownObject, ///< Mapping references an object absent from the dictionary.
 };
 
+} // namespace nexigen::canopen
+
+namespace nexigen::core {
+
+/// @brief Vocabulary table for `PdoDecodeStatus`.
+template <> struct EnumTraits<nexigen::canopen::PdoDecodeStatus> {
+    /// @brief One value/name row.
+    struct Entry {
+        nexigen::canopen::PdoDecodeStatus value; ///< Enumerator.
+        std::string_view name;                   ///< Canonical name.
+    };
+    /// @brief Canonical table.
+    static constexpr std::array<Entry, 4> entries{{
+        {nexigen::canopen::PdoDecodeStatus::Invalid, "Invalid"},
+        {nexigen::canopen::PdoDecodeStatus::Ok, "Ok"},
+        {nexigen::canopen::PdoDecodeStatus::Partial, "Partial"},
+        {nexigen::canopen::PdoDecodeStatus::UnknownObject, "UnknownObject"},
+    }};
+};
+
+} // namespace nexigen::core
+
+namespace nexigen::canopen {
+
 /// @brief Result of unpacking one PDO payload.
 struct PdoDecodeResult {
     static constexpr std::size_t max_signals{16U};
@@ -48,30 +72,6 @@ struct PdoDecodeResult {
 void to_json(nlohmann::json& j, const PdoDecodeResult& result);
 /// @brief Parse a PDO decode result without throwing.
 void from_json(const nlohmann::json& j, PdoDecodeResult& result) noexcept;
-
-} // namespace nexigen::canopen
-
-namespace nexigen::core {
-
-/// @brief Vocabulary table for `PdoDecodeStatus`.
-template <> struct EnumTraits<nexigen::canopen::PdoDecodeStatus> {
-    /// @brief One value/name row.
-    struct Entry {
-        nexigen::canopen::PdoDecodeStatus value; ///< Enumerator.
-        std::string_view name;                   ///< Canonical name.
-    };
-    /// @brief Canonical table.
-    static constexpr std::array<Entry, 4> entries{{
-        {nexigen::canopen::PdoDecodeStatus::Invalid, "Invalid"},
-        {nexigen::canopen::PdoDecodeStatus::Ok, "Ok"},
-        {nexigen::canopen::PdoDecodeStatus::Partial, "Partial"},
-        {nexigen::canopen::PdoDecodeStatus::UnknownObject, "UnknownObject"},
-    }};
-};
-
-} // namespace nexigen::core
-
-namespace nexigen::canopen {
 
 /// @brief Canonical name of a PDO decode status.
 [[nodiscard]] constexpr std::string_view to_string(PdoDecodeStatus value) noexcept {

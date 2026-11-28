@@ -591,8 +591,6 @@ bool initialize(UiState& state, const CliOptions& options, const CanViewConfig& 
     return true;
 }
 
-
-
 int script_actions(UiState& state, CanView& view) {
     const std::uint64_t seq =
         view.index().visible_count() > 0U ? view.index().visible_seq_at(0U, view.source()) : 0U;

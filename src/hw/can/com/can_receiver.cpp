@@ -81,8 +81,8 @@ void CanReceiver::flush_batch(Channel& channel, CanMessageBatch& batch) noexcept
         return;
     }
     const CanMessage& first = batch.messages[0];
-    const auto outcome = channel.producer->publish(batch, event_rx, event_time(first),
-                                                   hardware_metadata(first));
+    const auto outcome =
+        channel.producer->publish(batch, event_rx, event_time(first), hardware_metadata(first));
     if (outcome.has_value()) {
         published_.fetch_add(batch.count, std::memory_order_relaxed);
     } else {
@@ -116,8 +116,7 @@ void CanReceiver::publish_loop(Channel& channel, std::stop_token token) noexcept
                 channel.last_status_ns = now;
                 static_cast<void>(channel.status_producer->publish(
                     channel.tracker.status(), event_status,
-                    com::EventTime{now, com::TimestampDomain::Hardware},
-                    com::HardwareMetadata{}));
+                    com::EventTime{now, com::TimestampDomain::Hardware}, com::HardwareMetadata{}));
             }
         }
         if (batch.count == 0U) {

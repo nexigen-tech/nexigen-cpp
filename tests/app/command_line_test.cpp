@@ -566,9 +566,8 @@ void test_command_line_infrastructure() {
     const std::string dir = unique_path("app_cli_infra");
     make_dir(dir);
     write_text(dir + "/logging.json", R"({"initial_log_level":"debug"})");
-    write_text(dir + "/chrono.json",
-               std::string(R"({"segment_name":")") +
-                   std::string(DefaultTimeBaseFixture::name()) + R"("})");
+    write_text(dir + "/chrono.json", std::string(R"({"segment_name":")") +
+                                         std::string(DefaultTimeBaseFixture::name()) + R"("})");
 
     app::CommandLineOptions options{};
     options.global_settings_dir = dir;
