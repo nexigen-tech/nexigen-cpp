@@ -19,6 +19,33 @@ Rules:
 - The rule applies to local builds only; leave CI parallelism in `.github/workflows/ci.yml` (`CMAKE_BUILD_PARALLEL_LEVEL`) unchanged.
 - Multiple trees can be built at once: `scripts/build.sh build-asan-com build-release-com build-verify-lto` or `--all`; per-build logs go to `<build-dir>/build-script.log`.
 
+## Observability
+
+Design observability in the same step as a new entity or feature, not as a
+follow-up after delivery. A change whose observability model is still undecided
+is not ready to implement. The rules and named scenarios live in
+`docs/observability-embedding.md`; the decision record is
+`docs/adr/0005-observability-embedding.md`, and the reference implementation plus
+normative contract is `openspec/specs/canopen/observability/spec.md`.
+
+Before a change is considered done:
+
+- Decide the runtime boundary: the runtime/service layer owns the logger and
+  meter; data-plane/core modules stay telemetry-free and return structured
+  results. Add a purity test when the boundary is easy to erode.
+- Name every observable event, its single metric owner, and its one log owner.
+  Do not duplicate counters already owned by `com` or `logging`.
+- Register instruments before opening a transport; fail startup with the failing
+  instrument name instead of running partially instrumented.
+- Keep the recording path wait-free: no allocation, formatting, locks, or
+  virtual dispatch. Hot-path errors record the metric first, then consult the
+  level and the bounded episode gate.
+- Pick the applicable `OBS-*` scenarios (`OBS-BOOT`, `OBS-COLD`, `OBS-EDGE`,
+  `OBS-HOT-ERR`, `OBS-HOT-MET`, `OBS-SUM`, `OBS-SNAP`, `OBS-SPAN`) and cover
+  them with allocation-trap, sanitizer, and benchmark tests.
+- Update `GLOSSARY.md`/`GLOSSARY_RUS.md` and the `docs/architecture.md` diagram
+  when the change adds a scenario, term, or telemetry path.
+
 ## Agent skills
 
 ### Issue tracker
